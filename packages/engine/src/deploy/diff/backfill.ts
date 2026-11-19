@@ -1528,23 +1528,63 @@ const drawnOn = (input: BackfillInput, table: ObjectName): ReadonlySet<string> =
 }
 
 /**
- * A copy's derivation: its column on every source row, `to` on the row its axis names; a source row whose axis names
+ * The copies of one family the backfill draws, in the layers one derivation draws each (copyDerivation): the copies
+ * along one axis that read no copy among them, then those that read only copies of a layer before them, and so on, so
+ * K copies of one axis cost one drawing of its rows, the one sorted stream of both tables its derivation reads, where
+ * each cost one, and a chain of copies one drawing a link. A layer's copies read no column another of its copies draws,
+ * so each reads what it reads as one derivation of its own did; a copy that reads itself, a copy of itself along its
+ * axis, reads itself as it stands before the backfill as it did (ordered). Copies that read each other round a cycle
+ * fall in no layer and are each drawn alone, which `ordered` refuses, naming the cycle.
+ */
+const copyLayers = (copies: ReadonlyArray<Copy>): ReadonlyArray<NonEmptyReadonlyArray<Copy>> => {
+	const axes = new Map<AxisKind, Array<Copy>>()
+	for (const c of copies) {
+		axes.set(c.axis, [...(axes.get(c.axis) ?? []), c])
+	}
+	return [...axes.values()].flatMap((along) => {
+		const layers: Array<NonEmptyReadonlyArray<Copy>> = []
+		for (let left = along; isNonEmpty(left);) {
+			const drawnHere = new Set(
+				left.map((c) => cellKey({ table: c.source, column: columnOf(c.from) }))
+			)
+			const free = left.filter((c) => {
+				const reads = cellKey({ table: c.target, column: columnOf(c.to) })
+				return (
+					!drawnHere.has(reads) || reads === cellKey({ table: c.source, column: columnOf(c.from) })
+				)
+			})
+			if (!isNonEmpty(free)) {
+				return [...layers, ...left.map((c): NonEmptyReadonlyArray<Copy> => [c])]
+			}
+			layers.push(free)
+			left = left.filter((c) => !free.includes(c))
+		}
+		return layers
+	})
+}
+
+/**
+ * A layer of copies' derivation (copyLayers), one family's along one axis: each copy's column on every source row, its
+ * `to` on the row their axis names, every copy carried by the one stream of both tables; a source row whose axis names
  * none keeps its base. A member's copy meets its row at the member's key, its axis joined inside its rows, since the
  * columns an axis names a member's target by, a tree's parent and an ordered index, may be drawn in the same backfill:
  * along the owner axis its owner, at the owner's key its group names; along the predecessor axis the member of its group
  * at the slot before its own, a tree's root never one, whose slot is none's after (the root pin holds it at slot 0). An
  * owner's copy along the last axis meets its row at the owner's key, the last member of its family met at its group.
  */
-const copyDerivation = (input: BackfillInput, copy: Copy): Derivation => {
+const copyDerivation = (input: BackfillInput, layer: NonEmptyReadonlyArray<Copy>): Derivation => {
 	const names = input.installation.names
-	const { family, from, to } = copy
+	const [copy] = layer
+	const { family } = copy
 	const index = columnOf(family.shape.index)
-	const value = columnOf(to)
-	const copied = columnOf(from)
+	const values = layer.map((c) => columnOf(c.to))
+	const copied = layer.map((c) => columnOf(c.from))
 	const members = mapNonEmpty(family.group, (g) => g.member.column)
 	const owners = family.group.map((g) => g.owner.column)
 	const rooted = family.shape.kind === "tree" ? [...members, ...owners] : []
-	const carried = carriedOf([{ column: copied, value: col("s", value) }])
+	const carried = carriedOf(
+		mapNonEmpty(layer, (c) => ({ column: columnOf(c.from), value: col("s", columnOf(c.to)) }))
+	)
 	const along = ((): {
 		readonly targetKey: NonEmptyReadonlyArray<Expr>
 		readonly sourceKey: NonEmptyReadonlyArray<Expr>
@@ -1558,8 +1598,8 @@ const copyDerivation = (input: BackfillInput, copy: Copy): Derivation => {
 					sourceKey: groupAt(family, "member", "s"),
 					sourceWhere: and(appendNonEmpty(nonRoot(names, family, "s"), lastOf(family, "s"))),
 					reads: [
-						...cellsOf(copy.source, [...owners, copied]),
-						...cellsOf(copy.target, [...members, index, family.copy, ...rooted, value])
+						...cellsOf(copy.source, [...owners, ...copied]),
+						...cellsOf(copy.target, [...members, index, family.copy, ...rooted, ...values])
 					]
 				}
 			case "owner":
@@ -1568,8 +1608,8 @@ const copyDerivation = (input: BackfillInput, copy: Copy): Derivation => {
 					sourceKey: groupAt(family, "owner", "s"),
 					sourceWhere: undefined,
 					reads: [
-						...cellsOf(copy.source, [...members, copied]),
-						...cellsOf(copy.target, [...owners, value])
+						...cellsOf(copy.source, [...members, ...copied]),
+						...cellsOf(copy.target, [...owners, ...values])
 					]
 				}
 			case "predecessor":
@@ -1581,8 +1621,8 @@ const copyDerivation = (input: BackfillInput, copy: Copy): Derivation => {
 					),
 					sourceWhere: conjunction(nonRoot(names, family, "s")),
 					reads: [
-						...cellsOf(copy.source, [...members, index, copied]),
-						...cellsOf(copy.target, [...members, index, ...rooted, value])
+						...cellsOf(copy.source, [...members, index, ...copied]),
+						...cellsOf(copy.target, [...members, index, ...rooted, ...values])
 					]
 				}
 		}
@@ -2147,12 +2187,16 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 	const families = familyCells(installation)
 	const copied = new Set<string>()
 	for (const family of installation.laws.families) {
-		for (const c of copiesOf(installation, family, families)) {
+		const drawn = copiesOf(installation, family, families).filter((c) => {
 			const cell = cellKey({ table: c.source, column: columnOf(c.from) })
-			if (!copied.has(cell) && drawnOn(input, c.source).has(columnOf(c.from))) {
-				copied.add(cell)
-				plan(family, copyDerivation(input, c))
+			if (copied.has(cell) || !drawnOn(input, c.source).has(columnOf(c.from))) {
+				return false
 			}
+			copied.add(cell)
+			return true
+		})
+		for (const layer of copyLayers(drawn)) {
+			plan(family, copyDerivation(input, layer))
 		}
 	}
 	const checks = keyChecks(input, planned)
