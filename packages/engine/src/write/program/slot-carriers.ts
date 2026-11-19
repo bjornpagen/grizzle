@@ -29,6 +29,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { always } from "#compiler/ir/needs.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import type {
 	MemberParamSlot,
@@ -72,8 +73,10 @@ import {
 import type { CarrierResult, WriteStatement } from "#compiler/write/insert/statement.ts"
 import {
 	castsNothing,
+	type FormText,
 	type PlacedStatement,
 	type SentForm,
+	wholeText,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
 import { renumberedStatement, renumbering } from "#compiler/write/program/staged.ts"
@@ -270,7 +273,7 @@ const fillOf = (staged: StagedSlot): WriteStatement<CarrierResult> => {
 			carrier: carrier.name,
 			step: "fill" as const
 		}),
-		skipWhenEmpty: undefined
+		needs: always
 	})
 }
 
@@ -470,6 +473,7 @@ export const withStagedSlots = (
 				}),
 				spec: writeStatementSpec(create, []),
 				ast: create.ast,
+				text: wholeText,
 				forms: oneForm,
 				names: create.sql.nameMap,
 				riders: []
@@ -485,6 +489,7 @@ export const withStagedSlots = (
 				}),
 				spec: writeStatementSpec(fill, [at + 2 * i]),
 				ast: fill.ast,
+				text: wholeText,
 				forms: oneForm,
 				names: fill.sql.nameMap,
 				riders: []
@@ -507,8 +512,9 @@ export const withStagedSlots = (
 		const dependsOn = Object.freeze(
 			[...new Set([...p.spec.dependsOn.map(move), ...fills])].toSorted((x, y) => x - y)
 		)
-		const largeForm = (form: Formed): SentForm =>
-			Object.freeze({ sql: emitText(form.ast, []).text, params: form.params, ast: form.ast })
+		/** The large form read through the carriers, its text sent as the form it replaces sends its own. */
+		const largeForm = (form: Formed, text: FormText): SentForm =>
+			Object.freeze({ sql: emitText(form.ast, []).text, params: form.params, ast: form.ast, text })
 		return {
 			...p,
 			ast: own.form.ast,
@@ -521,7 +527,7 @@ export const withStagedSlots = (
 			}),
 			forms:
 				p.forms.kind === "chosen" && large !== undefined && large.reads.length > 0
-					? Object.freeze({ ...p.forms, large: largeForm(large.form) })
+					? Object.freeze({ ...p.forms, large: largeForm(large.form, p.forms.large.text) })
 					: p.forms
 		}
 	})

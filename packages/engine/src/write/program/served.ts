@@ -3,6 +3,7 @@
  * compiled program exactly what an application reads, and `flightOf` loads it as an application of a write compiled in
  * process runs it, so every application runs the served form.
  */
+import { defect } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { prepared } from "#compiler/core/prepared.ts"
@@ -17,6 +18,7 @@ import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
 import {
 	type FlightWrite,
 	loadWrite,
+	type ServedPartedForm,
 	type ServedStatement,
 	type ServedWrite,
 	type ServedWriteChoice,
@@ -25,10 +27,16 @@ import {
 import type { PreparedStaged, Staged } from "#compiler/runtime/write/staged.ts"
 import type { OwnStep, UniqueAbort } from "#compiler/runtime/write/steps.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
-import type { EmittedText } from "#compiler/sql/ast.ts"
-import type { ArtifactForms } from "#compiler/write/program/artifact.ts"
+import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
+import type {
+	ArtifactForms,
+	ArtifactStatement,
+	FormText,
+	SentForm
+} from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { closedTableOf } from "#compiler/write/program/decide.ts"
+import { partedOf } from "#compiler/write/program/single.ts"
 
 /** A relation input's column as its encoder reads it: its name and type. */
 const slotColumn = (column: RelationColumn): SlotColumn =>
@@ -77,8 +85,12 @@ const servedWriteForm = (form: {
 		params: Object.freeze(form.params.map(servedWriteSlot))
 	})
 
-/** A statement's forms as data: one, or the choices that pick between its own form and its whole-relation one. */
-const servedForms = (forms: ArtifactForms): StatementForms<ServedWriteChoice, ServedWriteForm> =>
+/** A statement's forms as data: one, or the choices that pick between its own form and its whole-relation one, each
+ * form as `served` serves it. */
+const servedForms = <F>(
+	forms: ArtifactForms,
+	served: (large: SentForm) => F
+): StatementForms<ServedWriteChoice, F> =>
 	forms.kind === "one"
 		? oneForm
 		: Object.freeze({
@@ -86,8 +98,22 @@ const servedForms = (forms: ArtifactForms): StatementForms<ServedWriteChoice, Se
 				choices: mapNonEmpty(forms.choices, (c) =>
 					Object.freeze({ source: c.source, threshold: c.threshold })
 				),
-				large: servedWriteForm(forms.large)
+				large: served(forms.large)
 			})
+
+/** A single statement's form as data: its text by its units (write/program/single.ts partedOf), each placeholder's slot
+ * as data. A single statement's every form is sent by its units. */
+const servedPartedForm = (form: {
+	readonly ast: SqlStatement
+	readonly params: ReadonlyArray<WriteParamSlot>
+	readonly text: FormText
+}): ServedPartedForm => {
+	if (form.text.kind !== "parted") {
+		throw defect("a single statement's every form is sent by its units")
+	}
+	const parted = partedOf(form.ast, form.params.map(servedWriteSlot), form.text.units)
+	return Object.freeze({ units: mapNonEmpty(parted.units, (unit) => Object.freeze(unit)) })
+}
 
 /**
  * The unique violations that abort a role's apply at `isolation` among the compiled `aborts` (write/program/compile.ts
@@ -128,6 +154,39 @@ const servedStep = (step: OwnStep, isolation: Isolation): OwnStep => {
 	}
 }
 
+/** A statement of the artifact as its served write holds it, its step with the aborts it meets at `level`: none of a
+ * read-back's, which the read-back's own program runs; a single statement's by its units, any other's whole. */
+const servedStatements = (
+	s: ArtifactStatement,
+	level: Isolation
+): ReadonlyArray<ServedStatement> => {
+	const step = s.step
+	if (step.kind === "readBack") {
+		return []
+	}
+	switch (s.text.kind) {
+		case "whole":
+			return [
+				Object.freeze({
+					kind: "whole",
+					step: servedStep(step, level),
+					form: servedWriteForm({ sql: s.spec.sql, params: s.spec.paramSlots }),
+					forms: servedForms(s.forms, servedWriteForm),
+					staged: preparedStaged(s.staged)
+				})
+			]
+		case "parted":
+			return [
+				Object.freeze({
+					kind: "parted",
+					step: servedStep(step, level),
+					form: servedPartedForm({ ast: s.ast, params: s.spec.paramSlots, text: s.text }),
+					forms: servedForms(s.forms, servedPartedForm)
+				})
+			]
+	}
+}
+
 /**
  * The data an application of `compiled` reads (`ServedWrite`) at the level it was compiled for (CompiledWrite `level`):
  * its declared parameters, its binding, what its transaction locks before its snapshot, its statements but the
@@ -140,19 +199,7 @@ export const projectWrite = (compiled: CompiledWrite): ServedWrite =>
 		binding: compiled.binding,
 		exclusion: compiled.exclusion,
 		statements: Object.freeze(
-			compiled.artifact.statements.flatMap((s): ReadonlyArray<ServedStatement> => {
-				const step = s.step
-				return step.kind === "readBack"
-					? []
-					: [
-							Object.freeze({
-								step: servedStep(step, compiled.level),
-								form: servedWriteForm({ sql: s.spec.sql, params: s.spec.paramSlots }),
-								forms: servedForms(s.forms),
-								staged: preparedStaged(s.staged)
-							})
-						]
-			})
+			compiled.artifact.statements.flatMap((s) => servedStatements(s, compiled.level))
 		),
 		written: Object.freeze(
 			compiled.frontend.written.map((r) =>

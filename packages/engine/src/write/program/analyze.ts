@@ -15,6 +15,7 @@ import {
 	type PlacedStatement,
 	placedStep,
 	settledArtifact,
+	wholeText,
 	type WriteArtifact,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
@@ -156,6 +157,7 @@ export const withCarrierAnalysis = (
 					[...deps].toSorted((x, y) => x - y)
 				),
 				ast: statement.ast,
+				text: wholeText,
 				forms: oneForm,
 				names: emptyNameMap,
 				riders: []

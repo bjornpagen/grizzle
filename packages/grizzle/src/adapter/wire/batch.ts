@@ -20,7 +20,8 @@ import {
 	sqlstates,
 	type StatementName,
 	statementNameBytes,
-	textParam
+	textParam,
+	type WriteText
 } from "#compiler/plan/runtime.ts"
 
 import {
@@ -70,10 +71,11 @@ import type {
 export type MigrationText = string & Brand.Brand<"MigrationText">
 
 /**
- * SQL grizzle sends: printed from an AST by the engine (sql/emit.ts), an emitted statement's EXPLAIN (runtime/explain.ts),
- * or a reviewed migration file's own statement. Hand-written SQL is no SentText, so it never reaches the wire.
+ * SQL grizzle sends: printed from an AST by the engine (sql/emit.ts), a single statement's assembled of the units the
+ * engine printed (runtime/write/parted.ts), a statement's EXPLAIN (runtime/explain.ts), or a reviewed migration file's
+ * own statement. Hand-written SQL is no SentText, so it never reaches the wire.
  */
-export type SentText = EmittedText | ExplainText | MigrationText
+export type SentText = WriteText | ExplainText | MigrationText
 
 /**
  * One statement of a flight and its parameters, each a text or a binary value, in placeholder order: a statement of a
@@ -90,7 +92,7 @@ export type BatchStatement = PreparedStatement | OneShotStatement
  */
 export interface PreparedStatement {
 	readonly _tag: "prepared"
-	readonly text: Prepared<EmittedText>
+	readonly text: Prepared<WriteText>
 	readonly params: ReadonlyArray<Param>
 	readonly intake: RowIntake
 }
@@ -126,7 +128,7 @@ export interface OneShotStatement {
 
 /** The served statement of `text` over `params`, its rows kept for its outcome. */
 export const preparedStatement = (
-	text: Prepared<EmittedText>,
+	text: Prepared<WriteText>,
 	params: ReadonlyArray<Param>
 ): PreparedStatement => ({ _tag: "prepared", text, params, intake: keptRows })
 

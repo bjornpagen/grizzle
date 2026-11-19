@@ -215,6 +215,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/write/oracle/oracle.test.ts",
 	"test/pg/write/owner-copy-cost/owner-copy-cost.test.ts",
 	"test/pg/write/pair-cost/pair-cost.test.ts",
+	"test/pg/write/parted/parted.test.ts",
 	"test/pg/write/preview/preview.test.ts",
 	"test/pg/write/recount-cost/recount-cost.test.ts",
 	"test/pg/write/refusal/delivered.test.ts",

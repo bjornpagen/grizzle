@@ -46,13 +46,13 @@ import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import {
 	inputGuarantees,
 	inputFamily,
+	inputNeeds,
 	inputStated,
 	inputSharing,
 	keyUniqueBy,
 	noSharedKey,
 	readInput,
 	sameKeyCte,
-	skipWhenEmptyOf,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
 
@@ -1246,7 +1246,7 @@ export const buildInsert = (
 			},
 			role: "member",
 			result,
-			skipWhenEmpty: skipWhenEmptyOf(input),
+			needs: inputNeeds(input),
 			returning
 		}
 	})

@@ -223,7 +223,7 @@ const conservativeArtifact = (
 			}
 			case "action": {
 				const { statement, stratum, action, relation } = step
-				const skip = { skipWhenEmpty: statement.skipWhenEmpty }
+				const needs = { needs: statement.needs }
 				const result = statement.result
 				place(
 					b,
@@ -235,7 +235,7 @@ const conservativeArtifact = (
 								action,
 								relation: relation.name,
 								field: result.field,
-								...skip
+								...needs
 							}
 						: {
 								kind: "write",
@@ -243,7 +243,7 @@ const conservativeArtifact = (
 								action,
 								relation: relation.name,
 								result,
-								...skip,
+								...needs,
 								uniqueAborts: uniqueAbortsOf(
 									relation,
 									result.kind !== "insert" ? { kind: "other" } : insertAborts(result.serial)
@@ -262,7 +262,7 @@ const conservativeArtifact = (
 						kind: "check",
 						stratum: step.stratum,
 						entry: statement.result.entry,
-						skipWhenEmpty: statement.skipWhenEmpty
+						needs: statement.needs
 					},
 					previous
 				)

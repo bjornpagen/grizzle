@@ -24,7 +24,7 @@ import {
 import { fieldColumns } from "#compiler/write/defined.ts"
 import { filterFields, filterReadsOther, renderMembership } from "#compiler/write/entry/render.ts"
 import type { WrittenRelation } from "#compiler/write/frontend/compile.ts"
-import { readInputFields, skipWhenEmptyOf, type WriteInput } from "#compiler/write/insert/input.ts"
+import { inputNeeds, readInputFields, type WriteInput } from "#compiler/write/insert/input.ts"
 import {
 	buildStatement,
 	type EntryCheckResult,
@@ -207,7 +207,7 @@ export const buildEntryCheck = (
 ): WriteStatement<EntryCheckResult> => {
 	const entry = entryOf(check)
 	const at = `precheck ${entry}`
-	const skipWhenEmpty = skipWhenEmptyOf(input)
+	const needs = inputNeeds(input)
 	if (check.kind === "outside") {
 		return buildStatement(w, ownBuild, (supply) => {
 			const { from } = readInputFields(w, input, at)
@@ -230,7 +230,7 @@ export const buildEntryCheck = (
 				},
 				role: "probe",
 				result: { kind: "entryCheck", entry },
-				skipWhenEmpty
+				needs
 			}
 		})
 	}
@@ -316,7 +316,7 @@ export const buildEntryCheck = (
 			},
 			role: "probe",
 			result: { kind: "entryCheck", entry },
-			skipWhenEmpty
+			needs
 		}
 	})
 }

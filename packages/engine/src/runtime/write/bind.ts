@@ -20,6 +20,7 @@ import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import type { FillAt } from "#compiler/ir/fill.ts"
 import { familyKey, type GeneratedLaw, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
+import { holds, type NeededInput } from "#compiler/ir/needs.ts"
 import {
 	type FilledRows,
 	filledRowsKey,
@@ -79,6 +80,7 @@ import {
 	type NestedPlaceholder,
 	type NestedRowBound,
 	type NestedSource,
+	type PreparedStaged,
 	type Unsendable,
 	nestedSource
 } from "#compiler/runtime/write/staged.ts"
@@ -116,9 +118,11 @@ export interface FamilyRowBound {
 
 export interface BoundWrite {
 	readonly kind: "bound"
-	/** The positions of the write's statements the runtime may skip: their enumerated member holds no fact. */
+	/** The positions of the write's statements the application sends nothing of: their rows need an input that holds no
+	 * fact, or, for a single statement, every part's does (ir/needs.ts, runtime/write/parted.ts). */
 	readonly skip: ReadonlySet<number>
-	/** The form of a statement of the write this application sends (runtime/write/flight.ts sentForm). */
+	/** The form of a statement of the write this application sends (runtime/write/flight.ts sentForm), of the units its
+	 * inputs give rows for a single statement: none of a statement it skips. */
 	readonly form: (statement: FlightStatement) => FlightForm
 	/**
 	 * The placeholder values of that form, each a text or a bytes or text column's binary array: none reads another
@@ -127,7 +131,7 @@ export interface BoundWrite {
 	readonly values: (
 		statement: FlightStatement
 	) => Result.Result<ReadonlyArray<Param>, EncodingFailure | LiteralBound>
-	/** Each statement's executions in the write's one flight (`Chunks`). */
+	/** Each statement's executions in the write's one flight (`Chunks`), none of a statement it skips. */
 	readonly chunks: Chunks
 	/** The rows the ChangeSet states as the write fills them (runtime/write/witness.ts StatedRows), which a refusal of
 	 * one of its statements judges. */
@@ -230,6 +234,32 @@ export type BindResult =
 	  }
 	| { readonly kind: "generated-rejected"; readonly rejection: GeneratedRejection }
 
+/** A statement sent inline, whose nested rows, a single statement's none, ride its own Bind message. */
+const inline: PreparedStaged = Object.freeze({ kind: "none" })
+
+/**
+ * The form a call sends of `statement`, whose inputs `holdsFact` says hold a fact or none, its per-execution choices
+ * run as `runsLarge` says: a whole statement's chosen form, where its rows' needs hold, and a single statement's
+ * assembled of the units of its chosen form its inputs give rows; none where it sends nothing.
+ */
+const sentFormOf = (
+	statement: FlightStatement,
+	runsLarge: (choice: ServedWriteChoice) => boolean,
+	holdsFact: (input: NeededInput) => boolean
+): FlightForm | undefined => {
+	switch (statement.kind) {
+		case "whole": {
+			const step = statement.step
+			return (step.kind === "write" || step.kind === "advance" || step.kind === "check") &&
+				!holds(step.needs, holdsFact)
+				? undefined
+				: sentForm(statement, runsLarge)
+		}
+		case "parted":
+			return sentForm(statement, runsLarge).sentFor(holdsFact)
+	}
+}
+
 /** Normalizes and encodes one application's inputs.
  *
  * Binding one application's inputs to a WriteProgram, before any SQL is sent.
@@ -243,9 +273,11 @@ export type BindResult =
  *    admitted. A commit is never split, whatever its members' sizes.
  * 3. Each statement's placeholder texts, through the statement's own encoders: a member slot's normalized facts as its
  *    arrays, a declared parameter's value (a ChangeSet.bind value under its private name, or the caller's), and an
- *    attachment's delivered parent keys from its parent statement's rows. A statement whose enumerated member holds no
- *    fact produces no statement, so the runtime may skip it. A column whose array would be longer than one string
- *    holds is refused as its LiteralBound, which the shell raises as InputTooLarge. */
+ *    attachment's delivered parent keys from its parent statement's rows. A statement whose rows need an input that
+ *    holds no fact writes and returns nothing, so it is not sent, nor, of a single statement, a part whose does: the
+ *    statement is sent as the units of its other parts (runtime/write/parted.ts), and as none where no part is left. A
+ *    column whose array would be longer than one string holds is refused as its LiteralBound, which the shell raises
+ *    as InputTooLarge. */
 export const bindWrite = (
 	flight: FlightWrite,
 	inputs: BindInputs
@@ -322,16 +354,21 @@ export const bindWrite = (
 	 * lookup, a key fixed at compile time against a table built at run time, which no type makes total. */
 	const factsOf = (slot: ParamId): NormalizedSlot =>
 		defined(normalized.slots.get(slot), `the normal facts of member slot ${slot}`)
-	const holdsNoFact = (slot: ParamId): boolean => factsOf(slot).count === 0
-	const skip: ReadonlySet<number> = new Set(
-		flight.statements.flatMap(({ step, index }) =>
-			(step.kind === "write" || step.kind === "advance" || step.kind === "check") &&
-			step.skipWhenEmpty !== undefined &&
-			holdsNoFact(step.skipWhenEmpty)
-				? [index]
-				: []
-		)
-	)
+	/** Whether an input a statement's rows need holds a fact: a relation parameter by its normalized input's count, a
+	 * member slot by its normal facts'. */
+	const holdsFact = (input: NeededInput): boolean => {
+		switch (input.kind) {
+			case "declared":
+				return (
+					defined(
+						relationInputs.get(input.param),
+						`the normalized input of relation parameter ${input.param}`
+					).count > 0
+				)
+			case "member":
+				return factsOf(input.slot).count > 0
+		}
+	}
 	/**
 	 * A placeholder's text: a declared parameter's host value, by its declared name; the array at its part of a
 	 * relation parameter's normalized input or a member slot's normal facts, which its own encoder writes; or the array
@@ -412,7 +449,26 @@ export const bindWrite = (
 	 * facts than its threshold. Both forms deliver the same rows, so the count decides only which one is sent. */
 	const runsLarge = (choice: ServedWriteChoice): boolean =>
 		counted.some((p) => p.param === choice.source.param && runsLargeForm(choice, p.count))
-	const form = (statement: FlightStatement): FlightForm => sentForm(statement, runsLarge)
+	/**
+	 * The form each statement the call sends sends, by its position: a whole statement's chosen form (`sentForm`), where
+	 * its rows' needs hold (ir/needs.ts); a single statement's assembled of the units of its chosen form the call's inputs
+	 * give rows (runtime/write/parted.ts). A statement of none the call skips.
+	 */
+	const sentForms = new Map<number, FlightForm>()
+	for (const statement of flight.statements) {
+		const sent = sentFormOf(statement, runsLarge, holdsFact)
+		if (sent !== undefined) {
+			sentForms.set(statement.index, sent)
+		}
+	}
+	const skip: ReadonlySet<number> = new Set(
+		flight.statements.flatMap(({ index }) => (sentForms.has(index) ? [] : [index]))
+	)
+	const form = (statement: FlightStatement): FlightForm =>
+		defined(
+			sentForms.get(statement.index),
+			`the form of statement ${statement.index}, which the call sends`
+		)
 	/** A statement's placeholder texts over `slotFacts`, each member slot's normal facts, and `nestedRows`, each stratum's
 	 * nested rows of a relation. */
 	const valuesOver =
@@ -679,12 +735,15 @@ export const bindWrite = (
 	 * built it (`sourceOf`).
 	 */
 	const chunks: Chunks = (statement, transport) => {
-		const sent = form(statement)
+		const sent = sentForms.get(statement.index)
+		if (sent === undefined) {
+			return Result.ok([])
+		}
 		const nested = sent.paramSlots.map((slot): NestedPlaceholder | undefined =>
 			slot.kind === "nestedRows" ? { part: slot.part, source: sourceOf(slot) } : undefined
 		)
 		const executions = executionsOf(
-			{ text: sent.text, staged: statement.staged, nested },
+			{ text: sent.text, staged: statement.kind === "whole" ? statement.staged : inline, nested },
 			partOf(statement.step),
 			(position) =>
 				encodeSlot(

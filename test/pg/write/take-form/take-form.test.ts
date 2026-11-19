@@ -188,7 +188,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									}
 									const change = variantOf(ctx, loaded.variants)
 									const write = change.entry.program
-									const found = Arr.findFirst(write.statements, (st) => st.step.kind === "write")
+									const found = Arr.findFirst(write.statements, (st) =>
+										st.kind === "whole" && st.step.kind === "write"
+											? Option.some(st)
+											: Option.none()
+									)
 									if (Option.isNone(found)) {
 										throw new Error("no insert statement")
 									}

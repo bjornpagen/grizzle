@@ -23,8 +23,8 @@
  * write refused by the first stratum's key with its code inside Code, and accepted.
  *
  * Two variants a write cannot state, which the admission checks all the same: a parameter read only by a statement the
- * runtime skips (runtime/write/steps.ts skipWhenEmpty), one whose enumerated input holds no fact (write/insert/input.ts
- * skipWhenEmptyOf), which reads that input and no caller parameter; and a refined take bound, since a bound is an
+ * runtime leaves out (runtime/write/steps.ts needs), one whose enumerated input holds no fact (write/insert/input.ts
+ * inputNeeds), which reads that input and no caller parameter; and a refined take bound, since a bound is an
  * integer the checker refuses to type by a contract or a pattern beside it (check/params.ts ParamCell.use).
  */
 

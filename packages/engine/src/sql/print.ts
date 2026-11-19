@@ -1098,13 +1098,37 @@ const cteBodyInline = (query: CteBody): string =>
 const cteBodyBlock = (out: Lines, query: CteBody): void =>
 	query.kind === "select" ? out.line(printSelectInline(query)) : dmlStatementBlock(out, query)
 
+/** A CTE as its WITH block writes it: `open` and its head on its first line, its body a level deeper, and its closing
+ * parenthesis and `close` on its last. */
+const cteBlock = (out: Lines, cte: Cte, open: string, close: string): void => {
+	out.line(`${open}${cteHead(cte)} (`)
+	cteBodyBlock(out.nested(), cte.query)
+	out.line(`)${close}`)
+}
+
 const withBlock = (out: Lines, w: With): void => {
 	for (const [i, cte] of w.ctes.entries()) {
-		out.line(`${i === 0 ? `WITH ${w.recursive ? "RECURSIVE " : ""}` : ""}${cteHead(cte)} (`)
-		cteBodyBlock(out.nested(), cte.query)
-		out.line(i === w.ctes.length - 1 ? ")" : "),")
+		cteBlock(
+			out,
+			cte,
+			i === 0 ? `WITH ${w.recursive ? "RECURSIVE " : ""}` : "",
+			i === w.ctes.length - 1 ? "" : ","
+		)
 	}
 }
+
+/**
+ * A CTE's text as a statement's top-level WITH block holds it, between that block's `WITH ` or `,` and newline before
+ * it and its `,` and newline or its last newline after it (withBlock), so a single statement's units assemble into its
+ * text byte for byte (runtime/write/parted.ts assembled).
+ */
+export const printCteBlock = (cte: Cte): string =>
+	sqlText(statementTextLoc, (out) => cteBlock(out, cte, "", ""))
+
+/** A set operation's arm as a statement's top-level body block holds it, between the blocks' `UNION ALL` lines
+ * (bodyBlock). */
+export const printArmBlock = (core: SelectCore): string =>
+	sqlText(statementTextLoc, (out) => coreClauses(out, core, "SELECT"))
 
 const printSelectInline = (select: OperandSelect): string =>
 	inlineText((out) => {

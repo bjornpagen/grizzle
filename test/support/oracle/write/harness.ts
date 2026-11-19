@@ -1148,7 +1148,8 @@ const inputValues = (
 /**
  * The form each statement of the optimized artifact whose take is a per-execution choice sends in the application
  * (runtime/write/bind.ts BoundWrite.form): its whole-relation form or its LATERAL form, by the parameter's distinct
- * facts. A ChangeSet the host refuses before any SQL sends none.
+ * facts. A ChangeSet the host refuses before any SQL sends none, and a statement the call sends nothing of has no form;
+ * a single statement's form is the units its inputs give rows, of whichever form, which this note does not tell apart.
  */
 type TakeForm = "LATERAL" | "whole-relation"
 
@@ -1163,7 +1164,7 @@ const takesOf = (
 				return []
 			}
 			return Arr.flatMap(entry.program.statements, (st): ReadonlyArray<TakeForm> =>
-				st.forms.kind === "chosen"
+				st.kind === "whole" && st.forms.kind === "chosen" && !ready.bound.skip.has(st.index)
 					? [
 							ready.bound.form(st).text.sql === st.forms.large.text.sql
 								? "whole-relation"

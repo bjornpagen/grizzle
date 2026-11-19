@@ -8,9 +8,10 @@
  * data by the constructors the compile path runs it through too. Every application loads its write so, a write compiled
  * in process as much as a served one, so what the file holds is exactly what an application reads.
  */
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { Prepared } from "#compiler/core/prepared.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { type Prepared, prepared } from "#compiler/core/prepared.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import type { NeededInput } from "#compiler/ir/needs.ts"
 import type { CallerParamDecl, WriteSlot } from "#compiler/ir/products.ts"
 import type { ServedSlot, WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
@@ -27,6 +28,12 @@ import {
 	type WrittenHeading,
 	writtenOutcome
 } from "#compiler/runtime/write/outcome.ts"
+import {
+	assembled,
+	type Parted,
+	sentUnits,
+	type WriteText
+} from "#compiler/runtime/write/parted.ts"
 import type { PreparedStaged } from "#compiler/runtime/write/staged.ts"
 import type { OwnStep } from "#compiler/runtime/write/steps.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
@@ -48,17 +55,29 @@ export interface ServedWriteChoice {
 	readonly threshold: number
 }
 
+/** A single statement's form as data: its text by its units, each placeholder's slot as data (parted.ts). */
+export type ServedPartedForm = Parted<ServedSlot<WriteParamSlot>>
+
 /**
  * One statement of a write's flight: its step, which says what its rows are and when an application skips it, its own
- * form, and its whole-relation form beside it when per-execution choices pick between the two.
+ * form, and its whole-relation form beside it when per-execution choices pick between the two; each form `whole`, one
+ * text, with how its nested rows travel past one Bind message (staged.ts PreparedStaged), or `parted`, a single
+ * statement's by its units, which reads no nested rows (parted.ts).
  */
-export interface ServedStatement {
-	readonly step: OwnStep
-	readonly form: ServedWriteForm
-	readonly forms: StatementForms<ServedWriteChoice, ServedWriteForm>
-	/** How its nested rows travel past one Bind message (staged.ts PreparedStaged). */
-	readonly staged: PreparedStaged
-}
+export type ServedStatement =
+	| {
+			readonly kind: "whole"
+			readonly step: OwnStep
+			readonly form: ServedWriteForm
+			readonly forms: StatementForms<ServedWriteChoice, ServedWriteForm>
+			readonly staged: PreparedStaged
+	  }
+	| {
+			readonly kind: "parted"
+			readonly step: OwnStep
+			readonly form: ServedPartedForm
+			readonly forms: StatementForms<ServedWriteChoice, ServedPartedForm>
+	  }
 
 /**
  * What a write's transaction locks before any of its statements takes the transaction's snapshot: nothing, or the
@@ -97,18 +116,60 @@ export interface ServedWrite {
 
 /** A form of a statement as an application sends it: its named text and the encoder of each placeholder. */
 export interface FlightForm {
-	readonly text: Prepared<EmittedText>
+	readonly text: Prepared<WriteText>
 	readonly paramSlots: ReadonlyArray<WriteSlot>
 }
 
-/** A statement of a loaded write: its position in the flight, its step, and its forms with their encoders. */
-export interface FlightStatement {
-	readonly index: number
-	readonly step: OwnStep
-	readonly form: FlightForm
-	readonly forms: StatementForms<ServedWriteChoice, FlightForm>
-	readonly staged: PreparedStaged
+/**
+ * A single statement's form loaded: the form a call sends where `holdsFact` says which of its inputs hold a fact, of
+ * the units it sends (parted.ts sentUnits), none where it sends none.
+ */
+export interface PartedFlight {
+	readonly sentFor: (holdsFact: (input: NeededInput) => boolean) => FlightForm | undefined
 }
+
+/**
+ * The loaded form of `parted`, its units each placeholder with its encoder: each set of units a call sends assembles
+ * into its form (parted.ts assembled), named as every served text is (core/prepared.ts), once, the first time a call
+ * sends it, and kept for every later call that sends the same units.
+ */
+const partedFlight = (parted: Parted<WriteSlot>): PartedFlight => {
+	const forms = new Map<string, FlightForm>()
+	return Object.freeze({
+		sentFor: (holdsFact: (input: NeededInput) => boolean): FlightForm | undefined => {
+			const sent = sentUnits(parted, holdsFact)
+			if (sent === undefined) {
+				return undefined
+			}
+			const known = forms.get(sent.key)
+			if (known !== undefined) {
+				return known
+			}
+			const { text, params } = assembled(sent.units)
+			const form: FlightForm = Object.freeze({ text: prepared(text), paramSlots: params })
+			forms.set(sent.key, form)
+			return form
+		}
+	})
+}
+
+/** A statement of a loaded write: its position in the flight, its step, and its forms with their encoders (ServedStatement). */
+export type FlightStatement =
+	| {
+			readonly kind: "whole"
+			readonly index: number
+			readonly step: OwnStep
+			readonly form: FlightForm
+			readonly forms: StatementForms<ServedWriteChoice, FlightForm>
+			readonly staged: PreparedStaged
+	  }
+	| {
+			readonly kind: "parted"
+			readonly index: number
+			readonly step: OwnStep
+			readonly form: PartedFlight
+			readonly forms: StatementForms<ServedWriteChoice, PartedFlight>
+	  }
 
 /**
  * A ServedWrite loaded under the installation's codes: its declared parameters, its binding and the binding's closures
@@ -137,30 +198,50 @@ export const loadWrite = (
 	const slotOf = writeSlotOf(codes)
 	const loaded = (form: ServedWriteForm): FlightForm =>
 		Object.freeze({ text: form.text, paramSlots: Object.freeze(form.params.map(slotOf)) })
+	const loadedParted = (form: ServedPartedForm): PartedFlight =>
+		partedFlight(
+			Object.freeze({
+				units: mapNonEmpty(form.units, (unit) =>
+					Object.freeze({ ...unit, params: Object.freeze(unit.params.map(slotOf)) })
+				)
+			})
+		)
+	/** A served statement at `index` of its flight, loaded: its forms with their encoders. */
+	const loadedStatement = (s: ServedStatement, index: number): FlightStatement => {
+		switch (s.kind) {
+			case "whole":
+				return Object.freeze({
+					kind: "whole",
+					index,
+					step: s.step,
+					form: loaded(s.form),
+					forms: formsOf(s.forms, loaded),
+					staged: s.staged
+				})
+			case "parted":
+				return Object.freeze({
+					kind: "parted",
+					index,
+					step: s.step,
+					form: loadedParted(s.form),
+					forms: formsOf(s.forms, loadedParted)
+				})
+		}
+	}
+	const formsOf = <F, L>(
+		forms: StatementForms<ServedWriteChoice, F>,
+		load: (form: F) => L
+	): StatementForms<ServedWriteChoice, L> =>
+		forms.kind === "one"
+			? oneForm
+			: Object.freeze({ kind: "chosen", choices: forms.choices, large: load(forms.large) })
 	return Object.freeze({
 		params: served.params,
 		binding: served.binding,
 		exclusion: served.exclusion,
 		prepared: prepareBinding(served.binding, codes, closed, patterns),
 		codes,
-		statements: Object.freeze(
-			served.statements.map((s, index): FlightStatement =>
-				Object.freeze({
-					index,
-					step: s.step,
-					form: loaded(s.form),
-					forms:
-						s.forms.kind === "one"
-							? oneForm
-							: Object.freeze({
-									kind: "chosen",
-									choices: s.forms.choices,
-									large: loaded(s.forms.large)
-								}),
-					staged: s.staged
-				})
-			)
-		),
+		statements: Object.freeze(served.statements.map(loadedStatement)),
 		outcome: Object.freeze({
 			written: Object.freeze(served.written.map(writtenOutcome(codes))),
 			codes
@@ -170,10 +251,13 @@ export const loadWrite = (
 
 /** The form of a statement an application sends: its whole-relation form when it runs some per-execution choice large
  * (`runsLarge`, by the distinct fact count of the relation parameter the choice reads), its own otherwise. */
-export const sentForm = (
-	statement: FlightStatement,
+export const sentForm = <F>(
+	statement: {
+		readonly form: F
+		readonly forms: StatementForms<ServedWriteChoice, F>
+	},
 	runsLarge: (choice: ServedWriteChoice) => boolean
-): FlightForm =>
+): F =>
 	statement.forms.kind === "chosen" && statement.forms.choices.some((c) => runsLarge(c))
 		? statement.forms.large
 		: statement.form

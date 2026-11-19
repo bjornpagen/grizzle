@@ -1,5 +1,5 @@
 import { appendAll } from "#compiler/core/array.ts"
-import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import {
 	concatNonEmpty,
@@ -9,6 +9,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import { rowNe, typedEq } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField } from "#compiler/ir/law.ts"
+import type { Needs } from "#compiler/ir/needs.ts"
 import type { StatementRole } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import { completeClass } from "#compiler/ir/write.ts"
@@ -61,13 +62,13 @@ import { arbiterLaw, type WrittenRelation } from "#compiler/write/frontend/compi
 import {
 	inputGuarantees,
 	inputFamily,
+	inputNeeds,
 	inputStated,
 	keyUniqueBy,
 	noSharedKey,
 	type RelationInput,
 	readInput,
 	sameKeyCte,
-	skipWhenEmptyOf,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
 
@@ -179,8 +180,8 @@ export interface PutStatement {
 	readonly sql: EmittedSql
 	readonly params: ReadonlyArray<WriteParamSlot>
 	readonly result: PutResult
-	/** The enumerated input the put realizes, none for an input of no enumerated member (`WriteStatement`). */
-	readonly skipWhenEmpty: ParamId | undefined
+	/** What its rows need of the call's inputs (`WriteStatement`). */
+	readonly needs: Needs
 	readonly returning: Returning
 }
 
@@ -191,7 +192,7 @@ const buildPut = (
 	build: (supply: NameSupply) => {
 		readonly ast: WithSelect
 		readonly result: PutResult
-		readonly skip: ParamId | undefined
+		readonly needs: Needs
 		readonly returning: Returning
 	}
 ): PutStatement => {
@@ -207,7 +208,7 @@ const buildPut = (
 		sql,
 		params: Object.freeze(params),
 		result: built.result,
-		skipWhenEmpty: built.skip,
+		needs: built.needs,
 		returning: built.returning
 	})
 }
@@ -468,7 +469,7 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 					with: { ctes, recursive: false }
 				},
 				result,
-				skip: input.slot,
+				needs: inputNeeds(input),
 				returning
 			}
 		}
@@ -499,7 +500,7 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 			(rv) => probeArms(relation.name, probe.checks, col(rv, cU), (f) => col(rv, returned.of(f))),
 			text
 		)
-		return { ast, result, skip: input.slot, returning }
+		return { ast, result, needs: inputNeeds(input), returning }
 	})
 }
 
@@ -563,8 +564,8 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 			key: fieldNames(pk),
 			old: all.length
 		}
-		const skip = {
-			skip: skipWhenEmptyOf(input),
+		const shared = {
+			needs: inputNeeds(input),
 			returning: {
 				cte: r2,
 				kind: "both",
@@ -579,7 +580,7 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 					with: { ctes, recursive: false }
 				},
 				result,
-				...skip
+				...shared
 			}
 		}
 		/** The verdict rows: every new fact with the old one it displaced, then the same-key pair. */
@@ -603,7 +604,7 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 			(rv) => [sameKeyRefusal(spec, rv, c9, fresh.of)],
 			text
 		)
-		return { ast, result, ...skip }
+		return { ast, result, ...shared }
 	})
 }
 
@@ -725,8 +726,8 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 			key: fieldNames(pk)
 		}
 		const deleted = lit.text("DELETE", types.text)
-		const skip = {
-			skip: skipWhenEmptyOf(input),
+		const shared = {
+			needs: inputNeeds(input),
 			returning: {
 				cte: r2,
 				kind: "both",
@@ -741,7 +742,7 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 					with: { ctes, recursive: false }
 				},
 				result,
-				...skip
+				...shared
 			}
 		}
 		/** The verdict rows: every fact the MERGE changed with its action, then the same-key pair. */
@@ -766,6 +767,6 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 			(rv) => [sameKeyRefusal(spec, rv, c9, returned.of)],
 			text
 		)
-		return { ast, result, ...skip }
+		return { ast, result, ...shared }
 	})
 }

@@ -136,8 +136,7 @@
 					"packages/engine/src/physical/refined/constants.ts",
 					"packages/engine/src/physical/statistics/**",
 					"packages/engine/src/program/workload/compile.ts",
-					"packages/engine/src/program/workload/world.ts",
-					"packages/engine/src/sql/lexer.ts"
+					"packages/engine/src/program/workload/world.ts"
 				]
 			},
 			{

@@ -1,5 +1,6 @@
 import { indices } from "#compiler/core/array.ts"
 import { defect } from "#compiler/core/invariant.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -35,7 +36,7 @@ import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import type { NameMap } from "#compiler/sql/naming.ts"
 import type { WriteCarrier } from "#compiler/write/carriers/carriers.ts"
 import type { WriteStatement } from "#compiler/write/insert/statement.ts"
-import type { SingleStatement } from "#compiler/write/program/single.ts"
+import type { SingleStatement, UnitShape } from "#compiler/write/program/single.ts"
 import { carriersOf, nestedColumnOf, stagedOf } from "#compiler/write/program/staged.ts"
 import type { PutStatement } from "#compiler/write/put/statement.ts"
 
@@ -145,12 +146,25 @@ export interface RidingReadBack extends RidingPart {
 	readonly run: RiddenArtifact
 }
 
-/** A form of a statement as one execution sends it: its text, what fills each placeholder ($n is params[n - 1]), and
- * its AST. */
+/**
+ * How a form of a statement's text is sent: `whole`, its one text; or `parted`, a single statement's, by its units
+ * (runtime/write/parted.ts), so a call sends the units of the parts its inputs may give rows, which assemble into the
+ * whole text where it sends them all.
+ */
+export type FormText =
+	| { readonly kind: "whole" }
+	| { readonly kind: "parted"; readonly units: NonEmptyReadonlyArray<UnitShape> }
+
+/** A statement sent whole. */
+export const wholeText: FormText = Object.freeze({ kind: "whole" })
+
+/** A form of a statement as one execution sends it: its text, what fills each placeholder ($n is params[n - 1]), its
+ * AST, and how its text is sent. */
 export interface SentForm {
 	readonly sql: EmittedText
 	readonly params: ReadonlyArray<WriteParamSlot>
 	readonly ast: SqlStatement
+	readonly text: FormText
 }
 
 /** The forms of a statement, as a query's (`StatementForms`): its one form, the spec's; or, for a statement
@@ -167,6 +181,8 @@ export interface ArtifactStatement {
 	readonly step: WriteStep
 	readonly spec: StatementSpec<WriteParamSlot>
 	readonly ast: SqlStatement
+	/** How its own form's text, `spec.sql`, is sent. */
+	readonly text: FormText
 	readonly forms: ArtifactForms
 	readonly staged: Staged
 }
@@ -181,7 +197,7 @@ export interface ArtifactStatement {
  *
  * - a write statement's step names the stratum and action it realizes, the result descriptor of its rows
  *   (`WriteResult`, `PutResult`), the change its rows are for the netting of deltas and
- *   counts, the enumerated slot whose emptiness lets the runtime skip it,
+ *   counts, what its rows need of the call's inputs, where they hold no such fact the runtime sending none of it,
  *   and the unique violations (23505, 23P01) at this statement that are aborts rather than key laws;
  * - a carrier statement creates, fills or analyzes transaction-scoped carriers; a sequence advance moves an identity
  *   sequence; neither returns rows the outcome reads;
@@ -240,6 +256,7 @@ export type PlacedStatement = {
 			readonly kind: "own"
 			readonly step: OwnStep
 			readonly spec: StatementSpec<WriteParamSlot>
+			readonly text: FormText
 			readonly forms: ArtifactForms
 			readonly riders: ReadonlyArray<RidingReadBack>
 	  }
@@ -269,7 +286,8 @@ const placedForms = (placed: PlacedStatement): ArtifactForms => {
 				large: Object.freeze({
 					sql: forms.large.sql.text,
 					params: forms.large.params,
-					ast: forms.large.ast
+					ast: forms.large.ast,
+					text: wholeText
 				})
 			})
 }
@@ -284,9 +302,10 @@ export const settledArtifact = (
 	let carrier = carriers.length + 1
 	const settled = placed.map((p, index) => {
 		const forms = placedForms(p)
+		const text = p.kind === "own" ? p.text : wholeText
 		const staged = stagedOf(p.ast, p.spec.paramSlots.map(nestedColumnOf), carrier)
-		if (staged.kind === "carriers" && forms.kind === "chosen") {
-			throw defect("a statement that reads nested rows has one form")
+		if (staged.kind === "carriers" && (forms.kind === "chosen" || text.kind === "parted")) {
+			throw defect("a statement that reads nested rows has one form, sent whole")
 		}
 		carrier += carriersOf(staged)
 		const statement: ArtifactStatement = Object.freeze({
@@ -294,6 +313,7 @@ export const settledArtifact = (
 			step: placedStep(p),
 			spec: p.spec,
 			ast: p.ast,
+			text,
 			forms,
 			staged
 		})

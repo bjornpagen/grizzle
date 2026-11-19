@@ -87,6 +87,7 @@ export {
 } from "#compiler/live/replication.ts"
 export { sealNonceBytes } from "#compiler/core/seal.ts"
 export { explainAnalyzeOf, explainOf, type ExplainText } from "#compiler/runtime/explain.ts"
+export type { WriteText } from "#compiler/runtime/write/parted.ts"
 export { columnPosition, columnType } from "#compiler/runtime/lower/columns.ts"
 export { fusedTexts } from "#compiler/runtime/lower/fused.ts"
 export { runsLargeForm } from "#compiler/runtime/lower/take.ts"

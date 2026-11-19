@@ -3,8 +3,10 @@ import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/c
 import { contextAdmits } from "#compiler/ir/evidence.ts"
 import { type KeyProof, keyIn } from "#compiler/ir/keys.ts"
 import { type LawField, type RelationInfo, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
+import { always, needing, type Needs } from "#compiler/ir/needs.ts"
 import type { Heading, RelNode } from "#compiler/ir/rel.ts"
 import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { needsOf } from "#compiler/logical/needs.ts"
 import {
 	arraysSource,
 	columnIn,
@@ -195,10 +197,19 @@ export const relationInput = (
 export const outsideInput = (slot: ParamId, entry: string, heading: Heading): RelationInput =>
 	Object.freeze({ kind: "relation", slot, relation: entry, stated: heading, family: [] })
 
-/** The enumerated input whose emptiness lets the runtime skip a statement over `input`: a relation parameter's slot;
- * a carrier or a described member is no enumerated input. */
-export const skipWhenEmptyOf = (input: WriteInput): ParamId | undefined =>
-	input.kind === "relation" ? input.slot : undefined
+/** What a statement over `input` needs of the call's inputs for its rows to exist (ir/needs.ts), which lets the runtime
+ * leave it out where they hold no such fact: a relation input its member slot's facts; a described member what its
+ * query's rows need (logical/needs.ts); a carrier, which an earlier statement of the flight fills, nothing proved. */
+export const inputNeeds = (input: WriteInput): Needs => {
+	switch (input.kind) {
+		case "relation":
+			return needing({ kind: "member", slot: input.slot })
+		case "carrier":
+			return always
+		case "described":
+			return needsOf(input.node)
+	}
+}
 
 /** What the statement may rely on: a relation input everything, any other input its proof. */
 export const inputGuarantees = (input: WriteInput): InputProof =>

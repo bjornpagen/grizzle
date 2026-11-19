@@ -1,8 +1,10 @@
 import { Array as Arr } from "effect"
 import { oneShotStatement, parseLength, preparedStatement } from "#adapter/wire/batch.ts"
 import type { Prepared } from "#compiler/core/prepared.ts"
-import { type EmittedText, explainOf } from "#compiler/plan/common.ts"
+import { explainOf } from "#compiler/plan/common.ts"
 import type { FlightWrite } from "#compiler/runtime/write/flight.ts"
+import type { WriteText } from "#compiler/runtime/write/parted.ts"
+import { wholeForms } from "#test/support/whole-forms.ts"
 
 /**
  * Every text a statement of `flight` sends, by whether explain plans it (adapter/served/explain.ts): its form and its
@@ -12,18 +14,17 @@ import type { FlightWrite } from "#compiler/runtime/write/flight.ts"
 const textsOf = (
 	flight: FlightWrite
 ): {
-	readonly planned: ReadonlyArray<Prepared<EmittedText>>
-	readonly run: ReadonlyArray<Prepared<EmittedText>>
+	readonly planned: ReadonlyArray<Prepared<WriteText>>
+	readonly run: ReadonlyArray<Prepared<WriteText>>
 } => ({
 	planned: Arr.flatMap(flight.statements, (s) => [
-		s.form.text,
-		...(s.forms.kind === "chosen" ? [s.forms.large.text] : []),
-		...(s.staged.kind === "carriers"
+		...Arr.map(wholeForms(s), (form) => form.text),
+		...(s.kind === "whole" && s.staged.kind === "carriers"
 			? [s.staged.sql, ...Arr.map(s.staged.carriers, (k) => k.fill)]
 			: [])
 	]),
 	run: Arr.flatMap(flight.statements, (s) =>
-		s.staged.kind === "carriers"
+		s.kind === "whole" && s.staged.kind === "carriers"
 			? [
 					...(s.staged.analyze.kind === "needed" ? [s.staged.analyze.text] : []),
 					...Arr.map(s.staged.carriers, (k) => k.create)
@@ -33,11 +34,10 @@ const textsOf = (
 })
 
 /** The Parse message (adapter/wire/batch.ts parseLength) of a served text, under its name. */
-const servedParse = (text: Prepared<EmittedText>): number =>
-	parseLength(preparedStatement(text, []))
+const servedParse = (text: Prepared<WriteText>): number => parseLength(preparedStatement(text, []))
 
 /** The Parse message of a served text's EXPLAIN (explainOf), which explain sends one-shot, unnamed. */
-const explainParse = (text: Prepared<EmittedText>): number =>
+const explainParse = (text: Prepared<WriteText>): number =>
 	parseLength(oneShotStatement(explainOf(text.sql), []))
 
 /** The longest of `lengths`. */

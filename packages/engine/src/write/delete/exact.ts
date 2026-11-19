@@ -1,7 +1,8 @@
-import type { ParamId } from "#compiler/core/ids.ts"
 import { appendNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { rowEq, rowNe, typedEq } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
+import type { Needs } from "#compiler/ir/needs.ts"
+import { needsOf } from "#compiler/logical/needs.ts"
 import { emptyEnv, extendEnv } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { regionParts } from "#compiler/lower/conservative/match-region/index.ts"
@@ -21,9 +22,9 @@ import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import type { DeleteAnchor } from "#compiler/write/delete/anchor.ts"
 import {
+	inputNeeds,
 	inputSharing,
 	readOperand,
-	skipWhenEmptyOf,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
 
@@ -88,7 +89,7 @@ const deletion = (
 	mode: DeleteResult["mode"],
 	names: { readonly r2: string; readonly r3: string; readonly returned: FieldColumns<string> },
 	match: DeleteMatch,
-	skipWhenEmpty: ParamId | undefined
+	needs: Needs
 ) => {
 	const { r2, r3, returned } = names
 	const outFields = keyFirst(relation)
@@ -127,7 +128,7 @@ const deletion = (
 		},
 		role: "member" as const,
 		result,
-		skipWhenEmpty,
+		needs,
 		returning: { cte: r2, kind: "removed" as const, removed: { columns: returned, conditions: [] } }
 	}
 }
@@ -199,7 +200,7 @@ const buildDelete = (
 				using: [cteRef(r1)],
 				where: [where]
 			},
-			skipWhenEmptyOf(input)
+			inputNeeds(input)
 		)
 	})
 }
@@ -320,7 +321,7 @@ export const buildAnchoredDelete = (
 			"exact",
 			{ r2, r3, returned },
 			{ leading: [], using: parts.occurrences.map((o) => o.item), where: conditions },
-			undefined
+			needsOf(region)
 		)
 	})
 }

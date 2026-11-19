@@ -2,6 +2,7 @@ import { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField } from "#compiler/ir/law.ts"
+import { always } from "#compiler/ir/needs.ts"
 import { fieldColumnType } from "#compiler/ir/physical.ts"
 import type { Expr, ObjectName, SetOperand, TypeRef } from "#compiler/sql/ast.ts"
 import {
@@ -110,7 +111,7 @@ const buildUnitCall = <R extends HoldResult | RetireResult>(
 			),
 			role: "setval",
 			result: unitCall.result,
-			skipWhenEmpty: undefined
+			needs: always
 		}
 	})
 }

@@ -4,6 +4,7 @@ import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
+import { always } from "#compiler/ir/needs.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { CarrierDecl } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
@@ -236,7 +237,7 @@ export const carrierCreation = (carrier: WriteCarrier): WriteStatement<CarrierRe
 			carrier: carrier.name,
 			step: "create" as const
 		}),
-		skipWhenEmpty: undefined
+		needs: always
 	})
 }
 
@@ -248,7 +249,7 @@ export const buildCreateCarrier = (
 		ast: createAst(carrier),
 		role: "carrier",
 		result: { kind: "carrier", carrier: carrier.name, step: "create" },
-		skipWhenEmpty: undefined
+		needs: always
 	}))
 
 /** ANALYZE pg_temp.__carrier_<k>, ... of carriers the program created and filled, so each later statement that joins
@@ -266,7 +267,7 @@ export const buildAnalyzeCarriers = (
 		sql,
 		params: [],
 		result: { kind: "analyze" as const, carriers: ast.carriers },
-		skipWhenEmpty: undefined
+		needs: always
 	})
 }
 
@@ -390,7 +391,7 @@ export const buildFillCarrier = (
 			ast,
 			role: "carrier",
 			result: { kind: "carrier", carrier: carrier.name, step: "fill" },
-			skipWhenEmpty: undefined
+			needs: always
 		}
 	})
 }

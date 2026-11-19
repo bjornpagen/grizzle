@@ -181,6 +181,7 @@ export const anAnchoredDeletionReadsItsRelationOnceByAnIndexCondition = property
 						 */
 						const declared = { params: program.params, codes: names.codes }
 						const found = Arr.findFirst(statements, (st, at) =>
+							st.kind === "whole" &&
 							st.step.kind === "write" &&
 							st.step.relation === Wanted.name &&
 							st.step.result.kind === "delete"
@@ -197,7 +198,10 @@ export const anAnchoredDeletionReadsItsRelationOnceByAnIndexCondition = property
 								const pinned = yield* s.admin.pin
 								yield* pinned.query("BEGIN", [])
 								for (const st of statements.slice(0, at)) {
-									if (st.step.kind === "carrier" || st.step.kind === "analyze") {
+									if (
+										st.kind === "whole" &&
+										(st.step.kind === "carrier" || st.step.kind === "analyze")
+									) {
 										yield* pinned.query(
 											st.form.text.sql,
 											paramValues(st.form, hostParams, declared)

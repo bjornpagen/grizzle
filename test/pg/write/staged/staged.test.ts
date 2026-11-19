@@ -413,7 +413,7 @@ const searchOn = <A, E, R>(
 								: yield* arms(tagged, facts, { tags: [{ id: 1, v: sketch.tag }] }, sketch)
 						const texts = Arr.flatMap(sent, (q) => (q._tag === "control" ? [] : [sentSql(q)]))
 						const carriers = Arr.flatMap(statements, (st) =>
-							st.staged.kind === "carriers" ? st.staged.carriers : []
+							st.kind === "whole" && st.staged.kind === "carriers" ? st.staged.carriers : []
 						)
 						const created = Arr.filter(carriers, (k) => Arr.contains(texts, k.create.sql))
 						const temporary = Arr.some(texts, (t) => Str.startsWith("CREATE TEMPORARY TABLE")(t))

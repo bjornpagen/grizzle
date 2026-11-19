@@ -11,7 +11,7 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
-import { type RereadInput, scanInput, skipWhenEmptyOf } from "#compiler/write/insert/input.ts"
+import { inputNeeds, type RereadInput, scanInput } from "#compiler/write/insert/input.ts"
 import {
 	buildStatement,
 	ownBuild,
@@ -85,7 +85,7 @@ export const buildSequenceAdvance = (
 			ast,
 			role: "setval",
 			result: { kind: "sequenceAdvance", relation: relation.name, field: field.name },
-			skipWhenEmpty: skipWhenEmptyOf(input)
+			needs: inputNeeds(input)
 		}
 	})
 }

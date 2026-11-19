@@ -775,7 +775,7 @@ export const nestedRowsColumn = (
 ): ReadonlyArray<string> => {
 	for (const statement of flightOf(program, program.frontend.codes).statements) {
 		const at = Arr.findFirstIndex(
-			statement.form.paramSlots,
+			statement.kind === "whole" ? statement.form.paramSlots : [],
 			(s) => s.kind === "nestedRows" && s.relation === relation && s.part === part
 		)
 		if (Option.isSome(at)) {

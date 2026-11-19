@@ -4,6 +4,7 @@ import type { MemberParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { FlightWrite } from "#compiler/runtime/write/flight.ts"
 import { relationAccess } from "#compiler/sql/access.ts"
 import type { ArtifactStatement, WriteArtifact } from "#compiler/write/program/artifact.ts"
+import { wholeForms } from "#test/support/whole-forms.ts"
 
 /**
  * Each carrier of `artifact` a staged member slot fills (write/program/slot-carriers.ts), by name: the member placeholder
@@ -44,7 +45,10 @@ export const slotsRead = (
 export const flightSlotCarriers = (flight: FlightWrite): ReadonlySet<string> =>
 	new Set(
 		Arr.flatMap(flight.statements, (s) =>
-			s.step.kind === "carrier" && s.step.step === "fill" && s.form.paramSlots[0]?.kind === "member"
+			s.kind === "whole" &&
+			s.step.kind === "carrier" &&
+			s.step.step === "fill" &&
+			s.form.paramSlots[0]?.kind === "member"
 				? [s.step.carrier]
 				: []
 		)
@@ -60,10 +64,8 @@ export const textsNaming = (
 ): ReadonlySet<string> =>
 	new Set(
 		Arr.flatMap(flight.statements, (s) =>
-			Arr.flatMap(
-				[s.form.text, ...(s.forms.kind === "chosen" ? [s.forms.large.text] : [])],
-				(text) =>
-					Arr.some([...carriers], (c) => Str.includes(`"${c}"`)(text.sql)) ? [text.name] : []
+			Arr.flatMap(wholeForms(s), ({ text }) =>
+				Arr.some([...carriers], (c) => Str.includes(`"${c}"`)(text.sql)) ? [text.name] : []
 			)
 		)
 	)

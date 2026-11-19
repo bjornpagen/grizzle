@@ -144,12 +144,14 @@ import { castsNothing } from "#compiler/write/program/artifact.ts"
 import {
 	type ArtifactForms,
 	DependencyTracker,
+	type FormText,
 	type PlacedStatement,
 	type RidingReadBack,
 	resultHeading,
 	singleStatementSpec,
 	type SentForm,
 	type WriteArtifact,
+	wholeText,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
 import { decideBinding, freshLayoutOf } from "#compiler/write/program/decide.ts"
@@ -685,6 +687,7 @@ export const placeFamily = (
 		}),
 		sql.ast,
 		sql.sql.nameMap,
+		wholeText,
 		oneForm,
 		[]
 	)
@@ -712,6 +715,7 @@ const placeSpec = (
 	spec: StatementSpec<WriteParamSlot>,
 	ast: SqlStatement,
 	nameMap: WriteStatement["sql"]["nameMap"],
+	text: FormText,
 	forms: ArtifactForms,
 	riders: ReadonlyArray<RidingReadBack>
 ): number => {
@@ -721,6 +725,7 @@ const placeSpec = (
 		step: Object.freeze(step),
 		spec,
 		ast,
+		text,
 		forms,
 		riders,
 		names: nameMap
@@ -741,11 +746,12 @@ export const place = (
 		writeStatementSpec(statement, dependsOn),
 		statement.ast,
 		statement.sql.nameMap,
+		wholeText,
 		oneForm,
 		[]
 	)
 
-/** The form of a built statement as an execution sends it: its text, its placeholders and its AST. */
+/** The form of a built statement as an execution sends it: its text, sent whole, its placeholders and its AST. */
 const sentOf = (statement: {
 	readonly sql: { readonly text: EmittedText }
 	readonly params: ReadonlyArray<WriteParamSlot>
@@ -754,8 +760,22 @@ const sentOf = (statement: {
 	Object.freeze({
 		sql: statement.sql.text,
 		params: statement.params,
-		ast: statement.ast
+		ast: statement.ast,
+		text: wholeText
 	})
+
+/** A single statement's form as an execution sends it: its text, sent by its units, its placeholders and its AST. */
+const partedSentOf = (single: SingleStatement): SentForm =>
+	Object.freeze({
+		sql: single.sql.text,
+		params: single.params,
+		ast: single.ast,
+		text: partedText(single)
+	})
+
+/** A single statement's text, sent by its units. */
+const partedText = (single: SingleStatement): FormText =>
+	Object.freeze({ kind: "parted", units: single.units })
 
 /**
  * The statement of the read-back `read`, lowered as `program`, placed after the artifact's statements so far, naming
@@ -801,6 +821,7 @@ export const placeAdmission = (
 			writeStatementSpec(admission, []),
 			admission.ast,
 			admission.sql.nameMap,
+			wholeText,
 			oneForm,
 			[]
 		)
@@ -913,6 +934,7 @@ const optimizedPlacement = (
 			writeStatementSpec(statement, dependsOn),
 			statement.ast,
 			statement.sql.nameMap,
+			wholeText,
 			forms,
 			[]
 		)
@@ -946,7 +968,7 @@ const optimizedPlacement = (
 		action: step.action.index,
 		relation: step.relation.name,
 		result: filled.result,
-		skipWhenEmpty: filled.skipWhenEmpty,
+		needs: filled.needs,
 		uniqueAborts: uniqueAbortsOf(step.relation, abortsOf(step))
 	})
 	/** What a planned write reads and writes after which actions, for the dependency tracker. */
@@ -1092,7 +1114,7 @@ const optimizedPlacement = (
 									const built = buildParts()
 									return { single: singleOf(built, noRiding), writes: built.writes }
 								},
-								(large) => sentOf(large.single)
+								(large) => partedSentOf(large.single)
 							)
 							return { ...plain.statement, forms: plain.forms, riders: [] }
 						})()
@@ -1121,6 +1143,7 @@ const optimizedPlacement = (
 					singleStatementSpec(single, deps),
 					single.ast,
 					single.sql.nameMap,
+					partedText(single),
 					forms,
 					riders
 				)
@@ -1146,7 +1169,7 @@ const optimizedPlacement = (
 							action: step.action.index,
 							relation: step.relation.name,
 							field: field.name,
-							skipWhenEmpty: statement.skipWhenEmpty
+							needs: statement.needs
 						})
 					)
 					record(step.action, position)
@@ -1166,7 +1189,7 @@ const optimizedPlacement = (
 						kind: "check",
 						stratum: step.stratum,
 						entry: statement.result.entry,
-						skipWhenEmpty: statement.skipWhenEmpty
+						needs: statement.needs
 					})
 				)
 				if (step.check.kind === "membership") {
@@ -1410,16 +1433,22 @@ const ridingSingle = (
 		}
 	})
 	const parts = placed
-	const ridingIn = (built: BuiltParts, form: "small" | "large"): Riding => ({
-		deltas: [...names].flatMap(([relation, sides]) =>
-			[...sides.values()].flatMap((cte) => {
-				const one = deltaCte(statementOf(built, relation), cte)
-				return one === undefined ? [] : [one]
+	const ridingIn = (built: BuiltParts, form: "small" | "large"): Riding => {
+		const read = [...names].flatMap(([relation, sides]) => {
+			const at = built.writes.findIndex((x) => x.step.relation === relation)
+			const statement = statementOf(built, relation)
+			return [...sides.values()].flatMap((cte) => {
+				const one = deltaCte(statement, cte)
+				return one === undefined ? [] : [{ cte: one, at }]
 			})
-		),
-		nameMap: deltaNames,
-		parts: parts.map((p) => p[form])
-	})
+		})
+		return {
+			deltas: read.map((d) => d.cte),
+			read: [...new Set(read.map((d) => d.at))],
+			nameMap: deltaNames,
+			parts: parts.map((p) => p[form])
+		}
+	}
 	const single = singleOf(small, ridingIn(small, "small"))
 	const choices = [...(large?.choices ?? []), ...parts.flatMap((p) => p.choices)]
 	const riders = placed.map((p) => p.rider)
@@ -1431,7 +1460,7 @@ const ridingSingle = (
 	return {
 		single,
 		writes: small.writes,
-		forms: Object.freeze({ kind: "chosen", choices, large: sentOf(largeSingle) }),
+		forms: Object.freeze({ kind: "chosen", choices, large: partedSentOf(largeSingle) }),
 		riders
 	}
 }

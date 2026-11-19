@@ -17,6 +17,7 @@ import type { LiteralBound } from "#compiler/ir/products.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { typedColumnArray } from "#compiler/runtime/write/arrays.ts"
 import type { MemberCell } from "#compiler/runtime/write/draw.ts"
+import type { WriteText } from "#compiler/runtime/write/parted.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 
@@ -84,7 +85,7 @@ export type ExecutionPart = "statement" | "create" | "fill" | "analyze"
 
 /** One execution of an artifact statement: its prepared text, its placeholders' values and what it is. */
 export interface Execution {
-	readonly text: Prepared<EmittedText>
+	readonly text: Prepared<WriteText>
 	readonly params: ReadonlyArray<Param>
 	readonly part: ExecutionPart
 }
@@ -310,7 +311,7 @@ export interface NestedPlaceholder {
  * that sends the source does.
  */
 export interface StagedStatement {
-	readonly text: Prepared<EmittedText>
+	readonly text: Prepared<WriteText>
 	readonly staged: PreparedStaged
 	readonly nested: ReadonlyArray<NestedPlaceholder | undefined>
 }

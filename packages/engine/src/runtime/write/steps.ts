@@ -6,9 +6,10 @@
  */
 import { indices, maxOf } from "#compiler/core/array.ts"
 import type { TransientReason } from "#compiler/core/errors.ts"
-import type { ConstraintName, EntryName, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
+import type { ConstraintName, EntryName, StoredRelationName } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
+import type { Needs } from "#compiler/ir/needs.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { RemovedTag } from "#compiler/runtime/write/net.ts"
 import type { FamilyPart } from "#compiler/write/family/written.ts"
@@ -51,9 +52,9 @@ export type WriteStep =
 			readonly action: number
 			readonly relation: StoredRelationName
 			readonly result: WriteStepResult
-			/** The enumerated input whose emptiness lets the runtime skip the statement, none for a statement of no
-			 * enumerated input. */
-			readonly skipWhenEmpty: ParamId | undefined
+			/** What its rows need of the call's inputs (ir/needs.ts): where they hold no such fact, the runtime sends
+			 * neither the statement nor, in a single statement, its part. */
+			readonly needs: Needs
 			readonly uniqueAborts: ReadonlyArray<UniqueAbort>
 	  }
 	| {
@@ -76,7 +77,8 @@ export type WriteStep =
 			readonly action: number
 			readonly relation: StoredRelationName
 			readonly field: string
-			readonly skipWhenEmpty: ParamId | undefined
+			/** What the facts it advances past need of the call's inputs: where they hold none, it is not sent. */
+			readonly needs: Needs
 	  }
 	| { readonly kind: "readBack"; readonly name: string }
 	| HoldStep
@@ -86,7 +88,8 @@ export type WriteStep =
 			readonly kind: "check"
 			readonly stratum: StratumAt
 			readonly entry: EntryName
-			readonly skipWhenEmpty: ParamId | undefined
+			/** What the facts it checks need of the call's inputs: where they hold none, it is not sent. */
+			readonly needs: Needs
 	  }
 	| {
 			readonly kind: "single"

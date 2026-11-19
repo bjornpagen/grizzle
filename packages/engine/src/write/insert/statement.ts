@@ -1,9 +1,10 @@
-import type { ConstraintName, EntryName, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
+import type { ConstraintName, EntryName, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { serialDraw } from "#compiler/ir/desc.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
+import type { Needs } from "#compiler/ir/needs.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl, StatementRole } from "#compiler/ir/products.ts"
 import type { Heading, KeySet, ValidDag } from "#compiler/ir/rel.ts"
@@ -226,9 +227,9 @@ export interface WriteStatement<R extends WriteResult = WriteResult> {
 	/** Placeholder $n is params[n - 1], in the conservative lowering's slot vocabulary. */
 	readonly params: ReadonlyArray<WriteParamSlot>
 	readonly result: R
-	/** The enumerated input the statement realizes: when it holds no fact the statement does nothing, and an empty input
-	 * produces no statement. None for a statement of no enumerated input. */
-	readonly skipWhenEmpty: ParamId | undefined
+	/** What its rows need of the call's inputs (ir/needs.ts): where they hold no such fact the statement does nothing,
+	 * and the runtime sends none. */
+	readonly needs: Needs
 }
 
 /** The rows of one side a write statement's data-modifying CTE returns: the RETURNING column of each fact field, and the
@@ -321,7 +322,7 @@ export interface Built<R extends WriteResult> {
 	readonly ast: SqlStatement
 	readonly result: R
 	readonly role: StatementRole
-	readonly skipWhenEmpty: ParamId | undefined
+	readonly needs: Needs
 }
 
 /** What building one statement made: what its builder built, its placeholder slots, and its text with its generated

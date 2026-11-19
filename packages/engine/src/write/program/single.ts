@@ -1,18 +1,24 @@
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll, maxOf } from "#compiler/core/array.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
 	concatNonEmpty,
 	extendNonEmpty,
 	flatMapNonEmpty,
+	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
+import { always, type Needs } from "#compiler/ir/needs.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
-import { shiftedPart, taggedParts } from "#compiler/lower/parts.ts"
-import type { Cte, EmittedSql, Select } from "#compiler/sql/ast.ts"
-import { select } from "#compiler/sql/build.ts"
+import { shiftedPart, taggedArms } from "#compiler/lower/parts.ts"
+import type { CutText, Parted, PartedUnit } from "#compiler/runtime/write/parted.ts"
+import type { Cte, EmittedSql, Select, SqlStatement } from "#compiler/sql/ast.ts"
+import { select, unionAll } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
+import { lexemesOf } from "#compiler/sql/lexer.ts"
 import { type NameMap, NameSupply, type NameSupplyStart, namesPast } from "#compiler/sql/naming.ts"
+import { printArmBlock, printCteBlock } from "#compiler/sql/print.ts"
 import {
 	type DeleteResult,
 	type InsertResult,
@@ -54,16 +60,26 @@ export interface ReadBackPart {
 }
 
 /** What rides a single statement: the CTEs holding the deltas its riding read-backs read, over its writes' RETURNING
- * (write/readback/deltas.ts deltaCte), with the names they define, and each riding read-back's sent statements, in
- * order. */
+ * (write/readback/deltas.ts deltaCte), with the names they define and the writes, by their index among the statement's,
+ * whose RETURNING they read, and each riding read-back's sent statements, in order. */
 export interface Riding {
 	readonly deltas: ReadonlyArray<Cte>
+	readonly read: ReadonlyArray<number>
 	readonly nameMap: NameMap
 	readonly parts: ReadonlyArray<ReadBackPart>
 }
 
 /** A single statement no read-back rides. */
-export const noRiding: Riding = Object.freeze({ deltas: [], nameMap: [], parts: [] })
+export const noRiding: Riding = Object.freeze({ deltas: [], read: [], nameMap: [], parts: [] })
+
+/**
+ * A unit of a single statement (runtime/write/parted.ts), as many of its WITH's CTEs and of its body's arms as it holds,
+ * in order: its shared sub-queries, every call's, with no arm; a write action's part, its CTEs and its one arm, sent
+ * where its needs hold; its riding read-backs' deltas and statements, every call's, and their arms.
+ */
+export type UnitShape =
+	| { readonly kind: "always"; readonly ctes: number; readonly arms: number }
+	| { readonly kind: "part"; readonly needs: Needs; readonly ctes: number }
 
 export interface SingleStatement {
 	readonly ast: Select
@@ -71,6 +87,8 @@ export interface SingleStatement {
 	readonly params: ReadonlyArray<WriteParamSlot>
 	/** The widest part's columns, which every row carries after its tag. */
 	readonly width: number
+	/** Its units (UnitShape), in the order its WITH and its arms hold them. */
+	readonly units: NonEmptyReadonlyArray<UnitShape>
 }
 
 const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
@@ -166,7 +184,8 @@ export const singleStatement = (
 		return {
 			name: out.relation,
 			columns: out.columns,
-			ctes: appendNonEmpty(body.with === undefined ? [] : body.with.ctes, own)
+			ctes: appendNonEmpty(body.with === undefined ? [] : body.with.ctes, own),
+			needs: statement.needs
 		}
 	})
 	appendAll(nameMap, riding.nameMap)
@@ -190,14 +209,127 @@ export const singleStatement = (
 		const ctes: NonEmptyReadonlyArray<Cte> = [own]
 		return { name: out.relation, columns: out.columns, ctes }
 	})
+	const rideCtes = [...riding.deltas, ...rides.flatMap((r) => r.ctes)]
 	const ctes = concatNonEmpty(
 		shareCtes,
 		extendNonEmpty(
 			flatMapNonEmpty(outs, (o) => o.ctes),
-			[...riding.deltas, ...rides.flatMap((r) => r.ctes)]
+			rideCtes
 		)
 	)
-	const { body, width } = taggedParts(extendNonEmpty(outs, rides), 0)
-	const ast: Select = { ...select(body), with: { recursive: false, ctes } }
-	return { ast, sql: emitText(ast, nameMap), params, width }
+	const { arms, width } = taggedArms(extendNonEmpty(outs, rides), 0)
+	const ast: Select = { ...select(unionAll("disjoint", arms)), with: { recursive: false, ctes } }
+	const read = new Set(riding.read)
+	const parts = mapNonEmpty(outs, (o, at): UnitShape => ({
+		kind: "part",
+		needs: read.has(at) ? always : o.needs,
+		ctes: o.ctes.length
+	}))
+	const units = concatNonEmpty(
+		isNonEmpty(shareCtes) ? [{ kind: "always" as const, ctes: shareCtes.length, arms: 0 }] : [],
+		extendNonEmpty(
+			parts,
+			isNonEmpty(rideCtes)
+				? [{ kind: "always" as const, ctes: rideCtes.length, arms: rides.length }]
+				: []
+		)
+	)
+	return { ast, sql: emitText(ast, nameMap), params, width, units }
+}
+
+/**
+ * A single statement's text by its units (runtime/write/parted.ts Parted), read off its `ast` as the statement holds it,
+ * placeholders `params` and all, after every rewrite of its forms (write/program/slot-carriers.ts): each unit's CTEs and
+ * arms as the printer prints them in the whole (sql/print.ts printCteBlock, printArmBlock), its placeholders cut out as
+ * PostgreSQL's scanner reads the text (sql/lexer.ts), so no `$` inside a literal or a quoted identifier is one. A
+ * unit's placeholders are a block of the statement's, after the blocks of the units before it: each part was built as
+ * a statement of its own, its placeholders numbered past the earlier parts' (`singleStatement`), and a rewrite numbers
+ * the placeholders it keeps again in order.
+ */
+export const partedOf = <Slot>(
+	ast: SqlStatement,
+	params: ReadonlyArray<Slot>,
+	units: NonEmptyReadonlyArray<UnitShape>
+): Parted<Slot> => {
+	if (ast.kind !== "select" || ast.with === undefined) {
+		throw defect("a single statement is a SELECT under a WITH")
+	}
+	const ctes = ast.with.ctes
+	const body = ast.body
+	const arms = body.kind === "setOp" ? body.arms : [body]
+	let cte = 0
+	let arm = 0
+	let placed = 0
+	const unitText = (
+		count: number
+	): { readonly cut: CutText; readonly params: ReadonlyArray<Slot> } => {
+		const text = ctes
+			.slice(cte, cte + count)
+			.map(printCteBlock)
+			.join(",\n")
+		cte += count
+		const from = placed
+		const cut = cutText(text, from)
+		placed = from + cut.count
+		return { cut: cut.text, params: params.slice(from, placed) }
+	}
+	const armTexts = (count: number): ReadonlyArray<string> => {
+		const texts = arms.slice(arm, arm + count).map((a) => {
+			if (a.kind !== "core") {
+				throw defect("a single statement's arm is a core")
+			}
+			return printArmBlock(a)
+		})
+		arm += count
+		return texts
+	}
+	const parted = mapNonEmpty(units, (unit): PartedUnit<Slot> => {
+		const own = unitText(unit.ctes)
+		switch (unit.kind) {
+			case "always":
+				return { kind: "always", ctes: own.cut, arms: armTexts(unit.arms), params: own.params }
+			case "part":
+				return {
+					kind: "part",
+					needs: unit.needs,
+					ctes: own.cut,
+					arm: defined(armTexts(1)[0], "a part's one arm"),
+					params: own.params
+				}
+		}
+	})
+	if (cte !== ctes.length || arm !== arms.length || placed !== params.length) {
+		throw defect("a single statement's units hold its every CTE, arm and placeholder")
+	}
+	return { units: parted }
+}
+
+/**
+ * The text of a unit whose placeholders follow the statement's first `from`, with those cut out (CutText): each hole
+ * its placeholder's index among the unit's, and how many the unit holds, its placeholders being the next block of the
+ * statement's.
+ */
+const cutText = (
+	text: string,
+	from: number
+): { readonly text: CutText; readonly count: number } => {
+	const holes: Array<{ readonly hole: number; readonly after: string }> = []
+	const numbers = new Set<number>()
+	let end = text.length
+	for (const l of lexemesOf(text).lexemes.toReversed()) {
+		if (l.kind !== "param") {
+			continue
+		}
+		if (l.index <= from) {
+			throw defect(`a placeholder $${l.index} of a single statement's unit after $${from}`)
+		}
+		numbers.add(l.index)
+		holes.push({ hole: l.index - from - 1, after: text.slice(l.start + `$${l.index}`.length, end) })
+		end = l.start
+	}
+	const count = maxOf([...numbers], from) - from
+	if (numbers.size !== count) {
+		throw defect(`the placeholders of a single statement's unit after $${from} are a block`)
+	}
+	return { text: { head: text.slice(0, end), holes: holes.toReversed() }, count }
 }

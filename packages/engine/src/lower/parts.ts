@@ -122,6 +122,16 @@ export const taggedParts = (
 	parts: NonEmptyReadonlyArray<PartRows>,
 	first: number
 ): { readonly body: SelectBody; readonly width: number } => {
+	const { arms, width } = taggedArms(parts, first)
+	return { body: unionAll("disjoint", arms), width }
+}
+
+/** The arms of a statement of tagged parts (`taggedParts`), one per part in order, each its part's rows behind its tag,
+ * padded to the widest part's columns, which the statement's body joins by UNION ALL. */
+export const taggedArms = (
+	parts: NonEmptyReadonlyArray<PartRows>,
+	first: number
+): { readonly arms: NonEmptyReadonlyArray<SetCore>; readonly width: number } => {
 	const width = maxOf(
 		parts.map((p) => p.columns.length),
 		0
@@ -141,7 +151,7 @@ export const taggedParts = (
 			undefined
 		)
 	})
-	return { body: unionAll("disjoint", arms), width }
+	return { arms, width }
 }
 
 /** `slot` numbered `offset` later. */

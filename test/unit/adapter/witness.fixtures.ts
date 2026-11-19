@@ -23,6 +23,7 @@ import { EntryName, type StoredRelationName } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import type { LawField } from "#compiler/ir/law.ts"
+import { always } from "#compiler/ir/needs.ts"
 import { strataAt } from "#compiler/ir/stratum.ts"
 import type { ConstraintLaw, ConstraintLawOf, DomainUse } from "#compiler/laws/model/model.ts"
 import {
@@ -500,7 +501,7 @@ const writeOf = (
 	action: 0,
 	relation,
 	result: { kind: "delete", relation, mode: "exact", columns: [], fields: [], key: [] },
-	skipWhenEmpty: undefined,
+	needs: always,
 	uniqueAborts: aborts
 })
 
@@ -591,7 +592,7 @@ export const originOf = (
 					action: 0,
 					relation: first,
 					field: "id",
-					skipWhenEmpty: undefined
+					needs: always
 				},
 				[]
 			)
@@ -603,7 +604,7 @@ export const originOf = (
 					kind: "check",
 					stratum: firstStratum,
 					entry: EntryName("Entry"),
-					skipWhenEmpty: undefined
+					needs: always
 				},
 				[first]
 			)
