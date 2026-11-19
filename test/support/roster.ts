@@ -310,6 +310,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/schedules/write/collisions.test.ts",
 	"test/schedules/write/entry-occupants.test.ts",
 	"test/schedules/write/met-skew.test.ts",
+	"test/schedules/write/places.test.ts",
 	"test/schedules/write/races.test.ts",
 	"test/types/**/*.test.ts",
 	"test/unit/adapter/**/*.test.ts",
