@@ -17,6 +17,7 @@ import {
 	minimalDfa
 } from "@bjornpagen/grizzle-text/regex/dfa"
 import { canonicalText, type RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
+import { regexDfaMaxStates, regexDfaMaxWork } from "@bjornpagen/grizzle-text/regex/limits"
 import type { Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
@@ -36,7 +37,6 @@ import {
 	regexCheck
 } from "#compiler/ir/scalar.ts"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
-import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
 import type { Collation, Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { and, binary, call, cUtf8Collation, isIn, le, lit, types } from "#compiler/sql/build.ts"

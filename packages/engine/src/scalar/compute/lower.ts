@@ -6,6 +6,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Inclusion } from "@bjornpagen/grizzle-text/regex/inclusion"
+import { regexDfaMaxStates, regexDfaMaxWork } from "@bjornpagen/grizzle-text/regex/limits"
 import { catchRefusal, int4Max, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import {
@@ -122,7 +123,6 @@ import {
 	parseTargetOf
 } from "#compiler/scalar/lexical.ts"
 import { type MatchAdmission, matchSourceAt } from "#compiler/scalar/regex/admit.ts"
-import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
 import { bytesWithin, formIncludes, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"

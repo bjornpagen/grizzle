@@ -28,6 +28,7 @@
  */
 
 import { inclusion } from "@bjornpagen/grizzle-text/regex/inclusion"
+import { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
 import type { Patterns, PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import { codePoints } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
@@ -36,7 +37,6 @@ import { aimed, array, element } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { wildcardPattern } from "#compiler/ir/scalar.ts"
-import { regexDfaLimits } from "#compiler/scalar/regex/inclusion.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { analyzeText, type TextRefinement } from "#compiler/text/refinement.ts"
 import { assert, defined } from "#test/support/assert.ts"

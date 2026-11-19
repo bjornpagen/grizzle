@@ -32,6 +32,7 @@
  */
 
 import { inclusion } from "@bjornpagen/grizzle-text/regex/inclusion"
+import { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
 import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
@@ -52,7 +53,6 @@ import {
 	type LexicalTarget,
 	lexicalValue
 } from "#compiler/scalar/lexical.ts"
-import { regexDfaLimits } from "#compiler/scalar/regex/inclusion.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {

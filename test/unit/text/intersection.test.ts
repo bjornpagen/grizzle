@@ -32,13 +32,13 @@ import {
 	set,
 	start
 } from "@bjornpagen/grizzle-text/regex/ir"
+import { regexDfaMaxStates, regexDfaMaxWork } from "@bjornpagen/grizzle-text/regex/limits"
 import { printSource } from "@bjornpagen/grizzle-text/regex/print"
 import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
 import { assert } from "#test/support/assert.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import { stringsOver, wholeLanguageGen, wordOf } from "#test/unit/text/generators.ts"

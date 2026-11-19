@@ -17,9 +17,9 @@ import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/
 import { Array as Arr, Effect, Formatter } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 
+import { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { regexDfaLimits } from "#compiler/scalar/regex/inclusion.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
