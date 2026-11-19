@@ -743,9 +743,11 @@ type AllFragmentsBelow<B> = [B] extends [never] ? never : AllFragmentsOf<B>
  * that is structurally wider or narrower than every level (an extension of S, or another schema of the same name
  * with more relations) is not a level even where plain assignability would admit it.
  */
-export type IsLevelOf<S, X> = 0 extends 1 & S
+export type IsLevelOf<S, X> = IsLevelOfInvariant<S, Invariant<X>>
+/** Whether Invariant<X>, a source's phantom schema as it carries it, is Invariant<L> of a level L of S (IsLevelOf). */
+export type IsLevelOfInvariant<S, IX> = 0 extends 1 & S
 	? true
-	: true extends LevelMatch<LevelsOf<S>, X>
+	: true extends LevelMatch<LevelsOf<S>, IX>
 		? true
 		: false
 
@@ -754,7 +756,7 @@ export type IsLevelOf<S, X> = 0 extends 1 & S
  * tuple of Invariant here would be a reference the checker defers, holding X and the level in its mapper, and deciding
  * it would instantiate both whole, every relation of each with them, for each level of each test.
  */
-type LevelMatch<L, X> = L extends unknown ? InvariantlyAt<Invariant<X>, Invariant<L>> : never
+type LevelMatch<L, IX> = L extends unknown ? InvariantlyAt<IX, Invariant<L>> : never
 type InvariantlyAt<A, B> = [A] extends [B] ? true : false
 
 /**
@@ -816,24 +818,27 @@ type StatementsBeside<St extends ReadonlyArray<Statement>, L> = [L] extends [nev
 type StatementOf<S> = StatementsOf<S>[number]
 
 /**
- * The keys of R in S: its primary key, a roster's handle and a closed relation's declared key, the keys a derived or
- * world relation's definition proves, and every candidate key declared for R with key(), for each relation its name
+ * The keys of R in S: its own (OwnKeysOf), and every candidate key declared for R with key(), for each relation its name
  * may be where it is a generic relation's union of names (DeclaredKeysOfAll). Each key is a list of field names. A
  * context holds at most one fact, so its key is the empty one.
  */
 export type KeysOf<S, R> = R extends { readonly kind: "context" }
 	? readonly []
-	:
-			| (R extends { readonly primaryKey: infer P }
-					? P
-					: R extends AnyRoster
-						? readonly ["id"]
-						: R extends AnyClosedRelation
-							? R["key"]
-							: R extends { readonly kind: "derived" | "world"; readonly definition: infer Q }
-								? DefinitionKeysOf<Q>
-								: never)
-			| DeclaredKeysOfAll<S, NameOf<R>>
+	: OwnKeysOf<R> | DeclaredKeysOfAll<S, NameOf<R>>
+
+/**
+ * The keys R states of itself, whatever schema holds it: its primary key, a roster's handle, a closed relation's
+ * declared key, and the keys a derived or world relation's definition proves.
+ */
+export type OwnKeysOf<R> = R extends { readonly primaryKey: infer P }
+	? P
+	: R extends AnyRoster
+		? readonly ["id"]
+		: R extends AnyClosedRelation
+			? R["key"]
+			: R extends { readonly kind: "derived" | "world" }
+				? DefinitionKeysOf<R["definition" & keyof R]>
+				: never
 
 /**
  * The candidate keys of every relation of S, each relation's under its name and none under any other name. Relation

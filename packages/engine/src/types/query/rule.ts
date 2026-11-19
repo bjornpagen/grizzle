@@ -1,5 +1,5 @@
 import type { AllenMask, HoldsExactly } from "#compiler/allen/mask.ts"
-import type { Built, delta, phantom, Phantom } from "#compiler/core/phantom.ts"
+import type { Built, phantom, Phantom } from "#compiler/core/phantom.ts"
 import type { AvgSql, NumericSql, PlainHost, SumSql } from "#compiler/scalar/compute/tables.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
@@ -64,7 +64,9 @@ import type {
 	Reading,
 	ReflexiveProof,
 	BindingsProved,
+	FoldsIn,
 	Shaped,
+	ShownOf,
 	SoleMatch,
 	Split
 } from "#compiler/types/evidence/evidence.ts"
@@ -94,17 +96,10 @@ import type {
 	ShownHeading,
 	SourceShows
 } from "#compiler/types/query/terms.ts"
+import type { AnyClosed, AnyRelation, NameOf, Relation } from "#compiler/types/schema/relation.ts"
 import type {
-	AnyClosed,
-	AnyRelation,
-	HeadingOf,
-	NameOf,
-	Relation
-} from "#compiler/types/schema/relation.ts"
-import type {
-	IsLevelOf,
+	IsLevelOfInvariant,
 	IsRelationOf,
-	KeysOf,
 	RelationOf,
 	RelationsOf,
 	UnderName
@@ -193,33 +188,23 @@ type EveryMatchKeyed<S, Os> = Os extends readonly [infer M, ...infer Rest]
 		: false
 	: true
 
+/** Whether a match binds a key its fold reads its source by in S (FoldsIn), each member of its source its own. */
 type MatchKeyed<S, M> =
-	M extends SoleMatch<infer R, infer B>
-		? R extends AnyContext
-			? true
-			: R extends AnyRelation | AnyClosed | AnyDerived | AnyWorld
-				? BindsAKey<KeysOf<S, R>, keyof B>
-				: typeof delta extends keyof R
-					? R extends { readonly [delta]?: Invariant<infer D> | undefined }
-						? D extends AnyWorld
-							? [keyof HeadingOf<R>] extends [keyof B]
-								? true
-								: false
-							: BindsAKey<KeysOf<S, D>, keyof B>
-						: false
-					: [keyof HeadingOf<R>] extends [keyof B]
-						? true
-						: false
+	M extends SoleMatch<infer Sh, infer B>
+		? Sh extends unknown
+			? BindsAKey<FoldsIn<S, Sh>, keyof B>
+			: never
 		: false
 
 /**
- * The source a match of a source of kind K records for its rule's evidence: an ordinary relation as it shows itself, its
- * name N, heading C and primary key PK, which are a concrete relation's own, so a generic relation's evidence is read
- * off the relations it may be, its name the union of theirs; any other source itself.
+ * The source a match of a source of kind K records for its rule's evidence, as the evidence reads it (ShownOf): an
+ * ordinary relation as it shows itself, its name N, heading C and primary key PK, which are a concrete relation's own,
+ * so a generic relation's evidence is read off the relations it may be, its name the union of theirs; any other source
+ * as its own members show.
  */
 type ShownSource<R, K, N, C, PK> = [K] extends ["relation"]
-	? Relation<Extract<N, string>, C, Extract<PK, ReadonlyArray<keyof C & string>>>
-	: R
+	? ShownOf<Relation<Extract<N, string>, C, Extract<PK, ReadonlyArray<keyof C & string>>>>
+	: ShownOf<R>
 
 /** Whether one of the keys, each a tuple of fields, has every field among the bound ones. */
 type BindsAKey<Keys, Bound> = 0 extends 1 & Keys
@@ -252,12 +237,18 @@ type MatchCheck<S, R> = R extends AnyContext
 			? RequireBound<R> & RequireLevel<S, R>
 			: Refusal<"the relation is not in this query's schema">
 
-type RequireLevel<S, R> =
-	R extends Phantom<{ readonly schema: Invariant<infer QS> }>
-		? IsLevelOf<S, QS> extends true
-			? unknown
-			: Refusal<"the query is not over a level of this query's schema">
-		: unknown
+/**
+ * A source written over a schema, a query, a bound import or an interior stage, is over a level of S: its schema read
+ * off its phantom by key, never bound by `infer`, whose branch would instantiate the schema whole at every match.
+ */
+type RequireLevel<S, R> = typeof phantom extends keyof R
+	? LevelOfPhantom<S, NonNullable<R[typeof phantom & keyof R]>>
+	: unknown
+type LevelOfPhantom<S, B> = "schema" extends keyof B
+	? IsLevelOfInvariant<S, B["schema" & keyof B]> extends true
+		? unknown
+		: Refusal<"the query is not over a level of this query's schema">
+	: unknown
 
 type RequireBound<R> =
 	R extends Phantom<{ readonly params: infer QP }>

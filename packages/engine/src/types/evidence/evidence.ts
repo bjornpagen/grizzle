@@ -1,8 +1,9 @@
-import type { Built, Phantom, phantom } from "#compiler/core/phantom.ts"
+import type { Built, delta, Phantom, phantom } from "#compiler/core/phantom.ts"
 import type {
 	ComputedOrigin,
 	ConstantOrigin,
 	InputOrigin,
+	Invariant,
 	IsOneLiteral,
 	IsInputValue,
 	Literal,
@@ -20,7 +21,12 @@ import type {
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { Aggregate, Producer } from "#compiler/types/query/terms.ts"
 import type { AnyClosed, AnyRelation, HeadingOf, NameOf } from "#compiler/types/schema/relation.ts"
-import type { ContainmentsOf, KeysOf, StatementsOf } from "#compiler/types/schema/schema.ts"
+import type {
+	ContainmentsOf,
+	DeclaredKeysOfAll,
+	OwnKeysOf,
+	StatementsOf
+} from "#compiler/types/schema/schema.ts"
 import type {
 	Alternatives,
 	AlternativesBase,
@@ -230,14 +236,14 @@ export type HoldingMatches<Os extends ReadonlyArray<unknown>, O> =
 		: never
 
 /**
- * Whether a match is of relation R and binds the variable of origin key Key at R's field F. A generic relation's name is
- * the union of its relations' names, which no match tells apart from another generic relation's, so a variable of one
- * is held by no match.
+ * Whether a match is of relation R and binds the variable of origin key Key at R's field F: a match of a named source
+ * (NamedShown) of R's name. A generic relation's name is the union of its relations' names, which no match tells apart
+ * from another generic relation's, so a variable of one is held by no match.
  */
 type BindsAt<M, R, F, Key> =
-	M extends SoleMatch<infer Src, infer B>
-		? Src extends AnyRelation | AnyClosed | AnyDerived | AnyWorld | AnyContext
-			? [R] extends [UnionToIntersection<R> & NameOf<Src>]
+	M extends SoleMatch<infer Sh, infer B>
+		? Sh extends NamedShown
+			? [R] extends [UnionToIntersection<R> & Sh["name"]]
 				? F extends keyof B
 					? Key extends OriginKey<B[F]>
 						? true
@@ -889,10 +895,16 @@ type BoundOrigins<B> = { [K in keyof B]-?: OriginKey<B[K]> }[keyof B]
  * item.owner })` binds Item's owner variable to Note's item, which Item's key does not determine).
  */
 type DepsOf<S, M, FixedFields extends string> =
-	M extends SoleMatch<infer R, infer B>
-		? R extends AnyRelation | AnyClosed | AnyDerived | AnyWorld | AnyContext
-			? KeyDeps<KeysOf<S, R>, B, FixedFields, BoundOrigins<B>, never>
-			: KeyDeps<SourceKeys<R>, B, FixedFields, BoundOrigins<B>, SourceNeeds<R, FixedFields>>
+	M extends SoleMatch<infer Sh, infer B>
+		? Sh extends AnyShown
+			? KeyDeps<
+					KeysIn<S, Sh>,
+					B,
+					FixedFields,
+					BoundOrigins<B>,
+					OriginNeeds<Sh["reads"], FixedFields>
+				>
+			: never
 		: never
 
 /**
@@ -905,27 +917,7 @@ type KeyDeps<Keys, B, FixedFields extends string, To, Extra> = 0 extends 1 & Key
 		? DepFrom<{ [K in F]-?: K extends keyof B ? Needs<B[K], FixedFields> : Lost }[F] | Extra, To>
 		: never
 
-/**
- * The keys of a source that is no relation, as a match of it reads them: its whole heading, every field of every arm,
- * since it is a set; and, for a query, a bound import or an interior stage, every key its own evidence proves, which
- * holds per binding of the inputs it reads (SourceNeeds). A relation parameter, a recursive definition's self and a
- * delta are keyed by their heading alone.
- */
-type SourceKeys<R> =
-	| ReadonlyArray<KeyOfAnyArm<HeadingOf<R>> & string>
-	| (R extends Phantom<{ readonly evidence: { readonly keys: infer Ks } }>
-			? Ks extends ReadonlyArray<infer K extends ReadonlyArray<string>>
-				? K
-				: never
-			: never)
 type KeyOfAnyArm<H> = H extends unknown ? keyof H : never
-
-/**
- * What a bound import's facts depend on beside its keys: the variables its bindings read, whose values select which
- * facts it holds (BoundSource's `reads`); nothing for any other source, whose inputs are the rule's own parameters.
- */
-type SourceNeeds<R, FixedFields extends string> =
-	R extends Phantom<{ readonly reads: infer Rd }> ? OriginNeeds<Rd, FixedFields> : never
 type DepFrom<From, To> = Lost extends From ? never : Dep<From & string, To & string>
 /** What Known determines under Deps: Known with each dependency's To whose From it holds, to a fixed point. */
 type Closure<Deps, Known extends string> =
@@ -960,10 +952,10 @@ type HeadFieldsOf<H, Key> = {
  */
 type Choices<S, M, H, FixedFields extends string> =
 	| readonly [never, never, DepsOf<S, M, FixedFields>]
-	| (M extends SoleMatch<infer R, infer B>
-			? R extends AnyRelation | AnyClosed | AnyDerived | AnyWorld | AnyContext
-				? KeyChoices<KeysOf<S, R>, B, H, FixedFields, never>
-				: KeyChoices<SourceKeys<R>, B, H, FixedFields, SourceNeeds<R, FixedFields>>
+	| (M extends SoleMatch<infer Sh, infer B>
+			? Sh extends AnyShown
+				? KeyChoices<KeysIn<S, Sh>, B, H, FixedFields, OriginNeeds<Sh["reads"], FixedFields>>
+				: never
 			: never)
 
 type KeyChoices<Keys, B, H, FixedFields extends string, Extra> = 0 extends 1 & Keys
@@ -1059,13 +1051,137 @@ type OriginsPart<Ev> = Ev extends { readonly origins: infer O extends OriginMap 
 	: unknown
 
 /**
- * The rule's only match, while it is the rule's only clause: no second match and no where ("the child has
- * no further predicate"). NoMatch before any match, Joined after anything more.
+ * A match as the rule's evidence reads it: its source as the match shows it (Shown) and its bindings. It is each of the
+ * rule's occurrences, and the rule's only match while it is the rule's only clause: no second match and no where ("the
+ * child has no further predicate"). NoMatch before any match, Joined after anything more.
  */
 export interface SoleMatch<R, B> {
 	readonly sole: R
 	readonly bindings: B
 }
+
+/**
+ * The kind of source a match shows: a named one, a relation, a closed relation or roster, a derived or world relation
+ * or a context, whose variables name it (VarOrigins); a delta of an ordinary relation, folded by that relation's keys;
+ * or any other source, a query, a bound import, an interior stage, a relation parameter, a recursive definition's self
+ * or a delta of a world relation.
+ */
+type ShownKind = "relation" | "closed" | "derived" | "world" | "context" | "delta" | "source"
+/** The kinds S declares candidate keys of: a relation's own (KeysOf), and a delta's relation's, which its fold reads. */
+type Declaring = "relation" | "closed" | "derived" | "world"
+
+/**
+ * A matched source as its rule's evidence reads it, and nothing else of it: its kind, which the attach table's rows and
+ * a variable's holding read; its name, a named source's or a delta's relation's, never any other's; its keys, the field
+ * lists that determine its facts, a named source's own (OwnKeysOf) and any other's its heading's and its evidence's
+ * (ShownKeysOf); the keys a fold reads it by, a named source's own, a delta's relation's own, and any other source's
+ * heading; and the origins a bound import's bindings read, none for any other source. The rule adds the keys its schema
+ * declares (KeysIn, FoldsIn).
+ *
+ * It holds no source: a query, a bound import, an interior stage, a derived or world relation and a delta of one hold
+ * a schema, every relation of it, and so does every type that names one among its arguments, so a reader of the
+ * source, and each later instantiation of a type holding it, would instantiate the schema whole. ShownOf reads the
+ * source once, where the match is written, into types none of which names it.
+ */
+export interface Shown<out Kind extends ShownKind, out N, out Keys, out Folds, out Rd> {
+	readonly kind: Kind
+	readonly name: N
+	readonly keys: Keys
+	readonly folds: Folds
+	readonly reads: Rd
+}
+type AnyShown = Shown<ShownKind, string, unknown, unknown, unknown>
+/** A source a variable's origin names. */
+type NamedShown = Shown<Exclude<ShownKind, "delta" | "source">, string, unknown, unknown, unknown>
+
+/** The keys of a match's source in the rule's schema S: its own, and those S declares for a named source (KeysOf). */
+type KeysIn<S, Sh> =
+	Sh extends Shown<infer Kind, infer N extends string, infer Keys, unknown, unknown>
+		? Kind extends Declaring
+			? Keys | DeclaredKeysOfAll<S, N>
+			: Keys
+		: never
+/** The keys a fold reads a match's source by in the rule's schema S: its own, and those S declares (KeysOf). */
+export type FoldsIn<S, Sh> =
+	Sh extends Shown<infer Kind, infer N extends string, unknown, infer Folds, unknown>
+		? Kind extends Declaring | "delta"
+			? Folds | DeclaredKeysOfAll<S, N>
+			: Folds
+		: never
+
+/**
+ * Each member of a matched source R as a match shows it, each its own, as every reader of a match distributes over its
+ * source: a named source by its kind, its name and its own keys; a delta by its relation's, a world relation's by its
+ * heading; and any other source by its heading's and its evidence's keys, folded by its heading, and the origins its
+ * bindings read.
+ *
+ * Every part is read off R as an argument of an alias whose own arguments are the parts alone (NamedShownOf,
+ * SourceShownOf), so no type it makes names R: a type reference written inside an alias whose arguments read another
+ * alias is one the checker defers, holding the alias's mapper, and every later instantiation of a type that holds it
+ * instantiates what that mapper holds again, a query or a derived relation whole, its schema with it.
+ */
+export type ShownOf<R> = R extends AnyContext
+	? NamedShownOf<"context", NameOf<R>, readonly []>
+	: R extends AnyRelation
+		? NamedShownOf<"relation", NameOf<R>, OwnKeysOf<R>>
+		: R extends AnyClosed
+			? NamedShownOf<"closed", NameOf<R>, OwnKeysOf<R>>
+			: R extends AnyDerived
+				? NamedShownOf<"derived", NameOf<R>, OwnKeysOf<R>>
+				: R extends AnyWorld
+					? NamedShownOf<"world", NameOf<R>, OwnKeysOf<R>>
+					: typeof delta extends keyof R
+						? DeltaShownOf<
+								DeltaOf<R>,
+								HeadingOf<R>,
+								ShownKeysOf<HeadingOf<R>, EvidenceKeys<R>>,
+								ReadsOf<R>
+							>
+						: SourceShownOf<
+								ShownKeysOf<HeadingOf<R>, EvidenceKeys<R>>,
+								HeadingFolds<HeadingOf<R>>,
+								ReadsOf<R>
+							>
+/** A named source of kind Kind, its name N and its own keys K. */
+type NamedShownOf<Kind extends ShownKind, N, K> = Shown<Kind, N, K, K, never>
+/** A source that is no named one, keyed by Keys (ShownKeysOf), folded by Folds, its bindings reading Rd. */
+type SourceShownOf<Keys, Folds, Rd> = Shown<"source", never, Keys, Folds, Rd>
+/**
+ * A delta of the relation D, of heading H and keys Keys: a world relation's folded by its heading, any other's by its
+ * relation's own keys and those its rule's schema declares of the relation's name (FoldsIn); one whose relation the
+ * types do not read is folded by no key.
+ */
+type DeltaShownOf<D, H, Keys, Rd> = [D] extends [never]
+	? SourceShownOf<Keys, never, Rd>
+	: D extends AnyWorld
+		? SourceShownOf<Keys, HeadingFolds<H>, Rd>
+		: DeltaRelationShownOf<NameOf<D>, Keys, OwnKeysOf<D>, Rd>
+type DeltaRelationShownOf<N, Keys, Folds, Rd> = Shown<"delta", N, Keys, Folds, Rd>
+/** The relation a delta source holds facts of: never where its phantom names none. */
+type DeltaOf<R> = R extends { readonly [delta]?: Invariant<infer D> | undefined } ? D : never
+
+/**
+ * The keys of a source that is no relation, as a match of it reads them: its whole heading H, every field of every arm,
+ * since it is a set; and, for a query, a bound import or an interior stage, every key its own evidence proves, Ks, which
+ * holds per binding of the inputs it reads (ReadsOf). A relation parameter, a recursive definition's self and a delta
+ * are keyed by their heading alone.
+ */
+type ShownKeysOf<H, Ks> = HeadingKey<KeyOfAnyArm<H>> | Ks
+type HeadingKey<F> = ReadonlyArray<F & string>
+/** The keys a source's evidence proves: none where it carries no evidence. */
+type EvidenceKeys<R> =
+	R extends Phantom<{ readonly evidence: { readonly keys: infer Ks } }>
+		? Ks extends ReadonlyArray<infer K extends ReadonlyArray<string>>
+			? K
+			: never
+		: never
+/**
+ * What a bound import's facts depend on beside its keys: the origins its bindings read, whose values select which facts
+ * it holds (BoundSource's `reads`); none for any other source, whose inputs are the rule's own parameters.
+ */
+type ReadsOf<R> = R extends Phantom<{ readonly reads: infer Rd }> ? Rd : never
+/** A source keyed by its heading H alone: one key of every field its arms share. */
+type HeadingFolds<H> = ReadonlyArray<keyof H>
 
 /**
  * Parent variables and fresh variables, as the attach proofs read a binding.
@@ -1131,8 +1247,8 @@ type ParentFields<B, RN> = {
 	[K in keyof B]-?: BindingKinds<B, RN>[K] extends "parent" ? K : never
 }[keyof B]
 type SameSet<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
-/** Whether the fields U are exactly one key of R. */
-type IsKeyOf<S, R, U> = true extends KeyEquals<KeysOf<S, R>, U> ? true : false
+/** Whether the fields U are exactly one of the keys Keys. */
+type IsKeyOf<Keys, U> = true extends KeyEquals<Keys, U> ? true : false
 type KeyEquals<Keys, U> = 0 extends 1 & Keys
 	? false
 	: Keys extends ReadonlyArray<infer F>
@@ -1172,13 +1288,16 @@ type HeadParentsBound<H, B, RN> = false extends {
  * The match keyed by the parent: a stored or closed relation, every binding a parent variable or a fresh one, and the
  * parent-bound fields exactly a key of it.
  */
-type KeyedByParent<S, R, B, H> = R extends AnyRelation | AnyClosed
-	? "other" extends BindingKinds<B, NameOf<R>>[keyof B]
-		? false
-		: HeadParentsBound<H, B, NameOf<R>> extends true
-			? IsKeyOf<S, R, ParentFields<B, NameOf<R>>>
-			: false
-	: false
+type KeyedByParent<S, Sh, B, H> =
+	Sh extends Shown<"relation" | "closed", infer RN, unknown, unknown, unknown>
+		? "other" extends BindingKinds<B, RN>[keyof B]
+			? false
+			: HeadParentsBound<H, B, RN> extends true
+				? IsKeyOf<KeysIn<S, Sh>, ParentFields<B, RN>>
+				: false
+		: false
+/** The name a match's source shows: never for a source that is no named one. */
+type ShownName<Sh> = Sh extends NamedShown ? Sh["name"] : never
 
 /**
  * The containment row of the attach table: the child's only clause is a match keyed by the parent (KeyedByParent), and
@@ -1188,10 +1307,14 @@ type KeyedByParent<S, R, B, H> = R extends AnyRelation | AnyClosed
  * scalar existence, and a selected source needs the parent's selection, so neither proves.
  */
 export type ContainmentProof<S, Sole, H> =
-	Sole extends SoleMatch<infer R, infer B>
-		? KeyedByParent<S, R, B, H> extends true
-			? OneRelationEach<NameOf<R>, B> extends true
-				? ContainmentsInto<ContainmentsBetween<S, ParentRelations<B>, NameOf<R>>, NameOf<R>, B>
+	Sole extends SoleMatch<infer Sh, infer B>
+		? KeyedByParent<S, Sh, B, H> extends true
+			? OneRelationEach<ShownName<Sh>, B> extends true
+				? ContainmentsInto<
+						ContainmentsBetween<S, ParentRelations<B>, ShownName<Sh>>,
+						ShownName<Sh>,
+						B
+					>
 				: never
 			: never
 		: never
@@ -1284,10 +1407,10 @@ type HeadingFieldOf<R, G> = R extends { readonly heading: infer C }
  * predicate is its Description's, which no type reads.
  */
 export type ArmProofOf<S, Sole, H> =
-	Sole extends SoleMatch<infer R, infer B>
-		? KeyedByParent<S, R, B, H> extends true
-			? OneRelationEach<NameOf<R>, B> extends true
-				? ArmsOf<AlternativesBetween<S, ParentRelations<B>, NameOf<R>>, NameOf<R>, B>
+	Sole extends SoleMatch<infer Sh, infer B>
+		? KeyedByParent<S, Sh, B, H> extends true
+			? OneRelationEach<ShownName<Sh>, B> extends true
+				? ArmsOf<AlternativesBetween<S, ParentRelations<B>, ShownName<Sh>>, ShownName<Sh>, B>
 				: never
 			: never
 		: never
@@ -1358,11 +1481,11 @@ type ArmAt<P, PKF, D extends string, Hd extends string, A, RN, B> =
  * self-join parent each scope proves its own fact's group.
  */
 export type ReflexiveProof<Occurrences, Filters, H> = Occurrences extends readonly [
-	SoleMatch<infer R, infer B>
+	SoleMatch<infer Sh, infer B>
 ]
-	? R extends AnyRelation | AnyDerived
-		? OneRelationEach<NameOf<R>, B> extends true
-			? ReflexiveOf<NameOf<R>, B, Filters, H>
+	? Sh extends Shown<"relation" | "derived", infer RN, unknown, unknown, unknown>
+		? OneRelationEach<RN, B> extends true
+			? ReflexiveOf<RN, B, Filters, H>
 			: false
 		: false
 	: false
