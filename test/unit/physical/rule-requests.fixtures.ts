@@ -6,7 +6,7 @@ import { keyTermText, type PlannedIndex } from "#compiler/physical/indexes/engin
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, derived, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { owning } from "#test/support/policy.ts"
 import { owner } from "#test/unit/physical/fixtures.ts"
@@ -16,28 +16,32 @@ type Join = "g" | "h" | "gh"
 
 /**
  * One case: whether T, U and S are immutable, so the containment over D is unit-local and judged whole, or mutable,
- * so it is probed; the columns D joins T and U by beside `package`; whether D holds U's w to a literal; and whether a
+ * so it is probed; the columns D joins T and U by beside `package`; whether D holds U's w to a literal; whether a
  * second rule reads U across units, E's g of every U row held in Q, keyed by g alone, whose probes of Q's deletes read
- * U by g, every unit's rows of it.
+ * U by g, every unit's rows of it; and whether U declares a key over g alone, which a read of U that binds g looks it
+ * up by, a key its unit does not lead.
  */
 interface Shape {
 	readonly unitLocal: boolean
 	readonly join: Join
 	readonly literal: boolean
 	readonly crossing: boolean
+	readonly keyedByG: boolean
 }
 
 export const shapeGen: Gen<Shape> = (s) => ({
 	unitLocal: s.draw(boolean),
 	join: s.draw(element<Join>(["g", "h", "gh"])),
 	literal: s.draw(boolean),
-	crossing: s.draw(boolean)
+	crossing: s.draw(boolean),
+	keyedByG: s.draw(boolean)
 })
 
 export type Reached =
 	| "a whole rule's read by a join"
 	| "a probe's read by a join"
 	| "a whole rule's read beside a read across units"
+	| "a whole rule's read by a key its unit does not lead"
 
 /** The columns of the join, beside `package`. */
 const joinColumns = (join: Join): ReadonlyArray<"g" | "h"> => (join === "gh" ? ["g", "h"] : [join])
@@ -62,7 +66,10 @@ const schemaOf = (shape: Shape) => {
 	const Base = schema(
 		"rule_requests",
 		[T, U, S, Q],
-		shape.unitLocal ? [] : [mutable(T), mutable(U), mutable(S), mutable(Q)]
+		[
+			...(shape.keyedByG ? [key(on(U, "g"))] : []),
+			...(shape.unitLocal ? [] : [mutable(T), mutable(U), mutable(S), mutable(Q)])
+		]
 	)
 	const D = derived(
 		"D",
@@ -101,14 +108,19 @@ const schemaOf = (shape: Shape) => {
 const fieldsOf = (index: PlannedIndex): ReadonlyArray<string> =>
 	Arr.map(index.keys, (k) => keyTermText(k.column))
 
+/** Whether a read of U by the join looks it up by its key over g alone, a key its unit does not lead. */
+const byKeyOfG = (shape: Shape): boolean => shape.keyedByG && shape.join !== "h"
+
 /**
  * Judges the indexes of `shape`'s installation. Each probe reads the relation it joins the delta's rows to by the join's
- * columns and `package`, U also by its literal w: that read is a lookup an index serves, an index of U and one of T whose
- * keys are exactly those columns. A whole rule's statement reads D as a chain from its unit (analysis/theory/navigate.ts):
- * first the relation the unit and the literals bind most, U at the unit and its w where D holds it to a literal, then the
- * other at each of its rows by the join's columns and `package`, each an index of exactly its columns; T, read first where
- * no literal binds U, is a range of its key's index at the unit. A whole rule's every read binds its unit, so every index
- * it requests leads with `package`.
+ * columns and `package`, U also by its literal w, or U by its key over g alone where it declares one and the join binds
+ * g: that read is a lookup an index serves, an index of U and one of T whose keys are exactly those columns. A whole
+ * rule's statement reads D as a chain from its unit (analysis/theory/navigate.ts): first the relation the unit and the
+ * literals bind most, U at the unit and its w where D holds it to a literal, then the other at each of its rows by the
+ * join's columns and `package`, U by its key over g alone where it declares one and the join binds g, each an index of
+ * exactly its columns; T, read first where no literal binds U, is a range of its key's index at the unit. A whole rule's
+ * read binds its unit but by a key the unit does not lead, so every index it creates for its requests leads with
+ * `package`, and its read by U's key over g asks for that key's columns alone, which the key's own index serves.
  */
 export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const owned = owning(schemaOf(shape))
@@ -119,7 +131,10 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 		readonly fields: ReadonlyArray<string>
 	}> = !shape.unitLocal
 		? [
-				{ relation: "U", fields: [...joined, ...(shape.literal ? ["w"] : [])] },
+				{
+					relation: "U",
+					fields: byKeyOfG(shape) ? ["g"] : [...joined, ...(shape.literal ? ["w"] : [])]
+				},
 				{ relation: "T", fields: joined }
 			]
 		: shape.literal
@@ -127,7 +142,7 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 					{ relation: "U", fields: ["package", "w"] },
 					{ relation: "T", fields: joined }
 				]
-			: [{ relation: "U", fields: joined }]
+			: [{ relation: "U", fields: byKeyOfG(shape) ? ["g"] : joined }]
 	for (const read of reads) {
 		const serving = Arr.filter(
 			installation.indexes,
@@ -170,6 +185,9 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 				? "a whole rule's read beside a read across units"
 				: "a whole rule's read by a join"
 		)
+		if (byKeyOfG(shape) && !shape.literal) {
+			note("a whole rule's read by a key its unit does not lead")
+		}
 	} else {
 		note("a probe's read by a join")
 	}

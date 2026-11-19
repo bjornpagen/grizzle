@@ -7,7 +7,15 @@ import { parsePlan, planNodes } from "#bench/harness/explain.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import {
+	contained,
+	derived,
+	mutable,
+	on,
+	relation,
+	schema,
+	select
+} from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { wholeStatementsOf } from "#test/pg/laws/rule-whole.fixtures.ts"
@@ -22,9 +30,11 @@ import type { PgConnection } from "#test/support/pg.ts"
 /**
  * Nodes of documents of packages, keyed by (pkg, doc, at), a document's name long, so its key's index is the larger;
  * each node's kind is its place, `at`, so (pkg, kind, at) holds every document of a package at one place. Typed holds a
- * kind and a governor per node and is contained in Node at its key, kind and governor, over immutable relations, so the
- * rule is judged whole, a unit a node: its lookup of a node binds its key from the unit and two fields from Typed's
- * row, as edullm's element_type_in_node binds (package, path, start) and kind and governor. Placed, every node's
+ * kind and a governor per node, and its rows of governor 0, every one here, are contained in Node at its key, kind and
+ * governor: a selected side over immutable relations, so the rule is judged whole (laws/model/plan.ts
+ * containmentDischarge), a unit a node, where the plain containment would be Node's foreign key; its lookup of a node
+ * binds its key from the unit and two fields from Typed's row, as edullm's element_type_in_node bound (package, path,
+ * start) and kind and governor while it was judged whole. Placed, every node's
  * (pkg, kind, at), is contained in Gap, mutable, so the rule is probed, and its probe of Gap's deletes reads Node by
  * (pkg, kind, at), every document of the package at that place: the index the engine creates for it is the one a whole
  * rule's lookup competes with. That index holds kind, one of the lookup's two fields from Typed's row, so governor
@@ -56,7 +66,14 @@ const Base = schema(
 	[
 		mutable(Gap),
 		contained(
-			on(Typed, "pkg", "doc", "at", "kind", "gov"),
+			on(
+				select(Typed, (t) => t.eq(t.gov, 0)),
+				"pkg",
+				"doc",
+				"at",
+				"kind",
+				"gov"
+			),
 			on(Node, "pkg", "doc", "at", "kind", "gov")
 		)
 	]

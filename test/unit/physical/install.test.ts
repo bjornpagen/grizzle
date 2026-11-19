@@ -28,7 +28,7 @@
 
 import { type Reached } from "@bjornpagen/testing/features"
 import { shuffled } from "@bjornpagen/testing/gen"
-import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import type { DeployPhase, PhysicalKind } from "#compiler/ir/products.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
@@ -127,28 +127,13 @@ export const theFreshInstallationIsInInstallOrderEveryObjectNeededAndJustifiedEv
 			kind: "specification",
 			name: "the model of object kinds: what precedes each, and what justifies it"
 		},
-		kept: [
-			{
-				token: ReplayToken(
-					"test/unit/physical/install.test.ts#theFreshInstallationIsInInstallOrderEveryObjectNeededAndJustifiedEveryEdgeKept:-:1.0.0.2.3.0.0.0.3.0.0.0.0.0.0.3.0.0.0.0.1.1.2.0.1.0.0"
-				),
-				reason:
-					"R1(a, b) in R0(a, b) judged whole beside a key of R1 over b alone, which the judge's read of R1 looks up by, at no field of the unit (a, b): its index request was refused as a defect for binding no unit field",
-				since: "2026-11-18"
-			}
-		],
+		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/physical/obligations/graph.ts",
 				original: '\t"structure",\n\t"indexes",',
 				replacement: '\t"indexes",\n\t"structure",',
 				why: "The Indexes phase is ordered before Structure, its tables'."
-			},
-			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\t: { blocks: [keys], reads }",
-				replacement: '\t\t\t\t: (() => { throw new Error("a read binds no field of its unit") })()',
-				why: "A whole rule's read whose path binds no field of its unit, a key lookup by a key the unit does not lead, is refused rather than asked for its keys alone: the kept case's installation dies."
 			}
 		]
 	})

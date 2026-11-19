@@ -2208,9 +2208,10 @@ definition too.
   whole units, as a content package's publish is, reads the rows it wrote once more for each rule. A write of a sliver
   of a large unit, one row into a package of thousands, still reads the whole unit for each rule that reads that row's
   relation: a relation written row by row into large units is better declared `mutable`, whose rules are probed.
-- **A unit-local containment is judged whole.** A containment between two tables is a foreign key; one whose side is a
-  selection, `on(select(T, φ), …)`, is a foreign key over STORED generated columns (`CASE WHEN φ THEN key END`), the
-  UNIQUE it references and an index, kept on every row of the table. Where its tables are immutable, its two sides
+- **A unit-local containment with a selected side is judged whole.** A containment between two tables is a foreign
+  key; one whose side is a selection, `on(select(T, φ), …)`, is a foreign key over STORED generated columns
+  (`CASE WHEN φ THEN key END`), the UNIQUE it references and an index, kept on every row of the table. Where its
+  tables are immutable, its two sides
   join within one unit and each selection compares fields with literals (`eq`, `in`, ranges, `and`, `or`, `not` and a
   closed relation's constants), grizzle judges it whole instead, as a unit-local rule: no column, no UNIQUE, no index
   and no foreign key, its violation read at COMMIT over the units of the rows the transaction wrote that its sides
@@ -2219,11 +2220,19 @@ definition too.
   itself, whatever discharges it, in the context its discharge holds it in: at every statement for an immediate
   foreign key, in a committed snapshot for a deferred one or the judge. A fence of a retirable unit stays a foreign
   key, since a hold and a retirement rely on its locks and its check at the statement, and so does a containment of
-  two unselected sides whose foreign key references every field of its target, which holds at every statement off a
-  cycle, the existence a read inside a transaction relies on (a key into a target with a field it does not reference
-  is deferred to COMMIT, where the judge holds it alike), one whose selection computes (a pattern's match, an
-  arithmetic), whose generated column a query cannot always restate, and any containment over a mutable table. A migration that moves a
-  containment from its foreign key to the judge checks no row: the foreign key held this very law on every write.
+  two unselected sides into a target a key holds apart, at a declared key's fields or a superkey's: its foreign key is
+  the same law, its source's fields NOT NULL, so MATCH SIMPLE checks every source row, into that key's UNIQUE or one
+  over the superkey, which the key implies, so the rows a source row's values find are exactly the target facts the
+  law asks for. It adds no column, a written row costs one probe of an index, and its writers keep the isolation a
+  foreign key admits ([READ COMMITTED writes](#read-committed-writes)), where a rule the judge holds keeps most of
+  them SERIALIZABLE; it holds at every
+  statement where it references every field of its target off a cycle, and at COMMIT where its target holds a field
+  it does not reference. So does one whose selection computes (a pattern's match, an arithmetic), whose generated
+  column a query cannot always restate, and any containment over a mutable table. A containment into a target no key
+  holds apart, such as `on(T, "unit", "kind")` with T keyed by `(unit, id)`, has no UNIQUE grizzle may add, one over its
+  columns refusing rows the schema admits: it is judged whole where it is unit-local as above, and refused
+  (`UnsupportedLawFamily`) anywhere else. A migration that moves a containment from its foreign key to the judge checks
+  no row: the foreign key held this very law on every write.
 - **Judged live.** A rule reads its query as the tables stand at commit, `derived.materialized(...)` included: never
   its view's rows, and never as of a refresh.
 - **What PostgreSQL gets.** A rule that reads only tables is a constraint, as above. A rule that reads a query is
@@ -4531,6 +4540,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 - **Every key fits its index entry for every value its fields admit**: a primary key, a declared key, a key over a selection, the UNIQUE a containment references where its target's columns are no declared key, a family's own UNIQUEs, and each family axis's UNIQUE with the copies it carries, a fold's running values among them. Each has at most 32 columns (`INDEX_MAX_KEYS`) and a B-tree entry of at most 2,704 bytes (`BTMaxItemSize`) counted from its columns' types, so a text column needs a bounded pattern or a contract bounding its `charLength` or `octetLength`. A key past either is `UnrepresentableKey` when the schema compiles, naming each column's counted bytes, not PostgreSQL's 54000 at the first write.
 - **A family axis carries only bounded values.** A `Monoid.concat` fold's accumulators are text of a bounded pattern, such as `str.regex("^.{0,64}$", "su")`. An `or` or `twos` fold's set is its roster's `bit(n)`, `n` every code the roster has minted, removed handles' included, in whole hex digits, sized when `generate`, `check` or `migrate` compiles the installation, so a roster grown and pruned past about 21,000 codes refuses the UNIQUE there.
 - **A lookup by equality holds a text of no byte bound by its image.** An index grizzle plans for a rule's probe, a workload program's equality lookup or join key, or the equality prefix of a range, holds such a text by its image, `md5(text)`, 32 hexadecimal digits every entry holds, among its other columns, and every statement grizzle writes states the equality of the two sides' images beside each equality of such a column. So the lookup reads only the rows its every equality matches, and one more for each collision of two texts' digests, which the text's own equality rechecks: never every row of the bounded columns beside it, which an index of those alone reads, a package's every identifier for a lookup of one by its package and value. md5 is the image because PostgreSQL marks it leakproof, so the images' equality passes into a role's query entry, a security-barrier view, and a lookup through the entry reads the index too. A server in FIPS mode refuses md5, and with it every write of a table such an index is on: grizzle does not support FIPS mode. An order or a range by such a text is `UnrepresentableKey`.
+- **A containment's target holds a key.** A foreign key references a UNIQUE, so grizzle states a containment as one only into a side a key of its target's relation holds apart: at that key's own UNIQUE, or at one over a superkey of it, which the key implies and which must fit its index entry as above. A containment into a side no key holds apart is judged whole where it is unit-local over immutable relations, and refused anywhere else ([Rules over queries](#rules-over-queries)).
 - **A containment's reverse index never refuses free text.** Its probe is PostgreSQL's RI trigger's, which states the referencing columns' equalities alone and no image, so grizzle indexes the lookup of referencing rows by a B-tree over the longest leading run of bounded referencing columns whose entry fits, or, with no such run, a hash index on one referencing column, whose entry is a 4-byte hash code. A PERIOD reference's GiST index holds the longest leading run of bounded scalars that fits a GiST page, then the span. Only the referenced UNIQUE must be bounded. With no fitting run and every referencing column of a type no hash index takes (money, a set's `bit(n)`, a vector), the containment is `UnrepresentableKey` when the schema compiles.
 - **A containment's source is one table or a selection of it.** A containment whose source is a join, such as the rows of R that have a matching row in S, is not supported yet.
 

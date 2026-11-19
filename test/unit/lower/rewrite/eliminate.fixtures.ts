@@ -1,7 +1,6 @@
 /** What the properties of eliminate.test.ts read: its spaces, models and helpers. */
 
 import { Array as Arr } from "effect"
-import type { LawId } from "#compiler/core/ids.ts"
 import type { EvidenceCatalog, ExistenceConstraint } from "#compiler/ir/evidence.ts"
 import { type TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelDag } from "#compiler/ir/rel.ts"
@@ -9,7 +8,7 @@ import { eliminatePass } from "#compiler/lower/optimize/eliminate/index.ts"
 import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { keyConstraintName, ownedFixture } from "#test/support/evidence.ts"
-import { contained, f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { contained, on, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import {
 	Account,
 	ledgerSchema,
@@ -48,30 +47,6 @@ const Referenced: SchemaDesc = {
 /** The ledger with its containment, installed as ownership installs it. */
 const referenced = ownedFixture(Referenced)
 
-/**
- * The ledger with Posting keyed by its account first, so Posting.account -> Account.id joins within one unit, an
- * account's, over immutable relations: the law model discharges it whole, judged at COMMIT, and installs nothing for it
- * (laws/model/plan.ts containmentDischarge), its existence evidence the law's at a committed snapshot.
- */
-const Unit: SchemaDesc = {
-	...Referenced,
-	relations: Arr.map(Referenced.relations, (r) =>
-		r.name === "Posting"
-			? relation("Posting", { id: f.uuid, account: f.uuid, amount: f.bigint }, ["account", "id"])
-			: r
-	)
-}
-
-/** The ledger whose containment the judge holds whole, installed as ownership installs it. */
-const judged = ownedFixture(Unit)
-
-/** The law of the judged ledger's containment, the one law its law model holds as a whole rule. */
-export const wholeLaw = (): LawId => {
-	const whole = Arr.filter(judged.laws.rules, (r) => r.rule.kind === "whole")
-	return defined(whole.length === 1 ? whole[0] : undefined, "the judged ledger's one whole rule")
-		.law.id
-}
-
 /** The name of Account's primary key as ownership installs it. */
 export const accountKey = keyConstraintName(referenced.catalog, "Account", ["id"], "primary")
 
@@ -107,11 +82,10 @@ const accountFacts: ReadonlyArray<ReadonlyArray<TypedLiteral>> = [
 ]
 
 /**
- * How the catalog states the containment Posting.account -> Account.id: absent, an immediate foreign key, a deferred
- * foreign key, which proves existence in a committed snapshot only, or a whole rule the judge holds at COMMIT, its
- * evidence the law model's as for a deferred key.
+ * How the catalog states the containment Posting.account -> Account.id: absent, an immediate foreign key, or a deferred
+ * foreign key, which proves existence in a committed snapshot only.
  */
-export type Containment = "none" | "immediate" | "deferred" | "whole"
+export type Containment = "none" | "immediate" | "deferred"
 
 /** The evidence context a case runs the pass in. */
 export type Evidence = "snapshot" | "transaction"
@@ -123,13 +97,8 @@ export type Match = "key match" | "fixes a column" | "delivers payload"
 export const containmentsOf: Readonly<Record<Containment, ReadonlyArray<ExistenceConstraint>>> = {
 	none: [],
 	immediate: [{ ...fk, context: "immediate" }],
-	deferred: [{ ...fk, context: "committedSnapshot" }],
-	whole: judged.catalog.containments
+	deferred: [{ ...fk, context: "committedSnapshot" }]
 }
-
-/** Whether a statement of the containment holds only at COMMIT, so a transaction may see a posting of no account. */
-export const atCommit = (containment: Containment): boolean =>
-	containment === "deferred" || containment === "whole"
 
 /** The uuid a fact holds at `column`, if it holds one there. */
 const uuidAt = (fact: ReadonlyArray<TypedLiteral>, column: number): ReadonlyArray<string> => {
@@ -155,7 +124,9 @@ export const seenDatabases = (
 		)
 		return (
 			(!keyed || ids.size === accountIds.length) &&
-			(!dangling || containment === "none" || (atCommit(containment) && evidence === "transaction"))
+			(!dangling ||
+				containment === "none" ||
+				(containment === "deferred" && evidence === "transaction"))
 		)
 	})
 
@@ -218,7 +189,6 @@ export const eliminated = (
 export type EliminateFeature =
 	| `eliminated in ${Evidence}`
 	| `eliminated on ${"immediate" | "committedSnapshot"} evidence`
-	| "eliminated on a whole containment's evidence"
 	| "held back: no admitted containment"
 	| "held back: no key of the target"
 	| "held back: the match does more than match a key"

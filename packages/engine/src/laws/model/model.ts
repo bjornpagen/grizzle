@@ -109,7 +109,6 @@ import {
 	type ReferenceChoice,
 	referenceChoice,
 	type ReverseIndexPlan,
-	referencesWhole,
 	reverseIndexOf,
 	type RuleDischarge,
 	type TargetKey
@@ -1617,7 +1616,8 @@ class Specializer {
 		return {
 			onCycle,
 			rule: (fk) =>
-				onCycle(fk.relation.name, fk.target.name) || !referencesWhole(fk.target, fk.targetFields)
+				onCycle(fk.relation.name, fk.target.name) ||
+				fk.target.fields.some((c) => !fk.targetFields.includes(c))
 		}
 	}
 

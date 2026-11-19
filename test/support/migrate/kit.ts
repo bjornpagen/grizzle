@@ -82,22 +82,27 @@ export const asDrafted: CompileOver = {
 	codes: firstCodes
 }
 
-/** The complete installation of a schema: natives, residual laws and derived relations (completeInstallOptions, the
- * options generate composes), under `over`. */
-export const compile = (desc: DeploySubject, over: CompileOver): Installation => {
+/** The complete installation of a schema, or the refusal of it: natives, residual laws and derived relations
+ * (completeInstallOptions, the options generate composes), under `over`. */
+export const compilation = (
+	desc: DeploySubject,
+	over: CompileOver
+): Result.Result<Installation, CompileError> => {
 	const owned = owning(desc)
 	const installation =
 		over.schema.kind === "declared"
 			? installationsOf(owned)
 			: allocatedLevels(over.schema.installation, owned.levels)
 	const codes = over.codes.kind === "installed" ? over.codes.codes : firstCodebook(rostersOf(owned))
-	return succeeded(
-		compileInstallation(owned, {
-			...completeInstallOptions(owned, installation, [], over.extensions, codes),
-			owner: over.owner.kind === "unowned" ? undefined : over.owner.ident
-		})
-	)
+	return compileInstallation(owned, {
+		...completeInstallOptions(owned, installation, [], over.extensions, codes),
+		owner: over.owner.kind === "unowned" ? undefined : over.owner.ident
+	})
 }
+
+/** The complete installation of a schema (`compilation`), which compiles. */
+export const compile = (desc: DeploySubject, over: CompileOver): Installation =>
+	succeeded(compilation(desc, over))
 
 /** The rosters the snapshot `previous` records, each with what a draft under `declared` makes of it against `rosters`
  * (deploy/snapshot/build.ts rosterFates): none for an empty migrations directory. */

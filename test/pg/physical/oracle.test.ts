@@ -29,10 +29,6 @@
  *   admit, with a contract's predicate and a span endpoint's, in checks.test.ts;
  * - a foreign key the law model defers (the referenced relation has fields outside the referenced key) is DEFERRABLE
  *   INITIALLY DEFERRED where the oracle's is immediate;
- * - a containment the law model judges whole (laws/model/plan.ts containmentDischarge: immutable relations joined
- *   within one unit, into a referenced relation with fields outside the referenced key) is held by the real
- *   installer's rule judge, its captures and triggers among the law objects its manifest promises, where the oracle's
- *   is a foreign key;
  * - the real installer adds the law-maintenance indexes its index engine created, each a non-unique index justified by
  *   a law, and nothing else;
  * - the real installer adds the refusal function its write statements raise through (packages/engine/src/write/refusal.ts),
@@ -104,7 +100,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 type PhysicalFeature =
 	| "text domain"
 	| "deferred foreign key"
-	| "containment judged whole"
 	| "law index"
 	| "contract domain"
 	| "span key"
@@ -114,7 +109,6 @@ type PhysicalFeature =
 const situations = [
 	"text domain",
 	"deferred foreign key",
-	"containment judged whole",
 	"law index",
 	"contract domain",
 	"span key",
@@ -416,46 +410,6 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 											: []
 									)
 								)
-								/**
-								 * The containments the law model judges whole, by their installed table and columns and
-								 * the table and columns they reference: the oracle's foreign key for each, which the real
-								 * installer holds by its rule judge instead.
-								 */
-								const sideOf = (relation: string, fields: ReadonlyArray<string>) => {
-									const owned = real.value.owned.relations[relation]
-									if (owned?.kind !== "relation") {
-										throw new Error(
-											`a containment judged whole between stored relations, not ${relation}`
-										)
-									}
-									return [
-										owned.ident,
-										...Arr.map(fields, (f) => defined(owned.fields[f], `${relation}.${f}`).column)
-									]
-								}
-								const judgedWhole = new Set<string>(
-									Arr.flatMap(real.value.laws.rules, (rule) => {
-										const d = rule.law.detail
-										if (rule.rule.kind !== "whole" || d.kind !== "containment") {
-											return []
-										}
-										const fields = (x: typeof d.from) =>
-											Arr.flatMap(x.terms, (t) => (t.kind === "field" ? [t.column.name] : []))
-										return [
-											Arr.join(
-												[
-													...sideOf(d.from.relation, fields(d.from)),
-													"->",
-													...sideOf(d.to.relation, fields(d.to))
-												],
-												"\u0000"
-											)
-										]
-									})
-								)
-								if (judgedWhole.size > 0) {
-									c.note("containment judged whole")
-								}
 								/** The row CHECKs and the closed laws' CHECKs, which the oracle does not model. */
 								const rowChecks = new Set<string>(
 									Arr.flatMap(real.value.laws.natives, (n) =>
@@ -531,24 +485,7 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 										columns: Arr.map(x.columns, (col) => ({ ...col, type: baseOf(col.type) })),
 										constraints: Arr.flatMap(x.constraints, (k) =>
 											!isReal
-												? k.type === "f" &&
-													judgedWhole.has(
-														Arr.join(
-															[
-																x.name,
-																...k.columns,
-																"->",
-																Option.getOrThrowWith(
-																	k.references,
-																	() => new Error(`the foreign key ${k.name} references a table`)
-																),
-																...k.referencedColumns
-															],
-															"\u0000"
-														)
-													)
-													? []
-													: [k]
+												? [k]
 												: k.type === "c" && rowChecks.has(k.name)
 													? []
 													: deferred.has(k.name)

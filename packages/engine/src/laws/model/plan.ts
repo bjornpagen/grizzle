@@ -778,20 +778,10 @@ const readsAlike = (e: ExprDesc): boolean => {
 	}
 }
 
-/** Whether a foreign key into `target` at `fields` references every field the target holds, so no field of a target
- * row may change under it unreferenced: what the schema-wide deferral (laws/model/model.ts #deferral) holds a key
- * immediate by off a cycle, and a plain containment native by (`containmentDischarge`). */
-export const referencesWhole = (target: TheoryRelation, fields: ReadonlyArray<LawField>): boolean =>
-	target.fields.every((f) => fields.includes(f))
-
-/** Whether a containment is plain, neither side selected: the containments whose existence evidence every evidence
- * catalog reads (laws/model/catalog.ts existenceConstraints), its foreign key's target columns its target's fields. */
+/** Whether a containment is plain, neither side selected: its foreign key references its target's own fields and
+ * adds no law column to either relation. */
 const isPlain = (d: ContainmentDetail): boolean =>
 	d.from.selection.conjuncts.length === 0 && d.to.selection.conjuncts.length === 0
-
-/** The fields a foreign key into an unselected side references (`sideColumns`): its field terms. */
-const referencedFields = (side: ResolvedSide): ReadonlyArray<LawField> =>
-	sideColumns(side).flatMap((c) => (c.kind === "field" ? [c.field] : []))
 
 /** Whether every term of a side is a field and every conjunct of its selection reads alike in a query and in a
  * generated column (`readsAlike`). */
@@ -805,29 +795,35 @@ const sideReadsAlike = (side: ResolvedSide): boolean =>
  *
  * - a fence of a retirable unit is native: a hold refuses by it and a retirement relies on it, each through its foreign
  *   key's locks and its NO ACTION check at the statement (physical/ddl/retire.ts);
- * - a plain containment (`isPlain`) whose foreign key references every field of its target (`referencesWhole`) is
- *   native: its key holds at every statement off a cycle (laws/model/model.ts #deferral), so its existence evidence,
- *   which every evidence catalog reads (catalog.ts existenceConstraints), holds there too, as a read inside a
- *   transaction relies on (analysis/physical/evidence.ts containmentEvidence); into a target with a field it does not
- *   reference its key is deferred to COMMIT, which the judge holds alike, so it is whole where it is unit-local, its
- *   evidence the law's at a committed snapshot either way. A containment with a selected side gives no existence
- *   evidence a catalog reads, and is whole where it is unit-local whatever its target, its law columns, their UNIQUE
- *   and their index gone with its key;
- * - a containment with a pred term, or a side whose selection computes, casts or branches
- *   (`readsAlike`), is native: its law columns compute the term or the selection in a generated column, where a
- *   judged query would negate the target at a computed value, which the checker refuses, or evaluate the selection at
- *   a query's site, which may refuse it;
- * - any other containment of field terms is whole where its violation query is unit-local, every relation it reads
- *   immutable and both sides joined within one unit (unit.ts wholeRule), and native where it is not.
+ * - a plain containment (`isPlain`) into a target a key holds apart (`keyHolds`), at a declared key's fields or a
+ *   superkey's, is native, its foreign key the same law, which generate proves here: its referencing columns are its
+ *   source's fields, each NOT NULL as every column of a relation is, so MATCH SIMPLE checks every source row, and its
+ *   referenced columns are its target's fields under that key's UNIQUE or one over the superkey, which the key
+ *   implies, so the rows a source row's values find are exactly the target facts the law asks for: it refuses exactly
+ *   the states the law's violation query finds broken, at the statement where it is immediate and at COMMIT where it
+ *   is deferred (test/pg/laws/plain-native). It adds no law column, a written row costs one probe of an index where
+ *   the judge would read a range of the unit at every COMMIT that writes either side, its writers keep the isolation a
+ *   foreign key admits, and its existence evidence, which every evidence catalog reads (catalog.ts
+ *   existenceConstraints), holds at every statement where its key is immediate and at a committed snapshot where it
+ *   is deferred;
+ * - a containment with a pred term, or a side whose selection computes, casts or branches (`readsAlike`), is native:
+ *   its law columns compute the term or the selection in a generated column, where a judged query would negate the
+ *   target at a computed value, which the checker refuses, or evaluate the selection at a query's site, which may
+ *   refuse it;
+ * - any other containment of field terms, one with a selected side or into a target no key holds apart, is whole
+ *   where its violation query is unit-local, every relation it reads immutable and both sides joined within one unit
+ *   (unit.ts wholeRule), its law columns, their UNIQUE and their index gone with its key, and native where it is not,
+ *   which `#reference` refuses into a target no key holds: no UNIQUE the law model may add holds it apart.
  */
 const containmentDischarge = (
 	law: TheoryLaw,
 	d: ContainmentDetail,
+	projected: ReadonlyMap<string, ReadonlyArray<ResolvedSide>>,
 	relations: ReadonlyMap<string, TheoryRelation>
 ): ContainmentDischarge => {
 	if (
 		law.source.kind === "retirable" ||
-		(isPlain(d) && referencesWhole(d.to.rel, referencedFields(d.to))) ||
+		(isPlain(d) && keyHolds(projected, d.to)) ||
 		!(sideReadsAlike(d.from) && sideReadsAlike(d.to))
 	) {
 		return nativeDischarge
@@ -1054,6 +1050,7 @@ const scalarParts = (
 	law: TheoryLaw,
 	relations: Readonly<Record<string, TheoryRelation>>,
 	relationMap: ReadonlyMap<string, TheoryRelation>,
+	projected: ReadonlyMap<string, ReadonlyArray<ResolvedSide>>,
 	discharge: RuleDischarge
 ): ReadonlyArray<ScalarPart> => {
 	const d = law.detail
@@ -1067,7 +1064,7 @@ const scalarParts = (
 			) {
 				return []
 			}
-			switch (containmentDischarge(law, d, relationMap).kind) {
+			switch (containmentDischarge(law, d, projected, relationMap).kind) {
 				case "native":
 					return [d]
 				case "whole":
@@ -1371,29 +1368,27 @@ const keysOf = (
 	...(projected.get(to.relation) ?? []).filter((k) => !k.terms.some((t) => isSpanField(t.column)))
 ]
 
+/** The key of a fixed target (see the recognition table) and the fields its selection fixes beyond its terms. */
+interface FixedKey {
+	readonly key: TargetKey
+	readonly fixings: NonEmptyReadonlyArray<Fixing>
+}
+
 /**
- * A fixed target (see the recognition table): a target of field terms whose selection fixes fields beyond them, by
- * the first key, in `keysOf` order, that selects within it and whose terms are among its terms and the fields it fixes
- * outside the key's selection (`fixingsOf`). Its columns are its terms under its other conjuncts, then each fixed
- * field, the key's own column where the field is a term of the key and else the field, so a target that is a
- * projected key's side widened by its fixed fields references that key's own UNIQUE; the source's are its own, then
- * for each fixed field a constant law column of its literal or its column paired with the term the field equals. The
- * key holds apart the facts the other conjuncts keep at them, its selection among those conjuncts, so the UNIQUE over
- * them refuses nothing the key admits. Undefined for any other target.
+ * The key that holds a fixed target apart: the first key, in `keysOf` order, that selects within it and whose terms are
+ * among its field terms and the fields it fixes outside the key's selection (`fixingsOf`). Undefined for a target with a
+ * term no field, or one no such key holds.
  */
-const fixedTargetOf = (
+const fixedKeyOf = (
 	projected: ReadonlyMap<string, ReadonlyArray<ResolvedSide>>,
-	to: ResolvedSide,
-	source: NonEmptyReadonlyArray<PlannedColumn>,
-	fromRel: RelationInfo,
-	toRel: RelationInfo
-): Reference | undefined => {
+	to: ResolvedSide
+): FixedKey | undefined => {
 	const fields = fieldTermsOf(to.terms)
 	if (fields === undefined) {
 		return undefined
 	}
 	const terms = fields.map((t) => t.column)
-	const [held] = keysOf(projected, to).flatMap((key) => {
+	const [held] = keysOf(projected, to).flatMap((key): ReadonlyArray<FixedKey> => {
 		const fixed = fixingsOf(to, terms, key)
 		const covered = [...terms, ...fixed.map((f) => f.field)]
 		return selectsWithin(key, to) &&
@@ -1402,6 +1397,37 @@ const fixedTargetOf = (
 			? [{ key, fixings: fixed }]
 			: []
 	})
+	return held
+}
+
+/**
+ * Whether a key of `to`'s relation holds the target apart, so a UNIQUE over the columns a containment references it at
+ * states exactly what the key does: a fixed target's key (`fixedKeyOf`), or a key over a selection within the target's
+ * whose terms are among its terms (`keyedBy`), the target's columns that key's own or a superkey of it. A target no key
+ * holds has no UNIQUE the law model may add: one over its columns would refuse facts the schema admits.
+ */
+const keyHolds = (
+	projected: ReadonlyMap<string, ReadonlyArray<ResolvedSide>>,
+	to: ResolvedSide
+): boolean =>
+	fixedKeyOf(projected, to) !== undefined || keysOf(projected, to).some((k) => keyedBy(k, to))
+
+/**
+ * A fixed target (see the recognition table) referenced at its key's columns (`fixedKeyOf`): its columns are its terms
+ * under its other conjuncts, then each fixed field, the key's own column where the field is a term of the key and else
+ * the field, so a target that is a projected key's side widened by its fixed fields references that key's own UNIQUE;
+ * the source's are its own, then for each fixed field a constant law column of its literal or its column paired with
+ * the term the field equals. The key holds apart the facts the other conjuncts keep at them, its selection among those
+ * conjuncts, so the UNIQUE over them refuses nothing the key admits. Undefined for any other target.
+ */
+const fixedTargetOf = (
+	projected: ReadonlyMap<string, ReadonlyArray<ResolvedSide>>,
+	to: ResolvedSide,
+	source: NonEmptyReadonlyArray<PlannedColumn>,
+	fromRel: RelationInfo,
+	toRel: RelationInfo
+): Reference | undefined => {
+	const held = fixedKeyOf(projected, to)
 	if (held === undefined) {
 		return undefined
 	}
@@ -1490,7 +1516,13 @@ export const referenceChoice = (
 	const fixed: Array<FixedUse> = []
 	const relationMap = new Map(Object.entries(relations))
 	for (const law of laws) {
-		for (const [i, part] of scalarParts(law, relations, relationMap, discharge).entries()) {
+		for (const [i, part] of scalarParts(
+			law,
+			relations,
+			relationMap,
+			projected,
+			discharge
+		).entries()) {
 			const source = sideColumns(part.from)
 			appendAll(at(part.from.relation).columns, source)
 			const run = btreeRun(source)
@@ -2140,7 +2172,7 @@ export class Recognizer {
 			case "span":
 				return done(this.#coverage(d, d.pairing, loc))
 			case "scalar": {
-				const discharge = containmentDischarge(law, d, this.#relationMap)
+				const discharge = containmentDischarge(law, d, this.#projectedKeys, this.#relationMap)
 				switch (discharge.kind) {
 					case "native":
 						return done(
@@ -2298,12 +2330,12 @@ export class Recognizer {
 	}
 
 	/**
-	 * How the part `part` references its target, each reference into a UNIQUE a key of its relation implies: a fixed
-	 * target (`fixedTargetOf`) at its terms and fixed fields where the whole schema's choice takes that shared UNIQUE for
-	 * the part (`references`), else at its own columns, which the key holding it implies too, since its selection holds
-	 * the key's and fixes each of the key's fields beyond its terms; a target keyed by its terms, by a key (`keysOf`)
-	 * that selects within it and whose terms are among its terms, at its own columns. A target no key holds is refused:
-	 * no UNIQUE the law model may add holds it apart.
+	 * How the part `part` references its target, a target a key of its relation holds apart (`keyHolds`), into a UNIQUE
+	 * that key implies: a fixed target (`fixedTargetOf`) at its terms and fixed fields where the whole schema's choice
+	 * takes that shared UNIQUE for the part (`references`), else at its own columns, which the key holding it implies
+	 * too, since its selection holds the key's and fixes each of the key's fields beyond its terms, or its terms hold
+	 * the key's. A target no key holds is refused, a containment the judge does not hold whole: no UNIQUE the law model
+	 * may add holds it apart.
 	 */
 	#reference(
 		to: ResolvedSide,
@@ -2313,19 +2345,17 @@ export class Recognizer {
 		loc: SourceLoc,
 		part: PartRef
 	): Reference {
-		const own: Reference = { columns: source, targetColumns: sideColumns(to) }
+		if (!keyHolds(this.#projectedKeys, to)) {
+			return refuse(
+				"UnsupportedLawFamily",
+				loc,
+				`a containment into a side that contains a key of ${toRel.name}, or one the judge holds whole: unit-local, over immutable relations, its sides of field terms selected by comparisons; ${to.relation}(${to.terms.map(termText).join(", ")}) contains no key among its terms and the fields its selection fixes, over a selection within its own, and the containment is not judged whole`
+			)
+		}
 		const fixed = fixedTargetOf(this.#projectedKeys, to, source, fromRel, toRel)
-		if (fixed !== undefined) {
-			return takesShared(this.references, part) ? fixed : own
-		}
-		if (keysOf(this.#projectedKeys, to).some((k) => keyedBy(k, to))) {
-			return own
-		}
-		return refuse(
-			"UnsupportedLawFamily",
-			loc,
-			`a containment into a side that contains a key of ${toRel.name}; ${to.relation}(${to.terms.map(termText).join(", ")}) contains no key among its terms and the fields its selection fixes, over a selection within its own, and a containment into an unkeyed side is not admitted`
-		)
+		return fixed !== undefined && takesShared(this.references, part)
+			? fixed
+			: { columns: source, targetColumns: sideColumns(to) }
 	}
 
 	/**
