@@ -18,6 +18,20 @@ import { type CalendarDate, dayNumber, toCalendarDate } from "#compiler/ir/date.
  */
 export type Span<E> = { readonly start: E; readonly end: E }
 
+/**
+ * Whether a value has a span's host type over endpoints `is` holds: an object of a start and an end, each one. It checks
+ * the type only, never a span's order or width, which its admission reads (spanOf, live/wire.ts's parse).
+ */
+export const isSpanOf =
+	<E>(is: (value: unknown) => value is E) =>
+	(value: unknown): value is Span<E> =>
+		typeof value === "object" &&
+		value !== null &&
+		"start" in value &&
+		"end" in value &&
+		is(value.start) &&
+		is(value.end)
+
 /** The range representation of the endpoint type. */
 export type SpanEndpointCarrier = "int4" | "int8" | "date"
 

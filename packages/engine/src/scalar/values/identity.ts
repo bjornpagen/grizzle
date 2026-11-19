@@ -32,7 +32,13 @@ import {
 } from "#compiler/scalar/values/float.ts"
 import { toInt2, toInt4, toInt8 } from "#compiler/scalar/values/integer.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { admitSpan, compareSpan, type Span, spanText } from "#compiler/scalar/values/span.ts"
+import {
+	admitSpan,
+	compareSpan,
+	isSpanOf,
+	type Span,
+	spanText
+} from "#compiler/scalar/values/span.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 import { admitEncodable, isVector, Vector } from "#compiler/scalar/values/vector.ts"
 
@@ -358,15 +364,6 @@ const isBigint = (value: unknown): value is bigint => typeof value === "bigint"
 const isString = (value: unknown): value is string => typeof value === "string"
 const isStringSet = (value: unknown): value is ReadonlySet<string> =>
 	value instanceof Set && Array.from(value).every(isString)
-const isSpanOf =
-	<E extends number | bigint | CalendarDate>(isEndpoint: (value: unknown) => value is E) =>
-	(value: unknown): value is Span<E> =>
-		typeof value === "object" &&
-		value !== null &&
-		"start" in value &&
-		"end" in value &&
-		isEndpoint(value.start) &&
-		isEndpoint(value.end)
 
 /** Whether a value has a carrier's host type. It checks the type only, never the carrier's admission rules. */
 const hostChecks: { readonly [C in Carrier]: (value: unknown) => value is CarrierHost[C] } = {

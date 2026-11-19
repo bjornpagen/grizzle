@@ -48,7 +48,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
 import { binary32Max } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import type { Span } from "#compiler/scalar/values/span.ts"
+import { isSpanOf, type Span } from "#compiler/scalar/values/span.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
 
@@ -551,17 +551,6 @@ const trustedSpan = <E>(json: WireJson, endpoint: (json: WireJson) => E): Span<E
 		end: endpoint(trustedMember(record, "end"))
 	})
 }
-
-/** Whether a value is a span of endpoints `is` holds: a record of its start and end. */
-const isSpanOf =
-	<E>(is: (value: unknown) => value is E) =>
-	(value: unknown): value is Span<E> =>
-		typeof value === "object" &&
-		value !== null &&
-		"start" in value &&
-		"end" in value &&
-		is(value.start) &&
-		is(value.end)
 
 const isNumber = (value: unknown): value is number => typeof value === "number"
 const isBigint = (value: unknown): value is bigint => typeof value === "bigint"
