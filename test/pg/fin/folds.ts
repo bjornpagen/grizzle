@@ -11,18 +11,7 @@
  * an end `empty family`; the member-to-owner foreign key the owner axis, owner-to-member the last axis, member-to-member
  * the predecessor axis.
  */
-import {
-	Array as Arr,
-	Data,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Result,
-	type Scope,
-	String as Str
-} from "effect"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { Array as Arr, Data, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { FoldPlane } from "#compiler/ir/family.ts"
 import { type ColumnKey, columnKey, columnKeyOf } from "#compiler/ir/law.ts"
@@ -65,8 +54,7 @@ import {
 	constraintText,
 	type End,
 	ended,
-	type Seat,
-	seatOf
+	type Seat
 } from "#test/pg/fin/installed.ts"
 import { deepEquals } from "#test/support/assert.ts"
 import { cellAt, cellsOf } from "#test/support/cells.ts"
@@ -98,7 +86,6 @@ import {
 	sameMoment
 } from "#test/support/substrate.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import type { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** The roster the set monoids fold over: five handles, codes 0 to 4. */
@@ -629,15 +616,6 @@ export interface FoldSeat {
 	/** K's bit mask by the installation's codes. */
 	readonly k: bigint
 }
-
-export const foldSeat = (
-	spec: FoldSpec,
-	label: string
-): Effect.Effect<
-	FoldSeat,
-	CompileError | SqlError | TransactionRolledBack,
-	Substrate | Scope.Scope
-> => Effect.map(seatOf(spec.schema, ["Owner", "Member"], label), (seat) => foldSeatOf(spec, seat))
 
 /** A fold seat over a seat already installed for `spec`'s schema: its index's role, its laws and K's mask. */
 export const foldSeatOf = (spec: FoldSpec, seat: Seat): FoldSeat => {
