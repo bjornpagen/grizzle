@@ -4,7 +4,12 @@ import type { ParamPlace } from "#compiler/core/identity.ts"
 import type { NodeId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	extendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import { typedEq } from "#compiler/ir/compare.ts"
 import { type NodeScope, nodeScopes, type OuterRefs } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
@@ -57,6 +62,7 @@ import {
 	col,
 	columnDefinition,
 	conjunction,
+	cteRead,
 	type DefinedCte,
 	derived,
 	distinctCore,
@@ -423,10 +429,59 @@ export interface ShareFrame {
 	readonly shared: ReadonlySet<RelNode>
 	readonly cx: LowerContext
 	readonly env: Env
-	/** Each shared node's CTE, defined at its first use. */
-	readonly defined: Map<RelNode, DefinedCte>
-	/** The WITH entries, in definition order: each after every entry its body reads. */
-	readonly ctes: Array<Cte>
+	/** Each shared node's CTE, defined at its first use, and the WITH entries in definition order (CteTable). */
+	readonly table: CteTable<RelNode>
+}
+
+/**
+ * The CTEs a lowering defines, each at its first use (cteAtFirstUse): each by its key, and the WITH entries in
+ * definition order, each after every entry its body reads.
+ */
+export interface CteTable<K> {
+	readonly defined: Map<K, DefinedCte>
+	readonly ctes: Set<Cte>
+}
+
+/** A CTE table that holds none yet. */
+export const freshCtes = <K>(): CteTable<K> => ({ defined: new Map(), ctes: new Set() })
+
+/**
+ * A read of the CTE `table` holds for `node` at `key`, defined at its first use: `body()`, its query, lowered once, its
+ * name and columns `cx`'s, `materialized` as given, entered last among `table`'s WITH entries.
+ */
+export const cteAtFirstUse = <K>(
+	cx: LowerContext,
+	node: RelNode,
+	table: CteTable<K>,
+	key: K,
+	materialized: NonNullable<Cte["materialized"]>,
+	body: () => OperandSelect
+): OperandSelect => {
+	const origin = { kind: "node", node: node.id } as const
+	let cte = table.defined.get(key)
+	if (cte === undefined) {
+		const query = body()
+		const name = cx.relationAlias(origin)
+		const columns = cx.supply.columns(outputNames(node.heading).map(() => origin))
+		table.ctes.add({ name, columns, materialized, query })
+		cte = { name, columns, set: isSetQuery(query) }
+		table.defined.set(key, cte)
+	}
+	return cteRead(cx.relationAlias(origin), cte)
+}
+
+/** `query` with `ctes` leading its WITH, before the entries it already holds. */
+export const withLeading = <Q extends OperandSelect>(query: Q, ctes: Iterable<Cte>): Q => {
+	const leading = [...ctes]
+	return isNonEmpty(leading)
+		? {
+				...query,
+				with:
+					query.with === undefined
+						? { ctes: leading, recursive: false }
+						: { ...query.with, ctes: extendNonEmpty(leading, query.with.ctes) }
+			}
+		: query
 }
 
 /**

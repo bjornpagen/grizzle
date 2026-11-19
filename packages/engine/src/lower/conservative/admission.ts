@@ -1,14 +1,10 @@
-import {
-	extendNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type CallerParamDecl, callerParams } from "#compiler/ir/products.ts"
 import {
 	arraysSource,
 	type LowerContext,
-	relationColumns
+	relationColumns,
+	withLeading
 } from "#compiler/lower/conservative/context.ts"
 import type { Cte, Expr, Select, Target } from "#compiler/sql/ast.ts"
 import {
@@ -137,11 +133,5 @@ export const withAdmission = (cx: LowerContext, query: Select): Select => {
 	if (entry === undefined) {
 		return query
 	}
-	return {
-		...query,
-		with:
-			query.with === undefined
-				? { recursive: false, ctes: [entry] }
-				: { ...query.with, ctes: extendNonEmpty([entry], query.with.ctes) }
-	}
+	return withLeading(query, [entry])
 }

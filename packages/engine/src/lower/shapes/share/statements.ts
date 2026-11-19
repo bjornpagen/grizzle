@@ -3,17 +3,18 @@ import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { extendNonEmpty, isNonEmpty } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { freeVars, type NodeScope, nodeScopes, nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import { edgesOf, inputsOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
 import {
+	type CteTable,
+	cteAtFirstUse,
 	type Env,
 	emptyEnv,
 	type LowerContext,
 	type NodeDispatch,
-	outputNames
+	withLeading
 } from "#compiler/lower/conservative/context.ts"
 import { costClass } from "#compiler/lower/optimize/cte-policy/index.ts"
 import {
@@ -23,8 +24,8 @@ import {
 	subtreeOf
 } from "#compiler/lower/optimize/demand/editor.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
-import { type Cte, isSetQuery, type OperandSelect } from "#compiler/sql/ast.ts"
-import { col, core, cteRead, type DefinedCte, operandSelect, target } from "#compiler/sql/build.ts"
+import type { OperandSelect } from "#compiler/sql/ast.ts"
+import { col, core, operandSelect, target } from "#compiler/sql/build.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
 
 /**
@@ -400,9 +401,7 @@ type SharedSource =
 	  }
 	| { readonly kind: "enclosing"; readonly name: string; readonly columns: ReadonlyArray<string> }
 
-interface StatementScope {
-	readonly ctes: Set<Cte>
-	readonly defined: Map<string, DefinedCte>
+interface StatementScope extends CteTable<string> {
 	/** The copies of each share key the statement computes once as a MATERIALIZED CTE (statementCtes), by label. */
 	readonly materialize: ReadonlyMap<NodeId, string>
 }
@@ -510,17 +509,7 @@ export class StatementSharing {
 		const inScope: NodeDispatch = (n, ncx, nenv) =>
 			this.#readCarrier(n, ncx, filling) ?? this.#shared(n, ncx, nenv, scope)
 		const query = this.#shared(node, cx.withDispatch(inScope), env, scope)
-		const scoped = [...scope.ctes]
-		if (!isNonEmpty(scoped)) {
-			return query
-		}
-		return {
-			...query,
-			with:
-				query.with === undefined
-					? { ctes: scoped, recursive: false }
-					: { ...query.with, ctes: extendNonEmpty(scoped, query.with.ctes) }
-		}
+		return withLeading(query, scope.ctes)
 	}
 
 	#shared(node: RelNode, cx: LowerContext, env: Env, scope: StatementScope): OperandSelect {
@@ -528,16 +517,8 @@ export class StatementSharing {
 		if (key === undefined || cx.readsFeedback(node)) {
 			return this.#inner(node, cx, env)
 		}
-		const origin = { kind: "node", node: node.id } as const
-		let cte = scope.defined.get(key)
-		if (cte === undefined) {
-			const query = this.#inner(node, cx, emptyEnv)
-			const name = cx.relationAlias(origin)
-			const columns = cx.supply.columns(outputNames(node.heading).map(() => origin))
-			scope.ctes.add({ name, columns, materialized: "MATERIALIZED", query })
-			cte = { name, columns, set: isSetQuery(query) }
-			scope.defined.set(key, cte)
-		}
-		return cteRead(cx.relationAlias(origin), cte)
+		return cteAtFirstUse(cx, node, scope, key, "MATERIALIZED", () =>
+			this.#inner(node, cx, emptyEnv)
+		)
 	}
 }

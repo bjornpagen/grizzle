@@ -5,7 +5,6 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import {
 	concatNonEmpty,
-	extendNonEmpty,
 	isNonEmpty,
 	lastNonEmpty,
 	mapNonEmpty,
@@ -15,16 +14,19 @@ import type { CompletedOrder, Heading, NodeOf, RelKind, RelNode } from "#compile
 import { withAdmission } from "#compiler/lower/conservative/admission.ts"
 import {
 	columnIn,
+	type CteTable,
+	cteAtFirstUse,
 	distinctSelect,
 	type Env,
 	emptyEnv,
+	freshCtes,
 	headingTargets,
 	type LowerContext,
 	type NodeDispatch,
 	type NodeLowerer,
 	nodeLabel,
-	outputNames,
-	refuse
+	refuse,
+	withLeading
 } from "#compiler/lower/conservative/context.ts"
 import {
 	checkedAttachment,
@@ -362,17 +364,12 @@ export const conservativeStatement = <Slot extends ConservativeParamSlot>(
 })
 
 /** The CTEs one statement defined while it was lowered: its WITH entries, and each shared node's CTE by node. */
-interface CteLog {
-	readonly ctes: Set<Cte>
-	readonly defined: Map<RelNode, DefinedCte>
-}
+type CteLog = CteTable<RelNode>
 
 /** What one statement accumulated while it was lowered: its WITH entries and its per-execution choices. */
 interface StatementLog<C> extends CteLog {
 	readonly choices: ReadonlyArray<C>
 }
-
-const freshLog = (): CteLog => ({ ctes: new Set(), defined: new Map() })
 
 /**
  * The attachment whose child a take is lowered in: the nodes of its delivered rows, and the parents those rows are,
@@ -455,7 +452,7 @@ export interface ShapeLog<I extends ChoiceInput> {
 export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 	readonly cte: CtePlan
 	#mode: InputChoiceMode
-	#log: CteLog = freshLog()
+	#log: CteLog = freshCtes()
 	#choices: Array<ShapeChoice<I>> = []
 
 	/** A state whose first statement is lowered in `mode`. */
@@ -471,7 +468,7 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 	/** The next statement, lowered in `mode`, with a fresh log. */
 	begin(mode: InputChoiceMode): void {
 		this.#mode = mode
-		this.#log = freshLog()
+		this.#log = freshCtes()
 		this.#choices = []
 	}
 
@@ -486,7 +483,7 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 	/** The statement's WITH entries and choices, and a fresh log for the next statement. */
 	drain(): StatementLog<ShapeChoice<I>> {
 		const log = { ...this.#log, choices: this.#choices }
-		this.#log = freshLog()
+		this.#log = freshCtes()
 		this.#choices = []
 		return log
 	}
@@ -726,18 +723,7 @@ const dispatchIn = <I extends ChoiceInput>(
 		if (materialized === undefined || cx.readsFeedback(node)) {
 			return plugIn(node, cx, env)
 		}
-		const origin = { kind: "node", node: node.id } as const
-		const log = state.log
-		let defined = log.defined.get(node)
-		if (defined === undefined) {
-			const query = plugIn(node, cx, emptyEnv)
-			const name = cx.relationAlias(origin)
-			const columns = cx.supply.columns(outputNames(node.heading).map(() => origin))
-			log.ctes.add({ name, columns, materialized, query })
-			defined = { name, columns, set: isSetQuery(query) }
-			log.defined.set(node, defined)
-		}
-		return cteRead(cx.relationAlias(origin), defined)
+		return cteAtFirstUse(cx, node, state.log, node, materialized, () => plugIn(node, cx, emptyEnv))
 	}
 }
 
@@ -819,21 +805,6 @@ interface HeldRows {
 interface HeldPairs extends HeldRows {
 	readonly children: () => OperandSelect
 }
-
-/**
- * `query` with the statement entries `entries` leading its WITH, as a statement of its own holds the CTEs its lowering
- * defined.
- */
-const withEntries = (query: Select, entries: ReadonlyArray<Cte>): Select =>
-	isNonEmpty(entries)
-		? {
-				...query,
-				with:
-					query.with === undefined
-						? { ctes: entries, recursive: false }
-						: { ...query.with, ctes: extendNonEmpty(entries, query.with.ctes) }
-			}
-		: query
 
 /** The text of the statement `ast` under the names `nameMap`, which a statement the lowering built always prints. */
 const emitted = (ast: Select, nameMap: NameMap): EmittedSql => {
@@ -993,7 +964,7 @@ export class OptimizedDelivery<
 				withAdmission(
 					cx,
 					statingImages(
-						withEntries(refineDelivered(cx, only.query, output.heading), [...log.ctes]),
+						withLeading(refineDelivered(cx, only.query, output.heading), log.ctes),
 						cx.names.imaged
 					)
 				),
@@ -1024,7 +995,7 @@ export class OptimizedDelivery<
 		let entries: ReadonlyArray<Cte> = [...log.ctes]
 		const parts = mapNonEmpty([only, ...others], (part) => {
 			const output = statementOutput(part.role, part.heading, part.fused)
-			const refined = refineDelivered(cx, withEntries(part.query, entries), output.heading)
+			const refined = refineDelivered(cx, withLeading(part.query, entries), output.heading)
 			const refinedWith = refined.with?.ctes ?? []
 			const own = refinedWith.slice(entries.length)
 			entries = refinedWith.slice(0, entries.length)

@@ -1,7 +1,6 @@
 import { postorder } from "#compiler/core/graph.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { extendNonEmpty, isNonEmpty } from "#compiler/core/nonempty.ts"
 import { edgesOf, type NodeOf, type RelKind, type RelNode } from "#compiler/ir/rel.ts"
 import { antiJoinLowering } from "#compiler/lower/conservative/anti-join/index.ts"
 import { attachLowering } from "#compiler/lower/conservative/attach/index.ts"
@@ -9,12 +8,14 @@ import { baseLowering } from "#compiler/lower/conservative/base/index.ts"
 import { contextLowering } from "#compiler/lower/conservative/claims/index.ts"
 import { closedLowering } from "#compiler/lower/conservative/closed/index.ts"
 import {
+	cteAtFirstUse,
 	type Env,
+	freshCtes,
 	type LowerContext,
 	type Lowerers,
 	type NodeLowerer,
-	outputNames,
-	type ShareFrame
+	type ShareFrame,
+	withLeading
 } from "#compiler/lower/conservative/context.ts"
 import { deltaLowering } from "#compiler/lower/conservative/delta/index.ts"
 import { differenceLowering } from "#compiler/lower/conservative/difference/index.ts"
@@ -36,8 +37,7 @@ import { takeLowering } from "#compiler/lower/conservative/take/index.ts"
 import { unionLowering } from "#compiler/lower/conservative/union/index.ts"
 import { approximateNearestLowering } from "#compiler/lower/conservative/vector/index.ts"
 import { windowLowering } from "#compiler/lower/conservative/window/index.ts"
-import { type Cte, isSetQuery, type OperandSelect } from "#compiler/sql/ast.ts"
-import { cteRead } from "#compiler/sql/build.ts"
+import type { OperandSelect } from "#compiler/sql/ast.ts"
 
 /**
  * The kind table of the conservative lowering, written once.
@@ -171,18 +171,6 @@ const sharedOf = (
 	return shared
 }
 
-/** `query` with `ctes` leading its WITH. */
-const leading = <Q extends OperandSelect>(query: Q, ctes: ReadonlyArray<Cte>): Q =>
-	isNonEmpty(ctes)
-		? {
-				...query,
-				with:
-					query.with === undefined
-						? { ctes, recursive: false }
-						: { ...query.with, ctes: extendNonEmpty(ctes, query.with.ctes) }
-			}
-		: query
-
 /**
  * The query of `node` in a frame of its own inside `outer`, its shared nodes' CTEs leading its WITH. A frame inside
  * another is opened only where it shares a node, so a node lowered inside one with nothing to share is its plug-in's
@@ -198,9 +186,9 @@ const framed = (
 	if (outer !== undefined && shared.size === 0) {
 		return plugIn(node, cx, env)
 	}
-	const frame: ShareFrame = { outer, shared, cx, env, defined: new Map(), ctes: [] }
+	const frame: ShareFrame = { outer, shared, cx, env, table: freshCtes() }
 	const query = plugIn(node, cx.withSharing(frame), env)
-	return leading(query, frame.ctes)
+	return withLeading(query, frame.table.ctes)
 }
 
 /**
@@ -212,19 +200,10 @@ const owned = (node: RelNode, cx: LowerContext, env: Env, frame: ShareFrame): Op
 	cx.scopeOf(node).outer.size > 0 ? framed(node, cx, env, frame) : plugIn(node, cx, env)
 
 /** A read of the CTE `home` holds for `node`, defined at its first use, its body lowered where `home`'s root was. */
-const sharedRead = (node: RelNode, cx: LowerContext, home: ShareFrame): OperandSelect => {
-	const origin = { kind: "node", node: node.id } as const
-	let cte = home.defined.get(node)
-	if (cte === undefined) {
-		const query = owned(node, home.cx.withSharing(home), home.env, home)
-		const name = cx.relationAlias(origin)
-		const columns = cx.supply.columns(outputNames(node.heading).map(() => origin))
-		home.ctes.push({ name, columns, materialized: "MATERIALIZED", query })
-		cte = { name, columns, set: isSetQuery(query) }
-		home.defined.set(node, cte)
-	}
-	return cteRead(cx.relationAlias(origin), cte)
-}
+const sharedRead = (node: RelNode, cx: LowerContext, home: ShareFrame): OperandSelect =>
+	cteAtFirstUse(cx, node, home.table, node, "MATERIALIZED", () =>
+		owned(node, home.cx.withSharing(home), home.env, home)
+	)
 
 /**
  * The one dispatch: a node to its kind's plug-in, every node a query's lowering would lower more than once lowered
