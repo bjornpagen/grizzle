@@ -35,6 +35,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/compute/float-binding.test.ts",
 	"test/pg/compute/guard-param.test.ts",
 	"test/pg/compute/registry.test.ts",
+	"test/pg/compute/resolve-reference.test.ts",
 	"test/pg/compute/text.test.ts",
 	"test/pg/compute/translate.test.ts",
 	"test/pg/compute/utf16-length.test.ts",
