@@ -11,6 +11,7 @@ import type {
 	InstallSpec,
 	LoginSpec,
 	ModelState,
+	Occurrence,
 	ActionOutcome,
 	RelationSpec,
 	RoleSpec,
@@ -55,14 +56,27 @@ export const holdsWhole = (role: RoleSpec, relation: string): boolean =>
 /** The contexts a term reads. */
 const termContexts = (t: Term): ReadonlyArray<string> => (t.kind === "context" ? [t.context] : [])
 
-/** The contexts a rule reads: in a match, a negation, a comparison or its head. */
+/** The contexts an occurrence reads: its source's, where it matches a context, and each its terms name. */
+export const occurrenceContexts = (o: Occurrence): ReadonlyArray<string> => [
+	...(o.source.kind === "context" ? [o.source.name] : []),
+	...Arr.flatMap(Record.values(o.fields), termContexts)
+]
+
+/**
+ * The contexts a rule reads wherever it returns a row: in a match, a comparison or its head, which a plan reads for
+ * every row it admits; a negation's contexts it reads only where the negation meets a candidate.
+ */
+export const boundContexts = (rule: Rule): ReadonlySet<string> =>
+	new Set([
+		...Arr.flatMap(rule.matches, occurrenceContexts),
+		...Arr.flatMap(rule.comparisons, (c) => [...termContexts(c.left), ...termContexts(c.right)]),
+		...Arr.flatMap(Record.values(rule.head), termContexts)
+	])
+
+/** The contexts a rule reads: where it returns a row (boundContexts), and in a negation. */
 const ruleContexts = (rule: Rule): ReadonlyArray<string> => [
-	...Arr.flatMap([...rule.matches, ...rule.negations.flat()], (o) => [
-		...(o.source.kind === "context" ? [o.source.name] : []),
-		...Arr.flatMap(Record.values(o.fields), termContexts)
-	]),
-	...Arr.flatMap(rule.comparisons, (c) => [...termContexts(c.left), ...termContexts(c.right)]),
-	...Arr.flatMap(Record.values(rule.head), termContexts)
+	...boundContexts(rule),
+	...Arr.flatMap(rule.negations.flat(), occurrenceContexts)
 ]
 
 /** The contexts an entry reads: none for a whole entry. */

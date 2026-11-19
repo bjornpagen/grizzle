@@ -38,6 +38,7 @@ export const readsRequired: Situations<WorldFeature> = [
 			opIn({ kinds: ["direct"], writers: ["direct-role"], observations: ["rows"] })(f) ||
 			startingWith("object:view:", "object:barrier-view:")(f)
 	),
+	"claim-unread:negation",
 	"via:execute",
 	"via:get",
 	"via:page",

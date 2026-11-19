@@ -30,12 +30,14 @@ import {
 } from "#test/support/worlds/model/session/laws.ts"
 
 import {
+	boundContexts,
 	closedDirect,
 	directSessionAt,
 	entryContexts,
 	roleEntryOf,
 	factsIn,
 	loginOf,
+	occurrenceContexts,
 	relationSpecOf,
 	roleOf,
 	seenThrough,
@@ -72,6 +74,7 @@ import type {
 	InstalledNames,
 	Isolation,
 	ModelState,
+	Occurrence,
 	RoleRef,
 	RoleSpec,
 	Rule,
@@ -923,15 +926,74 @@ export const directBranches = (
 		})
 		return { order: first ? "first" : "planned", contexts }
 	}
+	/** Whether a context's claims are faulty: a read of it refuses (faulty). */
+	const faultyContext = (context: string): boolean => faultsOf(new Set([context])).length > 0
 	/**
-	 * The rows of a query entry's arms that read no faulty context, under the facts the claims hold: all a plan reading no
-	 * faulty claim returns, since an arm's row needs every context it reads.
+	 * A negation as a plan meets its candidates reading no faulty claim: each occurrence of a faulty context left out,
+	 * and of every other occurrence each field a faulty claim fills; none left where every occurrence was a faulty
+	 * context's, whose every fact is then a candidate.
 	 */
-	const unfaultedRows = (rules: Arr.NonEmptyReadonlyArray<Rule>): ReadonlyArray<HostFact> => {
-		const [arm, ...arms] = Arr.filter(rules, (r) => faultsOf(armContexts(r)).length === 0)
-		return arm === undefined
-			? []
-			: evaluateRules(base, [arm, ...arms], seen.reality, seen.derived, facts)
+	const unclaimed = (negation: Arr.NonEmptyReadonlyArray<Occurrence>): ReadonlyArray<Occurrence> =>
+		Arr.flatMap(negation, (o) =>
+			o.source.kind === "context" && faultyContext(o.source.name)
+				? []
+				: [
+						{
+							...o,
+							fields: Record.filter(
+								o.fields,
+								(t) => !(t.kind === "context" && faultyContext(t.context))
+							)
+						}
+					]
+		)
+	/**
+	 * What a plan that reads no faulty claim makes of a query entry's arms, under the facts the claims hold (README "The
+	 * claims setting": a plan's judgment of a row is what it reads of it): the rows it returns, and whether every plan
+	 * reads a faulty claim, so the view answers only with its refusal. An arm reading a faulty context in a match, a
+	 * comparison or its head (boundContexts) returns no row: every row it returns reads the claim, and a plan reaches
+	 * none without it only by dropping it first. An arm reading faulty contexts only in negations returns each row
+	 * whose such negations have no candidate, a fact matching each of their terms but the faulty claims (unclaimed):
+	 * there the negation holds whatever the claim says, and the plan admits the row reading none, as PostgreSQL's
+	 * anti-join compares no claim where it meets no candidate. A row that passes the arm's matches, comparisons and
+	 * other negations and meets a candidate of such a negation needs the claim to be judged, so every plan reads it.
+	 */
+	const claimFreeRows = (
+		rules: Arr.NonEmptyReadonlyArray<Rule>
+	): { readonly rows: ReadonlyArray<HostFact>; readonly claimed: boolean } => {
+		const evaluated = (arms: ReadonlyArray<Rule>): ReadonlyArray<HostFact> => {
+			const [arm, ...rest] = arms
+			return arm === undefined
+				? []
+				: evaluateRules(base, [arm, ...rest], seen.reality, seen.derived, facts)
+		}
+		const read = Arr.flatMap(rules, (rule) => {
+			if (faultsOf(armContexts(rule)).length === 0) {
+				return [{ admitted: [rule], claimed: false }]
+			}
+			if (Arr.some([...boundContexts(rule)], faultyContext)) {
+				return [{ admitted: [], claimed: false }]
+			}
+			const faultyNegation = (n: Arr.NonEmptyReadonlyArray<Occurrence>): boolean =>
+				Arr.some(n, (o) => Arr.some(occurrenceContexts(o), faultyContext))
+			const kept = Arr.filter(rule.negations, (n) => !faultyNegation(n))
+			const faulty = Arr.filter(rule.negations, faultyNegation)
+			const relaxed = Arr.map(faulty, unclaimed)
+			const admitted = Arr.every(relaxed, Arr.isReadonlyArrayNonEmpty)
+				? [{ ...rule, negations: [...kept, ...Arr.filter(relaxed, Arr.isReadonlyArrayNonEmpty)] }]
+				: []
+			const claimed = Arr.some(
+				relaxed,
+				(candidate) =>
+					evaluated([{ ...rule, matches: [...rule.matches, ...candidate], negations: kept }])
+						.length > 0
+			)
+			return [{ admitted, claimed }]
+		})
+		return {
+			rows: evaluated(Arr.flatMap(read, (r) => r.admitted)),
+			claimed: Arr.some(read, (r) => r.claimed)
+		}
 	}
 	/**
 	 * A role's view as PostgreSQL resolves its name when a statement is analyzed, for a select and a PREPARE alike: the
@@ -959,9 +1021,11 @@ export const directBranches = (
 	/**
 	 * A read of a role's view (README "Security model"): only the role itself reads its views, in its own schema; a closed
 	 * whole entry has no view; a predicate naming a field the view lacks is refused as the statement is analyzed. The view
-	 * reads faulty claims as its judgment says (viewJudgment); a plan that reads none returns the rows of its arms that
-	 * read no faulty context (unfaultedRows). A raising predicate the reader adds runs only on the view's own rows: a query
-	 * entry's view is a security barrier, and a whole entry's hides no row.
+	 * reads faulty claims as its judgment says (viewJudgment); a plan that reads none returns the rows its arms admit
+	 * without them (claimFreeRows), and where one of its rows needs a faulty claim every plan reads it, so the view
+	 * answers with the claim's refusal, or first with a raising predicate's error on a row it admits without the claim,
+	 * which a plan may scan before. A raising predicate the reader adds runs only on the view's own rows: a query entry's
+	 * view is a security barrier, its own quals judged first, and a whole entry's hides no row.
 	 */
 	const viewRead = (
 		owner: string,
@@ -977,19 +1041,21 @@ export const directBranches = (
 			return [refused("other")]
 		}
 		const judgment = viewJudgment(entry)
-		return underClaims(judgment, true, () => {
-			const rows =
-				entry.kind === "query" && judgment.order !== "none"
-					? unfaultedRows(entry.rules)
-					: entryRows(seen, owner, relation, facts)
-			if (
-				filter.kind === "raise-on" &&
-				Arr.some(rows, (r) => sameValue(r[filter.field], filter.value))
-			) {
-				return [refused("other")]
-			}
-			return [{ observation: { kind: "rows", rows }, next: state }]
-		})
+		const read =
+			entry.kind === "query" && judgment.order !== "none"
+				? claimFreeRows(entry.rules)
+				: { rows: entryRows(seen, owner, relation, facts), claimed: false }
+		const raises =
+			filter.kind === "raise-on" &&
+			Arr.some(read.rows, (r) => sameValue(r[filter.field], filter.value))
+		const answer: Branch = raises
+			? refused("other")
+			: { observation: { kind: "rows", rows: read.rows }, next: state }
+		return underClaims(
+			read.claimed && !raises ? { ...judgment, order: "first" } : judgment,
+			true,
+			() => [answer]
+		)
 	}
 	/**
 	 * A read of a base table: only one the role writes, every fact through a whole entry and its members through a query

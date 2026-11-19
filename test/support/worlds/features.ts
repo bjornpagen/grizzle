@@ -23,11 +23,13 @@ import { entryKeyed } from "#test/support/worlds/model/session/keys.ts"
 import { reorderedRoster } from "#test/support/worlds/model/session/migrate.ts"
 import {
 	dbSessionAt,
+	boundContexts,
 	directSessionAt,
 	draftedFrom,
 	entryContexts,
 	roleEntryOf,
 	factsIn,
+	occurrenceContexts,
 	relationSpecOf,
 	roleOf,
 	seenThrough,
@@ -1498,6 +1500,53 @@ const readsOf = (
  * the statement's refusal is, a refinement's 23514 on its law domain's CHECK law where it has one; none for any other
  * action or answer.
  */
+/**
+ * A direct read of a view answered without the faulty claim it reads only in a negation (model/session/direct.ts
+ * claimFreeRows): a hand-set setting refusing a context that an arm of the view reads in a negation and nowhere it
+ * returns a row from, and an answer other than that claim's refusal, rows or a raising filter's error on a row the view
+ * admits, the negation having met no candidate, where the plan read no claim of it.
+ */
+const claimUnreadOf = (
+	state: ModelState,
+	action: Action,
+	observation: Observation
+): ReadonlyArray<WorldFeature> => {
+	if (action.kind !== "direct" || action.statement.kind !== "select-view") {
+		return []
+	}
+	const statement = action.statement
+	const session = state.sessions[action.session]
+	if (
+		session?.kind !== "direct" ||
+		session.claims.kind !== "set" ||
+		session.claims.read.kind !== "document"
+	) {
+		return []
+	}
+	const refused = session.claims.read.refused
+	const entry = Option.getOrUndefined(
+		Option.flatMap(
+			Arr.findFirst(state.install.roles, (r) => r.name === statement.role),
+			(role) => Option.fromUndefinedOr(role.entries[statement.relation])
+		)
+	)
+	const negatedOnly =
+		entry?.kind === "query" &&
+		Arr.some(entry.rules, (rule) =>
+			Arr.some([...refused.keys()], (context) => {
+				const bound = boundContexts(rule)
+				return (
+					!bound.has(context) &&
+					Arr.some(rule.negations.flat(), (o) => occurrenceContexts(o).includes(context))
+				)
+			})
+		)
+	const answered =
+		observation.kind === "rows" ||
+		(observation.kind === "refused" && observation.sqlstate === "other")
+	return negatedOnly && answered ? ["claim-unread:negation"] : []
+}
+
 export const claimRefusalsOf = (
 	state: ModelState,
 	action: Action,
@@ -2074,6 +2123,7 @@ export const featuresOf = (
 			...lawsOf(state, action, actor, observation),
 			...writesOf(state, action, actor, observation),
 			...claimRefusalsOf(state, action, observation),
+			...claimUnreadOf(state, action, observation),
 			...(action.kind === "migrate"
 				? [`migration:${migrationKindOf(state, action.to)}:${observation.kind}` as const]
 				: [])

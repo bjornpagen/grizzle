@@ -1136,6 +1136,7 @@ export type WorldFeature =
 	| `claim:${ClaimDomain}`
 	| `claim-refused:${ClaimDomain}:${ClaimRefusal}`
 	| `claim-refused-read:${RefinedClaim}:${ClaimReadAt}`
+	| "claim-unread:negation"
 	| `readback:${ReadBackClass}`
 	| `law:${LawFamily}:${LawPath}:${Witness["kind"]}`
 	| `write:${WriteShape}:${RelationSpec["mutability"]}:${"entry" | "whole"}:${EntryOp["kind"]}`
