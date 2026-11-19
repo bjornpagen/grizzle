@@ -9,7 +9,7 @@ import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { refresh, workload } from "#compiler/public/workload.ts"
-import { dimensions, runProbes, vectorText } from "#test/pg/vector/ann/support.ts"
+import { dimensions, probeOf, vectorText } from "#test/pg/vector/ann/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Generated, generatedTemplate, type Installed } from "#test/support/install-migrate.ts"
 import { type ServedFixture, servedGenerated } from "#test/support/served-db.ts"
@@ -119,16 +119,16 @@ export const reportsTemplate = generatedTemplate({
 })
 
 /**
- * A case's fixture over its own clone of the template (reportsTemplate): loads the documents of the run's probes,
- * which a run draws anew and so no template holds, rebuilds the fixture under the installed name, so Db.open takes on
+ * A case's fixture over its own clone of the template (reportsTemplate): loads the documents of the probes of the
+ * case's own draw of vectors (`vectors`), which each case draws anew and so no template holds, rebuilds the fixture under the installed name, so Db.open takes on
  * the installed roles (test/pg/reads/support.ts), serves its login from the file generate wrote, and refreshes the view
  * through the refresher's workload member, a refresh the clone's own, which it drops after the case.
  */
-export const openedIn = (taken: SubstrateCase<Generated>) =>
+export const openedIn = (taken: SubstrateCase<Generated>, vectors: number) =>
 	Effect.provideService(
 		Effect.gen(function* () {
 			const s = yield* Substrate
-			const probe = yield* runProbes
+			const probe = probeOf(vectors)
 			const documents = documentsOf(probe)
 			const generated = taken.value
 			const installed = generated.installed
@@ -171,6 +171,8 @@ export interface ViewCase {
 	readonly account: "A" | "B"
 	readonly probe: number
 	readonly take: number
+	/** The draw of the documents' and the probes' vectors (ann/support.ts probeOf). */
+	readonly vectors: number
 }
 
 export type ViewFeature = "account A scored" | "account B scored" | "a search over the view refused"

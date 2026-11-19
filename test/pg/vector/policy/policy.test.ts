@@ -21,7 +21,7 @@ import { element, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
-import { admittedPolicy, candidates, fixtureIn, vectorParam } from "#test/pg/vector/ann/support.ts"
+import { admittedPolicy, annIn, candidates, vectorParam } from "#test/pg/vector/ann/support.ts"
 import {
 	type AccountLabel,
 	accountOf,
@@ -55,7 +55,7 @@ export const theHNSWSearchPolicyAsLoginDefaultsStoresThePolicyAsTheLoginsDefault
 						Effect.provideService(
 							Effect.gen(function* () {
 								const s = yield* Substrate
-								const fx = yield* fixtureIn(taken, { candidates })
+								const fx = annIn(taken, { candidates })
 								const role = fx.installed.as(fx.opened.server).role
 								const settings = yield* s.admin.queryValues(
 									"SELECT pg_catalog.unnest(s.setconfig)::text FROM pg_catalog.pg_db_role_setting AS s JOIN pg_catalog.pg_roles AS r ON r.oid = s.setrole WHERE r.rolname = $1::text AND s.setdatabase = 0::oid",

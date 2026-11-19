@@ -1,9 +1,8 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { int } from "@bjornpagen/testing/gen"
-import { floorSeed, rotatingSeed, type Stream } from "@bjornpagen/testing/random"
+import { floorSeed, type Stream } from "@bjornpagen/testing/random"
 import { sample } from "@bjornpagen/testing/source"
-import { runOfProcess } from "@bjornpagen/testing/vitest/run"
 import { Array as Arr, Effect, Option, pipe, Record as Rec, String as Str } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -39,11 +38,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { compileTestWorkload, lowerAligned, testCompile } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
-import {
-	type Installed,
-	installedTemplate,
-	installMigrated
-} from "#test/support/install-migrate.ts"
+import { type Installed, seededTemplate } from "#test/support/install-migrate.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -255,13 +250,12 @@ const drawOf = (stream: Stream): number =>
 	defined(sample(int(0, 2 ** 31 - 1), stream, 1)[0], "the stream's draw")
 
 /**
- * The run's draw of the population's and the probes' vectors: one value of the label's rotating stream under the run's
- * seed, the same in every process of one run and new in every run, never a fixed seed. The population's structure (the
- * account sizes, the revisions, the pending and repeated documents) is planted by index.
+ * The population's draw: one value of the label's floor stream, so the population is the template's, loaded and
+ * analyzed once per member (annTemplate), its structure (the account sizes, the revisions, the pending and repeated
+ * documents) planted by index. What a run draws anew is each case's probe, numbered by a draw of the case's own
+ * (probeOf), so a replay token gives the probe again.
  */
-const runDraw = Effect.map(runOfProcess, (run) =>
-	drawOf(rotatingSeed(run.seed, floorSeed("pg/vector/ann/vectors")))
-)
+const populationDraw = drawOf(floorSeed("pg/vector/ann/vectors"))
 
 const population = (draw: number): ReadonlyArray<DocumentFact> => {
 	const next = generator(draw)
@@ -361,14 +355,14 @@ export const duplicatePair = (facts: ReadonlyArray<DocumentFact>): readonly [str
 	return [a, b]
 }
 
-/** The query vector a test numbers `n` under the run's draw: distinct per number, drawn anew in every run. */
-const probeOf =
+/** The template's population (populationDraw). */
+export const annFacts = population(populationDraw)
+
+/** The query vector a test numbers `n` under a draw of vectors: distinct per number and per draw. */
+export const probeOf =
 	(draw: number) =>
 	(n: number): ReadonlyArray<number> =>
 		unitVector(generator((draw ^ Math.imul(0x5eed + n, 0x9e3779b1)) >>> 0))
-
-/** The query vectors of this run, by the number a test gives each: the fixture's probes, for a fixture of its own. */
-export const runProbes = Effect.map(runDraw, probeOf)
 
 const chunks = <A>(items: ReadonlyArray<A>, size: number): ReadonlyArray<ReadonlyArray<A>> =>
 	Arr.map(indices(Math.ceil(items.length / size)), (i) => items.slice(i * size, i * size + size))
@@ -408,16 +402,6 @@ const checked = (q: unknown) =>
 /** The programs of a fixture's workload, by name. */
 type AnnPrograms = Readonly<Record<string, unknown>>
 
-/**
- * The installed schema with the HNSW index each of `programs` requests and no other access path, its full world over the
- * installed name, whose login serves no program, and the programs. generate installs every access path a workload
- * justifies, so this one fixture installs through its first migration with its own index extension (installMigrated),
- * which installs no live source: a suite runs the programs through a per-case door (test/support/served-db.ts
- * withServedDb `serve`), each by its once alone, and a watch of one does not compile.
- */
-const openAnn = <const P extends AnnPrograms>(programs: P) =>
-	Effect.map(installMigrated(AnnSearch, annOptions(programs)), (done) => annOver(done, programs))
-
 /** What the ANN fixture installs with: its programs' HNSW requests, and its full world's login over them. */
 const annOptions = <const P extends AnnPrograms>(programs: P) => ({
 	ambient: ordinarySession,
@@ -434,15 +418,22 @@ const annOver = <const P extends AnnPrograms>(done: Installed, programs: P) => {
 }
 
 /**
- * The ANN fixture's installation with `programs`' HNSW requests as a template (install-migrate.ts installedTemplate),
- * made once per member where each case installed it: a case loads the run's population over its clone
- * (fixtureIn), the vectors a run draws anew, which no template holds.
+ * The ANN fixture's installation with `programs`' HNSW requests and the population as a template (install-migrate.ts
+ * seededTemplate): installed, loaded and analyzed once per member, where each search installed and loaded it before its
+ * cases, so plans are those of the pinned sizes. Its seat empties no table: a case writes only in a transaction it
+ * rolls back, and reads its fixture over the clone (annIn).
  */
 export const annTemplate = (declaredIn: ImportMeta, name: string, programs: AnnPrograms) =>
-	installedTemplate({ declaredIn, name, schema: AnnSearch, options: annOptions(programs) })
+	seededTemplate({
+		declaredIn,
+		name,
+		schema: AnnSearch,
+		options: annOptions(programs),
+		seed: (installed) => Effect.asVoid(populated(annOver(installed, programs)))
+	})
 
-/** The installed schema, its full world, and the programs P its door serves (openAnn). */
-export type AnnOpened<P extends AnnPrograms> = Effect.Success<ReturnType<typeof openAnn<P>>>
+/** The installed schema, its full world, and the programs P its door serves (annOver). */
+export type AnnOpened<P extends AnnPrograms> = ReturnType<typeof annOver<P>>
 
 /** The installation and its population, which a direct writer reads as the full world's role `app`. */
 export interface Fixture {
@@ -459,17 +450,8 @@ interface ServedAnn<P extends AnnPrograms> extends Fixture {
 	readonly opened: AnnOpened<P>
 }
 
-/**
- * Installs the schema with the workload's HNSW index, loads the population of `draw`, and analyzes the tables so plans
- * are those of the pinned sizes. The installation's first migration stores the fixed search policy as the defaults of
- * the login whose role names a vector (physical/ddl/roles.ts), so every search here runs under it. `opened` is the
- * installed schema with its full world, whose login serves `programs`.
- */
-const installDrawn = <const P extends AnnPrograms>(programs: P, draw: number) =>
-	Effect.flatMap(openAnn(programs), (opened) => populated(opened, draw))
-
-/** The run's population, drawn by `draw`, loaded into an opened fixture and vacuumed and analyzed. */
-const populated = <const P extends AnnPrograms>(opened: AnnOpened<P>, draw: number) =>
+/** The population loaded into an opened fixture and vacuumed and analyzed. */
+const populated = <const P extends AnnPrograms>(opened: AnnOpened<P>) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const fixture = opened.installed
@@ -477,7 +459,7 @@ const populated = <const P extends AnnPrograms>(opened: AnnOpened<P>, draw: numb
 			const name = fixture.names.relation(relation)
 			return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
 		}
-		const facts = population(draw)
+		const facts = annFacts
 		const statements: Array<string> = []
 		for (const batch of chunks(facts, 500)) {
 			statements.push(
@@ -523,27 +505,32 @@ const populated = <const P extends AnnPrograms>(opened: AnnOpened<P>, draw: numb
 			opened,
 			facts,
 			table,
-			probe: probeOf(draw)
+			probe: probeOf(populationDraw)
 		} satisfies ServedAnn<P>
 	})
 
-/** The fixture over the run's population: new vectors in every run. */
-export const installFixture = <const P extends AnnPrograms>(programs: P) =>
-	Effect.flatMap(runDraw, (draw) => installDrawn(programs, draw))
-
 /**
  * The fixture of a case over a clone of an ANN template (annTemplate) with `programs`, the ones the template was
- * declared with: the run's population loaded over the clone, as installFixture loads it over its install.
+ * declared with: the template's population, which the clone holds, and its probes.
  */
-export const fixtureIn = <const P extends AnnPrograms>(
+export const annIn = <const P extends AnnPrograms>(
 	taken: SubstrateCase<Installed>,
 	programs: P
-) =>
-	Effect.provideService(
-		Effect.flatMap(runDraw, (draw) => populated(annOver(taken.value, programs), draw)),
-		Substrate,
-		taken.substrate
-	)
+): ServedAnn<P> => {
+	const opened = annOver(taken.value, programs)
+	const table = (relation: string): string => {
+		const name = opened.installed.names.relation(relation)
+		return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
+	}
+	return {
+		installed: opened.installed,
+		app: opened.app,
+		opened,
+		facts: annFacts,
+		table,
+		probe: probeOf(populationDraw)
+	}
+}
 
 export interface Compiled {
 	readonly logical: LogicalQuery

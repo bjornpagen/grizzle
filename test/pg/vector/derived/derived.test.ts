@@ -53,7 +53,8 @@ export const approximateNearestOverADerivedRelationTheViewerReachesTheVectorType
 		(source): ViewCase => ({
 			account: source.draw(element(["A", "B"] as const)),
 			probe: source.draw(int(0, 99)),
-			take: source.draw(int(1, 20))
+			take: source.draw(int(1, 20)),
+			vectors: source.draw(int(0, 2 ** 31 - 1))
 		}),
 		{
 			needs: { reports: Substrate.freshOf(reportsTemplate) },
@@ -68,7 +69,7 @@ export const approximateNearestOverADerivedRelationTheViewerReachesTheVectorType
 					Effect.flatMap(reports, (taken) =>
 						Effect.provideService(
 							Effect.gen(function* () {
-								const o = yield* openedIn(taken)
+								const o = yield* openedIn(taken, c.vectors)
 								const s = yield* Substrate
 								const viewer = o.installed.role(o.fixture.viewer)
 								const session = yield* s.session({
