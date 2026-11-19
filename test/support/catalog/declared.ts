@@ -77,7 +77,7 @@ const levels = (desc: SchemaDesc): Declared => {
  * - every declared relation of kind "relation" is one authored table, and every derived relation one materialized view,
  *   each named by the production identifier of its declared name (`AutomaticTask` is `automatic_task`);
  * - every installation holds the naming door's per-schema singletons: the refusal function, the isolation guard and
- *   its trigger on every table, the snapshot guard and the migrations ledger;
+ *   its trigger on every table, the snapshot guard, the migrations ledger and the drift check's proofs;
  * - a relation is immutable unless a `mutable(R)` statement names it, and only a mutable relation's table may be
  *   updated by a non-owner role;
  * - a roster is its domain and its names constant, named by the digest of its handles in code order, which a first
@@ -107,7 +107,12 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 			)
 		),
 		ledger: identifierOf(identity.ledger()),
-		guarded: new Set([...tables((r) => r.kind === "relation"), identifierOf(identity.ledger())]),
+		proofs: identifierOf(identity.proofs()),
+		guarded: new Set([
+			...tables((r) => r.kind === "relation"),
+			identifierOf(identity.ledger()),
+			identifierOf(identity.proofs())
+		]),
 		functions: new Map<string, InstalledFunction>([
 			[identifierOf(identity.refusal()), { kind: "refusal" }],
 			[identifierOf(identity.isolationGuard()), { kind: "isolationGuard" }],

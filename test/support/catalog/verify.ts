@@ -65,10 +65,16 @@ export interface ErasureExpectation {
 	readonly mutable: ReadonlySet<string>
 	/** The materialized views of the derived relations. */
 	readonly views: ReadonlySet<string>
-	/** The migrations ledger's table: the one table beside the authored ones, which every login reads. */
+	/** The migrations ledger's table: a table beside the authored ones, which every login reads. */
 	readonly ledger: string
 	/**
-	 * The tables carrying the isolation guard: the ledger's, and each authored table some role writes at SERIALIZABLE or
+	 * The drift check's proofs' table (deploy/ledger/ledger.ts proofsTable): the other table beside the authored ones,
+	 * created with the ledger, under the isolation guard, on which no login holds a privilege and which no publication
+	 * publishes.
+	 */
+	readonly proofs: string
+	/**
+	 * The tables carrying the isolation guard: the ledger's and the proofs', and each authored table some role writes at SERIALIZABLE or
 	 * no role writes (physical/ddl/isolation.ts addIsolationTrigger); a table whose every writer is certified READ
 	 * COMMITTED carries none.
 	 */
@@ -473,7 +479,12 @@ const standingProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> =
 	if (t.kind !== "r") {
 		return [{ kind: "foreignRelation", relation: t.name, relkind: t.kind }]
 	}
-	if (!j.expect.tables.has(t.name) && t.name !== j.expect.ledger && !isSecret(j, t)) {
+	if (
+		!j.expect.tables.has(t.name) &&
+		t.name !== j.expect.ledger &&
+		t.name !== j.expect.proofs &&
+		!isSecret(j, t)
+	) {
 		return [{ kind: "unexpectedTable", table: t.name }]
 	}
 	const count = Arr.filter(
