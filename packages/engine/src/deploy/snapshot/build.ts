@@ -34,12 +34,9 @@ import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Declarations, MigrationPlan } from "#compiler/deploy/diff/plan.ts"
 import {
-	ledgerGuardObject,
-	ledgerObject,
+	bookkeepingTables,
 	ledgerPrivilegesObject,
-	ledgerPublished,
-	proofsGuardObject,
-	proofsObject
+	ledgerPublished
 } from "#compiler/deploy/ledger/ledger.ts"
 import { installed, type ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
 import {
@@ -915,25 +912,28 @@ export const derivedFacts = (owned: Owned, closed: ClosedNames, model: LawModel)
 })
 
 /** The target snapshot's content, built from the compiled installation of the current schema and workload, with the
- * migrations ledger's objects added to its manifest: the ledger table and its SERIALIZABLE guard trigger in Setup,
- * after the guard's function, then the drift check's proofs and their guard trigger (deploy/ledger/ledger.ts
- * proofsTable), every login's SELECT on the ledger in Publish, and the ledger among the tables of the live source's
+ * bookkeeping tables' objects added to its manifest (deploy/ledger/ledger.ts bookkeepingTables): each table and its
+ * SERIALIZABLE guard trigger in Setup, after the guard's function, the migrations ledger first, then the drift check's
+ * proofs; every login's SELECT on the ledger in Publish, and the ledger among the tables of the live source's
  * publication (ledgerPublished), where the installation holds one. */
 export const targetState = (input: TargetInput): Result.Result<SnapshotContent, CompileError> =>
 	catchRefusal(() => {
 		const { installation } = input
 		const schema = installation.names.schema
 		const objects: Array<ManifestObject> = []
-		/** The ledger and its guard follow the isolation function the guard runs, so the first Setup file creates the
-		 * function before the ledger. */
-		const ledger = ledgerObject(schema)
-		const guard = ledgerGuardObject(schema)
-		const proofs = proofsObject(schema)
-		const proofsGuard = proofsGuardObject(schema)
+		/** Each bookkeeping table and its guard follow the isolation function the guard runs, so the first Setup file
+		 * creates the function before them. */
+		const bookkeeping = mapNonEmpty(bookkeepingTables, (b) => ({
+			object: b.object(schema),
+			guard: b.guard(schema)
+		}))
+		const [ledger] = bookkeeping
 		for (const o of installation.manifest.objects) {
 			objects.push(o.kind === "publication" ? ledgerPublished(schema, o) : o)
 			if (o.kind === "isolationFunction") {
-				objects.push(ledger, guard, proofs, proofsGuard)
+				for (const b of bookkeeping) {
+					objects.push(b.object, b.guard)
+				}
 			}
 		}
 		const privileges = ledgerPrivilegesObject(schema, installationLogins(installation))
@@ -941,17 +941,16 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 			objects.push(privileges)
 		}
 		/** The installation's edges, in its order (by the identities its objects' names were minted from), then the
-		 * ledger's. */
+		 * bookkeeping tables'. */
 		const edges = [
 			...installation.manifest.edges,
-			{ from: namedIdent("schema", schema), to: ledger.ident },
-			{ from: isolationFunctionIdent(schema), to: guard.ident },
-			{ from: ledger.ident, to: guard.ident },
-			{ from: namedIdent("schema", schema), to: proofs.ident },
-			{ from: isolationFunctionIdent(schema), to: proofsGuard.ident },
-			{ from: proofs.ident, to: proofsGuard.ident },
+			...bookkeeping.flatMap((b) => [
+				{ from: namedIdent("schema", schema), to: b.object.ident },
+				{ from: isolationFunctionIdent(schema), to: b.guard.ident },
+				{ from: b.object.ident, to: b.guard.ident }
+			]),
 			...installation.manifest.objects.flatMap((o) =>
-				o.kind === "publication" ? [{ from: ledger.ident, to: o.ident }] : []
+				o.kind === "publication" ? [{ from: ledger.object.ident, to: o.ident }] : []
 			)
 		]
 		return {

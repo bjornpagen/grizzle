@@ -2,6 +2,7 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { bookkeepingTables } from "#compiler/deploy/ledger/ledger.ts"
 import type { RelationDesc, SchemaDesc } from "#compiler/ir/desc.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
@@ -77,7 +78,8 @@ const levels = (desc: SchemaDesc): Declared => {
  * - every declared relation of kind "relation" is one authored table, and every derived relation one materialized view,
  *   each named by the production identifier of its declared name (`AutomaticTask` is `automatic_task`);
  * - every installation holds the naming door's per-schema singletons: the refusal function, the isolation guard and
- *   its trigger on every table, the snapshot guard and the migrations ledger;
+ *   its trigger on every table, the snapshot guard and grizzle's bookkeeping tables (deploy/ledger/ledger.ts
+ *   bookkeepingTables), the migrations ledger among them;
  * - a relation is immutable unless a `mutable(R)` statement names it, and only a mutable relation's table may be
  *   updated by a non-owner role;
  * - a roster is its domain and its names constant, named by the digest of its handles in code order, which a first
@@ -93,6 +95,7 @@ const levels = (desc: SchemaDesc): Declared => {
  */
 export const declaredErasure = (schema: unknown): ErasureExpectation => {
 	const { relations, mutable, headers } = levels(descOf(schema))
+	const bookkeeping = new Set(Arr.map(bookkeepingTables, (b) => b.name))
 	const tables = (keep: (r: RelationDesc) => boolean): ReadonlySet<string> =>
 		new Set(
 			Arr.map(Arr.filter(relations, keep), (r) => identifierOf(identity.table(parsedName(r.name))))
@@ -106,13 +109,9 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 				(r) => identifierOf(identity.view(parsedName(r.name)))
 			)
 		),
+		bookkeeping,
 		ledger: identifierOf(identity.ledger()),
-		proofs: identifierOf(identity.proofs()),
-		guarded: new Set([
-			...tables((r) => r.kind === "relation"),
-			identifierOf(identity.ledger()),
-			identifierOf(identity.proofs())
-		]),
+		guarded: new Set([...tables((r) => r.kind === "relation"), ...bookkeeping]),
 		functions: new Map<string, InstalledFunction>([
 			[identifierOf(identity.refusal()), { kind: "refusal" }],
 			[identifierOf(identity.isolationGuard()), { kind: "isolationGuard" }],

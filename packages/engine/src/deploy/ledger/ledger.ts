@@ -183,7 +183,7 @@ const revokePublic = (schema: string): Revoke => ({
 })
 
 /** The ledger as an object of a snapshot manifest, created in Setup right after the isolation function its guard runs. */
-export const ledgerObject = (schema: string): PhysicalObject<SqlStatement> => ({
+const ledgerObject = (schema: string): PhysicalObject<SqlStatement> => ({
 	kind: "ledger",
 	ident: ledgerIdent(schema),
 	ddl: [ledgerTable(schema), revokePublic(schema)],
@@ -194,7 +194,7 @@ export const ledgerObject = (schema: string): PhysicalObject<SqlStatement> => ({
 
 /** The ledger's guard trigger, created in Setup right after the ledger: every table grizzle installs refuses a write
  * below SERIALIZABLE. */
-export const ledgerGuardObject = (schema: string): PhysicalObject<SqlStatement> => ({
+const ledgerGuardObject = (schema: string): PhysicalObject<SqlStatement> => ({
 	kind: "isolationTrigger",
 	...isolationTrigger(schema, ledgerName(schema)),
 	reasons: [{ kind: "enforcement", of: "the SERIALIZABLE writes of the migrations ledger" }],
@@ -226,7 +226,7 @@ export const proofColumns = ["object", "ddl", "description"] as const
  * no login holds a privilege on it and no fence takes it, and the live source publishes nothing of it. Its PUBLIC
  * privileges are revoked at once.
  */
-export const proofsTable = (schema: string): CreateTable => ({
+const proofsTable = (schema: string): CreateTable => ({
 	kind: "createTable",
 	table: proofsName(schema),
 	columns: mapNonEmpty(proofColumns, text),
@@ -243,7 +243,7 @@ export const proofsIdent = (schema: string): string =>
 	qualifiedIdent("table", schema, proofsTableName)
 
 /** The drift check's proofs as an object of a snapshot manifest, created in Setup right after the ledger. */
-export const proofsObject = (schema: string): PhysicalObject<SqlStatement> => ({
+const proofsObject = (schema: string): PhysicalObject<SqlStatement> => ({
 	kind: "ledger",
 	ident: proofsIdent(schema),
 	ddl: [
@@ -262,13 +262,37 @@ export const proofsObject = (schema: string): PhysicalObject<SqlStatement> => ({
 
 /** The proofs' guard trigger, created in Setup right after the proofs: every table grizzle installs refuses a write
  * below SERIALIZABLE. */
-export const proofsGuardObject = (schema: string): PhysicalObject<SqlStatement> => ({
+const proofsGuardObject = (schema: string): PhysicalObject<SqlStatement> => ({
 	kind: "isolationTrigger",
 	...isolationTrigger(schema, proofsName(schema)),
 	reasons: [{ kind: "enforcement", of: "the SERIALIZABLE writes of the drift check's proofs" }],
 	state: "needed",
 	phase: "setup"
 })
+
+/**
+ * One of grizzle's bookkeeping tables: its table's name, in whatever schema the installation is, and in a schema its
+ * CREATE TABLE, with its key, its object of a snapshot manifest (the table and its PUBLIC revoke) and its SERIALIZABLE
+ * guard trigger's.
+ */
+export interface BookkeepingTable {
+	readonly name: string
+	readonly table: (schema: string) => CreateTable
+	readonly object: (schema: string) => PhysicalObject<SqlStatement>
+	readonly guard: (schema: string) => PhysicalObject<SqlStatement>
+}
+
+/**
+ * grizzle's bookkeeping tables, the deployment's own beside an installation's tables, which no schema declares and only
+ * a migration makes: the migrations ledger, then the drift check's proofs, each created in Setup right after the
+ * isolation function, under its guard. The one roster of them: the snapshot creates each (snapshot/build.ts
+ * targetState), and whatever reads an installation's catalog sets each aside by it, so a bookkeeping table is one
+ * entry here. What the ledger alone is (every login reads it, the live source publishes it) is the ledger's.
+ */
+export const bookkeepingTables: NonEmptyReadonlyArray<BookkeepingTable> = [
+	{ name: ledgerTableName, table: ledgerTable, object: ledgerObject, guard: ledgerGuardObject },
+	{ name: proofsTableName, table: proofsTable, object: proofsObject, guard: proofsGuardObject }
+]
 
 /** SELECT on the ledger for every login's role, in Publish, the grantees in the order given (login name order); none
  * when no login is installed. */

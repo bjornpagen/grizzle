@@ -66,7 +66,7 @@ import {
 import { succeeded } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { type Catalog, readCatalog, readCatalogWith } from "#test/support/catalog/read.ts"
-import { isLedgerObject, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { isBookkeepingObject, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	draftCodes,
 	fromEmpty,
@@ -337,7 +337,7 @@ const definitions = (
 					Arr.filter(
 						rows,
 						([kind, , , relation]) =>
-							kind !== "trigger" || !isLedgerObject(schema, String(relation))
+							kind !== "trigger" || !isBookkeepingObject(schema, String(relation))
 					),
 					([kind, name, def]) => Arr.map([kind, name, def], (v) => abstract(String(v)))
 				),
@@ -523,13 +523,13 @@ const comparable = (
 		...c,
 		tables: ordered(
 			Arr.map(
-				Arr.filter(c.tables, (t) => !isLedgerObject(schema, t.name)),
+				Arr.filter(c.tables, (t) => !isBookkeepingObject(schema, t.name)),
 				(t) => ({ ...t, columns: ordered(t.columns, [(x) => x.name]) })
 			),
 			[(t) => t.name]
 		),
 		indexes: ordered(
-			Arr.filter(c.indexes, (x) => !isLedgerObject(schema, x.name)),
+			Arr.filter(c.indexes, (x) => !isBookkeepingObject(schema, x.name)),
 			[(x) => x.name]
 		),
 		enumLabels: c["enumLabels"],
@@ -540,7 +540,7 @@ const comparable = (
 		/** By table and name, then by definition: PostgreSQL's internal foreign-key triggers on one table share a name
 		 * once their OIDs are left out, and differ by the table their foreign key is on. */
 		triggers: ordered(
-			Arr.filter(c.triggers, (t) => !isLedgerObject(schema, t.table)),
+			Arr.filter(c.triggers, (t) => !isBookkeepingObject(schema, t.table)),
 			[(t) => t.table, (t) => t.name, (t) => t.definition]
 		),
 		statistics: ordered(c.statistics, [(x) => x.name]),
