@@ -39,6 +39,7 @@
  * carriers are analyzed for (write/program/analyze.ts). So a statement that holds such a target, a family additions
  * statement's recount of its owners, sends the ANALYZE, and no other does.
  */
+import { indices } from "#compiler/core/array.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
@@ -215,37 +216,31 @@ const fillOf = (source: StagedSource): Insert => {
 }
 
 /**
- * The staged form of a statement (see the header), its carriers named from the program's `first`-th: none where it
- * reads no nested rows. `nested` gives each of its placeholders, by position, the column of nested rows it carries, or
- * none. A placeholder of nested rows anywhere but the FROM item of their columns is a defect: a statement reads its
- * nested rows once, as one source.
+ * The numbering of a statement's placeholders `$1` to `$count` once the `moved` ones are gone, each other numbered again
+ * in order: a defect for a moved one, which the FROM item that read it no longer does once it is replaced.
  */
-export const stagedOf = (
+export const renumbering = (
+	count: number,
+	moved: ReadonlySet<number>
+): ((number: number) => number) => {
+	const kept = indices(count).flatMap((i) => (moved.has(i + 1) ? [] : [i + 1]))
+	const numbered = new Map(kept.map((number, i) => [number, i + 1] as const))
+	return (number) =>
+		defined(numbered.get(number), `placeholder $${number}, which a replaced FROM item carries`)
+}
+
+/**
+ * `ast` with each FROM item `replace` replaces, and every placeholder of the rest, a value's and an arrays FROM item's
+ * count's and columns', numbered by `renumbered` (`renumbering`).
+ */
+export const renumberedStatement = (
 	ast: SqlStatement,
-	nested: ReadonlyArray<NestedColumnSlot | undefined>,
-	first: number
-): Staged => {
-	if (nested.every((slot) => slot === undefined)) {
-		return noStaging
-	}
-	const sources = nestedSources(ast, nested, first)
-	if (!isNonEmpty(sources)) {
-		throw defect("a statement's placeholders of nested rows read in a FROM item of their columns")
-	}
-	const moved = new Set(sources.flatMap((s) => s.columns.map((c) => c.array.number)))
-	const kept = nested.flatMap((_, i) => (moved.has(i + 1) ? [] : [i]))
-	const numbered = new Map(kept.map((position, i) => [position + 1, i + 1] as const))
-	const renumbered = (number: number): number =>
-		defined(numbered.get(number), `placeholder $${number}, which no nested rows' FROM item carries`)
-	const carriers = new Map<FromSource, CarrierName>(sources.map((s) => [s.item, s.carrier]))
-	const staged = transformStatement(ast, {
+	renumbered: (number: number) => number,
+	replace: (source: FromSource) => FromSource | undefined
+): SqlStatement =>
+	transformStatement(ast, {
 		...identityHooks,
-		replaceSource: (source) => {
-			const carrier = carriers.get(source)
-			return carrier === undefined || source.kind !== "arrays"
-				? undefined
-				: { kind: "table", table: carrier, alias: source.alias }
-		},
+		replaceSource: replace,
 		expr: (e) =>
 			e.kind === "param" ? { ...e, slot: positionalValue(renumbered(e.slot.number)) } : e,
 		fromSource: (source) => {
@@ -266,6 +261,34 @@ export const stagedOf = (
 						}
 					}
 		}
+	})
+
+/**
+ * The staged form of a statement (see the header), its carriers named from the program's `first`-th: none where it
+ * reads no nested rows. `nested` gives each of its placeholders, by position, the column of nested rows it carries, or
+ * none. A placeholder of nested rows anywhere but the FROM item of their columns is a defect: a statement reads its
+ * nested rows once, as one source.
+ */
+export const stagedOf = (
+	ast: SqlStatement,
+	nested: ReadonlyArray<NestedColumnSlot | undefined>,
+	first: number
+): Staged => {
+	if (nested.every((slot) => slot === undefined)) {
+		return noStaging
+	}
+	const sources = nestedSources(ast, nested, first)
+	if (!isNonEmpty(sources)) {
+		throw defect("a statement's placeholders of nested rows read in a FROM item of their columns")
+	}
+	const moved = new Set(sources.flatMap((s) => s.columns.map((c) => c.array.number)))
+	const kept = nested.flatMap((_, i) => (moved.has(i + 1) ? [] : [i]))
+	const carriers = new Map<FromSource, CarrierName>(sources.map((s) => [s.item, s.carrier]))
+	const staged = renumberedStatement(ast, renumbering(nested.length, moved), (source) => {
+		const carrier = carriers.get(source)
+		return carrier === undefined || source.kind !== "arrays"
+			? undefined
+			: { kind: "table", table: carrier, alias: source.alias }
 	})
 	return Object.freeze({
 		kind: "carriers",

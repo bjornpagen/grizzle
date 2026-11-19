@@ -76,6 +76,7 @@ import {
 	type SentForm,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
+import { renumberedStatement, renumbering } from "#compiler/write/program/staged.ts"
 
 /**
  * A member slot staged into a carrier: its first reader's placeholder, which names the slot and its relation and
@@ -370,9 +371,7 @@ const restaged = (
 	const supply = new NameSupply({ relationStart: relationsPast(form.ast), columnStart: 1 })
 	const reads = new Set<ParamId>()
 	const kept = form.params.filter((s) => !moved.has(s.number))
-	const numbered = new Map(kept.map((s, i) => [s.number, i + 1] as const))
-	const renumbered = (number: number): number =>
-		defined(numbered.get(number), `placeholder $${number}, which a staged slot's carrier carries`)
+	const renumbered = renumbering(form.params.length, moved)
 	const carried = (source: FromSource): FromSource | undefined => {
 		if (source.kind !== "arrays" || source.source.kind !== "columns") {
 			return undefined
@@ -425,30 +424,7 @@ const restaged = (
 			false
 		)
 	}
-	const ast = transformStatement(form.ast, {
-		...identityHooks,
-		replaceSource: carried,
-		expr: (e) =>
-			e.kind === "param" ? { ...e, slot: positionalValue(renumbered(e.slot.number)) } : e,
-		fromSource: (source) => {
-			if (source.kind !== "arrays") {
-				return source
-			}
-			const read = source.source
-			return read.kind === "count"
-				? { ...source, source: { ...read, count: positionalValue(renumbered(read.count.number)) } }
-				: {
-						...source,
-						source: {
-							...read,
-							columns: mapNonEmpty(read.columns, (c) => ({
-								...c,
-								array: positionalValue(renumbered(c.array.number))
-							}))
-						}
-					}
-		}
-	})
+	const ast = renumberedStatement(form.ast, renumbered, carried)
 	return {
 		form: {
 			ast,
