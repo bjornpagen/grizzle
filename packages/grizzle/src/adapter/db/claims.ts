@@ -30,8 +30,9 @@ import { defect, isList, isRecord, jsonText, scalarCodec } from "#compiler/plan/
  * opened without a token has no context facts: its setting is `{}`.
  *
  * Claims are JSON, which has no bigint, and an instant is a bigint contract (a token's `exp` and `iat` among them), so
- * an integer claim is read as JSON states integers. An int8 claim is a JSON number that is a safe integer, or a string
- * of decimal digits with an optional leading minus, read as a bigint; an int2 or int4 claim is a safe-integer number.
+ * an integer claim is read as JSON states integers. An int8 claim, and a numeric(p, 0) one, whose host value is a
+ * bigint, is a JSON number that is a safe integer, or a string of decimal digits with an optional leading minus, read
+ * as a bigint; an int2 or int4 claim is a safe-integer number.
  * The field's encoder then bounds it to its type's range. A number past the safe integers lost its digits in the JSON
  * parse, so it is refused, never rounded, as are a fraction and a number spelled as a string for int2 and int4. A
  * closed id's claim is its handle, a JSON string, which the field's codec writes as the handle's code under the
@@ -112,12 +113,14 @@ const isDecimalInteger = (text: string): boolean => {
 }
 
 /**
- * A claim's host value for its field's carrier (see the header): an integer as JSON states it, any other value as
- * given, for the encoder to admit; none for an integer claim JSON cannot state exactly.
+ * A claim's host value for its field's codec (see the header), by the carrier of its host values, the codec spec's: an
+ * integer as JSON states it, a bigint's, numeric(p, 0)'s among them, as int8's; any other value as given, for the
+ * encoder to admit; none for an integer claim JSON cannot state exactly.
  */
-const claimHost = (type: ScalarType, value: unknown): Option.Option<unknown> => {
-	switch (type.carrier) {
+const claimHost = (codec: ScalarCodec, value: unknown): Option.Option<unknown> => {
+	switch (codec.spec.carrier) {
 		case "int8":
+		case "exactInteger":
 			if (typeof value === "number") {
 				return Number.isSafeInteger(value) ? Option.some(BigInt(value)) : Option.none()
 			}
@@ -142,13 +145,12 @@ const claimHost = (type: ScalarType, value: unknown): Option.Option<unknown> => 
 		case "range8":
 		case "rangeDate":
 		case "vector":
-		case "exactInteger":
 		case "exactMoney":
 			return Option.some(value)
 		case "bits":
 		case "bytes":
 			throw defect(
-				`a context's field is no ${type.carrier} field: a context admits none (ir/desc.ts contextFieldAdmits)`
+				`a context's field is no ${codec.spec.carrier} field: a context admits none (ir/desc.ts contextFieldAdmits)`
 			)
 	}
 }
@@ -251,7 +253,7 @@ const contextFact = (
 					})
 				)
 			}
-			const host = claimHost(field.type, object.get(field.name))
+			const host = claimHost(field.codec, object.get(field.name))
 			const text = Option.isSome(host) ? field.codec.encode(host.value) : undefined
 			if (text === undefined || !text.ok) {
 				return Result.fail(

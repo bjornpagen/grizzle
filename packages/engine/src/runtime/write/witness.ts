@@ -48,7 +48,13 @@ import {
 } from "#compiler/scalar/compute/evaluate.ts"
 import { hostOfLiteral } from "#compiler/scalar/compute/literal.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
-import { admitted, admittedText, type HostValue, hostOf } from "#compiler/scalar/values/identity.ts"
+import {
+	admitted,
+	admittedText,
+	evaluatedValue,
+	type HostValue,
+	hostOf
+} from "#compiler/scalar/values/identity.ts"
 import type {
 	KeyHost,
 	OwnLaw,
@@ -782,13 +788,13 @@ export const judgeOf = (table: ClosedTable, patterns: PatternReads): Judge => {
 				const column = row.filled(key)
 				return type === undefined || column.kind === "unfilled"
 					? undefined
-					: hostOf(type.carrier, column.value)
+					: evaluatedValue(type, column.value)
 			}
 			if (declared.writing.kind === "generated") {
 				return columnOfEvaluated(generated(name))
 			}
 			const value = hostField(row, declared)
-			return value === undefined ? undefined : hostOf(declared.type.carrier, value)
+			return value === undefined ? undefined : evaluatedValue(declared.type, value)
 		}
 		const column = (name: string): SqlValue | undefined => {
 			const known = columns.get(name)
@@ -857,7 +863,7 @@ const domainValue = (
 	const host = hostField(row, field)
 	return host === undefined
 		? { kind: "unknown", stop: { kind: "unsupported", what: `the field ${field.name}` } }
-		: { kind: "value", value: hostOf(field.type.carrier, host) }
+		: { kind: "value", value: evaluatedValue(field.type, host) }
 }
 
 /** A row CHECK's verdict, as `CHECK ((p) IS TRUE)` judges it: FALSE and NULL break it. */
@@ -916,7 +922,7 @@ const closedContainment = (
 		if (raw === undefined) {
 			return "unjudged"
 		}
-		sources.push({ value: hostOf(pair.source.type.carrier, raw), target: pair.target })
+		sources.push({ value: evaluatedValue(pair.source.type, raw), target: pair.target })
 	}
 	const cellAt = (name: string, cells: Split<TypedLiteral>): TypedLiteral | undefined => {
 		const k = test.side.key.indexOf(name)

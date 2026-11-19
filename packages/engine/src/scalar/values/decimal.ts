@@ -12,6 +12,7 @@ import {
 import { type CompileError, malformedDescription, type ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import { type DecimalValue, decimalPayload, decimalTag } from "#compiler/ir/decimal.ts"
 import type { NumericTypmod } from "#compiler/ir/scalar.ts"
 import {
@@ -148,7 +149,8 @@ const minting: unique symbol = Symbol("Decimal")
  * Declared precision and scale coerce as PostgreSQL's apply_typmod does: round half away from zero to the declared
  * scale, then refuse a value whose rounded magnitude needs more integer digits than precision minus scale, so rounding
  * can cause the overflow. The result is the one form: numeric(5,2) admits 1.2 as 1.2, never 1.20. NaN passes every
- * typmod and infinity passes none (apply_typmod_special).
+ * typmod but numeric(p, 0), whose values are integers (isIntegerTypmod), and infinity passes none
+ * (apply_typmod_special).
  *
  * Reading numeric_out text (fromOutput) and writing it (toString) are per-row hot paths: fromOutput scans code units in
  * place and allocates only the digit text BigInt reads, the value, and a slice when the text ends in fractional zeros.
@@ -541,12 +543,28 @@ export const checkNumericTypmod = (
 	return Result.ok({ precision, scale: scale === 0 ? 0 : scale })
 }
 
+/** Whether a count of a typmod's units fits its precision, below 10^p in magnitude, as apply_typmod's check reads it. */
+const withinPrecision = (units: bigint, precision: number): boolean =>
+	(units < 0n ? -units : units) < pow10(precision)
+
+/**
+ * A special value at a typmod: NaN where its column holds it, at every scale but 0, and refused (numericNaN) at an
+ * integer typmod (isIntegerTypmod), which no bigint spells; an infinity nowhere (numericInfinity, apply_typmod_special).
+ */
+const special = (d: Decimal, typmod: NumericTypmod): Result.Result<Decimal, ValueFault> =>
+	!d.isNaN()
+		? Result.err("numericInfinity")
+		: isIntegerTypmod(typmod)
+			? Result.err("numericNaN")
+			: Result.ok(d)
+
 /**
  * The value a numeric(p, s) column stores for `d`, as apply_typmod and apply_typmod_special compute it, in its one
- * form: NaN unchanged; infinity refused (numericInfinity); otherwise rounded half away from zero to scale s, and
- * refused when the rounded magnitude is at least 10^(p - s) (numericOverflow, SQLSTATE 22003 in PostgreSQL). Without a
- * typmod, a computed numeric's, the value is numeric's own, which every Decimal already is. This is PostgreSQL's
- * coercion of a value it computes or a literal it casts; a caller's value is parsed exactly instead (parseNumeric).
+ * form: NaN unchanged, but refused at scale 0 (numericNaN), whose column holds integers alone (isIntegerTypmod); infinity refused (numericInfinity); otherwise rounded half away from zero to scale
+ * s, and refused when the rounded magnitude is at least 10^(p - s) (numericOverflow, SQLSTATE 22003 in PostgreSQL).
+ * Without a typmod, a computed numeric's, the value is numeric's own, which every Decimal already is. This is
+ * PostgreSQL's coercion of a value it computes or a literal it casts; a caller's value is parsed exactly instead
+ * (parseNumeric).
  */
 export const normalizeNumeric = (
 	d: Decimal,
@@ -557,11 +575,11 @@ export const normalizeNumeric = (
 	}
 	const { precision, scale } = typmod
 	if (!d.isFinite()) {
-		return d.isNaN() ? Result.ok(d) : Result.err("numericInfinity")
+		return special(d, typmod)
 	}
 	const units = roundedUnits(d, scale)
 	const magnitude = units < 0n ? -units : units
-	if (magnitude >= pow10(precision)) {
+	if (!withinPrecision(units, precision)) {
 		return Result.err("numericOverflow")
 	}
 	return scale >= 0
@@ -589,7 +607,7 @@ const exactUnits = (d: FiniteDecimal, scale: number): bigint | undefined => {
 
 /**
  * A caller's numeric parsed exactly at its typmod: the value itself, already in its one form, where a numeric(p, s)
- * holds it unchanged; never rounded. NaN passes; infinity is refused (numericInfinity), a value of more fractional digits
+ * holds it unchanged; never rounded. NaN passes, but is refused at scale 0 (numericNaN); infinity is refused (numericInfinity), a value of more fractional digits
  * than s, or at a negative s no multiple of 10^-s, is refused (numericScale) where PostgreSQL's coercion would round it
  * (normalizeNumeric), and one of 10^(p - s) or more in magnitude is refused (numericOverflow). Without a typmod every
  * Decimal is numeric's own value.
@@ -602,12 +620,33 @@ export const parseNumeric = (
 		return Result.ok(d)
 	}
 	if (!d.isFinite()) {
-		return d.isNaN() ? Result.ok(d) : Result.err("numericInfinity")
+		return special(d, typmod)
 	}
 	const units = exactUnits(d, typmod.scale)
 	if (units === undefined) {
 		return Result.err("numericScale")
 	}
-	const magnitude = units < 0n ? -units : units
-	return magnitude >= pow10(typmod.precision) ? Result.err("numericOverflow") : Result.ok(d)
+	return withinPrecision(units, typmod.precision) ? Result.ok(d) : Result.err("numericOverflow")
 }
+
+/** The bigint a finite integer Decimal is; undefined for NaN, an infinity and a value with a fraction. */
+export const integerOfDecimal = (d: Decimal): bigint | undefined => {
+	const p = d.parts
+	return p.kind === "finite" && p.minScale === 0
+		? p.negative
+			? -p.coefficient
+			: p.coefficient
+		: undefined
+}
+
+/**
+ * An integer at an integer typmod (isIntegerTypmod), numeric(p, 0), as its column holds it: the bigint itself, below
+ * 10^p in magnitude, or refused past it (numericOverflow), as parseNumeric and normalizeNumeric refuse a Decimal. No
+ * bigint has a fraction to round or a NaN to refuse, so a caller's parse and PostgreSQL's coercion of a value it
+ * computes are one.
+ */
+export const integerNumeric = (
+	x: bigint,
+	typmod: NumericTypmod
+): Result.Result<bigint, ValueFault> =>
+	withinPrecision(x, typmod.precision) ? Result.ok(x) : Result.err("numericOverflow")

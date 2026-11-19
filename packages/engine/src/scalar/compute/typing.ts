@@ -16,7 +16,7 @@ import { maxAllocSize } from "#compiler/core/errors.ts"
 import { CompileError, prose, type ProseTag, ruleRefused } from "#compiler/core/errors.ts"
 import type { FunctionDigest } from "#compiler/core/fingerprint.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import { int4Digits, int8Max, int8Min } from "#compiler/ir/carriers.ts"
+import { int4Digits, int8Max, int8Min, isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import { integerDigits, integerRanges } from "#compiler/ir/carriers.ts"
 import { dayNumber, firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
 import type {
@@ -165,8 +165,7 @@ import {
 	storedOnly,
 	type TextLookup
 } from "#compiler/scalar/registry.ts"
-import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
-import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { Decimal, moneyFractionDigits, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { bytesMaxLength, varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
 import { binary32Digits } from "#compiler/scalar/values/float.ts"
@@ -763,7 +762,7 @@ const carrierBounds = (t: PlainType): Bounds | undefined => {
 				? ofDigits(t.bound.digits, t.bound.scale, { infinite: true, nan: true })
 				: ofDigits(t.typmod.precision - t.typmod.scale, Math.max(t.typmod.scale, 0), {
 						infinite: false,
-						nan: true
+						nan: !isIntegerTypmod(t.typmod)
 					})
 		case "float4":
 			return ofDigits(binary32Digits, binary32FractionDigits, {

@@ -31,7 +31,7 @@ import {
 import { type ColumnType, fieldColumnType, lawColumnType } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import type { NamedPrimaryKey } from "#compiler/laws/model/model.ts"
-import { addDateRanges, dateRanges } from "#compiler/physical/date/storage.ts"
+import { addColumnChecks, columnChecks } from "#compiler/physical/ddl/column-checks.ts"
 import { closedMembership, planSides } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent, persistentClosed } from "#compiler/physical/ddl/expr.ts"
@@ -42,7 +42,7 @@ import {
 	type Node,
 	type NodeIdent
 } from "#compiler/physical/obligations/graph.ts"
-import { addVectorNorms, isVectorType, vectorNorms } from "#compiler/physical/vector/storage.ts"
+import { isVectorType, vectorProvider } from "#compiler/physical/vector/storage.ts"
 import {
 	btreeEntry,
 	datumBound,
@@ -447,19 +447,17 @@ export interface KeyIndex {
  *   and never with an action, so cyclic foreign keys need no order between tables.
  *
  * The deferral rule is the law model's; the names are the law model's and ownership's; this module only spells them.
- * Each vector column also carries its cosine-domain CHECK (`vectorNorms`) and each date column its range CHECK
- * (`dateRanges`); a bytes column carries none, since its type's own bound is its value's (bytesMaxLength).
+ * Each column whose type PostgreSQL holds more values of than its host type spells also carries its column CHECK
+ * (physical/ddl/column-checks.ts): a vector's cosine domain, a date's days and an integer numeric's integers; a bytes
+ * column carries none, since its type's own bound is its value's (bytesMaxLength).
  * Every table is added before the objects on it, so the inline constraints are planned first. */
 export const addTables = (b: InstallBuilder): PlacedNatives => {
 	const inline: Inline = new Map()
 	const plans = planNatives(b, inline)
-	const norms = vectorNorms(b)
-	for (const n of norms) {
-		declareInline(inline, n.relation, n.constraint)
-	}
-	const ranges = dateRanges(b)
-	for (const r of ranges) {
-		declareInline(inline, r.relation, r.constraint)
+	vectorProvider(b)
+	const checks = columnChecks(b)
+	for (const c of checks) {
+		declareInline(inline, c.relation, c.constraint)
 	}
 	const planned = plannedTables(b)
 	for (const t of planned) {
@@ -486,8 +484,7 @@ export const addTables = (b: InstallBuilder): PlacedNatives => {
 		)
 		addIsolationTrigger(b, t.relation, table)
 	}
-	addVectorNorms(b, norms)
-	addDateRanges(b, ranges)
+	addColumnChecks(b, checks)
 	return {
 		keyIndexes: addNatives(b, plans),
 		tables: planned.map((t) => b.names.relation(t.relation))

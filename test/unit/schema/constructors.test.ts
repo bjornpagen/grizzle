@@ -534,7 +534,7 @@ export const closedRecordsAClosedRelationsRowsOnePerKeyOfItsRosterAgainstItsFiel
  * check operand's, the value as written, as Compute records it (scalar/literal.ts literalDescFor), since PostgreSQL
  * resolves an untyped literal opposite the column at the literal's own value; a closed relation's fact, the value
  * PostgreSQL's assignment into the column stores (storedLiteral): a real rounded to binary32 and a numeric(p, s) to its
- * scale, half away from zero, refusing what the column refuses. Its budget is its suite's before it was a property
+ * scale, half away from zero, refusing what the column refuses, NaN at numeric(p, 0) among it. Its budget is its suite's before it was a property
  * (test/unit/schema/constructors.test.ts at 4ca3036a): 600 runs and 600 steered cases.
  */
 export const aLiteralOppositeAFieldRecordsTheValueAsWrittenInAComparisonAndAsTheColumnStoresItInAFactRoundingARealToBinary32AndANumericToItsScaleThere =
@@ -562,6 +562,7 @@ export const aLiteralOppositeAFieldRecordsTheValueAsWrittenInAComparisonAndAsThe
 				"numeric(p, s): infinity",
 				"numeric(p, s): wrong host kind",
 				"numeric(p, s): special",
+				"numeric(p, s): integer NaN",
 				"closed row",
 				"selection",
 				"check operand"

@@ -42,7 +42,7 @@ import type { PublicResult } from "#compiler/core/public-result.ts"
 import { connectiveExpr, type ExprDesc } from "#compiler/ir/desc.ts"
 import { type ExprTable, predicateTable, storedColumn } from "#compiler/ir/expr.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import { isRefined } from "#compiler/ir/scalar.ts"
+import { isRefined, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { lawModel } from "#compiler/program/laws.ts"
 import {
@@ -59,7 +59,7 @@ import type { EvalStop } from "#compiler/scalar/compute/evaluate.ts"
 import { exprEmitter, lowerPredicate } from "#compiler/scalar/compute/lower.ts"
 import { noParams } from "#compiler/scalar/compute/typing.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
-import { hostOf } from "#compiler/scalar/values/identity.ts"
+import { evaluatedValue, heldValue } from "#compiler/scalar/values/identity.ts"
 import { ownedDesc } from "#compiler/schema/protocol.ts"
 import { namedRelation } from "#compiler/schema/relation.ts"
 import type { SelectedDesc } from "#compiler/schema/statements.ts"
@@ -87,7 +87,7 @@ type Lowered = Result.Result<ExprTable, Unevaluated>
 
 /**
  * A relation of the schema as its sources read its rows, read once a relation (readRelations): its name, its fields as
- * the judge reads them, the fields of its rows a domain holds, its generated fields by name and its row checks by name.
+ * the judge reads them, the fields of its rows a domain holds, its generated fields and its row checks by name.
  * Every source of the relation reads the one reading, so a row admitted to it is read once over it (witness.ts
  * RowReading), however many sources evaluate the row.
  */
@@ -96,7 +96,7 @@ interface RelationReading {
 	readonly table: JudgedTable
 	readonly stated: ReadonlyArray<StatedField>
 	readonly refined: ReadonlyArray<JudgedField>
-	readonly generated: ReadonlyArray<string>
+	readonly generated: ReadonlyArray<JudgedField>
 	readonly checks: ReadonlyArray<RowCheck>
 }
 
@@ -184,7 +184,7 @@ const relationReading = (
 		f.writing.kind === "generated" ? [] : [{ name: f.name, admit: hostText(f.type) }]
 	),
 	refined: fields.filter((f) => f.writing.kind !== "generated" && isRefined(f.type)),
-	generated: fields.flatMap((f) => (f.writing.kind === "generated" ? [f.name] : [])),
+	generated: fields.filter((f) => f.writing.kind === "generated"),
 	checks
 })
 
@@ -325,6 +325,13 @@ const valueOf = (e: Evaluated): Result.Result<unknown, Unevaluated> => {
 	}
 }
 
+/** A generated field's value as its field of type `type` holds it (values/identity.ts heldValue), NULL as null. */
+const heldOf = (
+	type: ScalarType,
+	value: Result.Result<unknown, Unevaluated>
+): Result.Result<unknown, Unevaluated> =>
+	Result.map(value, (v) => (v === null ? null : heldValue(type, v)))
+
 /** A truth as the evaluation states it, each one value. */
 const truths = { true: Result.ok(true), false: Result.ok(false) } as const
 
@@ -437,7 +444,7 @@ const itemsOf = (relation: RelationReading, reading: RowReading, answers: Answer
 	generated: Object.freeze(
 		Object.fromEntries(
 			relation.generated.map(
-				(name) => [name, answers.answer(valueOf(reading.generated(name)))] as const
+				(f) => [f.name, answers.answer(heldOf(f.type, valueOf(reading.generated(f.name))))] as const
 			)
 		)
 	),
@@ -495,7 +502,7 @@ const admitted = <R>(
 		return Result.err({ _tag: "ValueRefused", field: field.name, fault: read.error })
 	}
 	for (const field of relation.refined) {
-		const member = judge.member(hostOf(field.type.carrier, fields[field.name]), field.type)
+		const member = judge.member(evaluatedValue(field.type, fields[field.name]), field.type)
 		if (member === undefined) {
 			throw defect(`the domain of ${field.name}, a contract and a pattern the host evaluates`)
 		}

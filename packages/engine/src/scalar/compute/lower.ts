@@ -43,6 +43,7 @@ import {
 	baseOf,
 	type ContractInfo,
 	octetsOf,
+	integerTypmodOf,
 	patternsText,
 	type RegexRef,
 	regexRefOf,
@@ -125,8 +126,7 @@ import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclu
 import { bytesWithin, formIncludes, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
-import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
-import { numericMaxPrecision } from "#compiler/scalar/values/fault.ts"
+import { numericMaxIntegerDigits, numericMaxPrecision } from "#compiler/scalar/values/fault.ts"
 
 /**
  * The internal limit on a calculation's result scale, NUMERIC_MAX_RESULT_SCALE.
@@ -851,13 +851,8 @@ class Lowering<R extends Refs> {
 			}
 			case "fits": {
 				const a = args[0]
-				const range = fitRange(target)
 				const interval = a?.bounds === undefined ? undefined : intervalPremise(0, a.bounds)
-				if (
-					range === undefined ||
-					interval === undefined ||
-					!insideRange(interval.low, interval.high, range[0], range[1])
-				) {
+				if (interval === undefined || !fitsTarget(target, interval)) {
 					return refuse(0)
 				}
 				return { precondition, premises: [interval] }
@@ -1011,6 +1006,20 @@ class Lowering<R extends Refs> {
 		}
 		return payload.patterns.admitted
 	}
+}
+
+/**
+ * Whether every value an interval premise admits fits `target` once a cast rounds it: inside its range (fitRange), and
+ * NaN among them only where the target holds NaN, which an integer numeric's, numeric(p, 0), does not (ir/carriers.ts
+ * isIntegerTypmod); an integer's NaN is its cast's "finite" precondition.
+ */
+const fitsTarget = (target: ScalarType, interval: IntervalPremise): boolean => {
+	const range = fitRange(target)
+	return (
+		range !== undefined &&
+		insideRange(interval.low, interval.high, range[0], range[1]) &&
+		!(interval.nan && integerTypmodOf(target) !== undefined)
+	)
 }
 
 /** The range a value must lie in to fit `target`, a narrower integer, money or a typmod, once a cast rounds it. */
@@ -1283,12 +1292,8 @@ export const intervalCastProof = (
 				return precondition.operand === interval.operand && premiseHas(interval, precondition.kind)
 					? { precondition, premises: [interval] }
 					: undefined
-			case "fits": {
-				const range = fitRange(to)
-				return range !== undefined && insideRange(interval.low, interval.high, range[0], range[1])
-					? { precondition, premises: [interval] }
-					: undefined
-			}
+			case "fits":
+				return fitsTarget(to, interval) ? { precondition, premises: [interval] } : undefined
 			case "contract":
 			case "language":
 			case "powerDomain":

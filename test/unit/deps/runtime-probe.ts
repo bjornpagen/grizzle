@@ -357,8 +357,8 @@ for (const q of [
 			n: r.sum(
 				Compute.cond(
 					flag,
-					Compute.literal(pg.numeric(1, 0), "1"),
-					Compute.literal(pg.numeric(1, 0), "0")
+					Compute.literal(pg.numeric(1, 0), 1n),
+					Compute.literal(pg.numeric(1, 0), 0n)
 				)
 			)
 		})

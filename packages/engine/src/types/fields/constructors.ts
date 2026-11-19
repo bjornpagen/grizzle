@@ -31,6 +31,7 @@ import type {
 	NoWriting,
 	NotInstant,
 	NotStoredOnly,
+	NumericHostOf,
 	NumericTypmodField,
 	SpanEndpointLike,
 	SpanField,
@@ -42,11 +43,14 @@ import type { AnyRoster, HandleOf } from "#compiler/types/schema/relation.ts"
 import type { VectorField } from "#compiler/types/vector/vector.ts"
 
 /**
- * numeric(p, s), precision and scale both declared: no numeric field is without them.
- * PostgreSQL's numerictypmodin rule is checked at runtime (ir/carriers.ts numericMaxPrecision, numericMinScale and
- * numericMaxScale).
+ * numeric(p, s), precision and scale both declared: no numeric field is without them. Its host type is its scale's
+ * (NumericHostOf): a bigint at scale 0, a Decimal at any other. PostgreSQL's numerictypmodin rule is checked
+ * at runtime (ir/carriers.ts numericMaxPrecision, numericMinScale and numericMaxScale).
  */
-type NumericConstructor = (precision: number, scale: number) => NumericTypmodField
+type NumericConstructor = <const S extends number>(
+	precision: number,
+	scale: S
+) => NumericTypmodField<NumericHostOf<S>>
 
 /**
  * The signatures of the field descriptor constructors: uuid, pg, contract, span and closedId, the runtime values of

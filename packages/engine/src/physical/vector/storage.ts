@@ -1,13 +1,10 @@
-import { type Identity, identity } from "#compiler/core/identity.ts"
-import { compareStrings } from "#compiler/core/order.ts"
-import type { HeadingColumn } from "#compiler/ir/rel.ts"
+import { identity } from "#compiler/core/identity.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { vectorFunctions } from "#compiler/lower/conservative/vector/index.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import { enforcement } from "#compiler/physical/obligations/graph.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
-import type { Expr, InlineConstraint } from "#compiler/sql/ast.ts"
-import { lit, qualifiedCall, tableCol, types } from "#compiler/sql/build.ts"
+import type { Expr } from "#compiler/sql/ast.ts"
+import { lit, qualifiedCall, types } from "#compiler/sql/build.ts"
 
 /** The pgvector extension a vector schema requires: its name, and the version admission verifies (scripts/pg/build.sh
  * builds the same tag). */
@@ -24,19 +21,7 @@ const normPredicate = (vectorSchema: string, column: Expr): Expr => ({
 	not: false
 })
 
-/** A vector column's norm CHECK: its relation and field, its identity, and the constraint its table declares. */
-interface VectorNorm {
-	readonly relation: string
-	readonly field: string
-	readonly named: Identity<"normCheck">
-	readonly constraint: InlineConstraint
-}
-
-const vectorColumns = (heading: ReadonlyArray<HeadingColumn>): ReadonlyArray<HeadingColumn> =>
-	heading.filter((c) => isVectorType(c.type))
-
-/** The norm CHECK of every vector column of every stored relation, in relation then field order, for its table's
- * CREATE TABLE to declare (`addVectorNorms` adds their objects once the tables stand).
+/** A vector column's norm CHECK, a column CHECK (physical/ddl/column-checks.ts ColumnCheckKind).
  *
  * `pg.vector(N)` is the column `<ext>.vector(N) NOT NULL`, the extension's own type qualified by the schema the
  * installation names (`columnType`), of N dimensions, 1-vectorMaxDimensions, plus the named CHECK of the cosine
@@ -48,68 +33,32 @@ const vectorColumns = (heading: ReadonlyArray<HeadingColumn>): ReadonlyArray<Hea
  *         AND '9223372036854775808'::double precision) IS TRUE)
  *
  * vector_norm accumulates in double precision, and the bounds are exact powers of two, so the CHECK is one exact
- * native comparison; it never invokes a model service and never normalizes. It is declared inline by the
- * table's CREATE TABLE beside the row's other CHECKs, and PostgreSQL enforces it on every write, grizzle's or a direct
- * SQL writer's. It is a refinement of the field, not a law of the schema: it has no law id and no witness, and
- * grizzle's own writes meet the codec's host boundary first, so it refuses only a direct writer, or a value within
- * rounding of a bound on which the host and the native summation order disagree. Its name is the naming door's
- * hashed normCheck, which no declared check of the relation can claim.
+ * native comparison; it never invokes a model service and never normalizes. The codec's host boundary admits only a
+ * vector of the domain, so it refuses only a direct writer, or a value within rounding of a bound on which the host and
+ * the native summation order disagree. Its name is the naming door's hashed normCheck.
  *
  * The installation that stores or types any vector creates the extension if it is absent, `CREATE EXTENSION IF NOT
  * EXISTS vector SCHEMA <ext>`, in Setup, before the tables and domains that name its type (InstallBuilder.provider), and
  * so does one whose closed facts alone hold a vector, which their VALUES lists cast to its type. pgvector is not a
  * trusted extension: where the migration identity cannot create it, an administrator creates it first in that schema
- * and the statement finds it present. A schema without vectors gets no extension object at all. */
-export const vectorNorms = (b: InstallBuilder): ReadonlyArray<VectorNorm> => {
-	const relations = Object.entries(b.model.theory.relations).toSorted(([x], [y]) =>
-		compareStrings(x, y)
-	)
-	if (relations.some(([, r]) => r.kind !== "relation" && vectorColumns(r.fields).length > 0)) {
-		b.provider("vector")
-	}
-	return relations.flatMap(([name, r]) =>
-		r.kind === "relation"
-			? vectorColumns(r.fields).map((c): VectorNorm => {
-					const named = identity.normCheck(name, c.name)
-					return {
-						relation: name,
-						field: c.name,
-						named,
-						constraint: {
-							kind: "check",
-							name: b.name(named),
-							predicate: normPredicate(
-								b.settings.vectorSchema,
-								tableCol(b.names.column(name, c.name))
-							)
-						}
-					}
-				})
-			: []
-	)
-}
+ * and the statement finds it present (`vectorProvider`). A schema without vectors gets no extension object at all. */
+export const vectorNorm = Object.freeze({
+	holds: isVectorType,
+	named: identity.normCheck,
+	predicate: (b: InstallBuilder, column: Expr): Expr =>
+		normPredicate(b.settings.vectorSchema, column),
+	reason: (relation: string, field: string): string =>
+		`the cosine domain of ${relation}.${field}: vector_norm in [${cosineNormMin}, ${cosineNormMax}]`
+})
 
-/** Each norm CHECK's object, which its table declares inline, so it carries no statement: after its table. */
-export const addVectorNorms = (b: InstallBuilder, norms: ReadonlyArray<VectorNorm>): void => {
-	for (const n of norms) {
-		b.add(
-			{
-				kind: "check",
-				ident: {
-					kind: "constraint",
-					schema: b.names.levelOf(n.relation),
-					relation: b.names.relationNamed(n.relation),
-					name: n.named
-				},
-				ddl: [],
-				reasons: [
-					enforcement(
-						`the cosine domain of ${n.relation}.${n.field}: vector_norm in [${cosineNormMin}, ${cosineNormMax}]`
-					)
-				],
-				phase: "structure"
-			},
-			[b.table(n.relation)]
+/** The extension provider of an installation whose closed or derived relations type a vector, which no stored column's
+ * type names: their VALUES lists and views cast to it (InstallBuilder.provider). */
+export const vectorProvider = (b: InstallBuilder): void => {
+	if (
+		Object.values(b.model.theory.relations).some(
+			(r) => r.kind !== "relation" && r.fields.some((c) => isVectorType(c.type))
 		)
+	) {
+		b.provider("vector")
 	}
 }

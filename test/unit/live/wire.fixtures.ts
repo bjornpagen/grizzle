@@ -96,7 +96,8 @@ const specOf =
 							numeric: {
 								kind: "typmod",
 								precision: source.draw(int(1, 30)),
-								scale: source.draw(int(-4, 34))
+								/** Scale 0 is numeric(p, 0)'s, an integer type the wire spells as the exact integer (live/member.ts wireScalarOf). */
+								scale: source.draw(oneOf([int(-4, -1), int(1, 34)]))
 							}
 						}
 					: {
@@ -447,9 +448,10 @@ export const carrierSpecOf = (spec: WireScalar): CarrierSpec => {
 		case "uuid":
 		case "date":
 		case "text":
-		case "exactInteger":
 		case "exactMoney":
 			return { carrier: spec.carrier }
+		case "exactInteger":
+			return { carrier: "exactInteger", typmod: undefined }
 		case "bytes":
 			return { carrier: "bytes" }
 		case "numeric":

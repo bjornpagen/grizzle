@@ -421,7 +421,7 @@ export const numericPSNormalizationValidatesPrecisionAndScaleAsNumerictypmodinDo
 	})
 
 /** Numeric(p, s) normalization keeps NaN, refuses an infinity or a value rounding past p digits, and stores the rest at scale s within half a unit, a tie away from zero, idempotently. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 3000 runs and 600 steered cases. */
-export const numericPSNormalizationKeepsNaNRefusesAnInfinityOrAValueRoundingPastPDigitsAndStoresTheRestAtScaleSWithinHalfAUnitATieAwayFromZeroIdempotently =
+export const numericPSNormalizationKeepsNaNButAtScale0RefusesAnInfinityOrAValueRoundingPastPDigitsAndStoresTheRestAtScaleSWithinHalfAUnitATieAwayFromZeroIdempotently =
 	property.explore(normalizedGen, {
 		needs: {},
 		budget: { runs: 3000, steered: 600 },
@@ -432,7 +432,8 @@ export const numericPSNormalizationKeepsNaNRefusesAnInfinityOrAValueRoundingPast
 			"a negative scale",
 			"numericOverflow",
 			"numericInfinity",
-			"NaN kept"
+			"NaN kept",
+			"numericNaN"
 		] satisfies ReadonlyArray<Reached<NormalizeFeature>>,
 		check:
 			(_, c: Case<NormalizeFeature>) =>

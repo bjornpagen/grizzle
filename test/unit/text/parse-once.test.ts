@@ -23,11 +23,9 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { rowEvaluator } from "#adapter/public/host.ts"
-import { firstCodebook } from "#compiler/ir/codes.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { closedLeaf, evaluatedRelation, hostEvaluator } from "#compiler/runtime/write/fill.ts"
-import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
@@ -81,7 +79,6 @@ export const anAdmittedPatternIsParsedWhereItsProgramCompilesOnceATableWhateverR
 					drawnCounts.admitted,
 					"a compile's parses are the same however many readers its patterns have"
 				)
-				const codes = firstCodebook(rostersOf(drawnOwned))
 				const evaluate = hostEvaluator(closedLeaf(new Map()), laws.patterns)
 				const relations = Arr.map(c.relations, (fields, r) => {
 					const relation = defined(laws.checked.relations.get(`R${r}c0`), "a checked relation")
@@ -95,7 +92,7 @@ export const anAdmittedPatternIsParsedWhereItsProgramCompilesOnceATableWhateverR
 						writing.kind === "generated" ? writing.expr : assert.fail("m is generated")
 					return {
 						relation,
-						evaluated: evaluatedRelation(relation.fields, codes),
+						evaluated: evaluatedRelation(relation.fields),
 						fields,
 						generated
 					}

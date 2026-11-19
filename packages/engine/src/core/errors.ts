@@ -1137,6 +1137,7 @@ export const valueFaultWords = [
 	"numericScale",
 	"numericOverflow",
 	"numericInfinity",
+	"numericNaN",
 	"moneyType",
 	"moneyRange",
 	"moneySpecial",

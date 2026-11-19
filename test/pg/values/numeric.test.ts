@@ -144,14 +144,14 @@ export const numericAgreementWithPostgreSQLNormalizesLiteralsToNumericPSExactlyA
 		kills: [
 			{
 				file: "packages/engine/src/scalar/values/decimal.ts",
-				original: "\tif (magnitude >= pow10(precision)) {",
-				replacement: "\tif (magnitude > pow10(precision)) {",
-				why: "normalizeNumeric admits a rounded magnitude of exactly 10^(p - s)."
+				original: "\t(units < 0n ? -units : units) < pow10(precision)",
+				replacement: "\t(units < 0n ? -units : units) <= pow10(precision)",
+				why: "The typmod's precision check admits a magnitude of exactly 10^p units, 10^(p - s): normalizeNumeric stores what the column refuses."
 			},
 			{
 				file: "packages/engine/src/codec/scalar.ts",
-				original: '\t\t\treturn { carrier: "numeric", typmod: type.typmod }',
-				replacement: '\t\t\treturn { carrier: "numeric", typmod: undefined }',
+				original: '\t\t\t\t: { carrier: "numeric", typmod: type.typmod }',
+				replacement: '\t\t\t\t: { carrier: "numeric", typmod: undefined }',
 				why: "The numeric codec's carrier spec drops its typmod, so its encoder admits a value its column rounds."
 			},
 			{

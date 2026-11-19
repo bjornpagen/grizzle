@@ -19,6 +19,7 @@ import { type Comparator, compareStrings, mapInput, thenBy } from "#compiler/cor
 import {
 	type CanonicalFloat,
 	integerRanges,
+	isIntegerTypmod,
 	type MoneyValue,
 	uuidHyphens,
 	uuidTextLength,
@@ -824,8 +825,8 @@ const handlesProblem = (
 /**
  * Why the decimal `value` is not exactly a value of numeric(p, s), or undefined when it is. A value that numeric(p,
  * s) would round, or whose rounded magnitude needs more than p - s integer digits (negative scales included), or an
- * infinity, is refused: PostgreSQL would change the value or fail at run time. NaN is a
- * value of every numeric typmod.
+ * infinity, is refused: PostgreSQL would change the value or fail at run time. NaN is a value of every numeric typmod
+ * but numeric(p, 0), whose values are integers held as bigints (ir/carriers.ts isIntegerTypmod).
  */
 const numericTypmodProblem = (value: DecimalValue, typmod: NumericTypmod): string | undefined => {
 	const { precision, scale } = typmod
@@ -833,7 +834,7 @@ const numericTypmodProblem = (value: DecimalValue, typmod: NumericTypmod): strin
 	const parts: DecimalParts = value.parts
 	switch (parts.kind) {
 		case "nan":
-			return undefined
+			return isIntegerTypmod(typmod) ? `${label} holds integers alone, never NaN` : undefined
 		case "infinity":
 		case "-infinity":
 			return `${label} cannot hold an infinite value`

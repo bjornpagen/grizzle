@@ -200,11 +200,13 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	numericOverflow:
 		"a numeric of fewer integer digits than its precision less its scale, as its column stores it",
 	numericInfinity: "a finite numeric: a field with a precision cannot hold an infinite value",
+	numericNaN:
+		"an integer: numeric(p, 0) holds integers alone, its host value a bigint, so never NaN",
 	moneyType: "a money amount as a bigint count of minor units",
 	moneyRange: "a money amount within the signed 64-bit minor-unit range",
 	moneySpecial: "a finite money amount: NaN and infinity have no money value",
 	integerType:
-		"an integer host value: a JavaScript integer for smallint and integer, a bigint for bigint",
+		"an integer host value: a JavaScript integer for smallint and integer, a bigint for bigint and numeric(p, 0)",
 	integerRange: "an integer within the PostgreSQL type's signed range",
 	floatType: "a JavaScript number",
 	realInexact:

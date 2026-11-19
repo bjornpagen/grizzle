@@ -31,7 +31,7 @@ import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { decodeDesc } from "#compiler/ir/desc.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { capsOf, Roster, rosterOf, sameScalarType, spanOf } from "#compiler/ir/scalar.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { admitNumericTypmod, pgDescriptors } from "#compiler/scalar/pg.ts"
 import { carrierSql, describeField } from "#compiler/scalar/registry.ts"
 import { checkNumericTypmod } from "#compiler/scalar/values/decimal.ts"
 import { admitVectorDimensions } from "#compiler/scalar/vector.ts"
@@ -39,7 +39,6 @@ import { admittedClosedId, closedBuilder } from "#compiler/schema/relation.ts"
 import { assert, defined, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
-import { argumentsOf } from "#test/support/list.ts"
 import {
 	admits,
 	boundsReached,
@@ -214,16 +213,21 @@ export const typmodValidationAgreesWithTheCarriersNumericTypmodRuleOnEveryIntege
 							c.note(feature)
 						}
 					}
-					const args: ReadonlyArray<unknown> =
-						arity === 0 ? [] : arity === 1 ? [p] : arity === 2 ? [p, s] : [p, s, 1]
+					const [precision, scale, extra] =
+						arity === 0
+							? [undefined, undefined, []]
+							: arity === 1
+								? [p, undefined, []]
+								: arity === 2
+									? [p, s, []]
+									: [p, s, [1]]
 					const expected = arity === 2 ? admittedNumericTypmod(p, s) : undefined
 					if (expected === undefined) {
 						c.note("refused")
-						throwsRefused(() => pgDescriptors.numeric(...argumentsOf(args)), "MalformedDescription")
+						throwsRefused(() => admitNumericTypmod(precision, scale, extra), "MalformedDescription")
 					} else {
 						c.note("admitted")
-						const built = pgDescriptors.numeric(...argumentsOf(args))
-						assert.deepEqual({ precision: built.precision, scale: built.scale }, expected)
+						assert.deepEqual(admitNumericTypmod(precision, scale, extra), expected)
 					}
 					if (arity === 2 && dp.kind === "live" && ds.kind === "live") {
 						assert.equal(checkNumericTypmod(p, s).ok, expected !== undefined)

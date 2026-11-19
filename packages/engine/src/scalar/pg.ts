@@ -4,16 +4,30 @@ import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import type { PgScalarName } from "#compiler/ir/desc.ts"
 import { minted } from "#compiler/scalar/minted.ts"
 import { bareEnv, type Descriptor, defineField, type SqlTag } from "#compiler/scalar/registry.ts"
-import { carrierColumn } from "#compiler/scalar/values/convert.ts"
-import { checkNumericTypmod, type Decimal } from "#compiler/scalar/values/decimal.ts"
+import {
+	carrierColumn,
+	type NumericHostOf,
+	numericColumn
+} from "#compiler/scalar/values/convert.ts"
+import {
+	checkNumericTypmod,
+	type Decimal,
+	type NumericTypmod
+} from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 import { vector } from "#compiler/scalar/vector.ts"
 
 /** A descriptor whose values are A. */
 type ColumnDescriptor<Sql extends SqlTag, A> = Descriptor<Sql> & { readonly column: Column<A> }
 
-/** numeric(p, s): the descriptor holds its typmod as members, FieldDesc's numeric (ir/desc.ts). */
-interface NumericTypmodDescriptor extends ColumnDescriptor<"numeric", Decimal> {
+/**
+ * numeric(p, s): the descriptor holds its typmod as members, FieldDesc's numeric (ir/desc.ts), and its column its values:
+ * a bigint's at scale 0, whose values are integers, and a Decimal's at any other.
+ */
+interface NumericTypmodDescriptor<Host extends Decimal | bigint> extends ColumnDescriptor<
+	"numeric",
+	Host
+> {
 	readonly precision: number
 	readonly scale: number
 }
@@ -41,16 +55,17 @@ const doublePrecision: ColumnDescriptor<"double precision", number> = defineFiel
 	bareEnv
 )
 
-/** numeric's column, every typmod's: Decimal.fromOutput reads PostgreSQL's text into the value's one form, at any scale. */
-const numericColumn: Column<Decimal> = carrierColumn("numeric")
-
 /**
- * numeric(p, s), its precision and scale both declared, as a JavaScript caller passes them: PostgreSQL's
- * numerictypmodin rule (values/decimal.ts checkNumericTypmod), every other argument a malformed description.
+ * numeric(p, s)'s typmod as a JavaScript caller passes it, its precision and scale both declared and nothing beside
+ * them: PostgreSQL's numerictypmodin rule (values/decimal.ts checkNumericTypmod), every other argument a malformed
+ * description, thrown.
  */
-const numeric = (...args: ReadonlyArray<unknown>): NumericTypmodDescriptor => {
-	const [precision, scale, ...extra] = args
-	if (args.length < 2 || extra.length > 0) {
+export const admitNumericTypmod = (
+	precision: unknown,
+	scale: unknown,
+	extra: ReadonlyArray<unknown>
+): NumericTypmod => {
+	if (scale === undefined || extra.length > 0) {
 		throw malformedDescription(
 			captureLoc("pg.numeric", []),
 			"numeric(p, s): its precision and its scale, both declared"
@@ -60,12 +75,29 @@ const numeric = (...args: ReadonlyArray<unknown>): NumericTypmodDescriptor => {
 	if (!typmod.ok) {
 		throw malformedDescription(captureLoc("pg.numeric", []), describeFault(typmod.error))
 	}
+	return typmod.value
+}
+
+/**
+ * numeric(p, s), its typmod admitted (admitNumericTypmod). Its column is its scale's (values/convert.ts numericColumn),
+ * so its host type is NumericHostOf<S>: a bigint at scale 0, a Decimal at any other.
+ */
+const numeric = <const S extends number>(
+	precision: number,
+	scale: S,
+	...extra: ReadonlyArray<never>
+): NumericTypmodDescriptor<NumericHostOf<S>> => {
+	const typmod = admitNumericTypmod(precision, scale, extra)
 	return defineField(
 		{},
 		"numeric",
-		{ kind: "numeric", precision: typmod.value.precision, scale: typmod.value.scale },
-		{ precision: typmod.value.precision, scale: typmod.value.scale, column: numericColumn },
-		SourceLoc(`pg.numeric(${typmod.value.precision}, ${typmod.value.scale})`, []),
+		{ kind: "numeric", precision: typmod.precision, scale: typmod.scale },
+		{
+			precision: typmod.precision,
+			scale: typmod.scale,
+			column: numericColumn({ precision: typmod.precision, scale })
+		},
+		SourceLoc(`pg.numeric(${typmod.precision}, ${typmod.scale})`, []),
 		bareEnv
 	)
 }
@@ -79,7 +111,8 @@ const numeric = (...args: ReadonlyArray<unknown>): NumericTypmodDescriptor => {
  * - `pg.numeric(p, s)` is numeric with its typmod, precision and scale both declared: there is no numeric field
  *   without one, so every numeric value a field holds has the digits its typmod states. PostgreSQL's numerictypmodin
  *   rule is checked: precision 1-numericMaxPrecision and scale numericMinScale-numericMaxScale (ir/carriers.ts), both
- *   integers, a scale larger than the precision permitted.
+ *   integers, a scale larger than the precision permitted. Its host type follows its values: a bigint at scale 0, whose
+ *   values are integers and never NaN, and a Decimal at any other scale.
  *
  * A malformed typmod from a JavaScript caller is CompileError MalformedDescription, thrown synchronously, the builders'
  * convention. Precision and scale are runtime values only, the TypeScript signatures in types/fields taking a number.

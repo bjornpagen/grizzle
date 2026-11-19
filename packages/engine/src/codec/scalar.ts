@@ -5,6 +5,7 @@ import { nominal } from "#compiler/core/brand.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
+import { isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import {
 	type Codebook,
 	declaredOrder,
@@ -47,6 +48,7 @@ import {
  * | --- | --- |
  * | int2, int4, int8 | decimal digits |
  * | numeric | the one text, numeric_out of trim_scale(value); NaN, Infinity, -Infinity |
+ * | numeric(p, 0), exactInteger | decimal digits, its bigint's |
  * | float4, float8 | shortest round-trip decimal, one zero; NaN, Infinity, -Infinity |
  * | money | the amount as numeric text at scale 2, cast ($n::numeric)::money |
  * | bool | true, false |
@@ -85,7 +87,8 @@ export interface ScalarCodec {
 /**
  * The carrier admission spec of a descriptor, read off its base (ir/scalar.ts baseOf), which holds its typmod, roster
  * and span, a contract's carrier being its base's: everything the spec needs but a roster's codes, which the
- * installation's codebook holds.
+ * installation's codebook holds. An integer numeric's, numeric(p, 0), is the exact integer's of its typmod, its host
+ * value a bigint (values/identity.ts CarrierSpec).
  */
 export const carrierSpecOf = (descriptor: ScalarType, codes: Codebook): CarrierSpec => {
 	const type = baseOf(descriptor)
@@ -93,7 +96,11 @@ export const carrierSpecOf = (descriptor: ScalarType, codes: Codebook): CarrierS
 		case "vector":
 			return { carrier: "vector", dimensions: type.typmod.dims }
 		case "numeric":
-			return { carrier: "numeric", typmod: type.typmod }
+			return type.typmod !== undefined && isIntegerTypmod(type.typmod)
+				? { carrier: "exactInteger", typmod: type.typmod }
+				: { carrier: "numeric", typmod: type.typmod }
+		case "exactInteger":
+			return { carrier: "exactInteger", typmod: undefined }
 		case "code":
 		case "bits":
 			return { carrier: type.carrier, roster: rosterCodecOf(codes, type.roster) }
@@ -112,7 +119,6 @@ export const carrierSpecOf = (descriptor: ScalarType, codes: Codebook): CarrierS
 		case "date":
 		case "text":
 		case "bytes":
-		case "exactInteger":
 		case "exactMoney":
 			return { carrier: type.carrier }
 	}

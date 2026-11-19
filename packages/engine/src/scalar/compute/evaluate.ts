@@ -1249,8 +1249,10 @@ interface LiteralRefusal {
  * answer (EvalLeaves closed). Any other operation, and any read its leaves do not hold, is `unsupported`, never an
  * approximation. The host never substitutes JavaScript arithmetic for a SQL expression in a query.
  *
- * Every value is its type's host value, the codec's own (scalar/values/identity.ts CarrierHost), so a row's field and an
- * evaluated term are read and written as they are, with no form of the evaluator's own: an integer operation widens its
+ * Every value is its type carrier's host value, the codec's own (scalar/values/identity.ts CarrierHost), so a row's field
+ * and an evaluated term are read and written as they are, with no form of the evaluator's own, but an integer numeric's,
+ * numeric(p, 0), whose field holds a bigint and whose evaluated value is the Decimal numeric.c computes with: a field
+ * enters at evaluatedValue and a generated value leaves at heldValue (identity.ts). An integer operation widens its
  * operands to bigints and narrows its result to its type's carrier, so smallint's and integer's values stay JavaScript
  * integers. Comparison is PostgreSQL's total order of the type (identity.ts compareValues, the host's one): NaN above
  * every number and equal to itself, -0 equal to 0, numeric by value, text in code point order under the fixed C.UTF-8

@@ -6,10 +6,11 @@ import {
 	type ConvertedCarrier
 } from "#compiler/core/decoder.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
+import { isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import { handleAt, type RosterCodec } from "#compiler/ir/codes.ts"
 import { convertDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Decimal, type NumericTypmod } from "#compiler/scalar/values/decimal.ts"
 import { convertComponent, convertDouble, convertReal } from "#compiler/scalar/values/float.ts"
 import type { CarrierHost, SpecOf } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -111,7 +112,7 @@ const convertBits =
  * | bits | bit_out, n characters of 0 and 1 | a fresh Set of the handles of its 1 bits, position i code i |
  * | range4, range8, rangeDate | range_out of a bounded half-open range, [start,end) | a frozen { start, end } |
  * | vector | vector_out, [c1,...,cn] | a Float32Array of the column's dimensions, components exactly binary32 |
- * | exactInteger | int8out or numeric_out of an integer | BigInt, the exact integer |
+ * | exactInteger, an integer numeric's spec | int8out or numeric_out of an integer | BigInt, the exact integer |
  * | exactMoney | numeric_out of an amount at scale 2 | Money.fromOutput, an exact count of any size |
  *
  * Every converter is a per-row hot path, run on each value of each row a statement returns: native string methods and
@@ -158,7 +159,7 @@ const converted: { readonly [C in ConvertedCarrier]: Converter<C> } = {
 	range4: convertByCarrier.range4({ carrier: "range4", width: undefined }),
 	range8: convertByCarrier.range8({ carrier: "range8", width: undefined }),
 	rangeDate: convertByCarrier.rangeDate({ carrier: "rangeDate", width: undefined }),
-	exactInteger: convertByCarrier.exactInteger({ carrier: "exactInteger" }),
+	exactInteger: convertByCarrier.exactInteger({ carrier: "exactInteger", typmod: undefined }),
 	exactMoney: convertByCarrier.exactMoney({ carrier: "exactMoney" })
 }
 
@@ -171,6 +172,26 @@ export const converterOf = (conversion: CellConversion): ((text: OutputText) => 
 /** The column converting its cells by `carrier`'s conversion, of that carrier's host values. */
 export const carrierColumn = <C extends ConvertedCarrier>(carrier: C): Column<CarrierHost[C]> =>
 	convertColumn({ carrier })
+
+/**
+ * The host type of numeric(p, s) at a scale S, which follows its values: a bigint at a literal scale 0, whose values
+ * are integers and never NaN, a Decimal at any other literal scale, and either at a scale only a number states, which
+ * no type tells apart. types/fields (NumericTypmodField) states it to a caller.
+ */
+export type NumericHostOf<S extends number> = number extends S
+	? Decimal | bigint
+	: `${S}` extends "0"
+		? bigint
+		: Decimal
+
+/**
+ * numeric(p, s)'s column at its scale S: at scale 0 (ir/carriers.ts isIntegerTypmod) the exact integer's conversion, BigInt
+ * reading numeric_out's digits, since its values are integers and never NaN; at any other numeric's, a Decimal. Its host type is the scale's (types/fields NumericHostOf), which a literal scale states.
+ */
+export const numericColumn = <S extends number>(
+	typmod: NumericTypmod & { readonly scale: S }
+): Column<NumericHostOf<S>> =>
+	convertColumn({ carrier: isIntegerTypmod(typmod) ? "exactInteger" : "numeric" })
 
 /** The column converting vector_out texts into Vectors of `dimensions` dimensions. */
 export const vectorColumn = <N extends number>(dimensions: N): Column<Vector<N>> =>

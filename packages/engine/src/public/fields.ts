@@ -101,6 +101,7 @@ export type {
 	SpanEndpointLike,
 	LiteralOf,
 	NaturalField,
+	NumericHostOf,
 	NumericTypmodField,
 	PatternField,
 	RetirementField,

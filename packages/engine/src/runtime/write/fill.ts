@@ -74,7 +74,9 @@ import {
 	type CarrierHost,
 	type CarrierSpec,
 	compareValues,
-	type HostValue
+	evaluatedValue,
+	type HostValue,
+	heldValue
 } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { KeyHost } from "#compiler/types/changeset/changeset.ts"
@@ -111,21 +113,18 @@ export interface FilledNode {
 }
 
 /**
- * The fields of a relation an expression over one of its rows reads, each by its name with its carrier's spec under
- * the installation's codes (`evaluatedRelation`): read once, where the relation the evaluator judges is laid out, so no
- * evaluation of a row reads a field's type again.
+ * The fields of a relation an expression over one of its rows reads, each by its name with its type, which its host
+ * value meets the evaluator by (values/identity.ts evaluatedValue), read once, where the relation the evaluator judges
+ * is laid out (`evaluatedRelation`).
  */
 export interface EvaluatedRelation {
-	readonly carriers: ReadonlyMap<string, CarrierSpec>
+	readonly types: ReadonlyMap<string, ScalarType>
 }
 
 /** A relation's fields `fields`, a LawRelation's or a fill's relation's (`FillRelation`), as the evaluator reads them
- * under `codes` (`EvaluatedRelation`). */
-export const evaluatedRelation = (
-	fields: ReadonlyArray<HeadingColumn>,
-	codes: Codebook
-): EvaluatedRelation => ({
-	carriers: new Map(fields.map((f) => [f.name, carrierSpecOf(f.type, codes)] as const))
+ * (`EvaluatedRelation`). */
+export const evaluatedRelation = (fields: ReadonlyArray<HeadingColumn>): EvaluatedRelation => ({
+	types: new Map(fields.map((f) => [f.name, f.type] as const))
 })
 
 /**
@@ -336,7 +335,8 @@ export interface HostFill {
  * - ownerCopy, predecessor, last: a column carried along an axis, the target row's column `to`, and `base` at the
  *   predecessor and last axes' base;
  * - after: a fold plane's after;
- * - generated: a generated field, PostgreSQL's, evaluated where another column reads it and never written.
+ * - generated: a generated field, PostgreSQL's, evaluated where another column reads it and never written, its value as
+ *   its field of type `type` holds it (values/identity.ts heldValue).
  */
 type Rule =
 	| { readonly kind: "given" }
@@ -364,7 +364,7 @@ type Rule =
 			readonly befores: ReadonlyArray<number>
 			readonly step: FillStep<number>
 	  }
-	| { readonly kind: "generated"; readonly expr: ExprTable }
+	| { readonly kind: "generated"; readonly expr: ExprTable; readonly type: ScalarType }
 
 /** A fold as the host steps it (`FillFold`): its monoid, and each conjunct of its step side's selection with the fields
  * it reads (`Selection`). */
@@ -414,7 +414,12 @@ interface RuleTargets {
 
 /** A fill rule as the host fills it, under the installation's codes, each target at its position among its row's
  * relation's columns (`RuleTargets`). */
-const hostRule = (rule: FillRuleData, spec: CarrierSpec, targets: RuleTargets): Rule => {
+const hostRule = (
+	rule: FillRuleData,
+	type: ScalarType,
+	spec: CarrierSpec,
+	targets: RuleTargets
+): Rule => {
 	switch (rule.kind) {
 		case "given":
 		case "index":
@@ -461,7 +466,7 @@ const hostRule = (rule: FillRuleData, spec: CarrierSpec, targets: RuleTargets): 
 					rule.step.kind === "one" ? rule.step : { kind: "value", x: targets.own.at(rule.step.x) }
 			}
 		case "generated":
-			return rule
+			return { kind: "generated", expr: rule.expr, type }
 	}
 }
 
@@ -490,7 +495,7 @@ const hostLayout = (
 			at: targets.own.at(c.key),
 			name: c.name,
 			spec,
-			rule: hostRule(c.rule, spec, targets)
+			rule: hostRule(c.rule, c.type, spec, targets)
 		}
 		columns.set(c.key, column)
 		byPosition.set(column.at, column)
@@ -523,7 +528,8 @@ const hostLayout = (
 /**
  * The host evaluator over the closed relations `closed` answers and the compiled program's admitted patterns
  * (scalar/regex/patterns.ts ProgramPatterns): a row's field read as the relation it judges holds it, its codec's host
- * value, which is the evaluator's own (scalar/compute/evaluate.ts), and the result the expression type's host value.
+ * value as the evaluator computes with it (values/identity.ts evaluatedValue), and the result the evaluator's value of the
+ * expression's type, which a generated field's fill holds as its field does (`ruleValue`).
  */
 export const hostEvaluator =
 	(closed: EvalLeaves["closed"], patterns: PatternReads): HostEvaluator =>
@@ -531,13 +537,13 @@ export const hostEvaluator =
 		const leaves: EvalLeaves = {
 			value: undefined,
 			column: (ref) => {
-				const spec = relation.carriers.get(ref.name)
+				const type = relation.types.get(ref.name)
 				const value = read(ref.name)
-				return spec === undefined || value === undefined
+				return type === undefined || value === undefined
 					? undefined
 					: value === sqlNull
 						? sqlNull
-						: admitted(spec, value)
+						: evaluatedValue(type, value)
 			},
 			closed
 		}
@@ -1010,7 +1016,7 @@ const ruleValue = (
 								law: generatedLaw(row.layout.relation.name, column.name)
 							})
 						)
-					: Result.ok(v.value)
+					: Result.ok(heldValue(rule.type, v.value))
 		}
 	}
 }
@@ -1144,7 +1150,7 @@ export const filler = (
 	const relations = new Map(
 		fill.relations.map(
 			(relation) =>
-				[relation.name, { relation, evaluated: evaluatedRelation(relation.fields, codes) }] as const
+				[relation.name, { relation, evaluated: evaluatedRelation(relation.fields) }] as const
 		)
 	)
 	const layouts = new Map<string, Layout>()

@@ -4880,12 +4880,16 @@ const fieldCallValue = (call: FieldCall, env: Env): unknown => {
 						call.width === "number" ? 7 : 7n
 					)
 		case "numeric":
-			return call.arguments === 1 ? pgDescriptors.numeric(5) : pgDescriptors.numeric(5, 2)
+			return call.arguments === 1
+				? Reflect.apply(pgDescriptors.numeric, undefined, [5])
+				: pgDescriptors.numeric(5, 2)
 		case "typmod": {
 			const first = (value: number): number | string => (call.text ? String(value) : value)
 			switch (call.of) {
-				case "numeric":
-					return pgDescriptors.numeric(first(18), 0)
+				case "numeric": {
+					const numeric: unknown = Reflect.apply(pgDescriptors.numeric, undefined, [first(18), 0])
+					return numeric
+				}
 				case "vector": {
 					const vector: unknown = Reflect.apply(pgDescriptors.vector, undefined, [first(3)])
 					return vector

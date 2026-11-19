@@ -16,6 +16,7 @@ import {
 import { ownedDigest, type RosterDigest, rosterDigest } from "#compiler/core/fingerprint.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 
@@ -759,6 +760,15 @@ export const spanOf = (t: ScalarType): SpanInfo | undefined => {
 export const numericTypmodOf = (t: ScalarType): NumericTypmod | undefined => {
 	const b = baseOf(t)
 	return b.carrier === "numeric" ? b.typmod : undefined
+}
+
+/**
+ * The typmod of a type whose values are integers held as bigints, numeric(p, 0) (isIntegerTypmod), a contract over one
+ * among them; none for every other type.
+ */
+export const integerTypmodOf = (t: ScalarType): NumericTypmod | undefined => {
+	const typmod = numericTypmodOf(t)
+	return typmod !== undefined && isIntegerTypmod(typmod) ? typmod : undefined
 }
 
 /** The typmod of a vector descriptor, vector(n), a contract's its base's. */

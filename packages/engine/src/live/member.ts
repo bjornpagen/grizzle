@@ -26,6 +26,7 @@ import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
+import { isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import type { CallerParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { baseOf, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -72,7 +73,11 @@ export interface ServedLeaf {
 	readonly types: NonEmptyReadonlyArray<ScalarType>
 }
 
-/** The wire spec of a scalar type: its carrier's, a contract's its base's (ir/scalar.ts baseOf). */
+/**
+ * The wire spec of a scalar type: its carrier's, a contract's its base's (ir/scalar.ts baseOf), and an integer
+ * numeric's, numeric(p, 0), the exact integer's below 10^p, whose host value is a bigint as its field's is
+ * (scalar/values/identity.ts CarrierSpec).
+ */
 export const wireScalarOf = (descriptor: ScalarType): WireScalar => {
 	const type = baseOf(descriptor)
 	switch (type.carrier) {
@@ -89,13 +94,18 @@ export const wireScalarOf = (descriptor: ScalarType): WireScalar => {
 		case "bytes":
 			return { carrier: type.carrier }
 		case "numeric":
-			return {
-				carrier: "numeric",
-				numeric:
-					type.typmod === undefined
-						? { kind: "bound", digits: type.bound.digits, scale: type.bound.scale }
-						: { kind: "typmod", precision: type.typmod.precision, scale: type.typmod.scale }
+			if (type.typmod === undefined) {
+				return {
+					carrier: "numeric",
+					numeric: { kind: "bound", digits: type.bound.digits, scale: type.bound.scale }
+				}
 			}
+			return isIntegerTypmod(type.typmod)
+				? { carrier: "exactInteger", digits: type.typmod.precision }
+				: {
+						carrier: "numeric",
+						numeric: { kind: "typmod", precision: type.typmod.precision, scale: type.typmod.scale }
+					}
 		case "exactInteger":
 		case "exactMoney":
 			return { carrier: type.carrier, digits: type.digits }

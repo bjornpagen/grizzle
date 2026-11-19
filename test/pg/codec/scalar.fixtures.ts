@@ -93,6 +93,8 @@ const scalars = Object.freeze({
 	uuid: scalarOf({ kind: "uuid" }, {}),
 	numeric52: scalarOf({ kind: "numeric", precision: 5, scale: 2 }, {}),
 	numeric72: scalarOf({ kind: "numeric", precision: 7, scale: 2 }, {}),
+	numeric10: scalarOf({ kind: "numeric", precision: 1, scale: 0 }, {}),
+	numeric10000: scalarOf({ kind: "numeric", precision: 1000, scale: 0 }, {}),
 	kind: scalarOf({ kind: "closedId", roster: "Kind" }, { Kind: kindHandles }),
 	kinds: scalarOf({ kind: "bits", roster: "Kind" }, { Kind: kindHandles }),
 	range4: scalarOf(
@@ -133,6 +135,16 @@ const int8Gen: Gen<bigint> = oneOf([
 ])
 
 const int4Gen: Gen<number> = oneOf([int(int4Min, int4Max), element([int4Min, int4Max, 0, -0])])
+
+/**
+ * An integer of numeric(p, 0), whose host value is a bigint below 10^p in magnitude: drawn over the whole range, at its
+ * ends and zero, and among the small ones.
+ */
+const integerNumericGen = (precision: number): Gen<bigint> => {
+	const most = 10n ** BigInt(precision) - 1n
+	const small = most < 1000n ? most : 1000n
+	return oneOf([bigint(-most, most), element([most, -most, 0n]), bigint(-small, small)])
+}
 
 /**
  * Two distinct endpoints, the lower first: the second endpoint, where it repeats the first, is moved to its `neighbour`,
@@ -269,6 +281,8 @@ export const cases: Arr.NonEmptyReadonlyArray<Case> = [
 		type: scalars.numeric72,
 		values: numeric72Gen
 	},
+	{ label: "numeric(1,0)", type: scalars.numeric10, values: integerNumericGen(1) },
+	{ label: "numeric(1000,0)", type: scalars.numeric10000, values: integerNumericGen(1000) },
 	{ label: "real", type: plainType("float4"), values: realGen },
 	{ label: "double precision", type: plainType("float8"), values: doubleGen },
 	{ label: "money", type: plainType("money"), values: map(int8Gen, (u) => Money.of(u)) },

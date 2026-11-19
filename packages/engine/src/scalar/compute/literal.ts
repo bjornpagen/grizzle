@@ -8,7 +8,7 @@ import { decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import { baseOf, type Carrier, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
-import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { Decimal, integerOfDecimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { toReal } from "#compiler/scalar/values/float.ts"
 import { type HostValue, hostOf } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -164,7 +164,8 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 			/**
 			 * Native coercion happens before the value is a value of the type: a literal at
 			 * numeric(p, s), a contract over one included, rounds half away from zero to scale s as the domain cast does,
-			 * and only a rounded value that overflows the precision, or an infinity, is refused.
+			 * and only a rounded value that overflows the precision, an infinity, or NaN at scale 0, whose values are
+			 * integers (ir/carriers.ts isIntegerTypmod), is refused.
 			 */
 			const { typmod } = base
 			if (typmod === undefined) {
@@ -176,7 +177,9 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 				return Result.err(
 					coerced.error === "numericInfinity"
 						? `a finite value: numeric(${precision},${scale}) cannot hold an infinite value`
-						: `a value that fits numeric(${precision},${scale}) once rounded to its scale`
+						: coerced.error === "numericNaN"
+							? `an integer: numeric(${precision},${scale}) holds integers alone, never NaN`
+							: `a value that fits numeric(${precision},${scale}) once rounded to its scale`
 				)
 			}
 			return Result.ok({ kind: "numeric", value: coerced.value })
@@ -304,15 +307,28 @@ const spanHost = (
  * CarrierHost): what the evaluator holds a literal as, a fill writes a literal start as and a closed relation's cell is
  * read as. A literal over smallint or integer is a JavaScript integer and over bigint a bigint, a numeric a Decimal,
  * money a Money, a float a number, a set the fresh Set of its handles, an int4 span's endpoints JavaScript integers and
- * a date span's the dates its day numbers are, a vector a fresh Vector of its components. The one conversion of a
- * literal to a host value, whose inverse is literalOfHost.
+ * a date span's the dates its day numbers are, a vector a fresh Vector of its components. A numeric literal at the
+ * exact integer's carrier is an integer numeric field's (values/identity.ts CarrierSpec), its bigint. The one conversion
+ * of a literal to a host value, whose inverse is literalOfHost.
  */
+/** A literal of an integer numeric, numeric(p, 0), as its field holds it, a bigint: its stored literal refused a fraction
+ * and NaN (scalar/literal.ts storedLiteral), so any other is a defect. */
+const integerOfLiteral = (d: Decimal): bigint => {
+	const x = integerOfDecimal(d)
+	if (x === undefined) {
+		throw defect("a literal of numeric(p, 0) is an integer")
+	}
+	return x
+}
+
 export const hostOfLiteral = (carrier: Carrier, literal: TypedLiteral): HostValue => {
 	switch (literal.kind) {
 		case "int":
 			return carrier === "int2" || carrier === "int4" ? Number(literal.value) : literal.value
-		case "numeric":
-			return Decimal.fromValue(literal.value)
+		case "numeric": {
+			const d = Decimal.fromValue(literal.value)
+			return carrier === "exactInteger" ? integerOfLiteral(d) : d
+		}
 		case "float":
 			return literal.value
 		case "floatSpecial":

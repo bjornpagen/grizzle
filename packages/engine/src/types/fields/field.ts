@@ -12,6 +12,7 @@ import type {
 } from "#compiler/core/phantom.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
+import type { NumericHostOf } from "#compiler/scalar/values/convert.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
@@ -133,11 +134,19 @@ export interface TextField<out Host extends string> extends Field<Host, "text", 
  */
 export type PatternField = Field<string, "text">
 
+/** The host type of numeric(p, s) at a scale S (scalar/values/convert.ts). */
+export type { NumericHostOf }
+
 /**
- * numeric(p, s), its precision and scale both declared, as every numeric field is: runtime values only, so the type is
- * one for every typmod.
+ * numeric(p, s), its precision and scale both declared, as every numeric field is, its host type its scale's
+ * (NumericHostOf). Its domain is numeric's whatever its host, Decimal, so its terms meet every numeric's and take a
+ * numeric's literals; precision and scale are runtime values only.
  */
-export interface NumericTypmodField extends Field<Decimal, "numeric"> {
+export interface NumericTypmodField<Host extends Decimal | bigint = Decimal | bigint> extends Field<
+	Host,
+	"numeric",
+	Decimal
+> {
 	readonly precision: number
 	readonly scale: number
 }

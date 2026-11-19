@@ -8,7 +8,7 @@ import { compareQuotedTuples, validateText } from "#compiler/core/text.ts"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { codeOf, type HandleOrder, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
-import type { Carrier } from "#compiler/ir/scalar.ts"
+import { baseOf, type Carrier, integerTypmodOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { statedRoster } from "#compiler/scalar/values/bits.ts"
 import {
 	AdmittedBytes,
@@ -19,6 +19,8 @@ import {
 } from "#compiler/scalar/values/bytes.ts"
 import {
 	Decimal,
+	integerNumeric,
+	integerOfDecimal,
 	type NumericTypmod,
 	normalizeNumeric,
 	parseNumeric
@@ -46,18 +48,32 @@ export type { Carrier }
 
 type PlainCarrier = Exclude<
 	Carrier,
-	"numeric" | "code" | "bits" | "vector" | "range4" | "range8" | "rangeDate" | "bytes"
+	| "numeric"
+	| "exactInteger"
+	| "code"
+	| "bits"
+	| "vector"
+	| "range4"
+	| "range8"
+	| "rangeDate"
+	| "bytes"
 >
 
 /**
  * What a carrier needs beyond its name to admit a value. A closed id and a set over a roster carry the roster's codes,
  * which the installation holds: a handle is written as its code, and a set as its hex digits, one bit per code. Bytes
  * is a spec of its own, since its value travels as no text, so a spec narrowed by it is a text carrier's.
+ *
+ * A spec is the value's, its host value's carrier, which is its type's carrier but for an integer numeric: numeric(p,
+ * 0) holds integers alone, so its spec is the exact integer's, of its typmod, and its host value a bigint
+ * (codec/scalar.ts carrierSpecOf), where an exact integer's own, a value grizzle computes, has no typmod. numeric's
+ * typmod is then one of another scale, or none, a computed numeric's.
  */
 export type CarrierSpec =
 	| { readonly carrier: PlainCarrier }
 	| { readonly carrier: "bytes" }
 	| { readonly carrier: "numeric"; readonly typmod: NumericTypmod | undefined }
+	| { readonly carrier: "exactInteger"; readonly typmod: NumericTypmod | undefined }
 	| { readonly carrier: "code"; readonly roster: RosterCodec }
 	| { readonly carrier: "bits"; readonly roster: RosterCodec }
 	| { readonly carrier: "vector"; readonly dimensions: number }
@@ -113,7 +129,7 @@ interface SpecExtras {
 	readonly range4: { readonly width: bigint | undefined }
 	readonly range8: { readonly width: bigint | undefined }
 	readonly rangeDate: { readonly width: bigint | undefined }
-	readonly exactInteger: unknown
+	readonly exactInteger: { readonly typmod: NumericTypmod | undefined }
 	readonly exactMoney: unknown
 }
 
@@ -191,6 +207,22 @@ const decimalAt =
 		value instanceof Decimal
 			? atTypmod(value, typmod)
 			: Result.err(typeof value === "number" ? "decimalNumber" : "decimalType")
+
+/**
+ * An exact integer at its typmod: an integer numeric's, numeric(p, 0), below 10^p in magnitude (decimal.ts
+ * integerNumeric), its parse and its coercion one, since no bigint rounds. Without a typmod it is a computed exact
+ * integer's, every bigint, whose digit bound is a proof of the values the database computes, as a computed numeric's
+ * is (decimalAt).
+ */
+const integerAt = (
+	value: unknown,
+	typmod: NumericTypmod | undefined
+): Result.Result<bigint, ValueFault> =>
+	typeof value !== "bigint"
+		? Result.err("integerType")
+		: typmod === undefined
+			? Result.ok(value)
+			: integerNumeric(value, typmod)
 
 /**
  * The encode-time boundary of a vector, read once from the caller's buffer as it is now into a copy grizzle alone holds:
@@ -283,8 +315,7 @@ const coercions: Admitters = {
 	range8: (value, spec) => admitSpan("int8", value, spec.width),
 	rangeDate: (value, spec) => admitSpan("date", value, spec.width),
 	vector: (value, spec) => admitVector(value, spec.dimensions),
-	exactInteger: (value) =>
-		typeof value === "bigint" ? Result.ok(value) : Result.err("integerType"),
+	exactInteger: (value, spec) => integerAt(value, spec.typmod),
 	exactMoney: (value) => (value instanceof Money ? Result.ok(value) : Result.err("moneyType"))
 }
 
@@ -571,9 +602,10 @@ export const compareValues = <C extends Carrier>(
 /**
  * A value of a carrier's host type, which a value grizzle admitted or computed at a type of that carrier is: the one site
  * of the fact "a value held at a type holds its carrier's host value". An admitted fact is a record keyed by its
- * heading's runtime field names, the host type of each field's value a function of the carrier of the field of that name
- * in a heading held apart from it; an evaluated term's value is a function of the term's type, held in its expression
- * table apart from it (scalar/compute/evaluate.ts). No TypeScript type is indexed by a runtime name or ties two runtime
+ * heading's runtime field names, the host type of each field's value a function of the carrier of the field of that
+ * name's spec (CarrierSpec), in a heading held apart from it; an evaluated term's value is a function of the term's
+ * type, its type's carrier, held in its expression table apart from it (scalar/compute/evaluate.ts); the two meet at
+ * evaluatedValue and heldValue. No TypeScript type is indexed by a runtime name or ties two runtime
  * structures entry by entry, and a carrier packed with its value only moves the lookup to the reader, which reaches it
  * through a name or an id from another structure, so a value of another host type is a defect, and throws.
  */
@@ -582,6 +614,44 @@ export const hostOf = <C extends Carrier>(carrier: C, value: unknown): CarrierHo
 		throw defect(`a ${carrier} host value`)
 	}
 	return value
+}
+
+/** An integer numeric's bigint as the Decimal numeric.c computes with. */
+const decimalOfInteger = (x: bigint): Decimal => {
+	const d = Decimal.fromBigInt(x)
+	if (!d.ok) {
+		throw defect(
+			"an integer numeric's value is a Decimal: its typmod bounds it far inside numeric's format"
+		)
+	}
+	return d.value
+}
+
+/**
+ * A field's host value of type `t` as the evaluator computes with it (scalar/compute/evaluate.ts), its type carrier's
+ * host value: the value itself, but an integer numeric's bigint (integerTypmodOf), which the evaluator reads as the
+ * Decimal numeric.c computes with, since numeric arithmetic is the column's whatever its scale.
+ */
+export const evaluatedValue = (t: ScalarType, value: unknown): HostValue =>
+	integerTypmodOf(t) === undefined
+		? hostOf(baseOf(t).carrier, value)
+		: decimalOfInteger(hostOf("exactInteger", value))
+
+/**
+ * An evaluated value of type `t` as a field of the type holds it, the inverse of evaluatedValue: an integer numeric's
+ * Decimal as its bigint, every other value itself. A value of an integer numeric type is an integer, since its typmod's
+ * coercion and every stored literal of it refuse NaN and round a fraction away (decimal.ts normalizeNumeric), so any
+ * other is a defect, and throws.
+ */
+export const heldValue = (t: ScalarType, value: unknown): HostValue => {
+	if (integerTypmodOf(t) === undefined) {
+		return hostOf(baseOf(t).carrier, value)
+	}
+	const x = integerOfDecimal(hostOf("numeric", value))
+	if (x === undefined) {
+		throw defect("an evaluated integer numeric is an integer")
+	}
+	return x
 }
 
 /** A value this spec already admitted, held in an admitted fact's field, as its carrier's host value (hostOf). */

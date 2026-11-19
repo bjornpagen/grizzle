@@ -560,6 +560,7 @@ export type NormalizeFeature =
 	| "numericOverflow"
 	| "numericInfinity"
 	| "NaN kept"
+	| "numericNaN"
 
 /** 10^n for a whole number n. */
 export const pow10 = (n: number): bigint => 10n ** BigInt(n)
@@ -575,6 +576,14 @@ const magnitudeOf = (v: bigint): bigint => (v < 0n ? -v : v)
 export const normalizedVerdict = (x: Decimal, type: Typmod): NormalizeFeature => {
 	const result = normalizeNumeric(x, type)
 	if (x.isNaN()) {
+		if (type.scale === 0) {
+			faulted(
+				result,
+				"numericNaN",
+				`NaN at numeric(${type.precision}, 0), whose values are integers`
+			)
+			return "numericNaN"
+		}
 		assert.ok(succeeded(result).isNaN(), "NaN is kept")
 		return "NaN kept"
 	}

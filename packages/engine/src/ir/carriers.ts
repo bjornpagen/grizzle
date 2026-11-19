@@ -9,6 +9,7 @@ import {
 } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { NumericTypmod } from "#compiler/ir/scalar.ts"
 
 /**
  * The least smallint.
@@ -347,3 +348,10 @@ export const moneyMinorUnits = (value: MoneyValue): bigint => value.minorUnits
  * written.
  */
 export const vectorPayload = (value: Canonicalizable): string => value[canonicalTag]().payload
+
+/**
+ * Whether a numeric typmod's values are integers held as bigints: numeric(p, 0), whose column holds no NaN, which no
+ * bigint spells (physical/numeric/storage.ts). A negative scale's values are integers too, but multiples of 10^-s, which
+ * no exact integer's wire spelling states (live/wire.ts), so they stay Decimals, NaN among them.
+ */
+export const isIntegerTypmod = (typmod: NumericTypmod): boolean => typmod.scale === 0

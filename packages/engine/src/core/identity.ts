@@ -1273,6 +1273,15 @@ export const identity = Object.freeze({
 			`date range check of ${relation}.${field}`,
 			hashed
 		),
+	/** An integer numeric column's CHECK, numeric(p, 0)'s: the integers a bigint spells, no NaN. */
+	integerCheck: (relation: string, field: string): Identity<"integerCheck"> =>
+		mint(
+			"integerCheck",
+			[relation, field],
+			[...nameSegments(relation), "integer", ...nameSegments(field)],
+			`integer check of ${relation}.${field}`,
+			hashed
+		),
 	/** A contract's, text domain's, roster's or set's domain's CHECK, `check` in its domain's constraint namespace. */
 	domainCheck: (
 		domain: Identity<

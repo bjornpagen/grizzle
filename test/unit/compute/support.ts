@@ -39,7 +39,7 @@ import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { anyNumeric } from "#compiler/scalar/compute/types.ts"
 import { type ScalarEnv, scalarTypeOf, type SqlTag } from "#compiler/scalar/registry.ts"
 import { spanColumn } from "#compiler/scalar/span.ts"
-import { vectorColumn } from "#compiler/scalar/values/convert.ts"
+import { numericColumn, vectorColumn } from "#compiler/scalar/values/convert.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
@@ -125,7 +125,7 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 		case "pg":
 			return plainColumns[desc.type]
 		case "numeric":
-			return plainColumns.numeric
+			return numericColumn(desc)
 		case "uuid":
 			return plainColumns.uuid
 		case "text":

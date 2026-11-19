@@ -323,6 +323,7 @@ type Expected =
 				| "realUnderflow"
 				| "numericOverflow"
 				| "numericInfinity"
+				| "numericNaN"
 				| "decimalNumber"
 	  }
 
@@ -330,6 +331,7 @@ type LiteralOutcome =
 	| "rounded"
 	| "kept"
 	| "special"
+	| "integer NaN"
 	| "negative zero"
 	| "overflow"
 	| "underflow"
@@ -344,7 +346,8 @@ type LiteralOutcome =
  * binary32 rounding (Math.fround), refused when a finite value rounds to an infinity (overflow) or a nonzero value to
  * zero (underflow). A numeric field never takes a JavaScript number. Compared, a decimal, a bigint or a special is
  * itself; stored, numeric(p, s) rounds a decimal to s fractional digits, half away from zero, refuses one that then
- * needs more than p digits and refuses an infinity. A numeric's zero has no sign.
+ * needs more than p digits and refuses an infinity, and numeric(p, 0), whose values are integers, refuses NaN. A
+ * numeric's zero has no sign.
  */
 export const expectedLiteral = (
 	field: LiteralField,
@@ -399,9 +402,11 @@ export const expectedLiteral = (
 		}
 		case "special": {
 			const compared: Expected = { kind: "numeric", text: v.text }
-			return v.text === "NaN"
-				? { compared, stored: compared, outcome: "special" }
-				: { compared, stored: { kind: "fault", fault: "numericInfinity" }, outcome: "infinity" }
+			return v.text !== "NaN"
+				? { compared, stored: { kind: "fault", fault: "numericInfinity" }, outcome: "infinity" }
+				: field.scale === 0
+					? { compared, stored: { kind: "fault", fault: "numericNaN" }, outcome: "integer NaN" }
+					: { compared, stored: compared, outcome: "special" }
 		}
 		case "bigint":
 		case "decimal": {

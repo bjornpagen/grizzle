@@ -164,9 +164,9 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 			},
 			{
 				file: "packages/engine/src/runtime/write/fill.ts",
-				original: "\t\t\t\t\t\t: admitted(spec, value)",
+				original: "\t\t\t\t\t\t: evaluatedValue(type, value)",
 				replacement:
-					'\t\t\t\t\t\t: spec.carrier === "vector"\n\t\t\t\t\t\t\t? undefined\n\t\t\t\t\t\t\t: admitted(spec, value)',
+					'\t\t\t\t\t\t: baseOf(type).carrier === "vector"\n\t\t\t\t\t\t\t? undefined\n\t\t\t\t\t\t\t: evaluatedValue(type, value)',
 				why: "The host evaluator reads no vector column, as it did before one host value form, so a fold stepping over v <> w refuses every member as factShape; the fills disagree with the reference fold."
 			}
 		]

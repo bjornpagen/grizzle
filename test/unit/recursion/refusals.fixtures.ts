@@ -2,7 +2,7 @@
 
 import { boolean, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { bigint as bigintIn } from "@bjornpagen/testing/values"
-import { Array as Arr, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Formatter, Record as Rec, String as Str } from "effect"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { childLoc } from "#compiler/core/loc.ts"
@@ -318,16 +318,22 @@ export const delivered: Arr.NonEmptyReadonlyArray<Delivered> = [
 
 /**
  * The author casts the delivered term to the declared type, where a numeric cast is one and total: a cast from
- * numeric into an integer needs its value proved finite, a partial operation the column's own rule never reads.
+ * numeric into an integer needs its value proved finite, and one from a numeric that holds NaN into numeric(p, 0),
+ * whose values are integers, its value proved no NaN, partial operations the column's own rule never reads.
  */
 export type Spelled = "as delivered" | "cast by the author"
 
 const numericIdentities: ReadonlyArray<Typed["identity"]> = ["int4", "int8", "numeric"]
 
+/** Whether a column is numeric(p, 0)'s, whose values are integers and never NaN. */
+const integerNumeric = (t: Typed): boolean =>
+	t.identity === "numeric" && Str.endsWith(",0")(t.within)
+
 export const totalCast = (d: Typed, a: Typed): boolean =>
 	numericIdentities.includes(d.identity) &&
 	numericIdentities.includes(a.identity) &&
-	!(a.identity === "numeric" && d.identity !== "numeric")
+	!(a.identity === "numeric" && d.identity !== "numeric") &&
+	!(a.identity === "numeric" && !integerNumeric(a) && integerNumeric(d))
 
 /**
  * The rule (check/recursion/state.ts): every state column hashes, so money is refused at the row; an arm's column

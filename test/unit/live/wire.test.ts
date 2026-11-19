@@ -178,10 +178,10 @@ export const theWiresOneTableParsesNothingItsSchemaRefusesAndRefusesWhatItsSchem
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/live/wire.test.ts#theWiresOneTableParsesNothingItsSchemaRefusesAndRefusesWhatItsSchemaAdmitsOnlyAsOneOfTheSchemasGaps:-:3.1.0.3.0.7.0"
+					"test/unit/live/wire.test.ts#theWiresOneTableParsesNothingItsSchemaRefusesAndRefusesWhatItsSchemaAdmitsOnlyAsOneOfTheSchemasGaps:-:3.1.i.1.j.1.2.0.0.0.7.0"
 				),
 				reason:
-					'"0" read as a numeric(1, 2), whose parse raised 10 to a negative power (wire-exact, live test phase 9ef5c380)',
+					'"0" read as a numeric(19, 20), whose parse raised 10 to a negative power (wire-exact, live test phase 9ef5c380)',
 				since: "2026-11-11"
 			}
 		],
