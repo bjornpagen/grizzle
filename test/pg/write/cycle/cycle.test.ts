@@ -1,172 +1,64 @@
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { boolean, element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Layer } from "effect"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
-import { contained, mutable, on, relation, schema } from "#compiler/public/schema.ts"
-import { installed } from "#test/pg/reads/support.ts"
+import { openedIn } from "#test/pg/reads/support.ts"
+import {
+	A,
+	B,
+	caseGen,
+	Cycle,
+	type CycleFeature,
+	dangling,
+	type Fact,
+	intoA,
+	intoB,
+	minus,
+	cycleInstall,
+	cycleTemplate
+} from "#test/pg/write/cycle/cycle.fixtures.ts"
 import { assert, deepEquals, unorderedEqual } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { withLayer } from "#test/support/with-layer.ts"
 
 /**
- * Plain foreign keys on a cycle, through a served ChangeSet, against a host model of containment: A's `b` is in B's
- * key and B's `a` in A's, each target holding a field outside its key, so both foreign keys are deferred and judged at
- * COMMIT. A ChangeSet that inserts facts of both relations naming each other, in one stratum, commits; one whose final
- * state leaves a reference without its target, an insertion naming a fact nobody holds or a deletion of a fact still
- * named, is refused at COMMIT by the law of a reference it breaks, and nothing of it commits.
+ * Plain foreign keys on a cycle commit a ChangeSet whose final state meets every reference, and refuse one that breaks one at COMMIT.
  *
- * Each case draws a lawful stored state over ids 1 to 3 and a ChangeSet of insertions of facts at ids nobody stores,
- * referencing ids 1 to 4, and deletions of stored facts. The model: the final state is the stored one less the
- * deletions plus the insertions; it is accepted when every reference meets its target there, with every fact counted,
- * no-change when the ChangeSet changes nothing, and otherwise refused by a law of the references it breaks.
- *
- * Features: accepted, no-change, a cycle inserted in one ChangeSet, a refusal by each reference, and a deletion of a
- * fact still named refused.
+ * Its pre-conversion budget: runs 80, coverage cases 80 (test/pg/write/cycle/cycle.test.ts at 991e0f9ab).
  */
-const A = relation("A", { id: pg.integer, b: pg.integer }, ["id"])
-const B = relation("B", { id: pg.integer, a: pg.integer }, ["id"])
-const intoB = contained(on(A, "b"), on(B, "id"))
-const intoA = contained(on(B, "a"), on(A, "id"))
-const Cycle = schema("Cycle", [A, B], [intoB, intoA, mutable(A), mutable(B)])
+export const plainForeignKeysOnACycleCommitAChangeSetWhoseFinalStateMeetsEveryReferenceAndRefuseOneThatBreaksOneAtCOMMIT =
+	property.explore(caseGen, {
+		needs: { fixture: Substrate.seat(cycleTemplate) },
+		situations: [
+			"accepted",
+			"unchanged",
+			"a cycle inserted in one ChangeSet",
+			"refused by A's reference",
+			"refused by B's reference",
+			"a deletion of a fact still named, refused"
+		] satisfies ReadonlyArray<Reached<CycleFeature>>,
+		check:
+			({ fixture }, c: Case<CycleFeature>) =>
+			([stored, requested]) =>
+				Effect.scoped(
+					Effect.flatMap(fixture, (taken) =>
+						Effect.provideService(
+							Effect.gen(function* () {
+								const o = yield* openedIn(Cycle, {}, cycleInstall, taken)
+								const s = yield* Substrate
+								const names = namesOf(o.installed)
+								const laws = {
+									a: names.described(names.lawOf(intoB)),
+									b: names.described(names.lawOf(intoA))
+								}
+								return yield* Effect.gen(function* () {
+									const db = yield* Db.open(o.served.login.roles.app, {})
 
-/** The full world's workload: one ChangeSet inserting and deleting facts of A and B, each call's facts by op. */
-const programs = Object.freeze({
-	change: ChangeSet.empty(Cycle).insert(A, []).insert(B, []).delete(A, []).delete(B, [])
-})
-
-/** A fact of either relation: its key and the key it references in the other. */
-interface Fact {
-	readonly id: number
-	readonly ref: number
-}
-
-/** A lawful stored state: A's ids, B's ids, each fact referencing one of the other's, or nothing stored at all. */
-interface Stored {
-	readonly a: ReadonlyArray<Fact>
-	readonly b: ReadonlyArray<Fact>
-}
-
-const storedGen: Gen<Stored> = (source) => {
-	const aIds = source.draw(subarray([1, 2, 3]))
-	const bIds = source.draw(subarray([1, 2, 3]))
-	if (!Arr.isReadonlyArrayNonEmpty(aIds) || !Arr.isReadonlyArrayNonEmpty(bIds)) {
-		return { a: [], b: [] }
-	}
-	return {
-		a: Arr.map(aIds, (id) => ({ id, ref: source.draw(element(bIds)) })),
-		b: Arr.map(bIds, (id) => ({ id, ref: source.draw(element(aIds)) }))
-	}
-}
-
-/** A ChangeSet over the stored state: insertions at ids nobody stores, and deletions of stored facts. */
-interface Requested {
-	readonly insertA: ReadonlyArray<Fact>
-	readonly insertB: ReadonlyArray<Fact>
-	readonly deleteA: ReadonlyArray<Fact>
-	readonly deleteB: ReadonlyArray<Fact>
-}
-
-const minus = (xs: ReadonlyArray<Fact>, ys: ReadonlyArray<Fact>): ReadonlyArray<Fact> =>
-	Arr.filter(xs, (x) => !Arr.some(ys, (y) => y.id === x.id))
-
-/** The ids 1 to 4 no fact of `stored` holds: where an insertion may go. */
-const freeIds = (stored: ReadonlyArray<Fact>): ReadonlyArray<number> =>
-	Arr.filter([1, 2, 3, 4], (id) => !Arr.some(stored, (f) => f.id === id))
-
-/**
- * A stored state and a ChangeSet over it: insertions at ids nobody stores, and deletions of stored facts. In the case's
- * lawful arm each insertion references a key the other relation holds after the ChangeSet, its kept facts' or its
- * insertions', so facts inserted together name each other; otherwise any id 1 to 4, keys nobody holds among them.
- */
-const caseGen: Gen<readonly [Stored, Requested]> = (source) => {
-	const stored = source.draw(storedGen)
-	const deleteA = source.draw(subarray(stored.a))
-	const deleteB = source.draw(subarray(stored.b))
-	const idsA = source.draw(subarray(freeIds(stored.a)))
-	const idsB = source.draw(subarray(freeIds(stored.b)))
-	const lawful = source.draw(boolean)
-	const into = (kept: ReadonlyArray<Fact>, inserted: ReadonlyArray<number>): Gen<number> => {
-		const keys = [...Arr.map(kept, (f) => f.id), ...inserted]
-		return lawful && Arr.isReadonlyArrayNonEmpty(keys) ? element(keys) : int(1, 4)
-	}
-	const keyOfB = into(minus(stored.b, deleteB), idsB)
-	const keyOfA = into(minus(stored.a, deleteA), idsA)
-	return [
-		stored,
-		{
-			insertA: Arr.map(idsA, (id) => ({ id, ref: source.draw(keyOfB) })),
-			insertB: Arr.map(idsB, (id) => ({ id, ref: source.draw(keyOfA) })),
-			deleteA,
-			deleteB
-		}
-	] as const
-}
-
-/** The references of `from` without their target among `to`'s keys. */
-const dangling = (from: ReadonlyArray<Fact>, to: ReadonlyArray<Fact>): boolean =>
-	Arr.some(from, (f) => !Arr.some(to, (t) => t.id === f.ref))
-
-type CycleFeature =
-	| "accepted"
-	| "unchanged"
-	| "a cycle inserted in one ChangeSet"
-	| "refused by A's reference"
-	| "refused by B's reference"
-	| "a deletion of a fact still named, refused"
-
-layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a cycle", (it) => {
-	it.effect(
-		"commit a ChangeSet whose final state meets every reference, and refuse one that breaks one at COMMIT",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const o = yield* installed(Cycle, {}, { label: "cycle", programs })
-					const s = yield* Substrate
-					const names = namesOf(o.installed)
-					const laws = {
-						a: names.described(names.lawOf(intoB)),
-						b: names.described(names.lawOf(intoA))
-					}
-					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(o.served.login.roles.app, {})
-						return yield* explore(
-							{
-								suite: "pg/write/cycle",
-								draw: drawn(caseGen),
-								literal: Formatter.format,
-								coverage: required<CycleFeature>(
-									[
-										"accepted",
-										"unchanged",
-										"a cycle inserted in one ChangeSet",
-										"refused by A's reference",
-										"refused by B's reference",
-										"a deletion of a fact still named, refused"
-									],
-									{ cases: 80, sense: notesOnly }
-								),
-								kept: [],
-								runs: 80,
-								shrink: completeShrink,
-								steerEvery: 16,
-								caseHang,
-								oracle: { kind: "specification", name: "a host model of containment at COMMIT" }
-							},
-							([stored, requested], c) =>
-								Effect.gen(function* () {
 									const insert = (table: string, columns: string, f: Fact) => ({
 										sql: `INSERT INTO ${table} (${columns}) VALUES ($1::int4, $2::int4)`,
 										params: [String(f.id), String(f.ref)]
@@ -263,16 +155,15 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 									) {
 										c.note("a cycle inserted in one ChangeSet")
 									}
-								})
+								}).pipe(Effect.scoped, withLayer(o.served.layer))
+							}),
+							Substrate,
+							taken.substrate
 						)
-					}).pipe(
-						(body) =>
-							Effect.flatMap(Layer.build(o.served.layer), (context) =>
-								Effect.provideContext(body, context)
-							),
-						Effect.scoped
 					)
-				}).pipe(Effect.scoped)
-			)
-	)
-})
+				),
+		oracle: { kind: "specification", name: "a host model of containment at COMMIT" },
+		budget: { runs: 80, steered: 80 },
+		kept: [],
+		kills: []
+	})
