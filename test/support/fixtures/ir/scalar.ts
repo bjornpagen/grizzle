@@ -177,8 +177,8 @@ export const accepts = (refinement: TextRefinement, value: string): boolean =>
 	Arr.every(refinement.members, (member) => Matcher.of(buildNfa(member.ir)).matches(value))
 
 /**
- * The language of a parsed pattern (scalar/regex/parse.ts parsePattern), classified as
- * analyzeText classifies it (text/refinement.ts languageOf): an empty language is the refusal "matches no admitted text
- * value".
+ * The language of a parsed pattern (scalar/regex/parse.ts parsePattern) as analyzeText knows it (text/refinement.ts
+ * languageOf): its canonical automaton within the DFA bounds, of no state for the empty language, which analyzeText
+ * refuses, or its structure past them.
  */
-export const analyzeLanguage = (ir: RegexNode) => languageOf(ir, buildNfa(ir))
+export const analyzeLanguage = (ir: RegexNode) => languageOf(buildNfa(ir))

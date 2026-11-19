@@ -2,7 +2,7 @@ import { defect } from "#compiler/core/invariant.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import { type PatternSource, type RegexRef, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import type { CharSet } from "#compiler/scalar/regex/charset.ts"
-import type { LiveNode } from "#compiler/scalar/regex/ir.ts"
+import type { LiveNode, RegexNode } from "#compiler/scalar/regex/ir.ts"
 import { Matcher } from "#compiler/scalar/regex/match.ts"
 import {
 	edgeCode,
@@ -16,29 +16,42 @@ import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
 
 /**
- * An admitted pattern parsed: its live node, which a translation's image reads, and the matcher of its automaton
- * (match.ts Matcher), whose NFA the language proofs read and whose search language membership runs, built once here.
+ * An admitted pattern parsed: its node, which a translation's image reads, and the matcher of its automaton (match.ts
+ * Matcher), whose NFA the language proofs read and whose search language membership runs, built once here. The node is
+ * a refinement member's language, which has a member (text/refinement.ts analyzeText), or a Compute.matches pattern's,
+ * which may be the empty language (admit.ts admitMatch), whose matcher matches no text.
  */
 export interface ParsedPattern {
-	readonly node: LiveNode
+	readonly node: RegexNode
 	readonly matcher: Matcher
 }
 
 /**
- * The parse of a pattern its admission parsed already, the one site of the fact that such a pattern parses to a live
- * node: a RegexRef is minted only from a pattern its text analysis admitted with a member (text/refinement.ts
- * analyzeText), a lexical form is grizzle's own (scalar/lexical.ts formSource), and a Compute.matches pattern is
- * admitted where its node is typed (admit.ts matchPattern). It runs where a program compiles or a pattern is admitted,
- * into a table (CompilePatterns, ProgramPatterns), and never per membership: membership reads the table.
+ * The parse of a pattern its admission parsed already, the one site of the fact that such a pattern parses: a RegexRef
+ * is minted only from a pattern its text analysis admitted (text/refinement.ts analyzeText), a lexical form is
+ * grizzle's own (scalar/lexical.ts formSource), and a Compute.matches pattern is admitted where its node is typed
+ * (admit.ts matchPattern). It runs where a program compiles or a pattern is admitted, into a table (CompilePatterns,
+ * ProgramPatterns), and never per membership: membership reads the table.
  */
 const admittedParse = (pattern: PatternSource): ParsedPattern => {
 	const parsed = parsePattern(pattern.source, pattern.flags)
-	if (!parsed.ok || parsed.value.kind === "never") {
-		throw defect(
-			`a pattern its admission parsed, with a member: /${pattern.source}/${pattern.flags}`
-		)
+	if (!parsed.ok) {
+		throw defect(`a pattern its admission parsed: /${pattern.source}/${pattern.flags}`)
 	}
 	return { node: parsed.value, matcher: Matcher.of(buildNfa(parsed.value)) }
+}
+
+/**
+ * The parse of a member of a text type's conjunction (ir/scalar.ts textPatterns), read from `patterns`: a language with
+ * a member, since the text analysis admits a refinement's member only with one (text/refinement.ts analyzeText), where a
+ * Compute.matches pattern, which no image or alphabet of a refinement reads, may be the empty language.
+ */
+export const memberNode = (pattern: PatternSource, patterns: PatternAutomata): LiveNode => {
+	const { node } = patterns.parse(pattern)
+	if (node.kind === "never") {
+		throw defect(`a refinement's member with a member: /${pattern.source}/${pattern.flags}`)
+	}
+	return node
 }
 
 /**

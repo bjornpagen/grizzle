@@ -30,7 +30,7 @@ import {
 	minimalDfa
 } from "#compiler/scalar/regex/dfa.ts"
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
-import { canonicalText, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
+import { canonicalText, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import { toAre } from "#compiler/scalar/regex/print.ts"
@@ -68,13 +68,13 @@ export type Known =
 
 /**
  * One pattern of a text's conjunction as the analysis knows it alone: its source and flags as declared, its normalized
- * IR with the flags folded in, a node of a language with a member, the ARE translation of the IR (the differential
+ * IR with the flags folded in, never for the empty language, which the conjunction's analysis refuses, the ARE translation of the IR (the differential
  * tests run it for every pattern), and its language as the analysis knows it.
  */
 export interface PatternAnalysis {
 	readonly source: string
 	readonly flags: RegexFlags
-	readonly ir: LiveNode
+	readonly ir: RegexNode
 	readonly are: string
 	readonly known: Known
 }
@@ -223,37 +223,26 @@ const testingOf = (members: ReadonlyArray<PatternAnalysis>): ReadonlyArray<Testi
 }
 
 /**
- * A pattern's language: empty (no admitted text value matches it), or not, as the analysis knows it.
- * A nonempty one holds its IR as a node of a language with a member.
+ * The language of a pattern's IR as the analysis knows it, from its NFA: what analyzePattern classifies an admitted
+ * pattern by. Its canonical automaton where the DFA bounds reach one, which has no state exactly for the empty language,
+ * the IR never (ir.ts), and otherwise its structure, which the IR of a language with a member alone can pass.
  */
-type Language =
-	| { readonly kind: "empty" }
-	| { readonly kind: "nonEmpty"; readonly ir: LiveNode; readonly known: Known }
-
-/**
- * The language of a pattern's IR from its NFA: what analyzePattern classifies an admitted pattern by. It is empty
- * exactly when the IR is never, which the IR's constructors make it exactly when no admitted text value matches it
- * (ir.ts), so a live IR's language is non-empty whether or not the DFA bounds reach its automaton.
- */
-export const languageOf = (ir: RegexNode, nfa: Nfa): Language => {
-	if (ir.kind === "never") {
-		return { kind: "empty" }
-	}
+export const languageOf = (nfa: Nfa): Known => {
 	const outcome = minimalDfa(nfa, dfaLimits)
 	switch (outcome.kind) {
 		case "bounded":
-			return { kind: "nonEmpty", ir, known: { kind: "structure" } }
+			return { kind: "structure" }
 		case "minimal":
-			return { kind: "nonEmpty", ir, known: { kind: "automaton", dfa: outcome.dfa } }
+			return { kind: "automaton", dfa: outcome.dfa }
 	}
 }
 
 /**
  * One pattern analyzed alone: admitted as every pattern grizzle hands PostgreSQL is admitted (scalar/regex/admit.ts
  * admitPattern), its grammar with source-located diagnostics and PostgreSQL's regex compile space, a pattern past one of
- * its measures refused as ResourceBound; refused as UnsupportedOperation where no admitted text value matches it, its IR
- * never (languageOf), however large; else its IR, its ARE (scalar/regex/are.ts) and its language as the host's bounds
- * let the analysis know it. `loc` places a refusal; diagnostics point one level deeper, at the pattern offset of the
+ * its measures refused as ResourceBound; else its IR, its ARE (scalar/regex/print.ts) and its language as the host's
+ * bounds let the analysis know it (languageOf). The empty language is one as any other here; a conjunction of it,
+ * alone or beside others, is refused as every conjunction no text matches is (analyzeText). `loc` places a refusal; diagnostics point one level deeper, at the pattern offset of the
  * construct (`... .pattern[3]`).
  */
 const analyzePattern = (
@@ -266,24 +255,7 @@ const analyzePattern = (
 		return admitted
 	}
 	const { ir, nfa } = admitted.value
-	const language = languageOf(ir, nfa)
-	if (language.kind === "empty") {
-		return Result.err(
-			unsupported(
-				childLoc(loc, "pattern"),
-				`/${source}/${flags} matches no admitted text value, so no fact could ever hold the field`
-			)
-		)
-	}
-	return Result.ok(
-		Object.freeze({
-			source,
-			flags,
-			ir: language.ir,
-			are: toAre(language.ir),
-			known: language.known
-		})
-	)
+	return Result.ok(Object.freeze({ source, flags, ir, are: toAre(ir), known: languageOf(nfa) }))
 }
 
 /** Each pattern analyzed alone (analyzePattern) in order, or the first one's refusal. */
@@ -357,7 +329,9 @@ export const analyzeText = (
 			return Result.err(
 				unsupported(
 					childLoc(loc, "pattern"),
-					`${patternsText(patterns)} match no admitted text value together, so no value is ever of their type`
+					members.length === 1
+						? `${patternsText(patterns)} matches no admitted text value, so no value is ever of its type`
+						: `${patternsText(patterns)} match no admitted text value together, so no value is ever of their type`
 				)
 			)
 		}

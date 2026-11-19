@@ -21,10 +21,10 @@ import { folded, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir
  * newline mode, and `\d`, `\w`, dot and negated classes were already expanded to explicit sets by the parser.
  *
  * The printer folds the IR children first (ir.ts folded), so a pattern of any depth prints without recursing. The
- * translation is total over the IR: every pattern grizzle admits has each dialect's spelling by construction, and the
- * empty language has none, since the language analysis hands over the IR of a language with a member
- * (text/refinement.ts languageOf) and a Compute.matches pattern whose IR is never is refused before it is printed
- * (admit.ts).
+ * translation is total over the IR: every pattern grizzle admits has each dialect's spelling by construction. The empty
+ * language, which a Compute.matches pattern may be (admit.ts admitMatch), has an ARE (toAre) and no other dialect's,
+ * since a refinement, which ECMA and grizzle's own grammar print, holds a language with a member (text/refinement.ts
+ * languageOf).
  */
 interface Dialect {
 	/** One code point, spelled so that it means itself both outside and inside a class. */
@@ -184,10 +184,19 @@ const printIn = (dialect: Dialect, node: LiveNode): string =>
 	folded(new Map<RegexNode, string>(), node, printedIn(dialect))
 
 /**
- * The ARE spelling of a pattern's IR, the same Boolean membership over admitted text, the one question either engine is
- * asked: a pattern string, which text/refinement.ts places in a typed text literal, `VALUE ~ '<pattern>'::text`.
+ * The ARE of the empty language: ARE's `\Z` holds only at the value's end, after which no character stands for `.` to
+ * match, so it matches no text.
  */
-export const toAre = (node: LiveNode): string => printIn(areDialect, node)
+export const emptyLanguageAre = "\\Z."
+
+/**
+ * The ARE spelling of a pattern's IR, the same Boolean membership over admitted text, the one question either engine is
+ * asked: a pattern string, which text/refinement.ts places in a typed text literal, `VALUE ~ '<pattern>'::text`, and
+ * a query's or a check's `~` reads (admit.ts matchAre). The empty language, a Compute.matches pattern no text matches,
+ * is {@link emptyLanguageAre}.
+ */
+export const toAre = (node: RegexNode): string =>
+	node.kind === "never" ? emptyLanguageAre : printIn(areDialect, node)
 
 /** Whether every match of a node starts at the value's start: a `^`, or a sequence that begins with one. */
 const startsAtStart = (node: LiveNode): boolean =>

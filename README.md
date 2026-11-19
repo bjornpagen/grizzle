@@ -1771,9 +1771,10 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   complements, `.`, groups, `|`, `^` and `$` for the start and end of the whole text, and greedy `?`, `*`, `+` and
   `{m,n}`, each bound at most 255 (`regexMaxRepeat`). Refused: lookahead and lookbehind, `\p{…}` and `\P{…}`, `\s`
   and `\S`, `\b` and `\B`, backreferences, named groups, inline modifiers, lazy quantifiers, NUL, a lone surrogate,
-  and a pattern no text matches, such as `a^b` or `[]`. TypeScript accepts these; the first relation, contract or
-  `Compute.pattern` built over the pattern refuses it with `UnsupportedOperation`, naming the construct and its
-  position.
+  and, as a field's or a contract's type, a pattern no text matches, such as `a^b` or `[]`, which no value could hold.
+  TypeScript accepts these; the first relation or contract built over the pattern refuses it with
+  `UnsupportedOperation`, naming the construct and its position. As a `Compute.pattern` or a value of a closed
+  relation's pattern field, a pattern no text matches is the empty language, whose match holds of no text.
 - **`str.bytes(n, pattern)`** is the pattern's text of at most `n` UTF-8 bytes, `n` from 0 to 2,147,483,647. Its host
   type is the pattern's, so an unbounded text of the pattern needs no cast. Its domain checks
   `octet_length(VALUE) <= n` before the pattern, so the regex engine never reads a longer value, and refuses either

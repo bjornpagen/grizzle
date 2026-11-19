@@ -107,11 +107,11 @@ export const readingAPrintedAREBackRecognizesTheLanguageOfThePatternItWasPrinted
 						return
 					}
 					const language = analyzeLanguage(r.value.members[0].ir)
-					if (language.kind === "empty") {
-						return assert.fail(`/${source}/${flags} is admitted with no member`)
-					}
-					if (language.known.kind === "structure") {
+					if (language.kind === "structure") {
 						return
+					}
+					if (language.dfa.states.length === 0) {
+						return assert.fail(`/${source}/${flags} is admitted with no member`)
 					}
 					c.note("compared")
 					const key = areKey(r.value.members[0].are)
@@ -135,7 +135,7 @@ export const readingAPrintedAREBackRecognizesTheLanguageOfThePatternItWasPrinted
 					)
 					const readBack = analyzeLanguage(reparsed)
 					assert.equal(
-						readBack.kind === "nonEmpty" && readBack.known.kind === "structure",
+						readBack.kind === "structure",
 						true,
 						`/${source}/${flags} as ${r.value.members[0].are}`
 					)
@@ -200,8 +200,8 @@ export const readingAPrintedAREBackAdmitsAPatternExactlyWhenItAdmitsTheAREItPrin
 			},
 			{
 				file: "packages/engine/src/text/refinement.ts",
-				original: "\t\t\tare: toAre(language.ir),",
-				replacement: "\t\t\tare: source,",
+				original: "are: toAre(ir), known: languageOf(nfa)",
+				replacement: "are: source, known: languageOf(nfa)",
 				why: "A pattern's ARE is its source as written, never the IR's print; the budgets property fails."
 			}
 		]

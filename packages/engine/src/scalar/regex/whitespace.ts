@@ -10,7 +10,7 @@ import {
 } from "#compiler/scalar/regex/charset.ts"
 import type { LiveNode } from "#compiler/scalar/regex/ir.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
-import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import { memberNode, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { sourceSet } from "#compiler/scalar/regex/print.ts"
 import { alphabetOf, sourceFlags } from "#compiler/scalar/regex/source.ts"
 
@@ -77,7 +77,7 @@ export const collapseSources = (
 	lengthBound: number | undefined,
 	patterns: PatternAutomata
 ): readonly [CollapseSource, ...ReadonlyArray<CollapseSource>] => {
-	const node = patterns.parse(pattern).node
+	const node = memberNode(pattern, patterns)
 	const alphabet = alphabetOf(node)
 	if (isEmpty(without(alphabet, without(alphabet, whitespace)))) {
 		return [{ source: pattern.source, flags: pattern.flags, exact: true }]

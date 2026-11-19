@@ -18,6 +18,7 @@ import { type ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { matchAre, matchPattern } from "#compiler/scalar/regex/admit.ts"
+import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
 import { assert, assertNot, defined, refusalLoc, succeeded } from "#test/support/assert.ts"
@@ -107,7 +108,7 @@ export type MatchFeature =
 	| "no match"
 	| "dictionary of two"
 	| "sources out of code unit order"
-	| "refused with str.regex"
+	| "the empty language"
 
 /** Code point order, by the code points themselves: the order a pattern table keeps. */
 export const byCodePoints: Order.Order<string> = Order.mapInput(
@@ -204,6 +205,12 @@ export type AffixFeature =
 	| "equation held"
 	| "equation refused"
 
+/** Whether a pattern under the flags u is the empty language: it parses, and no admitted text matches it (ir.ts never). */
+export const emptyLanguage = (source: string): boolean => {
+	const parsed = parsePattern(source, "u")
+	return parsed.ok && parsed.value.kind === "never"
+}
+
 /** A fault planted in a valid text term, one for each refusal of the text terms. */
 export type Fault =
 	| "a pattern past the compile space"
@@ -217,7 +224,6 @@ export type Fault =
 	| "an unbounded subject in a query"
 	| "concat in a query"
 	| "a literal past the compile space at the builder"
-	| "a literal no text matches at the builder"
 	| "a literal outside a match guard's language"
 
 export const faults: Arr.NonEmptyReadonlyArray<Fault> = [
@@ -232,7 +238,6 @@ export const faults: Arr.NonEmptyReadonlyArray<Fault> = [
 	"an unbounded subject in a query",
 	"concat in a query",
 	"a literal past the compile space at the builder",
-	"a literal no text matches at the builder",
 	"a literal outside a match guard's language"
 ]
 

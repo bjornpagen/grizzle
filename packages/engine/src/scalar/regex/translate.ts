@@ -20,7 +20,7 @@ import {
 } from "#compiler/scalar/regex/charset.ts"
 import { end, type LiveNode, type RegexNode, seq, start } from "#compiler/scalar/regex/ir.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
-import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import { memberNode, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { printSource } from "#compiler/scalar/regex/print.ts"
 import { alphabetOf, anchoredAt, anyText, sourceFlags } from "#compiler/scalar/regex/source.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
@@ -140,7 +140,7 @@ export const imageOf = (
 	map: CharMap,
 	patterns: PatternAutomata
 ): { readonly exact: string; readonly within: string } =>
-	imageSources(patterns.parse(pattern).node, map)
+	imageSources(memberNode(pattern, patterns), map)
 
 /**
  * A kind of character a text holds: the UTF-8 bytes it takes and the most bytes its image under a map takes. The empty
@@ -232,7 +232,7 @@ export const imageBytes = (
 	automata: PatternAutomata
 ): number => {
 	const alphabet = patterns.reduce(
-		(a, pattern) => intersection(a, alphabetOf(automata.parse(pattern).node)),
+		(a, pattern) => intersection(a, alphabetOf(memberNode(pattern, automata))),
 		domain
 	)
 	const kinds = kindsOf(map, alphabet)

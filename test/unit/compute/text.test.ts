@@ -8,13 +8,14 @@
  *   holds), both evaluators agree with ECMAScript's own test, the development oracle the text differential holds
  *   against PostgreSQL; the node's pattern table holds each value the pattern can take once, in code point order by
  *   the code points themselves, never UTF-16's, each with the ARE str.regex's own lowering prints for it; and the node
- *   refuses exactly where str.regex refuses one of its patterns.
+ *   refuses exactly where str.regex refuses one of its patterns for what it is, a pattern of the empty language
+ *   matching no text where str.regex refuses it as a type of no value.
  * - concat, startsWith and endsWith: by construction, a text that begins or ends with another, or a drawn pair; the
  *   host's string methods against the reference's code point walks, and the equation with a concatenation, which no
  *   lowering builds, against the concatenation itself.
  * - the refusals: a fault planted in a valid term, one for each refusal (a pattern past the compile space, outside the
- *   grammar, malformed or with no member, a pattern no measure bounds, a subject that is no text or unbounded in a
- *   query, concat in a query, a literal the builder refuses, a literal outside a guard's language), each by its
+ *   grammar or malformed, a guard's pattern with no member, a pattern no measure bounds, a subject that is no text or
+ *   unbounded in a query, concat in a query, a literal the builder refuses, a literal outside a guard's language), each by its
  *   reason and the place it states, and the term without its fault compiles; and the SQL `~` reads in the SQL the
  *   node lowers to: a pattern whose SQL is a text literal hands it that literal's ARE, and any other a CASE over the
  *   pattern's SQL with an arm per value it takes, one value read through a conditional among them, asserted by its
@@ -57,6 +58,7 @@ import {
 	boundedColumn,
 	byCodePoints,
 	computeDesc,
+	emptyLanguage,
 	escaped,
 	type Fault,
 	faults,
@@ -88,7 +90,7 @@ export const computesTextTermsMatchesAgreesWithECMAScriptOnTheHostAndInTheRefere
 			"no match",
 			"dictionary of two",
 			"sources out of code unit order",
-			"refused with str.regex"
+			"the empty language"
 		] satisfies ReadonlyArray<Reached<MatchFeature>>,
 		check: (_, k: Case<MatchFeature>) => (c) =>
 			Effect.sync(() => {
@@ -99,14 +101,23 @@ export const computesTextTermsMatchesAgreesWithECMAScriptOnTheHostAndInTheRefere
 					true,
 					baseParams
 				)
+				/** A source str.regex refuses for what it is, not for the empty language, which a match holds of no text. */
 				const declaredRefused = Arr.some(
 					c.sources,
-					(s) => !analyzeText([{ source: s, flags: "u" }], SourceLoc("str.regex", [])).ok
+					(s) =>
+						!analyzeText([{ source: s, flags: "u" }], SourceLoc("str.regex", [])).ok &&
+						!emptyLanguage(s)
 				)
-				assert.equal(!lowered.ok, declaredRefused, "refused exactly where str.regex refuses")
+				assert.equal(
+					!lowered.ok,
+					declaredRefused,
+					"refused exactly where str.regex refuses for what the pattern is, not for its empty language"
+				)
 				if (!lowered.ok) {
-					k.note("refused with str.regex")
 					return
+				}
+				if (Arr.some(c.sources, emptyLanguage)) {
+					k.note("the empty language")
 				}
 				const node = matchNode(lowered.value.root.expr)
 				const distinct = Arr.sort(Arr.dedupe(c.sources), byCodePoints)
@@ -333,13 +344,21 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 						)
 						compiles(valid, p.mode)
 						return
-					case "a pattern no text matches":
-						refusedBelow(read(subject, emptied(p.pattern)), p.mode, "UnsupportedOperation", [
-							"pattern",
-							"pattern"
-						])
+					case "a pattern no text matches": {
+						/**
+						 * A match of the empty language holds of no text, and compiles; a guard of it would read its
+						 * subject as text of no value in its branch, which the text analysis refuses there.
+						 */
+						const faulted = read(subject, emptied(p.pattern))
+						if (p.site === "matches") {
+							compiles(faulted, p.mode)
+							return
+						}
+						const error = refused(lowered(faulted, p.mode), "UnsupportedOperation", label)
+						assert.deepEqual(pathOf(error), ["pattern"], label)
 						compiles(valid, p.mode)
 						return
+					}
 					case "a column as the pattern":
 					case "a parameter as the pattern":
 					case "a computed pattern": {
@@ -380,23 +399,11 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 						compiles(affix, "check")
 						return
 					}
-					case "a literal past the compile space at the builder":
-					case "a literal no text matches at the builder": {
-						const planted =
-							p.fault === "a literal past the compile space at the builder"
-								? pastSpace
-								: emptied(p.pattern)
-						const error = throwsRefused(
-							() => Compute.pattern(planted),
-							p.fault === "a literal past the compile space at the builder"
-								? "ResourceBound"
-								: "UnsupportedOperation",
-							label
-						)
+					case "a literal past the compile space at the builder": {
+						const error = throwsRefused(() => Compute.pattern(pastSpace), "ResourceBound", label)
 						assert.deepEqual(pathOf(error), ["pattern"], label)
-						if (error.reason._tag === "ResourceBound") {
-							assert.deepEqual(error.reason.bound, pastBound, label)
-						}
+						assertVariant(error.reason, "_tag", "ResourceBound", label)
+						assert.deepEqual(error.reason.bound, pastBound, label)
 						Compute.matches(v("v", testPg.text), Compute.pattern(p.pattern))
 						return
 					}

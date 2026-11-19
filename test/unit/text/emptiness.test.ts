@@ -5,9 +5,11 @@
  * each `^` and `$` a pair of marks, private-use code points no family holds, so its parse keeps every path an anchor
  * would make impossible; each mark's edge is then read back as its anchor's, and a reachability over (state, consumed a
  * code point, passed a `$`) follows walk's rules (generators.ts walk): a `^` only before the first code point, no code
- * point after a `$`. The IR is never, and matchPattern and analyzeText refuse the pattern as UnsupportedOperation at the
- * pattern, exactly when the search reaches no accepting state; a path it finds spells a member, which ECMAScript's own
- * test accepts, and a path that breaks the rules spells a text the pattern rejects when it is empty.
+ * point after a `$`. The IR is never, and analyzeText refuses the pattern as UnsupportedOperation at the pattern, which no
+ * value of a refinement could hold, exactly when the search reaches no accepting state; matchPattern then admits it, the
+ * empty language, which Compute.matches holds of no text: its ARE is the empty language's (print.ts emptyLanguageAre) and
+ * the host's match of it fails on every text. A path the search finds spells a member, which ECMAScript's own test
+ * accepts, and a path that breaks the rules spells a text the pattern rejects when it is empty.
  *
  * Features: empty through an anchor, through a class, and past the DFA bounds; non-empty with an inner anchor and past
  * the DFA bounds.
@@ -16,10 +18,12 @@
 import { type Reached as ReachedOf } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Effect, Formatter, String as Str } from "effect"
-import { matchPattern } from "#compiler/scalar/regex/admit.ts"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { matchAre, matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { minimalDfa } from "#compiler/scalar/regex/dfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { emptyLanguageAre } from "#compiler/scalar/regex/print.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import {
@@ -35,8 +39,8 @@ import {
 } from "#test/unit/text/emptiness.fixtures.ts"
 import { type Flags, jsMatcher } from "#test/unit/text/generators.ts"
 
-/** A pattern no text matches is never in the IR, and refused by matchPattern and analyzeText, exactly when no way through its NFA can match. Its budget is its suite's before it was a property (test/unit/text/emptiness.test.ts at 4ca3036a): 600 runs and 1000 steered cases. */
-export const aPatternNoTextMatchesIsNeverInTheIRAndRefusedByMatchPatternAndAnalyzeTextExactlyWhenNoWayThroughItsNFACanMatch =
+/** A pattern no text matches is never in the IR, refused by analyzeText and admitted by matchPattern as matching no text, exactly when no way through its NFA can match. Its budget is its suite's before it was a property (test/unit/text/emptiness.test.ts at 4ca3036a): 600 runs and 1000 steered cases. */
+export const aPatternNoTextMatchesIsNeverInTheIRRefusedByAnalyzeTextAndMatchedByNoTextExactlyWhenNoWayThroughItsNFACanMatch =
 	property.explore(
 		aimed<readonly [source: string, flags: Flags], Emptiness>(caseGen, [
 			["empty through a class", classEmptiedGen],
@@ -72,7 +76,28 @@ export const aPatternNoTextMatchesIsNeverInTheIRAndRefusedByMatchPatternAndAnaly
 						const analyzed = analyzeText([{ source, flags }], loc)
 						judged(analyzed, empty, `analyzeText ${label}`)
 						if (flags === "u") {
-							judged(matchPattern(source, loc), empty, `matchPattern ${label}`)
+							const admitted = matchPattern(source, loc)
+							if (empty) {
+								succeeded(admitted, `matchPattern ${label} admits the empty language`)
+								assert.equal(
+									matchAre(source),
+									emptyLanguageAre,
+									`${label} prints as the empty language's ARE`
+								)
+								const reads = new CompilePatterns()
+								for (const text of Arr.filter(
+									[member, broken, "", source],
+									(t) => t !== undefined
+								)) {
+									assert.equal(
+										reads.matches(source, text),
+										false,
+										`${label} matches no text, ${Formatter.format(text)} among them`
+									)
+								}
+							} else {
+								judged(admitted, false, `matchPattern ${label}`)
+							}
 						}
 						if (empty) {
 							c.note(broken === undefined ? "empty through a class" : "empty through an anchor")
@@ -94,6 +119,14 @@ export const aPatternNoTextMatchesIsNeverInTheIRAndRefusedByMatchPatternAndAnaly
 			},
 			kept: [],
 			kills: [
+				{
+					file: "packages/engine/src/scalar/regex/admit.ts",
+					original:
+						'\treturn admitted.ok\n\t\t? { kind: "admitted", source }\n\t\t: { kind: "refused", source, refusal: admitted.error }',
+					replacement:
+						'\treturn admitted.ok && admitted.value.kind !== "never"\n\t\t? { kind: "admitted", source }\n\t\t: { kind: "refused", source, refusal: { kind: "compileSpace", measure: { kind: "anchorLoop" } } }',
+					why: "A Compute.matches pattern of the empty language is refused again, as no text matching it; the property fails."
+				},
 				{
 					file: "packages/engine/src/scalar/regex/ir.ts",
 					original: '\t\tif (item.kind === "never") {\n\t\t\treturn never',

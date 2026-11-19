@@ -2,8 +2,7 @@ import {
 	CompileError,
 	prose,
 	type RegexSpaceMeasure,
-	resourceBound,
-	unsupported
+	resourceBound
 } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
@@ -101,38 +100,28 @@ export const admitPattern = (
 }
 
 /**
- * Why an admission refuses a Compute.matches pattern, wherever it is read: as any pattern grizzle hands PostgreSQL is
- * refused (admitIr), or as the empty language's, which no text matches.
- */
-type MatchRefusal = PatternRefusal | { readonly kind: "noText" }
-
-/**
  * A Compute.matches pattern value, its source, admitted where its value is first held (admitMatch): admitted, or
  * refused with why, which a lowering reading it places at the match (matchSourceAt).
  */
 export type MatchAdmission<S extends string = string> =
 	| { readonly kind: "admitted"; readonly source: S }
-	| { readonly kind: "refused"; readonly source: S; readonly refusal: MatchRefusal }
+	| { readonly kind: "refused"; readonly source: S; readonly refusal: PatternRefusal }
 
 /**
- * A Compute.matches pattern admitted (admitIr under matchFlags): refused where its admission refuses it, and where its
- * IR is the empty language's, which no ARE spells, so the test could never hold. The IR is the empty language exactly
- * when no text matches the pattern, an empty class or an order of anchors no match can pass alike (ir.ts), so this
- * refuses every such pattern and no other. Its ARE is translated only where SQL prints it (matchAre).
+ * A Compute.matches pattern admitted (admitIr under matchFlags), refused exactly where its admission refuses it. A
+ * pattern no text matches, the empty language's (an empty class, or an order of anchors no match can pass, ir.ts), is
+ * a language as any other: its match holds of no text, as a closed pattern table's row for a domain that admits no
+ * value states. Its ARE is translated only where SQL prints it (matchAre).
  */
 export const admitMatch = <S extends string>(source: S): MatchAdmission<S> => {
 	const admitted = admitIr(source, matchFlags)
-	if (!admitted.ok) {
-		return { kind: "refused", source, refusal: admitted.error }
-	}
-	return admitted.value.kind === "never"
-		? { kind: "refused", source, refusal: { kind: "noText" } }
-		: { kind: "admitted", source }
+	return admitted.ok
+		? { kind: "admitted", source }
+		: { kind: "refused", source, refusal: admitted.error }
 }
 
 /**
- * The source of an admitted Compute.matches pattern, or its refusal placed at `loc`: a refusal of its admission as
- * refusalAt places one, and the empty language's as UnsupportedOperation naming the pattern.
+ * The source of an admitted Compute.matches pattern, or its refusal placed at `loc`, as refusalAt places one.
  */
 export const matchSourceAt = (
 	admission: MatchAdmission,
@@ -142,22 +131,11 @@ export const matchSourceAt = (
 		? Result.ok(admission.source)
 		: Result.err(matchRefusalAt(admission, loc))
 
-/**
- * The refusal of a Compute.matches pattern its admission refused, placed at `loc`: a refusal of its admission as
- * refusalAt places one, and the empty language's as UnsupportedOperation naming the pattern.
- */
+/** The refusal of a Compute.matches pattern its admission refused, placed at `loc` as refusalAt places one. */
 export const matchRefusalAt = (
 	admission: Extract<MatchAdmission, { readonly kind: "refused" }>,
 	loc: SourceLoc
-): CompileError => {
-	const { source, refusal } = admission
-	return refusal.kind === "noText"
-		? unsupported(
-				childLoc(loc, "pattern"),
-				`a pattern some text matches: /${source}/${matchFlags} matches no text value, so the match could never hold`
-			)
-		: refusalAt(refusal, source, matchFlags, loc)
-}
+): CompileError => refusalAt(admission.refusal, admission.source, matchFlags, loc)
 
 /** A Compute.matches pattern admitted (admitMatch) and placed at `loc` (matchSourceAt). */
 export const matchPattern = (source: string, loc: SourceLoc): Result.Result<string, CompileError> =>
@@ -169,7 +147,7 @@ export const matchPattern = (source: string, loc: SourceLoc): Result.Result<stri
  */
 export const matchAre = (source: string): string => {
 	const parsed = parsePattern(source, matchFlags)
-	if (!parsed.ok || parsed.value.kind === "never") {
+	if (!parsed.ok) {
 		throw defect(`a Compute.matches pattern its admission admitted: /${source}/${matchFlags}`)
 	}
 	return toAre(parsed.value)

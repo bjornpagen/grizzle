@@ -35,7 +35,7 @@ import {
 	textDomainDefinition
 } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { accepts, analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
+import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { pickGen } from "#test/support/pick.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -287,7 +287,7 @@ export const refine = (
 	if (!parsed.ok) {
 		throw new Error(`/${source}/${flags} does not parse: ${parsed.error.message}`)
 	}
-	if (analyzeLanguage(parsed.value).kind === "empty") {
+	if (parsed.value.kind === "never") {
 		return "empty"
 	}
 	throw new Error(`/${source}/${flags}: ${result.error.message}`)
