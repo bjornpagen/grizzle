@@ -6890,7 +6890,7 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 					return {
 						head,
 						line: rule(
-							`const { id, f } = Q.v(${lit}, "lit"); return r.match(${lit}, { id, f }).where(r.inSet(f, [${literal.source}])).find({ id })`
+							`const { id, f } = Q.v(${lit}, "lit"); return r.match(${lit}, { id, f }).where(r.in(f, [${literal.source}])).find({ id })`
 						),
 						tail: []
 					}
@@ -7004,7 +7004,7 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 							const vars = varsOver(lit, "lit")
 							return rule
 								.match(lit, { id: vars["id"], f: vars["f"] })
-								.where(rule.inSet(vars["f"], [literal.value]))
+								.where(rule.in(vars["f"], [literal.value]))
 								.find({ id: vars["id"] })
 						})
 					)

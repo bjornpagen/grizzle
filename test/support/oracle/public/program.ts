@@ -301,7 +301,7 @@ export interface Between {
 	readonly high: Operand<never>
 }
 
-/** r.inSet(left, values): left equals one of the values; of no value, it holds of no row. */
+/** r.in(left, values): left equals one of the values; of no value, it holds of no row. */
 export interface InSet {
 	readonly left: Var
 	readonly values: ReadonlyArray<TypedLiteral>
@@ -630,7 +630,7 @@ export type ProgramRead =
  * Besides stored relations and the roster, a root rule's later matches may read a derived source: an earlier read's
  * query imported through Query.bind, an interior stage of the rule (r.interior), a relation-valued parameter
  * (r.relation) or an acyclic closure (query(S).recursive); a rule filters by comparisons, ranges (r.between), sets
- * (r.inSet), Allen relations (r.allen) and point memberships (r.pointIn); a head may hold Compute terms; and a query may
+ * (r.in), Allen relations (r.allen) and point memberships (r.pointIn); a head may hold Compute terms; and a query may
  * be named (Query.named).
  */
 export interface ProgramCase {

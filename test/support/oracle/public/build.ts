@@ -607,7 +607,7 @@ const ruleCallback =
 				)
 			),
 			...Arr.map(rule.inSets, (s) =>
-				r.inSet(
+				r.in(
 					term(s.left),
 					Arr.map(s.values, (l) => hostValue(l, s.left.field.type))
 				)
@@ -705,7 +705,7 @@ export const buildMixed = (built: BuiltSchema, value: SchemaValue, root: MixedRo
  * attach (in the delivery each attachment states, arm(field, handle) for an arm) and a final orderBy, exactly as an
  * application chains them. A rule's derived sources are built where the match that reads them is: an earlier read's
  * query and its Query.bind, r.interior, r.relation and query(S).recursive; its filters are r.eq ... r.ge, r.between,
- * r.inSet, r.allen, r.pointIn and r.not in one where; its Compute terms Compute.base, Compute.cast, Compute.cond,
+ * r.in, r.allen, r.pointIn and r.not in one where; its Compute terms Compute.base, Compute.cast, Compute.cond,
  * Compute.div, and Compute.when over Compute.within or Compute.nonnegative guarding a typmod's cast, Compute.sqrt and
  * Compute.power; its aggregates r.count, r.sum, r.mean, r.min and r.max, over a variable or a padding of one. The
  * builders record Descriptions, and everything grizzle does with them (checking, lowering, running, decoding) is under

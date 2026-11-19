@@ -9,7 +9,7 @@
  * - query.ts: query(S), QueryBuilder.rule and recursive, the Query and Ordered values (rule, attach, named, bind,
  *   orderBy, take, approximateNearest), and v;
  * - rule.ts: the rule builder (match, where, find, interior, param) and Finished.attach;
- * - terms.ts: comparisons, inSet, and, or, allen, pointIn, the producers and the aggregates;
+ * - terms.ts: comparisons, membership, and, or, allen, pointIn, the producers and the aggregates;
  * - attach.ts: attachments and their parent variables; state.ts: sources and the builder state of query values;
  * - heading.ts: headings as the builder knows them; scope.ts and walk.ts: hygiene.
  */

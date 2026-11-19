@@ -114,7 +114,7 @@ const carriedTerm = <T, S extends SqlTag>(
  * cannot know (a field of a query whose head holds a parameter, or of a query rebuilt from its Description) is an
  * untyped term with the same comparisons, recorded as written for the checker to type.
  *
- * The comparisons, `between` and `inSet` delegate to Compute whenever the first operand's type is known and the other
+ * The comparisons, `between` and `membership` delegate to Compute whenever the first operand's type is known and the other
  * operand is not an untyped term, so a JavaScript caller's mismatch that the TypeScript signatures forbid is refused at
  * construction, exactly as Compute refuses it. A literal never stands first; a literal
  * opposite a term is a value of that term's base, checked for its host representation now and against
@@ -306,15 +306,15 @@ export const between = (a: unknown, low: unknown, high: unknown): PredicateValue
 	})
 }
 
-export const inSet = (a: unknown, values: unknown): PredicateValue => {
+export const membership = (a: unknown, values: unknown): PredicateValue => {
 	if (termOf(a)?.typing.kind === "typed") {
 		return computeCore.in(a, values)
 	}
-	const x = firstTerm(a, "r.inSet")
+	const x = firstTerm(a, "r.in")
 	if (!isList(values)) {
-		throw malformed("r.inSet", "a finite list of literals")
+		throw malformed("r.in", "a finite list of literals")
 	}
-	const literals = values.map((v) => literalAgainst(x.typing, v, "r.inSet"))
+	const literals = values.map((v) => literalAgainst(x.typing, v, "r.in"))
 	return predicateValue({ kind: "in", arg: x.expr, values: literals })
 }
 

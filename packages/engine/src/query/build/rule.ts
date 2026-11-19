@@ -114,7 +114,7 @@ export interface RuleRun<F> {
  * - `interior(rule)` describes a local stage of this rule and returns it as a source of this rule.
  * - `param(name, descriptor)` is a scalar parameter, a term of the descriptor's type; `relation(name, heading)` and
  *   `relation(name, Relation)` are relation-valued parameters.
- * - The comparisons, inSet, and, or, not, allen, pointIn, the producers and the aggregates are terms.ts's.
+ * - The comparisons, in, and, or, not, allen, pointIn, the producers and the aggregates are terms.ts's.
  *
  * At find the rule's references are spelled (scope.ts): its variables `<scope>.<field>`, one scope of each name, and
  * listed with their origins in RuleDesc.vars in order of first use; its interior stages "i0", "i1", ... in creation
@@ -409,7 +409,7 @@ export interface RuleValue {
 	readonly gt: (a: unknown, b: unknown) => PredicateValue
 	readonly ge: (a: unknown, b: unknown) => PredicateValue
 	readonly between: (a: unknown, low: unknown, high: unknown) => PredicateValue
-	readonly inSet: (a: unknown, values: unknown) => PredicateValue
+	readonly in: (a: unknown, values: unknown) => PredicateValue
 	readonly and: (...predicates: ReadonlyArray<unknown>) => PredicateValue
 	readonly or: (...predicates: ReadonlyArray<unknown>) => PredicateValue
 	readonly not: (source: unknown, bindings: unknown) => PredicateValue
@@ -545,7 +545,7 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 		gt: (a, b) => guarded("r.gt", [a, b], () => T.compare("gt")(a, b)),
 		ge: (a, b) => guarded("r.ge", [a, b], () => T.compare("ge")(a, b)),
 		between: (a, low, high) => guarded("r.between", [a, low, high], () => T.between(a, low, high)),
-		inSet: (a, values) => guarded("r.inSet", [a, values], () => T.inSet(a, values)),
+		in: (a, values) => guarded("r.in", [a, values], () => T.membership(a, values)),
 		and: (...predicates) => guarded("r.and", predicates, () => T.and(predicates)),
 		or: (...predicates) => guarded("r.or", predicates, () => T.or(predicates)),
 		/** Relational negation only: no fact of the source matches the bindings. */

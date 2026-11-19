@@ -672,7 +672,7 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		low: L,
 		high: H
 	): Predicate<P<A> & P<L> & P<H>, Reads<readonly [A, L, H]>> & Shaped<Opaque<readonly [A, L, H]>>
-	inSet<A extends TermBase | FirstValue>(
+	in<A extends TermBase | FirstValue>(
 		a: A & FirstTerm<A>,
 		values: ReadonlyArray<LiteralOf<LanguageOf<A>>>
 	): Predicate<P<A>, Reads<readonly [A]>> & Shaped<Opaque<readonly [A]>>

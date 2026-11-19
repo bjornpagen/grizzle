@@ -243,7 +243,7 @@ export const chainRoundTrip =
 
 /**
  * Over the worked example's schema: matches, negations, parameter filters, between with variable bounds, Compute cast, cond and
- * base, inSet, an interior stage, a bound import, and aggregate heads. A cond's first branch is a term, never a literal
+ * base, in, an interior stage, a bound import, and aggregate heads. A cond's first branch is a term, never a literal
  * or a parameter, since it types the conditional (scalar/compute/builders.ts cond): condLiteral states its literal
  * second.
  */
@@ -256,7 +256,7 @@ interface WorkArm {
 	readonly byAccount: boolean
 	readonly between: boolean
 	readonly compute: "none" | "cast" | "numeric" | "cond" | "condLiteral" | "base"
-	readonly inSet: boolean
+	readonly inList: boolean
 	readonly interior: boolean
 	readonly bind: boolean
 	readonly head: "plain" | "count" | "sum"
@@ -279,7 +279,7 @@ export const work: Grammar<WorkArm> = {
 		compute: source.draw(
 			element(["none", "cast", "numeric", "cond", "condLiteral", "base"] as const)
 		),
-		inSet: source.draw(boolean),
+		inList: source.draw(boolean),
 		interior: source.draw(boolean),
 		bind: source.draw(boolean),
 		head: source.draw(element(["plain", "count", "sum"] as const))
@@ -321,8 +321,8 @@ export const work: Grammar<WorkArm> = {
 		if (arm.between) {
 			rule = rule.where(r.between(budget, budget, budget))
 		}
-		if (arm.inSet) {
-			rule = rule.where(r.inSet(id, ["a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"]))
+		if (arm.inList) {
+			rule = rule.where(r.in(id, ["a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"]))
 		}
 		const extra =
 			arm.compute === "cast"

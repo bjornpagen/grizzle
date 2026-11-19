@@ -922,7 +922,7 @@ const betweenGen: Gen<BetweenSketch> = (decisions) => ({
 	high: decisions.draw(operandGen)
 })
 
-/** An r.inSet's values: one to three, or none, its own arm, a membership no row holds. */
+/** An r.in's values: one to three, or none, its own arm, a membership no row holds. */
 const inSetGen: Gen<InSetSketch> = (decisions) => ({
 	left: decisions.draw(pickGen),
 	values: decisions.draw(
@@ -1207,7 +1207,7 @@ export const plantedNameCount = plantedNames.length
  *   its drawn shape happens to prove.
  * - The builder's further forms, each behind a gate of its own: a root rule's later matches read an earlier read's
  *   query (its parameters bound to the rule's variables or to parameters of the read), an interior stage, a relation
- *   parameter or an acyclic closure; a rule filters by r.between, r.inSet, r.allen over span fields and r.pointIn; a
+ *   parameter or an acyclic closure; a rule filters by r.between, r.in, r.allen over span fields and r.pointIn; a
  *   head holds Compute terms, grouping an aggregate among them; a root is named; a parameter of a Tick or a
  *   numeric(5,2) field is declared with the field's own descriptor; and the arms of a union each state one head key as a
  *   literal, a JavaScript value of one field kind distinct across the arms, so each arm's rows read its own.

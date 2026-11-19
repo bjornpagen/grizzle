@@ -179,7 +179,7 @@ const rule = (r: Rule<ParentColumn>): string => {
 		),
 		...Arr.map(
 			r.inSets,
-			(s) => `r.inSet(${variable(s.left)}, [${Arr.join(Arr.map(s.values, literal), ", ")}])`
+			(s) => `r.in(${variable(s.left)}, [${Arr.join(Arr.map(s.values, literal), ", ")}])`
 		),
 		...Arr.map(r.allens, (a) => `r.allen(${variable(a.left)}, ${a.mask}, ${variable(a.right)})`),
 		...Arr.map(r.pointIns, (p) => `r.pointIn(${variable(p.point)}, ${variable(p.span)})`),
