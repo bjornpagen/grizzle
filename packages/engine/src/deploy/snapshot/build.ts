@@ -89,7 +89,7 @@ import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
-import { levelChain, own, type Owned } from "#compiler/schema/own.ts"
+import { levelChain, type Owned, ownLevel } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import {
 	type CreateIndex,
@@ -548,7 +548,13 @@ const levelsOf = (installation: Installation): ReadonlyArray<SnapshotLevel> => {
 			i === top || desc === undefined
 				? installation.laws.theory
 				: unwrapCompiled(
-						Result.flatMap(own(desc), (alone) => statedTheory(alone, everySlice(alone)))
+						Result.flatMap(
+							ownLevel(
+								desc,
+								owned.levels.slice(0, i + 1).map((l) => l.fingerprint)
+							),
+							(alone) => statedTheory(alone, everySlice(alone))
+						)
 					)
 		const laws: Array<DescribedLaw> = []
 		for (const law of theory.laws) {

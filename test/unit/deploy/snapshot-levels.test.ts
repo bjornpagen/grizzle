@@ -123,6 +123,12 @@ export const snapshotJsonReadsBackAsTheSnapshotWrittenOfTheSameFingerprintWhatev
 				original: "\tconst first = level + 1",
 				replacement: "\tconst first = level + 2",
 				why: "The served levels above the one served start a level late (snapshot/served.ts servedSnapshot)."
+			},
+			{
+				file: "packages/engine/src/deploy/snapshot/build.ts",
+				original: "\t\t\t\t\t\t\t\towned.levels.slice(0, i + 1).map((l) => l.fingerprint)",
+				replacement: "\t\t\t\t\t\t\t\towned.levels.slice(0, i).map((l) => l.fingerprint)",
+				why: "A lower level is owned alone without its own fingerprint, which its owner hashed (schema/own.ts ownLevel); its snapshot is refused."
 			}
 		]
 	})

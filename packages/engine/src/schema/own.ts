@@ -2514,6 +2514,22 @@ export const ownServed = (
 	ownWith(built.desc, writtenOf(built.content), recordedLevels(recorded))
 
 /**
+ * own() of a lower level `desc` of an owned schema, alone, each of its levels' fingerprints, root first, the one owning
+ * the schema hashed there (`fingerprints`, its Owned levels'): a level's fingerprint is the digest of the canonical
+ * description it tops, which the levels below it alone make (hashedLevels), so none is hashed again. What a lower
+ * level's theory is stated over (deploy/snapshot/build.ts levelsOf).
+ */
+export const ownLevel = (
+	desc: SchemaDesc,
+	fingerprints: ReadonlyArray<SchemaFingerprint>
+): Result.Result<Owned, CompileError> =>
+	ownWith(
+		desc,
+		mapNonEmpty(levelChain(desc), (level) => level.statements.map(canonicalStatementOf)),
+		recordedLevels(fingerprints)
+	)
+
+/**
  * Owns `desc`, each level's statements in canonical form in `written` (root first, as levelChain gives its levels),
  * each level's fingerprint as `fingerprinted` gives it.
  */
