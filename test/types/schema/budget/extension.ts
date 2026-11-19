@@ -19,7 +19,10 @@ import { assertClean, type Measuring, measuredEach } from "#test/types/batch/mea
  * Every derived relation and every one of those keys is passed to a generic call before the extension reads it, as a
  * program that uses one passes it to a builder: the checker resolves a derived relation's members once, and they hold
  * its definition's read of the base (types/derived/derived.ts RuleRead), and a key's, which hold the records its side
- * delivers, a cost of the relation and of the key wherever either is used, never of the extension that lists it.
+ * delivers, a cost of the relation and of the key wherever either is used, never of the extension that lists it. Where
+ * `read`, the program reads each listed derived relation from the extension's record by name, as any statement or
+ * ChangeSet naming one reads it: the record's entry for a name holds the level's relations of that name (DeclaredByName),
+ * which reading resolves once for each relation, its definition with it, a cost of naming the relation anywhere.
  */
 export type ExtensionShape = {
 	readonly relations: number
@@ -28,6 +31,7 @@ export type ExtensionShape = {
 	readonly named: number
 	readonly laws: number
 	readonly based: number
+	readonly read: boolean
 }
 
 /** The derived relations the extension lists, D0 …, by name. */
@@ -83,7 +87,14 @@ used(K${i})
 	),
 	""
 )}export const E = schema.extend(B, "E", [${listedOf(shape)}], [${lawsOf(shape)}])
-`
+${
+	shape.read
+		? Arr.join(
+				Arr.map(indices(shape.listed), (i) => `used(E.relations.D${i})\n`),
+				""
+			)
+		: ""
+}`
 	)
 
 /**
@@ -122,7 +133,21 @@ export const extensionDimensionsItems: readonly [
 			listed: count,
 			named: 0,
 			laws: 0,
-			based: 0
+			based: 0,
+			read: false
+		})
+	},
+	{
+		what: "law over a derived relation, the first naming it",
+		from: added,
+		shape: (relations, count) => ({
+			relations,
+			derived: derivedCount,
+			listed: derivedCount,
+			named: 0,
+			laws: count,
+			based: 0,
+			read: true
 		})
 	},
 	{
@@ -134,7 +159,8 @@ export const extensionDimensionsItems: readonly [
 			listed: derivedCount,
 			named: derivedCount,
 			laws: count,
-			based: 0
+			based: 0,
+			read: false
 		})
 	},
 	{
@@ -146,7 +172,8 @@ export const extensionDimensionsItems: readonly [
 			listed: derivedCount,
 			named: 0,
 			laws: 0,
-			based: count
+			based: count,
+			read: false
 		})
 	}
 ]

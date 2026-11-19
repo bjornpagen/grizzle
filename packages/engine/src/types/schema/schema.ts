@@ -145,17 +145,18 @@ export type StatementsBelow<Base extends AnySchema> = [Base] extends [never]
 	: Base["statements"]
 
 /**
- * How a statement spells each relation it names: by name, the literal key of the schema's record that holds that very
- * relation, or by the relation itself. A relation the record does not hold under its name, and one whose name is no
- * literal, is spelled as itself either way, so reading a statement back by relation gives the statement it was.
+ * How a statement spells each relation it names: by name, the literal key of the schema's record that holds that
+ * relation (SameRelation), or by the relation itself. A relation the record does not hold under its name, and one whose
+ * name is no literal, is spelled as itself either way, so reading a statement back by relation gives the statement it
+ * was.
  */
 type Spelling = "name" | "relation"
 
-/** R by name: its literal name, where the record holds R itself under it, and R otherwise. */
+/** R by name: its literal name, where the record holds R under it (SameRelation), and R otherwise. */
 export type NameIn<R, Rs> = R extends { readonly name: infer N extends string }
 	? string extends N
 		? R
-		: Identical<R, UnderName<Rs, N>> extends true
+		: SameRelation<R, UnderName<Rs, N>> extends true
 			? N
 			: R
 	: R
@@ -175,13 +176,13 @@ type Spelled<R, Rs, To extends Spelling> = To extends "name"
 
 /**
  * R by its name N, a parameter of its own so that no test of it reads R: N where it is a literal name the record holds
- * R itself under, and R otherwise, as NameIn spells it.
+ * R under (SameRelation), and R otherwise, as NameIn spells it.
  */
 type NamedAs<R, N, Rs> = [N] extends [never]
 	? R
 	: string extends N
 		? R
-		: Identical<R, UnderName<Rs, N>> extends true
+		: SameRelation<R, UnderName<Rs, N>> extends true
 			? N
 			: R
 
@@ -436,11 +437,33 @@ type SourceRelation<Src> = Src extends unknown
 type OwnerOf<Fi> = Fi extends Fin<infer O, string> ? O : never
 
 /**
- * Whether every relation of the union U is R itself: false where some is another relation, true where U is R, and
- * true where U is copies of R the checker keeps apart, as one name's relations in Declared are. Identical compares
- * a union with a relation false by its kind alone, so U is compared member by member.
+ * Whether every relation of the union U is R (SameRelation): false where some is another relation, true where U is R,
+ * and true where U is copies of R the checker keeps apart, as one name's relations in Declared are. U is compared
+ * member by member.
  */
-type SameAs<U, R> = U extends unknown ? Identical<U, R> : never
+type SameAs<U, R> = U extends unknown ? SameRelation<U, R> : never
+
+/**
+ * Whether A and B are one relation as a type tells relations apart: of one name and one kind, their headings of one
+ * set of field names, and of one declared key, a relation's primary key, a closed relation's key, a roster's handles and
+ * their order, each read by key and compared as the literals it is. Never are A and B compared whole: a derived relation
+ * holds its definition, a query over the level below, and a comparison of two relations instantiates each whole, under
+ * the checker's permissive mapper, its definition's schema with it, which made each statement naming a derived relation
+ * cost its schema's every relation. Two relations alike in all of these and differing in a field's type, or a derived
+ * relation's definition, are refused where the schema is built (schema/schema.ts statementsDeclared, declaresFirst:
+ * DuplicateIdentity), as the run time holds every name to one meaning.
+ */
+type SameRelation<A, B> =
+	Identical<NameStated<A>, NameStated<B>> extends true
+		? Identical<KindStated<A>, KindStated<B>> extends true
+			? Identical<keyof Stated<A, "heading">, keyof Stated<B, "heading">> extends true
+				? Identical<DeclaredKeyOf<A>, DeclaredKeyOf<B>>
+				: false
+			: false
+		: false
+
+/** The key R declares, read by key: a relation's primary key, a closed relation's key, a roster's handles and order. */
+type DeclaredKeyOf<R> = Stated<R, "primaryKey" | "key" | "handles" | "order">
 
 /**
  * Whether a record's keys are names the type knows: false for a record with an index signature, which a list holding
@@ -553,16 +576,14 @@ type Boxed<X> = [X] extends [AnyFragment]
 	: readonly [X]
 
 /**
- * The name of R where `Named`, the relations of a list or a level below under R's name, holds another relation: R's
- * name where they are not R, or copies of R, or the one element R itself is.
+ * The name of R where `Named`, the relations of a list or a level below under R's name, holds another relation
+ * (SameAs): R's name where they are not R, or copies of R, or the one element R itself is.
  */
 type ClashOf<R, Named> = [Named] extends [never]
 	? never
-	: Identical<Named, R> extends true
-		? never
-		: false extends SameAs<Named, R>
-			? NameOf<R>
-			: never
+	: false extends SameAs<Named, R>
+		? NameOf<R>
+		: never
 
 /**
  * The positions of a tuple's elements by the names they declare, read by key: under each name, the position of every
