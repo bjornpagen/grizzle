@@ -469,18 +469,12 @@ export const loginRuleText = (rule: LoginRule): string => {
 
 /**
  * Why a generated field's expression is refused: it reads generated field `read` (itself among them), which no
- * generation expression reads, as PostgreSQL's never does; it reads `read`, a field grizzle draws or accumulates on
- * the host (`writing`), which no generation expression reads either; it reads an input beyond its own row, `input` the
- * description kind of the first in expression order; or its type `expression` is not the field's declared `declared`
- * (each a type label) but for what the column's domain checks, with no implicit cast.
+ * generation expression reads, as PostgreSQL's never does; it reads an input beyond its own row, `input` the description
+ * kind of the first in expression order; or its type `expression` is not the field's declared `declared` (each a type
+ * label) but for what the column's domain checks, with no implicit cast.
  */
 export type GeneratedRule =
 	| { readonly kind: "readsGenerated"; readonly read: string }
-	| {
-			readonly kind: "readsUnwritten"
-			readonly read: string
-			readonly writing: "drawn" | "accumulated"
-	  }
 	| {
 			readonly kind: "notRowLocal"
 			readonly input: "var" | "param" | "parent" | "value" | "absent"
@@ -502,9 +496,7 @@ const rowInputWords: {
 export const generatedRuleText = (rule: GeneratedRule): string => {
 	switch (rule.kind) {
 		case "readsGenerated":
-			return `reads ${rule.read}, a generated field; a generation expression reads its row's written fields only`
-		case "readsUnwritten":
-			return `reads ${rule.read}, a field grizzle ${rule.writing === "drawn" ? "draws" : "accumulates"} on the host; a generation expression reads only the fields its caller writes, so derive the value from those, or read ${rule.read} in a query or a row check`
+			return `reads ${rule.read}, a generated field; a generation expression reads its row's other fields, never a generated one`
 		case "notRowLocal":
 			return `reads ${rowInputWords[rule.input]}; a generation expression reads its own row and closed relations only`
 		case "type":

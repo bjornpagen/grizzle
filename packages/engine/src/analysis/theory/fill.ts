@@ -45,7 +45,7 @@ import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { FamilyName, FilledLater, FillAxis, UnwritableCause } from "#compiler/core/causes.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { lastNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -268,8 +268,6 @@ const entriesAt = (
 				set(fieldColumn(field), field.type, { kind: "given" }, walk)
 				break
 			case "generated":
-				set(fieldColumn(field), field.type, { kind: "generated", expr: field.writing.expr }, walk)
-				break
 			case "drawn":
 			case "accumulated":
 			case "retirement":
@@ -295,7 +293,7 @@ const entriesAt = (
 		}
 	}
 	if (position.kind === "top") {
-		return entries
+		return generatedAt(relation, entries)
 	}
 	const f = position.family
 	const root = position.kind === "root"
@@ -385,7 +383,55 @@ const entriesAt = (
 			}
 		}
 	}
-	return entries
+	return generatedAt(relation, entries)
+}
+
+/**
+ * `entries` with each generated field of `relation` laid out, among its fields in their order, where one fill writes
+ * every column its generation reads: its rule its generation, its writer that fill (the counted family that writes one
+ * of those columns, else the walk), and its own waits none, so it waits on what the columns it reads wait on (draftAt).
+ * A generation reads no generated field (check/generated.ts), so every column it reads is laid out without it. A
+ * generated field that reads a column this position does not lay out, or columns two counted families' fills write, no
+ * fill evaluates here: PostgreSQL alone computes it, and a column here that reads it is refused as reading a column no
+ * fill that writes it reaches.
+ */
+const generatedAt = (
+	relation: LawRelation,
+	entries: ReadonlyMap<string, Entry>
+): ReadonlyMap<string, Entry> => {
+	const laid = new Map<string, Entry>()
+	for (const field of relation.fields) {
+		const column = fieldColumn(field)
+		if (field.writing.kind === "caller" || field.writing.kind === "serial") {
+			laid.set(keyOf(column), defined(entries.get(keyOf(column)), `the column of ${field.name}`))
+		}
+		if (field.writing.kind !== "generated") {
+			continue
+		}
+		const rule: FillRule = { kind: "generated", expr: field.writing.expr }
+		const read = readsOfRule(relation, rule).map((c) => entries.get(keyOf(c)))
+		const counted = new Map(
+			read.flatMap((e) =>
+				e?.writer.kind === "counted" ? [[familyKey(e.writer.family.id), e.writer] as const] : []
+			)
+		)
+		if (!read.includes(undefined) && counted.size <= 1) {
+			laid.set(keyOf(column), {
+				column,
+				name: field.name,
+				type: field.type,
+				rule,
+				writer: [...counted.values()][0] ?? { kind: "walk" },
+				own: waitsNothing
+			})
+		}
+	}
+	for (const [key, entry] of entries) {
+		if (!laid.has(key)) {
+			laid.set(key, entry)
+		}
+	}
+	return laid
 }
 
 /** A column's refusal, before the location of the law that fills it is looked up. */
@@ -423,8 +469,11 @@ const lawAndFamily = (
 		case "count":
 		case "start":
 		case "end":
-		case "generated":
 			throw defect(`a column filled ${rule.kind}, which reads nothing a write fills after it`)
+		case "generated":
+			throw defect(
+				"a generated column, laid out only where its own fill writes every column it reads, and refused at its reader"
+			)
 	}
 }
 
@@ -468,7 +517,12 @@ const draftAt = (
 		source: { relation: relation.name, column: nameOf(read) },
 		later: why
 	})
-	const waitsOf = (key: string): Result.Result<Waits, Unfillable> => {
+	/**
+	 * What the column `key` waits on, its reads' waits among them, or the first refusal its reads give. `reader` is the
+	 * column whose reads reached it, none for a column the layout's own order reaches first: a generated field is filled
+	 * by no law, so a cycle closing at one is refused at the column that reads it, whose source it is.
+	 */
+	const waitsOf = (key: string, reader: Entry | undefined): Result.Result<Waits, Unfillable> => {
 		const known = waited.get(key)
 		if (known !== undefined) {
 			return Result.ok(known)
@@ -486,13 +540,21 @@ const draftAt = (
 				return Result.err(refusal(entry, read, { kind: "unreached" }))
 			}
 			if (visiting.has(readKey)) {
-				return Result.err(refusal(entry, read, { kind: "cycle" }))
+				return Result.err(
+					entry.rule.kind === "generated"
+						? refusal(
+								defined(reader, `the column reading ${entry.name}, which closes a cycle`),
+								entry.column,
+								{ kind: "cycle" }
+							)
+						: refusal(entry, read, { kind: "cycle" })
+				)
 			}
 			const why = readLater(entry.writer, target.writer)
 			if (why !== undefined) {
 				return Result.err(refusal(entry, read, why))
 			}
-			const w = waitsOf(readKey)
+			const w = waitsOf(readKey, entry)
 			if (!w.ok) {
 				return w
 			}
@@ -504,7 +566,7 @@ const draftAt = (
 	}
 	const columns = new Map<string, DraftColumn>()
 	for (const [key, entry] of entries) {
-		const waits = waitsOf(key)
+		const waits = waitsOf(key, undefined)
 		if (!waits.ok) {
 			return waits
 		}
@@ -584,7 +646,8 @@ const layoutOf = (
  * of the owner whose members the walk fills before `family`'s so that it may (`after`). A sequence's members are filled
  * once the walk reaches their family: after the owner's entering columns and the columns that wait on the sequences it
  * walks first, never one that waits on their own family's members. A counted family's are filled after their owner's
- * row is written whole, its own count among it, which it knows before its members, but before its own ends.
+ * row is written whole, its own count among it, which it knows before its members, but before its own ends: so a column
+ * of the family's own fill that waits on its settling, an end or a generated field over one, is filled after them.
  */
 const ownerLater = (
 	family: Family,
@@ -597,9 +660,9 @@ const ownerLater = (
 		if (!sameFamily(writer.family, family)) {
 			return { kind: "later", later: { kind: "countedFill", family: named(writer.family) } }
 		}
-		return target.entry.rule.kind === "count"
-			? { kind: "after", families: [] }
-			: { kind: "later", later: { kind: "afterMembers" } }
+		return target.waits.settling
+			? { kind: "later", later: { kind: "afterMembers" } }
+			: { kind: "after", families: [] }
 	}
 	if (!isSequence(family)) {
 		return { kind: "after", families: [] }
@@ -607,6 +670,33 @@ const ownerLater = (
 	return target.waits.after.has(familyKey(family.id)) || target.waits.settling
 		? { kind: "later", later: { kind: "afterMembers" } }
 		: { kind: "after", families: [...target.waits.after.values()] }
+}
+
+/**
+ * Whether the column `from` of a draft's row reads `to` through the row's own columns, a generated field's reads among
+ * them, and through the predecessor copies it meets, each the column it copies on the member before: a predecessor copy
+ * of such a column reads its own value on a member before it, a chain the walk follows but no window of a family's scan
+ * draws (write/family/scan.ts). A fold's before is such a copy of its after, which the scan draws as its running
+ * aggregate, so fillOrder asks it of every other predecessor copy.
+ */
+const readsBack = (draft: Draft, from: NativeColumn, to: NativeColumn): boolean => {
+	const seen = new Set<string>()
+	const pending = [keyOf(from)]
+	for (let key = pending.pop(); key !== undefined; key = pending.pop()) {
+		const column = defined(draft.columns.get(key), `a column ${key} a draft's row reads`)
+		const rule = column.entry.rule
+		for (const read of rule.kind === "predecessor" ? [rule.to] : column.reads) {
+			const next = keyOf(read)
+			if (next === keyOf(to)) {
+				return true
+			}
+			if (!seen.has(next)) {
+				seen.add(next)
+				pending.push(next)
+			}
+		}
+	}
+	return false
 }
 
 /** Whether a read across rows of a column `target` fills is one a column of `family`'s fill may make. */
@@ -769,13 +859,15 @@ export const fillOrder = (
 			drafts.set(layoutKey(name, position), built.value)
 		}
 	}
-	const columnAt = (relation: string, position: FillPosition, to: NativeColumn) => {
+	const draftOf = (relation: string, position: FillPosition): Draft => {
 		const draft = drafts.get(layoutKey(relation, position))
 		if (draft === undefined) {
 			throw defect(`the layout of ${relation} at a position it stands at`)
 		}
-		return draft.columns.get(keyOf(to))
+		return draft
 	}
+	const columnAt = (relation: string, position: FillPosition, to: NativeColumn) =>
+		draftOf(relation, position).columns.get(keyOf(to))
 	/** Each layout's sequences the walk fills before each of its sequences, by layout key and then family key: what the
 	 * copies its members take of it wait on. */
 	const before = new Map<string, Map<string, Set<string>>>()
@@ -846,9 +938,16 @@ export const fillOrder = (
 			}
 			if (rule.kind === "predecessor" || rule.kind === "last") {
 				const member = rule.family.member.name
-				const target = columnAt(member, { kind: "member", family: rule.family }, rule.to)
+				const at: FillPosition = { kind: "member", family: rule.family }
+				const target = columnAt(member, at, rule.to)
 				const later =
-					target === undefined ? { kind: "unreached" as const } : acrossLater(rule.family, target)
+					target === undefined
+						? { kind: "unreached" as const }
+						: rule.kind === "predecessor" &&
+							  target.entry.rule.kind !== "after" &&
+							  readsBack(draftOf(member, at), rule.to, entry.column)
+							? { kind: "cycle" as const }
+							: acrossLater(rule.family, target)
 				if (later !== undefined) {
 					return refused(
 						refusal(rule.kind, rule.family, rule.law, { relation: member, to: rule.to }, later)

@@ -12,9 +12,11 @@ import {
 	admittedSources,
 	type CopySource,
 	type FillSpec,
-	type InstanceRow,
+	generationOfV,
 	insertedRelations,
 	instanceGen,
+	type InstanceRow,
+	noGeneration,
 	uuidOfRow,
 	verdictOf
 } from "#test/support/families/fill.ts"
@@ -90,7 +92,9 @@ const ownerSources = (spec: FillSpec, f: number): ReadonlyArray<CopySource> => {
 		Arr.filter(
 			[
 				{ kind: "caller" } as const,
-				...(defined(spec.relations[owner]).generated ? [{ kind: "generated" } as const] : []),
+				...(defined(spec.relations[owner]).generated.kind !== "none"
+					? [{ kind: "generated" } as const]
+					: []),
 				...owned
 			],
 			(source) => !carried(source)
@@ -108,7 +112,10 @@ const ownerSources = (spec: FillSpec, f: number): ReadonlyArray<CopySource> => {
 const freshSpecGen: Gen<FillSpec> = (source) => {
 	const n = source.draw(int(2, 4))
 	const relations = nonEmpty(
-		Array.from({ length: n }, () => ({ generated: source.draw(boolean), mutable: true }))
+		Array.from({ length: n }, () => ({
+			generated: source.draw(boolean) ? generationOfV : noGeneration,
+			mutable: true
+		}))
 	)
 	const families = nonEmpty(
 		Array.from({ length: source.draw(int(1, 3)) }, () => {
@@ -185,9 +192,9 @@ export const freshCases: Gen<FreshCase> = caseOf(freshSpecGen)
  */
 const nestedMember: FillSpec = {
 	relations: [
-		{ generated: false, mutable: true },
-		{ generated: false, mutable: true },
-		{ generated: false, mutable: true }
+		{ generated: noGeneration, mutable: true },
+		{ generated: noGeneration, mutable: true },
+		{ generated: noGeneration, mutable: true }
 	],
 	families: [
 		{ kind: "counted", owner: 0, member: 2, fold: "sum" },

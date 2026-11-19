@@ -328,7 +328,7 @@ export const property = (r: Resolved, k: Case<FamilyFeature>) =>
 			}
 		}
 		for (const [index, spec] of r.c.spec.relations.entries()) {
-			if (!spec.generated) {
+			if (spec.generated.kind === "none") {
 				continue
 			}
 			k.note("a generated field")

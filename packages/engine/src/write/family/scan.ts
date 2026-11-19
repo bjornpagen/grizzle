@@ -600,17 +600,22 @@ const columnOf = (
 			frame: { start: { kind: "unboundedPreceding" }, end: { kind: "currentRow" } }
 		}
 	})
-	const rowOwn = ownValue(
+	/**
+	 * A column of the row as its rules read it: drawn where a rule draws it, else its own, and a generated field its
+	 * generation over the row read so, which reads a column the scan draws at its drawn value, as PostgreSQL generates
+	 * the field from the row the write stores.
+	 */
+	const value = ownValue(
 		spec.member,
 		(key) => {
+			if (drawnKeysOf(spec).has(key)) {
+				return holding(key)
+			}
 			const column = layout.own.get(key)
 			return column === undefined ? undefined : col(at, column)
 		},
 		lowering
 	)
-	/** A column of the row as its rules read it: drawn where a rule draws it, else its own. */
-	const value = (key: ColumnKey): Expr =>
-		drawnKeysOf(spec).has(key) ? (holding(key) ?? rowOwn(key)) : rowOwn(key)
 	/** A column of the member before the row, lag() of the row's scanned column, a generation over them read so. */
 	const before = ownValue(
 		spec.member,

@@ -483,8 +483,7 @@ const generatedDecl = (value: unknown, label: string): FieldDecl => {
  * The admission core of relation.generated(...): the written fields checked and described as relation's are, the
  * callback run once over their row, and each field it returns a generated field named apart from every written field.
  * The relation's fields are its written fields, then its generated ones. The row types each field by its declared
- * type, a drawn or an accumulated one's included, which the public type leaves out of the row: an expression a
- * JavaScript caller builds over one reaches the checker, which refuses it by name (GeneratedRule readsUnwritten).
+ * type, a drawn or an accumulated one's included, as the public type's row does (schema/api.ts GenerationRow).
  */
 const admitGenerated = <G>(
 	name: unknown,

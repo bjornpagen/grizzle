@@ -1847,9 +1847,13 @@ Every field has one writer. An insert or a put takes exactly the fields its call
   its group is retired ([Retirable units](#retirable-units)).
 
 **Generated fields.** A term reads its own row and closed relations ([Closed relations](#closed-relations)). `r` holds
-only the fields the caller writes, so reading a generated, drawn or accumulated field is a type error. Compiling the
-schema refuses a term that breaks these rules with `GeneratedRefused` (`readsGenerated`, `readsUnwritten`, or
-`notRowLocal` for a read beyond its row). The term has the field's type, except for a text's pattern and byte bound,
+every stored field of the row but the generated ones, a field grizzle draws or accumulates among them: its column holds
+its final value whenever PostgreSQL generates the term, at the row's INSERT or at an UPDATE that writes it, a family's
+recount, refill or cascade among them. So a value read through an accumulated copy of an owner's column, such as a
+text collapsed by its owner's declared type, is one generated field every query reads. Reading a generated field is a
+type error.
+Compiling the schema refuses a term that breaks these rules with `GeneratedRefused` (`readsGenerated`, or `notRowLocal`
+for a read beyond its row). The term has the field's type, except for a text's pattern and byte bound,
 which the field's domain checks: `generated(Ids, Compute.concat(row.head, row.tail))` fills a refined text, and a
 generated value outside the domain refuses its row, `refused` on the pattern's rule. Nothing is cast
 implicitly: a term of another integer width, numeric typmod or contract, `natural` included, is `GeneratedRefused`
@@ -1879,10 +1883,20 @@ insert nests is filled there like any nested row, and its counted families compl
 - a copy along a counted family's owner axis reads any column of its owner but the end of a fold over that family;
 - a counted family's count and fold ends, and the index, count and copies it fills on its members, are read only by
   that family's own members and ends, never by another family's copy, fold step or selection;
-- no row's columns read each other in a cycle, as copies along a tree's owner axis can at its root.
+- no row's columns read each other in a cycle, as copies along a tree's owner axis can at its root;
+- no predecessor copy reads its own value on a member before it, through a field generated from its row and the
+  predecessor copies it meets, a chain no window over the group draws: fold such a running value instead.
+
+A generated field is filled where the columns it reads are: after the latest of them, by the fill that writes them, a
+counted family's where it reads a column that family fills. Where no one fill writes every column it reads (at a
+position whose fill does not reach one, or two counted families' columns), PostgreSQL alone computes it, and a copy, a
+step or a selection that reads it there is refused. So a copy of a generated field waits on what the field reads: a copy
+along an owner axis of an owner's field generated from a fold's end over that family is filled after its members, and
+a sequence's copy of a field generated from a counted family's copy reads a column that family fills on its own.
 
 A schema that breaks one is refused with `UnfillableField`, naming the field, the law that fills it, the column it
-reads, the axis it reads it along, and why that column is filled later.
+reads, the axis it reads it along, and why that column is filled later. A cycle through a generated field is named at
+the column that reads it.
 
 ### Closed relations
 

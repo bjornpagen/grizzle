@@ -95,14 +95,15 @@ export const closedReadNames = (e: ExprDesc): ReadonlyArray<string> => {
 /**
  * Why the generation expression `expr` breaks the rule before it is typed, or undefined when it keeps it: the first
  * input beyond its row in description order (notRowLocal), else the least field it reads in code-unit order that
- * `generated` says is generated, itself among them (readsGenerated), else the least one `unwritten` says grizzle draws
- * or accumulates on the host (readsUnwritten). So of a relation whose generated fields read one another, a cycle or
- * not, the refusal names the least generated field read.
+ * `generated` says is generated, itself among them (readsGenerated). So of a relation whose generated fields read one
+ * another, a cycle or not, the refusal names the least generated field read. Any other field of its row it may read,
+ * one grizzle draws or accumulates among them: its column holds its final value whenever PostgreSQL computes the
+ * generation, at the row's INSERT or at an UPDATE that writes it, and the schema's fill order (analysis/theory/fill.ts)
+ * evaluates it on the host only once every column it reads is filled.
  */
 export const generatedRule = (
 	expr: ExprDesc,
-	generated: (field: string) => boolean,
-	unwritten: (field: string) => "drawn" | "accumulated" | undefined
+	generated: (field: string) => boolean
 ): GeneratedRule | undefined => {
 	const input = firstForeign(expr)
 	if (input !== undefined) {
@@ -110,16 +111,7 @@ export const generatedRule = (
 	}
 	const reads = [...fieldReads(expr, new Set())].toSorted(compareStrings)
 	const read = reads.find(generated)
-	if (read !== undefined) {
-		return { kind: "readsGenerated", read }
-	}
-	for (const field of reads) {
-		const writing = unwritten(field)
-		if (writing !== undefined) {
-			return { kind: "readsUnwritten", read: field, writing }
-		}
-	}
-	return undefined
+	return read === undefined ? undefined : { kind: "readsGenerated", read }
 }
 
 /**

@@ -33,6 +33,7 @@ import {
 	type FollowUp,
 	type InstanceRow,
 	movingGen,
+	noGeneration,
 	relationName
 } from "#test/support/families/fill.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
@@ -260,9 +261,9 @@ const written = (c: SwarmCase, label: string) =>
 const movedBesideSpec: SwarmSpec = {
 	fill: {
 		relations: nonEmptyRelations([
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true }
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true }
 		]),
 		families: [
 			{ kind: "ordered", owner: 0, member: 1, fold: "none" },

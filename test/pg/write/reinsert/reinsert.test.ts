@@ -41,12 +41,13 @@ import {
 	fullInstance,
 	groupFieldsOf,
 	indexName,
-	keyOfRelation,
-	type InstanceRow,
 	insertedRelations,
 	instanceFacts,
 	instanceGen,
+	type InstanceRow,
+	keyOfRelation,
 	mutableOrDrawn,
+	noGeneration,
 	plantedGen,
 	relationAt,
 	relationName,
@@ -509,9 +510,9 @@ const aimedSpecGen =
 			besides(
 				{
 					relations: [
-						{ generated: false, mutable: true },
-						{ generated: false, mutable: true },
-						{ generated: false, mutable: true }
+						{ generated: noGeneration, mutable: true },
+						{ generated: noGeneration, mutable: true },
+						{ generated: noGeneration, mutable: true }
 					],
 					families: [
 						{ kind: "counted", owner: 0, member: 1, fold: source.draw(element(folds)) },
@@ -759,8 +760,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 								sketch: {
 									spec: {
 										relations: [
-											{ generated: false, mutable: false },
-											{ generated: false, mutable: false }
+											{ generated: noGeneration, mutable: false },
+											{ generated: noGeneration, mutable: false }
 										],
 										families: [
 											{ kind: "ordered", owner: 0, member: 1, fold: "none" },
@@ -810,10 +811,10 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 								sketch: {
 									spec: {
 										relations: [
-											{ generated: false, mutable: true },
-											{ generated: false, mutable: true },
-											{ generated: false, mutable: true },
-											{ generated: false, mutable: true }
+											{ generated: noGeneration, mutable: true },
+											{ generated: noGeneration, mutable: true },
+											{ generated: noGeneration, mutable: true },
+											{ generated: noGeneration, mutable: true }
 										],
 										families: [
 											{ kind: "tree", owner: 3, member: 3, fold: "none" },

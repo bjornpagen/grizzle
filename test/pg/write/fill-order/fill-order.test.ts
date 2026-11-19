@@ -7,9 +7,17 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { onceCalls } from "#adapter/db/handles.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
+import type * as Engine from "#compiler/core/result.ts"
+import { previewOver } from "#compiler/program/preview.ts"
+import { rowEvaluator } from "#compiler/public/schema.ts"
+import { inForce } from "#compiler/runtime/write/transport.ts"
+import { insertableNamesOf } from "#compiler/schema/world.ts"
+import type { Unevaluated } from "#compiler/types/schema/evaluation.ts"
+import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
+import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import {
 	admittedFillSpecGen,
@@ -17,18 +25,22 @@ import {
 	buildFill,
 	type FillSpec,
 	type FollowUp,
-	type FollowUpMember,
 	followUpGen,
+	type FollowUpMember,
 	followUpMembers,
 	followUpRows,
 	fullInstance,
-	ownerPutGen,
-	type InstanceRow,
+	generationDrawn,
+	generationOfV,
+	holdsGenerated,
 	insertedRelations,
 	instanceFacts,
 	instanceGen,
+	type InstanceRow,
 	movingGen,
 	mutableOrDrawn,
+	noGeneration,
+	ownerPutGen,
 	type Planted,
 	plantedGen,
 	relationAt,
@@ -90,6 +102,8 @@ type ClusterSituation =
 	| "an owner copy along a sequence"
 	| "a fold over a tree"
 	| "a copy of a generated field"
+	| "a generated field reading a field grizzle draws or accumulates"
+	| "a copy of a generated field reading a field grizzle draws or accumulates"
 	| "a follow-up written over the stored instance"
 	| "an owner put in place beside an append to its family"
 	| "a follow-up that refills a value it leaves stale"
@@ -167,7 +181,12 @@ const shapesOf = (spec: FillSpec): ReadonlyArray<ClusterSituation> => {
 			...(family.kind === "counted" && copy.source.kind === "end"
 				? (["a counted member's copy of a tree node's end"] as const)
 				: []),
-			...(copy.source.kind === "generated" ? (["a copy of a generated field"] as const) : [])
+			...(copy.source.kind === "generated" ? (["a copy of a generated field"] as const) : []),
+			...(copy.source.kind === "generated" &&
+			relationAt(spec, copy.axis === "owner" ? family.owner : family.member).generated.kind ===
+				"row"
+				? (["a copy of a generated field reading a field grizzle draws or accumulates"] as const)
+				: [])
 		]
 	})
 	return [
@@ -203,7 +222,10 @@ const shapesOf = (spec: FillSpec): ReadonlyArray<ClusterSituation> => {
 							: [])
 					])
 		),
-		...copyShapes
+		...copyShapes,
+		...(Arr.some(spec.relations, (r) => r.generated.kind === "row")
+			? (["a generated field reading a field grizzle draws or accumulates"] as const)
+			: [])
 	]
 }
 
@@ -335,9 +357,9 @@ const aims: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]> = [
 const replacedOwner: ClusterCase = {
 	spec: {
 		relations: [
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true }
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true }
 		],
 		families: [
 			{ kind: "ordered", owner: 0, member: 1, fold: "none" },
@@ -370,9 +392,9 @@ const replacedOwner: ClusterCase = {
 const replacedOwnerAppended: ClusterCase = {
 	spec: {
 		relations: [
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true }
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true }
 		],
 		families: [
 			{ kind: "ordered", owner: 0, member: 1, fold: "none" },
@@ -418,11 +440,11 @@ const replacedOwnerBare: ClusterCase = {
 const replacedCountedMember: ClusterCase = {
 	spec: {
 		relations: [
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true },
-			{ generated: true, mutable: true }
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true },
+			{ generated: generationOfV, mutable: true }
 		],
 		families: [
 			{ kind: "tree", owner: 0, member: 0, fold: "none" },
@@ -495,8 +517,8 @@ const replacedCountedMember: ClusterCase = {
 const generatedPredecessor: ClusterCase = {
 	spec: {
 		relations: [
-			{ generated: false, mutable: true },
-			{ generated: true, mutable: true }
+			{ generated: noGeneration, mutable: true },
+			{ generated: generationOfV, mutable: true }
 		],
 		families: [{ kind: "ordered", owner: 0, member: 1, fold: "none" }],
 		copies: [
@@ -530,9 +552,9 @@ const generatedPredecessor: ClusterCase = {
 const replacedImmutableOwner: ClusterCase = {
 	spec: {
 		relations: [
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: false },
-			{ generated: false, mutable: true }
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: false },
+			{ generated: noGeneration, mutable: true }
 		],
 		families: [
 			{ kind: "ordered", owner: 0, member: 1, fold: "none" },
@@ -567,9 +589,9 @@ const replacedImmutableOwner: ClusterCase = {
 const ownerPutBesideRemoval: ClusterCase = {
 	spec: {
 		relations: [
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true }
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true }
 		],
 		families: [{ kind: "ordered", owner: 1, member: 2, fold: "none" }],
 		copies: [{ family: 0, axis: "last", source: { kind: "caller" } }],
@@ -599,11 +621,11 @@ const ownerPutBesideRemoval: ClusterCase = {
 const ownerPutBesideAppend: ClusterCase = {
 	spec: {
 		relations: [
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true },
-			{ generated: true, mutable: false }
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true },
+			{ generated: generationOfV, mutable: false }
 		],
 		families: [
 			{ kind: "ordered", owner: 0, member: 1, fold: "none" },
@@ -645,9 +667,9 @@ const ownerPutBesideAppend: ClusterCase = {
 const movedSequenceCopy: ClusterCase = {
 	spec: {
 		relations: [
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true }
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true }
 		],
 		families: [
 			{ kind: "ordered", owner: 2, member: 0, fold: "none" },
@@ -700,8 +722,8 @@ const movedSequenceCopy: ClusterCase = {
 const ownerPutBesideReplacedCountedMember: ClusterCase = {
 	spec: {
 		relations: [
-			{ generated: false, mutable: true },
-			{ generated: false, mutable: true }
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true }
 		],
 		families: [
 			{ kind: "ordered", owner: 0, member: 1, fold: "count" },
@@ -751,6 +773,26 @@ const ownerPutBesideReplacedCountedMember: ClusterCase = {
  * aims, drawn among them, so no aim that seldom reaches its situation holds back the others; otherwise a drawn one. The
  * generator draws it, so it is the case the search runs, prints and keeps.
  */
+/**
+ * A case whose specification's generated fields read fields grizzle draws or accumulates on their own row, admitted by
+ * the reference by construction (fill.ts `generationDrawn`), with an instance and a written follow-up or none.
+ */
+const generationCaseGen: Gen<ClusterCase> = caseOver(
+	generationDrawn(
+		mutableOrDrawn(admittedFillSpecGen({ relations: 4, families: 4, copies: 3 })),
+		true
+	),
+	instanceGen,
+	followUpGen
+)
+
+/** What the generation suite must reach. */
+const generationSituations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
+	"a generated field reading a field grizzle draws or accumulates",
+	"a copy of a generated field reading a field grizzle draws or accumulates",
+	"a follow-up written over the stored instance"
+]
+
 const clusterCases: Steered<ClusterCase, ClusterSituation> = (steering) => {
 	const open = Arr.filter(aims, ([situation]) =>
 		Option.exists(steering, (pending) => pending.has(situation))
@@ -758,7 +800,284 @@ const clusterCases: Steered<ClusterCase, ClusterSituation> = (steering) => {
 	return Arr.isReadonlyArrayNonEmpty(open) ? oneOf(Arr.map(open, ([, aim]) => aim)) : caseGen
 }
 
+/**
+ * One case of the suite (see the module's header): the schema installed, the instance's first insert and then its
+ * follow-up applied, each storing exactly the reference writer's rows, every generated field among them as rowEvaluator
+ * computes it of the stored row, and the first insert's rows exactly those insertPreview gives.
+ */
+const checkCase = (
+	{ spec, rows, followUp }: ClusterCase,
+	c: {
+		readonly note: (situation: ClusterSituation) => void
+		readonly noteAll: (situations: Iterable<ClusterSituation>) => void
+	}
+) =>
+	Effect.gen(function* () {
+		const built = buildFill(spec)
+		const declared = built.rename("Fill")
+		const done = yield* installMigrated(declared, {
+			ambient: ordinarySession,
+			label: "fill",
+			logins: [fullWorld(declared, {}).server],
+			extensions: []
+		})
+		const value = built.rename(done.schema)
+		const world = fullWorld(value, {})
+		const relationAtName = (r: number) => defined(built.relations[relationName(r)])
+		const facts = instanceFacts(spec, rows)
+		/** The first insert: every relation a caller writes, each its own array member. */
+		const first = Arr.reduce(insertedRelations(spec), ChangeSet.empty(value), (cs, r) =>
+			cs.insert(relationAtName(r), [])
+		)
+		const firstInsert: Readonly<Record<string, ReadonlyArray<unknown>>> = Rec.fromEntries(
+			Arr.map(insertedRelations(spec), (r): readonly [string, ReadonlyArray<unknown>] => [
+				relationName(r),
+				facts.get(r) ?? []
+			])
+		)
+		const firstFacts: CallFacts = { insert: firstInsert }
+		/**
+		 * The follow-up, its members, and its served ChangeSet's array members: one per op and relation, at the
+		 * first of its members, whose facts are every such member's in order, as its stratum's union holds them.
+		 */
+		const followed = Option.map(followUp, (f) => {
+			const all = followUpMembers(spec, rows, f)
+			return {
+				followUp: f,
+				members: all,
+				slots: Arr.dedupeWith(all, (a, b) => a.op === b.op && a.relation === b.relation)
+			}
+		})
+		const programs = Option.match(followed, {
+			onNone: () => ({ first }),
+			onSome: ({ slots }) => ({
+				first,
+				next: Arr.reduce(slots, ChangeSet.empty(value), (cs, m) => {
+					const relation = relationAtName(m.relation)
+					switch (m.op) {
+						case "insert":
+							return cs.insert(relation, [])
+						case "put":
+							return cs.put(relation, [])
+						case "delete":
+							return cs.delete(relation, [])
+					}
+				})
+			})
+		})
+		/** The follow-up's call facts: under each op, each relation's facts. */
+		const nextFacts = (
+			all: ReadonlyArray<FollowUpMember>,
+			held: ReadonlyArray<FollowUpMember>
+		): CallFacts =>
+			Rec.fromEntries(
+				Arr.map(
+					Arr.dedupe(Arr.map(held, (s) => s.op)),
+					(op): readonly [string, Readonly<Record<string, ReadonlyArray<unknown>>>] => [
+						op,
+						Rec.fromEntries(
+							Arr.map(
+								Arr.filter(held, (s) => s.op === op),
+								(s): readonly [string, ReadonlyArray<unknown>] => [
+									relationName(s.relation),
+									Arr.flatMap(
+										Arr.filter(all, (x) => x.op === op && x.relation === s.relation),
+										(x: FollowUpMember) => x.facts
+									)
+								]
+							)
+						)
+					]
+				)
+			)
+		yield* Effect.gen(function* () {
+			const db = yield* openServedDb(done, world.server.roles.app, {})
+			const flight = yield* oneFlight(db.ctx, done.as(world.server))
+			const loaded = yield* db.load(programs)
+			/** A member applied on the tapped context with its call's facts. */
+			const applied = (name: string, callFacts: CallFacts) =>
+				answered(
+					writeOnce(onceCalls(flight.context, member(loaded, name)))({
+						params: {},
+						facts: callFacts
+					})
+				)
+			const outcome = yield* flight.judged(
+				"the instance's first insert",
+				applied("first", firstFacts)
+			)
+			assert.equal(
+				outcome.kind,
+				rows.length === 0 ? "unchanged" : "accepted",
+				`the instance's first insert of ${Formatter.format(spec)}`
+			)
+			const evaluate = succeeded(rowEvaluator<AnySchema>(value), "the case's schema evaluates")
+			const stores = (instance: ReadonlyArray<InstanceRow>, after: string) =>
+				Effect.gen(function* () {
+					const expected = writtenRows(spec, instance)
+					for (const [r] of spec.relations.entries()) {
+						const relation = defined(built.relations[relationName(r)])
+						const stored = yield* tableState(done, relation)
+						unorderedEqual(
+							stored,
+							Arr.flatMap(instance, (row) =>
+								row.relation === r ? [defined(expected.get(row.id))] : []
+							),
+							`${relationName(r)}'s rows after ${after}, as the reference writer fills them`
+						)
+						if (!holdsGenerated(spec, r)) {
+							continue
+						}
+						for (const row of stored) {
+							const admitted = succeeded(
+								evaluate.admit(relation, Rec.remove(row, "g")),
+								`a stored ${relationName(r)} row is admitted`
+							)
+							/** Its generated fields' items by name, which an AnyRelation's type cannot name. */
+							const items: Readonly<Record<string, Engine.Result<unknown, Unevaluated>>> = evaluate(
+								relation,
+								admitted
+							).generated
+							const g = succeeded(
+								defined(items["g"], "the item of g"),
+								`the host evaluates ${relationName(r)}.g`
+							)
+							assert.equal(
+								g,
+								row["g"],
+								`${relationName(r)}.g after ${after}, as rowEvaluator computes it of the stored row`
+							)
+						}
+					}
+				})
+			yield* stores(rows, "the first insert")
+			const preview = succeeded(
+				previewOver(value, inForce(bindFrame)),
+				"the case's schema previews its insertions"
+			)
+			const previewed = preview(
+				Rec.fromEntries(
+					Arr.map(insertableNamesOf(value), (name) => [name, firstInsert[name] ?? []] as const)
+				)
+			)
+			if (!previewed.ok) {
+				return assert.fail(`the instance previews: ${Formatter.format(previewed.error)}`)
+			}
+			for (const [r] of spec.relations.entries()) {
+				const relation = defined(built.relations[relationName(r)])
+				const stored = yield* tableState(done, relation)
+				unorderedEqual(
+					defined(previewed.value[relationName(r)], `the preview's rows of ${relationName(r)}`),
+					Arr.map(stored, (row) => Rec.remove(row, "g")),
+					`${relationName(r)}'s rows the preview gives, as the first insert stores them`
+				)
+			}
+			c.noteAll(shapesOf(spec))
+			if (Option.isNone(followed)) {
+				return
+			}
+			const { followUp: f, members, slots } = followed.value
+			const second = yield* flight.judged(
+				"the follow-up",
+				applied("next", nextFacts(members, slots))
+			)
+			assert.equal(
+				second.kind,
+				"accepted",
+				`the follow-up ${Formatter.format(members)} of ${Formatter.format(spec)}`
+			)
+			const after = followUpRows(rows, f)
+			yield* stores(after, "the follow-up")
+			c.note("a follow-up written over the stored instance")
+			const verdict = writesVerdict(
+				spec,
+				Arr.map(members, (m) => ({ relation: m.relation, op: m.op }))
+			)
+			if (Arr.isReadonlyArrayNonEmpty(verdict.stale)) {
+				c.note("a follow-up that refills a value it leaves stale")
+			}
+			if (
+				Arr.some(verdict.stale, (s) => Arr.some(spec.steps, (step) => step.family === s.family))
+			) {
+				c.note("a follow-up that refills a fold stepping a copy")
+			}
+			const replacedOwners = Arr.filter(
+				after,
+				(x) =>
+					Arr.some(rows, (was) => was.id === x.id && replaced(spec, was, x)) &&
+					Arr.some(after, (y) => Arr.some(y.memberOf, (m) => m.owner === x.id))
+			)
+			if (Arr.isReadonlyArrayNonEmpty(replacedOwners)) {
+				c.note("a follow-up that re-places an owner of counted members")
+			}
+			if (Arr.some(replacedOwners, (x) => !relationAt(spec, x.relation).mutable)) {
+				c.note("a follow-up that re-places an immutable owner of counted members")
+			}
+			if (
+				Option.exists(f.moved, (moved) =>
+					Arr.some(rows, (y) => Arr.some(y.memberOf, (m) => m.owner === moved.id))
+				)
+			) {
+				c.note("a follow-up that moves an owner of counted members to another owner's group")
+			}
+			if (
+				Option.exists(f.moved, (moved) =>
+					Arr.some(
+						spec.copies,
+						(copy) =>
+							copy.axis === "owner" &&
+							copy.source.kind === "index" &&
+							copy.source.family === moved.family &&
+							Arr.some(rows, (y) =>
+								Arr.some(y.memberOf, (m) => m.family === copy.family && m.owner === moved.id)
+							)
+					)
+				)
+			) {
+				c.note("a follow-up that moves an owner whose counted members copy its index")
+			}
+			if (
+				Option.isSome(f.put) &&
+				(Arr.isReadonlyArrayNonEmpty(f.inserted) || Option.isSome(f.appended))
+			) {
+				c.note("an owner put in place beside an append to its family")
+			}
+		}).pipe(Effect.scoped)
+	}).pipe(Effect.scoped)
+
 layer(Substrate.layer, { excludeTestServices: true })("the fill order on the cluster", (it) => {
+	it.effect(
+		"an admitted schema whose generated fields read fields grizzle draws or accumulates stores each as the reference writer, rowEvaluator and insertPreview give it, through every write",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "pg/write/fill-order/generation",
+						draw: steered(
+							() => generationCaseGen,
+							(k) => k
+						),
+						literal: Formatter.format,
+						coverage: required<ClusterSituation>(generationSituations, {
+							cases: 60,
+							sense: notesOnly
+						}),
+						kept: [],
+						runs: 16,
+						shrink: boundedShrink(40),
+						steerEvery: 8,
+						caseHang,
+						oracle: {
+							kind: "second-implementation",
+							name: "the reference writer (test/support/families/fill.ts writtenRows), rowEvaluator and insertPreview"
+						}
+					},
+					checkCase
+				)
+			)
+	)
+
 	it.effect(
 		"an admitted schema installs, and its instance's first insert stores the reference writer's rows",
 		(ctx) =>
@@ -878,205 +1197,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 							name: "the reference writer (test/support/families/fill.ts writtenRows)"
 						}
 					},
-					({ spec, rows, followUp }, c) =>
-						Effect.gen(function* () {
-							const built = buildFill(spec)
-							const declared = built.rename("Fill")
-							const done = yield* installMigrated(declared, {
-								ambient: ordinarySession,
-								label: "fill",
-								logins: [fullWorld(declared, {}).server],
-								extensions: []
-							})
-							const value = built.rename(done.schema)
-							const world = fullWorld(value, {})
-							const relationAtName = (r: number) => defined(built.relations[relationName(r)])
-							const facts = instanceFacts(spec, rows)
-							/** The first insert: every relation a caller writes, each its own array member. */
-							const first = Arr.reduce(insertedRelations(spec), ChangeSet.empty(value), (cs, r) =>
-								cs.insert(relationAtName(r), [])
-							)
-							const firstFacts: CallFacts = {
-								insert: Rec.fromEntries(
-									Arr.map(
-										insertedRelations(spec),
-										(r): readonly [string, ReadonlyArray<unknown>] => [
-											relationName(r),
-											facts.get(r) ?? []
-										]
-									)
-								)
-							}
-							/**
-							 * The follow-up, its members, and its served ChangeSet's array members: one per op and relation, at the
-							 * first of its members, whose facts are every such member's in order, as its stratum's union holds them.
-							 */
-							const followed = Option.map(followUp, (f) => {
-								const all = followUpMembers(spec, rows, f)
-								return {
-									followUp: f,
-									members: all,
-									slots: Arr.dedupeWith(all, (a, b) => a.op === b.op && a.relation === b.relation)
-								}
-							})
-							const programs = Option.match(followed, {
-								onNone: () => ({ first }),
-								onSome: ({ slots }) => ({
-									first,
-									next: Arr.reduce(slots, ChangeSet.empty(value), (cs, m) => {
-										const relation = relationAtName(m.relation)
-										switch (m.op) {
-											case "insert":
-												return cs.insert(relation, [])
-											case "put":
-												return cs.put(relation, [])
-											case "delete":
-												return cs.delete(relation, [])
-										}
-									})
-								})
-							})
-							/** The follow-up's call facts: under each op, each relation's facts. */
-							const nextFacts = (
-								all: ReadonlyArray<FollowUpMember>,
-								held: ReadonlyArray<FollowUpMember>
-							): CallFacts =>
-								Rec.fromEntries(
-									Arr.map(
-										Arr.dedupe(Arr.map(held, (s) => s.op)),
-										(op): readonly [string, Readonly<Record<string, ReadonlyArray<unknown>>>] => [
-											op,
-											Rec.fromEntries(
-												Arr.map(
-													Arr.filter(held, (s) => s.op === op),
-													(s): readonly [string, ReadonlyArray<unknown>] => [
-														relationName(s.relation),
-														Arr.flatMap(
-															Arr.filter(all, (x) => x.op === op && x.relation === s.relation),
-															(x: FollowUpMember) => x.facts
-														)
-													]
-												)
-											)
-										]
-									)
-								)
-							yield* Effect.gen(function* () {
-								const db = yield* openServedDb(done, world.server.roles.app, {})
-								const flight = yield* oneFlight(db.ctx, done.as(world.server))
-								const loaded = yield* db.load(programs)
-								/** A member applied on the tapped context with its call's facts. */
-								const applied = (name: string, callFacts: CallFacts) =>
-									answered(
-										writeOnce(onceCalls(flight.context, member(loaded, name)))({
-											params: {},
-											facts: callFacts
-										})
-									)
-								const outcome = yield* flight.judged(
-									"the instance's first insert",
-									applied("first", firstFacts)
-								)
-								assert.equal(
-									outcome.kind,
-									rows.length === 0 ? "unchanged" : "accepted",
-									`the instance's first insert of ${Formatter.format(spec)}`
-								)
-								const stores = (instance: ReadonlyArray<InstanceRow>, after: string) =>
-									Effect.gen(function* () {
-										const expected = writtenRows(spec, instance)
-										for (const [r] of spec.relations.entries()) {
-											const relation = defined(built.relations[relationName(r)])
-											const stored = yield* tableState(done, relation)
-											unorderedEqual(
-												stored,
-												Arr.flatMap(instance, (row) =>
-													row.relation === r ? [defined(expected.get(row.id))] : []
-												),
-												`${relationName(r)}'s rows after ${after}, as the reference writer fills them`
-											)
-										}
-									})
-								yield* stores(rows, "the first insert")
-								c.noteAll(shapesOf(spec))
-								if (Option.isNone(followed)) {
-									return
-								}
-								const { followUp: f, members, slots } = followed.value
-								const second = yield* flight.judged(
-									"the follow-up",
-									applied("next", nextFacts(members, slots))
-								)
-								assert.equal(
-									second.kind,
-									"accepted",
-									`the follow-up ${Formatter.format(members)} of ${Formatter.format(spec)}`
-								)
-								const after = followUpRows(rows, f)
-								yield* stores(after, "the follow-up")
-								c.note("a follow-up written over the stored instance")
-								const verdict = writesVerdict(
-									spec,
-									Arr.map(members, (m) => ({ relation: m.relation, op: m.op }))
-								)
-								if (Arr.isReadonlyArrayNonEmpty(verdict.stale)) {
-									c.note("a follow-up that refills a value it leaves stale")
-								}
-								if (
-									Arr.some(verdict.stale, (s) =>
-										Arr.some(spec.steps, (step) => step.family === s.family)
-									)
-								) {
-									c.note("a follow-up that refills a fold stepping a copy")
-								}
-								const replacedOwners = Arr.filter(
-									after,
-									(x) =>
-										Arr.some(rows, (was) => was.id === x.id && replaced(spec, was, x)) &&
-										Arr.some(after, (y) => Arr.some(y.memberOf, (m) => m.owner === x.id))
-								)
-								if (Arr.isReadonlyArrayNonEmpty(replacedOwners)) {
-									c.note("a follow-up that re-places an owner of counted members")
-								}
-								if (Arr.some(replacedOwners, (x) => !relationAt(spec, x.relation).mutable)) {
-									c.note("a follow-up that re-places an immutable owner of counted members")
-								}
-								if (
-									Option.exists(f.moved, (moved) =>
-										Arr.some(rows, (y) => Arr.some(y.memberOf, (m) => m.owner === moved.id))
-									)
-								) {
-									c.note(
-										"a follow-up that moves an owner of counted members to another owner's group"
-									)
-								}
-								if (
-									Option.exists(f.moved, (moved) =>
-										Arr.some(
-											spec.copies,
-											(copy) =>
-												copy.axis === "owner" &&
-												copy.source.kind === "index" &&
-												copy.source.family === moved.family &&
-												Arr.some(rows, (y) =>
-													Arr.some(
-														y.memberOf,
-														(m) => m.family === copy.family && m.owner === moved.id
-													)
-												)
-										)
-									)
-								) {
-									c.note("a follow-up that moves an owner whose counted members copy its index")
-								}
-								if (
-									Option.isSome(f.put) &&
-									(Arr.isReadonlyArrayNonEmpty(f.inserted) || Option.isSome(f.appended))
-								) {
-									c.note("an owner put in place beside an append to its family")
-								}
-							}).pipe(Effect.scoped)
-						}).pipe(Effect.scoped)
+					checkCase
 				)
 			)
 	)

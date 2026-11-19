@@ -443,7 +443,6 @@ export const inputFeatures = (fields: ReadonlyArray<InputField>): ReadonlyArray<
 			)
 				? ["a read refused before a greater field's input"]
 				: []
-		case "readsUnwritten":
 		case "type":
 			return []
 	}

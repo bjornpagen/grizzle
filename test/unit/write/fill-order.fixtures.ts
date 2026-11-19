@@ -34,11 +34,14 @@ import {
 	type FollowUp,
 	followUpGen,
 	followUpMembers,
+	generationDrawn,
+	generationOfV,
 	insertedRelations,
 	instanceFacts,
 	instanceGen,
 	type InstanceRow,
 	mutableOrDrawn,
+	noGeneration,
 	type Planted,
 	plantedGen,
 	relationName,
@@ -49,8 +52,8 @@ import {
 	type StaleSpec,
 	uuidOfRow,
 	verdictOf,
-	type WritesVerdict,
 	writesVerdict,
+	type WritesVerdict,
 	writtenRows
 } from "#test/support/families/fill.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -907,6 +910,105 @@ const caseGen: Gen<FillCase> = (source) => {
 	return { spec, rows, followUp: source.draw(followUpGen(spec, rows)) }
 }
 
+/**
+ * A drawn specification as `caseGen` draws one, each relation whose `g` is generated from its `v` drawn to read a
+ * field of its own row grizzle draws or accumulates instead, admitted or not (families/fill.ts `generationDrawn`), with
+ * an instance and a follow-up drawn as any case's.
+ */
+const generationCaseGen: Gen<FillCase> = (source) => {
+	const spec = source.draw(
+		generationDrawn(mutableOrDrawn(fillSpecGen({ relations: 4, families: 4, copies: 3 })), false)
+	)
+	const rows = source.draw(instanceGen(spec))
+	return { spec, rows, followUp: source.draw(followUpGen(spec, rows)) }
+}
+
+/**
+ * A specification whose copy reads a generated `g` that reads a column filled later than the copy may read it, one of
+ * two drawn: R1's copy along an ordered family's owner axis of R0's `g`, which reads the end of that family's own sum
+ * fold, filled after its members; or R2's copy along R1's ordered family of R1's `g`, which reads R1's copy of R0's `v`
+ * along R0's counted family, which that family's own fill writes.
+ */
+const generationRefusalGen: Gen<FillCase> = (source) => {
+	const mutable = source.draw(boolean)
+	const spec: FillSpec = source.draw(boolean)
+		? {
+				relations: [
+					{ generated: { kind: "row", source: { kind: "fold", family: 0 } }, mutable },
+					{ generated: noGeneration, mutable }
+				],
+				families: [{ kind: "ordered", owner: 0, member: 1, fold: "sum" }],
+				copies: [{ family: 0, axis: "owner", source: { kind: "generated" } }],
+				steps: []
+			}
+		: {
+				relations: [
+					{ generated: noGeneration, mutable },
+					{ generated: { kind: "row", source: { kind: "copy", copy: 0 } }, mutable },
+					{ generated: noGeneration, mutable }
+				],
+				families: [
+					{ kind: "counted", owner: 0, member: 1, fold: "none" },
+					{ kind: "ordered", owner: 1, member: 2, fold: "none" }
+				],
+				copies: [
+					{ family: 0, axis: "owner", source: { kind: "caller" } },
+					{ family: 1, axis: "owner", source: { kind: "generated" } }
+				],
+				steps: []
+			}
+	const rows = source.draw(instanceGen(spec))
+	return { spec, rows, followUp: Option.none() }
+}
+
+/** The generation suite's case, drawn under its steering: a drawn one, or a refused one where its turn aims at one. */
+export const generationDraw = aimed(generationCaseGen, [
+	["refused: a copy of a generated field reading a column filled later", generationRefusalGen]
+])
+
+/** What a case of `generationCaseGen` reaches: a generated field reading a stored field, admitted or refused. */
+export type GenerationSituation =
+	| "admitted: a generated field reading a field grizzle draws or accumulates"
+	| "admitted: a copy of a generated field reading a field grizzle draws or accumulates"
+	| "refused: a copy of a generated field reading a column filled later"
+
+/** Every situation of `GenerationSituation`. */
+export const generationSituations: Arr.NonEmptyReadonlyArray<GenerationSituation> = [
+	"admitted: a generated field reading a field grizzle draws or accumulates",
+	"admitted: a copy of a generated field reading a field grizzle draws or accumulates",
+	"refused: a copy of a generated field reading a column filled later"
+]
+
+/** The situations a generation case reaches, by the reference's verdict on its specification. */
+export const generationReached = (spec: FillSpec): ReadonlyArray<GenerationSituation> => {
+	const reads = Arr.filter(spec.relations, (r) => r.generated.kind === "row").length > 0
+	if (!reads) {
+		return []
+	}
+	const verdict = verdictOf(spec)
+	const copiesOfRow = Arr.filter(
+		Arr.map(spec.copies, (c, j) => ({ c, j })),
+		({ c }) => c.source.kind === "generated"
+	)
+	switch (verdict.kind) {
+		case "admitted":
+			return [
+				"admitted: a generated field reading a field grizzle draws or accumulates",
+				...(copiesOfRow.length > 0
+					? [
+							"admitted: a copy of a generated field reading a field grizzle draws or accumulates" as const
+						]
+					: [])
+			]
+		case "unfillable":
+			return Arr.some(verdict.copies, (x) => Arr.some(copiesOfRow, ({ j }) => j === x.copy))
+				? ["refused: a copy of a generated field reading a column filled later"]
+				: []
+		case "unwritable":
+			return []
+	}
+}
+
 /** A case of the drawn schemas' suite: a specification, an instance of it, and a follow-up over it or none. */
 interface FillCase {
 	readonly spec: FillSpec
@@ -935,7 +1037,12 @@ const plantedCaseGen =
  * parent's value, and its root, which has none, reads its own copy in a cycle, which the reference refuses.
  */
 const rootCycleGen: Gen<FillSpec> = (source) => ({
-	relations: [{ generated: source.draw(boolean), mutable: source.draw(boolean) }],
+	relations: [
+		{
+			generated: source.draw(boolean) ? generationOfV : noGeneration,
+			mutable: source.draw(boolean)
+		}
+	],
 	families: [
 		{
 			kind: "tree",
@@ -957,8 +1064,8 @@ const rootCycleGen: Gen<FillSpec> = (source) => ({
  */
 const generatedCopyGen: Gen<FillSpec> = (source) => ({
 	relations: [
-		{ generated: true, mutable: source.draw(boolean) },
-		{ generated: source.draw(boolean), mutable: true }
+		{ generated: generationOfV, mutable: source.draw(boolean) },
+		{ generated: source.draw(boolean) ? generationOfV : noGeneration, mutable: true }
 	],
 	families: [
 		{
@@ -1085,7 +1192,7 @@ export const shapeSpec = (shape: Shape): FillSpec | undefined => {
 		return undefined
 	}
 	const relations = Arr.makeBy(5, (r) => ({
-		generated: r === 1 || r === 2,
+		generated: r === 1 || r === 2 ? generationOfV : noGeneration,
 		mutable: false
 	}))
 	const families: Array<FillSpec["families"][number]> = []
@@ -1273,7 +1380,7 @@ export const staleShapeGen: Gen<StaleShape> = (source) => ({
 
 /** The specification of a stale shape, or none where the path reads no such column or the axis carries none. */
 export const staleSpec = (shape: StaleShape): FillSpec | undefined => {
-	const relation = { generated: true, mutable: true }
+	const relation = { generated: generationOfV, mutable: true }
 	const relations: FillSpec["relations"] = [relation, relation, relation]
 	if (shape.path === "second-order refusal" || shape.path === "chained refill") {
 		return shape.reader === "step" && (shape.source === "caller" || shape.source === "generated")
@@ -1515,7 +1622,7 @@ export const siblingsGen: Gen<Siblings> = (source) => ({
 
 /** The specification of a sibling shape (`Siblings`). */
 export const siblingsSpec = (shape: Siblings): FillSpec => {
-	const relation = { generated: false, mutable: false }
+	const relation = { generated: noGeneration, mutable: false }
 	const fold = shape.end === "fold" ? "sum" : "none"
 	const lasts: ReadonlyArray<FillSpec["copies"][number]> =
 		shape.end === "last copy"

@@ -154,7 +154,8 @@ export interface FillOrder {
 
 /**
  * The columns `family` draws on a row of `relation`, its member, in fill order: its fill layout's at the member's position
- * in the family, a counted family's own fill's, or a sequence's walk's of the family's own rules.
+ * in the family, a counted family's own fill's, or a sequence's walk's of the family's own rules. A generated field a
+ * counted family's fill evaluates, one that reads a column the family draws, is PostgreSQL's to write, so none of them.
  */
 export const familyDrawn = (
 	fill: FillOrder,
@@ -175,5 +176,9 @@ export const familyDrawn = (
 						familyKey(rule.family.id) === familyKey(family.id)))
 			)
 		}
-		return c.writer.kind === "counted" && familyKey(c.writer.family.id) === familyKey(family.id)
+		return (
+			c.writer.kind === "counted" &&
+			familyKey(c.writer.family.id) === familyKey(family.id) &&
+			c.rule.kind !== "generated"
+		)
 	})

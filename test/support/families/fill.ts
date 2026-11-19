@@ -40,6 +40,7 @@ import type { ChangedColumn, DerivedReader, FamilyName } from "#compiler/core/ca
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { type AnyFamily, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import {
 	generatedField,
 	generatedRelation,
@@ -97,9 +98,31 @@ interface CopySpec {
 	readonly source: CopySource
 }
 
+/** A source of a relation's own row a generated `g` may read beside its `v`: a field grizzle draws or accumulates there. */
+type RowSource = Exclude<CopySource, { readonly kind: "caller" | "generated" }>
+
+/**
+ * What a relation's generated `g` is: none where it holds no `g`; its caller's `v` (`v`); or the greater of its `v` and
+ * a field of its own row grizzle draws or accumulates (`row`), which PostgreSQL generates from the row as the write
+ * leaves it.
+ */
+export type GenerationSpec =
+	| { readonly kind: "none" }
+	| { readonly kind: "v" }
+	| { readonly kind: "row"; readonly source: RowSource }
+
+/** A relation holding no `g`. */
+export const noGeneration: GenerationSpec = { kind: "none" }
+
+/** A relation whose `g` is generated from its `v`. */
+export const generationOfV: GenerationSpec = { kind: "v" }
+
+/** Whether a relation holds `g`. */
+export const holdsGenerated = (spec: FillSpec, r: number): boolean =>
+	relationAt(spec, r).generated.kind !== "none"
+
 interface RelationSpec {
-	/** Whether it holds `g`, generated from `v`. */
-	readonly generated: boolean
+	readonly generated: GenerationSpec
 	readonly mutable: boolean
 }
 
@@ -284,7 +307,7 @@ export const sourcesFor = (
 	)
 	const all: ReadonlyArray<CopySource> = [
 		{ kind: "caller" },
-		...(relationAt(spec, row).generated ? [{ kind: "generated" } as const] : []),
+		...(holdsGenerated(spec, row) ? [{ kind: "generated" } as const] : []),
 		...Arr.flatMap(spec.families, (x, k): ReadonlyArray<CopySource> =>
 			x.owner === row ? [{ kind: "count", family: k }] : []
 		),
@@ -399,7 +422,7 @@ const draftedSpec =
 		const kept = (feature: FillFeature): boolean => source.draw(keep(features, feature))
 		const n = source.draw(int(1, space.relations))
 		const relations = upTo(n, () => ({
-			generated: kept("generated"),
+			generated: kept("generated") ? generationOfV : noGeneration,
 			mutable: kept("mutable")
 		}))
 		const families: Array<FamilySpec> = []
@@ -496,6 +519,64 @@ export const fillSpecGen = (space: FillSpace): Gen<FillSpec> => draftedSpec(spac
 export const admittedFillSpecGen = (space: FillSpace): Gen<FillSpec> =>
 	draftedSpec(space, admittedShape)
 
+/** `spec` with relation `r`'s `g` generated as `generation` says. */
+const withGeneration = (spec: FillSpec, r: number, generation: GenerationSpec): FillSpec => ({
+	...spec,
+	relations: relationsNonEmpty(
+		Arr.map(spec.relations, (relation, i) =>
+			i === r ? { ...relation, generated: generation } : relation
+		)
+	)
+})
+
+/**
+ * The fields of relation `r`'s own row grizzle draws or accumulates, which its `g` may read beside its `v`, in a fixed
+ * order: the count and the fold end of each family it owns, its index in each sequence it is a member of, its tree's
+ * start and end, and each copy it holds.
+ */
+const rowSourcesOf = (spec: FillSpec, r: number): ReadonlyArray<RowSource> => [
+	...Arr.flatMap(spec.families, (x, k): ReadonlyArray<RowSource> =>
+		x.owner === r ? [{ kind: "count", family: k }] : []
+	),
+	...Arr.flatMap(spec.families, (x, k): ReadonlyArray<RowSource> =>
+		x.member === r && x.kind !== "counted" ? [{ kind: "index", family: k }] : []
+	),
+	...(treeOn(spec, r) === undefined ? [] : [{ kind: "start" } as const, { kind: "end" } as const]),
+	...Arr.flatMap(spec.families, (x, k): ReadonlyArray<RowSource> =>
+		x.owner === r && x.fold !== "none" ? [{ kind: "fold", family: k }] : []
+	),
+	...Arr.flatMap(spec.copies, (c, j): ReadonlyArray<RowSource> =>
+		holderOf(spec, c) === r ? [{ kind: "copy", copy: j }] : []
+	)
+]
+
+/**
+ * The specifications `specs` draws, each relation whose `g` is generated from its `v` drawn to read a field of its own
+ * row grizzle draws or accumulates instead (`rowSourcesOf`), the greater of the two: where `admitted`, only among the
+ * sources that leave the specification one the reference admits (`verdictOf`), a relation no source admits keeping its
+ * `v`. The draws follow the specification's own, so a specification `specs` draws is drawn as it was.
+ */
+export const generationDrawn =
+	(specs: Gen<FillSpec>, admitted: boolean): Gen<FillSpec> =>
+	(source) => {
+		let spec = source.draw(specs)
+		for (const [r, relation] of spec.relations.entries()) {
+			if (relation.generated.kind !== "v" || !source.draw(boolean)) {
+				continue
+			}
+			const offered = Arr.filter(
+				rowSourcesOf(spec, r),
+				(read) =>
+					!admitted ||
+					verdictOf(withGeneration(spec, r, { kind: "row", source: read })).kind === "admitted"
+			)
+			if (Arr.isReadonlyArrayNonEmpty(offered)) {
+				spec = withGeneration(spec, r, { kind: "row", source: source.draw(element(offered)) })
+			}
+		}
+		return spec
+	}
+
 /**
  * The copies family `f`'s sum fold may step: each a copy of its member's of a caller's `v` or a generated `g` along an
  * owner axis, its own family's, or, for a counted family, a sequence's whose member its member is too.
@@ -588,6 +669,31 @@ const nestingCycle = (spec: FillSpec): boolean => {
 }
 
 /**
+ * Whether a source on a row of relation `row` reads a copy the row holds: a copy, or a `g` generated from one, which no
+ * fill but the copy's own family's lays out where that family is a counted one's.
+ */
+const readsCopy = (spec: FillSpec, row: number, source: CopySource): boolean => {
+	const generation = relationAt(spec, row).generated
+	return (
+		source.kind === "copy" ||
+		(source.kind === "generated" && generation.kind === "row" && generation.source.kind === "copy")
+	)
+}
+
+/** The fields relation `r`'s `g` is generated from: none where it holds none, its `v`, and a field of its row it reads. */
+const generationReads = (spec: FillSpec, r: number): ReadonlyArray<string> => {
+	const generation = relationAt(spec, r).generated
+	switch (generation.kind) {
+		case "none":
+			return []
+		case "v":
+			return ["v"]
+		case "row":
+			return ["v", sourceField(generation.source)]
+	}
+}
+
+/**
  * The stage of a source on a row of its relation, by the reference model; `root` for a tree's root, where a copy along
  * its own tree's owner axis reads its own row. A sequence's fold end waits on that sequence's members, and so does a
  * copy along its last axis. A copy's own stage is its source's along the tree's owner axis at the root, a counted
@@ -596,13 +702,19 @@ const nestingCycle = (spec: FillSpec): boolean => {
  */
 const stageOf = (
 	spec: FillSpec,
+	row: number,
 	source: CopySource,
 	root: boolean,
 	seen: ReadonlySet<number>
 ): Stage | undefined => {
 	switch (source.kind) {
+		case "generated": {
+			const generation = relationAt(spec, row).generated
+			return generation.kind === "row"
+				? stageOf(spec, row, generation.source, root, seen)
+				: { kind: "entering" }
+		}
 		case "caller":
-		case "generated":
 		case "index":
 		case "start":
 		case "end":
@@ -632,7 +744,7 @@ const stageOf = (
 				return { kind: "after", families: new Set([copy.family]) }
 			}
 			return root && copy.axis === "owner" && family.kind === "tree"
-				? stageOf(spec, copy.source, root, new Set([...seen, source.copy]))
+				? stageOf(spec, row, copy.source, root, new Set([...seen, source.copy]))
 				: { kind: "entering" }
 		}
 	}
@@ -660,7 +772,7 @@ const orderingOf = (
 		return []
 	}
 	return Arr.flatMap(positionsOf(spec, j), (root) => {
-		const stage = stageOf(spec, copy.source, root, new Set([j]))
+		const stage = stageOf(spec, sourceRelationOf(spec, copy), copy.source, root, new Set([j]))
 		return stage?.kind === "after" && !stage.families.has(copy.family)
 			? Arr.map([...stage.families], (before) => ({ root, before, family: copy.family }))
 			: []
@@ -697,6 +809,36 @@ const orderCycles = (spec: FillSpec): ReadonlySet<number> => {
 	)
 }
 
+/**
+ * Whether predecessor copy `j` reads itself on a member before it: its source, read through the `g` that reads a field
+ * of its row and the predecessor copies of its family it meets, each the source it copies on the member before, comes
+ * back to it, a chain no window of the family's scan draws.
+ */
+const predecessorChain = (spec: FillSpec, j: number): boolean => {
+	const copy = copyAt(spec, j)
+	const generation = relationAt(spec, holderOf(spec, copy)).generated
+	const seen = new Set<number>()
+	let at: CopySource = copy.source
+	for (;;) {
+		if (at.kind === "generated" && generation.kind === "row") {
+			at = generation.source
+			continue
+		}
+		if (at.kind !== "copy") {
+			return false
+		}
+		if (at.copy === j) {
+			return true
+		}
+		const read = copyAt(spec, at.copy)
+		if (read.family !== copy.family || read.axis !== "predecessor" || seen.has(at.copy)) {
+			return false
+		}
+		seen.add(at.copy)
+		at = read.source
+	}
+}
+
 /** The causes the reference refuses copy `j` by, none when a write fills it: see the module's header. */
 const refusalsOf = (
 	spec: FillSpec,
@@ -705,9 +847,12 @@ const refusalsOf = (
 ): ReadonlyArray<LaterKind> => {
 	const copy = copyAt(spec, j)
 	const family = familyAt(spec, copy.family)
-	const later = new Set<LaterKind>(cycles.has(j) ? ["afterMembers"] : [])
+	const later = new Set<LaterKind>([
+		...(cycles.has(j) ? (["afterMembers"] as const) : []),
+		...(copy.axis === "predecessor" && predecessorChain(spec, j) ? (["cycle"] as const) : [])
+	])
 	for (const root of positionsOf(spec, j)) {
-		const stage = stageOf(spec, copy.source, root, new Set([j]))
+		const stage = stageOf(spec, sourceRelationOf(spec, copy), copy.source, root, new Set([j]))
 		if (stage === undefined) {
 			later.add("cycle")
 			continue
@@ -721,7 +866,7 @@ const refusalsOf = (
 				continue
 			}
 			later.add("countedFill")
-			if (copy.source.kind === "copy" && !own) {
+			if (readsCopy(spec, sourceRelationOf(spec, copy), copy.source) && !own) {
 				later.add("unreached")
 			}
 			continue
@@ -737,7 +882,7 @@ const refusalsOf = (
 	}
 	const atRoot = family.kind === "tree" && copy.axis === "owner"
 	if (atRoot) {
-		const stage = stageOf(spec, copy.source, true, new Set([j]))
+		const stage = stageOf(spec, sourceRelationOf(spec, copy), copy.source, true, new Set([j]))
 		if (stage === undefined) {
 			later.add("cycle")
 		} else if (stage.kind === "counted") {
@@ -798,7 +943,7 @@ export type SourceClass =
 /** The class of a copy's source on a member row of its relation, the reference's stage spelled as a situation. */
 export const sourceClassOf = (spec: FillSpec, j: number): SourceClass => {
 	const copy = copyAt(spec, j)
-	const stage = stageOf(spec, copy.source, false, new Set([j]))
+	const stage = stageOf(spec, sourceRelationOf(spec, copy), copy.source, false, new Set([j]))
 	if (stage === undefined) {
 		return "cycle"
 	}
@@ -875,20 +1020,52 @@ const fieldsOf = (spec: FillSpec, r: number): Record<string, FieldBase> => {
 	return fields
 }
 
-/** The relation value of relation `r`, its `g` generated from its row's `v` where the specification says so. */
-const relationValue = (spec: FillSpec, r: number): AnyRelation => {
-	const name = relationName(r)
-	const fields = fieldsOf(spec, r)
-	return relationAt(spec, r).generated
-		? generatedRelation(
+/**
+ * Relation `r` of `spec` named `name` over `fields`, its `g` generated where the specification says so: from its row's
+ * `v`, or as the greater of its `v` and the field of its row the specification names, a natural one by its base. A
+ * suite that adds fields of its own to a specification's relations builds them by it too.
+ */
+export const generationRelation = (
+	spec: FillSpec,
+	r: number,
+	name: string,
+	fields: Record<string, FieldBase>
+): BuiltRelation => {
+	const generation = relationAt(spec, r).generated
+	switch (generation.kind) {
+		case "none":
+			return relation(name, fields, keyOfRelation(spec, r), [])
+		case "v":
+			return generatedRelation(
 				name,
 				fields,
 				keyOfRelation(spec, r),
 				(row) => ({ g: generatedField(pg.bigint, row["v"], []) }),
 				[]
 			)
-		: relation(name, fields, keyOfRelation(spec, r), [])
+		case "row": {
+			const field = sourceField(generation.source)
+			const natural = naturalSource(spec, generation.source, new Set())
+			return generatedRelation(
+				name,
+				fields,
+				keyOfRelation(spec, r),
+				(row) => ({
+					g: generatedField(
+						pg.bigint,
+						computeCore.greatest(row["v"], natural ? computeCore.base(row[field]) : row[field]),
+						[]
+					)
+				}),
+				[]
+			)
+		}
+	}
 }
+
+/** The relation value of relation `r` (`generationRelation`). */
+const relationValue = (spec: FillSpec, r: number): AnyRelation =>
+	generationRelation(spec, r, relationName(r), fieldsOf(spec, r))
 
 /**
  * The schema of a specification under any declared name, with its relation values by name, and each family's statement
@@ -1188,8 +1365,15 @@ export const writtenRows = (
 	const sourceValue = (row: InstanceRow, source: CopySource): bigint => {
 		switch (source.kind) {
 			case "caller":
-			case "generated":
 				return row.v
+			case "generated": {
+				const generation = relationAt(spec, row.relation).generated
+				if (generation.kind !== "row") {
+					return row.v
+				}
+				const read = sourceValue(row, generation.source)
+				return read > row.v ? read : row.v
+			}
 			case "count":
 				return BigInt(membersOf(row.id, source.family).length)
 			case "index":
@@ -1245,8 +1429,8 @@ export const writtenRows = (
 	return new Map(
 		Arr.map(rows, (row) => {
 			const fields: Record<string, string | bigint> = { id: uuidOfRow(row.id), v: row.v }
-			if (relationAt(spec, row.relation).generated) {
-				fields["g"] = row.v
+			if (holdsGenerated(spec, row.relation)) {
+				fields["g"] = sourceValue(row, { kind: "generated" })
 			}
 			for (const [f, family] of spec.families.entries()) {
 				if (family.owner === row.relation) {
@@ -1602,7 +1786,7 @@ const staleOf = (
 				])
 			}
 		}
-		if (column === "v" && relationAt(spec, at).generated) {
+		if (generationReads(spec, at).includes(column)) {
 			reach(changed, at, "g", except, next, passed)
 		}
 	}
@@ -1657,7 +1841,7 @@ const staleOf = (
 		}
 		return [
 			...(write.op === "put"
-				? Arr.map(["v", ...(relationAt(spec, r).generated ? ["g"] : [])], (column) => ({
+				? Arr.map(["v", ...(holdsGenerated(spec, r) ? ["g"] : [])], (column) => ({
 						at: r,
 						column,
 						by: "put" as const,
@@ -1826,7 +2010,7 @@ export const plantedGen =
 	(planted: Planted): Gen<FillSpec> =>
 	(source) => {
 		const relationGen = (): RelationSpec => ({
-			generated: source.draw(boolean),
+			generated: source.draw(boolean) ? generationOfV : noGeneration,
 			mutable: source.draw(boolean)
 		})
 		const fold = (): FamilySpec["fold"] => {
@@ -1979,7 +2163,7 @@ export const plantedGen =
 				}
 			case "generated copy":
 				return {
-					relations: [{ ...relations[0], generated: true }, relationGen(), relationGen()],
+					relations: [{ ...relations[0], generated: generationOfV }, relationGen(), relationGen()],
 					families: [
 						{
 							kind: source.draw(boolean) ? "counted" : "ordered",
@@ -2036,7 +2220,9 @@ export const plantedGen =
 				const generated = source.draw(boolean)
 				const owner = tree ? 0 : 2
 				return {
-					relations: Arr.map(relations, (r, i) => (i === owner ? { ...r, generated } : r)),
+					relations: Arr.map(relations, (r, i) =>
+						i === owner ? { ...r, generated: generated ? generationOfV : noGeneration } : r
+					),
 					families: [
 						tree
 							? { kind: "tree", owner: 0, member: 0, fold: fold() }

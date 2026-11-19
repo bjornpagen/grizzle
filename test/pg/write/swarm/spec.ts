@@ -28,8 +28,6 @@ import {
 	accumulatedField,
 	bitsOf,
 	closedBuilder as closed,
-	generatedField,
-	generatedRelation,
 	relationBuilder as relation
 } from "#compiler/schema/relation.ts"
 import {
@@ -56,12 +54,16 @@ import {
 	type CopySource,
 	type FamilyKind,
 	type FillSpec,
+	generationOfV,
+	generationRelation,
 	groupFieldsOf,
 	groupName,
+	holdsGenerated,
 	type InstanceRow,
 	keyOfRelation,
-	rootFieldsOf,
+	noGeneration,
 	relationName,
+	rootFieldsOf,
 	rootText,
 	sourcesFor,
 	unitCycleRoots,
@@ -267,7 +269,7 @@ const coreGen =
 		const size = space(scale)
 		const n = source.draw(int(2, size.relations))
 		const relations = upTo(n, (): RelationSpec => ({
-			generated: kept("generated"),
+			generated: kept("generated") ? generationOfV : noGeneration,
 			mutable: kept("mutable")
 		}))
 		const families: Array<FamilySpec> = []
@@ -791,26 +793,13 @@ export const fieldNames = (
 	relation.kind === "core"
 		? [
 				...Rec.keys(fieldsOf(spec, relation.r)),
-				...(defined(spec.fill.relations[relation.r], `relation ${relation.r}`).generated
-					? ["g"]
-					: [])
+				...(holdsGenerated(spec.fill, relation.r) ? ["g"] : [])
 			]
 		: Rec.keys(plainFields(defined(spec.plains[relation.j], `plain relation ${relation.j}`)))
 
-/** The relation value of family relation `r`, its `g` generated from `v` where the core says so. */
-const relationValue = (spec: SwarmSpec, r: number): BuiltRelation => {
-	const name = relationName(r)
-	const fields = fieldsOf(spec, r)
-	return defined(spec.fill.relations[r], `relation ${r}`).generated
-		? generatedRelation(
-				name,
-				fields,
-				keyOfRelation(spec.fill, r),
-				(row) => ({ g: generatedField(pg.bigint, row["v"], []) }),
-				[]
-			)
-		: relation(name, fields, keyOfRelation(spec.fill, r), [])
-}
+/** The relation value of family relation `r`, its `g` generated as the core says (families/fill.ts generationRelation). */
+const relationValue = (spec: SwarmSpec, r: number): BuiltRelation =>
+	generationRelation(spec.fill, r, relationName(r), fieldsOf(spec, r))
 
 /** A tree's member side reads every row but its root, the rows whose start is above zero. */
 const treeMembers = (t: AnyRelation) =>

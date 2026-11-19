@@ -469,24 +469,32 @@ export const startOf = (names: PhysicalNames, field: LawField): Expr | undefined
 /**
  * A requested fact's value at every field of its relation, as a statement reading its input states it: `carried`'s
  * value, `colOf`, for a field its input carries; the start an insert writes it at (startOf) for a drawn count or an
- * accumulated end it does not; and for a generated field its generation expression over the carried fields, the value
- * PostgreSQL stores, so a requested fact lines up with the complete facts a statement returns. An input carries the
- * written fields alone, never a generated one, whatever its source.
+ * accumulated end it does not; and for a generated field its generation expression over the requested fact's values at
+ * the fields it reads, the value PostgreSQL stores, so a requested fact lines up with the complete facts a statement
+ * returns. An input carries the written fields alone, never a generated one, whatever its source.
  */
-export const requestedValue =
-	(
-		w: WriteContext,
-		relation: RelationInfo,
-		carried: ReadonlyArray<LawField>,
-		colOf: (f: LawField) => Expr
-	) =>
-	(f: LawField): Expr => {
+export const requestedValue = (
+	w: WriteContext,
+	relation: RelationInfo,
+	carried: ReadonlyArray<LawField>,
+	colOf: (f: LawField) => Expr
+): ((f: LawField) => Expr) => {
+	const value = (f: LawField): Expr => {
 		if (carried.includes(f)) {
 			return colOf(f)
 		}
 		if (f.writing.kind === "generated") {
-			const row: ColumnMap = new Map(carried.map((g) => [g.name, colOf(g)] as const))
-			const env: Env = new Map(columnReads(f.writing.expr).map((c) => [c.node, row] as const))
+			const reads = columnReads(f.writing.expr)
+			const row: ColumnMap = new Map(
+				reads.map((c) => {
+					const read = defined(
+						relation.fields.find((g) => g.name === c.name),
+						`the field ${relation.name}.${c.name} a generated field reads`
+					)
+					return [c.name, value(read)] as const
+				})
+			)
+			const env: Env = new Map(reads.map((c) => [c.node, row] as const))
 			return lowerExpr(w.cx, f.writing.expr, env)
 		}
 		return defined(
@@ -494,6 +502,8 @@ export const requestedValue =
 			`the start of ${relation.name}.${f.name}, a field a requested fact does not carry`
 		)
 	}
+	return value
+}
 
 /** Whether a field is written by its sequence: its writing says so (ir/law.ts FieldWriting). */
 export const isSerialField = (field: Pick<LawField, "writing">): boolean =>

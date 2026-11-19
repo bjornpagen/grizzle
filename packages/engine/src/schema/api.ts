@@ -26,7 +26,6 @@ import {
 	treeBuilder
 } from "#compiler/schema/statements.ts"
 import { contextBuilder, roleBuilder } from "#compiler/schema/world.ts"
-import type { UnwrittenFieldsOf } from "#compiler/types/changeset/changeset.ts"
 import type {
 	MembersTyped,
 	Hosted,
@@ -186,20 +185,32 @@ type GeneratedApart<Written, G> = [keyof Written & keyof G] extends [never]
 	: Refusal<"a generated field is named apart from the relation's written fields">
 
 /**
- * The row a generation expression reads: its relation's fields as a row check reads them, less every field its caller
- * never writes (UnwrittenFieldsOf), a drawn or an accumulated one, which grizzle writes on the host: PostgreSQL
- * generates a column from the caller's fields alone.
+ * The fields of R no generation expression reads: a generated one, as PostgreSQL's never reads another, and a header's
+ * retirement field.
+ */
+type UnreadByGenerationOf<R> = R extends { readonly fields: infer Fields }
+	? {
+			[K in keyof Fields]-?: Fields[K] extends { readonly writing: "generated" | "retirement" }
+				? K
+				: never
+		}[keyof Fields]
+	: never
+
+/**
+ * The row a generation expression reads: its relation's fields as a row check reads them, its caller's and the ones
+ * grizzle draws or accumulates alike, whose columns hold their final values whenever PostgreSQL generates the column,
+ * at the row's INSERT or at an UPDATE that writes them; less the fields no generation reads (UnreadByGenerationOf).
  */
 export type GenerationRow<R extends Shows<string, unknown>> = Omit<
 	RowScalars<R>,
-	UnwrittenFieldsOf<R>
+	UnreadByGenerationOf<R>
 >
 
 /**
  * relation.generated(name, written, primaryKey, (row) => ({ f: generated(type, term), ... })): a relation whose
  * written fields its caller writes and whose generated fields PostgreSQL writes, each a STORED generated column whose
- * term reads `row`, the row of the fields its caller writes alone (GenerationRow): a generation expression reads no
- * generated column, and no drawn or accumulated field. The primary key is over written fields. Its fields are both, and
+ * term reads `row`, the row of its stored fields (GenerationRow): a generation expression reads no generated column,
+ * and reads a drawn or an accumulated field as any other. The primary key is over written fields. Its fields are both, and
  * its facts hold both; its additions hold only the written.
  */
 const generated = <

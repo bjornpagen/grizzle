@@ -55,6 +55,10 @@ import {
 	fillDraw,
 	type FillSituation,
 	fillSituations,
+	generationDraw,
+	generationReached,
+	type GenerationSituation,
+	generationSituations,
 	guards,
 	property,
 	shapeGen,
@@ -112,6 +116,48 @@ export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsDrawnSchema
 				original: "\tfor (const root of roots) {",
 				replacement: "\tfor (const root of new Set<string>()) {",
 				why: "The schema admits families that nest relations in a cycle below a unit's root (analysis/theory/fill.ts `unwritable` looking at no root), so the reference's UnwritableRelation unitCycle compiles; the kept case of the swarm's shrink fails."
+			}
+		]
+	})
+
+/**
+ * The fill order: a schema whose generated fields read fields grizzle draws or accumulates on their own row (a count, an
+ * index, a tree's start or end, a fold's end, a copy) compiles exactly where the reference model admits it, a copy of
+ * such a field waiting on what its generation reads (analysis/theory/fill.ts generatedAt), and then writes as the
+ * reference writer fills it. Its budget is the drawn schemas' property's.
+ */
+export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsGeneratedFieldsReadingDrawnOrAccumulatedFieldsCompileExactlyWhereTheReferenceModelAdmitsThem =
+	propertyOf.explore(generationDraw, {
+		needs: {},
+		budget: { runs: 100, steered: 240 },
+		situations: generationSituations satisfies ReadonlyArray<Reached<GenerationSituation>>,
+		check:
+			(_, c: Case<GenerationSituation>) =>
+			({ spec, rows, followUp }) =>
+				Effect.gen(function* () {
+					for (const situation of generationReached(spec)) {
+						c.note(situation)
+					}
+					yield* property(spec, rows, followUp, () => undefined)
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the reference model of the fill order and the reference writer (families/fill.ts)"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/fill.ts",
+				original: '\t\t\t\twriter: [...counted.values()][0] ?? { kind: "walk" },',
+				replacement: '\t\t\t\twriter: { kind: "walk" },',
+				why: "A generated field that reads a column a counted family fills is the walk's: a copy of it by another family is admitted where the reference refuses it, or the field itself is refused at the counted family's column as a defect."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/fill.ts",
+				original:
+					'\t\tcase "generated":\n\t\t\treturn readsOf(rule.expr).map((name) => readColumn(relation, name))',
+				replacement: '\t\tcase "generated":\n\t\t\treturn []',
+				why: "The fill order inverted: a generated field is filled on entering its row whatever it reads, so a copy of one that reads a fold's end or a counted family's column is admitted where the reference refuses it."
 			}
 		]
 	})

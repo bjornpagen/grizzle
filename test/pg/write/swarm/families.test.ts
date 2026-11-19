@@ -42,9 +42,11 @@ import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import {
 	familyNamed,
+	generationOfV,
 	type InstanceRow,
 	membershipIn,
 	movingGen,
+	noGeneration,
 	writesVerdict
 } from "#test/support/families/fill.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
@@ -410,7 +412,7 @@ const over =
 	(spec: SwarmSpec, on: ReadonlyArray<SwarmFeature>): Gen<SwarmCase> =>
 	(source) => ({ spec, steps: source.draw(stepsGen(fullSwarm(on), false, spec)) })
 
-const relationFlags = (mutable: boolean) => ({ generated: false, mutable })
+const relationFlags = (mutable: boolean) => ({ generated: noGeneration, mutable })
 
 /** A family core over relations of the given mutability, its families, copies and steps. */
 const coreOf = (
@@ -910,7 +912,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 						relationFlags(false),
 						relationFlags(false),
 						relationFlags(true),
-						{ generated: true, mutable: false }
+						{ generated: generationOfV, mutable: false }
 					],
 					families: [{ kind: "ordered", owner: 3, member: 4, fold: "none" }],
 					copies: [
@@ -1047,7 +1049,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		sketch: {
 			spec: {
 				fill: {
-					relations: [{ generated: true, mutable: true }, relationFlags(true)],
+					relations: [{ generated: generationOfV, mutable: true }, relationFlags(true)],
 					families: [
 						{ kind: "counted", owner: 1, member: 0, fold: "none" },
 						{ kind: "ordered", owner: 0, member: 1, fold: "count" }
@@ -1069,7 +1071,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		sketch: {
 			spec: {
 				fill: {
-					relations: [relationFlags(true), { generated: true, mutable: true }],
+					relations: [relationFlags(true), { generated: generationOfV, mutable: true }],
 					families: [
 						{ kind: "counted", owner: 1, member: 0, fold: "none" },
 						{ kind: "ordered", owner: 0, member: 1, fold: "none" }
@@ -1422,7 +1424,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 						relationFlags(true),
 						relationFlags(true),
 						relationFlags(true),
-						{ generated: true, mutable: false }
+						{ generated: generationOfV, mutable: false }
 					],
 					families: [
 						{ kind: "ordered", owner: 0, member: 1, fold: "none" },
@@ -1578,7 +1580,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		note: "found: a put from a query into a relation with a generated field dies compiling its insert",
 		sketch: {
 			spec: bare({
-				relations: [{ generated: true, mutable: true }],
+				relations: [{ generated: generationOfV, mutable: true }],
 				families: [],
 				copies: [],
 				steps: []
@@ -1604,8 +1606,8 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 			spec: {
 				fill: {
 					relations: [
-						{ generated: true, mutable: true },
-						{ generated: true, mutable: true }
+						{ generated: generationOfV, mutable: true },
+						{ generated: generationOfV, mutable: true }
 					],
 					families: [
 						{ kind: "ordered", owner: 0, member: 1, fold: "sum" },
@@ -1719,8 +1721,8 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		sketch: {
 			spec: bare({
 				relations: [
-					{ generated: true, mutable: true },
-					{ generated: true, mutable: true }
+					{ generated: generationOfV, mutable: true },
+					{ generated: generationOfV, mutable: true }
 				],
 				families: [{ kind: "counted", owner: 0, member: 1, fold: "sum" }],
 				copies: [{ family: 0, axis: "owner", source: { kind: "generated" } }],
@@ -2004,16 +2006,16 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 			spec: {
 				fill: {
 					relations: [
-						{ generated: false, mutable: false },
-						{ generated: true, mutable: false },
-						{ generated: false, mutable: false },
-						{ generated: false, mutable: false },
-						{ generated: false, mutable: false },
-						{ generated: false, mutable: false },
-						{ generated: false, mutable: false },
-						{ generated: false, mutable: false },
-						{ generated: true, mutable: false },
-						{ generated: false, mutable: false }
+						{ generated: noGeneration, mutable: false },
+						{ generated: generationOfV, mutable: false },
+						{ generated: noGeneration, mutable: false },
+						{ generated: noGeneration, mutable: false },
+						{ generated: noGeneration, mutable: false },
+						{ generated: noGeneration, mutable: false },
+						{ generated: noGeneration, mutable: false },
+						{ generated: noGeneration, mutable: false },
+						{ generated: generationOfV, mutable: false },
+						{ generated: noGeneration, mutable: false }
 					],
 					families: [
 						{ kind: "counted", owner: 1, member: 3, fold: "none" },
@@ -2128,8 +2130,8 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 			spec: {
 				fill: {
 					relations: [
-						{ generated: true, mutable: true },
-						{ generated: true, mutable: true }
+						{ generated: generationOfV, mutable: true },
+						{ generated: generationOfV, mutable: true }
 					],
 					families: [{ kind: "counted", owner: 0, member: 1, fold: "sum" }],
 					copies: [{ family: 0, axis: "owner", source: { kind: "generated" } }],
@@ -2174,11 +2176,11 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 			spec: {
 				fill: {
 					relations: [
-						{ generated: true, mutable: false },
-						{ generated: false, mutable: false },
-						{ generated: false, mutable: false },
-						{ generated: false, mutable: false },
-						{ generated: true, mutable: false }
+						{ generated: generationOfV, mutable: false },
+						{ generated: noGeneration, mutable: false },
+						{ generated: noGeneration, mutable: false },
+						{ generated: noGeneration, mutable: false },
+						{ generated: generationOfV, mutable: false }
 					],
 					families: [
 						{ kind: "tree", owner: 4, member: 4, fold: "none" },

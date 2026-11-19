@@ -241,7 +241,7 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 				const generated = Arr.flatMap(relations, (r): ReadonlyArray<OwnLaw> => {
 					const core = Arr.findFirst(c.core.fill.relations, (_, i) => relationName(i) === r.name)
 					return Option.isSome(core)
-						? core.value.generated
+						? core.value.generated.kind !== "none"
 							? [{ kind: "generated", relation: r.name, field: "g" }]
 							: []
 						: Option.match(tableAt(r.name), {
