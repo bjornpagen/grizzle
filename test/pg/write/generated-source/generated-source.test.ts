@@ -20,406 +20,163 @@
  *
  * Features: each relation's insert and put applied, a refusal by each law, and an unchanged write.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
-import { closedId, date, generated, pg } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import { closed, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import { installed } from "#test/pg/reads/support.ts"
-import { assert, bareRecord, unorderedEqual } from "#test/support/assert.ts"
+import { openedIn } from "#test/pg/reads/support.ts"
+import {
+	type Case,
+	caseGen,
+	expectedOf,
+	factOf,
+	type Feature,
+	Items,
+	type Row,
+	type Target,
+	writtenOf,
+	genqueryInstall,
+	genqueryTemplate
+} from "#test/pg/write/generated-source/generated-source.fixtures.ts"
+import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
-const tiers = ["low", "mid", "high"] as const
-type TierHandle = (typeof tiers)[number]
-
-/** Each tier's rate, as Rate holds it: high holds none, so a high row's rate has no value. */
-const rates: Readonly<Record<TierHandle, number | undefined>> = { low: 1, mid: 2, high: undefined }
-
-const Tier = closed.ordered("Tier", tiers)
-const Rate = closed.relation(
-	"Rate",
-	{ tier: closedId(Tier), rate: pg.integer },
-	["tier"],
-	[
-		{ tier: "low", rate: 1 },
-		{ tier: "mid", rate: 2 }
-	]
-)
-const NumeralText = str.regex("^[0-9]{1,6}$", "u")
-/** Days of 2024 whose text is a date's in every month: the 10th to the 19th of January to September. */
-const DayText = str.regex("^2024-0[1-9]-1[0-9]$", "u")
-
-const written = Object.freeze({
-	id: pg.integer,
-	v: pg.bigint,
-	tier: closedId(Tier),
-	k: NumeralText,
-	day: DayText
-})
-
-const Item = relation.generated("Item", written, ["id"], (r) => ({
-	copy: generated(pg.bigint, r.v),
-	rate: generated(pg.integer, Rate.at("rate", r.tier)),
-	parsed: generated(pg.bigint, Compute.cast(r.k, pg.bigint)),
-	when: generated(date, Compute.cast(r.day, date))
-}))
-const Spot = relation.generated("Spot", written, ["id"], (r) => ({
-	copy: generated(pg.bigint, r.v),
-	rate: generated(pg.integer, Rate.at("rate", r.tier)),
-	parsed: generated(pg.bigint, Compute.cast(r.k, pg.bigint)),
-	when: generated(date, Compute.cast(r.day, date))
-}))
-const itemNumeral = key(on(Item, "k"))
-const spotNumeral = key(on(Spot, "k"))
-const Items = schema("Items", [Tier, Rate, Item, Spot], [itemNumeral, spotNumeral, mutable(Spot)])
-
 /**
- * The full world's workload: each relation's rows as grizzle reads them, generated fields included; each relation's
- * seed, an insert of each call's rows; and the case's write, an insert or a put of each relation from a query over the
- * relation parameter `rows`, delivered as they are.
+ * A query-sourced write into generated fields, against PostgreSQL 19 an insert or a put from a query requests the written fields alone and stores every generated field's value.
+ *
+ * Its pre-conversion budget: runs 60, coverage cases 60 (test/pg/write/generated-source/generated-source.test.ts at d8eed1786).
  */
-const programs = Object.freeze({
-	itemRows: query(Items).rule((r) => {
-		const { id, v: value, tier, k, day, copy, rate, parsed, when } = v(Item, "item")
-		return r
-			.match(Item, { id, v: value, tier, k, day, copy, rate, parsed, when })
-			.find({ id, v: value, tier, k, day, copy, rate, parsed, when })
-	}),
-	spotRows: query(Items).rule((r) => {
-		const { id, v: value, tier, k, day, copy, rate, parsed, when } = v(Spot, "spot")
-		return r
-			.match(Spot, { id, v: value, tier, k, day, copy, rate, parsed, when })
-			.find({ id, v: value, tier, k, day, copy, rate, parsed, when })
-	}),
-	seedItem: ChangeSet.empty(Items).insert(Item, []),
-	seedSpot: ChangeSet.empty(Items).insert(Spot, []),
-	insertItem: ChangeSet.empty(Items).insert(
-		Item,
-		query(Items).rule((r) => {
-			const rows = r.relation("rows", written)
-			const row = v(rows, "row")
-			return r.match(rows, row).find(row)
-		})
-	),
-	putItem: ChangeSet.empty(Items).put(
-		Item,
-		query(Items).rule((r) => {
-			const rows = r.relation("rows", written)
-			const row = v(rows, "row")
-			return r.match(rows, row).find(row)
-		})
-	),
-	insertSpot: ChangeSet.empty(Items).insert(
-		Spot,
-		query(Items).rule((r) => {
-			const rows = r.relation("rows", written)
-			const row = v(rows, "row")
-			return r.match(rows, row).find(row)
-		})
-	),
-	putSpot: ChangeSet.empty(Items).put(
-		Spot,
-		query(Items).rule((r) => {
-			const rows = r.relation("rows", written)
-			const row = v(rows, "row")
-			return r.match(rows, row).find(row)
-		})
-	)
-})
-
-/** A row as a case states it. */
-interface Row {
-	readonly id: number
-	readonly v: bigint
-	readonly tier: TierHandle
-	readonly k: Numeral
-}
-
-/** The numerals a row draws, so rows often share one. */
-const numerals = ["0", "1", "2"] as const
-type Numeral = (typeof numerals)[number]
-
-/** Each numeral's day: a row's day text is its numeral's, so the day adds no dimension to the space. */
-const dayOf = {
-	"0": "2024-01-10",
-	"1": "2024-02-11",
-	"2": "2024-09-19"
-} as const satisfies Readonly<Record<Numeral, string>>
-
-/** A row as its relation stores its written fields, its day its numeral's. */
-const writtenOf = (row: Row) => ({ ...row, day: dayOf[row.k] })
-
-type Target = "Item" | "Spot"
-
-interface Case {
-	readonly target: Target
-	readonly op: "insert" | "put"
-	/** The rows stored before the write: lawful, at distinct keys and numerals, of tiers Rate holds. */
-	readonly stored: ReadonlyArray<Row>
-	/** The rows the write's query delivers. */
-	readonly source: Arr.NonEmptyReadonlyArray<Row>
-}
-
-const rowGen =
-	(tierGen: Gen<TierHandle>): Gen<Row> =>
-	(source) => ({
-		id: source.draw(int(1, 3)),
-		v: BigInt(source.draw(int(0, 2))),
-		tier: source.draw(tierGen),
-		k: source.draw(element(numerals))
-	})
-
-/**
- * Stored rows at distinct keys and numerals by construction, of tiers Rate holds: the keys drawn as a sequence of
- * distinct ids, and as many distinct numerals, paired in order.
- */
-const storedGen: Gen<ReadonlyArray<Row>> = (source) => {
-	const ids = source.draw(shuffled([1, 2, 3], { min: 0, max: 3 }))
-	const ks = source.draw(shuffled(numerals, { min: ids.length, max: ids.length }))
-	return Arr.zipWith(ids, ks, (id, k) => ({
-		id,
-		v: BigInt(source.draw(int(0, 2))),
-		tier: source.draw(element(["low", "mid"] as const)),
-		k
-	}))
-}
-
-const caseGen: Gen<Case> = (source) => {
-	const target = source.draw(element(["Item", "Spot"] as const))
-	const op = source.draw(element(["insert", "put"] as const))
-	const stored = source.draw(storedGen)
-	/** A source row: a fresh one, or, half the time, a repeat of a stored one. */
-	const row: Gen<Row> = Arr.isReadonlyArrayNonEmpty(stored)
-		? oneOf([rowGen(element(tiers)), element(stored)])
-		: rowGen(element(tiers))
-	const first = source.draw(row)
-	const more = source.draw(array(row, { min: 0, max: 2 }))
-	return { target, op, stored, source: [first, ...more] }
-}
-
-/** A row's facts as Items stores them: its written fields and each generated field's value. */
-const factOf = (row: Row): Readonly<Record<string, unknown>> =>
-	bareRecord({
-		id: row.id,
-		v: row.v,
-		tier: row.tier,
-		k: row.k,
-		day: dayOf[row.k],
-		copy: row.v,
-		rate: rates[row.tier],
-		parsed: BigInt(row.k),
-		when: dayOf[row.k]
-	})
-
-const sameRow = (a: Row, b: Row): boolean =>
-	a.id === b.id && a.v === b.v && a.tier === b.tier && a.k === b.k
-
-/** What the oracle says of a case: the laws a refusal may name, or the rows stored after it and whether any changed. */
-type Expected =
-	| { readonly kind: "refused"; readonly laws: Arr.NonEmptyReadonlyArray<Law["kind"]> }
-	| { readonly kind: "applied"; readonly rows: ReadonlyArray<Row>; readonly changed: boolean }
-
-const expectedOf = (c: Case): Expected => {
-	const source = Arr.dedupeWith(c.source, sameRow)
-	const laws: Array<Law["kind"]> = []
-	if (Arr.some(source, (a) => Arr.some(source, (b) => a.id === b.id && !sameRow(a, b)))) {
-		laws.push("primaryKey")
-	}
-	if (Arr.some(source, (r) => rates[r.tier] === undefined)) {
-		laws.push("generated")
-	}
-	if (
-		c.op === "insert" &&
-		Arr.some(source, (r) => Arr.some(c.stored, (s) => s.id === r.id && !sameRow(r, s)))
-	) {
-		laws.push("primaryKey")
-	}
-	const after = [
-		...Arr.filter(c.stored, (s) => !Arr.some(source, (r) => r.id === s.id)),
-		...Arr.map(source, (r) =>
-			c.op === "insert"
-				? Option.getOrElse(
-						Arr.findFirst(c.stored, (s) => s.id === r.id),
-						() => r
-					)
-				: r
-		)
-	]
-	const shareNumeral = (rows: ReadonlyArray<Row>): boolean =>
-		Arr.some(rows, (a) => Arr.some(rows, (b) => a.k === b.k && a.id !== b.id))
-	if (shareNumeral(source) || shareNumeral(after)) {
-		laws.push("key")
-	}
-	if (Arr.isReadonlyArrayNonEmpty(laws)) {
-		return { kind: "refused", laws }
-	}
-	const changed = !Arr.every(source, (r) => Arr.some(c.stored, (s) => sameRow(r, s)))
-	return { kind: "applied", rows: after, changed }
-}
-
-type Feature =
-	| `${Target} ${"insert" | "put"} applied`
-	| `refused by ${"primaryKey" | "generated" | "key"}`
-	| "an unchanged write"
-
-layer(Substrate.layer)(
-	"a query-sourced write into generated fields, against PostgreSQL 19",
-	(it) => {
-		it.effect(
-			"an insert or a put from a query requests the written fields alone and stores every generated field's value",
-			(ctx) =>
-				searched(
-					ctx,
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const o = yield* installed(Items, {}, { label: "genquery", programs })
-						const group = installationGroup(namesOf(o.installed))
-						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(o.served.login.roles.app, {})
-							/** The rows of `target` as grizzle reads them. */
-							const read = (target: Target) =>
-								target === "Item"
-									? rowsOf(db.workload.itemRows.once({ params: {}, facts: {} }))
-									: rowsOf(db.workload.spotRows.once({ params: {}, facts: {} }))
-							/** `rows` inserted into `target`. */
-							const seed = (target: Target, rows: ReadonlyArray<Row>) =>
-								target === "Item"
-									? answered(
-											db.workload.seedItem.once({
-												params: {},
-												facts: { insert: { Item: Arr.map(rows, writtenOf) } }
-											})
-										)
-									: answered(
-											db.workload.seedSpot.once({
-												params: {},
-												facts: { insert: { Spot: Arr.map(rows, writtenOf) } }
-											})
-										)
-							/** The write of the case into `target` from its query over `rows`. */
-							const write = (target: Target, op: Case["op"], rows: ReadonlyArray<Row>) => {
-								const params = { rows: Arr.map(rows, writtenOf) }
-								return target === "Item"
-									? op === "insert"
-										? answered(db.workload.insertItem.once({ params, facts: {} }))
-										: answered(db.workload.putItem.once({ params, facts: {} }))
-									: op === "insert"
-										? answered(db.workload.insertSpot.once({ params, facts: {} }))
-										: answered(db.workload.putSpot.once({ params, facts: {} }))
-							}
-							return yield* explore(
-								{
-									suite: "write/generated-source",
-									draw: drawn(caseGen),
-									literal: Formatter.format,
-									oracle: {
-										kind: "specification",
-										name: "the write restated over the drawn rows, each generated field its expression's value"
-									},
-									kept: [
-										{
-											note: "the swarm's crash: a put from a query of one row into a relation with a generated field compiled to a statement requesting the generated column from its input",
-											sketch: {
-												target: "Spot",
-												op: "put",
-												stored: [{ id: 1, v: 0n, tier: "low", k: "0" }],
-												source: [{ id: 1, v: 2n, tier: "low", k: "0" }]
-											},
-											draws: "",
-											reaches: ["Spot put applied"]
-										}
-									],
-									runs: 60,
-									shrink: { kind: "bounded", candidates: 100 },
-									steerEvery: 16,
-									coverage: required<Feature>(
-										[
-											"Item insert applied",
-											"Item put applied",
-											"Spot insert applied",
-											"Spot put applied",
-											"refused by primaryKey",
-											"refused by generated",
-											"refused by key",
-											"an unchanged write"
-										],
-										{ cases: 60, sense: notesOnly }
-									),
-									caseHang
-								},
-								(k, c) =>
-									Effect.gen(function* () {
-										yield* replaceRows(s.admin, group, [])
-										if (Arr.isReadonlyArrayNonEmpty(k.stored)) {
-											const seeded = yield* seed(k.target, k.stored)
-											assert.equal(seeded.kind, "accepted", "the stored rows are lawful")
-										}
-										const before: ReadonlyArray<Readonly<Record<string, unknown>>> = yield* read(
-											k.target
-										)
-										const applied = yield* Effect.result(write(k.target, k.op, k.source))
-										if (Result.isFailure(applied)) {
-											return assert.fail(
-												`a lawful schema's write is an outcome: ${applied.failure.kind}`
-											)
-										}
-										const outcome = applied.success
-										const after: ReadonlyArray<Readonly<Record<string, unknown>>> = yield* read(
-											k.target
-										)
-										const expected = expectedOf(k)
-										if (expected.kind === "refused") {
-											if (outcome.kind !== "refused") {
-												return assert.fail(
-													`a write breaking ${Arr.join(expected.laws, ", ")} is refused, not ${outcome.kind}`
+export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrAPutFromAQueryRequestsTheWrittenFieldsAloneAndStoresEveryGeneratedFieldsValue =
+	property.explore(caseGen, {
+		needs: { fixture: Substrate.seat(genqueryTemplate) },
+		situations: [
+			"Item insert applied",
+			"Item put applied",
+			"Spot insert applied",
+			"Spot put applied",
+			"refused by primaryKey",
+			"refused by generated",
+			"refused by key",
+			"an unchanged write"
+		] satisfies ReadonlyArray<Reached<Feature>>,
+		check:
+			({ fixture }, c: CaseOf<Feature>) =>
+			(k) =>
+				Effect.scoped(
+					Effect.flatMap(fixture, (taken) =>
+						Effect.provideService(
+							Effect.gen(function* () {
+								const s = yield* Substrate
+								const o = yield* openedIn(Items, {}, genqueryInstall, taken)
+								const group = installationGroup(namesOf(o.installed))
+								return yield* Effect.gen(function* () {
+									const db = yield* Db.open(o.served.login.roles.app, {})
+									/** The rows of `target` as grizzle reads them. */
+									const read = (target: Target) =>
+										target === "Item"
+											? rowsOf(db.workload.itemRows.once({ params: {}, facts: {} }))
+											: rowsOf(db.workload.spotRows.once({ params: {}, facts: {} }))
+									/** `rows` inserted into `target`. */
+									const seed = (target: Target, rows: ReadonlyArray<Row>) =>
+										target === "Item"
+											? answered(
+													db.workload.seedItem.once({
+														params: {},
+														facts: { insert: { Item: Arr.map(rows, writtenOf) } }
+													})
 												)
-											}
-											const [law] = refusedLaws(outcome.refused)
-											assert.ok(
-												expected.laws.includes(law.kind),
-												`the refusal names one of ${Arr.join(expected.laws, ", ")}, not ${Formatter.format(law)}`
+											: answered(
+													db.workload.seedSpot.once({
+														params: {},
+														facts: { insert: { Spot: Arr.map(rows, writtenOf) } }
+													})
+												)
+									/** The write of the case into `target` from its query over `rows`. */
+									const write = (target: Target, op: Case["op"], rows: ReadonlyArray<Row>) => {
+										const params = { rows: Arr.map(rows, writtenOf) }
+										return target === "Item"
+											? op === "insert"
+												? answered(db.workload.insertItem.once({ params, facts: {} }))
+												: answered(db.workload.putItem.once({ params, facts: {} }))
+											: op === "insert"
+												? answered(db.workload.insertSpot.once({ params, facts: {} }))
+												: answered(db.workload.putSpot.once({ params, facts: {} }))
+									}
+
+									yield* replaceRows(s.admin, group, [])
+									if (Arr.isReadonlyArrayNonEmpty(k.stored)) {
+										const seeded = yield* seed(k.target, k.stored)
+										assert.equal(seeded.kind, "accepted", "the stored rows are lawful")
+									}
+									const before: ReadonlyArray<Readonly<Record<string, unknown>>> = yield* read(
+										k.target
+									)
+									const applied = yield* Effect.result(write(k.target, k.op, k.source))
+									if (Result.isFailure(applied)) {
+										return assert.fail(
+											`a lawful schema's write is an outcome: ${applied.failure.kind}`
+										)
+									}
+									const outcome = applied.success
+									const after: ReadonlyArray<Readonly<Record<string, unknown>>> = yield* read(
+										k.target
+									)
+									const expected = expectedOf(k)
+									if (expected.kind === "refused") {
+										if (outcome.kind !== "refused") {
+											return assert.fail(
+												`a write breaking ${Arr.join(expected.laws, ", ")} is refused, not ${outcome.kind}`
 											)
-											unorderedEqual(after, before, "a refused write changes nothing")
-											c.note(
-												law.kind === "generated"
-													? "refused by generated"
-													: law.kind === "key"
-														? "refused by key"
-														: "refused by primaryKey"
-											)
-											return
 										}
-										assert.equal(
-											outcome.kind,
-											expected.changed ? "accepted" : "unchanged",
-											"accepted where the write changed a row"
+										const [law] = refusedLaws(outcome.refused)
+										assert.ok(
+											expected.laws.includes(law.kind),
+											`the refusal names one of ${Arr.join(expected.laws, ", ")}, not ${Formatter.format(law)}`
 										)
-										unorderedEqual(
-											after,
-											Arr.map(expected.rows, factOf),
-											"the rows after the write"
+										unorderedEqual(after, before, "a refused write changes nothing")
+										c.note(
+											law.kind === "generated"
+												? "refused by generated"
+												: law.kind === "key"
+													? "refused by key"
+													: "refused by primaryKey"
 										)
-										c.note(expected.changed ? `${k.target} ${k.op} applied` : "an unchanged write")
-									})
-							)
-						}).pipe(Effect.scoped, withLayer(o.served.layer))
-					}).pipe(Effect.scoped)
-				)
-		)
-	}
-)
+										return
+									}
+									assert.equal(
+										outcome.kind,
+										expected.changed ? "accepted" : "unchanged",
+										"accepted where the write changed a row"
+									)
+									unorderedEqual(after, Arr.map(expected.rows, factOf), "the rows after the write")
+									c.note(expected.changed ? `${k.target} ${k.op} applied` : "an unchanged write")
+								}).pipe(Effect.scoped, withLayer(o.served.layer))
+							}).pipe(Effect.scoped),
+							Substrate,
+							taken.substrate
+						)
+					)
+				),
+		oracle: {
+			kind: "specification",
+			name: "the write restated over the drawn rows, each generated field its expression's value"
+		},
+		budget: { runs: 60, steered: 60 },
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/write/generated-source/generated-source.test.ts#aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrAPutFromAQueryRequestsTheWrittenFieldsAloneAndStoresEveryGeneratedFieldsValue:-:1.1.1.0.0.0.0.0.0.2.0.0.0"
+				),
+				reason:
+					"the swarm's crash: a put from a query of one row into a relation with a generated field compiled to a statement requesting the generated column from its input",
+				since: "2026-11-19"
+			}
+		],
+		kills: []
+	})

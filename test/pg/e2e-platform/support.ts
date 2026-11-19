@@ -30,7 +30,12 @@ import { succeeded } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
-import { type Installed, installGenerated } from "#test/support/install-migrate.ts"
+import {
+	type Generated,
+	generatedTemplate,
+	type Installed,
+	installGenerated
+} from "#test/support/install-migrate.ts"
 import { Identities } from "#test/support/kernel/identity.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
@@ -46,7 +51,11 @@ import { loadOrder, type PlatformFacts } from "#test/support/platform/generate.t
 import { stateOf, withDrawn } from "#test/support/platform/laws.ts"
 import { type ServedFixture, servedGenerated } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import {
+	Substrate,
+	type SubstrateCase,
+	type SubstrateTemplate
+} from "#test/support/substrate/substrate.ts"
 
 /** The platform rebuilt under an installed name, with its world. */
 type PlatformWorld = ReturnType<typeof P.platformAt>
@@ -73,6 +82,78 @@ export interface OpenedPlatform {
 
 /**
  * Shared helpers of the platform's end-to-end suites (test/pg/e2e-platform).
+ *
+ * The platform (test/support/fixtures/api/platform.ts) installs as a deployment installs it, as `grizzle generate`
+ * drafts and serves it (test/support/install-migrate.ts generatedTemplate): built under the template's name
+ * (platformAt), its first migration drafted with its logins' workloads, their access paths and the live source of their
+ * reads, and applied by the real apply runner once per member, each case on the worker's seat of it (Substrate.seat).
+ * Its login is served from the file generate wrote for it, and a Db is opened through Db.open as the full role
+ * `billing` of the schema rebuilt under that name, whose levels hold the declared schemas' types, so every workload read
+ * and write runs on it unchanged, as a member of billing's served workload.
+ *
+ * Facts load through the public API only: the workload's `load`, one ChangeSet inserting every relation's facts given
+ * with each call, within the input limit, each call of which the laws must accept. A generated platform is lawful by construction (test/support/platform/generate.ts), so a
+ * refused load is a defect of the generator or of grizzle, reported with the law.
+ *
+ * The reference evaluator (test/support/oracle/reference) reads a workload read's checked IR, the compiler's own
+ * translation, over the same facts as typed literals; what it delivers per statement (the root's rows, and each
+ * attachment's parent keys with their children) is compared with what the public read decoded, flattened the same way,
+ * each column by its type's own equality and each statement as a set.
+ *
+ * The platform installed with its workload as a template, under `label`, once per member: billing's login and `also`'s
+ * logins beside it, the logins a suite reads the platform through besides billing, built by `also` over the platform
+ * under the template's name to install and, by the suite, over the installed one (OpenedPlatform's `schema`) to open.
+ * `declaredIn` is the suite's module, whose import closure covers what `also` builds.
+ */
+export const platformTemplate = (
+	declaredIn: ImportMeta,
+	label: string,
+	also: (world: PlatformWorld) => ReadonlyArray<AnyLogin>
+): SubstrateTemplate<Generated> =>
+	generatedTemplate({
+		declaredIn,
+		name: label,
+		content: { label },
+		build: (name) => {
+			const world = P.platformAt(name)
+			return { schema: world.Billing, logins: [world.server, ...also(world)] }
+		},
+		ambient: ordinarySession
+	})
+
+/** A case of platformTemplate opened: its installation in the case's clone, served, and its rows cleared as its owner. */
+export const openedPlatform = (taken: SubstrateCase<Generated>): OpenedPlatform => {
+	const installed = taken.value.installed
+	const schema = P.platformAt(installed.declared)
+	const served = servedGenerated(taken.value, schema.server)
+	const table = (relation: string): string => {
+		const q = installed.names.relation(relation)
+		return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
+	}
+	const clear = taken.substrate.admin.query(
+		`TRUNCATE ${Arr.join(Arr.map(loadOrder, table), ", ")}`,
+		[]
+	)
+	return {
+		installed,
+		schema,
+		served,
+		table,
+		clear: Effect.asVoid(clear),
+		withDb: (body) =>
+			Effect.scoped(
+				Effect.flatMap(Layer.build(served.layer), (context) =>
+					Effect.provideContext(
+						Effect.scoped(Effect.flatMap(Db.open(served.login.roles.billing, {}), body)),
+						context
+					)
+				)
+			)
+	}
+}
+
+/**
+ * The platform installed per test (the suites not yet on the toolchain's runner).
  *
  * The platform (test/support/fixtures/api/platform.ts) installs as a deployment installs it, as `grizzle generate`
  * drafts and serves it (test/support/install-migrate.ts installGenerated): built under a name the substrate allocates

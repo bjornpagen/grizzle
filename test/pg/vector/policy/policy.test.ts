@@ -19,6 +19,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { element, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { TupleSet } from "#compiler/core/tuple-map.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import {
 	admittedPolicy,
@@ -30,7 +31,6 @@ import {
 	type AccountLabel,
 	accountOf,
 	candidatesTake,
-	currentNeed,
 	labels,
 	policySettings
 } from "#test/pg/vector/policy/policy.fixtures.ts"
@@ -48,73 +48,72 @@ export const theHNSWSearchPolicyAsLoginDefaultsStoresThePolicyAsTheLoginsDefault
 	property.explore(
 		(source) => [source.draw(element(labels)), source.draw(int(0, 2 ** 31 - 1))] as const,
 		{
-			needs: { substrate: Substrate.installing, currentNeed },
+			needs: { substrate: Substrate.installing },
 			situations: Arr.map(labels, (label) => `account ${label}` as const) satisfies ReadonlyArray<
 				Reached<`account ${AccountLabel}`>
 			>,
 			check:
-				({ substrate, currentNeed }, c: Case<`account ${AccountLabel}`>) =>
+				({ substrate }, c: Case<`account ${AccountLabel}`>) =>
 				([label, n]) =>
 					Effect.provideServiceEffect(
 						Effect.gen(function* () {
-							const current = yield* currentNeed
-							return yield* Effect.gen(function* () {
-								const s = yield* Substrate
-								const fx = yield* installFixture({ candidates })
-								const role = fx.installed.as(fx.opened.server).role
-								const settings = yield* s.admin.queryValues(
-									"SELECT pg_catalog.unnest(s.setconfig)::text FROM pg_catalog.pg_db_role_setting AS s JOIN pg_catalog.pg_roles AS r ON r.oid = s.setrole WHERE r.rolname = $1::text AND s.setdatabase = 0::oid",
-									[role]
-								)
-								const stored = Arr.map(settings, (row) => String(row[0]))
-								for (const setting of policySettings) {
-									assert.ok(stored.includes(setting), `${setting} in ${Arr.join(stored, ", ")}`)
-								}
-								assert.deepEqual(admittedPolicy(fx.opened.installed.snapshot, role), policySettings)
-								const session = yield* s.session({
-									...worldSession(fx.installed.world(fx.app)),
-									label: "searcher"
-								})
-								for (const p of searchPolicySettings) {
-									const shown = yield* session.values(`SHOW ${p.parameter}`, [])
-									assert.deepEqual(shown, [[p.value]], p.parameter)
-								}
-								yield* session.values(`SELECT vector_ext.vector_dims('[1]'::vector_ext.vector)`, [])
-								for (const p of searchPolicySettings) {
-									const shown = yield* session.values(`SHOW ${p.parameter}`, [])
-									assert.deepEqual(shown, [[p.value]], p.parameter)
-								}
-								/** The documents whose current revision has an embedding: each an eligible fact, keyed (document, revision). */
-								const eligibleFacts = Arr.filter(fx.facts, (d) =>
-									Arr.some(d.embeddings, (e) => e.revision === d.current)
-								)
-								const eligible = (account: string): number =>
-									Arr.filter(eligibleFacts, (d) => d.account === account).length
-								for (const d of eligibleFacts) {
-									current.add([d.id, d.current])
-								}
-								const { serve } = yield* openServedDb(fx.installed, fx.opened.server.roles.app, {})
-								const served = yield* serve(fx.opened.programs)
-								const read = readOnce(member(served, "candidates"))
+							const s = yield* Substrate
+							const fx = yield* installFixture({ candidates })
+							const role = fx.installed.as(fx.opened.server).role
+							const settings = yield* s.admin.queryValues(
+								"SELECT pg_catalog.unnest(s.setconfig)::text FROM pg_catalog.pg_db_role_setting AS s JOIN pg_catalog.pg_roles AS r ON r.oid = s.setrole WHERE r.rolname = $1::text AND s.setdatabase = 0::oid",
+								[role]
+							)
+							const stored = Arr.map(settings, (row) => String(row[0]))
+							for (const setting of policySettings) {
+								assert.ok(stored.includes(setting), `${setting} in ${Arr.join(stored, ", ")}`)
+							}
+							assert.deepEqual(admittedPolicy(fx.opened.installed.snapshot, role), policySettings)
+							const session = yield* s.session({
+								...worldSession(fx.installed.world(fx.app)),
+								label: "searcher"
+							})
+							for (const p of searchPolicySettings) {
+								const shown = yield* session.values(`SHOW ${p.parameter}`, [])
+								assert.deepEqual(shown, [[p.value]], p.parameter)
+							}
+							yield* session.values(`SELECT vector_ext.vector_dims('[1]'::vector_ext.vector)`, [])
+							for (const p of searchPolicySettings) {
+								const shown = yield* session.values(`SHOW ${p.parameter}`, [])
+								assert.deepEqual(shown, [[p.value]], p.parameter)
+							}
+							/** The documents whose current revision has an embedding: each an eligible fact, keyed (document, revision). */
+							const eligibleFacts = Arr.filter(fx.facts, (d) =>
+								Arr.some(d.embeddings, (e) => e.revision === d.current)
+							)
+							const eligible = (account: string): number =>
+								Arr.filter(eligibleFacts, (d) => d.account === account).length
+							/** The eligible facts' keys as values, which a row's (document, revision) is one of when its values are. */
+							const current = new TupleSet<ReadonlyArray<unknown>>()
+							for (const d of eligibleFacts) {
+								current.add([d.id, d.current])
+							}
+							const { serve } = yield* openServedDb(fx.installed, fx.opened.server.roles.app, {})
+							const served = yield* serve(fx.opened.programs)
+							const read = readOnce(member(served, "candidates"))
 
-								const account = accountOf[label]
-								const rows = yield* read({
-									params: { account, vector: vectorParam(fx.probe(n)) },
-									facts: {}
-								})
-								assert.equal(
-									rows.length,
-									Math.min(candidatesTake, eligible(account)),
-									`account ${label}: the request filled up to the eligible facts`
-								)
-								for (const row of rows) {
-									const fact = [row["document"], row["revision"]]
-									assert.ok(current.has(fact), `${Formatter.format(fact)} is an eligible fact`)
-									assert.equal(typeof row["distance"], "number")
-								}
-								c.note(`account ${label}`)
-							}).pipe(Effect.scoped)
-						}),
+							const account = accountOf[label]
+							const rows = yield* read({
+								params: { account, vector: vectorParam(fx.probe(n)) },
+								facts: {}
+							})
+							assert.equal(
+								rows.length,
+								Math.min(candidatesTake, eligible(account)),
+								`account ${label}: the request filled up to the eligible facts`
+							)
+							for (const row of rows) {
+								const fact = [row["document"], row["revision"]]
+								assert.ok(current.has(fact), `${Formatter.format(fact)} is an eligible fact`)
+								assert.equal(typeof row["distance"], "number")
+							}
+							c.note(`account ${label}`)
+						}).pipe(Effect.scoped),
 						Substrate,
 						substrate
 					),

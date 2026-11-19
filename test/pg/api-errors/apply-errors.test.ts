@@ -26,384 +26,136 @@
  * Features: every field's invalid class in every form, a wild value admitted, and wild nulls, proxies and lone
  * surrogates refused.
  */
-import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import {
-	boolean,
-	characterOf,
-	codePoint,
-	element,
-	type Gen,
-	int,
-	map,
-	oneOf,
-	string,
-	weighted
-} from "@bjornpagen/testing/gen"
-import { passed, type Wild, WILD_KINDS, type WildKind, wild, wildOf } from "@bjornpagen/testing/lsw"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
-import { onceCalls, variantOf } from "#adapter/db/handles.ts"
-import type { ValueFault } from "#compiler/core/errors.ts"
-import { trusted } from "#compiler/core/trusted.ts"
-import type { ParamMap } from "#compiler/plan/common.ts"
-import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { pg, query, relation, schema, span, str, uuid, v } from "#index.ts"
 
+import type { Reached } from "@bjornpagen/testing/features"
+import { aimed } from "@bjornpagen/testing/gen"
+import { passed } from "@bjornpagen/testing/lsw"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Result, String as Str } from "effect"
+import { onceCalls, variantOf } from "#adapter/db/handles.ts"
+import {
+	callersParams,
+	classFault,
+	encodingCaseGen,
+	type EncodingFeature,
+	applyInstall,
+	applyTemplate,
+	Fixture,
+	live,
+	liveParams,
+	plantedPairs,
+	programs,
+	seedFacts,
+	seedRow,
+	Typed,
+	encodingAims
+} from "#test/pg/api-errors/apply-errors.fixtures.ts"
 import { tappedPool } from "#test/pg/api-errors/support.ts"
-import { installed } from "#test/pg/reads/support.ts"
+import { openedIn } from "#test/pg/reads/support.ts"
 import { assert, assertVariant } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
-import { type Names, namesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import { member, withServedDb } from "#test/support/served-db.ts"
-import {
-	installationGroup,
-	replaceRows,
-	type ReplacedStatement
-} from "#test/support/substrate/replace.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
+import { member, openServedDb } from "#test/support/served-db.ts"
+import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const Typed = relation(
-	"Typed",
-	{
-		id: uuid,
-		n: pg.integer,
-		b: pg.bigint,
-		flag: pg.boolean,
-		label: str.regex("^[a-z]{0,8}$"),
-		during: span(pg.bigint)
-	},
-	["id"]
-)
-const Seed = relation("Seed", { id: uuid }, ["id"])
-const Fixture = schema("ApiErrors", [Typed, Seed], [])
-
-const seed = "00000000-0000-4000-8000-000000000001"
-/** The installation's one Seed fact, which every reset writes back with the case's rows (substrate/replace.ts). */
-const seedRow = (names: Names): ReplacedStatement => ({
-	sql: `INSERT INTO ${names.table(Seed)} (${names.column(Seed, "id")}) VALUES ($1::uuid)`,
-	params: [seed]
-})
-const fresh = "00000000-0000-4000-8000-000000000003"
-
 /**
- * A JavaScript caller's parameter argument, holding a value of any type, which the types refuse and the member's
- * boundary judges: the test's own data.
+ * ApplyError through the public API a value its codec refuses is refused as input naming its fault and slot, before any SQL; one it admits is answered.
+ *
+ * Its pre-conversion budget: runs 200, coverage cases 200 (test/pg/api-errors/apply-errors.test.ts at 8ad8d5b2c).
  */
-const callersParams = (params: Readonly<Record<string, unknown>>): ParamMap =>
-	trusted<ParamMap>(params)
+export const applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputNamingItsFaultAndSlotBeforeAnySQLOneItAdmitsIsAnswered =
+	property.explore(aimed(encodingCaseGen, encodingAims), {
+		needs: { fixture: Substrate.seat(applyTemplate) },
+		situations: [
+			...Arr.map(plantedPairs, ({ field, form }): EncodingFeature => `refused ${field} as ${form}`),
+			"wild admitted",
+			"wild null refused",
+			"wild proxy refused",
+			"wild lone-surrogate refused"
+		] satisfies ReadonlyArray<Reached<EncodingFeature>>,
+		check:
+			({ fixture }, cx: Case<EncodingFeature>) =>
+			(c) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const taken = yield* fixture
+						const o = yield* openedIn(Fixture, seedFacts, applyInstall, taken)
+						const s = taken.substrate
+						return yield* Effect.provideService(
+							Effect.gen(function* () {
+								const names = namesOf(o.installed)
+								const { ctx, load } = yield* openServedDb(o.installed, o.server.roles.app, {})
+								const members = yield* load(programs)
+								const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
+								const tapped = { ...ctx, pool }
 
-/**
- * The described member's parameters, every field but the key, which it reads from Seed, and a live value of each. A
- * parameters argument names exactly these: one with a key that names no parameter is refused whole, as a Fact.
- */
-const liveParams = {
-	n: 1,
-	b: 1n,
-	flag: true,
-	label: "ab",
-	during: { start: 0n, end: 1n }
-} as const
-type Param = keyof typeof liveParams
-const paramFields: Arr.NonEmptyReadonlyArray<Param> = ["n", "b", "flag", "label", "during"]
-
-/** The fields a value is drawn into, and a live value of each: the key and the described member's parameters. */
-const live = { id: fresh, ...liveParams } as const
-type Field = keyof typeof live
-const fields: Arr.NonEmptyReadonlyArray<Field> = ["id", ...paramFields]
-
-/** `inserted` placed at a drawn position of `text`. */
-const insertedIn = (text: string, at: number, inserted: string): string =>
-	`${Str.slice(0, at)(text)}${inserted}${Str.slice(at)(text)}`
-
-/** How far past a type's range an out-of-range integer is drawn. */
-const beyond = int(0, 2 ** 20)
-
-/**
- * The members the cases call, built over the fixture, which they run against under its installed name (a level is its
- * content): an insert of an array's facts, and the described member, every field but the key a scalar parameter of its
- * type. The installation's login serves them, so it installs every type their parameters are cast to, `label`'s own
- * pattern domain among them.
- */
-const programs = Object.freeze({
-	array: changeSetOver.empty(Fixture).insert(Typed, []),
-	parameter: changeSetOver.empty(Fixture).insert(
-		Typed,
-		query(Fixture).rule((r) => {
-			const { id } = v(Seed, "seed")
-			return r.match(Seed, { id }).find({
-				id,
-				n: r.param("n", Typed.fields.n),
-				b: r.param("b", Typed.fields.b),
-				flag: r.param("flag", Typed.fields.flag),
-				label: r.param("label", Typed.fields.label),
-				during: r.param("during", Typed.fields.during)
-			})
-		})
-	)
-})
-
-/**
- * Each field's invalid class, constructed, never filtered: a string holding a letter no uuid's hexadecimal holds; an
- * integer past int4's range, either side; a bigint past int8's; a value of no boolean type; a text of the label's
- * letters holding NUL; a span of bigint endpoints whose end is not past its start.
- */
-const refusedValues: { readonly [F in Field]: Gen<unknown> } = {
-	id: (source) => {
-		const hex = source.draw(
-			string(characterOf(Str.split("0123456789abcdef-", "")), { min: 0, max: 36 })
-		)
-		return insertedIn(hex, source.draw(int(0, hex.length)), "g")
-	},
-	n: (source) =>
-		source.draw(boolean) ? 2 ** 31 + source.draw(beyond) : -(2 ** 31) - 1 - source.draw(beyond),
-	b: (source) => {
-		const past = BigInt(source.draw(beyond))
-		return source.draw(boolean) ? 2n ** 63n + past : -(2n ** 63n) - 1n - past
-	},
-	flag: oneOf<unknown>([string(codePoint(0x61, 0x7a), { min: 0, max: 5 }), int(-2, 2)]),
-	label: (source) => {
-		const text = source.draw(string(codePoint(0x61, 0x7a), { min: 0, max: 7 }))
-		return insertedIn(text, source.draw(int(0, text.length)), "\u0000")
-	},
-	during: (source) => {
-		const start = BigInt(source.draw(int(-(2 ** 40), 2 ** 40)))
-		return { start, end: start - BigInt(source.draw(beyond)) }
-	}
-}
-
-/** The fault the codecs' vocabulary names for each field's invalid class (scalar/values/fault.ts): the oracle. */
-const classFault: { readonly [F in Field]: ValueFault } = {
-	id: "uuidSyntax",
-	n: "integerRange",
-	b: "integerRange",
-	flag: "boolType",
-	label: "textNul",
-	during: "spanOrder"
-}
-
-/** The form a fact is planted in: a call's fact of an array member, or a parameter of the described member. */
-type Form = "array" | "parameter"
-const forms: Arr.NonEmptyReadonlyArray<Form> = ["array", "parameter"]
-
-/** A field's value: one of its invalid class, or a Wild value. */
-type Drawn =
-	| { readonly kind: "refused"; readonly value: unknown }
-	| { readonly kind: "wild"; readonly wild: Wild }
-
-/** A field and the form it is planted in: any field of a member's fact, or a parameter of the described member. */
-type Pair =
-	| { readonly field: Field; readonly form: "array" }
-	| { readonly field: Param; readonly form: "parameter" }
-
-type EncodingCase = Pair & { readonly value: Drawn }
-
-type EncodingFeature = `refused ${Field} as ${Form}` | `wild ${WildKind} refused` | "wild admitted"
-
-/** The field and form pairs a case draws: every field of a call's fact, and every parameter. */
-const plantedPairs: Arr.NonEmptyReadonlyArray<Pair> = [
-	...Arr.map(fields, (field): Pair => ({ field, form: "array" })),
-	...Arr.map(paramFields, (field): Pair => ({ field, form: "parameter" }))
-]
-
-/**
- * One of the field and form pairs, each equally often, with a value `value` draws for its field. A parameter of the
- * described member carries every field but the key, which the member reads from Seed.
- */
-const pairCase =
-	(value: (field: Field) => Gen<Drawn>): Gen<EncodingCase> =>
-	(source) => {
-		const pair = source.draw(element(nonEmptyList(plantedPairs, "the field and form pairs")))
-		return { ...pair, value: source.draw(value(pair.field)) }
-	}
-
-/** A value of a field's invalid class. */
-const refusedOf = (field: Field): Gen<Drawn> =>
-	map(refusedValues[field], (value): Drawn => ({ kind: "refused", value }))
-
-/** A wild value of any kind. */
-const anyWild: Gen<Drawn> = map(wild(WILD_KINDS), (drawn): Drawn => ({ kind: "wild", wild: drawn }))
-
-/**
- * A wild value the integer's codec admits, in any form: -0, or a number in its range where a bigint boundary expects a
- * bigint. A wild value of a pair lands on one in about one case in eighty (the integer's pairs are three of seventeen,
- * its admitted kinds two of fourteen), which the suite's cases cannot count on.
- */
-const admittedCase: Gen<EncodingCase> = (source) => ({
-	field: "n",
-	form: source.draw(element(forms)),
-	value: {
-		kind: "wild",
-		wild: source.draw(wild(["negative-zero", "number-for-bigint"]))
-	}
-})
-
-/** A case: half a pair's invalid class, and the rest a pair's wild value, but one in sixteen an admitted wild value. */
-const encodingCaseGen: Gen<EncodingCase> = weighted([
-	[8, pairCase(refusedOf)],
-	[7, pairCase(() => anyWild)],
-	[1, admittedCase]
-])
-
-/** The seeds the steered phase grows from: a wild value the codec admits, and each required wild refusal. */
-const encodingKept: ReadonlyArray<Kept<EncodingCase, EncodingFeature>> = [
-	{
-		note: "a number for an integer",
-		sketch: {
-			field: "n",
-			form: "array",
-			value: { kind: "wild", wild: wildOf("number-for-bigint") }
-		},
-		draws: "",
-		reaches: ["wild admitted"]
-	},
-	{
-		note: "null for an integer",
-		sketch: { field: "n", form: "array", value: { kind: "wild", wild: wildOf("null") } },
-		draws: "",
-		reaches: ["wild null refused"]
-	},
-	{
-		note: "a proxy for a refined text parameter",
-		sketch: { field: "label", form: "parameter", value: { kind: "wild", wild: wildOf("proxy") } },
-		draws: "",
-		reaches: ["wild proxy refused"]
-	},
-	{
-		note: "a lone surrogate for a refined text",
-		sketch: {
-			field: "label",
-			form: "array",
-			value: { kind: "wild", wild: wildOf("lone-surrogate") }
-		},
-		draws: "",
-		reaches: ["wild lone-surrogate refused"]
-	}
-]
-
-layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the public API", (it) => {
-	const opened = installed(Fixture, { Seed: [{ id: seed }] }, { label: "real", programs })
-
-	it.effect(
-		"a value its codec refuses is refused as input naming its fault and slot, before any SQL; one it admits is answered",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const o = yield* opened
-					const s = yield* Substrate
-					const names = namesOf(o.installed)
-					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
-						Effect.gen(function* () {
-							const members = yield* load(programs)
-							const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
-							const tapped = { ...ctx, pool }
-							return yield* explore(
-								{
-									oracle: {
-										kind: "specification",
-										name: "the codecs' fault vocabulary: each invalid class's one fault, a parameter's at its slot"
-									},
-									suite: "api-errors/apply encoding",
-									draw: drawn(encodingCaseGen),
-									literal: Formatter.format,
-									kept: encodingKept,
-									runs: 200,
-									shrink: completeShrink,
-									steerEvery: 16,
-									caseHang,
-									coverage: required<EncodingFeature>(
-										[
-											...Arr.map(
-												plantedPairs,
-												({ field, form }): EncodingFeature => `refused ${field} as ${form}`
-											),
-											"wild admitted",
-											"wild null refused",
-											"wild proxy refused",
-											"wild lone-surrogate refused"
-										],
-										{ cases: 200, sense: notesOnly }
+								yield* replaceRows(s.admin, installationGroup(names), [seedRow(names)])
+								const value = c.value.kind === "refused" ? c.value.value : passed(c.value)
+								const fact: Record<string, unknown> = { ...live, [c.field]: value }
+								const mark = tap.mark()
+								const change = member(members, c.form)
+								assertVariant(change, "kind", "change", "a ChangeSet loads as a change member")
+								const calls = onceCalls(tapped, change)
+								const takes = variantOf(tapped, change.variants).call.kind
+								const outcome = yield* Effect.result(
+									c.form === "parameter"
+										? Effect.suspend(() => {
+												assert.equal(takes, "params", "the described member takes its parameters")
+												return answered(
+													writeOnce(calls)({
+														params: callersParams({ ...liveParams, [c.field]: value }),
+														facts: {}
+													})
+												)
+											})
+										: Effect.suspend(() => {
+												assert.equal(takes, "facts", "an array member takes its call's facts")
+												return answered(
+													writeOnce(calls)({
+														params: {},
+														facts: { insert: { Typed: [fact] } }
+													})
+												)
+											})
+								)
+								if (Result.isSuccess(outcome)) {
+									assert.ok(c.value.kind === "wild", `a ${c.field} of its invalid class is refused`)
+									cx.note("wild admitted")
+									return
+								}
+								const error = outcome.failure
+								assert.equal(error.kind, "input", error.message)
+								assert.equal(tap.since(mark).frontend.length, 0, "no statement before the refusal")
+								const state = yield* tableState(o.installed, Typed)
+								assert.deepEqual(state, [])
+								if (c.form === "parameter") {
+									assert.ok(
+										Str.startsWith(`the value of ${c.field} was refused: `)(error.message),
+										`the refusal is at the slot ${c.field}: ${error.message}`
 									)
-								},
-								(c, cx) =>
-									Effect.gen(function* () {
-										yield* replaceRows(s.admin, installationGroup(names), [seedRow(names)])
-										const value = c.value.kind === "refused" ? c.value.value : passed(c.value)
-										const fact: Record<string, unknown> = { ...live, [c.field]: value }
-										const mark = tap.mark()
-										const change = member(members, c.form)
-										assertVariant(change, "kind", "change", "a ChangeSet loads as a change member")
-										const calls = onceCalls(tapped, change)
-										const takes = variantOf(tapped, change.variants).call.kind
-										const outcome = yield* Effect.result(
-											c.form === "parameter"
-												? Effect.suspend(() => {
-														assert.equal(
-															takes,
-															"params",
-															"the described member takes its parameters"
-														)
-														return answered(
-															writeOnce(calls)({
-																params: callersParams({ ...liveParams, [c.field]: value }),
-																facts: {}
-															})
-														)
-													})
-												: Effect.suspend(() => {
-														assert.equal(takes, "facts", "an array member takes its call's facts")
-														return answered(
-															writeOnce(calls)({
-																params: {},
-																facts: { insert: { Typed: [fact] } }
-															})
-														)
-													})
-										)
-										if (Result.isSuccess(outcome)) {
-											assert.ok(
-												c.value.kind === "wild",
-												`a ${c.field} of its invalid class is refused`
-											)
-											cx.note("wild admitted")
-											return
-										}
-										const error = outcome.failure
-										assert.equal(error.kind, "input", error.message)
-										assert.equal(
-											tap.since(mark).frontend.length,
-											0,
-											"no statement before the refusal"
-										)
-										const state = yield* tableState(o.installed, Typed)
-										assert.deepEqual(state, [])
-										if (c.form === "parameter") {
-											assert.ok(
-												Str.startsWith(`the value of ${c.field} was refused: `)(error.message),
-												`the refusal is at the slot ${c.field}: ${error.message}`
-											)
-										}
-										if (c.value.kind === "refused") {
-											assert.ok(
-												Str.endsWith(` was refused: ${classFault[c.field]}`)(error.message),
-												`the refusal's fault is ${classFault[c.field]}: ${error.message}`
-											)
-											cx.note(`refused ${c.field} as ${c.form}`)
-										} else {
-											cx.note(`wild ${c.value.wild.kind} refused`)
-										}
-									})
-							)
-						})
-					)
-				}).pipe(Effect.scoped)
-			)
-	)
-})
+								}
+								if (c.value.kind === "refused") {
+									assert.ok(
+										Str.endsWith(` was refused: ${classFault[c.field]}`)(error.message),
+										`the refusal's fault is ${classFault[c.field]}: ${error.message}`
+									)
+									cx.note(`refused ${c.field} as ${c.form}`)
+								} else {
+									cx.note(`wild ${c.value.wild.kind} refused`)
+								}
+							}),
+							Substrate,
+							taken.substrate
+						)
+					})
+				),
+		oracle: {
+			kind: "specification",
+			name: "the codecs' fault vocabulary: each invalid class's one fault, a parameter's at its slot"
+		},
+		budget: { runs: 200, steered: 200 },
+		kept: [],
+		kills: []
+	})
