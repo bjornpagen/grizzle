@@ -90,7 +90,12 @@ const checkOf = (
 		throw defect(`the violation queries hold the law ${law} of the theory`)
 	}
 	const reads = readsOf(installation, violation)
-	const identity = meaningDigestWithin(reads.dag, [reads.root], "law-check")
+	const identity = meaningDigestWithin(
+		reads.dag,
+		[reads.root],
+		"law-check",
+		installation.checked.closed
+	)
 	if (!identity.ok) {
 		throw new Refusal(identity.error)
 	}
