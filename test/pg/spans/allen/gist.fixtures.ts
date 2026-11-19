@@ -209,12 +209,6 @@ export const requiredFeatures: Arr.NonEmptyReadonlyArray<PlanFeature> = [
 	...Arr.map(sizes, (s): PlanFeature => `size ${s.name}`)
 ]
 
-/** One installation per data size, filled and analyzed, with its reader. */
-/** Every size's Rooms, its spans' GiST requests and its rows filled once per member (gistTemplate), by its name. */
-export const gistTemplates = Rec.fromEntries(
-	Arr.map(sizes, (size) => [size.name, gistTemplate(size)] as const)
-)
-
 /**
  * Rooms installed through the fresh-install compiler with its workload's GiST requests, its Booking and Visit filled to
  * `size` and vacuumed and analyzed, once per member (script-template.ts filledScriptTemplate), where the search
@@ -292,6 +286,11 @@ const gistTemplate = (size: Size) =>
 				yield* s.admin.queryValues(`VACUUM ANALYZE ${schemaName}."visit"`, [])
 			})
 	})
+
+/** Every size's Rooms, its spans' GiST requests and its rows filled once per member (gistTemplate), by its name. */
+export const gistTemplates = Rec.fromEntries(
+	Arr.map(sizes, (size) => [size.name, gistTemplate(size)] as const)
+)
 
 /**
  * A case's installation of a size over its clone of the size's template (gistTemplates): a reader session of its world,
