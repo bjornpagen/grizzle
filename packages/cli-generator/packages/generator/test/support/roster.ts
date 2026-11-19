@@ -15,6 +15,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/emit/refusals.test.ts",
 	"test/generated/body-alternatives.test.ts",
 	"test/generated/body-constants.test.ts",
+	"test/generated/certificate-chains.test.ts",
 	"test/generated/content-parameters.test.ts",
 	"test/generated/json-body-schemas.test.ts",
 	"test/generated/lazy-root.test.ts",
