@@ -12,9 +12,9 @@
  * every row, in Q, keyed by g alone, whose probe of Q's deletes reads U by g across every unit. The schema compiles to
  * its installation.
  *
- * Oracle: specification, read from the installation's planned indexes: U and T, each read by the join's columns and
- * `package` (U also by w where D holds it), each have an index of exactly those columns; and every index a whole rule
- * asks for leads with `package`.
+ * Oracle: specification, read from the installation's planned indexes: each read of a probe's chain and of a whole
+ * rule's, U and T by the join's columns and `package` (U also by w where D holds it), and a whole rule's first read of U
+ * at its unit and w, has an index of exactly those columns; and every index a whole rule asks for leads with `package`.
  *
  * Features: a whole rule's read by a join, a probe's, and a whole rule's read beside a read of its relation across units,
  * whose index without the unit's block first would merge into one led by g.

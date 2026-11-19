@@ -19,8 +19,8 @@ import {
 /**
  * Navigation: a conjunctive rule over stored relations as one chain of steps (ir/desc.ts SourceDesc `step`, ir/rel.ts
  * Step), each a read of one stored or closed relation alone, by the columns the steps before it bound. A write
- * member's query (`navigateMember`) is such a rule: a join of the live definitions its matches import, each a join of a
- * few stored relations.
+ * member's query and every query the judge reads (`navigateQuery`) are such rules: a join of the live definitions its
+ * matches import, each a join of a few stored relations, or a read of one relation that negates such a join.
  *
  * Navigation re-associates the rule's conjunction; it changes no fact the rule derives. Each imported query the rule
  * matches is inlined, its variables renamed apart, its parameters replaced by what its bind map binds them to, and its
@@ -591,7 +591,7 @@ class Navigator {
 
 /**
  * The rule `rule` navigated (module doc): the same facts, read as one chain of steps from the values it holds, its
- * negations chains of their own. `loc` locates a refusal, which only a rule `navigateMember` does not hand it meets.
+ * negations chains of their own. `loc` locates a refusal, which only a rule `navigateQuery` does not hand it meets.
  */
 const navigate = (rule: InferredRule, loc: SourceLoc): InferredRule =>
 	new Navigator(loc).rule(rule, 0)
@@ -601,10 +601,26 @@ const negatesBelow = (e: InferredExpr): boolean =>
 	e.kind === "absent" || exprChildren(e).some((c) => negatesBelow(c.term))
 
 /**
+ * Whether a rule of an imported query, matched or negated at `bindings`, delivers a field of its head as a bare literal
+ * that a bare literal binds: the equality navigation states of the two (`Navigator.#inline`, `#absent`) types neither
+ * side, which the checker refuses, and whether the two are equal is the field's type's to say, a numeric's scale or a
+ * domain's, which navigation does not read.
+ */
+const literalAtLiteral = (
+	rule: InferredRule,
+	bindings: Readonly<Record<string, InferredExpr>>
+): boolean =>
+	Object.entries(bindings).some(([field, term]) => {
+		const head = rule.head[field]
+		return head?.kind === "literal" && isBare(head) && isBare(term)
+	})
+
+/**
  * The stored and closed relations and the deltas `rule` reads once its imports are inlined (`Navigator.#inline`), or
  * undefined where navigation reads no such rule: one with interiors, attachments or a folded or produced head, a match of
  * anything but a stored or closed relation, a delta or an imported query of one such rule binding no parameter, a negation below a scalar
- * expression, or a negation of anything but a stored or closed relation or an imported query of such rules.
+ * expression, a negation of anything but a stored or closed relation or an imported query of such rules, or a match or a
+ * negation of an imported query that binds a literal of its head at a literal (`literalAtLiteral`).
  */
 const readsOfRule = (rule: InferredRule): number | undefined => {
 	if (rule.interiors.length > 0 || rule.attach.length > 0) {
@@ -625,7 +641,11 @@ const readsOfRule = (rule: InferredRule): number | undefined => {
 		}
 		const stage = source.query.stage
 		const inner =
-			stage.kind === "rules" && stage.arms.length === 1 ? readsOfRule(stage.arms[0]) : undefined
+			stage.kind === "rules" &&
+			stage.arms.length === 1 &&
+			!literalAtLiteral(stage.arms[0], m.bindings)
+				? readsOfRule(stage.arms[0])
+				: undefined
 		if (inner === undefined) {
 			return undefined
 		}
@@ -646,7 +666,9 @@ const readsOfRule = (rule: InferredRule): number | undefined => {
 			source.kind !== "query" ||
 			Object.keys(source.bind).length > 0 ||
 			source.query.stage.kind !== "rules" ||
-			source.query.stage.arms.some((arm) => readsOfRule(arm) === undefined)
+			source.query.stage.arms.some(
+				(arm) => readsOfRule(arm) === undefined || literalAtLiteral(arm, w.bindings)
+			)
 		) {
 			return undefined
 		}
@@ -655,24 +677,64 @@ const readsOfRule = (rule: InferredRule): number | undefined => {
 }
 
 /**
- * A write member's query navigated where navigation reads it and it joins: each rule of its one rules stage that reads
- * two stored or closed relations or more once its imports are inlined (`readsOfRule`), as a chain of steps
- * (`navigate`), every rule otherwise as it is. A member query is a rule over the live definitions its matches import,
- * each a join of a few stored relations, the whole a join of every relation they read; a member that reads one relation
- * is one lookup already, and one of another shape is no join navigation reads.
+ * Whether navigation reads `rule` and it joins: it reads two stored or closed relations or more once its imports are
+ * inlined (`readsOfRule`), or it negates a query a rule of which joins (`negatesJoin`). A rule that reads one relation
+ * and negates no join is one lookup already; one navigation reads no part of is no join it reads.
  */
-export const navigateMember = (query: InferredQuery, loc: SourceLoc): InferredQuery => {
+const joins = (rule: InferredRule): boolean => {
+	const reads = readsOfRule(rule)
+	return reads !== undefined && (reads > 1 || rule.where.some(negatesJoin))
+}
+
+/**
+ * Whether a condition negates a query a rule of which joins (`joins`). Read as written, such a negation is the query's
+ * join under the terms it is negated at, which bind only the relations whose columns the query's head delivers: qti's
+ * "Dependency target" negates DependencyResolved at a dependency's (package, path, start), a join of Node and
+ * ResourceId at (package, path) under it, ResourceId bound by the dependency's ref alone, which only the dependency's
+ * row holds. Navigated, each relation the query reads is a step bound by the terms and the steps before it.
+ */
+const negatesJoin = (w: InferredExpr): boolean =>
+	w.kind === "absent" &&
+	w.source.kind === "query" &&
+	w.source.query.stage.kind === "rules" &&
+	w.source.query.stage.arms.some(joins)
+
+/**
+ * `rule` navigated where it joins (`joins`); one that does not, with the query each of its steps reads navigated where it
+ * joins (`navigateQuery`); itself where nothing in it joins.
+ */
+const navigatedRule = (rule: InferredRule, loc: SourceLoc): InferredRule => {
+	if (joins(rule)) {
+		return navigate(rule, loc)
+	}
+	const matches = rule.matches.map((m): InferredMatch => {
+		const source = m.source
+		if (source.kind !== "step") {
+			return m
+		}
+		const query = navigateQuery(source.query, loc)
+		return query === source.query ? m : { ...m, source: { ...source, query } }
+	})
+	return matches.every((m, i) => m === rule.matches[i]) ? rule : { ...rule, matches }
+}
+
+/**
+ * A query navigated wherever it joins: each rule of its one rules stage that joins (`joins`) as a chain of steps
+ * (`navigate`), and in each that does not, every step's query so, at any depth; the query itself where nothing in it
+ * joins. A write member's query (write/frontend/compile.ts) is a rule over the live definitions its matches import, each
+ * a join of a few stored relations, the whole a join of every relation they read. Every query the judge reads
+ * (physical/ddl/rules.ts judgedStatement) is navigated so too: a rule probe's, over its region, and a whole rule's
+ * violation over its units, whose rule read per unit is a step (analysis/theory/unit.ts perUnit), navigated where it
+ * joins within the unit or negates a join, as qti's "Dependency target" does, so no estimate PostgreSQL makes, with
+ * statistics or none, reads a join the judge reads as a product it filters afterwards.
+ */
+export const navigateQuery = (query: InferredQuery, loc: SourceLoc): InferredQuery => {
 	const stage = query.stage
-	if (stage.kind !== "rules" || !stage.arms.some((rule) => (readsOfRule(rule) ?? 0) > 1)) {
+	if (stage.kind !== "rules") {
 		return query
 	}
-	return {
-		...query,
-		stage: {
-			...stage,
-			arms: mapNonEmpty(stage.arms, (rule) =>
-				(readsOfRule(rule) ?? 0) > 1 ? navigate(rule, loc) : rule
-			)
-		}
-	}
+	const arms = mapNonEmpty(stage.arms, (rule) => navigatedRule(rule, loc))
+	return arms.every((rule, i) => rule === stage.arms[i])
+		? query
+		: { ...query, stage: { ...stage, arms } }
 }

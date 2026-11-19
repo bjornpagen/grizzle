@@ -2189,8 +2189,13 @@ definition too.
   unit is bound once: every read is an index range at the unit, an aggregate groups that unit's rows alone, a negation
   reads the written units' rows whether PostgreSQL probes it or hashes it, the work grows with the units written and
   never with their square, and no estimate PostgreSQL makes, with statistics or none, widens a read past the written
-  units. The unit is as narrow as the rule's joins allow: a rule over one relation's
-  rows by their whole key is judged a row at a time. Whether a rule is unit-local is decided when the schema compiles,
+  units. Within the unit, a rule that joins, or negates a query that joins, is read as a chain of lookups, as a probe
+  is: each relation it reads, a derived relation's definition included, by the columns the unit and the reads before
+  it bound. A dependency's negation of a derived join of its node and the resource its ref names reads that node and
+  that resource by key at the dependency's row, never the two joined at `(package, path)` alone and filtered after,
+  which PostgreSQL, estimating every read at one row on tables no ANALYZE has run on, nests once for each dependency.
+  The unit is as narrow as the rule's joins allow: a rule over one relation's rows by their whole key is judged a row
+  at a time. Whether a rule is unit-local is decided when the schema compiles,
   from its query; any other rule is judged by its probes, below. Its outcome and its law are the same either way.
 - **A recursion is unit-local** when its row carries the unit: every base rule delivers it from a stored relation's
   leading key fields, and every recursive rule binds self's unit fields and those of every relation it matches to
@@ -2242,21 +2247,22 @@ definition too.
   CONSTRAINTS ALL IMMEDIATE` the judge runs at the end of each statement. The functions are SECURITY DEFINER on a
   pinned `search_path`, no role may run them, and a temporary table another role made under the judge's names is
   refused.
-- **Statistics.** Each lookup of a probe's chain after the rows the transaction wrote is PostgreSQL's plan, a read of one
-  table at the columns the steps before it bound. On a table with no statistics, a lookup at the table's key may be
-  planned through a narrower index of some of the key's columns, which reads every row those columns share, until
-  ANALYZE runs: PostgreSQL prices both reads at one row (selfuncs.c btcostestimate, the key's one tuple against the
-  default selectivity of each equality), and the index of the shorter tree wins. A unit-local rule's lookup that binds
-  its unit's key reads within that unit through whatever index PostgreSQL takes whose keys it binds all of: grizzle
-  appends the unit's fields to the keys of each index it creates that such a lookup binds whole, so no index the lookup
-  binds entirely reads past its unit, whatever PostgreSQL estimates. On PostgreSQL 19, edullm's element_type_in_node
-  looked a node up by its key, kind and governor through a law's index of `(package, kind, start)`, estimated at one
-  row as the key is, and read 47 nodes of other documents for each of 24,991 lookups, 1.38 s; with path appended to
-  that index it reads the unit's key, 0.36 s. A lookup that binds only a prefix of an index's keys is left to
-  PostgreSQL's estimate of the rows that prefix reads, within a unit as across units: a recursion's step that finds a
+- **Statistics.** Each lookup of a judged statement's chain, a probe's after the rows the transaction wrote and a
+  unit-local rule's within its unit, is PostgreSQL's plan, a read of one table at the columns the steps before it bound,
+  so no estimate turns a join the judge reads into a product it filters after. On a table with no statistics, a lookup
+  at the table's key may be planned through a narrower index of some of the key's columns, which reads every row those
+  columns share, until ANALYZE runs: PostgreSQL prices both reads at one row (selfuncs.c btcostestimate, the key's one
+  tuple against the default selectivity of each equality), and the index of the shorter tree wins. A unit-local rule's
+  lookup that binds its unit's key reads within that unit through whatever index PostgreSQL takes whose keys it binds
+  all of: grizzle appends the unit's fields to the keys of each index it creates that such a lookup binds whole, so no
+  index the lookup binds entirely reads past its unit, whatever PostgreSQL estimates. On PostgreSQL 19, edullm's
+  element_type_in_node looked a node up by its key, kind and governor through a law's index of `(package, kind, start)`,
+  estimated at one row as the key is, and read 47 nodes of other documents for each of 24,991 lookups, 1.38 s; with path
+  appended to that index it reads the unit's key, 0.36 s. A lookup that binds only a prefix of an index's keys is left
+  to PostgreSQL's estimate of the rows that prefix reads, within a unit as across units: a recursion's step that finds a
   node's children by `(package, path, parent)`, or a negation's lookup, may be planned through another index of the
-  unit's prefix and read the whole unit for each row it extends, so a rule over a recursion costs the square of its
-  unit on a table no ANALYZE has run on, and the first unit published into fresh tables pays it until autoanalyze runs.
+  unit's prefix and read the whole unit for each row it extends, so a rule over a recursion costs the square of its unit
+  on a table no ANALYZE has run on, and the first unit published into fresh tables pays it until autoanalyze runs.
   grizzle runs no ANALYZE and sets no planner option; analyze a table after the first load into it.
 - **Outcomes.** A write's `once` fails with `refused` naming the rule, its witness `unreported`: the row that breaks
   it may be one the transaction never wrote.

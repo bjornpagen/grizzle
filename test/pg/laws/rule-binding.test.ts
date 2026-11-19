@@ -1,0 +1,79 @@
+/**
+ * A rule's judge reads every relation a join it reads holds by the columns the rows before it bound, a derived
+ * relation's definition included, under a negation or not (analysis/theory/navigate.ts navigateQuery, which
+ * physical/ddl/rules.ts judgedStatement runs on every query the judge reads): never a join under its correlation alone,
+ * which PostgreSQL may read as a product it filters afterwards. On PostgreSQL 19rc2, over ProbedBinding and WholeBinding
+ * (rule-binding.fixtures.ts), qti's nodes, dependencies and resource ids and two of its rules' shapes: "Dependency
+ * target", a containment of Ref into the derived join of Ref, its node and the resource its ref names, and "Document
+ * lang"'s join within a document, a containment of the derived join of Named and its node into Node; probed, the
+ * relations mutable, or judged whole.
+ *
+ * edullm's g3-1, published first into tables no ANALYZE had run on, spent 1 h 46 min (PUBLISHPERF) and 2,041 s
+ * (PRODLAB) in its COMMIT before it was killed, in one statement, __rule_dependency_in_dependency_resolved: its negation
+ * of DependencyResolved at each dependency's (package, path, start), read as written, joined qti.node and
+ * qti.resource_id at (package, path) alone, every read estimated at one row, so PostgreSQL nested the dependencies of
+ * imsmanifest.xml, its 4,132 nodes and 480 resource ids inside the anti join once for each of its 420 dependencies.
+ *
+ * Property: for each case of the box, every statement the judge runs of either rule, explained with ANALYZE as PL/pgSQL
+ * plans it, touches at most its plan's nodes times the rows the transaction wrote (rule-binding.fixtures.ts runBinding):
+ * a lookup a node a row written, whatever PostgreSQL estimates. The oracle is the bound, rows counted over every loop,
+ * never a clock.
+ *
+ * The box, exhausted: both judgments, one and three documents of 64, 128 and 256 nodes written beside 40 stored, with no
+ * statistics and analyzed.
+ */
+import type { Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	type BindingFeature,
+	bindingGen,
+	probedBindingTemplate,
+	runBinding,
+	wholeBindingTemplate
+} from "#test/pg/laws/rule-binding.fixtures.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
+
+/** A rule's judge reads each relation a join it reads holds by a lookup a row written, with statistics or none. */
+export const aRulesJudgeReadsEachRelationAJoinItReadsHoldsByALookupARowWrittenWithStatisticsOrNone =
+	property.exhaust(finite(bindingGen), {
+		needs: {
+			whole: Substrate.rolledBack(wholeBindingTemplate),
+			probed: Substrate.rolledBack(probedBindingTemplate)
+		},
+		situations: [
+			"a probed rule's negated join",
+			"a whole rule's negated join",
+			"a whole rule's join within a unit",
+			"planned with no statistics",
+			"planned analyzed"
+		] satisfies ReadonlyArray<Reached<BindingFeature>>,
+		check:
+			({ whole, probed }, c) =>
+			(drawn) =>
+				Effect.gen(function* () {
+					const { connection, value } = yield* drawn.judged === "probed" ? probed : whole
+					yield* runBinding(value, connection, drawn, c)
+				}),
+		oracle: {
+			kind: "universal",
+			name: "bound: every statement the judge runs touches at most its plan's nodes times the rows the transaction wrote, counted over all loops"
+		},
+		box: "both judgments, one and three documents of 64, 128 and 256 nodes beside 40 stored, with no statistics and analyzed",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\treturn reads !== undefined && (reads > 1 || rule.where.some(negatesJoin))",
+				replacement: "\treturn reads !== undefined && reads > 1",
+				why: "A rule that reads one relation and negates a join is read as written: a probe of Ref's rows, and the whole rule's read of a document's references, negate Resolved as Node and Named joined at (pkg, path) under each reference's (pkg, path, start), which PostgreSQL with no statistics nests once for each reference, 22,441 rows for 134 written."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\tconst query = navigateQuery(source.query, loc)",
+				replacement: "\t\tconst query = source.query",
+				why: "A whole rule's read per unit is read as written, its step's rule never navigated: Placed's Named and Node joined within a document, which PostgreSQL with no statistics reads as a product it filters after, 4,539 rows for 134 written, and Resolved's negation as the first kill reads it."
+			}
+		]
+	})

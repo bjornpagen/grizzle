@@ -2,7 +2,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { aimed, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { navigateMember } from "#compiler/analysis/theory/navigate.ts"
+import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import {
@@ -85,7 +85,7 @@ export const navigationsGateJudgesAWriteMembersNegationThatReadsNoVariableAmongT
 		] satisfies ReadonlyArray<Reached<GateFeature>>,
 		check: (_, k: Case<GateFeature>) => (c) =>
 			Effect.sync(() => {
-				const navigated = navigateMember(gateQueryOf(c), loc)
+				const navigated = navigateQuery(gateQueryOf(c), loc)
 				if (navigated.stage.kind !== "rules") {
 					return assert.fail("a navigated member is one rules stage")
 				}

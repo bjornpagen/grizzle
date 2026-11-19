@@ -102,24 +102,32 @@ const fieldsOf = (index: PlannedIndex): ReadonlyArray<string> =>
 	Arr.map(index.keys, (k) => keyTermText(k.column))
 
 /**
- * Judges the indexes of `shape`'s installation. Each probe and each whole rule's statement reads the relation it joins
- * T to by the join's columns and `package`, U also by its literal w: that read is a lookup an index serves, an index of
- * U and one of T whose keys are exactly those columns. A whole rule's every read binds its unit, so every index it
- * requests leads with `package`.
+ * Judges the indexes of `shape`'s installation. Each probe reads the relation it joins the delta's rows to by the join's
+ * columns and `package`, U also by its literal w: that read is a lookup an index serves, an index of U and one of T whose
+ * keys are exactly those columns. A whole rule's statement reads D as a chain from its unit (analysis/theory/navigate.ts):
+ * first the relation the unit and the literals bind most, U at the unit and its w where D holds it to a literal, then the
+ * other at each of its rows by the join's columns and `package`, each an index of exactly its columns; T, read first where
+ * no literal binds U, is a range of its key's index at the unit. A whole rule's every read binds its unit, so every index
+ * it requests leads with `package`.
  */
 export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const owned = owning(schemaOf(shape))
 	const installation = succeeded(compileInstallation(owned, installOptions(owned, owner)))
+	const joined = ["package", ...joinColumns(shape.join)]
 	const reads: ReadonlyArray<{
 		readonly relation: string
 		readonly fields: ReadonlyArray<string>
-	}> = [
-		{
-			relation: "U",
-			fields: ["package", ...joinColumns(shape.join), ...(shape.literal ? ["w"] : [])]
-		},
-		{ relation: "T", fields: ["package", ...joinColumns(shape.join)] }
-	]
+	}> = !shape.unitLocal
+		? [
+				{ relation: "U", fields: [...joined, ...(shape.literal ? ["w"] : [])] },
+				{ relation: "T", fields: joined }
+			]
+		: shape.literal
+			? [
+					{ relation: "U", fields: ["package", "w"] },
+					{ relation: "T", fields: joined }
+				]
+			: [{ relation: "U", fields: joined }]
 	for (const read of reads) {
 		const serving = Arr.filter(
 			installation.indexes,
@@ -131,7 +139,7 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 		)
 		assert.ok(
 			serving.length > 0,
-			`${read.relation} is read by (${Arr.join(read.fields, ", ")}), a lookup of ${shape.unitLocal ? "the whole rule's statement" : "a probe's chain"}, so an index of exactly those columns serves it`
+			`${read.relation} is read by (${Arr.join(read.fields, ", ")}), a read of ${shape.unitLocal ? "the whole rule's chain" : "a probe's chain"}, so an index of exactly those columns serves it`
 		)
 	}
 	if (shape.unitLocal) {

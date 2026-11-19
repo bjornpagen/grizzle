@@ -22,7 +22,10 @@
  * joined or correlated at them, and
  * matches no region of its own (`Restriction`), which the step would read again for each unit of the region outside
  * it, the delta's every row once per written unit, or which PostgreSQL would anti-join against a second copy of the
- * region by a nested loop. So every read of a stored relation is an index range
+ * region by a nested loop. The judge navigates the rule a step reads where it joins or negates a join
+ * (analysis/theory/navigate.ts navigateQuery, physical/ddl/rules.ts judgedStatement): each relation it reads a step of
+ * its own, a lookup by the unit's channels and the columns the steps before it bound, a negated derived relation's
+ * definition included. So every read of a stored relation is an index range
  * at the unit key, which leads each stored relation's primary key, inside a step whose region holds the written units
  * alone: an aggregate's rule groups that unit's rows alone, and a negation reads the written units' rows alone, whether
  * PostgreSQL probes it at each fact or hashes it whole, whatever PostgreSQL estimates of the region. The region is a

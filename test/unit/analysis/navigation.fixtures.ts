@@ -2,7 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec, Result, Struct } from "effect"
-import { navigateMember } from "#compiler/analysis/theory/navigate.ts"
+import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -64,7 +64,7 @@ const stepsOf = (q: InferredQuery): number =>
 export const judged = (c: ProgramCase, read: QueryRead, note: (f: Feature) => void): void => {
 	const built = buildSchema(c.schema)
 	const desc = succeeded(queryInput(buildRoot(built, built.schema, read.query))).desc
-	const navigated = navigateMember(desc, loc)
+	const navigated = navigateQuery(desc, loc)
 	if (navigated === desc) {
 		return
 	}
@@ -255,7 +255,7 @@ export const negationsOf = (
 
 /**
  * The swarm features under which a generated read is seldom or never a join navigation reads (navigate.ts
- * navigateMember): an aggregate head, an attachment, an interior, a match of a relation parameter or a closure, a key
+ * navigateQuery): an aggregate head, an attachment, an interior, a match of a relation parameter or a closure, a key
  * read, and a root of several arms (a union, literal heads), a take or a name. With them off, about half the aimed cases
  * hold a navigated read, against one in thirty of the plain population.
  */

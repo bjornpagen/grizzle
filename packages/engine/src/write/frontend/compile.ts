@@ -1,7 +1,7 @@
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import { readsOf, withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
-import { navigateMember } from "#compiler/analysis/theory/navigate.ts"
+import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { clockParams } from "#compiler/check/clock.ts"
 import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
@@ -1432,7 +1432,7 @@ const compile = (
 			const query = unwrap(
 				checkMember(
 					checked,
-					{ op: member.op, relation: written, query: navigateMember(describedQuery, loc), loc },
+					{ op: member.op, relation: written, query: navigateQuery(describedQuery, loc), loc },
 					{ label: `${member.op} ${member.relation}` }
 				)
 			)

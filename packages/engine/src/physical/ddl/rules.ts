@@ -1,4 +1,4 @@
-import { navigateMember } from "#compiler/analysis/theory/navigate.ts"
+import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import {
 	type LawSide,
 	type ProbedRule,
@@ -154,8 +154,8 @@ const columnsOf = (relation: RelationInfo, fields: ReadonlyArray<string>): Reado
 
 /**
  * A probe over its region (analysis/theory/query.ts probes), the rows the transaction wrote of `relation` on one side,
- * navigated (analysis/theory/navigate.ts navigateMember) and checked and lowered as every query the judge reads is
- * (`judgedStatement`), with the index requests of the chain that runs.
+ * navigated, checked and lowered as every query the judge reads is (`judgedStatement`), with the index requests of the
+ * chain that runs.
  *
  * Navigation makes the probe one chain of steps from its region, each a lookup of one relation by the columns the steps
  * before it bound, so no estimate PostgreSQL makes, with statistics or none, turns it into a join of every relation the
@@ -175,17 +175,20 @@ const compileProbe = (
 		b,
 		catalog,
 		rule,
-		navigateMember(probe, relation.loc),
+		probe,
 		`rule ${rule.law.named.display} on ${relation.name}`,
 		relation.loc,
 		deltas
 	)
 
 /**
- * A query the judge reads, a probe over its region or a unit-scoped rule's violation over its units: checked as a
- * region read (check/checker.ts QueryRead `region`) and lowered by the optimized pipeline under the transaction's
- * evidence, each Delta node read from the session's delta table `deltas` names (RegionLowering), to one main statement
- * of no parameter, its outputs unaliased; with the index requests of `rule` its checked DAG's access paths are
+ * A query the judge reads, a probe over its region or a unit-scoped rule's violation over its units: navigated wherever
+ * it joins (analysis/theory/navigate.ts navigateQuery), so each relation a join of it reads, a derived relation's
+ * definition included and a negated one's too, is a step read by the columns its region, its unit or the steps before it
+ * bound, never a join PostgreSQL may plan as a product it filters afterwards; then checked as a region read
+ * (check/checker.ts QueryRead `region`) and lowered by the optimized pipeline under the transaction's evidence, each
+ * Delta node read from the session's delta table `deltas` names (RegionLowering), to one main statement of no
+ * parameter, its outputs unaliased; with the index requests of `rule` its checked DAG's access paths are
  * (`requestsOf`). It states the images' equality beside each equality of a text its requests' indexes hold by its image
  * (sql/image.ts) and of no other: its lookups are those requests', and a text it compares that none of them
  * holds is read through no image, so the judge of a schema whose indexes hold none is as it was.
@@ -199,7 +202,7 @@ const judgedStatement = (
 	loc: SourceLoc,
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
 ): Compiled => {
-	const checked = checkQuery(b.checked, query, { read: "region", label })
+	const checked = checkQuery(b.checked, navigateQuery(query, loc), { read: "region", label })
 	if (!checked.ok) {
 		throw new Refusal(checked.error)
 	}
