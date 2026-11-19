@@ -509,15 +509,45 @@ const hexConstant = (hex: string): string => `X'${hex}'`
  * integer constant though its magnitude is not), and the cast states the type whatever the value.
  */
 const printLiteral = (value: LiteralValue, type: TypeRef): Printed => {
-	const spelling = spellingOf(value)
-	const text = spelling.kind === "quoted" ? quoteString(spelling.text) : spelling.text
 	if (value.kind === "bool" && type.kind === "builtin" && type.name === "boolean" && !type.array) {
-		return printed(text, "atom")
+		return printed(literalText(value), "atom")
 	}
 	if (value.kind === "int" && isInt4(type) && value.value >= 0n) {
-		return printed(text, "atom")
+		return printed(literalText(value), "atom")
 	}
-	return printed(`${text}::${printType(type)}`, "cast")
+	return typedLiteral(value, type)
+}
+
+const literalText = (value: LiteralValue): string => {
+	const spelling = spellingOf(value)
+	return spelling.kind === "quoted" ? quoteString(spelling.text) : spelling.text
+}
+
+/** A literal cast to its type, a constant of that type wherever it stands, whatever its value. */
+const typedLiteral = (value: LiteralValue, type: TypeRef): Printed =>
+	printed(`${literalText(value)}::${printType(type)}`, "cast")
+
+/** Whether `e` is a constant as a query's clauses read one: a literal, or the unary minus of one. */
+const isConstant = (e: Expr): boolean =>
+	e.kind === "literal" || (e.kind === "negate" && isConstant(e.expr))
+
+/**
+ * An item of a query's GROUP BY or DISTINCT ON, or of its ORDER BY. PostgreSQL reads a bare constant there, whatever
+ * parentheses hold it, as an output column's position where it is an integer and refuses any other
+ * (parse_clause.c findTargetlistEntrySQL92), and gram.y folds a unary minus into a numeric constant (doNegate), so a
+ * literal, under any minus, prints typed, which PostgreSQL reads as the constant itself.
+ */
+const clauseItem = (e: Expr): Printed =>
+	e.kind === "literal"
+		? typedLiteral(e.value, e.type)
+		: e.kind === "negate"
+			? negated(clauseItem(e.expr))
+			: expr(e)
+
+/** The unary minus of an operand: "--" would open a comment. */
+const negated = (operand: Printed): Printed => {
+	const text = wrap(operand, "negate")
+	return printed(text.startsWith("-") ? `-(${text})` : `-${text}`, "negate")
 }
 
 const comparisonOperators: ReadonlySet<string> = new Set(["=", "<>", "<", "<=", ">", ">="])
@@ -533,8 +563,10 @@ const wrapTighter = (child: Printed, level: Level): string =>
 	looser(level, child.level) ? child.text : `(${child.text})`
 
 /** ASC, the default, prints bare. */
-const printOrderItem = (item: OrderItem): string =>
-	item.direction === "ASC" ? printExpr(item.expr) : `${printExpr(item.expr)} ${item.direction}`
+const directed = (text: string, direction: OrderItem["direction"]): string =>
+	direction === "ASC" ? text : `${text} ${direction}`
+
+const printOrderItem = (item: OrderItem): string => directed(printExpr(item.expr), item.direction)
 
 const printOrderBy = (items: ReadonlyArray<OrderItem>): string =>
 	items.map(printOrderItem).join(", ")
@@ -651,10 +683,8 @@ const expr = (e: Expr): Printed => {
 			const right = wrapTighter(expr(e.right), self)
 			return printed(`${left} ${op} ${right}`, self)
 		}
-		case "negate": {
-			const operand = wrap(expr(e.expr), "negate")
-			return printed(operand.startsWith("-") ? `-(${operand})` : `-${operand}`, "negate")
-		}
+		case "negate":
+			return negated(expr(e.expr))
 		case "and":
 			return printed(e.args.map((arg) => wrapTighter(expr(arg), "and")).join(" AND "), "and")
 		case "or":
@@ -1009,7 +1039,7 @@ const coreClauses = (out: Lines, core: SelectCore, keyword: "SELECT" | "PERFORM"
 			? keyword
 			: core.distinct === true
 				? `${keyword} DISTINCT`
-				: `${keyword} DISTINCT ON (${core.distinct.on.map((e) => printExpr(e)).join(", ")})`
+				: `${keyword} DISTINCT ON (${core.distinct.on.map((e) => clauseItem(e).text).join(", ")})`
 	out.line(isNonEmpty(core.targets) ? `${head} ${printTargets(core.targets)}` : head)
 	if (core.from.length > 0) {
 		out.line(`FROM ${printFrom(core.from)}`)
@@ -1018,19 +1048,52 @@ const coreClauses = (out: Lines, core: SelectCore, keyword: "SELECT" | "PERFORM"
 		out.line(`WHERE ${printExpr(core.where)}`)
 	}
 	if (core.groupBy.length > 0) {
-		out.line(`GROUP BY ${core.groupBy.map((e) => printExpr(e)).join(", ")}`)
+		out.line(`GROUP BY ${core.groupBy.map((e) => clauseItem(e).text).join(", ")}`)
 	}
 	if (core.having !== undefined) {
 		out.line(`HAVING ${printExpr(core.having)}`)
 	}
 }
 
-/** The clauses that follow a query body, which a SELECT and a PERFORM both carry. */
-type Tail = Pick<OperandSelect, "orderBy" | "limit" | "offset">
+/** The clauses that follow a query body, which a SELECT and a PERFORM both carry, and the body they order. */
+type Tail = Pick<OperandSelect, "body" | "orderBy" | "limit" | "offset">
+
+/**
+ * The DISTINCT ON items a query's ORDER BY must begin with (analyze.c transformDistinctOnClause): its core's, or its
+ * parenthesized body's, whose clauses PostgreSQL merges with those that follow it; a set operation has none.
+ */
+const distinctOnOf = (body: OperandBody): ReadonlyArray<Expr> => {
+	switch (body.kind) {
+		case "core":
+			return typeof body.distinct === "object" ? body.distinct.on : []
+		case "select":
+			return distinctOnOf(body.body)
+		case "setOp":
+			return []
+	}
+}
+
+/**
+ * A query's ORDER BY items. A constant orders nothing, and PostgreSQL refuses even a typed one over a set operation and
+ * under a SELECT DISTINCT whose targets lack it (analyze.c transformSetOperationStatement, parse_clause.c
+ * transformDistinctClause), so it is left out; but one a DISTINCT ON names prints typed, as that item does, since
+ * ORDER BY must begin with DISTINCT ON's items.
+ */
+const queryOrder = (tail: Tail): ReadonlyArray<string> => {
+	const named = new Set(distinctOnOf(tail.body).map((e) => clauseItem(e).text))
+	return tail.orderBy.flatMap((item) => {
+		if (!isConstant(item.expr)) {
+			return [printOrderItem(item)]
+		}
+		const text = clauseItem(item.expr).text
+		return named.has(text) ? [directed(text, item.direction)] : []
+	})
+}
 
 const tailClauses = (out: Lines, tail: Tail): void => {
-	if (tail.orderBy.length > 0) {
-		out.line(`ORDER BY ${printOrderBy(tail.orderBy)}`)
+	const order = queryOrder(tail)
+	if (order.length > 0) {
+		out.line(`ORDER BY ${order.join(", ")}`)
 	}
 	if (tail.limit !== undefined) {
 		out.line(`LIMIT ${printExpr(tail.limit)}`)

@@ -18,7 +18,7 @@
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
-import { aimed, constant, element, weighted } from "@bjornpagen/testing/gen"
+import { aimed, constant, element, finite, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { double } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
@@ -37,8 +37,14 @@ import {
 	writeStatement
 } from "#compiler/sql/print.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import {
 	blockSketch,
+	type ClauseFeature,
+	clauseCaseGen,
+	clauseFeature,
+	clauseFeatures,
+	clauseQuery,
 	commentable,
 	type CommentFeature,
 	commentLoc,
@@ -47,6 +53,7 @@ import {
 	type FloatFeature,
 	nameGen,
 	plBlockGen,
+	printedItems,
 	resolveBlock,
 	sketchOf,
 	statementLines,
@@ -340,3 +347,62 @@ export const identifiersTypesAndLiteralsAFloatLiteralOfEveryDoubleSurvivesTheSna
 			]
 		}
 	)
+
+/**
+ * A constant in a query's ORDER BY, GROUP BY or DISTINCT ON prints as the constant, never as an output column's
+ * position: PostgreSQL reads a bare constant item there as a position where it is an integer and refuses any other,
+ * under any parentheses and, for a number, any unary minus (parse_clause.c findTargetlistEntrySQL92, gram.y doNegate),
+ * so a GROUP BY's and a DISTINCT ON's constant prints typed, and an ORDER BY's, which orders nothing, is left out,
+ * typed where a DISTINCT ON names it, since the ORDER BY must begin with DISTINCT ON's items; over a set operation and
+ * under SELECT DISTINCT, where PostgreSQL refuses even a typed constant, it is left out too.
+ *
+ * Every case: 9 constants, each of the 6 numbers negated or not, 3 places, and 7 clauses and bodies, 315 in all.
+ */
+export const aConstantInAQuerysOrderByGroupByOrDistinctOnPrintsAsTheConstantTypedOrLeftOutOfAnOrderByItOrdersNothing =
+	property.exhaust(finite(clauseCaseGen), {
+		box: "every constant spelling, each number negated or not, alone, first or last, in a GROUP BY, a DISTINCT ON and an ORDER BY over each body it orders",
+		needs: {},
+		situations: clauseFeatures satisfies ReadonlyArray<Reached<ClauseFeature>>,
+		check: (_, c: Case<ClauseFeature>) => (clauseCase) =>
+			Effect.sync(() => {
+				c.note(clauseFeature(clauseCase))
+				if (clauseCase.negated) {
+					c.note("negated")
+				}
+				const { select, printed } = clauseQuery(clauseCase)
+				const text = printStatement(select)
+				assert.deepEqual(auditTextViolations(text), [], text)
+				for (const clause of ["ORDER BY", "GROUP BY", "DISTINCT ON"] as const) {
+					assert.equal(
+						printedItems(text, clause).length,
+						printed[clause],
+						`${clause} items of\n${text}`
+					)
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the text audit's positional rule, PostgreSQL's reading of a bare clause item restated over tokens, and the items each clause keeps"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/print.ts",
+				original: "\t\t? typedLiteral(e.value, e.type)",
+				replacement: "\t\t? printLiteral(e.value, e.type)",
+				why: "A clause's literal prints as an expression's, a boolean and a nonnegative integer bare, which PostgreSQL reads as a position or refuses; the clause constant search fails."
+			},
+			{
+				file: "packages/engine/src/sql/print.ts",
+				original: "\t\treturn named.has(text) ? [directed(text, item.direction)] : []",
+				replacement: "\t\treturn [directed(text, item.direction)]",
+				why: "An ORDER BY keeps every constant, typed, which PostgreSQL refuses over a set operation and under SELECT DISTINCT; the clause constant search fails."
+			},
+			{
+				file: "packages/engine/src/sql/print.ts",
+				original: "\t\treturn named.has(text) ? [directed(text, item.direction)] : []",
+				replacement: "\t\treturn []",
+				why: "An ORDER BY leaves out a constant its DISTINCT ON names, so it no longer begins with DISTINCT ON's items; the clause constant search fails."
+			}
+		]
+	})

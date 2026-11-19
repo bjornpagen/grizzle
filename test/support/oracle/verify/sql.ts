@@ -999,22 +999,6 @@ class StatementAuditor {
 		}
 	}
 
-	/**
-	 * A literal item of a query's GROUP BY, ORDER BY or DISTINCT ON is an output-column ordinal when it is an integer
-	 * and an error otherwise: never the constant it spells. A constant grouping key is a column the input carries.
-	 */
-	positional(items: ReadonlyArray<Expr>, clause: string, at: string): void {
-		for (const [i, item] of items.entries()) {
-			if (item.kind === "literal") {
-				this.report(
-					"positional",
-					`a literal ${clause} item is a positional reference, not a constant`,
-					`${at}[${i}]`
-				)
-			}
-		}
-	}
-
 	orderBy(items: ReadonlyArray<OrderItem>, ctx: ExprContext, at: string): void {
 		this.at(at, () => {
 			for (const [i, item] of items.entries()) {
@@ -1213,11 +1197,6 @@ class StatementAuditor {
 						tableColumns: outputNames(bodyPositionNames(select.body))
 					}
 				: context("query", coreScope, ctes, ctx.plVars)
-		this.positional(
-			Arr.map(select.orderBy, (item) => item.expr),
-			"ORDER BY",
-			"orderBy"
-		)
 		this.orderBy(select.orderBy, tail, "orderBy")
 		const bound = context("query", ctx.scope, ctes, ctx.plVars)
 		if (select.limit !== undefined) {
@@ -1294,7 +1273,6 @@ class StatementAuditor {
 		})
 		if (typeof core.distinct === "object") {
 			const on = core.distinct.on
-			this.positional(on, "DISTINCT ON", "distinct")
 			this.exprs(on, exprCtx, "distinct")
 		}
 		this.at("targets", () => {
@@ -1310,7 +1288,6 @@ class StatementAuditor {
 				this.expr(where, exprCtx)
 			})
 		}
-		this.positional(core.groupBy, "GROUP BY", "groupBy")
 		this.exprs(core.groupBy, exprCtx, "groupBy")
 		if (core.having !== undefined) {
 			const having = core.having
@@ -3254,6 +3231,145 @@ const isColumnWildcard = (tokens: ReadonlyArray<Token>, i: number): boolean => {
 	return afterWord || afterPunct || (isPunct(prev, "(") && !countStar)
 }
 
+/** Words that end a query clause at its own depth: the next clause's, a set operation's, or PL/pgSQL's after a query. */
+const clauseEnders: ReadonlySet<string> = new Set([
+	"SELECT",
+	"FROM",
+	"WHERE",
+	"HAVING",
+	"WINDOW",
+	"ORDER",
+	"LIMIT",
+	"OFFSET",
+	"FETCH",
+	"FOR",
+	"UNION",
+	"INTERSECT",
+	"EXCEPT",
+	"RETURNING",
+	"INTO",
+	"LOOP"
+])
+
+/** Words that may follow a clause item that ends at its last token: a sort's direction or ordering, or the next clause. */
+const itemEnders: ReadonlySet<string> = new Set([...clauseEnders, "ASC", "DESC", "NULLS", "USING"])
+
+/** The "(" whose parenthesis holds the token at `i`, if one does: the last before it one level out. */
+const enclosingParen = (
+	tokens: ReadonlyArray<Token>,
+	depths: ReadonlyArray<number>,
+	i: number
+): number | undefined => {
+	const depth = depths[i] ?? 0
+	for (let k = i - 1; k >= 0; k--) {
+		if (isPunct(tokens[k], "(") && depths[k] === depth - 1) {
+			return k
+		}
+	}
+	return undefined
+}
+
+/**
+ * Whether the ORDER BY whose BY is at `i` orders a query: it stands in no parenthesis, or in one a query opens, and not
+ * in a call's, after its quoted name, a window's, after OVER, or WITHIN GROUP's.
+ */
+const ordersQuery = (
+	tokens: ReadonlyArray<Token>,
+	depths: ReadonlyArray<number>,
+	i: number
+): boolean => {
+	const open = enclosingParen(tokens, depths, i)
+	if (open === undefined) {
+		return true
+	}
+	const before = tokens[open - 1]
+	if (before?.kind === "quotedIdent" || isWord(before, "OVER") || isWord(before, "GROUP")) {
+		return false
+	}
+	let first = open + 1
+	while (isPunct(tokens[first], "(")) {
+		first += 1
+	}
+	return (
+		isWord(tokens[first], "SELECT") ||
+		isWord(tokens[first], "WITH") ||
+		isWord(tokens[first], "VALUES")
+	)
+}
+
+/** The first token of each item of the clause whose first item starts at `start`, the items its own depth's "," part. */
+const clauseItemStarts = (
+	tokens: ReadonlyArray<Token>,
+	depths: ReadonlyArray<number>,
+	start: number
+): ReadonlyArray<number> => {
+	const depth = depths[start]
+	if (depth === undefined) {
+		return []
+	}
+	const starts: Array<number> = [start]
+	for (let j = start; j < tokens.length; j++) {
+		const t = tokens[j]
+		const level: number = depths[j] ?? depth
+		if (
+			level < depth ||
+			isPunct(t, ";") ||
+			(level === depth && t?.kind === "word" && clauseEnders.has(t.upper))
+		) {
+			break
+		}
+		if (level === depth && isPunct(t, ",")) {
+			starts.push(j + 1)
+		}
+	}
+	return starts
+}
+
+/**
+ * Whether the item starting at `start` is a bare constant as PostgreSQL's grammar reads one: a number, string, dollar
+ * string, TRUE or FALSE, in any parentheses, a number under any unary minus too, which gram.y folds into it (doNegate),
+ * and nothing after it within the item. NULL is the null rule's.
+ */
+const bareConstantAt = (tokens: ReadonlyArray<Token>, start: number): boolean => {
+	let j = start
+	let opened = 0
+	let negated = false
+	for (
+		let t = tokens[j];
+		isPunct(t, "(") || (t?.kind === "operator" && t.text === "-");
+		t = tokens[j]
+	) {
+		opened += isPunct(t, "(") ? 1 : 0
+		negated ||= !isPunct(t, "(")
+		j += 1
+	}
+	const constant = tokens[j]
+	const bare =
+		constant?.kind === "number" ||
+		(!negated &&
+			(constant?.kind === "string" ||
+				constant?.kind === "dollar" ||
+				isWord(constant, "TRUE") ||
+				isWord(constant, "FALSE")))
+	if (!bare) {
+		return false
+	}
+	for (let k = 0; k < opened; k++) {
+		j += 1
+		if (!isPunct(tokens[j], ")")) {
+			return false
+		}
+	}
+	const after = tokens[j + 1]
+	return (
+		after === undefined ||
+		isPunct(after, ",") ||
+		isPunct(after, ")") ||
+		isPunct(after, ";") ||
+		(after.kind === "word" && itemEnders.has(after.upper))
+	)
+}
+
 /** Index of the punct ")" matching the "(" at `open`, if one does. */
 const matchingParen = (tokens: ReadonlyArray<Token>, open: number): Option.Option<number> => {
 	let depth = 0
@@ -3638,6 +3754,29 @@ class TextAuditor {
 		return cases
 	}
 
+	/**
+	 * A query's ORDER BY, GROUP BY and DISTINCT ON read a bare constant item as an output column's position, an integer
+	 * one, and refuse any other (parse_clause.c findTargetlistEntrySQL92): never the constant it spells. A window's and
+	 * an aggregate's ORDER BY read their items as values.
+	 */
+	positionalItems(
+		tokens: ReadonlyArray<Token>,
+		depths: ReadonlyArray<number>,
+		start: number,
+		clause: string
+	): void {
+		for (const at of clauseItemStarts(tokens, depths, start)) {
+			const t = tokens[at]
+			if (t !== undefined && bareConstantAt(tokens, at)) {
+				this.report(
+					"positional",
+					t.start,
+					`a bare constant ${clause} item, which PostgreSQL reads as an output column's position or refuses`
+				)
+			}
+		}
+	}
+
 	/** The body of CREATE FUNCTION ... AS $tag$ ... $tag$ or DO $tag$ ... $tag$, audited as PL/pgSQL. */
 	plBody(t: Extract<Token, { kind: "dollar" }>): void {
 		const body = lex(t.body)
@@ -3709,6 +3848,22 @@ class TextAuditor {
 			case "FULL":
 				if (isWord(next, "JOIN") || isWord(next, "OUTER")) {
 					this.report("outerJoin", t.start, `a ${t.upper} JOIN`)
+				}
+				return cases
+			case "BY": {
+				const clause = isWord(prev, "GROUP")
+					? "GROUP BY"
+					: isWord(prev, "ORDER") && ordersQuery(tokens, depths, i)
+						? "ORDER BY"
+						: undefined
+				if (clause !== undefined) {
+					this.positionalItems(tokens, depths, i + 1, clause)
+				}
+				return cases
+			}
+			case "ON":
+				if (isWord(prev, "DISTINCT") && isPunct(next, "(")) {
+					this.positionalItems(tokens, depths, i + 2, "DISTINCT ON")
 				}
 				return cases
 			case "SKIP":

@@ -675,8 +675,6 @@ const breakTable = <const N extends string>(
  *
  * scope
  *
- * positional
- *
  * context
  *
  * param
@@ -1280,41 +1278,6 @@ const requiredBreakTable = breakTable([
 			select: (q) =>
 				q.limit !== undefined && q.orderBy.length === 0 && q.body.kind === "core"
 					? [{ ...q, body: { ...operandSelect(q.body), limit: lit.int(5, types.bigint) } }]
-					: []
-		}
-	},
-	{
-		name: "a literal ORDER BY item",
-		rule: "positional",
-		holes: {
-			...noHoles,
-			select: (q) =>
-				q.orderBy.length > 0
-					? [{ ...q, orderBy: [...q.orderBy, asc(lit.int(1, types.integer))] }]
-					: [],
-			statement: (s) =>
-				s.kind === "select" && s.body.kind !== "select" && s.orderBy.length === 0
-					? [{ ...s, orderBy: [asc(lit.int(1, types.integer))] }]
-					: []
-		}
-	},
-	{
-		name: "a literal GROUP BY item",
-		rule: "positional",
-		holes: {
-			...noHoles,
-			core: (c) =>
-				c.groupBy.length > 0 ? [{ ...c, groupBy: [...c.groupBy, lit.int(1, types.integer)] }] : []
-		}
-	},
-	{
-		name: "a literal DISTINCT ON item",
-		rule: "positional",
-		holes: {
-			...noHoles,
-			core: (c) =>
-				typeof c.distinct === "object"
-					? [{ ...c, distinct: { on: appendNonEmpty(c.distinct.on, lit.int(1, types.integer)) } }]
 					: []
 		}
 	},
@@ -1955,13 +1918,60 @@ export const lateralRewrite: FaithfulRewrite = {
 	holes: { ...noHoles, core: (c) => siblingReferences(c, true) }
 }
 
+/** Whether `e` is a constant as a query's clauses read one: a literal, or the unary minus of one. */
+const isConstant = (e: Expr): boolean =>
+	e.kind === "literal" || (e.kind === "negate" && isConstant(e.expr))
+
+/** The constant a rewrite adds to a query's clause: an integer, which PostgreSQL would read bare as a position. */
+const clauseConstant = lit.int(1, types.integer)
+
 /** The faithful rewrites a Live population must reach. */
 export const requiredFaithfulRewrites: Arr.NonEmptyReadonlyArray<FaithfulRewrite> = [
 	cleared("a query ORDER BY's items removed", {
 		...noHoles,
 		select: (q) =>
-			q.orderBy.length > 0 && orderWithoutParams(q.orderBy) ? [{ ...q, orderBy: [] }] : []
+			Arr.some(q.orderBy, (item) => !isConstant(item.expr)) && orderWithoutParams(q.orderBy)
+				? [{ ...q, orderBy: [] }]
+				: []
 	}),
+	{
+		name: "a constant ORDER BY item added, which orders nothing",
+		print: "any",
+		holes: {
+			...noHoles,
+			select: (q) =>
+				q.orderBy.length > 0 ? [{ ...q, orderBy: [...q.orderBy, asc(clauseConstant)] }] : [],
+			statement: (s) =>
+				s.kind === "select" && s.body.kind !== "select" && s.orderBy.length === 0
+					? [{ ...s, orderBy: [asc(clauseConstant)] }]
+					: []
+		}
+	},
+	{
+		name: "a constant GROUP BY item added, which separates no group",
+		print: "different",
+		holes: {
+			...noHoles,
+			core: (c) => (c.groupBy.length > 0 ? [{ ...c, groupBy: [...c.groupBy, clauseConstant] }] : [])
+		}
+	},
+	{
+		name: "a constant leading a DISTINCT ON and the ORDER BY that begins with its items",
+		print: "different",
+		holes: {
+			...noHoles,
+			select: (q) =>
+				q.body.kind === "core" && typeof q.body.distinct === "object"
+					? [
+							{
+								...q,
+								body: { ...q.body, distinct: { on: [clauseConstant, ...q.body.distinct.on] } },
+								orderBy: [asc(clauseConstant), ...q.orderBy]
+							}
+						]
+					: []
+		}
+	},
 	cleared(
 		"a window PARTITION BY's items removed",
 		calls((c) =>
@@ -2154,6 +2164,20 @@ const closing = (tokens: ReadonlyArray<Token>, open: number): number => {
 }
 
 export const textBreaks: Arr.NonEmptyReadonlyArray<TextBreak> = [
+	{
+		name: "a bare integer leading a query's GROUP BY, or its ORDER BY at the statement's own level",
+		rule: "positional",
+		variants: (text) => {
+			const tokens = tokensOf(text)
+			const depths = depthsAfter(tokens)
+			return Arr.flatMap(tokens, (t, i) => {
+				const clause = word(tokens[i - 1])
+				const leads =
+					word(t) === "BY" && (clause === "GROUP" || (clause === "ORDER" && depths[i] === 0))
+				return leads ? [insertBefore(text, tokens, i + 1, "1,")] : []
+			})
+		}
+	},
 	{
 		name: "NOT NULL after a name, outside a column definition",
 		rule: "null",

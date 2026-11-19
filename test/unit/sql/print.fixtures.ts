@@ -13,7 +13,7 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, String as Str } from "effect"
+import { Array as Arr, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type {
 	Expr,
@@ -23,21 +23,31 @@ import type {
 	PlFunction,
 	PlStatement,
 	RaiseOption,
+	Select,
 	SelectCore,
-	SqlStatement
+	SqlStatement,
+	Target
 } from "#compiler/sql/ast.ts"
 import {
+	asc,
 	col,
 	core,
+	distinctCore,
+	distinctOnCore,
 	eq,
+	grouped,
 	lit,
 	objectName,
 	operandSelect,
+	provedCore,
 	provedSelect,
+	select,
+	setOperation,
 	table,
 	target,
 	types
 } from "#compiler/sql/build.ts"
+import { lex, type Token } from "#compiler/sql/lexer.ts"
 import { sqlText, writeDoBlock } from "#compiler/sql/print.ts"
 import { statementGen } from "#test/support/kernel/sqlgen.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
@@ -425,3 +435,238 @@ export const nameGen: Gen<string> = oneOf([
 		"\u00fcml"
 	] as const)
 ])
+
+/** A constant a query's clause may hold, one of each spelling the printer gives a literal. */
+export type ClauseConstant =
+	| "boolean"
+	| "zero"
+	| "integer"
+	| "negative integer"
+	| "bigint"
+	| "numeric"
+	| "double"
+	| "text"
+	| "bits"
+
+const clauseConstants: Arr.NonEmptyReadonlyArray<ClauseConstant> = [
+	"boolean",
+	"zero",
+	"integer",
+	"negative integer",
+	"bigint",
+	"numeric",
+	"double",
+	"text",
+	"bits"
+]
+
+/** What a query's ORDER BY orders: a plain core, one under DISTINCT, under DISTINCT ON, or a set operation. */
+export type OrderedBody =
+	| "core"
+	| "distinct"
+	| "distinct on"
+	| "distinct on naming it"
+	| "set operation"
+
+const orderedBodies: Arr.NonEmptyReadonlyArray<OrderedBody> = [
+	"core",
+	"distinct",
+	"distinct on",
+	"distinct on naming it",
+	"set operation"
+]
+
+/**
+ * A query whose ORDER BY, GROUP BY or DISTINCT ON holds a constant: alone, before a column or after one, the constant
+ * negated where it is a number, and an ORDER BY over each body it may order.
+ */
+export type ClauseCase = {
+	readonly constant: ClauseConstant
+	readonly negated: boolean
+	readonly place: "alone" | "first" | "last"
+} & (
+	| { readonly clause: "ORDER BY"; readonly body: OrderedBody }
+	| { readonly clause: "GROUP BY" | "DISTINCT ON" }
+)
+
+export type ClauseFeature = `ORDER BY over ${OrderedBody}` | "GROUP BY" | "DISTINCT ON" | "negated"
+
+const numbers: ReadonlySet<ClauseConstant> = new Set([
+	"zero",
+	"integer",
+	"negative integer",
+	"bigint",
+	"numeric",
+	"double"
+])
+
+export const clauseCaseGen: Gen<ClauseCase> = (s) => {
+	const constant = s.draw(element(clauseConstants))
+	const negated = numbers.has(constant) && s.draw(boolean)
+	const place = s.draw(element(["alone", "first", "last"] as const))
+	const clause = s.draw(element(["ORDER BY", "GROUP BY", "DISTINCT ON"] as const))
+	return clause === "ORDER BY"
+		? { constant, negated, place, clause, body: s.draw(element(orderedBodies)) }
+		: { constant, negated, place, clause }
+}
+
+const literalOf = (constant: ClauseConstant): Expr => {
+	switch (constant) {
+		case "boolean":
+			return lit.bool(true)
+		case "zero":
+			return lit.int(0, types.integer)
+		case "integer":
+			return lit.int(7, types.integer)
+		case "negative integer":
+			return lit.int(-3, types.integer)
+		case "bigint":
+			return lit.int(7, types.bigint)
+		case "numeric":
+			return { kind: "literal", value: { kind: "decimal", value: "1.5" }, type: types.numeric }
+		case "double":
+			return lit.float(2.5, types.double)
+		case "text":
+			return lit.text("x", types.text)
+		case "bits":
+			return lit.bits("A", types.varbit)
+	}
+}
+
+const from = [table("audit", "order", "r1")] as const
+const column = col("r1", "id")
+const other = col("r1", "select")
+
+/** A case's query, and how many items each of its clauses must print. */
+export const clauseQuery = (
+	c: ClauseCase
+): {
+	readonly select: Select
+	readonly printed: Readonly<Record<"ORDER BY" | "GROUP BY" | "DISTINCT ON", number>>
+} => {
+	const literal = literalOf(c.constant)
+	const constant: Expr = c.negated ? { kind: "negate", expr: literal } : literal
+	const items: Arr.NonEmptyReadonlyArray<Expr> =
+		c.place === "alone" ? [constant] : c.place === "first" ? [constant, column] : [column, constant]
+	const targets: Arr.NonEmptyReadonlyArray<Target> = [target(column)]
+	switch (c.clause) {
+		case "GROUP BY":
+			return {
+				select: select(grouped(core(targets, from, undefined), items)),
+				printed: { "ORDER BY": 0, "GROUP BY": items.length, "DISTINCT ON": 0 }
+			}
+		case "DISTINCT ON":
+			return {
+				select: select(distinctOnCore(items, targets, from, undefined)),
+				printed: { "ORDER BY": 0, "GROUP BY": 0, "DISTINCT ON": items.length }
+			}
+		case "ORDER BY": {
+			const ordered = Arr.map(items, asc)
+			const columns = items.length - 1
+			switch (c.body) {
+				case "core":
+					return {
+						select: {
+							...select(provedCore("certified", targets, from, undefined)),
+							orderBy: ordered
+						},
+						printed: { "ORDER BY": columns, "GROUP BY": 0, "DISTINCT ON": 0 }
+					}
+				case "distinct":
+					return {
+						select: { ...select(distinctCore(targets, from, undefined)), orderBy: ordered },
+						printed: { "ORDER BY": columns, "GROUP BY": 0, "DISTINCT ON": 0 }
+					}
+				case "distinct on":
+					return {
+						select: {
+							...select(distinctOnCore([other], targets, from, undefined)),
+							orderBy: [asc(other), ...ordered]
+						},
+						printed: { "ORDER BY": 1 + columns, "GROUP BY": 0, "DISTINCT ON": 1 }
+					}
+				case "distinct on naming it":
+					return {
+						select: {
+							...select(distinctOnCore(items, targets, from, undefined)),
+							orderBy: ordered
+						},
+						printed: { "ORDER BY": items.length, "GROUP BY": 0, "DISTINCT ON": items.length }
+					}
+				case "set operation":
+					return {
+						select: {
+							...select(
+								setOperation("UNION", [
+									provedCore("certified", targets, from, undefined),
+									provedCore("certified", targets, from, undefined)
+								])
+							),
+							orderBy: ordered
+						},
+						printed: { "ORDER BY": columns, "GROUP BY": 0, "DISTINCT ON": 0 }
+					}
+			}
+		}
+	}
+}
+
+/** The case's situation: its clause, and an ORDER BY's body. */
+export const clauseFeature = (c: ClauseCase): ClauseFeature =>
+	c.clause === "ORDER BY" ? `ORDER BY over ${c.body}` : c.clause
+
+export const clauseFeatures: ReadonlyArray<ClauseFeature> = [
+	...Arr.map(orderedBodies, (body): ClauseFeature => `ORDER BY over ${body}`),
+	"GROUP BY",
+	"DISTINCT ON",
+	"negated"
+]
+
+const isPunctToken = (t: Token, text: string): boolean => t.kind === "punct" && t.text === text
+
+/** Tokens split at each "," outside every parenthesis they open. */
+const splitItems = (tokens: ReadonlyArray<Token>): ReadonlyArray<ReadonlyArray<Token>> => {
+	const items: Array<ReadonlyArray<Token>> = []
+	let item: Array<Token> = []
+	let depth = 0
+	for (const t of tokens) {
+		depth += isPunctToken(t, "(") ? 1 : isPunctToken(t, ")") ? -1 : 0
+		if (depth === 0 && isPunctToken(t, ",")) {
+			items.push(item)
+			item = []
+		} else {
+			item.push(t)
+		}
+	}
+	return tokens.length === 0 ? [] : [...items, item]
+}
+
+/** The tokens inside the parenthesis the first token opens. */
+const parenthesized = (tokens: ReadonlyArray<Token>): ReadonlyArray<Token> => {
+	let depth = 0
+	for (const [i, t] of tokens.entries()) {
+		depth += isPunctToken(t, "(") ? 1 : isPunctToken(t, ")") ? -1 : 0
+		if (depth === 0) {
+			return tokens.slice(1, i)
+		}
+	}
+	return tokens
+}
+
+/**
+ * The items a printed query's clause holds, each its tokens: an ORDER BY's and a GROUP BY's on the line the clause opens,
+ * a DISTINCT ON's in the parentheses after it.
+ */
+export const printedItems = (
+	text: string,
+	clause: "ORDER BY" | "GROUP BY" | "DISTINCT ON"
+): ReadonlyArray<ReadonlyArray<Token>> => {
+	const opener = clause === "DISTINCT ON" ? "SELECT DISTINCT ON " : `${clause} `
+	return Option.match(Arr.findFirst(Str.split(text, "\n"), Str.startsWith(opener)), {
+		onNone: () => [],
+		onSome: (line) => {
+			const tokens = lex(Str.slice(opener.length)(line)).tokens
+			return splitItems(clause === "DISTINCT ON" ? parenthesized(tokens) : tokens)
+		}
+	})
+}
