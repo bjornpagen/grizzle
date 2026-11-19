@@ -356,8 +356,6 @@ const schemaFaults = [
 	"setKey",
 	"conflictingRow",
 	"generatedReadsGenerated",
-	"generatedReadsAccumulated",
-	"generatedReadsDrawn",
 	"generatedWrongType",
 	"generatedContract",
 	"generatedTwiceNamed",
@@ -691,14 +689,6 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 	generatedReadsGenerated: structural(
 		{ tag: "MalformedDescription" },
 		"the row holds the written fields only, so no generated field reads another"
-	),
-	generatedReadsAccumulated: structural(
-		{ tag: "GeneratedRefused" },
-		"the row holds the fields its caller writes, never one grizzle accumulates"
-	),
-	generatedReadsDrawn: structural(
-		{ tag: "GeneratedRefused" },
-		"the row holds the fields its caller writes, never one grizzle draws"
 	),
 	generatedWrongType: structural(
 		{ tag: "GeneratedRefused" },
@@ -6467,8 +6457,6 @@ type GeneratedForm =
 	| "readsCaller"
 	| "refinedGenerated"
 	| "generatedReadsGenerated"
-	| "generatedReadsAccumulated"
-	| "generatedReadsDrawn"
 	| "generatedWrongType"
 	| "generatedContract"
 	| "generatedTwiceNamed"
@@ -6481,8 +6469,7 @@ const doubledPattern = "^[a-c]{0,8}$"
 /**
  * A relation with generated fields over its caller's id, depth and set w. Valid, a generated set reading w, or a
  * concatenation of the caller's word, a text of no pattern, into a field of a pattern, which the field's domain judges;
- * or a planted fault: a generated field reading another, an accumulated set or a drawn count declared beside w, a term
- * of a type other than its field's, a bigint term into a contract over bigint, a generated field named as a written
+ * or a planted fault: a generated field reading another, a term of a type other than its field's, a bigint term into a contract over bigint, a generated field named as a written
  * one, a primary key naming a generated field. The engine's compilation of a schema holding it is the oracle.
  */
 const generatedProbe = (d: Drawing, base: Base): Probe => {
@@ -6491,8 +6478,6 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 		"readsCaller",
 		"refinedGenerated",
 		"generatedReadsGenerated",
-		"generatedReadsAccumulated",
-		"generatedReadsDrawn",
 		"generatedWrongType",
 		"generatedContract",
 		"generatedTwiceNamed",
@@ -6513,10 +6498,6 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 				return `{ c: Fi.generated(${tally}, ${successorSource}) }`
 			case "generatedReadsGenerated":
 				return `{ next: ${nextSource}, twice: Fi.generated(Fi.pg.bigint, r.next) }`
-			case "generatedReadsAccumulated":
-				return `{ g: Fi.generated(${set}, r.acc) }`
-			case "generatedReadsDrawn":
-				return "{ m: Fi.generated(Fi.pg.bigint, r.n) }"
 			case "generatedWrongType":
 				return "{ label: Fi.generated(Fi.pg.bigint, r.depth) }"
 			case "generatedTwiceNamed":
@@ -6536,13 +6517,12 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 					form === "generatedContract"
 						? [`export const ${tally} = Fi.contract(${jsonText(tallyName)}, Fi.pg.bigint)`]
 						: [],
-				line: `export const ${own} = Sc.relation.generated("Generated", { id: Fi.uuid, depth: Fi.pg.integer, w: ${set}${form === "refinedGenerated" ? `, word: Tx.str.regex(${jsonText(wordPattern)})` : ""}${form === "generatedReadsAccumulated" ? `, acc: Fi.accumulated(${set}, Fi.Bits.of(${ids(roster.name)}, []))` : ""}${form === "generatedReadsDrawn" ? ", n: Fi.drawn(Fi.natural)" : ""} }, [${form === "generatedKey" ? '"next"' : '"id"'}], (r) => (${callbackSource(set, tally)}))`,
+				line: `export const ${own} = Sc.relation.generated("Generated", { id: Fi.uuid, depth: Fi.pg.integer, w: ${set}${form === "refinedGenerated" ? `, word: Tx.str.regex(${jsonText(wordPattern)})` : ""} }, [${form === "generatedKey" ? '"next"' : '"id"'}], (r) => (${callbackSource(set, tally)}))`,
 				tail: []
 			}
 		},
 		judge: (env) =>
 			compiling(() => {
-				const rosterValue = got(env.rosters, roster.name)
 				const set = fieldValue({ kind: "bits", roster: roster.name }, env.rosters, env.contracts)
 				const successor = (row: Readonly<Record<string, unknown>>) =>
 					computeCore.cast(computeCore.add(row["depth"], 1), pgDescriptors.bigint)
@@ -6575,10 +6555,6 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 								next: next(row),
 								twice: generatedField(pgDescriptors.bigint, row["next"], [])
 							}
-						case "generatedReadsAccumulated":
-							return { g: generatedField(set, row["acc"], []) }
-						case "generatedReadsDrawn":
-							return { m: generatedField(pgDescriptors.bigint, row["n"], []) }
 						case "generatedWrongType":
 							return { label: generatedField(pgDescriptors.bigint, row["depth"], []) }
 						case "generatedTwiceNamed":
@@ -6593,11 +6569,7 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 						id: uuidDescriptor,
 						depth: pgDescriptors.integer,
 						w: set,
-						...(form === "refinedGenerated" ? { word: regexField(wordPattern, []) } : {}),
-						...(form === "generatedReadsAccumulated"
-							? { acc: accumulatedField(set, bitsOf(rosterValue, [], []), []) }
-							: {}),
-						...(form === "generatedReadsDrawn" ? { n: drawnField(naturalDescriptor, []) } : {})
+						...(form === "refinedGenerated" ? { word: regexField(wordPattern, []) } : {})
 					},
 					[form === "generatedKey" ? "next" : "id"],
 					callback,
