@@ -36,7 +36,7 @@ import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { connectiveExpr, type ExprDesc } from "#compiler/ir/desc.ts"
-import { type ExprTable, predicateTable } from "#compiler/ir/expr.ts"
+import { type ExprTable, predicateTable, storedColumn } from "#compiler/ir/expr.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
@@ -146,13 +146,7 @@ const rowPredicate = (
 				const field = desc.kind === "field" ? fields.find((f) => f.name === desc.field) : undefined
 				return field === undefined
 					? Result.err(malformedDescription(at, `a field of ${relation}`))
-					: Result.ok({
-							kind: "column",
-							column: { node: rowNode, name: field.name },
-							args: [],
-							type: field.type,
-							nonNull: "storage"
-						})
+					: Result.ok(storedColumn(rowNode, field.name, field.type))
 			}
 		}),
 		(table) => predicateTable(table.expr)

@@ -90,7 +90,13 @@ import {
 	type TermDesc,
 	termText
 } from "#compiler/ir/desc.ts"
-import { type ExprSpec, OpId, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
+import {
+	type ExprSpec,
+	OpId,
+	type ScalarExpr,
+	type TypedLiteral,
+	storedColumn
+} from "#compiler/ir/expr.ts"
 import type { AxisKind, Family, FamilyFold } from "#compiler/ir/family.ts"
 import {
 	type DeclaredSide,
@@ -2401,14 +2407,6 @@ const checkViolation = (
 	)
 }
 
-const columnLeaf = (node: RelNode, c: HeadingColumn): ExprSpec => ({
-	kind: "column",
-	column: { node: node.id, name: c.name },
-	args: [],
-	type: c.type,
-	nonNull: "storage"
-})
-
 /** The lowering of a row expression, total, into the builder's DAG, each leaf read by `leaf`. */
 const totalEnv = (
 	b: ViolationBuilder,
@@ -2513,7 +2511,7 @@ const fieldLeaf =
 
 /** The leaf reader of a row expression of `r` over the row `node` binds: each field of `r` its column there. */
 const rowLeaf = (r: TheoryRelation, node: RelNode): LowerEnv["leaf"] =>
-	fieldLeaf(r, (field) => columnLeaf(node, field))
+	fieldLeaf(r, (field) => storedColumn(node.id, field.name, field.type))
 
 /** A term of a row expression lowered, total, into the builder's DAG: a law side's term, a field or pred's difference. */
 const lowerTermTotal = (
@@ -2728,7 +2726,10 @@ const clashes = (
 	const join = b.selfJoin(r, shared)
 	/** A row expression over one of the two rows, each field read as that row's column of it. */
 	const over = (row: "left" | "right"): LowerEnv["leaf"] =>
-		fieldLeaf(r, (field) => columnLeaf(join.node, join.pair(field)[row]))
+		fieldLeaf(r, (field) => {
+			const c = join.pair(field)[row]
+			return storedColumn(join.node.id, c.name, c.type)
+		})
 	const guarded = mapNonEmpty(side.terms, guardedTerm)
 	const holdsAt = (row: "left" | "right"): ReadonlyArray<ScalarExpr> => [
 		...side.selection.conjuncts.map((c) => lowerTotal(b, env, c.predicate, loc, over(row))),

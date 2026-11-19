@@ -60,7 +60,8 @@ import {
 	identityValueOf,
 	predicateTable,
 	type ScalarExpr,
-	type TypedLiteral
+	type TypedLiteral,
+	storedColumn
 } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import {
@@ -806,15 +807,6 @@ interface ColumnRow {
 	readonly values: Map<string, LawColumnValue>
 }
 
-/** A column of a scan region at `type`, read by its name: a field's, or a law column's identifier. */
-const regionColumn = (node: NodeId, name: string, type: ScalarType): ExprSpec => ({
-	kind: "column",
-	column: { node, name },
-	args: [],
-	type,
-	nonNull: "storage"
-})
-
 /**
  * The law columns' values lowered into the extension DAG in "check" mode, where no operation raises, over one scan of
  * each relation's row: each guard conjunct once per relation, by its canonical text, so two columns of one guard read
@@ -1004,7 +996,7 @@ class ColumnLowering {
 			leaf: (desc: LeafDesc, at: SourceLoc): Result.Result<ExprSpec, CompileError> => {
 				const type = desc.kind === "field" ? lawColumns.get(desc.field) : undefined
 				return desc.kind === "field" && type !== undefined
-					? Result.ok(regionColumn(row.region.id, desc.field, type))
+					? Result.ok(storedColumn(row.region.id, desc.field, type))
 					: row.leaf(desc, at)
 			}
 		}
@@ -1025,7 +1017,7 @@ class ColumnLowering {
 					? Result.err(
 							malformedDescription(at, `a field of ${r.name}, not a ${desc.kind} reference`)
 						)
-					: Result.ok(columnLeaf(region.id, field))
+					: Result.ok(storedColumn(region.id, field.name, field.type))
 			},
 			guards: new Map(),
 			values: new Map()
@@ -1594,11 +1586,11 @@ class Specializer {
 						const field = r.fields.find((f) => f.name === leaf.field)
 						return field === undefined
 							? Result.err(malformedDescription(loc, `a field of ${r.name}, not ${leaf.field}`))
-							: Result.ok(columnLeaf(node, field))
+							: Result.ok(storedColumn(node, field.name, field.type))
 					}
 					switch (named.kind) {
 						case "law":
-							return Result.ok(regionColumn(node, this.#lawColumn(named.column), named.type))
+							return Result.ok(storedColumn(node, this.#lawColumn(named.column), named.type))
 						case "literal":
 							return Result.ok({
 								kind: "literal",
@@ -1888,14 +1880,6 @@ const lawColumnIdentity = (plan: LawColumnPlan): Identity<"lawColumn"> => {
 			return identity.lawColumn(plan.named)
 	}
 }
-
-const columnLeaf = (node: NodeId, field: LawField): ExprSpec => ({
-	kind: "column",
-	column: { node, name: field.name },
-	args: [],
-	type: field.type,
-	nonNull: "storage"
-})
 
 /** The predicate with every field leaf of a contract type read as its base (Compute.base), at any depth. A leaf already
  * under a base stays as it is. */

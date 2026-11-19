@@ -7,7 +7,7 @@ import { Refusal } from "#compiler/core/canonical.ts"
 import type { InexactConversion, RecursionArm } from "#compiler/core/causes.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"
 import type { Heading, RelNode } from "#compiler/ir/rel.ts"
 import {
 	contractOf,
@@ -239,13 +239,7 @@ export const conform = (
 		return node
 	}
 	const out = columns.map(({ target, column }) => {
-		const read = cx.builder.expr({
-			kind: "column",
-			column: { node: node.id, name: column.name },
-			args: [],
-			type: column.type,
-			nonNull: "storage"
-		})
+		const read = cx.builder.expr(storedColumn(node.id, column.name, column.type))
 		if (sameScalarType(column.type, target.type)) {
 			return { name: target.name, expr: read }
 		}

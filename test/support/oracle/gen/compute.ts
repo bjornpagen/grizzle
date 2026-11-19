@@ -15,7 +15,7 @@ import {
 	type LiteralDesc,
 	type ScaledComputeFn
 } from "#compiler/ir/desc.ts"
-import type { ExprSpec, ScalarExpr } from "#compiler/ir/expr.ts"
+import { type ExprSpec, type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
@@ -833,13 +833,7 @@ const probeHooks = (): LowerHooks => {
 	const node = ids.node()
 	return {
 		emit: (spec) => b.expr(spec),
-		column: (c) => ({
-			kind: "column",
-			column: { node, name: c.name },
-			args: [],
-			type: c.type,
-			nonNull: "storage"
-		}),
+		column: (c) => storedColumn(node, c.name, c.type),
 		param: (name) => {
 			throw new Error(`a narrowing probe names no parameter, ${name}`)
 		}
@@ -947,7 +941,7 @@ export const buildTerm = (
  * A column of an exact type narrowed into the carrier a program stores it at (plainOutput), lowered over `scope`'s
  * heading: how a generated aggregate's exact money sum becomes a money column the generators draw.
  */
-export const storedColumn = (
+export const narrowedColumn = (
 	scope: TermScope,
 	hooks: LowerHooks,
 	column: HeadingColumn

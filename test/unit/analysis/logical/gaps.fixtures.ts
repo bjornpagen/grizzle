@@ -4,7 +4,7 @@ import { array, boolean, constant, type Gen, int, weighted } from "@bjornpagen/t
 import { Array as Arr, Order, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import { type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import { keyFactors, type KeyProof } from "#compiler/ir/keys.ts"
 import {
 	conservativeMeta,
@@ -479,13 +479,7 @@ export const projected = (b: DagBuilder, input: RelNode, keep: number): RelNode 
 		input,
 		out: Arr.map(kept, (h) => ({
 			name: h.name,
-			expr: b.expr({
-				kind: "column",
-				column: { node: input.id, name: h.name },
-				args: [],
-				type: h.type,
-				nonNull: "storage"
-			})
+			expr: b.expr(storedColumn(input.id, h.name, h.type))
 		})),
 		heading: kept,
 		loc: undefined,

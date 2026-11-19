@@ -3,7 +3,7 @@
 import { Array as Arr, Record as Rec } from "effect"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
@@ -66,13 +66,7 @@ export const placed = (placement: Placement, depth: number): LogicalQuery => {
 		}
 		case "correlated to its region": {
 			const outer = q.b.reserve()
-			const start = q.b.expr({
-				kind: "column",
-				column: { node: outer, name: "x" },
-				args: [],
-				type: T.int4,
-				nonNull: "storage"
-			})
+			const start = q.b.expr(storedColumn(outer, "x", T.int4))
 			return q.build(
 				q.regionWith(
 					[

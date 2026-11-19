@@ -17,7 +17,8 @@ import {
 	mapArgs,
 	predicateTree,
 	sameArgs,
-	type ScalarExpr
+	type ScalarExpr,
+	storedColumn
 } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import type { LawField, TheoryRelation } from "#compiler/ir/law.ts"
@@ -151,13 +152,7 @@ const substituteEndpoint = (
 	const substituted = new Fold<ScalarExpr, ScalarExpr>(function* (e) {
 		if (e.kind === "value") {
 			const column = builtExpr(
-				{
-					kind: "column",
-					column: { node: spanColumnNode, name: field },
-					args: [],
-					type: spanType,
-					nonNull: "storage"
-				},
+				storedColumn(spanColumnNode, field, spanType),
 				ExprId(`${e.id}~${bound}`)
 			)
 			return builtExpr(

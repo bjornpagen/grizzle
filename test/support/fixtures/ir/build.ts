@@ -19,7 +19,8 @@ import {
 	OpId,
 	type ParamRole,
 	type ScalarExpr,
-	type TypedLiteral
+	type TypedLiteral,
+	storedColumn
 } from "#compiler/ir/expr.ts"
 import { type KeyProof, soleFactor } from "#compiler/ir/keys.ts"
 import {
@@ -473,13 +474,7 @@ export class Ir {
 
 	/** A column of a node defined later under a reserved id: an outer variable a correlated source reads. */
 	outerCol(node: NodeId, name: string, type: ScalarType): ScalarExpr {
-		return this.#record({
-			kind: "column",
-			column: { node, name },
-			args: [],
-			type,
-			nonNull: "storage"
-		})
+		return this.#record(storedColumn(node, name, type))
 	}
 
 	lit(value: LiteralDesc, type: ScalarType): ScalarExpr {

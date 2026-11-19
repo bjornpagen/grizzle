@@ -13,7 +13,7 @@ import {
 import { Array as Arr, String as Str } from "effect"
 import { ExprId, NodeId } from "#compiler/core/ids.ts"
 import { type Direction, directions } from "#compiler/core/order.ts"
-import { builtExpr, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { builtExpr, type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { connectiveOps, definedIdOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
@@ -181,16 +181,7 @@ const bool = plainType("bool")
 const region = NodeId("region")
 
 const column = (name: string, at: string, type: FieldType): ScalarExpr =>
-	builtExpr(
-		{
-			kind: "column",
-			column: { node: region, name },
-			args: [],
-			type: fieldTypes[type],
-			nonNull: "storage"
-		},
-		ExprId(`${at}.${name}`)
-	)
+	builtExpr(storedColumn(region, name, fieldTypes[type]), ExprId(`${at}.${name}`))
 
 /** The native operator `fn` over the pair's two fields of `type`, in the leaf's order. */
 const pairExpr = (

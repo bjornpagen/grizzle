@@ -5,6 +5,7 @@ import { Array as Arr, Effect, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
+import { storedColumn } from "#compiler/ir/expr.ts"
 import { keyFactors, keyIn } from "#compiler/ir/keys.ts"
 import { conservativeMeta, type Heading } from "#compiler/ir/rel.ts"
 import { bitsOf } from "#compiler/logical/attributes.ts"
@@ -207,13 +208,7 @@ export const aLateralSourcesColumnFixedToARegionColumnEqualsThatColumnsVariableB
 							input: filtered,
 							out: Arr.map(filtered.heading, (h) => ({
 								name: h.name,
-								expr: b.expr({
-									kind: "column",
-									column: { node: filtered.id, name: h.name },
-									args: [],
-									type: h.type,
-									nonNull: "storage"
-								})
+								expr: b.expr(storedColumn(filtered.id, h.name, h.type))
 							})),
 							heading: filtered.heading,
 							loc: undefined,

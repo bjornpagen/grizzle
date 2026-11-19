@@ -23,7 +23,7 @@ import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { EvidenceContext, TemplateContext } from "#compiler/ir/evidence.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"
 import {
 	conservativeMeta,
 	type Heading,
@@ -91,13 +91,7 @@ const provingCase = (c: QueryCase, picks: ReadonlyArray<number>): QueryCase => {
 	const b = new DagBuilder(makeIdSupply())
 	const pick = (i: number) => picks[i % picks.length] ?? 0
 	const column = (node: RelNode, h: HeadingColumn): ScalarExpr =>
-		b.expr({
-			kind: "column",
-			column: { node: node.id, name: h.name },
-			args: [],
-			type: h.type,
-			nonNull: "storage"
-		})
+		b.expr(storedColumn(node.id, h.name, h.type))
 	/** A plain scan: one occurrence binding every column, every column kept or projected onto the named ones. */
 	type Kept =
 		| { readonly kind: "every column" }

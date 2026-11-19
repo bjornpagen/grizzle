@@ -478,6 +478,15 @@ export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 /** An expression as a builder states it: its kind, its type, and its argument expressions themselves. */
 export type ExprSpec = ExprSpecOver<LiveArgs>
 
+/** A stored column's reference: the column `name` of `node` at `type`, its nullability its storage's. */
+export const storedColumn = (node: NodeId, name: string, type: ScalarType): ExprSpec => ({
+	kind: "column",
+	column: { node, name },
+	args: [],
+	type,
+	nonNull: "storage"
+})
+
 /**
  * The scalar expression IR.
  *

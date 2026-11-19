@@ -10,7 +10,8 @@ import {
 	type OpId,
 	type ScalarExpr,
 	type TypedLiteral,
-	withArgs
+	withArgs,
+	storedColumn
 } from "#compiler/ir/expr.ts"
 import type { OperationProof } from "#compiler/ir/proof.ts"
 import type { Cell } from "#compiler/ir/rel.ts"
@@ -176,14 +177,7 @@ export const colExpr = (
 	node: Cell,
 	name: string,
 	type: ScalarType
-): ScalarExpr =>
-	ed.expr({
-		kind: "column",
-		column: { node: node.id, name },
-		args: [],
-		type,
-		nonNull: "storage"
-	})
+): ScalarExpr => ed.expr(storedColumn(node.id, name, type))
 
 export const litExpr = (ed: CatalogEditor, value: TypedLiteral, type: ScalarType): ScalarExpr =>
 	ed.expr({ kind: "literal", value, args: [], type, nonNull: "literal" })

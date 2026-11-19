@@ -65,7 +65,8 @@ import {
 	type TypedLiteral,
 	OpId,
 	type ParamRole,
-	type ScalarExpr
+	type ScalarExpr,
+	storedColumn
 } from "#compiler/ir/expr.ts"
 import { headingColumns } from "#compiler/ir/law.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -451,14 +452,6 @@ interface OutColumn {
 const projectionOf = (out: ReadonlyArray<OutColumn>) => ({
 	out: out.map((o) => ({ name: o.name, expr: o.expr })),
 	heading: out.map((o): HeadingColumn => ({ name: o.name, type: o.type }))
-})
-
-const columnSpec = (node: NodeId, name: string, type: ScalarType): ExprSpec => ({
-	kind: "column",
-	column: { node, name },
-	args: [],
-	type,
-	nonNull: "storage"
 })
 
 const literalSpec = (value: TypedLiteral, type: ScalarType): ExprSpec => ({
@@ -1092,7 +1085,7 @@ export class Checker {
 			origin.kind === "attachChild"
 				? origin.parent.columns.map((c) => ({
 						column: c.name,
-						expr: this.emit(columnSpec(origin.parent.node, c.parent, c.type))
+						expr: this.emit(storedColumn(origin.parent.node, c.parent, c.type))
 					}))
 				: []
 		const fixed = new Set(correlation.map((c) => c.column))
@@ -1439,7 +1432,7 @@ export class Checker {
 				kept.set(c.name, retyped)
 				return { name: c.name, expr: this.emit(literalSpec(retyped.literal, t)), type: t }
 			}
-			const col = this.emit(columnSpec(arm.id, c.name, c.type))
+			const col = this.emit(storedColumn(arm.id, c.name, c.type))
 			if (sameScalarType(t, c.type)) {
 				return { name: c.name, expr: col, type: t }
 			}
@@ -1931,7 +1924,7 @@ export class Checker {
 			leaf: (desc, at) =>
 				catchRefusal(() => {
 					const c = leaf(desc, at)
-					return columnSpec(node, c.name, c.type)
+					return storedColumn(node, c.name, c.type)
 				}),
 			params: {
 				kind: "scope",
@@ -1965,7 +1958,7 @@ export class Checker {
 		const resolved = this.#resolveParam(cell, scope, loc)
 		if (resolved.kind === "column") {
 			const c = paramColumn(cell, loc)
-			const spec = columnSpec(node, c.name, c.type)
+			const spec = storedColumn(node, c.name, c.type)
 			if (param.type.kind === "channel") {
 				return { spec, type: c.type }
 			}
@@ -2926,14 +2919,14 @@ class RuleCheck {
 				if (baseMatches(resolved.type)) {
 					return {
 						kind: "fix",
-						expr: this.cx.emit(columnSpec(resolved.node, resolved.name, resolved.type))
+						expr: this.cx.emit(storedColumn(resolved.node, resolved.name, resolved.type))
 					}
 				}
 				const slot = this.#paramSlot(cell, loc)
 				this.#needed.add(slot.id)
 				return {
 					kind: "filter",
-					expr: this.cx.emit(columnSpec(this.region, slot.name, this.slotType(slot)))
+					expr: this.cx.emit(storedColumn(this.region, slot.name, this.slotType(slot)))
 				}
 			}
 		}
@@ -3015,7 +3008,7 @@ class RuleCheck {
 			if (outer !== undefined) {
 				correlated.push({
 					var: declOf(s),
-					expr: this.cx.emit(columnSpec(outer.node, outer.name, outer.type))
+					expr: this.cx.emit(storedColumn(outer.node, outer.name, outer.type))
 				})
 			}
 		}
@@ -3057,15 +3050,15 @@ class RuleCheck {
 		for (const pending of this.eqs) {
 			if (pending.kind === "slots") {
 				const l = this.cx.emit(
-					columnSpec(this.region, pending.left.name, this.slotType(pending.left))
+					storedColumn(this.region, pending.left.name, this.slotType(pending.left))
 				)
 				const r = this.cx.emit(
-					columnSpec(this.region, pending.right.name, this.slotType(pending.right))
+					storedColumn(this.region, pending.right.name, this.slotType(pending.right))
 				)
 				preds.push(this.cx.opNamed("eq", [l, r], loc))
 			} else {
 				const h = this.cx.emit(
-					columnSpec(this.region, pending.hidden.name, this.slotType(pending.hidden))
+					storedColumn(this.region, pending.hidden.name, this.slotType(pending.hidden))
 				)
 				preds.push(this.cx.opNamed("eq", [h, pending.value], loc))
 			}
@@ -3258,7 +3251,7 @@ class RuleCheck {
 								filtered.map((f) =>
 									this.cx.opNamed(
 										"eq",
-										[this.cx.emit(columnSpec(negated.id, f.column, f.type)), f.value],
+										[this.cx.emit(storedColumn(negated.id, f.column, f.type)), f.value],
 										loc
 									)
 								),
@@ -3276,7 +3269,7 @@ class RuleCheck {
 				input: narrowed,
 				out: rightOut.map((c) => ({
 					name: c.name,
-					expr: this.cx.emit(columnSpec(narrowed.id, c.name, c.type))
+					expr: this.cx.emit(storedColumn(narrowed.id, c.name, c.type))
 				})),
 				heading: rightOut
 			},
@@ -3459,7 +3452,7 @@ class RuleCheck {
 		const target = writtenTarget(this.scope.origin)?.relation.heading.find((c) => c.name === name)
 		const targetType = target?.type
 		const column = (c: HeadingColumn): TermOut => ({
-			expr: this.cx.emit(columnSpec(input.id, c.name, c.type)),
+			expr: this.cx.emit(storedColumn(input.id, c.name, c.type)),
 			type: c.type,
 			literal: undefined
 		})
@@ -3614,7 +3607,7 @@ class RuleCheck {
 					const col = this.#slotColumn(c.slot)
 					return {
 						name: c.name,
-						expr: this.cx.emit(columnSpec(input.id, col.name, col.type)),
+						expr: this.cx.emit(storedColumn(input.id, col.name, col.type)),
 						type: col.type
 					}
 				}),
@@ -3896,7 +3889,7 @@ class RuleCheck {
 		const passed: ReadonlyArray<OutColumn> = keys.some((k) => k.kind === "computed")
 			? inputHeading.map((c) => ({
 					name: c.name,
-					expr: this.cx.emit(columnSpec(input.id, c.name, c.type)),
+					expr: this.cx.emit(storedColumn(input.id, c.name, c.type)),
 					type: c.type
 				}))
 			: []
@@ -3940,12 +3933,12 @@ class RuleCheck {
 		const out: Array<OutColumn> = [
 			...keyed.map(({ name, column: c }) => ({
 				name,
-				expr: this.cx.emit(columnSpec(node.id, c.name, c.type)),
+				expr: this.cx.emit(storedColumn(node.id, c.name, c.type)),
 				type: c.type
 			})),
 			...results.map(({ name, column: c }) => ({
 				name,
-				expr: this.cx.emit(columnSpec(node.id, c.name, c.type)),
+				expr: this.cx.emit(storedColumn(node.id, c.name, c.type)),
 				type: c.type
 			})),
 			...constants.map(([name, h]) => {

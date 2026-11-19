@@ -4,7 +4,13 @@ import { indices } from "#compiler/core/array.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
-import { type DefinedOp, OpId, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
+import {
+	type DefinedOp,
+	OpId,
+	type ScalarExpr,
+	type TypedLiteral,
+	storedColumn
+} from "#compiler/ir/expr.ts"
 import {
 	conservativeMeta,
 	type Heading,
@@ -840,13 +846,7 @@ class GraphQueryBuilder {
 
 	col(b: Built, name: string): ScalarExpr {
 		const c = columnOf(b, name)
-		return this.b.expr({
-			kind: "column",
-			column: { node: b.node.id, name: c.name },
-			args: [],
-			type: c.type,
-			nonNull: "storage"
-		})
+		return this.b.expr(storedColumn(b.node.id, c.name, c.type))
 	}
 
 	lit(value: TypedLiteral, type: ScalarType): ScalarExpr {

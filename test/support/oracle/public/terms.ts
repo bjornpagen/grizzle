@@ -3,7 +3,7 @@ import { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { type ExprDesc, type GuardDesc, guardedExpr } from "#compiler/ir/desc.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import { type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { exprEmitter, type LowerEnv, lowerTerm } from "#compiler/scalar/compute/lower.ts"
 import { noClosedRelations, noParams } from "#compiler/scalar/compute/typing.ts"
@@ -154,13 +154,7 @@ const loweredType = (desc: (name: (v: Var) => string) => ExprDesc): ScalarType =
 			const type = leaf.kind === "var" ? fields.get(leaf.var) : undefined
 			return leaf.kind !== "var" || type === undefined
 				? Engine.err(malformedDescription(loc, "a variable of the term"))
-				: Engine.ok({
-						kind: "column",
-						column: { node, name: leaf.var },
-						args: [],
-						type,
-						nonNull: "storage"
-					})
+				: Engine.ok(storedColumn(node, leaf.var, type))
 		},
 		params: noParams,
 		fieldType: (d, loc) => scalarTypeOf(d, bareEnv, loc),

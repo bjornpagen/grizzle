@@ -17,7 +17,8 @@ import {
 	type LiveArgs,
 	mapArgs,
 	type ScalarExpr,
-	sameArgs
+	sameArgs,
+	storedColumn
 } from "#compiler/ir/expr.ts"
 import { drive, Fold } from "#compiler/ir/fold.ts"
 import {
@@ -370,13 +371,7 @@ export class DagEditor<R extends Roots = Roots> {
 
 	/** A column reference to the column `col` of `cell`'s heading, typed as the heading says. */
 	column(cell: Cell, col: HeadingColumn): ScalarExpr {
-		return this.expr({
-			kind: "column",
-			column: { node: cell.id, name: col.name },
-			args: [],
-			type: col.type,
-			nonNull: "storage"
-		})
+		return this.expr(storedColumn(cell.id, col.name, col.type))
 	}
 
 	/** A new cell of `node` under a fresh label. */

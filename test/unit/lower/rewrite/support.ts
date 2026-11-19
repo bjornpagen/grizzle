@@ -7,7 +7,7 @@ import type { Certificate, CertificateRule } from "#compiler/ir/certificate.ts"
 import { type Codebook } from "#compiler/ir/codes.ts"
 import { rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
-import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
+import { type ScalarExpr, type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import { makePassContext, type Pass, type PassContext } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Heading, RelDag, RelNode } from "#compiler/ir/rel.ts"
@@ -392,10 +392,4 @@ export const nodesOf = <K extends RelNode["kind"]>(
  * later) or an earlier occurrence's source, read by a correlated source.
  */
 export const outerCol = (q: Q, node: NodeId, name: string, type: ScalarType): ScalarExpr =>
-	q.b.expr({
-		kind: "column",
-		column: { node, name },
-		args: [],
-		type,
-		nonNull: "storage"
-	})
+	q.b.expr(storedColumn(node, name, type))

@@ -2,7 +2,7 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { nodePremises } from "#compiler/ir/certificate.ts"
 import type { ClosedEvidence } from "#compiler/ir/evidence.ts"
-import type { OpId, ScalarExpr } from "#compiler/ir/expr.ts"
+import { type OpId, type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Cell, EditRefs, KindOver, OccurrenceOver, VarDecl } from "#compiler/ir/rel.ts"
@@ -146,13 +146,7 @@ const shapedMemberships = (
  * before the predicate is placed over it.
  */
 const varRef = (ed: DagEditor, region: Cell, v: VarDecl): ScalarExpr =>
-	ed.expr({
-		kind: "column",
-		column: { node: region.id, name: v.name },
-		args: [],
-		type: v.type,
-		nonNull: "storage"
-	})
+	ed.expr(storedColumn(region.id, v.name, v.type))
 
 /**
  * The predicate a membership stands for, over the region's own columns: none for a roster, whose domain types every

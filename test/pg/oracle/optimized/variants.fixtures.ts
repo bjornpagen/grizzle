@@ -11,7 +11,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { type Direction, directions } from "#compiler/core/order.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import { type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import {
 	type CompletedOrder,
 	conservativeMeta,
@@ -319,13 +319,7 @@ const queryOf = (
 			const entries = entriesOf(q, "narrow", s.dir)
 			const heading: Heading = [{ name: "id", type: int4 }]
 			const outer = q.b.reserve()
-			const parent = q.b.expr({
-				kind: "column",
-				column: { node: outer, name: "pid" },
-				args: [],
-				type: int4,
-				nonNull: "storage"
-			})
+			const parent = q.b.expr(storedColumn(outer, "pid", int4))
 			const first = q.take(
 				entries.node,
 				entries.order,

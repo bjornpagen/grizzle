@@ -12,7 +12,7 @@ import {
 import { Array as Arr, Order } from "effect"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import { type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type Heading, type RelNode } from "#compiler/ir/rel.ts"
 import { exactType } from "#compiler/scalar/compute/types.ts"
 import {
@@ -354,13 +354,7 @@ const baseNode = (b: DagBuilder, r: GenRelation, keys: ReadonlyArray<ReadonlyArr
 	})
 
 const columnExpr = (b: DagBuilder, node: RelNode, name: string) =>
-	b.expr({
-		kind: "column",
-		column: { node: node.id, name },
-		args: [],
-		type: int4,
-		nonNull: "storage"
-	})
+	b.expr(storedColumn(node.id, name, int4))
 
 const literalExpr = (b: DagBuilder, value: bigint) =>
 	b.expr({

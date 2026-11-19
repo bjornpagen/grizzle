@@ -27,7 +27,8 @@ import {
 	exprClosure,
 	OpId,
 	type ScalarExpr,
-	type TypedLiteral
+	type TypedLiteral,
+	storedColumn
 } from "#compiler/ir/expr.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import {
@@ -73,7 +74,7 @@ import {
 	castChainSketchGen,
 	compareSketchGen,
 	type LowerHooks,
-	storedColumn,
+	narrowedColumn,
 	type TermScope,
 	type TermSketch,
 	termSketchGen
@@ -1234,13 +1235,7 @@ class QueryResolver {
 	}
 
 	col(node: RelNode, c: HeadingColumn): ScalarExpr {
-		return this.b.expr({
-			kind: "column",
-			column: { node: node.id, name: c.name },
-			args: [],
-			type: c.type,
-			nonNull: "storage"
-		})
+		return this.b.expr(storedColumn(node.id, c.name, c.type))
 	}
 
 	lit(value: TypedLiteral, type: ScalarType): ScalarExpr {
@@ -1311,13 +1306,7 @@ class QueryResolver {
 	termHooks(node: RelNode): LowerHooks {
 		return {
 			emit: (spec) => this.b.expr(spec),
-			column: (c) => ({
-				kind: "column",
-				column: { node: node.id, name: c.name },
-				args: [],
-				type: c.type,
-				nonNull: "storage"
-			}),
+			column: (c) => storedColumn(node.id, c.name, c.type),
 			param: (name) => {
 				const registered = defined(this.#termParams.get(name), "a registered term parameter")
 				const type = compareParamType(registered.type)
@@ -2249,7 +2238,7 @@ class QueryResolver {
 
 	/**
 	 * A node whose exact columns (a sum over money is exact money) are narrowed into the carrier a program stores them
-	 * at, under the guard that they fit (compute.ts storedColumn), so every heading column is of a carrier the
+	 * at, under the guard that they fit (compute.ts narrowedColumn), so every heading column is of a carrier the
 	 * generators draw; a node with none is itself.
 	 */
 	stored(built: Built): Built {
@@ -2260,7 +2249,7 @@ class QueryResolver {
 			isExact(c.type)
 				? {
 						column: c,
-						term: storedColumn(this.termScope(built.heading), this.termHooks(built.node), c)
+						term: narrowedColumn(this.termScope(built.heading), this.termHooks(built.node), c)
 					}
 				: { column: c, term: undefined }
 		)

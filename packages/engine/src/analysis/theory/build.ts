@@ -15,7 +15,13 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
-import type { CatalogOpId, ExprSpec, TypedLiteral, ScalarExpr } from "#compiler/ir/expr.ts"
+import {
+	type CatalogOpId,
+	type ExprSpec,
+	type TypedLiteral,
+	type ScalarExpr,
+	storedColumn
+} from "#compiler/ir/expr.ts"
 import { headingColumns, type LawField, type TheoryRelation } from "#compiler/ir/law.ts"
 import {
 	type AggregateCallOver,
@@ -185,13 +191,7 @@ export class ViolationBuilder {
 
 	/** The column `column` of `node`, a handle of it the caller holds, read at its own type. */
 	col(node: RelNode, column: HeadingColumn): ScalarExpr {
-		return this.expr({
-			kind: "column",
-			column: { node: node.id, name: column.name },
-			args: [],
-			type: column.type,
-			nonNull: "storage"
-		})
+		return this.expr(storedColumn(node.id, column.name, column.type))
 	}
 
 	/** The typed literal of `value` at `type`; a value that is not one is MalformedDescription. */

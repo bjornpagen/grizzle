@@ -17,7 +17,8 @@ import {
 	type ExprSpec,
 	type DefinedOp,
 	type ScalarExpr,
-	type TypedLiteral
+	type TypedLiteral,
+	storedColumn
 } from "#compiler/ir/expr.ts"
 import { noExtension } from "#test/support/compute.ts"
 
@@ -215,13 +216,7 @@ class Translation {
 	}
 
 	columnSpec(node: RelNode, c: HeadingColumn): ExprSpec {
-		return {
-			kind: "column",
-			column: { node: node.id, name: c.name },
-			args: [],
-			type: c.type,
-			nonNull: "storage"
-		}
+		return storedColumn(node.id, c.name, c.type)
 	}
 
 	col(node: RelNode, c: HeadingColumn): ScalarExpr {

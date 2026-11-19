@@ -8,7 +8,13 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty
 import * as Result from "#compiler/core/result.ts"
 import { type Codebook, codecOf, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
 import type { ExprDesc, FieldDesc, LiteralDesc, Spelled } from "#compiler/ir/desc.ts"
-import { describeOp, type ExprSpec, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
+import {
+	describeOp,
+	type ExprSpec,
+	type ScalarExpr,
+	type TypedLiteral,
+	storedColumn
+} from "#compiler/ir/expr.ts"
 import type { BuilderScope, OpenExpr } from "#compiler/ir/open.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import {
@@ -405,13 +411,7 @@ const commonEnv = (
 		if (binding?.kind !== "column") {
 			return Result.err(malformedDescription(loc, `a column named ${name}`))
 		}
-		return Result.ok({
-			kind: "column",
-			column: { node: NodeId("n0"), name },
-			args: [],
-			type: binding.type,
-			nonNull: "storage"
-		})
+		return Result.ok(storedColumn(NodeId("n0"), name, binding.type))
 	},
 	params,
 	fieldType: (desc, loc) => scalarTypeOf(desc, testEnv, loc),

@@ -6,7 +6,7 @@ import { floatLiteral, MoneyText, VectorText } from "#compiler/ir/carriers.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
-import type { ExprSpec, ScalarExpr } from "#compiler/ir/expr.ts"
+import { type ExprSpec, type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"
 import { type TypedLiteral, OpId, type ParamRole } from "#compiler/ir/expr.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import {
@@ -92,13 +92,7 @@ export class Exprs {
 		}
 	}
 	col(node: RelNode, name: string, type: ScalarType) {
-		return this.b.expr({
-			kind: "column",
-			column: { node: node.id, name },
-			args: [],
-			type,
-			nonNull: "storage"
-		})
+		return this.b.expr(storedColumn(node.id, name, type))
 	}
 	lit(value: TypedLiteral, type: ScalarType) {
 		return this.b.expr({

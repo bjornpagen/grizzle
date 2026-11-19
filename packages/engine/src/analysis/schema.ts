@@ -35,7 +35,7 @@ import {
 	type LiteralDesc,
 	nestedFields
 } from "#compiler/ir/desc.ts"
-import type { ExprTable, TypedLiteral } from "#compiler/ir/expr.ts"
+import { type ExprTable, type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import {
 	type ClosedSlot,
 	type ClosedTheoryRelation,
@@ -729,13 +729,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 							malformedDescription(l, `a written field of ${r.name}, not ${leafText(d)}`)
 						)
 					}
-					return Result.ok({
-						kind: "column",
-						column: { node: rowNode, name: d.field },
-						args: [],
-						type,
-						nonNull: "storage"
-					})
+					return Result.ok(storedColumn(rowNode, d.field, type))
 				},
 				params: noParams,
 				fieldType: (d, l) => catchRefusal(() => this.queryFieldType(d, l, seen, patterns)),

@@ -2,7 +2,7 @@ import { boolean, type Gen, int as intGen, map, option, uniqueArray } from "@bjo
 import { Array as Arr, Option } from "effect"
 import { makeIdSupply, type NodeId } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import { type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type Heading, type MetaSpec, type VarDecl } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { statedKey } from "#test/support/fixtures/ir/build.ts"
@@ -132,13 +132,7 @@ const keyed = (key: ReadonlyArray<string>): MetaSpec => ({
 const resolveWide = (s: WideSketch): QueryCase => {
 	const b = new DagBuilder(makeIdSupply())
 	const column = (node: NodeId, name: string, type: ScalarType) =>
-		b.expr({
-			kind: "column",
-			column: { node, name },
-			args: [],
-			type,
-			nonNull: "storage"
-		})
+		b.expr(storedColumn(node, name, type))
 	const base = (r: GenRelation) =>
 		b.node({
 			kind: "Base",

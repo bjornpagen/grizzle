@@ -15,7 +15,8 @@ import {
 	type LiveArgs,
 	mapArgs,
 	type ScalarExpr,
-	sameArgs
+	sameArgs,
+	storedColumn
 } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -120,13 +121,7 @@ export class GlueBuilder {
 		}
 		const out = heading.map((c) => {
 			const type = columnType(delivered, c.name)
-			const column = this.#expression({
-				kind: "column",
-				column: { node: arm.id, name: c.name },
-				args: [],
-				type,
-				nonNull: "storage"
-			})
+			const column = this.#expression(storedColumn(arm.id, c.name, type))
 			if (sameScalarType(type, c.type)) {
 				return { name: c.name, expr: column }
 			}
