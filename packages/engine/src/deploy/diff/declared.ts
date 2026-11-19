@@ -888,7 +888,7 @@ const restatedWritings = (
 						installation.laws.theory.relations,
 						(spell) => {
 							const fill = new PreviousFill(spell, laws)
-							const writing = fieldWriting(installation, fillers, now.name, field, fill)
+							const writing = fieldWriting(fillers, now.name, field, fill)
 							return fill.complete ? writing : undefined
 						},
 						(writing) => canonicalEquals(writing, f.writing)

@@ -722,34 +722,52 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			)
 		}
 		const seen = new Map<string, { text: string; loc: SourceLoc }>()
-		const emit = exprEmitter(`generated ${r.name}.${field}`)
-		const term = unwrap(
-			lowerTerm(expr, {
-				mode: "check",
-				loc,
-				emit,
-				leaf: (d, l) => {
-					const type = d.kind === "field" ? row.written(d.field) : undefined
-					if (d.kind !== "field" || type === undefined) {
-						return Result.err(
-							malformedDescription(l, `a written field of ${r.name}, not ${leafText(d)}`)
-						)
-					}
-					return Result.ok(storedColumn(rowNode, d.field, type))
-				},
-				params: noParams,
-				fieldType: (d, l) => catchRefusal(() => this.queryFieldType(d, l, seen, patterns)),
-				closed: row.closed,
-				patterns,
-				patternLanguage: textLookup
-			})
-		)
-		const mismatch = generatedTypeRule(declared, term.nominal, patterns)
+		const lowered = (desc: ExprDesc) => {
+			const emit = exprEmitter(`generated ${r.name}.${field}`)
+			const term = unwrap(
+				lowerTerm(desc, {
+					mode: "check",
+					loc,
+					emit,
+					leaf: (d, l) => {
+						const type = d.kind === "field" ? row.written(d.field) : undefined
+						if (d.kind !== "field" || type === undefined) {
+							return Result.err(
+								malformedDescription(l, `a written field of ${r.name}, not ${leafText(d)}`)
+							)
+						}
+						return Result.ok(storedColumn(rowNode, d.field, type))
+					},
+					params: noParams,
+					fieldType: (d, l) => catchRefusal(() => this.queryFieldType(d, l, seen, patterns)),
+					closed: row.closed,
+					patterns,
+					patternLanguage: textLookup
+				})
+			)
+			return { desc, emit, term }
+		}
+		const whole = lowered(expr)
+		const mismatch = generatedTypeRule(declared, whole.term.nominal, patterns)
 		if (mismatch !== undefined) {
 			return generatedRefused(r, field, mismatch)
 		}
+		/** A cast into the field's own type, proved where it stands, is the column's own: the column admits its operand into
+		 * its type as the cast does, so the field is written as its operand is, of one SQL and one record, whichever of the
+		 * two its source spells. */
+		const operand =
+			expr.kind === "cast" &&
+			sameScalarType(this.queryFieldType(expr.to, loc, seen, patterns), declared)
+				? lowered(expr.arg)
+				: undefined
+		const { desc, emit, term } =
+			operand !== undefined &&
+			generatedTypeRule(declared, operand.term.nominal, patterns) === undefined
+				? operand
+				: whole
 		return {
 			kind: "generated",
+			desc,
 			expr:
 				sameScalarType(term.expr.type, term.nominal) ||
 				sameScalarType(term.expr.type, enteredType(term.nominal))

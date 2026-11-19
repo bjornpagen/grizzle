@@ -16,7 +16,7 @@ import {
 	nonEmptyNameSet
 } from "#compiler/core/set.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
-import type { FieldDesc, TermDesc } from "#compiler/ir/desc.ts"
+import type { ExprDesc, FieldDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { DeclaredKey, HeadingColumn } from "#compiler/ir/rel.ts"
 import {
@@ -58,7 +58,8 @@ export interface LawField extends HeadingColumn {
 
 /**
  * How a stored field is written, resolved: by the caller; generated, STORED by PostgreSQL from its row by `expr`, an
- * expression over the row's caller-written fields of the field's type; drawn by grizzle from the nested arrays it is a
+ * expression over the row's caller-written fields of the field's type, typed from `desc`, the description it is written
+ * by (analysis/schema.ts #generated: a cast into the field's own type its operand's); drawn by grizzle from the nested arrays it is a
  * family's index, count, start or end of; accumulated by grizzle on the host, the copy the one axis that carries it
  * gives it, `start` at the axis's base, and proved by PostgreSQL; retirement, a header's boolean PostgreSQL defaults
  * to false and its group's retirement alone sets true; or instant, by the database's clock, stamped where it is its
@@ -67,7 +68,7 @@ export interface LawField extends HeadingColumn {
  */
 export type FieldWriting =
 	| { readonly kind: "caller" | "drawn" | "retirement" | "instant" }
-	| { readonly kind: "generated"; readonly expr: ScalarExpr }
+	| { readonly kind: "generated"; readonly desc: ExprDesc; readonly expr: ScalarExpr }
 	| { readonly kind: "accumulated"; readonly start: TypedLiteral }
 
 /**

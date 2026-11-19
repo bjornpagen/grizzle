@@ -68,7 +68,6 @@ import type { LawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { rosterCodebook } from "#compiler/ir/codes.ts"
 import { type Codebook, codecOf, type PreviousRoster } from "#compiler/ir/codes.ts"
-import type { Writing } from "#compiler/ir/desc.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import {
 	type AccessIndexRequest,
@@ -208,12 +207,11 @@ export const drawnWriting = (form: FillerForm): SnapshotWriting => ({
 	drawn: recordedDigest("drawn", form, everyProperty)
 })
 
-/** How a field is written, as the snapshot records it (SnapshotWriting): a generated field by the digest of its
- * expression as ownership declares it (`declared`), a drawn one by the digest of what draws it, an accumulated one by
- * the digest of its start value, typed as the theory types it, and of what fills it, each spelled by `spell`. */
+/** How a field is written, as the snapshot records it (SnapshotWriting): a generated field by the digest of the
+ * description it is written by (ir/law.ts FieldWriting), a drawn one by the digest of what draws it, an accumulated one
+ * by the digest of its start value, typed as the theory types it, and of what fills it, each spelled by `spell`. */
 const recordedWriting = (
 	field: LawField,
-	declared: Writing,
 	filler: Filler | undefined,
 	spell: FillSpelling
 ): SnapshotWriting => {
@@ -224,10 +222,7 @@ const recordedWriting = (
 		case "instant":
 			return w.kind
 		case "generated":
-			if (declared.kind !== "generated") {
-				throw defect(`ownership declares the field ${field.name} generated, as its theory does`)
-			}
-			return { generated: recordedDigest("generation", declared.expr, withoutSourceLocs) }
+			return { generated: recordedDigest("generation", w.desc, withoutSourceLocs) }
 		case "drawn":
 			return drawnWriting(fillerForm(field, filler, spell))
 		case "accumulated":
@@ -241,21 +236,13 @@ const recordedWriting = (
 	}
 }
 
-/** A stored relation's field's writing as `spell` spells what fills it (recordedWriting), its expression read off
- * its ownership. */
+/** A stored relation's field's writing as `spell` spells what fills it (recordedWriting). */
 export const fieldWriting = (
-	installation: Installation,
 	fillers: ReadonlyMap<string, ReadonlyMap<string, Filler>>,
 	relation: string,
 	field: LawField,
 	spell: FillSpelling
-): SnapshotWriting => {
-	const declared = installation.owned.relations[relation]?.fields[field.name]
-	if (declared === undefined) {
-		throw defect(`ownership holds the field ${field.name} of the stored relation ${relation}`)
-	}
-	return recordedWriting(field, declared.writing, fillers.get(relation)?.get(field.name), spell)
-}
+): SnapshotWriting => recordedWriting(field, fillers.get(relation)?.get(field.name), spell)
 
 /** Every property of a value but its rosters. */
 const withoutRosters: EncodeOptions = { omit: (_key, value) => value instanceof Roster }
@@ -278,7 +265,7 @@ const theoryOf = (installation: Installation, checks: LawChecks): SnapshotTheory
 		name: f.name,
 		column: f.column,
 		type: recordedType(f.type),
-		writing: fieldWriting(installation, fillers, relation, f, ownFill)
+		writing: fieldWriting(fillers, relation, f, ownFill)
 	})
 	/** A stored relation's record, from its handle. */
 	/** The columns each table of the installation is created with: its CREATE TABLE's and its law columns', by name. */
