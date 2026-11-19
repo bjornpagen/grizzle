@@ -1,6 +1,6 @@
 import { carriedOn, spelledAxis } from "#compiler/analysis/theory/families.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
-import { Refusal, sameText } from "#compiler/core/canonical.ts"
+import { canonicalEquals, Refusal } from "#compiler/core/canonical.ts"
 import { type Dropped, undeclaredDrop, unsupported } from "#compiler/core/errors.ts"
 import {
 	conversionOf,
@@ -695,8 +695,8 @@ const sameSequence = (
 		Object.entries(previous.theory.laws).some(
 			([law, stated]) =>
 				stated.shape === shape &&
-				sameText(was, drawnWriting({ role: { kind: role }, laws: [law] })) &&
-				sameText(counted.writing, drawnWriting({ role: { kind: "count" }, laws: [law] }))
+				canonicalEquals(was, drawnWriting({ role: { kind: role }, laws: [law] })) &&
+				canonicalEquals(counted.writing, drawnWriting({ role: { kind: "count" }, laws: [law] }))
 		)
 	)
 }
@@ -817,7 +817,7 @@ const restatedWritings = (
 						laws
 					)
 					const restated = fieldWriting(installation, fillers, now.name, field, spell)
-					return (spell.complete && sameText(restated, f.writing)) ||
+					return (spell.complete && canonicalEquals(restated, f.writing)) ||
 						sameSequence(previous, installation, now.name, field.name, f.writing)
 						? { ...f, writing: into.writing }
 						: f
@@ -1075,7 +1075,7 @@ interface Paired {
 	readonly to: string
 }
 
-/** The parts of `was` paired with those of `now` of the same definition (`sameText`), each with the name `now` gives it:
+/** The parts of `was` paired with those of `now` of the same definition (`canonicalEquals`), each with the name `now` gives it:
  * one of its own name first, so a part both name alike stays as it is, then any other, each taken once. */
 const pairBy = <P extends { readonly name: string }>(
 	kind: (p: P) => Owned["kind"],
@@ -1161,20 +1161,20 @@ const pairedParts = (
 		const now = partsAt(nowParts, table)
 		const pairs = [
 			...pairBy(constraintKind, was.constraint, now.constraint, (a, b) =>
-				sameText({ ...a.constraint, name: "" }, { ...b.constraint, name: "" })
+				canonicalEquals({ ...a.constraint, name: "" }, { ...b.constraint, name: "" })
 			),
 			...pairBy(
 				() => "index",
 				was.index,
 				now.index,
-				(a, b) => sameText({ ...a.create, name: "" }, { ...b.create, name: "" })
+				(a, b) => canonicalEquals({ ...a.create, name: "" }, { ...b.create, name: "" })
 			),
 			...pairBy(
 				() => "statistics",
 				was.statistics,
 				now.statistics,
 				(a, b) =>
-					sameText(
+					canonicalEquals(
 						{ ...a.create, name: { ...a.create.name, name: "" } },
 						{ ...b.create, name: { ...b.create.name, name: "" } }
 					)

@@ -1,6 +1,11 @@
 import { appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
-import { canonicalTextOf, catchRefusal, Refusal, sameText } from "#compiler/core/canonical.ts"
+import {
+	canonicalEquals,
+	canonicalTextOf,
+	catchRefusal,
+	Refusal
+} from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { postorder } from "#compiler/core/graph.ts"
 import {
@@ -1000,7 +1005,7 @@ class Differ {
 				continue
 			}
 			const old = this.constraintOf(arrival.before, this.prev)
-			if (sameText(old, keyOrCheckDefinition(v, this.next))) {
+			if (canonicalEquals(old, keyOrCheckDefinition(v, this.next))) {
 				continue
 			}
 			const key = keyBefore(v.table, constraintColumns(old))
@@ -1700,7 +1705,7 @@ class Differ {
 			const c = keyOrCheckDefinition(v, this.next)
 			const before =
 				arrival.kind === "follows" ? this.constraintOf(arrival.before, this.prev) : undefined
-			if (before === undefined || !sameText(before, c)) {
+			if (before === undefined || !canonicalEquals(before, c)) {
 				this.attached.add(keyAfter(t, constraintColumns(c)))
 			}
 		}
@@ -1952,8 +1957,8 @@ class Differ {
 		const previous = installed(before)
 		const drop: ReadonlyArray<SqlStatement> =
 			previous.kind === "unitFunction" &&
-			(!sameText(functionNameOf(previous.create), functionNameOf(create)) ||
-				!sameText(previous.create.returns, create.returns))
+			(!canonicalEquals(functionNameOf(previous.create), functionNameOf(create)) ||
+				!canonicalEquals(previous.create.returns, create.returns))
 				? [{ kind: "dropFunction", name: functionNameOf(previous.create), ifExists: false }]
 				: []
 		this.sql("structure", [...drop, ...ddl])
@@ -2029,7 +2034,7 @@ class Differ {
 			refuse(before.ident, "a CREATE DOMAIN")
 		}
 		if (
-			!sameText(
+			!canonicalEquals(
 				{ b: was.create.base, c: was.create.collation },
 				{ b: create.base, c: create.collation }
 			)
@@ -2046,7 +2051,7 @@ class Differ {
 		 * every column it types. */
 		const a = was.constraint
 		const b = v.constraint
-		if (a !== undefined && b !== undefined && sameText(a, b)) {
+		if (a !== undefined && b !== undefined && canonicalEquals(a, b)) {
 			return
 		}
 		if (a === undefined && b === undefined) {
@@ -2428,7 +2433,7 @@ class Differ {
 		}
 		const was = arrival.kind === "follows" ? arrival.before : undefined
 		const old = was === undefined ? undefined : this.constraintOf(was, this.prev)
-		if (old !== undefined && sameText(old, c)) {
+		if (old !== undefined && canonicalEquals(old, c)) {
 			return
 		}
 		const replace = old !== undefined
@@ -2530,7 +2535,7 @@ class Differ {
 			const t = v.table
 			const c = keyOrCheckDefinition(v, this.prev)
 			const now = this.next.get(o.ident)
-			if (now !== undefined && sameText(this.constraintOf(now, this.next), c)) {
+			if (now !== undefined && canonicalEquals(this.constraintOf(now, this.next), c)) {
 				continue
 			}
 			const targetKeys = new Set(
@@ -2609,7 +2614,7 @@ class Differ {
 				continue
 			}
 			const { table: source, constraint: fk } = v
-			if (!sameText(this.constraintOf(before, this.prev), fk)) {
+			if (!canonicalEquals(this.constraintOf(before, this.prev), fk)) {
 				continue
 			}
 			this.sql("publish.attach", [alter(source, [{ kind: "dropConstraint", name: fk.name }])])
@@ -2638,7 +2643,7 @@ class Differ {
 		const { table: t, constraint: c } = v
 		if (before !== undefined) {
 			const old = this.constraintOf(before, this.prev)
-			if (sameText(old, c)) {
+			if (canonicalEquals(old, c)) {
 				return
 			}
 			if (this.deferralAlone(old, c)) {
@@ -2682,7 +2687,7 @@ class Differ {
 		return (
 			old.kind === "foreignKey" &&
 			old.deferrable !== c.deferrable &&
-			sameText({ ...old, deferrable: c.deferrable }, c) &&
+			canonicalEquals({ ...old, deferrable: c.deferrable }, c) &&
 			!this.attached.has(referencedAfter(c)) &&
 			!this.replaces(referencedAfter(c)) &&
 			!this.referencesReplaced(old)
@@ -2996,7 +3001,7 @@ class Differ {
 			[...new Set([...columnsBefore.keys(), ...columnsAfter.keys()])].filter((key) => {
 				const was = columnsBefore.get(key)
 				const now = columnsAfter.get(key)
-				return was === undefined || now === undefined || !sameText(was.columns, now.columns)
+				return was === undefined || now === undefined || !canonicalEquals(was.columns, now.columns)
 			})
 		)
 		/** The table-level privilege a changed column grant's revoke takes away beside it, which the target holds. */
@@ -3495,7 +3500,7 @@ const fieldChange = (b: ColumnDef, c: ColumnDef, retyped: Retyped): FieldChange 
 		if (retyped(b, c)) {
 			return { kind: "rewritten" }
 		}
-		return sameText(before, after) ? { kind: "kept" } : { kind: "reexpressed", expr: after }
+		return canonicalEquals(before, after) ? { kind: "kept" } : { kind: "reexpressed", expr: after }
 	}
 	const wasUuidv7 = b.generated?.kind === "uuidv7"
 	const nowUuidv7 = c.generated?.kind === "uuidv7"
@@ -3623,7 +3628,7 @@ const redrawn = (
 ): ReadonlyMap<string, FieldChange> =>
 	new Map(
 		[...changes].map(([column, change]): readonly [string, FieldChange] =>
-			isDrawn(after.get(column)) && !sameText(before.get(column), after.get(column))
+			isDrawn(after.get(column)) && !canonicalEquals(before.get(column), after.get(column))
 				? [column, drawnAnew(change)]
 				: [column, change]
 		)
@@ -4092,7 +4097,7 @@ const sameInputs = (
 	a.size === b.size &&
 	[...a].every(([input, ddl]) => {
 		const other = b.get(input)
-		return other !== undefined && sameText(ddl, other)
+		return other !== undefined && canonicalEquals(ddl, other)
 	})
 
 /** The roles' views, world functions and policies a migration drops at the start of Structure and creates again (in

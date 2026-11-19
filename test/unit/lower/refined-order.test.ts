@@ -21,7 +21,7 @@ import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { directions } from "#compiler/core/order.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
@@ -78,7 +78,7 @@ export const aRefinedOutputTheDeliveryCastsIsOrderedByItsCastTheExpressionTheOut
 							t.expr.kind === "cast" ? [t.expr.expr] : []
 						)
 						for (const item of q.orderBy) {
-							const same = (e: Expr) => canonicalEquals(e, item.expr, everyProperty)
+							const same = (e: Expr) => canonicalEquals(e, item.expr)
 							assert.ok(
 								!Arr.some(uncast, same),
 								"no ORDER BY item reads a cast output's uncast value"

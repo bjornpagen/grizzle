@@ -3,7 +3,7 @@
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { PrimaryKeyObject, UniqueObject, UniqueObjects } from "#compiler/laws/model/uniques.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
@@ -119,7 +119,7 @@ export const subsumes = (w: UniqueObject | PrimaryKeyObject, u: UniqueObject): b
 	(w.kind === "key" ||
 		Arr.every(w.within, (g) =>
 			u.kind === "guarded"
-				? Arr.some(u.within, (h) => canonicalEquals(g.predicate, h.predicate, everyProperty))
+				? Arr.some(u.within, (h) => canonicalEquals(g.predicate, h.predicate))
 				: false
 		))
 

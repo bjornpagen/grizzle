@@ -1,7 +1,7 @@
 import { Array as Arr } from "effect"
 import { cellKindOf, deliveryOf, resultWidth } from "#compiler/codec/delivery.ts"
 import { appendAll, maxOf } from "#compiler/core/array.ts"
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
@@ -60,7 +60,7 @@ export interface ChannelProgram {
 }
 
 const sameType = (a: TypeRef | undefined, b: TypeRef): boolean =>
-	a !== undefined && canonicalEquals(a, b, everyProperty)
+	a !== undefined && canonicalEquals(a, b)
 
 /** The placeholder indices a text uses, read from its tokens, never from a pattern over the text. */
 const placeholderIndices = (lexed: Lexed): ReadonlySet<number> | undefined => {
@@ -602,7 +602,7 @@ const attachmentDifferences = (
 		}
 		if (
 			a.name !== b.name ||
-			!canonicalEquals(a.parentColumns, b.parentColumns, everyProperty) ||
+			!canonicalEquals(a.parentColumns, b.parentColumns) ||
 			!sameHeading(a.heading, b.heading)
 		) {
 			out.push(

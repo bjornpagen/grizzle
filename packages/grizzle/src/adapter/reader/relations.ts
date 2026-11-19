@@ -28,7 +28,6 @@ import {
 	countParam,
 	defined,
 	encodeFailure,
-	everyProperty,
 	maxStringLength,
 	normalArray,
 	paramEncoder,
@@ -84,10 +83,7 @@ const normalizerOver = (
 
 const sameColumns = (a: SlotColumns, b: SlotColumns): boolean =>
 	a.length === b.length &&
-	Arr.every(
-		Arr.zip(a, b),
-		([x, y]) => x.name === y.name && canonicalEquals(x.type, y.type, everyProperty)
-	)
+	Arr.every(Arr.zip(a, b), ([x, y]) => x.name === y.name && canonicalEquals(x.type, y.type))
 
 type Normalizer = ReturnType<typeof normalizerOver>
 

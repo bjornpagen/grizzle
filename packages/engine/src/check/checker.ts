@@ -35,7 +35,7 @@ import {
 
 import type { MemberRelation, SchemaReading } from "#compiler/check/schema.ts"
 import { allenMaskMax } from "#compiler/core/allen.ts"
-import { canonicalEquals, catchRefusal, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalEquals, catchRefusal } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { makeIdSupply, type NodeId, type ParamId, type VarId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
@@ -1265,8 +1265,7 @@ export class Checker {
 				)
 				return tuples.some((mine, gi) =>
 					tuples.some(
-						(theirs, oi) =>
-							oi < gi && mine.some((t) => theirs.some((u) => canonicalEquals(t, u, everyProperty)))
+						(theirs, oi) => oi < gi && mine.some((t) => theirs.some((u) => canonicalEquals(t, u)))
 					)
 				)
 			}
@@ -2748,8 +2747,7 @@ class RuleCheck {
 				this.cx.schema.admits(value, col.type, this.cx.patterns) &&
 				canonicalEquals(
 					this.cx.schema.literal(value, col.type, loc, this.cx.patterns),
-					head.literal,
-					everyProperty
+					head.literal
 				)
 			)
 		}

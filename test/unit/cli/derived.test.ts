@@ -107,9 +107,8 @@ export const derivedRuntimeFactsCheckRefusesStaleDerivedFactsAndGenerateWritesSn
 		kills: [
 			{
 				file: "packages/engine/src/deploy/snapshot/build.ts",
-				original: "\tcanonicalEquals(recorded, derivedForm(computed), everyProperty)",
-				replacement:
-					"\trecorded === undefined || canonicalEquals(recorded, derivedForm(computed), everyProperty)",
+				original: "\tcanonicalEquals(recorded, derivedForm(computed))",
+				replacement: "\trecorded === undefined || canonicalEquals(recorded, derivedForm(computed))",
 				why: "A snapshot.json that records no derived member holds the compile's facts."
 			},
 			{

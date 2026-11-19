@@ -25,7 +25,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { drawnFeature, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import {
@@ -351,10 +351,10 @@ export const scalarTypeOfBuildsEachTypeFromItsContentGivesEachDescriptionItsOwnC
 					)
 					for (const [i, x] of read.entries()) {
 						for (const y of read.slice(i + 1)) {
-							const same = canonicalEquals(x.content, y.content, everyProperty)
+							const same = canonicalEquals(x.content, y.content)
 							c.note(same ? "equal contents" : "different contents")
 							assert.equal(
-								canonicalEquals(x.type, y.type, everyProperty),
+								canonicalEquals(x.type, y.type),
 								same,
 								`${x.at} and ${y.at}: canonically equal exactly when their contents are`
 							)

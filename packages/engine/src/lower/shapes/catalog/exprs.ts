@@ -1,5 +1,5 @@
 import { appendAll } from "#compiler/core/array.ts"
-import { canonicalEquals, catchSignal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
+import { canonicalEquals, catchSignal, Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { CompareOp } from "#compiler/ir/desc.ts"
@@ -154,7 +154,7 @@ export const sameExpr = (x: ScalarExpr, y: ScalarExpr): boolean => {
 				y.kind === "column" && x.column.node === y.column.node && x.column.name === y.column.name
 			)
 		case "literal":
-			return y.kind === "literal" && canonicalEquals(x.value, y.value, everyProperty)
+			return y.kind === "literal" && canonicalEquals(x.value, y.value)
 		case "op":
 			return y.kind === "op" && x.op === y.op && sameArgs()
 		case "cast":

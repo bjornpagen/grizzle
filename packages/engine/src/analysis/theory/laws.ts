@@ -53,6 +53,7 @@ import { type RegionFacts, wholeRule } from "#compiler/analysis/theory/unit.ts"
 import { unwrap } from "#compiler/check/fail.ts"
 import { combineRule, foldPlane } from "#compiler/check/fold.ts"
 import {
+	canonicalEquals,
 	catchRefusal,
 	compareText,
 	ownedText,
@@ -91,7 +92,6 @@ import {
 } from "#compiler/ir/desc.ts"
 import { type ExprSpec, OpId, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, Family, FamilyFold } from "#compiler/ir/family.ts"
-import { identicalLiteral } from "#compiler/ir/identical.ts"
 import {
 	type DeclaredSide,
 	type FamilyId,
@@ -831,7 +831,7 @@ export class LawSides {
 			return { column: field, value: at.value, col }
 		}
 		const own = irLiteral(literal.value, this.type(literal.type, loc))
-		return at.ok && own.ok && identicalLiteral(own.value, at.value)
+		return at.ok && own.ok && canonicalEquals(own.value, at.value)
 			? { column: field, value: at.value, col }
 			: undefined
 	}

@@ -1,5 +1,5 @@
 import { approximatePageMisuse } from "#compiler/check/approximate/provenance.ts"
-import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
+import { canonicalEquals, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, reportedAt } from "#compiler/core/errors.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
@@ -771,8 +771,7 @@ export const compilePage = (input: PageCompileInput): Result.Result<PageTemplate
 		if (
 			!canonicalEquals(
 				statedPrefix,
-				input.stated.keys.map((k) => ({ column: k.column, dir: k.dir })),
-				everyProperty
+				input.stated.keys.map((k) => ({ column: k.column, dir: k.dir }))
 			)
 		) {
 			return refuse(

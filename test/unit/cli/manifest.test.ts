@@ -24,7 +24,7 @@ import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import { check } from "#cli/check.ts"
 import { compileSchema } from "#cli/config.ts"
-import { sameText } from "#compiler/core/canonical.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -87,7 +87,7 @@ export const manifestJsonCheckRefusesAnEarlierFormAndARecordNotTheCompilesAndGen
 							const earlier = succeeded(converted, "the earlier form reads")
 							assert.equal(earlier.form, "earlier", "manifest.json reads as the earlier form")
 							assert.ok(
-								sameText(earlier.snapshot, record.snapshot),
+								canonicalEquals(earlier.snapshot, record.snapshot),
 								"the earlier form converts to the draft's record"
 							)
 							assert.deepEqual(kinds, ["earlierManifest"], Formatter.format(commit))
@@ -152,7 +152,7 @@ export const manifestJsonCheckRefusesAnEarlierFormAndARecordNotTheCompilesAndGen
 			{
 				file: "packages/engine/src/deploy/snapshot/build.ts",
 				original:
-					"\tcanonicalEquals(recordForm(committed, asValues), recordForm(computed, asValues), everyProperty)",
+					"\tcanonicalEquals(recordForm(committed, asValues), recordForm(computed, asValues))",
 				replacement: "\ttrue",
 				why: "A committed record is never held to the compile's, so a resealed record no draft reads stands."
 			},

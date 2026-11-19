@@ -1,4 +1,4 @@
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import {
 	type RuleBreach,
 	proseBreach,
@@ -113,7 +113,7 @@ export const foldRule = (monoid: MonoidSpec, fold: FoldTyping): RuleBreach | und
 			)
 		}
 		const start = defined(identity[i], "a monoid's identity holds one value per plane")
-		if (!canonicalEquals(f.writing.start, start, everyProperty)) {
+		if (!canonicalEquals(f.writing.start, start)) {
 			return proseBreach(
 				`a fold's accumulator starts at its monoid's identity; ${f.name} starts elsewhere`
 			)

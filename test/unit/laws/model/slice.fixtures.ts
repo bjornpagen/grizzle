@@ -10,7 +10,7 @@ import {
 	uniqueKeys
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { canonicalEquals, type EncodeOptions, encode } from "#compiler/core/canonical.ts"
+import { encode, type EncodeOptions, type LeftOut, sameUnder } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -757,16 +757,19 @@ const relationOf = (n: NamedNative): string | undefined => {
  * closed side's rows are the closed relation's own, which both models hold alike; and a compiled statement's parameter
  * encoders, which are code, each slot's own.
  */
-export const labelFree: EncodeOptions = {
-	omit: (k, value) =>
-		typeof value === "function" ||
-		k === "deps" ||
-		((k === "id" || k === "node" || k === "canonical") && typeof value === "string") ||
-		(k === "rows" && !Arr.isArray(value))
-}
+const labelMembers: LeftOut = (k, value) =>
+	typeof value === "function" ||
+	k === "deps" ||
+	((k === "id" || k === "node" || k === "canonical") && typeof value === "string") ||
+	(k === "rows" && !Arr.isArray(value))
+
+const labelFree: EncodeOptions = { omit: labelMembers }
+
+/** Whether two values are equal apart from DAG labels (labelFree), walked as canonicalEquals walks them. */
+export const sameLabelFree: (a: unknown, b: unknown) => boolean = sameUnder(labelMembers)
 
 export const sameApartFromLabels = (a: unknown, b: unknown, why: string): void =>
-	assert.ok(canonicalEquals(a, b, labelFree), why)
+	assert.ok(sameLabelFree(a, b), why)
 
 /** A value's canonical text apart from DAG labels (labelFree), none for a value that has none. */
 export const labelFreeText = (value: unknown): Option.Option<string> => {
@@ -777,7 +780,7 @@ export const labelFreeText = (value: unknown): Option.Option<string> => {
 /**
  * Two lists of natives holding the same natives, each equal apart from DAG labels, in any order: a model orders its
  * natives by the first law that plans each, and a slice plans fewer laws. Each native is encoded once and matched by
- * its text, as canonicalEquals compares, so a native that has no text matches none.
+ * its text, so a native that has no text matches none.
  */
 export const sameNatives = (
 	actual: ReadonlyArray<NamedNative>,

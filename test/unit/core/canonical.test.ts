@@ -46,9 +46,9 @@ import { Array as Arr, Effect, Order, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import {
 	arrayText,
-	type CanonicalToken,
 	canonicalEquals,
 	canonicalSortKeyed,
+	type CanonicalToken,
 	canonicalTokens,
 	compareCanonicalTokens,
 	decode,
@@ -247,7 +247,6 @@ export const aValueOutsideTheModelIsRefusedAtItsPathInTheDirectionItArisesAndNev
 							...path,
 							...plant.extra
 						])
-						assert.equal(canonicalEquals(v, v, everyProperty), false)
 					} else {
 						const malformed = artifactRefusal(refused(result, "MalformedArtifact"))
 						assert.deepEqual(
@@ -268,12 +267,6 @@ export const aValueOutsideTheModelIsRefusedAtItsPathInTheDirectionItArisesAndNev
 				original: '\tif (digits.length > 1 && digits.startsWith("0")) {',
 				replacement: '\tif (digits.startsWith("00")) {',
 				why: "a bigint text with one leading zero admitted; the outside-the-model property fails."
-			},
-			{
-				file: "packages/engine/src/core/canonical.ts",
-				original: "\t\treturn encode(a, options).ok",
-				replacement: "\t\treturn true",
-				why: "a value outside the model equal to itself; the outside-the-model property fails."
 			}
 		]
 	})
@@ -392,6 +385,10 @@ export const theOmittedMembersLeaveOutAnUndefinedPropertyAndUnderOmitSourceLocsE
 						case "undefined": {
 							const v = build([...entries, ["loc", undefined]])
 							assert.equal(succeeded(encode(v, everyProperty)), specified(bare))
+							assert.ok(
+								canonicalEquals(v, bare),
+								"an undefined member is left out of the comparison"
+							)
 							c.note("an undefined property")
 							return
 						}
@@ -399,12 +396,15 @@ export const theOmittedMembersLeaveOutAnUndefinedPropertyAndUnderOmitSourceLocsE
 							const v = build([...entries, ["loc", member.loc]])
 							assert.equal(succeeded(encode(v, { omit: omitSourceLocs })), specified(bare))
 							assert.equal(succeeded(encode(v, everyProperty)), specified(v))
+							assert.ok(sameContent(v, bare), "sameContent leaves the SourceLoc out")
+							assert.equal(canonicalEquals(v, bare), false, "canonicalEquals reads the SourceLoc")
 							c.note("a SourceLoc under loc")
 							return
 						}
 						case "other": {
 							const v = build([...entries, ["loc", member.other]])
 							assert.equal(succeeded(encode(v, { omit: omitSourceLocs })), specified(v))
+							assert.equal(sameContent(v, bare), false, "sameContent keeps another value under loc")
 							c.note("another value under loc")
 							return
 						}
@@ -467,7 +467,7 @@ export const theOmittedMembersReadAValueAsItIsNowAChangedValueIsWrittenAsChanged
 							const frozen = freezeDeeply({ v })
 							assert.equal(succeeded(encode(frozen, everyProperty)), specified(frozen))
 							assert.equal(succeeded(encode(frozen, everyProperty)), specified(frozen))
-							assert.equal(canonicalEquals(frozen, frozen, everyProperty), true)
+							assert.equal(canonicalEquals(frozen, frozen), true)
 							return
 						}
 					}
@@ -508,8 +508,11 @@ export const canonicalComparisonIsEqualityOfSpecifiedTextSameContentsTooAndSorts
 					for (const a of items) {
 						for (const b of items) {
 							const same = specified(a) === specified(b)
-							assert.equal(canonicalEquals(a, b, everyProperty), same)
-							assert.equal(sameContent(a, b), canonicalEquals(a, b, withoutSourceLocs))
+							assert.equal(canonicalEquals(a, b), same)
+							assert.equal(
+								sameContent(a, b),
+								succeeded(encode(a, withoutSourceLocs)) === succeeded(encode(b, withoutSourceLocs))
+							)
 							c.note(same && a !== b ? "a repeated member" : "two distinct members")
 						}
 					}

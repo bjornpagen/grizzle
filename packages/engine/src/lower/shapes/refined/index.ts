@@ -3,12 +3,7 @@ import {
 	type RefinedConstant,
 	refinedSiteText
 } from "#compiler/check/refinement/index.ts"
-import {
-	canonicalEquals,
-	canonicalTextOf,
-	catchRefusal,
-	everyProperty
-} from "#compiler/core/canonical.ts"
+import { canonicalEquals, canonicalTextOf, catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -217,7 +212,7 @@ const castOutputs = (query: Select, casts: ReadonlyMap<number, TypeRef>): Select
 	const before = query.body.kind === "core" ? query.body.targets : []
 	const after = body.kind === "core" ? body.targets : []
 	const orderBy = query.orderBy.map((item) => {
-		const at = before.findIndex((t) => canonicalEquals(t.expr, item.expr, everyProperty))
+		const at = before.findIndex((t) => canonicalEquals(t.expr, item.expr))
 		const now = after[at]
 		return at < 0 || now === undefined || now.expr === item.expr
 			? item

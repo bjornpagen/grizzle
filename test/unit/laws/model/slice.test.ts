@@ -4,7 +4,6 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { installationWitness } from "#adapter/served/refusals.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
-import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { RelationIdent } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -30,9 +29,9 @@ import {
 	loginOf,
 	programOf,
 	expectedSlice,
-	labelFree,
 	labelFreeText,
 	sameApartFromLabels,
+	sameLabelFree,
 	sameNatives,
 	sharesLoweredTarget,
 	raisableOver,
@@ -241,9 +240,7 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 									Arr.some(
 										raised.uses,
 										(r) =>
-											r.table === u.table &&
-											r.column === u.column &&
-											canonicalEquals(r.law, u.law, labelFree)
+											r.table === u.table && r.column === u.column && sameLabelFree(r.law, u.law)
 									),
 									`the domain ${e.owner} names ${u.table}.${u.column}'s law`
 								)
@@ -262,7 +259,7 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 					}
 					const raised = witness.raised.get(law.id)
 					assert.ok(
-						raised !== undefined && canonicalEquals(raised, wholeRaised.get(law.id), labelFree),
+						raised !== undefined && sameLabelFree(raised, wholeRaised.get(law.id)),
 						`the law ${law.id} over a written relation, which a write statement of the slice refuses, raised as the whole model describes it`
 					)
 				}

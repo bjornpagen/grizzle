@@ -158,7 +158,7 @@ export interface EncodeOptions {
  * SourceLocs are excluded from semantic identity, and so is a text descriptor's analyzed language, a function of the
  * pattern beside it (ir/scalar.ts TextLanguage). By convention they travel under the properties "loc" and "language".
  */
-export const omitSourceLocs: OmitRule = (key, value) =>
+export const omitSourceLocs = (key: string, value: unknown): boolean =>
 	(key === "loc" && isSourceLoc(value)) ||
 	(key === "language" &&
 		isRecord(value) &&
@@ -483,7 +483,7 @@ type MemberPairs = ReadonlyArray<readonly [unknown, unknown]> | undefined
  * Which members of a record a text leaves out, by the member's key and its value as memberOf reads it: a rule that reads
  * no path (OmitRule), since a comparison walks two values at once and states none.
  */
-type LeftOut = (key: string, member: unknown) => boolean
+export type LeftOut = (key: string, member: unknown) => boolean
 
 /** The member of a record under one of its keys as a text holds it, read as memberOf reads it; undefined where the
  * text holds none: the member is not stated, or `leftOut` leaves it out. */
@@ -584,7 +584,7 @@ const memberPairs = (
  * at once, so a value is read only where it differs from the other. The pairs still to compare wait on a stack on the
  * heap, so no depth of value deepens the call stack.
  */
-const sameUnder =
+export const sameUnder =
 	(leftOut: LeftOut) =>
 	(a: unknown, b: unknown): boolean => {
 		const pending: Array<readonly [unknown, unknown]> = [[a, b]]
@@ -611,16 +611,14 @@ const sameUnder =
  * Whether two values a builder made have one semantic identity: whether the texts withoutSourceLocs writes of them are
  * one text (sameUnder).
  */
-export const sameContent: (a: unknown, b: unknown) => boolean = sameUnder((key, member) =>
-	omitSourceLocs(key, member, [])
-)
+export const sameContent: (a: unknown, b: unknown) => boolean = sameUnder(omitSourceLocs)
 
 /**
- * Whether two values the compiler owns have one canonical text of every property (canonicalTextOf), read by walking
- * both at once rather than writing two texts to compare (sameUnder): a diff's test that an object is unchanged, which
- * reads the two values the texts are of.
+ * Canonical equality, the one structural identity of the values the compiler owns: whether two values have one
+ * canonical text of every property (canonicalTextOf), read by walking both at once rather than writing two texts to
+ * compare (sameUnder), so it stops at their first difference and writes nothing.
  */
-export const sameText: (a: unknown, b: unknown) => boolean = sameUnder(() => false)
+export const canonicalEquals: (a: unknown, b: unknown) => boolean = sameUnder(() => false)
 
 /** A container of a canonical value: an array, or a plain record. */
 type ContainerKind = "array" | "object"
@@ -1547,19 +1545,6 @@ export const ownedText = (value: unknown, options: EncodeOptions): string => {
 
 /** The canonical text of every property of a value the compiler owns (ownedText). */
 export const canonicalTextOf = (value: unknown): string => ownedText(value, everyProperty)
-
-/**
- * Canonical equality: equal canonical text. Values that fail to encode are unequal to everything. A value is equal to
- * itself when it encodes.
- */
-export const canonicalEquals = (a: unknown, b: unknown, options: EncodeOptions): boolean => {
-	if (a === b) {
-		return encode(a, options).ok
-	}
-	const left = encode(a, options)
-	const right = encode(b, options)
-	return left.ok && right.ok && left.value === right.value
-}
 
 /**
  * A set's members sorted by canonical text, the canonical order of a declaration set, each beside its text. Stable for

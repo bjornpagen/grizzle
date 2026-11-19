@@ -1,6 +1,6 @@
 import type { CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import { indices, maxOf } from "#compiler/core/array.ts"
-import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
+import { canonicalEquals, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -1547,7 +1547,7 @@ const writeFacts = (
 	const facts = shapeFactsFromPlan(placement, {
 		derivedDefinition: false,
 		certify: (certificate) => {
-			if (!certificates.some((c) => canonicalEquals(c, certificate, everyProperty))) {
+			if (!certificates.some((c) => canonicalEquals(c, certificate))) {
 				certificates.push(certificate)
 			}
 		}

@@ -1,5 +1,5 @@
 import { nominal } from "#compiler/core/brand.ts"
-import { sameText } from "#compiler/core/canonical.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import type { InstallationManifest, PhysicalKind, PhysicalObject } from "#compiler/ir/products.ts"
 import type {
@@ -204,7 +204,7 @@ const recordedObject = (o: PhysicalObject<SqlStatement>): RecordedObject => {
  * draft asks whether an installed object changed.
  */
 export const sameRecord = (was: RecordedObject, now: PhysicalObject<SqlStatement>): boolean =>
-	sameText(was.ddl, recordedObject(now).ddl)
+	canonicalEquals(was.ddl, recordedObject(now).ddl)
 
 /** An installation's manifest as its snapshot records it. */
 export const recordedManifest = (m: InstallationManifest<SqlStatement>): RecordedManifest => ({

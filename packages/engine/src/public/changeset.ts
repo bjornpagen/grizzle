@@ -1,4 +1,4 @@
-import { canonicalEquals, withoutSourceLocs } from "#compiler/core/canonical.ts"
+import { sameContent } from "#compiler/core/canonical.ts"
 import type { ChangeSetConstructor, ChangeSetOf, Law } from "#compiler/types/changeset/changeset.ts"
 import { changeSets } from "#compiler/write/changeset/value.ts"
 
@@ -58,7 +58,7 @@ export type {
 
 /**
  * sameLaw(a, b): whether two laws, as an `invariant-rejected` outcome or lawsOf names them, are one law of a schema:
- * their descriptions are canonically equal, as the engine compares owned values (core/canonical.ts canonicalEquals),
- * source locations aside. A schema's two laws are described alike exactly when they are one law.
+ * their descriptions are canonically equal, as the engine compares owned values, source locations aside
+ * (core/canonical.ts sameContent). A schema's two laws are described alike exactly when they are one law.
  */
-export const sameLaw = (a: Law, b: Law): boolean => canonicalEquals(a, b, withoutSourceLocs)
+export const sameLaw = (a: Law, b: Law): boolean => sameContent(a, b)

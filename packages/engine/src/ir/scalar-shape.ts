@@ -1,4 +1,4 @@
-import { floatSpecialNames } from "#compiler/core/canonical.ts"
+import { canonicalEquals, floatSpecialNames } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import { ExprId, NodeId, ParamId } from "#compiler/core/ids.ts"
@@ -29,7 +29,6 @@ import {
 	type TableExpr,
 	type TableExprOf
 } from "#compiler/ir/expr.ts"
-import { identicalRoster, identicalSpan, identicalText } from "#compiler/ir/identical.ts"
 import {
 	type Exact,
 	type Fact,
@@ -291,10 +290,6 @@ const wireBody: S.Shape<WireScalarType> = S.structStated(
 	{}
 )
 
-/** Both absent, or both present and identical. */
-const both = <A, B>(a: A | undefined, b: B | undefined, same: (x: A, y: B) => boolean): boolean =>
-	a === undefined || b === undefined ? a === b : same(a, b)
-
 /** A wire typmod as the base's typmod states it: numeric(p, s)'s precision and scale, or vector(n)'s dimensions. */
 const sameTypmod = (wire: WireTypmod, base: ScalarType): boolean => {
 	const numeric = numericTypmodOf(base)
@@ -331,13 +326,13 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ContractInfo
 	if (t.typmod === undefined ? baseHasTypmod(base) : !sameTypmod(t.typmod, base)) {
 		return "a contract carries its base's typmod, unchanged"
 	}
-	if (!both(t.text, textOf(base), identicalText)) {
+	if (!canonicalEquals(t.text, textOf(base))) {
 		return "a contract carries its base's text, unchanged"
 	}
-	if (!both(t.roster, rosterOf(base), identicalRoster)) {
+	if (!canonicalEquals(t.roster, rosterOf(base))) {
 		return "a contract carries its base's roster, unchanged"
 	}
-	if (!both(t.span, spanOf(base), identicalSpan)) {
+	if (!canonicalEquals(t.span, spanOf(base))) {
 		return "a contract carries its base's span, unchanged"
 	}
 	if (isNumericValue(base)) {
@@ -754,7 +749,7 @@ export const tableExprShape: S.Shape<TableExpr> = S.tagged("kind", {
 	})
 })
 
-export const exprTableShape: S.Shape<ExprTable> = S.struct({
+const exprTableShape: S.Shape<ExprTable> = S.struct({
 	root: exprIdShape,
 	exprs: S.recordShape(tableExprShape, S.nonEmptyString)
 })

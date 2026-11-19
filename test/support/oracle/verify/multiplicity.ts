@@ -17,7 +17,7 @@ import {
 import { classifyEdges, consumerOutput } from "#compiler/analysis/physical/consumers.ts"
 import { keyedBy, type Realization } from "#compiler/analysis/physical/props.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -354,7 +354,7 @@ const certificates = (
 		if (typeof rebuilt === "string") {
 			return [problem("certificate", where, rebuilt)]
 		}
-		return Arr.some(rebuilt, (r) => r.ok && canonicalEquals(r.value, cert, everyProperty))
+		return Arr.some(rebuilt, (r) => r.ok && canonicalEquals(r.value, cert))
 			? []
 			: [problem("certificate", where, "the certificate the recomputed analysis proves")]
 	}
@@ -379,7 +379,7 @@ const certificates = (
 			out.push(problem("certificate", where, derived))
 		} else if (!derived.ok) {
 			out.push(problem("certificate", where, derived.error.message))
-		} else if (!canonicalEquals(derived.value, cert, everyProperty)) {
+		} else if (!canonicalEquals(derived.value, cert)) {
 			out.push(problem("certificate", where, "the certificate the recomputed analysis proves"))
 		}
 	}

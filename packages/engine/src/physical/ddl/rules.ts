@@ -11,7 +11,7 @@ import {
 } from "#compiler/analysis/theory/query.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { canonicalTextOf, Refusal, sameText } from "#compiler/core/canonical.ts"
+import { canonicalEquals, canonicalTextOf, Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import { defined } from "#compiler/core/invariant.ts"
@@ -104,7 +104,7 @@ interface Compiled {
 
 /**
  * The statements a guarded block of the judge runs, each once, in the order its first probe compiled: a set under
- * canonical equality (core/canonical.ts sameText), so a probe that compiles to a statement the block holds adds
+ * canonical equality (core/canonical.ts canonicalEquals), so a probe that compiles to a statement the block holds adds
  * nothing, and the block keeps the statement first compiled. Two occurrences of the touched relation that hold nothing
  * of its row apart (two arms of a derived relation that read it alike) are two probes of one statement, which a COMMIT
  * would otherwise run twice. A block holds a few probes, so asking each held statement is a short walk where a text of
@@ -114,7 +114,7 @@ interface Compiled {
 const probeStatements = (compiled: ReadonlyArray<Compiled>): ReadonlyArray<OperandSelect> => {
 	const held: Array<OperandSelect> = []
 	for (const p of compiled) {
-		if (!held.some((s) => sameText(s, p.statement))) {
+		if (!held.some((s) => canonicalEquals(s, p.statement))) {
 			held.push(p.statement)
 		}
 	}

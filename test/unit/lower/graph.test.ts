@@ -29,7 +29,7 @@ import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import { graphPass } from "#compiler/lower/optimize/graph/index.ts"
 import { carriedColumns, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
@@ -171,12 +171,12 @@ export const provedRootPushdownGraphSeedPushdownMovesAPredicateOnACarriedColumnO
 						const rules = Arr.map(ctx.certificates.all(), (x) => x.rule)
 						assert.equal(seedPushdowns(rules), moves)
 						assert.equal(
-							canonicalEquals(once, q, everyProperty),
+							canonicalEquals(once, q),
 							moves === 0,
 							"the query is as it was exactly where nothing moves"
 						)
 						assert.ok(
-							canonicalEquals(succeeded(graphPass.run(once, context())), once, everyProperty),
+							canonicalEquals(succeeded(graphPass.run(once, context())), once),
 							"idempotent"
 						)
 						c.note(`${moves === 1 ? "moved" : "kept"} ${spelling}`)
@@ -249,7 +249,7 @@ export const provedRootPushdownGraphSeedPushdownMovesEachOfTwoConjunctsAlikeButF
 							`${part}: every conjunct on the carried origin moves`
 						)
 						assert.ok(
-							canonicalEquals(succeeded(graphPass.run(once, passContext())), once, everyProperty),
+							canonicalEquals(succeeded(graphPass.run(once, passContext())), once),
 							"idempotent"
 						)
 						c.note(`${conjuncts} moved`)
@@ -263,8 +263,7 @@ export const provedRootPushdownGraphSeedPushdownMovesEachOfTwoConjunctsAlikeButF
 			kills: [
 				{
 					file: "packages/engine/src/lower/optimize/graph/seed.ts",
-					original:
-						'\t\t\treturn y.kind === "literal" && canonicalEquals(x.value, y.value, everyProperty)',
+					original: '\t\t\treturn y.kind === "literal" && canonicalEquals(x.value, y.value)',
 					replacement: '\t\t\treturn y.kind === "literal"',
 					why: "seed.ts's sameAtSeed takes two literals for alike whatever their values, so the second conjunct is taken as already in the seed; the alike-conjuncts search fails."
 				}
@@ -297,7 +296,7 @@ export const provedRootPushdownGraphSeedPushdownOnGeneratedCasesAppliesAnOriginF
 					`${q.label}: the seed applies the origin filter`
 				)
 				assert.ok(
-					canonicalEquals(succeeded(graphPass.run(once, caseContext(q))), once, everyProperty),
+					canonicalEquals(succeeded(graphPass.run(once, caseContext(q))), once),
 					`${q.label}: idempotent`
 				)
 				c.note(

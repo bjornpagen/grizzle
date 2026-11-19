@@ -1,5 +1,5 @@
 import { appendAll } from "#compiler/core/array.ts"
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalEquals, sameUnder } from "#compiler/core/canonical.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { nodePremises } from "#compiler/ir/certificate.ts"
 import type { ColumnRef, DefinedOp, ScalarExpr } from "#compiler/ir/expr.ts"
@@ -327,11 +327,7 @@ const sameAtSeed = (
 	x: ScalarExpr,
 	y: ScalarExpr
 ): boolean => {
-	if (
-		x.kind !== y.kind ||
-		x.args.length !== y.args.length ||
-		!canonicalEquals(x.type, y.type, everyProperty)
-	) {
+	if (x.kind !== y.kind || x.args.length !== y.args.length || !canonicalEquals(x.type, y.type)) {
 		return false
 	}
 	const argsAlike = (): boolean =>
@@ -350,7 +346,7 @@ const sameAtSeed = (
 		case "param":
 			return y.kind === "param" && x.param === y.param && x.role === y.role
 		case "literal":
-			return y.kind === "literal" && canonicalEquals(x.value, y.value, everyProperty)
+			return y.kind === "literal" && canonicalEquals(x.value, y.value)
 		case "op":
 			return y.kind === "op" && x.op === y.op && argsAlike()
 		case "cast":
@@ -393,7 +389,7 @@ const pushed = (site: Site): boolean => {
 			return (
 				l.kind === "column" &&
 				seedColumn(site.rec, l.column) === column.name &&
-				canonicalEquals(shallow(r), shallow(site.expr), { omit: (k) => k === "id" || k === "deps" })
+				sameUnder((k) => k === "id" || k === "deps")(shallow(r), shallow(site.expr))
 			)
 		})
 	}

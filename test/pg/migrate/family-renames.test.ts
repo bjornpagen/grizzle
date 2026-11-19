@@ -150,7 +150,7 @@ export const changedFills = property.explore(aimed(changeCaseGen, changeAims), {
 		{
 			file: "packages/engine/src/deploy/diff/declared.ts",
 			original:
-				"\t\t\t\t\treturn (spell.complete && sameText(restated, f.writing)) ||\n\t\t\t\t\t\tsameSequence(previous, installation, now.name, field.name, f.writing)",
+				"\t\t\t\t\treturn (spell.complete && canonicalEquals(restated, f.writing)) ||\n\t\t\t\t\t\tsameSequence(previous, installation, now.name, field.name, f.writing)",
 			replacement:
 				"\t\t\t\t\treturn spell.complete || sameSequence(previous, installation, now.name, field.name, f.writing)",
 			why: "A field whose filler changes keeps its stale values."
@@ -158,8 +158,8 @@ export const changedFills = property.explore(aimed(changeCaseGen, changeAims), {
 		{
 			file: "packages/engine/src/deploy/diff/declared.ts",
 			original:
-				"\t\t\t\t\treturn (spell.complete && sameText(restated, f.writing)) ||\n\t\t\t\t\t\tsameSequence(previous, installation, now.name, field.name, f.writing)",
-			replacement: "\t\t\t\t\treturn spell.complete && sameText(restated, f.writing)",
+				"\t\t\t\t\treturn (spell.complete && canonicalEquals(restated, f.writing)) ||\n\t\t\t\t\t\tsameSequence(previous, installation, now.name, field.name, f.writing)",
+			replacement: "\t\t\t\t\treturn spell.complete && canonicalEquals(restated, f.writing)",
 			why: "A re-pointed family's index is drawn again in member-key order."
 		},
 		{

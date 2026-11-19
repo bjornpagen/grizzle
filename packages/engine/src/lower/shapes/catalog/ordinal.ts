@@ -1,5 +1,5 @@
 import { appendAll } from "#compiler/core/array.ts"
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import type { CatalogRule } from "#compiler/ir/certificate.ts"
@@ -252,7 +252,7 @@ const sameConstant = (x: ScalarExpr, y: ScalarExpr): boolean => {
 		return x.param === y.param && sameScalarType(x.type, y.type)
 	}
 	if (x.kind === "literal" && y.kind === "literal") {
-		return sameScalarType(x.type, y.type) && canonicalEquals(x.value, y.value, everyProperty)
+		return sameScalarType(x.type, y.type) && canonicalEquals(x.value, y.value)
 	}
 	return false
 }

@@ -4,7 +4,7 @@ import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import { Result as Answered, Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { type ServedRefusal, snapshotCompiled } from "#adapter/served/compile.ts"
 import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
@@ -191,7 +191,7 @@ export const castsInstalled = (
 		)
 		for (const [i, d] of checked.entries()) {
 			const twin = Arr.findFirst(Arr.drop(checked, i + 1), (e) =>
-				canonicalEquals(bodyOf(d), bodyOf(e), everyProperty)
+				canonicalEquals(bodyOf(d), bodyOf(e))
 			)
 			assert.ok(
 				Option.isNone(twin),

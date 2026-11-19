@@ -50,7 +50,7 @@ import {
 	type RuleLaw,
 	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
-import { compareText, sameText } from "#compiler/core/canonical.ts"
+import { canonicalEquals, compareText } from "#compiler/core/canonical.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -944,7 +944,7 @@ export const regionFactsOf = (
 	})
 	const containments: Array<FieldContainment> = []
 	const hold = (c: FieldContainment): void => {
-		if (c.from !== c.to && !containments.some((held) => sameText(held, c))) {
+		if (c.from !== c.to && !containments.some((held) => canonicalEquals(held, c))) {
 			containments.push(c)
 		}
 	}
@@ -987,14 +987,15 @@ const composed = (
  * conjunct. No other conjunct is implied: a selection the conditions do not imply states no fact of the rows they read.
  */
 const implies = (conditions: ReadonlyArray<InferredExpr>, conjunct: ExprDesc): boolean => {
-	if (conditions.some((c) => sameText(c, conjunct))) {
+	if (conditions.some((c) => canonicalEquals(c, conjunct))) {
 		return true
 	}
 	if (conjunct.kind !== "in" || conjunct.arg.kind !== "field") {
 		return false
 	}
 	const field = conjunct.arg.field
-	const listed = (value: LiteralDesc): boolean => conjunct.values.some((v) => sameText(v, value))
+	const listed = (value: LiteralDesc): boolean =>
+		conjunct.values.some((v) => canonicalEquals(v, value))
 	/** Whether `term` is the conjunct's field and `other` one of its literals. */
 	const fixes = (term: InferredExpr, other: InferredExpr): boolean =>
 		term.kind === "field" && term.field === field && other.kind === "literal" && listed(other.value)
@@ -1164,7 +1165,7 @@ const regionOf = (
 				Object.fromEntries(key.map((_, j) => [unitColumn(j), varRef(regionVar(j))] as const)),
 				loc
 			)
-			if (!rules.some((held) => sameText(held, rule))) {
+			if (!rules.some((held) => canonicalEquals(held, rule))) {
 				rules.push(rule)
 			}
 		}

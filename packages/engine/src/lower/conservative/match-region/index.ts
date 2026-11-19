@@ -1,4 +1,4 @@
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import {
 	extendNonEmpty,
@@ -62,7 +62,7 @@ const sameValue = (x: ScalarExpr, y: ScalarExpr): boolean => {
 			return b !== undefined && sameValue(a, b)
 		})
 	if (x.kind === "literal") {
-		return y.kind === "literal" && canonicalEquals(x.value, y.value, everyProperty)
+		return y.kind === "literal" && canonicalEquals(x.value, y.value)
 	}
 	if (x.kind === "op") {
 		return y.kind === "op" && x.op === y.op && args()

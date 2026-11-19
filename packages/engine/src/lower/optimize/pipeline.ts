@@ -1,5 +1,5 @@
 import type { AdmittedQuery } from "#compiler/check/index.ts"
-import { canonicalEquals, catchRefusal, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalEquals, catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
@@ -124,7 +124,7 @@ const factsOf = (plan: DedupPlan, ctx: PassContext, options: OptimizedOptions): 
 	shapeFactsFromPlan(plan, {
 		derivedDefinition: options.subject.kind === "derivedDefinition",
 		certify: (certificate) => {
-			if (!ctx.certificates.all().some((c) => canonicalEquals(c, certificate, everyProperty))) {
+			if (!ctx.certificates.all().some((c) => canonicalEquals(c, certificate))) {
 				ctx.certificates.record(certificate)
 			}
 		}

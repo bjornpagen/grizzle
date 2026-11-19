@@ -1503,7 +1503,7 @@ export const writeRuntimeSnapshot = (
  * `grizzle generate` writes snapshot.json again, with no migration, since no fact is part of the fingerprinted content.
  */
 export const derivedHolds = (recorded: unknown, computed: SnapshotDerived): boolean =>
-	canonicalEquals(recorded, derivedForm(computed), everyProperty)
+	canonicalEquals(recorded, derivedForm(computed))
 
 /**
  * Whether a committed snapshot, as its files record it, is `computed`, the record of the snapshot the compile reaches
@@ -1513,7 +1513,7 @@ export const derivedHolds = (recorded: unknown, computed: SnapshotDerived): bool
  * generate` writes manifest.json again, with no migration.
  */
 export const recordHolds = (committed: DeploySnapshot, computed: DeploySnapshot): boolean =>
-	canonicalEquals(recordForm(committed, asValues), recordForm(computed, asValues), everyProperty)
+	canonicalEquals(recordForm(committed, asValues), recordForm(computed, asValues))
 
 /**
  * A snapshot's two files joined (joinedSnapshot), by the form manifest.json holds: the record, sealed by the seal it

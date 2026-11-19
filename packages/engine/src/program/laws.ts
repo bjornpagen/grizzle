@@ -1,5 +1,5 @@
 import { generatedFieldLaws, lawDescription } from "#compiler/analysis/theory/description.ts"
-import { canonicalEquals, withoutSourceLocs } from "#compiler/core/canonical.ts"
+import { sameContent } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
@@ -207,7 +207,7 @@ export const constraintNamesOf = (
 	const { checks } = schemaLaws(lawModelOf(schema, "constraintNamesOf"))
 	return (law) => {
 		const [name, ...others] = new Set(
-			checks.flatMap((c) => (canonicalEquals(c.law, law, withoutSourceLocs) ? [c.name] : []))
+			checks.flatMap((c) => (sameContent(c.law, law) ? [c.name] : []))
 		)
 		if (name === undefined || others.length > 0) {
 			throw malformed("constraintNamesOf", "a check the schema states, discharged under one name")

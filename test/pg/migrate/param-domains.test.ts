@@ -38,7 +38,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import {
@@ -176,7 +176,7 @@ export const paramDomains = property.exhaust(finite(caseGen), {
 					const checked = Arr.filter([...after.values()], (d) => d.constraints.length > 0)
 					for (const [i, d] of checked.entries()) {
 						const twin = Arr.findFirst(Arr.drop(checked, i + 1), (e) =>
-							canonicalEquals(bodyOf(d), bodyOf(e), everyProperty)
+							canonicalEquals(bodyOf(d), bodyOf(e))
 						)
 						assert.ok(
 							Option.isNone(twin),

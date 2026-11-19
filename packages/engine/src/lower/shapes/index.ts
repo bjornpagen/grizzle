@@ -1,6 +1,6 @@
 import { searchInRows } from "#compiler/check/approximate/attach.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { canonicalEquals, everyProperty, Refusal } from "#compiler/core/canonical.ts"
+import { canonicalEquals, Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import {
@@ -1345,10 +1345,10 @@ export class OptimizedDelivery<
 		const other = placed.attach
 		if (
 			other.delivered !== attach.delivered ||
-			!canonicalEquals(other.order, attach.order, everyProperty) ||
-			!canonicalEquals(other.correlation, attach.correlation, everyProperty) ||
-			!canonicalEquals(placed.parentKey, parentKey, everyProperty) ||
-			!canonicalEquals(other.child.heading, attach.child.heading, everyProperty)
+			!canonicalEquals(other.order, attach.order) ||
+			!canonicalEquals(other.correlation, attach.correlation) ||
+			!canonicalEquals(placed.parentKey, parentKey) ||
+			!canonicalEquals(other.child.heading, attach.child.heading)
 		) {
 			return false
 		}
