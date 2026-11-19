@@ -176,6 +176,7 @@ import {
 	deltaCte,
 	deltaCteName,
 	deltaIn,
+	deltaTarget,
 	emptyDelta
 } from "#compiler/write/readback/deltas.ts"
 import { type DeltasOf, deltaSourceIn, lowerReadBack } from "#compiler/write/readback/lower.ts"
@@ -1350,8 +1351,7 @@ const ridingSingle = (
 	const named = new Map(
 		frontend.deltas.flatMap((d) => (d.kind === "relation" ? [[d.relation.name, d] as const] : []))
 	)
-	const targetOf = (relation: string): string =>
-		frontend.deltaEntries.get(relation)?.target.name ?? relation
+	const targetOf = (relation: string): string => deltaTarget(frontend.deltaEntries, relation)
 	const supply = new NameSupply(start)
 	/** Each delta a riding read-back names of a relation the statement writes, by relation and side, in the order of
 	 * the statement's writes. */

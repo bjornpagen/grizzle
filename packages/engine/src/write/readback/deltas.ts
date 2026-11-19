@@ -1,3 +1,4 @@
+import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
@@ -12,6 +13,11 @@ import type {
 	ReturnedSide
 } from "#compiler/write/insert/statement.ts"
 import type { PutStatement } from "#compiler/write/put/statement.ts"
+
+/** The stored relation a Delta of `relation` names the delta of: its own, or a query entry's target (`entries`,
+ * WriteFrontend.deltaEntries). */
+export const deltaTarget = (entries: ReadonlyMap<string, CheckedEntry>, relation: string): string =>
+	entries.get(relation)?.target.name ?? relation
 
 /**
  * One side of a relation's delta as a read-back reads it: a CTE of the one statement that makes that side, over the

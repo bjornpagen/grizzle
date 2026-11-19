@@ -51,6 +51,7 @@ import type {
 	KeyArbiter
 } from "#compiler/write/put/choose.ts"
 import type { MergeScope } from "#compiler/write/put/proof.ts"
+import { deltaTarget } from "#compiler/write/readback/deltas.ts"
 import { explicitSerials } from "#compiler/write/serial/advance.ts"
 
 /** An action a planned statement realizes: its stratum, its position among the stratum's actions
@@ -831,9 +832,7 @@ const placeReadBacks = (
 ): ReadBackPlacement => {
 	const sides = strata.map(stepSides)
 	const writes = strata.map(stepWrites)
-	/** The relation a Delta names the delta of: its own, or a query entry's target. */
-	const targetOf = (relation: string): string =>
-		frontend.deltaEntries.get(relation)?.target.name ?? relation
+	const targetOf = (relation: string): string => deltaTarget(frontend.deltaEntries, relation)
 	const made = new Map<string, Set<DeltaSide>>()
 	for (const write of sides.flat()) {
 		const own = made.get(write.relation) ?? new Set<DeltaSide>()

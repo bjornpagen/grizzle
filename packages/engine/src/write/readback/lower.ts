@@ -13,7 +13,7 @@ import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized, type OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import type { NameSupplyStart } from "#compiler/sql/naming.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
-import type { DeltaHeld } from "#compiler/write/readback/deltas.ts"
+import { type DeltaHeld, deltaTarget } from "#compiler/write/readback/deltas.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
 
 interface ReadBackOptions {
@@ -47,7 +47,7 @@ export const deltaSourceIn = (
 	heldOf: (relation: string) => DeltaHeld | undefined
 ): DeltaRelation | undefined => {
 	const entry = entries.get(relation)
-	const held = heldOf(entry === undefined ? relation : entry.target.name)
+	const held = heldOf(deltaTarget(entries, relation))
 	if (held === undefined) {
 		return undefined
 	}
