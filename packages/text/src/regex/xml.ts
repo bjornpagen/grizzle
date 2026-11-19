@@ -1,4 +1,5 @@
-import { type CharSet, charSet, union } from "#text/regex/charset.ts"
+import { type CharSet, charSet, complement, has, intersection, union } from "#text/regex/charset.ts"
+import { codePoints } from "#text/text.ts"
 
 /**
  * XML's characters as XML Schema 1.0's regular expressions read them: the alphabet every pattern facet ranges over
@@ -500,3 +501,24 @@ export const xmlSchemaBlocks: ReadonlyMap<string, CharSet> = new Map([
 	],
 	["HalfwidthandFullwidthForms", charSet([[0xff00, 0xffef]])]
 ])
+
+/** A colon, which an NCName holds nowhere (Namespaces in XML 1.0, NCName). */
+const colon = charSet([[0x3a, 0x3a]])
+
+/** An NCName's first character: `\i` but the colon. */
+const ncNameStart: CharSet = intersection(nameStart, complement(colon))
+
+/** An NCName's other characters: `\c` but the colon. */
+const ncNameChar: CharSet = intersection(nameChar, complement(colon))
+
+/**
+ * Whether a text is an NCName as XML Schema 1.0 reads xs:NCName: Namespaces in XML 1.0's `(Letter | '_') (NCNameChar)*`
+ * over XML 1.0 Second Edition's tables, `\i` and `\c` but the colon (spec reading 94), every code point read once;
+ * the text as written, no whitespace removed. The one test of whether a value names something (spec reading 152),
+ * which pantry's grammar and plate's model read alike.
+ */
+export const isNcName = (text: string): boolean => {
+	const points = codePoints(text)
+	const [first, ...rest] = points
+	return first !== undefined && has(ncNameStart, first) && rest.every((c) => has(ncNameChar, c))
+}

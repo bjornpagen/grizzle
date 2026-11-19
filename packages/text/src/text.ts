@@ -116,6 +116,24 @@ export const replaceMap = Object.freeze({ from: "\t\n\r", to: "   " })
 export const replaced = (text: string): string => translated(text, replaceMap.from, replaceMap.to)
 
 /**
+ * The text without the XML whitespace at either end, its inner whitespace as it stands: what a value sheds before a
+ * typed reading of it (an identifier, a number, a boolean) where its type's whiteSpace is collapse and its lexical
+ * space holds no space, so collapsing it and trimming it are one text. Linear in the text, stepping in from each end
+ * once.
+ */
+export const trimmed = (text: string): string => {
+	let start = 0
+	let end = text.length
+	while (start < end && xmlWhitespace.has(text.charCodeAt(start))) {
+		start += 1
+	}
+	while (end > start && xmlWhitespace.has(text.charCodeAt(end - 1))) {
+		end -= 1
+	}
+	return text.slice(start, end)
+}
+
+/**
  * whiteSpace collapse of a text, by code points (XML Schema 1.0 Part 2, §4.3.6): each run of white space between two
  * other characters is one space, and a run at either end is nothing. No other character is white space to it: a
  * no-break space, an ideographic space or a byte order mark stays.
