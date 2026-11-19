@@ -1,6 +1,7 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { nominal } from "#compiler/core/brand.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type {
 	ExprId,
 	LawId,
@@ -427,6 +428,25 @@ export const closedCell = (row: ReadonlyArray<TypedLiteral>, position: number): 
 		throw defect(`a Closed row holds a literal at heading position ${position}`)
 	}
 	return literal
+}
+
+/**
+ * The values of the column at `position` of closed facts' rows (a ClosedTheoryRelation's, at its field's position):
+ * each distinct literal once, by canonical equality, in the order the rows first hold it. A closed relation's payload
+ * read takes one of them wherever it finds a row, so they are every value it can take.
+ */
+export const closedValues = (
+	rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>,
+	position: number
+): ReadonlyArray<TypedLiteral> => {
+	const values: Array<TypedLiteral> = []
+	for (const row of rows) {
+		const literal = closedCell(row, position)
+		if (!values.some((v) => canonicalEquals(v, literal))) {
+			values.push(literal)
+		}
+	}
+	return values
 }
 
 /** The literals of a Closed node's column at `position` of its heading, one per row in row order. */

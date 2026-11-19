@@ -14,6 +14,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import type { ClosedTheoryRelation } from "#compiler/ir/law.ts"
 import { baseOf, patternsText, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import type {
 	Collation,
@@ -136,6 +137,11 @@ export interface PhysicalNames {
 	 * where the statement calling it is compiled, never by PostgreSQL where it runs.
 	 */
 	readonly library: (fn: LibraryFn) => QualifiedFunctionRef
+	/**
+	 * The closed relations' theories, by their declared names: their headings and rows, the values a read of one takes
+	 * and the facts a constant subterm is evaluated over (lower/conservative/expr/share.ts).
+	 */
+	readonly closedRelations: ReadonlyMap<string, ClosedTheoryRelation>
 	/** The selection keys' law columns of a stored relation, by its declared name (`SelectionKey`): none for a
 	 * relation with none. */
 	readonly selectionKeys: (relation: string) => ReadonlyArray<SelectionKey>

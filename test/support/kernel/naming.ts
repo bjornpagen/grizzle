@@ -161,10 +161,10 @@ export const localVectorSchema = "vector_ext"
  * vector extension in `vectorSchema` and the installation's codes `codes` (a fresh one's: ir/codes.ts firstCodebook):
  * each name minted at the naming door (core/identity.ts), a relation's as a stored relation's table. A structural text
  * domain exists only where an installation types a column by it, so these names name none; and they name no closed
- * relation's constant, no contract's domain but natural's and no column a lookup index holds by its image, which only an
- * installation holds, since a contract's domain is named by its definition's digest and an index is its installation's:
- * natural's definition is the one every installation holds, a count's type, so its digest is known without one. A
- * declared function is named as a root level's, in `at`'s schema.
+ * relation's constant or rows, no contract's domain but natural's and no column a lookup index holds by its image,
+ * which only an installation holds, since a contract's domain is named by its definition's digest and an index is its
+ * installation's: natural's definition is the one every installation holds, a count's type, so its digest is known
+ * without one. A declared function is named as a root level's, in `at`'s schema.
  */
 export const productionNames = (
 	declaredSchema: string,
@@ -231,6 +231,7 @@ export const productionNames = (
 				`productionNames names no installed constant, so none of closed relation ${relation}: a test that reads one names an installation (installationOf)`
 			)
 		},
+		closedRelations: new Map(),
 		refusal: { kind: "qualified", schema, name: identifierOf(identity.refusal()) }
 	}
 	return names

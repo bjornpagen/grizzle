@@ -22,8 +22,10 @@ import {
 	isProvedCast,
 	lowerLiteral,
 	lowerScalar,
+	printedSize,
 	type ScalarSite
 } from "#compiler/lower/conservative/expr/index.ts"
+import { sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
 import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
 import {
 	type EvalLeaves,
@@ -273,14 +275,25 @@ const foldedConstant = (
  * - a parameter has no meaning in the schema and is refused;
  * - a cast names its type's installed column type;
  * - a compound subterm PostgreSQL's planner folds (`plannedConstants`) is its value (`foldedConstant`), and a BETWEEN
- *   whose operand the planner folds is the conjunction PostgreSQL reads it as (`composedBetween`).
+ *   whose operand the planner folds is the conjunction PostgreSQL reads it as (`composedBetween`);
+ * - like a query's, its shared subterms are evaluated once (lower/conservative/expr/share.ts sharedExpr), each rewrite
+ *   measured by the text this site prints.
  *
  * The IS TRUE wrapper of a CHECK is not added here: the printer wraps every CHECK. */
 export const lowerPersistent = (
 	names: PhysicalNames,
 	expr: ScalarExpr,
 	scope: PersistentScope
-): Expr => lowerScalar(expr, persistentSite(names, scope, plannedConstants(expr, scope.closed)))
+): Expr => {
+	const lowered = (e: ScalarExpr): Expr =>
+		lowerScalar(e, persistentSite(names, scope, plannedConstants(e, scope.closed)))
+	return lowered(
+		sharedExpr(expr, {
+			closed: names.closedRelations,
+			size: (e) => printedSize(() => lowered(e))
+		})
+	)
+}
 
 /** The persistent site of a tree in `scope` (lowerPersistent), each of `constants`, the subterms PostgreSQL's planner
  * folds, as the value of its planned form where the host has one. */

@@ -18,7 +18,7 @@ import {
 import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { DomainCheck } from "#compiler/ir/law.ts"
+import type { ClosedTheoryRelation, DomainCheck } from "#compiler/ir/law.ts"
 import {
 	type LibraryFn,
 	missing,
@@ -170,6 +170,8 @@ interface NamesInput {
 	readonly codes: Codebook
 	/** Each closed relation's installed constants, by its declared name (physical/ddl/constants.ts). */
 	readonly closed: ReadonlyMap<string, ClosedConstant>
+	/** Each closed relation's theory, its heading and its rows, by its declared name. */
+	readonly closedRelations: ReadonlyMap<string, ClosedTheoryRelation>
 	/** Each stored relation's selection keys' law columns, by its declared name (`selectionKeysOf`). */
 	readonly selectionKeys: ReadonlyMap<string, ReadonlyArray<SelectionKey>>
 	/** The library functions the installation installs (physical/ddl/library.ts libraryCalls). */
@@ -344,6 +346,7 @@ export const roleReadNames = (
 	codes: names.codes,
 	closed: names.closed,
 	library: names.library,
+	closedRelations: names.closedRelations,
 	refusal: names.refusal,
 	declaredFunction: names.declaredFunction,
 	imaged: imagedViews(names, world, role, entries)
@@ -546,6 +549,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 			library.has(fn)
 				? { kind: "qualified", schema, name: identifierOf(libraryIdentity(fn)) }
 				: uninstalledFunction(fn),
+		closedRelations: input.closedRelations,
 		selectionKeys: (relation) => input.selectionKeys.get(relation) ?? [],
 		imaged: imagedColumns(
 			Object.values(owned.relations).flatMap((r) =>

@@ -140,6 +140,12 @@ export const conservativeBasis = (
 ): Result.Result<InstallBasis, CompileError> =>
 	Result.flatMap(conservativeLaws(owned, slice), (model) => basisOf(model, codes))
 
+/** The closed relations of a law model's theory, in its order. */
+const closedRelationsOf = (model: LawModel): ReadonlyArray<ClosedTheoryRelation> =>
+	Object.values(model.theory.relations).filter(
+		(r): r is ClosedTheoryRelation => r.kind === "closed"
+	)
+
 /**
  * The basis of the installations of a law model's owned schema under `codes`, over the model `model`: installBasis's
  * over the model it compiles, and a built schema's artifacts' over the one model its schema value holds
@@ -151,13 +157,7 @@ export const basisOf = (
 ): Result.Result<InstallBasis, CompileError> =>
 	catchRefusal((): InstallBasis => {
 		const { owned } = model
-		const planned = planClosed(
-			owned,
-			Object.values(model.theory.relations).filter(
-				(r): r is ClosedTheoryRelation => r.kind === "closed"
-			),
-			codes
-		)
+		const planned = planClosed(owned, closedRelationsOf(model), codes)
 		return {
 			owned,
 			model,
@@ -546,6 +546,7 @@ export const planInstallation = (
 			define: contractDigest,
 			codes,
 			closed: qualifiedClosed(identifierOf(headNonEmpty(settings.levels)), closed),
+			closedRelations: new Map(closedRelationsOf(model).map((r) => [r.name, r] as const)),
 			selectionKeys: selectionKeysOf(model.natives),
 			library
 		})

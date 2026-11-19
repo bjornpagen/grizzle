@@ -1,5 +1,5 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import { floatSpecials } from "#compiler/core/canonical.ts"
+import { catchRefusal, floatSpecials } from "#compiler/core/canonical.ts"
 import type { ProseTag } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
@@ -25,15 +25,17 @@ import {
 	refuseAt
 } from "#compiler/lower/conservative/context.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
+import { equalityChain, sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
 import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
 import { binaryCoercion, isDateParse } from "#compiler/scalar/compute/registry.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
-import { cast, lit, qualifiedCall, types } from "#compiler/sql/build.ts"
+import { cast, lit, positionalValue, qualifiedCall, slotParam, types } from "#compiler/sql/build.ts"
 import { type ClosedRead, closedRead as closedReadOf } from "#compiler/sql/constants.ts"
 import { dateOfText } from "#compiler/sql/lexical.ts"
+import { printExpr } from "#compiler/sql/print.ts"
 
 /**
  * Minor units as the exact decimal text of the amount, two fractional digits under the fixed C.UTF-8 monetary
@@ -196,6 +198,13 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 		case "domainCast":
 			return cast(lower(expr.args[0]), site.castType(expr.type, expr))
 		case "cond": {
+			const chain = equalityChain(expr)
+			if (chain !== undefined) {
+				const simple = simpleCase(chain, lower)
+				if (simple !== undefined) {
+					return simple
+				}
+			}
 			const [when, result, otherwise] = expr.args
 			return {
 				kind: "case",
@@ -230,6 +239,38 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 		case "call":
 			return declaredCall(site, expr, expr.args.map(lower))
 	}
+}
+
+/**
+ * A conditional chain of equalities of one subject to literals (share.ts equalityChain) as one simple CASE over the
+ * subject, `CASE s WHEN v1 THEN a1 WHEN v2 THEN a2 … ELSE otherwise END`, which evaluates `s` once: PostgreSQL compares
+ * each WHEN's value to the subject by the `=` that `s = v` names, so the chain is the CASE wherever each of its tests
+ * lowers to that `=`; undefined where one lowers otherwise, which the chain's conditionals then print as they are.
+ */
+const simpleCase = (
+	chain: NonNullable<ReturnType<typeof equalityChain>>,
+	lower: (a: ScalarExpr) => Expr
+): Expr | undefined => {
+	const [first, ...rest] = chain.whens
+	if (first === undefined) {
+		return undefined
+	}
+	const plain = chain.whens.every((w) => {
+		const test = lower(w.condition)
+		return test.kind === "binary" && test.op === "="
+	})
+	const when = (w: (typeof chain.whens)[number]) => ({
+		when: lower(w.value),
+		result: lower(w.result)
+	})
+	return plain
+		? {
+				kind: "case",
+				operand: lower(chain.subject),
+				whens: [when(first), ...rest.map(when)],
+				else: lower(chain.otherwise)
+			}
+		: undefined
 }
 
 /**
@@ -311,9 +352,34 @@ const querySite = (cx: LowerContext, env: Env): ScalarSite => ({
 	whole: () => undefined
 })
 
-/** The SQL of the expression `expr`, evaluated where `env` is in scope (lowerScalar at its query's site). */
-export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
-	lowerScalar(expr, querySite(cx, env))
+/**
+ * The SQL of the expression `expr`, evaluated where `env` is in scope: lowerScalar at its query's site, of the
+ * expression with its shared subterms evaluated once (share.ts sharedExpr), each rewrite measured at the site with
+ * every parameter a stand-in of its type, so no measure allocates a placeholder of the statement.
+ */
+export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr => {
+	const site = querySite(cx, env)
+	const measured: ScalarSite = {
+		...site,
+		leaf: (e) =>
+			e.kind === "param"
+				? slotParam(positionalValue(0), cx.typeRef(e.type, exprLabel(e)))
+				: site.leaf(e)
+	}
+	return lowerScalar(
+		sharedExpr(expr, {
+			closed: cx.names.closedRelations,
+			size: (e) => printedSize(() => lowerScalar(e, measured))
+		}),
+		site
+	)
+}
+
+/** The length of the SQL text `lowered` prints, or undefined where lowering it refuses. */
+export const printedSize = (lowered: () => Expr): number | undefined => {
+	const sql = catchRefusal(lowered)
+	return sql.ok ? printExpr(sql.value).length : undefined
+}
 
 /**
  * A closed read as its relation's installed constants answer it (sql/constants.ts closedRead), its arguments the codes
