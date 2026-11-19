@@ -82,8 +82,9 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",
-				original: "\tconst items = admission.items()",
-				replacement: "\tconst items = itemsOf(relation, judged)",
+				original: "\t\tkept = keptEvaluation(admission.items(), source, admission.judged, answer)",
+				replacement:
+					"\t\tkept = keptEvaluation(itemsOf(relation, admission.judged, answer), source, admission.judged, answer)",
 				why: "Each evaluation of an admitted row builds its relation's records again, for every source of its relation, so two sources of Gen over one admitted row read two records and two values of g, not the one record they share."
 			},
 			{

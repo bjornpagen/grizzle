@@ -31,7 +31,7 @@ import { typingEnv } from "#compiler/analysis/theory/theory.ts"
 import { rowNode } from "#compiler/check/generated.ts"
 import { checkDefinition } from "#compiler/check/index.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { connectiveExpr, type ExprDesc } from "#compiler/ir/desc.ts"
@@ -40,9 +40,10 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { lawModel } from "#compiler/program/laws.ts"
-import { fieldKey } from "#compiler/runtime/write/fill.ts"
+import { type ColumnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import {
 	type Evaluated,
+	type FilledColumn,
 	type JudgedField,
 	type JudgedRow,
 	type JudgedTable,
@@ -87,12 +88,20 @@ type Lowered = Result.Result<ExprTable, Unevaluated>
 interface Prepared {
 	readonly relation: string
 	readonly table: JudgedTable
+	readonly filled: FilledFields
 	readonly refined: ReadonlyArray<JudgedField>
 	readonly generated: ReadonlyArray<{ readonly name: string; readonly expr: ExprTable }>
 	readonly checks: ReadonlyArray<RowCheck>
 	readonly selection: Lowered
 	readonly judge: Judge
 }
+
+/**
+ * The fields of a relation a row of it fills, by the column key the judge reads each at (runtime/write/fill.ts
+ * fieldKey): its fields' names, read once a source, so a row's fill is read off the row itself, never a map built per
+ * row.
+ */
+type FilledFields = ReadonlyMap<ColumnKey, string>
 
 /**
  * A row check of a relation, by name, its predicate p lowered over the row: a row breaks it where p is false or NULL,
@@ -270,6 +279,7 @@ const prepare = (
 	return {
 		relation: selected.relation,
 		table: { fields, lawColumns: new Map() },
+		filled: new Map(fields.map((f) => [fieldKey(f.name), f.name] as const)),
 		refined: fields.filter((f) => f.writing.kind !== "generated" && isRefined(f.type)),
 		generated,
 		checks,
@@ -278,21 +288,24 @@ const prepare = (
 	}
 }
 
+/** A column a row does not fill: a law column, which a row of a source holds none of, or a field it does not hold. */
+const unfilled: FilledColumn = Object.freeze({ kind: "unfilled" })
+
 /**
- * A row as the judge reads it (witness.ts JudgedRow): every field it holds stated, a drawn or accumulated field filled
- * at its value, and no law column, which a row of a source holds none of.
+ * A row as the judge reads it (witness.ts JudgedRow): every field it holds stated, and each of its relation's fields
+ * it holds filled at its value, read off the row itself by the relation's filled fields (FilledFields), a drawn or
+ * accumulated field among them; no law column.
  */
-const judgedRow = (row: Readonly<Record<string, unknown>>): JudgedRow => {
-	const filled = new Map(
-		Object.entries(row).map(([name, value]) => [fieldKey(name), value] as const)
-	)
-	return {
-		kind: "known",
-		stated: row,
-		filled: (column) =>
-			filled.has(column) ? { kind: "filled", value: filled.get(column) } : { kind: "unfilled" }
+const judgedRow = (row: Readonly<Record<string, unknown>>, fields: FilledFields): JudgedRow => ({
+	kind: "known",
+	stated: row,
+	filled: (column) => {
+		const name = fields.get(column)
+		return name !== undefined && Object.hasOwn(row, name)
+			? { kind: "filled", value: row[name] }
+			: unfilled
 	}
-}
+})
 
 /**
  * What the host's stop means for a row inside its domains: an expression the host does not evaluate is Unevaluated; a
@@ -351,21 +364,62 @@ interface Items {
 	readonly checks: Readonly<Record<string, Public.Result<CheckVerdict, Unevaluated>>>
 }
 
-/** An admitted row's items as R's evaluation types them (isItemsOf). */
-type ItemsOf<S, R> = Items & Pick<RowEvaluation<S, R>, "generated" | "checks">
+/** An admitted row's evaluation as a row of one source (RowEvaluation), its records keyed by its relation's names. */
+interface SourceEvaluation {
+	readonly generated: Items["generated"]
+	readonly checks: Items["checks"]
+	readonly selected: Public.Result<boolean, Unevaluated>
+}
+
+/**
+ * An admitted row's evaluation as a row of one source of its relation (SourceEvaluation), built where it is first asked
+ * for and kept on its admission, one for the pair, with the items it reads: its relation's generated values and
+ * verdicts (Items), which every source of the relation shares, and its selection by the source, evaluated where it is
+ * first read (once) and kept.
+ */
+interface KeptEvaluation {
+	readonly items: Items
+	readonly evaluation: SourceEvaluation
+}
+
+/** The evaluation of an admitted row as a row of `source` over its items, kept for the pair (KeptEvaluation). */
+const keptEvaluation = (
+	items: Items,
+	source: Prepared,
+	judged: JudgedRow,
+	answer: Result.PublicResult
+): KeptEvaluation => {
+	const selected = once(() =>
+		answer(
+			Result.flatMap(source.selection, (selection) =>
+				truthOf(source.judge.evaluate(source.table, selection, judged))
+			)
+		)
+	)
+	return {
+		items,
+		evaluation: {
+			generated: items.generated,
+			checks: items.checks,
+			get selected() {
+				return selected()
+			}
+		}
+	}
+}
 
 /**
  * What admitting a row records of it, by the admitted row's identity: its relation, read as a whole source of itself
  * (select(R, TRUE)); the row as the judge reads it, built once; its relation's items (Items), built where the row is
- * first evaluated, which every source of the relation shares; and each source's selection of it, memoized, each item
- * as the caller reads it, Effect's Result. A WeakMap holds nothing alive and is never enumerated, so it is no cache: it
- * is the admitted row's state.
+ * first evaluated, which every source of the relation shares; and its evaluation as a row of each source (Evaluation),
+ * built where it is first asked for, each item as the caller reads it, Effect's Result. A WeakMap holds nothing alive and is never enumerated, so it is no cache: it is the
+ * admitted row's state.
  */
 interface Admission {
 	readonly relation: Prepared
 	readonly judged: JudgedRow
 	readonly items: () => Items
-	readonly selected: Map<Prepared, Public.Result<boolean, Unevaluated>>
+	readonly evaluations: Map<Prepared, KeptEvaluation>
 }
 
 const admissions = new WeakMap<object, Admission>()
@@ -373,16 +427,6 @@ const admissions = new WeakMap<object, Admission>()
 /** The one site of the fact "this value is an admitted row of R": admit made it, which its state records. */
 const isAdmittedRow = <R>(value: { readonly row: EvaluatedRow<R> }): value is AdmittedRow<R> =>
 	admissions.has(value)
-
-/** An item of an admitted row, evaluated where it is first read, then read from its memo. */
-const memoized = <K, A>(memo: Map<K, A>, key: K, compute: () => A): A => {
-	if (memo.has(key)) {
-		return defined(memo.get(key), "a memoized item")
-	}
-	const value = compute()
-	memo.set(key, value)
-	return value
-}
 
 /** A value computed where it is first read, then read from its memo. */
 const once = <A>(compute: () => A): (() => A) => {
@@ -427,13 +471,16 @@ const itemsOf = (relation: Prepared, judged: JudgedRow, answer: Result.PublicRes
 }
 
 /**
- * The one site of the fact "an admitted row's items are R's": its generated values are keyed by R's generated fields and
- * its verdicts by R's check names, which the schema's type of R states and R's reading, the relation the row was
- * admitted to, reads at run time, a correlation no TypeScript type ties. Items are built over the names of the reading
- * that built them (itemsOf), which they record, so items of another reading are a defect.
+ * The one site of the fact "an admitted row's evaluation is R's": its generated values are keyed by R's generated
+ * fields and its verdicts by R's check names, which the schema's type of R states and R's reading, the relation the row
+ * was admitted to, reads at run time, a correlation no TypeScript type ties. Its items are built over the names of the
+ * reading that built them (itemsOf), which they record, so items of another reading are a defect.
  */
-const isItemsOf = <S, R>(items: Items, relation: Prepared): items is ItemsOf<S, R> =>
-	items.relation === relation
+const isEvaluationOf = <S, R>(
+	kept: KeptEvaluation,
+	relation: Prepared
+): kept is KeptEvaluation & { readonly evaluation: RowEvaluation<S, R> } =>
+	kept.items.relation === relation
 
 /**
  * A row of R admitted (see rowEvaluator's admit): each refined field of R the row holds is held to its domain, its
@@ -461,12 +508,12 @@ const admitted = <R>(
 		return Result.err({ _tag: "DomainRefused", field: field.name })
 	}
 	const value = Object.freeze({ row })
-	const judged = judgedRow(fields)
+	const judged = judgedRow(fields, relation.filled)
 	admissions.set(value, {
 		relation,
 		judged,
 		items: once(() => itemsOf(relation, judged, answer)),
-		selected: new Map()
+		evaluations: new Map()
 	})
 	if (!isAdmittedRow<R>(value)) {
 		throw defect("an admitted row, its state recorded")
@@ -475,9 +522,10 @@ const admitted = <R>(
 }
 
 /**
- * An admitted row evaluated as a row of a prepared source of its relation (see the header): each item computed where it
- * is first read and memoized on the admitted row, its relation's generated values and verdicts by its relation's reading,
- * which every source of the relation shares, and its selection by the source's.
+ * An admitted row evaluated as a row of a prepared source of its relation (see the header): its evaluation as a row of
+ * the source (Evaluation), built where it is first asked for and kept on the admitted row, so every later call returns
+ * it; each item computed where it is first read and memoized there, its relation's generated values and verdicts by its
+ * relation's reading, which every source of the relation shares, and its selection by the source's.
  */
 const evaluated = <S, R>(
 	source: Prepared,
@@ -488,27 +536,19 @@ const evaluated = <S, R>(
 	if (admission === undefined) {
 		throw defect("an admitted row, which admit made")
 	}
-	const { relation, judged } = admission
-	if (source.relation !== relation.relation) {
-		throw defect(`a source of ${relation.relation}, the relation the row was admitted to`)
+	const { relation } = admission
+	let kept = admission.evaluations.get(source)
+	if (kept === undefined) {
+		if (source.relation !== relation.relation) {
+			throw defect(`a source of ${relation.relation}, the relation the row was admitted to`)
+		}
+		kept = keptEvaluation(admission.items(), source, admission.judged, answer)
+		admission.evaluations.set(source, kept)
 	}
-	const items = admission.items()
-	if (!isItemsOf<S, R>(items, relation)) {
+	if (!isEvaluationOf<S, R>(kept, relation)) {
 		throw defect("a row's items keyed by the names of the relation it was admitted to")
 	}
-	return {
-		generated: items.generated,
-		checks: items.checks,
-		get selected() {
-			return memoized(admission.selected, source, () =>
-				answer(
-					Result.flatMap(source.selection, (selection) =>
-						truthOf(source.judge.evaluate(source.table, selection, judged))
-					)
-				)
-			)
-		}
-	}
+	return kept.evaluation
 }
 
 /**
