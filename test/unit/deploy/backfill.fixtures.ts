@@ -1464,13 +1464,24 @@ type Backfill =
 			readonly stored: ReadonlyArray<Stored>
 	  }
 	| { readonly kind: "keyed tree" }
-	| { readonly kind: "place"; readonly stored: ReadonlyArray<Placed> }
+	| {
+			readonly kind: "place"
+			readonly stored: ReadonlyArray<Placed>
+			readonly attempts: ReadonlyArray<PlacedAttempt>
+	  }
 
 /** A stored session of the place case, by its child, its item and its stage. */
 interface Placed {
 	readonly child: number
 	readonly item: number
 	readonly stage: number
+}
+
+/** A stored attempt of a session of the place case, at its instant, with as many values as `values`. */
+interface PlacedAttempt {
+	readonly session: Placed
+	readonly at: number
+	readonly values: number
 }
 
 /** Every session the place case may store: two children, two items, six stages. */
@@ -1483,64 +1494,171 @@ const placeable: ReadonlyArray<Placed> = Arr.flatMap(
 		)
 )
 
-/** Sessions keyed by child, item and stage, which a migration numbers by a place within each child's item, by stage. */
-const placedBefore = schema(
-	"Backfill",
-	[
-		relation("Session", { child: pg.integer, item: pg.integer, stage: pg.integer }, [
-			"child",
-			"item",
-			"stage"
-		])
-	],
-	[]
-)
+/** The place case's stored rows: sessions stored in a drawn order, each with up to two attempts, each attempt with up
+ * to two values. */
+export const placedGen: Gen<Backfill> = (source) => {
+	const stored = source.draw(shuffled(placeable, { min: 0, max: 8 }))
+	const attempts = Arr.flatMap(stored, (session) =>
+		upTo(source.draw(between(0, 2)), (at) => ({
+			session,
+			at,
+			values: source.draw(between(0, 2))
+		}))
+	)
+	return { kind: "place", stored, attempts }
+}
 
-/** The sessions keyed by their place n within each child's item, which a migration numbers by stage, their old key a key
- * still. */
+/**
+ * Sessions keyed by child, item and stage, each attempt of one by its stage and its instant, and each value of an
+ * attempt by its attempt and its own: what a migration re-keys by a place within each child's item, by stage.
+ */
+const placedBefore = (() => {
+	const Session = relation("Session", { child: pg.integer, item: pg.integer, stage: pg.integer }, [
+		"child",
+		"item",
+		"stage"
+	])
+	const Attempt = relation(
+		"Attempt",
+		{ child: pg.integer, item: pg.integer, stage: pg.integer, at: pg.integer },
+		["child", "item", "stage", "at"]
+	)
+	const Value = relation(
+		"Value",
+		{ child: pg.integer, item: pg.integer, stage: pg.integer, at: pg.integer, v: pg.integer },
+		["child", "item", "stage", "at", "v"]
+	)
+	return schema(
+		"Backfill",
+		[Session, Attempt, Value],
+		[
+			contained(on(Attempt, "child", "item", "stage"), on(Session, "child", "item", "stage")),
+			contained(
+				on(Value, "child", "item", "stage", "at"),
+				on(Attempt, "child", "item", "stage", "at")
+			)
+		]
+	)
+})()
+
+/**
+ * The sessions keyed by their place n within each child's item, which a migration numbers by stage, their old key a key
+ * still; each attempt keyed by its session's place and its instant, its stage dropped, and each value by its attempt's
+ * place, its stage dropped: each place an attempt or a value holds is the one its containment carries.
+ */
 const placedAfter = (() => {
 	const Session = relation(
 		"Session",
 		{ child: pg.integer, item: pg.integer, n: place({ by: "stage" }), stage: pg.integer },
 		["child", "item", "n"]
 	)
-	return schema("Backfill", [Session], [key(on(Session, "child", "item", "stage"))])
+	const Attempt = relation(
+		"Attempt",
+		{ child: pg.integer, item: pg.integer, n: natural, at: pg.integer },
+		["child", "item", "n", "at"]
+	)
+	const Value = relation(
+		"Value",
+		{ child: pg.integer, item: pg.integer, n: natural, at: pg.integer, v: pg.integer },
+		["child", "item", "n", "at", "v"]
+	)
+	return schema(
+		"Backfill",
+		[Session, Attempt, Value],
+		[
+			key(on(Session, "child", "item", "stage")),
+			contained(on(Attempt, "child", "item", "n"), on(Session, "child", "item", "n")),
+			contained(on(Value, "child", "item", "n", "at"), on(Attempt, "child", "item", "n", "at"))
+		]
+	)
 })()
 
-/** The place case's migration: each stored session numbered within its child's item by its stage. */
-const placedMigration = migrationOf(placedBefore, placedAfter)
+/** The place case's migration: each stored session numbered within its child's item by its stage, and each attempt
+ * and value re-keyed by the place its containment carries, their stages dropped as declared. */
+const placedMigration = declaredMigrationOf(
+	placedBefore,
+	placedAfter,
+	droppedFields([
+		["Attempt", "stage"],
+		["Value", "stage"]
+	])
+)
 
 /** What the place case's migration must leave: each session's place, the count of its group's sessions of an earlier
- * stage, and the catalog its target installs from nothing. */
-const judgePlaces = (stored: ReadonlyArray<Placed>): void => {
+ * stage; each attempt's and each value's, its session's; and the catalog its target installs from nothing. */
+const judgePlaces = (
+	stored: ReadonlyArray<Placed>,
+	attempts: ReadonlyArray<PlacedAttempt>
+): void => {
 	const m = placedMigration
 	const state = migrated(m, [
 		{
 			relation: "Session",
 			rows: Arr.map(stored, (s) => ({ child: s.child, item: s.item, stage: s.stage }))
+		},
+		{
+			relation: "Attempt",
+			rows: Arr.map(attempts, (a) => ({
+				child: a.session.child,
+				item: a.session.item,
+				stage: a.session.stage,
+				at: a.at
+			}))
+		},
+		{
+			relation: "Value",
+			rows: Arr.flatMap(attempts, (a) =>
+				upTo(a.values, (v) => ({
+					child: a.session.child,
+					item: a.session.item,
+					stage: a.session.stage,
+					at: a.at,
+					v
+				}))
+			)
 		}
 	])
-	const column = (field: string) => fieldColumn(m.second, "Session", field)
+	const placeOf = (s: Placed): number =>
+		Arr.filter(stored, (o) => o.child === s.child && o.item === s.item && o.stage < s.stage).length
+	const column = (relation: string, field: string) => fieldColumn(m.second, relation, field)
+	const read = (relation: string, fields: ReadonlyArray<string>) =>
+		rowsOf(m, state, relation, (cell) =>
+			Arr.join(
+				Arr.map(fields, (f) => `${cell(column(relation, f))}`),
+				" "
+			)
+		)
 	assert.deepEqual(
-		rowsOf(
-			m,
-			state,
-			"Session",
-			(cell) =>
-				`${cell(column("child"))} ${cell(column("item"))} ${cell(column("stage"))}: ${cell(column("n"))}`
-		),
+		read("Session", ["child", "item", "stage", "n"]),
 		Arr.sort(
-			Arr.map(
-				stored,
-				(s) =>
-					`${s.child} ${s.item} ${s.stage}: ${
-						Arr.filter(stored, (o) => o.child === s.child && o.item === s.item && o.stage < s.stage)
-							.length
-					}`
-			),
+			Arr.map(stored, (s) => `${s.child} ${s.item} ${s.stage} ${placeOf(s)}`),
 			Order.String
 		),
 		"each session's place is the count of its child's sessions of its item at an earlier stage"
+	)
+	assert.deepEqual(
+		read("Attempt", ["child", "item", "n", "at"]),
+		Arr.sort(
+			Arr.map(
+				attempts,
+				(a) => `${a.session.child} ${a.session.item} ${placeOf(a.session)} ${a.at}`
+			),
+			Order.String
+		),
+		"each attempt holds its session's place, which its containment carries"
+	)
+	assert.deepEqual(
+		read("Value", ["child", "item", "n", "at", "v"]),
+		Arr.sort(
+			Arr.flatMap(attempts, (a) =>
+				upTo(
+					a.values,
+					(v) => `${a.session.child} ${a.session.item} ${placeOf(a.session)} ${a.at} ${v}`
+				)
+			),
+			Order.String
+		),
+		"each value holds its attempt's place, which its containment carries"
 	)
 	assertFresh(m, state)
 }
@@ -1576,7 +1694,6 @@ const membersGen =
 const pieces = ["", "a", " c", "\u{1F600}", "é"] as const
 
 export const backfillGen: Gen<Backfill> = weighted<Backfill>([
-	[1, map(shuffled(placeable, { min: 0, max: 8 }), (stored) => ({ kind: "place", stored }))],
 	[
 		1,
 		(source) => {
@@ -1678,6 +1795,7 @@ export type BackfillFeature =
 	| `stored key ${StoredKeyFate}`
 	| "a keyed tree owing a key check"
 	| "a place over stored rows"
+	| "a place carried into attempts and their values"
 	| "a group of three places"
 	| "places stored out of their order"
 
@@ -1743,6 +1861,9 @@ export const notesOf = (b: Backfill): ReadonlyArray<BackfillFeature> => {
 			)
 			return [
 				"a place over stored rows",
+				...(Arr.some(b.attempts, (a) => a.values > 0)
+					? (["a place carried into attempts and their values"] as const)
+					: []),
 				...(Arr.some(groups, (g) => g.length >= 3) ? (["a group of three places"] as const) : []),
 				...(Arr.some(groups, (g) => unsorted(Arr.map(g, (s) => s.stage)))
 					? (["places stored out of their order"] as const)
@@ -1895,7 +2016,7 @@ export const judgeBackfill = (b: Backfill): void => {
 			return
 		}
 		case "place":
-			return judgePlaces(b.stored)
+			return judgePlaces(b.stored, b.attempts)
 		case "kind changed": {
 			const k = kindChanged[b.change]
 			const owners = ownersOf(b.owners)

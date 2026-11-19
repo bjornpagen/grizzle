@@ -57,6 +57,7 @@ import {
 	renamings,
 	type Reversal,
 	reversalGen,
+	placedGen,
 	storedKeyFates
 } from "#test/unit/deploy/backfill.fixtures.ts"
 
@@ -82,10 +83,7 @@ export const backfillingAFamilyAddedToStoredRowsGeneratedDrawsEveryValueItsRefer
 			...kindChanges,
 			...Arr.map(endMoves, (m) => `end moved: ${m}` as const),
 			...Arr.map(storedKeyFates, (f) => `stored key ${f}` as const),
-			"a keyed tree owing a key check",
-			"a place over stored rows",
-			"a group of three places",
-			"places stored out of their order"
+			"a keyed tree owing a key check"
 		] satisfies ReadonlyArray<Reached<BackfillFeature>>,
 		check: (_, c: Case<BackfillFeature>) => (b) =>
 			Effect.sync(() => {
@@ -123,27 +121,6 @@ export const backfillingAFamilyAddedToStoredRowsGeneratedDrawsEveryValueItsRefer
 				replacement:
 					'\t\tactions.filter((a) => addedColumn(a) !== undefined && a.kind !== "addColumnDefault").length',
 				why: "A drawn column added under its placeholder default spends no attribute number, as snapshot/build.ts addedColumns counted before it read plan.ts addedColumn; the recorded attribute numbers fall short of the ADD COLUMNs the SQL spells."
-			},
-			{
-				file: "packages/engine/src/deploy/diff/backfill.ts",
-				original:
-					"\t\tput(place.relation, place.field.column, drawnOf(installation, zero, place.field.type))\n",
-				replacement: "\t\tvoid place\n",
-				why: "A place added to stored rows is no column the backfill draws, so its migration adds it at the reviewer's placeholder, the hand data step the place case's migration must not ask."
-			},
-			{
-				file: "packages/engine/src/deploy/diff/backfill.ts",
-				original: '\t\t\t\t\t\t\t\t[col("k", place.by.column)],\n',
-				replacement: "\t\t\t\t\t\t\t\t[],\n",
-				why: "A place's stored rows are numbered in no order, so a group stored out of its stages' order holds places that are not its stages' ranks."
-			},
-			{
-				file: "packages/engine/src/deploy/diff/backfill.ts",
-				original:
-					"\t\t\t\t\t\t),\n\t\t\t\t\t\tlit.int(1n, types.bigint)\n\t\t\t\t\t),\n\t\t\t\t\tvalue\n",
-				replacement:
-					"\t\t\t\t\t\t),\n\t\t\t\t\t\tlit.int(0n, types.bigint)\n\t\t\t\t\t),\n\t\t\t\t\tvalue\n",
-				why: "A place's stored rows are numbered from 1, so each group's first session is not at place 0."
 			}
 		]
 	})
@@ -169,4 +146,63 @@ export const backfillingAFamilyAddedToStoredRowsGeneratedRemovingAFamilyKeepsEve
 		},
 		kept: [],
 		kills: []
+	})
+
+/** A place a migration adds to stored rows numbers each group by its `by` from 0, and each column a containment carries from it into stored rows takes the value of the row the previous containment named, with no placeholder, ending at the catalog its target installs from nothing. */
+export const aPlaceAMigrationAddsToStoredRowsNumbersEachGroupByItsByFromZeroAndEachColumnAContainmentCarriesFromItTakesTheValueOfTheRowThePreviousContainmentNamed =
+	property.explore(placedGen, {
+		needs: {},
+		budget: { runs: 100, steered: 100 },
+		situations: [
+			"a place over stored rows",
+			"a place carried into attempts and their values",
+			"a group of three places",
+			"places stored out of their order"
+		] satisfies ReadonlyArray<Reached<BackfillFeature>>,
+		check: (_, c: Case<BackfillFeature>) => (b) =>
+			Effect.sync(() => {
+				c.noteAll(notesOf(b))
+				judgeBackfill(b)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "each session's place the count of its group's sessions at an earlier stage, each attempt's and value's its session's, run against the catalog model of PostgreSQL executing the drafted migration"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/deploy/diff/backfill.ts",
+				original:
+					"\t\tput(place.relation, place.field.column, drawnOf(installation, zero, place.field.type))\n",
+				replacement: "\t\tvoid place\n",
+				why: "A place added to stored rows is no column the backfill draws, so its migration adds it at the reviewer's placeholder, the hand data step the place case's migration must not ask."
+			},
+			{
+				file: "packages/engine/src/deploy/diff/backfill.ts",
+				original: '\t\t\t\t\t\t\t\t[col("k", place.by.column)],\n',
+				replacement: "\t\t\t\t\t\t\t\t[],\n",
+				why: "A place's stored rows are numbered in no order, so a group stored out of its stages' order holds places that are not its stages' ranks."
+			},
+			{
+				file: "packages/engine/src/deploy/diff/backfill.ts",
+				original:
+					"\t\t\t\t\t\t),\n\t\t\t\t\t\tlit.int(1n, types.bigint)\n\t\t\t\t\t),\n\t\t\t\t\tvalue\n",
+				replacement:
+					"\t\t\t\t\t\t),\n\t\t\t\t\t\tlit.int(0n, types.bigint)\n\t\t\t\t\t),\n\t\t\t\t\tvalue\n",
+				why: "A place's stored rows are numbered from 1, so each group's first session is not at place 0."
+			},
+			{
+				file: "packages/engine/src/deploy/diff/diff.ts",
+				original: "\t\tconst carry = this.carryOf(t, c)\n",
+				replacement: "\t\tconst carry = undefined\n",
+				why: "A column a containment carries into stored rows is the reviewer's, so the attempts' and the values' places are asked at a placeholder, the hand data step the migration must not ask."
+			},
+			{
+				file: "packages/engine/src/deploy/diff/backfill.ts",
+				original: '\t\t\ttargetKey: mapNonEmpty(carry.targetKey, (c) => col("t", c)),\n',
+				replacement:
+					'\t\t\ttargetKey: mapNonEmpty(carry.targetKey, () => col("t", carry.targetKey[0])),\n',
+				why: "A carried column's rows are met at their first key column alone in every place, so an attempt meets no session or the wrong one, and holds NULL or another session's place."
+			}
+		]
 	})
