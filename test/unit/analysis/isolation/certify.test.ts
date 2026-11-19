@@ -578,7 +578,7 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
 					original:
-						'\treturn facts.inserts.kind === "repeatable" || sameKey(facts.inserts.key, key)',
+						'\treturn facts.inserts.kind === "repeatable" || sameMembers(facts.inserts.key, key)',
 					replacement:
 						'\treturn facts.inserts.kind === "repeatable" || facts.inserts.key.length > 0',
 					why: "A raced relation's arbitration at another key fixing its row (certify.ts fixesAt); the search fails."
@@ -891,7 +891,7 @@ export const theIsolationCertifierReadsAStatementsQueryCTEInstancesAsTheirExpans
 				},
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
-					original: "\tif (!sameProbes(use.probes, chain.local)) {",
+					original: "\tif (!sameOrder(use.probes, chain.local)) {",
 					replacement: "\tif (use.probes.length < 0) {",
 					why: "A row path through a use beneath other probes than its chain; the second search fails."
 				},

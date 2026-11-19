@@ -52,6 +52,7 @@ import {
 import { type RegionFacts, wholeRule } from "#compiler/analysis/theory/unit.ts"
 import { unwrap } from "#compiler/check/fail.ts"
 import { combineRule, foldPlane } from "#compiler/check/fold.ts"
+import { sameMembers } from "#compiler/core/array.ts"
 import {
 	canonicalEquals,
 	catchRefusal,
@@ -2300,12 +2301,10 @@ const keyedWithin = (
 	const fixedFields = fieldsOf(fixed).toSorted((a, b) => a.position - b.position)
 	const fields = [...atFields, ...fixedFields]
 	const keys = [target.primaryFields, ...target.keyFields].filter((k) => !k.some(isSpanField))
-	const sameSet = (k: ReadonlyArray<LawField>): boolean =>
-		k.length === fields.length && k.every((f) => fields.includes(f))
 	return (
 		fields.length === at.length + fixed.length &&
 		keys.some((k) => k.every((f) => fields.includes(f))) &&
-		(keys.some(sameSet) || entryHolds(fields))
+		(keys.some((k) => sameMembers(k, fields)) || entryHolds(fields))
 	)
 }
 

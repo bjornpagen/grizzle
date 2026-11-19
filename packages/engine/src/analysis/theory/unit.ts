@@ -14,6 +14,7 @@ import {
 	type RuleLaw,
 	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
+import { sameOrder } from "#compiler/core/array.ts"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
@@ -148,7 +149,7 @@ const hiddenUnit: Delivered = { kind: "hidden" }
 
 /** Whether two deliveries are one. */
 const sameDelivery = (a: Delivered, b: Delivered): boolean =>
-	a.kind === b.kind && (a.kind !== "at" || (b.kind === "at" && sameNames(a.fields, b.fields)))
+	a.kind === b.kind && (a.kind !== "at" || (b.kind === "at" && sameOrder(a.fields, b.fields)))
 
 /** A query as a walk leaves it: its text, and how it delivers its facts' units. */
 interface Walked {
@@ -171,10 +172,6 @@ const varsAt = (
 	}
 	return out
 }
-
-/** Whether two sequences of names are one. */
-const sameNames = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
-	a.length === b.length && a.every((v, j) => v === b[j])
 
 /**
  * The unit a source gives the rule that matches or negates it: `none`, a closed relation or a query that reads no
@@ -414,7 +411,7 @@ const walkedExpr = (
 		}
 		const correlated =
 			read.unit.kind === "none" ||
-			(read.unit.kind === "vars" && unit !== undefined && sameNames(read.unit.vars, unit))
+			(read.unit.kind === "vars" && unit !== undefined && sameOrder(read.unit.vars, unit))
 		return correlated ? { ...e, source: read.source } : notLocal
 	}
 	const children = { local: true }
@@ -479,7 +476,7 @@ const ruleBody = (r: InferredRule, at: At, aggregates: boolean, w: Walk): RuleBo
 	}
 	const vars = bearing.flatMap((u) => (u.kind === "vars" ? [u.vars] : []))
 	const [unit] = vars
-	if (unit !== undefined && !vars.every((v) => sameNames(v, unit))) {
+	if (unit !== undefined && !vars.every((v) => sameOrder(v, unit))) {
 		return notLocal
 	}
 	const where = walkedExprs(r.where, unit, at, w)
@@ -1207,7 +1204,7 @@ const regionOf = (
 		const leaves: LeafRewrite = { var: () => undefined, field: (f) => varRef(varOf(f)) }
 		if (
 			at !== undefined &&
-			!replaced.some((x) => x.relation === r.relation && sameNames(x.fields, at))
+			!replaced.some((x) => x.relation === r.relation && sameOrder(x.fields, at))
 		) {
 			replaced.push({ relation: r.relation, fields: at })
 		}

@@ -17,6 +17,7 @@ import {
 	type WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
 import type { Witness } from "#compiler/analysis/theory/query.ts"
+import { sameMembers, sameOrder } from "#compiler/core/array.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -221,10 +222,6 @@ const writing: ReadonlySet<TablePrivilege> = new Set(["INSERT", "UPDATE", "DELET
 
 /** The privileges a READ COMMITTED role may hold. */
 const insertAndSelect: ReadonlySet<TablePrivilege> = new Set(["SELECT", "INSERT"])
-
-/** Whether two keys name the same fields. */
-const sameKey = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
-	a.length === b.length && a.every((f) => b.includes(f))
 
 /**
  * The relations an update of `updated` reaches: them, and each relation whose foreign key into one of them carries an
@@ -597,7 +594,7 @@ const sealOf = (at: Installation, read: ReadFact): ReadSeal => {
 		return { kind: "unsealed", detail: "a role updates or deletes the relation" }
 	}
 	const fields = groupFields(group)
-	if (facts.countedGroups.some((k) => sameKey(k, fields))) {
+	if (facts.countedGroups.some((k) => sameMembers(k, fields))) {
 		return { kind: "counted", key: fields }
 	}
 	return keyedSeal("point", facts, fields)
@@ -730,16 +727,13 @@ interface Chain {
 	readonly via: { readonly use: number; readonly chain: ReadonlyArray<number> } | undefined
 }
 
-const sameProbes = (a: ReadonlyArray<number>, b: ReadonlyArray<number>): boolean =>
-	a.length === b.length && a.every((p, i) => b[i] === p)
-
 /**
  * The chain below the instance a body's use reaches, at `place` among the body's uses, where `chain` is the chain below
  * the body: the instance's own probes the probe chains, for the use it is judged at, else none; nothing where the use
  * stands beneath other probes than the chain names, so no read beneath it stands on it.
  */
 const below = (chain: Chain, place: number, use: CteUse): Chain | undefined => {
-	if (!sameProbes(use.probes, chain.local)) {
+	if (!sameOrder(use.probes, chain.local)) {
 		return undefined
 	}
 	if (chain.via === undefined) {
@@ -784,7 +778,7 @@ const sourcePath = (
 			const r = body.reads[source.read]
 			return r !== undefined &&
 				chain.via === undefined &&
-				sameProbes(r.probes, chain.local) &&
+				sameOrder(r.probes, chain.local) &&
 				fits(r)
 				? source
 				: undefined
@@ -1209,7 +1203,7 @@ const fixesAt = (facts: RelationFacts | undefined, key: ReadonlyArray<string>): 
 	if (facts === undefined) {
 		return false
 	}
-	return facts.inserts.kind === "repeatable" || sameKey(facts.inserts.key, key)
+	return facts.inserts.kind === "repeatable" || sameMembers(facts.inserts.key, key)
 }
 
 /** The row of `fixed` a read reads: one fixed earlier in its member, of its relation, whose key fields it binds each to
