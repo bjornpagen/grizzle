@@ -1,3 +1,4 @@
+import { type DrawnRole, drawnNamed } from "#compiler/analysis/theory/families.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
 import type { Identifier, LawId } from "#compiler/core/ids.ts"
@@ -13,7 +14,7 @@ import type { LawField } from "#compiler/ir/law.ts"
  * the copy a containment riding a family's axis carries.
  */
 export type FillRole =
-	| { readonly kind: "index" | "count" | "parent" | "start" | "end" }
+	| { readonly kind: DrawnRole }
 	| { readonly kind: "before" | "after" | "foldEnd"; readonly plane: 0 | 1 }
 	| { readonly kind: "copy"; readonly axis: AxisKind }
 
@@ -101,22 +102,8 @@ export const fillersOf = (theory: Theory): ReadonlyMap<string, ReadonlyMap<strin
 		const family = law(f.law)
 		const member = f.member.name
 		const owner = f.owner.name
-		put(owner, f.count.name, { kind: "stated", role: { kind: "count" }, laws: [family] })
-		if (f.shape.index.kind === "field") {
-			put(member, f.shape.index.field.name, {
-				kind: "stated",
-				role: { kind: "index" },
-				laws: [family]
-			})
-		}
-		if (f.shape.kind === "tree") {
-			put(member, f.shape.parent.name, {
-				kind: "stated",
-				role: { kind: "parent" },
-				laws: [family]
-			})
-			put(member, f.shape.start.name, { kind: "stated", role: { kind: "start" }, laws: [family] })
-			put(member, f.shape.end.name, { kind: "stated", role: { kind: "end" }, laws: [family] })
+		for (const d of drawnNamed(f)) {
+			put(d.relation.name, d.field.name, { kind: "stated", role: { kind: d.role }, laws: [family] })
 		}
 		for (const fold of f.folds) {
 			const laws: NonEmptyReadonlyArray<TheoryLaw> = [family, law(fold.law)]

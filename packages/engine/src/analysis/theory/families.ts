@@ -1002,23 +1002,38 @@ export class Namings {
 	}
 }
 
+/** The part a drawn field plays in the family or tree statement that names it: its count, a sequence's index, a tree's
+ * parent, start or end. */
+export type DrawnRole = "count" | "index" | "parent" | "start" | "end"
+
+/** A drawn field a family or tree statement names, on its relation, with its role. */
+export interface DrawnNamed {
+	readonly relation: RelationInfo
+	readonly field: LawField
+	readonly role: DrawnRole
+}
+
 /**
- * The drawn fields a family or tree statement names: its count, an ordered family's index, a tree's parent, start and
- * end.
+ * The drawn fields a family or tree statement names, by its shape: its count, an ordered family's index, a tree's
+ * index, parent, start and end.
  */
-export const drawnNamed = (
-	f: FamilyShape
-): ReadonlyArray<{ readonly relation: RelationInfo; readonly field: LawField }> => [
-	{ relation: f.owner, field: f.count },
-	...(f.shape.index.kind === "field" ? [{ relation: f.member, field: f.shape.index.field }] : []),
-	...(f.shape.kind === "tree"
-		? [
-				{ relation: f.member, field: f.shape.parent },
-				{ relation: f.member, field: f.shape.start },
-				{ relation: f.member, field: f.shape.end }
+export const drawnNamed = (f: FamilyShape): ReadonlyArray<DrawnNamed> => {
+	const count: DrawnNamed = { relation: f.owner, field: f.count, role: "count" }
+	switch (f.shape.kind) {
+		case "counted":
+			return [count]
+		case "ordered":
+			return [count, { relation: f.member, field: f.shape.index.field, role: "index" }]
+		case "tree":
+			return [
+				count,
+				{ relation: f.member, field: f.shape.index.field, role: "index" },
+				{ relation: f.member, field: f.shape.parent, role: "parent" },
+				{ relation: f.member, field: f.shape.start, role: "start" },
+				{ relation: f.member, field: f.shape.end, role: "end" }
 			]
-		: [])
-]
+	}
+}
 
 /** A family statement's or a tree's description in a refusal. */
 export const familyText = (f: FamilyShape): string =>
