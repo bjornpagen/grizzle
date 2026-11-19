@@ -129,7 +129,7 @@ export const twoWritersStampingOneClockStampEachChildsInstantsInTheOrderItsCalls
 								)
 								const clockReading = Effect.map(
 									s.admin.queryValues(
-										"SELECT (pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp()) * 1000000)::bigint::text",
+										"SELECT (pg_catalog.extract('epoch', pg_catalog.clock_timestamp()) * 1000000)::bigint::text",
 										[]
 									),
 									(rows) => BigInt(String(rows[0]?.[0]))
