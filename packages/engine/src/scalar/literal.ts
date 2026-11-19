@@ -6,8 +6,11 @@ import { validateText } from "#compiler/core/text.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { baseOf, type PlainType, type Roster, type ScalarType } from "#compiler/ir/scalar.ts"
+import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { statedRoster } from "#compiler/scalar/values/bits.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { describeFault } from "#compiler/scalar/values/fault.ts"
+import { toReal } from "#compiler/scalar/values/float.ts"
 import { unreadableOf } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
@@ -34,6 +37,35 @@ export const literalDescFor = (
 	const base = baseOf(t)
 	return hostRead(unreadableOf[base.carrier], () => hostLiteral(base, value))
 }
+
+/**
+ * The value PostgreSQL's assignment of a literal into a column of base type `base` stores: a numeric rounded half away
+ * from zero to its typmod's scale and refused past its precision or infinite (decimal.ts normalizeNumeric), a real
+ * rounded to binary32 and refused where it overflows or underflows (float.ts toReal), every other literal itself.
+ */
+const assigned = (base: PlainType, literal: LiteralDesc): Result.Result<LiteralDesc, ValueFault> =>
+	base.carrier === "numeric" && literal instanceof Decimal
+		? normalizeNumeric(literal, base.typmod)
+		: base.carrier === "float4" && typeof literal === "number"
+			? toReal(literal)
+			: Result.ok(literal)
+
+/**
+ * A caller's value written into a field of type `t` as a literal, a closed relation's fact or an accumulated field's
+ * start: the literal literalDescFor reads, as PostgreSQL's assignment of it into the column stores it (`assigned`),
+ * then held to `t` as every literal of its type is (scalar/compute/literal.ts irLiteral): an integer's range, a span's
+ * order and endpoints, a roster's handles and a vector's dimensions. A literal compared with a term is read as written
+ * instead (literalDescFor), since PostgreSQL resolves an untyped literal opposite a numeric column as numeric of no
+ * typmod, rounded to no scale.
+ */
+export const storedLiteral = (t: ScalarType, value: unknown): Result.Result<LiteralDesc, string> =>
+	Result.flatMap(
+		Result.mapError(
+			Result.flatMap(literalDescFor(t, value), (literal) => assigned(baseOf(t), literal)),
+			describeFault
+		),
+		(literal) => Result.map(irLiteral(literal, t), () => literal)
+	)
 
 /**
  * The literal of a base type `base` for the caller's `value`, which literalDescFor reads through hostRead.

@@ -33,6 +33,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { regex as arkregex } from "arkregex"
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { appendAll, maxOf } from "#compiler/core/array.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	conjunctsOf,
 	everyFact,
@@ -46,7 +47,8 @@ import { uuid } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { literalResult } from "#compiler/schema/literal.ts"
+import { literalDescFor, storedLiteral } from "#compiler/scalar/literal.ts"
+import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { own } from "#compiler/schema/own.ts"
 import {
 	admitClosedRelation,
@@ -147,7 +149,7 @@ import {
 	type SchemaDefect,
 	schemaDefects,
 	type SideStatement,
-	type Site,
+	type LiteralSite,
 	statementValues,
 	Task,
 	taskFields,
@@ -513,7 +515,12 @@ export const closedRecordsAClosedRelationsRowsOnePerKeyOfItsRosterAgainstItsFiel
 							assert.deepEqual(desc.fields[f.name], fieldDesc)
 							assert.deepEqual(
 								row[f.name],
-								succeeded(literalResult(fieldDesc, f.values[i], undefined))
+								succeeded(
+									storedLiteral(
+										describeFieldOrThrow(payloadDescriptor(f.type), SourceLoc(f.name, [])).scalar,
+										f.values[i]
+									)
+								)
 							)
 						}
 					}
@@ -527,12 +534,19 @@ export const closedRecordsAClosedRelationsRowsOnePerKeyOfItsRosterAgainstItsFiel
 		}
 	)
 
-/** Literals take their field's value rounds a real to binary32 and a numeric(p, s) to its scale, half away from zero, refusing what the column refuses, at every construction site. Its budget is its suite's before it was a property (test/unit/schema/constructors.test.ts at 4ca3036a): 600 runs and 600 steered cases. */
-export const literalsTakeTheirFieldsValueRoundsARealToBinary32AndANumericPSToItsScaleHalfAwayFromZeroRefusingWhatTheColumnRefusesAtEveryConstructionSite =
+/**
+ * A literal written opposite a field records the value PostgreSQL reads at each site: a comparison's, a selection's or a
+ * check operand's, the value as written, as Compute records it (scalar/literal.ts literalDescFor), since PostgreSQL
+ * resolves an untyped literal opposite the column at the literal's own value; a closed relation's fact, the value
+ * PostgreSQL's assignment into the column stores (storedLiteral): a real rounded to binary32 and a numeric(p, s) to its
+ * scale, half away from zero, refusing what the column refuses. Its budget is its suite's before it was a property
+ * (test/unit/schema/constructors.test.ts at 4ca3036a): 600 runs and 600 steered cases.
+ */
+export const aLiteralOppositeAFieldRecordsTheValueAsWrittenInAComparisonAndAsTheColumnStoresItInAFactRoundingARealToBinary32AndANumericToItsScaleThere =
 	property.explore(
 		(source) => ({
 			case: source.draw(caseGen),
-			site: source.draw(element<Site>(["closed row", "selection", "check operand"]))
+			site: source.draw(element<LiteralSite>(["closed row", "selection", "check operand"]))
 		}),
 		{
 			needs: {},
@@ -540,13 +554,13 @@ export const literalsTakeTheirFieldsValueRoundsARealToBinary32AndANumericPSToIts
 			situations: [
 				"real: rounded",
 				"real: special",
-				"real: negative zero",
-				"double precision: negative zero",
 				"real: overflow",
 				"real: underflow",
 				"real: wrong host kind",
+				"real: negative zero",
 				"double precision: kept",
 				"double precision: special",
+				"double precision: negative zero",
 				"numeric(p, s): rounded",
 				"numeric(p, s): kept",
 				"numeric(p, s): overflow",
@@ -561,17 +575,28 @@ export const literalsTakeTheirFieldsValueRoundsARealToBinary32AndANumericPSToIts
 				(_, c: Case<LiteralFeature>) =>
 				({ case: { field, value }, site }) =>
 					Effect.sync(() => {
-						const { expected, outcome } = expectedLiteral(field, value)
+						const { compared, stored, outcome } = expectedLiteral(field, value)
 						c.note(`${field.kind}: ${outcome}`)
 						c.note(site)
 						const descriptor = literalFieldDescriptor(field)
+						const { scalar } = describeFieldOrThrow(
+							descriptor,
+							SourceLoc("the literal's field", [])
+						)
 						const host = hostValue(value)
-						const result = literalResult(descOf(descriptor), host, undefined)
-						if (expected.kind === "fault") {
-							faulted(result, expected.fault)
+						const read = literalDescFor(scalar, host)
+						if (compared.kind === "fault") {
+							faulted(read, compared.fault)
 						} else {
-							agrees(succeeded(result), expected)
+							agrees(succeeded(read), compared)
 						}
+						const kept = storedLiteral(scalar, host)
+						if (stored.kind === "fault") {
+							assert.equal(kept.ok, false, `a stored ${field.kind} refuses ${String(host)}`)
+						} else {
+							agrees(succeeded(kept), stored)
+						}
+						const expected = site === "closed row" ? stored : compared
 						const Rated = relation("Rated", { id: uuid, value: descriptor }, ["id"], [])
 						const recorded = (): LiteralDesc => {
 							switch (site) {
@@ -632,24 +657,34 @@ export const literalsTakeTheirFieldsValueRoundsARealToBinary32AndANumericPSToIts
 					}),
 			oracle: {
 				kind: "second-implementation",
-				name: "binary32 rounding (Math.fround) and a numeric's scale rounded half away from zero"
+				name: "the value as written, and binary32 rounding (Math.fround) and a numeric's scale rounded half away from zero"
 			},
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/schema/literal.ts",
-					original:
-						'\treturn Result.map(normalize(value), (x): LiteralDesc => (Object.is(x, -0) ? { float: "-0" } : x))',
+					file: "packages/engine/src/scalar/literal.ts",
+					original: "\treturn hostRead(unreadableOf[base.carrier], () => hostLiteral(base, value))",
 					replacement:
-						"\treturn Result.map(normalize(value), (x): LiteralDesc => (x === 0 ? 0 : x))",
+						"\treturn Result.flatMap(hostRead(unreadableOf[base.carrier], () => hostLiteral(base, value)), (literal) => assigned(base, literal))",
+					why: "A compared literal is rounded as a stored one is, schema/literal.ts's old row-helper rule: `r.eq(r.price, \"1.005\")` over numeric(5,2) records 1.01 and holds on a price of 1.01, which PostgreSQL's `price = '1.005'` never does."
+				},
+				{
+					file: "packages/engine/src/scalar/literal.ts",
+					original:
+						"\t\t\tResult.flatMap(literalDescFor(t, value), (literal) => assigned(baseOf(t), literal)),",
+					replacement: "\t\t\tliteralDescFor(t, value),",
+					why: "A closed relation's fact is recorded as written, not as the column stores it: a real keeps digits binary32 has no room for."
+				},
+				{
+					file: "packages/engine/src/scalar/literal.ts",
+					original: '\t\t\tif (Object.is(value, -0)) {\n\t\t\t\treturn Result.ok({ float: "-0" })',
+					replacement: "\t\t\tif (Object.is(value, -0)) {\n\t\t\t\treturn Result.ok(0)",
 					why: "A field's -0 read as +0, as the literal rule read it before c067533e8: a closed row, a selection and a check operand each hold +0 where the caller wrote -0; the property fails."
 				},
 				{
-					file: "packages/engine/src/schema/literal.ts",
-					original:
-						'\treturn Result.map(normalize(value), (x): LiteralDesc => (Object.is(x, -0) ? { float: "-0" } : x))',
-					replacement:
-						'\treturn Result.map(normalize(value), (x): LiteralDesc => (x === 0 ? { float: "-0" } : x))',
+					file: "packages/engine/src/scalar/literal.ts",
+					original: '\t\t\tif (Object.is(value, -0)) {\n\t\t\t\treturn Result.ok({ float: "-0" })',
+					replacement: '\t\t\tif (value === 0) {\n\t\t\t\treturn Result.ok({ float: "-0" })',
 					why: "A field's +0 read as -0, the sign a zero must keep turned the other way: every construction site holds -0 where the caller wrote 0; the property fails."
 				}
 			]

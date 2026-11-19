@@ -10,6 +10,7 @@ import {
 	type ExprDesc,
 	exprChildren,
 	type FieldDesc,
+	type LiteralDesc,
 	type Located,
 	type Refs
 } from "#compiler/ir/desc.ts"
@@ -22,9 +23,11 @@ import {
 	registerUntyped,
 	termExpr
 } from "#compiler/scalar/compute/term.ts"
+import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { describeField, scalarTypeOf } from "#compiler/scalar/registry.ts"
-import { literalFor, untypedLiteral } from "#compiler/schema/literal.ts"
+import { describeFault } from "#compiler/scalar/values/fault.ts"
+import { untypedLiteral } from "#compiler/schema/literal.ts"
 import {
 	type HeadingTyping,
 	isParam,
@@ -39,16 +42,11 @@ export interface RowTerm extends Built {
 }
 
 /**
- * What a term's literal operands adopt: a field's descriptor and roster, when this package knows them, and the term's
- * typing (the type and carrier the term protocol registers for it, which Compute reads).
+ * A row field's term as this package knows it: its descriptor, which the text helpers read, and its typing (the type
+ * and carrier the term protocol registers for it, which Compute reads and its literal operands adopt).
  */
 interface TermType {
 	readonly desc: FieldDesc
-	/**
-	 * The order and handles of the roster a closedId field references, when its host descriptor carries them, or the
-	 * roster's own of its id.
-	 */
-	readonly roster: RosterHandles | undefined
 	readonly typing: HeadingTyping
 }
 
@@ -94,6 +92,28 @@ const typingOf = (
 		: { kind: "untyped" }
 }
 
+/**
+ * A literal compared with a term, as Compute compares it (scalar/literal.ts literalDescFor): its host value read as
+ * written at the term's type, its range and typmod the checker's, which types the literal by its own value, so a
+ * decimal opposite a numeric(p, s) field keeps every digit, as PostgreSQL's untyped literal resolved as numeric of no
+ * typmod does. A term this package cannot type records the literal as written (untypedLiteral), for the schema's
+ * compilation to type.
+ */
+const comparedLiteral = (
+	value: unknown,
+	type: TermType | undefined,
+	label: string
+): LiteralDesc => {
+	if (type?.typing.kind !== "typed") {
+		return untypedLiteral(value, label)
+	}
+	const literal = literalDescFor(type.typing.scalar, value)
+	if (!literal.ok) {
+		throw malformed(label, describeFault(literal.error))
+	}
+	return literal.value
+}
+
 /** The operand opposite a term: another term, or a literal of the term's type. A schema predicate reads no parameter. */
 const operand = (value: unknown, type: TermType | undefined, label: string): OpenExpr => {
 	const term = termExpr(value)
@@ -106,11 +126,7 @@ const operand = (value: unknown, type: TermType | undefined, label: string): Ope
 	if (isParam(value)) {
 		throw builderRefusal(label, "a schema predicate reads no parameter")
 	}
-	const literal =
-		type === undefined
-			? untypedLiteral(value, label)
-			: literalFor(type.desc, value, label, type.roster?.handles)
-	return { kind: "literal", value: literal }
+	return { kind: "literal", value: comparedLiteral(value, type, label) }
 }
 
 const termOperand = (
@@ -128,11 +144,7 @@ const literalList = (values: unknown, type: TermType | undefined) => {
 	if (!isList(values)) {
 		throw malformed("in", "a finite list of literals")
 	}
-	return values.map((v) =>
-		type === undefined
-			? untypedLiteral(v, "in")
-			: literalFor(type.desc, v, "in", type.roster?.handles)
-	)
+	return values.map((v) => comparedLiteral(v, type, "in"))
 }
 
 /** A term over `expr` whose literal operands adopt `type`. */
@@ -188,7 +200,6 @@ const isTextDesc = (desc: FieldDesc): boolean =>
 const integerDesc: FieldDesc = { kind: "pg", type: "integer" }
 const integerType: TermType = {
 	desc: integerDesc,
-	roster: undefined,
 	typing: {
 		kind: "typed",
 		scalar: plainType("int4"),
@@ -314,7 +325,7 @@ export const rowScalars = (
 		const roster = rosterOf(name)
 		return rowTerm(
 			{ kind: "field", field: name },
-			{ desc, roster, typing: typingOf(desc, descriptors[name], roster) }
+			{ desc, typing: typingOf(desc, descriptors[name], roster) }
 		)
 	})
 

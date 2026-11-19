@@ -336,63 +336,79 @@ type LiteralOutcome =
 	| "rounded"
 	| "kept"
 	| "special"
+	| "negative zero"
 	| "overflow"
 	| "underflow"
 	| "infinity"
 	| "wrong host kind"
-	| "negative zero"
 
 /**
- * The literal rule restated (literal.ts): a float field takes a JavaScript number, its special values wrapped; a real
- * is its binary32 rounding (Math.fround), refused when a finite value rounds to an infinity (overflow) or a nonzero
- * value to zero (underflow), and -0 is its own value in either, spelled by its word as the specials are. A numeric field never takes a JavaScript number; numeric(p, s)
- * rounds a decimal to s fractional digits, half away from zero, refuses one that then needs more than p digits and
- * refuses an infinity. Zero has no sign.
+ * The literal rules restated (scalar/literal.ts), for a value written opposite a field of `field`'s type: what a
+ * comparison records (`compared`), the value as written, and what a stored fact records (`stored`), the value as
+ * PostgreSQL's assignment into the column stores it; `outcome` names what the assignment did. A float field takes a
+ * JavaScript number, its special values and -0 wrapped. Compared, every other number is itself. Stored, a real is its
+ * binary32 rounding (Math.fround), refused when a finite value rounds to an infinity (overflow) or a nonzero value to
+ * zero (underflow). A numeric field never takes a JavaScript number. Compared, a decimal, a bigint or a special is
+ * itself; stored, numeric(p, s) rounds a decimal to s fractional digits, half away from zero, refuses one that then
+ * needs more than p digits and refuses an infinity. A numeric's zero has no sign.
  */
 export const expectedLiteral = (
 	field: LiteralField,
 	v: HostValue
-): { readonly expected: Expected; readonly outcome: LiteralOutcome } => {
+): {
+	readonly compared: Expected
+	readonly stored: Expected
+	readonly outcome: LiteralOutcome
+} => {
 	if (field.kind === "real" || field.kind === "double precision") {
 		if (v.kind !== "number") {
-			return { expected: { kind: "fault", fault: "floatType" }, outcome: "wrong host kind" }
+			const fault: Expected = { kind: "fault", fault: "floatType" }
+			return { compared: fault, stored: fault, outcome: "wrong host kind" }
 		}
 		const x = v.value
-		if (Number.isNaN(x)) {
-			return { expected: { kind: "float", literal: { float: "NaN" } }, outcome: "special" }
-		}
-		if (x === Number.POSITIVE_INFINITY) {
-			return { expected: { kind: "float", literal: { float: "Infinity" } }, outcome: "special" }
-		}
-		if (x === Number.NEGATIVE_INFINITY) {
-			return { expected: { kind: "float", literal: { float: "-Infinity" } }, outcome: "special" }
+		const special = Number.isNaN(x)
+			? "NaN"
+			: x === Number.POSITIVE_INFINITY
+				? "Infinity"
+				: x === Number.NEGATIVE_INFINITY
+					? "-Infinity"
+					: undefined
+		if (special !== undefined) {
+			const wrapped: Expected = { kind: "float", literal: { float: special } }
+			return { compared: wrapped, stored: wrapped, outcome: "special" }
 		}
 		if (Object.is(x, -0)) {
-			return { expected: { kind: "float", literal: { float: "-0" } }, outcome: "negative zero" }
+			const wrapped: Expected = { kind: "float", literal: { float: "-0" } }
+			return { compared: wrapped, stored: wrapped, outcome: "negative zero" }
 		}
+		const compared: Expected = { kind: "float", literal: x }
 		if (field.kind === "double precision") {
-			return { expected: { kind: "float", literal: x }, outcome: "kept" }
+			return { compared, stored: compared, outcome: "kept" }
 		}
 		const f = Math.fround(x)
 		if (!Number.isFinite(f)) {
-			return { expected: { kind: "fault", fault: "realOverflow" }, outcome: "overflow" }
+			return { compared, stored: { kind: "fault", fault: "realOverflow" }, outcome: "overflow" }
 		}
 		if (f === 0 && x !== 0) {
-			return { expected: { kind: "fault", fault: "realUnderflow" }, outcome: "underflow" }
+			return { compared, stored: { kind: "fault", fault: "realUnderflow" }, outcome: "underflow" }
 		}
 		return {
-			expected: { kind: "float", literal: f },
+			compared,
+			stored: { kind: "float", literal: f },
 			outcome: f === x ? "kept" : "rounded"
 		}
 	}
 	switch (v.kind) {
-		case "number":
-			return { expected: { kind: "fault", fault: "decimalNumber" }, outcome: "wrong host kind" }
-		case "special":
-			if (v.text !== "NaN") {
-				return { expected: { kind: "fault", fault: "numericInfinity" }, outcome: "infinity" }
-			}
-			return { expected: { kind: "numeric", text: v.text }, outcome: "special" }
+		case "number": {
+			const fault: Expected = { kind: "fault", fault: "decimalNumber" }
+			return { compared: fault, stored: fault, outcome: "wrong host kind" }
+		}
+		case "special": {
+			const compared: Expected = { kind: "numeric", text: v.text }
+			return v.text === "NaN"
+				? { compared, stored: compared, outcome: "special" }
+				: { compared, stored: { kind: "fault", fault: "numericInfinity" }, outcome: "infinity" }
+		}
 		case "bigint":
 		case "decimal": {
 			const negative = v.kind === "bigint" ? v.value < 0n : v.negative
@@ -412,16 +428,22 @@ export const expectedLiteral = (
 					scale === 0 ? padded : `${Str.slice(0, -scale)(padded)}.${Str.slice(-scale)(padded)}`
 				return negative && units > 0n ? `-${text}` : text
 			}
+			const compared: Expected = { kind: "numeric", text: oneText(digits, fraction.length) }
 			const { precision, scale } = field
 			const units =
 				fraction.length <= scale
 					? digits * 10n ** BigInt(scale - fraction.length)
 					: roundedHalfUp(digits, 10n ** BigInt(fraction.length - scale))
 			if (units >= 10n ** BigInt(precision)) {
-				return { expected: { kind: "fault", fault: "numericOverflow" }, outcome: "overflow" }
+				return {
+					compared,
+					stored: { kind: "fault", fault: "numericOverflow" },
+					outcome: "overflow"
+				}
 			}
 			return {
-				expected: { kind: "numeric", text: oneText(units, scale) },
+				compared,
+				stored: { kind: "numeric", text: oneText(units, scale) },
 				outcome: fraction.length > scale ? "rounded" : "kept"
 			}
 		}
@@ -474,8 +496,8 @@ const floatGen: Gen<HostValue> = weighted([
 				Number.NaN,
 				Number.POSITIVE_INFINITY,
 				Number.NEGATIVE_INFINITY,
-				0,
 				-0,
+				0,
 				0.1,
 				1e300,
 				-1e300,
@@ -567,9 +589,9 @@ export const caseGen = weighted<{ readonly field: LiteralField; readonly value: 
 	]
 ])
 
-export type Site = "closed row" | "selection" | "check operand"
+export type LiteralSite = "closed row" | "selection" | "check operand"
 
-export type LiteralFeature = `${LiteralField["kind"]}: ${LiteralOutcome}` | Site
+export type LiteralFeature = `${LiteralField["kind"]}: ${LiteralOutcome}` | LiteralSite
 
 /** A side's terms when each is a field, as on(...) records them. */
 export const fieldTerms = (fields: ReadonlyArray<string>): ReadonlyArray<TermDesc> =>
@@ -679,7 +701,6 @@ export type CheckDefect =
 	| "none"
 	| "a fraction for an integer field"
 	| "a bigint for an integer field"
-	| "an integer beyond int4"
 	| "a parameter"
 	| "charLength of an integer field"
 	| "a callback returning no predicate"
@@ -691,7 +712,6 @@ export const checkDefects: Arr.NonEmptyReadonlyArray<CheckDefect> = [
 	"none",
 	"a fraction for an integer field",
 	"a bigint for an integer field",
-	"an integer beyond int4",
 	"a parameter",
 	"charLength of an integer field",
 	"a callback returning no predicate",
@@ -870,8 +890,6 @@ export const plantedConjunct = (e: Row, defect: CheckDefect): unknown => {
 			return e.ge(e.limit, 1.5)
 		case "a bigint for an integer field":
 			return e.ge(e.limit, 1n)
-		case "an integer beyond int4":
-			return e.ge(e.limit, 2 ** 31)
 		case "a parameter":
 			return e.ge(e.limit, { param: "x" })
 		case "charLength of an integer field":

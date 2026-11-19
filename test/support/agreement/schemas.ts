@@ -37,13 +37,18 @@ import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/quer
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { dateDescriptor } from "#compiler/scalar/date.ts"
+import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
-import { carrierSql, describeField, describeFieldOrThrow } from "#compiler/scalar/registry.ts"
+import {
+	carrierSql,
+	describeField,
+	describeFieldOrThrow,
+	scalarTypeOf
+} from "#compiler/scalar/registry.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 import { admitEncodable } from "#compiler/scalar/values/vector.ts"
-import { literalResult } from "#compiler/schema/literal.ts"
 import {
 	accumulatedField,
 	admitClosedRelation,
@@ -5528,7 +5533,7 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 }
 
 /**
- * The literal a field's comparison takes, as the engine admits one (schema/literal.ts literalResult): its base's host
+ * The literal a field's comparison takes, as the engine admits one (scalar/literal.ts literalDescFor): its base's host
  * value, a contract's literal its base's, and a numeric's a Decimal, a bigint or an exact decimal string. A vector's,
  * a buffer of its dimensions, has a type the public barrels do not name, so a vector field's is not asserted.
  */
@@ -6105,7 +6110,7 @@ type VectorForm =
  * A vector host value: Vector.make or Vector.from over a buffer of the dimensions it names, valid or with one planted
  * fault: a buffer that is no Float32Array, dimensions that are no number, a Vector of other dimensions to from, a value
  * held at a type of other dimensions. The engine's admission of the buffer (scalar/values/vector.ts admit and
- * admitEncodable) and of the value at a vector field's type (schema/literal.ts literalResult) is the oracle.
+ * admitEncodable) and of the value at a vector field's type (scalar/literal.ts literalDescFor) is the oracle.
  */
 const vectorProbe = (d: Drawing): Probe => {
 	const n = d.from([1, 3, 4])
@@ -6171,15 +6176,16 @@ const vectorProbe = (d: Drawing): Probe => {
 						])
 						return vector
 					})
-					return made.ok
-						? valueVerdict(
-								literalResult(
-									{ kind: "vector", dimensions: form.target === "same" ? n : other },
-									made.value,
-									undefined
-								)
-							)
-						: engineVerdict(made)
+					const type = scalarTypeOf(
+						{ kind: "vector", dimensions: form.target === "same" ? n : other },
+						{ kind: "builder", roster: () => undefined },
+						SourceLoc("the vector's field", [])
+					)
+					return !made.ok
+						? engineVerdict(made)
+						: type.ok
+							? valueVerdict(literalDescFor(type.value, made.value))
+							: engineVerdict(type)
 				}
 				case "from":
 					return valueVerdict(admitEncodable(bufferValue(form.buffer), n))

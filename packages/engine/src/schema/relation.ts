@@ -58,6 +58,7 @@ import {
 	closedRowTerm
 } from "#compiler/scalar/compute/closed.ts"
 import { termExpr } from "#compiler/scalar/compute/term.ts"
+import { storedLiteral } from "#compiler/scalar/literal.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import {
 	carrierSql,
@@ -68,8 +69,6 @@ import {
 	scalarTypeOf
 } from "#compiler/scalar/registry.ts"
 import { RosterSet } from "#compiler/scalar/values/bits.ts"
-import { describeFault } from "#compiler/scalar/values/fault.ts"
-import { literalFor, literalResult } from "#compiler/schema/literal.ts"
 import { handleMaxBytes } from "#compiler/schema/own.ts"
 import {
 	builderLoc,
@@ -257,7 +256,11 @@ export const accumulatedField = <F extends FieldBase>(
 	if (described.desc.kind === "span" || described.desc.kind === "vector") {
 		throw builderRefusal("accumulated", valueType)
 	}
-	const literal = literalFor(described.desc, start, "accumulated start", rosterHandlesOf(type))
+	const stored = storedLiteral(described.scalar, start)
+	if (!stored.ok) {
+		throw malformed("accumulated start", stored.error)
+	}
+	const literal = stored.value
 	const value: AccumulatedField<F> = Object.freeze({
 		...builtMark,
 		...fieldMark,
@@ -749,18 +752,7 @@ const closedRows = (
 		throw malformed(label, "rows: a list of the relation's facts")
 	}
 	const names = Object.keys(described)
-	/**
-	 * Each field with its roster's handles where it is a closed id, through any depth of contracts: the roster its type
-	 * holds, read once into a set each cell is found in.
-	 */
-	const typed = Object.entries(described).map(([field, { desc, scalar }]) => ({
-		field,
-		desc,
-		handles: ((roster) =>
-			roster === undefined ? undefined : new Set<LiteralDesc>(roster.handles))(
-			scalar.carrier === "code" ? rosterOf(scalar) : undefined
-		)
-	}))
+	const typed = Object.entries(described).map(([field, { scalar }]) => ({ field, scalar }))
 	const facts = new TupleMap<ReadonlyArray<string>, ClosedRow>()
 	const written = new Map<ClosedRow, number>()
 	for (const [i, row] of rows.entries()) {
@@ -772,13 +764,10 @@ const closedRows = (
 			throw malformed(label, `row ${i} with exactly the fields ${names.join(", ")}`)
 		}
 		const literals: Record<string, LiteralDesc> = {}
-		for (const { field, desc, handles } of typed) {
-			const literal = literalResult(desc, row[field], undefined)
-			if (!literal.ok || (handles !== undefined && !handles.has(literal.value))) {
-				throw malformed(
-					`${label} row ${i} field ${field}`,
-					describeFault(literal.ok ? "codeHandle" : literal.error)
-				)
+		for (const { field, scalar } of typed) {
+			const literal = storedLiteral(scalar, row[field])
+			if (!literal.ok) {
+				throw malformed(`${label} row ${i} field ${field}`, literal.error)
 			}
 			literals[field] = literal.value
 		}

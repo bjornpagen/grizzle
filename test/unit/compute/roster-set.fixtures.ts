@@ -11,8 +11,8 @@ import type { OpenExpr } from "#compiler/ir/open.ts"
 import { rosterOf } from "#compiler/ir/scalar.ts"
 import { bits } from "#compiler/public/fields.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { storedLiteral } from "#compiler/scalar/literal.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
-import { literalResult } from "#compiler/schema/literal.ts"
 import { assert, defined } from "#test/support/assert.ts"
 
 /** The names both rosters draw their handles from. */
@@ -94,7 +94,7 @@ export const doorVerdict = (
 		case "a comparison's operand":
 			return built(() => Compute.eq(Compute.literal(field, new Set<string>()), set))
 		case "a closed relation's fact": {
-			const literal = literalResult(described.desc, set, roster.handles)
+			const literal = storedLiteral(described.scalar, set)
 			return Effect.succeed(
 				literal.ok
 					? { kind: "admitted", handles: literalHandles(literal.value) }
