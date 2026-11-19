@@ -226,7 +226,7 @@ export const proofColumns = ["object", "ddl", "description"] as const
  * no login holds a privilege on it and no fence takes it, and the live source publishes nothing of it. Its PUBLIC
  * privileges are revoked at once.
  */
-const proofsTable = (schema: string): CreateTable => ({
+export const proofsTable = (schema: string): CreateTable => ({
 	kind: "createTable",
 	table: proofsName(schema),
 	columns: mapNonEmpty(proofColumns, text),

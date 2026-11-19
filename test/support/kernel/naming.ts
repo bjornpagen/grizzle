@@ -33,7 +33,7 @@ import type {
 	LawId,
 	RelationIdent
 } from "#compiler/core/ids.ts"
-import { ledgerTable } from "#compiler/deploy/ledger/ledger.ts"
+import { ledgerTable, proofsTable } from "#compiler/deploy/ledger/ledger.ts"
 import {
 	descText,
 	type ExprDesc,
@@ -1175,17 +1175,18 @@ export const soleWorldOf = (
 }
 
 /**
- * Whether a catalog object of a schema is the migrations ledger's (deploy/ledger), the deployment's own table no schema
- * declares: the table itself, or a constraint its DDL declares, a key's index sharing the key's name. The names are
- * src's (ledgerTable), so a ledger whose DDL changes is still recognized.
+ * Whether a catalog object of a schema is one of the deployment's own tables beside its relations, which no schema
+ * declares and only a migration makes (deploy/ledger): the migrations ledger and the drift check's proofs, each the
+ * table itself or a constraint its DDL declares, a key's index sharing the key's name. The names are src's
+ * (ledgerTable, proofsTable), so a ledger table whose DDL changes is still recognized.
  */
-export const isLedgerObject = (schema: string, name: string): boolean => {
-	const ddl = ledgerTable(schema)
-	return (
-		name === ddl.table.name ||
-		Arr.some(tableConstraints(ddl), (constraint) => constraint.name === name)
+export const isLedgerObject = (schema: string, name: string): boolean =>
+	Arr.some(
+		[ledgerTable(schema), proofsTable(schema)],
+		(ddl) =>
+			name === ddl.table.name ||
+			Arr.some(tableConstraints(ddl), (constraint) => constraint.name === name)
 	)
-}
 
 /**
  * The physical names of one declared schema without an installation (productionNames, with the vector extension in

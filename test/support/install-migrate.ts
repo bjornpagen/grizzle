@@ -37,7 +37,7 @@ import { type DraftWorkload, emptySnapshot, noWorkload } from "#compiler/deploy/
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { LoginDesc, RoleDesc } from "#compiler/ir/desc.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
+import { ledgerTableName, proofsTableName } from "#compiler/physical/ddl/ledger.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
@@ -278,8 +278,9 @@ const body = (statement: string): string =>
 	)
 
 /**
- * A statement a first migration runs beyond the fresh-install script that leaves no object but the migrations ledger:
- * the ledger's own DDL, guard trigger and grants, the LOCK opening a residual law's Validate file, and the DO block
+ * A statement a first migration runs beyond the fresh-install script that leaves no object but the migrations ledger
+ * and the drift check's proofs beside it (kernel/naming.ts isLedgerObject): either table's own DDL, guard trigger and
+ * grants, the LOCK opening a residual law's Validate file, and the DO block
  * running the law's full violation query there, which reads and raises only. The snapshot guard's function names the
  * ledger in its body and the live source's publication publishes it, but each is the installation's own object, in the
  * script too, so a CREATE ... FUNCTION or a CREATE PUBLICATION is never one. A DO block is its command whatever its
@@ -289,7 +290,9 @@ const body = (statement: string): string =>
 const leavesNoObject = (statement: string, schema: string): boolean => {
 	const text = body(statement)
 	return (
-		(pipe(text, Str.includes(`${quoteIdent(schema)}.${quoteIdent(ledgerTableName)}`)) &&
+		(Arr.some([ledgerTableName, proofsTableName], (table) =>
+			pipe(text, Str.includes(`${quoteIdent(schema)}.${quoteIdent(table)}`))
+		) &&
 			!Str.startsWith("CREATE OR REPLACE FUNCTION ")(text) &&
 			!Str.startsWith("CREATE PUBLICATION ")(text)) ||
 		Str.startsWith("LOCK TABLE ")(text) ||
