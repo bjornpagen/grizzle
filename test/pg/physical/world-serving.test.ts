@@ -36,417 +36,49 @@
  * past its bound and an index PostgreSQL prefers by its cost, is no property here; that every created index is needed
  * is test/pg/physical/serving.test.ts's.
  *
- * Its kept cases, restated at mostRows: a negated link from Doc into OrgDocs, joined to Share by Doc's owner, whose precheck calls three world
- * functions that PostgreSQL plans at their calls, a role session's first, each of which, over analyzed relations, read
- * the index ends of the join of OrgDocs and Share for its selectivity (world-serving.ts callBound); and a link from Note's doc into Doc's org bound
- * by the tenant's claim, whose read by key through the role's view PostgreSQL drives from the claimed Doc into Note's
- * index on doc, rechecking no, where Note's primary key alone serves it (world-serving.ts resolveClaims); and an entry
- * over Share whose rule fixes user by the session's subject, its head doc alone, whose view a read by key names by doc
- * alone (world-serving.ts ViewKeyField); and a link from Doc's owner into Note's author, Note's doc joined to OrgDocs by
- * Doc's id, whose read by key through the role's view PostgreSQL plans over the unanalyzed relations by unique-ifying
- * Note through the whole of its index on (author, doc) and merging it with the Doc row, where with statistics it
- * probes that index by both fields (world-serving.ts ScanOf).
- *
  * Features: every situation the witnesses reach by construction (see above).
  */
-import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
-import type { TestContext } from "vitest"
-import {
-	joinedOf,
-	judgeCase,
-	linksOf,
-	rowsPerSpreadValue,
-	type Second,
-	secondsOf,
-	type LinkWitness,
-	type WorldCase,
-	type WorldServingFeature
-} from "#test/pg/physical/world-serving.ts"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect, Formatter } from "effect"
+import { caseGen, requiredSituations } from "#test/pg/physical/world-serving.fixtures.ts"
+import { judgeCase, type WorldServingFeature } from "#test/pg/physical/world-serving.ts"
 import { assert } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"
-import { installGen } from "#test/support/worlds/generate/install.ts"
-import { docsBase, docsBases } from "#test/support/worlds/model/bases/docs.ts"
-import type { BaseSpec } from "#test/support/worlds/model/types.ts"
-
-/** What a witness's link reads: an ordinary relation, a derived one, an ordinary one from a relation a declared key
- * reads, whose probe is the key's key probe, or any source joined to another that a second field of T links into
- * (world-serving.ts Second, `joined`). */
-type Arm = "ordinary" | "derived" | "declared key" | "joined"
 
 /**
- * The relations a declared key reads, each once: each holds a key besides its primary key, which an insert through it
- * probes (fin.md §6, "at most one").
+ * Every world function of generated roles reads by its indexes, over drawn small populations, each case installing its
+ * roles' schema on the worker's clone, as each case of the search installed its own. The search's four kept cases were
+ * the judge's reds, never grizzle's, each fixed in world-serving.ts alone (da3549b62: a precheck's calls planning their
+ * bodies at the call, and a claimed read PostgreSQL drove through Note's index on doc; 14e73e8c5: a view whose rule
+ * fixes a key field by a claim; 8906b5c58: a read through a view unique-ifying Note through its index read whole), so
+ * they go with this conversion.
+ *
+ * Its pre-conversion budget: runs 24, coverage cases 24 (test/pg/physical/world-serving.test.ts at 22b809827).
  */
-const atMostOne = (base: BaseSpec): ReadonlyArray<string> =>
-	Arr.dedupe(Arr.flatMap(base.laws, (law) => (law.kind === "key" ? [law.relation] : [])))
-
-/** A link of an arm: from a target, into a source, by a pair of their fields. */
-interface ArmLink {
-	readonly target: string
-	readonly source: string
-	readonly link: { readonly from: string; readonly to: string }
-}
-
-/**
- * The links an arm draws from in a base, and the seconds each admits: a joined arm's link its joined seconds alone
- * (joinedOf), any other's its second bindings (secondsOf) or none.
- */
-const armLinks = (
-	base: BaseSpec,
-	arm: Arm
-): ReadonlyArray<ArmLink & { readonly seconds: (negated: boolean) => ReadonlyArray<Second> }> => {
-	const relations = Arr.map(base.relations, (r) => r.name)
-	const derived = Arr.map(base.derived, (d) => d.name)
-	const between = (targets: ReadonlyArray<string>, sources: ReadonlyArray<string>) =>
-		Arr.flatMap(targets, (target) =>
-			Arr.map(linksOf(base, target, sources), (l): ArmLink => ({ target, ...l }))
-		)
-	const drawn = (links: ReadonlyArray<ArmLink>) =>
-		Arr.map(links, (l) => ({
-			...l,
-			seconds: (negated: boolean): ReadonlyArray<Second> => [
-				{ kind: "none" },
-				...secondsOf(base, l.target, l.source, l.link, negated)
-			]
-		}))
-	switch (arm) {
-		case "ordinary":
-			return drawn(between(relations, relations))
-		case "derived":
-			return drawn(between(relations, derived))
-		case "declared key":
-			return drawn(between(atMostOne(base), relations))
-		case "joined": {
-			const sources = [...relations, ...derived]
-			return Arr.flatMap(between(relations, sources), (l) => {
-				const joined = joinedOf(base, l.target, sources, l.source, l.link)
-				return joined.length > 0 ? [{ ...l, seconds: () => joined }] : []
-			})
-		}
-	}
-}
-
-const arms: Arr.NonEmptyReadonlyArray<Arm> = ["ordinary", "derived", "declared key", "joined"]
-
-/** The arms a base admits: those with a link to draw. */
-const armsOf = (base: BaseSpec): ReadonlyArray<Arm> =>
-	Arr.filter(arms, (arm) => armLinks(base, arm).length > 0)
-
-/** A witness of `arm` over `base`: a link of the arm, matched or negated, and a second the link admits under it. */
-const witnessGen =
-	(base: BaseSpec, arm: Arm): Gen<LinkWitness> =>
-	(source) => {
-		const chosen = source.draw(
-			element(knownNonEmpty(armLinks(base, arm), `the ${arm} links of ${base.name}`))
-		)
-		const negated = source.draw(boolean)
-		const second: Second = source.draw(
-			element(knownNonEmpty(chosen.seconds(negated), `the seconds of a ${arm} link`))
-		)
-		return { target: chosen.target, source: chosen.source, link: chosen.link, second, negated }
-	}
-
-/**
- * A case: its first witness's arm, then a documents base that admits it, the witness, perhaps a second of any arm the
- * base admits, and the roles the worlds model draws over the base.
- */
-const worldGen: Gen<WorldCase> = (source) => {
-	const arm = source.draw(element(arms))
-	const base = source.draw(
-		element(
-			knownNonEmpty(
-				Arr.filter(docsBases, (b) => armsOf(b).includes(arm)),
-				`the documents bases admitting a ${arm} witness`
-			)
-		)
-	)
-	const first = source.draw(witnessGen(base, arm))
-	const admitted = knownNonEmpty(armsOf(base), `the arms of ${base.name}`)
-	const more = source.draw(
-		array((inner) => inner.draw(witnessGen(base, inner.draw(element(admitted)))), {
-			min: 0,
-			max: 1
-		})
-	)
-	return { install: source.draw(installGen(base)), witnesses: [first, ...more] }
-}
-
-/** A case: its world, and how many facts each relation of its base holds. */
-interface PopulationCase {
-	readonly world: WorldCase
-	readonly rows: number
-}
-
-/**
- * The most facts a relation holds in a case, derived: the least population at which every spread field of the load
- * holds two values (world-serving.ts rowsPerSpreadValue), so a probe that binds one spread field and rechecks another
- * removes rows the judge reads. A larger population shows the judge nothing more: sequential and bitmap scans are
- * disabled, so a scan's structure is the same at any size, and a scan's buffers past its bound are no property here.
- */
-const mostRows = 2 * rowsPerSpreadValue
-
-/**
- * A case's population: half the cases at mostRows, where a recheck shows, and half at any size up to it, down to one
- * fact a relation. The weights are a search budget, never a claim: the size that shows a recheck is one point of the
- * range, which a uniform draw would reach once in mostRows cases.
- */
-const rowsGen: Gen<number> = weighted([
-	[1, constant(mostRows)],
-	[1, int(1, mostRows)]
-])
-
-const caseGen: Gen<PopulationCase> = (source) => ({
-	world: source.draw(worldGen),
-	rows: source.draw(rowsGen)
-})
-
-/** The cases kept from failure reports, each replayed first by value (see the header). */
-const kept: ReadonlyArray<Kept<PopulationCase, WorldServingFeature>> = [
-	{
-		note: "a negated link from Doc into OrgDocs, joined to Share by Doc's owner, whose filter function plans a join of OrgDocs and Share: a precheck's three calls, its role session's first, plan each body at its call and read 12 buffers of index ends apiece",
-		sketch: {
-			rows: mostRows,
-			world: {
-				install: {
-					base: docsBase,
-					roles: [
-						{
-							name: "alpha",
-							entries: { Org: { kind: "whole", relation: "Org" } },
-							write: [],
-							refresh: []
-						}
-					],
-					logins: [{ name: "web", roles: ["alpha"] }]
-				},
-				witnesses: [
-					{
-						target: "Org",
-						source: "Doc",
-						link: { from: "id", to: "id" },
-						second: { kind: "none" },
-						negated: false
-					},
-					{
-						target: "Doc",
-						source: "OrgDocs",
-						link: { from: "org", to: "org" },
-						second: {
-							kind: "joined",
-							to: "doc",
-							source: "Share",
-							link: { from: "owner", to: "user" },
-							field: "doc"
-						},
-						negated: true
-					}
-				]
-			}
+export const everyWorldFunctionOfGeneratedRolesReadsByItsIndexesOverDrawnSmallPopulations =
+	property.explore(caseGen, {
+		needs: { substrate: Substrate.installing },
+		situations: requiredSituations satisfies ReadonlyArray<Reached<WorldServingFeature>>,
+		check:
+			({ substrate }, cx: Case<WorldServingFeature>) =>
+			(c) =>
+				Effect.provideServiceEffect(
+					Effect.scoped(
+						Effect.gen(function* () {
+							const problems = yield* judgeCase(c.world, c.rows, cx.note)
+							assert.deepEqual(problems, [], "every world function call reads by its indexes")
+						})
+					),
+					Substrate,
+					substrate
+				),
+		oracle: {
+			kind: "postgresql",
+			name: "PostgreSQL's serving judge: each world function call reads by its indexes"
 		},
-		draws: "",
-		reaches: [
-			"a filter function's probe of a derived relation",
-			"a filter function's probe bound by its argument and a joined source",
-			"a precheck calling the filter function"
-		]
-	},
-	{
-		note: "a link from Note's doc into Doc's org, Doc's id the tenant's claim: a read by key through the view joins the claimed Doc to Note, and PostgreSQL reads Note through its index on doc at the Doc's org, rechecking no on the note's 54 neighbours, rather than through Note's primary key, which serves the read alone",
-		sketch: {
-			rows: mostRows,
-			world: {
-				install: {
-					base: docsBase,
-					roles: [
-						{
-							name: "alpha",
-							entries: { Org: { kind: "whole", relation: "Org" } },
-							write: [],
-							refresh: []
-						}
-					],
-					logins: [{ name: "web", roles: ["alpha"] }]
-				},
-				witnesses: [
-					{
-						target: "Note",
-						source: "Doc",
-						link: { from: "doc", to: "org" },
-						second: { kind: "claim", to: "id", context: "Tenant", field: "org" },
-						negated: false
-					}
-				]
-			}
-		},
-		draws: "",
-		reaches: [
-			"a read through a narrowed entry's view calling the filter function",
-			"a world function's scan read through another planned index than one serving it alone"
-		]
-	},
-	{
-		note: "an entry over Share whose rule fixes user by the session's subject and whose head is doc alone: its view holds no column user, and a read by key through it names doc",
-		sketch: {
-			rows: mostRows,
-			world: {
-				install: {
-					base: docsBase,
-					roles: [
-						{
-							name: "alpha",
-							entries: {
-								Doc: { kind: "whole", relation: "Doc" },
-								OrgDocs: { kind: "whole", relation: "OrgDocs" },
-								View0: {
-									kind: "query",
-									rules: [
-										{
-											matches: [
-												{
-													source: { kind: "ordinary", name: "Share" },
-													fields: {
-														doc: { kind: "var", name: "v_doc" },
-														user: { kind: "var", name: "c_Session_sub" }
-													}
-												},
-												{
-													source: { kind: "context", name: "Session" },
-													fields: { sub: { kind: "var", name: "c_Session_sub" } }
-												}
-											],
-											negations: [],
-											comparisons: [],
-											head: { doc: { kind: "var", name: "v_doc" } }
-										}
-									]
-								},
-								Share: { kind: "whole", relation: "Share" }
-							},
-							write: ["Doc", "View0"],
-							refresh: []
-						}
-					],
-					logins: [{ name: "web", roles: ["alpha"] }]
-				},
-				witnesses: [
-					{
-						target: "Doc",
-						source: "OrgDocs",
-						link: { from: "org", to: "org" },
-						second: { kind: "none" },
-						negated: false
-					}
-				]
-			}
-		},
-		draws: "",
-		reaches: [
-			"a policy row of a membership reading no other relation",
-			"a read through a view whose rule fixes a field of T's key"
-		]
-	},
-	{
-		note: "a link from Doc's owner into Note's author, Note's doc joined to OrgDocs by Doc's id: a read by key through the view semijoins Doc and OrgDocs to Note, and over unanalyzed relations PostgreSQL unique-ifies Note by reading its index on (author, doc) whole and merges it with the Doc row, as it does at 200,000 facts a relation, where analyzed it probes that index by both fields",
-		sketch: {
-			rows: mostRows,
-			world: {
-				install: {
-					base: docsBase,
-					roles: [
-						{
-							name: "alpha",
-							entries: { Org: { kind: "whole", relation: "Org" } },
-							write: [],
-							refresh: []
-						}
-					],
-					logins: [{ name: "web", roles: ["alpha"] }]
-				},
-				witnesses: [
-					{
-						target: "Doc",
-						source: "Note",
-						link: { from: "owner", to: "author" },
-						second: {
-							kind: "joined",
-							to: "doc",
-							source: "OrgDocs",
-							link: { from: "id", to: "org" },
-							field: "doc"
-						},
-						negated: false
-					}
-				]
-			}
-		},
-		draws: "",
-		reaches: [
-			"a filter function's probe bound by its argument and a joined source",
-			"a read through a narrowed entry's view calling the filter function",
-			"a read through a view joining its membership through an index read whole"
-		]
-	}
-]
-
-/** The situations every run reaches (see the header). */
-const requiredSituations: Arr.NonEmptyReadonlyArray<WorldServingFeature> = [
-	"a filter function's probe that finds its fact",
-	"a filter function's probe that finds none",
-	"a filter function's probe of a derived relation",
-	"a filter function's probe bound by its argument and a claim",
-	"a filter function's probe bound by its argument and a joined source",
-	"a key probe that reads its key's fact",
-	"a key probe that finds no fact at its key",
-	"a declared key's probe that reads its key's fact",
-	"a declared key's probe that finds no fact at its key",
-	"a policy row calling the filter function",
-	"a read through a narrowed entry's view calling the filter function",
-	"a precheck calling the filter function"
-]
-
-const populationSuite = (runs: number) => (ctx: TestContext) =>
-	searched(
-		ctx,
-		explore(
-			{
-				oracle: {
-					kind: "postgresql",
-					name: "PostgreSQL's serving judge: each world function call reads by its indexes"
-				},
-				suite: "pg/physical/world-serving",
-				draw: drawn(caseGen),
-				literal: Formatter.format,
-				coverage: required<WorldServingFeature>(requiredSituations, {
-					cases: runs,
-					sense: notesOnly
-				}),
-				kept,
-				runs,
-				shrink: { kind: "bounded", candidates: 24 },
-				steerEvery: 4,
-				caseHang
-			},
-			(c, cx) =>
-				Effect.scoped(
-					Effect.gen(function* () {
-						const problems = yield* judgeCase(c.world, c.rows, cx.note)
-						assert.deepEqual(problems, [], "every world function call reads by its indexes")
-					})
-				)
-		)
-	)
-
-layer(Substrate.layer)("world functions, judged by PostgreSQL", (it) => {
-	it.effect(
-		"every world function of generated roles reads by its indexes, over drawn small populations",
-		populationSuite(24)
-	)
-})
+		show: Formatter.format,
+		budget: { runs: 24, steered: 24 },
+		kept: [],
+		kills: []
+	})
