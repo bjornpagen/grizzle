@@ -1,20 +1,17 @@
 /**
- * The one encoder of a text's bytes (grizzle-text utf8.ts writeUtf8, utf8 and utf8Length) and the digest of a text
- * (sha256Hex).
+ * The one encoder of a well-formed text's bytes (grizzle-text utf8.ts writeUtf8, utf8 and utf8Length) and the digest of
+ * a text (sha256Hex), each typed over grizzle-text's WellFormedText, which no lone surrogate is.
  *
- * - Any UTF-16 string: writeUtf8 writes generalized UTF-8 (WTF-8) in place, from any offset of a larger array, each code
- *   point as the platform iterates the string, a lone surrogate as its own three bytes 0xE0 | cp >> 12,
- *   0x80 | (cp >> 6) & 0x3F, 0x80 | cp & 0x3F, where the platform's TextEncoder writes U+FFFD, and every other code point
- *   as TextEncoder writes it, so well-formed text is the platform's UTF-8; it touches no byte outside them and answers
- *   the offset past them; utf8 is those bytes alone, and utf8Length counts them. Oracle: that definition, code point by
- *   code point, a specification turned into a checker, TextEncoder's U+FFFD for a lone surrogate checked beside it.
- * - sha256Hex of a text is sha256Hex of its generalized UTF-8 bytes. Oracle: the differential between the text path and
- *   the bytes path, the bytes written by the definition above.
+ * - Any well-formed text: writeUtf8 writes its UTF-8 in place, from any offset of a larger array, exactly as the
+ *   platform's TextEncoder writes it, touches no byte outside them and answers the offset past them; utf8 is those
+ *   bytes alone, and utf8Length counts them. Oracle: the platform's encoder, an implementation of its own.
+ * - sha256Hex of a text is sha256Hex of its UTF-8 bytes. Oracle: the differential between the text path and the bytes
+ *   path, the bytes the platform's encoder writes.
  *
- * Inputs: a string of code units drawn by class (ASCII, any BMP unit, a surrogate unit, a supplementary character's
- * pair), so lone surrogates appear and adjacent ones also pair up, and well-formed text is drawn among them.
+ * Inputs: a text of scalars drawn by UTF-8 width (ASCII, two bytes, three bytes on either side of the surrogates, a
+ * supplementary character's pair), through the brand's one door, isWellFormedText.
  *
- * Features: each code point's UTF-8 width (one to four bytes), a lone surrogate, and an empty text.
+ * Features: each code point's UTF-8 width (one to four bytes), and an empty text.
  */
 
 import { utf8, utf8Length, writeUtf8 } from "@bjornpagen/grizzle-text/utf8"
@@ -25,15 +22,15 @@ import { sha256Hex } from "#compiler/core/sha256.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	type Feature,
-	generalized,
 	noteText,
-	platformLoneSurrogates,
-	utf16
+	platformBytes,
+	wellFormedTexts
 } from "#test/unit/core/sha256.fixtures.ts"
 
-/** The one encoder writes any UTF-16 string in place as generalized UTF-8, a lone surrogate as its own three bytes. Its budget is its suite's before it was a property (test/unit/core/sha256.test.ts at 4ca3036a): 500 runs and 200 steered cases. */
-export const theOneEncoderWritesAnyUTF16StringInPlaceAsGeneralizedUTF8ALoneSurrogateAsItsOwnThreeBytes =
-	property.explore(utf16, {
+/** The one encoder writes a well-formed text's UTF-8 in place, the platform's bytes of it. Its budget is its suite's before it was a property (test/unit/core/sha256.test.ts at 4ca3036a): 500 runs and 200 steered cases. */
+export const theOneEncoderWritesAWellFormedTextsUTF8InPlaceThePlatformsBytesOfIt = property.explore(
+	wellFormedTexts,
+	{
 		needs: {},
 		budget: { runs: 500, steered: 200 },
 		situations: [
@@ -41,17 +38,11 @@ export const theOneEncoderWritesAnyUTF16StringInPlaceAsGeneralizedUTF8ALoneSurro
 			"a two-byte point",
 			"a three-byte point",
 			"a four-byte point",
-			"a lone surrogate",
 			"an empty text"
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, c: Case<Feature>) => (text) =>
 			Effect.sync(() => {
-				const expected = generalized(text)
-				assert.deepEqual(
-					platformLoneSurrogates(text),
-					[],
-					"TextEncoder writes each lone surrogate as U+FFFD, which generalized UTF-8 does not"
-				)
+				const expected = platformBytes(text)
 				/** An offset of 0, 1 or 2 into an array with a byte of 0xAA on each side of the text's bytes. */
 				const at = text.length % 3
 				const out = new Uint8Array(at + expected.length + 1).fill(0xaa)
@@ -70,8 +61,8 @@ export const theOneEncoderWritesAnyUTF16StringInPlaceAsGeneralizedUTF8ALoneSurro
 				noteText(text, c)
 			}),
 		oracle: {
-			kind: "specification",
-			name: "generalized UTF-8, code point by code point, a lone surrogate as three bytes"
+			kind: "second-implementation",
+			name: "the platform's UTF-8 encoder, TextEncoder"
 		},
 		kept: [],
 		kills: [
@@ -79,7 +70,7 @@ export const theOneEncoderWritesAnyUTF16StringInPlaceAsGeneralizedUTF8ALoneSurro
 				file: "packages/text/src/utf8.ts",
 				original: "\t\t\t: isHighSurrogate(unit) && isLowSurrogate(text.charCodeAt(at + 1))",
 				replacement: "\t\t\t: isHighSurrogate(unit) && isLowSurrogate(text.charCodeAt(at))",
-				why: "The one width rule reads a surrogate pair as two three-byte units, so utf8Length counts and writeUtf8 writes each half as a lone surrogate; the generalized UTF-8 property fails."
+				why: "The one width rule reads a surrogate pair as two three-byte units, so utf8Length counts and writeUtf8 writes each half as three bytes; the platform's bytes differ."
 			},
 			{
 				file: "packages/text/src/utf8.ts",
@@ -87,7 +78,7 @@ export const theOneEncoderWritesAnyUTF16StringInPlaceAsGeneralizedUTF8ALoneSurro
 					"\t\t\t\tconst point = ((unit - 0xd800) << 10) + (text.charCodeAt(i + 1) - 0xdc00) + 0x10000",
 				replacement:
 					"\t\t\t\tconst point = ((unit - 0xd800) << 10) + (text.charCodeAt(i + 1) - 0xdc00)",
-				why: "writeUtf8 writes a supplementary code point's four bytes without its 0x10000 offset; the generalized UTF-8 property fails."
+				why: "writeUtf8 writes a supplementary code point's four bytes without its 0x10000 offset; the platform's bytes differ."
 			},
 			{
 				file: "packages/text/src/utf8.ts",
@@ -96,29 +87,30 @@ export const theOneEncoderWritesAnyUTF16StringInPlaceAsGeneralizedUTF8ALoneSurro
 				why: "writeUtf8 writes from the array's start, whatever offset it is given, over the bytes before it; the in-place property fails."
 			}
 		]
-	})
+	}
+)
 
-/** Sha256Hex hashes a text as its generalized UTF-8 bytes. Its budget is its suite's before it was a property (test/unit/core/sha256.test.ts at 4ca3036a): 300 runs and 200 steered cases. */
-export const sha256HexHashesATextAsItsGeneralizedUTF8Bytes = property.explore(utf16, {
+/** Sha256Hex hashes a text as its UTF-8 bytes. Its budget is its suite's before it was a property (test/unit/core/sha256.test.ts at 4ca3036a): 300 runs and 200 steered cases. */
+export const sha256HexHashesATextAsItsUTF8Bytes = property.explore(wellFormedTexts, {
 	needs: {},
 	budget: { runs: 300, steered: 200 },
-	situations: ["a lone surrogate", "a four-byte point"] satisfies ReadonlyArray<Reached<Feature>>,
+	situations: ["a two-byte point", "a four-byte point"] satisfies ReadonlyArray<Reached<Feature>>,
 	check: (_, c: Case<Feature>) => (text) =>
 		Effect.sync(() => {
-			assert.equal(sha256Hex(text), sha256Hex(Uint8Array.from(generalized(text))))
+			assert.equal(sha256Hex(text), sha256Hex(Uint8Array.from(platformBytes(text))))
 			noteText(text, c)
 		}),
 	oracle: {
 		kind: "universal",
-		name: "the text path against the bytes path over generalized UTF-8"
+		name: "the text path against the bytes path over the platform's UTF-8"
 	},
 	kept: [],
 	kills: [
 		{
 			file: "packages/engine/src/core/sha256.ts",
 			original: '\t\t.update(typeof input === "string" ? utf8(input) : input)',
-			replacement: "\t\t.update(input)",
-			why: "sha256Hex hashes a text as the platform's UTF-8; the digest's differential property fails."
+			replacement: '\t\t.update(typeof input === "string" ? utf8(input).subarray(1) : input)',
+			why: "sha256Hex hashes a text's bytes past its first; the digest's differential property fails."
 		}
 	]
 })

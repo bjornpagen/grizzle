@@ -1,3 +1,4 @@
+import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { allenMaskMax } from "#compiler/core/allen.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import {
@@ -3493,7 +3494,7 @@ export const descToJson = (desc: unknown): Result.Result<Json, CompileError> =>
 const identityOptions: EncodeOptions = { omit: omitSourceLocs }
 
 /** The canonical identity text: the canonical serialization without source locations. */
-export const descText = (desc: unknown): Result.Result<string, CompileError> =>
+export const descText = (desc: unknown): Result.Result<WellFormedText, CompileError> =>
 	encode(desc, identityOptions)
 
 /**
@@ -3503,5 +3504,5 @@ export const descText = (desc: unknown): Result.Result<string, CompileError> =>
  */
 export const descTextOver = (
 	desc: unknown,
-	written: ReadonlyMap<string, string>
-): Result.Result<string, CompileError> => encodeOver(desc, identityOptions, written)
+	written: ReadonlyMap<string, WellFormedText>
+): Result.Result<WellFormedText, CompileError> => encodeOver(desc, identityOptions, written)

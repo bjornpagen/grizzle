@@ -1,3 +1,4 @@
+import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { arrayText, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { RoleRule } from "#compiler/core/causes.ts"
@@ -635,7 +636,7 @@ const declareName = (
 	loc: SourceLoc
 ): DeclaredName => unwrap(namespace.declare(name, kind, loc))
 
-const textOf = (value: unknown): string => unwrap(descText(value))
+const textOf = (value: unknown): WellFormedText => unwrap(descText(value))
 
 const scopeOf = (side: SideDesc): SideScope => ({
 	relation: side.relation,
@@ -773,14 +774,14 @@ const isBare = (e: ExprDesc): boolean => e.kind === "literal" && e.type === unde
  */
 interface Canonical<T> {
 	readonly form: T
-	readonly text: string
+	readonly text: WellFormedText
 }
 
 /** A form that is canonical as it is, with its text. */
 const asIs = <T>(form: T): Canonical<T> => ({ form, text: textOf(form) })
 
 /** A form made of canonical parts: each member `parts` names holds one, written from the text `parts` maps it to. */
-const madeOf = <T>(form: T, parts: ReadonlyMap<string, string>): Canonical<T> => ({
+const madeOf = <T>(form: T, parts: ReadonlyMap<string, WellFormedText>): Canonical<T> => ({
 	form,
 	text: unwrap(descTextOver(form, parts))
 })

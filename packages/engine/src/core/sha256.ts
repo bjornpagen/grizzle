@@ -4,10 +4,11 @@
  * the one module of the engine that imports a node builtin.
  */
 import { createHash } from "node:crypto"
-import { utf8 } from "@bjornpagen/grizzle-text/utf8"
+import { utf8, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 
-/** The SHA-256 digest of a message, as lowercase hex. A text is hashed as the bytes `utf8` writes. */
-export const sha256Hex = (input: Uint8Array | string): string =>
+/** The SHA-256 digest of a message, as lowercase hex: bytes, or a well-formed text (grizzle-text WellFormedText) hashed
+ * as its UTF-8 (`utf8`). */
+export const sha256Hex = (input: Uint8Array | WellFormedText): string =>
 	createHash("sha256")
 		.update(typeof input === "string" ? utf8(input) : input)
 		.digest("hex")
@@ -41,9 +42,9 @@ export const sha256Base32Chars = Math.ceil(digestBits / base32Bits)
 
 /**
  * The whole SHA-256 digest of a message in lowercase RFC 4648 base32, unpadded, its last character's low bits zero: a
- * name two messages share only where SHA-256 collides. A text is hashed as the bytes `utf8` writes.
+ * name two messages share only where SHA-256 collides. A text is hashed as its UTF-8 (`sha256Hex`).
  */
-export const sha256Base32 = (input: string): string => {
+export const sha256Base32 = (input: Uint8Array | WellFormedText): string => {
 	const hex = sha256Hex(input)
 	let out = ""
 	let held = 0

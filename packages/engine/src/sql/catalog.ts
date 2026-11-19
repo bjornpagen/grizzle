@@ -1,5 +1,6 @@
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 import type {
 	AlterDatabaseDefault,
 	CatalogTypeName,
@@ -729,7 +730,7 @@ const advisoryKeyBytes = 8
 export const advisoryKey = (lock: AdvisoryLock): bigint =>
 	BigInt.asIntN(
 		8 * advisoryKeyBytes,
-		BigInt(`0x${sha256Hex(advisoryLockName(lock)).slice(0, 2 * advisoryKeyBytes)}`)
+		BigInt(`0x${sha256Hex(wellFormed(advisoryLockName(lock))).slice(0, 2 * advisoryKeyBytes)}`)
 	)
 
 /**

@@ -139,10 +139,10 @@ export const theCanonicalTextIsRFC8785OverTheSpecifiedJSONFormWhateverTheKeyInse
 					const permuted = permute(v, draws)
 					const form = jsonForm(v)
 					assert.deepEqual(succeeded(toJson(permuted, everyProperty)), form)
-					assert.equal(succeeded(encode(permuted, everyProperty)), rfc8785(form))
-					assert.equal(succeeded(writeCanonicalJson(form)), rfc8785(form))
+					assert.equal<string>(succeeded(encode(permuted, everyProperty)), rfc8785(form))
+					assert.equal<string>(succeeded(writeCanonicalJson(form)), rfc8785(form))
 					if (isList(permuted)) {
-						assert.equal(
+						assert.equal<string>(
 							arrayText(Arr.map(permuted, (item) => succeeded(encode(item, everyProperty)))),
 							rfc8785(form),
 							"the text of the list written from its items' own"
@@ -161,13 +161,13 @@ export const theCanonicalTextIsRFC8785OverTheSpecifiedJSONFormWhateverTheKeyInse
 							)
 						)
 						for (const [k, text] of texts) {
-							assert.equal(
+							assert.equal<string>(
 								succeeded(encodeOver(permuted, everyProperty, new Map([[k, text]]))),
 								rfc8785(form),
 								`the text with member ${k} written from its own`
 							)
 						}
-						assert.equal(
+						assert.equal<string>(
 							succeeded(encodeOver(permuted, everyProperty, texts)),
 							rfc8785(form),
 							"the text with every member written from its own"
@@ -208,8 +208,8 @@ export const theCanonicalTextRoundTripsTheJSONFormAndTheTextBigintsTaggedValuesA
 				const parsed = trustedJson<unknown>(jsonText(json))
 				const viaJson = succeeded(fromJson(parsed, revivers))
 				const viaText = succeeded(decode(succeeded(encode(v, everyProperty)), revivers))
-				assert.equal(succeeded(encode(viaJson, everyProperty)), specified(v))
-				assert.equal(succeeded(encode(viaText, everyProperty)), specified(v))
+				assert.equal<string>(succeeded(encode(viaJson, everyProperty)), specified(v))
+				assert.equal<string>(succeeded(encode(viaText, everyProperty)), specified(v))
 				assert.deepEqual(viaText, decodedForm(v))
 			}),
 		oracle: {
@@ -385,7 +385,7 @@ export const theOmittedMembersLeaveOutAnUndefinedPropertyAndUnderOmitSourceLocsE
 					switch (member.kind) {
 						case "undefined": {
 							const v = build([...entries, ["loc", undefined]])
-							assert.equal(succeeded(encode(v, everyProperty)), specified(bare))
+							assert.equal<string>(succeeded(encode(v, everyProperty)), specified(bare))
 							assert.ok(
 								canonicalEquals(v, bare),
 								"an undefined member is left out of the comparison"
@@ -395,8 +395,8 @@ export const theOmittedMembersLeaveOutAnUndefinedPropertyAndUnderOmitSourceLocsE
 						}
 						case "loc": {
 							const v = build([...entries, ["loc", member.loc]])
-							assert.equal(succeeded(encode(v, { omit: omitSourceLocs })), specified(bare))
-							assert.equal(succeeded(encode(v, everyProperty)), specified(v))
+							assert.equal<string>(succeeded(encode(v, { omit: omitSourceLocs })), specified(bare))
+							assert.equal<string>(succeeded(encode(v, everyProperty)), specified(v))
 							assert.ok(sameContent(v, bare), "sameContent leaves the SourceLoc out")
 							assert.equal(canonicalEquals(v, bare), false, "canonicalEquals reads the SourceLoc")
 							c.note("a SourceLoc under loc")
@@ -404,7 +404,7 @@ export const theOmittedMembersLeaveOutAnUndefinedPropertyAndUnderOmitSourceLocsE
 						}
 						case "other": {
 							const v = build([...entries, ["loc", member.other]])
-							assert.equal(succeeded(encode(v, { omit: omitSourceLocs })), specified(v))
+							assert.equal<string>(succeeded(encode(v, { omit: omitSourceLocs })), specified(v))
 							assert.equal(sameContent(v, bare), false, "sameContent keeps another value under loc")
 							c.note("another value under loc")
 							return
@@ -447,9 +447,9 @@ export const theOmittedMembersReadAValueAsItIsNowAChangedValueIsWrittenAsChanged
 						case "frozen at the top": {
 							const inner: Record<string, unknown> = { k: v }
 							const holder = freezing === "unfrozen" ? { inner } : Object.freeze({ inner })
-							assert.equal(succeeded(encode(holder, everyProperty)), specified(holder))
+							assert.equal<string>(succeeded(encode(holder, everyProperty)), specified(holder))
 							inner["k"] = replacement
-							assert.equal(succeeded(encode(holder, everyProperty)), specified(holder))
+							assert.equal<string>(succeeded(encode(holder, everyProperty)), specified(holder))
 							return
 						}
 						case "frozen with a mutable loc": {
@@ -459,15 +459,21 @@ export const theOmittedMembersReadAValueAsItIsNowAChangedValueIsWrittenAsChanged
 							 */
 							const loc: Record<string, unknown> = { label: "relation Task", path: ["Work"] }
 							const located = Object.freeze({ v, loc })
-							assert.equal(succeeded(encode(located, { omit: omitSourceLocs })), specified({ v }))
+							assert.equal<string>(
+								succeeded(encode(located, { omit: omitSourceLocs })),
+								specified({ v })
+							)
 							loc["extra"] = replacement
-							assert.equal(succeeded(encode(located, { omit: omitSourceLocs })), specified(located))
+							assert.equal<string>(
+								succeeded(encode(located, { omit: omitSourceLocs })),
+								specified(located)
+							)
 							return
 						}
 						case "deeply frozen": {
 							const frozen = freezeDeeply({ v })
-							assert.equal(succeeded(encode(frozen, everyProperty)), specified(frozen))
-							assert.equal(succeeded(encode(frozen, everyProperty)), specified(frozen))
+							assert.equal<string>(succeeded(encode(frozen, everyProperty)), specified(frozen))
+							assert.equal<string>(succeeded(encode(frozen, everyProperty)), specified(frozen))
 							assert.equal(canonicalEquals(frozen, frozen), true)
 							return
 						}

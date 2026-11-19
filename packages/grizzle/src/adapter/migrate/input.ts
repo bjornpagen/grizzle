@@ -8,7 +8,7 @@ import {
 	stopped
 } from "#adapter/migrate/errors.ts"
 import type { MigrationText } from "#adapter/wire/batch.ts"
-import { type CompileError, sha256Hex } from "#compiler/plan/common.ts"
+import { type CompileError, sha256Hex, wellFormed } from "#compiler/plan/common.ts"
 import {
 	type InstallationNames,
 	isFolderName,
@@ -77,7 +77,7 @@ export interface FolderSource {
 export const folderSource = (folder: FolderTexts): FolderSource => ({
 	name: folder.name,
 	meta: readMeta(folder.metaText),
-	metaDigest: sha256Hex(folder.metaText),
+	metaDigest: sha256Hex(wellFormed(folder.metaText)),
 	files: Arr.map(folder.files, (f) => ({
 		name: f.name,
 		text: f.text,
@@ -255,7 +255,7 @@ export const parseTarget = (
 				name,
 				ordinal,
 				text,
-				digest: sha256Hex(text),
+				digest: sha256Hex(wellFormed(text)),
 				noTransaction: isNoTransaction(text),
 				statements
 			})

@@ -1,3 +1,4 @@
+import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals, type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -475,7 +476,7 @@ const securitySchemes = (file: ServedFile): ReadonlyArray<readonly [string, Json
 		: []
 
 /** A JSON value's canonical text, which every value the document's builders make has. */
-const canonicalText = (json: Json): string => {
+const canonicalText = (json: Json): WellFormedText => {
 	const text = writeCanonicalJson(json)
 	if (!text.ok) {
 		throw defect(`a document's value with a canonical text: ${text.error.message}`)

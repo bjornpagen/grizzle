@@ -82,8 +82,9 @@ export const aTextColumnsBinaryArrayHoldsEachTextAsItsUTF8BytesWhichAStrictDecod
 					assert.equal(read.lowerBound, 1)
 					assert.equal(read.elements.length, texts.length)
 					for (const [i, bytes] of read.elements.entries()) {
+						const readBack: string | null | undefined = bytes === null ? null : utf8Text(bytes)
 						assert.equal(
-							bytes === null ? null : utf8Text(bytes),
+							readBack,
 							defined(texts[i], "each text written"),
 							`element ${i} reads back as its text`
 						)
@@ -141,7 +142,7 @@ export const aTextColumnsBinaryArrayHoldsEachTextAsItsUTF8BytesWhichAStrictDecod
 			kills: [
 				{
 					file: "packages/engine/src/codec/bytea.ts",
-					original: '\t\twriteUtf8(out, at, defined(texts[i], "each text counted"))',
+					original: '\t\twriteUtf8(out, at, wellFormed(defined(texts[i], "each text counted")))',
 					replacement:
 						'\t\tnew TextEncoder().encodeInto(defined(texts[i], "each text counted"), out.subarray(at, at + defined(lengths[i], "each length counted")))',
 					why: "Each element is written by TextEncoder.encodeInto into a destination of exactly its length, which Node underfills."

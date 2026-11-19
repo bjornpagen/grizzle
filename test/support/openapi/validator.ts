@@ -9,6 +9,7 @@ import {
 import { validate as validateOas } from "@hyperjump/json-schema/openapi-3-2"
 import { Array as Arr, Effect } from "effect"
 import { sha256Hex } from "#compiler/core/sha256.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { fileText, repoRoot } from "#test/support/files.ts"
 
@@ -40,7 +41,7 @@ const baseId = "https://spec.openapis.org/oas/3.2/schema-base"
  */
 const official: Effect.Effect<void> = Effect.gen(function* () {
 	const text = yield* fileText(officialPath)
-	const digest = sha256Hex(text)
+	const digest = sha256Hex(wellFormed(text))
 	if (digest !== officialSha256) {
 		return yield* Effect.die(
 			new Error(`the vendored OAS 3.2 schema's SHA-256 is ${digest}, not ${officialSha256}`)

@@ -123,14 +123,15 @@ export const fingerprintsSeparateTheirDomainsAndRefuseADomainOfNoSingleLine = pr
 		kills: [
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
-				original: `\t\tsha256Hex(\`\${canonicalFormat}\\n\${domain}\\n\${text}\`)`,
-				replacement: `\t\tsha256Hex(\`\${canonicalFormat}\\n\${text}\`)`,
+				original: "\tsha256Hex(joinWellFormed(formatLine, domain, newline, text))",
+				replacement: "\tsha256Hex(joinWellFormed(formatLine, text))",
 				why: "the domain left out of the hashed text; the domains property fails."
 			},
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
-				original: '\tif (domain.length === 0 || domain.includes("\\n")) {',
-				replacement: "\tif (domain.length === 0) {",
+				original:
+					'\tif (domain.length === 0 || domain.includes("\\n") || !isWellFormedText(domain)) {',
+				replacement: "\tif (domain.length === 0 || !isWellFormedText(domain)) {",
 				why: "a domain of two lines admitted; the domains property fails."
 			}
 		]

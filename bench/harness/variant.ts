@@ -15,6 +15,7 @@ import { PhaseClock, type StandardPhase } from "#bench/harness/phases.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { beginSerializable } from "#test/support/substrate/session.ts"
 
@@ -183,7 +184,7 @@ const resultSet = (rows: ReadonlyArray<TextRow>): ResultSet => {
 			encoded.push(cell === null ? "N" : `S${cell.length}:${cell}`)
 		}
 	}
-	const digest = sha256Hex(Arr.join(encoded, ""))
+	const digest = sha256Hex(wellFormed(Arr.join(encoded, "")))
 	return { rows: rows.length, distinct, repeated: rows.length - distinct, digest }
 }
 

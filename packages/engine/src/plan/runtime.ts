@@ -4,6 +4,7 @@
  * the runtime entry (@bjornpagen/grizzle/runtime) loads none; .fallowrc.json's runtime zone holds the facade and every
  * module it reaches to that, and refuses any other value import.
  */
+export { wellFormed } from "#compiler/core/text.ts"
 export { assembled, cellKindOf, deliveryOf } from "#compiler/codec/delivery.ts"
 export { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 export { scalarReader } from "#compiler/codec/read.ts"

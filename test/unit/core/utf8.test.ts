@@ -65,7 +65,8 @@ export const theOneReaderOfUTF8BytesAsTextReadsWellFormedBytesAsExactlyTheirText
 				if (expected === undefined) {
 					c.note("bytes that are no UTF-8 refused")
 				}
-				assert.equal(utf8Text(bytes), expected, `the bytes of ${Formatter.format(k)} read whole`)
+				const whole: string | undefined = utf8Text(bytes)
+				assert.equal(whole, expected, `the bytes of ${Formatter.format(k)} read whole`)
 				assert.equal(
 					readInChunks(chunks),
 					expected,

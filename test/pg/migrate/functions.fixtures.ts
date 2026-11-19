@@ -6,7 +6,7 @@ import type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/functi
 import { conversionOf } from "#compiler/core/identity.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
+import { quoteIdent, wellFormed } from "#compiler/core/text.ts"
 import { date, natural, pg, uuid } from "#compiler/public/fields.ts"
 import {
 	type AnyFunction,
@@ -485,7 +485,7 @@ export const declaredBodies = (v: VersionSketch): ReadonlyArray<readonly [string
 						[helperName, helperBody] as const,
 						[peekName, peekBody] as const
 					],
-					([name, body]) => [installedName(name), sha256Hex(body)] as const
+					([name, body]) => [installedName(name), sha256Hex(wellFormed(body))] as const
 				),
 				byName
 			)

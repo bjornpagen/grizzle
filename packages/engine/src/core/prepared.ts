@@ -14,6 +14,7 @@
  */
 import { nominal } from "#compiler/core/brand.ts"
 import { sha256Base32, sha256Base32Chars } from "#compiler/core/sha256.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 
 declare const statementNameBrand: unique symbol
 
@@ -35,4 +36,4 @@ export const statementNameBytes = namePrefix.length + sha256Base32Chars
 
 /** `sql` and the name it is prepared under: `grizzle_` and its SHA-256 in base32 (core/sha256.ts sha256Base32). */
 export const prepared = <Text extends string>(sql: Text): Prepared<Text> =>
-	Object.freeze({ name: statementName(`${namePrefix}${sha256Base32(sql)}`), sql })
+	Object.freeze({ name: statementName(`${namePrefix}${sha256Base32(wellFormed(sql))}`), sql })

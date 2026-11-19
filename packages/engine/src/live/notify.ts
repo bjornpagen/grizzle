@@ -16,6 +16,7 @@ import { defined } from "#compiler/core/invariant.ts"
 import { blockSize } from "#compiler/core/page.ts"
 import * as Result from "#compiler/core/result.ts"
 import { open, seal, sealKeyBytes, sealNonceBytes, sealTagBytes } from "#compiler/core/seal.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 
 /**
  * The margin NOTIFY_PAYLOAD_MAX_LENGTH leaves of a page beside a channel's name, which keeps one notification on one
@@ -338,7 +339,7 @@ export const sealNonce = (bytes: Uint8Array): Result.Result<SealNonce, LiveTextR
  * under notifyPayloadMaxBytes since the batch is within batchMaxBytes.
  */
 export const sealBatch = (secret: LiveSecret, nonce: SealNonce, batch: LiveBatch): string =>
-	seal(secret, nonce, utf8(batch)).toBase64()
+	seal(secret, nonce, utf8(wellFormed(batch))).toBase64()
 
 const isBase64Digit = (unit: number): boolean =>
 	isLetter(unit) ||

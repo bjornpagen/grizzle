@@ -1,3 +1,8 @@
+import {
+	isWellFormedText,
+	joinWellFormed,
+	type WellFormedText
+} from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import {
 	canonicalFormat,
@@ -11,6 +16,7 @@ import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 
 /**
  * Content fingerprints.
@@ -19,20 +25,29 @@ import { sha256Hex } from "#compiler/core/sha256.ts"
  * "<canonical format>\n<domain>\n<canonical text>", so a schema and a program with equal content never share a
  * fingerprint, and a change of serializer version changes every fingerprint.
  *
- * SHA-256 over the domain-separated canonical text, as 64 lowercase hex characters.
+ * SHA-256 over the domain-separated canonical text, as 64 lowercase hex characters. The frame's lines are proved
+ * well-formed once, as the module loads (core/text.ts wellFormed), a caller's domain where it is read, and the canonical
+ * text is the canonical writer's (core/canonical.ts), so the hashed text is joined of well-formed texts and never
+ * checked whole.
  */
 export const digest = (
 	domain: string,
 	value: unknown,
 	options: EncodeOptions
 ): Result.Result<string, CompileError> => {
-	if (domain.length === 0 || domain.includes("\n")) {
+	if (domain.length === 0 || domain.includes("\n") || !isWellFormedText(domain)) {
 		return Result.err(malformedArtifact("fingerprint", [], "a one-line fingerprint domain"))
 	}
-	return Result.map(encode(value, options), (text) =>
-		sha256Hex(`${canonicalFormat}\n${domain}\n${text}`)
-	)
+	return Result.map(encode(value, options), (text) => framedDigest(domain, text))
 }
+
+/** The first line of every digest's frame, the canonical format's, and the newline that ends a domain's. */
+const formatLine = wellFormed(`${canonicalFormat}\n`)
+const newline = wellFormed("\n")
+
+/** SHA-256 of a canonical text framed by its domain (`digest`). */
+const framedDigest = (domain: WellFormedText, text: WellFormedText): string =>
+	sha256Hex(joinWellFormed(formatLine, domain, newline, text))
 
 /**
  * The domains the compiler digests the values it owns under: one-line names, each a fingerprint domain. A constant's
@@ -68,7 +83,19 @@ export type ConstantDigest<D extends ConstantDomain = ConstantDomain> = string &
  * ownedText): `digest`'s bytes, its domain one of the compiler's own.
  */
 export const ownedDigest = (domain: OwnedDomain, value: unknown, options: EncodeOptions): string =>
-	sha256Hex(`${canonicalFormat}\n${domain}\n${ownedText(value, options)}`)
+	framedDigest(ownedDomains[domain], ownedText(value, options))
+
+/** Each owned domain's text, proved well-formed once, as the module loads: TypeScript holds a domain as a literal. */
+const ownedDomains: { readonly [D in OwnedDomain]: WellFormedText } = {
+	"empty-snapshot": wellFormed("empty-snapshot"),
+	"regex-language": wellFormed("regex-language"),
+	"domain-definition": wellFormed("domain-definition"),
+	"drift-proof": wellFormed("drift-proof"),
+	"row-type-definition": wellFormed("row-type-definition"),
+	"function-definition": wellFormed("function-definition"),
+	"closed-constant": wellFormed("closed-constant"),
+	"roster-names": wellFormed("roster-names")
+}
 
 declare const rosterDigestBrand: unique symbol
 
@@ -89,7 +116,7 @@ export const rosterDigest = (handles: ReadonlyArray<string>): RosterDigest => {
 	for (const handle of handles) {
 		framed += `${handle.length}:${handle}`
 	}
-	return nominal<string, RosterDigest>()(sha256Hex(`${canonicalFormat}\nroster-handles\n${framed}`))
+	return nominal<string, RosterDigest>()(framedDigest(rosterDomain, wellFormed(framed)))
 }
 
 declare const domainDigestBrand: unique symbol
@@ -118,9 +145,9 @@ declare const levelTextBrand: unique symbol
  * The canonical text of one level of a schema description, without its SourceLocs, minted only by schemaLevel: what the
  * level's fingerprint hashes, and what the text of the level above holds as its `extends` member.
  */
-export type LevelText = string & { readonly [levelTextBrand]: true }
+export type LevelText = WellFormedText & { readonly [levelTextBrand]: true }
 
-const mintLevelText = nominal<string, LevelText>()
+const mintLevelText = nominal<WellFormedText, LevelText>()
 
 /** A schema level's canonical text and its fingerprint (schemaLevel). */
 export interface SchemaLevel {
@@ -148,10 +175,14 @@ export const schemaLevel = (
 				encodeOver({ content: level }, withoutSourceLocs, new Map([["content", text]])),
 				(content) => ({
 					text: mintLevelText(text),
-					fingerprint: SchemaFingerprint(sha256Hex(`${canonicalFormat}\nschema\n${content}`))
+					fingerprint: SchemaFingerprint(framedDigest(schemaDomain, content))
 				})
 			)
 	)
+
+/** A schema level's digest domain and a roster's handles', proved well-formed once, as the module loads. */
+const schemaDomain = wellFormed("schema")
+const rosterDomain = wellFormed("roster-handles")
 
 declare const rowTypeDigestBrand: unique symbol
 

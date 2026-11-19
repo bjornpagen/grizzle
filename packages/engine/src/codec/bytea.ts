@@ -13,6 +13,7 @@ import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 import { messageMaxBytes } from "#compiler/core/wire.ts"
 import type { ParamBinary } from "#compiler/core/wire.ts"
 import type { LiteralBound } from "#compiler/ir/products.ts"
@@ -182,7 +183,7 @@ export const textArray = (
 ): Result.Result<ParamBinary, LiteralBound> => {
 	const lengths = texts.map(utf8Length)
 	return binaryArray<never>(textOid, input, column, lengths, (out, at, i) => {
-		writeUtf8(out, at, defined(texts[i], "each text counted"))
+		writeUtf8(out, at, wellFormed(defined(texts[i], "each text counted")))
 		return Result.ok(undefined)
 	})
 }

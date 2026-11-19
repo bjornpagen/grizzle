@@ -9,6 +9,7 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings, type Direction } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 
 /**
  * The size of PostgreSQL's name type, NAMEDATALEN, its terminating zero byte included: what an identifier and a
@@ -188,7 +189,8 @@ const digestDropped = BigInt(4 * digestHexChars - digestBits)
 
 /** The first digestBits bits of the canonical encoding's SHA-256, digestChars characters of lowercase base32. */
 const digestOf = (canonical: string): string => {
-	let bits = BigInt(`0x${sha256Hex(canonical).slice(0, digestHexChars)}`) >> digestDropped
+	let bits =
+		BigInt(`0x${sha256Hex(wellFormed(canonical)).slice(0, digestHexChars)}`) >> digestDropped
 	let out = ""
 	for (let i = 0; i < digestChars; i++) {
 		out = base32.charAt(Number(bits & 31n)) + out

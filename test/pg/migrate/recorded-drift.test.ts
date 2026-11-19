@@ -205,8 +205,9 @@ export const recordedDrift = property.exhaust(caseSpace, {
 	kills: [
 		{
 			file: "packages/engine/src/deploy/snapshot/recorded.ts",
-			original: "\tsourceDigest(sha256Hex(functionSource(block)))",
-			replacement: '\tsourceDigest(sha256Hex(functionSource(block).replaceAll("\\t", "\\\\t")))',
+			original: "\tsourceDigest(sha256Hex(wellFormed(functionSource(block))))",
+			replacement:
+				'\tsourceDigest(sha256Hex(wellFormed(functionSource(block).replaceAll("\\t", "\\\\t"))))',
 			why: "A source's digest is taken over its text with each tab escaped, as a drafted file spells it, never as PostgreSQL stores it, so a body holding a tab drifts on every database."
 		},
 		{

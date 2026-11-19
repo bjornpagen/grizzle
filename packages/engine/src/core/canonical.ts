@@ -1,3 +1,4 @@
+import { jsonText, type WellFormedText, WellFormedWriter } from "@bjornpagen/grizzle-text/utf8"
 import { appendAll } from "#compiler/core/array.ts"
 import {
 	type CompileError,
@@ -12,7 +13,7 @@ import { isCapturedStack, isSourceLoc, readSite, SourceLoc } from "#compiler/cor
 import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import { compareQuoted } from "#compiler/core/text.ts"
+import { compareQuoted, wellFormed } from "#compiler/core/text.ts"
 
 /**
  * The longest string V8 builds, in UTF-16 code units: a statement, drafted file, snapshot.json, meta.json or canonical
@@ -660,8 +661,8 @@ type Frame =
 			readonly value: Readonly<Record<string, unknown>>
 			readonly keys: ReadonlyArray<string>
 			next: number
-			readonly written: ReadonlyMap<string, string>
-			readonly write: (text: string) => void
+			readonly written: ReadonlyMap<string, WellFormedText>
+			readonly write: (text: WellFormedText) => void
 	  }
 
 /**
@@ -698,7 +699,11 @@ class Walk {
 	 * Writes `root`, a plain record, each member `written` holds written from its text by `write` where the traversal
 	 * would read it, beside which the record's other members are read.
 	 */
-	over(root: unknown, written: ReadonlyMap<string, string>, write: (text: string) => void): void {
+	over(
+		root: unknown,
+		written: ReadonlyMap<string, WellFormedText>,
+		write: (text: WellFormedText) => void
+	): void {
 		const read = this.#reading(root)
 		if (typeof read !== "object" || read.kind !== "record") {
 			return stop(this.#path, "a plain record")
@@ -929,45 +934,67 @@ const canonicalTextLoc = SourceLoc("canonical text", [])
  * The sink that writes the canonical text, appended to one string as it is read: past V8's longest string the
  * traversal stops with ResourceBound (stringLength), measured before the text is built past it.
  */
+/**
+ * The punctuation a canonical text holds beside its JSON scalars, each proved well-formed once, as the module loads
+ * (core/text.ts wellFormed): TypeScript holds a literal as a string.
+ */
+const punctuation = {
+	comma: wellFormed(","),
+	colon: wellFormed(":"),
+	array: { open: wellFormed("["), close: wellFormed("]") },
+	object: { open: wellFormed("{"), close: wellFormed("}") }
+} as const
+
+/**
+ * A canonical text as it is written: JSON.stringify's scalars and keys (grizzle-text jsonText), its punctuation and the
+ * canonical texts Walk.over writes as they are, each well-formed, written in order (grizzle-text WellFormedWriter), so
+ * the text is a WellFormedText with no check of it.
+ */
 class TextSink implements Sink {
-	#text = ""
+	readonly #text = new WellFormedWriter()
 	/** Whether a value was written in the container being written, so the next item or member follows a comma. */
 	#after = false
 
 	/** The text written. */
-	text(): string {
-		return this.#text
+	text(): WellFormedText {
+		return this.#text.text()
 	}
 
 	scalar(value: string | number | boolean): void {
-		this.written(JSON.stringify(value))
+		this.written(jsonText(value))
 	}
 
 	/** A value whose canonical text is `text`, written as it is (Walk.over). */
-	written(text: string): void {
-		this.#append(this.#after ? `,${text}` : text)
+	written(text: WellFormedText): void {
+		this.#append(this.#after ? [punctuation.comma, text] : [text])
 		this.#after = true
 	}
 
 	open(kind: ContainerKind): void {
-		const bracket = kind === "array" ? "[" : "{"
-		this.#append(this.#after ? `,${bracket}` : bracket)
+		const bracket = punctuation[kind].open
+		this.#append(this.#after ? [punctuation.comma, bracket] : [bracket])
 		this.#after = false
 	}
 
 	key(key: string): void {
-		const quoted = JSON.stringify(key)
-		this.#append(this.#after ? `,${quoted}:` : `${quoted}:`)
+		const quoted = jsonText(key)
+		this.#append(
+			this.#after ? [punctuation.comma, quoted, punctuation.colon] : [quoted, punctuation.colon]
+		)
 		this.#after = false
 	}
 
 	close(kind: ContainerKind): void {
-		this.#append(kind === "array" ? "]" : "}")
+		this.#append([punctuation[kind].close])
 		this.#after = true
 	}
 
-	#append(text: string): void {
-		const needed = this.#text.length + text.length
+	/** `pieces` written in order, refused together where the text they make passes V8's longest string. */
+	#append(pieces: ReadonlyArray<WellFormedText>): void {
+		let needed = this.#text.length
+		for (const piece of pieces) {
+			needed += piece.length
+		}
 		if (needed > maxStringLength) {
 			throw new Refusal(
 				resourceBound(canonicalTextLoc, {
@@ -977,7 +1004,9 @@ class TextSink implements Sink {
 				})
 			)
 		}
-		this.#text += text
+		for (const piece of pieces) {
+			this.#text.append(piece)
+		}
 	}
 }
 
@@ -1042,7 +1071,7 @@ const writeJsonValue = (sink: TextSink, frames: Array<JsonFrame>, value: Json): 
 }
 
 /** The canonical text of a JSON form value, its containers opened onto a stack on the heap. */
-const writeJson = (value: Json): string => {
+const writeJson = (value: Json): WellFormedText => {
 	const sink = new TextSink()
 	const frames: Array<JsonFrame> = []
 	writeJsonValue(sink, frames, value)
@@ -1072,11 +1101,14 @@ const writeJson = (value: Json): string => {
 }
 
 /** The canonical text of a JSON form value; ResourceBound (stringLength) past V8's longest string. */
-export const writeCanonicalJson = (value: Json): Result.Result<string, CompileError> =>
+export const writeCanonicalJson = (value: Json): Result.Result<WellFormedText, CompileError> =>
 	catchRefusal(() => writeJson(value))
 
 /** The canonical text of a value. */
-const encodeWalk = (value: unknown, options: EncodeOptions): Result.Result<string, CompileError> =>
+const encodeWalk = (
+	value: unknown,
+	options: EncodeOptions
+): Result.Result<WellFormedText, CompileError> =>
 	catchRefusal(() => {
 		if (value === undefined) {
 			return refuseValue([], "a value, not undefined")
@@ -1121,7 +1153,7 @@ const encodeWalk = (value: unknown, options: EncodeOptions): Result.Result<strin
 export const encode = (
 	value: unknown,
 	options: EncodeOptions
-): Result.Result<string, CompileError> => encodeWalk(value, options)
+): Result.Result<WellFormedText, CompileError> => encodeWalk(value, options)
 
 /**
  * The canonical text under `options` of `record`, a plain record each of whose members `written` holds has the
@@ -1133,8 +1165,8 @@ export const encode = (
 export const encodeOver = (
 	record: unknown,
 	options: EncodeOptions,
-	written: ReadonlyMap<string, string>
-): Result.Result<string, CompileError> =>
+	written: ReadonlyMap<string, WellFormedText>
+): Result.Result<WellFormedText, CompileError> =>
 	catchRefusal(() => {
 		const sink = new TextSink()
 		new Walk(options, sink, canonicalOf).over(record, written, (text) => sink.written(text))
@@ -1145,7 +1177,18 @@ export const encodeOver = (
  * The canonical text of an array whose items have the canonical texts `items`, in order: what `encode` writes of it,
  * for a text assembled from its parts' (encodeOver).
  */
-export const arrayText = (items: ReadonlyArray<string>): string => `[${items.join(",")}]`
+export const arrayText = (items: ReadonlyArray<WellFormedText>): WellFormedText => {
+	const out = new WellFormedWriter()
+	out.append(punctuation.array.open)
+	for (const [at, item] of items.entries()) {
+		if (at > 0) {
+			out.append(punctuation.comma)
+		}
+		out.append(item)
+	}
+	out.append(punctuation.array.close)
+	return out.text()
+}
 
 /** The canonical text's opening bracket of an array. */
 const arrayOpen: unique symbol = Symbol("[")
@@ -1541,7 +1584,7 @@ export const decode = (text: string, revivers: Revivers): Result.Result<unknown,
  * well-formed text and no cycle, which no TypeScript type of a value carries, so a
  * failure is a defect of the compiler, never a property of its input.
  */
-export const ownedText = (value: unknown, options: EncodeOptions): string => {
+export const ownedText = (value: unknown, options: EncodeOptions): WellFormedText => {
 	const text = encode(value, options)
 	if (!text.ok) {
 		throw defect(`an owned value encodes: ${text.error.message}`)
@@ -1550,7 +1593,7 @@ export const ownedText = (value: unknown, options: EncodeOptions): string => {
 }
 
 /** The canonical text of every property of a value the compiler owns (ownedText). */
-export const canonicalTextOf = (value: unknown): string => ownedText(value, everyProperty)
+export const canonicalTextOf = (value: unknown): WellFormedText => ownedText(value, everyProperty)
 
 /**
  * A set's members sorted by canonical text, the canonical order of a declaration set, each beside its text. Stable for

@@ -376,7 +376,7 @@ export const moneyAndVectorValuesAgreeWithTheOwnedMoneyCarrier = property.explor
 				const payload = Money.of(units)[canonicalTag]().payload
 				assert.equal(isMoneyPayload(payload), true)
 				assert.equal(defined(MoneyText.parse(payload))[canonicalTag]().payload, payload)
-				assert.equal(
+				assert.equal<string>(
 					succeeded(encode({ m: defined(MoneyText.parse(String(units))) }, everyProperty)),
 					`{"m":"~m:${payload}"}`
 				)
@@ -470,7 +470,7 @@ export const moneyAndVectorValuesAgreeWithTheVectorCarrier = property.explore(
 				assert.equal(payload, Vector.componentText(vector))
 				assert.equal(defined(VectorText.parse(payload))[canonicalTag]().payload, payload)
 				assert.equal(succeeded(VectorText.of(vector))[canonicalTag]().payload, payload)
-				assert.equal(
+				assert.equal<string>(
 					succeeded(encode({ v: succeeded(VectorText.of(vector)) }, everyProperty)),
 					`{"v":"~v:${payload}"}`
 				)
@@ -515,7 +515,7 @@ export const decimalsAdmitOnlyTheCanonicalNumericOutTextAndTheSpecialValuesAndKe
 				c.note(text === "NaN" || Str.endsWith("Infinity")(text) ? "a special value" : "a payload")
 				assert.equal(d[canonicalTag]().payload, text)
 				assert.equal(isDecimalLike(d), true)
-				assert.equal(succeeded(encode({ d }, everyProperty)), `{"d":"~d:${text}"}`)
+				assert.equal<string>(succeeded(encode({ d }, everyProperty)), `{"d":"~d:${text}"}`)
 			}),
 		oracle: {
 			kind: "second-implementation",

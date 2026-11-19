@@ -3,7 +3,7 @@ import { ModuleClosure, type NeedFailed } from "@bjornpagen/testing/property"
 import { type DatabaseTemplate, Template } from "@bjornpagen/testing/resources"
 import { Array as Arr, Effect, Option, Redacted, String as Str } from "effect"
 import { sha256Hex } from "#compiler/core/sha256.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
+import { quoteIdent, wellFormed } from "#compiler/core/text.ts"
 import { pin } from "#pg/pin.ts"
 import { pgCluster } from "#test/support/env.ts"
 import { configureDatabase, devSession, session, testDatabaseSettings } from "#test/support/pg.ts"
@@ -110,7 +110,7 @@ export const templateDigest = (
 	template: DatabaseTemplate
 ): Effect.Effect<string, NeedFailed, ModuleClosure> =>
 	Effect.map(identityText(template), (text) =>
-		Str.padStart(16, "0")(String(BigInt(`0x${Str.slice(0, 13)(sha256Hex(text))}`)))
+		Str.padStart(16, "0")(String(BigInt(`0x${Str.slice(0, 13)(sha256Hex(wellFormed(text)))}`)))
 	)
 
 /**
@@ -120,5 +120,5 @@ export const templateDigest = (
  */
 export const templatePassword = (cluster: PgMember, role: string): string => {
 	const secret = Redacted.value(cluster.password)
-	return sha256Hex(`${secret.length}:${secret}${role}`)
+	return sha256Hex(wellFormed(`${secret.length}:${secret}${role}`))
 }

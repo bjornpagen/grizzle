@@ -17,6 +17,7 @@ import { readings } from "#adapter/live/call-error.ts"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { sha256Base32 } from "#compiler/core/sha256.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { documentWire } from "#compiler/live/document.ts"
@@ -366,11 +367,13 @@ export const holds = (
 				`the root's x-grizzle-wire holds role ${r.name}'s served witness\n${printed()}`
 			)
 		}
-		const schemaShared = textOf({ $ref: `#/components/schemas/shared.${sha256Base32("")}` }).length
+		const schemaShared = textOf({
+			$ref: `#/components/schemas/shared.${sha256Base32(wellFormed(""))}`
+		}).length
 		assert.deepEqual(
 			repeatedPast(
 				documentSchemas(document),
-				(t) => textOf({ $ref: `#/components/schemas/shared.${sha256Base32(t)}` }).length
+				(t) => textOf({ $ref: `#/components/schemas/shared.${sha256Base32(wellFormed(t))}` }).length
 			),
 			[],
 			`no schema longer than its reference (${schemaShared} characters) stands at two places\n${printed()}`

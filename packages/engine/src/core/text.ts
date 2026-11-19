@@ -1,5 +1,7 @@
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
+import { isWellFormedText, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import type { ValueFault } from "#compiler/core/errors.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 
 /**
@@ -10,22 +12,36 @@ import * as Result from "#compiler/core/result.ts"
  * U+0000, and a lone surrogate is no Unicode scalar, so a UTF-8 encoder would silently substitute U+FFFD for it. A
  * declared name is storable text too (ir/desc.ts), so the rule lives below every layer that states one.
  *
- * A text value: a string with no NUL and no unpaired surrogate.
+ * A text value: a string with no NUL and no unpaired surrogate, so a well-formed one (grizzle-text WellFormedText).
  */
-export const validateText = (value: unknown): Result.Result<string, ValueFault> => {
+export const validateText = (value: unknown): Result.Result<WellFormedText, ValueFault> => {
 	if (typeof value !== "string") {
 		return Result.err("textType")
 	}
 	if (value.includes("\u0000")) {
 		return Result.err("textNul")
 	}
-	if (!value.isWellFormed()) {
+	if (!isWellFormedText(value)) {
 		return Result.err("textSurrogate")
 	}
 	return Result.ok(value)
 }
 
-export const isValidText = (value: unknown): value is string => validateText(value).ok
+export const isValidText = (value: unknown): value is WellFormedText => validateText(value).ok
+
+/**
+ * A text grizzle holds, proved well-formed (grizzle-text WellFormedText) by grizzle-text's one proof of a text's form
+ * (isWellFormedText) where it becomes bytes: an admitted text's parameter text, a text PostgreSQL or a file gave, or one
+ * grizzle composes of those and its own (a fingerprint's frame, an identity's canonical form, a statement, a function's
+ * source, a JSON body). Every such text is admitted, decoded or composed of such parts, so one that is not well-formed
+ * is a defect.
+ */
+export const wellFormed = (text: string): WellFormedText => {
+	if (!isWellFormedText(text)) {
+		throw defect("a text grizzle holds is well-formed")
+	}
+	return text
+}
 
 /**
  * The order of two lists of well-formed texts as each text after its length and a colon would spell them, compared by

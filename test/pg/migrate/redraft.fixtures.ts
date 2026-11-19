@@ -10,7 +10,7 @@ import type { MigrationSession } from "#adapter/migrate/session.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
+import { quoteIdent, wellFormed } from "#compiler/core/text.ts"
 import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { LedgerState } from "#compiler/deploy/ledger/ledger.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
@@ -437,7 +437,7 @@ export const runCase = (c: RedraftCase, k: Case<Feature>) =>
 			Option.some({
 				folder: ran.name,
 				files: completed,
-				meta: sha256Hex(ran.metaText),
+				meta: sha256Hex(wellFormed(ran.metaText)),
 				target: original.snapshot.fingerprint
 			}),
 			"the folder started under its own draft, its first files recorded"
@@ -529,11 +529,11 @@ export const runCase = (c: RedraftCase, k: Case<Feature>) =>
 					source: regeneration.g.folder.meta.source,
 					target,
 					files: held.files.length,
-					meta: sha256Hex(held.metaText),
+					meta: sha256Hex(wellFormed(held.metaText)),
 					completed: Arr.map(held.files, (f, i) => ({
 						ordinal: i + 1,
 						file: f.name,
-						digest: sha256Hex(f.text)
+						digest: sha256Hex(wellFormed(f.text))
 					}))
 				}
 			],

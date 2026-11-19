@@ -1,7 +1,7 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
+import { quoteIdent, wellFormed } from "#compiler/core/text.ts"
 import type { InstallationManifest, PhysicalKind, PhysicalObject } from "#compiler/ir/products.ts"
 import type {
 	CreateConstant,
@@ -32,7 +32,7 @@ const sourceDigest = nominal<string, SourceDigest>()
 
 /** The digest of the source a PL/pgSQL block installs as. */
 const sourceDigestOf = (block: PlBlock): SourceDigest =>
-	sourceDigest(sha256Hex(functionSource(block)))
+	sourceDigest(sha256Hex(wellFormed(functionSource(block))))
 
 /** A function's CREATE FUNCTION without its body, one variant per form of what it returns. */
 type HeaderOf<F> = F extends unknown ? Omit<F, "body"> : never
@@ -216,7 +216,7 @@ const recordedStatement = (s: SqlStatement): RecordedStatement => {
 		return {
 			kind: "recordedDeclaredFunction",
 			header: declaredHeader(s),
-			source: sourceDigest(sha256Hex(s.body))
+			source: sourceDigest(sha256Hex(wellFormed(s.body)))
 		}
 	}
 	if (s.kind !== "createFunction" || s.language === "sql") {

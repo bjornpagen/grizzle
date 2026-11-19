@@ -19,6 +19,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Exit, Formatter } from "effect"
 import { seal } from "#compiler/core/seal.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 import { batchesOf, type Notification, openPayload, sealBatch } from "#compiler/live/notify.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import {
@@ -72,7 +73,7 @@ export const aSealedBatchOfTheFanOutOpensToExactlyItsNotificationsEveryValueByte
 					)
 					return
 				}
-				const faulted = Uint8Array.from(utf8(batch))
+				const faulted = Uint8Array.from(utf8(wellFormed(batch)))
 				faulted[k.at % faulted.length] = notUtf8
 				const opened = yield* Effect.exit(
 					Effect.sync(() => openPayload(secret, seal(secret, nonce, faulted).toBase64()))

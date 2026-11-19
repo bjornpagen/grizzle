@@ -68,7 +68,8 @@ export const textValidationAdmitsExactlyTheWellFormedNULFreeStringsAndRefusesEve
 				if (fault !== undefined) {
 					faulted(result, fault)
 				} else if (typeof value === "string") {
-					assert.equal(succeeded(result), value)
+					const admitted: string = succeeded(result)
+					assert.equal(admitted, value)
 				} else {
 					assert.fail("a live planted text is a string")
 				}
@@ -82,7 +83,8 @@ export const textValidationAdmitsExactlyTheWellFormedNULFreeStringsAndRefusesEve
 		kills: [
 			{
 				file: "packages/engine/src/core/text.ts",
-				original: '\tif (!value.isWellFormed()) {\n\t\treturn Result.err("textSurrogate")\n\t}\n',
+				original:
+					'\tif (!isWellFormedText(value)) {\n\t\treturn Result.err("textSurrogate")\n\t}\n',
 				replacement: "",
 				why: "validateText admits a lone surrogate; the validation property fails."
 			}

@@ -1,3 +1,4 @@
+import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Option, Order, pipe, Result, String as Str } from "effect"
 import {
 	attributeDifferences,
@@ -66,7 +67,8 @@ import {
 	SourceLoc,
 	sha256Hex,
 	type SqlStatement,
-	type TypeSchema
+	type TypeSchema,
+	wellFormed
 } from "#compiler/plan/common.ts"
 import {
 	decoderLoginOf,
@@ -284,7 +286,9 @@ const scratchDigestHex = 24
 
 /** The scratch schema a schema's expected objects are deparsed in: the schema of the replayed types, too. */
 const scratchSchema = (schema: string): TypeSchema =>
-	scratchTypes(`grizzle_admission_${pipe(sha256Hex(schema), Str.slice(0, scratchDigestHex))}`)
+	scratchTypes(
+		`grizzle_admission_${pipe(sha256Hex(wellFormed(schema)), Str.slice(0, scratchDigestHex))}`
+	)
 
 const scratchTypes = nominal<string, TypeSchema>()
 
@@ -1639,11 +1643,14 @@ const environmentQuery: CatalogQuery<ServerEnvironment> = (() => {
 	}
 })()
 
-/** Texts as one, each framed by its length, so one text frames exactly one list. */
-const framed = (texts: ReadonlyArray<string>): string =>
-	Arr.join(
-		Arr.map(texts, (t) => `${t.length}:${t}`),
-		""
+/** Texts as one, each framed by its length, so one text frames exactly one list: texts PostgreSQL and grizzle hold,
+ * well-formed (`wellFormed`). */
+const framed = (texts: ReadonlyArray<string>): WellFormedText =>
+	wellFormed(
+		Arr.join(
+			Arr.map(texts, (t) => `${t.length}:${t}`),
+			""
+		)
 	)
 
 /**

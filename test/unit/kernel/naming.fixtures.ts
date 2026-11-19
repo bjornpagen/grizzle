@@ -16,6 +16,7 @@ import { indices } from "#compiler/core/array.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 import type { FieldDesc, SchemaDesc, SideDesc, StatementDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import type { ConstraintOwner } from "#compiler/ir/products.ts"
@@ -351,7 +352,7 @@ export const subjectOf = (
  * SHA-256 of the identity's canonical encoding as ten characters of lowercase RFC 4648 base32.
  */
 export const hashedName = (stem: string, canonical: string): string => {
-	const bits = BigInt(`0x${Str.slice(0, 13)(sha256Hex(canonical))}`) >> 2n
+	const bits = BigInt(`0x${Str.slice(0, 13)(sha256Hex(wellFormed(canonical)))}`) >> 2n
 	const alphabet = Str.split("abcdefghijklmnopqrstuvwxyz234567", "")
 	const digest = Arr.join(
 		Arr.map(Arr.reverse(indices(10)), (i) =>

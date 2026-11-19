@@ -289,8 +289,8 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 		kills: [
 			{
 				file: "packages/engine/src/core/identity.ts",
-				original: `\tlet bits = BigInt(\`0x\${sha256Hex(canonical).slice(0, digestHexChars)}\`) >> digestDropped`,
-				replacement: `\tlet bits = BigInt(\`0x\${sha256Hex(canonical).slice(0, digestHexChars)}\`)`,
+				original: `\t\tBigInt(\`0x\${sha256Hex(wellFormed(canonical)).slice(0, digestHexChars)}\`) >> digestDropped`,
+				replacement: `\t\tBigInt(\`0x\${sha256Hex(wellFormed(canonical)).slice(0, digestHexChars)}\`)`,
 				why: "A hashed name's digest is read from the low bits of its hex digits, none dropped, so it is not the first 5 * digestChars bits of the SHA-256; the production-names property fails."
 			}
 		]
