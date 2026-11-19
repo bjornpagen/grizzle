@@ -237,8 +237,9 @@ const paramEntry = (p: ParamDecl): string => {
 }
 
 /**
- * A parameter's domain: its type's (domainOf), but a span's, which is the span of its endpoint's domain, the endpoint
- * contract's declared facts with it.
+ * A parameter's domain: its descriptor's (domainOf), a contract's brand and declared facts with it, but a span's, which
+ * is the span of its endpoint's domain, the endpoint contract's declared facts with it. The carrier is the plain type's
+ * at the contract's last level (baseOf), which holds the span; the domain is the descriptor's own.
  */
 const paramDomain = (descriptor: ScalarType): string => {
 	const type = baseOf(descriptor)
@@ -264,7 +265,7 @@ const paramDomain = (descriptor: ScalarType): string => {
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":
-			return domainOf(type, carrierHost(type))
+			return domainOf(descriptor, carrierHost(descriptor))
 	}
 }
 

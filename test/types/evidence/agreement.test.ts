@@ -135,9 +135,24 @@ export const faults = agreement(faultCases, {
 			reason:
 				"a union of two rules whose constant heads differ at four fields, three of them roster handles: the types keyed it by each of the four, where the engine keeps the first in heading order, d (TEST_SEED=1635200356)",
 			since: "2026-11-16"
+		},
+		{
+			token: ReplayToken(
+				"test/types/evidence/agreement.test.ts#faults:7fffffff.11:0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.1.0.0.0.0.0.0"
+			),
+			reason:
+				"a Reader query over Item binding its cost, a Cents contract that declares nonnegative, to a parameter: its map's entry is ParamType of the contract's domain, its brand and declared fact with it, where the oracle wrote the plain base's, bigint, once a contract's descriptor held its carrier and contract alone (011a72711) and its domain was read off the base (test/support/agreement/heading.ts paramDomain)",
+			since: "2026-11-19"
 		}
 	],
-	kills: []
+	kills: [
+		{
+			file: "packages/engine/src/types/query/rule.ts",
+			original: "\t{ readonly [K in Name]: ParamType<D, Sql, H> },",
+			replacement: "\t{ readonly [K in Name]: ParamType<H, Sql, H> },",
+			why: "A scalar parameter's map entry is typed by its descriptor's host values, not its domain (types/query/rule.ts ParamTerm), so a contract's declared facts leave it; the kept Cents parameter's entry disagrees with the engine's."
+		}
+	]
 })
 
 /**
