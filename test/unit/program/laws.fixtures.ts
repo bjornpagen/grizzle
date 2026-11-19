@@ -57,6 +57,7 @@ import { defined, nonEmpty } from "#test/support/assert.ts"
 import { identityText, ownedStatementText } from "#test/support/kernel/naming.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { bareContract } from "#test/unit/schema/support.ts"
+import { jsMatcher } from "#test/unit/text/generators.ts"
 
 type Flags = "u" | "su"
 
@@ -219,6 +220,54 @@ const fieldGen =
 const fieldsOfKind = (t: TableCase, kind: FieldCase["kind"]): ReadonlyArray<string> =>
 	Arr.flatMap(t.fields, ([name, f]) => (f.kind === kind ? [name] : []))
 
+/**
+ * The texts a witness of two palette patterns' overlap is searched among: every text of at most six characters over
+ * `a`, `b`, `0` and `x`, the empty one first. Each palette atom's class is a union of the classes these four stand for
+ * (`a`; `b`, which `[a-c]` holds and `a` does not; a digit; anything else), and every class that holds a line terminator
+ * holds `x` too, so two quantified atoms meet at one of them wherever they meet at all; and two patterns of at most two
+ * quantified atoms each that share a text share one of at most six characters, since a longer one keeps a character
+ * that an unbounded atom of each pattern holds with another beside it, whose deletion leaves a shorter shared text.
+ */
+const overlapCandidates: ReadonlyArray<string> = Arr.flatMap(
+	Array.from({ length: 7 }, (_, length) => length),
+	(length) =>
+		Arr.reduce(
+			Array.from({ length }, () => ["a", "b", "0", "x"] as const),
+			[""],
+			(prefixes: ReadonlyArray<string>, letters) =>
+				Arr.flatMap(prefixes, (prefix) => Arr.map(letters, (c) => `${prefix}${c}`))
+		)
+)
+
+/**
+ * The palette's patterns some text matches together with `read`, by an ECMAScript search over the candidates
+ * (`overlapCandidates`): a generated field whose declared text shares no value with the text its expression reads is
+ * refused when the schema compiles (check/generated.ts, `disjoint`), so a table draws a generated text only of a pattern
+ * that meets the field it reads, `read`'s own palette pattern among them.
+ */
+const meeting = (
+	palette: Arr.NonEmptyReadonlyArray<Pattern>,
+	read: Spelled
+): Arr.NonEmptyReadonlyArray<Pattern> => {
+	const shared = Arr.filter(overlapCandidates, jsMatcher(read.source, read.flags))
+	return nonEmpty(
+		Arr.filter(palette, (p) => {
+			const plain = plainSpelled(p)
+			return Arr.some(shared, jsMatcher(plain.source, plain.flags))
+		}),
+		"the palette's patterns that meet a text field's, its own among them"
+	)
+}
+
+/** A palette pattern as a field spells it plainly, which every spelling of it matches alike. */
+const plainSpelled = (pattern: Pattern): Spelled => ({
+	source: `^${Arr.join(
+		Arr.map(pattern.parts, (p) => partSpelled(p, "plain")),
+		""
+	)}$`,
+	flags: pattern.flags
+})
+
 const tableGen =
 	(palette: Arr.NonEmptyReadonlyArray<Pattern>, name: string): Gen<TableCase> =>
 	(source) => {
@@ -233,18 +282,23 @@ const tableGen =
 			generated: []
 		}
 		const integers = fieldsOfKind(drawnTable, "integer")
-		const texts = fieldsOfKind(drawnTable, "text")
+		const texts = Arr.flatMap(drawnTable.fields, ([name, f]) =>
+			f.kind === "text" ? [{ name, pattern: f.pattern }] : []
+		)
 		const sources: ReadonlyArray<Gen<GeneratedCase>> = [
 			...(Arr.isReadonlyArrayNonEmpty(integers)
 				? [(s: Source): GeneratedCase => ({ kind: "integer", from: s.draw(element(integers)) })]
 				: []),
 			...(Arr.isReadonlyArrayNonEmpty(texts)
 				? [
-						(s: Source): GeneratedCase => ({
-							kind: "text",
-							from: s.draw(element(texts)),
-							pattern: s.draw(spelledGen(palette))
-						})
+						(s: Source): GeneratedCase => {
+							const read = s.draw(element(texts))
+							return {
+								kind: "text",
+								from: read.name,
+								pattern: s.draw(spelledGen(meeting(palette, read.pattern)))
+							}
+						}
 					]
 				: [])
 		]
