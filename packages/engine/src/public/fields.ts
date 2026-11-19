@@ -22,7 +22,13 @@ import {
 	slotField
 } from "#compiler/schema/relation.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
-import type { DomainOf, Facts, Parameterless, Predicate } from "#compiler/types/core/phantom.ts"
+import type {
+	ContractValueOrigin,
+	DomainOf,
+	Facts,
+	Parameterless,
+	Predicate
+} from "#compiler/types/core/phantom.ts"
 import type {
 	AccumulatedConstructor,
 	BitsConstructor,
@@ -141,7 +147,9 @@ export const contract: ContractConstructor = <
 	name: Name,
 	base: B & NotSerialBase<B> & ContractBase<NoInfer<Name>, B> & OneContractName<NoInfer<Name>>,
 	predicate:
-		| ((v: Scalar<DomainOf<B>, unknown, unknown, B["sql"], Infer<B>>) => Pr & Parameterless<Pr>)
+		| ((
+				v: Scalar<DomainOf<B>, unknown, ContractValueOrigin, B["sql"], Infer<B>>
+		  ) => Pr & Parameterless<Pr>)
 		| undefined,
 	declared: { readonly proves: Proved } | undefined,
 	...extra: ReadonlyArray<never>

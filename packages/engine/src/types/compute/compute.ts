@@ -51,6 +51,7 @@ import type { Pattern } from "#compiler/scalar/regex/pattern.ts"
 import type {
 	ColumnFacts,
 	ComputedOrigin,
+	UnhostedOrigin,
 	ConstantOrigin,
 	Facts,
 	InputTerm,
@@ -415,7 +416,7 @@ export interface ComputeApi {
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, S> & Proving<FX>
 	): Admitted<
 		TakesFirst<A, NumericSql>,
-		Term<Decimal, PA, ComputedOrigin<OA>, "numeric", Decimal, CastFacts<S, "numeric", FX>>
+		Term<Decimal, PA, UnhostedOrigin<OA>, "numeric", Decimal, CastFacts<S, "numeric", FX>>
 	>
 
 	/**
@@ -503,7 +504,7 @@ export interface ComputeApi {
 			>
 	): Admitted<
 		Reads<A, B, X, "numeric", "numeric">,
-		Term<Decimal, PA & P<B>, ComputedOrigin<OA | O<B>>, "numeric">
+		Term<Decimal, PA & P<B>, UnhostedOrigin<OA | O<B>>, "numeric">
 	>
 	rem<A extends TermBase | FirstValue, X, PA, OA, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, "numeric">,
@@ -516,7 +517,7 @@ export interface ComputeApi {
 			>
 	): Admitted<
 		Reads<A, B, X, "numeric", "numeric">,
-		Term<Decimal, PA & P<B>, ComputedOrigin<OA | O<B>>, "numeric">
+		Term<Decimal, PA & P<B>, UnhostedOrigin<OA | O<B>>, "numeric">
 	>
 	abs<A extends TermBase | FirstValue, X, PA, OA, S extends SignedSql>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
@@ -537,35 +538,35 @@ export interface ComputeApi {
 		scale?: Fit<Sc, NoInfer<number>>
 	): Admitted<
 		Every<[TakesFirst<A, "numeric">, Takes<Sc, number>]>,
-		Term<Decimal, PA, ComputedOrigin<OA>, "numeric">
+		Term<Decimal, PA, UnhostedOrigin<OA>, "numeric">
 	>
 	trunc<A extends TermBase | FirstValue, X, PA, OA, const Sc = number>(
 		a: A & First<A, [Sc]> & InputTerm<X, PA, OA, "numeric">,
 		scale?: Fit<Sc, NoInfer<number>>
 	): Admitted<
 		Every<[TakesFirst<A, "numeric">, Takes<Sc, number>]>,
-		Term<Decimal, PA, ComputedOrigin<OA>, "numeric">
+		Term<Decimal, PA, UnhostedOrigin<OA>, "numeric">
 	>
 	ceil<A extends TermBase | FirstValue, X, PA, OA>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "numeric">
-	): Admitted<TakesFirst<A, "numeric">, Term<Decimal, PA, ComputedOrigin<OA>, "numeric">>
+	): Admitted<TakesFirst<A, "numeric">, Term<Decimal, PA, UnhostedOrigin<OA>, "numeric">>
 	floor<A extends TermBase | FirstValue, X, PA, OA>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "numeric">
-	): Admitted<TakesFirst<A, "numeric">, Term<Decimal, PA, ComputedOrigin<OA>, "numeric">>
+	): Admitted<TakesFirst<A, "numeric">, Term<Decimal, PA, UnhostedOrigin<OA>, "numeric">>
 	/** Integer and numeric; over smallint they are the integer forms cast back. */
 	gcd<A extends TermBase | FirstValue, X, PA, OA, S extends IntegralSql, B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, S>,
 		b: Fit<B, NoInfer<Meets<X, S>>>
 	): Admitted<
 		Every<[TakesFirst<A, IntegralSql>, Takes<B, Meets<X, S>>]>,
-		Term<PlainHost[DivisorSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, DivisorSql[S]>
+		Term<PlainHost[DivisorSql[S]], PA & P<B>, UnhostedOrigin<OA | O<B>>, DivisorSql[S]>
 	>
 	lcm<A extends TermBase | FirstValue, X, PA, OA, S extends IntegralSql, B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, S>,
 		b: Fit<B, NoInfer<Meets<X, S>>>
 	): Admitted<
 		Every<[TakesFirst<A, IntegralSql>, Takes<B, Meets<X, S>>]>,
-		Term<PlainHost[DivisorSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, DivisorSql[S]>
+		Term<PlainHost[DivisorSql[S]], PA & P<B>, UnhostedOrigin<OA | O<B>>, DivisorSql[S]>
 	>
 	/**
 	 * Numeric and double precision. The base is proved nonnegative, and nonzero or the exponent nonnegative; that the
@@ -594,7 +595,7 @@ export interface ComputeApi {
 		b: Fit<B, NoInfer<Operand<X, S>>> & ValueAt<A, B, X, S, PowerSql>
 	): Admitted<
 		Reads<A, B, X, S, PowerSql>,
-		Term<PlainHost[S], PA & P<B>, ComputedOrigin<OA | O<B>>, S>
+		Term<PlainHost[S], PA & P<B>, UnhostedOrigin<OA | O<B>>, S>
 	>
 	/** Numeric's radicand is proved nonnegative; double precision's is IEEE 754's, NaN below zero. */
 	sqrt<A extends TermBase | FirstValue, X, PA, OA, S extends PowerSql, FA extends Facts, LA>(
@@ -608,7 +609,7 @@ export interface ComputeApi {
 				[S] extends ["numeric"] ? Holds<FA, LA, "nonnegative"> : true,
 				"a radicand proved nonnegative: guard it with Compute.when(Compute.nonnegative(x), (x) => …, otherwise)"
 			>
-	): Admitted<TakesFirst<A, PowerSql>, Term<PlainHost[S], PA, ComputedOrigin<OA>, S>>
+	): Admitted<TakesFirst<A, PowerSql>, Term<PlainHost[S], PA, UnhostedOrigin<OA>, S>>
 	/**
 	 * LEAST and GREATEST return an operand unchanged, so they keep the first operand's type, contract and roster
 	 * included, and deliver any operand's values; every other operand is a term of that type. An exact value and a
@@ -727,7 +728,7 @@ export interface ComputeApi {
 		count: Fit<C, NoInfer<Meets<number, SqlTag>>>
 	): Admitted<
 		Buckets<AX, AL, AH, C>,
-		Term<number, PX & PL & PH & P<C>, ComputedOrigin<OX | OL | OH | O<C>>, "integer">
+		Term<number, PX & PL & PH & P<C>, UnhostedOrigin<OX | OL | OH | O<C>>, "integer">
 	>
 	/** min_scale of a value proved finite. */
 	minScale<A extends TermBase | FirstValue, X, PA, OA, FA extends Facts, LA>(
@@ -741,7 +742,7 @@ export interface ComputeApi {
 				Holds<FA, LA, "finite">,
 				"a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)"
 			>
-	): Admitted<TakesFirst<A, "numeric">, Term<number, PA, ComputedOrigin<OA>, "integer">>
+	): Admitted<TakesFirst<A, "numeric">, Term<number, PA, UnhostedOrigin<OA>, "integer">>
 
 	/**
 	 * The first branch, a term and never a parameter or a JavaScript value (FirstTerm), types the conditional, contract
@@ -1215,7 +1216,7 @@ export interface ComputeApi {
 		b: Fit<B, NoInfer<Operand<X, "vector">>>
 	): Admitted<
 		Binary<A, B, X, "vector", "vector">,
-		Term<number, PA & P<B>, ComputedOrigin<OA | O<B>>, "double precision"> & Scored<OA, O<B>>
+		Term<number, PA & P<B>, UnhostedOrigin<OA | O<B>>, "double precision"> & Scored<OA, O<B>>
 	>
 
 	/**

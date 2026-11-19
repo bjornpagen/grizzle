@@ -39,6 +39,7 @@ const DICTIONARY_MINTS = [
 	"test/types/changeset/entry-owner.dictionary.ts",
 	"test/types/changeset/nesting.dictionary.ts",
 	"test/types/compute/compute.dictionary.ts",
+	"test/types/compute/hosted.dictionary.ts",
 	"test/types/evidence/agreement.dictionary.ts",
 	"test/types/evidence/parameter.dictionary.ts",
 	"test/types/examples/blocks.dictionary.ts",

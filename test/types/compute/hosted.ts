@@ -1,0 +1,222 @@
+import { Array as Arr, Effect, String as Str } from "effect"
+import type { Refused } from "#compiler/core/refusals.ts"
+import type { ComputeFn } from "#compiler/ir/desc.ts"
+import { computeSpecs } from "#compiler/scalar/compute/registry.ts"
+import { defined } from "#test/support/assert.ts"
+import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+
+/**
+ * The hosted-operation program: the box of every Compute function the host does not evaluate (computeSpecs, check
+ * false) and one it does, abs, at every position a term stands in a schema, exhausted and printed as one program the
+ * type batch checks.
+ *
+ * The oracle is the roster the compiler refuses by (scalar/compute/typing.ts compute reads computeSpecs[fn].check): a
+ * contract predicate, a row check of a stored relation and a generated field are evaluated on the host, so a term
+ * computed by a function marked check false is refused there, under the types' Refusal (types/core/phantom.ts
+ * Hosted); a row check of a derived relation and a selection are read in SQL, and admit it. Each function's term is
+ * written as its own typing admits it, a precondition guarded where it has one, so a refused cell is refused for the
+ * position alone. widthBucket is the one function of the roster left out: no term of it typechecks over a field.
+ */
+
+/** The functions of the box: every one computeSpecs marks check false but widthBucket, then abs. */
+const functions = [
+	"quot",
+	"rem",
+	"round",
+	"trunc",
+	"ceil",
+	"floor",
+	"gcd",
+	"lcm",
+	"power",
+	"sqrt",
+	"minScale",
+	"numeric",
+	"cosineDistance",
+	"abs"
+] as const satisfies ReadonlyArray<ComputeFn>
+
+type Fn = (typeof functions)[number]
+
+/** Where a term stands: the three positions the host evaluates, and two read in SQL. */
+const positions = ["check", "contract", "generated", "derivedCheck", "select"] as const
+
+type Position = (typeof positions)[number]
+
+/** Whether the host evaluates a position's term (Hosted). */
+const hostEvaluated: { readonly [P in Position]: boolean } = {
+	check: true,
+	contract: true,
+	generated: true,
+	derivedCheck: false,
+	select: false
+}
+
+/** The family a function's operand is of: a field of Cell, a contract's base, and a generated field's type. */
+type Family = "int" | "dec" | "dbl" | "vec"
+
+const familyField: { readonly [F in Family]: string } = { int: "n", dec: "d", dbl: "x", vec: "w" }
+
+const familyBase: { readonly [F in Family]: string } = {
+	int: "pg.bigint",
+	dec: "pg.numeric(10, 2)",
+	dbl: 'pg["double precision"]',
+	vec: "pg.vector(2)"
+}
+
+/** Each function's term over an operand `a`, its family, and the type of the generated field that stores it. */
+const termOf: {
+	readonly [F in Fn]: {
+		readonly family: Family
+		readonly term: (a: string) => string
+		readonly stored: string
+	}
+} = {
+	quot: {
+		family: "dec",
+		term: (a) => `Compute.when(Compute.nonzero(${a}), (k) => Compute.quot(${a}, k), ${a})`,
+		stored: "pg.numeric(10, 2)"
+	},
+	rem: {
+		family: "dec",
+		term: (a) => `Compute.when(Compute.nonzero(${a}), (k) => Compute.rem(${a}, k), ${a})`,
+		stored: "pg.numeric(10, 2)"
+	},
+	round: {
+		family: "dec",
+		term: (a) => `Compute.when(Compute.isFinite(${a}), (k) => Compute.round(k), ${a})`,
+		stored: "pg.numeric(10, 2)"
+	},
+	trunc: {
+		family: "dec",
+		term: (a) => `Compute.when(Compute.isFinite(${a}), (k) => Compute.trunc(k), ${a})`,
+		stored: "pg.numeric(10, 2)"
+	},
+	ceil: {
+		family: "dec",
+		term: (a) => `Compute.when(Compute.isFinite(${a}), (k) => Compute.ceil(k), ${a})`,
+		stored: "pg.numeric(10, 2)"
+	},
+	floor: {
+		family: "dec",
+		term: (a) => `Compute.when(Compute.isFinite(${a}), (k) => Compute.floor(k), ${a})`,
+		stored: "pg.numeric(10, 2)"
+	},
+	gcd: {
+		family: "int",
+		term: (a) =>
+			`Compute.when(Compute.within(Compute.gcd(${a}, ${a}), 0n, 1000n), (k) => Compute.cast(k, pg.bigint), 0n)`,
+		stored: "pg.bigint"
+	},
+	lcm: {
+		family: "int",
+		term: (a) =>
+			`Compute.when(Compute.within(Compute.lcm(${a}, ${a}), 0n, 1000n), (k) => Compute.cast(k, pg.bigint), 0n)`,
+		stored: "pg.bigint"
+	},
+	power: {
+		family: "dbl",
+		term: (a) => `Compute.when(Compute.positive(${a}), (k) => Compute.power(k, 2), 0)`,
+		stored: 'pg["double precision"]'
+	},
+	sqrt: {
+		family: "dbl",
+		term: (a) => `Compute.sqrt(Compute.abs(${a}))`,
+		stored: 'pg["double precision"]'
+	},
+	minScale: {
+		family: "dec",
+		term: (a) => `Compute.when(Compute.isFinite(${a}), (k) => Compute.minScale(k), 0)`,
+		stored: "pg.integer"
+	},
+	numeric: { family: "int", term: (a) => `Compute.numeric(${a})`, stored: "pg.numeric(10, 2)" },
+	cosineDistance: {
+		family: "vec",
+		term: (a) => `Compute.cosineDistance(${a}, ${a})`,
+		stored: 'pg["double precision"]'
+	},
+	abs: {
+		family: "int",
+		term: (a) =>
+			`Compute.when(Compute.within(Compute.abs(${a}), 0n, 1000n), (k) => Compute.cast(k, pg.bigint), 0n)`,
+		stored: "pg.bigint"
+	}
+}
+
+/** One case: a function, and the position its term stands at. */
+interface HostedCase {
+	readonly fn: Fn
+	readonly position: Position
+}
+
+const boxCases: ReadonlyArray<HostedCase> = Arr.flatMap(functions, (fn) =>
+	Arr.map(positions, (position): HostedCase => ({ fn, position }))
+)
+
+/** The cells of hostedBox, minted as a dictionary in its door (test/types/compute/hosted.dictionary.ts). */
+export const hostedBoxItems: Arr.NonEmptyReadonlyArray<HostedCase> = [
+	defined(boxCases[0], "a case of the hosted box"),
+	...Arr.drop(boxCases, 1)
+]
+
+const hostedRefusal: Refused =
+	"an operation the host evaluates: a contract predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric or cosineDistance"
+
+/** The roster's verdict on a cell: refused where the host evaluates the position and computeSpecs marks the function. */
+const refusedCell = (c: HostedCase): boolean =>
+	hostEvaluated[c.position] && !computeSpecs[c.fn].check
+
+/** A cell's statement, the predicate its term stands in comparing the term with itself. */
+const statementOf = (c: HostedCase, index: number): string => {
+	const { family, term, stored } = termOf[c.fn]
+	const field = familyField[family]
+	const compared = (a: string) => `Compute.eq(${term(a)}, ${term(a)})`
+	switch (c.position) {
+		case "check":
+			return `check("C${index}", Cell, (r) => ${compared(`r.${field}`)})`
+		case "contract":
+			return `contract("K${index}", ${familyBase[family]}, (c) => ${compared("c")}, undefined)`
+		case "generated":
+			return `relation.generated("G${index}", { id: uuid, ${field}: ${familyBase[family]} }, ["id"], (r) => ({ g: generated(${stored}, ${term(`r.${field}`)}) }))`
+		case "derivedCheck":
+			return `check("D${index}", Cells, (r) => ${compared(`r.${field}`)})`
+		case "select":
+			return `select(Cell, (r) => ${compared(`r.${field}`)})`
+	}
+}
+
+const caseBlock = (c: HostedCase, index: number): ReadonlyArray<string> => [
+	`// ${c.fn} in a ${c.position}`,
+	...(refusedCell(c) ? [`// @ts-expect-error -- refusal: ${hostedRefusal}`] : []),
+	`export const c${index} = ${statementOf(c, index)}`,
+	""
+]
+
+/** The program's prelude (test/support/programs/hosted.ts). */
+const prelude = await Effect.runPromise(preludeAt("test/support/programs/hosted.ts"))
+
+/** Cell, a field of each family, its schema, and Cells, a derived relation of its rows. */
+const hostedHeader = `export const Cell = relation("Cell", { id: uuid, n: pg.bigint, d: pg.numeric(10, 2), x: pg["double precision"], w: pg.vector(2) }, ["id"])
+export const Root = schema("Root", [Cell], [])
+export const Cells = derived("Cells", query(Root).rule((r) => {
+	const { id, n, d, x, w } = v(Cell, "cell")
+	return r.match(Cell, { id, n, d, x, w }).find({ id, n, d, x, w })
+}))
+`
+
+/** The program over a batch's cells, its imports read through its prelude as `entry` reaches it. */
+export const hostedProgram = (
+	cells: Arr.NonEmptyReadonlyArray<HostedCase>,
+	entry: Entry
+): Program => [
+	preludeModule(
+		"index.ts",
+		"// Generated by test/types/compute/hosted.ts: each Compute function at each position a term stands in a schema.",
+		preludeFrom(prelude, entry),
+		[
+			{ owner: batchOwned, lines: Str.split(hostedHeader, "\n") },
+			...Arr.map(cells, (c, at) => ({ owner: caseOwned(at), lines: caseBlock(c, at) }))
+		]
+	)
+]

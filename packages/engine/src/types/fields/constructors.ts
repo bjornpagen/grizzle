@@ -10,6 +10,8 @@ import type {
 	Facts,
 	InputTerm,
 	IsOneLiteral,
+	ContractValueOrigin,
+	Hosted,
 	Parameterless,
 	Predicate,
 	Refusal
@@ -130,8 +132,8 @@ export type ContractConstructor = <
 		ContractBase<NoInfer<Name>, B> &
 		OneContractName<NoInfer<Name>>,
 	predicate?: (
-		v: Scalar<DomainOf<B>, unknown, unknown, B["sql"], Infer<B>>
-	) => Pr & Parameterless<Pr>,
+		v: Scalar<DomainOf<B>, unknown, ContractValueOrigin, B["sql"], Infer<B>>
+	) => Pr & Parameterless<Pr> & Hosted<Pr>,
 	declared?: { readonly proves: Proved }
 ) => Contract<Name, B, Proved>
 
@@ -215,5 +217,5 @@ export type GeneratedTermOf<F extends FieldBase> = InputTerm<DomainOf<F>, never,
  */
 export type GeneratedConstructor = <F extends FieldBase, T extends GeneratedTermOf<F>>(
 	type: F & NotSerial & NotSerialBases<F> & NotStoredOnly<F["sql"]>,
-	term: T & Parameterless<T>
+	term: T & Parameterless<T> & Hosted<T>
 ) => GeneratedField<F>

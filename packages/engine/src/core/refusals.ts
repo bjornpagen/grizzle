@@ -104,6 +104,7 @@ export const refusals = [
 	"an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it",
 	"an immutable owner's family takes an append only beside an insert of its owner in the same stratum: insert the owner with it, or declare it mutable",
 	"an input holds its params and facts, and a paged member's window, alone",
+	"an operation the host evaluates: a contract predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric or cosineDistance",
 	"an ordered family's side is its owner's key, then its drawn index",
 	"an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it",
 	"approximateNearest over one rule's projection; this source is a bounded subset, whose own order already selects among the rows",

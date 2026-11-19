@@ -29,6 +29,7 @@ import { contextBuilder, roleBuilder } from "#compiler/schema/world.ts"
 import type { UnwrittenFieldsOf } from "#compiler/types/changeset/changeset.ts"
 import type {
 	MembersTyped,
+	Hosted,
 	Parameterless,
 	Predicate,
 	Refusal,
@@ -427,7 +428,9 @@ export const check = <
 >(
 	name: Name,
 	target: R & Showing<N, C>,
-	predicate: (row: RowScalars<Shows<N, C>>) => Pr & Parameterless<Pr>
+	predicate: (
+		row: RowScalars<Shows<N, C>>
+	) => Pr & Parameterless<Pr> & (R extends RuleReadDerived ? unknown : Hosted<Pr>)
 ): Check<Name, R> => checkBuilder<Name, R>(name, target, predicate)
 
 /**

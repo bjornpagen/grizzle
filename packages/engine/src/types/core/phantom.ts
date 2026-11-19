@@ -192,6 +192,34 @@ export interface ComputedOrigin<out Operands> {
 	readonly computed: Operands
 }
 
+/**
+ * The origin of a computation by a Compute function the host does not evaluate (scalar/compute/registry.ts
+ * computeSpecs, check false: quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric
+ * and cosineDistance): a ComputedOrigin of its operands, marked, so a term over it carries the mark through every
+ * computation over it, and a contract predicate, a row check of a stored relation and a generated field, which the
+ * host evaluates, refuse it (Hosted).
+ */
+export interface UnhostedOrigin<out Operands> extends ComputedOrigin<Operands> {
+	readonly unhosted: true
+}
+
+/**
+ * The origin of the value a contract's predicate judges (types/fields/constructors.ts ContractConstructor): one value of
+ * the base, which no relation's field states and nothing binds. It is an origin of its own, never `unknown`, which a
+ * union of origins absorbs, so a computation over it keeps every mark its other operands carry (UnhostedOrigin).
+ */
+export interface ContractValueOrigin {
+	readonly contractValue: true
+}
+
+/** Whether an origin is, or computes over, an UnhostedOrigin, at any depth: true among its answers where it does. */
+type ReadsUnhosted<O> =
+	O extends UnhostedOrigin<unknown>
+		? true
+		: O extends ComputedOrigin<infer Operands>
+			? ReadsUnhosted<Operands>
+			: false
+
 /** The origin of a computation's operand: a term's or a predicate's own, and a JavaScript value's LiteralOrigin. */
 export type OperandOrigin<X> = X extends TermBase | PredicateBase ? OriginOfTerm<X> : LiteralOrigin
 
@@ -906,6 +934,17 @@ type NamedKeys<A> = keyof {
 export type Parameterless<X> = [keyof ParamsOfTerm<X>] extends [never]
 	? unknown
 	: Refusal<"a schema predicate reads no parameter">
+
+/**
+ * A term or predicate the host evaluates: a contract predicate, a row check of a stored relation and a generated field
+ * are evaluated on the host for the ContractLiteral check and the fill (scalar/compute/typing.ts compute), which admits
+ * no Compute function computeSpecs marks check false, so a term computed by one anywhere inside (UnhostedOrigin) is
+ * refused; a query, a selection and a derived relation's check read it in SQL.
+ */
+export type Hosted<X> =
+	true extends ReadsUnhosted<OriginOfTerm<X>>
+		? Refusal<"an operation the host evaluates: a contract predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric or cosineDistance">
+		: unknown
 
 /**
  * An invariant phantom: `Invariant<A>` is assignable to `Invariant<B>` exactly when A and B are mutually assignable.
