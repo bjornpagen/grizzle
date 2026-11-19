@@ -55,7 +55,7 @@ const ledgerName = (schema: string): ObjectName => objectName(schema, ledgerTabl
 
 /** The graph identities of the ledger's objects in a snapshot manifest (`InstallBuilder` names the others). */
 const ledgerIdent = (schema: string): string => qualifiedIdent("table", schema, ledgerTableName)
-export const ledgerPrivilegesIdent = (schema: string): string =>
+const ledgerPrivilegesIdent = (schema: string): string =>
 	namedIdent("privileges", `${schema}.${ledgerTableName}`)
 
 const text = (name: string): ColumnDef => ({

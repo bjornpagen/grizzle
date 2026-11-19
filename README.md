@@ -3368,7 +3368,12 @@ deploy.
   caller writes by a cast; any other type change sets the field aside, filled by the value you write at a
   `-- grizzle: placeholder` marker in its table's fill, which may join other tables, once every new column holds its
   value. A placeholder also asks for the values of a new field its caller writes, on a table that may hold rows. Roles' views, policies and functions hold no data: one that
-  changes, or reads anything the migration changes, is dropped and created again in one transaction.
+  changes, or reads anything the migration changes, is dropped and created again in one transaction. Privileges change
+  one at a time, each privilege of one role on one object: the migration grants what the target holds and the
+  previous installation did not, revokes what that held and the target does not, and touches no other grant, so a
+  migration that changes one relation or one role leaves every other role's grants as they are. An object the
+  migration drops takes its grants with it, and one it creates again, a role's view or a materialized view, is granted
+  again what the target states on it.
 - **No guessing.** grizzle never guesses a rename and drops nothing you didn't declare. Declare each with
   `--rename <old>=<new>` or `--drop <old>`, once per name, each side a relation (`Task`), a field (`Task.title`), a
   roster's handle (`Status#done`) or a login (`@web`); swaps and chains work. A renamed relation keeps its rows, a

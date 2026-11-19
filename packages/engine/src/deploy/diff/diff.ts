@@ -58,7 +58,13 @@ import {
 	slots,
 	type TableSlot
 } from "#compiler/deploy/diff/plan.ts"
-import { ledgerPrivilegesIdent } from "#compiler/deploy/ledger/ledger.ts"
+import {
+	cutGrants,
+	type GrantObject,
+	type HeldPrivilege,
+	heldOf,
+	objectKey
+} from "#compiler/deploy/diff/privileges.ts"
 import {
 	type AnyObject,
 	type BuiltOver,
@@ -113,6 +119,8 @@ import type {
 	ForeignKey,
 	FunctionName,
 	Grant,
+	GrantColumns,
+	Grantee,
 	GrantRole,
 	ObjectName,
 	Revoke,
@@ -879,6 +887,9 @@ class Differ {
 	/** The drawn columns this migration adds to tables that may hold rows under their placeholders, by table key, which
 	 * the backfill draws and then drops the default of. */
 	readonly backfilled = new Map<string, BackfilledTable>()
+	/** The privileges Structure grants again right after the world object it creates again (regrantWorld), by key
+	 * (privileges.ts HeldPrivilege), which Publish's grants leave out. */
+	readonly regranted = new Set<string>()
 
 	constructor(input: DiffInput) {
 		this.input = input
@@ -1822,30 +1833,28 @@ class Differ {
 		if (v.kind === "policy") {
 			return
 		}
-		const key = nameKey(v.create.name)
+		const [world] = grantObjectsOf(v)
+		if (world === undefined) {
+			return
+		}
+		const key = objectKey(world)
 		const grants = this.input.target.manifest.objects.flatMap((o) =>
 			installed(o).kind === "privileges"
 				? o.ddl.flatMap((g) => (g.kind === "grant" ? [g] : []))
 				: []
 		)
+		const again = (h: HeldPrivilege): boolean =>
+			objectKey(h.object) === key &&
+			h.grantee.kind === "role" &&
+			this.prev.has(namedIdent("role", h.grantee.name))
 		for (const g of grants) {
-			const on = g.on
-			const to = g.to.filter((t) => t.kind === "role" && this.prev.has(namedIdent("role", t.name)))
-			if (!isNonEmpty(to)) {
-				continue
-			}
-			if (v.kind === "view" && on.kind === "TABLE") {
-				const names = on.names.filter((n) => nameKey(n) === key)
-				if (isNonEmpty(names)) {
-					this.sql("structure.worlds", [{ ...g, on: { kind: "TABLE", names }, to }])
-				}
-			} else if (v.kind === "worldFunction" && on.kind === "FUNCTION") {
-				const names = on.names.filter((n) => nameKey(n) === key)
-				if (isNonEmpty(names)) {
-					this.sql("structure.worlds", [{ ...g, on: { kind: "FUNCTION", names }, to }])
+			for (const h of heldOf(g)) {
+				if (again(h)) {
+					this.regranted.add(h.key)
 				}
 			}
 		}
+		this.sql("structure.worlds", cutGrants(grants, again))
 	}
 
 	/** A login's or a theory role's CREATE ROLE, in Publish. grizzle never sets a password, so a login dropped and created
@@ -2832,140 +2841,163 @@ class Differ {
 		}
 	}
 
-	/** Grants, replaced per role, the target's roles in its install order and then the roles only the previous
-	 * installation holds in its: every previous grant of a role whose grants change is revoked and every target grant
-	 * granted, so grants two objects share survive. Every revoke comes before every grant.
-	 *
-	 * A column grant is revoked by the table's revoke of its privilege, which PostgreSQL applies to every
-	 * column, whatever a rename called it since. */
+	/**
+	 * The privileges this migration changes, one privilege of one grantee on one object at a time (privileges.ts): every
+	 * privilege a previous `privileges` object states and no target one does is revoked, and every privilege a target
+	 * one states and no previous one does is granted; a privilege both state is neither, so an object a migration leaves
+	 * alone keeps its grants, whatever changes beside it. An object this migration creates again (a materialized view, a
+	 * role's view or world function, an identity sequence) lost its privileges with its drop, so it is granted again
+	 * every privilege the target states on it, but those Structure granted again right after it (regrantWorld); and an
+	 * object it drops takes its privileges with it, so it revokes none on it, but from a grantee it drops too, which
+	 * PostgreSQL drops only once it holds nothing (publish.removed drops roles before tables and functions). A column grant
+	 * is one unit of its grantee, privilege and table, its columns its value: one that changes is revoked by the table's
+	 * revoke of its privilege, which PostgreSQL applies to every column whatever a rename called it since, and granted
+	 * again, beside the table-level grant of that privilege where the target states one. Every revoke comes before every
+	 * grant, and the grants run in the target's statements' order, a column grant beside its table's grants, so each
+	 * object's grants run in the order a fresh installation runs them.
+	 */
 	grants(): void {
-		const byRole = <O extends AnyObject>(objects: ReadonlyArray<O>) => {
-			const out = new Map<string, Array<O>>()
-			for (const o of objects) {
-				const v = installed(o)
-				if (v.kind !== "privileges" || o.ident === ledgerPrivilegesIdent(this.schema)) {
-					continue
-				}
-				out.set(v.grantee, [...(out.get(v.grantee) ?? []), o])
-			}
-			return out
-		}
-		const before = byRole(this.input.previous.manifest.objects)
-		const after = byRole(this.input.target.manifest.objects)
-		/** A recreated view, a role's recreated view or world function, or a recreated identity sequence lost its
-		 * privileges with its drop: its grants are granted again. */
-		const recreated = (g: Grant): boolean =>
-			(g.on.kind === "TABLE" &&
-				g.on.names.some(
-					(n) => this.recreatedViews.has(nameKey(n)) || this.worldGone.has(nameKey(n))
-				)) ||
-			(g.on.kind === "FUNCTION" && g.on.names.some((n) => this.worldGone.has(nameKey(n)))) ||
-			(g.on.kind === "SEQUENCE" &&
-				g.on.names.some((n) => this.sequences.get(nameKey(n)) === "recreated"))
-		const roles = [...new Set([...after.keys(), ...before.keys()])].flatMap((role) => {
-			const a = before.get(role) ?? []
-			const b = after.get(role) ?? []
-			const namesRecreated = b.some((o) => o.ddl.some((s) => s.kind === "grant" && recreated(s)))
-			return a.length === b.length &&
-				a.every((o, i) => {
-					const now = b[i]
-					return now !== undefined && sameRecord(o, now)
-				}) &&
-				!namesRecreated
-				? []
-				: [{ role, a, b }]
-		})
-		/** Every previous grant of a role the previous installation holds, a column grant as its table's grant. */
-		const previousGrants = roles.flatMap(({ role, a }) =>
-			this.prev.has(namedIdent("role", role))
-				? a.flatMap((o) =>
-						o.ddl.flatMap((g): ReadonlyArray<Grant> =>
-							g.kind === "grant"
-								? [g]
-								: g.kind === "grantColumns"
-									? [
-											{
-												kind: "grant",
-												privileges: [g.privilege],
-												on: { kind: "TABLE", names: [g.table] },
-												to: [{ kind: "role", name: g.to }]
-											}
-										]
-									: []
-						)
-					)
-				: []
-		)
-		for (const g of previousGrants) {
-			this.revokes(g)
-		}
-		for (const o of roles.flatMap(({ b }) => b)) {
-			this.sql("publish.grants", o.ddl)
-		}
-		const ledgerA = this.prev.get(ledgerPrivilegesIdent(this.schema))
-		const ledgerB = this.next.get(ledgerPrivilegesIdent(this.schema))
-		if (ledgerA !== undefined && (ledgerB === undefined || !sameRecord(ledgerA, ledgerB))) {
-			const granted = ledgerB === undefined ? [] : ledgerB.ddl
-			const holds = (name: string): boolean =>
-				granted.some(
-					(x) => x.kind === "grant" && x.to.some((y) => y.kind === "role" && y.name === name)
+		const stated = (
+			objects: ReadonlyArray<AnyObject>
+		): ReadonlyArray<SqlStatement | RecordedStatement> =>
+			objects.flatMap((o): ReadonlyArray<SqlStatement | RecordedStatement> =>
+				installed(o).kind === "privileges" ? o.ddl : []
+			)
+		const before = stated(this.input.previous.manifest.objects)
+		const after = stated(this.input.target.manifest.objects)
+		const grantsOf = (ddl: ReadonlyArray<SqlStatement | RecordedStatement>): ReadonlyArray<Grant> =>
+			ddl.flatMap((g) => (g.kind === "grant" ? [g] : []))
+		const columnsOf = (
+			ddl: ReadonlyArray<SqlStatement | RecordedStatement>
+		): ReadonlyMap<string, GrantColumns> =>
+			new Map(
+				ddl.flatMap((g) =>
+					g.kind === "grantColumns"
+						? [[`${g.to}\u0000${g.privilege}\u0000${nameKey(g.table)}`, g] as const]
+						: []
 				)
-			const revokes = ledgerA.ddl.flatMap((g) => {
-				if (g.kind !== "grant") {
-					return []
-				}
-				const gone = g.to.filter((t) => t.kind === "role" && !holds(t.name))
-				return isNonEmpty(gone) ? [revokeOf({ ...g, to: gone })] : []
+			)
+		const heldIn = (grants: ReadonlyArray<Grant>): ReadonlySet<string> =>
+			new Set(grants.flatMap((g) => heldOf(g).map((h) => h.key)))
+		const wasHeld = heldIn(grantsOf(before))
+		const isHeld = heldIn(grantsOf(after))
+		const reset = this.resetObjects()
+		const dropped = this.droppedObjects()
+		const roles = new Set(
+			this.input.target.manifest.objects.flatMap((o) => {
+				const v = installed(o)
+				return v.kind === "role" || v.kind === "decoder" ? [v.create.name] : []
 			})
-			this.sql("publish.grants", revokes)
+		)
+		const kept = (g: Grantee): boolean => g.kind === "PUBLIC" || roles.has(g.name)
+		const columnsBefore = columnsOf(before)
+		const columnsAfter = columnsOf(after)
+		const regranted = (c: GrantColumns): boolean =>
+			reset.has(objectKey({ kind: "TABLE", name: c.table }))
+		const changedColumns = new Set(
+			[...new Set([...columnsBefore.keys(), ...columnsAfter.keys()])].filter((key) => {
+				const was = columnsBefore.get(key)
+				const now = columnsAfter.get(key)
+				return was === undefined || now === undefined || !sameText(was.columns, now.columns)
+			})
+		)
+		/** The table-level privilege a changed column grant's revoke takes away beside it, which the target holds. */
+		const columnRevoked = new Set(
+			[...changedColumns].flatMap((key) => {
+				const was = columnsBefore.get(key)
+				return was === undefined
+					? []
+					: heldOf({
+							kind: "grant",
+							privileges: [was.privilege],
+							on: { kind: "TABLE", names: [was.table] },
+							to: [{ kind: "role", name: was.to }]
+						}).map((h) => h.key)
+			})
+		)
+		const revoked = (h: HeldPrivilege): boolean =>
+			!isHeld.has(h.key) &&
+			!reset.has(objectKey(h.object)) &&
+			!(dropped.has(objectKey(h.object)) && kept(h.grantee))
+		const granted = (h: HeldPrivilege): boolean =>
+			!this.regranted.has(h.key) &&
+			(!wasHeld.has(h.key) || reset.has(objectKey(h.object)) || columnRevoked.has(h.key))
+		for (const g of cutGrants(grantsOf(before), revoked)) {
+			this.sql("publish.grants", [revokeOf(g)])
 		}
-		if (ledgerB !== undefined && (ledgerA === undefined || !sameRecord(ledgerA, ledgerB))) {
-			this.sql("publish.grants", ledgerB.ddl)
+		for (const key of changedColumns) {
+			const was = columnsBefore.get(key)
+			const table = was === undefined ? undefined : ({ kind: "TABLE", name: was.table } as const)
+			if (
+				was !== undefined &&
+				table !== undefined &&
+				!reset.has(objectKey(table)) &&
+				!(dropped.has(objectKey(table)) && roles.has(was.to))
+			) {
+				this.sql("publish.grants", [
+					{
+						kind: "revoke",
+						privileges: [was.privilege],
+						on: { kind: "TABLE", names: [was.table] },
+						from: [{ kind: "role", name: was.to }]
+					}
+				])
+			}
+		}
+		for (const g of after) {
+			if (g.kind === "grant") {
+				this.sql("publish.grants", cutGrants([g], granted))
+			} else if (g.kind === "grantColumns") {
+				const key = `${g.to}\u0000${g.privilege}\u0000${nameKey(g.table)}`
+				if (changedColumns.has(key) || regranted(g)) {
+					this.sql("publish.grants", [g])
+				}
+			}
 		}
 	}
 
-	/** The revoke of a role's previous grant. A relation or sequence this migration dropped took its privileges with it,
-	 * so the revoke leaves it out. */
-	revokes(g: Grant): void {
-		const r = revokeOf(g)
-		const split = (
-			names: ReadonlyArray<ObjectName>,
-			on: (names: NonEmptyReadonlyArray<ObjectName>) => Revoke
-		) => {
-			if (isNonEmpty(names)) {
-				this.sql("publish.grants", [on(names)])
-			}
-		}
-		switch (r.on.kind) {
-			case "SEQUENCE":
-				split(
-					r.on.names.filter((n) => this.sequences.get(nameKey(n)) !== "dropped"),
-					(names) => ({ ...r, on: { kind: "SEQUENCE", names } })
-				)
-				return
-			case "TABLE":
-				split(
-					r.on.names.filter(
-						(n) => !this.dropped.has(nameKey(n)) && !this.worldGone.has(nameKey(n))
-					),
-					(names) => ({ ...r, on: { kind: "TABLE", names } })
-				)
-				return
-			case "DOMAIN":
-				split(r.on.names, (names) => ({ ...r, on: { kind: "DOMAIN", names } }))
-				return
-			case "FUNCTION": {
-				const names = r.on.names.filter((n) => !this.worldGone.has(nameKey(n)))
-				if (isNonEmpty(names)) {
-					this.sql("publish.grants", [{ ...r, on: { kind: "FUNCTION", names } }])
-				}
-				return
-			}
-			case "SCHEMA":
-			case "DATABASE":
-				this.sql("publish.grants", [r])
-				return
-		}
+	/** The keys of the objects whose privileges Structure takes away before Publish grants (privileges.ts objectKey): each
+	 * materialized view it drops, recreated or not, each role's view and world function it drops at its start, and each
+	 * identity sequence it creates again under its name. Publish revokes nothing on one, and grants again every privilege
+	 * the target states on one it holds. */
+	resetObjects(): ReadonlySet<string> {
+		return new Set(
+			[...this.input.previous.manifest.objects, ...this.input.target.manifest.objects].flatMap(
+				(o) =>
+					grantObjectsOf(installed(o)).flatMap((x) => {
+						const key = x.kind === "DATABASE" ? undefined : nameKeyOf(x)
+						return key !== undefined &&
+							((x.kind === "TABLE" &&
+								(this.recreatedViews.has(key) ||
+									this.dropped.has(key) ||
+									this.worldGone.has(key))) ||
+								(x.kind === "FUNCTION" && this.worldGone.has(key)) ||
+								(x.kind === "SEQUENCE" && this.sequences.get(key) === "recreated"))
+							? [objectKey(x)]
+							: []
+					})
+			)
+		)
+	}
+
+	/** The keys of the objects of the previous installation this migration drops in Publish, which take their privileges
+	 * with them: each object the target no longer holds, and an identity sequence it drops. */
+	droppedObjects(): ReadonlySet<string> {
+		const held = new Set(
+			this.input.target.manifest.objects.flatMap((o) => grantObjectsOf(installed(o)).map(objectKey))
+		)
+		return new Set(
+			this.input.previous.manifest.objects.flatMap((o) =>
+				grantObjectsOf(installed(o)).flatMap((x) => {
+					const key = objectKey(x)
+					const name = x.kind === "DATABASE" ? undefined : nameKeyOf(x)
+					return !held.has(key) ||
+						(name !== undefined && x.kind === "SEQUENCE" && this.sequences.get(name) === "dropped")
+						? [key]
+						: []
+				})
+			)
+		)
 	}
 
 	/** The final COMMENT step: the comment of every object of the target this migration creates or renames, or whose
@@ -3031,25 +3063,29 @@ class Differ {
 				run(prelude, s)
 			}
 		}
-		if (
-			!sameText(
-				this.input.previous.manifest.publicRevokes,
-				this.input.target.manifest.publicRevokes
+		const previousRevokes = this.input.previous.manifest.publicRevokes
+		/** The PUBLIC revokes the previous installation ran, each privilege by its key, and its default privileges. */
+		const wasRevoked = new Set(
+			previousRevokes.flatMap((r) =>
+				r.kind === "revoke" ? heldOf(grantOf(r)).map((h) => h.key) : []
 			)
-		) {
-			this.sql("publish.defaults", this.input.target.manifest.publicRevokes)
-		} else {
-			/** A recreated identity sequence took its PUBLIC revoke with its drop: it is revoked again. */
-			const again = this.input.target.manifest.publicRevokes.flatMap(
-				(r): ReadonlyArray<SqlStatement> => {
-					if (!(r.kind === "revoke" && r.on.kind === "SEQUENCE")) {
-						return []
-					}
-					const names = r.on.names.filter((n) => this.sequences.get(nameKey(n)) === "recreated")
-					return isNonEmpty(names) ? [{ ...r, on: { kind: "SEQUENCE", names } }] : []
-				}
+		)
+		const wasDefault = new Set(
+			previousRevokes.flatMap((r) =>
+				r.kind === "alterDefaultPrivileges" ? [canonicalTextOf(r)] : []
 			)
-			this.sql("publish.defaults", again)
+		)
+		/** A privilege PUBLIC loses again: one no previous revoke took, or one of an identity sequence this migration
+		 * created again under its name, which took its PUBLIC revoke with its drop. */
+		const again = (h: HeldPrivilege): boolean =>
+			!wasRevoked.has(h.key) ||
+			(h.object.kind === "SEQUENCE" && this.sequences.get(nameKey(h.object.name)) === "recreated")
+		for (const r of this.input.target.manifest.publicRevokes) {
+			if (r.kind === "revoke") {
+				this.sql("publish.defaults", cutGrants([grantOf(r)], again).map(revokeOf))
+			} else if (r.kind !== "alterDefaultPrivileges" || !wasDefault.has(canonicalTextOf(r))) {
+				this.sql("publish.defaults", [r])
+			}
 		}
 	}
 }
@@ -3787,6 +3823,81 @@ const revokeOf = (g: Grant): Revoke => ({
 	on: g.on,
 	from: g.to
 })
+
+/** The grant a revoke takes back: its privileges, on its objects, to its grantees. */
+const grantOf = (r: Revoke): Grant => ({
+	kind: "grant",
+	privileges: r.privileges,
+	on: r.on,
+	to: r.from
+})
+
+/** The name key (snapshot/objects.ts nameKey) of an object a GRANT names: a schema's its name alone. */
+const nameKeyOf = (o: Exclude<GrantObject, { readonly kind: "DATABASE" }>): string =>
+	o.kind === "SCHEMA" ? o.name : nameKey(o.name)
+
+/**
+ * The objects a GRANT may name that an installed object is (privileges.ts GrantObject): a table, with its identity
+ * sequences, the ledger, a role's view and a materialized view as a TABLE; a domain; every function and constant by its
+ * name and argument types; a level's schema and a role's; none for any other.
+ */
+const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => {
+	switch (v.kind) {
+		case "table":
+			return [
+				{ kind: "TABLE", name: v.create.table },
+				...v.create.columns.flatMap((c): ReadonlyArray<GrantObject> =>
+					c.generated?.kind === "identity" ? [{ kind: "SEQUENCE", name: c.generated.sequence }] : []
+				)
+			]
+		case "ledger":
+			return [{ kind: "TABLE", name: v.create.table }]
+		case "view":
+		case "materializedView":
+			return [{ kind: "TABLE", name: v.create.name }]
+		case "domain":
+			return [{ kind: "DOMAIN", name: v.create.name }]
+		case "constant":
+		case "refusalFunction":
+		case "advanceFunction":
+		case "unitFunction":
+		case "isolationFunction":
+		case "snapshotGuard":
+		case "ruleJudge":
+		case "lawFunction":
+		case "worldFunction":
+			return [{ kind: "FUNCTION", name: functionNameOf(v.create) }]
+		case "roleSchema":
+			return [{ kind: "SCHEMA", name: v.create.name }]
+		case "schema": {
+			const ident = parseIdent(v.object.ident)
+			return ident.kind === "schema" ? [{ kind: "SCHEMA", name: ident.name }] : []
+		}
+		case "index":
+		case "uniqueIndex":
+		case "statistics":
+		case "isolationTrigger":
+		case "lawTrigger":
+		case "role":
+		case "membership":
+		case "privileges":
+		case "policy":
+		case "rowSecurity":
+		case "replicaIdentity":
+		case "liveSecret":
+		case "publication":
+		case "decoder":
+		case "lawColumn":
+		case "primaryKey":
+		case "unique":
+		case "check":
+		case "foreignKey":
+		case "extension":
+		case "validation":
+		case "databaseDefault":
+			return []
+	}
+}
 
 /** The revoke of a role's membership in its login. */
 const revokeRoleOf = (g: GrantRole): SqlStatement => ({
