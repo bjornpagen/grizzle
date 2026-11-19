@@ -1,106 +1,18 @@
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { isOperandBinding } from "#compiler/lower/conservative/expr/total.ts"
-import type {
-	BuiltinFunctionName,
-	CoreProjection,
-	Expr,
-	FromSource,
-	OperandSelect,
-	Select,
-	SelectCore,
-	Target
+import {
+	builtinFunctions,
+	type CoreProjection,
+	type Expr,
+	type FromSource,
+	type OperandSelect,
+	type Select,
+	type SelectCore,
+	type Target
 } from "#compiler/sql/ast.ts"
 import { col } from "#compiler/sql/build.ts"
 import type { NameOrigin, NameSupply } from "#compiler/sql/naming.ts"
 import { identityHooks, transformExpr, transformSelect } from "#compiler/sql/transform.ts"
-
-/** Where a builtin's call computes: over its row's values, or over many rows, as an aggregate or a window function does. */
-const reach: { readonly [N in BuiltinFunctionName]: "row" | "rows" } = {
-	count: "rows",
-	sum: "rows",
-	avg: "rows",
-	min: "rows",
-	max: "rows",
-	bool_and: "rows",
-	bool_or: "rows",
-	range_agg: "rows",
-	array_agg: "rows",
-	jsonb_agg: "rows",
-	row_number: "rows",
-	rank: "rows",
-	dense_rank: "rows",
-	lead: "rows",
-	lag: "rows",
-	first_value: "rows",
-	percentile_disc: "rows",
-	percentile_cont: "rows",
-	mode: "rows",
-	abs: "row",
-	sign: "row",
-	gcd: "row",
-	lcm: "row",
-	power: "row",
-	sqrt: "row",
-	min_scale: "row",
-	trim_scale: "row",
-	float8send: "row",
-	get_byte: "row",
-	width_bucket: "row",
-	round: "row",
-	trunc: "row",
-	ceil: "row",
-	floor: "row",
-	div: "row",
-	mod: "row",
-	char_length: "row",
-	octet_length: "row",
-	regexp_count: "row",
-	starts_with: "row",
-	right: "row",
-	translate: "row",
-	btrim: "row",
-	ltrim: "row",
-	rtrim: "row",
-	split_part: "row",
-	replace: "row",
-	left: "row",
-	lower: "row",
-	upper: "row",
-	isempty: "row",
-	lower_inc: "row",
-	upper_inc: "row",
-	lower_inf: "row",
-	upper_inf: "row",
-	int4range: "row",
-	int8range: "row",
-	range_minus_multi: "row",
-	unnest: "row",
-	to_jsonb: "row",
-	setval: "row",
-	pg_advisory_xact_lock: "row",
-	pg_drop_replication_slot: "row",
-	current_setting: "row",
-	set_config: "row",
-	pg_jit_available: "row",
-	format: "row",
-	current_database: "row",
-	substring: "row",
-	bit_count: "row",
-	set_bit: "row",
-	bit_or: "rows",
-	string_agg: "rows",
-	generate_subscripts: "row",
-	make_date: "row",
-	encode: "row",
-	generate_series: "row",
-	sha256: "row",
-	md5: "row",
-	to_regclass: "row",
-	to_regprocedure: "row",
-	pg_get_userbyid: "row",
-	pg_my_temp_schema: "row",
-	record_image_ne: "row"
-}
 
 /** What a call over many rows is: an aggregate's, count(*) among them, or a window call. */
 type OverRows = "aggregate" | "window"
@@ -113,7 +25,7 @@ export const overRowsOf = (e: Expr): OverRows | undefined => {
 	if (e.over !== undefined) {
 		return "window"
 	}
-	return e.star || (e.fn.kind === "builtin" && reach[e.fn.name] === "rows")
+	return e.star || (e.fn.kind === "builtin" && builtinFunctions[e.fn.name].reach === "rows")
 		? "aggregate"
 		: undefined
 }

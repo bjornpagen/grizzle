@@ -1,6 +1,6 @@
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
-import { Array as Arr, Option, Order, Result, String as Str } from "effect"
+import { Array as Arr, Option, Order, Record as Rec, Result, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { CompileError, prose } from "#compiler/core/errors.ts"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
@@ -15,7 +15,7 @@ import {
 } from "#compiler/scalar/values/fault.ts"
 import {
 	type Analyze,
-	builtinFunctionNames,
+	builtinFunctions,
 	builtinTypeNames,
 	type Call,
 	type Collation,
@@ -132,7 +132,7 @@ const firstOrOk = (
 	return first === undefined ? Result.succeed(undefined) : Result.fail(violationError(first, label))
 }
 
-const builtinFunctions: ReadonlySet<string> = new Set(builtinFunctionNames)
+const builtinNames: ReadonlySet<string> = new Set(Rec.keys(builtinFunctions))
 
 /**
  * The rule a call of the builtin function `name` breaks, or undefined for a function of the catalogue. The AST type
@@ -140,7 +140,7 @@ const builtinFunctions: ReadonlySet<string> = new Set(builtinFunctionNames)
  * NULLIF and COALESCE are expressions of their own (Expr nullif, Expr coalesce), neither a call.
  */
 const builtinCallRule = (name: string): AuditRule | undefined =>
-	builtinFunctions.has(name) ? undefined : "function"
+	builtinNames.has(name) ? undefined : "function"
 
 /** A column name as a naming report shows it. */
 const shownName = (name: string | undefined): string =>

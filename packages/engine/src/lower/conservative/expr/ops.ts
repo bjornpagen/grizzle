@@ -14,7 +14,7 @@ import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import {
 	type BinaryOperator,
 	type BuiltinFunctionName,
-	builtinFunctionNames,
+	builtinFunctions,
 	type Expr
 } from "#compiler/sql/ast.ts"
 import { and, binary, call, cast, lit, not, or, types } from "#compiler/sql/build.ts"
@@ -269,7 +269,7 @@ const keyword = (name: Construct, args: ReadonlyArray<Expr>): Expr | undefined =
 	}
 }
 
-const builtins: ReadonlySet<string> = new Set(builtinFunctionNames)
+const builtins: ReadonlySet<string> = new Set(Object.keys(builtinFunctions))
 /** A real check: the set holds exactly the builtin function names. */
 const isBuiltin = (name: string): name is BuiltinFunctionName => builtins.has(name)
 
