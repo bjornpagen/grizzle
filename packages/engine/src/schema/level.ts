@@ -1,6 +1,6 @@
 import { heldRelation, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { isLevelOf, type SchemaContent, sameLevel, sameRoleLevel } from "#compiler/schema/levels.ts"
-import { ownedEntry } from "#compiler/schema/protocol.ts"
+import { ownedEntryOf } from "#compiler/schema/protocol.ts"
 import type { FragmentDesc } from "#compiler/schema/schema.ts"
 import type { RoleLevel } from "#compiler/schema/world.ts"
 import type { AnyFragment, AnySchema } from "#compiler/types/schema/schema.ts"
@@ -67,21 +67,15 @@ export const isLevelOver = (lower: Level, higher: Level): boolean => {
 /** The level of a built value: a schema built by schema(...) or schema.extend(...), a fragment built by fragment(...),
  * or a role built by role(...); undefined for any other value. */
 export const levelOf = (value: unknown): Level | undefined => {
-	const role = ownedEntry(value, "role")
-	if (role !== undefined) {
-		return { kind: "role", value: role.value, ...role.content }
+	const entry = ownedEntryOf(value)
+	if (entry?.kind === "role") {
+		return { kind: "role", value: entry.value, ...entry.content }
 	}
-	const fragment = ownedEntry(value, "fragment")
-	if (fragment !== undefined) {
-		return {
-			kind: "fragment",
-			value: fragment.value,
-			desc: fragment.desc,
-			content: fragment.content.level
-		}
+	if (entry?.kind === "fragment") {
+		return { kind: "fragment", value: entry.value, desc: entry.desc, content: entry.content.level }
 	}
-	const schema = ownedEntry(value, "schema")
-	return schema === undefined
-		? undefined
-		: { kind: "schema", value: schema.value, desc: schema.desc, content: schema.content }
+	if (entry?.kind === "schema") {
+		return { kind: "schema", value: entry.value, desc: entry.desc, content: entry.content }
+	}
+	return undefined
 }

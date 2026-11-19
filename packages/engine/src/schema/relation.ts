@@ -80,6 +80,7 @@ import {
 	orThrow,
 	ownedDesc,
 	ownedEntry,
+	ownedEntryOf,
 	ownedKind,
 	ownValue,
 	queryDescOf,
@@ -573,8 +574,9 @@ export const relationBuilder = <
 	/** Admission first: a JavaScript caller's malformed argument is MalformedDescription before anything is copied. */
 	const desc = admitRelation(name, fields, primaryKey, extra)
 	const copied = frozenCopy(fields)
-	return ownValue(
-		{
+	return ownValue({
+		kind: "relation",
+		value: {
 			kind: "relation",
 			name,
 			fields: copied,
@@ -582,10 +584,9 @@ export const relationBuilder = <
 			fact: record<[Fields]>(copied),
 			heading: copied
 		},
-		"relation",
-		desc,
-		undefined
-	)
+		desc: desc,
+		content: undefined
+	})
 }
 
 /**
@@ -607,8 +608,9 @@ export const generatedRelation = <
 ): Relation<Name, Written & G, readonly [...PrimaryKey]> => {
 	const admitted = admitGenerated(name, written, primaryKey, generate, extra)
 	const copied = frozenCopy({ ...written, ...admitted.generated })
-	return ownValue(
-		{
+	return ownValue({
+		kind: "relation",
+		value: {
 			kind: "relation",
 			name,
 			fields: copied,
@@ -616,10 +618,9 @@ export const generatedRelation = <
 			fact: record<[Written & G]>(copied),
 			heading: copied
 		},
-		"relation",
-		admitted.desc,
-		undefined
-	)
+		desc: admitted.desc,
+		content: undefined
+	})
 }
 
 /** A roster: nonempty, distinct, each handle at most the bytes a name holds, as its names constant stores it. */
@@ -696,8 +697,9 @@ export const closedBuilder = <
 	const declared = parseDeclaredName(desc.name)
 	const typed = declared.ok ? IrRoster.of(declared.value, order, desc.handles) : undefined
 	const parts = builtRosterParts(desc.name, { order, handles: desc.handles }, typed)
-	const value: Roster<Name, readonly [...Handles], Order> = ownValue(
-		{
+	const value: Roster<Name, readonly [...Handles], Order> = ownValue({
+		kind: "closed",
+		value: {
 			kind: "closed",
 			name,
 			order,
@@ -706,10 +708,9 @@ export const closedBuilder = <
 			heading: id,
 			handle: <const M extends Handles[number]>(member: M) => handleTerm(value, parts, member)
 		},
-		"closed",
-		desc,
-		typed
-	)
+		desc: desc,
+		content: typed
+	})
 	return value
 }
 
@@ -911,8 +912,9 @@ export const closedRelation = <
 	const admitted = admitClosedRelation(name, fields, key, rows, extra)
 	const copied = frozenCopy(fields)
 	const typing = closedReadTyping(admitted.desc, admitted.described, label)
-	return ownValue(
-		{
+	return ownValue({
+		kind: "closedRelation",
+		value: {
 			kind: "closedRelation",
 			name,
 			fields: copied,
@@ -938,10 +940,9 @@ export const closedRelation = <
 			row: (...args: ReadonlyArray<unknown>) => closedRowTerm(typing, args),
 			has: (...args: ReadonlyArray<unknown>) => closedHasPredicate(typing, args)
 		},
-		"closedRelation",
-		admitted.desc,
-		undefined
-	)
+		desc: admitted.desc,
+		content: undefined
+	})
 }
 
 /** The brand of a set over a roster, minted only by bitsOf from handles it checked. */
@@ -1034,12 +1035,20 @@ const derivedOf =
 	): Derived<Name, Q, St> => {
 		const draft = admitDerived(name, definition, storage, extra)
 		const heading: Q["heading"] = definition.heading
-		return ownValue(
-			{ ...builtMark, kind: "derived", name, definition, heading, storage, fact: record(heading) },
-			"derived",
-			draft,
-			undefined
-		)
+		return ownValue({
+			kind: "derived",
+			value: {
+				...builtMark,
+				kind: "derived",
+				name,
+				definition,
+				heading,
+				storage,
+				fact: record(heading)
+			},
+			desc: draft,
+			content: undefined
+		})
 	}
 
 /**
@@ -1059,12 +1068,11 @@ export const relationDescOf = (
 	value: unknown,
 	label: string
 ): OrdinaryRelationDesc | RosterDesc | AdmittedClosedRelation => {
-	const owned =
-		ownedDesc(value, "relation") ?? ownedDesc(value, "closed") ?? ownedDesc(value, "closedRelation")
-	if (owned !== undefined) {
-		return owned
+	const owned = ownedEntryOf(value)
+	if (owned?.kind === "relation" || owned?.kind === "closed" || owned?.kind === "closedRelation") {
+		return owned.desc
 	}
-	if (hasProperties(value) && ownedKind(value) === undefined) {
+	if (hasProperties(value) && owned === undefined) {
 		if (value["kind"] === "relation") {
 			return admitRelation(value["name"], value["fields"], value["primaryKey"], [])
 		}

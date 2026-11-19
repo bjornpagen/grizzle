@@ -2,7 +2,7 @@ import type { RowDecoder } from "#compiler/core/decoder.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { ownedEntry } from "#compiler/schema/protocol.ts"
+import { ownedEntryOf } from "#compiler/schema/protocol.ts"
 import { admittedClosedId, type NamedRelation, namedRelation } from "#compiler/schema/relation.ts"
 import { candidateKeyOf, statementDescOf } from "#compiler/schema/statements.ts"
 
@@ -33,11 +33,8 @@ export interface KeyLookup {
  * relation, roster or closed relation through its own Description, so it neither refuses one nor names it derived.
  */
 const builtRelation = (value: unknown): BuiltRelation | undefined => {
-	const built =
-		ownedEntry(value, "relation") ??
-		ownedEntry(value, "closed") ??
-		ownedEntry(value, "closedRelation")
-	if (built === undefined) {
+	const built = ownedEntryOf(value)
+	if (built?.kind !== "relation" && built?.kind !== "closed" && built?.kind !== "closedRelation") {
 		return undefined
 	}
 	const named = namedRelation(built.value, "get")

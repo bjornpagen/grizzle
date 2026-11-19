@@ -297,81 +297,61 @@ interface OwnedKinds {
 
 export type OwnedKind = keyof OwnedKinds
 
-const ownedKinds: ReadonlyArray<OwnedKind> = [
-	"relation",
-	"closed",
-	"closedRelation",
-	"derived",
-	"statement",
-	"expansion",
-	"side",
-	"selection",
-	"schema",
-	"fragment",
-	"context",
-	"world",
-	"role",
-	"login"
-]
-
+/** An owned value of kind K: its kind, the value, its Description and the content it was built with. */
 interface OwnedEntry<K extends OwnedKind> {
+	readonly kind: K
 	readonly value: OwnedKinds[K]["value"]
 	readonly desc: OwnedKinds[K]["desc"]
 	readonly content: OwnedKinds[K]["content"]
 }
 
-/**
- * The values this package built, one registry per kind. A WeakMap holds nothing alive and is never enumerated, so it
- * is no cache.
- */
-const owned: { readonly [K in OwnedKind]: WeakMap<object, OwnedEntry<K>> } = {
-	relation: new WeakMap(),
-	closed: new WeakMap(),
-	closedRelation: new WeakMap(),
-	derived: new WeakMap(),
-	statement: new WeakMap(),
-	expansion: new WeakMap(),
-	side: new WeakMap(),
-	selection: new WeakMap(),
-	schema: new WeakMap(),
-	fragment: new WeakMap(),
-	context: new WeakMap(),
-	world: new WeakMap(),
-	role: new WeakMap(),
-	login: new WeakMap()
-}
+/** Each kind's owned entry, by kind. */
+type OwnedEntries = { readonly [K in OwnedKind]: OwnedEntry<K> }
+
+/** An owned value of any kind: its entry, whose kind says which. */
+export type AnyOwnedEntry = OwnedEntries[OwnedKind]
 
 /**
- * Defines `value`'s Description as a non-enumerable `desc`, freezes it, registers it as an owned value of `kind` with
- * the content it was built with, and returns it. Freezing leaves every member non-writable and non-configurable.
+ * The values this package built, each under its entry, whose kind is the kind it was built as. A WeakMap holds nothing
+ * alive and is never enumerated, so it is no cache.
  */
-export const ownValue = <K extends OwnedKind, V extends OwnedKinds[K]["value"]>(
-	value: V,
-	kind: K,
-	desc: OwnedKinds[K]["desc"],
-	content: OwnedKinds[K]["content"]
-): V => {
-	Object.defineProperty(value, "desc", {
-		value: desc,
+const owned = new WeakMap<object, AnyOwnedEntry>()
+
+/**
+ * Registers `entry`'s value as an owned value of its kind: defines its Description as a non-enumerable `desc`, freezes
+ * it, and returns it. Freezing leaves every member non-writable and non-configurable.
+ */
+export const ownValue = <E extends AnyOwnedEntry>(entry: E): E["value"] => {
+	Object.defineProperty(entry.value, "desc", {
+		value: entry.desc,
 		enumerable: false,
 		writable: false,
 		configurable: false
 	})
-	Object.freeze(value)
-	const entry: OwnedEntry<K> = { value, desc, content }
-	owned[kind].set(value, entry)
-	return value
+	Object.freeze(entry.value)
+	owned.set(entry.value, entry)
+	return entry.value
 }
 
+/** The entry of an owned value, its kind among it; undefined for any value the builders did not make. */
+export const ownedEntryOf = (value: unknown): AnyOwnedEntry | undefined =>
+	hasProperties(value) ? owned.get(value) : undefined
+
 /** The kind of an owned value, undefined for any value the builders did not make. */
-export const ownedKind = (value: unknown): OwnedKind | undefined =>
-	hasProperties(value) ? ownedKinds.find((kind) => owned[kind].has(value)) : undefined
+export const ownedKind = (value: unknown): OwnedKind | undefined => ownedEntryOf(value)?.kind
+
+/** Whether an owned entry is of `kind`: its kind says so, since an entry is its kind's. */
+const isOfKind = <K extends OwnedKind>(entry: AnyOwnedEntry, kind: K): entry is OwnedEntries[K] =>
+	entry.kind === kind
 
 /** The value and Description of an owned value of `kind`, or undefined when the value is not one. */
 export const ownedEntry = <K extends OwnedKind>(
 	value: unknown,
 	kind: K
-): OwnedEntry<K> | undefined => (hasProperties(value) ? owned[kind].get(value) : undefined)
+): OwnedEntries[K] | undefined => {
+	const entry = ownedEntryOf(value)
+	return entry !== undefined && isOfKind(entry, kind) ? entry : undefined
+}
 
 /** The Description of an owned value of `kind`, or undefined when the value is not one. */
 export const ownedDesc = <K extends OwnedKind>(

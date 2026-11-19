@@ -110,9 +110,14 @@ const ownedStatement = <V extends Exclude<Statement, MirrorsBase>>(
 	value: V,
 	desc: StatementDesc
 ): V =>
-	ownValue(value, "statement", desc, {
-		canonical: canonicalStatementOf(desc),
-		over: relationsOver(value)
+	ownValue({
+		kind: "statement",
+		value: value,
+		desc: desc,
+		content: {
+			canonical: canonicalStatementOf(desc),
+			over: relationsOver(value)
+		}
 	})
 
 /** Whether a value a statement holds is a relation, closed relation, roster or derived relation: a declaration. */
@@ -360,7 +365,7 @@ export interface SelectedDesc {
 
 /** The selection value of `relation`'s facts `predicate` holds of, owned with its Description. */
 const selectionOf = <R>(relation: R, desc: SelectedDesc): Selection<R> =>
-	ownValue({ relation }, "selection", desc, undefined)
+	ownValue({ kind: "selection", value: { relation }, desc: desc, content: undefined })
 
 /**
  * select(R, (row) => predicate): the facts of R the predicate holds of, in the row-check language a check is written
@@ -446,7 +451,12 @@ export const onBuilder = <R, const T extends ReadonlyArray<AnyTerm>>(
 	terms: T
 ): Side<R, readonly [...T]> => {
 	const desc = admitOn(source, terms)
-	return ownValue({ source, terms: frozenTuple<T>(terms) }, "side", desc, undefined)
+	return ownValue({
+		kind: "side",
+		value: { source, terms: frozenTuple<T>(terms) },
+		desc: desc,
+		content: undefined
+	})
 }
 
 const sidePair = (left: unknown, right: unknown, label: string): readonly [SideDesc, SideDesc] => {
@@ -499,12 +509,17 @@ const admitMirrors = (left: unknown, right: unknown): ExpansionDesc => {
 
 /** A mirrors value owned with its two containments and their canonical forms, computed once, here (ownedStatement). */
 const ownExpansion = <V extends MirrorsBase>(value: V, expansion: ExpansionDesc): V =>
-	ownValue(value, "expansion", expansion, {
-		canonical: [
-			canonicalStatementOf(expansion.statements[0]),
-			canonicalStatementOf(expansion.statements[1])
-		],
-		over: relationsOver(value)
+	ownValue({
+		kind: "expansion",
+		value: value,
+		desc: expansion,
+		content: {
+			canonical: [
+				canonicalStatementOf(expansion.statements[0]),
+				canonicalStatementOf(expansion.statements[1])
+			],
+			over: relationsOver(value)
+		}
 	})
 
 /** mirrors(left, right): sugar for contained(left, right) and contained(right, left), which the schema states. */

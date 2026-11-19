@@ -41,6 +41,7 @@ import {
 	orThrow,
 	ownedDesc,
 	ownedEntry,
+	ownedEntryOf,
 	ownedKind,
 	ownValue,
 	queryDescOf,
@@ -194,8 +195,9 @@ export const contextBuilder = <
 	const [options, ...extra] = rest
 	const desc = admitContext(name, fields, options, extra)
 	const copied = frozenCopy(fields)
-	return ownValue(
-		{
+	return ownValue({
+		kind: "context",
+		value: {
 			...builtMark,
 			kind: "context",
 			name,
@@ -204,10 +206,9 @@ export const contextBuilder = <
 			heading: copied,
 			fact: record<[Fields]>(copied)
 		},
-		"context",
-		desc,
-		undefined
-	)
+		desc: desc,
+		content: undefined
+	})
 }
 
 /**
@@ -352,8 +353,13 @@ export const admitRole = (
 		 */
 		const carried = querySchemaOf(value)
 		if (carried !== undefined) {
+			const owner = ownedEntryOf(carried)
 			const content =
-				ownedEntry(carried, "schema")?.content ?? ownedEntry(carried, "fragment")?.content.level
+				owner?.kind === "schema"
+					? owner.content
+					: owner?.kind === "fragment"
+						? owner.content.level
+						: undefined
 			if (content === undefined || !isLevelOf(content, baseEntry.content)) {
 				throw ruleRefused(builderLoc(at, []), "a query entry is a query over the role's base")
 			}
@@ -495,12 +501,12 @@ const world = <const K extends string, Q extends DefinitionQuery>(
 	draft: WorldDraft
 ): World<K, Q> => {
 	const heading: Q["heading"] = definition.heading
-	return ownValue(
-		{ ...builtMark, kind: "world", name: key, definition, heading, fact: record(heading) },
-		"world",
-		draft,
-		undefined
-	)
+	return ownValue({
+		kind: "world",
+		value: { ...builtMark, kind: "world", name: key, definition, heading, fact: record(heading) },
+		desc: draft,
+		content: undefined
+	})
 }
 
 /** Whether an entry value is a relation of the base, whole: a value the relation builders made. */
@@ -577,8 +583,9 @@ export const roleBuilder = <
 	const kept = (
 		s: Base["statements"][number] | Base["listed"][number]
 	): s is KeptStatements<Base, RoleRelations<Rs>> => namesOf(s).every((n) => admitted.whole.has(n))
-	const value = ownValue(
-		{
+	const value = ownValue({
+		kind: "role",
+		value: {
 			...builtMark,
 			kind: "role",
 			name,
@@ -594,10 +601,9 @@ export const roleBuilder = <
 			refresh: options?.refresh === undefined ? noNames : frozenTuple(options.refresh),
 			retire: options?.retire === undefined ? noNames : frozenTuple(options.retire)
 		},
-		"role",
-		admitted.desc,
-		admitted.level
-	)
+		desc: admitted.desc,
+		content: admitted.level
+	})
 	recordStem(value, roleStem(admitted.desc))
 	return value
 }
@@ -797,12 +803,12 @@ export const loginBuilder = <
 		given === undefined ? noWorkloads : frozenTuple(given.workload)
 	/** Role names are identifiers whose first character is no underscore, so none is an accessor of the prototype. */
 	const reached: Record<string, AnyLoginRole> = {}
-	const value = ownValue(
-		{ ...builtMark, kind: "login", name, base, roles: reached, workload },
-		"login",
-		desc,
-		undefined
-	)
+	const value = ownValue({
+		kind: "login",
+		value: { ...builtMark, kind: "login", name, base, roles: reached, workload },
+		desc: desc,
+		content: undefined
+	})
 	recordStem(value, loginStem(desc))
 	for (const r of roles) {
 		const loginRole: AnyLoginRole = Object.freeze({

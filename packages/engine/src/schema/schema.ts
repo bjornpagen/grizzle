@@ -415,8 +415,9 @@ const rootSchema = <
 > => {
 	const admitted = admitSchema(name, relations, statements, extra)
 	const read: StatementsReadBack<Statements, Declared<Relations>> = statements
-	return ownValue(
-		{
+	return ownValue({
+		kind: "schema",
+		value: {
 			...builtMark,
 			kind: "schema",
 			name,
@@ -425,10 +426,9 @@ const rootSchema = <
 			listed: listedStatements(relations),
 			extends: undefined
 		},
-		"schema",
-		admitted.desc,
-		admitted.content
-	)
+		desc: admitted.desc,
+		content: admitted.content
+	})
 }
 
 /** Every relation of `desc` and the levels below it, by name, with the derived level of each derived relation. */
@@ -597,8 +597,9 @@ const extend = <
 	const listed: ReadonlyArray<
 		Base["listed"][number] | FragmentsIn<Relations>["statements"][number]
 	> = Object.freeze([...base.listed, ...listedStatements(relations)])
-	return ownValue(
-		{
+	return ownValue({
+		kind: "schema",
+		value: {
 			...builtMark,
 			kind: "schema",
 			name,
@@ -607,10 +608,9 @@ const extend = <
 			listed,
 			extends: base
 		},
-		"schema",
-		admitted.desc,
-		admitted.content
-	)
+		desc: admitted.desc,
+		content: admitted.content
+	})
 }
 
 /**
@@ -710,17 +710,17 @@ export const fragmentBuilder = <
 ): Fragment<Declared<Relations>, StatementsByName<Statements, Declared<Relations>>> => {
 	const admitted = admitFragment(relations, statements, extra)
 	const read: StatementsReadBack<Statements, Declared<Relations>> = statements
-	return ownValue(
-		{
+	return ownValue({
+		kind: "fragment",
+		value: {
 			...builtMark,
 			kind: "fragment",
 			relations: levelRecord<Relations>(admitted.names),
 			statements: frozenTuple(read)
 		},
-		"fragment",
-		admitted.desc,
-		admitted.content
-	)
+		desc: admitted.desc,
+		content: admitted.content
+	})
 }
 
 /**
