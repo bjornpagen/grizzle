@@ -8,7 +8,6 @@
  * (orphanExitBound), and its slack is measured on its own.
  */
 import { Duration } from "effect"
-import { testPoolMax } from "#test/support/substrate/lease.ts"
 
 /**
  * How long one case of a search, one hook of `pnpm test`, one substrate's build past its lease, or one wait inside a
@@ -169,11 +168,3 @@ const orphanExitSlack = 1000
  * @from the server's client_connection_check_interval, {@link orphanExitSlack}
  */
 export const orphanExitBound = (interval: number): number => interval + orphanExitSlack
-
-/**
- * How many cases of a search run at once, each on state of its own that holds `sessions` sessions of the test's pool:
- * as many as fit in the pool (testPoolMax, one session per core), and one at least, the one a search of a single set
- * of sessions runs.
- */
-export const casesAtOnce = (sessions: number): number =>
-	Math.max(1, Math.floor(testPoolMax / sessions))

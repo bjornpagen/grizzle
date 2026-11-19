@@ -20,9 +20,10 @@ import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
  * the root, so the root holds no slot of the key, no target of T4's or T5's containments, and no check of the bound or
  * of T3. One guarded column stands for §5.1's guard on every term of the selected side: a NULL in one column of a
  * `NULLS DISTINCT` key keeps the tuple apart, and a NULL in one referencing column of a `MATCH SIMPLE` key skips it, as
- * a NULL in every column does. trees.md states the laws over every row; `selection: "every row"` is that text read
- * literally, and `targets: "every row"` keeps the family's selection but points T4 and T5 at every row, as trees.md
- * writes their targets `on(T, …)`. Both are controls the proof judges beside the ruling's lowering.
+ * a NULL in every column does. trees.md states the laws over every row, and that text read literally is too strict and
+ * too weak by turns, as the controls this proof once judged beside the ruling's lowering showed: the family and T3's
+ * check over every row refuse every tree, since the root, its own parent, would hold a slot of its own children; and
+ * the family selected but T4's and T5's targets `on(T, …)` over every row both refuse a tree and commit a non-tree.
  *
  * The parent copy is not selected: the root copies itself, so its ‹n› is its own count and its `parentStart` its own
  * start, one representation. Every count, index and interval is the `natural` domain over int8, and every column
@@ -61,20 +62,13 @@ export interface TreeRow {
 export type Law = "T0" | "T1" | "T2" | "T3 copy" | "T3 check" | "T4" | "T5" | "T6"
 
 /** Every law of trees.md §2. */
-export const LAWS: ReadonlyArray<Law> = ["T0", "T1", "T2", "T3 copy", "T3 check", "T4", "T5", "T6"]
+const LAWS: ReadonlyArray<Law> = ["T0", "T1", "T2", "T3 copy", "T3 check", "T4", "T5", "T6"]
 
 /**
- * A lowering of the tree relation:
- *
- * - `selection`: whether the children family and T3's check range over the non-root rows, φ₀ (fin.md §12.8), or over
- *   every row, as trees.md writes them;
- * - `targets`: whether T4's and T5's containments point at the non-root rows or at every row, `on(T, "parent", "at",
- *   "end")` read literally; every row whenever the family ranges over every row;
- * - `laws`: the laws installed beside the family's.
+ * A lowering of the tree relation under fin.md §12.8's ruling, the children family and T3's check over the non-root
+ * rows (φ₀) and T4's and T5's containments pointed at them: the laws installed beside the family's.
  */
 export interface Lowering {
-	readonly selection: "non-root" | "every row"
-	readonly targets: "non-root" | "every row"
 	readonly laws: ReadonlyArray<Law>
 }
 
@@ -171,28 +165,20 @@ export const sqlstateOf = (constraint: NodeConstraint): string => {
 export const constraintNamed = (name: string | undefined): Option.Option<NodeConstraint> =>
 	Arr.findFirst(CONSTRAINTS, (c) => `node_${c}` === name)
 
-/** The column the family groups by: `grp`, NULL at the root, or `parent` itself when the family ranges over every row. */
-const groupColumn = (lowering: Lowering): string =>
-	lowering.selection === "non-root" ? "grp" : "parent"
-
-/** The group column T4's and T5's targets read. */
-const targetColumn = (lowering: Lowering): string =>
-	lowering.targets === "non-root" ? groupColumn(lowering) : "parent"
+/** The column the family groups by, and T4's and T5's targets read: `grp`, NULL at the root. */
+const groupColumn = "grp"
 
 /** A check over the family's rows: under φ₀ it holds at the root, `NOT φ₀ OR ψ`. */
-const overFamily = (lowering: Lowering, check: string): string =>
-	lowering.selection === "non-root" ? `parent = id OR ${check}` : check
+const overFamily = (check: string): string => `parent = id OR ${check}`
 
 /** The DDL of a lowering in `schema`, in order: the natural domain, then the table with every constraint. */
 export const ddlOf = (schema: string, lowering: Lowering): ReadonlyArray<string> => {
 	const node = qualified(schema, "node")
 	const natural = qualified(schema, "natural")
 	const present = constraintsOf(lowering)
-	const g = groupColumn(lowering)
-	const target = targetColumn(lowering)
-	const ends = `${target}, at, "end"`
-	const closureTarget = has(lowering, "T4") ? ends : `${g}, at`
-	const lastTarget = has(lowering, "T5") ? ends : `${g}, at`
+	const ends = `${groupColumn}, at, "end"`
+	const closureTarget = has(lowering, "T4") ? ends : `${groupColumn}, at`
+	const lastTarget = has(lowering, "T5") ? ends : `${groupColumn}, at`
 	const slots = Arr.join(
 		[
 			"id",
@@ -221,13 +207,11 @@ export const ddlOf = (schema: string, lowering: Lowering): ReadonlyArray<string>
 		`"end" ${natural} NOT NULL`,
 		"copy int8 NOT NULL",
 		"parent_start int8 NOT NULL",
-		...(lowering.selection === "non-root"
-			? ["grp int4 GENERATED ALWAYS AS (CASE WHEN parent <> id THEN parent END) STORED"]
-			: []),
+		"grp int4 GENERATED ALWAYS AS (CASE WHEN parent <> id THEN parent END) STORED",
 		"p int8 GENERATED ALWAYS AS (CASE WHEN at > 0 AND at < copy THEN at - 1 END) STORED",
 		"last int8 GENERATED ALWAYS AS (CASE WHEN children > 0 THEN children - 1 END) STORED",
 		"CONSTRAINT node_identity PRIMARY KEY (id)",
-		`CONSTRAINT node_key UNIQUE NULLS DISTINCT (${g}, at)`,
+		`CONSTRAINT node_key UNIQUE NULLS DISTINCT (${groupColumn}, at)`,
 		`CONSTRAINT node_slots UNIQUE NULLS DISTINCT (${slots})`,
 		...(Arr.contains(present, "ends")
 			? [`CONSTRAINT node_ends UNIQUE NULLS DISTINCT (${ends})`]
@@ -235,20 +219,18 @@ export const ddlOf = (schema: string, lowering: Lowering): ReadonlyArray<string>
 		...(Arr.contains(present, "order")
 			? ["CONSTRAINT node_order UNIQUE NULLS DISTINCT (root, start)"]
 			: []),
-		`CONSTRAINT node_bound CHECK (${overFamily(lowering, "at < copy")})`,
+		`CONSTRAINT node_bound CHECK (${overFamily("at < copy")})`,
 		...(Arr.contains(present, "root")
 			? ["CONSTRAINT node_root CHECK ((parent = id) = (start = 0))"]
 			: []),
 		...(Arr.contains(present, "first")
-			? [
-					`CONSTRAINT node_first CHECK (${overFamily(lowering, "at > 0 OR start = parent_start + 1")})`
-				]
+			? [`CONSTRAINT node_first CHECK (${overFamily("at > 0 OR start = parent_start + 1")})`]
 			: []),
 		...(Arr.contains(present, "interval")
 			? ['CONSTRAINT node_interval CHECK ("end" > start AND (children > 0 OR "end" = start + 1))']
 			: []),
 		`CONSTRAINT node_copy FOREIGN KEY (${copied}) REFERENCES ${node} (${slots}) MATCH SIMPLE ON UPDATE CASCADE NOT DEFERRABLE`,
-		`CONSTRAINT node_closure FOREIGN KEY (${g}, p${has(lowering, "T4") ? ", start" : ""}) REFERENCES ${node} (${closureTarget}) MATCH SIMPLE NOT DEFERRABLE`,
+		`CONSTRAINT node_closure FOREIGN KEY (${groupColumn}, p${has(lowering, "T4") ? ", start" : ""}) REFERENCES ${node} (${closureTarget}) MATCH SIMPLE NOT DEFERRABLE`,
 		`CONSTRAINT node_last FOREIGN KEY (id, last${has(lowering, "T5") ? ', "end"' : ""}) REFERENCES ${node} (${lastTarget}) MATCH SIMPLE DEFERRABLE INITIALLY DEFERRED`
 	]
 	return [
@@ -310,15 +292,9 @@ interface Violation {
 	readonly id: number
 }
 
-/** The family's group of a row: its parent, or none at the root when the family is over the non-root rows. */
-const groupOf = (lowering: Lowering, row: TreeRow): Option.Option<number> =>
-	lowering.selection === "every row" || row.parent !== row.id
-		? Option.some(row.parent)
-		: Option.none()
-
-/** The group T4's and T5's targets read of a row. */
-const targetGroupOf = (lowering: Lowering, row: TreeRow): Option.Option<number> =>
-	lowering.targets === "every row" ? Option.some(row.parent) : groupOf(lowering, row)
+/** The family's group of a row, which T4's and T5's targets read too: its parent, or none at the root. */
+const groupOf = (row: TreeRow): Option.Option<number> =>
+	row.parent !== row.id ? Option.some(row.parent) : Option.none()
 
 /** ‹p›, `CASE WHEN at > 0 AND at < ‹n› THEN at − 1 END`. */
 const predecessorOf = (row: TreeRow): Option.Option<number> =>
@@ -328,9 +304,8 @@ const predecessorOf = (row: TreeRow): Option.Option<number> =>
 const lastOf = (row: TreeRow): Option.Option<number> =>
 	row.children > 0 ? Option.some(row.children - 1) : Option.none()
 
-/** Whether a row is outside the family, so a check over the family holds of it. */
-const outsideFamily = (lowering: Lowering, row: TreeRow): boolean =>
-	lowering.selection === "non-root" && row.parent === row.id
+/** Whether a row is outside the family, the root, so a check over the family holds of it. */
+const outsideFamily = (row: TreeRow): boolean => row.parent === row.id
 
 /** Whether two key tuples are equal with no NULL in either: `NULLS DISTINCT`. */
 const sameKey = (
@@ -357,7 +332,7 @@ const violations = (lowering: Lowering, rows: ReadonlyArray<TreeRow>): ReadonlyA
 			case "identity":
 				return [some(row.id)]
 			case "key":
-				return [groupOf(lowering, row), some(row.at)]
+				return [groupOf(row), some(row.at)]
 			case "slots":
 				return [
 					some(row.id),
@@ -366,7 +341,7 @@ const violations = (lowering: Lowering, rows: ReadonlyArray<TreeRow>): ReadonlyA
 					...(has(lowering, "T3 copy") ? [some(row.start)] : [])
 				]
 			case "ends":
-				return [targetGroupOf(lowering, row), some(row.at), some(row.end)]
+				return [groupOf(row), some(row.at), some(row.end)]
 			case "order":
 				return [some(row.root), some(row.start)]
 			case "bound":
@@ -405,8 +380,8 @@ const violations = (lowering: Lowering, rows: ReadonlyArray<TreeRow>): ReadonlyA
 				Arr.some(rows, (other) => sameKey(wanted, target(other)))
 			)
 		})
-	const familyTarget = (row: TreeRow) => [groupOf(lowering, row), some(row.at)]
-	const endsTarget = (row: TreeRow) => [targetGroupOf(lowering, row), some(row.at), some(row.end)]
+	const familyTarget = (row: TreeRow) => [groupOf(row), some(row.at)]
+	const endsTarget = (row: TreeRow) => [groupOf(row), some(row.at), some(row.end)]
 	const all = (constraint: NodeConstraint): ReadonlyArray<Violation> => {
 		switch (constraint) {
 			case "identity":
@@ -416,13 +391,13 @@ const violations = (lowering: Lowering, rows: ReadonlyArray<TreeRow>): ReadonlyA
 			case "order":
 				return keyed(constraint)
 			case "bound":
-				return checked(constraint, (r) => outsideFamily(lowering, r) || r.at < r.copy)
+				return checked(constraint, (r) => outsideFamily(r) || r.at < r.copy)
 			case "root":
 				return checked(constraint, (r) => (r.parent === r.id) === (r.start === 0))
 			case "first":
 				return checked(
 					constraint,
-					(r) => outsideFamily(lowering, r) || r.at > 0 || r.start === r.parentStart + 1
+					(r) => outsideFamily(r) || r.at > 0 || r.start === r.parentStart + 1
 				)
 			case "interval":
 				return checked(
@@ -445,8 +420,8 @@ const violations = (lowering: Lowering, rows: ReadonlyArray<TreeRow>): ReadonlyA
 					constraint,
 					(r) =>
 						has(lowering, "T4")
-							? [groupOf(lowering, r), predecessorOf(r), some(r.start)]
-							: [groupOf(lowering, r), predecessorOf(r)],
+							? [groupOf(r), predecessorOf(r), some(r.start)]
+							: [groupOf(r), predecessorOf(r)],
 					has(lowering, "T4") ? endsTarget : familyTarget
 				)
 			case "last":
@@ -497,7 +472,7 @@ export const predicted = (
 }
 
 /** The lowering fin.md §12.8 rules: every law of trees.md §2, T0 to T6, the root selected out of its own family. */
-export const RFC: Lowering = { selection: "non-root", targets: "non-root", laws: LAWS }
+export const RFC: Lowering = { laws: LAWS }
 
 /** Why a state is no forest of trees, by the theorem: the first of these its rows show, in this order. */
 export type TreeBreach =

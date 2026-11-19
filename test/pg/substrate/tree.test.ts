@@ -14,11 +14,9 @@
  *   SQLSTATE, and a committed state must read back as written.
  *
  * The lowering judged is T0 to T6 under fin.md §12.8's ruling: the root selected out of its own children family and
- * out of T3's check, every other law over every row (tree.ts). Four mutants run beside it on the state and mutation
- * boxes, each judged by the same model and required to disagree with the theorem somewhere, to be killed: T0 dropped
- * from the parent copy, T3's check dropped, T5's `end` dropped from the last slot, and T6 dropped. Two controls read
- * trees.md's text literally, with no root selection: every law over every row, and T4's and T5's targets over every
- * row.
+ * out of T3's check, every other law over every row (tree.ts). Each law is necessary: the boxes' properties kill
+ * the lowering with T0 dropped from the parent copy, T3's check dropped, T5's `end` dropped from the last slot, and T6
+ * dropped (tree.ts LAWS), each a state the theorem refuses committed.
  *
  * The boxes (doctrine rules 6, 9), whose generators tree.ts holds. Every row's root field ranges over two values,
  * every assignment of them to rows up to swapping the two, and a state holds at most two self-parented rows, one root
@@ -36,666 +34,296 @@
  * - every write of every such tree and forest: every row order within one INSERT, and every split of its pre-order and
  *   of its reverse pre-order into consecutive INSERTs.
  */
-import { type Case, exhaust, type Oracle } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Data, Effect, Exit, Formatter, Option, Pool } from "effect"
+import type { Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter } from "effect"
 import {
-	type TreeBreach,
-	breachOf,
-	canonical,
+	checkedPlacements,
+	Disagreed,
+	forests,
+	intervalShapes,
+	judgeCase,
+	type MutationFeature,
+	seatIn,
+	sentBefore,
+	type StateFeature,
+	stateShapes,
+	THEOREM_ORACLE,
+	treeTemplate,
+	withoutT0,
+	withoutT3Check,
+	withoutT5,
+	withoutT6,
+	type WriteFeature
+} from "#test/pg/substrate/tree.fixtures.ts"
+import {
+	MUTATION_KINDS,
 	checkedGen,
-	type NodeConstraint,
-	constraintNamed,
-	ddlOf,
 	forestBox,
 	forestMutationGen,
-	forestsOf,
 	fullGen,
-	insertSql,
-	isP3,
-	LAWS,
-	type Law,
-	type Lowering,
-	MUTATION_KINDS,
-	type MutationKind,
-	placementsOf,
-	type Predicted,
-	predicted,
-	RFC,
-	readSql,
-	rowsOfRead,
 	shapeGen,
-	shapesBetween,
-	sqlstateOf,
 	statementsOf,
-	type TreeRow,
-	upToTwoRoots,
 	writeGen
 } from "#test/pg/substrate/tree.ts"
-import { deepEquals, nonEmpty } from "#test/support/assert.ts"
-import type { Moment } from "#test/support/families/mutate.ts"
-import { caseHang, casesAtOnce } from "#test/support/limits.ts"
-import type { SqlError } from "#test/support/pg.ts"
-import {
-	type Attempted,
-	attempt,
-	momentText,
-	refusalText,
-	sameMoment
-} from "#test/support/substrate.ts"
-import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import { clearRows, type ResetGroup, schemaGroup } from "#test/support/substrate/replace.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
-import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const without = (law: Law): Lowering => ({ ...RFC, laws: Arr.filter(LAWS, (l) => l !== law) })
+/**
+ * Commit exactly the forests of trees among every state of at most two rows, every field over its range and one past
+ * it, each case on the worker's seat of the RFC's lowering.
+ *
+ * Its pre-conversion budget: the box (test/pg/substrate/tree.test.ts at f91c01613).
+ */
+export const commitExactlyTheForestsOfTreesAmongEveryStateOfAtMostTwoRows = property.exhaust(
+	finite(fullGen(stateShapes)),
+	{
+		needs: { tree: Substrate.seat(treeTemplate) },
+		situations: [
+			"tree committed",
+			"tree committed a forest of two trees",
+			"tree committed a root whose at is not 0",
+			"tree refused copy",
+			"tree refused bound",
+			"tree refused order",
+			"tree refused root",
+			"tree refused first",
+			"tree refused interval",
+			"tree refused closure",
+			"tree refused last",
+			"tree refused at commit",
+			"tree refused no root",
+			"tree refused two roots",
+			"tree refused a family",
+			"tree refused an interval"
+		] satisfies ReadonlyArray<Reached<StateFeature>>,
+		check:
+			({ tree }, c: Case<StateFeature>) =>
+			(rows) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const taken = yield* tree
+						const seat = yield* seatIn(taken)
+						return yield* Effect.provideService(
+							Effect.asVoid(judgeCase(seat, [rows], c)),
+							Substrate,
+							taken.substrate
+						)
+					})
+				),
+		oracle: THEOREM_ORACLE,
+		box: "every state of one or two rows: every shape with at most two self-parented rows, every assignment of two root values up to swapping them, each row's at, children and start over [0, N] and end over [0, N + 1], the copies the host's",
+		show: Formatter.format,
+		kept: [],
+		kills: [withoutT0, withoutT3Check, withoutT5, withoutT6]
+	}
+)
 
-/** The RFC's lowering, its four mutants, and the two controls that read trees.md's text literally. */
-const LOWERINGS = {
-	tree: RFC,
-	"without T0": without("T0"),
-	"T3 without its check": without("T3 check"),
-	"T5 without end": without("T5"),
-	"without T6": without("T6"),
-	"as written": { selection: "every row", targets: "every row", laws: LAWS },
-	"targets every row": { selection: "non-root", targets: "every row", laws: LAWS }
-} as const satisfies Record<string, Lowering>
-
-type Label = keyof typeof LOWERINGS
-
-type Mutant = "without T0" | "T3 without its check" | "T5 without end" | "without T6"
-
-type Control = "as written" | "targets every row"
-
-const MUTANTS: ReadonlyArray<Mutant> = [
-	"without T0",
-	"T3 without its check",
-	"T5 without end",
-	"without T6"
-]
-
-const CONTROLS: ReadonlyArray<Control> = ["as written", "targets every row"]
-
-/** The lowerings of the given labels, for a test's seats. */
-const loweringsOf = <L extends Label>(
-	labels: ReadonlyArray<L>
-): ReadonlyArray<readonly [L, Lowering]> =>
-	Arr.map(labels, (label) => [label, LOWERINGS[label]] as const)
-
-/** A lowering's verdict on one transaction, as a feature: committed, or refused naming the constraint PostgreSQL named. */
-type Verdict = "committed" | `refused ${NodeConstraint}`
-
-/** PostgreSQL's disagreement with the model or with the theorem, with both sides and the SQL spelt out. */
-class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
-
-/** A lowering installed in a schema of its own, with every table of it and the session its transactions run on. */
-interface Seat<L extends string> {
-	readonly label: L
-	readonly lowering: Lowering
-	readonly schema: string
-	readonly tables: ResetGroup
-	readonly session: RawSession
-}
-
-/** Installs each lowering in a fresh schema, with an owner session of its own, so the lowerings' cases run at once. */
-const seatsOf = <L extends string>(lowerings: ReadonlyArray<readonly [L, Lowering]>) =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		return yield* Effect.forEach(lowerings, ([label, lowering]) =>
-			Effect.gen(function* () {
-				const schema = yield* s.schema(freshSchema)
-				for (const statement of ddlOf(schema, lowering)) {
-					yield* s.admin.query(statement, [])
-				}
-				const tables = yield* schemaGroup(s.admin, schema)
-				const session = yield* s.session({ ...ownerSession(), label })
-				return { label, lowering, schema, tables, session } satisfies Seat<L>
-			})
-		)
+/**
+ * Commit exactly the pre-order intervals among every start and end of every forest shape of at most three rows, each
+ * case on the worker's seat of the RFC's lowering.
+ *
+ * Its pre-conversion budget: the box (test/pg/substrate/tree.test.ts at f91c01613).
+ */
+export const commitExactlyThePreOrderIntervalsOfEveryForestShapeOfAtMostThreeRows =
+	property.exhaust(finite(shapeGen(intervalShapes)), {
+		needs: { tree: Substrate.seat(treeTemplate) },
+		situations: [
+			"tree committed",
+			"tree committed a forest of two trees",
+			"tree refused copy",
+			"tree refused order",
+			"tree refused root",
+			"tree refused first",
+			"tree refused interval",
+			"tree refused last",
+			"tree refused at commit",
+			"tree refused a cycle",
+			"tree refused no root",
+			"tree refused two roots",
+			"tree refused a row under another tree",
+			"tree refused an interval"
+		] satisfies ReadonlyArray<Reached<StateFeature>>,
+		check:
+			({ tree }, c: Case<StateFeature>) =>
+			(rows) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const taken = yield* tree
+						const seat = yield* seatIn(taken)
+						return yield* Effect.provideService(
+							Effect.asVoid(judgeCase(seat, [rows], c)),
+							Substrate,
+							taken.substrate
+						)
+					})
+				),
+		oracle: THEOREM_ORACLE,
+		box: "every forest shape of one to three rows with at most two self-parented rows and every assignment of two root values, up to relabelling and swapping the values, with each row's start in [0, N) and end in [1, N], the family and copies the host's",
+		show: Formatter.format,
+		kept: [],
+		kills: [withoutT0, withoutT3Check, withoutT5, withoutT6]
 	})
 
 /**
- * A pool of seat sets for `lowerings`, as many as their sessions fit in a test's pool (casesAtOnce), each installing
- * every lowering in fresh schemas with sessions of its own (seatsOf): a case holds one set for its run, so the cases an
- * exhaustion runs at once never share a table or a session, and each finds its set's tables empty, a case clearing
- * what it committed however it ends (judged).
+ * Commit exactly the pre-order intervals among the starts and ends that pass the row checks, every shape of four and
+ * five rows with every root assignment and of six with one, each case on the worker's seat of the RFC's lowering.
+ *
+ * Its pre-conversion budget: the box (test/pg/substrate/tree.test.ts at f91c01613).
  */
-const seatPoolOf = <L extends string>(lowerings: ReadonlyArray<readonly [L, Lowering]>) =>
-	Pool.make({ acquire: seatsOf(lowerings), size: casesAtOnce(lowerings.length) })
-
-const predictedText = (model: Predicted): string =>
-	model.kind === "committed"
-		? "commit"
-		: `refusal ${momentText(model.moment)} by any of ${Arr.join(
-				Arr.dedupe(Arr.map(model.violations, (v) => v.constraint)),
-				", "
-			)}`
-
-const attemptedText = (real: Attempted): string =>
-	real.kind === "committed"
-		? "commit"
-		: `refusal ${momentText(real.moment)}: ${refusalText(real.fields)}`
-
-/** A transaction's SQL as a report prints it: the seat's DDL, then each statement, so a reader can replay it. */
-const sqlText = <L extends string>(
-	seat: Seat<L>,
-	statements: ReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>
-): string =>
-	Arr.join(
-		[
-			...ddlOf(seat.schema, seat.lowering),
-			"BEGIN ISOLATION LEVEL SERIALIZABLE",
-			...Arr.map(statements, (rows) => insertSql(seat.schema, rows)),
-			"COMMIT"
-		],
-		";\n"
-	)
-
-/** What PostgreSQL did with a transaction the model agreed with. */
-interface Judged {
-	readonly verdict: Verdict
-	readonly committed: boolean
-	readonly moment: Option.Option<Moment>
-}
-
-/**
- * One transaction of `statements`, each an INSERT, on a seat with no rows, judged against the model: the same verdict,
- * a refusal at the same moment with the SQLSTATE of a constraint the model allows there, and a committed state that
- * reads back as written. It leaves its seat with no rows however it ends: a committed case clears its rows once it has
- * read them, and a case that ends with no verdict, its model disagreeing or a failing sibling seat interrupting it, may
- * have committed rows it never read, so it clears its seat. The next case on the seat, a shrink candidate among them,
- * never meets them (a duplicate key, 23505 on node_identity, in place of the failure being shrunk).
- */
-const judged = <L extends string>(
-	seat: Seat<L>,
-	statements: ReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>
-): Effect.Effect<Judged, SqlError | TransactionRolledBack | Disagreed> =>
-	Effect.onExitIf(verdictOf(seat, statements), Exit.isFailure, () =>
-		clearRows(seat.session, seat.tables)
-	)
-
-/** judged's verdict, its committed rows cleared once read (see judged). */
-const verdictOf = <L extends string>(
-	seat: Seat<L>,
-	statements: ReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>
-): Effect.Effect<Judged, SqlError | TransactionRolledBack | Disagreed> =>
-	Effect.gen(function* () {
-		const model = predicted(seat.lowering, statements)
-		const real = yield* attempt(
-			seat.session,
-			Arr.map(statements, (rows) => insertSql(seat.schema, rows))
-		)
-		const disagree = (why: string) =>
-			Effect.fail(
-				new Disagreed({
-					message: `${seat.label}: ${why}; the model predicts ${predictedText(model)}, PostgreSQL gave ${attemptedText(real)}, for\n${sqlText(seat, statements)}`
-				})
-			)
-		if (model.kind === "committed" && real.kind === "committed") {
-			const values = yield* seat.session.values(readSql(seat.schema), [])
-			yield* clearRows(seat.session, seat.tables)
-			const read = rowsOfRead(values)
-			if (!deepEquals(canonical(read), canonical(model.after))) {
-				return yield* disagree(`the committed state reads back as ${Formatter.format(read)}`)
-			}
-			return { verdict: "committed", committed: true, moment: Option.none() }
-		}
-		if (model.kind === "refused" && real.kind === "refused") {
-			if (!sameMoment(model.moment, real.moment)) {
-				return yield* disagree("the moments differ")
-			}
-			const named = constraintNamed(real.fields.constraint)
-			if (
-				Option.isNone(named) ||
-				!Arr.some(model.violations, (v) => v.constraint === named.value) ||
-				real.fields.code !== sqlstateOf(named.value)
-			) {
-				return yield* disagree("PostgreSQL names a constraint or SQLSTATE the model does not allow")
-			}
-			return {
-				verdict: `refused ${named.value}`,
-				committed: false,
-				moment: Option.some(real.moment)
-			}
-		}
-		return yield* disagree("the verdicts differ")
+export const commitExactlyThePreOrderIntervalsAmongTheStartsAndEndsThatPassTheRowChecks =
+	property.exhaust(finite(checkedGen(checkedPlacements)), {
+		needs: { tree: Substrate.seat(treeTemplate) },
+		situations: [
+			"tree committed",
+			"tree committed a forest of two trees",
+			"tree refused copy",
+			"tree refused closure",
+			"tree refused last",
+			"tree refused at commit",
+			"tree refused a cycle",
+			"tree refused a row under another tree",
+			"tree refused an interval",
+			"P3's counterexample refused by tree"
+		] satisfies ReadonlyArray<Reached<StateFeature>>,
+		check:
+			({ tree }, c: Case<StateFeature>) =>
+			(rows) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const taken = yield* tree
+						const seat = yield* seatIn(taken)
+						return yield* Effect.provideService(
+							Effect.asVoid(judgeCase(seat, [rows], c)),
+							Substrate,
+							taken.substrate
+						)
+					})
+				),
+		oracle: THEOREM_ORACLE,
+		box: "every shape of four and five rows with one or two self-parented rows and every assignment of two root values, and of six rows with one root and one value, up to relabelling, the family and copies the host's, with every start and end its rows' checks pass: T1's starts apart per value, T2's roots at 0, T3's first children one past their parents, a leaf's end its start + 1 and any other in (start, N]",
+		show: Formatter.format,
+		kept: [],
+		kills: [withoutT0, withoutT5]
 	})
 
-/** What a case reached, as a feature: each seat's verdict, the theorem's breach, each kill and each control's miss. */
-type StateFeature =
-	| `${Label} ${Verdict}`
-	| `tree refused ${TreeBreach}`
-	| "tree refused at commit"
-	| "tree committed a forest of two trees"
-	| "tree committed a root whose at is not 0"
-	| `${Mutant} killed`
-	| "without T0 commits a row under another tree"
-	| "P3's counterexample refused by tree"
-	| "P3's counterexample committed without T0"
-	| `${Control} refuses a tree`
-	| `${Control} commits a non-tree`
-
-/** One seat's outcome of a case: whether it committed, and whether that disagrees with the theorem. */
-interface SeatOutcome<L extends Label> {
-	readonly label: L
-	readonly committed: boolean
-	readonly wrong: boolean
-}
+/**
+ * Refuse every single mutation of every tree and two-tree forest of at most six rows that leaves no forest of trees,
+ * at the moment and by a constraint the model allows, each case on the worker's seat of the RFC's lowering.
+ *
+ * Its pre-conversion budget: the box (test/pg/substrate/tree.test.ts at f91c01613).
+ */
+export const refuseEverySingleMutationOfEveryTreeAndTwoTreeForestThatLeavesNoForestOfTrees =
+	property.exhaust(finite(forestMutationGen(forestBox.rows)), {
+		needs: { tree: Substrate.seat(treeTemplate) },
+		situations: [
+			"a root's at committed",
+			...Arr.map(MUTATION_KINDS, (k): MutationFeature => `${k} refused`),
+			"tree refused copy",
+			"tree refused at commit",
+			"tree refused two roots",
+			"tree refused a cycle",
+			"tree refused a row under another tree"
+		] satisfies ReadonlyArray<Reached<StateFeature | MutationFeature>>,
+		check:
+			({ tree }, c: Case<StateFeature | MutationFeature>) =>
+			(mutation) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const taken = yield* tree
+						const seat = yield* seatIn(taken)
+						return yield* Effect.provideService(
+							Effect.map(judgeCase(seat, [mutation.rows], c), (committed) => {
+								c.note(`${mutation.kind} ${committed ? "committed" : "refused"}`)
+							}),
+							Substrate,
+							taken.substrate
+						)
+					})
+				),
+		oracle: THEOREM_ORACLE,
+		box: "every single mutation of every tree, and of every forest of two trees, of one to six rows in all, each named",
+		show: Formatter.format,
+		kept: [],
+		kills: [withoutT0, withoutT3Check, withoutT5, withoutT6]
+	})
 
 /**
- * Judges one case on every seat at once: each against the model; the RFC's seat against the theorem, where a
- * disagreement, with the model agreeing with PostgreSQL, is the theorem failing under the lowering, the finding this
- * proof exists for; each mutant noted killed where it disagrees with the theorem, T0's drop only ever by a row whose
- * parent has another root value; and each control noted where it refuses a tree or commits a non-tree. The theorem
- * judges a state: a commit must leave one, and a lawful state written in one INSERT must commit, while a lawful state
- * written over several may be refused at a statement that sends a row before a row it references, as the model says.
+ * Commit every tree and two-tree forest of at most six rows from one INSERT in every row order and from its pre-order
+ * in every split, and judge every split of its reverse pre-order by each constraint's moment, each case on the
+ * worker's seat of the RFC's lowering.
+ *
+ * Its pre-conversion budget: the box (test/pg/substrate/tree.test.ts at f91c01613).
  */
-const judgeCase = <L extends Label, F extends string>(
-	seats: ReadonlyArray<Seat<L>>,
-	statements: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>,
-	c: Case<F | StateFeature>
-): Effect.Effect<ReadonlyArray<SeatOutcome<L>>, SqlError | TransactionRolledBack | Disagreed> => {
-	const rows = Arr.flatten(statements)
-	const breach = breachOf(rows)
-	const lawful = Option.isNone(breach)
-	const whole = statements.length === 1
-	/** Whether a verdict disagrees with the theorem: a commit of no forest, or a one-INSERT forest refused. */
-	const wrong = (committed: boolean) => (committed ? !lawful : whole && lawful)
-	const p3 = isP3(rows)
-	const crossed = Arr.some(rows, (r) =>
-		Arr.some(rows, (p) => p.id === r.parent && p.root !== r.root)
-	)
-	return Effect.forEach(
-		seats,
-		(seat) =>
-			Effect.gen(function* () {
-				const judgedAs = yield* judged(seat, statements)
-				const label: Label = seat.label
-				c.note(`${label} ${judgedAs.verdict}`)
-				switch (label) {
-					case "tree": {
-						if (wrong(judgedAs.committed)) {
-							return yield* new Disagreed({
-								message: `the theorem fails: PostgreSQL ${judgedAs.verdict} a state ${Option.match(
-									breach,
-									{
-										onNone: () => "that is one tree per root value with its pre-order intervals",
-										onSome: (b) => `with ${b}`
-									}
-								)}, and the model agrees, for\n${sqlText(seat, statements)}`
-							})
-						}
-						if (Option.isSome(breach)) {
-							c.note(`tree refused ${breach.value}`)
-						}
-						if (Option.exists(judgedAs.moment, (m) => m.kind === "commit")) {
-							c.note("tree refused at commit")
-						}
-						if (judgedAs.committed && Arr.dedupe(Arr.map(rows, (r) => r.root)).length > 1) {
-							c.note("tree committed a forest of two trees")
-						}
-						if (judgedAs.committed && Arr.some(rows, (r) => r.parent === r.id && r.at !== 0)) {
-							c.note("tree committed a root whose at is not 0")
-						}
-						if (p3 && !judgedAs.committed) {
-							c.note("P3's counterexample refused by tree")
-						}
-						break
-					}
-					case "without T0":
-					case "T3 without its check":
-					case "T5 without end":
-					case "without T6": {
-						if (wrong(judgedAs.committed)) {
-							c.note(`${label} killed`)
-						}
-						if (label === "without T0" && judgedAs.committed && !lawful) {
-							if (!crossed) {
-								return yield* new Disagreed({
-									message: `T0's drop commits a non-tree whose every row shares its parent's root value, which T0 cannot be what refuses, for\n${sqlText(seat, statements)}`
-								})
+export const commitEveryTreeAndTwoTreeForestFromOneInsertInEveryRowOrderAndEverySplit =
+	property.exhaust(finite(writeGen(forests)), {
+		needs: { tree: Substrate.seat(treeTemplate) },
+		situations: [
+			"one insert in pre-order committed",
+			"one insert with a child before its parent committed",
+			"one insert with a sibling before its predecessor committed",
+			"a pre-order split committed",
+			"a reverse pre-order split committed",
+			"a reverse pre-order split refused",
+			"tree committed a forest of two trees"
+		] satisfies ReadonlyArray<Reached<StateFeature | WriteFeature>>,
+		check:
+			({ tree }, c: Case<StateFeature | WriteFeature>) =>
+			(write) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const taken = yield* tree
+						const seat = yield* seatIn(taken)
+						const statements = statementsOf(write)
+						const committed = yield* Effect.provideService(
+							judgeCase(seat, statements, c),
+							Substrate,
+							taken.substrate
+						)
+						const refusedWrite = (why: string) =>
+							new Disagreed({ message: `${why}: ${Formatter.format(statements)}` })
+						switch (write.kind) {
+							case "one insert": {
+								if (!committed) {
+									return yield* refusedWrite("one insert of a forest was refused")
+								}
+								c.note(
+									sentBefore(
+										write.rows,
+										(row, later) => later.id === row.parent && later.id !== row.id
+									)
+										? "one insert with a child before its parent committed"
+										: sentBefore(
+													write.rows,
+													(row, later) =>
+														row.parent !== row.id &&
+														later.parent === row.parent &&
+														later.at === row.at - 1
+											  )
+											? "one insert with a sibling before its predecessor committed"
+											: "one insert in pre-order committed"
+								)
+								break
 							}
-							c.note("without T0 commits a row under another tree")
-							if (p3) {
-								c.note("P3's counterexample committed without T0")
+							case "split": {
+								if (write.order === "pre-order") {
+									if (!committed) {
+										return yield* refusedWrite("a pre-order split was refused")
+									}
+									if (write.statements.length > 1) {
+										c.note("a pre-order split committed")
+									}
+								} else {
+									c.note(`a reverse pre-order split ${committed ? "committed" : "refused"}`)
+								}
+								break
 							}
 						}
-						break
-					}
-					case "as written":
-					case "targets every row": {
-						if (whole && lawful && !judgedAs.committed) {
-							c.note(`${label} refuses a tree`)
-						}
-						if (!lawful && judgedAs.committed) {
-							c.note(`${label} commits a non-tree`)
-						}
-						break
-					}
-				}
-				return {
-					label: seat.label,
-					committed: judgedAs.committed,
-					wrong: wrong(judgedAs.committed)
-				}
-			}),
-		{ concurrency: "unbounded" }
-	)
-}
-
-const factorial = (n: number): number => (n <= 1 ? 1 : n * factorial(n - 1))
-
-/** What a write reached, beside its seats' verdicts. */
-type WriteFeature =
-	| "one insert in pre-order committed"
-	| "one insert with a child before its parent committed"
-	| "one insert with a sibling before its predecessor committed"
-	| "a pre-order split committed"
-	| `a reverse pre-order split ${"committed" | "refused"}`
-
-/** Whether some row of one INSERT is sent before a row it references. */
-const sentBefore = (
-	rows: ReadonlyArray<TreeRow>,
-	references: (row: TreeRow, later: TreeRow) => boolean
-): boolean =>
-	Arr.some(rows, (row, i) => Arr.some(rows.slice(i + 1), (later) => references(row, later)))
-
-/** What a mutation reached: its kind's verdict on the RFC's seat, and each mutant it killed. */
-type MutationFeature =
-	| `${MutationKind} ${"committed" | "refused"}`
-	| `${Mutant} killed by ${MutationKind}`
-
-const THEOREM_ORACLE: Oracle = {
-	kind: "specification",
-	name: "trees.md §2's theorem as a checker, per root value: one tree rooted at its self-parented row, every row reached through its own value's rows, its slots gapless, its copies its parent's, and [start, end) a naive depth-first walk's pre-order intervals; beside it, the model of each constraint's moment (tree.ts predicted)"
-}
-
-layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
-	it.effect(
-		"commit exactly the forests of trees among every state of at most two rows, every field over its range and one past it",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const lowerings = loweringsOf(["tree", ...MUTANTS, ...CONTROLS])
-					const seats = yield* seatPoolOf(lowerings)
-					const shapes = nonEmpty(shapesBetween(1, 2, upToTwoRoots, 2), "a box holds a shape")
-					return yield* exhaust(
-						{
-							suite: "substrate/tree-states",
-							generator: fullGen(shapes),
-							literal: Formatter.format,
-							box: "every state of one or two rows: every shape with at most two self-parented rows, every assignment of two root values up to swapping them, each row's at, children and start over [0, N] and end over [0, N + 1], the copies the host's",
-							oracle: THEOREM_ORACLE,
-							coverage: requiredInSpace<StateFeature>([
-								"tree committed",
-								"tree committed a forest of two trees",
-								"tree committed a root whose at is not 0",
-								"tree refused copy",
-								"tree refused bound",
-								"tree refused order",
-								"tree refused root",
-								"tree refused first",
-								"tree refused interval",
-								"tree refused closure",
-								"tree refused last",
-								"tree refused at commit",
-								"tree refused no root",
-								"tree refused two roots",
-								"tree refused a family",
-								"tree refused an interval",
-								"without T0 killed",
-								"T3 without its check killed",
-								"T5 without end killed",
-								"without T6 killed",
-								"as written refuses a tree",
-								"targets every row refuses a tree",
-								"targets every row commits a non-tree"
-							]),
-							caseHang,
-							concurrency: casesAtOnce(lowerings.length)
-						},
-						(rows, c) =>
-							Effect.flatMap(Pool.get(seats), (set) => Effect.asVoid(judgeCase(set, [rows], c)))
-					)
-				})
-			)
-	)
-
-	it.effect(
-		"commit exactly the pre-order intervals among every start and end of every forest shape of at most three rows",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const lowerings = loweringsOf(["tree", ...MUTANTS])
-					const seats = yield* seatPoolOf(lowerings)
-					const shapes = nonEmpty(shapesBetween(1, 3, upToTwoRoots, 2), "a box holds a shape")
-					return yield* exhaust(
-						{
-							suite: "substrate/tree-shapes",
-							generator: shapeGen(shapes),
-							literal: Formatter.format,
-							box: "every forest shape of one to three rows with at most two self-parented rows and every assignment of two root values, up to relabelling and swapping the values, with each row's start in [0, N) and end in [1, N], the family and copies the host's",
-							oracle: THEOREM_ORACLE,
-							coverage: requiredInSpace<StateFeature>([
-								"tree committed",
-								"tree committed a forest of two trees",
-								"tree refused copy",
-								"tree refused order",
-								"tree refused root",
-								"tree refused first",
-								"tree refused interval",
-								"tree refused last",
-								"tree refused at commit",
-								"tree refused a cycle",
-								"tree refused no root",
-								"tree refused two roots",
-								"tree refused a row under another tree",
-								"tree refused an interval",
-								"without T0 killed",
-								"T3 without its check killed",
-								"T5 without end killed",
-								"without T6 killed"
-							]),
-							caseHang,
-							concurrency: casesAtOnce(lowerings.length)
-						},
-						(rows, c) =>
-							Effect.flatMap(Pool.get(seats), (set) => Effect.asVoid(judgeCase(set, [rows], c)))
-					)
-				})
-			)
-	)
-
-	it.effect(
-		"commit exactly the pre-order intervals among the starts and ends that pass the row checks, every shape of four and five rows with every root assignment and of six with one",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const lowerings = loweringsOf(["tree", ...MUTANTS])
-					const seats = yield* seatPoolOf(lowerings)
-					const placements = nonEmpty(
-						Arr.flatMap(
-							[
-								...shapesBetween(4, 5, { min: 1, max: 2 }, 2),
-								...shapesBetween(6, 6, { min: 1, max: 1 }, 1)
-							],
-							placementsOf
-						),
-						"a box holds a placement"
-					)
-					return yield* exhaust(
-						{
-							suite: "substrate/tree-checked",
-							generator: checkedGen(placements),
-							literal: Formatter.format,
-							box: "every shape of four and five rows with one or two self-parented rows and every assignment of two root values, and of six rows with one root and one value, up to relabelling, the family and copies the host's, with every start and end its rows' checks pass: T1's starts apart per value, T2's roots at 0, T3's first children one past their parents, a leaf's end its start + 1 and any other in (start, N]",
-							oracle: THEOREM_ORACLE,
-							coverage: requiredInSpace<StateFeature>([
-								"tree committed",
-								"tree committed a forest of two trees",
-								"tree refused copy",
-								"tree refused closure",
-								"tree refused last",
-								"tree refused at commit",
-								"tree refused a cycle",
-								"tree refused a row under another tree",
-								"tree refused an interval",
-								"without T0 killed",
-								"without T0 commits a row under another tree",
-								"P3's counterexample refused by tree",
-								"P3's counterexample committed without T0",
-								"T5 without end killed"
-							]),
-							caseHang,
-							concurrency: casesAtOnce(lowerings.length)
-						},
-						(rows, c) =>
-							Effect.flatMap(Pool.get(seats), (set) => Effect.asVoid(judgeCase(set, [rows], c)))
-					)
-				})
-			)
-	)
-
-	it.effect(
-		"refuse every single mutation of every tree and two-tree forest of at most six rows that leaves no forest of trees, at the moment and by a constraint the model allows",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const lowerings = loweringsOf(["tree", ...MUTANTS])
-					const seats = yield* seatPoolOf(lowerings)
-					return yield* exhaust(
-						{
-							suite: "substrate/tree-mutations",
-							generator: forestMutationGen(forestBox.rows),
-							literal: Formatter.format,
-							box: "every single mutation of every tree, and of every forest of two trees, of one to six rows in all, each named",
-							oracle: THEOREM_ORACLE,
-							coverage: requiredInSpace<StateFeature | MutationFeature>([
-								"a root's at committed",
-								...Arr.map(MUTATION_KINDS, (k): MutationFeature => `${k} refused`),
-								"tree refused copy",
-								"tree refused at commit",
-								"tree refused two roots",
-								"tree refused a cycle",
-								"tree refused a row under another tree",
-								"without T0 killed by a row in another tree",
-								"T3 without its check killed by a gap",
-								"T5 without end killed by a wrong end",
-								"without T6 killed"
-							]),
-							caseHang,
-							concurrency: casesAtOnce(lowerings.length)
-						},
-						(mutation, c) =>
-							Effect.gen(function* () {
-								const set = yield* Pool.get(seats)
-								const outcomes = yield* judgeCase(set, [mutation.rows], c)
-								for (const outcome of outcomes) {
-									const label: Label = outcome.label
-									switch (label) {
-										case "tree":
-											c.note(`${mutation.kind} ${outcome.committed ? "committed" : "refused"}`)
-											break
-										case "without T0":
-										case "T3 without its check":
-										case "T5 without end":
-										case "without T6":
-											if (outcome.wrong) {
-												c.note(`${label} killed by ${mutation.kind}`)
-											}
-											break
-									}
-								}
-							})
-					)
-				})
-			)
-	)
-
-	it.effect(
-		"commit every tree and two-tree forest of at most six rows from one INSERT in every row order and from its pre-order in every split, and judge every split of its reverse pre-order by each constraint's moment",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const lowerings = loweringsOf(["tree", ...CONTROLS])
-					const seats = yield* seatPoolOf(lowerings)
-					const forests = forestsOf(forestBox.rows)
-					return yield* exhaust(
-						{
-							suite: "substrate/tree-writes",
-							generator: writeGen(forests),
-							literal: Formatter.format,
-							box: "every tree and every forest of two trees of one to six rows in all, every order of its rows within one INSERT, and every split of its pre-order and its reverse pre-order into consecutive INSERTs",
-							oracle: THEOREM_ORACLE,
-							coverage: requiredInSpace<StateFeature | WriteFeature>([
-								"one insert in pre-order committed",
-								"one insert with a child before its parent committed",
-								"one insert with a sibling before its predecessor committed",
-								"a pre-order split committed",
-								"a reverse pre-order split committed",
-								"a reverse pre-order split refused",
-								"tree committed a forest of two trees",
-								"as written refuses a tree",
-								"targets every row refuses a tree"
-							]),
-							caseHang,
-							concurrency: casesAtOnce(lowerings.length)
-						},
-						(write, c) =>
-							Effect.gen(function* () {
-								const statements = statementsOf(write)
-								const set = yield* Pool.get(seats)
-								const outcomes = yield* judgeCase(set, statements, c)
-								const committed = Arr.some(outcomes, (o) => o.label === "tree" && o.committed)
-								const refusedWrite = (why: string) =>
-									new Disagreed({ message: `${why}: ${Formatter.format(statements)}` })
-								switch (write.kind) {
-									case "one insert": {
-										if (!committed) {
-											return yield* refusedWrite("one insert of a forest was refused")
-										}
-										c.note(
-											sentBefore(
-												write.rows,
-												(row, later) => later.id === row.parent && later.id !== row.id
-											)
-												? "one insert with a child before its parent committed"
-												: sentBefore(
-															write.rows,
-															(row, later) =>
-																row.parent !== row.id &&
-																later.parent === row.parent &&
-																later.at === row.at - 1
-													  )
-													? "one insert with a sibling before its predecessor committed"
-													: "one insert in pre-order committed"
-										)
-										break
-									}
-									case "split": {
-										if (write.order === "pre-order") {
-											if (!committed) {
-												return yield* refusedWrite("a pre-order split was refused")
-											}
-											if (write.statements.length > 1) {
-												c.note("a pre-order split committed")
-											}
-										} else {
-											c.note(`a reverse pre-order split ${committed ? "committed" : "refused"}`)
-										}
-										break
-									}
-								}
-							})
-					)
-				})
-			)
-	)
-})
+					})
+				),
+		oracle: THEOREM_ORACLE,
+		box: "every tree and every forest of two trees of one to six rows in all, every order of its rows within one INSERT, and every split of its pre-order and its reverse pre-order into consecutive INSERTs",
+		show: Formatter.format,
+		kept: [],
+		kills: []
+	})
