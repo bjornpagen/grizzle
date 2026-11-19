@@ -172,8 +172,8 @@ const bodyCores = (body: OperandBody): ReadonlyArray<SelectCore> => {
 	}
 }
 
-/** Every table a query reads, wherever it stands: its body, a derived table, a sublink or a CTE. */
-export const tableReads = (query: OperandSelect): ReadonlyArray<TableRead> => {
+/** A query and every query it holds, wherever it stands: a derived table, a sublink or a CTE. */
+const queriesOf = (query: OperandSelect): ReadonlyArray<OperandSelect> => {
 	const queries: Array<OperandSelect> = [query]
 	visitSelect(query, {
 		...inertVisitor,
@@ -195,21 +195,31 @@ export const tableReads = (query: OperandSelect): ReadonlyArray<TableRead> => {
 			}
 		}
 	})
-	return Arr.flatMap(queries, (q) => Arr.flatMap(bodyCores(q.body), coreReads))
+	return queries
 }
 
-/** The NOT EXISTS sublinks of a query: the containment's own, and one for each negated arm. */
+/** Every table a query reads, wherever it stands: its body, a derived table, a sublink or a CTE. */
+export const tableReads = (query: OperandSelect): ReadonlyArray<TableRead> =>
+	Arr.flatMap(queriesOf(query), (q) => Arr.flatMap(bodyCores(q.body), coreReads))
+
+/**
+ * The negations of a query: each EXCEPT, the containment's own set difference (lower/conservative/anti-join
+ * exceptOf), and each NOT EXISTS sublink, one for each negated arm.
+ */
 export const negations = (query: OperandSelect): number => {
-	let count = 0
+	let sublinks = 0
 	visitSelect(query, {
 		...inertVisitor,
 		expr: (e) => {
 			if (e.kind === "exists" && e.not) {
-				count += 1
+				sublinks += 1
 			}
 		}
 	})
-	return count
+	return (
+		sublinks +
+		Arr.filter(queriesOf(query), (q) => q.body.kind === "setOp" && q.body.op === "EXCEPT").length
+	)
 }
 
 const keyChanges = ["kept", "widened", "moved"] as const
