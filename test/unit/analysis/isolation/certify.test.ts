@@ -688,9 +688,7 @@ export const theIsolationCertifierRunsARoleWithAChangeMemberThatHasNoREADCOMMITT
 								: [],
 							Arr.map(sites.value.sites, (u): ReasonSite => ({
 								condition: "form",
-								member: u.member,
-								statement: undefined,
-								relation: u.relation
+								at: { kind: "member", member: u.member, relation: u.relation }
 							})),
 							`${v.role} names each member with no READ COMMITTED form, and nothing else`
 						)

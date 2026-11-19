@@ -11,6 +11,7 @@ import {
 	type IsolationCondition,
 	isolationOf,
 	type IsolationReason,
+	type ReasonAt,
 	readModes,
 	type ReadSeal,
 	readSeal,
@@ -4194,8 +4195,22 @@ export const unjoinedReason = "a row it writes is not joined with the read of "
 const unjoinedCount = regex("nor with \\d+ more outside read\\(s\\) there$")
 
 /** A reason as the comparison keys it, whole. */
+/** A reason's place as its keys spell it: its member, its statement and its relation, `-` for each it names none of. */
+const placeText = (at: ReasonAt): string => {
+	switch (at.kind) {
+		case "role":
+			return "-|-|-"
+		case "relation":
+			return `-|-|${at.relation}`
+		case "member":
+			return `${at.member}|-|${at.relation}`
+		case "statement":
+			return `${at.member}|${at.statement}|${at.relation}`
+	}
+}
+
 export const unmaskedKey = (r: IsolationReason): string =>
-	`${r.condition}|${r.member ?? "-"}|${r.statement ?? "-"}|${r.relation ?? "-"}|${r.detail}`
+	`${r.condition}|${placeText(r.at)}|${r.detail}`
 
 /**
  * The reasons the writes of role `i`'s members give where they are joined with none of some outside reads of their
@@ -4299,7 +4314,7 @@ export const unjoinedOracle = (
  * again at each site (unjoinedOracle holds the count to that).
  */
 export const reasonKey = (r: IsolationReason): string =>
-	`${r.condition}|${r.member ?? "-"}|${r.statement ?? "-"}|${r.relation ?? "-"}|${Str.replace(
+	`${r.condition}|${placeText(r.at)}|${Str.replace(
 		unjoinedCount,
 		"nor with more outside reads there"
 	)(r.detail)}`
@@ -4432,14 +4447,9 @@ export const formCandidates = (
 	})
 
 /** A reason as the form search compares it: where it applies and its condition, not its prose. */
-export type ReasonSite = Pick<IsolationReason, "condition" | "member" | "statement" | "relation">
+export type ReasonSite = Pick<IsolationReason, "condition" | "at">
 
-export const reasonSite = (r: IsolationReason): ReasonSite => ({
-	condition: r.condition,
-	member: r.member,
-	statement: r.statement,
-	relation: r.relation
-})
+export const reasonSite = (r: IsolationReason): ReasonSite => ({ condition: r.condition, at: r.at })
 
 export type FormFeature =
 	| "a role SERIALIZABLE by form"

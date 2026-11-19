@@ -144,10 +144,10 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 					const reasons =
 						certified.certificate.level === "serializable" ? certified.certificate.reasons : []
 					for (const reason of reasons) {
-						if (reason.relation !== undefined) {
+						if (reason.at.kind !== "role") {
 							assert.ok(
-								!Str.startsWith("?")(reason.relation),
-								`role ${certified.role}: ${reason.relation} is an object the installed names resolve`
+								!Str.startsWith("?")(reason.at.relation),
+								`role ${certified.role}: ${reason.at.relation} is an object the installed names resolve`
 							)
 						}
 					}

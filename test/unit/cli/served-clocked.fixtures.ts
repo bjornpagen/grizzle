@@ -4,7 +4,7 @@ import { element, type Gen, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
-import type { RoleCertificate } from "#compiler/analysis/isolation/certify.ts"
+import type { ReasonAt, RoleCertificate } from "#compiler/analysis/isolation/certify.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { clockedMember, workload } from "#compiler/program/workload/value.ts"
@@ -175,14 +175,24 @@ export type Feature =
 	| "a clocked read beside a live read of its relation"
 
 /** A certificate as the comparison reads it: its level, and each reason's condition, member and relation, in order. */
+/** A reason's place as the line spells it: its member and its relation, `-` for each it names none of. */
+const placeOf = (at: ReasonAt): string => {
+	switch (at.kind) {
+		case "role":
+			return "-:-"
+		case "relation":
+			return `-:${at.relation}`
+		case "member":
+		case "statement":
+			return `${at.member}:${at.relation}`
+	}
+}
+
 const certified = (certificate: RoleCertificate): string =>
 	certificate.level === "readCommitted"
 		? "readCommitted"
 		: `serializable ${Arr.join(
-				Arr.map(
-					certificate.reasons,
-					(r) => `${r.condition}:${r.member ?? "-"}:${r.relation ?? "-"}`
-				),
+				Arr.map(certificate.reasons, (r) => `${r.condition}:${placeOf(r.at)}`),
 				" "
 			)}`
 

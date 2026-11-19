@@ -347,9 +347,12 @@ const reason = (
 	detail: string
 ): IsolationReason => ({
 	condition,
-	member: `m${member}`,
-	statement,
-	relation: relation === undefined ? undefined : relationName(relation),
+	at:
+		relation === undefined
+			? { kind: "role" }
+			: statement === undefined
+				? { kind: "member", member: `m${member}`, relation: relationName(relation) }
+				: { kind: "statement", member: `m${member}`, statement, relation: relationName(relation) },
 	detail
 })
 

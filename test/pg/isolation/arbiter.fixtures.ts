@@ -98,9 +98,7 @@ const certificateAt = (level: Isolation): RoleCertificate =>
 				reasons: [
 					{
 						condition: "facts",
-						member: undefined,
-						statement: undefined,
-						relation: undefined,
+						at: { kind: "role" },
 						detail: "the race runs the importer SERIALIZABLE"
 					}
 				]

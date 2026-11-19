@@ -36,9 +36,7 @@ const refused = (reason: IsolationReason): RoleCertificate => ({
 /** A writer of A and B: SERIALIZABLE, its m1 reading the absence of B, which the role writes. */
 const writerAbsence: RoleCertificate = refused({
 	condition: "absence",
-	member: "m1",
-	statement: 0,
-	relation: "B",
+	at: { kind: "statement", member: "m1", statement: 0, relation: "B" },
 	detail: "m1 reads the absence of B, which the role writes"
 })
 

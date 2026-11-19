@@ -132,12 +132,26 @@ export type IsolationCondition =
 	| "pivot"
 	| "writers"
 
-/** One condition a role fails, where: the member and the statement in its flight, and the relation, where they apply. */
+/**
+ * Where a role fails a condition: the role as a whole; a relation it touches; a change member's write of a relation,
+ * which has no READ COMMITTED form; or a statement in a member's flight, by its place there, and the relation it reads
+ * or writes.
+ */
+export type ReasonAt =
+	| { readonly kind: "role" }
+	| { readonly kind: "relation"; readonly relation: string }
+	| { readonly kind: "member"; readonly member: string; readonly relation: string }
+	| {
+			readonly kind: "statement"
+			readonly member: string
+			readonly statement: number
+			readonly relation: string
+	  }
+
+/** One condition a role fails, where (ReasonAt), and why. */
 export interface IsolationReason {
 	readonly condition: IsolationCondition
-	readonly member: string | undefined
-	readonly statement: number | undefined
-	readonly relation: string | undefined
+	readonly at: ReasonAt
 	readonly detail: string
 }
 
@@ -1711,16 +1725,21 @@ const roleView = (at: Installation, served: Served): RoleView => {
 	}
 }
 
-const reason = (
-	condition: IsolationCondition,
-	at: { readonly member?: string; readonly statement?: number; readonly relation?: string },
-	detail: string
-): IsolationReason => ({
+const reason = (condition: IsolationCondition, at: ReasonAt, detail: string): IsolationReason => ({
 	condition,
-	member: at.member,
-	statement: at.statement,
-	relation: at.relation,
+	at,
 	detail
+})
+
+/** A relation a role touches, as a reason's place. */
+const atRelation = (relation: string): ReasonAt => ({ kind: "relation", relation })
+
+/** A statement in a member's flight and the relation it reads or writes, as a reason's place. */
+const atStatement = (member: string, statement: number, relation: string): ReasonAt => ({
+	kind: "statement",
+	member,
+	statement,
+	relation
 })
 
 /** Every relation the role touches, by a privilege, a write, a check, a probe of its writes or a read of other than its
@@ -1739,7 +1758,7 @@ const factReasons = (at: Installation, view: RoleView): ReadonlyArray<IsolationR
 	].flatMap((relation) =>
 		at.relations.has(relation)
 			? []
-			: [reason("facts", { relation }, "the installation states no fact of it")]
+			: [reason("facts", atRelation(relation), "the installation states no fact of it")]
 	)
 
 /** The members condition: the role has a change member, whose facts the other conditions read. */
@@ -1748,7 +1767,7 @@ const memberReasons = (role: RoleFacts): ReadonlyArray<IsolationReason> =>
 		? [
 				reason(
 					"members",
-					{},
+					{ kind: "role" },
 					"it has no change member: it writes, if at all, by direct SQL alone, which no member's facts prove"
 				)
 			]
@@ -1763,7 +1782,7 @@ const privilegeReasons = (
 ): ReadonlyArray<IsolationReason> => [
 	...[...role.privileges].flatMap(([relation, privileges]) =>
 		[...privileges].flatMap((p) =>
-			insertAndSelect.has(p) ? [] : [reason("privileges", { relation }, `holds ${p}`)]
+			insertAndSelect.has(p) ? [] : [reason("privileges", atRelation(relation), `holds ${p}`)]
 		)
 	),
 	...[...written].flatMap((relation) =>
@@ -1772,7 +1791,7 @@ const privilegeReasons = (
 			: [
 					reason(
 						"privileges",
-						{ relation },
+						atRelation(relation),
 						"it writes the relation, which a role updates or deletes, so it is not insert-only"
 					)
 				]
@@ -1794,7 +1813,7 @@ const lawReasons = (at: Installation, view: RoleView): ReadonlyArray<IsolationRe
 			: [
 					reason(
 						"laws",
-						{ relation },
+						atRelation(relation),
 						`laws ${laws.join(", ")} over it are held by triggers, and its write of it can make a violation true that reads another row some role's write can make present or absent, or reads its row other than as one row of a match`
 					)
 				]
@@ -1860,7 +1879,7 @@ const absenceReasons = (
 		(absent.get(relation) ?? []).map((s) =>
 			reason(
 				"absence",
-				{ member: s.member, statement: s.statement, relation },
+				atStatement(s.member, s.statement, relation),
 				`${s.reader.role} of ${s.reader.login} ${s.how}`
 			)
 		)
@@ -1881,7 +1900,7 @@ const snapshotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
 					? [
 							reason(
 								"snapshot",
-								{ member: v.member.name, statement: p.statement, relation: p.read.relation },
+								atStatement(v.member.name, p.statement, p.read.relation),
 								`it reads ${p.read.relation} unsealed while the member reads rows another call can write at another snapshot too: ${p.seal.detail}`
 							)
 						]
@@ -1892,7 +1911,7 @@ const snapshotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
 					? [
 							reason(
 								"snapshot",
-								{ member: v.member.name, statement: c.statement, relation: c.relation },
+								atStatement(v.member.name, c.statement, c.relation),
 								`its foreign key check of ${c.relation} is unsealed and reads at another snapshot than the member's other outside reads: ${c.seal.detail}`
 							)
 						]
@@ -1949,7 +1968,7 @@ const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
 				? [
 						reason(
 							"pivot",
-							{ member: name, statement: c.statement, relation: c.relation },
+							atStatement(name, c.statement, c.relation),
 							`its foreign key check: ${c.seal.detail}`
 						)
 					]
@@ -1962,7 +1981,7 @@ const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
 			return checks
 		}
 		const unsealed = v.outsides.flatMap((p) => {
-			const where = { member: name, statement: p.statement, relation: p.read.relation }
+			const where = atStatement(name, p.statement, p.read.relation)
 			if (p.seal.kind === "unsealed") {
 				return [reason("pivot", where, p.seal.detail)]
 			}
@@ -1984,7 +2003,7 @@ const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
 		const readsAt = byStatement(v.reads)
 		const outsidesAt = byStatement(v.outsides)
 		const unjoined = writes.flatMap(({ statement, w }) => {
-			const where = { member: name, statement, relation: w.relation }
+			const where = atStatement(name, statement, w.relation)
 			const from = new TupleSet<readonly [number | undefined, number]>()
 			for (const at of w.from) {
 				from.add([at.cte, at.read])
@@ -2063,7 +2082,7 @@ const serializableReasons = (
 			(other.sites.get(relation) ?? []).map((s) =>
 				reason(
 					"laws",
-					{ member: s.member, statement: s.statement, relation },
+					atStatement(s.member, s.statement, relation),
 					s.by === "statement"
 						? `${other.role.role} of ${other.role.login} reads it at SERIALIZABLE`
 						: `${other.role.role} of ${other.role.login} reads it by a foreign key check at SERIALIZABLE`
@@ -2075,7 +2094,7 @@ const serializableReasons = (
 				? [
 						reason(
 							"writers",
-							{ relation },
+							atRelation(relation),
 							`${other.role.role} of ${other.role.login} runs SERIALIZABLE and writes it too, so the guard admits no READ COMMITTED write of it`
 						)
 					]
@@ -2092,7 +2111,7 @@ const serializableReasons = (
 							? [
 									reason(
 										"writers",
-										{ relation },
+										atRelation(relation),
 										`${other.role.role} of ${other.role.login} writes it, and ${pivot}`
 									)
 								]
@@ -2374,7 +2393,7 @@ const formReasons = (
 	mapNonEmpty(unformed, (u) =>
 		reason(
 			"form",
-			{ member: u.member, relation: u.relation },
+			{ kind: "member", member: u.member, relation: u.relation },
 			`it inserts into ${u.relation}, whose primary key holds a span: an exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so the insert has no READ COMMITTED form`
 		)
 	)
