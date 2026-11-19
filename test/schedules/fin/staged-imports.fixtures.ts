@@ -1,4 +1,4 @@
-/** An entry's path: any text its key beside the package's uuid holds, as pantry's EntryPath is bounded. */
+/** What the property of staged-imports.test.ts reads: the imports' schema, its rig and the exploration of their race. */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Formatter, Record as Rec, Result, String as Str } from "effect"
 import { onceCalls } from "#adapter/db/handles.ts"
@@ -32,6 +32,7 @@ import { rigIn, rigTemplate } from "#test/support/schedules/rig.ts"
 import { beginSerializableAction } from "#test/support/schedules/types.ts"
 import { textBound } from "#test/support/staged.ts"
 import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
+/** An entry's path: any text its key beside the package's uuid holds, as pantry's EntryPath is bounded. */
 const EntryPath = str.bytes(keyTextBytes([Id]), str.regex("^.*$", "su"))
 const Package = relation("Package", { id: Id, entries: drawn(natural), name: pg.integer }, ["id"])
 const Entry = relation(
