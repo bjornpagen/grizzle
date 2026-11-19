@@ -11,11 +11,11 @@ lefthook: node_modules/.bin/lefthook
 # (oxlint.ast.config.ts, the full configuration without its type-aware rules) on the files it reads, side by side. A
 # merge or rebase skips pre-commit, so the push typechecks HEAD, what it brought; that push job is a script job
 # (.lefthook/pre-push/gate.sh), since lefthook skips a pre-push run job whenever `git diff HEAD @{push}` names no file,
-# and a push of the toolchain's gitlink alone, of deletions alone or of an empty commit would go out unchecked. The full
-# gate, pnpm check (the non-incremental typecheck, the type-aware oxlint, the workspace gate, fallow), is no hook: it
-# takes minutes cold, its root tasks re-run on any change to the repository, and main takes a commit every two minutes
-# or so, so a push that waited for it would rarely find main where it left it. Run it by hand before closing a lane, or
-# on exactly what the index holds with `sh vendor/toolchain/packages/devtools/bin/gate.sh run index pnpm check`.
+# and a push of the toolchain's gitlink alone, of deletions alone or of an empty commit would go out unchecked. The push
+# runs the full gate, pnpm check (the non-incremental typecheck, the type-aware oxlint, the workspace gate, fallow), on
+# HEAD's snapshot: since the type-aware lint runs on tsrs (toolchain 978aa63) it takes about half a minute, and a push
+# that skipped it let a type-aware lint red reach main (bf2e6945f). Run it by hand on exactly what the index holds with
+# `sh vendor/toolchain/packages/devtools/bin/gate.sh run index pnpm check`.
 pre-commit:
   skip:
     - merge
@@ -25,6 +25,6 @@ pre-commit:
       run: sh vendor/toolchain/packages/devtools/bin/gate.sh commit
 pre-push:
   jobs:
-    - name: types
+    - name: check
       script: gate.sh
       runner: sh
