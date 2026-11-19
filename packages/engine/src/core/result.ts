@@ -1,4 +1,5 @@
 import type { Result as Public } from "effect"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 
 /**
  * The engine's answer to a step that can refuse: a tagged union with no runtime dependency. Compiler passes return a
@@ -44,3 +45,38 @@ export const flatMap = <A, B, E, F>(r: Result<A, E>, f: (a: A) => Result<B, F>):
 /** `f` applied to the error, keeping a success. */
 export const mapError = <A, E, F>(r: Result<A, E>, f: (e: E) => F): Result<A, F> =>
 	r.ok ? r : err(f(r.error))
+
+/**
+ * Each of `xs` mapped by `f`, with its position, in order, or the first refusal: the one traverse of the engine's
+ * Result, which maps no item past the first that refuses.
+ */
+export const each = <A, B, E>(
+	xs: ReadonlyArray<A>,
+	f: (a: A, at: number) => Result<B, E>
+): Result<ReadonlyArray<B>, E> => {
+	const out: Array<B> = []
+	for (const [at, x] of xs.entries()) {
+		const y = f(x, at)
+		if (!y.ok) {
+			return y
+		}
+		out.push(y.value)
+	}
+	return ok(Object.freeze(out))
+}
+
+/** A non-empty list's `each`, its answer non-empty. */
+export const eachNonEmpty = <A, B, E>(
+	xs: NonEmptyReadonlyArray<A>,
+	f: (a: A, at: number) => Result<B, E>
+): Result<NonEmptyReadonlyArray<B>, E> => {
+	const [head, ...tail] = xs
+	const first = f(head, 0)
+	if (!first.ok) {
+		return first
+	}
+	return map(
+		each(tail, (a, at) => f(a, at + 1)),
+		(rest) => [first.value, ...rest] as const
+	)
+}

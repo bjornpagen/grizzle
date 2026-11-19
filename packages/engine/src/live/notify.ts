@@ -366,17 +366,8 @@ const fromBase64 = (text: string): Uint8Array | undefined => {
  */
 export const batchNotifications = (
 	text: string
-): Result.Result<ReadonlyArray<Notification>, LiveTextRefused> => {
-	const notifications: Array<Notification> = []
-	for (const part of text.split(separator)) {
-		const parsed = parseNotification(part)
-		if (!parsed.ok) {
-			return parsed
-		}
-		notifications.push(parsed.value)
-	}
-	return Result.ok(notifications)
-}
+): Result.Result<ReadonlyArray<Notification>, LiveTextRefused> =>
+	Result.each(text.split(separator), (part) => parseNotification(part))
 
 /**
  * The notifications a payload of the channel holds, or what it parts from a sealed batch at: base64, of a nonce, a

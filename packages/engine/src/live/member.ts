@@ -210,19 +210,6 @@ interface Binding {
 
 type Bound<A> = Result.Result<A, CompileError>
 
-/** Each of `items` mapped by `f`, the first refusal kept. */
-const each = <A, B>(items: ReadonlyArray<A>, f: (item: A) => Bound<B>): Bound<ReadonlyArray<B>> => {
-	const out: Array<B> = []
-	for (const item of items) {
-		const mapped = f(item)
-		if (!mapped.ok) {
-			return mapped
-		}
-		out.push(mapped.value)
-	}
-	return Result.ok(out)
-}
-
 /** A value's JSON with no null in it: a head literal's spelling, which a scalar's encode never writes as null. */
 const literalJson = (json: WireJson): Json => {
 	if (json === null) {
@@ -302,7 +289,7 @@ const fieldsOf = (
 ): Bound<ReadonlyArray<WireNamed<ServedLeaf>>> => {
 	switch (form.kind) {
 		case "record":
-			return each(form.fields, ([key, field]): Bound<WireNamed<ServedLeaf>> => {
+			return Result.each(form.fields, ([key, field]): Bound<WireNamed<ServedLeaf>> => {
 				if (field.kind !== "column") {
 					return Result.map(attachedField(binding, key, field, layout), (f) => ({
 						name: key,
@@ -413,7 +400,7 @@ const recordOf = (
 	layouts: NonEmptyReadonlyArray<TypedLayout>
 ): Bound<WireRecord<ServedLeaf>> =>
 	Result.flatMap(
-		each(layouts, (layout) => fieldsOf(binding, form, layout)),
+		Result.each(layouts, (layout) => fieldsOf(binding, form, layout)),
 		(headings) => {
 			const merged: Array<ReadonlyArray<WireNamed<ServedLeaf>>> = []
 			for (const heading of headings) {
@@ -483,7 +470,7 @@ const keyOf = (
 	record: WireRecord<ServedLeaf>,
 	fields: ReadonlyArray<string>
 ): Bound<ReadonlyArray<WireKeyColumn<ServedLeaf>>> =>
-	each(fields, (name): Bound<WireKeyColumn<ServedLeaf>> => {
+	Result.each(fields, (name): Bound<WireKeyColumn<ServedLeaf>> => {
 		const held = record.flatMap((heading) =>
 			heading.flatMap((named) => (named.name === name ? [named.field] : []))
 		)
@@ -514,7 +501,7 @@ const windowKeyOf = (
 	binding: Binding,
 	key: ReadonlyArray<WireKeyColumn<ServedLeaf>>
 ): Bound<ReadonlyArray<WireColumn<ServedLeaf>>> =>
-	each(key, (column) =>
+	Result.each(key, (column) =>
 		column.kind === "lacked"
 			? Result.err(refusedAt(binding.role, binding.member, "a page key column every heading holds"))
 			: Result.ok(column)
@@ -567,7 +554,7 @@ const factOf = (input: InputData): NonEmptyReadonlyArray<WireLevel<ServedLeaf>> 
 /** A change's input: its declared parameters, and each array member's facts, in its members' order. */
 const changeInput = (binding: Binding, change: ServedChange): Bound<WireInput<ServedLeaf>> =>
 	Result.map(
-		each(change.members, (member): Bound<WireFacts<ServedLeaf>> => {
+		Result.each(change.members, (member): Bound<WireFacts<ServedLeaf>> => {
 			const input = inputOfSlot(change, member.slot)
 			if (input === undefined) {
 				return Result.err(
@@ -705,7 +692,7 @@ export const memberShape = (
 			const [first, ...rest] = changesOf(member.variants)
 			return Result.flatMap(changeShape(binding, first), (shape) =>
 				Result.flatMap(
-					each(rest, (change) => changeShape(binding, change)),
+					Result.each(rest, (change) => changeShape(binding, change)),
 					(others) =>
 						others.every((other) => sameJson(shapeWire(other), shapeWire(shape)))
 							? Result.ok(shape)

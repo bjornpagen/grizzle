@@ -286,22 +286,6 @@ type Read<A> = Result.Result<A, WireFault>
 
 const refused = (kind: WireFault["kind"], at: Path): Read<never> => Result.err({ kind, at })
 
-/** Each of `items` read by `read`, the first refusal kept. */
-const readEach = <A, B>(
-	items: ReadonlyArray<A>,
-	read: (item: A, index: number) => Read<B>
-): Read<ReadonlyArray<B>> => {
-	const out: Array<B> = []
-	for (const [index, item] of items.entries()) {
-		const one = read(item, index)
-		if (!one.ok) {
-			return one
-		}
-		out.push(one.value)
-	}
-	return Result.ok(Object.freeze(out))
-}
-
 /** A caller's anchor as a walk builds it, a keyed one's key as its door builds a key. */
 type WalkedAnchor<K> =
 	| { readonly kind: "start" | "end" }
@@ -387,7 +371,7 @@ const walkInput = <V, P, F, K, N>(
 		at: Path
 	): Read<ReadonlyArray<V>> =>
 		Result.flatMap(elements, (given) =>
-			readEach(given, (one, position) => fact(levels, index, one, [...at, position]))
+			Result.each(given, (one, position) => fact(levels, index, one, [...at, position]))
 		)
 	const fact = (
 		levels: WireFacts<WireScalar>["levels"],
@@ -401,7 +385,7 @@ const walkInput = <V, P, F, K, N>(
 		}
 		return Result.flatMap(door.fact(given, level, at), ({ heading, members }) =>
 			Result.flatMap(
-				readEach(heading, (named) =>
+				Result.each(heading, (named) =>
 					Result.map(
 						column(named.field, members[named.name], [...at, named.name]),
 						(read): readonly [string, V] => [named.name, read]
@@ -409,7 +393,7 @@ const walkInput = <V, P, F, K, N>(
 				),
 				(own) =>
 					Result.map(
-						readEach(level.families, (family) => {
+						Result.each(level.families, (family) => {
 							const here = [...at, family.count]
 							return Result.map(
 								factsOf(door.list(members[family.count], here), levels, family.level, here),
@@ -430,7 +414,7 @@ const walkInput = <V, P, F, K, N>(
 			),
 			(byName) =>
 				Result.map(
-					readEach(input.params, (p): Read<readonly [string, V | ReadonlyArray<V>]> => {
+					Result.each(input.params, (p): Read<readonly [string, V | ReadonlyArray<V>]> => {
 						const here = [...at, p.name]
 						const param = p.param
 						return param.kind === "scalar"
@@ -459,7 +443,7 @@ const walkInput = <V, P, F, K, N>(
 		const ops = [...new Set(members.map((member) => member.op))]
 		return Result.flatMap(door.record(given, ops, at), (byOp) =>
 			Result.map(
-				readEach(ops, (op) => {
+				Result.each(ops, (op) => {
 					const ofOp = members.filter((member) => member.op === op)
 					const here = [...at, op]
 					return Result.flatMap(
@@ -470,7 +454,7 @@ const walkInput = <V, P, F, K, N>(
 						),
 						(byRelation) =>
 							Result.map(
-								readEach(ofOp, (member) => {
+								Result.each(ofOp, (member) => {
 									const there = [...here, member.relation]
 									return Result.map(
 										factsOf(door.list(byRelation[member.relation], there), member.levels, 0, there),
@@ -494,7 +478,7 @@ const walkInput = <V, P, F, K, N>(
 		Result.flatMap(door.list(given, at), (values) =>
 			values.length === columns.length
 				? Result.map(
-						readEach(columns, (c, index) => door.column(c, values[index], [...at, index])),
+						Result.each(columns, (c, index) => door.column(c, values[index], [...at, index])),
 						door.key
 					)
 				: refused("members", at)

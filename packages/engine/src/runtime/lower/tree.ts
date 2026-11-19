@@ -121,43 +121,19 @@ export const traverseTree = <A, B, E>(
 	let position = 0
 	const attached = (
 		trees: ReadonlyArray<AttachedTree<A>>
-	): Result.Result<ReadonlyArray<AttachedTree<B>>, E> => {
-		const out: Array<AttachedTree<B>> = []
-		for (const tree of trees) {
-			const statement = f(tree.statement, position++)
-			if (!statement.ok) {
-				return statement
-			}
-			const attachments = attached(tree.attachments)
-			if (!attachments.ok) {
-				return attachments
-			}
-			out.push({ statement: statement.value, attach: tree.attach, attachments: attachments.value })
-		}
-		return Result.ok(out)
-	}
-	const tree = (root: StatementTree<A>): Result.Result<StatementTree<B>, E> => {
-		const statement = f(root.statement, position++)
-		if (!statement.ok) {
-			return statement
-		}
-		return Result.map(attached(root.attachments), (attachments) => ({
-			statement: statement.value,
-			attachments
-		}))
-	}
-	const [first, ...rest] = roots
-	const head = tree(first)
-	if (!head.ok) {
-		return head
-	}
-	const out: [StatementTree<B>, ...Array<StatementTree<B>>] = [head.value]
-	for (const root of rest) {
-		const next = tree(root)
-		if (!next.ok) {
-			return next
-		}
-		out.push(next.value)
-	}
-	return Result.ok(out)
+	): Result.Result<ReadonlyArray<AttachedTree<B>>, E> =>
+		Result.each(trees, (tree) =>
+			Result.flatMap(f(tree.statement, position++), (statement) =>
+				Result.map(attached(tree.attachments), (attachments) => ({
+					statement,
+					attach: tree.attach,
+					attachments
+				}))
+			)
+		)
+	return Result.eachNonEmpty(roots, (root) =>
+		Result.flatMap(f(root.statement, position++), (statement) =>
+			Result.map(attached(root.attachments), (attachments) => ({ statement, attachments }))
+		)
+	)
 }

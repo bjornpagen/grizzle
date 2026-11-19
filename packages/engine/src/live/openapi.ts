@@ -675,14 +675,11 @@ const openApiDocument = (file: ServedFile): Result.Result<Json, CompileError> =>
 	const tags: Array<Json> = []
 	for (const role of file.roles) {
 		const witness = roleWitness(role)
-		const own: Array<Operation> = []
-		for (const member of role.members) {
-			const operation = operationOf(file, role, witness, member)
-			if (!operation.ok) {
-				return operation
-			}
-			own.push(operation.value)
+		const read = Result.each(role.members, (member) => operationOf(file, role, witness, member))
+		if (!read.ok) {
+			return read
 		}
+		const own = read.value
 		appendAll(operations, own)
 		tags.push({
 			name: role.name,
