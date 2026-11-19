@@ -138,10 +138,9 @@ const shapeText = (
 const expected = (a: Assignment): ReadonlyArray<string> =>
 	Arr.sort(
 		[
-			...Arr.flatMap(armsOf(a), (x) => [
-				shapeText(x.arm, "Parent", [`id → ‹id | ${Arr.join(x.handles, ",")}›`], true),
-				shapeText(x.arm, "Parent", ["id → id"], true)
-			]),
+			...Arr.map(armsOf(a), (x) =>
+				shapeText(x.arm, "Parent", [`id → ‹id | ${Arr.join(x.handles, ",")}›`], true)
+			),
 			...Arr.flatMap(handlesOf(a), (h, i) => {
 				const arm = a[i]
 				return arm === undefined || arm === "none"

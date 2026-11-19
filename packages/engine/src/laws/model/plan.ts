@@ -689,9 +689,8 @@ export const primaryKeyPlan = (r: RelationInfo, key: KeyName, loc: SourceLoc): P
  * A law's plan: its native objects, and where the law is discharged: on every write, by its natives; for a law that
  * reads closed relations alone, once by PostgreSQL in the migration that installs them, as its violation query over
  * their rows, so it installs nothing; or at every COMMIT by the rule judge (physical/ddl/rules.ts addRules) as `rule`
- * states it, and once by its violation query in the migration that adds it: a rule over a query, which installs
- * nothing, or a containment the law model discharges whole (`ContainmentDischarge`), which installs only the foreign
- * keys it implies at its source's keys (`keyReferences`), deferred to COMMIT, where the judge holds it.
+ * states it, and once by its violation query in the migration that adds it: a rule over a query, or a containment the
+ * law model discharges whole (`ContainmentDischarge`), either installing nothing.
  */
 export type LawPlan = {
 	readonly law: TheoryLaw
@@ -704,14 +703,10 @@ export type LawPlan = {
 /** A law that reads closed relations alone, discharged by the migration: no native. */
 const migrationPlan = (law: TheoryLaw): LawPlan => ({ law, natives: [], discharge: "migration" })
 
-/** A law the rule judge discharges at every COMMIT as `rule` states it, installing `natives`. */
-const judgedPlan = (
-	law: TheoryLaw,
-	rule: QueryRule,
-	natives: ReadonlyArray<NativePlan>
-): LawPlan => ({
+/** A law the rule judge discharges at every COMMIT as `rule` states it: no native. */
+const judgedPlan = (law: TheoryLaw, rule: QueryRule): LawPlan => ({
 	law,
-	natives,
+	natives: [],
 	discharge: "trigger",
 	rule
 })
@@ -867,108 +862,6 @@ const declaredFields = (r: TheoryRelation): ReadonlyArray<NonEmptyReadonlyArray<
 /** The declared keys of `r` with no span field. */
 const scalarKeys = (r: TheoryRelation): ReadonlyArray<NonEmptyReadonlyArray<LawField>> =>
 	declaredFields(r).filter((k) => !k.some(isSpanField))
-
-/** A foreign key as planned. */
-type ForeignKeyPlan = Extract<NativePlan, { readonly kind: "ForeignKey" }>
-
-/**
- * A containment as the foreign keys it implies read it (`keyReferences`): its source's relation and columns, the
- * target's columns each meets, in order, and the deferral and laws of what discharges it.
- */
-type ContainmentReference = Pick<
-	ForeignKeyPlan,
-	"relation" | "columns" | "target" | "targetColumns" | "deferral" | "laws"
->
-
-/**
- * Whether a column holds a value on every row of its relation: a field, a constant or a drawn law column, each NOT NULL;
- * a term's law column, a selected side's or a pred's, and a counted predecessor are null wherever their guard fails
- * (physical/ddl/tables.ts lawColumnGeneration), so a reference out of one binds only the rows its guard holds.
- */
-const total = (c: PlannedColumn): boolean => {
-	if (c.kind === "field") {
-		return true
-	}
-	switch (c.column.kind) {
-		case "constant":
-		case "drawn":
-			return true
-		case "term":
-		case "indexPred":
-			return false
-	}
-}
-
-/** The field whose values a referenced column holds wherever it holds one: a field, or a field term's law column under
- * its side's selection; none for a pred term's, which holds its field less one, or another law column. */
-const valuesOf = (c: PlannedColumn): LawField | undefined => {
-	if (c.kind === "field") {
-		return c.field
-	}
-	return c.column.kind === "term" && c.column.term.kind === "field"
-		? c.column.term.column
-		: undefined
-}
-
-/**
- * The foreign keys a containment implies at its source's keys, beside whatever discharges it, so PostgreSQL's estimate
- * of a join on exactly a key of each side reads a foreign key whose columns the join's clauses cover
- * (costsize.c get_foreign_key_join_selectivity, which reads no foreign key some of whose columns a join leaves
- * unmatched, the wider one a superkey or a family axis states among them): for each declared scalar key K of the
- * source whose every field is one of `reference`'s columns, the containment's every column holding a value on every
- * row (`total`), so it holds of every source fact, and the target columns K's fields meet holding fields T (`valuesOf`)
- * that are exactly a declared scalar key of the target, `FOREIGN KEY (K) REFERENCES target (T)`. The containment holds
- * K's values among T's (a selected target's facts among its relation's), so the key states nothing beyond its law,
- * whose laws and deferral it carries, NO ACTION as a containment's own key is; T is unique, so each source fact meets
- * one target fact, and K, a key, holds no two at one, so the join is one to one. A field met twice meets the target at
- * its first column, its term's, a fixed target's fixing coming after. None where K meets itself on its own relation,
- * which states nothing, or where the reference is itself K into T. T is a declared key's, so its UNIQUE is installed
- * already, and K's own index serves its reverse probe.
- */
-const keyReferences = (
-	reference: ContainmentReference,
-	loc: SourceLoc
-): ReadonlyArray<ForeignKeyPlan> => {
-	const { relation, columns, target, targetColumns } = reference
-	if (!columns.every(total)) {
-		return []
-	}
-	return scalarKeys(relation).flatMap((key): ReadonlyArray<ForeignKeyPlan> => {
-		const met = key.flatMap((f): ReadonlyArray<LawField> => {
-			const at = columns.findIndex((c) => c.kind === "field" && c.field === f)
-			const held =
-				at === -1 ? undefined : valuesOf(defined(targetColumns[at], "a target column per column"))
-			return held === undefined ? [] : [held]
-		})
-		const own = mapNonEmpty(key, fieldColumn)
-		if (
-			!isNonEmpty(met) ||
-			met.length !== key.length ||
-			!scalarKeys(target).some((k) => k.length === met.length && k.every((f) => met.includes(f))) ||
-			(relation.name === target.name && key.every((f, i) => met[i] === f)) ||
-			(columns.length === key.length && targetColumns.every((c) => c.kind === "field"))
-		) {
-			return []
-		}
-		return [
-			{
-				kind: "ForeignKey",
-				relation,
-				columns: own,
-				target,
-				targetColumns: mapNonEmpty(met, fieldColumn),
-				onUpdate: "noAction",
-				deferral: reference.deferral,
-				laws: reference.laws,
-				reverse: plannedReverse(
-					own,
-					`the index of ${relation.name} over its key (${fieldNames(key).join(", ")}), which references ${target.name}'s key (${fieldNames(met).join(", ")})`,
-					loc
-				)
-			}
-		]
-	})
-}
 
 /** A side's fields, or the refusal of `what` over a side with a pred term, which `what` reads as fields alone. */
 const fieldsOf = (
@@ -1807,13 +1700,12 @@ const isGenerated = (c: PlannedColumn): boolean => {
 /** The key a law column's plan is known by within a family: a drawn column's identifier. */
 
 /**
- * One axis of a family as planned: its foreign key, stating every law its pairs state, and its natives: the UNIQUE over
- * its target's columns it references, the law columns either side reads, and the foreign keys it implies at its
- * source's keys (`keyReferences`).
+ * One axis of a family as planned: its foreign key and the UNIQUE over its target's columns it references, the law
+ * columns either side reads, and every law its pairs state.
  */
 interface AxisPlan {
 	readonly natives: ReadonlyArray<NativePlan>
-	readonly foreignKey: ForeignKeyPlan
+	readonly foreignKey: Extract<NativePlan, { readonly kind: "ForeignKey" }>
 }
 
 /** A carried pair as planned: its two columns, each with its key in its row, and the laws it states. */
@@ -1864,10 +1756,6 @@ interface FamilyPlan {
  *   must contain a key (`TargetKey`): a declared scalar key of its relation, or a projected key with no span term, whose
  *   conjuncts are among the target's and whose terms are among its terms. Its UNIQUE is that key's when the columns are
  *   exactly a declared key's, and otherwise a generated superkey, exact because a superkey of a key is unique.
- * - A containment from an unselected source that carries a declared key of its source whole into a declared key of its
- *   target, stated (discharged by its foreign key or judged whole) or a family axis, is also FOREIGN KEY from exactly
- *   that key into exactly that one (`keyReferences`), its law's and deferred as its law is, where its own foreign key
- *   is not already that, so PostgreSQL estimates the one-to-one join on them by a foreign key.
  * - A fixed target (`fixedTargetOf`): a target of field terms whose selection fixes fields beyond them, each by one
  *   conjunct outside a key's selection (`Fixing`), `f = literal` or `f = t` with t one of its terms, where the key's
  *   conjuncts are among the target's and its terms among the target's terms and fixed fields. The target's columns are
@@ -2181,7 +2069,7 @@ export class Recognizer {
 					)
 				)
 			case "trigger":
-				return judgedPlan(law, route.rule, [])
+				return judgedPlan(law, route.rule)
 		}
 	}
 
@@ -2313,20 +2201,8 @@ export class Recognizer {
 						return done(
 							this.#scalarContainment(d.from, d.to, "rule", loc, { law: law.id, part: 0 })
 						)
-					case "whole": {
-						const implied = keyReferences(
-							{
-								relation: fromRel,
-								columns: sideColumns(d.from),
-								target: toRel,
-								targetColumns: sideColumns(d.to),
-								deferral: "deferred",
-								laws: undefined
-							},
-							loc
-						)
-						return judgedPlan(law, discharge.rule, implied)
-					}
+					case "whole":
+						return judgedPlan(law, discharge.rule)
 				}
 			}
 		}
@@ -2409,7 +2285,7 @@ export class Recognizer {
 	 * over the source's columns. A fixed target referenced at its fixed fields too is met by constant law columns and by
 	 * the source's own columns listed again, so the index over its columns alone serves every probe. Its deferral is the
 	 * schema-wide rule's for a stated containment, and deferred for a part of a lowered rule over a query, which its
-	 * triggers judged at COMMIT. Beside it, the foreign keys it implies at its source's keys (`keyReferences`).
+	 * triggers judged at COMMIT.
 	 */
 	#scalarContainment(
 		from: ResolvedSide,
@@ -2423,27 +2299,25 @@ export class Recognizer {
 		const sourceColumns = sideColumns(from)
 		const reference = this.#reference(to, sourceColumns, fromRel, toRel, loc, part)
 		const containment = `the containment of ${sideText(from)} in ${sideText(to)}`
-		const foreignKey: ForeignKeyPlan = {
-			kind: "ForeignKey",
-			relation: fromRel,
-			columns: reference.columns,
-			target: toRel,
-			targetColumns: reference.targetColumns,
-			onUpdate: "noAction",
-			deferral,
-			laws: undefined,
-			reverse: plannedReverse(
-				sourceColumns,
-				`the index of ${fromRel.name} over the columns ${containment} references from`,
-				loc
-			)
-		}
 		return [
 			...lawColumns(reference.columns),
 			...lawColumns(reference.targetColumns),
 			...this.#targetUnique(toRel, reference.targetColumns, containment, loc),
-			foreignKey,
-			...keyReferences(foreignKey, loc)
+			{
+				kind: "ForeignKey",
+				relation: fromRel,
+				columns: reference.columns,
+				target: toRel,
+				targetColumns: reference.targetColumns,
+				onUpdate: "noAction",
+				deferral,
+				laws: undefined,
+				reverse: plannedReverse(
+					sourceColumns,
+					`the index of ${fromRel.name} over the columns ${containment} references from`,
+					loc
+				)
+			}
 		]
 	}
 
@@ -2606,7 +2480,7 @@ export class Recognizer {
 		return [...planned.natives, ...conditionsOf(planned, law)]
 	}
 
-	/** The natives of the named axes beside their foreign keys (`AxisPlan`). */
+	/** The law column and UNIQUE natives the named axes' foreign keys read. */
 	#axisNatives(planned: FamilyPlan, axes: ReadonlyArray<AxisKind>): ReadonlyArray<NativePlan> {
 		return axes.flatMap((a) => planned.axes[a].natives)
 	}
@@ -3155,28 +3029,26 @@ class FamilyPlanner {
 		)
 		const own = this.#law.id
 		const laws = [...new Set(pairs.flatMap((p) => p.laws))].filter((l) => l !== own)
-		const foreignKey: ForeignKeyPlan = {
-			kind: "ForeignKey",
-			relation: source.relation,
-			columns,
-			target: target.relation,
-			targetColumns,
-			onUpdate,
-			deferral,
-			laws: [own, ...laws],
-			reverse: plannedReverse(
-				source.keyed,
-				`the index of ${source.relation.name} over the columns the ${kind} axis of ${familyText(this.#shape())} references its target's key from`,
-				this.#loc
-			)
-		}
 		return {
-			foreignKey,
+			foreignKey: {
+				kind: "ForeignKey",
+				relation: source.relation,
+				columns,
+				target: target.relation,
+				targetColumns,
+				onUpdate,
+				deferral,
+				laws: [own, ...laws],
+				reverse: plannedReverse(
+					source.keyed,
+					`the index of ${source.relation.name} over the columns the ${kind} axis of ${familyText(this.#shape())} references its target's key from`,
+					this.#loc
+				)
+			},
 			natives: [
 				...lawColumns(columns),
 				...lawColumns(targetColumns),
-				{ kind: "Unique", relation: target.relation, columns: targetColumns, entry },
-				...keyReferences(foreignKey, this.#loc)
+				{ kind: "Unique", relation: target.relation, columns: targetColumns, entry }
 			]
 		}
 	}
