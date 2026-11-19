@@ -340,11 +340,12 @@ type LiteralOutcome =
 	| "underflow"
 	| "infinity"
 	| "wrong host kind"
+	| "negative zero"
 
 /**
  * The literal rule restated (literal.ts): a float field takes a JavaScript number, its special values wrapped; a real
  * is its binary32 rounding (Math.fround), refused when a finite value rounds to an infinity (overflow) or a nonzero
- * value to zero (underflow), and -0 is +0 in either. A numeric field never takes a JavaScript number; numeric(p, s)
+ * value to zero (underflow), and -0 is its own value in either, spelled by its word as the specials are. A numeric field never takes a JavaScript number; numeric(p, s)
  * rounds a decimal to s fractional digits, half away from zero, refuses one that then needs more than p digits and
  * refuses an infinity. Zero has no sign.
  */
@@ -366,8 +367,11 @@ export const expectedLiteral = (
 		if (x === Number.NEGATIVE_INFINITY) {
 			return { expected: { kind: "float", literal: { float: "-Infinity" } }, outcome: "special" }
 		}
+		if (Object.is(x, -0)) {
+			return { expected: { kind: "float", literal: { float: "-0" } }, outcome: "negative zero" }
+		}
 		if (field.kind === "double precision") {
-			return { expected: { kind: "float", literal: x === 0 ? 0 : x }, outcome: "kept" }
+			return { expected: { kind: "float", literal: x }, outcome: "kept" }
 		}
 		const f = Math.fround(x)
 		if (!Number.isFinite(f)) {
@@ -377,7 +381,7 @@ export const expectedLiteral = (
 			return { expected: { kind: "fault", fault: "realUnderflow" }, outcome: "underflow" }
 		}
 		return {
-			expected: { kind: "float", literal: f === 0 ? 0 : f },
+			expected: { kind: "float", literal: f },
 			outcome: f === x ? "kept" : "rounded"
 		}
 	}
@@ -452,8 +456,8 @@ export const agrees = (literal: LiteralDesc, expected: Expected): void => {
 }
 
 /**
- * Doubles of every magnitude, with binary32's edges planted: its largest finite value, the first double that rounds
- * past it, its smallest subnormal and the doubles on either side of half of it.
+ * Doubles of every magnitude, with both zeros and binary32's edges planted: its largest finite value, the first double
+ * that rounds past it, its smallest subnormal and the doubles on either side of half of it.
  */
 const floatGen: Gen<HostValue> = weighted([
 	[
@@ -470,6 +474,7 @@ const floatGen: Gen<HostValue> = weighted([
 				Number.NaN,
 				Number.POSITIVE_INFINITY,
 				Number.NEGATIVE_INFINITY,
+				0,
 				-0,
 				0.1,
 				1e300,

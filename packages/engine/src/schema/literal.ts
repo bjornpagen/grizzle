@@ -15,8 +15,10 @@ import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
 import { malformed } from "#compiler/schema/protocol.ts"
 
 /**
- * A float literal: the special values wrapped, every finite value through its type's normalization, toReal for a
- * real (binary32 rounding, overflow and underflow refused) and toDouble for double precision (-0 as +0).
+ * A float literal: every finite value through its type's normalization, toReal for a real (binary32 rounding,
+ * overflow and underflow refused) and toDouble for double precision, and the values no JSON number holds wrapped by
+ * their words, NaN, the infinities and -0, as every literal spells them (ir/desc.ts LiteralDesc, scalar/literal.ts
+ * hostLiteral): a -0 is never the number, so a literal has one spelling of each value.
  */
 const float = (
 	value: unknown,
@@ -34,7 +36,7 @@ const float = (
 	if (value === Number.NEGATIVE_INFINITY) {
 		return Result.ok({ float: "-Infinity" })
 	}
-	return normalize(value)
+	return Result.map(normalize(value), (x): LiteralDesc => (Object.is(x, -0) ? { float: "-0" } : x))
 }
 
 /**

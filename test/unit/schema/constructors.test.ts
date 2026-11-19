@@ -540,6 +540,8 @@ export const literalsTakeTheirFieldsValueRoundsARealToBinary32AndANumericPSToIts
 			situations: [
 				"real: rounded",
 				"real: special",
+				"real: negative zero",
+				"double precision: negative zero",
 				"real: overflow",
 				"real: underflow",
 				"real: wrong host kind",
@@ -633,7 +635,24 @@ export const literalsTakeTheirFieldsValueRoundsARealToBinary32AndANumericPSToIts
 				name: "binary32 rounding (Math.fround) and a numeric's scale rounded half away from zero"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/schema/literal.ts",
+					original:
+						'\treturn Result.map(normalize(value), (x): LiteralDesc => (Object.is(x, -0) ? { float: "-0" } : x))',
+					replacement:
+						"\treturn Result.map(normalize(value), (x): LiteralDesc => (x === 0 ? 0 : x))",
+					why: "A field's -0 read as +0, as the literal rule read it before c067533e8: a closed row, a selection and a check operand each hold +0 where the caller wrote -0; the property fails."
+				},
+				{
+					file: "packages/engine/src/schema/literal.ts",
+					original:
+						'\treturn Result.map(normalize(value), (x): LiteralDesc => (Object.is(x, -0) ? { float: "-0" } : x))',
+					replacement:
+						'\treturn Result.map(normalize(value), (x): LiteralDesc => (x === 0 ? { float: "-0" } : x))',
+					why: "A field's +0 read as -0, the sign a zero must keep turned the other way: every construction site holds -0 where the caller wrote 0; the property fails."
+				}
+			]
 		}
 	)
 
