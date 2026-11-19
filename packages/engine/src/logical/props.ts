@@ -321,12 +321,19 @@ export const fixedEqual = (a: Fixed, b: Fixed): boolean => {
 }
 
 /**
- * The value an expression has when it reads no column of `locals`: a literal, a parameter, an outer column, or a
- * computation over those.
+ * What an expression is per evaluation of a node whose own rows' columns are those of `locals` (valueAt): fixed (a
+ * literal, a parameter, an outer column, or a computation over those), or `local`, a function of the node's own rows,
+ * which no evaluation fixes. Fixed itself is also what a fixed column holds (physical/props.ts FixedFact), where no
+ * value is local, so the local arm is this union's alone.
  */
-const fixedOf = (e: ScalarExpr, locals: ReadonlySet<NodeId>): Fixed | undefined => {
+type ValueAt = Fixed | { readonly kind: "local" }
+
+const local: ValueAt = Object.freeze({ kind: "local" })
+
+/** What an expression is per evaluation of a node whose own rows' columns are those of `locals` (ValueAt). */
+const valueAt = (e: ScalarExpr, locals: ReadonlySet<NodeId>): ValueAt => {
 	if (e.deps.nodes.some((n) => locals.has(n))) {
-		return undefined
+		return local
 	}
 	switch (e.kind) {
 		case "literal":
@@ -454,7 +461,19 @@ export interface NamedValue {
 	readonly derivation: Implication
 }
 
-const namedOf = (f: Fixed): Named | undefined => (f.kind === "expr" ? undefined : f)
+/** The name a value gives what it is: a literal, a parameter, an outer column; none for a computation, which names no
+ * value, nor for a value of the node's own rows, which varies with them. */
+const namedOf = (v: ValueAt): Named | undefined => {
+	switch (v.kind) {
+		case "literal":
+		case "param":
+		case "outer":
+			return v
+		case "expr":
+		case "local":
+			return undefined
+	}
+}
 
 /**
  * What `start` determines at a node, under its dependencies, each column reached by a step naming its value where one
@@ -464,7 +483,7 @@ const namedOf = (f: Fixed): Named | undefined => (f.kind === "expr" ? undefined 
 const closureOf = (props: Table, start: Bits): Closure<Named> =>
 	closure(props.stated, start, {
 		kind: "named",
-		naming: (d, column, named) => namedOf(stepValue(props, d, column, named))
+		naming: (d, column, named) => stepValue(props, d, column, named)
 	})
 
 /**
@@ -505,7 +524,7 @@ export const fixedNames = (props: Props, column: string): ReadonlyArray<NamedVal
  * wherever they are read, and an outer column names one per evaluation of the node only where the node reads it from
  * outside (Props.outer). A column the node binds, a region's occurrence source's or a semi-join's left input's, holds
  * one value per row of the node, so it names none of the node's values, as an expression reading it names none
- * (fixedOf).
+ * (valueAt).
  */
 const nameAt = (props: Pick<Table, "outer">, name: Named): Named | undefined =>
 	name.kind !== "outer" || props.outer.get(name.node)?.has(name.column) === true ? name : undefined
@@ -515,9 +534,13 @@ const nameAt = (props: Pick<Table, "outer">, name: Named): Named | undefined =>
  * a parent carries from that closure read, read at the parent `props` are of (nameAt); a computation where it has none
  * or where the parent binds what it names.
  */
-const firstNameAt = (props: Pick<Table, "outer">, input: Props, column: string): Fixed => {
+const firstNameAt = (
+	props: Pick<Table, "outer">,
+	input: Props,
+	column: string
+): Named | undefined => {
 	const first = input.fixed.get(column)?.[0]?.name
-	return (first === undefined ? undefined : nameAt(props, first)) ?? { kind: "expr" }
+	return first === undefined ? undefined : nameAt(props, first)
 }
 
 /** The names `input` fixes its column to that name values of the node `props` are of (nameAt), in the input's order. */
@@ -569,12 +592,12 @@ const fixedOver = (
 }
 
 /**
- * What a step reads the value it fixes `column` to from: its own value (a literal, a parameter, an outer column, a
- * computation); another column of the node, an equality's; an input's column, whose value it carries, with the step
+ * What a step reads the value it fixes `column` to from: its own value, by the name it gives it (a literal, a
+ * parameter, an outer column; none for a computation or a hidden attribute); another column of the node, an equality's; an input's column, whose value it carries, with the step
  * like it that carries the column alone over another derivation of the input; or a union's arms, which agree on it.
  */
 type StepSource =
-	| { readonly kind: "own"; readonly value: Fixed }
+	| { readonly kind: "own"; readonly name: Named | undefined }
 	| { readonly kind: "column"; readonly column: string }
 	| {
 			readonly kind: "input"
@@ -584,8 +607,10 @@ type StepSource =
 	  }
 	| { readonly kind: "arms"; readonly arms: NonEmptyReadonlyArray<Props> }
 
-const own = (value: Fixed): StepSource => ({ kind: "own", value })
-const opaque: StepSource = own({ kind: "expr" })
+/** A step's own value, by the name it gives it (namedOf). */
+const own = (value: ValueAt): StepSource => ({ kind: "own", name: namedOf(value) })
+/** A step's own value that names nothing: what a hidden attribute holds. */
+const opaque: StepSource = { kind: "own", name: undefined }
 
 /** The input of a reading whose label is `input`, by which a rule carries its columns. */
 const inputOf = (reading: PropsReading, input: NodeId): Props | undefined =>
@@ -623,7 +648,7 @@ const stepSource = (props: Table, d: Dependency, column: string): StepSource => 
 				node.correlated[rule.index],
 				"a correlated rule's index names a correlated variable of its region"
 			)
-			return own(fixedOf(corr.expr, regionLocals(props.node.id, node)) ?? { kind: "expr" })
+			return own(valueAt(corr.expr, regionLocals(props.node.id, node)))
 		}
 		case "equal":
 			return {
@@ -645,7 +670,7 @@ const stepSource = (props: Table, d: Dependency, column: string): StepSource => 
 			}
 			const constant = occurrence.constants.find((k) => k.column === binding.column)
 			if (constant !== undefined) {
-				return own(fixedOf(constant.expr, regionLocals(props.node.id, node)) ?? { kind: "expr" })
+				return own(valueAt(constant.expr, regionLocals(props.node.id, node)))
 			}
 			return {
 				kind: "input",
@@ -666,7 +691,7 @@ const stepSource = (props: Table, d: Dependency, column: string): StepSource => 
 			const input = node.input.node.id
 			const copied = copiedColumn(out.expr)
 			return copied === undefined
-				? own(fixedOf(out.expr, new Set([input])) ?? { kind: "expr" })
+				? own(valueAt(out.expr, new Set([input])))
 				: {
 						kind: "input",
 						input: node.input,
@@ -750,8 +775,7 @@ const stepNames = (
 	const source = stepSource(props, d, column)
 	switch (source.kind) {
 		case "own": {
-			const name = namedOf(source.value)
-			return name === undefined ? [] : named(name, determinants, () => d)
+			return source.name === undefined ? [] : named(source.name, determinants, () => d)
 		}
 		case "column":
 			return namesOf(source.column).flatMap((v) =>
@@ -773,27 +797,28 @@ const stepNames = (
 }
 
 /**
- * The value a step fixes `column` to at a node: a literal, a parameter, an outer column, or a computation. A rule that
- * carries the column from an input reads the name its input's closure of nothing gives it, read at the node
- * (firstNameAt), as the derivation the rule carries does; a union's agreement reads the first name its arms share, as
- * its derivations do; an equality reads the value its other column holds, `named`, where the closure named one.
+ * The name of the value a step fixes `column` to at a node: a literal, a parameter or an outer column; none for a
+ * computation. A rule that carries the column from an input reads the name its input's closure of nothing gives it,
+ * read at the node (firstNameAt), as the derivation the rule carries does; a union's agreement reads the first name its
+ * arms share, as its derivations do; an equality reads the name its other column holds, `named`, where the closure
+ * named one.
  */
 const stepValue = (
 	props: Table,
 	d: Dependency,
 	column: string,
-	named: (column: string) => Fixed | undefined
-): Fixed => {
+	named: (column: string) => Named | undefined
+): Named | undefined => {
 	const source = stepSource(props, d, column)
 	switch (source.kind) {
 		case "own":
-			return source.value
+			return source.name
 		case "column":
-			return named(source.column) ?? { kind: "expr" }
+			return named(source.column)
 		case "input":
 			return firstNameAt(props, source.input, source.column)
 		case "arms":
-			return commonNames(source.arms, column)[0]?.name ?? { kind: "expr" }
+			return commonNames(source.arms, column)[0]?.name
 	}
 }
 
@@ -805,7 +830,7 @@ const fixedWitnessValue = (
 	props: Table,
 	witness: Exclude<FixedWitness, { readonly kind: "semiJoinPair" }>,
 	column: string
-): Fixed => {
+): ValueAt => {
 	const node = props.reading
 	switch (witness.kind) {
 		case "conjunct": {
@@ -825,7 +850,7 @@ const fixedWitnessValue = (
 				operands.find((o) => copiedColumn(o) !== column),
 				"an equality that fixes a column has an operand other than the column"
 			)
-			return fixedOf(other, new Set([input])) ?? { kind: "expr" }
+			return valueAt(other, new Set([input]))
 		}
 		case "closedValue": {
 			if (node.kind !== "Closed") {
@@ -846,7 +871,7 @@ const fixedWitnessValue = (
 				node.correlation[witness.index],
 				"a take correlation's index names one of its take's"
 			)
-			return fixedOf(corr.expr, new Set([node.input.node.id])) ?? { kind: "expr" }
+			return valueAt(corr.expr, new Set([node.input.node.id]))
 		}
 		case "attachCorrelation": {
 			const attach = props.attachment
@@ -1552,10 +1577,10 @@ const filterDependencies = (node: ReadingOf<"Filter">): Stated => {
 			}
 			continue
 		}
-		if (cx !== undefined && fixedOf(y, locals) !== undefined) {
+		if (cx !== undefined && valueAt(y, locals).kind !== "local") {
 			out.push(fixedColumn(cx, { kind: "conjunct", expr: c }))
 		}
-		if (cy !== undefined && fixedOf(x, locals) !== undefined) {
+		if (cy !== undefined && valueAt(x, locals).kind !== "local") {
 			out.push(fixedColumn(cy, { kind: "conjunct", expr: c }))
 		}
 	}
@@ -1848,7 +1873,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 			const deps: Array<Dependency> = [
 				...carried(input, sameName, rowsKeep),
 				...reading.correlation.flatMap((c, index) =>
-					fixedOf(c.expr, locals) !== undefined
+					valueAt(c.expr, locals).kind !== "local"
 						? [fixedColumn(c.column, { kind: "takeCorrelation", index })]
 						: []
 				)
@@ -2078,7 +2103,7 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 		const constant = new Map<string, ReadonlyArray<string> | undefined>(
 			o.constants.map((k) => [
 				k.column,
-				fixedOf(k.expr, locals) !== undefined ? [] : varsOf(localRefs(k.expr, locals))
+				valueAt(k.expr, locals).kind !== "local" ? [] : varsOf(localRefs(k.expr, locals))
 			])
 		)
 		const srcFixed = new Set(fixedColumns(src))
@@ -2138,7 +2163,7 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 			e.kind === "column" && locals.has(e.column.node)
 				? varOf({ node: e.column.node, column: e.column.name })
 				: undefined
-		const reads = fixedOf(e, locals) !== undefined ? [] : varsOf(localRefs(e, locals))
+		const reads = valueAt(e, locals).kind !== "local" ? [] : varsOf(localRefs(e, locals))
 		const follows = reads === undefined ? undefined : correlatedVariable(reads, v, index)
 		if (follows !== undefined) {
 			deps.push(follows)
