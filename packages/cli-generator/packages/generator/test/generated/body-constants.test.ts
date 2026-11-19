@@ -17,7 +17,7 @@
  * capture server, compared as JSON, or exit 2 and no request. While a required feature is still pending, a case aimed
  * at it draws the run made to reach it (body-constants.fixtures.ts runs), so each is reached on every run seed.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
@@ -55,7 +55,7 @@ export const constantsHelp = property.exhaust(helpPage, {
 				const flagNames = Arr.flatMap(lines, (line) =>
 					Str.startsWith("--")(line) ? [Arr.headNonEmpty(Str.split(" ")(line))] : []
 				)
-				deepStrictEqual(
+				assert.deepEqual(
 					{
 						exitCode: help.exitCode,
 						flags: Arr.sort(flagNames, Str.Order),
@@ -111,7 +111,7 @@ export const bodyConstants = property.explore(runs, {
 				const bodies = yield* Effect.forEach(observed.requests, (request) =>
 					decodeBody(new TextDecoder().decode(request.body))
 				)
-				deepStrictEqual(
+				assert.deepEqual(
 					{ exitCode: observed.result.exitCode, bodies },
 					expected.kind === "sent"
 						? { exitCode: 0, bodies: [expected.body] }

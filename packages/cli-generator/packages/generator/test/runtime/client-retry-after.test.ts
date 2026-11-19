@@ -5,7 +5,7 @@
  * the design does not retry ends the run at once, and a run whose retries run out records nothing. Time is virtual.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -37,7 +37,7 @@ export const retrySchedule = property.explore(aimedSchedules, {
 		Effect.gen(function* () {
 			const outcome = yield* actualOf(schedule)
 			c.noteAll(scheduleFeatures(schedule, outcome))
-			deepStrictEqual(outcome, expectedOf(schedule))
+			assert.deepEqual(outcome, expectedOf(schedule))
 		}),
 	oracle: {
 		kind: "specification",

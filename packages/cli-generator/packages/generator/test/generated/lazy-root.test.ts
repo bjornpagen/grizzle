@@ -14,7 +14,7 @@
  * One package from `test/fixtures/lazy-root` (nested tags, an author command), with the eager oracle beside it, built
  * once a worker; the differential is an exhaustion of the kinds of invocation, each case every invocation of its kind.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, FileSystem, Path, String as Str } from "effect"
@@ -61,7 +61,7 @@ export const lazyLoading = property.exhaust(theBuild, {
 					path.join(lazy.dir, "dist/src/runtime/eager-groups.js")
 				)
 				const groupModules = Arr.map(topLevelGroups(commands), (group) => `./${group}.js`)
-				deepStrictEqual<Loading>(
+				assert.deepEqual<Loading>(
 					{
 						lazyImports: importsOf(lazyRoot),
 						lazyNamesTs: TS_SPECIFIER.test(lazyRoot),
@@ -126,7 +126,7 @@ export const lazyDifferential = property.exhaust(invocationKinds, {
 							k.note(invocation.kind)
 							const fromLazy = yield* printedBy(lazy, invocation.args)
 							const fromEager = yield* printedBy(eager, invocation.args)
-							deepStrictEqual<Printed>(
+							assert.deepEqual<Printed>(
 								fromLazy,
 								fromEager,
 								`the lazy root prints what the eager one prints for ${Arr.join(invocation.args, " ")}`
@@ -165,7 +165,7 @@ export const lazyWholeTree = property.exhaust(theBuild, {
 					printedBy(lazy, Arr.append(command, "--describe"))
 				)
 				const completions = yield* printedBy(lazy, ["--completions", "bash"])
-				deepStrictEqual<
+				assert.deepEqual<
 					Readonly<{
 						describedExit: number
 						fromCommands: ReadonlyArray<Printed>
@@ -240,7 +240,7 @@ export const lazyGlobalFlags = property.exhaust(requestCases, {
 						stdin: new Uint8Array(0)
 					})
 				)
-				deepStrictEqual<Requested>(
+				assert.deepEqual<Requested>(
 					{
 						exitCode: observed.result.exitCode,
 						requests: Arr.map(observed.requests, (request) => ({

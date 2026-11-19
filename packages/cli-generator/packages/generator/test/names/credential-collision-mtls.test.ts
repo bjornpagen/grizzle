@@ -8,7 +8,7 @@
  * also takes is refused SSC-01/credential-collision, one using a scheme folding to nothing SSC-01/empty-name, and every
  * other operation is a command; an override naming no scheme is a CFG-1/unmatched-override notice.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
@@ -45,7 +45,7 @@ export const schemeCredentials = property.explore(credentialSpace, {
 		Effect.gen(function* () {
 			k.noteAll(featuresOf(c))
 			const actual = yield* actualOf(c)
-			deepStrictEqual(actual, expectedOf(c))
+			assert.deepEqual(actual, expectedOf(c))
 		}),
 	oracle: {
 		kind: "specification",

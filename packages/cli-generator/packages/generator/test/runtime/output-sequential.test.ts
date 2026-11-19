@@ -6,7 +6,7 @@
  * ends the write as a success.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
@@ -49,7 +49,7 @@ export const responseWritten = property.explore(aimedWrites, {
 				c.noteAll(writtenFeatures(written, expected))
 				const scratch = yield* dir
 				const outcome = yield* writtenIn(scratch, written)
-				deepStrictEqual(comparable(written, outcome, expected), expected)
+				assert.deepEqual(comparable(written, outcome, expected), expected)
 			}),
 	oracle: {
 		kind: "specification",

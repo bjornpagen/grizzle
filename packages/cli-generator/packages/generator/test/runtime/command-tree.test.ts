@@ -7,7 +7,7 @@
  * the Servers service, empty without it), every object's fields in alphabetical order.
  */
 
-import { deepStrictEqual, strictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -59,7 +59,7 @@ export const groupSelection = property.explore(
 			Effect.gen(function* () {
 				c.noteAll(selectionFeatures(drawn))
 				const built = yield* actualBuilt(drawn)
-				deepStrictEqual(built, expectedBuilt(drawn))
+				assert.deepEqual(built, expectedBuilt(drawn))
 			}),
 		oracle: {
 			kind: "specification",
@@ -132,12 +132,12 @@ export const describeDocument = property.explore(
 			Effect.gen(function* () {
 				c.noteAll(treeFeatures(drawn))
 				const lines = yield* describeLines(drawn)
-				strictEqual(lines.length, 1)
+				assert.equal(lines.length, 1)
 				const text = lines[0] ?? ""
 				const decoded = yield* decodeDescription(text)
 				const alphabetical = yield* fieldsAlphabetical(text)
-				deepStrictEqual(decoded, expectedDescription(drawn))
-				strictEqual(alphabetical, true)
+				assert.deepEqual(decoded, expectedDescription(drawn))
+				assert.equal(alphabetical, true)
 			}),
 		oracle: {
 			kind: "specification",

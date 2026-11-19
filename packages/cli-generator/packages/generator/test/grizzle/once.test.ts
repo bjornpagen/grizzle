@@ -34,7 +34,7 @@
  * made again, as `--retries` makes it, until it is answered. Its budget is the count the suite stated before it was
  * converted to a property: 16 independent cases, and up to 32 steered while a situation is unreached.
  */
-import { fail } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	aimed,
@@ -882,7 +882,7 @@ const differs = (
 	stderr: string,
 	answer: Answer
 ) =>
-	fail(
+	assert.fail(
 		`${what}: ${difference}\nthe CLI printed:\n${Arr.join(
 			Arr.map(printed, (line) => jsonTextOf(line)),
 			"\n"

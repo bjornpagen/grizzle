@@ -7,7 +7,7 @@
  * the same again on its own result, a placeholder being opaque), and an error body read across any cut into chunks.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -32,7 +32,7 @@ export const scrubbedEchoes = property.explore(aimedEchoes, {
 		Effect.gen(function* () {
 			c.noteAll(echoFeatures(echo))
 			const scrubbed = yield* scrubbedOf(echo)
-			deepStrictEqual(scrubbed, expectedOf(echo))
+			assert.deepEqual(scrubbed, expectedOf(echo))
 		}),
 	oracle: {
 		kind: "specification",

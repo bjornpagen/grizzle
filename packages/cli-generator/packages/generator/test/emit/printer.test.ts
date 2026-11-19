@@ -12,11 +12,11 @@
  * unchanged, and a manifest with a key outside the order is refused.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
+import { syntaxOf } from "@bjornpagen/testing/syntax"
 import { Array as Arr, Effect, Option, Result } from "effect"
-import { ScriptKind } from "typescript/ast"
 import { printJson, printModule, printPackageJson } from "#emit/printer.ts"
 import { JsonLiteral } from "#model/brands.ts"
 import {
@@ -36,7 +36,6 @@ import {
 	manifestTree,
 	moduleFeatures,
 	moduleSpace,
-	parsed,
 	readJsonFile,
 	readModule,
 	refusalOf,
@@ -48,7 +47,6 @@ import {
 	treeFeatures,
 	treeOf
 } from "#test/emit/printer.fixtures.ts"
-import { typescriptApi } from "#test/support/typescript.ts"
 
 /**
  * A module inside the subset prints to text TypeScript reads back as the module, in the layout docs/printer.md and
@@ -56,7 +54,7 @@ import { typescriptApi } from "#test/support/typescript.ts"
  * before the conversion: 300 independent cases, and up to 1500 steered while a situation is unreached.
  */
 export const printedModule = property.explore(moduleSpace, {
-	needs: { typescript: typescriptApi },
+	needs: {},
 	situations: [
 		"a shebang",
 		"a type-only import",
@@ -94,41 +92,38 @@ export const printedModule = property.explore(moduleSpace, {
 		"arguments broken as a function composition",
 		"a long import of one name"
 	] satisfies ReadonlyArray<Reached<Feature>>,
-	check:
-		({ typescript }, k: Case<Feature>) =>
-		(module) =>
-			Effect.gen(function* () {
-				const api = yield* typescript
-
-				const text = yield* printModule(module)
-				const formatter = yield* formatted("printed.ts", text)
-				const tree = yield* parsed(api, "/printed.ts", text, ScriptKind.TS, (file) => ({
-					read: readModule(file),
-					strings: stringFindings(file, text),
-					features: treeFeatures(file)
-				}))
-				k.noteAll([...moduleFeatures(module), ...textFeatures(text), ...tree.features])
-				const got = {
-					syntax: syntaxCodes(api, text),
-					formatter,
-					read: Result.map(tree.read, (read) => read.reading),
-					layout: [
-						...layoutFindings(text, module),
-						...Result.match(tree.read, {
-							onFailure: () => [],
-							onSuccess: (read) => importFindings(read.imports)
-						}),
-						...tree.strings
-					]
-				}
-				const want: typeof got = {
-					syntax: [],
-					formatter: { code: text, errors: [] },
-					read: Result.succeed(canonicalModule(module)),
-					layout: []
-				}
-				deepStrictEqual(got, want)
-			}),
+	check: (_resources, k: Case<Feature>) => (module) =>
+		Effect.gen(function* () {
+			const text = yield* printModule(module)
+			const formatter = yield* formatted("printed.ts", text)
+			const tree = yield* syntaxOf("/printed.ts", text, (file) => ({
+				read: readModule(file),
+				strings: stringFindings(file, text),
+				features: treeFeatures(file)
+			}))
+			k.noteAll([...moduleFeatures(module), ...textFeatures(text), ...tree.features])
+			const syntax = yield* syntaxCodes(text)
+			const got = {
+				syntax,
+				formatter,
+				read: Result.map(tree.read, (read) => read.reading),
+				layout: [
+					...layoutFindings(text, module),
+					...Result.match(tree.read, {
+						onFailure: () => [],
+						onSuccess: (read) => importFindings(read.imports)
+					}),
+					...tree.strings
+				]
+			}
+			const want: typeof got = {
+				syntax: [],
+				formatter: { code: text, errors: [] },
+				read: Result.succeed(canonicalModule(module)),
+				layout: []
+			}
+			assert.deepEqual(got, want)
+		}),
 	oracle: {
 		kind: "universal",
 		name: "TypeScript's parse of the printed text reads back as the module, in a layout oxfmt leaves unchanged"
@@ -223,7 +218,7 @@ export const refusedConstruct = property.explore(faultyGen, {
 			Effect.gen(function* () {
 				const exit = yield* Effect.exit(printModule(module))
 				k.note(plant.feature)
-				deepStrictEqual(
+				assert.deepEqual(
 					refusalOf(exit, Option.isSome(plant.subject)),
 					Option.some({ reason: plant.reason, subject: plant.subject })
 				)
@@ -248,7 +243,7 @@ export const refusedConstruct = property.explore(faultyGen, {
  * before the conversion: 300 independent cases, and up to 1000 steered while a situation is unreached.
  */
 export const printedJson = property.explore(jsonGen(3), {
-	needs: { typescript: typescriptApi },
+	needs: {},
 	situations: [
 		"an empty object",
 		"an empty array",
@@ -261,34 +256,30 @@ export const printedJson = property.explore(jsonGen(3), {
 		"a non-ASCII key",
 		"a numeric key"
 	] satisfies ReadonlyArray<Reached<JsonFeature>>,
-	check:
-		({ typescript }, k: Case<JsonFeature>) =>
-		(value) =>
-			Effect.gen(function* () {
-				const api = yield* typescript
-
-				const text = printJson(JsonLiteral.make(value))
-				const formatter = yield* formatted("printed.json", text)
-				const tree = yield* parsed(api, "/printed-json.ts", `(${text})`, ScriptKind.TS, (file) => ({
-					read: readJsonFile(file),
-					shapes: shapesOf(file)
-				}))
-				k.noteAll(jsonFeatures(value, text, tree.shapes))
-				const got = {
-					formatter,
-					read: tree.read,
-					unbroken: Arr.filter(
-						tree.shapes,
-						(shape) => shape.kind === "object" && !shape.empty && !shape.broken
-					)
-				}
-				const want: typeof got = {
-					formatter: { code: text, errors: [] },
-					read: Result.succeed(treeOf(value, sortedMembers)),
-					unbroken: []
-				}
-				deepStrictEqual(got, want)
-			}),
+	check: (_resources, k: Case<JsonFeature>) => (value) =>
+		Effect.gen(function* () {
+			const text = printJson(JsonLiteral.make(value))
+			const formatter = yield* formatted("printed.json", text)
+			const tree = yield* syntaxOf("/printed-json.ts", `(${text})`, (file) => ({
+				read: readJsonFile(file),
+				shapes: shapesOf(file)
+			}))
+			k.noteAll(jsonFeatures(value, text, tree.shapes))
+			const got = {
+				formatter,
+				read: tree.read,
+				unbroken: Arr.filter(
+					tree.shapes,
+					(shape) => shape.kind === "object" && !shape.empty && !shape.broken
+				)
+			}
+			const want: typeof got = {
+				formatter: { code: text, errors: [] },
+				read: Result.succeed(treeOf(value, sortedMembers)),
+				unbroken: []
+			}
+			assert.deepEqual(got, want)
+		}),
 	oracle: {
 		kind: "universal",
 		name: "the printed text reads back as the value, its keys sorted, and oxfmt leaves it unchanged"
@@ -320,7 +311,7 @@ export const printedJson = property.explore(jsonGen(3), {
  * before the conversion: 200 independent cases, and up to 600 steered while a situation is unreached.
  */
 export const printedManifest = property.explore(manifestCaseGen, {
-	needs: { typescript: typescriptApi },
+	needs: {},
 	situations: [
 		"keys reordered",
 		"a map sorted by key",
@@ -329,53 +320,39 @@ export const printedManifest = property.explore(manifestCaseGen, {
 		"a key outside the order",
 		"a root that is no object"
 	] satisfies ReadonlyArray<Reached<ManifestFeature>>,
-	check:
-		({ typescript }, k: Case<ManifestFeature>) =>
-		(drawnCase) =>
-			Effect.gen(function* () {
-				const api = yield* typescript
-				return yield* drawnCase.kind === "refused"
-					? Effect.map(
-							Effect.exit(printPackageJson(JsonLiteral.make(drawnCase.manifest))),
-							(exit) => {
-								k.note(drawnCase.feature)
-								deepStrictEqual(
-									refusalOf(exit, true),
-									Option.some({
-										reason: "unsupported-package-json",
-										subject: Option.some(drawnCase.subject)
-									})
-								)
-							}
-						)
-					: Effect.gen(function* () {
-							const { manifest } = drawnCase
-							const text = yield* printPackageJson(JsonLiteral.make(manifest))
-							const formatter = yield* formatted("package.json", text)
-							const tree = yield* parsed(
-								api,
-								"/package-json.ts",
-								`(${text})`,
-								ScriptKind.TS,
-								(file) => ({
-									read: readJsonFile(file),
-									shapes: shapesOf(file)
-								})
-							)
-							k.noteAll(manifestFeatures(manifest))
-							const got = {
-								formatter,
-								read: tree.read,
-								unbroken: Arr.filter(tree.shapes, (shape) => !shape.empty && !shape.broken)
-							}
-							const want: typeof got = {
-								formatter: { code: text, errors: [] },
-								read: Result.succeed(manifestTree(manifest)),
-								unbroken: []
-							}
-							deepStrictEqual(got, want)
+	check: (_resources, k: Case<ManifestFeature>) => (drawnCase) =>
+		drawnCase.kind === "refused"
+			? Effect.map(Effect.exit(printPackageJson(JsonLiteral.make(drawnCase.manifest))), (exit) => {
+					k.note(drawnCase.feature)
+					assert.deepEqual(
+						refusalOf(exit, true),
+						Option.some({
+							reason: "unsupported-package-json" as const,
+							subject: Option.some(drawnCase.subject)
 						})
-			}),
+					)
+				})
+			: Effect.gen(function* () {
+					const { manifest } = drawnCase
+					const text = yield* printPackageJson(JsonLiteral.make(manifest))
+					const formatter = yield* formatted("package.json", text)
+					const tree = yield* syntaxOf("/package-json.ts", `(${text})`, (file) => ({
+						read: readJsonFile(file),
+						shapes: shapesOf(file)
+					}))
+					k.noteAll(manifestFeatures(manifest))
+					const got = {
+						formatter,
+						read: tree.read,
+						unbroken: Arr.filter(tree.shapes, (shape) => !shape.empty && !shape.broken)
+					}
+					const want: typeof got = {
+						formatter: { code: text, errors: [] },
+						read: Result.succeed(manifestTree(manifest)),
+						unbroken: []
+					}
+					assert.deepEqual(got, want)
+				}),
 	oracle: {
 		kind: "specification",
 		name: "the manifest's documented key order and sorted maps, and oxfmt's fixed point"

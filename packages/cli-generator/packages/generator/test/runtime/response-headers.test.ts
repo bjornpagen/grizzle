@@ -5,7 +5,7 @@
  * no header required, and a matched key that requires nothing checks nothing.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -36,7 +36,7 @@ export const requiredHeaders = property.explore(aimedExchanges, {
 			c.noteAll(exchangeFeatures(exchange))
 			const runs = yield* runsOf(exchange)
 			const { actual, expected } = judged(exchange, runs)
-			deepStrictEqual(actual, expected)
+			assert.deepEqual<typeof expected>(actual, expected)
 		}),
 	oracle: {
 		kind: "specification",

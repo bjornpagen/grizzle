@@ -7,7 +7,7 @@
  * format.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -33,7 +33,7 @@ export const errorRendering = property.explore(aimedFailings, {
 		Effect.gen(function* () {
 			c.noteAll(failingFeatures(failing))
 			const rendered = yield* renderedOf(failing)
-			deepStrictEqual(rendered, expectedOf(failing))
+			assert.deepEqual(rendered, expectedOf(failing))
 		}),
 	oracle: {
 		kind: "specification",

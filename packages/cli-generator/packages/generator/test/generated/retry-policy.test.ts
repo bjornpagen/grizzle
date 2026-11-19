@@ -22,7 +22,7 @@
  * a model of the rules above run over that sequence, compared with every attempt the capture server recorded, the exit
  * code, the notices and the JSON error.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
@@ -93,7 +93,7 @@ export const retryPolicy = property.explore(cases, {
 					})
 				)
 				const lines = Str.split("\n")(Buffer.from(observed.result.stderr).toString("utf8"))
-				deepStrictEqual<Outcome>(
+				assert.deepEqual<Outcome>(
 					{
 						exitCode: observed.result.exitCode,
 						attempts: Arr.map(observed.requests, attemptOf(c)),

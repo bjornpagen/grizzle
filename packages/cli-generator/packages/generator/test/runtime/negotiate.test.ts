@@ -4,7 +4,7 @@
  * dispatches to, an exact type before its range before any; a refusal names its flag and never the operator's value.
  */
 
-import { assertFalse, deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
@@ -71,16 +71,17 @@ export const mediaNegotiation = property.explore(negotiationSpace, {
 			const [chosen, chosenMessage] = yield* negotiated(
 				Negotiate.selectRequestMedia(declaration, media.contentType)
 			)
-			deepStrictEqual(chosen, requestMediaModel(media))
+			assert.deepEqual(chosen, requestMediaModel(media))
 			const [accepted, acceptMessage] = yield* negotiated(
 				Negotiate.accept(declaration, media.accept)
 			)
-			deepStrictEqual(accepted, acceptModel(media))
-			assertFalse(
+			assert.deepEqual(accepted, acceptModel(media))
+			assert.equal(
 				Option.exists(chosenMessage, echoes) || Option.exists(acceptMessage, echoes),
+				false,
 				"a refusal repeats the operator's value"
 			)
-			deepStrictEqual(
+			assert.deepEqual(
 				Option.fromUndefinedOr(
 					Negotiate.dispatchResponse(
 						Arr.dedupe(Arr.flatten(Rec.values(media.responses))),

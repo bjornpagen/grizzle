@@ -76,6 +76,10 @@
 			"description": "The repository-wide tsconfig, manifest and file-name checks. Uncached: it reads the whole tree in about a second, which a cache would have to hash.",
 			"cache": false
 		},
+		"load": {
+			"description": "Every package's test modules loaded apart, through toolchain-test load: a module whose closure loaded before is a cached answer in toolchain-test's own load cache, keyed by its closure hash, so turbo caches nothing of it.",
+			"cache": false
+		},
 		"test": {
 			"description": "Every test. Each run draws fresh rotating seeds, so a test never replays from cache; the run's seed, a replay and a fuzz run come through the environment.",
 			"cache": false,

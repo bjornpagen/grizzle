@@ -10,7 +10,7 @@
  * nothing, a required one-value member a body constant, a name folding to nothing a skip; and every field flag or its
  * boolean negation equal to a reserved name a clash, each list in its documented order.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
@@ -59,7 +59,7 @@ export const bodyFlags = property.explore(bodySpace, {
 		Effect.gen(function* () {
 			k.noteAll(featuresOf(c))
 			const actual = yield* actualOf(c)
-			deepStrictEqual(actual, expectedOf(c))
+			assert.deepEqual(actual, expectedOf(c))
 		}),
 	oracle: {
 		kind: "second-implementation",

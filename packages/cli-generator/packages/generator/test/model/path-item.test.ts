@@ -3,7 +3,7 @@
  * that line's specification lists, in its order, so checks walking a path item's operations in it order their
  * findings as the specification does.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { actualOf, expectedOf, type Feature, lineSpace } from "#test/model/path-item.fixtures.ts"
@@ -16,7 +16,7 @@ export const methodFields = property.exhaust(lineSpace, {
 	check: (_, k: Case<Feature>) => (line) =>
 		Effect.sync(() => {
 			k.note(`line ${line}`)
-			deepStrictEqual(actualOf(line), expectedOf(line))
+			assert.deepEqual(actualOf(line), expectedOf(line))
 		}),
 	oracle: {
 		kind: "specification",

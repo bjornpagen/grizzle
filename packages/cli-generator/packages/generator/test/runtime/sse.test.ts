@@ -24,7 +24,7 @@
  * schema admits and refuses.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -78,9 +78,9 @@ export const sseParser = property.explore(framing, {
 			const reading = parsedReading(chunked(body, starts), framed.bound)
 			const reference = referenceRead(body, framed.bound)
 			c.noteAll(parseFeatures(framed, body, starts, reference))
-			deepStrictEqual(reading, reference)
+			assert.deepEqual(reading, reference)
 			if (framed.bound === productionBound) {
-				deepStrictEqual(reading, sourceReading(framed))
+				assert.deepEqual(reading, sourceReading(framed))
 			}
 		}),
 	oracle: {
@@ -126,7 +126,7 @@ export const eventStream = property.explore(controlSpace, {
 			const expected = yield* expectedOf(control)
 			const actual = yield* actualOf(control)
 			c.noteAll(controlFeatures(control, expected))
-			deepStrictEqual(actual, expected)
+			assert.deepEqual(actual, expected)
 		}),
 	oracle: {
 		kind: "specification",

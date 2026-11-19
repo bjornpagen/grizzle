@@ -11,7 +11,7 @@
  * place's pointer, and `(required)`, the JSON type the schema expects there, or `(additionalProperties)`, and quotes no
  * planted value.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -39,7 +39,7 @@ export const bodyRefusal = property.explore(faults, {
 			const { path, expectation, pointer } = plantedAt(fault)
 			c.noteAll(faultFeatures(fault, path))
 			const refused = yield* refusalOf(fault, items)
-			deepStrictEqual(
+			assert.deepEqual(
 				{ message: refused.message, quotesAValue: quotesAValue(refused.message) },
 				{
 					message: `--body: the request body does not match its schema at ${pointer}: ${expectation}`,

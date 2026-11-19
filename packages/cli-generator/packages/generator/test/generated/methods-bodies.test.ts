@@ -10,7 +10,7 @@
  *   contract: no framing, `Content-Length: 0` and a chunked body with no chunk all frame a zero-length body (RFC 9112
  *   6.3), so asserting one would pin an implementation detail.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -91,7 +91,7 @@ export const methodsBodies = property.explore(send, {
 						stdin: s.body.kind === "stdin" ? s.body.bytes : new Uint8Array(0)
 					})
 				)
-				deepStrictEqual(
+				assert.deepEqual(
 					{
 						exitCode: observed.result.exitCode,
 						sent: Arr.map(observed.requests, (request) => canonical(sentOf(request)))

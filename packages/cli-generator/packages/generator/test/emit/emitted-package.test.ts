@@ -20,7 +20,7 @@
  * The compiler is the oracle, so it is checked to refuse: a package with a command whose root services layer has its
  * `BaseUrl.layer` entry cut fails tsc, which names `Servers`, the service the commands require and nothing provides.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, FileSystem, Path, String as Str } from "effect"
@@ -122,7 +122,7 @@ export const emittedPackage = property.explore(packageSpace, {
 				const kept = yield* unformatted(generated.dir)
 				const shipped = yield* unshipped(generated.dir)
 				const typecheck = yield* typecheckReport(generated)
-				deepStrictEqual(
+				assert.deepEqual(
 					{
 						typecheck,
 						unformatted: kept,
@@ -193,7 +193,7 @@ export const droppedService = property.explore(commandedCaseGen, {
 				const dropped = Str.replace(baseUrlLayer, "")(root)
 				yield* fs.writeFileString(rootPath, dropped)
 				const report = yield* typecheckReport(generated)
-				deepStrictEqual(
+				assert.deepEqual(
 					{ dropped: dropped !== root, unprovided: Str.includes(UNPROVIDED_SERVERS)(report) },
 					{ dropped: true, unprovided: true }
 				)

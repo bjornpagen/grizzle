@@ -15,7 +15,7 @@
  *
  * Oracle: design 6.1's style table and parameter rules, applied to the drawn parameter.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -79,7 +79,7 @@ export const parameterRules = property.explore(parameterSpace, {
 			const expected = expectedOf(sketch)
 			c.noteAll(parameterFeatures(sketch, expected))
 			const actual = yield* actualOf(sketch)
-			deepStrictEqual(actual, expected)
+			assert.deepEqual(actual, expected)
 		}),
 	oracle: {
 		kind: "specification",

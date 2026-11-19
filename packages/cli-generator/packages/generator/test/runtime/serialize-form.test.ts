@@ -5,7 +5,7 @@
  * object), and no refusal repeats a value.
  */
 
-import { assertFalse, assertTrue, deepStrictEqual, strictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Option, Record as Rec, Result, String as Str } from "effect"
@@ -71,9 +71,10 @@ export const formBody = property.explore(formSpace, {
 						properties: form.properties
 					}).expand
 				)
-				deepStrictEqual(actual.outcome, outcomeOf(expected))
-				assertFalse(
+				assert.deepEqual(actual.outcome, outcomeOf(expected))
+				assert.equal(
 					Option.exists(actual.message, Str.includes(SECRET)),
+					false,
 					"a refusal repeats a value"
 				)
 				return
@@ -90,23 +91,27 @@ export const formBody = property.explore(formSpace, {
 					query: []
 				})
 			)
-			assertTrue(
+			assert.ok(
 				Result.isSuccess(built) === Result.isSuccess(expected),
 				"refused exactly when the reference refuses"
 			)
 			if (Result.isFailure(built)) {
-				assertFalse(Str.includes(SECRET)(built.failure.message), "a refusal repeats a value")
+				assert.equal(
+					Str.includes(SECRET)(built.failure.message),
+					false,
+					"a refusal repeats a value"
+				)
 			}
 			if (Result.isSuccess(built) && Result.isSuccess(expected)) {
 				const contentType = Rec.get(built.success.headers, "content-type")
 				Option.match(expected.success, {
 					onNone: () => {
-						strictEqual(built.success.body._tag, "Empty")
-						deepStrictEqual(contentType, Option.none())
+						assert.equal(built.success.body._tag, "Empty")
+						assert.deepEqual(contentType, Option.none())
 					},
-					onSome: () => deepStrictEqual(contentType, Option.some(form.mediaType))
+					onSome: () => assert.deepEqual(contentType, Option.some(form.mediaType))
 				})
-				deepStrictEqual(
+				assert.deepEqual(
 					yield* bodyBytes(built.success.body),
 					Option.map(expected.success, (written) => Buffer.from(written, "utf8").toString("latin1"))
 				)

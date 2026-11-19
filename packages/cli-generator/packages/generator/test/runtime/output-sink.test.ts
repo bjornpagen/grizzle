@@ -6,7 +6,7 @@
  * rename unless `--force`, a missing directory OutputError write, and a failing body leaving neither target nor temp.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
@@ -46,7 +46,7 @@ export const bodySunk = property.explore(aimedSinkings, {
 				c.noteAll(sinkFeatures(sinking))
 				const scratch = yield* dir
 				const sunk = yield* sunkIn(scratch, sinking)
-				deepStrictEqual(sunk, expectedOf(sinking))
+				assert.deepEqual(sunk, expectedOf(sinking))
 			}),
 	oracle: {
 		kind: "specification",

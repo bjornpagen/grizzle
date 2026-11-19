@@ -6,7 +6,7 @@
  * quoted parameters, `CONNECT`, controls, format characters, separators and lone surrogates. No brand admits a number,
  * and SafeText's stripper removes exactly the characters its grammar refuses.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
@@ -56,7 +56,7 @@ export const brandMembership = property.explore(brandSpace, {
 	check: (_, k: Case<Feature>) => (c) =>
 		Effect.sync(() => {
 			k.noteAll(featuresOf(c))
-			deepStrictEqual(actualOf(c), expectedOf(c))
+			assert.deepEqual(actualOf(c), expectedOf(c))
 		}),
 	oracle: {
 		kind: "second-implementation",

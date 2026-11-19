@@ -9,7 +9,7 @@
  * literals; every fence closes, and no line inside one could close it; no control, format, separator or lone surrogate
  * code point appears raw; and oxfmt leaves the Markdown unchanged.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -47,7 +47,7 @@ export const readme = property.explore(caseGen, {
 			const { content } = emitReadme(input)
 			const formatted = yield* Effect.promise(() => format("README.md", content))
 			k.noteAll(featuresOf(input, drawnCase, content))
-			deepStrictEqual(
+			assert.deepEqual(
 				{
 					formatted: formatted.code,
 					errors: formatted.errors.length,

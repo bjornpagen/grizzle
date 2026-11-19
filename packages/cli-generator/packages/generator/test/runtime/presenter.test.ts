@@ -6,7 +6,7 @@
  * with none at exit 0, and passes any other failure through.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -47,7 +47,7 @@ export const presented = property.explore(aimedPresentations, {
 		Effect.gen(function* () {
 			c.noteAll(presentationFeatures(presentation))
 			const run = yield* presentedOf(presentation)
-			deepStrictEqual(factsOf(presentation, run), expectedFacts(presentation))
+			assert.deepEqual(factsOf(presentation, run), expectedFacts(presentation))
 		}),
 	oracle: {
 		kind: "specification",
@@ -91,7 +91,7 @@ export const helpExit = property.explore(helpExits, {
 	check: (_, c: Case<HelpExitFeature>) => (exit) =>
 		Effect.gen(function* () {
 			c.noteAll(helpExitFeatures(exit))
-			deepStrictEqual(yield* helpExitOf(exit), expectedHelpExit(exit))
+			assert.deepEqual(yield* helpExitOf(exit), expectedHelpExit(exit))
 		}),
 	oracle: {
 		kind: "specification",

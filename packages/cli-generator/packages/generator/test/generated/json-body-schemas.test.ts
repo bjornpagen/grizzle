@@ -17,7 +17,7 @@
  * it by `--body`. Oracle: a reference check of the body against each schema's rules above; a passing body arrives as
  * one request carrying exactly the text given, and a failing one is exit 2 with no connection.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -60,7 +60,7 @@ export const jsonBodySchemas = property.explore(cases, {
 						stdin: new Uint8Array(0)
 					})
 				)
-				deepStrictEqual<Outcome>(
+				assert.deepEqual<Outcome>(
 					{
 						exitCode: observed.result.exitCode,
 						connections: observed.connections.length,

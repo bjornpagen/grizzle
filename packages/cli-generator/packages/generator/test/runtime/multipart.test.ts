@@ -6,7 +6,7 @@
  * builds.
  */
 
-import { assertFalse, assertTrue, deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
@@ -135,7 +135,7 @@ export const formDataBody = property.explore(formDataSpace, {
 				}),
 				"form-data"
 			)
-			deepStrictEqual(read, formDataModel(form))
+			assert.deepEqual(read, formDataModel(form))
 		}),
 	oracle: {
 		kind: "second-implementation",
@@ -258,7 +258,7 @@ export const mixedBody = property.explore(mixedSpace, {
 				}),
 				"mixed"
 			)
-			deepStrictEqual<Read>(read, mixedModel(mixed))
+			assert.deepEqual<Read>(read, mixedModel(mixed))
 		}),
 	oracle: {
 		kind: "second-implementation",
@@ -309,13 +309,14 @@ export const formAssertion = property.explore(assertSpace, {
 					message: error.message
 				}),
 				onSuccess: (passed): Verdict => {
-					assertTrue(passed === fields, "the fields pass through unchanged")
+					assert.ok(passed === fields, "the fields pass through unchanged")
 					return { kind: "passed" }
 				}
 			})
-			deepStrictEqual(verdict, assertModel(form))
-			assertFalse(
+			assert.deepEqual(verdict, assertModel(form))
+			assert.equal(
 				verdict.kind === "refused" && Str.includes("SECRET")(verdict.message),
+				false,
 				"a refusal repeats a value"
 			)
 			const keyed = Arr.map(
@@ -336,7 +337,7 @@ export const formAssertion = property.explore(assertSpace, {
 				)
 			)(fields)
 			const moved = new Set(Arr.map(form.choices, (choice) => choice.part))
-			deepStrictEqual(chosen, {
+			const wanted = {
 				...Rec.fromEntries(
 					Arr.map(keyed, ([choice, carried]) => {
 						const values = Option.getOrElse(
@@ -354,7 +355,8 @@ export const formAssertion = property.explore(assertSpace, {
 					})
 				),
 				fields: Rec.filter(fields, (_, name) => !moved.has(name))
-			})
+			}
+			assert.deepEqual<typeof wanted>(chosen, wanted)
 		}),
 	oracle: {
 		kind: "specification",

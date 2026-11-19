@@ -11,7 +11,7 @@
  * reserved; every imported domain name is exported by domain/schemas.ts; and an override matching nothing is reported,
  * a refusal under --strict.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
@@ -48,7 +48,7 @@ export const namePlan = property.explore(planSpace, {
 		Effect.gen(function* () {
 			const planned = yield* planOf(c)
 			k.noteAll(featuresOf(planned.plan))
-			deepStrictEqual(brokenLawsOf(c, planned), [])
+			assert.deepEqual(brokenLawsOf(c, planned), [])
 		}),
 	oracle: {
 		kind: "universal",

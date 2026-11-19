@@ -8,7 +8,7 @@
  *
  * Oracle: the inlined twin of each drawn set (metamorphic), and the canonical keys and sites design 5 states for it.
  */
-import { assertTrue, deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -41,13 +41,13 @@ export const documentSet = property.explore(setSpace, {
 			c.noteAll(setFeatures(sketch))
 			const across = yield* readingOf(sketch)
 			const inline = yield* readingOf(inlinedOf(sketch))
-			deepStrictEqual(across.meaning, inline.meaning, "the set normalizes as its inlined twin")
-			deepStrictEqual(
+			assert.deepEqual(across.meaning, inline.meaning, "the set normalizes as its inlined twin")
+			assert.deepEqual(
 				{ keys: across.keys, documents: across.documents, diagnostics: across.diagnostics },
 				expectedOf(sketch)
 			)
-			deepStrictEqual(across.unread, [], "every diagnostic names a node of its document")
-			assertTrue(
+			assert.deepEqual(across.unread, [], "every diagnostic names a node of its document")
+			assert.ok(
 				across.absent[0] === true && across.absent[1] === true && across.absent[2] === true,
 				"nodeOption reads the set"
 			)

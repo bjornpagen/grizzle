@@ -7,7 +7,7 @@
  * fold included; a kebab name folds to itself, an identifier is a SafeIdentifier and a segment a SafeFileSegment; and
  * those two brands admit exactly the raw names design 4.4 does. The domain module's export names are design 4.4's too.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
@@ -53,7 +53,7 @@ export const foldLaws = property.explore(foldSpace, {
 	check: (_, k: Case<Feature>) => (c) =>
 		Effect.sync(() => {
 			k.noteAll(featuresOf(c))
-			deepStrictEqual(actualOf(c), expectedOf(c))
+			assert.deepEqual(actualOf(c), expectedOf(c))
 		}),
 	oracle: {
 		kind: "second-implementation",
@@ -160,7 +160,7 @@ export const domainNames = property.explore(domainSpace, {
 		Effect.sync(() => {
 			k.noteAll(domainFeaturesOf(keys))
 			const expected = expectedDomainOf(keys)
-			deepStrictEqual(actualDomainOf(keys), [expected, expected])
+			assert.deepEqual(actualDomainOf(keys), [expected, expected])
 		}),
 	oracle: {
 		kind: "second-implementation",

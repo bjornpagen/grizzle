@@ -4,7 +4,7 @@
  * is one the generator assigns that codec, in every spelling a document may use.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Option } from "effect"
@@ -40,7 +40,7 @@ export const sequentialParity = property.exhaust(mediaSpace, {
 			const assigned = yield* Effect.orDie(generatorCodec(mediaType))
 			const framed = yield* runtimeCodec(mediaType)
 			c.noteAll(parityFeatures(media, framed))
-			deepStrictEqual(
+			assert.deepEqual(
 				Option.filter(
 					assigned,
 					(codec) => codec === "jsonseq" || codec === "ndjson" || codec === "sse"

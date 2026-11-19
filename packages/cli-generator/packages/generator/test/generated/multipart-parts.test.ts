@@ -15,7 +15,7 @@
  * A case draws a focus, a feature or none, and the run aimed at it; while a required feature is still pending, a case
  * aimed at it draws the run made to reach it (multipart-parts.fixtures.ts parts), so each is reached on every run seed.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
@@ -67,7 +67,7 @@ export const multipartParts = property.explore(parts, {
 						stdin: new Uint8Array(0)
 					})
 				)
-				deepStrictEqual<Outcome>(
+				assert.deepEqual<Outcome>(
 					{
 						exitCode: observed.result.exitCode,
 						connections: observed.connections.length,

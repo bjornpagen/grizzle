@@ -8,7 +8,7 @@
  * alias its own method (else the operation's default name) and group; a skipped operation plans nothing; and every
  * command carries the sources that named it.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
@@ -46,7 +46,7 @@ export const namingPrecedence = property.explore(precedenceSpace, {
 		Effect.gen(function* () {
 			k.noteAll(featuresOf(c))
 			const actual = yield* actualOf(c)
-			deepStrictEqual(actual, expectedOf(c))
+			assert.deepEqual(actual, expectedOf(c))
 		}),
 	oracle: {
 		kind: "second-implementation",

@@ -12,7 +12,7 @@
  * flag's name, such as `follow`, is a command, and so is a group named like one; a positional and a field sharing only
  * a leading word do not collide.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
 import { Effect } from "effect"
@@ -57,7 +57,7 @@ export const reservedNamespaces = property.explore(nameSpace, {
 				const scratch = yield* dir
 				const service = yield* digest
 				const outcome = yield* Effect.provideService(outcomeOf(c, scratch), Digest.Digest, service)
-				deepStrictEqual(
+				assert.deepEqual(
 					outcome,
 					expectedOf(c),
 					"the site's namespace alone decides whether the name is refused"

@@ -1,4 +1,4 @@
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	boolean,
@@ -487,7 +487,7 @@ export const checkRun = Effect.fn("credentialSources.check")(function* (c: Case,
 		})
 	)
 	const printed = `${new TextDecoder().decode(observed.result.stdout)}${new TextDecoder().decode(observed.result.stderr)}`
-	deepStrictEqual<Outcome>(
+	assert.deepEqual<Outcome>(
 		{
 			exitCode: observed.result.exitCode,
 			requests: Arr.map(observed.requests, carriedOf),

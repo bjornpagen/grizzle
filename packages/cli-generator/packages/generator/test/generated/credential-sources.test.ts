@@ -19,7 +19,7 @@
  *   credential's value nowhere in what the run prints.
  * - Help: the root's help offers every scheme's `--<scheme>-file` flag with a description naming that scheme.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
@@ -88,7 +88,7 @@ export const credentialFileHelp = property.exhaust(rootHelp, {
 				const { built } = yield* fixture
 				const help = yield* runBin(built, { args: [flag], env: {}, stdin: new Uint8Array(0) })
 				const lines = Arr.map(Str.split("\n")(new TextDecoder().decode(help.stdout)), Str.trim)
-				deepStrictEqual(
+				assert.deepEqual(
 					Arr.map(SCHEMES, (scheme) =>
 						Arr.some(
 							lines,
@@ -203,7 +203,7 @@ export const credentialPrompt = property.explore(typedCases, {
 						typed: text
 					})
 				)
-				deepStrictEqual<Outcome>(
+				assert.deepEqual<Outcome>(
 					{
 						exitCode: observed.result.exitCode,
 						requests: Arr.map(observed.requests, carriedOf),

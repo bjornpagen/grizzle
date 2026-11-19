@@ -11,9 +11,10 @@
  * would export differently.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
+import { syntaxDiagnosticsOf } from "@bjornpagen/testing/syntax"
 import { Array as Arr, Cause, Effect, Exit, Option, Order, String as Str } from "effect"
 import { format } from "oxfmt"
 import {
@@ -30,7 +31,6 @@ import {
 	reachableFrom,
 	SENTINEL
 } from "#test/emit/domain-module.fixtures.ts"
-import { typescriptApi } from "#test/support/typescript.ts"
 
 /**
  * A definition set prints its reachable definitions in dependency order, the same in any order, in the layout the
@@ -38,7 +38,7 @@ import { typescriptApi } from "#test/support/typescript.ts"
  * before the conversion: 200 independent cases, and up to 800 steered while a situation is unreached.
  */
 export const domainModule = property.explore(caseGen, {
-	needs: { typescript: typescriptApi },
+	needs: {},
 	situations: [
 		"the empty module",
 		"a recursive definition",
@@ -53,55 +53,45 @@ export const domainModule = property.explore(caseGen, {
 		"a closed object",
 		"a nullable member"
 	] satisfies ReadonlyArray<Reached<Feature>>,
-	check:
-		({ typescript }, k: Case<Feature>) =>
-		(drawnCase) =>
-			Effect.gen(function* () {
-				const api = yield* typescript
-
-				const identifiers = identifiersOf(drawnCase.definitions)
-				const file = yield* emitted(drawnCase.definitions, drawnCase.roots, identifiers)
-				const again = yield* emitted(drawnCase.reordered, drawnCase.roots, identifiers)
-				const formatted = yield* Effect.promise(() =>
-					format("schemas.ts", file.content, FORMAT_OPTIONS)
-				)
-				const syntax =
-					api.transpileModule(file.content, {
-						fileName: "schemas.ts",
-						reportDiagnostics: true
-					}).diagnostics ?? []
-				const exported = yield* parsedExports(api, file.content)
-				const reachable = reachableFrom(drawnCase.definitions, drawnCase.roots)
-				k.noteAll(featuresOf(drawnCase, identifiers, reachable, file.content, exported.types))
-				deepStrictEqual(
-					{
-						path: file.path,
-						reordered: again.content,
-						formatted: formatted.code,
-						syntax: syntax.length,
-						exported: Arr.sort(
-							Arr.map(exported.constants, (constant) => constant.name),
-							Order.String
-						),
-						outOfOrder: outOfOrder(exported.constants),
-						annotations: Str.includes(SENTINEL)(file.content)
-					},
-					{
-						path: "src/domain/schemas.ts",
-						reordered: file.content,
-						formatted: file.content,
-						syntax: 0,
-						exported: Arr.sort(
-							Arr.getSomes(
-								Arr.map(reachable, (key) => Option.fromUndefinedOr(identifiers.get(key)))
-							),
-							Order.String
-						),
-						outOfOrder: [],
-						annotations: false
-					}
-				)
-			}),
+	check: (_resources, k: Case<Feature>) => (drawnCase) =>
+		Effect.gen(function* () {
+			const identifiers = identifiersOf(drawnCase.definitions)
+			const file = yield* emitted(drawnCase.definitions, drawnCase.roots, identifiers)
+			const again = yield* emitted(drawnCase.reordered, drawnCase.roots, identifiers)
+			const formatted = yield* Effect.promise(() =>
+				format("schemas.ts", file.content, FORMAT_OPTIONS)
+			)
+			const syntax = yield* syntaxDiagnosticsOf("schemas.ts", file.content)
+			const exported = yield* parsedExports(file.content)
+			const reachable = reachableFrom(drawnCase.definitions, drawnCase.roots)
+			k.noteAll(featuresOf(drawnCase, identifiers, reachable, file.content, exported.types))
+			assert.deepEqual(
+				{
+					path: file.path,
+					reordered: again.content,
+					formatted: formatted.code,
+					syntax: syntax.length,
+					exported: Arr.sort(
+						Arr.map(exported.constants, (constant) => constant.name),
+						Order.String
+					),
+					outOfOrder: outOfOrder(exported.constants),
+					annotations: Str.includes(SENTINEL)(file.content)
+				},
+				{
+					path: "src/domain/schemas.ts",
+					reordered: file.content,
+					formatted: file.content,
+					syntax: 0,
+					exported: Arr.sort(
+						Arr.getSomes(Arr.map(reachable, (key) => Option.fromUndefinedOr(identifiers.get(key)))),
+						Order.String
+					),
+					outOfOrder: [],
+					annotations: false
+				}
+			)
+		}),
 	oracle: {
 		kind: "specification",
 		name: "TypeScript's parser and oxfmt as judges, and exactly the reachable definitions under the identifier map's names, each after what it reads"
@@ -142,7 +132,7 @@ export const domainRefusal = property.explore(plantedGen, {
 			Effect.exit(emitted(planted.definitions, planted.roots, planted.identifiers)),
 			(exit) => {
 				k.note(planted.fault)
-				deepStrictEqual(
+				assert.deepEqual(
 					Exit.match(exit, {
 						onSuccess: () => Option.none<string>(),
 						onFailure: (cause) => Option.map(Cause.findErrorOption(cause), (error) => error.reason)

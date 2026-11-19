@@ -5,7 +5,7 @@
  * header and cookie parameters (RFC 9110, RFC 6265, OAS 3.2 and Appendix D), and no refusal repeats a value.
  */
 
-import { assertFalse, assertTrue, deepStrictEqual, strictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, Result, Stream, String as Str } from "effect"
@@ -79,7 +79,11 @@ const sentOf = (request: Serialize.Request) =>
 
 /** A refusal's message never repeats the secret a drawn value holds. */
 const keepsSecret = (actual: Expanded): void =>
-	assertFalse(Option.exists(actual.message, Str.includes(SECRET)), "a refusal repeats a value")
+	assert.equal(
+		Option.exists(actual.message, Str.includes(SECRET)),
+		false,
+		"a refusal repeats a value"
+	)
 
 const pathStyles = {
 	simple: Serialize.simple,
@@ -128,14 +132,14 @@ export const pathExpansion = property.explore(pathSpace, {
 			)
 			for (const [parameter, built] of Arr.zip(path.parameters, parameters)) {
 				const alone = yield* expanded(built.expand)
-				deepStrictEqual(
+				assert.deepEqual(
 					alone.outcome,
 					outcomeOf(Result.map(pathParameterModel(parameter), Option.some))
 				)
 				keepsSecret(alone)
 			}
 			const whole = yield* expanded(Serialize.path(template, parameters).expand)
-			deepStrictEqual(
+			assert.deepEqual(
 				whole.outcome,
 				outcomeOf(Result.map(pathModel(template, path.parameters), Option.some))
 			)
@@ -237,7 +241,7 @@ export const queryExpansion = property.explore(querySpace, {
 			const actual = yield* expanded(
 				queryStyles[parameter.style](parameter.name, parameter.value, parameter).expand
 			)
-			deepStrictEqual(actual.outcome, outcomeOf(queryModel(parameter)))
+			assert.deepEqual(actual.outcome, outcomeOf(queryModel(parameter)))
 			keepsSecret(actual)
 		}),
 	oracle: {
@@ -300,7 +304,7 @@ export const headerExpansion = property.explore(headerSpace, {
 			const actual = yield* expanded(
 				Serialize.header(parameter.name, parameter.value, parameter).expand
 			)
-			deepStrictEqual(actual.outcome, outcomeOf(headerModel(parameter)))
+			assert.deepEqual(actual.outcome, outcomeOf(headerModel(parameter)))
 			keepsSecret(actual)
 		}),
 	oracle: {
@@ -363,7 +367,7 @@ export const cookieExpansion = property.explore(cookieSpace, {
 			const actual = yield* expanded(
 				Serialize.cookie(parameter.name, parameter.value, parameter).expand
 			)
-			deepStrictEqual(actual.outcome, outcomeOf(cookieModel(parameter)))
+			assert.deepEqual(actual.outcome, outcomeOf(cookieModel(parameter)))
 			keepsSecret(actual)
 		}),
 	oracle: {
@@ -435,7 +439,7 @@ export const contentParameters = property.explore(contentSpace, {
 					Serialize.querystring(parameter.name, parameter.mediaType, value, options).expand
 			}[parameter.location]()
 			const actual = yield* expanded(built)
-			deepStrictEqual(actual.outcome, outcomeOf(contentModel(parameter)))
+			assert.deepEqual(actual.outcome, outcomeOf(contentModel(parameter)))
 			keepsSecret(actual)
 		}),
 	oracle: {
@@ -526,7 +530,7 @@ export const requestAssembly = property.explore(requestSpace, {
 				onFailure: () => Option.none(),
 				onSuccess: (sent) => Option.some({ method: request.method, ...sent, urlParams: [] })
 			})
-			deepStrictEqual(actual, expected)
+			assert.deepEqual(actual, expected)
 		}),
 	oracle: {
 		kind: "specification",
@@ -595,7 +599,7 @@ export const requestBody = property.explore(bodySpace, {
 			}[body.payload.kind]()
 			const built = yield* Effect.result(posted(Serialize.body(body.mediaType, given)))
 			const expected = bodyModel(body)
-			assertTrue(
+			assert.ok(
 				Result.isSuccess(built) === Result.isSuccess(expected),
 				"refused exactly when the reference refuses"
 			)
@@ -607,19 +611,19 @@ export const requestBody = property.explore(bodySpace, {
 			const sent = expected.success
 			switch (sent.kind) {
 				case "empty":
-					strictEqual(made.body._tag, "Empty")
-					deepStrictEqual(contentType, Option.none())
+					assert.equal(made.body._tag, "Empty")
+					assert.deepEqual(contentType, Option.none())
 					break
 				case "given":
-					assertTrue(made.body === given, "bytes pass through as given")
-					deepStrictEqual(contentType, Option.some(sent.contentType))
+					assert.ok(made.body === given, "bytes pass through as given")
+					assert.deepEqual(contentType, Option.some(sent.contentType))
 					break
 				case "text":
-					deepStrictEqual(
+					assert.deepEqual(
 						yield* bodyBytes(made.body),
 						Option.some(Buffer.from(sent.text, "utf8").toString("latin1"))
 					)
-					deepStrictEqual(contentType, Option.some(sent.contentType))
+					assert.deepEqual(contentType, Option.some(sent.contentType))
 			}
 		}),
 	oracle: {
@@ -738,11 +742,11 @@ export const chosenCodec = property.explore(alternativeSpace, {
 			const seen: Array<string> = []
 			const choice = chosenOf(chosen)
 			const through = yield* sentOf(posted(Serialize.alternatives(choice, tableOf(seen))))
-			deepStrictEqual(seen, [chosen.contentType])
+			assert.deepEqual(seen, [chosen.contentType])
 			const alone = yield* sentOf(posted(tableOf([])[choice.key](choice.body, choice.contentType)))
-			deepStrictEqual(through, alone)
+			assert.deepEqual(through, alone)
 			if (chosen.key === "application/json") {
-				deepStrictEqual(
+				assert.deepEqual(
 					through,
 					Result.match(
 						bodyModel({

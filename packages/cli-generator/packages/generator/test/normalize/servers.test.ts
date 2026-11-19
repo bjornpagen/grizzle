@@ -11,7 +11,7 @@
  *
  * Oracle: design 6.4's server levels and baked-default rules, applied to the drawn templates as they are written.
  */
-import { assertTrue, deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -65,8 +65,8 @@ export const serversRules = property.explore(serversSpace, {
 			const expected = expectedOf(sketch)
 			c.noteAll(serversFeatures(sketch, expected))
 			const actual = yield* actualOf(sketch)
-			deepStrictEqual(actual, expected)
-			assertTrue(echoesNoSecret(actual), "no diagnostic echoes a secret")
+			assert.deepEqual<typeof expected>(actual, expected)
+			assert.ok(echoesNoSecret(actual), "no diagnostic echoes a secret")
 		}),
 	oracle: {
 		kind: "specification",

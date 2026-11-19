@@ -19,6 +19,7 @@ import {
 	weighted,
 	type Weighted
 } from "@bjornpagen/testing/gen"
+import { syntaxDiagnosticsOf } from "@bjornpagen/testing/syntax"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -76,13 +77,11 @@ import {
 	isVariableStatement,
 	type Node,
 	type PropertyName,
-	ScriptKind,
 	type SourceFile,
 	SyntaxKind,
 	type Statement as TsStatement,
 	type TypeNode
 } from "typescript/ast"
-import { API } from "typescript/sync"
 import { identifierPattern, JsDocText, lineWidth } from "#emit/escape.ts"
 import {
 	arr,
@@ -2432,26 +2431,10 @@ export const refusalOf = <A>(
 			}))
 	})
 
-/** Parses `text` as `fileName` and reads the tree with `read`, releasing the parsed file after. */
-export const parsed = <A>(
-	api: API,
-	fileName: string,
-	text: string,
-	kind: ScriptKind,
-	read: (file: SourceFile) => A
-) =>
-	Effect.acquireUseRelease(
-		Effect.sync(() => api.createSourceFile(fileName, text, { scriptKind: kind })),
-		(retained) => Effect.sync(() => read(retained.sourceFile)),
-		(retained) => Effect.sync(() => retained.dispose())
-	)
-
-/** The syntax diagnostics TypeScript reports for `text`, by code. */
-export const syntaxCodes = (api: API, text: string): ReadonlyArray<number> =>
-	Arr.map(
-		api.transpileModule(text, { fileName: "printed.ts", reportDiagnostics: true }).diagnostics ??
-			[],
-		(diagnostic) => diagnostic.code
+/** The syntax diagnostics TypeScript reports for `text`, by code, through the library's one parser process. */
+export const syntaxCodes = (text: string) =>
+	Effect.map(syntaxDiagnosticsOf("printed.ts", text), (diagnostics) =>
+		Arr.map(diagnostics, (diagnostic) => diagnostic.code)
 	)
 
 /** What the formatter makes of `text`: its output and its errors' messages. */

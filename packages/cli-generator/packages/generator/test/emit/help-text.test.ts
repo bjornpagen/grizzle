@@ -15,7 +15,7 @@
  * end.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, Record } from "effect"
@@ -80,7 +80,25 @@ export const helpFacts = property.explore(helpInputGen, {
 			const help = operationHelp(input)
 			k.noteAll(featuresOf(input))
 			const { operation } = input
-			deepStrictEqual(
+			const noFindings: ReadonlyArray<string> = []
+			const wanted = {
+				description: stripUnsafeText(operation.docs.description ?? operation.docs.summary ?? ""),
+				summary: tableLineOf(operation.docs),
+				sections: sectionsOf(input),
+				arguments: Arr.sort(
+					Arr.map(Arr.filter(input.flags, isArgument), (flag) => flag.name),
+					Order.String
+				),
+				flags: Arr.sort(
+					Arr.map(
+						Arr.filter(input.flags, (flag) => !isArgument(flag)),
+						(flag) => flag.name
+					),
+					Order.String
+				),
+				findings: noFindings
+			}
+			assert.deepEqual<typeof wanted>(
 				{
 					description: help.description,
 					summary: help.summary,
@@ -89,23 +107,7 @@ export const helpFacts = property.explore(helpInputGen, {
 					flags: Arr.sort(Record.keys(help.flags), Order.String),
 					findings: helpFindings(input, help)
 				},
-				{
-					description: stripUnsafeText(operation.docs.description ?? operation.docs.summary ?? ""),
-					summary: tableLineOf(operation.docs),
-					sections: sectionsOf(input),
-					arguments: Arr.sort(
-						Arr.map(Arr.filter(input.flags, isArgument), (flag) => flag.name),
-						Order.String
-					),
-					flags: Arr.sort(
-						Arr.map(
-							Arr.filter(input.flags, (flag) => !isArgument(flag)),
-							(flag) => flag.name
-						),
-						Order.String
-					),
-					findings: []
-				}
+				wanted
 			)
 		}),
 	oracle: {

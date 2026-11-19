@@ -5,7 +5,7 @@
  * up, items by index and members in insertion order, each node beneath its parent's tokens from the tokens it starts
  * at, as a reference walk does.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
@@ -37,7 +37,7 @@ export const jsonTree = property.explore(treeSpace, {
 	check: (_, k: Case<Feature>) => (c) =>
 		Effect.sync(() => {
 			k.noteAll(featuresOf(c))
-			deepStrictEqual(actualOf(c), expectedOf(c))
+			assert.deepEqual(actualOf(c), expectedOf(c))
 		}),
 	oracle: {
 		kind: "second-implementation",

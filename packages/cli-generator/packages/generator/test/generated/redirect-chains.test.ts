@@ -12,7 +12,7 @@
  *   to the bound origin and none on a hop to the unbound one, no trace propagation header on any hop, and exit 0 once
  *   the chain lands.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -86,7 +86,7 @@ export const redirectChains = property.explore(chains, {
 						stdin: new Uint8Array(0)
 					})
 				)
-				deepStrictEqual(
+				assert.deepEqual<typeof expected>(
 					{
 						hops: Arr.map(observed.requests, hopOf),
 						exitCode: observed.result.exitCode,

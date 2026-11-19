@@ -8,7 +8,7 @@
  * never a value or a path, and both entry points refuse alike.
  */
 
-import { deepStrictEqual, strictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -79,9 +79,9 @@ export const bodyMerge = property.explore(
 					const merged = yield* observed(root, drawn, "merge")
 					const structured = yield* observed(root, drawn, "structured")
 					const expected = expectedObserved(drawn)
-					deepStrictEqual(comparable(merged), expected)
-					deepStrictEqual(comparable(structured), expected)
-					strictEqual(prototypeClean(), true)
+					assert.deepEqual(comparable(merged), expected)
+					assert.deepEqual(comparable(structured), expected)
+					assert.equal(prototypeClean(), true)
 				}),
 		oracle: {
 			kind: "specification",

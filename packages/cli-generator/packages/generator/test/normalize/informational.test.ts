@@ -9,7 +9,7 @@
  *
  * Oracle: design 2.4's accounting, applied to the drawn document as it is built.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -53,7 +53,7 @@ export const informationalAccounting = property.explore(informationalSpace, {
 			c.noteAll(informationalFeatures(sketch))
 			const [, expected] = documentOf(sketch)
 			const actual = yield* actualOf(sketch)
-			deepStrictEqual(actual, { records: expected, dangling: [] })
+			assert.deepEqual(actual, { records: expected, dangling: [] })
 		}),
 	oracle: {
 		kind: "specification",

@@ -12,7 +12,7 @@
  *
  * Oracle: design 6.6's key grammar, codec table and orders, applied to the drawn Responses Object.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -59,7 +59,7 @@ export const responsesRules = property.explore(responsesSpace, {
 			const expected = expectedOf(sketch)
 			c.noteAll(responsesFeatures(sketch, expected))
 			const actual = yield* actualOf(sketch)
-			deepStrictEqual(actual, expected)
+			assert.deepEqual(actual, expected)
 		}),
 	oracle: {
 		kind: "specification",

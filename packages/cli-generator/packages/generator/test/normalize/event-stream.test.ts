@@ -19,7 +19,7 @@
  * the open contract, a closed contract, a ready role with its next event, a name repeated with the same row.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -65,9 +65,9 @@ export const eventContract = property.explore(itemSpace, {
 			const expected = expectedOf(schema)
 			const actual = yield* actualOf(schema)
 			c.noteAll(readingFeatures(schema, expected))
-			deepStrictEqual(actual, expected)
+			assert.deepEqual(actual, expected)
 			const unstored = yield* unstoredKeys(schema, actual)
-			deepStrictEqual(unstored, [], "every data schema a row names is stored")
+			assert.deepEqual(unstored, [], "every data schema a row names is stored")
 		}),
 	oracle: {
 		kind: "specification",

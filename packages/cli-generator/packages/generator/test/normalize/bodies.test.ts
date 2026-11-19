@@ -10,7 +10,7 @@
  *
  * Oracle: design 6.3's alternative rules and codec table, applied to the drawn body.
  */
-import { deepStrictEqual, strictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
@@ -70,7 +70,7 @@ export const bodyAlternatives = property.explore(bodySpace, {
 			const expected = expectedOf(sketch)
 			c.noteAll(bodyFeatures(sketch, expected))
 			const actual = yield* actualOf(sketch)
-			deepStrictEqual(actual, expected)
+			assert.deepEqual(actual, expected)
 		}),
 	oracle: {
 		kind: "specification",
@@ -163,7 +163,7 @@ export const discriminatorHint = property.explore(discriminatorSpace, {
 			const expected = discriminatorExpected(sketch)
 			c.noteAll(discriminatorFeatures(sketch, expected))
 			const actual = yield* discriminatorActual(sketch)
-			deepStrictEqual(actual, expected)
+			assert.deepEqual(actual, expected)
 		}),
 	oracle: {
 		kind: "specification",
@@ -199,7 +199,7 @@ export const sharedAllOf = property.explore(sharedSpace, {
 	check: () => (sketch) =>
 		Effect.gen(function* () {
 			const actual = yield* sharedActual(sketch)
-			deepStrictEqual(actual, sharedExpected(sketch))
+			assert.deepEqual<ReadonlyArray<string>>(actual, sharedExpected(sketch))
 		}),
 	oracle: { kind: "specification", name: "the one part the shared schema declares" },
 	kept: [],
@@ -227,7 +227,7 @@ export const invalidMediaKeyOnce = property.explore(invalidKeySpace, {
 			const scratch = yield* resources.scratch
 			const digest = yield* resources.digest
 			const actual = yield* invalidKeyActual(scratch, digest, sketch)
-			strictEqual(actual, invalidKeyExpected(sketch))
+			assert.equal(actual, invalidKeyExpected(sketch))
 		}),
 	oracle: {
 		kind: "specification",

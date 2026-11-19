@@ -18,7 +18,7 @@
  * property draws a request and runs it as a dry run with and without the credential and as a verbose real send,
  * comparing the three with each other and with what reached the capture server; an exhaustion runs every JSON error.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Record as Rec, String as Str } from "effect"
@@ -87,7 +87,7 @@ export const printedRequests = property.explore(requests, {
 				const verboseStderr = utf8(verbose.result.stderr)
 				const printed = printedOf(dryRunStdout)
 				const verboseLines = Arr.filter(Str.split("\n")(verboseStderr), Str.isNonEmpty)
-				deepStrictEqual<Shown>(
+				assert.deepEqual<Shown>(
 					{
 						dryRunRequestLine: printed.requestLine,
 						dryRunExit: dryRun.result.exitCode,
@@ -176,7 +176,7 @@ export const jsonErrors = property.exhaust(failures, {
 					typeof value === "string" ? Option.some(value) : Option.none()
 				const asNumber = (value: string | number): Option.Option<number> =>
 					typeof value === "number" ? Option.some(value) : Option.none()
-				deepStrictEqual<Rendered>(
+				assert.deepEqual<Rendered>(
 					{
 						exitCode: observed.result.exitCode,
 						connections: observed.connections.length,

@@ -12,7 +12,7 @@
  * While a required feature is still pending, a case aimed at it draws the run made to reach it
  * (content-parameters.fixtures.ts runs), so each is reached on every run seed.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
@@ -47,7 +47,7 @@ export const contentHelp = property.exhaust(jsonFlags, {
 					env: {},
 					stdin: new Uint8Array(0)
 				})
-				deepStrictEqual<Readonly<{ exitCode: number; shown: Option.Option<string> }>>(
+				assert.deepEqual<Readonly<{ exitCode: number; shown: Option.Option<string> }>>(
 					{
 						exitCode: help.exitCode,
 						shown: metavarOf(Buffer.from(help.stdout).toString("utf8"), flag)
@@ -92,7 +92,7 @@ export const contentParameters = property.explore(runs, {
 					})
 				)
 				const requests = yield* Effect.forEach(observed.requests, carriedOf)
-				deepStrictEqual<Outcome>(
+				assert.deepEqual<Outcome>(
 					{
 						exitCode: observed.result.exitCode,
 						connections: observed.connections.length,

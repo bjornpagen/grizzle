@@ -15,7 +15,7 @@
  * A case draws a focus, a feature or none, and the run aimed at it; while a required feature is still pending, a case
  * aimed at it draws the run made to reach it (body-alternatives.fixtures.ts cases), so each is reached on every run seed.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
@@ -70,7 +70,7 @@ export const bodyAlternatives = property.explore(cases, {
 					})
 				)
 				const requests = yield* Effect.forEach(observed.requests, receivedOf)
-				deepStrictEqual<Outcome>(
+				assert.deepEqual<Outcome>(
 					{
 						exitCode: observed.result.exitCode,
 						connections: observed.connections.length,

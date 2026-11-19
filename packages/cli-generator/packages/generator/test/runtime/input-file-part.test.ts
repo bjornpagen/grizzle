@@ -5,7 +5,7 @@
  * (m3-pwmh: a `format: password` part is a file part, and its path may be the secret itself).
  */
 
-import { assertFalse, assertTrue, deepStrictEqual, strictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
@@ -68,7 +68,7 @@ export const filePart = property.explore(fileSpace, {
 				Effect.forEach(placed, ([, at]) => Effect.ignore(fs.chmod(at, 0o700)), { discard: true })
 			)
 			for (const [part, at] of placed) {
-				strictEqual(Multipart.partFilename(at, part.flag), filenameModel(at, part.flag))
+				assert.equal(Multipart.partFilename(at, part.flag), filenameModel(at, part.flag))
 			}
 			const stdout: Array<Uint8Array> = []
 			const stderr: Array<Uint8Array> = []
@@ -108,28 +108,32 @@ export const filePart = property.explore(fileSpace, {
 			const expected = readingModel(run, STDIN)
 			switch (expected.kind) {
 				case "read":
-					deepStrictEqual(Exit.isSuccess(exit) ? exit.value : [], expected.bytes)
-					assertTrue(Exit.isSuccess(exit), "a run of readable parts reads them")
-					strictEqual(printedErr, "")
+					assert.deepEqual<ReadonlyArray<string>>(
+						Exit.isSuccess(exit) ? exit.value : [],
+						expected.bytes
+					)
+					assert.ok(Exit.isSuccess(exit), "a run of readable parts reads them")
+					assert.equal(printedErr, "")
 					break
 				case "refused": {
-					assertTrue(Exit.isFailure(exit), "a refused part fails the run")
-					assertTrue(Str.includes(`--${expected.flag}`)(printedErr), "the refusal names the flag")
+					assert.ok(Exit.isFailure(exit), "a refused part fails the run")
+					assert.ok(Str.includes(`--${expected.flag}`)(printedErr), "the refusal names the flag")
 					if (run.format === "json") {
-						deepStrictEqual(
+						assert.deepEqual(
 							Arr.filter(Str.split("\n")(Str.trimEnd(printedErr)), Str.isNonEmpty).length,
 							1
 						)
-						assertTrue(
+						assert.ok(
 							Str.includes('"kind":"UsageError"')(printedErr),
 							"the json refusal is a UsageError"
 						)
 					}
 				}
 			}
-			strictEqual(printedOut, "")
-			assertFalse(
+			assert.equal(printedOut, "")
+			assert.equal(
 				Str.includes(run.secret)(printedErr),
+				false,
 				"a refusal echoes the path the operator gave"
 			)
 		}),

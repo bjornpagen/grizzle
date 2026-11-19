@@ -7,7 +7,7 @@
  * at the fault's own pointer, in pointer order, each echoing no value it refuses and hinting the folded title only for
  * a missing bin name.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
@@ -47,7 +47,7 @@ export const authorConfig = property.explore(configSpace, {
 		Effect.gen(function* () {
 			k.noteAll(featuresOf(c))
 			const actual = yield* actualOf(c)
-			deepStrictEqual(actual, expectedOf(c))
+			assert.deepEqual(actual, expectedOf(c))
 		}),
 	oracle: {
 		kind: "specification",

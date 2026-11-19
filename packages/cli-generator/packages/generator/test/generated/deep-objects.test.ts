@@ -24,7 +24,7 @@
  *   wire by each wire's own rules (a form body as the WHATWG URL Standard reads it, where `+` is a space; a query as
  *   RFC 3986 percent-encoding, where `+` is a plus); and exit 2 with no connection for each fault.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, family, type Kill, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
@@ -97,7 +97,7 @@ export const deepObjectSurfaces = family(
 											(flag) => flag[field]
 										)
 								})
-							deepStrictEqual<Surface>(
+							assert.deepEqual<Surface>(
 								{
 									exitCodes: [described.exitCode, updateHelp.exitCode, listHelp.exitCode],
 									commands: sorted(Arr.map(description.commands, (command) => command.pointer)),
@@ -157,7 +157,7 @@ export const deepObjectValues = family(
 								})
 							)
 							const stderr = utf8(observed.result.stderr)
-							deepStrictEqual<Outcome>(
+							assert.deepEqual<Outcome>(
 								{
 									exitCode: observed.result.exitCode,
 									connections: observed.connections.length,

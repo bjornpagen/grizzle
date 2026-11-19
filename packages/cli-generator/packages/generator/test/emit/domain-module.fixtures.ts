@@ -13,7 +13,8 @@ import {
 	weighted,
 	type Weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, Order, Predicate, Record, String as Str } from "effect"
+import { syntaxOf } from "@bjornpagen/testing/syntax"
+import { Array as Arr, Option, Order, Predicate, Record, String as Str } from "effect"
 import type { FormatConfig } from "oxfmt"
 import {
 	isArrowFunction,
@@ -21,10 +22,8 @@ import {
 	isTypeAliasDeclaration,
 	isVariableStatement,
 	type Node,
-	ScriptKind,
 	type SourceFile
 } from "typescript/ast"
-import { API } from "typescript/sync"
 import { emitDomainSchemas } from "#emit/domain.ts"
 import type { Json } from "#model/pointer.ts"
 import { domainIdentifiers } from "#names/domain.ts"
@@ -296,12 +295,7 @@ export type Feature =
 	| "a closed object"
 	| "a nullable member"
 
-export const parsedExports = (api: API, text: string) =>
-	Effect.acquireUseRelease(
-		Effect.sync(() => api.createSourceFile("/schemas.ts", text, { scriptKind: ScriptKind.TS })),
-		(retained) => Effect.sync(() => exportsOf(retained.sourceFile)),
-		(retained) => Effect.sync(() => retained.dispose())
-	)
+export const parsedExports = (text: string) => syntaxOf("/schemas.ts", text, exportsOf)
 
 export const featuresOf = (
 	drawnCase: DomainCase,

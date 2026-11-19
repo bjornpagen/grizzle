@@ -49,13 +49,10 @@ export default localCluster({
 	ownerParameters: ["deadlock_timeout"],
 	peerLogins: [],
 	durability: "throwaway",
-	family: { kind: "one" },
 	sizing: {
-		connections: {
-			kind: "perWorker",
-			perWorker: connectionsPerWorker,
-			outside: outsideSessions.length
-		},
+		kind: "leased",
+		family: { kind: "one" },
+		connections: { perWorker: connectionsPerWorker, outside: outsideSessions.length },
 		replication: { kind: "default" },
 		sharedBuffers: { kind: "default" }
 	}

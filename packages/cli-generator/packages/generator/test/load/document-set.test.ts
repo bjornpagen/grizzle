@@ -8,7 +8,7 @@
  * as a duplicate, a missing file as unreadable; each document-scoped, naming the pair's path.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
@@ -59,7 +59,7 @@ export const documentPairs = property.explore(pairLoads, {
 				)
 				const actual = yield* Effect.provideService(actualSet(load, given), Digest.Digest, service)
 				c.noteAll(pairsFeatures(load, actual))
-				deepStrictEqual(actual, expected)
+				assert.deepEqual(actual, expected)
 			}),
 	oracle: {
 		kind: "specification",

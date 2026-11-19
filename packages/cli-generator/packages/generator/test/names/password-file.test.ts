@@ -8,7 +8,7 @@
  * `format: byte`) is a file flag the emitted CLI sends in that encoding, 3.1's `format: byte` and any base64 array plain
  * text; and a sibling named like a secret's file flag refuses the operation (RQB-03).
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
@@ -53,7 +53,7 @@ export const secretFields = property.explore(secretSpace, {
 		Effect.gen(function* () {
 			k.noteAll(featuresOf(c))
 			const planned = yield* plannedOf(c)
-			deepStrictEqual(planned, expectedOf(c))
+			assert.deepEqual(planned, expectedOf(c))
 		}),
 	oracle: {
 		kind: "specification",

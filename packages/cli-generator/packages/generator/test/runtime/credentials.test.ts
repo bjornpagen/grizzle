@@ -11,7 +11,7 @@
  * help marks a deprecated scheme.
  */
 
-import { deepStrictEqual, strictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -101,12 +101,12 @@ export const credentialChoice = property.explore(
 				c.noteAll(choiceFeatures(drawn))
 				const run = yield* evaluated(drawn)
 				const settings = yield* settingsRead(drawn)
-				deepStrictEqual(run.chosen, expectedChoice(drawn))
-				deepStrictEqual(
+				assert.deepEqual(run.chosen, expectedChoice(drawn))
+				assert.deepEqual(
 					Arr.filter(secretsOf(drawn), (secret) => Str.includes(secret)(run.rendered)),
 					[]
 				)
-				deepStrictEqual(settings, expectedSettings(drawn))
+				assert.deepEqual<ReturnType<typeof expectedSettings>>(settings, expectedSettings(drawn))
 			}),
 		oracle: {
 			kind: "specification",
@@ -249,7 +249,7 @@ export const credentialPlacement = property.explore(
 			Effect.gen(function* () {
 				c.noteAll(placementFeatures(drawn))
 				const attached = yield* actualAttached(drawn)
-				deepStrictEqual(attached, expectedAttached(drawn))
+				assert.deepEqual(attached, expectedAttached(drawn))
 			}),
 		oracle: {
 			kind: "second-implementation",
@@ -397,7 +397,7 @@ export const plaintextHosts = property.explore(
 		check: (_, c: Case<PlaintextFeature>) => (drawn) =>
 			Effect.sync(() => {
 				c.noteAll(plaintextFeatures(drawn))
-				deepStrictEqual(actualWarned(drawn), expectedWarned(drawn))
+				assert.deepEqual(actualWarned(drawn), expectedWarned(drawn))
 			}),
 		oracle: {
 			kind: "specification",
@@ -465,7 +465,7 @@ export const sentCredentials = property.explore(
 			Effect.gen(function* () {
 				c.noteAll(callFeatures(drawn))
 				const called = yield* actualCalled(drawn)
-				deepStrictEqual(called, expectedCalled(drawn))
+				assert.deepEqual(called, expectedCalled(drawn))
 			}),
 		oracle: {
 			kind: "specification",
@@ -536,7 +536,7 @@ export const authHelp = property.explore(authHelps, {
 		Effect.gen(function* () {
 			c.noteAll(authFeatures(drawn))
 			const line = yield* actualAuth(drawn)
-			strictEqual(line, expectedAuth(drawn))
+			assert.equal(line, expectedAuth(drawn))
 		}),
 	oracle: {
 		kind: "specification",

@@ -16,7 +16,7 @@
  * While a required feature is still pending, a case aimed at it draws the run made to reach it
  * (proxy-routing.fixtures.ts runs), so each is reached on every run seed.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
@@ -66,7 +66,7 @@ export const proxyRouting = property.explore(runs, {
 						})
 					)
 				)
-				deepStrictEqual<Outcome>(
+				assert.deepEqual<Outcome>(
 					{
 						hops: Arr.map(observed.result.requests, hopOf),
 						exitCode: observed.result.result.exitCode,

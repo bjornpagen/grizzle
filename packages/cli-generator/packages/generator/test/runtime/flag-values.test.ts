@@ -10,7 +10,7 @@
  * within the safe integers, an idle timeout 1 or more, and is refused otherwise with its one fixed message.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -204,7 +204,7 @@ export const wholeNumbers = property.explore(
 			Effect.gen(function* () {
 				c.noteAll(settingFeatures(setting))
 				const read = yield* actualSetting(setting)
-				deepStrictEqual(read, expectedSetting(setting))
+				assert.deepEqual(read, expectedSetting(setting))
 			}),
 		oracle: {
 			kind: "specification",

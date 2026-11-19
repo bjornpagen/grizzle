@@ -7,7 +7,7 @@
  * a name map such as `properties`). No size, depth or count refuses a document: it is its own user's.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -42,7 +42,7 @@ export const strictJson = property.explore(documentGen, {
 			const want = expected(doc, rendered)
 			const got = yield* actual(doc, rendered)
 			k.noteAll(featuresOf(doc, rendered, want))
-			deepStrictEqual(got, want)
+			assert.deepEqual(got, want)
 		}),
 	oracle: {
 		kind: "second-implementation",

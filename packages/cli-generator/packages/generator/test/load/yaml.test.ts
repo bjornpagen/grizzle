@@ -9,7 +9,7 @@
  * thousands deep left open (refused, never a crash) and an empty stream as invalid YAML.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Option } from "effect"
@@ -51,8 +51,8 @@ export const yamlValue = property.explore(documents, {
 		Effect.gen(function* () {
 			c.noteAll(valueFeatures(doc))
 			const value = yield* loaded(bytesOf(doc, yamlOf(doc)))
-			deepStrictEqual(value, Option.some(expectedValue(doc)))
-			deepStrictEqual(
+			assert.deepEqual(value, Option.some(expectedValue(doc)))
+			assert.deepEqual(
 				Option.map(value, (got) => aliasesShared(doc, got)),
 				Option.some(true)
 			)
@@ -114,7 +114,7 @@ export const yamlHazard = property.explore(planted, {
 			const expected = expectedRefusal(plant, text)
 			c.noteAll(hazardFeatures(plant, text))
 			const refused = yield* actualRefusal(bytesOf(plant.doc, text), expected)
-			deepStrictEqual(refused, Option.some(expected))
+			assert.deepEqual(refused, Option.some(expected))
 		}),
 	oracle: {
 		kind: "specification",

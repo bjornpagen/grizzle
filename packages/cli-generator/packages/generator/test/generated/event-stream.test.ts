@@ -30,7 +30,7 @@
  * that splits an event; each failure verdict with and without a budget, on the read and on the write; a cut read and a
  * cut write, each with and without a budget; refused data of each event type.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, Schema, String as Str } from "effect"
@@ -92,7 +92,7 @@ export const streamFeed = property.explore(feeds, {
 						interrupted ? Option.some(lastLine) : Option.none()
 					)
 					k.noteAll(feedFeatures(sent))
-					deepStrictEqual(
+					assert.deepEqual(
 						{ exitCode: run.exitCode, stdout: run.stdout },
 						{ exitCode: interrupted ? 130 : 0, stdout: expected }
 					)
@@ -220,8 +220,8 @@ export const streamFailure = property.exhaust(failureCases, {
 					const requests = yield* server.requests
 					const wire = yield* server.wire
 					k.note(failureFeature(failure))
-					deepStrictEqual(wire, Arr.getSomes(Array.from({ length: requests }, () => digest)))
-					deepStrictEqual(
+					assert.deepEqual(wire, Arr.getSomes(Array.from({ length: requests }, () => digest)))
+					assert.deepEqual(
 						{
 							exitCode: run.exitCode,
 							requests,
@@ -276,7 +276,7 @@ export const streamRefusedData = property.exhaust(refusedCases, {
 					yield* server.script([{ writes: [refusedText[refused]], close: true }])
 					const run = yield* runCli(readArgs(server.origin, false), Option.none())
 					k.note(refused)
-					deepStrictEqual(
+					assert.deepEqual(
 						{
 							exitCode: run.exitCode,
 							stdout: run.stdout,
@@ -370,7 +370,7 @@ export const streamCut = property.exhaust(cutCases, {
 					const requests = yield* server.requests
 					k.note(cutFeature(cut))
 					const resumed = read && Option.isSome(cut.retries)
-					deepStrictEqual(
+					assert.deepEqual(
 						{ exitCode: run.exitCode, requests, stdout: run.stdout },
 						resumed
 							? { exitCode: 0, requests: 2, stdout: `${reset}${ready}${reset}${ready}${end}` }

@@ -12,7 +12,7 @@
  * object's `name` is a string flag (`name`, or `inner.name` through the property), while an `anyOf` or `oneOf` link
  * leaves the body opaque as any union does.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
@@ -43,7 +43,7 @@ export const aliasCycles = property.exhaust(chainSpace, {
 		Effect.gen(function* () {
 			k.noteAll(featuresOf(chain))
 			const planned = yield* plannedOf(chain)
-			deepStrictEqual(planned, expectedOf(chain))
+			assert.deepEqual(planned, expectedOf(chain))
 		}),
 	oracle: {
 		kind: "specification",

@@ -8,7 +8,7 @@
  * coverage holds every element and claim kind, its keys in any order, decodes and encodes back with each entry's keys
  * in the schema's order.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
@@ -58,7 +58,7 @@ export const diagnosticCodec = property.explore(diagnosticSpace, {
 		Effect.gen(function* () {
 			k.noteAll(codecFeaturesOf(sketch))
 			const actual = yield* codecAnswerOf(sketch)
-			deepStrictEqual(actual, expectedCodecOf(sketch))
+			assert.deepEqual(actual, expectedCodecOf(sketch))
 		}),
 	oracle: {
 		kind: "specification",
@@ -106,7 +106,7 @@ export const diagnosticOrder = property.explore(sortSpace, {
 		Effect.gen(function* () {
 			k.noteAll(orderFeaturesOf(c))
 			const actual = yield* sortedOf(c)
-			deepStrictEqual(actual, expectedSortOf(c))
+			assert.deepEqual(actual, expectedSortOf(c))
 		}),
 	oracle: {
 		kind: "second-implementation",
@@ -150,7 +150,7 @@ export const verdictCodec = property.explore(verdictSpace, {
 		Effect.gen(function* () {
 			k.noteAll(verdictFeaturesOf(v))
 			const actual = yield* verdictAnswerOf(v)
-			deepStrictEqual(actual, expectedVerdictOf(v))
+			assert.deepEqual(actual, expectedVerdictOf(v))
 		}),
 	oracle: {
 		kind: "universal",

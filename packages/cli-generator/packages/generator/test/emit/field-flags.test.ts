@@ -7,7 +7,7 @@
  * it has one, before the note that the value is read from a file or stdin and never echoed. A multipart number part
  * sends its text unchanged. A deepObject parameter's JSON flag sends its object as `name[key]=value` pairs.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -58,7 +58,7 @@ export const fieldFlags = property.explore(aimed(caseGen, AIMS), {
 					const runs = yield* numericRuns(drawnCase.kind, name, text)
 					const label = drawnCase.kind === "number" ? "number" : "integer"
 					const admitted = admits(drawnCase.kind, text)
-					deepStrictEqual(
+					assert.deepEqual(
 						{
 							code: runs.given.code,
 							sent: runs.given.sent,
@@ -82,7 +82,7 @@ export const fieldFlags = property.explore(aimed(caseGen, AIMS), {
 					const help = yield* secretHelp(drawnCase.kind, name, description)
 					const note = Str.indexOf(SECRET_NOTE)(help.printed)
 					const described = Option.flatMap(description, (text) => Str.indexOf(text)(help.printed))
-					deepStrictEqual(
+					assert.deepEqual(
 						{
 							code: help.code,
 							labelled: Str.includes(`--${name} path|-`)(help.printed),
@@ -100,12 +100,12 @@ export const fieldFlags = property.explore(aimed(caseGen, AIMS), {
 				case "deep-json": {
 					const { name, entries } = drawnCase
 					const sent = yield* deepObjectSent(name, objectText(entries))
-					deepStrictEqual(sent, [deepObjectQuery(name, entries)])
+					assert.deepEqual(sent, [deepObjectQuery(name, entries)])
 					return
 				}
 				case "number-part": {
 					const sent = yield* numberPartSent(drawnCase.text)
-					deepStrictEqual(Str.includes(`\r\n\r\n${drawnCase.text}\r\n--`)(sent), true)
+					assert.deepEqual(Str.includes(`\r\n\r\n${drawnCase.text}\r\n--`)(sent), true)
 					return
 				}
 			}

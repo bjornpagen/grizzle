@@ -11,7 +11,7 @@
  * spelling of it.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
@@ -65,7 +65,7 @@ export const refRoot = property.explore(trees, {
 				const expected = yield* expectedOf(place, tree)
 				const actual = yield* Effect.provideService(actualOf(place, tree), Digest.Digest, service)
 				c.note(tree.hazard.kind)
-				deepStrictEqual(comparable(expected, actual), expected)
+				assert.deepEqual(comparable(expected, actual), expected)
 			}),
 	oracle: {
 		kind: "specification",
@@ -122,7 +122,7 @@ export const entryMembers = property.explore(entryCases, {
 					service
 				)
 				c.noteAll(entryFeatures(entryCase))
-				deepStrictEqual(judged.actual, judged.expected)
+				assert.deepEqual(judged.actual, judged.expected)
 			}),
 	oracle: {
 		kind: "specification",

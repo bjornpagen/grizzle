@@ -12,7 +12,7 @@
  *
  * Oracle: design 6.5's model of schemes and alternatives, applied to the drawn document and author config.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -62,7 +62,7 @@ export const securityRules = property.explore(securitySpace, {
 			const expected = expectedOf(sketch)
 			c.noteAll(securityFeatures(sketch, expected))
 			const actual = yield* actualOf(sketch)
-			deepStrictEqual(actual, expected)
+			assert.deepEqual<typeof expected>(actual, expected)
 		}),
 	oracle: {
 		kind: "specification",

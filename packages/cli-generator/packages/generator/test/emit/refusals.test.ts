@@ -7,7 +7,7 @@
  * `unsupported-parameter`), and an event-stream request body, alone or beside an NDJSON or a text alternative
  * (`unsupported-body`).
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
@@ -50,7 +50,7 @@ export const emitRefusals = property.explore(caseGen, {
 					service
 				)
 				const result = yield* lenient.exit
-				deepStrictEqual(
+				assert.deepEqual(
 					{
 						refusals: Arr.map(
 							Arr.filter(result.diagnostics, (diagnostic) => diagnostic.pointer === pointer),

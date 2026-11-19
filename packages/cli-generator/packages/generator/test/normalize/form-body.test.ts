@@ -12,7 +12,7 @@
  *
  * Oracle: design 6.3's form rules and default table, applied to the drawn body.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -61,7 +61,7 @@ export const formEncoding = property.explore(formSpace, {
 			const expected = expectedOf(sketch)
 			c.noteAll(formFeatures(sketch, expected))
 			const actual = yield* actualOf(sketch)
-			deepStrictEqual(actual, expected)
+			assert.deepEqual(actual, expected)
 		}),
 	oracle: {
 		kind: "specification",

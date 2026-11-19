@@ -9,7 +9,7 @@
  * tokens extend the ancestor's; a `#/$defs/` reference's key is its text unescaped by `~1` and `~0` alone, never
  * percent-decoded; a member name is a specification extension exactly when it begins `x-`.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
@@ -52,7 +52,7 @@ export const pointerEvaluation = property.explore(pointerSpace, {
 		Effect.gen(function* () {
 			k.noteAll(pointerFeaturesOf(c))
 			const actual = yield* actualOf(c)
-			deepStrictEqual(actual, expectedOf(c))
+			assert.deepEqual(actual, expectedOf(c))
 		}),
 	oracle: {
 		kind: "second-implementation",
@@ -147,7 +147,7 @@ export const pointerNames = property.explore(nameSpace, {
 	check: (_, k: Case<NameFeature>) => (c) =>
 		Effect.sync(() => {
 			k.noteAll(nameFeaturesOf(c))
-			deepStrictEqual(namesOf(c), expectedNamesOf(c))
+			assert.deepEqual(namesOf(c), expectedNamesOf(c))
 		}),
 	oracle: {
 		kind: "specification",

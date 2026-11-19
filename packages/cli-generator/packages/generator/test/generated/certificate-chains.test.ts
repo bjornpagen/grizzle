@@ -14,7 +14,7 @@
  *   UsageError line naming the certificate setting, and no error for a dry run, nor a notice for one at the bound
  *   origin; and no path printed.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
@@ -79,7 +79,7 @@ export const certificateChains = property.explore(runOf, {
 						stdin: new Uint8Array(0)
 					})
 				)
-				deepStrictEqual<ChainObservation>(
+				assert.deepEqual<ChainObservation>(
 					{
 						hops: Arr.map(observed.requests, (request) => ({
 							origin: request.origin,
@@ -154,7 +154,7 @@ export const certificateStops = property.explore(stops, {
 				const errors = yield* errorsOf(observed.result.stderr)
 				const notices =
 					c.stop === "a dry run" && c.run.start.kind === "bound" ? Option.some(0) : Option.none()
-				deepStrictEqual<StopObservation>(
+				assert.deepEqual<StopObservation>(
 					{
 						connections: observed.connections,
 						exitCode: observed.result.exitCode,

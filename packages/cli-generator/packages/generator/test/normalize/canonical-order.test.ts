@@ -5,7 +5,7 @@
  *
  * Oracle: the twin of each generated document (metamorphic), generated beside it into the case's own directory.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
@@ -38,7 +38,7 @@ export const canonicalOrder = property.explore(canonicalSpace, {
 			const written = yield* packageOf(scratch, digest, "fixture", document, sketch.config)
 			const twin = yield* packageOf(scratch, digest, "twin", twinOf(document), sketch.config)
 			c.noteAll(written.diagnostics.length === 0 ? ["a document generated with no diagnostic"] : [])
-			deepStrictEqual(twin.files, written.files)
+			assert.deepEqual(twin.files, written.files)
 		}),
 	oracle: {
 		kind: "universal",

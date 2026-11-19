@@ -8,7 +8,7 @@
  *   modulo four. Oracle: the invocation itself, beside the variables the platform adds to an empty environment (macOS
  *   adds `__CF_USER_TEXT_ENCODING` to every process), read once from Node spawned directly with none.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
@@ -68,7 +68,7 @@ export const binRun = property.explore(invocation, {
 				}
 				const run = yield* runBin(built, c)
 				const echoed = yield* echoOf(run)
-				deepStrictEqual(
+				assert.deepEqual(
 					echoed,
 					{
 						args: c.args,

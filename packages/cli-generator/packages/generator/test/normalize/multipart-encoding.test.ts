@@ -12,7 +12,7 @@
  *
  * Oracle: design 6.3's multipart rules and default table, applied to the drawn body.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -70,7 +70,7 @@ export const multipartEncoding = property.explore(multipartSpace, {
 			const expected = expectedOf(sketch)
 			c.noteAll(multipartFeatures(sketch, expected))
 			const actual = yield* actualOf(sketch)
-			deepStrictEqual(actual, expected)
+			assert.deepEqual(actual, expected)
 		}),
 	oracle: {
 		kind: "specification",
@@ -150,7 +150,7 @@ export const positionalEncoding = property.explore(positionalSpace, {
 			const expected = positionalExpected(sketch)
 			c.noteAll(positionalFeatures(sketch, expected))
 			const actual = yield* positionalActual(sketch)
-			deepStrictEqual(actual, expected)
+			assert.deepEqual(actual, expected)
 		}),
 	oracle: {
 		kind: "specification",
@@ -193,7 +193,7 @@ export const threeZeroPartKeyword = property.exhaust(finite(keywordSpace), {
 		Effect.gen(function* () {
 			const digest = yield* resources.digest
 			const actual = yield* keywordActual(sketch, digest)
-			deepStrictEqual(actual, keywordExpected(sketch))
+			assert.deepEqual<ReturnType<typeof keywordExpected>>(actual, keywordExpected(sketch))
 		}),
 	oracle: {
 		kind: "specification",

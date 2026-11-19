@@ -8,7 +8,7 @@
  * final component; a check that refuses leaves it refused. A refusal keeps its code, pointer and place.
  */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
@@ -58,7 +58,7 @@ export const documentRead = property.explore(deliveries, {
 		(delivery) =>
 			Effect.gen(function* () {
 				c.noteAll(deliveryFeatures(delivery))
-				deepStrictEqual(yield* actualOf(yield* dir, delivery), expectedOf(delivery))
+				assert.deepEqual(yield* actualOf(yield* dir, delivery), expectedOf(delivery))
 			}),
 	oracle: {
 		kind: "specification",
@@ -116,7 +116,7 @@ export const memberRead = property.explore(members, {
 		(member) =>
 			Effect.gen(function* () {
 				c.noteAll(memberFeatures(member))
-				deepStrictEqual(yield* actualMember(yield* dir, member), expectedMember(member))
+				assert.deepEqual(yield* actualMember(yield* dir, member), expectedMember(member))
 			}),
 	oracle: {
 		kind: "specification",
@@ -152,7 +152,7 @@ export const refusalKept = property.explore(askedRefusals, {
 	check: (_, c: Case<AskedFeature>) => (asked) =>
 		Effect.map(askedOf(asked), (refusal) => {
 			c.noteAll(askedFeatures(asked))
-			deepStrictEqual(refusalFields(refusal), askedFields(asked))
+			assert.deepEqual(refusalFields(refusal), askedFields(asked))
 		}),
 	oracle: { kind: "specification", name: "the refusal's fields, as refuse was asked for them" },
 	kept: [],

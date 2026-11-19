@@ -19,7 +19,7 @@
  * when no alternative remains (SEC-06). A group whose tag folds to a fixed api module's segment is refused at the tag
  * (TAG-02) and has no command.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -89,7 +89,7 @@ export const constructs = property.explore(aimed(caseGen, AIMS), {
 					Digest.Digest,
 					service
 				)
-				deepStrictEqual(
+				assert.deepEqual(
 					{
 						facts: sortedFacts(generated.facts),
 						commanded: generated.commanded,

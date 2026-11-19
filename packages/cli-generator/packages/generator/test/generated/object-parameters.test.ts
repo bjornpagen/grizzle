@@ -21,7 +21,7 @@
  * the expansion above computed from the drawn object and compared byte for byte with what reached the capture server;
  * and an exhaustion of text that is not JSON for every kind of JSON input.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Option } from "effect"
@@ -68,7 +68,7 @@ export const objectJsonHelp = property.exhaust(jsonInputs, {
 			Effect.gen(function* () {
 				const opened = yield* fixture
 				const shown = yield* shownOf(opened, operation, left)
-				deepStrictEqual<Shown>(
+				assert.deepEqual<Shown>(
 					shown,
 					{ operation, left, exitCode: 0, metavar: Option.some("json") },
 					"each object positional and flag, and the JSON body field flag, takes json"
@@ -98,7 +98,7 @@ export const objectsInPath = property.explore(pathCases, {
 				const opened = yield* fixture
 				k.noteAll(pathFeatures(c))
 				const outcome = yield* observedRun(opened, c.target.operation, pathArgs(c))
-				deepStrictEqual<Outcome>(
+				assert.deepEqual<Outcome>(
 					outcome,
 					pathExpected(c),
 					"the object is sent by its style's expansion, or refused before any connection"
@@ -131,7 +131,7 @@ export const objectsInQuery = property.explore(queryCases, {
 				const opened = yield* fixture
 				k.noteAll(queryFeatures(c))
 				const outcome = yield* observedRun(opened, "query", queryArgs(c))
-				deepStrictEqual<Outcome>(
+				assert.deepEqual<Outcome>(
 					outcome,
 					queryExpected(c),
 					"the object is sent by its style's expansion, or refused before any connection"
@@ -165,7 +165,7 @@ export const objectsInHeaders = property.explore(headerCases, {
 				const opened = yield* fixture
 				k.noteAll(headerFeatures(c))
 				const outcome = yield* observedRun(opened, "headers", headerArgs(c))
-				deepStrictEqual<Outcome>(
+				assert.deepEqual<Outcome>(
 					outcome,
 					headerExpected(c),
 					"the object is sent by its style's expansion, or refused before any connection"
@@ -200,7 +200,7 @@ export const objectNotJson = property.exhaust(notJsonCases, {
 				k.note(target)
 				const { operation, args } = notJsonInvocation(target, text)
 				const outcome = yield* observedRun(opened, operation, args)
-				deepStrictEqual<Outcome>(
+				assert.deepEqual<Outcome>(
 					outcome,
 					REFUSED_RUN,
 					"text that is not JSON is a usage error before any connection"

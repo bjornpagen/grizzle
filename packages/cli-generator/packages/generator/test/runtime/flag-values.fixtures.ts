@@ -1,6 +1,6 @@
 /** What the properties of flag-values.test.ts read: the command lines and settings they draw, and their models. */
 
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import {
 	array,
 	constant,
@@ -848,35 +848,35 @@ export const lineHolds = (drawn: Line) =>
 		const run = yield* ran(drawn)
 		switch (expected.kind) {
 			case "help":
-				deepStrictEqual([run.exit, run.seen, run.stderr], [0, [], ""])
-				deepStrictEqual(printedRows(drawn, run.stdout), expectedRows(drawn))
-				deepStrictEqual(
+				assert.deepEqual([run.exit, run.seen, run.stderr], [0, [], ""])
+				assert.deepEqual(printedRows(drawn, run.stdout), expectedRows(drawn))
+				assert.deepEqual(
 					[Str.includes("USAGE")(run.stdout), Str.includes(Output.dashValueEscape)(run.stdout)],
 					[true, true]
 				)
-				deepStrictEqual(
+				assert.deepEqual(
 					[Str.includes(", -h")(run.stdout), Str.includes(", -v")(run.stdout)],
 					[false, false]
 				)
 				return
 			case "version":
-				deepStrictEqual(
+				assert.deepEqual(
 					[run.exit, run.seen, run.stderr, Str.includes("1.2.3")(run.stdout)],
 					[0, [], "", true]
 				)
 				return
 			case "unparsed":
-				deepStrictEqual([run.exit, run.seen, run.stdout], [2, [], ""])
+				assert.deepEqual([run.exit, run.seen, run.stdout], [2, [], ""])
 				return
 			case "refused": {
 				const twin = yield* ran(sentinelTwin(drawn))
-				deepStrictEqual([run.exit, run.seen, run.stdout], [2, [], ""])
-				deepStrictEqual(Str.includes(`  ${expected.first}: `)(run.stderr), true)
-				deepStrictEqual(run.stderr, twin.stderr)
+				assert.deepEqual([run.exit, run.seen, run.stdout], [2, [], ""])
+				assert.deepEqual(Str.includes(`  ${expected.first}: `)(run.stderr), true)
+				assert.deepEqual(run.stderr, twin.stderr)
 				return
 			}
 			case "accepted":
-				deepStrictEqual(run, {
+				assert.deepEqual(run, {
 					exit: 0,
 					seen: [expected.values],
 					stdout: result,

@@ -14,7 +14,7 @@
  * One package with a mutual-TLS scheme beside a header key. An exhaustion of every error under every flag, variable and
  * invalid-variable setting, and an exhaustion of retry counts through a recording proxy.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
@@ -91,7 +91,7 @@ export const errorRendering = property.exhaust(errorCases, {
 					})
 				)
 				const stderr = Buffer.from(observed.result.stderr).toString("utf8")
-				deepStrictEqual<ErrorOutcome>(
+				assert.deepEqual<ErrorOutcome>(
 					{
 						exitCode: observed.result.exitCode,
 						connections: observed.connections.length,
@@ -154,7 +154,7 @@ export const warnsOnce = property.exhaust(retryCounts, {
 					)
 				)
 				const stderr = Buffer.from(observed.result.result.stderr).toString("utf8")
-				deepStrictEqual<WarningOutcome>(
+				assert.deepEqual<WarningOutcome>(
 					{
 						exitCode: observed.result.result.exitCode,
 						keys: Arr.map(observed.result.requests, (request) =>

@@ -12,7 +12,7 @@
  *   builds its own. Oracles: never-crashes, and determinism: a second run of the same invocation exits with the same
  *   code and prints the same bytes.
  */
-import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Duration, Effect, Option } from "effect"
@@ -61,12 +61,12 @@ export const builtExits = property.explore(invocation, {
 				if (first.requests.length > 0) {
 					k.note("a request sent")
 				}
-				deepStrictEqual(
+				assert.deepEqual(
 					Arr.intersection([meaning], admittedOf(first.requests.length, c.status)),
 					[meaning],
 					"the exit code is one the contract documents for the exchange the server saw"
 				)
-				deepStrictEqual(
+				assert.deepEqual(
 					second.result,
 					first.result,
 					"a second run exits the same way and prints the same bytes"

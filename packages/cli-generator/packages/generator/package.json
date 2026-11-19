@@ -32,6 +32,7 @@
 		"benchmark": "node corpus/tools/benchmark.ts",
 		"test": "vitest run",
 		"test:properties": "toolchain-test run",
+		"load": "toolchain-test load",
 		"pg": "toolchain-pg",
 		"corpus": "scripts/memguard.sh 6144 -- node corpus/tools/run.ts --check",
 		"ratchet:lower": "node scripts/ratchet.ts typecheck --lower && node scripts/ratchet.ts oxlint --lower"
