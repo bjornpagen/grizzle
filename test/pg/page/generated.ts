@@ -35,6 +35,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import type { Cell, ParamText } from "#compiler/core/wire.ts"
+import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
@@ -403,8 +404,8 @@ interface OrderedCase {
 	/** Each direction's window size. */
 	readonly size: { readonly forward: PageSize; readonly backward: PageSize }
 	/**
-	 * Whether the caller passes every float zero among its relation parameters' rows as -0, a number its host carrier
-	 * admits as the one zero.
+	 * Whether the caller passes every float zero among its relation parameters' rows as -0, a value of its own (README:
+	 * a float keeps its zero's sign), which D then reads too (passedCell).
 	 */
 	readonly negativeZero: boolean
 }
@@ -607,6 +608,13 @@ const isFloatZero = (literal: TypedLiteral): boolean =>
 	literal.kind === "float" && literal.value === 0
 
 /**
+ * A relation parameter's cell as the caller passes it: a float zero as -0 where the case passes it so (negativeZero),
+ * the value itself otherwise; the runtime reads it as the caller's value and D as the codec's text of it.
+ */
+const passedCell = (o: OrderedCase, literal: TypedLiteral): TypedLiteral =>
+	o.negativeZero && isFloatZero(literal) ? floatLiteral(-0) : literal
+
+/**
  * The case's parameters as a caller passes them: scalars as host values, relation parameters as arrays of facts, each
  * float zero among their rows as -0 where the case passes it so.
  */
@@ -622,12 +630,7 @@ const hostParams = (o: OrderedCase, codes: Codebook): Readonly<Record<string, un
 					Rec.fromEntries(
 						Arr.map(p.heading, (h, i) => {
 							const literal = defined(row[i], "parameter column")
-							return [
-								h.name,
-								o.negativeZero && isFloatZero(literal)
-									? -0
-									: callerInput(h.type, literal, codes).value
-							]
+							return [h.name, callerInput(h.type, passedCell(o, literal), codes).value]
 						})
 					)
 				)
@@ -637,11 +640,11 @@ const hostParams = (o: OrderedCase, codes: Codebook): Readonly<Record<string, un
 
 /** A placeholder's text from the caller's parameter values, for D's conservative statements. */
 const slotText = (
-	c: QueryCase,
+	o: OrderedCase,
 	slot: ConservativeStatement["params"][number],
 	codes: Codebook
 ): string => {
-	const p = c.query.params[slot.param]
+	const p = o.c.query.params[slot.param]
 	if (slot.kind === "scalar" && p?.kind === "scalar") {
 		return callerInput(p.type, p.value, codes).text
 	}
@@ -655,7 +658,7 @@ const slotText = (
 		const texts = Arr.map(p.rows, (row) =>
 			Arr.map(index, (at) => {
 				const type = defined(p.heading[at], "parameter column").type
-				return callerInput(type, defined(row[at], "column"), codes).text
+				return callerInput(type, passedCell(o, defined(row[at], "column")), codes).text
 			})
 		)
 		const arrays = arrayTexts(
@@ -747,7 +750,7 @@ const fullResult = (
 ): Effect.Effect<Full, SqlError | RawCaptureError> =>
 	Effect.gen(function* () {
 		const program = conservativeStatement(conservative)
-		const values = Arr.map(program.statement.params, (slot) => slotText(o.c, slot, codes))
+		const values = Arr.map(program.statement.params, (slot) => slotText(o, slot, codes))
 		const parts = yield* sentRows(session, program, program.statement.sql.text, values, everyRow)
 		const groups: Array<{ readonly heading: Heading; readonly rows: ReadonlyArray<Row> }> = []
 		const attachments: Array<ReadonlyMap<string, ReadonlyArray<string>>> = []

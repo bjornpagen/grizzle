@@ -39,12 +39,12 @@ export type StorageCarrier = Exclude<Carrier, ExactValueCarrier>
  *
  * The differential harness runs over small generated domains, so that joins, projections, groups and keys collide
  * often, and over the values whose equality and spelling PostgreSQL treats specially: NaN (equal to itself, sorting
- * greatest), signed zero (one value), numeric display scale (1.0 = 1.00), and text beyond the Basic Multilingual Plane
+ * greatest), numeric display scale (1.0 = 1.00), and text beyond the Basic Multilingual Plane
  * (code point order, not UTF-16 order, under C.UTF-8). Every value is a typed Literal of the scalar IR, in its one form,
  * so the fact loader and the conservative lowering print it exactly.
  *
  * A domain is a list of value classes (ValueClass): one value, and the input spellings PostgreSQL reads as that value
- * and may store differently (twinSpellings): "1", "1.0" and "1.000000000000000000000000", or "0" and "-0". A stored
+ * and may store differently (twinSpellings): "1", "1.0" and "1.000000000000000000000000". A stored
  * value (a fact) is written in one drawn spelling of its class (SpelledValue), and grizzle's answer must not depend on
  * which: a collapsing operator (DISTINCT, UNION, GROUP BY, min, max), a join and every reading over two spellings of one
  * class give one value, which the reference states exactly. So the generators draw spellings freely, at every merge
@@ -919,8 +919,9 @@ export interface ValueSketch {
 
 /**
  * The value sketches of the float specials among a float type's classes: NaN, Infinity and -Infinity, each a value the
- * lowerings print as a special literal. A float4 and a float8 type share the classes' layout. A float's -0 is no value:
- * the compute generator reaches it as Compute.neg(0), and a stored value as its twin spelling.
+ * lowerings print as a special literal. A float4 and a float8 type share the classes' layout. A float's -0 is a value of
+ * its own, equal to 0 under the native equality these classes partition by, so no class of its own here: the compute
+ * generator reaches it as Compute.neg(0).
  */
 export const floatSpecialSketches: ReadonlyArray<ValueSketch> = Arr.flatMap(
 	valueClasses(float8, false),

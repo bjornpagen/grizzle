@@ -123,5 +123,13 @@ export const deliversEveryFloatAndMoneySumAndMeanAsTheExactReferenceStatesItInAn
 				since: "2026-11-04"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "test/support/oracle/gen/domain.ts",
+				original: "\tfloat4: canonicalOnly,\n\tfloat8: canonicalOnly,",
+				replacement:
+					'\tfloat4: { kind: "twins", of: (literal) => (literal.kind === "float" && literal.value === 0 ? ["-0"] : []) },\n\tfloat8: { kind: "twins", of: (literal) => (literal.kind === "float" && literal.value === 0 ? ["-0"] : []) },',
+				why: "A float's 0 is respelled -0 as a twin of one value, as before c067533e8 made -0 a value of its own: the kept money case stores a 0 as -0, its second reading another fact, and its sums deliver otherwise; this property fails."
+			}
+		]
 	})

@@ -304,7 +304,7 @@ const specials: ReadonlyMap<string, number> = new Map([
 	["-Infinity", Number.NEGATIVE_INFINITY]
 ])
 
-/** A double precision output text: its binary64 value, -0 as +0. */
+/** A double precision output text: its binary64 value, -0 its own (float8out writes it "-0"). */
 export const strictDouble = (text: string): Result.Result<number, StrictFault> => {
 	const special = specials.get(text)
 	if (special !== undefined) {
@@ -333,7 +333,7 @@ const finiteBinary32 = (text: string): Result.Result<number, StrictFault> => {
 	return Result.succeed(parts.sign === "-" ? -magnitude : magnitude)
 }
 
-/** A real output text: its binary32 value exactly, -0 as +0. */
+/** A real output text: its binary32 value exactly, -0 its own (float4out writes it "-0"). */
 export const strictReal = (text: string): Result.Result<number, StrictFault> => {
 	const special = specials.get(text)
 	return special !== undefined ? Result.succeed(special) : finiteBinary32(text)
