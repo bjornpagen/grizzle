@@ -82,15 +82,14 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",
-				original: "\t\tkept = keptEvaluation(admission.items(), source, admission.judged, answer)",
-				replacement:
-					"\t\tkept = keptEvaluation(itemsOf(relation, admission.judged, answer), source, admission.judged, answer)",
+				original: "items: once(() => itemsOf(relation, reading, answers))",
+				replacement: "items: () => itemsOf(relation, reading, answers)",
 				why: "Each evaluation of an admitted row builds its relation's records again, for every source of its relation, so two sources of Gen over one admitted row read two records and two values of g, not the one record they share."
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",
-				original: "\t\t\treturn Result.ok(false)",
-				replacement: "\t\t\treturn Result.ok(true)",
+				original: '\t\tcase "null":\n\t\t\treturn truths.false',
+				replacement: '\t\tcase "null":\n\t\t\treturn truths.true',
 				why: "A predicate NULL at a row is read as true, where IS TRUE reads it as false: a check its row leaves NULL holds, and a selection keeps a row its predicate leaves NULL."
 			},
 			{
@@ -114,8 +113,8 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",
-				original: "judgeOf({ closed: [...closed.keys()], patterns }",
-				replacement: "judgeOf({ closed: [], patterns }",
+				original: "judgeOf(closedTableOf({ schema: model.checked }), new CompilePatterns())",
+				replacement: "judgeOf(new Map(), new CompilePatterns())",
 				why: "The judge reads none of the schema's closed relations, so a closed read is no value of the host's."
 			},
 			{
@@ -139,7 +138,7 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",
-				original: "\t\tread.set(name, { fields: statedFields(closed.heading), checks: [] })",
+				original: "\t\tread.set(name, relationReading(name, statedFields(closed.heading), []))",
 				replacement: "\t\tread.delete(name)",
 				why: "No closed relation is read as a source, as before: a row of a closed relation or of a selection of one, which RowSource admits, is a defect thrown, a row source of the schema not found."
 			}

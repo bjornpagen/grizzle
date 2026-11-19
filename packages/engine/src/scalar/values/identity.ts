@@ -522,6 +522,37 @@ const comparators: Comparators = {
 }
 
 /**
+ * Whether PostgreSQL's equality of a carrier's values is their host values' identity: a carrier each of whose values has
+ * one host value, so two values are equal exactly where they are one host value (compareValues's 0 of them): an
+ * integer, a boolean, a uuid's and a date's text, a text, whose order compares code points, and a closed id's handle,
+ * whose order ranks it in its roster. A numeric's and money's are objects; a double's NaN is equal to itself in
+ * PostgreSQL's order and to no value in the host's identity; bytes, a set, a span and a vector are objects; so each of
+ * those is equal by its order. Each carrier states it here, so a new one is a case to decide.
+ */
+export const equalByIdentity: { readonly [C in Carrier]: boolean } = {
+	int2: true,
+	int4: true,
+	int8: true,
+	numeric: false,
+	float4: false,
+	float8: false,
+	money: false,
+	bool: true,
+	uuid: true,
+	date: true,
+	text: true,
+	bytes: false,
+	code: true,
+	bits: false,
+	range4: false,
+	range8: false,
+	rangeDate: false,
+	vector: false,
+	exactInteger: true,
+	exactMoney: false
+}
+
+/**
  * PostgreSQL's order of two values of one carrier, the host's one comparison of values: by `order`, a codec's spec
  * (CarrierSpec), whose closed ids rank by the installation's codes, or the evaluator's (scalar/compute/evaluate.ts
  * evaluatorOrder), whose rank by their roster's declaration, the same order (ir/codes.ts HandleOrder).

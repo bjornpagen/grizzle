@@ -4,8 +4,13 @@
  * its selection, and every later row, the first one again among them, compiles no table and no expression, its
  * evaluation reading the compiled form alone; and each value is the NULL language's.
  *
+ * And an admitted row is read once (runtime/write/witness.ts RowReading): evaluated as a row of Gen and of the
+ * selection, its relation's items are computed once for both sources and each of its columns is read at most once,
+ * however many of its generated field, its checks and its selection read it; evaluated again, as a row of either source,
+ * it reads no column and computes no item, and answers as before.
+ *
  * The count is work, never time: V8's precise coverage counts each function's calls (kernel/calls.ts callCounts), the
- * compile of a table and of each of its expressions. Each case draws a world of closed relations over two rosters
+ * compile of a table and of each of its expressions, a column of a row read and a row's items computed. Each case draws a world of closed relations over two rosters
  * (language.ts World), one to five of its rows, a generated field of a drawn stored sort, two row checks and a
  * selection's predicate, each in the check vocabulary, two levels deep. Its first row is evaluated as a row of Gen and
  * of the selection, which compiles their tables; then every row is, the first again among them, with no compile at all,
@@ -29,7 +34,9 @@ import {
 	caseGen,
 	type CompiledCase,
 	type CompiledFeature,
-	compileSites
+	compileSites,
+	genColumns,
+	readingSites
 } from "#test/unit/compute/compiled.fixtures.ts"
 
 /** A table is compiled once, where it is first evaluated: every later row's evaluation compiles nothing, and agrees with the NULL language. */
@@ -145,6 +152,87 @@ export const aTableIsCompiledOnceWhereItIsFirstEvaluatedEveryLaterRowsEvaluation
 				original: "\tconst known = compiledTables.get(table)",
 				replacement: "\tconst known: CompiledExpr | undefined = undefined",
 				why: "Each evaluation of a table compiles it again, interpreting the table per row: every row after the first compiles its tables and expressions anew, and the property fails."
+			}
+		]
+	})
+
+/** An admitted row is read once: both its sources evaluate it over one reading, each column read and its items computed once. */
+export const anAdmittedRowIsReadOnceBothItsSourcesEvaluateItOverOneReadingEachColumnReadAndItsItemsComputedOnce =
+	property.explore(caseGen, {
+		needs: {},
+		situations: [
+			"a row selected",
+			"a row its selection leaves",
+			"several rows"
+		] satisfies ReadonlyArray<Reached<CompiledFeature>>,
+		check: (_, k: Case<CompiledFeature>) => (cc: CompiledCase) =>
+			Effect.gen(function* () {
+				const built = builtOf(cc)
+				const { Gen } = built
+				const evaluate = succeeded(rowEvaluator(built.schema), "the case's schema compiles")
+				const rows = Arr.map(cc.items, (item, id) => {
+					const admitted = evaluate.admit(Gen, itemFact(built.c, item, id))
+					return Result.isSuccess(admitted)
+						? admitted.success
+						: assert.fail(
+								`a row of Gen, which no domain refuses: ${Formatter.format(admitted.failure)}`
+							)
+				})
+				/** Each admitted row evaluated as a row of Gen and of the selection. */
+				const pass = () =>
+					Arr.map(rows, (row) => {
+						const whole = evaluate(Gen, row)
+						return {
+							g: whole.generated.g,
+							checks: [whole.checks.Holds0, whole.checks.Holds1] as const,
+							selected: evaluate(built.selected, row).selected
+						}
+					})
+				const [first, firstCounts] = yield* callCounts(Effect.sync(pass), readingSites)
+				assert.equal(
+					firstCounts.items,
+					rows.length,
+					"each admitted row's items are computed once, for both of its sources"
+				)
+				assert.ok(
+					firstCounts.columns <= rows.length * genColumns(built.c),
+					`each column of a row is read at most once: ${firstCounts.columns} reads of ${rows.length} rows of ${genColumns(built.c)} columns`
+				)
+				const [again, againCounts] = yield* callCounts(Effect.sync(pass), readingSites)
+				assert.deepEqual(
+					againCounts,
+					{ columns: 0, items: 0 },
+					"a row evaluated again, as a row of either source, reads no column and computes no item"
+				)
+				assert.deepEqual(again, first, "a row evaluated again answers as before")
+				for (const answer of first) {
+					k.note(
+						Result.isSuccess(answer.selected) && answer.selected.success
+							? "a row selected"
+							: "a row its selection leaves"
+					)
+				}
+				if (rows.length > 1) {
+					k.note("several rows")
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "one reading of an admitted row: its items computed once, each column read at most once, none read again"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/runtime/write/witness.ts",
+				original: "\t\t\tif (known !== undefined || columns.has(name)) {",
+				replacement: "\t\t\tif (false) {",
+				why: "A row's reading keeps no column, so each expression over the row reads its columns again: a row evaluated again as a row of its selection reads every column the selection reads."
+			},
+			{
+				file: "packages/engine/src/program/evaluate.ts",
+				original: "items: once(() => itemsOf(relation, reading, answers))",
+				replacement: "items: () => itemsOf(relation, reading, answers)",
+				why: "An admitted row's items are computed at every evaluation of it, once for each source of its relation and again for each later evaluation, where one computation serves them all."
 			}
 		]
 	})

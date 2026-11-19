@@ -89,7 +89,8 @@ declare const admittedOf: unique symbol
 /**
  * The host's evaluation of rows of S's sources (program/evaluate.ts rowEvaluator): `admit(R, row)` holds a row of R to
  * its domains once, DomainRefused or the admitted row; the evaluator itself evaluates an admitted row of R as a row of
- * any source of R, each item computed where it is first read and shared by every source of R over the admitted row.
+ * any source of R, its items computed once, where it is first evaluated, and shared by every source of R over the
+ * admitted row, each column of it read once for them all.
  */
 export interface RowEvaluator<S> {
 	<Src extends RowSource<S>>(

@@ -44,6 +44,7 @@ import { normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import {
 	compareValues,
+	equalByIdentity,
 	type HostValue,
 	hostOf,
 	type OrderSpec
@@ -74,7 +75,7 @@ export type SqlValue = HostValue | typeof sqlNull
 type EvalResult = Result.Result<HostValue, EvalStop>
 
 /** What an expression evaluates to, or why the host has no value for it. */
-type SqlResult = Result.Result<SqlValue, EvalStop>
+export type SqlResult = Result.Result<SqlValue, EvalStop>
 
 /**
  * A closed read as the closed relations answer it: the read's own node, its kind, its relation and C.at's field and
@@ -182,45 +183,71 @@ export type ComparisonFn = Extract<
 	"eq" | "ne" | "lt" | "le" | "gt" | "ge" | "between" | "in"
 >
 
+/** PostgreSQL's equality of two values of `type`: their identity where its carrier's is (identity.ts equalByIdentity), else its order's 0. */
+const equalityOf = (type: ScalarType): ((a: HostValue, b: HostValue) => boolean) => {
+	if (equalByIdentity[baseOf(type).carrier]) {
+		return (a, b) => a === b
+	}
+	const compare = orderOf(type)
+	return (a, b) => compare(a, b) === 0
+}
+
+/** The operand `i` of an operation `fn` its arity holds, read off its operands, which the IR's typing guarantees. */
+const operandOf = (fn: string, i: number): ((values: ReadonlyArray<HostValue>) => HostValue) => {
+	const invariant = `operand ${i} of ${fn}`
+	return (values) => defined(values[i], invariant)
+}
+
 /**
- * The truth of a comparison `fn` of values of one type `type`, none NULL, by the type's order read once (orderOf): `=`,
- * `<>`, `<`, `<=`, `>` and `>=` of its two operands, BETWEEN of its first between its second and third, IN of its first
- * among the rest. The one evaluation of a comparison, the evaluator's, staged where its expression is compiled, and
- * constant folding's (lower/optimize/simplify/boolean.ts, comparisonHolds). An operand its arity holds that is missing
- * is a defect of the IR that built it.
+ * The truth of a comparison `fn` of values of one type `type`, none NULL, staged once: `=` and `<>` of its two operands
+ * and IN of its first among the rest by the type's equality (equalityOf), and `<`, `<=`, `>`, `>=` and BETWEEN of its
+ * first between its second and third by its order (orderOf). The one evaluation of a comparison, the evaluator's, staged
+ * where its expression is compiled, and constant folding's (lower/optimize/simplify/boolean.ts, comparisonHolds). An
+ * operand its arity holds that is missing is a defect of the IR that built it.
  */
 const comparison = (
 	fn: ComparisonFn,
 	type: ScalarType
 ): ((values: ReadonlyArray<HostValue>) => boolean) => {
-	const compare = orderOf(type)
-	const first = (values: ReadonlyArray<HostValue>): HostValue =>
-		defined(values[0], `the first operand of ${fn}`)
-	const at = (values: ReadonlyArray<HostValue>, i: number): HostValue =>
-		defined(values[i], `operand ${i} of ${fn}`)
+	const first = operandOf(fn, 0)
+	const second = operandOf(fn, 1)
+	/** The comparison of its first two operands by the type's order, holding where `holds` holds of their order. */
+	const ordered = (holds: (order: -1 | 0 | 1) => boolean) => {
+		const compare = orderOf(type)
+		return (values: ReadonlyArray<HostValue>) => holds(compare(first(values), second(values)))
+	}
 	switch (fn) {
-		case "eq":
-			return (values) => compare(first(values), at(values, 1)) === 0
-		case "ne":
-			return (values) => compare(first(values), at(values, 1)) !== 0
+		case "eq": {
+			const equal = equalityOf(type)
+			return (values) => equal(first(values), second(values))
+		}
+		case "ne": {
+			const equal = equalityOf(type)
+			return (values) => !equal(first(values), second(values))
+		}
+		case "in": {
+			const equal = equalityOf(type)
+			return (values) => {
+				const a = first(values)
+				return values.some((v, i) => i > 0 && equal(a, v))
+			}
+		}
 		case "lt":
-			return (values) => compare(first(values), at(values, 1)) < 0
+			return ordered((order) => order < 0)
 		case "le":
-			return (values) => compare(first(values), at(values, 1)) <= 0
+			return ordered((order) => order <= 0)
 		case "gt":
-			return (values) => compare(first(values), at(values, 1)) > 0
+			return ordered((order) => order > 0)
 		case "ge":
-			return (values) => compare(first(values), at(values, 1)) >= 0
-		case "between":
+			return ordered((order) => order >= 0)
+		case "between": {
+			const compare = orderOf(type)
+			const third = operandOf(fn, 2)
 			return (values) => {
 				const a = first(values)
-				return compare(a, at(values, 1)) >= 0 && compare(a, at(values, 2)) <= 0
+				return compare(a, second(values)) >= 0 && compare(a, third(values)) <= 0
 			}
-		case "in":
-			return (values) => {
-				const a = first(values)
-				return values.some((v, i) => i > 0 && compare(a, v) === 0)
-			}
+		}
 	}
 }
 
@@ -301,10 +328,6 @@ const integerHost = (type: ScalarType): ((x: bigint) => HostValue) => {
 			}
 	}
 }
-
-/** An operand its operation's arity holds, which the IR's typing guarantees. */
-const operandAt = (args: ReadonlyArray<HostValue>, i: number, op: NativeOp): HostValue =>
-	defined(args[i], `operand ${i} of ${op.fn}`)
 
 /**
  * IEEE 754 arithmetic of a float carrier, as the host's own: binary64 for double precision, binary32 for real by one
@@ -516,8 +539,8 @@ type Apply = (args: ReadonlyArray<HostValue>, patterns: PatternReads) => SqlResu
  * `or` and casts are evaluated by their nodes, never applied.
  */
 const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: ScalarType): Apply => {
-	const a = (args: ReadonlyArray<HostValue>): HostValue => operandAt(args, 0, op)
-	const b = (args: ReadonlyArray<HostValue>): HostValue => operandAt(args, 1, op)
+	const a = operandOf(op.fn, 0)
+	const b = operandOf(op.fn, 1)
 	const c = firstOperand(op.operands)
 	const fn = op.fn
 	switch (fn) {
@@ -619,15 +642,13 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 				const value = decimalOfText(hostOf("text", a(args)))
 				return value === undefined ? undefinedAt("lexical") : Result.ok(value)
 			}
-		case "translate":
+		case "translate": {
+			const third = operandOf(fn, 2)
 			return (args) =>
 				Result.ok(
-					translated(
-						hostOf("text", a(args)),
-						hostOf("text", b(args)),
-						hostOf("text", operandAt(args, 2, op))
-					)
+					translated(hostOf("text", a(args)), hostOf("text", b(args)), hostOf("text", third(args)))
 				)
+		}
 		case "eq":
 		case "ne":
 		case "lt":

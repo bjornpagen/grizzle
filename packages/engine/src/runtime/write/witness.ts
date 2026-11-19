@@ -45,6 +45,7 @@ import {
 	type EvalLeaves,
 	type EvalStop,
 	compiledExpr,
+	type SqlResult,
 	type SqlValue,
 	sqlNull,
 	valueMember
@@ -723,29 +724,80 @@ export interface JudgedTable {
 }
 
 /**
- * The judge of one installation's rows on the host: an expression's value over a row, and whether a value is a member
- * of a type. A row's values are their codecs' host values, which are the evaluator's own. The one host judge of a row,
- * a refused write's witness's and a public row evaluation's (program/evaluate.ts rowEvaluator).
+ * A row as the judge reads it over its relation (Judge.reading): each column an expression over it reads, read where it
+ * is first read and kept, a generated field's value evaluated once over the row, so every expression over the row, a
+ * source's selection, a check or a generated field, reads one value of each column, however many read it.
+ */
+export interface RowReading {
+	/** What `expr` is over the row, its columns the row's kept values. */
+	readonly evaluate: (expr: ExprTable) => Evaluated
+	/** What PostgreSQL generates of the row's generated field `field`, NULL included, evaluated once and kept. */
+	readonly generated: (field: string) => Evaluated
+}
+
+/**
+ * The judge of one installation's rows on the host: a row read over its relation (RowReading), whose expressions it
+ * evaluates, and whether a value is a member of a type. A row's values are their codecs' host values, which are the
+ * evaluator's own. The one host judge of a row, a refused write's witness's and a public row evaluation's
+ * (program/evaluate.ts rowEvaluator).
  */
 export interface Judge {
-	readonly evaluate: (relation: JudgedTable, expr: ExprTable, row: JudgedRow) => Evaluated
+	readonly reading: (relation: JudgedTable, row: JudgedRow) => RowReading
 	readonly member: (value: HostValue, type: ScalarType) => boolean | undefined
 }
 
-/** The judge of rows by what an evaluation reads, its closed relations' `table`'s, its patterns read from `patterns`. */
-export const judgeOf = (
-	evaluation: Evaluation,
-	table: ClosedTable,
-	patterns: PatternReads
-): Judge => {
-	const closed = closedLeaf(closedNamed(evaluation.closed, table))
-	const evaluate = (relation: JudgedTable, expr: ExprTable, row: JudgedRow): Evaluated => {
+/** An evaluation's result as the judge states it (Evaluated): its value, NULL, or the evaluator's stop. */
+const evaluatedOf = (value: SqlResult): Evaluated =>
+	!value.ok
+		? { kind: "unknown", stop: value.error }
+		: value.value === sqlNull
+			? nullEvaluated
+			: { kind: "value", value: value.value }
+
+/** NULL, as the judge states it: one value, as it carries nothing. */
+const nullEvaluated: Evaluated = Object.freeze({ kind: "null" })
+
+/** A generated field's value as a column an expression reads: its value, NULL, or none where the host has none. */
+const columnOfEvaluated = (e: Evaluated): SqlValue | undefined =>
+	e.kind === "value" ? e.value : e.kind === "null" ? sqlNull : undefined
+
+/** The judge of rows over the closed relations `table` holds, its patterns read from `patterns`. */
+export const judgeOf = (table: ClosedTable, patterns: PatternReads): Judge => {
+	const closed = closedLeaf(table)
+	/** Each relation's fields by name, read once a relation: the relation's state, so a column's read finds its field. */
+	const fieldsByName = new WeakMap<JudgedTable, ReadonlyMap<string, JudgedField>>()
+	const fieldsOf = (relation: JudgedTable): ReadonlyMap<string, JudgedField> => {
+		const known = fieldsByName.get(relation)
+		if (known !== undefined) {
+			return known
+		}
+		const made = new Map(relation.fields.map((f) => [f.name, f] as const))
+		fieldsByName.set(relation, made)
+		return made
+	}
+	const reading = (relation: JudgedTable, row: JudgedRow): RowReading => {
+		const fields = fieldsOf(relation)
+		const columns = new Map<string, SqlValue | undefined>()
+		const generatedValues = new Map<string, Evaluated>()
+		const generated = (name: string): Evaluated => {
+			const known = generatedValues.get(name)
+			if (known !== undefined) {
+				return known
+			}
+			const field = fields.get(name)
+			if (field?.writing.kind !== "generated") {
+				throw defect(`a generated field ${name} of the relation the row is read over`)
+			}
+			const made = evaluate(field.writing.expr)
+			generatedValues.set(name, made)
+			return made
+		}
 		/**
 		 * A column's value: a field the row states or its write fills, a generated field's as PostgreSQL generates it
 		 * from the row, NULL included, or a law column its write fills; none where the host does not hold it.
 		 */
-		const valueOf = (name: string): SqlValue | undefined => {
-			const declared = relation.fields.find((f) => f.name === name)
+		const columnValue = (name: string): SqlValue | undefined => {
+			const declared = fields.get(name)
 			if (declared === undefined) {
 				const key: ColumnKey = `law:${name}`
 				const type = relation.lawColumns.get(key)
@@ -755,26 +807,27 @@ export const judgeOf = (
 					: hostOf(type.carrier, column.value)
 			}
 			if (declared.writing.kind === "generated") {
-				const generated = evaluate(relation, declared.writing.expr, row)
-				return generated.kind === "value"
-					? generated.value
-					: generated.kind === "null"
-						? sqlNull
-						: undefined
+				return columnOfEvaluated(generated(name))
 			}
 			const value = hostField(row, declared)
 			return value === undefined ? undefined : hostOf(declared.type.carrier, value)
 		}
-		const leaves: EvalLeaves = { value: undefined, column: (ref) => valueOf(ref.name), closed }
-		const value = compiledExpr(expr)(leaves, patterns)
-		return !value.ok
-			? { kind: "unknown", stop: value.error }
-			: value.value === sqlNull
-				? { kind: "null" }
-				: { kind: "value", value: value.value }
+		const column = (name: string): SqlValue | undefined => {
+			const known = columns.get(name)
+			if (known !== undefined || columns.has(name)) {
+				return known
+			}
+			const value = columnValue(name)
+			columns.set(name, value)
+			return value
+		}
+		const leaves: EvalLeaves = { value: undefined, column: (ref) => column(ref.name), closed }
+		const evaluate = (expr: ExprTable): Evaluated =>
+			evaluatedOf(compiledExpr(expr)(leaves, patterns))
+		return { evaluate, generated }
 	}
 	return {
-		evaluate,
+		reading,
 		member: (value, type) => valueMember(value, type, patterns)
 	}
 }
@@ -804,7 +857,7 @@ export const prepareWitness = (
 	return Object.freeze({
 		data,
 		codes,
-		judge: judgeOf(data.evaluation, closed, patterns),
+		judge: judgeOf(closedNamed(data.evaluation.closed, closed), patterns),
 		tables: new Map(data.tables.map((t) => [t.name, t] as const)),
 		groups,
 		slots
@@ -823,7 +876,7 @@ const domainValue = (
 	field: WitnessField
 ): Evaluated => {
 	if (field.writing.kind === "generated") {
-		return judge.evaluate(relation, field.writing.expr, row)
+		return judge.reading(relation, row).generated(field.name)
 	}
 	const host = hostField(row, field)
 	return host === undefined
@@ -871,8 +924,9 @@ const closedContainment = (
 	test: Extract<CheckTest, { readonly kind: "closed" }>,
 	row: JudgedRow
 ): Verdict => {
+	const reading = judge.reading(relation, row)
 	for (const g of test.guard) {
-		const guard = checked(judge.evaluate(relation, g, row))
+		const guard = checked(reading.evaluate(g))
 		if (guard !== "holds") {
 			return guard === "breaks" ? "holds" : "unjudged"
 		}
@@ -924,8 +978,9 @@ const generatedNotNulls = (
 	relation: WitnessTable,
 	row: JudgedRow
 ): "hold" | "refuse" | "unknown" => {
+	const reading = judge.reading(relation, row)
 	const values = relation.fields.flatMap((field) =>
-		field.writing.kind === "generated" ? [judge.evaluate(relation, field.writing.expr, row)] : []
+		field.writing.kind === "generated" ? [reading.generated(field.name)] : []
 	)
 	return values.some((v) => v.kind === "null")
 		? "refuse"
@@ -971,7 +1026,7 @@ const verdictOf = (
 ): ((row: JudgedRow) => Verdict) => {
 	switch (test.kind) {
 		case "row":
-			return (row) => checked(judge.evaluate(relation, test.predicate, row))
+			return (row) => checked(judge.reading(relation, row).evaluate(test.predicate))
 		case "closed":
 			return (row) => closedContainment(judge, relation, test, row)
 		case "endpoint": {
@@ -1188,7 +1243,7 @@ const refuserJudge = (w: Witnessing, refuser: Refuser): RefuserJudge => {
 					if (relation.ident !== refuser.table || field?.writing.kind !== "generated") {
 						return holds
 					}
-					switch (judge.evaluate(relation, field.writing.expr, row).kind) {
+					switch (judge.reading(relation, row).generated(field.name).kind) {
 						case "null":
 							return { kind: "breaks", laws: refusedByObject }
 						case "value":

@@ -99,3 +99,16 @@ export const compileSites = Object.freeze({
 	tables: { file: "packages/engine/src/scalar/compute/evaluate.ts", name: "compiledTable" },
 	expressions: { file: "packages/engine/src/scalar/compute/evaluate.ts", name: "compiledNode" }
 })
+
+/**
+ * The functions whose calls are the work of reading an admitted row: one of its columns read (runtime/write/witness.ts
+ * RowReading), and its relation's items, its generated values and check verdicts, computed (program/evaluate.ts).
+ */
+export const readingSites = Object.freeze({
+	columns: { file: "packages/engine/src/runtime/write/witness.ts", name: "columnValue" },
+	items: { file: "packages/engine/src/program/evaluate.ts", name: "itemsOf" }
+})
+
+/** The columns of Gen a row of it is read at: the rows' fields (null/build.ts itemFields) and its generated field g. */
+export const genColumns = (c: Parameters<typeof itemFields>[0]): number =>
+	Rec.keys(itemFields(c)).length + 1

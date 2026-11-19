@@ -173,9 +173,10 @@ export const literalFoldingDecidesBETWEENAndINOverLiteralsINOverVectorsAmongThem
 		kills: [
 			{
 				file: "packages/engine/src/scalar/compute/evaluate.ts",
-				original: "\t\t\t\treturn compare(a, at(values, 1)) >= 0 && compare(a, at(values, 2)) <= 0",
+				original:
+					"\t\t\t\treturn compare(a, second(values)) >= 0 && compare(a, third(values)) <= 0",
 				replacement:
-					"\t\t\t\treturn compare(a, at(values, 1)) > 0 && compare(a, at(values, 2)) < 0",
+					"\t\t\t\treturn compare(a, second(values)) > 0 && compare(a, third(values)) < 0",
 				why: "BETWEEN decided strict on both bounds (compute/evaluate.ts comparisonHolds, which folding reads over literals); the simplify-between-in search fails."
 			},
 			{

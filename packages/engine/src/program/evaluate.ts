@@ -20,8 +20,9 @@
  *
  * Before any of it, PostgreSQL holds each value to its domain: a value outside its type's contract or pattern is
  * refused (DomainRefused), which a brand, unchecked, does not exclude. That is admit's, once a row (`evaluate.admit(R,
- * row)`): an admitted row is evaluated as a row of any source of R with no domain judged again, each item where it is
- * first read, kept on the admitted row and shared by every source of R. A row inside its domains meets every partial
+ * row)`): an admitted row is evaluated as a row of any source of R with no domain judged again, over one reading of it,
+ * each column read once (runtime/write/witness.ts RowReading), its relation's items computed in one pass where it is
+ * first evaluated, kept on the admitted row and shared by every source of R. A row inside its domains meets every partial
  * operation's proof, so an evaluation that finds a precondition undefined is a defect of grizzle's, never an outcome.
  * An item whose expression the host does not lower or does not evaluate is Unevaluated, its place its own.
  */
@@ -48,12 +49,13 @@ import {
 	type JudgedRow,
 	type JudgedTable,
 	type Judge,
-	judgeOf
+	judgeOf,
+	type RowReading
 } from "#compiler/runtime/write/witness.ts"
 import type { EvalStop } from "#compiler/scalar/compute/evaluate.ts"
 import { exprEmitter, lowerPredicate } from "#compiler/scalar/compute/lower.ts"
 import { admittedReads, noParams } from "#compiler/scalar/compute/typing.ts"
-import { CompilePatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { hostOf } from "#compiler/scalar/values/identity.ts"
 import { ownedDesc } from "#compiler/schema/protocol.ts"
 import { namedRelation } from "#compiler/schema/relation.ts"
@@ -81,19 +83,24 @@ import { closedTableOf, lawChecksOf, witnessField } from "#compiler/write/progra
 type Lowered = Result.Result<ExprTable, Unevaluated>
 
 /**
- * A source as the host evaluates rows of it, read once: its relation's fields as the judge reads them, the fields of
- * its rows a domain holds, each generated field's expression and each row check by name, its selection's predicate,
- * and the judge over the patterns they read, each parsed once in the evaluator's table, which every source shares.
+ * A relation of the schema as its sources read its rows, read once a relation (readRelations): its name, its fields as
+ * the judge reads them, the fields of its rows a domain holds, its generated fields by name, its row checks by name, and
+ * the fields a row of it fills by column key. Every source of the relation reads the one reading, so a row admitted to
+ * it is read once over it (witness.ts RowReading), however many sources evaluate the row.
  */
-interface Prepared {
-	readonly relation: string
+interface RelationReading {
+	readonly name: string
 	readonly table: JudgedTable
 	readonly filled: FilledFields
 	readonly refined: ReadonlyArray<JudgedField>
-	readonly generated: ReadonlyArray<{ readonly name: string; readonly expr: ExprTable }>
+	readonly generated: ReadonlyArray<string>
 	readonly checks: ReadonlyArray<RowCheck>
+}
+
+/** A source as the host evaluates rows of it, read once: its relation's reading and its selection's predicate. */
+interface Prepared {
+	readonly relation: RelationReading
 	readonly selection: Lowered
-	readonly judge: Judge
 }
 
 /**
@@ -111,12 +118,6 @@ type FilledFields = ReadonlyMap<ColumnKey, string>
 interface RowCheck {
 	readonly name: string
 	readonly predicate: Lowered
-}
-
-/** A relation of the schema as a source reads it: its fields as the judge reads them, and its row checks by name. */
-interface ReadRelation {
-	readonly fields: ReadonlyArray<JudgedField>
-	readonly checks: ReadonlyArray<RowCheck>
 }
 
 /** Where a host evaluation of `relation` lowers what it reads, for its refusals. */
@@ -172,34 +173,53 @@ const rowPredicate = (
 const statedFields = (heading: ReadonlyArray<HeadingColumn>): ReadonlyArray<JudgedField> =>
 	heading.map((c) => ({ name: c.name, type: c.type, writing: { kind: "caller" } }))
 
+/** A relation's reading (RelationReading) over its fields and its row checks. */
+const relationReading = (
+	name: string,
+	fields: ReadonlyArray<JudgedField>,
+	checks: ReadonlyArray<RowCheck>
+): RelationReading => ({
+	name,
+	table: { fields, lawColumns: new Map() },
+	filled: new Map(fields.map((f) => [fieldKey(f.name), f.name] as const)),
+	refined: fields.filter((f) => f.writing.kind !== "generated" && isRefined(f.type)),
+	generated: fields.flatMap((f) => (f.writing.kind === "generated" ? [f.name] : [])),
+	checks
+})
+
 /**
- * Every relation of the model as a source reads it, by name: a stored relation's fields as its table holds them and its
- * row checks by the CHECK each is installed as (decide.ts lawChecksOf, the witness's reading); a derived relation's,
- * live or materialized, its definition's heading as the checker types it (check/index.ts checkDefinition, the theory's
- * typing of a rule over it) and its row checks, each its predicate over the derived row (rowPredicate); a closed
- * relation's, rosters among them, its heading as a query matches it (check/schema.ts ClosedRelation) and no row check,
- * which the schema refuses over the facts it fixes. The model compiled, so each definition checks.
+ * Every relation of the model as its sources read it (RelationReading), by name: a stored relation's fields as its
+ * table holds them and its row checks by the CHECK each is installed as (decide.ts lawChecksOf, the witness's reading);
+ * a derived relation's, live or materialized, its definition's heading as the checker types it (check/index.ts
+ * checkDefinition, the theory's typing of a rule over it) and its row checks, each its predicate over the derived row
+ * (rowPredicate); a closed relation's, rosters among them, its heading as a query matches it (check/schema.ts
+ * ClosedRelation) and no row check, which the schema refuses over the facts it fixes. The model compiled, so each
+ * definition checks.
  */
-const readRelations = (model: LawModel): ReadonlyMap<string, ReadRelation> => {
-	const read = new Map<string, ReadRelation>()
+const readRelations = (model: LawModel): ReadonlyMap<string, RelationReading> => {
+	const read = new Map<string, RelationReading>()
 	for (const [name, stored] of model.checked.relations) {
-		read.set(name, {
-			fields: stored.fields.map(witnessField),
-			checks: lawChecksOf(model, stored).flatMap(({ laws, test }) =>
-				test.kind === "row"
-					? laws.flatMap(({ described }) =>
-							described.kind === "check"
-								? [
-										{
-											name: described.name,
-											predicate: Result.ok(test.predicate)
-										}
-									]
-								: []
-						)
-					: []
+		read.set(
+			name,
+			relationReading(
+				name,
+				stored.fields.map(witnessField),
+				lawChecksOf(model, stored).flatMap(({ laws, test }) =>
+					test.kind === "row"
+						? laws.flatMap(({ described }) =>
+								described.kind === "check"
+									? [
+											{
+												name: described.name,
+												predicate: Result.ok(test.predicate)
+											}
+										]
+									: []
+							)
+						: []
+				)
 			)
-		})
+		)
 	}
 	for (const derived of Object.values(model.owned.relations)) {
 		if (derived.desc.kind !== "derived") {
@@ -220,10 +240,10 @@ const readRelations = (model: LawModel): ReadonlyMap<string, ReadRelation> => {
 				predicate: rowPredicate(model, derived.name, heading, statement.predicate)
 			})
 		}
-		read.set(derived.name, { fields: statedFields(heading), checks })
+		read.set(derived.name, relationReading(derived.name, statedFields(heading), checks))
 	}
 	for (const [name, closed] of model.checked.closed) {
-		read.set(name, { fields: statedFields(closed.heading), checks: [] })
+		read.set(name, relationReading(name, statedFields(closed.heading), []))
 	}
 	return read
 }
@@ -239,52 +259,28 @@ const selectedOf = (source: unknown): SelectedDesc => {
 		: { relation: selection.relation, predicate: connectiveExpr("and", [selection.predicate]) }
 }
 
-/** The patterns a lowered expression reads, none of one the host refused. */
-const loweredPatterns = (lowered: Lowered) => (lowered.ok ? tablePatterns(lowered.value) : [])
-
 /**
  * A source of the model read once (Prepared): its relation's reading and its selection's predicate lowered over its
- * fields, its judge reading the evaluator's pattern table, `table`, so a pattern every source of the evaluator reads is
- * parsed once, not once a source. The source is a value of the schema's type, so a relation the model does not hold is a
- * defect.
+ * fields. The source is a value of the schema's type, so a relation the model does not hold is a defect.
  */
 const prepare = (
 	model: LawModel,
-	relations: ReadonlyMap<string, ReadRelation>,
-	closed: ReturnType<typeof closedTableOf>,
-	table: CompilePatterns,
+	relations: ReadonlyMap<string, RelationReading>,
 	source: unknown
 ): Prepared => {
 	const selected = selectedOf(source)
-	const read = relations.get(selected.relation)
-	if (read === undefined) {
+	const relation = relations.get(selected.relation)
+	if (relation === undefined) {
 		throw defect(`a row source of the schema, not of ${selected.relation}`)
 	}
-	const { fields, checks } = read
-	const selection = rowPredicate(
-		model,
-		selected.relation,
-		fields.map((f) => ({ name: f.name, type: f.type })),
-		selected.predicate
-	)
-	const generated = fields.flatMap((f) =>
-		f.writing.kind === "generated" ? [{ name: f.name, expr: f.writing.expr }] : []
-	)
-	const patterns = [
-		...fields.flatMap((f) => typePatterns(f.type)),
-		...generated.flatMap((g) => tablePatterns(g.expr)),
-		...checks.flatMap((c) => loweredPatterns(c.predicate)),
-		...loweredPatterns(selection)
-	]
 	return {
-		relation: selected.relation,
-		table: { fields, lawColumns: new Map() },
-		filled: new Map(fields.map((f) => [fieldKey(f.name), f.name] as const)),
-		refined: fields.filter((f) => f.writing.kind !== "generated" && isRefined(f.type)),
-		generated,
-		checks,
-		selection,
-		judge: judgeOf({ closed: [...closed.keys()], patterns }, closed, table)
+		relation,
+		selection: rowPredicate(
+			model,
+			selected.relation,
+			relation.table.fields.map((f) => ({ name: f.name, type: f.type })),
+			selected.predicate
+		)
 	}
 }
 
@@ -332,20 +328,63 @@ const valueOf = (e: Evaluated): Result.Result<unknown, Unevaluated> => {
 	}
 }
 
+/** A truth as the evaluation states it, each one value. */
+const truths = { true: Result.ok(true), false: Result.ok(false) } as const
+
 /** A predicate's truth as `IS TRUE` reads it (Evaluated): true only where it is true, NULL and false alike false. */
 const truthOf = (e: Evaluated): Result.Result<boolean, Unevaluated> => {
 	switch (e.kind) {
 		case "value":
-			return Result.ok(e.value === true)
+			return e.value === true ? truths.true : truths.false
 		case "null":
-			return Result.ok(false)
+			return truths.false
 		case "unknown":
 			return Result.err(unevaluated(e.stop))
 	}
 }
 
+/** A row check's verdict, as the evaluation states it, each one value. */
+const verdicts: { readonly [V in CheckVerdict]: Result.Result<CheckVerdict, Unevaluated> } = {
+	holds: Result.ok("holds"),
+	breaks: Result.ok("breaks")
+}
+
 /** A row check's verdict from its predicate's truth: it holds where the predicate is true and breaks elsewhere. */
-const verdictOf = (truth: boolean): CheckVerdict => (truth ? "holds" : "breaks")
+const verdictOf = (
+	truth: Result.Result<boolean, Unevaluated>
+): Result.Result<CheckVerdict, Unevaluated> =>
+	truth.ok ? (truth.value ? verdicts.holds : verdicts.breaks) : truth
+
+/**
+ * The answers a caller reads (core/result.ts PublicResult), spelled by `answer`, Effect's Result: a truth and a verdict,
+ * each of its two values spelled once for the evaluator, and every other item where it is computed.
+ */
+interface Answers {
+	readonly answer: Result.PublicResult
+	readonly truth: (
+		truth: Result.Result<boolean, Unevaluated>
+	) => Public.Result<boolean, Unevaluated>
+	readonly verdict: (
+		verdict: Result.Result<CheckVerdict, Unevaluated>
+	) => Public.Result<CheckVerdict, Unevaluated>
+}
+
+/** The answers of one evaluator over `answer` (Answers). */
+const answersOf = (answer: Result.PublicResult): Answers => {
+	const truth = {
+		true: answer<boolean, Unevaluated>(truths.true),
+		false: answer<boolean, Unevaluated>(truths.false)
+	} as const
+	const verdict = {
+		holds: answer<CheckVerdict, Unevaluated>(verdicts.holds),
+		breaks: answer<CheckVerdict, Unevaluated>(verdicts.breaks)
+	} as const
+	return {
+		answer,
+		truth: (t) => (t.ok ? (t.value ? truth.true : truth.false) : answer(t)),
+		verdict: (v) => (v.ok ? verdict[v.value] : answer(v))
+	}
+}
 
 /** Whether a field a domain refused is a field of R's evaluated row: one the row holds. */
 const isRowField = <R>(
@@ -354,72 +393,27 @@ const isRowField = <R>(
 ): field is keyof EvaluatedRow<R> & string => Object.hasOwn(row, field)
 
 /**
- * An admitted row's items as its relation reads them, each computed where it is first read and memoized there
- * (lazyRecord): its generated values and its check verdicts, keyed by the names of `relation`, the reading of R that
- * built them (itemsOf), and shared by every source of R's evaluation of the row.
+ * An admitted row's items as its relation reads them, computed in one pass where the row is first evaluated: its
+ * generated values and its check verdicts, keyed by the names of `relation`, the reading of R that built them (itemsOf),
+ * and shared by every source of R's evaluation of the row.
  */
 interface Items {
-	readonly relation: Prepared
+	readonly relation: RelationReading
 	readonly generated: Readonly<Record<string, Public.Result<unknown, Unevaluated>>>
 	readonly checks: Readonly<Record<string, Public.Result<CheckVerdict, Unevaluated>>>
 }
 
-/** An admitted row's evaluation as a row of one source (RowEvaluation), its records keyed by its relation's names. */
-interface SourceEvaluation {
-	readonly generated: Items["generated"]
-	readonly checks: Items["checks"]
-	readonly selected: Public.Result<boolean, Unevaluated>
-}
-
 /**
- * An admitted row's evaluation as a row of one source of its relation (SourceEvaluation), built where it is first asked
- * for and kept on its admission, one for the pair, with the items it reads: its relation's generated values and
- * verdicts (Items), which every source of the relation shares, and its selection by the source, evaluated where it is
- * first read (once) and kept.
- */
-interface KeptEvaluation {
-	readonly items: Items
-	readonly evaluation: SourceEvaluation
-}
-
-/** The evaluation of an admitted row as a row of `source` over its items, kept for the pair (KeptEvaluation). */
-const keptEvaluation = (
-	items: Items,
-	source: Prepared,
-	judged: JudgedRow,
-	answer: Result.PublicResult
-): KeptEvaluation => {
-	const selected = once(() =>
-		answer(
-			Result.flatMap(source.selection, (selection) =>
-				truthOf(source.judge.evaluate(source.table, selection, judged))
-			)
-		)
-	)
-	return {
-		items,
-		evaluation: {
-			generated: items.generated,
-			checks: items.checks,
-			get selected() {
-				return selected()
-			}
-		}
-	}
-}
-
-/**
- * What admitting a row records of it, by the admitted row's identity: its relation, read as a whole source of itself
- * (select(R, TRUE)); the row as the judge reads it, built once; its relation's items (Items), built where the row is
- * first evaluated, which every source of the relation shares; and its evaluation as a row of each source (Evaluation),
- * built where it is first asked for, each item as the caller reads it, Effect's Result. A WeakMap holds nothing alive and is never enumerated, so it is no cache: it is the
- * admitted row's state.
+ * What admitting a row records of it, by the admitted row's identity: its relation's reading; the row as the judge reads
+ * it over its relation (witness.ts RowReading), each column read once, which every source of the relation evaluates
+ * the row over; and its relation's items (Items), computed where the row is first evaluated, which every source of the
+ * relation shares. A WeakMap holds nothing alive and is never enumerated, so it is no cache: it is the admitted row's
+ * state.
  */
 interface Admission {
-	readonly relation: Prepared
-	readonly judged: JudgedRow
+	readonly relation: RelationReading
+	readonly reading: RowReading
 	readonly items: () => Items
-	readonly evaluations: Map<Prepared, KeptEvaluation>
 }
 
 const admissions = new WeakMap<object, Admission>()
@@ -437,65 +431,62 @@ const once = <A>(compute: () => A): (() => A) => {
 	}
 }
 
-/** A record of an item for each of `items`, by its name, each computed where it is first read (once). */
-const lazyRecord = <T extends { readonly name: string }, A>(
-	items: ReadonlyArray<T>,
-	compute: (item: T) => A
-): Readonly<Record<string, A>> => {
-	const out: Record<string, A> = {}
-	for (const item of items) {
-		Object.defineProperty(out, item.name, { enumerable: true, get: once(() => compute(item)) })
-	}
-	return Object.freeze(out)
-}
-
 /**
- * The items of a row admitted to `relation` (Items): each generated field's value and each row check's verdict, by its
- * name, evaluated over the row as the judge reads it where it is first read, as `answer` spells a caller's Result.
+ * The items of a row admitted to `relation` (Items), in one pass over the row's reading: each generated field's value,
+ * the one its column holds for every expression over the row, and each row check's verdict, by its name.
  */
-const itemsOf = (relation: Prepared, judged: JudgedRow, answer: Result.PublicResult): Items => {
-	const { judge, table } = relation
-	return {
-		relation,
-		generated: lazyRecord(relation.generated, (g) =>
-			answer(valueOf(judge.evaluate(table, g.expr, judged)))
-		),
-		checks: lazyRecord(relation.checks, (c) =>
-			answer(
-				Result.flatMap(c.predicate, (predicate) =>
-					Result.map(truthOf(judge.evaluate(table, predicate, judged)), verdictOf)
-				)
+const itemsOf = (relation: RelationReading, reading: RowReading, answers: Answers): Items => ({
+	relation,
+	generated: Object.freeze(
+		Object.fromEntries(
+			relation.generated.map(
+				(name) => [name, answers.answer(valueOf(reading.generated(name)))] as const
 			)
 		)
-	}
-}
+	),
+	checks: Object.freeze(
+		Object.fromEntries(
+			relation.checks.map(
+				(c) =>
+					[
+						c.name,
+						answers.verdict(
+							Result.flatMap(c.predicate, (predicate) =>
+								verdictOf(truthOf(reading.evaluate(predicate)))
+							)
+						)
+					] as const
+			)
+		)
+	)
+})
 
 /**
- * The one site of the fact "an admitted row's evaluation is R's": its generated values are keyed by R's generated
- * fields and its verdicts by R's check names, which the schema's type of R states and R's reading, the relation the row
- * was admitted to, reads at run time, a correlation no TypeScript type ties. Its items are built over the names of the
- * reading that built them (itemsOf), which they record, so items of another reading are a defect.
+ * The one site of the fact "an admitted row's items are R's": its generated values are keyed by R's generated fields
+ * and its verdicts by R's check names, which the schema's type of R states and R's reading, the relation the row was
+ * admitted to, reads at run time, a correlation no TypeScript type ties. Items are built over the names of the reading
+ * that built them (itemsOf), which they record, so items of another reading are a defect.
  */
-const isEvaluationOf = <S, R>(
-	kept: KeptEvaluation,
-	relation: Prepared
-): kept is KeptEvaluation & { readonly evaluation: RowEvaluation<S, R> } =>
-	kept.items.relation === relation
+const isItemsOf = <S, R>(
+	items: Items,
+	relation: RelationReading
+): items is Items & Pick<RowEvaluation<S, R>, "generated" | "checks"> => items.relation === relation
 
 /**
  * A row of R admitted (see rowEvaluator's admit): each refined field of R the row holds is held to its domain, its
- * contract and its patterns, as PostgreSQL holds each value before it computes anything of the row; a value outside its
+ * contract and its patterns, as PostgreSQL holds each value before it computes anything of it; a value outside its
  * domain is DomainRefused, the row's one refusal, and a row inside every one is admitted, its evaluation then free of any
  * domain judgment. A brand is unchecked, so this is the only place a domain is judged.
  */
 const admitted = <R>(
-	relation: Prepared,
-	row: EvaluatedRow<R>,
-	answer: Result.PublicResult
+	judge: Judge,
+	answers: Answers,
+	relation: RelationReading,
+	row: EvaluatedRow<R>
 ): Result.Result<AdmittedRow<R>, DomainRefused<R>> => {
 	const fields: Readonly<Record<string, unknown>> = row
 	for (const field of relation.refined) {
-		const member = relation.judge.member(hostOf(field.type.carrier, fields[field.name]), field.type)
+		const member = judge.member(hostOf(field.type.carrier, fields[field.name]), field.type)
 		if (member === undefined) {
 			throw defect(`the domain of ${field.name}, a contract and a pattern the host evaluates`)
 		}
@@ -508,12 +499,11 @@ const admitted = <R>(
 		return Result.err({ _tag: "DomainRefused", field: field.name })
 	}
 	const value = Object.freeze({ row })
-	const judged = judgedRow(fields, relation.filled)
+	const reading = judge.reading(relation.table, judgedRow(fields, relation.filled))
 	admissions.set(value, {
 		relation,
-		judged,
-		items: once(() => itemsOf(relation, judged, answer)),
-		evaluations: new Map()
+		reading,
+		items: once(() => itemsOf(relation, reading, answers))
 	})
 	if (!isAdmittedRow<R>(value)) {
 		throw defect("an admitted row, its state recorded")
@@ -522,33 +512,34 @@ const admitted = <R>(
 }
 
 /**
- * An admitted row evaluated as a row of a prepared source of its relation (see the header): its evaluation as a row of
- * the source (Evaluation), built where it is first asked for and kept on the admitted row, so every later call returns
- * it; each item computed where it is first read and memoized there, its relation's generated values and verdicts by its
- * relation's reading, which every source of the relation shares, and its selection by the source's.
+ * An admitted row evaluated as a row of a prepared source of its relation (see the header): its relation's items,
+ * computed where the row is first evaluated and shared by every source of the relation, and its selection by the
+ * source, each over the row's one reading, so no source of the relation reads a column of the row again.
  */
 const evaluated = <S, R>(
 	source: Prepared,
 	row: AdmittedRow<R>,
-	answer: Result.PublicResult
+	answers: Answers
 ): RowEvaluation<S, R> => {
 	const admission = admissions.get(row)
 	if (admission === undefined) {
 		throw defect("an admitted row, which admit made")
 	}
-	const { relation } = admission
-	let kept = admission.evaluations.get(source)
-	if (kept === undefined) {
-		if (source.relation !== relation.relation) {
-			throw defect(`a source of ${relation.relation}, the relation the row was admitted to`)
-		}
-		kept = keptEvaluation(admission.items(), source, admission.judged, answer)
-		admission.evaluations.set(source, kept)
+	const { relation, reading } = admission
+	if (source.relation !== relation) {
+		throw defect(`a source of ${relation.name}, the relation the row was admitted to`)
 	}
-	if (!isEvaluationOf<S, R>(kept, relation)) {
+	const items = admission.items()
+	if (!isItemsOf<S, R>(items, relation)) {
 		throw defect("a row's items keyed by the names of the relation it was admitted to")
 	}
-	return kept.evaluation
+	return {
+		generated: items.generated,
+		checks: items.checks,
+		selected: answers.truth(
+			Result.flatMap(source.selection, (selection) => truthOf(reading.evaluate(selection)))
+		)
+	}
 }
 
 /**
@@ -556,9 +547,10 @@ const evaluated = <S, R>(
  * caller's Result: the host's evaluation of rows of the schema's sources (see the header), its schema compiled and its
  * relations read once: `const evaluate = rowEvaluator(schema)`, then `evaluate.admit(R, row)` admits a row of R once,
  * holding it to its domains, and `evaluate(source, admitted)` is the admitted row's evaluation as a row of any source of
- * R, R itself or select(R, φ), each source read once, where it is first evaluated. Each answer a caller reads, an
- * admission and every item, is `answer`'s, made where it is computed. A schema that does not compile is its
- * CompileError.
+ * R, R itself or select(R, φ), each source read once, where it is first evaluated. One judge reads every row, over the
+ * schema's closed relations and one pattern table, so a closed relation is indexed and a pattern parsed once for the
+ * evaluator. Each answer a caller reads, an admission and every item, is `answer`'s, made where it is computed (Answers).
+ * A schema that does not compile is its CompileError.
  */
 export const rowEvaluatorOver = <S extends AnySchema>(
 	schema: S,
@@ -566,15 +558,15 @@ export const rowEvaluatorOver = <S extends AnySchema>(
 ): Result.Result<RowEvaluator<S>, CompileError> =>
 	Result.map(lawModel(schema, "rowEvaluator"), (model): RowEvaluator<S> => {
 		const relations = readRelations(model)
-		const closed = closedTableOf({ schema: model.checked })
+		const judge = judgeOf(closedTableOf({ schema: model.checked }), new CompilePatterns())
+		const answers = answersOf(answer)
 		const sources = new WeakMap<object, Prepared>()
-		const patterns = new CompilePatterns()
 		const preparedOf = (source: object): Prepared => {
 			const known = sources.get(source)
 			if (known !== undefined) {
 				return known
 			}
-			const prepared = prepare(model, relations, closed, patterns, source)
+			const prepared = prepare(model, relations, source)
 			sources.set(source, prepared)
 			return prepared
 		}
@@ -582,12 +574,12 @@ export const rowEvaluatorOver = <S extends AnySchema>(
 			source: Src,
 			row: AdmittedRow<SourceRelation<Src>>
 		): RowEvaluation<S, SourceRelation<Src>> =>
-			evaluated<S, SourceRelation<Src>>(preparedOf(source), row, answer)
+			evaluated<S, SourceRelation<Src>>(preparedOf(source), row, answers)
 		return Object.assign(evaluate, {
 			admit: <R extends RelationOf<S>>(
 				relation: R,
 				row: EvaluatedRow<R>
 			): Public.Result<AdmittedRow<R>, DomainRefused<R>> =>
-				answer(admitted<R>(preparedOf(relation), row, answer))
+				answer(admitted<R>(judge, answers, preparedOf(relation).relation, row))
 		})
 	})

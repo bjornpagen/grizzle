@@ -183,13 +183,6 @@ export const anAdmittedPatternIsParsedWhereItsProgramCompilesOnceATableWhateverR
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/program/evaluate.ts",
-				original: "\t\tjudge: judgeOf({ closed: [...closed.keys()], patterns }, closed, table)",
-				replacement:
-					"\t\tjudge: judgeOf({ closed: [...closed.keys()], patterns }, closed, new CompilePatterns())",
-				why: "Each source of an evaluator parses the patterns it reads into a table of its own, so a pattern several sources read is parsed once a source: the evaluator's parses grow with its sources."
-			},
-			{
 				file: "packages/engine/src/scalar/regex/patterns.ts",
 				original: "\t\tthis.parse({ source, flags: matchFlags }).matcher.matches(text)\n\n\t/**",
 				replacement:
