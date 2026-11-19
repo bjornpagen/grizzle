@@ -34,11 +34,6 @@
  * and every wild kind.
  */
 
-import {
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { type DrawnFeature, drawnFeature, lsw, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
@@ -48,6 +43,11 @@ import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { DecimalText, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import { checkNumericTypmod, Decimal } from "#compiler/scalar/values/decimal.ts"
+import {
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/scalar/values/fault.ts"
 import { assert, defined, faulted, succeeded } from "#test/support/assert.ts"
 import {
 	canonicalParts,

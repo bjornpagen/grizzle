@@ -78,7 +78,6 @@
 		"typescript": "catalog:",
 		"vite": "catalog:",
 		"vitest": "catalog:",
-		"@bjornpagen/grizzle-engine": "workspace:*",
 		"@bjornpagen/grizzle-pg": "workspace:*"
 	}
 }

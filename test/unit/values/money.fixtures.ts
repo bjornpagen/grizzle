@@ -1,9 +1,9 @@
 /** What the properties of money.test.ts read: its spaces, models and helpers. */
 
-import { int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
-import { moneyFractionDigits } from "@bjornpagen/grizzle-engine/scalar/values/decimal"
 import { element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
+import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 
 export type Feature = "a negative count" | "less than one whole unit" | "an int8 bound"
 

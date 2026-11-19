@@ -1,7 +1,7 @@
-import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import { regex } from "arkregex"
 import { Array as Arr, Order, String as Str } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { CompileBound } from "#compiler/core/errors.ts"
 import * as EngineResult from "#compiler/core/result.ts"
 import { isDecimal } from "#compiler/core/text.ts"

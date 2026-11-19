@@ -1,6 +1,5 @@
 /** What the properties of identity.test.ts read: its spaces, models and helpers. */
 
-import { cosineNormMax, cosineNormMin } from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import {
 	aimed,
 	type Aimed,
@@ -22,6 +21,7 @@ import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { rosterCodec } from "#compiler/ir/codes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
 import {
 	type CarrierHost,
 	type CarrierSpec,

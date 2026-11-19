@@ -1,4 +1,3 @@
-import { bytesChunkLength } from "@bjornpagen/grizzle-engine/codec/delivery"
 import {
 	Array as Arr,
 	Data,
@@ -25,7 +24,7 @@ import type { DecodedRow } from "#adapter/reader/stream.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import { takenRows } from "#adapter/wire/batch.ts"
 import type { Session, WireQuery } from "#adapter/wire/session.ts"
-import { assembled, cellKindOf, deliveryOf } from "#compiler/codec/delivery.ts"
+import { bytesChunkLength, assembled, cellKindOf, deliveryOf } from "#compiler/codec/delivery.ts"
 import { scalarReader } from "#compiler/codec/read.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { Layout, Row } from "#compiler/core/decoder.ts"

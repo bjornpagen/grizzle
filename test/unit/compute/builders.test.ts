@@ -12,12 +12,12 @@
  * refused; live and every wild kind at each site.
  */
 
-import { int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite, oneOf } from "@bjornpagen/testing/gen"
 import { drawnFeature, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { type ScalarTerm } from "#compiler/scalar/compute/term.ts"

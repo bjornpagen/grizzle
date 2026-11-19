@@ -1,4 +1,3 @@
-import { regexTextMaxBytes } from "@bjornpagen/grizzle-engine/core/errors"
 /**
  * Compute.utf16Length on PostgreSQL 19, against JavaScript's String.length: the UTF-16 code units Effect Schema's
  * isMinLength, isMaxLength and isLengthBetween count of a string.
@@ -39,6 +38,7 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"

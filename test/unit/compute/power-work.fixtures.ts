@@ -1,9 +1,6 @@
-import {
-	numericMaxPrecision,
-	numericMaxScale
-} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { numericMaxPrecision, numericMaxScale } from "#compiler/scalar/values/fault.ts"
 import { type Pair } from "#test/support/power-pairs.ts"
 import {
 	baseParams,

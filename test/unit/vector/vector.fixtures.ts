@@ -1,6 +1,5 @@
 /** What the properties of vector.test.ts read: its spaces, models and helpers. */
 
-import { cosineNormMax, cosineNormMin } from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import {
 	array,
 	boolean,
@@ -17,6 +16,7 @@ import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import type { Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
+import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import * as search from "#test/support/fixtures/api/search.ts"

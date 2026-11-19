@@ -25,7 +25,6 @@
  * dictionary's CASE.
  */
 
-import { regexMaxDepth } from "@bjornpagen/grizzle-engine/scalar/regex/space"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
@@ -36,7 +35,7 @@ import { type ExprDesc, type GuardDesc, guardedExpr } from "#compiler/ir/desc.ts
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
-import { colorsOf, rawSize } from "#compiler/scalar/regex/space.ts"
+import { regexMaxDepth, colorsOf, rawSize } from "#compiler/scalar/regex/space.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"

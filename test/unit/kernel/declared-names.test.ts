@@ -10,11 +10,15 @@
  * Features: a conversion under the limit, at it, one byte past and far past, and two names at the limit apart.
  */
 
-import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { conversionOf, identity, parseDeclaredName } from "#compiler/core/identity.ts"
+import {
+	maxIdentifierBytes,
+	conversionOf,
+	identity,
+	parseDeclaredName
+} from "#compiler/core/identity.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { assert } from "#test/support/assert.ts"

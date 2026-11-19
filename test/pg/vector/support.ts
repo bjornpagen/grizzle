@@ -1,5 +1,5 @@
-import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
 import { Array as Arr, Option, pipe, String as Str } from "effect"
+import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 
 /**
  * The exact decimal text of a binary64 value, every digit of it, so a reader that rounds correctly rounds the value

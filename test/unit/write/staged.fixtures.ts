@@ -1,9 +1,9 @@
 /** What the properties of staged.test.ts read: its spaces, models and helpers. */
 
-import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import { array, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 import * as Result from "#compiler/core/result.ts"

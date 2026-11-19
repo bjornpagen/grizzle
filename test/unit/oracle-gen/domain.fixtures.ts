@@ -1,12 +1,11 @@
 /** What the properties of domain.test.ts read: its spaces, models and helpers. */
 
-import { btreeMaxItemSize } from "@bjornpagen/grizzle-engine/schema/representability"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { NumericBound, ScalarType } from "#compiler/ir/scalar.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
-import { btreeEntryBytes, datumBound } from "#compiler/schema/representability.ts"
+import { btreeMaxItemSize, btreeEntryBytes, datumBound } from "#compiler/schema/representability.ts"
 import { allTypeSpecs, fieldDescOf, scalarOfSpec } from "#test/support/oracle/gen/domain.ts"
 
 const roster = scalarOfSpec({

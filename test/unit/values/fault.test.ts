@@ -10,7 +10,6 @@
  * Features: each way a decimal is refused, past the range and misspelt.
  */
 
-import { numericMaxIntegerDigits } from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
@@ -19,6 +18,7 @@ import { regex } from "arkregex"
 import { Effect, Formatter } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { assert, lacksText } from "#test/support/assert.ts"
 import type { Refused } from "#test/unit/values/fault.fixtures.ts"
 

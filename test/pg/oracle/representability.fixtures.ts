@@ -1,5 +1,3 @@
-import { regexMaxRepeat } from "@bjornpagen/grizzle-engine/scalar/lexical"
-import { btreeMaxItemSize } from "@bjornpagen/grizzle-engine/schema/representability"
 import {
 	array,
 	boolean,
@@ -14,7 +12,8 @@ import { Array as Arr, Option, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { wildcardPattern } from "#compiler/ir/scalar.ts"
-import { keyLayout } from "#compiler/schema/representability.ts"
+import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
+import { btreeMaxItemSize, keyLayout } from "#compiler/schema/representability.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { wideOctets, wideText } from "#test/support/wide-text.ts"
 

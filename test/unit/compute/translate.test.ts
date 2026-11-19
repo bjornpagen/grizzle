@@ -31,10 +31,6 @@
  * Features: as each search names them, every route of every property.
  */
 
-import {
-	regexDfaMaxStates,
-	regexDfaMaxWork
-} from "@bjornpagen/grizzle-engine/scalar/regex/inclusion"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -46,6 +42,7 @@ import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { textOf, textPatterns } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { charMapOf, imageOf } from "#compiler/scalar/regex/translate.ts"
 import { collapseSources } from "#compiler/scalar/regex/whitespace.ts"
@@ -82,7 +79,7 @@ import {
 	imageCase,
 	type ImageFeature,
 	imageMembers,
-	type Inclusion,
+	type TranslatedInclusion,
 	isAsciiCapital,
 	isXmlSpace,
 	longestOf,
@@ -456,9 +453,9 @@ export const computesTranslateAndLowerAsciiProvesACastIntoARefinedTextExactlyByT
 			"a collapse inside the collapsed texts",
 			"a refinement past the analysis bounds",
 			"a parse past the analysis bounds"
-		] satisfies ReadonlyArray<Reached<Inclusion>>,
+		] satisfies ReadonlyArray<Reached<TranslatedInclusion>>,
 		check:
-			(_, k: Case<Inclusion>) =>
+			(_, k: Case<TranslatedInclusion>) =>
 			([operand, target]) =>
 				Effect.sync(() => {
 					const label = Formatter.format([operand, target])

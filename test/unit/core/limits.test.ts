@@ -17,22 +17,17 @@
  * alignment; a tuple below, at and past heapTupleMaxBytes.
  */
 
-import { blockSize, itemIdBytes, pageHeaderBytes } from "@bjornpagen/grizzle-engine/core/page"
-import { heapTupleMaxBytes } from "@bjornpagen/grizzle-engine/laws/model/model"
-import { constantMaxBits } from "@bjornpagen/grizzle-engine/physical/ddl/constants"
-import {
-	alignUp,
-	maxAlign,
-	rosterMaxCodes,
-	typlens
-} from "@bjornpagen/grizzle-engine/schema/representability"
 import { word } from "@bjornpagen/testing/dictionary"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
+import { blockSize, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { IntegerCarrier } from "#compiler/ir/scalar.ts"
+import { heapTupleMaxBytes } from "#compiler/laws/model/model.ts"
+import { constantMaxBits } from "#compiler/physical/ddl/constants.ts"
+import { alignUp, maxAlign, rosterMaxCodes, typlens } from "#compiler/schema/representability.ts"
 import { assert } from "#test/support/assert.ts"
 import { integerCarriers } from "#test/unit/core/limits.dictionary.ts"
 import {

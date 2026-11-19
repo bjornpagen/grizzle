@@ -1,4 +1,3 @@
-import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 /**
  * Refinement validation sites on PostgreSQL 19.
  *
@@ -48,6 +47,7 @@ import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { refinedConstants } from "#compiler/check/refinement/index.ts"
 import { arrayTexts } from "#compiler/codec/recordset.ts"
 import { indices } from "#compiler/core/array.ts"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"

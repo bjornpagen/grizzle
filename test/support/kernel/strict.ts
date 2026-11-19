@@ -1,4 +1,3 @@
-import { moneyFractionDigits } from "@bjornpagen/grizzle-engine/scalar/values/decimal"
 import { Array as Arr, Option, Order, Result, String as Str } from "effect"
 import { toResult } from "#adapter/engine.ts"
 import type { Delivery } from "#compiler/codec/delivery.ts"
@@ -17,7 +16,7 @@ import {
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
-import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { moneyFractionDigits, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero, decimalToBinary32 } from "#compiler/scalar/values/float.ts"
 import type { CarrierHost, CarrierSpec, SpecOf } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"

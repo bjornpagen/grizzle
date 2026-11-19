@@ -1,6 +1,5 @@
 /** What the properties of role-name.test.ts read: its spaces, models and helpers. */
 
-import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import { type Case } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -17,6 +16,7 @@ import { served } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import type { DecoderLogin, ServedLogin } from "#adapter/types/layer.ts"
 import {
+	maxIdentifierBytes,
 	conversionOf,
 	identifierOf,
 	identity,

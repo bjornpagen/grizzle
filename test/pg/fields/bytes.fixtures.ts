@@ -1,8 +1,8 @@
 /** What the properties of bytes.test.ts read: its spaces, models and helpers. */
 
-import { bytesChunkLength } from "@bjornpagen/grizzle-engine/codec/delivery"
 import { aimed, array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
+import { bytesChunkLength } from "#compiler/codec/delivery.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"

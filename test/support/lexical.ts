@@ -1,4 +1,3 @@
-import { decimalTextMaxBytes } from "@bjornpagen/grizzle-engine/scalar/lexical"
 import {
 	boolean,
 	characterOf,
@@ -13,7 +12,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { type Array as Arr, DateTime, Record as Rec, String as Str } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
-import type { LexicalTarget } from "#compiler/scalar/lexical.ts"
+import { decimalTextMaxBytes, type LexicalTarget } from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import { referenceDecimal } from "#test/support/oracle/evaluate/decimal-text.ts"

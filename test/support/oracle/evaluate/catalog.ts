@@ -1,6 +1,5 @@
-import { regexTextMaxBytes } from "@bjornpagen/grizzle-engine/core/errors"
-import { decimalTextMaxBytes } from "@bjornpagen/grizzle-engine/scalar/lexical"
 import { Array as Arr, Option, Result, String as Str } from "effect"
+import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
@@ -33,6 +32,7 @@ import {
 	nativeOp,
 	nativeOps
 } from "#compiler/scalar/compute/registry.ts"
+import { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
 import { Matcher } from "#compiler/scalar/regex/match.ts"
 import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"

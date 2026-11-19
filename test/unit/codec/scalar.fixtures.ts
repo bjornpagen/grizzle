@@ -1,7 +1,5 @@
 /** What the properties of scalar.test.ts read: its spaces, models and helpers. */
 
-import { int4Max } from "@bjornpagen/grizzle-engine/core/canonical"
-import { int4Min, int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 import {
 	array,
 	boolean,
@@ -18,7 +16,9 @@ import {
 import { bigint, float } from "@bjornpagen/testing/values"
 import { regex } from "arkregex"
 import { Array as Arr, DateTime, pipe, String as Str } from "effect"
+import { int4Max } from "#compiler/core/canonical.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
+import { int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"

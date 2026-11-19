@@ -1,11 +1,5 @@
 /** What the properties of axis-keys.test.ts read: its spaces, models and helpers. */
 
-import {
-	alignUp,
-	btreeMaxItemSize,
-	maxAlign,
-	typlens
-} from "@bjornpagen/grizzle-engine/schema/representability"
 import { constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { accumulated, Bits, bits, drawn, natural, uuid } from "#compiler/public/fields.ts"
@@ -19,6 +13,7 @@ import {
 	relation as relationOf,
 	schema
 } from "#compiler/public/schema.ts"
+import { alignUp, btreeMaxItemSize, maxAlign, typlens } from "#compiler/schema/representability.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { codebookOfStates } from "#test/support/closed/generate.ts"
 import {

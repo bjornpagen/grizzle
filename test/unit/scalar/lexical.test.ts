@@ -31,7 +31,6 @@
  * refused, a decimal's refused by its language and by its bytes; each kind of field lexicalForm reads.
  */
 
-import { decimalTextMaxBytes } from "@bjornpagen/grizzle-engine/scalar/lexical"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -43,6 +42,7 @@ import { dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { decimalText, lexical, lexicalForm } from "#compiler/public/text.ts"
 import {
+	decimalTextMaxBytes,
 	formOctets,
 	formSource,
 	type LexicalTarget,

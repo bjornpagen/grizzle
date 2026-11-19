@@ -8,7 +8,8 @@ import {
 	identity as door,
 	parseDeclaredName,
 	parseSchemaName,
-	type SchemaName
+	type SchemaName,
+	maxIdentifierBytes
 } from "#compiler/core/identity.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -33,16 +34,15 @@ import type {
 	TypeRef
 } from "#compiler/sql/ast.ts"
 
-import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
+import { regex } from "arkregex"
+import { definitionDigest } from "#compiler/physical/ddl/domains.ts"
 import {
 	cosineNormMax,
 	cosineNormMin,
 	numericMaxPrecision,
 	numericMaxScale,
 	numericMinScale
-} from "@bjornpagen/grizzle-engine/scalar/values/fault"
-import { regex } from "arkregex"
-import { definitionDigest } from "#compiler/physical/ddl/domains.ts"
+} from "#compiler/scalar/values/fault.ts"
 import {
 	and,
 	binary,

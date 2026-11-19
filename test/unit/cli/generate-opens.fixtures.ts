@@ -1,4 +1,3 @@
-import { selectMaxEntries } from "@bjornpagen/grizzle-engine/sql/print"
 import { type Gen, int, map } from "@bjornpagen/testing/gen"
 import { Record as Rec } from "effect"
 import { noParamTypes } from "#compiler/physical/ddl/domains.ts"
@@ -7,6 +6,7 @@ import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema, type RelationName } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
+import { selectMaxEntries } from "#compiler/sql/print.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { upTo } from "#test/support/up-to.ts"
 

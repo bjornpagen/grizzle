@@ -1,6 +1,5 @@
 /** What the properties of renames.test.ts read: its spaces, models and helpers. */
 
-import { handleMaxBytes } from "@bjornpagen/grizzle-engine/schema/own"
 import {
 	aimed,
 	array,
@@ -25,6 +24,7 @@ import {
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
 import type { Named, Rename } from "#compiler/deploy/diff/plan.ts"
+import { handleMaxBytes } from "#compiler/schema/own.ts"
 import { deepEquals, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import {
 	admittedNames,

@@ -54,7 +54,7 @@ import {
 	silent,
 	type Stored,
 	type StoredSort,
-	sqlText,
+	textSql,
 	storedFieldGen,
 	type Truth,
 	type World,
@@ -330,7 +330,7 @@ const rowValues = (w: World, id: number, row: EvalRow, flagsType: string): strin
 	const values = {
 		...item,
 		flags: `(${item.flags})::${flagsType}`,
-		p: sqlText(row.p),
+		p: textSql(row.p),
 		u: `${row.u}`
 	}
 	return `(${Arr.join(

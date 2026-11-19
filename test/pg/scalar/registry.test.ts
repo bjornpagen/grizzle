@@ -22,13 +22,13 @@
  * native capability excluded", "a spannable carrier", "a discrete range named as a limit" and "no discrete range".
  */
 
-import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
 import { word } from "@bjornpagen/testing/dictionary"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, finite, int, oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, pipe, String as Str } from "effect"
+import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { vectorSchemaOf } from "#test/pg/codec/support.ts"
 import { carrierWords, spellingWords } from "#test/pg/scalar/registry.dictionary.ts"

@@ -1,4 +1,3 @@
-import { int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 /**
  * The write refusal channel on PostgreSQL 19: the installed refusal function raises exactly its arguments, the
  * SQLSTATE, the constraint name and the DETAIL PostgreSQL evaluates, which arrive intact as the error fields the
@@ -19,6 +18,7 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { readChangeDetail, readLawDetail } from "#compiler/runtime/write/refusal.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"

@@ -1,13 +1,5 @@
 /** What the properties of descriptors.test.ts read: its spaces, models and helpers. */
 
-import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
-import { binary64Precision } from "@bjornpagen/grizzle-engine/scalar/lexical"
-import {
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "@bjornpagen/grizzle-engine/scalar/values/fault"
-import { binary32Precision } from "@bjornpagen/grizzle-engine/scalar/values/float"
 import {
 	aimed,
 	array,
@@ -39,10 +31,17 @@ import { bigint } from "@bjornpagen/testing/values"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Record } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { integerRanges } from "#compiler/ir/carriers.ts"
+import { vectorMaxDimensions, integerRanges } from "#compiler/ir/carriers.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { type RosterOrder, rosterOrders, type ScalarType } from "#compiler/ir/scalar.ts"
+import { binary64Precision } from "#compiler/scalar/lexical.ts"
 import { type Described, describeField } from "#compiler/scalar/registry.ts"
+import {
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/scalar/values/fault.ts"
+import { binary32Precision } from "#compiler/scalar/values/float.ts"
 import { closedBuilder } from "#compiler/schema/relation.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { fieldIdentity } from "#test/support/fixtures/descriptors.ts"

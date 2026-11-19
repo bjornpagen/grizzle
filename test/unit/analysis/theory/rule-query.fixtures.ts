@@ -1,9 +1,5 @@
 /** What the properties of rule-query.test.ts read: its spaces, models and helpers. */
 
-import {
-	numericMaxPrecision,
-	numericMaxScale
-} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
@@ -29,6 +25,7 @@ import {
 	select
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { numericMaxPrecision, numericMaxScale } from "#compiler/scalar/values/fault.ts"
 import { installationsOf, rostersOf } from "#compiler/schema/own.ts"
 import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { ownedInput } from "#test/support/policy.ts"

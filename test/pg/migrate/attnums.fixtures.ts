@@ -1,9 +1,9 @@
 /** What the properties of attnums.test.ts read: its spaces, models and helpers. */
 
-import { tableMaxColumns } from "@bjornpagen/grizzle-engine/write/carriers/carriers"
 import { Array as Arr, Record as Rec } from "effect"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { tableMaxColumns } from "#compiler/write/carriers/carriers.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** PostgreSQL's limit on a table's attribute numbers, live and dropped (htup_details.h MaxHeapAttributeNumber). */

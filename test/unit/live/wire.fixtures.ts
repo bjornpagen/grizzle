@@ -1,9 +1,5 @@
 /** What the properties of wire.test.ts read: its spaces, models and helpers. */
 
-import { int4Max } from "@bjornpagen/grizzle-engine/core/canonical"
-import { int2Max, int2Min, int4Min, int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
-import { moneyFractionDigits } from "@bjornpagen/grizzle-engine/scalar/values/decimal"
-import { binary32Max } from "@bjornpagen/grizzle-engine/scalar/values/float"
 import {
 	type Aimed,
 	aimed,
@@ -22,10 +18,18 @@ import {
 } from "@bjornpagen/testing/gen"
 import { bigint, double, uuid } from "@bjornpagen/testing/values"
 import { Array as Arr, Record as Rec, String as Str } from "effect"
+import { int4Max } from "#compiler/core/canonical.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { canonicalZero } from "#compiler/ir/carriers.ts"
+import {
+	int2Max,
+	int2Min,
+	int4Min,
+	int8Max,
+	int8Min,
+	canonicalZero
+} from "#compiler/ir/carriers.ts"
 import { codecOf, firstCodebook } from "#compiler/ir/codes.ts"
 import { type CalendarDate, dateOfDayNumber, dayNumber } from "#compiler/ir/date.ts"
 import { type Carrier, carriers, Roster } from "#compiler/ir/scalar.ts"
@@ -41,7 +45,8 @@ import {
 	wireFaults
 } from "#compiler/live/wire.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { moneyFractionDigits, Decimal } from "#compiler/scalar/values/decimal.ts"
+import { binary32Max } from "#compiler/scalar/values/float.ts"
 import { type CarrierSpec } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"

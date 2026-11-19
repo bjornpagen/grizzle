@@ -1,14 +1,14 @@
 /** What the properties of float.test.ts read: its spaces, models and helpers. */
 
+import { element, type Gen, weighted } from "@bjornpagen/testing/gen"
+import { double, float } from "@bjornpagen/testing/values"
 import {
 	binary32LeastExponent,
 	binary32Max,
 	binary32MaxExponent,
-	binary32Precision
-} from "@bjornpagen/grizzle-engine/scalar/values/float"
-import { element, type Gen, weighted } from "@bjornpagen/testing/gen"
-import { double, float } from "@bjornpagen/testing/values"
-import { toReal } from "#compiler/scalar/values/float.ts"
+	binary32Precision,
+	toReal
+} from "#compiler/scalar/values/float.ts"
 import { assert, faulted, succeeded } from "#test/support/assert.ts"
 
 /** The specials a double can be beside a finite value: -0, NaN and the infinities. */

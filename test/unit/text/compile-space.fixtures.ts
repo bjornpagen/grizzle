@@ -1,12 +1,5 @@
 /** What the properties of compile-space.test.ts read: its spaces, models and helpers. */
 
-import { regexMaxHeldArcs } from "@bjornpagen/grizzle-engine/scalar/regex/ir"
-import {
-	regexMaxAnchors,
-	regexMaxDepth,
-	regexMaxMatchCells,
-	regexMaxMatchStates
-} from "@bjornpagen/grizzle-engine/scalar/regex/space"
 import {
 	type Aimed,
 	aimed,
@@ -23,10 +16,19 @@ import { Array as Arr, Order, String as Str } from "effect"
 import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { printableIntervals, type SetNode } from "#compiler/scalar/regex/are.ts"
-import { folded, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
+import {
+	regexMaxHeldArcs,
+	folded,
+	type LiveNode,
+	type RegexNode
+} from "#compiler/scalar/regex/ir.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import {
+	regexMaxAnchors,
+	regexMaxDepth,
+	regexMaxMatchCells,
+	regexMaxMatchStates,
 	colorsOf,
 	matchStates,
 	type RawNfa,

@@ -16,7 +16,6 @@
  * several components.
  */
 
-import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, map } from "@bjornpagen/testing/gen"
 import { type DrawnFeature, drawnFeature, lsw, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
@@ -24,6 +23,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, pipe, String as Str } from "effect"
 import { decode, encode, everyProperty } from "#compiler/core/canonical.ts"
 import { CompileError } from "#compiler/core/errors.ts"
+import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { assert, faulted, refused, succeeded } from "#test/support/assert.ts"
 import {

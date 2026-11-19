@@ -1,18 +1,18 @@
-import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
-import {
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Order, Result, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { CompileError, prose } from "#compiler/core/errors.ts"
+import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { isDecimal } from "#compiler/core/text.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { operandsAlias } from "#compiler/lower/conservative/expr/total.ts"
+import {
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/scalar/values/fault.ts"
 import {
 	type Analyze,
 	builtinFunctionNames,

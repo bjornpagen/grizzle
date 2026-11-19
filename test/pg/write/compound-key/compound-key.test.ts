@@ -1,4 +1,3 @@
-import { btreeMaxItemSize } from "@bjornpagen/grizzle-engine/schema/representability"
 import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
@@ -29,7 +28,7 @@ import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
-import { keyLayout } from "#compiler/schema/representability.ts"
+import { btreeMaxItemSize, keyLayout } from "#compiler/schema/representability.ts"
 import {
 	containedBuilder,
 	keyBuilder,

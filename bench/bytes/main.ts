@@ -1,5 +1,4 @@
 #!/usr/bin/env -S node
-import { bytesChunkLength } from "@bjornpagen/grizzle-engine/codec/delivery"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Array as Arr, Console, Data, DateTime, Effect, Layer, pipe, String as Str } from "effect"
@@ -10,7 +9,7 @@ import {
 	writeRunRecord
 } from "#bench/cold/identity.ts"
 import { elapsed, type Summary, summarize } from "#bench/cold/stats.ts"
-import { assembledIn } from "#compiler/codec/delivery.ts"
+import { bytesChunkLength, assembledIn } from "#compiler/codec/delivery.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { OutputRows } from "#compiler/core/wire.ts"
 import { deliveredRows, deliveryOfColumns, textColumn } from "#compiler/lower/delivery.ts"

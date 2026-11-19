@@ -1,5 +1,5 @@
-import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import { Array as Arr, String as Str } from "effect"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"

@@ -1,7 +1,5 @@
 /** What the properties of desc.test.ts read: its spaces, models and helpers. */
 
-import { numericMaxPrecision } from "@bjornpagen/grizzle-engine/scalar/values/fault"
-import { binary32LeastExponent } from "@bjornpagen/grizzle-engine/scalar/values/float"
 import {
 	array,
 	boolean,
@@ -43,6 +41,8 @@ import {
 	type FieldDesc,
 	type LiteralDesc
 } from "#compiler/ir/desc.ts"
+import { numericMaxPrecision } from "#compiler/scalar/values/fault.ts"
+import { binary32LeastExponent } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"

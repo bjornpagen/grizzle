@@ -1,12 +1,12 @@
 /** What the properties of builders.test.ts read: its spaces, models and helpers. */
 
-import { int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 import { constant, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { type Drawn, type DrawnFeature, lsw, WILD_KINDS } from "@bjornpagen/testing/lsw"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Option } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { baseOf, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { type ScalarTerm, typedTermOf } from "#compiler/scalar/compute/term.ts"

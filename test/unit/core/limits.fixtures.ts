@@ -1,8 +1,8 @@
 /** What the properties of limits.test.ts read: its spaces, models and helpers. */
 
-import { maxAlign } from "@bjornpagen/grizzle-engine/schema/representability"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import type { IntegerCarrier } from "#compiler/ir/scalar.ts"
+import { maxAlign } from "#compiler/schema/representability.ts"
 
 /** Node's typed array of each integer carrier's width, which holds the same two's-complement integers. */
 export const typedArrays: {

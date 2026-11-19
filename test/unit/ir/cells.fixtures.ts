@@ -1,6 +1,5 @@
 /** What the properties of cells.test.ts read: its spaces, models and helpers. */
 
-import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import {
 	array,
 	boolean,
@@ -14,6 +13,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as EngineResult from "#compiler/core/result.ts"
 import {

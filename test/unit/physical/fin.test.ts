@@ -24,12 +24,11 @@
  * and one past it refused.
  */
 
-import { cellMaxCodes } from "@bjornpagen/grizzle-engine/physical/ddl/constants"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { cellCodesBound } from "#compiler/physical/ddl/constants.ts"
+import { cellMaxCodes, cellCodesBound } from "#compiler/physical/ddl/constants.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
 import {

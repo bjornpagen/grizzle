@@ -546,7 +546,7 @@ export const declaredAlike = (a: DeclaredName, b: DeclaredName): boolean =>
  * grizzle derives for a column of its own, a law column's or a hidden accumulator's, starts with `__` (hashedLead), so
  * none is one of them.
  */
-export const systemColumns: ReadonlySet<string> = new Set([
+const systemColumns: ReadonlySet<string> = new Set([
 	"ctid",
 	"xmin",
 	"cmin",

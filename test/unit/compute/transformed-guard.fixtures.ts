@@ -1,6 +1,5 @@
 /** What the properties of transformed-guard.test.ts read: its spaces, models and helpers. */
 
-import { regexMaxRepeat } from "@bjornpagen/grizzle-engine/scalar/lexical"
 import {
 	type Aimed,
 	aimed,
@@ -24,6 +23,7 @@ import { decimalText, doubleText, lexicalForm, str } from "#compiler/public/text
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
 import { charSet, complement } from "#compiler/scalar/regex/charset.ts"
 import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"

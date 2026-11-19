@@ -13,7 +13,6 @@
  * Features: a relation parameter at lateralParentMax facts, and one past it, each under every name.
  */
 
-import { lateralParentMax } from "@bjornpagen/grizzle-engine/lower/shapes/index"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -22,6 +21,7 @@ import { formFor } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { readExceeds, readProgram } from "#adapter/reader/run.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
+import { lateralParentMax } from "#compiler/lower/shapes/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"

@@ -1,4 +1,3 @@
-import { int8Digits } from "@bjornpagen/grizzle-engine/ir/carriers"
 /**
  * Aggregate typing against PostgreSQL 19 (scalar/aggregate.ts): count(*), and every aggregate of the language, sum,
  * mean, min and max, over a sample of each carrier a field holds, a closed id, a set and a contract among them.
@@ -24,7 +23,7 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Result, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { integerDigits } from "#compiler/ir/carriers.ts"
+import { int8Digits, integerDigits } from "#compiler/ir/carriers.ts"
 import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type AggregateOverload, aggregateOverload } from "#compiler/scalar/aggregate.ts"
 import { catalogTypeName } from "#compiler/scalar/compute/registry.ts"

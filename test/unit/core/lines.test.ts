@@ -15,11 +15,11 @@
  * string, and more.
  */
 
-import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, constant, element, finite, int, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result, String as Str } from "effect"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import { enclosedWithin, type Lines, textOf } from "#compiler/core/lines.ts"
 import { assert, refused } from "#test/support/assert.ts"
 import {

@@ -1,8 +1,12 @@
-import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import { element, type Gen, proportional } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Order, String as Str } from "effect"
-import { conversionOf, parseDeclaredName, parseSchemaName } from "#compiler/core/identity.ts"
+import {
+	maxIdentifierBytes,
+	conversionOf,
+	parseDeclaredName,
+	parseSchemaName
+} from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"

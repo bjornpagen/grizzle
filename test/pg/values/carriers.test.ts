@@ -20,11 +20,11 @@
  * component", "past the storage limit" and "an underflow read as zero".
  */
 
-import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Result } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { compareSpan, spanText } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import {

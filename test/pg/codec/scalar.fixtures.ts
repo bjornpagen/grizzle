@@ -1,5 +1,3 @@
-import { int4Max } from "@bjornpagen/grizzle-engine/core/canonical"
-import { int4Min, int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 /** What the properties of scalar.test.ts read: the carriers' cases, their spaces, a case's setup and its round trip. */
 import {
 	array,
@@ -20,8 +18,10 @@ import { bigint, double, float, uuid } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { positionalColumns } from "#compiler/codec/recordset.ts"
 import type { ScalarCodec } from "#compiler/codec/scalar.ts"
+import { int4Max } from "#compiler/core/canonical.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import { type Carrier, contractOf, routable, type ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"

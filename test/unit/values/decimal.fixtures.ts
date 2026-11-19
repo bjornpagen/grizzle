@@ -1,13 +1,5 @@
 /** What the properties of decimal.test.ts read: its spaces, models and helpers. */
 
-import { int4Max } from "@bjornpagen/grizzle-engine/core/canonical"
-import {
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import {
 	aimed,
 	type Aimed,
@@ -25,9 +17,17 @@ import {
 } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Option, pipe, String as Str } from "effect"
+import { int4Max } from "#compiler/core/canonical.ts"
 import { type ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import {
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/scalar/values/fault.ts"
 import { assert, faulted, succeeded } from "#test/support/assert.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { decimalGen } from "#test/unit/values/support.ts"

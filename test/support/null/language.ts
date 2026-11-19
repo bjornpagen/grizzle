@@ -1529,7 +1529,7 @@ const codesBits = (codes: ReadonlyArray<number>, flags: number): string =>
 	maskBits(maskOf(codes), flags)
 
 /** A text in plain SQL: the language's texts hold no quote. */
-export const sqlText = (text: string): string => `'${text}'::text`
+export const textSql = (text: string): string => `'${text}'::text`
 
 /** A literal in plain SQL. */
 const literalSql = (w: World, literal: Literal | ListLiteral): string => {
@@ -1542,7 +1542,7 @@ const literalSql = (w: World, literal: Literal | ListLiteral): string => {
 		case "num":
 			return `(${tenthsText(literal.tenths)})::numeric`
 		case "text":
-			return sqlText(literal.value)
+			return textSql(literal.value)
 		case "code":
 			return `(${literal.code})::integer`
 		case "set":
@@ -1801,7 +1801,7 @@ export const itemValues = (
 	n: `${item.n}`,
 	m: `${item.m}`,
 	d: `(${tenthsText(item.d)})::numeric`,
-	t: sqlText(item.t),
+	t: textSql(item.t),
 	b: item.b ? "true" : "false",
 	x: floatSql(item.x, "f8"),
 	y: floatSql(item.y, "f4"),
@@ -1825,7 +1825,7 @@ const worldWith = (w: World, rows: ReadonlyArray<readonly [id: number, item: Ite
 			payload === undefined
 				? []
 				: [
-						`(${kind}, ${payload.flag}, ${payload.n}, (${tenthsText(payload.d)})::numeric, ${sqlText(payload.t)}, ${payload.b ? "true" : "false"}, ${floatSql(payload.x, "f8")}, ${floatSql(payload.y, "f4")})`
+						`(${kind}, ${payload.flag}, ${payload.n}, (${tenthsText(payload.d)})::numeric, ${textSql(payload.t)}, ${payload.b ? "true" : "false"}, ${floatSql(payload.x, "f8")}, ${floatSql(payload.y, "f4")})`
 					]
 		),
 		"0, 0, 0, 0::numeric, ''::text, false, 0::float8, 0::real"

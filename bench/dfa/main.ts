@@ -1,8 +1,4 @@
 #!/usr/bin/env -S node
-import {
-	regexDfaMaxStates,
-	regexDfaMaxWork
-} from "@bjornpagen/grizzle-engine/scalar/regex/inclusion"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Array as Arr, Console, Data, DateTime, Effect, pipe, String as Str } from "effect"
@@ -15,6 +11,7 @@ import {
 import { elapsed, type Summary, summarize } from "#bench/cold/stats.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type DfaLimits, type DfaOutcome, minimalDfa } from "#compiler/scalar/regex/dfa.ts"
+import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
 import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"

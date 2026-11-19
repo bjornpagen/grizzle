@@ -1,6 +1,5 @@
 /** What the properties of long-names.test.ts read: its spaces, models and helpers. */
 
-import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import type { Case } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -23,7 +22,7 @@ import {
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
-import { conversionOf } from "#compiler/core/identity.ts"
+import { maxIdentifierBytes, conversionOf } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { uuid } from "#compiler/public/fields.ts"

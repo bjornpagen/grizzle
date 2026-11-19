@@ -30,13 +30,13 @@
  * Features: each verdict and each cause of each family, several rules refusing one definition, and the admitted controls.
  */
 
-import { int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import { type FieldDesc } from "#compiler/ir/desc.ts"
 import { assert, containsEqual, defined, placeOf, succeeded } from "#test/support/assert.ts"

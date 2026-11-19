@@ -1,11 +1,5 @@
 /** What the properties of scalar.test.ts read: its spaces, models and helpers. */
 
-import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
-import {
-	cosineNormMax,
-	cosineNormMin,
-	numericMaxPrecision
-} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import {
 	array,
 	boolean,
@@ -28,8 +22,7 @@ import { regex } from "arkregex"
 import { Array as Arr, pipe, Record as Rec, String as Str } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, ParamId } from "#compiler/core/ids.ts"
-import { MoneyText, VectorText } from "#compiler/ir/carriers.ts"
-import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { vectorMaxDimensions, MoneyText, VectorText, canonicalZero } from "#compiler/ir/carriers.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
 import {
 	type ExprTable,
@@ -39,6 +32,7 @@ import {
 } from "#compiler/ir/expr.ts"
 import { baseOf, type Carrier, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { cosineNormMax, cosineNormMin, numericMaxPrecision } from "#compiler/scalar/values/fault.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { plainType, scalarOf } from "#test/support/fixtures/ir/scalar.ts"

@@ -1,6 +1,5 @@
 /** What the property of substrate.test.ts reads: its spaces, models and helpers. */
 
-import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import {
 	array,
 	characterOf,
@@ -11,7 +10,7 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Result, String as Str } from "effect"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { maxIdentifierBytes, identifierOf, identity } from "#compiler/core/identity.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 

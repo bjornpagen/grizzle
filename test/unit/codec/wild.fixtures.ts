@@ -1,7 +1,5 @@
 /** What the properties of wild.test.ts read: its spaces, models and helpers. */
 
-import { int4Max } from "@bjornpagen/grizzle-engine/core/canonical"
-import { int4Min, int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 import {
 	array,
 	boolean,
@@ -27,9 +25,11 @@ import {
 import { bigint, double, float, uuid } from "@bjornpagen/testing/values"
 import { Array as Arr, DateTime, Option, Record } from "effect"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { int4Max } from "#compiler/core/canonical.ts"
 import type { CodecFault, ValueFault } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
+import { int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { type Carrier, capabilitySet, Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"

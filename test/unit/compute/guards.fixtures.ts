@@ -1,6 +1,5 @@
-import { regexTextMaxBytes } from "@bjornpagen/grizzle-engine/core/errors"
 import { Array as Arr, Record as Rec } from "effect"
-import type { GuardTest, PreconditionKind } from "#compiler/core/errors.ts"
+import { regexTextMaxBytes, type GuardTest, type PreconditionKind } from "#compiler/core/errors.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"

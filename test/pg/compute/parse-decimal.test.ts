@@ -1,4 +1,3 @@
-import { numericMaxFractionDigits } from "@bjornpagen/grizzle-engine/scalar/values/fault"
 /**
  * Compute.parseDecimal on PostgreSQL 19rc2: over drawn pairs of decimal texts (test/support/lexical.ts decimalTextGen),
  * each part's count of digits at an edge the parse turns on (256 integer and 255 fraction digits, the widest
@@ -46,6 +45,7 @@ import { evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { numericMaxFractionDigits } from "#compiler/scalar/values/fault.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"

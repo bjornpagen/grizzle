@@ -18,12 +18,12 @@
  * Features: a member refused from its lengths, a member bound, two bytes columns.
  */
 
-import { messageMaxBytes } from "@bjornpagen/grizzle-engine/core/wire"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import { messageMaxBytes } from "#compiler/core/wire.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"

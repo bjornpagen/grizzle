@@ -1,7 +1,6 @@
 /** What the properties of delivery.test.ts read: its spaces, models and helpers. */
 
 import { Buffer } from "node:buffer"
-import { bytesChunkLength } from "@bjornpagen/grizzle-engine/codec/delivery"
 import {
 	array,
 	codePoint,
@@ -14,7 +13,7 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { type CellKind } from "#compiler/codec/delivery.ts"
+import { bytesChunkLength, type CellKind } from "#compiler/codec/delivery.ts"
 import { maxOf } from "#compiler/core/array.ts"
 import type { Cell } from "#compiler/core/wire.ts"
 import { upTo } from "#test/support/up-to.ts"

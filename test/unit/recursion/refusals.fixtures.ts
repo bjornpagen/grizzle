@@ -1,12 +1,12 @@
 /** What the properties of refusals.test.ts read: its spaces, models and helpers. */
 
-import { int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 import { boolean, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { bigint as bigintIn } from "@bjornpagen/testing/values"
 import { Array as Arr, Formatter, Record as Rec } from "effect"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { childLoc } from "#compiler/core/loc.ts"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { decodeDesc, type FieldDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { samePatterns } from "#compiler/ir/scalar.ts"

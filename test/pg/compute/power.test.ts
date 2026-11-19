@@ -1,10 +1,3 @@
-import { binary64MinExponent } from "@bjornpagen/grizzle-engine/scalar/compute/cast"
-import { binary64MaxExponent, binary64Precision } from "@bjornpagen/grizzle-engine/scalar/lexical"
-import {
-	numericMaxFractionDigits,
-	numericMaxPrecision,
-	numericMaxScale
-} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 /**
  * Compute.power on PostgreSQL 19.
  *
@@ -33,8 +26,15 @@ import type { PreconditionKind } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { binary64MinExponent } from "#compiler/scalar/compute/cast.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
+import { binary64MaxExponent, binary64Precision } from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import {
+	numericMaxFractionDigits,
+	numericMaxPrecision,
+	numericMaxScale
+} from "#compiler/scalar/values/fault.ts"
 import {
 	caseChunk,
 	compareAnswers,

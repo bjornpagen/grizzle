@@ -1,16 +1,16 @@
 /** What the properties of registry.test.ts read: its spaces, models and helpers. */
 
-import {
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import { type Gen, int, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Result } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { serialDraw } from "#compiler/ir/desc.ts"
 import type { Capability, Carrier } from "#compiler/ir/scalar.ts"
 import { nativeCapabilities } from "#compiler/scalar/native.ts"
+import {
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/scalar/values/fault.ts"
 import { fieldDescOf } from "#compiler/schema/protocol.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 import { isSerial, spelled, type Spelling } from "#test/unit/scalar/support.ts"

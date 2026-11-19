@@ -16,11 +16,11 @@
  * Features: past the longest string, equal values, different values, either order.
  */
 
-import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { assert } from "#test/support/assert.ts"
 import {

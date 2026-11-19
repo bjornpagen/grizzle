@@ -1,6 +1,5 @@
 /** What the properties of role-prefix.test.ts read: its spaces, models and helpers. */
 
-import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import {
@@ -15,6 +14,7 @@ import {
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
+import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"

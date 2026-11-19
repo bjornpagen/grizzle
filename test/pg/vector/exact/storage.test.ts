@@ -1,4 +1,3 @@
-import { cosineNormMax, cosineNormMin } from "@bjornpagen/grizzle-engine/scalar/values/fault"
 /**
  * Vector storage on PostgreSQL 19 and the pinned pgvector.
  *
@@ -36,6 +35,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
+import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
 import { exactVectorText, normOf, normTolerance, vectorInVerdict } from "#test/pg/vector/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"

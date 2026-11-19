@@ -1,8 +1,8 @@
 /** What the properties of verify-values.test.ts read: its spaces, models and helpers. */
 
-import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import { array, element, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
+import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import type { Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { provedSelect, target, types } from "#compiler/sql/build.ts"
 import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"

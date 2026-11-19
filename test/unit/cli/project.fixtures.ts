@@ -1,6 +1,5 @@
 /** What the properties of project.test.ts read: its spaces, models and helpers. */
 
-import { fileNameMaxBytes } from "@bjornpagen/grizzle-engine/deploy/render/folder"
 import {
 	accepted,
 	type Answer,
@@ -48,6 +47,7 @@ import type { refusalText } from "#cli/refusals.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
 import {
+	fileNameMaxBytes,
 	type FolderNaming,
 	isFolderName,
 	maxMigrationNameLength,
@@ -68,8 +68,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { closedId, pg, uuid } from "#compiler/public/fields.ts"
 import { closed, login, type Relation, role, schema } from "#compiler/public/schema.ts"
-import { installationsOf } from "#compiler/schema/own.ts"
-import { ownLogin } from "#compiler/schema/own.ts"
+import { installationsOf, ownLogin } from "#compiler/schema/own.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"

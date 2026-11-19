@@ -1,7 +1,5 @@
 /** What the properties of representability.test.ts read: its spaces, models and helpers. */
 
-import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
-import { typlens } from "@bjornpagen/grizzle-engine/schema/representability"
 import {
 	array,
 	boolean,
@@ -15,8 +13,8 @@ import {
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
-import { fieldTypes } from "#compiler/ir/desc.ts"
+import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
+import { type ExprDesc, type FieldDesc, fieldTypes } from "#compiler/ir/desc.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { natural, uuid } from "#compiler/public/fields.ts"
@@ -29,6 +27,7 @@ import {
 	relationDescOf
 } from "#compiler/schema/relation.ts"
 import {
+	typlens,
 	type DatumBound,
 	datumBound,
 	type LengthMeasure

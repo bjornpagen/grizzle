@@ -14,7 +14,6 @@
  * their limits, spans and vectors in keys.
  */
 
-import { btreeMaxItemSize } from "@bjornpagen/grizzle-engine/schema/representability"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, boolean, constant, element, int, map, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -29,6 +28,7 @@ import { uuid } from "#compiler/public/fields.ts"
 import { keyTextBytes } from "#compiler/public/text.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import {
+	btreeMaxItemSize,
 	btreeEntryBytes,
 	type DatumBound,
 	gistEntryBytes,

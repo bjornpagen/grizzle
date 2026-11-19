@@ -1,6 +1,5 @@
 /** What the properties of carriers.test.ts read: its spaces, models and helpers. */
 
-import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
 import {
 	array,
 	boolean,
@@ -15,6 +14,7 @@ import {
 import { double } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, pipe, String as Str } from "effect"
 import { trusted } from "#compiler/core/trusted.ts"
+import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { makeSpan } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"

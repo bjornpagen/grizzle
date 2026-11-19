@@ -1,9 +1,3 @@
-import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
-import {
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import {
 	constant,
 	element,
@@ -19,11 +13,16 @@ import { matching } from "@bjornpagen/testing/pattern"
 import { bigint } from "@bjornpagen/testing/values"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import { integerRanges } from "#compiler/ir/carriers.ts"
+import { vectorMaxDimensions, integerRanges } from "#compiler/ir/carriers.ts"
 import { type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { isOwnedDescriptor } from "#compiler/scalar/registry.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
+import {
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/scalar/values/fault.ts"
 import { admittedClosedId, writingOf, closedBuilder } from "#compiler/schema/relation.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import { floatOf } from "#test/support/descriptors.ts"

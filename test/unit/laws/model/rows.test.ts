@@ -16,11 +16,11 @@
  * bound, a varlena and mixed alignments for the law model.
  */
 
-import { heapTupleMaxBytes } from "@bjornpagen/grizzle-engine/laws/model/model"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
+import { heapTupleMaxBytes } from "#compiler/laws/model/model.ts"
 import { rowBytes, rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
 import { assert, refused } from "#test/support/assert.ts"
 import { f, relation } from "#test/support/fixtures/ir/desc.ts"

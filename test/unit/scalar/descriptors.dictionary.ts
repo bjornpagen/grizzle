@@ -1,6 +1,6 @@
-import { binary64Precision } from "@bjornpagen/grizzle-engine/scalar/lexical"
 import { dictionary } from "@bjornpagen/testing/dictionary"
 import { Array as Arr } from "effect"
+import { binary64Precision } from "#compiler/scalar/lexical.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { type DescriptorSketch, spellings } from "#test/unit/scalar/support.ts"

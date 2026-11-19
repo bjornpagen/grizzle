@@ -1,6 +1,5 @@
 /** What the properties of decoder-derivation.test.ts read: its spaces, models and helpers. */
 
-import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import type { Case } from "@bjornpagen/testing/explore"
 import { awaitFact } from "@bjornpagen/testing/fact"
 import { array, boolean, element, type Gen, string } from "@bjornpagen/testing/gen"
@@ -22,6 +21,7 @@ import { CredentialError } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { decode, noRevivers } from "#compiler/core/canonical.ts"
+import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { metaFileName, type MigrationMeta, writeMeta } from "#compiler/deploy/render/folder.ts"

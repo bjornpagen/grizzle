@@ -1,5 +1,3 @@
-import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
-import { cosineNormMax, cosineNormMin } from "@bjornpagen/grizzle-engine/scalar/values/fault"
 /**
  * Exact cosine distance on PostgreSQL 19 and the pinned pgvector.
  *
@@ -50,6 +48,7 @@ import type { CodecFault } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
+import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
@@ -58,6 +57,7 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
 import { normTolerance } from "#test/pg/vector/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, contains, defined, lacks, nonEmpty } from "#test/support/assert.ts"

@@ -1,10 +1,3 @@
-import { int4Max } from "@bjornpagen/grizzle-engine/core/canonical"
-import { int2Max, int2Min, int4Min, int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
-import {
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 /**
  * A fact guard over a contract on PostgreSQL 19: Compute.nonzero, Compute.nonnegative, Compute.positive and
  * Compute.isFinite over a term of a contract drawn over a numeric of every typmod, its precision and its scale both
@@ -29,7 +22,9 @@ import { bigint } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, Result } from "effect"
+import { int4Max } from "#compiler/core/canonical.ts"
 import { CompileError } from "#compiler/core/errors.ts"
+import { int2Max, int2Min, int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
@@ -37,11 +32,15 @@ import { contractOf } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import {
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/scalar/values/fault.ts"
 import { compareAnswers, type EvalCase, type PgAnswer } from "#test/pg/compute/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
-import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
+import { type ModelValue, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import {

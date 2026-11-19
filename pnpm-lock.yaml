@@ -260,9 +260,6 @@ importers:
       '@bjornpagen/grizzle':
         specifier: link:packages/grizzle
         version: link:packages/grizzle
-      '@bjornpagen/grizzle-engine':
-        specifier: workspace:*
-        version: link:packages/engine
       '@bjornpagen/grizzle-pg':
         specifier: workspace:*
         version: link:packages/pg

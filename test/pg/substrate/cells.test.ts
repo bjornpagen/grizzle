@@ -1,4 +1,3 @@
-import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 /**
  * The law of erasure's templates (fin.md §17), proved against PostgreSQL 19rc2: the migration's pack, the table CHECK a
  * closed law is, over its digit columns, the roster domains that keep each digit in range, function application with absence as
@@ -32,6 +31,7 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { cell, fromText } from "#compiler/codec/bits.ts"
 import { indices } from "#compiler/core/array.ts"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import {
 	cellWidth,
 	constantOf as encodedOf,

@@ -15,7 +15,6 @@
  * Features: each carrier stored and refused; each rewrite and each change; each malformation.
  */
 
-import { binary32Max } from "@bjornpagen/grizzle-engine/scalar/values/float"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, int, shuffled } from "@bjornpagen/testing/gen"
 import { passed } from "@bjornpagen/testing/lsw"
@@ -25,6 +24,7 @@ import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
+import { binary32Max } from "#compiler/scalar/values/float.ts"
 import { factIdentity, type HeadingField, parseValue } from "#compiler/scalar/values/identity.ts"
 import { Uuid } from "#compiler/scalar/values/uuid.ts"
 import { assert, faulted, succeeded } from "#test/support/assert.ts"

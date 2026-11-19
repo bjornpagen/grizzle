@@ -1,11 +1,11 @@
 /** What the properties of bytes-memory.test.ts read: its spaces, models and helpers. */
 
-import { messageMaxBytes } from "@bjornpagen/grizzle-engine/core/wire"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
+import { messageMaxBytes } from "#compiler/core/wire.ts"
 import { bytes, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"

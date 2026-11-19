@@ -440,7 +440,7 @@ export const castGen: Gen<readonly [Operand, Target]> = (source) => {
 	return [operand, target] as const
 }
 
-export type Inclusion =
+export type TranslatedInclusion =
 	| "an image inside the target"
 	| "an image outside the target"
 	| "a contract's predicate unproved"

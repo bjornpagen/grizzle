@@ -1,6 +1,5 @@
 /** What the properties of lexical.test.ts read: its spaces, models and helpers. */
 
-import { decimalTextMaxBytes } from "@bjornpagen/grizzle-engine/scalar/lexical"
 import { constant, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
@@ -19,7 +18,7 @@ import { type AnyRelation, relation } from "#compiler/public/schema.ts"
 import { type lexicalForm, str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { toFloat } from "#compiler/scalar/compute/cast.ts"
-import { formSource, type LexicalTarget } from "#compiler/scalar/lexical.ts"
+import { decimalTextMaxBytes, formSource, type LexicalTarget } from "#compiler/scalar/lexical.ts"
 import { buildNfa, closure, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { generatedField } from "#compiler/schema/relation.ts"

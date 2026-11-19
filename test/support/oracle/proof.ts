@@ -1,9 +1,5 @@
-import { regexTextMaxBytes } from "@bjornpagen/grizzle-engine/core/errors"
-import {
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits
-} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import { Array as Arr, Option } from "effect"
+import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { OpId } from "#compiler/ir/expr.ts"
 import type {
@@ -30,9 +26,9 @@ import {
 import { nativeHolds } from "#compiler/scalar/compute/native.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { formOctets, parseTargetOf } from "#compiler/scalar/lexical.ts"
-import { formIncludes } from "#compiler/scalar/regex/inclusion.ts"
-import { patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
+import { formIncludes, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 
 /**
  * Whether a proof's premises establish its precondition: the proof kernel, which re-checks the kept proofs a lowering

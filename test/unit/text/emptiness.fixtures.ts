@@ -1,10 +1,6 @@
 /** What the properties of emptiness.test.ts read: its spaces, models and helpers. */
 
 import {
-	regexDfaMaxStates,
-	regexDfaMaxWork
-} from "@bjornpagen/grizzle-engine/scalar/regex/inclusion"
-import {
 	array,
 	constant,
 	element,
@@ -21,6 +17,7 @@ import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import type * as Engine from "#compiler/core/result.ts"
 import { codePointsText } from "#compiler/core/text.ts"
 import type { CharSet } from "#compiler/scalar/regex/charset.ts"
+import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
 import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"

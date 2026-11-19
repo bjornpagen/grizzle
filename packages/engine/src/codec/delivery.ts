@@ -13,7 +13,7 @@
 import { bytesValueOf, rowCell, rowText } from "#compiler/core/decoder.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { AssembledRows, Cell, OutputRows, OutputText } from "#compiler/core/wire.ts"
+import type { AssembledRows, Cell, OutputRows } from "#compiler/core/wire.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 /**
@@ -197,24 +197,3 @@ export const assembledIn = (
 /** A statement's answer as its delivery's rows (assembledIn), in chunks of bytesChunkLength. */
 export const assembled = (delivery: Delivery, rows: OutputRows): AssembledRows =>
 	assembledIn(delivery, rows, bytesChunkLength)
-
-/**
- * A UNION ALL of tagged deliveries' answer (lower/delivery.ts taggedArm) split by tag: each arm's result rows, its tag
- * dropped, in the order they arrived, for its own delivery to read (`assembled`).
- */
-export const byTag = (rows: OutputRows): ReadonlyMap<string, OutputRows> => {
-	const arms = new Map<string, Array<ReadonlyArray<OutputText>>>()
-	for (const row of rows) {
-		const [tag, ...rest] = row
-		if (tag === undefined) {
-			throw defect("a tagged delivery's row leads with its tag")
-		}
-		const arm = arms.get(tag)
-		if (arm === undefined) {
-			arms.set(tag, [rest])
-		} else {
-			arm.push(rest)
-		}
-	}
-	return arms
-}

@@ -1,6 +1,5 @@
 /** What the properties of rosters.test.ts read: its spaces, models and helpers. */
 
-import { handleMaxBytes } from "@bjornpagen/grizzle-engine/schema/own"
 import {
 	type Gen,
 	int,
@@ -16,6 +15,7 @@ import type { DeclaredName } from "#compiler/core/identity.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { rosterCodebook } from "#compiler/ir/codes.ts"
+import { handleMaxBytes } from "#compiler/schema/own.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
 import { rosterCodesOf, rosterWire, servedFile, servedText } from "#compiler/served/json.ts"
 import { artifactRefusal, assert, defined, failed, succeeded } from "#test/support/assert.ts"

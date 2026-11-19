@@ -1,11 +1,3 @@
-import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
-import {
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import {
 	boolean,
 	codePoint,
@@ -21,11 +13,19 @@ import {
 import { bigint } from "@bjornpagen/testing/values"
 import { Option } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { type FieldDesc, pgScalarNames } from "#compiler/ir/desc.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { exactType } from "#compiler/scalar/compute/types.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
+import {
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/scalar/values/fault.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"

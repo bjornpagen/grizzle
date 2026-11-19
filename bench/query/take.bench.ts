@@ -41,7 +41,6 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 
-import { lateralParentMax } from "@bjornpagen/grizzle-engine/lower/shapes/index"
 import {
 	BestThree,
 	bestForStudents,
@@ -74,7 +73,7 @@ import {
 } from "#bench/query/support/plans.ts"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
-import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
+import { lateralParentMax, type DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { servedSession } from "#compiler/program/served.ts"

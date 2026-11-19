@@ -1,4 +1,3 @@
-import { int2Min, int4Min, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 /**
  * Every fold's end and running values as the README's family semantics state them ("Families": fold), a host model that
  * never runs grizzle's filler: each owner's end is its members' step values combined by the monoid from its identity,
@@ -26,6 +25,7 @@ import { int2Min, int4Min, int8Min } from "@bjornpagen/grizzle-engine/ir/carrier
 import { constant, element, type Gen, int, string, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { int2Min, int4Min, int8Min } from "#compiler/ir/carriers.ts"
 import { type MonoidName, monoidNames } from "#compiler/ir/desc.ts"
 import { monoidSpecs } from "#compiler/ir/monoid.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"

@@ -1,4 +1,3 @@
-import { int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 /**
  * A guard over a parameter on PostgreSQL 19: Compute.when(Compute.nonzero(d), (d) => Compute.div(x, d), 0n) over a
  * bigint parameter d and a drawn bigint dividend x, prepared and executed under a custom or a generic plan with d bound
@@ -22,6 +21,7 @@ import { bigint } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Effect, Formatter } from "effect"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"

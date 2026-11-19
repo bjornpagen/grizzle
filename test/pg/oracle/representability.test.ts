@@ -1,4 +1,3 @@
-import { btreeMaxItemSize } from "@bjornpagen/grizzle-engine/schema/representability"
 /**
  * The key representability bound against PostgreSQL 19: every key the compiler accepts fits a B-tree index entry,
  * at the computed maximum, with the widest values its fields admit.
@@ -26,6 +25,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { indices } from "#compiler/core/array.ts"
+import { btreeMaxItemSize } from "#compiler/schema/representability.ts"
 import {
 	columnSql,
 	filled,

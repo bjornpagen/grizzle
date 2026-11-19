@@ -1,4 +1,4 @@
-import { blockSize } from "@bjornpagen/grizzle-engine/core/page"
+import { blockSize } from "#compiler/core/page.ts"
 import { memberShare } from "#pg/family.ts"
 import { connectionsPerLease, unleasedConnections } from "#pg/lease.ts"
 

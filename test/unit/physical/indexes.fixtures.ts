@@ -1,6 +1,5 @@
 /** What the properties of indexes.test.ts read: its spaces, models and helpers. */
 
-import { indexMaxKeys } from "@bjornpagen/grizzle-engine/schema/representability"
 import {
 	type Aimed,
 	aimed,
@@ -22,6 +21,7 @@ import { defaultOpclass, type NativeColumn } from "#compiler/ir/law.ts"
 import type { AccessUse, IndexRequest } from "#compiler/ir/products.ts"
 import { keyTermText, type PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { indexMaxKeys } from "#compiler/schema/representability.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { contained, f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { lawNamesOf, wild } from "#test/support/kernel/naming.ts"

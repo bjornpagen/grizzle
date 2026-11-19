@@ -1,8 +1,7 @@
-import { regexMaxRepeat } from "@bjornpagen/grizzle-engine/scalar/lexical"
 /** What the properties of differential.test.ts read: the families' cases and agreement, and the edges of the limits. */
 import type { Reached } from "@bjornpagen/testing/features"
-import { aimed } from "@bjornpagen/testing/gen"
 import {
+	aimed,
 	array,
 	boolean,
 	constant,
@@ -21,6 +20,7 @@ import { domainDigest } from "#compiler/core/fingerprint.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
 import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
