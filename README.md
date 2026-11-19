@@ -3101,7 +3101,7 @@ instant after it where when it was written is part of its fact. No caller states
 a host's clock or a value a caller passes. Every instant field is a clock or a reference, as the schema's laws make it:
 
 - A **reference** is an instant field a containment carries, from every row of its relation, into another relation's
-  instant field: its values are stored instants there, which the containment proves. Below, `Session.at` is a
+  instant field: its values are stored instants there, which the containment proves. Below, `Visit.at` is a
   reference to `SignIn.at`.
 - Every other instant field is a **clock**. It stands in its relation's primary key after at least one field, and the
   key's fields before it are its **child**: `SignIn`'s key `(user, at)` makes `user` the child of `SignIn.at`. A clock
@@ -3110,30 +3110,37 @@ a host's clock or a value a caller passes. Every instant field is a clock or a r
   waits on.
 
 ```ts
-/** A user's sign-in at an instant, and the session it opened, at the same instant. */
-const SignIn = relation("SignIn", { user: UserId, at: instant, method: Method }, ["user", "at"])
-const Session = relation("Session", { token: Token, user: UserId, at: instant }, ["token"])
+/** A user's sign-in at an instant, and the visit it opened, at the same instant. */
+const SignIn = relation("SignIn", { user: UserId, at: instant, method: closedId(Method) }, [
+	"user",
+	"at"
+])
+const Visit = relation("Visit", { token: Token, user: UserId, at: instant }, ["token"])
 export const Auth = schema(
 	"Auth",
-	[Method, SignIn, Session],
-	[contained(on(Session, "user", "at"), on(SignIn, "user", "at"))]
+	[Method, SignIn, Visit],
+	[contained(on(Visit, "user", "at"), on(SignIn, "user", "at"))]
 )
 
-/** A sign-in and its session in one write that reads no row: both at the call's instant for the user. */
+/** A sign-in and its visit in one write that reads no row: both at the call's instant for the user. */
 export const signIn = ChangeSet.empty(Auth)
 	.insert(
 		SignIn,
-		query(Auth).rule((r) => r.find({ user: r.param("user", UserId), method: r.param("method", Method) }))
+		query(Auth).rule((r) =>
+			r.find({ user: r.param("user", UserId), method: r.param("method", SignIn.fields.method) })
+		)
 	)
 	.insert(
-		Session,
-		query(Auth).rule((r) => r.find({ token: r.param("token", Token), user: r.param("user", UserId) }))
+		Visit,
+		query(Auth).rule((r) =>
+			r.find({ token: r.param("token", Token), user: r.param("user", UserId) })
+		)
 	)
 ```
 
 - **An insert leaves an instant out to have it stamped.** A row of an array, a Stream or a query that omits an
   instant field has it stamped with the call's instant of its clock: a clock's own, at the row's child, or a
-  reference's clock, at the child its containment carries the row to, `Session.user` above. A stamp's child is a
+  reference's clock, at the child its containment carries the row to, `Visit.user` above. A stamp's child is a
   field the row states, never one the same insert stamps (`childStamped`). A clock is only ever stamped: a row that
   states one is refused (`clockStated`). A reference is stamped only beside an insert of its clock
   in the same stratum, else refused (`clockUnstamped`), since no stored row could hold the instant; and a reference

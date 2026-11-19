@@ -27,6 +27,7 @@ import {
 	fold,
 	fragment,
 	type HeadOf,
+	instant,
 	type Infer,
 	type KeysOf,
 	key,
@@ -1059,6 +1060,38 @@ export const filePost = ChangeSet.empty(Blog)
 				const { id, title } = v(delta.met(Post), "met")
 				return r.match(delta.met(Post), { id, title }).find({ id, title })
 			})
+	)
+
+/** README: "Instants": a user, a visit's token and a sign-in's method, the types the example names. */
+const UserId = str.regex("^u_[a-z0-9]{1,24}$", "u")
+const Token = str.regex("^[a-f0-9]{32}$", "u")
+const Method = closed.ordered("Method", ["password", "passkey"])
+
+/** A user's sign-in at an instant, and the visit it opened, at the same instant. */
+const SignIn = relation("SignIn", { user: UserId, at: instant, method: closedId(Method) }, [
+	"user",
+	"at"
+])
+const Visit = relation("Visit", { token: Token, user: UserId, at: instant }, ["token"])
+export const Auth = schema(
+	"Auth",
+	[Method, SignIn, Visit],
+	[contained(on(Visit, "user", "at"), on(SignIn, "user", "at"))]
+)
+
+/** A sign-in and its visit in one write that reads no row: both at the call's instant for the user. */
+export const signIn = ChangeSet.empty(Auth)
+	.insert(
+		SignIn,
+		query(Auth).rule((r) =>
+			r.find({ user: r.param("user", UserId), method: r.param("method", SignIn.fields.method) })
+		)
+	)
+	.insert(
+		Visit,
+		query(Auth).rule((r) =>
+			r.find({ token: r.param("token", Token), user: r.param("user", UserId) })
+		)
 	)
 
 /** README: "Levels". */
