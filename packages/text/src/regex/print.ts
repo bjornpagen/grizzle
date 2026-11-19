@@ -1,6 +1,7 @@
 import { type AreAtom, isAlternation, piecesOf, printableIntervals } from "#text/regex/are.ts"
 import type { CharSet, Interval } from "#text/regex/charset.ts"
 import { folded, type LiveNode, type RegexNode } from "#text/regex/ir.ts"
+import { regexMaxRepeat } from "#text/regex/parse.ts"
 
 /**
  * The one printer of the regex IR, in three dialects: PostgreSQL's ARE (toAre), which a domain's CHECK and a query's
@@ -30,6 +31,8 @@ interface Dialect {
 	readonly intervals: (set: CharSet) => ReadonlyArray<Interval>
 	/** The dialect's spelling of the value's start and end. */
 	readonly anchors: { readonly start: string; readonly end: string }
+	/** The most a count in braces may say, a repetition past it spelled as several (`quantified`). */
+	readonly mostCount: number | "unbounded"
 }
 
 const isAsciiAlnum = (c: number): boolean =>
@@ -102,7 +105,8 @@ const areDialect: Dialect = {
 	char: areChar,
 	run: pairOrRangeOf(areChar),
 	intervals: printableIntervals,
-	anchors: { start: "\\A", end: "\\Z" }
+	anchors: { start: "\\A", end: "\\Z" },
+	mostCount: regexMaxRepeat
 }
 
 /**
@@ -116,7 +120,8 @@ const ecmaDialect: Dialect = {
 	char: bracedChar,
 	run: rangeOf(bracedChar),
 	intervals: (set) => set,
-	anchors: { start: "^", end: "$" }
+	anchors: { start: "^", end: "$" },
+	mostCount: "unbounded"
 }
 
 /**
@@ -126,7 +131,8 @@ const ecmaDialect: Dialect = {
 const sourceDialect = (setOf: (s: CharSet) => CharSet): Dialect => ({
 	...ecmaDialect,
 	run: pairOrRangeOf(bracedChar),
-	intervals: setOf
+	intervals: setOf,
+	mostCount: regexMaxRepeat
 })
 
 /** A set in a dialect: its one code point as itself, else a class of the intervals the dialect prints it as. */
@@ -156,6 +162,38 @@ const quantifier = (min: number, max: number | "unbounded"): string => {
 	return min === 0 && max === 1 ? "?" : `{${min},${max}}`
 }
 
+/**
+ * An atom repeated `min` to `max` times in a dialect whose counts say at most `most`: the atom and its quantifier, or,
+ * past `most`, the atom `most` times, as often as the least count holds that many, then optional runs of at most `most`
+ * copies up to the greatest, each its own piece, as PostgreSQL's `RE_DUP_MAX` and grizzle's parser (parse.ts
+ * regexMaxRepeat) take no count above 255: a repetition a builder makes past it, a facet's length among them, prints as
+ * pieces whose counts each read back, `x{0,300}` as `x{0,255}x{0,45}`.
+ */
+const quantified = (
+	atom: string,
+	min: number,
+	max: number | "unbounded",
+	most: number | "unbounded"
+): string => {
+	if (most === "unbounded") {
+		return `${atom}${quantifier(min, max)}`
+	}
+	let out = ""
+	let least = min
+	let greatest = max
+	while (least > most) {
+		out += `${atom}${quantifier(most, most)}`
+		least -= most
+		greatest = greatest === "unbounded" ? greatest : greatest - most
+	}
+	while (greatest !== "unbounded" && greatest > most) {
+		out += `${atom}${quantifier(least, most)}`
+		greatest -= most
+		least = 0
+	}
+	return `${out}${atom}${quantifier(least, greatest)}`
+}
+
 /** A node's text in a dialect, from the texts of the nodes below it (`of`): its branches, `|` between them. */
 const printedIn =
 	(dialect: Dialect) =>
@@ -172,7 +210,7 @@ const printedIn =
 		}
 		const branchText = (branch: LiveNode): string =>
 			piecesOf(branch)
-				.map((piece) => `${atomText(piece.atom)}${quantifier(piece.min, piece.max)}`)
+				.map((piece) => quantified(atomText(piece.atom), piece.min, piece.max, dialect.mostCount))
 				.join("")
 		return isAlternation(node) ? node.arms.map(of).join("|") : branchText(node)
 	}
