@@ -659,9 +659,9 @@ export const computesTranslateAndLowerAsciiCollapseAndReplaceWhitespaceAgreeWith
 		kills: [
 			{
 				file: "packages/text/src/text.ts",
-				original: "\t\t\tspaced = out.length > 0",
-				replacement: "\t\t\tspaced = true",
-				why: "The host's collapse keeps a space for leading white space; the collapse property fails."
+				original: "\tconst inner = trimmed(text)\n",
+				replacement: "\tconst inner = text\n",
+				why: "The host's collapse keeps a space for the white space at either end; the collapse property fails."
 			}
 		]
 	})

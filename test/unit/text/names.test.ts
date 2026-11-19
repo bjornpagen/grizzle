@@ -1,28 +1,46 @@
 /**
  * XML's names and whitespace as grizzle-text reads them for an application (packages/text/src/regex/xml.ts isNcName,
- * packages/text/src/text.ts trimmed), over drawn texts of name characters, colons, whitespace and characters XML 1.0
- * Second Edition leaves out of its names:
+ * packages/text/src/text.ts trimmed, replaced, collapsed and tokens), over drawn texts of name characters, colons,
+ * whitespace and characters XML 1.0 Second Edition leaves out of its names:
  *
  * - isNcName holds exactly the texts XML Schema's own `[\i-[:]][\c-[:]]*` holds whole;
- * - trimmed is the text without the XML whitespace at either end, its inner whitespace kept.
+ * - trimmed is the text without the XML whitespace at either end, its inner whitespace kept;
+ * - replaced and collapsed, XML Schema's whiteSpace facets, are exactly the code-point walk's they replace, over texts
+ *   with lone surrogates and supplementary characters, and tokens is the text split at its whitespace runs, none
+ *   empty; each reads its text by code unit: no code point is decoded or built (text.ts codePointAt, codePointsText),
+ *   collapsed reads a unit once and the unit after each inner run twice, and tokens each unit once.
  *
- * Oracle: grizzle's XSD reader (regex/xsd.ts xsdPattern) of the NCName production and its matcher, and ECMAScript's
- * replacement of the outer whitespace runs.
+ * Oracle: grizzle's XSD reader (regex/xsd.ts xsdPattern) of the NCName production and its matcher; ECMAScript's
+ * replacement of the outer whitespace runs; the code-point walk of each facet (translate's map, and each run between
+ * two characters one space); ECMAScript's split at the whitespace runs. The count is work, never time: V8's precise
+ * coverage counts each function's calls (kernel/calls.ts callCounts).
  *
- * Features: an NCName, a text of no NCName, a colon refused, a text trimmed at an end, and one with inner whitespace kept.
+ * Features: an NCName, a text of no NCName, a colon refused, a text trimmed at an end, one with inner whitespace kept;
+ * a run collapsed, a text no facet changes, a surrogate kept, a blank text and a list of tokens.
  */
 
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
 import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { isNcName } from "@bjornpagen/grizzle-text/regex/xml"
 import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
-import { trimmed } from "@bjornpagen/grizzle-text/text"
+import {
+	codePoints,
+	codePointsText,
+	collapsed,
+	replaced,
+	replaceMap,
+	tokens,
+	translated,
+	trimmed,
+	xmlWhitespace
+} from "@bjornpagen/grizzle-text/text"
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { array, element, type Gen } from "@bjornpagen/testing/gen"
+import { array, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import { stringsOver } from "#test/unit/text/generators.ts"
 
 type NamesFeature =
@@ -42,6 +60,21 @@ const characters: Arr.NonEmptyReadonlyArray<number> = [
 	0x61, 0x5a, 0x30, 0x5f, 0x2d, 0x2e, 0x3a, 0x20, 0x09, 0x0a, 0x0132, 0x3400, 0x0660, 0x02d0, 0xb7,
 	0x3005, 0x0300, 0x4e00, 0x10000, 0xe9
 ]
+
+/**
+ * The characters a whitespace case's texts are drawn from, XML's four white space characters half the time, so runs of
+ * several form: a letter, a digit, white space XML does not count (U+00A0, U+3000, U+FEFF), a supplementary character,
+ * and a lone high and a lone low surrogate, which may also meet as a pair.
+ */
+const spaced: Gen<number> = weighted([
+	[1, element([0x61, 0x37, 0xa0, 0x3000, 0xfeff, 0x1f600, 0xd83d, 0xde00])],
+	[1, element([0x20, 0x09, 0x0a, 0x0d])]
+])
+
+const spacedGen: Gen<ReadonlyArray<string>> = array(stringsOver(spaced, 12), {
+	min: 6,
+	max: 14
+})
 
 const textsGen: Gen<ReadonlyArray<string>> = array(stringsOver(element(characters), 6), {
 	min: 6,
@@ -123,3 +156,144 @@ export const anNCNameAndATrimmedTextAreExactlyWhatXMLSchemasProductionsState = p
 		]
 	}
 )
+
+type WhitespaceFeature =
+	| "a run collapsed"
+	| "a text no facet changes"
+	| "a surrogate kept"
+	| "a blank text"
+	| "a list of tokens"
+
+/** The code-point walk replaced, as grizzle-text read it before it read by code unit: translate's map. */
+const walkedReplace = (text: string): string => translated(text, replaceMap.from, replaceMap.to)
+
+/** The code-point walk collapsed: each run of white space between two other characters one space, none at an end. */
+const walkedCollapse = (text: string): string => {
+	const out: Array<number> = []
+	let spacedOut = false
+	for (const c of codePoints(text)) {
+		if (xmlWhitespace.has(c)) {
+			spacedOut = out.length > 0
+		} else {
+			if (spacedOut) {
+				out.push(0x20)
+			}
+			spacedOut = false
+			out.push(c)
+		}
+	}
+	return codePointsText(out)
+}
+
+/** A run of XML whitespace, at which ECMAScript splits a whitespace-separated list. */
+const whitespaceRuns = regex("[\\t\\n\\r ]+", "u")
+
+/** A surrogate code unit, lone or of a pair. */
+const surrogate = regex("[\\ud800-\\udfff]", "")
+
+/** The functions whose calls are the facets' work: a code point decoded or built, and a code unit read. */
+const facetSites = Object.freeze({
+	decoded: { file: "packages/text/src/text.ts", name: "codePointAt" },
+	built: { file: "packages/text/src/text.ts", name: "codePointsText" },
+	read: { file: "packages/text/src/text.ts", name: "isWhitespaceUnit" }
+})
+
+/** The runs of white space inside a trimmed text, each between two other characters. */
+const innerRuns = (text: string): number => Str.split(trimmed(text), whitespaceRuns).length - 1
+
+/**
+ * XML Schema's whiteSpace facets and a list's tokens are the code-point walk's and ECMAScript's split's, and read a
+ * text by code unit: no code point decoded or built, collapsed reading its trimmed text's units and one more each inner
+ * run, tokens its text's units.
+ */
+export const whitespaceFacetsAndTokensAreTheCodePointWalksAndReadATextByCodeUnitDecodingNoCodePoint =
+	property.explore(spacedGen, {
+		needs: {},
+		situations: [
+			"a run collapsed",
+			"a text no facet changes",
+			"a surrogate kept",
+			"a blank text",
+			"a list of tokens"
+		] satisfies ReadonlyArray<Reached<WhitespaceFeature>>,
+		check: (_, c: Case<WhitespaceFeature>) => (texts) =>
+			Effect.gen(function* () {
+				const [[collapses, replaces], facetCounts] = yield* callCounts(
+					Effect.sync(() => [Arr.map(texts, collapsed), Arr.map(texts, replaced)] as const),
+					facetSites
+				)
+				const [splits, tokenCounts] = yield* callCounts(
+					Effect.sync(() => Arr.map(texts, tokens)),
+					facetSites
+				)
+				const label = Formatter.format(texts)
+				for (const counts of [facetCounts, tokenCounts]) {
+					assert.equal(counts.decoded, 0, `${label}: no code point decoded`)
+					assert.equal(counts.built, 0, `${label}: no code point built`)
+				}
+				assert.equal(
+					facetCounts.read,
+					Arr.reduce(texts, 0, (n, text) => n + trimmed(text).length + innerRuns(text)),
+					`${label}: collapsed reads each unit once and the unit after each inner run twice`
+				)
+				assert.equal(
+					tokenCounts.read,
+					Arr.reduce(texts, 0, (n, text) => n + text.length),
+					`${label}: tokens reads each unit once`
+				)
+				for (const [i, text] of texts.entries()) {
+					const each = Formatter.format(text)
+					const collapse = Arr.getUnsafe(collapses, i)
+					const replace = Arr.getUnsafe(replaces, i)
+					const split = Arr.getUnsafe(splits, i)
+					assert.equal(collapse, walkedCollapse(text), `${each}: collapsed`)
+					assert.equal(replace, walkedReplace(text), `${each}: replaced`)
+					assert.deepEqual(
+						split,
+						Arr.filter(Str.split(text, whitespaceRuns), (token) => token !== ""),
+						`${each}: tokens`
+					)
+					const unchanged = collapse === trimmed(text) && replace === text
+					c.note(unchanged ? "a text no facet changes" : "a run collapsed")
+					if (surrogate.test(collapse)) {
+						c.note("a surrogate kept")
+					}
+					c.note(split.length === 0 ? "a blank text" : "a list of tokens")
+				}
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the code-point walk of each facet, translate's map and one space a run between two characters, and ECMAScript's split at the whitespace runs"
+		},
+		budget: { runs: 150, steered: 0 },
+		kept: [],
+		kills: [
+			{
+				file: "packages/text/src/text.ts",
+				original:
+					"export const collapsed = (text: string): string => {\n\tconst inner = trimmed(text)\n",
+				replacement:
+					"export const collapsed = (text: string): string => {\n\tconst out: Array<number> = []\n\tlet spaced = false\n\tfor (const c of codePoints(text)) {\n\t\tif (xmlWhitespace.has(c)) {\n\t\t\tspaced = out.length > 0\n\t\t\tcontinue\n\t\t}\n\t\tif (spaced) {\n\t\t\tout.push(0x20)\n\t\t\tspaced = false\n\t\t}\n\t\tout.push(c)\n\t}\n\treturn codePointsText(out)\n}\n\nexport const collapsedByUnit = (text: string): string => {\n\tconst inner = trimmed(text)\n",
+				why: "collapsed is the code-point walk again, decoding each code point and building its answer a code point at a time: its decodes and builds are past 0."
+			},
+			{
+				file: "packages/text/src/text.ts",
+				original: "export const replaced = (text: string): string => {\n",
+				replacement:
+					"export const replaced = (text: string): string => translated(text, replaceMap.from, replaceMap.to)\n\nexport const replacedByUnit = (text: string): string => {\n",
+				why: "replaced is translate's walk over its map again, decoding every code point of the text: its decodes are past 0."
+			},
+			{
+				file: "packages/text/src/text.ts",
+				original: "\t\t\tif (i > from) {\n\t\t\t\tout.push(text.slice(from, i))\n",
+				replacement: "\t\t\tif (i >= from) {\n\t\t\t\tout.push(text.slice(from, i))\n",
+				why: "tokens keeps the empty text between two white space characters as a token."
+			},
+			{
+				file: "packages/text/src/text.ts",
+				original: "\t\ti = end - 1\n",
+				replacement: "",
+				why: "collapsed reads a run's units again after it, each starting a run of its own: its reads pass one a unit and one more an inner run, and a run of two or more is written as more than one space."
+			}
+		]
+	})

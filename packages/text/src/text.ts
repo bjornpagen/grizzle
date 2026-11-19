@@ -1,8 +1,8 @@
 /**
  * Text as PostgreSQL's C.UTF-8 contract and XML read it, one implementation of each rule for grizzle and every
  * program beside it: a text's code points and their order, PostgreSQL's translate and ASCII case fold, and XML's
- * whiteSpace replace and collapse. Every function here reads strings alone, imports nothing and runs wherever
- * JavaScript does, a browser included.
+ * whiteSpace replace and collapse and a list's tokens. Every function here reads strings alone, imports nothing and
+ * runs wherever JavaScript does, a browser included.
  *
  * Equality is exact Unicode scalar sequence equality and ordering is code point order, as pg_catalog.pg_c_utf8
  * compares. There is no normalization, case folding or locale. JavaScript's default string order compares UTF-16 code
@@ -102,8 +102,19 @@ export const asciiFold: ReadonlyMap<number, number> = new Map(
 export const asciiLowered = (text: string): string =>
 	codePointsText(codePoints(text).map((c) => asciiFold.get(c) ?? c))
 
-/** The four characters XML calls white space, `S ::= (#x20 | #x9 | #xD | #xA)+` (XML 1.0, §2.3): tab, LF, CR and space. */
+/**
+ * The four characters XML calls white space, `S ::= (#x20 | #x9 | #xD | #xA)+` (XML 1.0, §2.3): tab, LF, CR and space.
+ * Each is one code unit and none a surrogate, so a text read by code unit meets each where a reading by code point
+ * would, and every whiteSpace facet and list split below reads a text by code unit, allocating nothing per character.
+ */
 export const xmlWhitespace: ReadonlySet<number> = new Set([0x09, 0x0a, 0x0d, 0x20])
+
+/** The last of XML's white space, U+0020: a code unit above it is read as no white space by one comparison. */
+const lastWhitespace = Array.from(xmlWhitespace).reduce((last, c) => Math.max(last, c), 0)
+
+/** Whether a code unit is one of XML's white space (xmlWhitespace). */
+const isWhitespaceUnit = (unit: number): boolean =>
+	unit <= lastWhitespace && xmlWhitespace.has(unit)
 
 /**
  * XML Schema's whiteSpace `replace` as translate's map (XML Schema 1.0 Part 2, §4.3.6): "All occurrences of #x9 (tab),
@@ -112,8 +123,25 @@ export const xmlWhitespace: ReadonlySet<number> = new Set([0x09, 0x0a, 0x0d, 0x2
  */
 export const replaceMap = Object.freeze({ from: "\t\n\r", to: "   " })
 
-/** whiteSpace replace of a text (replaceMap): each tab, line feed and carriage return a space, every other kept. */
-export const replaced = (text: string): string => translated(text, replaceMap.from, replaceMap.to)
+/** The code units replaceMap replaces, each one of XML's white space (xmlWhitespace) and so one code unit. */
+const replacedUnits: ReadonlySet<number> = new Set(codePoints(replaceMap.from))
+
+/**
+ * whiteSpace replace of a text (replaceMap): each tab, line feed and carriage return a space, every other kept,
+ * translate's answer by its map read by code unit, the text between two replaced characters copied as one slice.
+ */
+export const replaced = (text: string): string => {
+	let out = ""
+	let from = 0
+	for (let i = 0; i < text.length; i++) {
+		const unit = text.charCodeAt(i)
+		if (unit <= lastWhitespace && replacedUnits.has(unit)) {
+			out += `${text.slice(from, i)} `
+			from = i + 1
+		}
+	}
+	return out + text.slice(from)
+}
 
 /**
  * The text without the XML whitespace at either end, its inner whitespace as it stands: what a value sheds before a
@@ -134,23 +162,49 @@ export const trimmed = (text: string): string => {
 }
 
 /**
- * whiteSpace collapse of a text, by code points (XML Schema 1.0 Part 2, §4.3.6): each run of white space between two
- * other characters is one space, and a run at either end is nothing. No other character is white space to it: a
- * no-break space, an ideographic space or a byte order mark stays.
+ * whiteSpace collapse of a text (XML Schema 1.0 Part 2, §4.3.6): each run of white space between two other characters
+ * is one space, and a run at either end is nothing. No other character is white space to it: a no-break space, an
+ * ideographic space or a byte order mark stays. The text is trimmed, so every run left has a character after it, and
+ * read by code unit; a run that is one space is already collapsed and stays where it stands, so only a run that
+ * changes ends a slice, and a text none of whose runs changes is its trimmed text.
  */
 export const collapsed = (text: string): string => {
-	const out: Array<number> = []
-	let spaced = false
-	for (const c of codePoints(text)) {
-		if (xmlWhitespace.has(c)) {
-			spaced = out.length > 0
+	const inner = trimmed(text)
+	let out = ""
+	let from = 0
+	for (let i = 0; i < inner.length; i++) {
+		const unit = inner.charCodeAt(i)
+		if (!isWhitespaceUnit(unit)) {
 			continue
 		}
-		if (spaced) {
-			out.push(0x20)
-			spaced = false
+		let end = i + 1
+		while (isWhitespaceUnit(inner.charCodeAt(end))) {
+			end += 1
 		}
-		out.push(c)
+		if (unit !== 0x20 || end > i + 1) {
+			out += `${inner.slice(from, i)} `
+			from = end
+		}
+		i = end - 1
 	}
-	return codePointsText(out)
+	return out + inner.slice(from)
+}
+
+/**
+ * The tokens of a whitespace-separated list, XML Schema's list lexical space (XML Schema 1.0 Part 2, §4.3.6, a list's
+ * whiteSpace collapse, its items separated by spaces): the runs of no white space in the text, in order, none of a
+ * blank text. Read by code unit, the text's end read as one more space, so its last token ends there as any other does.
+ */
+export const tokens = (text: string): ReadonlyArray<string> => {
+	const out: Array<string> = []
+	let from = 0
+	for (let i = 0; i <= text.length; i++) {
+		if (i === text.length || isWhitespaceUnit(text.charCodeAt(i))) {
+			if (i > from) {
+				out.push(text.slice(from, i))
+			}
+			from = i + 1
+		}
+	}
+	return out
 }
