@@ -22,7 +22,7 @@ import { emitDomainSchemas } from "#emit/domain.ts"
 import { AuthorConfig } from "#model/author-config.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { Api } from "#model/entities.ts"
-import { fixedNamespaces, rootModuleNames } from "#names/domain.ts"
+import { fixedNamespaces, groupModuleNames, rootModuleNames } from "#names/domain.ts"
 import { foldIdentifier, SafeFileSegment, SafeIdentifier } from "#names/fold.ts"
 import { planNames } from "#names/index.ts"
 import type { NamePlan, PlannedCommand } from "#names/index.ts"
@@ -301,7 +301,7 @@ export const brokenLawsOf = (
 	})
 	const modules = [plan.root, ...Arr.map(plan.groups, (g) => g.commands)]
 	const held = (root: boolean): ReadonlySet<string> =>
-		new Set([...fixedNamespaces, ...(root ? rootModuleNames : [])])
+		new Set([...fixedNamespaces, ...(root ? rootModuleNames : groupModuleNames)])
 	const moduleLaws = Arr.flatMap(modules, (moduleCommands, index) => {
 		const root = index === 0
 		const names = Arr.map(moduleCommands, (command) => command.name)

@@ -73,6 +73,12 @@ export const rootModuleNames: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * The names a group's cli module holds besides the fixed namespaces: the `group` command it exports, which its parent's
+ * module reads as `<alias>.group`. The root module exports no `group`, so a root command keeps that name.
+ */
+export const groupModuleNames: ReadonlySet<string> = new Set(["group"])
+
+/**
  * `domain/schemas.ts` imports `Schema`; a cli module imports the fixed namespaces beside the
  * domain names it reads, and `cli/root.ts` also its own names. Keywords, predefined types and
  * globals never get here: the fold suffixes them with `_`.

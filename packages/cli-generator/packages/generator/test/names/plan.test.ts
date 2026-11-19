@@ -12,7 +12,7 @@
  * a refusal under --strict.
  */
 import { deepStrictEqual } from "@bjornpagen/testing/assert"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	brokenLawsOf,
@@ -54,9 +54,23 @@ export const namePlan = property.explore(planSpace, {
 		kind: "universal",
 		name: "design 4.4's laws: accounting, uniqueness, held names, suffixes only when taken and noticed, exported imports"
 	},
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken("test/names/plan.test.ts#namePlan:-:1.0.0.0.0.1.2.0.1.0.0.1.1.0.0.0"),
+			reason:
+				"a group's command whose identifier folds to `group`, the command its module exports: it is suffixed, as the group module holds the name, where the laws held the name for no module and called the suffix one for nothing (found by the push gate's rotating stream at TEST_SEED=3990536058)",
+			since: "2026-11-19"
+		}
+	],
 	budget: { runs: 49, steered: 28 },
 	kills: [
+		{
+			file: "packages/generator/src/names/index.ts",
+			original:
+				"new Set([...fixedNamespaces, ...groupModuleNames, namespace, ...imported, ...foreign]),",
+			replacement: "new Set([...fixedNamespaces, namespace, ...imported, ...foreign]),",
+			why: "A group's command keeps the identifier `group`, which its module exports as its group command, so the module declares it twice; the property fails."
+		},
 		{
 			file: "packages/generator/src/names/index.ts",
 			original:

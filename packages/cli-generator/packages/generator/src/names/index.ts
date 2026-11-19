@@ -17,7 +17,12 @@ import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Api, NamingHint, Operation, SecurityScheme } from "#model/entities.ts"
 import { escapeToken } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
-import { domainIdentifiers, fixedNamespaces, rootModuleNames } from "#names/domain.ts"
+import {
+	domainIdentifiers,
+	fixedNamespaces,
+	groupModuleNames,
+	rootModuleNames
+} from "#names/domain.ts"
 import { SafeIdentifier, foldFileSegment, foldIdentifier, foldKebab } from "#names/fold.ts"
 import type { FoldNote, SafeFileSegmentValue, SafeIdentifierValue } from "#names/fold.ts"
 import {
@@ -1078,8 +1083,8 @@ const planFlags = (
 }
 
 /**
- * Command identifiers of one emitted module. The scope reserves `group`, the fixed namespaces, the
- * api namespace aliases (its own and those its alias commands call), the imported domain names and
+ * Command identifiers of one emitted module. The scope reserves the names its module holds (the
+ * fixed namespaces, and the root's own names or a group's `group`), the api namespace aliases (its own and those its alias commands call), the imported domain names and
  * every command's `<cmd>Meta`, `<cmd>Media`, `<cmd>Security` and `<Cmd>Input`; identifiers compare
  * exactly and a clash renames by suffix (SM-6). Visible names never change.
  */
@@ -1091,7 +1096,7 @@ const planModule = (
 	collector: Collector
 ): readonly PlannedCommand[] => {
 	const bases = Arr.map(entries, (entry) => identifierOf(entry.name, "camel"))
-	const taken = new Set(["group", ...reserved, ...Arr.flatMap(bases, ({ name }) => familyOf(name))])
+	const taken = new Set([...reserved, ...Arr.flatMap(bases, ({ name }) => familyOf(name))])
 	const assigned = new Set<string>()
 	const used = (candidate: string): boolean => taken.has(candidate) || assigned.has(candidate)
 	const clash = (candidate: string): boolean =>
@@ -1301,7 +1306,7 @@ const planGroup = (
 	const group: Mutable<PlannedGroup> = {
 		commands: planModule(
 			entries,
-			new Set([...fixedNamespaces, namespace, ...imported, ...foreign]),
+			new Set([...fixedNamespaces, ...groupModuleNames, namespace, ...imported, ...foreign]),
 			drafts,
 			flagPlans,
 			collector
