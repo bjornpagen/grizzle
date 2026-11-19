@@ -25,6 +25,7 @@ import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
 import type { KeyHost, Witness } from "#compiler/types/changeset/changeset.ts"
+import type { FamilyPart } from "#compiler/write/family/written.ts"
 
 /** The changes an artifact's statements made. */
 interface WriteChanges {
@@ -144,12 +145,12 @@ const changesConverter = (result: WriteStepResult, codes: Codebook): ChangesConv
  * writer reads no other column of its owner, and an owner's change from a member write is that part of it.
  */
 const stepIdentity = (
-	counts: boolean,
+	returned: FamilyPart["rows"],
 	result: WriteStepResult,
 	identity: (fact: Fact) => FactIdentity,
 	codes: Codebook
 ): ((fact: Fact) => FactIdentity) =>
-	counts && result.kind === "update"
+	returned === "counts" && result.kind === "update"
 		? relationIdentity(result.columns.slice(0, result.fields.length), codes)
 		: identity
 
@@ -191,7 +192,7 @@ export const interpretRows = (
 					const rows: Array<ChangeRow> = []
 					for (const w of own) {
 						const convert = changesConverter(w.step.result, context.codes)
-						const identityOf = stepIdentity(w.counts, w.step.result, identity, context.codes)
+						const identityOf = stepIdentity(w.returned, w.step.result, identity, context.codes)
 						for (const raw of w.rows) {
 							for (const change of convert(raw)) {
 								rows.push({ identity: identityOf(change.fact), tag: change.tag })

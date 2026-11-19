@@ -165,20 +165,20 @@ export const writeRows = (
 ): ReadonlyArray<{
 	readonly step: RowsStep
 	readonly rows: ReadonlyArray<ReadonlyArray<OutputText>>
-	/** Whether its rows are owners' keys, counts and ends alone, a recount's, which the outcome tells apart by those
-	 * columns only. */
-	readonly counts: boolean
+	/** What its rows are (FamilyPart `rows`): facts of its relation, or owners' keys, counts and ends alone, a
+	 * recount's, which the outcome tells apart by those columns only. */
+	readonly returned: FamilyPart["rows"]
 }> => {
 	switch (step.kind) {
 		case "write":
-			return [{ step, rows, counts: false }]
+			return [{ step, rows, returned: "facts" }]
 		case "single":
 			return step.parts.map((part, tag) => {
 				const own = String(tag)
 				return {
 					step: part.step,
 					rows: rows.flatMap((row) => (row[0] === own ? [row.slice(1, 1 + part.width)] : [])),
-					counts: false
+					returned: "facts"
 				}
 			})
 		case "familyWrite":
@@ -187,7 +187,7 @@ export const writeRows = (
 				return {
 					step: part,
 					rows: rows.flatMap((row) => (row[0] === own ? [row.slice(1, 1 + part.width)] : [])),
-					counts: part.rows === "counts"
+					returned: part.rows
 				}
 			})
 		case "carrier":
