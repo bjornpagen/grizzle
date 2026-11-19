@@ -39,6 +39,28 @@ import type { Array as Arr } from "effect"
  */
 export const clientCheckInterval = 1000
 
+/**
+ * The predicate locks PostgreSQL's table holds for each connection slot, max_pred_locks_per_transaction, which every
+ * member holds as production does: the README requires it ("Set max_pred_locks_per_transaction = 2048"), so a test meets
+ * the table an application's cluster has, and max_pred_locks_per_relation's default (-2) promotes a transaction's page
+ * locks to its relation's at 2048 / 2 - 1 = 1023, as production's do. A member sized to its share of one run (30, at
+ * 1,111 connections) filled under several lanes' runs at once: 35,332 SIRead locks on 5433, the table's whole, and
+ * SERIALIZABLE statements failed with 53200 (follow-up 3's full suite at a5dd3588d, four network files; EVALCOMPILE's
+ * world-model/inductive).
+ *
+ * @limitKind published
+ * @owner grizzle's README ("Transactions and concurrency", "Predicate locks are the operator's to size")
+ * @unit predicate locks per connection slot
+ * @scope every member of a local family: its predicate-lock table, max_pred_locks_per_transaction × (max_connections
+ *   + max_prepared_transactions) locks shared by every transaction at once
+ * @constraint the configuration the README requires of a cluster grizzle runs on
+ * @source README.md, "Transactions and concurrency": max_pred_locks_per_transaction = 2048, recommended
+ * @quote Set `max_pred_locks_per_transaction = 2048`; without room, PostgreSQL fails transactions with 53200, which is
+ *   not retryable.
+ * @verified 2026-11-19
+ */
+export const predicateLocks = 2048
+
 /** A setting's value as postgresql.conf, ALTER SYSTEM and pg_settings spell it: a number in its own unit, or a boolean. */
 type SettingValue = number | "on" | "off"
 
@@ -50,6 +72,8 @@ type SettingValue = number | "on" | "off"
  *
  * - client_connection_check_interval: a running statement polls its client's socket, so a backend whose client died
  *   mid-statement ends at its next poll and lets go of its transaction id (clientCheckInterval).
+ * - max_pred_locks_per_transaction: the README's 2048, production's, so the predicate-lock table is the one an
+ *   application's cluster has (predicateLocks).
  * - fsync off: a member never waits for the disk. A test database is a clone made for one case and dropped after it
  *   (test/support/runner.ts, the toolchain's Database.fresh), and every DROP DATABASE forces a checkpoint it waits for
  *   inside its transaction (dbcommands.c dropdb, RequestCheckpoint with CHECKPOINT_WAIT), which with fsync on syncs
@@ -66,5 +90,6 @@ export const clusterSettings: Arr.NonEmptyReadonlyArray<
 	readonly [setting: string, value: SettingValue]
 > = [
 	["client_connection_check_interval", clientCheckInterval],
-	["fsync", "off"]
+	["fsync", "off"],
+	["max_pred_locks_per_transaction", predicateLocks]
 ]
