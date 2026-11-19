@@ -2121,6 +2121,27 @@ export const columnSetOperationGen =
 	}
 
 /**
+ * Statements whose cores may hold a window call that takes no frame: the swarm drawn as `statementGen` draws it, then
+ * the window turned on at full weight and the frame off, the rest of the swarm as it came. Where frames are on, a
+ * window over a type with a framed call is always framed (windowOf), so a ranking function, `row_number` among them,
+ * stands only under a swarm whose frames are off, which `statementGen` draws seldom enough that a shift of the draws
+ * before it (5bdae3758's IN list of two) left the audit property's `window row_number` unreached.
+ */
+export const unframedWindowGen =
+	(catalog: SqlCatalog): Gen<SqlStatement> =>
+	(source) => {
+		const drawn = source.draw(swarm(statementFeatures))
+		const on: Partial<Record<StatementFeature, Presence>> = { window: 3 }
+		for (const feature of statementFeatures) {
+			const weight = drawn[feature]
+			if (weight !== undefined && feature !== "window" && feature !== "frame") {
+				on[feature] = weight
+			}
+		}
+		return source.draw(statementUnder(catalog, on))
+	}
+
+/**
  * A statement as a planted case states it: the swarm it is drawn under, a literal such as `{ merge: 3, returning: 3 }`
  * or `fullSwarm(on)`, and the decisions `statementGen` takes after its swarm, in order. A decision past the tape's end,
  * or outside the bounds the statement drawn so far gives it, takes its simplest value, the first option, so every

@@ -14,6 +14,7 @@
  * relation alias renamed; each statement kind the root hole sees.
  */
 import { type Reached } from "@bjornpagen/testing/features"
+import { weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { printStatement } from "#compiler/sql/print.ts"
@@ -24,7 +25,7 @@ import {
 	shapeFeatures,
 	shapeOf
 } from "#test/support/kernel/shape.ts"
-import { selectGen, statementGen } from "#test/support/kernel/sqlgen.ts"
+import { selectGen, statementGen, unframedWindowGen } from "#test/support/kernel/sqlgen.ts"
 import { auditStatement } from "#test/support/oracle/verify/sql.ts"
 import {
 	admitted,
@@ -117,28 +118,34 @@ export const generatedQueriesKeepTheirShapeUnderARenamingOfEveryAlias = property
  * stops short of once every situation is reached.
  */
 export const generatedStatementsPassBothAuditsAndReachEveryStatementKindAndEveryConstructAnAuditRuleWatches =
-	property.explore(statementGen(statementCatalog), {
-		needs: {},
-		situations: requiredStatementFeatures,
-		check: (_, c: Case<AuditedStatementFeature>) => (statement) =>
-			Effect.sync(() => {
-				admitted(statement)
-				const shape = shapeOf(statement)
-				c.note(`statement ${shape.statement}`)
-				c.noteAll(shapeFeatures(shape))
-			}),
-		oracle: { kind: "specification", name: "the statement audit and the text audit" },
-		budget: { runs: 400, steered: 200 },
-		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/core/text.ts",
-				original: `export const quoteIdent = (name: string): string => \`"\${name.replaceAll('"', '""')}"\``,
-				replacement: `export const quoteIdent = (name: string): string => \`"\${name}"\``,
-				why: "A quote inside an identifier is printed bare; the generated statements' audit property fails."
-			}
-		]
-	})
+	property.explore(
+		weighted([
+			[3, statementGen(statementCatalog)],
+			[1, unframedWindowGen(statementCatalog)]
+		]),
+		{
+			needs: {},
+			situations: requiredStatementFeatures,
+			check: (_, c: Case<AuditedStatementFeature>) => (statement) =>
+				Effect.sync(() => {
+					admitted(statement)
+					const shape = shapeOf(statement)
+					c.note(`statement ${shape.statement}`)
+					c.noteAll(shapeFeatures(shape))
+				}),
+			oracle: { kind: "specification", name: "the statement audit and the text audit" },
+			budget: { runs: 400, steered: 200 },
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/core/text.ts",
+					original: `export const quoteIdent = (name: string): string => \`"\${name.replaceAll('"', '""')}"\``,
+					replacement: `export const quoteIdent = (name: string): string => \`"\${name}"\``,
+					why: "A quote inside an identifier is printed bare; the generated statements' audit property fails."
+				}
+			]
+		}
+	)
 
 /**
  * The one-hole walker lists the root statement's rewrites first.
