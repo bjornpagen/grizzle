@@ -41,7 +41,6 @@ import {
 	fromSnapshot,
 	generate,
 	noDeclarations,
-	ownedBy,
 	type Previous
 } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
@@ -271,7 +270,6 @@ const withAdded = (folder: FolderTexts): FolderTexts => ({
 /** A draft of the shop under `allocated`, each step's codes drafted from the snapshot before it. */
 const draftOf = (
 	allocated: string,
-	owner: string,
 	desc: SchemaDesc,
 	declared: Declarations,
 	from: Previous,
@@ -279,7 +277,6 @@ const draftOf = (
 ): { readonly g: GenerateResult; readonly installation: Installation } => {
 	const options = {
 		schema: atName(allocated),
-		owner: ownedBy(owner),
 		extensions: [],
 		codes: firstCodes
 	}
@@ -302,23 +299,23 @@ const draftOf = (
  * The chain under `allocated` up to the folder at `index`, and that folder's regeneration `r`: the drafts before the
  * folder, the folder's own draft, and the regeneration with its installation.
  */
-const draftsOf = (allocated: string, owner: string, index: number, r: Regeneration) => {
+const draftsOf = (allocated: string, index: number, r: Regeneration) => {
 	const empty = fromEmptyBeside([abandoned])
 	const before: Array<GenerateResult> = []
 	let from: Previous = empty
 	for (const i of indices(index)) {
 		const step = defined(folders[i])
-		const { g } = draftOf(allocated, owner, step.desc, step.declared, from, i + 1)
+		const { g } = draftOf(allocated, step.desc, step.declared, from, i + 1)
 		before.push(g)
 		from = fromSnapshot(g.snapshot)
 	}
 	const step = defined(folders[index])
-	const original = draftOf(allocated, owner, step.desc, step.declared, from, index + 1).g
+	const original = draftOf(allocated, step.desc, step.declared, from, index + 1).g
 	const regenerationFrom =
 		r.from === "its source"
 			? from
-			: fromSnapshot(draftOf(allocated, owner, v1Mutable, noDeclarations, empty, 1).g.snapshot)
-	const regeneration = draftOf(allocated, owner, r.desc, r.declared, regenerationFrom, index + 1)
+			: fromSnapshot(draftOf(allocated, v1Mutable, noDeclarations, empty, 1).g.snapshot)
+	const regeneration = draftOf(allocated, r.desc, r.declared, regenerationFrom, index + 1)
 	return { before, original, regeneration }
 }
 
@@ -399,13 +396,12 @@ const guardOf = (schema: string, fingerprint: string) =>
 export const runCase = (c: RedraftCase, k: Case<Feature>) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const owner = substrate.owner.role
 		const index = c.folder
 		const step = defined(folders[index])
 		const r = defined(step.regenerations[c.regeneration % step.regenerations.length])
 		const allocated = yield* substrate.schema({ create: false, label: "redraft" })
 		const schema = identifierOf(identity.schema(parsedSchemaName(allocated)))
-		const { before, original, regeneration } = draftsOf(allocated, owner, index, r)
+		const { before, original, regeneration } = draftsOf(allocated, index, r)
 		const reviewedBefore = Arr.map(before, (g) => reviewedSource(g, kept))
 		const ran = reviewedSource(original, kept)
 		const completed = (c.completed % (ran.files.length - 1)) + 1
@@ -552,7 +548,7 @@ export const runCase = (c: RedraftCase, k: Case<Feature>) =>
 			assert.equal(refused, "55Z01", "the guard refuses the started draft's target")
 		}
 		const freshAllocated = yield* substrate.schema({ create: false, label: "redraft_fresh" })
-		const fresh = draftsOf(freshAllocated, owner, index, r)
+		const fresh = draftsOf(freshAllocated, index, r)
 		const freshHeld = reviewedSource(fresh.regeneration.g, kept)
 		yield* apply(
 			m,

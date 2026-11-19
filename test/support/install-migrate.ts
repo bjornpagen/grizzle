@@ -55,7 +55,6 @@ import {
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
 import { draftedSql, type FixtureSchema, filledSql, migratedSql } from "#test/support/compile.ts"
-import { pgCluster } from "#test/support/env.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -204,7 +203,7 @@ const installName = "install"
  * naming door mints from another allocated name, owned by a role, the complete installation (oracle/install/real.ts)
  * with the codes its migration drafted.
  */
-type VersionPlanner = (fresh: string, owner: string) => Effect.Effect<RealInstallPlan, CompileError>
+type VersionPlanner = (fresh: string) => Effect.Effect<RealInstallPlan, CompileError>
 
 /** The installation's script with every name minted under its schema's identity abstracted
  * (installationAbstraction): one key per installation shape. */
@@ -439,7 +438,7 @@ export const expectFreshCatalog = (
 			return
 		}
 		const fresh = yield* substrate.schema({ create: false, label: "fresh" })
-		const plan = yield* planned(fresh, substrate.owner.role)
+		const plan = yield* planned(fresh)
 		assert.equal(
 			shapeKey(plan.installation),
 			shapeKey(migrated),
@@ -694,10 +693,9 @@ export interface DraftedVersion {
 	readonly snapshot: DeploySnapshot
 }
 
-/** Where a version is drafted: its installation identity, its owner, the snapshot before it, and its folder's step. */
+/** Where a version is drafted: its installation identity, the snapshot before it, and its folder's step. */
 interface DraftAt {
 	readonly installation: Identity<"schema">
-	readonly owner: string
 	readonly previous: Previous
 	readonly step: number
 }
@@ -721,16 +719,15 @@ export const draftVersion = (
 	Effect.gen(function* () {
 		const desc = yield* fromEngine(schemaDescIn(version.schema))
 		const codes = yield* fromEngine(draftCodes(desc, at.previous, version.declarations))
-		const plannedUnder = (installation: Identity<"schema">, owner: string) =>
+		const plannedUnder = (installation: Identity<"schema">) =>
 			planRealInstall(desc, {
 				installation,
-				owner,
 				logins: version.logins,
 				extensions: options.extensions,
 				codes,
 				compile: options.compile
 			})
-		const plan = yield* fromEngine(plannedUnder(at.installation, at.owner))
+		const plan = yield* fromEngine(plannedUnder(at.installation))
 		const g = yield* fromEngine(
 			generate({
 				installation: plan.installation,
@@ -744,8 +741,7 @@ export const draftVersion = (
 		const reviewed = review(g, { losses: "written", value: noPlaceholder })
 		return {
 			plan,
-			planned: (fresh, owner) =>
-				fromEngine(plannedUnder(identity.schema(parsedSchemaName(fresh)), owner)),
+			planned: (fresh) => fromEngine(plannedUnder(identity.schema(parsedSchemaName(fresh)))),
 			folder: { name: g.folder.name, metaText: g.folder.metaText, files: reviewed.files },
 			snapshot: g.snapshot
 		}
@@ -773,7 +769,7 @@ export const installMigratedThrough = (
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const name = yield* substrate.schema({ create: false, label: options.label })
-		const history = yield* draftedHistory(versions, options, name, substrate.owner.role)
+		const history = yield* draftedHistory(versions, options, name)
 		return yield* appliedHistory(history, name, options, new Map())
 	})
 
@@ -784,15 +780,14 @@ export const installMigratedThrough = (
 export const draftedHistory = (
 	versions: Arr.NonEmptyReadonlyArray<InstallVersion>,
 	options: DraftOptions,
-	name: string,
-	owner: string
+	name: string
 ): Effect.Effect<Arr.NonEmptyReadonlyArray<DraftedVersion>, CompileError> =>
 	Effect.gen(function* () {
 		const installation = identity.schema(parsedSchemaName(name))
 		const drafts: Array<DraftedVersion> = []
 		let previous: Previous = fromEmpty
 		for (const [step, version] of versions.entries()) {
-			const drafted = yield* draftVersion(version, { installation, owner, previous, step }, options)
+			const drafted = yield* draftVersion(version, { installation, previous, step }, options)
 			drafts.push(drafted)
 			previous = fromSnapshot(drafted.snapshot)
 		}
@@ -868,10 +863,10 @@ const historyTemplate = <E>(spec: HistorySpec, seeding: Seeding<E>): SubstrateTe
 		name: spec.name,
 		content: spec.content,
 		plan: (names) =>
-			Effect.map(
-				draftedHistory(spec.versions, spec.options, names.schema, pgCluster.owner),
-				(history) => ({ names, history })
-			),
+			Effect.map(draftedHistory(spec.versions, spec.options, names.schema), (history) => ({
+				names,
+				history
+			})),
 		install: ({ names, history }) =>
 			Effect.flatMap(appliedHistory(history, names.schema, spec.options, new Map()), seeding.seed),
 		reset: seeding.reset,
@@ -1157,7 +1152,6 @@ const generatedDraft = (
 		const plan = yield* fromEngine(
 			planRealInstall(version.schema, {
 				installation: at.installation,
-				owner: at.owner,
 				logins: version.logins,
 				extensions: [],
 				codes,
@@ -1178,15 +1172,14 @@ const generatedDraft = (
  */
 const generatedHistory = (
 	versions: Arr.NonEmptyReadonlyArray<(name: string) => GeneratedVersion>,
-	name: string,
-	owner: string
+	name: string
 ): Effect.Effect<Arr.NonEmptyReadonlyArray<GeneratedDraft>, CompileError> =>
 	Effect.gen(function* () {
 		const installation = identity.schema(parsedSchemaName(name))
 		const drafts: Array<GeneratedDraft> = []
 		let previous: Previous = fromEmpty
 		for (const [step, build] of versions.entries()) {
-			const drafted = yield* generatedDraft(build(name), { installation, owner, previous, step })
+			const drafted = yield* generatedDraft(build(name), { installation, previous, step })
 			drafts.push(drafted)
 			previous = fromSnapshot(drafted.snapshot)
 		}
@@ -1233,7 +1226,7 @@ const installGeneratedThrough = (
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const name = yield* substrate.schema({ create: false, label: options.label })
-		const history = yield* generatedHistory(versions, name, substrate.owner.role)
+		const history = yield* generatedHistory(versions, name)
 		const first = Arr.headNonEmpty(history)
 		const last = Arr.lastNonEmpty(history)
 		const folders = Arr.map(history, (d) => d.folder)
@@ -1260,8 +1253,8 @@ const installGeneratedThrough = (
 				for (const later of Arr.drop(applies, 1)) {
 					yield* applyFolders(owner, substrate.database, later.snapshot, later.folders)
 				}
-				yield* expectFreshCatalog(last.plan.installation, folders, (fresh, freshOwner) =>
-					Effect.map(generatedHistory(versions, fresh, freshOwner), (h) => Arr.lastNonEmpty(h).plan)
+				yield* expectFreshCatalog(last.plan.installation, folders, (fresh) =>
+					Effect.map(generatedHistory(versions, fresh), (h) => Arr.lastNonEmpty(h).plan)
 				)
 				return yield* generatedAt(last, {
 					declared: name,
@@ -1317,8 +1310,7 @@ export const generatedTemplate = (spec: {
 			Effect.map(
 				generatedHistory(
 					[(name) => ({ ...spec.build(name), declarations: noDeclarations })],
-					names.schema,
-					pgCluster.owner
+					names.schema
 				),
 				(history) => ({ names, drafted: Arr.headNonEmpty(history) })
 			),

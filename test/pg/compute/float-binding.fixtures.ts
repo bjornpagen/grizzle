@@ -439,7 +439,6 @@ export const subplansOf = (c: LabelledCase, lowering: Lowering, schema: string) 
 			const planned = oraclePlanUnder(
 				schemaDesc(c.schema),
 				identity.schema(parsedSchemaName(schema)),
-				substrate.owner.role,
 				schemaCodes(c.schema),
 				genParamDecls(c.query)
 			)

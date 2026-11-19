@@ -59,7 +59,7 @@ const wideSchema = (columns: number) =>
 /** The installation of a schema of one relation of `columns` integer fields (`wideSchema`). */
 const wideInstallation = (columns: number) =>
 	Engine.flatMap(ownedInput(wideSchema(columns)), (owned) =>
-		compileInstallation(owned, installOptions(owned, "owner"))
+		compileInstallation(owned, installOptions(owned))
 	)
 
 /** SELECT of `entries` integer literals. */

@@ -51,24 +51,23 @@ import { owning } from "#test/support/policy.ts"
  * the fixture's worlds. */
 export const historyOf = (
 	versions: ReadonlyArray<SchemaDesc>,
-	schema: string,
-	owner: string
+	schema: string
 ): ReadonlyArray<GenerateResult> => {
 	const out: Array<GenerateResult> = []
 	let previous: Previous = fromEmpty
 	for (const [i, desc] of versions.entries()) {
 		const owned = owning(desc)
 		const installation = succeeded(
-			compileInstallation(owned, {
-				...completeInstallOptions(
+			compileInstallation(
+				owned,
+				completeInstallOptions(
 					owned,
 					[identity.schema(parsedSchemaName(schema))],
 					[fixtureLogin(desc)],
 					[],
 					succeeded(draftCodes(desc, previous, noDeclarations))
-				),
-				owner
-			})
+				)
+			)
 		)
 		const g = succeeded(
 			generate({

@@ -961,7 +961,6 @@ const sharedCase = (
 		const plans = Arr.map(arrivals(specs), (order) => {
 			const plan = planRealInstall(Indexed, {
 				installation: identity.schema(parsedSchemaName("serving_shared")),
-				owner: "serving_owner",
 				logins: [],
 				extensions: [drawnRequests(order)],
 				codes: emptyCodebook,

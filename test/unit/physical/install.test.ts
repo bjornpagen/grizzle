@@ -13,8 +13,8 @@
  *   are declared in.
  * - **Identifiers:** the installed schema is the conversion of the schema's declared name, and a declared name the rule
  *   refuses (its own, or a conversion PostgreSQL reserves with pg_) is refused at its declaration; only an admitted
- *   identifier (plain lowercase, at most 63 bytes, outside pg_, drawn up to that bound) names the owner, the vector
- *   schema or the extension schema, which lies outside the installed one; the installation's roles never take a schema
+ *   identifier (plain lowercase, at most 63 bytes, outside pg_, drawn up to that bound) names the vector schema or the
+ *   extension schema, which lies outside the installed one; the installation's roles never take a schema
  *   it names, and its relations lie in the installed schema.
  *
  * What the installed catalog holds is PostgreSQL's to judge, in the database suites.
@@ -178,8 +178,8 @@ export const theFreshInstallationCompilesByteIdenticalSQLWhateverOrderTheRelatio
 		}
 	)
 
-/** The fresh installation names its schema, owner, vector schema and extension schema by admitted identifiers only. Its budget is its suite's before it was a property (test/unit/physical/install.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
-export const theFreshInstallationNamesItsSchemaOwnerVectorSchemaAndExtensionSchemaByAdmittedIdentifiersOnly =
+/** The fresh installation names its schema, vector schema and extension schema by admitted identifiers only. Its budget is its suite's before it was a property (test/unit/physical/install.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
+export const theFreshInstallationNamesItsSchemaVectorSchemaAndExtensionSchemaByAdmittedIdentifiersOnly =
 	property.explore(namesGen, {
 		needs: {},
 		budget: { runs: 200, steered: 200 },
@@ -197,7 +197,6 @@ export const theFreshInstallationNamesItsSchemaOwnerVectorSchemaAndExtensionSche
 			"64 bytes refused",
 			"empty refused",
 			"schema refused",
-			"owner refused",
 			"vector schema refused",
 			"extension schema refused",
 			"an extension schema that is the schema",
@@ -250,25 +249,14 @@ export const theFreshInstallationNamesItsSchemaOwnerVectorSchemaAndExtensionSche
 						n.extensionIsSchema ? schema : n.extensionSchema
 					)
 					const vectorSchema = at("vector schema", n.vectorSchema)
-					/** The installer takes no owner as undefined, as `grizzle generate` drafts an installation. */
-					const ownerRole =
-						n.broken.kind === "identifier" && n.broken.slot === "owner"
-							? n.broken.name.name
-							: n.owner.kind === "named"
-								? n.owner.name
-								: undefined
 					const login = loginOver(owned.desc)
 					const result = compileInstallation(owned, {
-						...installOptions(owned, ownerRole),
+						...installOptions(owned),
 						vectorSchema,
 						extensionSchema,
 						logins: [login]
 					})
-					const named = [
-						vectorSchema,
-						extensionSchema,
-						...(ownerRole === undefined ? [] : [ownerRole])
-					]
+					const named = [vectorSchema, extensionSchema]
 					if (!Arr.every(named, admitted)) {
 						if (n.broken.kind === "identifier") {
 							c.note(`${n.broken.name.rule} refused`)
@@ -312,7 +300,7 @@ export const theFreshInstallationNamesItsSchemaOwnerVectorSchemaAndExtensionSche
 					'\tif (name.length === 0 || name.length > maxIdentifierBytes || name.startsWith("pg_")) {',
 				replacement:
 					'\tif (name.length === 0 || name.length > maxIdentifierBytes + 1 || name.startsWith("pg_")) {',
-				why: "An identifier of 64 bytes is admitted for the owner, the vector schema and the extension schema."
+				why: "An identifier of 64 bytes is admitted for the vector schema and the extension schema."
 			}
 		]
 	})

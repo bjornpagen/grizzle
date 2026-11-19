@@ -135,7 +135,7 @@ export const computeUtf16LengthOnPostgreSQL19AdmitsACountExactlyOverATextBounded
 								const schemaName = yield* substrate.schema({ create: false, label: "units" })
 								const compiled = Result.flatMap(ownedInput(value), (owned) =>
 									compileInstallation(owned, {
-										...installOptions(owned, substrate.owner.role),
+										...installOptions(owned),
 										levels: [identity.schema(parsedSchemaName(schemaName))]
 									})
 								)

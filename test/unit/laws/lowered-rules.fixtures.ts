@@ -512,9 +512,7 @@ export const compiled = (
 	desc: SchemaDesc,
 	compile: typeof compileInstallation
 ): Result.Result<Installation, CompileError> =>
-	Result.flatMap(own(decodedSchema(desc)), (owned) =>
-		compile(owned, installOptions(owned, "grizzle_dev"))
-	)
+	Result.flatMap(own(decodedSchema(desc)), (owned) => compile(owned, installOptions(owned)))
 
 /** The relations the case's rule reads: S, every relation its definition matches, and the one it negates. */
 const readBy = (c: LoweringCase): ReadonlyArray<string> => [

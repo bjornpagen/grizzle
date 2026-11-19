@@ -124,7 +124,7 @@ export const oracleAndRealInstallerGeneratedSchemasExtendedTypesIncludedInstallT
 								const owned = owning(desc)
 								const worlds = fixtureWorlds(desc)
 								const real = compileInstallation(owned, {
-									...installOptions(owned, substrate.owner.role),
+									...installOptions(owned),
 									levels: [identity.schema(parsedSchemaName(schema))],
 									logins: [worlds.login]
 								})

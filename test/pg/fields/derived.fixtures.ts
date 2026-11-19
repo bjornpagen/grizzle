@@ -770,24 +770,23 @@ export const snapshotOf = (sys: System): DeploySnapshot => {
 export const versionInstallation = (
 	version: Version,
 	declared: string,
-	codes: Codebook,
-	owner: string
+	codes: Codebook
 ): Installation => {
 	const owned = owning(version.schema)
 	const logins = Arr.map(version.logins, (l) =>
 		succeeded(ownLogin(defined(loginDescOf(l), `login ${l.name}, built by login(...)`)))
 	)
 	return succeeded(
-		compileInstallation(owned, {
-			...completeInstallOptions(
+		compileInstallation(
+			owned,
+			completeInstallOptions(
 				owned,
 				[identity.schema(parsedSchemaName(declared))],
 				logins,
 				workloadOf(version).extensions,
 				codes
-			),
-			owner
-		}),
+			)
+		),
 		`the installation of ${declared}`
 	)
 }
@@ -806,20 +805,14 @@ export const removedHandles = (before: Declaration, after: Declaration): Declara
 
 /** The next draft from the system's snapshot to `built`, declaring `declared`, its codes drafted as the CLI drafts them. */
 export const draftNext = (sys: System, built: Built, declared: Declarations) =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
+	Effect.sync(() => {
 		const previous = sys.previous
 		const codes = succeeded(
 			draftCodes(built.version.schema, previous, declared),
 			"a version keeps the roster's codes"
 		)
 		const workload = workloadOf(built.version)
-		const installation = versionInstallation(
-			built.version,
-			sys.m.declared,
-			codes,
-			substrate.owner.role
-		)
+		const installation = versionInstallation(built.version, sys.m.declared, codes)
 		sys.drafts += 1
 		const drafted = generate({
 			previous,

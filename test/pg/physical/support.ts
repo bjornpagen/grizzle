@@ -115,7 +115,7 @@ export const installed = (
 		const schema = yield* substrate.schema({ create: false, label })
 		const owned = owning(desc)
 		const compiled = compileInstallation(owned, {
-			...installOptions(owned, substrate.owner.role),
+			...installOptions(owned),
 			levels: [identity.schema(parsedSchemaName(schema))],
 			logins
 		})

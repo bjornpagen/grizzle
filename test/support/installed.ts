@@ -292,7 +292,6 @@ const schemaNameOf = (options: MigrateOptions) =>
 export const migrated = (options: MigrateOptions) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const owner = substrate.owner.role
 		const name = yield* schemaNameOf(options)
 		const installation = identity.schema(parsedSchemaName(name))
 		const versions: ReadonlyArray<AnyVersion> = [
@@ -320,7 +319,6 @@ export const migrated = (options: MigrateOptions) =>
 			const plan = succeeded(
 				planRealInstall(version.schema, {
 					installation,
-					owner,
 					logins: version.logins,
 					extensions: workload.extensions,
 					codes: draftedCodes(previous, version, options.declared(i)),

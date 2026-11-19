@@ -35,7 +35,6 @@ import {
 } from "#test/support/oracle/gen/schema.ts"
 import { oracleLogin } from "#test/support/oracle/install/real.ts"
 import { owning } from "#test/support/policy.ts"
-import { owner } from "#test/unit/physical/fixtures.ts"
 
 const generatedSketchGen = schemaSketchGen({
 	...defaultSchemaLimits,
@@ -57,7 +56,7 @@ export const loginOver = (desc: DecodedSchemaDesc): OwnedLogin =>
 export const installed = (desc: SchemaDesc): Installation => {
 	const owned = owning(desc)
 	return succeeded(
-		compileInstallation(owned, { ...installOptions(owned, owner), logins: [loginOver(owned.desc)] })
+		compileInstallation(owned, { ...installOptions(owned), logins: [loginOver(owned.desc)] })
 	)
 }
 
@@ -294,13 +293,11 @@ const brokenIdentifierGen: Gen<{ readonly rule: IdentifierFault; readonly name: 
 ])
 
 /** The names the installation takes besides its schema's, each an identifier it names and never creates. */
-export type Slot = "owner" | "vector schema" | "extension schema"
+export type Slot = "vector schema" | "extension schema"
 
 /** The installation's names: the schema's declared name in one spelling, the other names admitted, the extension schema
- * the installed schema or not, the owner stated or not, and at most one name broken by one rule (planted, since a drawn
- * name is rarely broken in one place only): the schema's declared name, or one of the others. */
-/** The owner an installation states: none, or an admitted identifier. */
-type OwnerName = { readonly kind: "none" } | { readonly kind: "named"; readonly name: string }
+ * the installed schema or not, and at most one name broken by one rule (planted, since a drawn name is rarely broken in
+ * one place only): the schema's declared name, or one of the others. */
 
 /** The one name a case breaks, if any: the schema's declared name, or one of the identifiers it names. */
 type BrokenName =
@@ -317,7 +314,6 @@ type BrokenName =
 
 interface Names {
 	readonly schema: { readonly words: ReadonlyArray<string>; readonly spelling: Spelling }
-	readonly owner: OwnerName
 	readonly vectorSchema: string
 	readonly extensionSchema: string
 	readonly extensionIsSchema: boolean
@@ -329,12 +325,6 @@ export const namesGen: Gen<Names> = (source) => ({
 		words: source.draw(wordsGen),
 		spelling: source.draw(element<Spelling>(["snake", "camel", "Pascal", "a trailing underscore"]))
 	},
-	owner: source.draw(
-		oneOf<OwnerName>([
-			constant({ kind: "none" }),
-			map(admittedGen, (name): OwnerName => ({ kind: "named", name }))
-		])
-	),
 	vectorSchema: source.draw(admittedGen),
 	extensionSchema: source.draw(admittedGen),
 	extensionIsSchema: source.draw(boolean),
@@ -344,7 +334,7 @@ export const namesGen: Gen<Names> = (source) => ({
 			map(brokenDeclaredGen, (name): BrokenName => ({ kind: "schema", name })),
 			(source): BrokenName => ({
 				kind: "identifier",
-				slot: source.draw(element<Slot>(["owner", "vector schema", "extension schema"])),
+				slot: source.draw(element<Slot>(["vector schema", "extension schema"])),
 				name: source.draw(brokenIdentifierGen)
 			})
 		])

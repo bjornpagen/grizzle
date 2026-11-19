@@ -84,7 +84,7 @@ export const workloadIndexesOnADerivedRelationIndexAViewColumnItsKeyOnItsKeyInde
 				Effect.sync(() => {
 					const plan = planOf(W.Reports, programsOf(c.programs, false))
 					const owned = owning(W.Reports)
-					const options = withWorkload(installOptions(owned, undefined), plan)
+					const options = withWorkload(installOptions(owned), plan)
 					const installation = succeeded(
 						compileInstallation(owned, c.installed ? withDerivedRelations(options) : options)
 					)

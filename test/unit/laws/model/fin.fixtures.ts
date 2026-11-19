@@ -41,7 +41,6 @@ import {
 	reverseSets,
 	ridingLaws
 } from "#test/unit/laws/model/natives.ts"
-import { owner } from "#test/unit/physical/fixtures.ts"
 
 type Copy = "caller" | "accumulated"
 
@@ -370,9 +369,7 @@ export const checkShape = (s: Shape): void => {
 	const model = modelOf(desc)
 	assertWellFormed(model)
 	const owned = owning(desc)
-	assertReferencesServed(
-		succeeded(compileInstallation(owned, installOptions(owned, owner))).statements
-	)
+	assertReferencesServed(succeeded(compileInstallation(owned, installOptions(owned))).statements)
 	assert.deepEqual(foreignKeyShapes(model), expectedForeignKeys(s))
 	const expected = expectedKeys(s)
 	assert.deepEqual(keySets(model, "Member"), expected.Member)
@@ -514,7 +511,7 @@ export const checkDisjoint = (d: Disjoint): void => {
 	assertWellFormed(model)
 	const owned = owning(desc)
 	assertColumnsBeforeConstraints(
-		succeeded(compileInstallation(owned, installOptions(owned, owner))).statements
+		succeeded(compileInstallation(owned, installOptions(owned))).statements
 	)
 	const families = model.families
 	assert.equal(families.length, d.length, "one family per counted statement")

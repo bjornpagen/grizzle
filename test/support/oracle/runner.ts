@@ -368,13 +368,11 @@ export interface Installations {
 const planned = (
 	schema: GenSchema,
 	params: ReadonlyArray<ParamDecl>,
-	name: string,
-	owner: string
+	name: string
 ): Effect.Effect<RealInstallPlan, InstallationFailed> => {
 	const plan = oraclePlanUnder(
 		schemaDesc(schema),
 		identity.schema(parsedSchemaName(name)),
-		owner,
 		schemaCodes(schema),
 		params
 	)
@@ -439,7 +437,7 @@ const installations = (
 						(e) => new InstallationFailed({ stage: "install", message: sqlMessage(e) })
 					)
 				)
-				const plan = yield* planned(schema, params, name, seat.owner)
+				const plan = yield* planned(schema, params, name)
 				yield* runStaged(
 					seat.lasting.connection,
 					staged("install", [
@@ -511,7 +509,7 @@ export const caseInstallation = (
 		case "named":
 			return Effect.gen(function* () {
 				const seat = yield* OracleSeat
-				const plan = yield* planned(schema, params, placement.name, seat.owner)
+				const plan = yield* planned(schema, params, placement.name)
 				return { plan, statements: filledSql(plan.drafted, seat.database) }
 			})
 		case "installed":

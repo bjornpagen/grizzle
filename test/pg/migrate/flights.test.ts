@@ -44,7 +44,7 @@ import { kept, parsedTarget, reviewedSource } from "#test/pg/migrate/support.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { draftChain, fromEmpty, ownedBy } from "#test/support/migrate/kit.ts"
+import { draftChain, fromEmpty } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { tappedSession } from "#test/support/wire-tap.ts"
@@ -81,7 +81,6 @@ export const flights = property.exhaust(finite(historyGen), {
 					})
 					const over = {
 						schema: atName(allocated),
-						owner: ownedBy(owner),
 						extensions: [],
 						codes: firstCodes
 					}

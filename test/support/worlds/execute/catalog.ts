@@ -926,7 +926,6 @@ export const draftNext = (
 	declared: AnySchema,
 	logins: ReadonlyArray<LoginSource>,
 	schema: string,
-	owner: string,
 	previous: Continued
 ): Effect.Effect<Drafted, RealizeRefused> =>
 	Effect.gen(function* () {
@@ -965,7 +964,6 @@ export const draftNext = (
 			fromEngine(
 				planRealInstall(desc, {
 					installation: identity.schema(parsedSchemaName(schema)),
-					owner,
 					logins,
 					extensions: [],
 					codes: drafted.value,
@@ -1018,14 +1016,13 @@ export const draftedPhases = (
 	schema: string
 ): Effect.Effect<ReadonlyArray<string>, RealizeRefused> =>
 	Effect.gen(function* () {
-		const owner = `${schema}_owner`
 		const before = yield* baseBuild(from)
 		const after = yield* baseBuild(to)
-		const first = yield* draftNext(before.base, Rec.values(before.logins), schema, owner, {
+		const first = yield* draftNext(before.base, Rec.values(before.logins), schema, {
 			snapshot: emptySnapshot({ schemaName: from.base.name, schema }),
 			folders: []
 		})
-		const next = yield* draftNext(after.base, Rec.values(after.logins), schema, owner, {
+		const next = yield* draftNext(after.base, Rec.values(after.logins), schema, {
 			snapshot: first.snapshot,
 			folders: [first.folder]
 		})

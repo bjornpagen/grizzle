@@ -192,7 +192,7 @@ const installationOf = Effect.gen(function* () {
 	const schemaName = yield* substrate.schema({ create: false, label: "parse_double" })
 	const owned = owning(parsed)
 	const real = compileInstallation(owned, {
-		...installOptions(owned, substrate.owner.role),
+		...installOptions(owned),
 		levels: [identity.schema(parsedSchemaName(schemaName))]
 	})
 	return real.ok ? real.value : yield* Effect.die(new Error(`compile ${real.error.message}`))

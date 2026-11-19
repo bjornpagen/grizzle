@@ -27,7 +27,6 @@ import {
 	modelOf,
 	nativesOf
 } from "#test/unit/laws/model/natives.ts"
-import { owner } from "#test/unit/physical/fixtures.ts"
 
 interface Shape {
 	readonly source: "every" | "selected"
@@ -125,7 +124,7 @@ export const checkShape = (s: Shape): void => {
 	const model = modelOf(schemaOf(s))
 	assertWellFormed(model)
 	const owned = owning(schemaOf(s))
-	const statements = succeeded(compileInstallation(owned, installOptions(owned, owner))).statements
+	const statements = succeeded(compileInstallation(owned, installOptions(owned))).statements
 	assertColumnsBeforeConstraints(statements)
 	assertReferencesServed(statements)
 	const natives = nativesOf(model)

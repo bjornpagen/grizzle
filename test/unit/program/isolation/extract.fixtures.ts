@@ -1532,7 +1532,7 @@ export const buildStatement = (s: StatementSpec): SqlStatement => {
 		case "refresh":
 			return { kind: "refresh", view: objectName("app", "v"), concurrently: false }
 		case "schema":
-			return { kind: "createSchema", name: "app", authorization: undefined }
+			return { kind: "createSchema", name: "app" }
 		case "select":
 		case "dml": {
 			const env = envOf(s.ctes)

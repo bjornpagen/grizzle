@@ -2,7 +2,6 @@ import type { Content } from "@bjornpagen/testing/resources"
 import { Array as Arr, Effect, type Option, Record as Rec, type Scope } from "effect"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
-import { pgCluster } from "#test/support/env.ts"
 import {
 	appliedHistory,
 	draftedHistory,
@@ -81,8 +80,7 @@ export const worldTemplate = (spec: {
 						}
 					],
 					options,
-					names.schema,
-					pgCluster.owner
+					names.schema
 				)
 				const last = Arr.lastNonEmpty(history)
 				const world = yield* worldPlanOf(spec.install, {

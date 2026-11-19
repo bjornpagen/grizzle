@@ -1577,7 +1577,7 @@ const withColumns = (
 }
 
 /** `s` with every role name it holds that `roles` maps renamed: a role's own statements, the grants to it and of it,
- * a policy's role, a schema's owner and a comment on a role. A statement of any other kind names no role. */
+ * a policy's role and a comment on a role. A statement of any other kind names no role. */
 const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): WholeStatement => {
 	const role = (name: string): string => roles.get(name) ?? name
 	const grantee = (g: Grantee): Grantee =>
@@ -1597,18 +1597,9 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 		case "grantColumns":
 			return { ...s, to: role(s.to) }
 		case "alterDefaultPrivileges":
-			return {
-				...s,
-				forRole: s.forRole === undefined ? undefined : role(s.forRole),
-				from: mapNonEmpty(s.from, grantee)
-			}
+			return { ...s, from: mapNonEmpty(s.from, grantee) }
 		case "createPolicy":
 			return { ...s, role: role(s.role) }
-		case "createSchema":
-			return {
-				...s,
-				authorization: s.authorization === undefined ? undefined : role(s.authorization)
-			}
 		case "rename":
 			return s.object === "ROLE" ? { ...s, name: role(s.name), to: role(s.to) } : s
 		case "drop":
@@ -1620,6 +1611,7 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 		case "update":
 		case "delete":
 		case "merge":
+		case "createSchema":
 		case "createTable":
 		case "alterTable":
 		case "renameColumn":

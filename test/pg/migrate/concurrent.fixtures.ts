@@ -133,7 +133,6 @@ const prepared = (d: Drawn) =>
 			{ schema: shape.schema, logins: [shape.login], declarations: noDeclarations },
 			{
 				installation: identity.schema(parsedSchemaName(declared)),
-				owner: substrate.owner.role,
 				previous: fromEmpty,
 				step: 0
 			},

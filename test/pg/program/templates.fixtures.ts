@@ -23,7 +23,6 @@ import {
 	type TestCompileOptions
 } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
-import { pgCluster } from "#test/support/env.ts"
 import {
 	Account,
 	AutomaticTask,
@@ -234,7 +233,7 @@ export const workTemplate = installTemplate({
 		Effect.gen(function* () {
 			const owned = owning(Work)
 			const installation = compileInstallation(owned, {
-				...installOptions(owned, pgCluster.owner),
+				...installOptions(owned),
 				levels: [identity.schema(parsedSchemaName(names.schema))]
 			})
 			if (!installation.ok) {

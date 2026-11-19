@@ -1880,9 +1880,7 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 		case "merge":
 			return dmlStatementBlock(out, statement)
 		case "createSchema":
-			return out.line(
-				`CREATE SCHEMA ${quoteIdent(statement.name)}${statement.authorization === undefined ? "" : ` AUTHORIZATION ${quoteIdent(statement.authorization)}`}`
-			)
+			return out.line(`CREATE SCHEMA ${quoteIdent(statement.name)}`)
 		case "createTable":
 			out.line(`CREATE TABLE ${printObjectName(statement.table)} (`)
 			listed(out.nested(), [
@@ -2071,7 +2069,7 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 			)
 		case "alterDefaultPrivileges":
 			return out.line(
-				`ALTER DEFAULT PRIVILEGES${statement.forRole === undefined ? "" : ` FOR ROLE ${quoteIdent(statement.forRole)}`}${statement.inSchema === undefined ? "" : ` IN SCHEMA ${quoteIdent(statement.inSchema)}`} REVOKE ${statement.privileges.join(", ")} ON ${statement.on} FROM ${statement.from.map(printGrantee).join(", ")}`
+				`ALTER DEFAULT PRIVILEGES${statement.inSchema === undefined ? "" : ` IN SCHEMA ${quoteIdent(statement.inSchema)}`} REVOKE ${statement.privileges.join(", ")} ON ${statement.on} FROM ${statement.from.map(printGrantee).join(", ")}`
 			)
 		case "createExtension":
 			return out.line(

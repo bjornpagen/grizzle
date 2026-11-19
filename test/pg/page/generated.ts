@@ -1341,12 +1341,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 			}
 			const query = ordered.query
 			const desc = schemaDesc(o.c.schema)
-			const planned = oraclePlan(
-				desc,
-				identity.schema(parsedSchemaName(schema)),
-				s.owner.role,
-				query.params
-			)
+			const planned = oraclePlan(desc, identity.schema(parsedSchemaName(schema)), query.params)
 			if (!planned.ok) {
 				return yield* Effect.die(new Error(planned.error.message))
 			}

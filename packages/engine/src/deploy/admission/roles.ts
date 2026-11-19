@@ -379,11 +379,6 @@ export interface DefaultGrant {
 	readonly privilege: Privilege
 }
 
-/** Whose future objects default privileges are judged for: the owner the snapshot's revokes name, or the role running them. */
-export type DefaultOwner =
-	| { readonly kind: "named"; readonly role: string }
-	| { readonly kind: "current" }
-
 /**
  * The default privileges the drift check judges: of the owner's future objects, everywhere and in each schema the
  * installation holds, those granted to anyone but the owner. The owner creates every object of the installation, so a
@@ -391,7 +386,6 @@ export type DefaultOwner =
  * revokes leave exactly PostgreSQL's own defaults they do not take away (`left`), and every other one is drift.
  */
 export interface DefaultPrivilegesExpectation {
-	readonly owner: DefaultOwner
 	readonly schemas: ReadonlyArray<string>
 	readonly left: ReadonlyArray<DefaultGrant>
 }
@@ -410,7 +404,7 @@ const sameGrantee = (a: Grantee, b: Grantee): boolean =>
 /**
  * The default privileges `statements` leave (DefaultPrivilegesExpectation), as the list the drift check reads each of:
  * PostgreSQL's own, but each a global ALTER DEFAULT PRIVILEGES ... REVOKE takes away (one in a schema only adds to the
- * global ones, so it takes nothing away), for the owner its revokes name, judged in the installation's schemas
+ * global ones, so it takes nothing away), for the migration identity, the owner, judged in the installation's schemas
  * (judgedSchemas). None for statements that alter no default privilege, the empty snapshot's: an installation of
  * nothing has no owner whose future objects it speaks for, and an owner's global defaults outlive its installations, so
  * another installation of the same owner (or a database's own hardening) is no drift of it.
@@ -423,10 +417,8 @@ export const defaultPrivilegesExpectations = (
 	if (revokes.length === 0) {
 		return []
 	}
-	const named = revokes.find((r) => r.forRole !== undefined)?.forRole
 	return [
 		{
-			owner: named === undefined ? { kind: "current" } : { kind: "named", role: named },
 			schemas: judgedSchemas(statements, schema),
 			left: builtinDefaults.filter(
 				(g) =>

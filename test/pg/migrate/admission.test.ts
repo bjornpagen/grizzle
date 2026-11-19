@@ -56,12 +56,11 @@ export const admission = property.explore(steered(editGen), {
 			Effect.provideServiceEffect(
 				Effect.gen(function* () {
 					const substrate = yield* Substrate
-					const owner = substrate.owner.role
 					const m = yield* openMigrator(substrate, substrate.owner)
 					return yield* Effect.scoped(
 						Effect.gen(function* () {
 							const schema = yield* substrate.schema({ create: false, label: "hand_edit" })
-							const folders = historyOf(inSecond(edit) ? [shopV1, shopV2] : [shopV1], schema, owner)
+							const folders = historyOf(inSecond(edit) ? [shopV1, shopV2] : [shopV1], schema)
 							const reviewer = reviewerOf(
 								edit,
 								defined(folders[folders.length - 1]),

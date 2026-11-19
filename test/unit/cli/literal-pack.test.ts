@@ -80,9 +80,7 @@ export const grizzleCheckOverAClosedRelationsHexLiteralsPassesADraftedLiteralAnd
 						connection: () => offlineOwner
 					})
 					const owned = owning(gridSchema)
-					const installation = succeeded(
-						compileInstallation(owned, installOptions(owned, undefined))
-					)
+					const installation = succeeded(compileInstallation(owned, installOptions(owned)))
 					const grid = installation.names.closed("Grid")
 					const packOf = (name: string): PackConstant =>
 						defined(

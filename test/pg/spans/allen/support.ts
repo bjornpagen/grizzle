@@ -45,13 +45,12 @@ export interface SpanInstallOptions {
 const compileSpans = (
 	desc: FixtureSchema,
 	schema: string,
-	owner: string,
 	options: SpanInstallOptions
 ): Installation => {
 	const owned = owning(desc)
 	return succeeded(
 		compileInstallation(owned, {
-			...installOptions(owned, owner),
+			...installOptions(owned),
 			levels: [identity.schema(parsedSchemaName(schema))],
 			extensions: options.extensions,
 			logins: [oracleOwnedLogin(owned.desc)]
@@ -76,7 +75,7 @@ export const installSpans = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const schema = yield* s.schema({ create: false, label: options.label })
-		const installation = compileSpans(desc, schema, s.owner.role, options)
+		const installation = compileSpans(desc, schema, options)
 		yield* transaction(s.admin, installationSql(installation, s.database))
 		const out: InstalledSpans = { schema, installation, world: yield* oracleWorld(installation) }
 		return out

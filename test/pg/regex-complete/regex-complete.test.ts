@@ -479,7 +479,7 @@ const install = () =>
 		const s = yield* Substrate
 		const name = yield* s.schema({ create: false, label: "refined" })
 		const owned = owning(Content)
-		const options = installOptions(owned, s.owner.role)
+		const options = installOptions(owned)
 		const installation: Installation = ok(
 			compileInstallation(owned, {
 				...options,

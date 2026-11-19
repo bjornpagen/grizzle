@@ -610,18 +610,13 @@ const declarationsOf = (c: RenameCase): Declarations => {
 }
 
 /** The installation of a version's schema under the installed schema `name`, owned by `owner`, under `codes`. */
-const compiledAt = (
-	desc: SchemaDesc,
-	name: string,
-	owner: string,
-	codes: Codebook
-): Installation => {
+const compiledAt = (desc: SchemaDesc, name: string, codes: Codebook): Installation => {
 	const owned = owning(desc)
 	return succeeded(
-		compileInstallation(owned, {
-			...completeInstallOptions(owned, [identity.schema(parsedSchemaName(name))], [], [], codes),
-			owner
-		})
+		compileInstallation(
+			owned,
+			completeInstallOptions(owned, [identity.schema(parsedSchemaName(name))], [], [], codes)
+		)
 	)
 }
 
@@ -783,7 +778,6 @@ const migrateHistory = <A>(
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
-			const owner = substrate.owner.role
 			const name = yield* substrate.schema({ create: false, label })
 			const m = yield* openMigrator(substrate, substrate.owner)
 			const folders: Array<FolderTexts> = []
@@ -794,7 +788,6 @@ const migrateHistory = <A>(
 				const installation = compiledAt(
 					desc,
 					name,
-					owner,
 					succeeded(draftCodes(desc, previous, version.declared))
 				)
 				const g = succeeded(

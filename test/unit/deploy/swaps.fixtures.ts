@@ -17,8 +17,7 @@ import {
 	fromEmpty,
 	fromSnapshot,
 	generate,
-	noDeclarations,
-	unowned
+	noDeclarations
 } from "#test/support/migrate/kit.ts"
 import { draftActions, draftFiles, planStatements } from "#test/support/migrate/review.ts"
 
@@ -139,7 +138,6 @@ export type Feature = (typeof featureNames)[number]
 const draftTo = (from: SwapCase, to: Successor) => {
 	const before = compile(desc(from, "drawn"), {
 		schema: atDeclaredName,
-		owner: unowned,
 		extensions: [],
 		codes: firstCodes
 	})
@@ -188,7 +186,6 @@ export const swaps = (c: Case<Feature>, value: SwapCase): void => {
 	for (const version of ["drawn", "retyped", "moved"] as const) {
 		const installation = compile(desc(value, version), {
 			schema: atDeclaredName,
-			owner: unowned,
 			extensions: [],
 			codes: firstCodes
 		})

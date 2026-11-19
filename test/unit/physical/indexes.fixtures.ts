@@ -26,7 +26,7 @@ import { assert, defined } from "#test/support/assert.ts"
 import { contained, f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { lawNamesOf, wild } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
-import { owner, requesting } from "#test/unit/physical/fixtures.ts"
+import { requesting } from "#test/unit/physical/fixtures.ts"
 
 /** Event: a plain table under its primary key, with a vector column an HNSW request keys. Booking: a span key, so a GiST
  * index whose leading room column btree_gist serves by equality. Deposit: the reverse lookup of its reference to Line on
@@ -320,7 +320,7 @@ export const keyField = (k: PlannedIndex["keys"][number]): string => keyTermText
 export const install = (requests: ReadonlyArray<IndexRequest>) => {
 	const owned = owning(Indexed)
 	return compileInstallation(owned, {
-		...installOptions(owned, owner),
+		...installOptions(owned),
 		extensions: [requesting(requests)]
 	})
 }

@@ -39,7 +39,6 @@ export const writeLawNames = (schema: WSchema): WriteLawNames => {
 	const plan = succeeded(
 		planRealInstall(value, {
 			installation: identity.schema(parsedSchemaName(declared)),
-			owner: "grizzle_dev",
 			logins: [],
 			extensions: [],
 			codes: succeeded(codebookFor(schemaInputOf(value), firstCodes)),

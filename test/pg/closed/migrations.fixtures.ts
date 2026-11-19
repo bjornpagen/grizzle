@@ -540,8 +540,7 @@ const draftNext = (sys: System, built: Built, reviewer: Reviewer, declared: Decl
  * and the physical names of the installation it drafts.
  */
 const drafting = (sys: System, built: Built, declared: Declarations) =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
+	Effect.sync(() => {
 		const owned = succeeded(
 			own(defined(schemaDescOf(built.version.schema), "a version's schema value"))
 		)
@@ -562,7 +561,6 @@ const drafting = (sys: System, built: Built, declared: Declarations) =>
 		const plan = succeeded(
 			planRealInstall(built.version.schema, {
 				installation: identity.schema(parsedSchemaName(sys.m.declared)),
-				owner: substrate.owner.role,
 				logins: built.version.logins,
 				extensions: workload.extensions,
 				codes,

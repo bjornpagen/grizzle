@@ -133,7 +133,7 @@ const shopWriter = (s: typeof Shop | typeof MutableCrewShop): ShopWriter => {
 	const names = (params: ReadonlyArray<ParamDecl>): Result.Result<WriteNames, CompileError> =>
 		Result.map(
 			compileInstallation(owned, {
-				...installOptions(owned, "owner"),
+				...installOptions(owned),
 				levels: [identity.schema(parsedSchemaName("shop"))],
 				extensions: [declaredParams("the Shop's write", params)]
 			}),

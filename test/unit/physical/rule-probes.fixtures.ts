@@ -14,7 +14,6 @@ import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { judgeBodiesOf, judgedStatementsIn, plannedQueryOf } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
 import { probedRule } from "#test/support/probed.ts"
-import { owner } from "#test/unit/physical/fixtures.ts"
 
 /** One case: D's arms, whether each holds T's a to a literal of its own, and whether each joins U by k. */
 interface Shape {
@@ -79,7 +78,7 @@ const blocksOf = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Block> =>
 export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const built = schemaOf(shape)
 	const owned = owning(built)
-	const installation = succeeded(compileInstallation(owned, installOptions(owned, owner)))
+	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
 	/** The probes of the removed side of every rule trigger's table, each occurrence of the touched relation one. */
 	const probes = Arr.reduce(succeeded(testArtifacts(built, testCompile)).laws.rules, 0, (n, rule) =>
 		Arr.reduce(rule.tables, n, (m, table) =>

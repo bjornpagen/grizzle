@@ -64,10 +64,7 @@ export const accessIndexesOverOneColumnListInSeveralDirectionsInstallOneIndexPer
 						)
 					)
 					const owned = owning(Dirs)
-					const installed = compileInstallation(
-						owned,
-						withWorkload(installOptions(owned, undefined), plan)
-					)
+					const installed = compileInstallation(owned, withWorkload(installOptions(owned), plan))
 					if (!installed.ok) {
 						throw new Error(
 							`${Arr.join(Arr.map(vectors, text), " | ")}: ${installed.error.message}`

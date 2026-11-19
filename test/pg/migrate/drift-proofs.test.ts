@@ -49,7 +49,7 @@ import {
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { draftChain, fromEmpty, ownedBy } from "#test/support/migrate/kit.ts"
+import { draftChain, fromEmpty } from "#test/support/migrate/kit.ts"
 import { specifiedReplay } from "#test/support/migrate/proofs.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -69,7 +69,6 @@ export const driftProofs = property.explore(caseGen, {
 			Effect.provideServiceEffect(
 				Effect.gen(function* () {
 					const substrate = yield* Substrate
-					const owner = substrate.owner.role
 					const m = yield* openMigrator(substrate, substrate.owner)
 					return yield* Effect.scoped(
 						Effect.gen(function* () {
@@ -79,7 +78,6 @@ export const driftProofs = property.explore(caseGen, {
 							const proofs = succeeded(proofStatements(schema))
 							const over = {
 								schema: atName(allocated),
-								owner: ownedBy(owner),
 								extensions: [],
 								codes: firstCodes
 							}

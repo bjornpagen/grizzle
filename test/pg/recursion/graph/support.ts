@@ -279,7 +279,6 @@ export const inInstalledCase = <A, E>(
 			const planned = oraclePlanUnder(
 				desc,
 				identity.schema(parsedSchemaName(schema)),
-				seat.owner,
 				schemaCodes(c.schema),
 				genParamDecls(c.query)
 			)

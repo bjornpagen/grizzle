@@ -30,7 +30,7 @@ import { auditStatementViolations, auditTextViolations } from "#test/support/ora
 import type { PgConnection } from "#test/support/pg.ts"
 
 /** `statement`'s commands as a driver sends them, one message each (sql/print.ts printCommands), each audited. */
-const commands = (statement: SqlStatement): ReadonlyArray<string> => {
+export const commands = (statement: SqlStatement): ReadonlyArray<string> => {
 	assert.deepEqual(auditStatementViolations(statement), [])
 	return Arr.map(printCommands(statement), (text) => {
 		assert.deepEqual(auditTextViolations(text), [])

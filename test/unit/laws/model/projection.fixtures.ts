@@ -49,7 +49,6 @@ import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installationNamesOf, type Names } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
-import { owner } from "#test/unit/physical/fixtures.ts"
 
 const Owner = relation("Owner", { id: uuid, rank: pg.integer, live: pg.boolean, slots: natural }, [
 	"id"
@@ -411,7 +410,7 @@ export const installed = (statements: ReadonlyArray<Statement>): Installation =>
 	const owned = owning(
 		schema("Projections", relations, [...statements, ...Arr.map(relations, (r) => mutable(r))])
 	)
-	const result = compileInstallation(owned, installOptions(owned, owner))
+	const result = compileInstallation(owned, installOptions(owned))
 	if (!result.ok) {
 		throw result.error
 	}

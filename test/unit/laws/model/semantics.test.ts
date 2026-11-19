@@ -88,7 +88,7 @@ export const aSchemaThatStatesNoLawCompilesRostersAndClosedRelationsOnlyToTheEmp
 							[[], [], [], []]
 						)
 						const owned = owning(desc)
-						succeeded(compileInstallation(owned, installOptions(owned, "owner")))
+						succeeded(compileInstallation(owned, installOptions(owned)))
 					})
 				}),
 			oracle: {

@@ -153,7 +153,6 @@ export const staffed = (name: string) => schema(name, Rec.values(relations), [st
 const withWorld = (
 	value: Parameters<typeof fullWorld>[0],
 	schemaIdent: string,
-	owner: string,
 	codes: Codebook
 ) => {
 	const owned = owning(value)
@@ -161,16 +160,16 @@ const withWorld = (
 		ownLogin(defined(loginDescOf(fullWorld(value, {}).server), "a login value"))
 	)
 	return succeeded(
-		compileInstallation(owned, {
-			...completeInstallOptions(
+		compileInstallation(
+			owned,
+			completeInstallOptions(
 				owned,
 				[identity.schema(parsedSchemaName(schemaIdent))],
 				[server],
 				[],
 				codes
-			),
-			owner
-		})
+			)
+		)
 	)
 }
 
@@ -245,7 +244,6 @@ export const prepare = (
 		const installation = withWorld(
 			next(done.schema),
 			done.schema,
-			s.owner.role,
 			succeeded(draftCodes(next(done.schema), fromSnapshot(done.snapshot), noDeclarations))
 		)
 		const g = succeeded(

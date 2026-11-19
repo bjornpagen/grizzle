@@ -39,8 +39,7 @@ import {
 	draftedAt,
 	fromSnapshot,
 	generate,
-	noDeclarations,
-	ownedBy
+	noDeclarations
 } from "#test/support/migrate/kit.ts"
 import { refusalOf } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -94,8 +93,7 @@ export const attnums = property.exhaust(finite(int(1, slack + past)), {
 					const columns = columnsOf("c", added)
 					const drafted = generate({
 						installation: compile(wide(m.declared, [...second, ...columns]), {
-							...asDrafted,
-							owner: ownedBy(s.owner.role)
+							...asDrafted
 						}),
 						timestamp: draftedAt(3),
 						previous: fromSnapshot(m.snapshot),

@@ -9,7 +9,6 @@ import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { owning } from "#test/support/policy.ts"
-import { owner } from "#test/unit/physical/fixtures.ts"
 
 /** The columns D joins T and U by beside their unit, `package`: g, h, or both. */
 type Join = "g" | "h" | "gh"
@@ -124,7 +123,7 @@ const byKeyOfG = (shape: Shape): boolean => shape.keyedByG && shape.join !== "h"
  */
 export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const owned = owning(schemaOf(shape))
-	const installation = succeeded(compileInstallation(owned, installOptions(owned, owner)))
+	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
 	const joined = ["package", ...joinColumns(shape.join)]
 	const reads: ReadonlyArray<{
 		readonly relation: string

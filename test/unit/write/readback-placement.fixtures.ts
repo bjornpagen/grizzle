@@ -214,7 +214,7 @@ const subjectOf = (value: FixtureSchema, name: string, m: unknown, a: unknown, z
 		checked: checking(value),
 		names: succeeded(
 			compileInstallation(owned, {
-				...installOptions(owned, "owner"),
+				...installOptions(owned),
 				levels: [identity.schema(parsedSchemaName(name))]
 			})
 		).names,

@@ -67,7 +67,6 @@ import {
 	fromEmpty,
 	fromEmptyBeside,
 	noDeclarations,
-	ownedBy,
 	parsedMigrationName
 } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
@@ -1065,7 +1064,7 @@ const abandoned: AbandonedSchema = { schema: "store", directory: "migrations/sto
  * and its owner, each step's codes drafted from the snapshot before it, v3 declaring its one drop (`--drop
  * Task.weight`).
  */
-const chainOf = (allocated: string, owner: string): ReadonlyArray<GenerateResult> =>
+const chainOf = (allocated: string): ReadonlyArray<GenerateResult> =>
 	draftChain(
 		Arr.map(
 			[
@@ -1077,7 +1076,6 @@ const chainOf = (allocated: string, owner: string): ReadonlyArray<GenerateResult
 				desc,
 				options: {
 					schema: atName(allocated),
-					owner: ownedBy(owner),
 					extensions: [],
 					codes: firstCodes
 				},
@@ -1094,11 +1092,10 @@ type LedgerProgram = Program<LedgerParameters>
 export const runOn = (shape: ChainShape) => (steps: LedgerProgram, c: Case<Feature>) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const owner = substrate.owner.role
 		/** The allocated name the chain is installed under, and its PostgreSQL schema, the door's identifier of it. */
 		const allocated = yield* substrate.schema({ create: false, label: "ledger" })
 		const schema = identifierOf(identity.schema(parsedSchemaName(allocated)))
-		const gs = chainOf(allocated, owner)
+		const gs = chainOf(allocated)
 		const reviewed = Arr.map(gs, (g) => reviewedSource(g, kept))
 		assert.deepEqual(shapeOf(gs, reviewed), shape, "the case's chain has the model's shape")
 		const foreignSchema = yield* substrate.schema({ create: false, label: "ledger_other" })
@@ -1109,7 +1106,6 @@ export const runOn = (shape: ChainShape) => (steps: LedgerProgram, c: Case<Featu
 						desc: books1,
 						options: {
 							schema: atName(foreignSchema),
-							owner: ownedBy(owner),
 							extensions: [],
 							codes: firstCodes
 						},
@@ -1138,7 +1134,7 @@ export const runOn = (shape: ChainShape) => (steps: LedgerProgram, c: Case<Featu
  * The shape of the chain every case drafts, read off the chain drafted under names of its own: drafting depends on the
  * schema's and the owner's names only in the names it writes (shapeOf), and each case checks its own chain has it.
  */
-const shapeChain = chainOf("ledger_shape", "ledger_shape_owner")
+const shapeChain = chainOf("ledger_shape")
 
 export const ledgerShape: ChainShape = shapeOf(
 	shapeChain,

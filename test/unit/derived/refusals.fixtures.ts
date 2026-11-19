@@ -227,7 +227,7 @@ export const entries = (desc: SchemaDesc): ReadonlyArray<Result.Result<unknown, 
 		derivedAnalysis
 	),
 	Result.flatMap(ownedInput(desc), (o) =>
-		compileInstallation(o, withDerivedRelations(installOptions(o, "owner")))
+		compileInstallation(o, withDerivedRelations(installOptions(o)))
 	)
 ]
 

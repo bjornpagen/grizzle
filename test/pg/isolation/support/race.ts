@@ -53,7 +53,6 @@ import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
-import { pgCluster } from "#test/support/env.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
 import {
 	appliedHistory,
@@ -295,7 +294,7 @@ export const installShape = (
 		}
 		const substrate = yield* Substrate
 		const name = yield* substrate.schema({ create: false, label: "iso" })
-		const plan = yield* certifiedPlan(build, certifier, name, substrate.owner.role)
+		const plan = yield* certifiedPlan(build, certifier, name)
 		const installed = yield* appliedHistory(plan.history, name, plan.options, new Map())
 		return shapeOf(plan, installed)
 	})
@@ -327,7 +326,7 @@ const generatedShape = (
 	})
 
 /**
- * A certified installation of `build(name)` planned under `name`, owned by `owner`, all but its install: the history
+ * A certified installation of `build(name)` planned under `name`, all but its install: the history
  * that installs the shape's schema with its login, holding the certificates `certifier` states (certifying), its
  * options, the shape rebuilt under `name`, the levels generate certifies, and the login's served file of the installed
  * name, each role at its stated level, loaded.
@@ -335,8 +334,7 @@ const generatedShape = (
 const certifiedPlan = (
 	build: (name: string) => Shape,
 	certifier: Exclude<Certifier, { readonly kind: "generate" }>,
-	name: string,
-	owner: string
+	name: string
 ) =>
 	Effect.gen(function* () {
 		const declared = build("Iso")
@@ -362,8 +360,7 @@ const certifiedPlan = (
 		const history = yield* draftedHistory(
 			[{ schema: declared.schema, logins: [declared.login], declarations: noDeclarations }],
 			options,
-			name,
-			owner
+			name
 		)
 		const shape = build(name)
 		const { compiled, draft, served } = yield* draftOf(shape)
@@ -457,7 +454,7 @@ export const certifiedShapeTemplate = (
 		name,
 		content: { shape: name, certifier: certifier.kind },
 		plan: (names) =>
-			Effect.map(certifiedPlan(build, certifier, names.schema, pgCluster.owner), (plan) => ({
+			Effect.map(certifiedPlan(build, certifier, names.schema), (plan) => ({
 				names,
 				plan
 			})),

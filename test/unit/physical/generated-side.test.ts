@@ -47,7 +47,7 @@ export const aLawColumnOverAGeneratedFieldReadsTheRowsWrittenFieldsAloneNeverAGe
 				}
 				const { R, value } = schemaOf(c)
 				const owned = owning(value)
-				const compiled = compileInstallation(owned, installOptions(owned, "grizzle_dev"))
+				const compiled = compileInstallation(owned, installOptions(owned))
 				const generatedReads = Arr.flatMap([...c.terms, c.selection], (ref) =>
 					ref.kind === "generated" ? [nameOf(ref)] : []
 				)

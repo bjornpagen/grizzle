@@ -19,7 +19,7 @@ export const completeInstallOptions = (
 	codes: Codebook
 ): InstallOptions =>
 	withDerivedRelations({
-		...installOptions(owned, undefined),
+		...installOptions(owned),
 		levels,
 		logins,
 		extensions,

@@ -20,7 +20,6 @@ import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { judgedStatementsOf } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
-import { owner } from "#test/unit/physical/fixtures.ts"
 
 /** A rule's law over D: a containment of S into it, a check over its facts, or a key over a projection of them. */
 type Law = "contained" | "check" | "key"
@@ -231,7 +230,7 @@ const referencesOf = (statement: OperandSelect): ReadonlySet<string> => {
  */
 export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const owned = owning(schemaOf(shape))
-	const installation = succeeded(compileInstallation(owned, installOptions(owned, owner)))
+	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
 	const read = readFields(shape)
 	for (const { query: statement } of judgedStatementsOf(installation)) {
 		note(shape.judge === "whole" ? "a whole rule's statement" : "a probe's statement")

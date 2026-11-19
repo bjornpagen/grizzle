@@ -63,8 +63,8 @@ import { type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 
-/** The settings the installation runs under (`InstallSettings`: the owner a fresh-install script names, undefined for
- * a migration; the PostgreSQL schema; the vector extension's and btree_gist's schemas; the logins over the schema), the
+/** The settings the installation runs under (`InstallSettings`: the PostgreSQL schema; the vector extension's and
+ * btree_gist's schemas; the logins over the schema), the
  * extensions it runs, in order, and the codes of the installation it compiles for. Index requests beyond the
  * law-maintenance ones come from an extension's contribution, as the workload's do (`workloadExtension`). */
 export interface InstallOptions extends InstallSettings {
@@ -75,13 +75,12 @@ export interface InstallOptions extends InstallSettings {
 
 /** The options of a fresh installation of `owned` under its declared name's identity, owned.installation, with the
  * vector extension in vector_ext and btree_gist in public (the local cluster's), no login, no extension beyond the
- * built-in ones, and the first codebook, each roster's handles numbered from 0 with no hole, as `owner` names it. A
- * caller that targets another schema, installs logins, adds extensions or compiles for an installation with a history
- * of codes states them over these. */
-export const installOptions = (owned: Owned, owner: string | undefined): InstallOptions => {
+ * built-in ones, and the first codebook, each roster's handles numbered from 0 with no hole. A caller that targets
+ * another schema, installs logins, adds extensions or compiles for an installation with a history of codes states them
+ * over these. */
+export const installOptions = (owned: Owned): InstallOptions => {
 	const fresh = freshPlanSettings(owned)
 	return {
-		owner,
 		levels: fresh.levels,
 		vectorSchema: fresh.vectorSchema,
 		extensionSchema: "public",
@@ -300,14 +299,12 @@ const admittedSettings = (
 ): Result.Result<InstallSettings, CompileError> => {
 	const at = SourceLoc(`installation of schema ${owned.name}`, [])
 	const settings: InstallSettings = {
-		owner: options.owner,
 		levels: options.levels,
 		vectorSchema: options.vectorSchema,
 		extensionSchema: options.extensionSchema,
 		logins: options.logins
 	}
 	for (const [what, name] of [
-		...(settings.owner === undefined ? [] : [["owner", settings.owner] as const]),
 		["vector schema", settings.vectorSchema],
 		["extension schema", settings.extensionSchema]
 	] as const) {

@@ -1463,13 +1463,10 @@ const worldOver = (
 					return refusedWith({ kind: "compile-refused" }, built.failure.refusal)
 				}
 				const next_ = yield* Effect.result(
-					draftNext(
-						built.success.base,
-						Rec.values(built.success.logins),
-						installed.declared,
-						substrate.owner.role,
-						{ snapshot: directorySnapshot(), folders: foldersOf(state.directory) }
-					)
+					draftNext(built.success.base, Rec.values(built.success.logins), installed.declared, {
+						snapshot: directorySnapshot(),
+						folders: foldersOf(state.directory)
+					})
 				)
 				if (Result.isFailure(next_)) {
 					return refusedWith({ kind: "compile-refused" }, next_.failure.refusal)

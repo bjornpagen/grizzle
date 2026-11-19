@@ -115,7 +115,6 @@ export const explainMain = (c: QueryCase, lowering: Lowering) =>
 			const planned = oraclePlanUnder(
 				desc,
 				identity.schema(parsedSchemaName(schema)),
-				seat.owner,
 				codes,
 				genParamDecls(c.query)
 			)

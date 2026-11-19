@@ -52,10 +52,6 @@ import { tableMaxColumns } from "#compiler/write/carriers/carriers.ts"
 import { refusalFunctionDdl } from "#compiler/write/refusal.ts"
 
 export interface InstallSettings {
-	/** The owner a fresh-install script names, which owns the schema and every object in it, and which its
-	 * default-privilege resets name. Undefined for a migration: the migration identity is
-	 * whoever connects, so the schema is created without AUTHORIZATION and the resets name no role. */
-	readonly owner: string | undefined
 	/**
 	 * The identity of each level's PostgreSQL schema, root first, index for index with Owned.levels: the declared levels'
 	 * own (Owned.levels' installations), or a test's unique ones. Each role and login installed over a level embeds its
@@ -278,13 +274,7 @@ export class InstallBuilder {
 				{
 					kind: "schema",
 					ident: { kind: "schema", name: installation },
-					ddl: [
-						{
-							kind: "createSchema",
-							name: this.name(installation),
-							authorization: input.settings.owner
-						}
-					],
+					ddl: [{ kind: "createSchema", name: this.name(installation) }],
 					reasons: [enforcement(`schema ${input.owned.levels[index]?.name ?? input.owned.name}`)],
 					phase: "setup"
 				},

@@ -91,8 +91,7 @@ import {
 	draftCodes,
 	fromSnapshot,
 	generate,
-	noDeclarations,
-	ownedBy
+	noDeclarations
 } from "#test/support/migrate/kit.ts"
 import { servedFixture } from "#test/support/served-db.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
@@ -390,7 +389,6 @@ export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19rc2ValidatesALevelsC
 										previous: fromSnapshot(previous),
 										installation: compile(next, {
 											schema: atName(done.schema),
-											owner: ownedBy(s.owner.role),
 											extensions: [],
 											codes: installedCodes(codes)
 										}),

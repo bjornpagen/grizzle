@@ -155,7 +155,7 @@ export const orderedAt = (r: number) =>
 			)
 		)
 		const [, counts] = yield* callCounts(
-			Effect.sync(() => succeeded(compileInstallation(owned, installOptions(owned, "owner")))),
+			Effect.sync(() => succeeded(compileInstallation(owned, installOptions(owned)))),
 			orderSites
 		)
 		return counts

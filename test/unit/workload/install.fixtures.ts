@@ -44,7 +44,7 @@ export const installWith = (
 	physical: WorkloadPhysical
 ): Result.Result<Installation, CompileError> => {
 	const owned = owning(schema)
-	return compileInstallation(owned, withWorkload(installOptions(owned, "grizzle_owner"), physical))
+	return compileInstallation(owned, withWorkload(installOptions(owned), physical))
 }
 
 /** The installed objects a reason must justify: its indexes and statistics. */

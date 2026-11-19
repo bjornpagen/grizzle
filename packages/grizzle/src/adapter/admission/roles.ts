@@ -885,18 +885,14 @@ const defaultObjectLetter: Readonly<Record<DefaultGrant["on"], DefaultObjects>> 
 }
 
 /**
- * The owner's default privileges granted to anyone but the owner, the installation's schemas the last parameter (as
- * text[]) and the owner, when the snapshot names one, the first: in every schema, its global entry of each kind or,
+ * The owner's default privileges granted to anyone but the owner, the owner the current role, the migration identity,
+ * and the installation's schemas the one parameter (as text[]): in every schema, its global entry of each kind or,
  * for functions and types, PostgreSQL's own defaults where it has none (acldefault; the other kinds' grant nobody else
  * anything); in each schema, the entries that add to those.
  */
-export const defaultPrivilegesQuery = (
-	expectation: DefaultPrivilegesExpectation
-): CatalogQuery<StoredDefaultGrant> => {
-	const [owner, schemas] =
-		expectation.owner.kind === "named"
-			? ([C.param(1, "text"), C.arrayParam(2, "text")] as const)
-			: ([C.currentUser, C.arrayParam(1, "text")] as const)
+export const defaultPrivilegesQuery = (): CatalogQuery<StoredDefaultGrant> => {
+	const owner = C.currentUser
+	const schemas = C.arrayParam(1, "text")
 	const r = C.from("pg_roles", "r")
 	const o = C.fromCte("o", "o")
 	const d = C.from("pg_default_acl", "d")
@@ -995,13 +991,10 @@ export const defaultPrivilegesQuery = (
 	}
 }
 
-/** The default privileges statement's parameters: the owner the snapshot names, if any, then the schemas. */
+/** The default privileges statement's parameters: the schemas. */
 export const defaultPrivilegesParams = (
 	expectation: DefaultPrivilegesExpectation
-): ReadonlyArray<ParamText> => [
-	...(expectation.owner.kind === "named" ? [textParam(expectation.owner.role)] : []),
-	textArray(expectation.schemas)
-]
+): ReadonlyArray<ParamText> => [textArray(expectation.schemas)]
 
 /** A default privilege the snapshot leaves and the catalog lacks, or one the catalog holds that it does not leave. */
 export interface DefaultPrivilegeDifference {

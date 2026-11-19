@@ -1337,7 +1337,7 @@ const addRole = (
 		{
 			kind: "roleSchema",
 			ident: { kind: "schema", name: schemaNamed },
-			ddl: [{ kind: "createSchema", name: schema, authorization: b.settings.owner }],
+			ddl: [{ kind: "createSchema", name: schema }],
 			reasons: why,
 			phase: "publish"
 		},
@@ -1882,7 +1882,8 @@ export interface Revocable {
 }
 
 /** PUBLIC holds no privilege on any schema object, and the owner's future objects grant it nothing: every level's
- * schema and every role's schema, every table and role view, every identity sequence and domain. */
+ * schema and every role's schema, every table and role view, every identity sequence and domain. Each default-privilege
+ * reset is the current role's, the migration identity's, which owns everything the installation creates. */
 const publicRevokes = (
 	b: InstallBuilder,
 	objects: Revocable & {
@@ -1923,14 +1924,10 @@ const publicRevokes = (
 			from
 		})
 	}
-	/** A migration's resets are the current role's, the migration identity's; a fresh-install script a superuser runs
-	 * names the owner (InstallSettings.owner). */
-	const forRole = b.settings.owner
 	for (const level of b.names.levels) {
 		for (const on of ["TABLES", "SEQUENCES"] as const) {
 			out.push({
 				kind: "alterDefaultPrivileges",
-				forRole,
 				inSchema: identifierOf(level),
 				privileges: ["ALL"],
 				on,
@@ -1941,7 +1938,6 @@ const publicRevokes = (
 	for (const on of ["FUNCTIONS", "TYPES"] as const) {
 		out.push({
 			kind: "alterDefaultPrivileges",
-			forRole,
 			inSchema: undefined,
 			privileges: ["ALL"],
 			on,

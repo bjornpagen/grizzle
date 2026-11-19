@@ -116,7 +116,6 @@ export type Feature =
 export const walk = (c: KeyCase, note: (feature: Feature) => void) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const owner = substrate.owner.role
 		const name = yield* substrate.schema({ create: false, label: "keys" })
 		const installation = identity.schema(parsedSchemaName(name))
 		const table = `${quoteIdent(identifierOf(installation))}.${quoteIdent(identifierOf(identity.table(parsedName("Item"))))}`
@@ -129,7 +128,7 @@ export const walk = (c: KeyCase, note: (feature: Feature) => void) =>
 		for (const [step, key] of c.keys.entries()) {
 			const draft = yield* draftVersion(
 				{ schema: schemaOf(name, key), logins: [], declarations: noDeclarations },
-				{ installation, owner, previous, step },
+				{ installation, previous, step },
 				{ extensions: [], compile: compileInstallation }
 			)
 			drafted.push(draft)

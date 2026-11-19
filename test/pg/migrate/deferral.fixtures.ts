@@ -100,7 +100,6 @@ export type Feature = "immediate then deferred" | "deferred then immediate" | "i
 export const walk = (c: DeferralCase, note: (feature: Feature) => void) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const owner = substrate.owner.role
 		const name = yield* substrate.schema({ create: false, label: "deferral" })
 		const installation = identity.schema(parsedSchemaName(name))
 		const table = (relationName: string) =>
@@ -112,7 +111,7 @@ export const walk = (c: DeferralCase, note: (feature: Feature) => void) =>
 		for (const [step, shape] of [c.before, c.after].entries()) {
 			const draft = yield* draftVersion(
 				{ schema: schemaOf(name, shape), logins: [], declarations: noDeclarations },
-				{ installation, owner, previous, step },
+				{ installation, previous, step },
 				{ extensions: [], compile: compileInstallation }
 			)
 			drafted.push(draft)

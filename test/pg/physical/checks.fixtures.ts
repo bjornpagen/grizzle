@@ -500,7 +500,7 @@ export const checksInstallation = (s: Planting) =>
 		const schemaName = yield* substrate.schema({ create: false, label: "checks" })
 		const owned = owning(s.value)
 		const real = compileInstallation(owned, {
-			...installOptions(owned, substrate.owner.role),
+			...installOptions(owned),
 			levels: [identity.schema(parsedSchemaName(schemaName))]
 		})
 		if (!real.ok) {

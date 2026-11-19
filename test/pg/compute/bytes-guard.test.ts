@@ -69,7 +69,7 @@ export const aGuardOfATextsBytesOnPostgreSQL19AdmitsACastIntoStrBytesExactlyWhen
 								const schemaName = yield* substrate.schema({ create: false, label: "bytes" })
 								const compiled = Result.flatMap(ownedInput(value), (owned) =>
 									compileInstallation(owned, {
-										...installOptions(owned, substrate.owner.role),
+										...installOptions(owned),
 										levels: [identity.schema(parsedSchemaName(schemaName))]
 									})
 								)

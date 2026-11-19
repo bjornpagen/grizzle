@@ -303,8 +303,7 @@ const draftNext = (
 	ordinal: number,
 	declared: Declarations
 ) =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
+	Effect.sync(() => {
 		const owned = succeeded(own(defined(schemaDescOf(version.schema), "a version's schema value")))
 		const rosters = rostersOf(owned)
 		const codes = succeeded(
@@ -323,7 +322,6 @@ const draftNext = (
 		const plan = succeeded(
 			planRealInstall(version.schema, {
 				installation: identity.schema(parsedSchemaName(m.declared)),
-				owner: substrate.owner.role,
 				logins: version.logins,
 				extensions: workload.extensions,
 				codes,

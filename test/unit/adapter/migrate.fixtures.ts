@@ -36,8 +36,7 @@ import {
 	draftedAt,
 	fromEmpty,
 	noDeclarations,
-	parsedMigrationName,
-	unowned
+	parsedMigrationName
 } from "#test/support/migrate/kit.ts"
 import { draftFiles } from "#test/support/migrate/review.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -99,17 +98,17 @@ export const shopChain = draftChain(
 	[
 		{
 			desc: shopV1,
-			options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
+			options: { schema: shopSchema, extensions: [], codes: firstCodes },
 			declared: noDeclarations
 		},
 		{
 			desc: shopV2,
-			options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
+			options: { schema: shopSchema, extensions: [], codes: firstCodes },
 			declared: noDeclarations
 		},
 		{
 			desc: shopV3,
-			options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
+			options: { schema: shopSchema, extensions: [], codes: firstCodes },
 			declared: shopV3Declared
 		}
 	],
@@ -125,7 +124,6 @@ const abandoning = succeeded(
 		previous: emptySnapshot({ schemaName: "Shop", schema: shop }),
 		installation: compile(shopV1, {
 			schema: shopSchema,
-			owner: unowned,
 			extensions: [],
 			codes: firstCodes
 		}),

@@ -65,7 +65,7 @@ export const strBytesMeetsATextAByteBoundRefinesMeetsEveryTextItsPatternMeetsAnd
 				]
 				const installation = succeeded(
 					Result.flatMap(ownedInput(schema("Meets", [A, B], statements, [])), (owned) =>
-						compileInstallation(owned, installOptions(owned, "owner"))
+						compileInstallation(owned, installOptions(owned))
 					),
 					"the containment compiles"
 				)

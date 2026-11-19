@@ -148,8 +148,7 @@ export const generatedFieldsOnPostgreSQL19rc2EveryGeneratedColumnHoldsWhatTheHos
 								succeeded(
 									draftCodes(first.version.schema, fromEmpty, noDeclarations),
 									"the first version's codes"
-								),
-								substrate.owner.role
+								)
 							)
 							const installing: System = {
 								m: { declared, owner, ownerLogin: ambient.credentials },
@@ -179,8 +178,7 @@ export const generatedFieldsOnPostgreSQL19rc2EveryGeneratedColumnHoldsWhatTheHos
 							const last = versionInstallation(
 								Arr.lastNonEmpty(builds).version,
 								declared,
-								codebookOf(snapshotOf(installing)),
-								substrate.owner.role
+								codebookOf(snapshotOf(installing))
 							)
 							const desk = defined(
 								Arr.findFirst(last.worlds, (l) => l.name === "desk").pipe(Option.getOrUndefined),

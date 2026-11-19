@@ -304,7 +304,6 @@ export type Feature =
 export const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const owner = substrate.owner.role
 		const name = yield* substrate.schema({ create: false, label: "lowering" })
 		const installation = identity.schema(parsedSchemaName(name))
 		const schemaIdent = identifierOf(installation)
@@ -328,7 +327,7 @@ export const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 					logins: [],
 					declarations: declaredAt(c, step)
 				},
-				{ installation, owner, previous, step },
+				{ installation, previous, step },
 				{ extensions: [], compile: compileInstallation }
 			)
 			const plan = draft.plan

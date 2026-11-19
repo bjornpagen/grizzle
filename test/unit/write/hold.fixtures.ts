@@ -321,7 +321,7 @@ const owned = owning(Units)
 
 const names: WriteNames = succeeded(
 	compileInstallation(owned, {
-		...installOptions(owned, "owner"),
+		...installOptions(owned),
 		levels: [identity.schema(parsedSchemaName(schemaName))]
 	})
 ).names

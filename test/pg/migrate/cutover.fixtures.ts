@@ -550,11 +550,10 @@ const builtOf = (w: World, declared: string) => {
 }
 
 /** The installation of a version's schema value under the allocated `name`, owned by `owner`, with its login. */
-const planned = (built: ReturnType<typeof builtOf>, name: string, owner: string): RealInstallPlan =>
+const planned = (built: ReturnType<typeof builtOf>, name: string): RealInstallPlan =>
 	succeeded(
 		planRealInstall(built.value, {
 			installation: identity.schema(parsedSchemaName(name)),
-			owner,
 			logins: [built.world.server],
 			extensions: [],
 			codes: firstCodebook(rostersOf(owning(built.value))),
@@ -1418,7 +1417,7 @@ const migration = (
 			h.steps++
 			const what = `step ${h.steps}`
 			const built = builtOf(after.installed, h.declared)
-			const plan = planned(built, h.declared, h.owner)
+			const plan = planned(built, h.declared)
 			const g = succeeded(
 				generate({
 					previous: h.previous,
@@ -1503,7 +1502,7 @@ const migration = (
 			)
 			assert.equal(again.change, "none", `${what}: the version drafts a further change`)
 			const fresh = yield* substrate.schema({ create: false, label: "cutover_fresh" })
-			const freshPlan = planned(built, fresh, h.owner)
+			const freshPlan = planned(built, fresh)
 			yield* transaction(substrate.admin, filledSql(freshPlan.drafted, substrate.database))
 			yield* sameCatalog(plan.installation, freshPlan.installation, what)
 			yield* sameRows(h, after.installed, after.facts, what)
@@ -1523,7 +1522,6 @@ const pastLimit = (h: History, before: Model, p: Params["re-key a relation past 
 		const plan = owned.ok
 			? planRealInstall(built.value, {
 					installation: identity.schema(parsedSchemaName(h.declared)),
-					owner: h.owner,
 					logins: [built.world.server],
 					extensions: [],
 					codes: firstCodebook(rostersOf(owned.value)),
@@ -1587,7 +1585,7 @@ export const history = (c: Cutover, note: (f: Feature) => void) =>
 			const ambient = yield* ambientOwner(ordinarySession, [schemaIdent])
 			const m = yield* openMigrator(substrate, ambient.credentials)
 			const built = builtOf(c.world, declared)
-			const plan = planned(built, declared, owner)
+			const plan = planned(built, declared)
 			const first = succeeded(
 				generate({
 					previous: fromEmpty,
@@ -1810,7 +1808,6 @@ export const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
 			const tree = oldFormTree()
-			const owner = substrate.owner.role
 			yield* Effect.addFinalizer(() =>
 				Effect.orDie(
 					substrate.admin.query(`DROP SCHEMA IF EXISTS ${q(tree.snapshot.schema)} CASCADE`, [])
@@ -1900,7 +1897,6 @@ export const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 			const freshPlan = succeeded(
 				planRealInstall(value, {
 					installation: identity.schema(parsedSchemaName(fresh)),
-					owner,
 					logins: [],
 					extensions: [],
 					codes: firstCodebook(rostersOf(owning(value))),

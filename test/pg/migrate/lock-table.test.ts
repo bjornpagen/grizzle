@@ -49,7 +49,7 @@ import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { draftChain, fromEmpty, noDeclarations, ownedBy } from "#test/support/migrate/kit.ts"
+import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { tappedSession } from "#test/support/wire-tap.ts"
@@ -93,7 +93,6 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
 							})
 							const over = {
 								schema: atName(allocated),
-								owner: ownedBy(owner),
 								extensions: [],
 								codes: firstCodes
 							}

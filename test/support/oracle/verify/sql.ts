@@ -2499,9 +2499,6 @@ class StatementAuditor {
 		switch (statement.kind) {
 			case "createSchema":
 				this.ident(statement.name, "schema", "name")
-				if (statement.authorization !== undefined) {
-					this.ident(statement.authorization, "role", "authorization")
-				}
 				return
 			case "createTable":
 				this.createTable(statement)
@@ -2850,9 +2847,6 @@ class StatementAuditor {
 				return
 			}
 			case "alterDefaultPrivileges":
-				if (statement.forRole !== undefined) {
-					this.ident(statement.forRole, "role", "forRole")
-				}
 				if (statement.inSchema !== undefined) {
 					this.ident(statement.inSchema, "schema", "inSchema")
 				}

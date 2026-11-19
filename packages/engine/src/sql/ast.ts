@@ -1278,11 +1278,10 @@ export type TableConstraint =
 			readonly elements: NonEmptyReadonlyArray<ExclusionElement>
 	  }
 
-/** An undefined AUTHORIZATION is the current role's. */
+/** A schema the role that creates it owns: the migration identity, whoever connects. */
 export interface CreateSchema {
 	readonly kind: "createSchema"
 	readonly name: string
-	readonly authorization: string | undefined
 }
 
 export type PrimaryKey = Extract<TableConstraint, { readonly kind: "primaryKey" }>
@@ -1917,9 +1916,8 @@ export interface GrantColumns {
 }
 
 /**
- * ALTER DEFAULT PRIVILEGES [FOR ROLE <owner>] [IN SCHEMA <s>] REVOKE ALL ON <kind> FROM PUBLIC. Without
- * FOR ROLE it is the current role's, the migration identity's when a migration runs it, so a drafted migration never
- * names the owner.
+ * ALTER DEFAULT PRIVILEGES [IN SCHEMA <s>] REVOKE ALL ON <kind> FROM PUBLIC: the current role's, the migration
+ * identity's, the owner of everything the installation creates, so no statement names the owner.
  * PostgreSQL adds per-schema default ACLs to the global ones and cannot revoke a global default per schema, so the
  * built-in PUBLIC EXECUTE on functions and PUBLIC USAGE on types are reset only by the global form, without
  * IN SCHEMA (future objects receive nothing implicitly): a global entry replaces the hard-wired default and a schema's
@@ -1930,8 +1928,6 @@ export interface GrantColumns {
  */
 export interface AlterDefaultPrivileges {
 	readonly kind: "alterDefaultPrivileges"
-	/** Undefined: the current role. */
-	readonly forRole: string | undefined
 	/** Undefined: the global form, for every schema in the database. */
 	readonly inSchema: string | undefined
 	readonly privileges: NonEmptyReadonlyArray<Privilege>

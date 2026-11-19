@@ -1095,7 +1095,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 	 * DDL, in installation order: namespace; each roster's names constant and its domain; contract domains; tables with
 	 * their keys; references; then the PUBLIC revokes.
 	 */
-	const ddl: Array<Ddl> = [{ kind: "createSchema", name: schema, authorization: undefined }]
+	const ddl: Array<Ddl> = [{ kind: "createSchema", name: schema }]
 	/** A span key over more than its span field needs btree_gist's operator classes for the others. */
 	const needsBtreeGist = Arr.some([...tables.values()], (t) =>
 		Arr.some([t.primaryKey, ...t.keys], (k) => k.span.kind === "span" && k.fields.length > 1)

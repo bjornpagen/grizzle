@@ -204,7 +204,7 @@ export const textInstallation = (s: ReturnType<typeof dictionarySchema>) =>
 		const schemaName = yield* substrate.schema({ create: false, label: "text" })
 		const owned = owning(s.value)
 		const real = compileInstallation(owned, {
-			...installOptions(owned, substrate.owner.role),
+			...installOptions(owned),
 			levels: [identity.schema(parsedSchemaName(schemaName))]
 		})
 		if (!real.ok) {

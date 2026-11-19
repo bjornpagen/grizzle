@@ -142,7 +142,7 @@ export const theArtifactsOfASchemaAreOneValueWhicheverInputReachesTheSchemaUnder
 							owned.fingerprint,
 							`${s.label} through ${first}: artifacts of another Owned`
 						)
-						const declared = installOptions(owned, undefined)
+						const declared = installOptions(owned)
 						assert.equal(a.names.schema, declared.levels[0].identifier)
 						assert.equal<string>(a.names.vectorSchema, declared.vectorSchema)
 					}),

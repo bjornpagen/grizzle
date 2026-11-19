@@ -54,9 +54,9 @@ import {
 	setCaseGen
 } from "#test/pg/sql/evaluated.ts"
 import {
-	textOf,
 	booleanFunction,
 	catalogArmsGen,
+	commands,
 	decimalSpelled,
 	literalsGen,
 	type PrivilegeFeature,
@@ -66,6 +66,7 @@ import {
 	run,
 	sql,
 	textLit,
+	textOf,
 	zero
 } from "#test/pg/sql/print.fixtures.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
@@ -201,16 +202,15 @@ export const printedSQLOnPostgreSQL19ResetsPUBLICsDefaultsOnFunctionsAndTypesOnl
 										[]
 									)
 									const m = yield* s.session({ ...roleSession(maker) })
-									yield* run(s.admin, [
-										{
-											kind: "alterDefaultPrivileges",
-											forRole: maker.role,
-											inSchema: scope === "schema" ? schema : undefined,
-											privileges: ["ALL"],
-											on,
-											from: [{ kind: "PUBLIC" }]
-										}
-									])
+									for (const command of commands({
+										kind: "alterDefaultPrivileges",
+										inSchema: scope === "schema" ? schema : undefined,
+										privileges: ["ALL"],
+										on,
+										from: [{ kind: "PUBLIC" }]
+									})) {
+										yield* m.query(command, [])
+									}
 									const created = `__made_${own}`
 									yield* m.query(
 										sql(
@@ -259,8 +259,8 @@ export const printedSQLOnPostgreSQL19ResetsPUBLICsDefaultsOnFunctionsAndTypesOnl
 			kills: [
 				{
 					file: "packages/engine/src/sql/print.ts",
-					original: `\t\t\t\t\`ALTER DEFAULT PRIVILEGES\${statement.forRole === undefined ? "" : \` FOR ROLE \${quoteIdent(statement.forRole)}\`}\${statement.inSchema === undefined ? "" : \` IN SCHEMA \${quoteIdent(statement.inSchema)}\`} REVOKE \${statement.privileges.join(", ")} ON \${statement.on} FROM \${statement.from.map(printGrantee).join(", ")}\``,
-					replacement: `\t\t\t\t\`ALTER DEFAULT PRIVILEGES\${statement.forRole === undefined ? "" : \` FOR ROLE \${quoteIdent(statement.forRole)}\`} REVOKE \${statement.privileges.join(", ")} ON \${statement.on} FROM \${statement.from.map(printGrantee).join(", ")}\``,
+					original: `\t\t\t\t\`ALTER DEFAULT PRIVILEGES\${statement.inSchema === undefined ? "" : \` IN SCHEMA \${quoteIdent(statement.inSchema)}\`} REVOKE \${statement.privileges.join(", ")} ON \${statement.on} FROM \${statement.from.map(printGrantee).join(", ")}\``,
+					replacement: `\t\t\t\t\`ALTER DEFAULT PRIVILEGES REVOKE \${statement.privileges.join(", ")} ON \${statement.on} FROM \${statement.from.map(printGrantee).join(", ")}\``,
 					why: "IN SCHEMA is dropped from a reset; the default privileges property fails."
 				}
 			]

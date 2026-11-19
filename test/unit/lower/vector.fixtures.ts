@@ -51,7 +51,7 @@ const ownedSearch = owning(Search)
 
 const installation = succeeded(
 	compileInstallation(ownedSearch, {
-		...installOptions(ownedSearch, "grizzle_dev"),
+		...installOptions(ownedSearch),
 		levels: [identity.schema(parsedSchemaName("search"))]
 	})
 )

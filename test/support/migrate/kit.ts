@@ -57,27 +57,17 @@ import { ownedInput, owning } from "#test/support/policy.ts"
 /** What a deployment test compiles: a schema value, a decoded SchemaDesc, or a description authored as a fixture. */
 export type DeploySubject = AnySchema | SchemaDesc | AuthoredSchemaDesc
 
-/** The owner an installation names: none, as `grizzle generate` drafts it, or a role, as a fresh-install script a
- * superuser runs names it. */
-export type InstallOwner =
-	| { readonly kind: "unowned" }
-	| { readonly kind: "role"; readonly ident: string }
-export const unowned: InstallOwner = { kind: "unowned" }
-export const ownedBy = (ident: string): InstallOwner => ({ kind: "role", ident })
-
-/** What an installation is compiled under: its schema, its owner, the installer extensions besides the residual
+/** What an installation is compiled under: its schema, the installer extensions besides the residual
  * laws' and the derived relations' (a workload's index requests), and its codes, a fresh installation's or those a
  * draft drafted from the snapshot it continues (draftCodes). */
 export interface CompileOver {
 	readonly schema: InstalledAt
-	readonly owner: InstallOwner
 	readonly extensions: ReadonlyArray<InstallExtension>
 	readonly codes: TestCodes
 }
-/** As `grizzle generate` drafts a first installation: its declared schema, no owner, no workload, a fresh one's codes. */
+/** As `grizzle generate` drafts a first installation: its declared schema, no workload, a fresh one's codes. */
 export const asDrafted: CompileOver = {
 	schema: atDeclaredName,
-	owner: unowned,
 	extensions: [],
 	codes: firstCodes
 }
@@ -94,10 +84,10 @@ export const compilation = (
 			? installationsOf(owned)
 			: allocatedLevels(over.schema.installation, owned.levels)
 	const codes = over.codes.kind === "installed" ? over.codes.codes : firstCodebook(rostersOf(owned))
-	return compileInstallation(owned, {
-		...completeInstallOptions(owned, installation, [], over.extensions, codes),
-		owner: over.owner.kind === "unowned" ? undefined : over.owner.ident
-	})
+	return compileInstallation(
+		owned,
+		completeInstallOptions(owned, installation, [], over.extensions, codes)
+	)
 }
 
 /** The complete installation of a schema (`compilation`), which compiles. */

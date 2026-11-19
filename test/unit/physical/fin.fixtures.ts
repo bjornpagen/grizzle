@@ -203,9 +203,7 @@ export const schemaOf = (d: Declaration) => {
 
 /** A schema value's installation, its refusal on the way included. */
 export const compiled = (value: FixtureSchema) =>
-	Result.flatMap(ownedInput(value), (owned) =>
-		compileInstallation(owned, installOptions(owned, "owner"))
-	)
+	Result.flatMap(ownedInput(value), (owned) => compileInstallation(owned, installOptions(owned)))
 
 /** A pack's held cells, each its index and payload code, read back from its hex literal. */
 const rowsOf = (p: PackConstant): ReadonlyArray<Entry> =>

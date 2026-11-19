@@ -584,7 +584,7 @@ export const property = (
 		const installation = artifacts.ok
 			? refusalOf(
 					compileInstallation(owning(value), {
-						...installOptions(owning(value), "owner"),
+						...installOptions(owning(value)),
 						levels: [identity.schema(parsedSchemaName("fill"))]
 					})
 				)

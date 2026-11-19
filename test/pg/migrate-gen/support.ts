@@ -2996,10 +2996,9 @@ const versionCodes = (v: Version): Codebook => ({
 
 /** The installation plan of a version under `schema`, for its physical names and its fact statements: a fresh install
  * under the version's codes, so it installs every law and derived relation, as a draft's compilation does. */
-export const planOf = (v: Version, schema: string, owner: string): RealInstallPlan => {
+export const planOf = (v: Version, schema: string): RealInstallPlan => {
 	const planned = planRealInstall(v.desc, {
 		installation: identity.schema(parsedSchemaName(schema)),
-		owner,
 		logins: versionLogins(v),
 		extensions: extensionsOf(v),
 		codes: versionCodes(v),

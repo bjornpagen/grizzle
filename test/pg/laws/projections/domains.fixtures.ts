@@ -411,7 +411,7 @@ export const domainsInstallation = Effect.gen(function* () {
 	const schemaName = yield* substrate.schema({ create: false, label: "naturals" })
 	const owned = owning(Slots)
 	const real = compileInstallation(owned, {
-		...installOptions(owned, substrate.owner.role),
+		...installOptions(owned),
 		levels: [identity.schema(parsedSchemaName(schemaName))]
 	})
 	if (!real.ok) {

@@ -111,10 +111,10 @@ export const dependentKeysOnPostgreSQLEveryReaderReadsEachKeysOwnCellAndASlotCod
 						const built = schemaOf(name, c)
 						const owned = succeeded(ownedInput(built.base))
 						const compiled = succeeded(
-							compileInstallation(owned, {
-								...completeInstallOptions(owned, [installation], [], [], codes),
-								owner: s.owner.role
-							})
+							compileInstallation(
+								owned,
+								completeInstallOptions(owned, [installation], [], [], codes)
+							)
 						)
 						yield* transaction(s.admin, installationSql(compiled, s.database))
 						const names = compiled.names

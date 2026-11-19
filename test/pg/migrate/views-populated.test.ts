@@ -30,7 +30,7 @@ import {
 import { assert, defined } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName } from "#test/support/kernel/naming.ts"
-import { draftChain, fromEmpty, noDeclarations, ownedBy } from "#test/support/migrate/kit.ts"
+import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { type Change, schemaOf } from "#test/unit/deploy/view-identity.fixtures.ts"
 
@@ -67,7 +67,6 @@ export const everyViewIsPopulatedAfterMigrate = property.exhaust(
 								const allocated = yield* substrate.schema({ create: false, label: "populated" })
 								const over = {
 									schema: atName(allocated),
-									owner: ownedBy(substrate.owner.role),
 									extensions: [],
 									codes: firstCodes
 								}

@@ -98,7 +98,7 @@ export const installation = succeeded(
 		owned,
 		servingParams(
 			{
-				...installOptions(owned, "grizzle_dev"),
+				...installOptions(owned),
 				levels: allocatedLevels(identity.schema(parsedSchemaName("refined_order")), owned.levels)
 			},
 			Refined,

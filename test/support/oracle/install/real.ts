@@ -71,8 +71,6 @@ interface RealPlanOptions {
 	 * identifier.
 	 */
 	readonly installation: Identity<"schema">
-	/** The migration identity, which owns the schema. */
-	readonly owner: string
 	/** The logins installed with it, each a login value or a LoginDesc over the schema as declared; [] for none. */
 	readonly logins: ReadonlyArray<LoginSource>
 	/**
@@ -223,8 +221,9 @@ const build = (input: FixtureSchema, options: RealPlanOptions): RealInstallPlan 
 		throw renamed.error
 	}
 	const declared = renamed.value
-	const compiled = options.compile(declared, {
-		...completeInstallOptions(
+	const compiled = options.compile(
+		declared,
+		completeInstallOptions(
 			declared,
 			installationsOf(declared),
 			Arr.map(
@@ -233,9 +232,8 @@ const build = (input: FixtureSchema, options: RealPlanOptions): RealInstallPlan 
 			),
 			options.extensions,
 			options.codes
-		),
-		owner: options.owner
-	})
+		)
+	)
 	if (!compiled.ok) {
 		throw compiled.error
 	}
@@ -513,7 +511,7 @@ export const planRealInstall = (
 }
 
 /**
- * The plan of a generated schema on the real installer under `installation`, owned by `owner`, with the one login a
+ * The plan of a generated schema on the real installer under `installation`, with the one login a
  * generated schema runs as (oracleLogin), its rosters numbered by `codes`: the codes its case states, which every
  * literal and parameter of the case is encoded by. It installs the types the case's query casts its declared parameters
  * `params` to (test/support/compile.ts declaredParams), each pattern parameter's own domain and each contract outside
@@ -524,13 +522,11 @@ export const planRealInstall = (
 export const oraclePlanUnder = (
 	desc: SchemaDesc,
 	installation: Identity<"schema">,
-	owner: string,
 	codes: Codebook,
 	params: ReadonlyArray<ParamDecl>
 ): Result.Result<RealInstallPlan, CompileError> =>
 	planRealInstall(desc, {
 		installation,
-		owner,
 		logins: [oracleLogin(desc)],
 		extensions: [declaredParams("the case's query", params)],
 		codes,
@@ -544,11 +540,10 @@ export const oraclePlanUnder = (
 export const oraclePlan = (
 	desc: SchemaDesc,
 	installation: Identity<"schema">,
-	owner: string,
 	params: ReadonlyArray<ParamDecl>
 ): Result.Result<RealInstallPlan, CompileError> =>
 	Result.flatMap(ownedInput(desc), (owned) =>
-		oraclePlanUnder(desc, installation, owner, firstCodebook(rostersOf(owned)), params)
+		oraclePlanUnder(desc, installation, firstCodebook(rostersOf(owned)), params)
 	)
 
 interface InstalledRealSchema {
@@ -622,7 +617,6 @@ export const installRealSchema = (
 		const plan = yield* fromEngine(
 			planRealInstall(input, {
 				installation: identity.schema(parsedSchemaName(schema)),
-				owner: substrate.owner.role,
 				logins: options.logins,
 				extensions: options.extensions,
 				codes: firstCodebook(rostersOf(owned)),

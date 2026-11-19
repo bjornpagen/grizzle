@@ -11,7 +11,7 @@ export const writeNamesOf = (schemaValue: FixtureSchema, schema: string): WriteN
 	const owned = owning(schemaValue)
 	return succeeded(
 		compileInstallation(owned, {
-			...installOptions(owned, "owner"),
+			...installOptions(owned),
 			levels: [identity.schema(parsedSchemaName(schema))]
 		})
 	).names

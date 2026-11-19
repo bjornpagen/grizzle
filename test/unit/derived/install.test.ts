@@ -60,7 +60,7 @@ export const derivedRelationViewColumnsRefuseTwoHeadNamesConvertingToOneColumnId
 				const a = spell(p.left, p.spelled[0])
 				const b = spell(p.right, p.spelled[1])
 				const installed = Result.flatMap(own(decodedSchema(pairs(a, b))), (owned) =>
-					compileInstallation(owned, withDerivedRelations(installOptions(owned, "owner")))
+					compileInstallation(owned, withDerivedRelations(installOptions(owned)))
 				)
 				if (Arr.makeEquivalence(Str.Equivalence)(p.left, p.right)) {
 					c.note(

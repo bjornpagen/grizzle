@@ -67,7 +67,7 @@ const nested = owning(Nested)
 
 const names: WriteNames = succeeded(
 	compileInstallation(nested, {
-		...installOptions(nested, "owner"),
+		...installOptions(nested),
 		levels: [identity.schema(parsedSchemaName("nested"))]
 	})
 ).names

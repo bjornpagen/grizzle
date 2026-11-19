@@ -62,7 +62,7 @@ export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarri
 			Effect.sync(() => {
 				const desc = docSchema(t)
 				const owned = succeeded(ownedInput(desc))
-				const compiled = compileInstallation(owned, installOptions(owned, "owner"))
+				const compiled = compileInstallation(owned, installOptions(owned))
 				const bytes = bytesOf(t)
 				if (bytes === undefined) {
 					c.note("unbounded")
@@ -126,10 +126,10 @@ export const aCarriedSetsKeyIsSizedByItsRostersCodesHolesIncludedAndRefusedPastT
 		check: (_, c: Case<SetFeature>) => (holes: number) =>
 			Effect.sync(() => {
 				const codes = live + holes
-				const compiled = compileInstallation(owned, {
-					...completeInstallOptions(owned, installationsOf(owned), [], [], codesWith(holes)),
-					owner: "owner"
-				})
+				const compiled = compileInstallation(
+					owned,
+					completeInstallOptions(owned, installationsOf(owned), [], [], codesWith(holes))
+				)
 				const bytes = entryOf(codes)
 				if (bytes <= btreeMaxItemSize) {
 					succeeded(compiled, `${holes} holes: an entry of ${bytes} bytes fits`)

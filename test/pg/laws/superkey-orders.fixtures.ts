@@ -37,7 +37,6 @@ import {
 	fromSnapshot,
 	generate,
 	noDeclarations,
-	ownedBy,
 	type Previous
 } from "#test/support/migrate/kit.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -478,10 +477,9 @@ export const walkCase = (
 ) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const owner = substrate.owner.role
 		const name = yield* substrate.schema({ create: false, label: "superkey_moves" })
 		const m = yield* openMigrator(substrate, substrate.owner)
-		const over = { ...asDrafted, schema: atName(name), owner: ownedBy(owner) }
+		const over = { ...asDrafted, schema: atName(name) }
 		const steps = [stepOf(undefined), stepOf(second), stepOf(undefined)] as const
 		const folders: Array<FolderTexts> = []
 		let previous: Previous = fromEmpty

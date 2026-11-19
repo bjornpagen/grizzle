@@ -760,11 +760,10 @@ const builtOf = (m: Model) => Effect.orDie(buildInstall(installOf(m), declared))
  * The installation plan of a version's built values under `schema`, owned by `owner`, with its logins' worlds, under
  * the codes a fresh installation gives Tier, which no command changes.
  */
-const planned = (built: Built, schema: string, owner: string): RealInstallPlan =>
+const planned = (built: Built, schema: string): RealInstallPlan =>
 	succeeded(
 		planRealInstall(built.base, {
 			installation: identity.schema(parsedSchemaName(schema)),
-			owner,
 			logins: Rec.values(built.logins),
 			extensions: [],
 			codes: firstCodebook(rostersOf(owning(built.base))),
@@ -1099,7 +1098,7 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 			const m = yield* openMigrator(substrate, substrate.owner)
 			const built = yield* builtOf(after)
 			const v = versionOfModel(after)
-			const plan = planned(built, h.schema, h.owner)
+			const plan = planned(built, h.schema)
 			h.steps++
 			const declarations = identityDeclarations(before, after)
 			const g = succeeded(
@@ -1147,7 +1146,7 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 			)
 			h.rows = model.expected
 			const fresh = yield* substrate.schema({ create: false, label: "histories_fresh" })
-			const freshPlan = planned(built, fresh, h.owner)
+			const freshPlan = planned(built, fresh)
 			yield* transaction(substrate.admin, filledSql(freshPlan.drafted, substrate.database))
 			yield* sameCatalog(plan.installation, freshPlan.installation, `step ${h.steps}`)
 			const loaded = factStatements(freshPlan, factSetOf(v, model.expected))
@@ -1171,7 +1170,7 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 const exchange = (h: History, before: Model, p: Params["exchange a login's and a role's names"]) =>
 	Effect.gen(function* () {
 		const built = yield* builtOf(exchanged(before, p))
-		const plan = planned(built, h.schema, h.owner)
+		const plan = planned(built, h.schema)
 		h.steps++
 		const login = nth(before.logins, p.login, "login")
 		const error = refused(
@@ -1268,7 +1267,7 @@ export const history = (steps: Program<Params>, note: (f: Feature) => void) =>
 			const m = yield* openMigrator(substrate, substrate.owner)
 			const built = yield* builtOf(initial)
 			const v = versionOfModel(initial)
-			const plan = planned(built, schema, owner)
+			const plan = planned(built, schema)
 			const first = succeeded(
 				generate({
 					previous: fromEmpty,

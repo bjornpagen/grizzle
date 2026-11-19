@@ -14,11 +14,6 @@ import {
 } from "#compiler/physical/install/extension.ts"
 import { eq, key, on, onWhere, type SchemaDesc, textDesc } from "#test/support/fixtures/ir/desc.ts"
 
-/** The local cluster's migration identity (pg.config.ts), which an installation names as its owner.
- *
- * Beside it, Ledger: one schema for the fresh-install compiler's tests that reaches every native object it installs. */
-export const owner = "grizzle_dev"
-
 /** An installer extension that contributes `requests` to the index engine, as the workload extension contributes its
  * programs' access paths. */
 export const requesting = (requests: ReadonlyArray<IndexRequest>): InstallExtension => ({

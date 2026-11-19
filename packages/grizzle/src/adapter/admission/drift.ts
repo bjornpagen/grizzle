@@ -1836,7 +1836,7 @@ export const driftCheck = (
 		const database = flight.query(databaseSettingsQuery, [])
 		const defaults = Arr.map(defaultPrivilegesExpectations(statements, schema), (expectation) => ({
 			expectation,
-			slot: flight.query(defaultPrivilegesQuery(expectation), defaultPrivilegesParams(expectation))
+			slot: flight.query(defaultPrivilegesQuery(), defaultPrivilegesParams(expectation))
 		}))
 		const roleReads = Arr.map(roles, (r) => ({
 			expectation: r,

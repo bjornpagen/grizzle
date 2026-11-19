@@ -107,17 +107,16 @@ export const pathCase = (p: RenamedPath, ambient: AmbientSession, notes: Case<Fe
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
-			const owner = substrate.owner.role
 			const x = yield* substrate.schema({ create: false, label: "paths_x" })
 			const y = yield* substrate.schema({ create: false, label: "paths_y" })
 			const login = yield* ambientOwner(
 				ambient,
 				Arr.dedupe(
-					Arr.appendAll(installedSchemas(planOf(p.path.a, x, owner).installation), [
-						...installedSchemas(planOf(p.path.b, x, owner).installation),
-						...installedSchemas(planOf(p.path.c, x, owner).installation),
-						...installedSchemas(planOf(p.path.a, y, owner).installation),
-						...installedSchemas(planOf(p.path.c, y, owner).installation)
+					Arr.appendAll(installedSchemas(planOf(p.path.a, x).installation), [
+						...installedSchemas(planOf(p.path.b, x).installation),
+						...installedSchemas(planOf(p.path.c, x).installation),
+						...installedSchemas(planOf(p.path.a, y).installation),
+						...installedSchemas(planOf(p.path.c, y).installation)
 					])
 				)
 			)
@@ -152,7 +151,7 @@ export const pathCase = (p: RenamedPath, ambient: AmbientSession, notes: Case<Fe
 			)
 			const load = (schema: string, v: Version, facts: ValueFacts) =>
 				Effect.gen(function* () {
-					const statements = factStatements(planOf(v, schema, owner), factSetOf(v, facts))
+					const statements = factStatements(planOf(v, schema), factSetOf(v, facts))
 					if (!statements.ok) {
 						return yield* failed(statements.error.message)
 					}
@@ -166,43 +165,33 @@ export const pathCase = (p: RenamedPath, ambient: AmbientSession, notes: Case<Fe
 				Effect.scoped(
 					Effect.gen(function* () {
 						const f = yield* substrate.schema({ create: false, label: "paths_fresh" })
-						const freshPlan = planOf(v, f, owner)
+						const freshPlan = planOf(v, f)
 						yield* transaction(substrate.admin, filledSql(freshPlan.drafted, substrate.database))
-						yield* sameCatalog(
-							planOf(v, migrated, owner).installation,
-							freshPlan.installation,
-							what
-						)
+						yield* sameCatalog(planOf(v, migrated).installation, freshPlan.installation, what)
 					})
 				)
 
 			/** X: A, its facts, B, then C. (a) at every apply. */
-			const dx = yield* Effect.fromResult(drafted([a, b, c], x, owner, p.choose))
+			const dx = yield* Effect.fromResult(drafted([a, b, c], x, p.choose))
 			yield* apply(m, directory(dx, 0), noFurther)
 			yield* load(x, p.path.a, model.loaded)
 			yield* apply(m, directory(dx, 1), noFurther)
 			notes.note("a step applied")
 			yield* fresh(x, p.path.b, "(a) A to B")
-			yield* identitiesPast(planOf(p.path.b, x, owner), "(d) A to B")
+			yield* identitiesPast(planOf(p.path.b, x), "(d) A to B")
 			/** (b) against a fresh installation of B holding the model's rows. */
 			const freshRows = yield* Effect.scoped(
 				Effect.gen(function* () {
 					const f = yield* substrate.schema({ create: false, label: "paths_fresh" })
 					yield* transaction(
 						substrate.admin,
-						filledSql(planOf(p.path.b, f, owner).drafted, substrate.database)
+						filledSql(planOf(p.path.b, f).drafted, substrate.database)
 					)
 					yield* load(f, p.path.b, model.expected)
-					return yield* storedRowsOf(m, planOf(p.path.b, f, owner), p.path.b, f, model.numbered)
+					return yield* storedRowsOf(m, planOf(p.path.b, f), p.path.b, f, model.numbered)
 				})
 			)
-			const migratedRows = yield* storedRowsOf(
-				m,
-				planOf(p.path.b, x, owner),
-				p.path.b,
-				x,
-				model.numbered
-			)
+			const migratedRows = yield* storedRowsOf(m, planOf(p.path.b, x), p.path.b, x, model.numbered)
 			yield* same(
 				migratedRows,
 				freshRows,
@@ -210,18 +199,18 @@ export const pathCase = (p: RenamedPath, ambient: AmbientSession, notes: Case<Fe
 			)
 			yield* apply(m, directory(dx, 2), noFurther)
 			yield* fresh(x, p.path.c, "(a) A to B to C")
-			yield* identitiesPast(planOf(p.path.c, x, owner), "(d) A to B to C")
+			yield* identitiesPast(planOf(p.path.c, x), "(d) A to B to C")
 
 			/** (c) Y: A, then C directly, its rosters' codes the direct migration's (directVersion). */
 			const direct = directVersion(p.path)
 			const dy = yield* Effect.fromResult(
-				drafted([a, { version: direct, origins: p.origins.c }], y, owner, p.choose)
+				drafted([a, { version: direct, origins: p.origins.c }], y, p.choose)
 			)
 			yield* apply(m, directory(dy, 0), noFurther)
 			yield* load(y, p.path.a, model.loaded)
 			yield* apply(m, directory(dy, 1), noFurther)
 			yield* fresh(y, direct, "(c) A to C")
-			yield* identitiesPast(planOf(direct, y, owner), "(d) A to C")
+			yield* identitiesPast(planOf(direct, y), "(d) A to C")
 		})
 	)
 

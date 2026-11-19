@@ -24,7 +24,7 @@ import { parseIdent } from "#compiler/physical/obligations/graph.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName } from "#test/support/kernel/naming.ts"
-import { draftChain, fromEmpty, noDeclarations, ownedBy } from "#test/support/migrate/kit.ts"
+import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import { specifiedReplay, specifiedTainted } from "#test/support/migrate/proofs.ts"
 import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
 
@@ -58,7 +58,6 @@ const chain: ReadonlyArray<DeploySnapshot> = Arr.map(
 				desc,
 				options: {
 					schema: atName("proof_digests"),
-					owner: ownedBy("proof_digests_owner"),
 					extensions: [],
 					codes: firstCodes
 				},

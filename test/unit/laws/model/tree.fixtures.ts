@@ -40,7 +40,6 @@ import {
 	reverseSets,
 	ridingLaws
 } from "#test/unit/laws/model/natives.ts"
-import { owner } from "#test/unit/physical/fixtures.ts"
 
 type Copy = "caller" | "accumulated"
 
@@ -384,9 +383,7 @@ export const checkShape = (s: Shape): void => {
 	const model = modelOf(desc)
 	assertWellFormed(model)
 	const owned = owning(desc)
-	assertReferencesServed(
-		succeeded(compileInstallation(owned, installOptions(owned, owner))).statements
-	)
+	assertReferencesServed(succeeded(compileInstallation(owned, installOptions(owned))).statements)
 	assert.deepEqual(foreignKeyShapes(model), expectedForeignKeys(s))
 	assert.deepEqual(keySets(model, "Node"), expectedKeys(s))
 	assert.deepEqual(

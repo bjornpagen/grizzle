@@ -224,21 +224,16 @@ export const historySteered: Steered<History, FixtureFeature> = (steering) => {
 
 /** A version's installation under `name`, owned by `owner`, with its logins: the complete installation, its derived
  * relations included, as `grizzle generate` compiles it. */
-const compiledAt = (
-	version: Version,
-	name: string,
-	owner: string,
-	codes: Codebook
-): Installation => {
+const compiledAt = (version: Version, name: string, codes: Codebook): Installation => {
 	const owned = owning(renamed(version.desc, name))
 	const logins = Arr.map(version.logins(name), (l) =>
 		succeeded(ownLogin(defined(loginDescOf(l), "a login value")))
 	)
 	return succeeded(
-		compileInstallation(owned, {
-			...completeInstallOptions(owned, installationsOf(owned), logins, [], codes),
-			owner
-		})
+		compileInstallation(
+			owned,
+			completeInstallOptions(owned, installationsOf(owned), logins, [], codes)
+		)
 	)
 }
 
@@ -269,7 +264,6 @@ export const migrates = (h: History) =>
 	Effect.gen(function* () {
 		const history = { label: h.family.label, versions: versionsOf(h) }
 		const substrate = yield* Substrate
-		const owner = substrate.owner.role
 		const name = yield* substrate.schema({ create: false, label: history.label })
 		const m = yield* openMigrator(substrate, substrate.owner)
 		const folders: Array<FolderTexts> = []
@@ -280,7 +274,6 @@ export const migrates = (h: History) =>
 			const installation = compiledAt(
 				version,
 				name,
-				owner,
 				succeeded(draftCodes(renamed(version.desc, name), previous, declared))
 			)
 			const g: GenerateResult = succeeded(
@@ -318,10 +311,10 @@ export const migrates = (h: History) =>
 		yield* Effect.scoped(
 			Effect.gen(function* () {
 				const schema = yield* substrate.schema({ create: false, label: `${history.label}_fresh` })
-				const fresh = compiledAt(last, schema, owner, codebookOf(snapshot))
+				const fresh = compiledAt(last, schema, codebookOf(snapshot))
 				yield* transaction(substrate.admin, installationSql(fresh, substrate.database))
 				yield* sameCatalog(
-					compiledAt(last, name, owner, codebookOf(snapshot)),
+					compiledAt(last, name, codebookOf(snapshot)),
 					fresh,
 					`${history.label}: the migrated history against a fresh install`
 				)
@@ -358,7 +351,7 @@ export const migrates = (h: History) =>
 		 * Db.open of every role of the last version's logins, each login served from its file compiled under the committed
 		 * snapshot.
 		 */
-		const installation = compiledAt(last, name, owner, codebookOf(snapshot))
+		const installation = compiledAt(last, name, codebookOf(snapshot))
 		const scope = yield* Effect.scope
 		const decoderOf = yield* decodersIn(substrate, scope)
 		for (const login of last.logins(name)) {

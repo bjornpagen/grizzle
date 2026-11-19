@@ -617,23 +617,22 @@ interface Step {
 const installationOf = (
 	version: Version,
 	schema: string,
-	owner: string,
 	previous: Previous,
 	declared: Declarations
 ): Installation => {
 	const owned = owning(version.desc)
 	const logins = Arr.map(versionLogins(version), (l) => succeeded(ownLogin(l)))
 	return succeeded(
-		compileInstallation(owned, {
-			...completeInstallOptions(
+		compileInstallation(
+			owned,
+			completeInstallOptions(
 				owned,
 				[identity.schema(parsedSchemaName(schema))],
 				logins,
 				extensionsOf(version),
 				succeeded(draftCodes(version.desc, previous, declared))
-			),
-			owner
-		})
+			)
+		)
 	)
 }
 
@@ -679,7 +678,6 @@ export const identitiesPast = (
 export const drafted = (
 	versions: ReadonlyArray<Traced>,
 	schema: string,
-	owner: string,
 	choose: boolean
 ): Result.Result<ReadonlyArray<Step>, PropertyFailed> => {
 	const steps: Array<Step> = []
@@ -687,7 +685,7 @@ export const drafted = (
 	for (const [i, step] of versions.entries()) {
 		const prior = versions[i - 1] ?? step
 		const declared = declarationsAlong(prior, step, choose && i > 0)
-		const installation = installationOf(step.version, schema, owner, previous, declared)
+		const installation = installationOf(step.version, schema, previous, declared)
 		const g = generate({
 			previous,
 			installation,
@@ -702,7 +700,7 @@ export const drafted = (
 			)
 		}
 		previous = fromSnapshot(g.value.snapshot)
-		const after = planOf(step.version, schema, owner)
+		const after = planOf(step.version, schema)
 		const reviewed = review(g.value, {
 			losses: "written",
 			value: typedValue(

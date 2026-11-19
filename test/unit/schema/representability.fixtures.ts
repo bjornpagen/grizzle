@@ -1140,9 +1140,7 @@ const keyText = (bytes: number, spelling: Spelling): FieldBase =>
 
 /** The installation of a schema value: every index its law model plans, each entry proved or refused. */
 export const installed = (value: unknown) =>
-	Result.flatMap(ownValue(value), (owned) =>
-		compileInstallation(owned, installOptions(owned, "owner"))
-	)
+	Result.flatMap(ownValue(value), (owned) => compileInstallation(owned, installOptions(owned)))
 
 /**
  * Doc's lines in order and the concat fold of their pieces into Doc.text, each text bounded at `bytes`: the axis's

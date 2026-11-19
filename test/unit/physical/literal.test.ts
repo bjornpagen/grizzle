@@ -100,7 +100,7 @@ export const aDraftedMigrationsBitStringsWritesEveryBitStringOfADraftedMigration
 		check: (_2, c: Case<DraftFeature>) => (d: Draft) =>
 			Effect.sync(() => {
 				const owned = owning(schemaOf(d))
-				const installation = succeeded(compileInstallation(owned, installOptions(owned, "owner")))
+				const installation = succeeded(compileInstallation(owned, installOptions(owned)))
 				const draft = succeeded(
 					draftMigration({
 						previous: emptySnapshot({ schemaName: "Hex", schema: installation.names.schema }),
@@ -321,7 +321,7 @@ export const aChangedDigitOfAnInstalledRelationsConstantNamesTheRelationTheFirst
 			Effect.sync(() => {
 				const owned = succeeded(ownedInput(installedSchemaOf(d)))
 				const installation: Installation = succeeded(
-					compileInstallation(owned, installOptions(owned, "owner"))
+					compileInstallation(owned, installOptions(owned))
 				)
 				const keysOf = (relation: string): ReadonlyArray<ReadonlyArray<string>> =>
 					relation === "C"
