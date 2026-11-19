@@ -11,7 +11,7 @@ import {
 	longestWithin,
 	minimalDfa
 } from "#compiler/scalar/regex/dfa.ts"
-import type { Nfa } from "#compiler/scalar/regex/match.ts"
+import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
 
@@ -259,7 +259,7 @@ export type Within =
  * Unknown where a construction would pass the analysis's bounds.
  */
 export const bytesWithin = (inner: Patterns, octets: number, patterns: PatternAutomata): Within => {
-	const dfas = mapNonEmpty(inner, (p) => dfaOf(patterns.parse(p).nfa))
+	const dfas = mapNonEmpty(inner, (p) => dfaOf(patterns.parse(p).matcher.nfa))
 	const known = dfas.filter((dfa) => dfa !== undefined)
 	const product: IntersectionOutcome =
 		known.length === dfas.length && isNonEmpty(known)
@@ -282,8 +282,8 @@ export const patternIncludes = (
 	patterns: PatternAutomata
 ): Inclusion =>
 	inclusion(
-		mapNonEmpty(inner, (p) => patterns.parse(p).nfa),
-		mapNonEmpty(outer, (p) => patterns.parse(p).nfa)
+		mapNonEmpty(inner, (p) => patterns.parse(p).matcher.nfa),
+		mapNonEmpty(outer, (p) => patterns.parse(p).matcher.nfa)
 	)
 
 /**

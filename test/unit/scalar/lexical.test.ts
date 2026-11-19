@@ -49,7 +49,7 @@ import {
 	lexicalValue
 } from "#compiler/scalar/lexical.ts"
 import { inclusion } from "#compiler/scalar/regex/inclusion.ts"
-import { matches } from "#compiler/scalar/regex/match.ts"
+import { Matcher } from "#compiler/scalar/regex/match.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
@@ -101,7 +101,7 @@ export const lexicalFormsEachFormsPatternAndItsScanAgreeOnEveryCandidateAndAMemb
 				const scanned = lexicalValue(c.target, c.text, roundDouble)
 				const octets = formOctets(c.target)
 				assert.equal(
-					matches(nfaOf(formSource(c.target)), c.text) &&
+					Matcher.of(nfaOf(formSource(c.target))).matches(c.text) &&
 						(octets === undefined || utf8Length(c.text) <= octets),
 					c.member,
 					`${label}: pattern and bytes`
@@ -155,7 +155,7 @@ export const aFieldsLexicalFormIsItsDeclaredTypesWhateverKindOfFieldItIs = prope
 				const label = `${c.reading} ${Formatter.format(c.target)} ${Formatter.format(c.candidate.text)}`
 				const octets = formOctets(c.target)
 				const admits = (source: string): boolean =>
-					matches(nfaOf(source), c.candidate.text) &&
+					Matcher.of(nfaOf(source)).matches(c.candidate.text) &&
 					(octets === undefined || utf8Length(c.candidate.text) <= octets)
 				assert.equal(
 					admits(lexicalForm(field).source),
@@ -267,9 +267,9 @@ export const languageInclusionAnIncludedPairAdmitsNoMemberOfTheInnerPatternOutsi
 							case "included":
 								for (const w of walks) {
 									if (w !== undefined) {
-										assert.ok(matches(innerNfa, w), `${label}: a walk is a member`)
+										assert.ok(Matcher.of(innerNfa).matches(w), `${label}: a walk is a member`)
 										assert.ok(
-											matches(outerNfa, w),
+											Matcher.of(outerNfa).matches(w),
 											`${label}: ${Formatter.format(w)} is in the outer`
 										)
 									}
@@ -277,11 +277,11 @@ export const languageInclusionAnIncludedPairAdmitsNoMemberOfTheInnerPatternOutsi
 								return
 							case "refuted":
 								assert.ok(
-									matches(innerNfa, result.witness),
+									Matcher.of(innerNfa).matches(result.witness),
 									`${label}: the witness is in the inner`
 								)
 								assert.ok(
-									!matches(outerNfa, result.witness),
+									!Matcher.of(outerNfa).matches(result.witness),
 									`${label}: the witness is not in the outer`
 								)
 								return

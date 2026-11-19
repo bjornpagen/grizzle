@@ -2,7 +2,8 @@ import { defect } from "#compiler/core/invariant.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { octetsOf, type PatternSource, type RegexRef } from "#compiler/ir/scalar.ts"
 import type { CharSet } from "#compiler/scalar/regex/charset.ts"
-import { matches, type Nfa, type NfaEdge } from "#compiler/scalar/regex/match.ts"
+import { Matcher } from "#compiler/scalar/regex/match.ts"
+import type { Nfa, NfaEdge } from "#compiler/scalar/regex/nfa.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
 
@@ -10,18 +11,18 @@ import { entry } from "#compiler/scalar/regex/table.ts"
 export const matchFlags: RegexFlags = "u"
 
 /**
- * Whether a text is a member of a regex refinement, each of its patterns' automata read by `nfaOf`: within its byte
+ * Whether a text is a member of a regex refinement, each of its patterns' matchers read by `matcherOf`: within its byte
  * bound where str.bytes cuts it (ir/scalar.ts octetsOf), and a match of every member's automaton.
  */
 export const memberOf = (
 	regex: RegexRef,
-	nfaOf: (pattern: PatternSource) => Nfa,
+	matcherOf: (pattern: PatternSource) => Matcher,
 	text: string
 ): boolean => {
 	const octets = octetsOf(regex.check)
 	return (
 		(octets === undefined || utf8Length(text) <= octets) &&
-		regex.patterns.every((pattern) => matches(nfaOf(pattern), text))
+		regex.patterns.every((pattern) => matcherOf(pattern).matches(text))
 	)
 }
 
@@ -80,8 +81,8 @@ const nfaOf = (sets: ReadonlyArray<CharSet>, matcher: ServedMatcher): Nfa => {
 	return { start: matcher.start, accept: matcher.accept, edges }
 }
 
-/** Automata by flags and then source. */
-type MatcherTable = ReadonlyMap<RegexFlags, ReadonlyMap<string, Nfa>>
+/** Matchers by flags and then source. */
+type MatcherTable = ReadonlyMap<RegexFlags, ReadonlyMap<string, Matcher>>
 
 /**
  * The patterns a served program checks, each by the automaton its served file carries (ServedMatcher), so a load
@@ -96,19 +97,19 @@ export class ServedPatterns {
 		this.#table = table
 	}
 
-	/** The table of `served`, each pattern by its automaton, rebuilt once over the file's sets. */
+	/** The table of `served`, each pattern by the matcher of its automaton, rebuilt once over the file's sets. */
 	static of(served: ServedMatchers): ServedPatterns {
-		const table = new Map<RegexFlags, Map<string, Nfa>>()
+		const table = new Map<RegexFlags, Map<string, Matcher>>()
 		for (const matcher of served.matchers) {
-			const bySource = table.get(matcher.pattern.flags) ?? new Map<string, Nfa>()
+			const bySource = table.get(matcher.pattern.flags) ?? new Map<string, Matcher>()
 			table.set(matcher.pattern.flags, bySource)
-			bySource.set(matcher.pattern.source, nfaOf(served.sets, matcher))
+			bySource.set(matcher.pattern.source, Matcher.of(nfaOf(served.sets, matcher)))
 		}
 		return new ServedPatterns(table)
 	}
 
-	/** The served automaton of `pattern`. */
-	readonly nfa = (pattern: PatternSource): Nfa => {
+	/** The matcher of `pattern`'s served automaton. */
+	readonly matcher = (pattern: PatternSource): Matcher => {
 		const known = this.#table.get(pattern.flags)?.get(pattern.source)
 		if (known === undefined) {
 			throw defect(`a pattern its served file's matchers hold: /${pattern.source}/${pattern.flags}`)
@@ -116,8 +117,8 @@ export class ServedPatterns {
 		return known
 	}
 
-	readonly member = (regex: RegexRef, text: string): boolean => memberOf(regex, this.nfa, text)
+	readonly member = (regex: RegexRef, text: string): boolean => memberOf(regex, this.matcher, text)
 
 	readonly matches = (source: string, text: string): boolean =>
-		matches(this.nfa({ source, flags: matchFlags }), text)
+		this.matcher({ source, flags: matchFlags }).matches(text)
 }

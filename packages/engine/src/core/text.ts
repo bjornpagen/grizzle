@@ -164,20 +164,29 @@ export const compareQuotedTuples = (units: (a: string, b: string) => number) => 
 }
 
 /**
- * The code points of a text in order, as string iteration reads them: a surrogate pair is one supplementary code point,
- * and a lone surrogate is a code point of its own. Read by code unit, so every step has its unit.
+ * The code point of a text that starts at code unit `i`, below the text's length, as string iteration reads it: a
+ * surrogate pair is one supplementary code point, and a lone surrogate is a code point of its own. It spans two code
+ * units past U+FFFF (codePointUnits), one otherwise. Read by code unit, so a reader steps through a text allocating
+ * nothing.
  */
+export const codePointAt = (text: string, i: number): number => {
+	const unit = text.charCodeAt(i)
+	const next = text.charCodeAt(i + 1)
+	return unit >= 0xd800 && unit <= 0xdbff && next >= 0xdc00 && next <= 0xdfff
+		? (unit - 0xd800) * 0x400 + (next - 0xdc00) + 0x10000
+		: unit
+}
+
+/** The code units a code point spans in a text: two past U+FFFF, a surrogate pair, and one otherwise. */
+export const codePointUnits = (point: number): 1 | 2 => (point > 0xffff ? 2 : 1)
+
+/** The code points of a text in order (codePointAt). */
 export const codePoints = (text: string): ReadonlyArray<number> => {
 	const out: Array<number> = []
-	for (let i = 0; i < text.length; i++) {
-		const unit = text.charCodeAt(i)
-		const next = text.charCodeAt(i + 1)
-		if (unit >= 0xd800 && unit <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) {
-			out.push((unit - 0xd800) * 0x400 + (next - 0xdc00) + 0x10000)
-			i++
-		} else {
-			out.push(unit)
-		}
+	for (let i = 0; i < text.length;) {
+		const point = codePointAt(text, i)
+		out.push(point)
+		i += codePointUnits(point)
 	}
 	return out
 }

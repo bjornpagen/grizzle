@@ -21,9 +21,8 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { regexCheck, RegexKey, type RegexRef } from "#compiler/ir/scalar.ts"
-import type { NfaEdge } from "#compiler/scalar/regex/match.ts"
 import { matchFlags, type ServedMatchers, ServedPatterns } from "#compiler/scalar/regex/matcher.ts"
-import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
+import { buildNfa, type NfaEdge } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
@@ -52,7 +51,7 @@ export const servedMatchersReadBackFromTheServedFormAsBuildNfaMakesThemAndJudgeE
 				const read = trustedJson<ServedMatchers>(text)
 				const served = ServedPatterns.of(read)
 				const stepped = Arr.flatMap(read.matchers, (matcher) =>
-					Arr.flatMap(served.nfa(matcher.pattern).edges, (out) =>
+					Arr.flatMap(served.matcher(matcher.pattern).nfa.edges, (out) =>
 						Arr.flatMap(out, (e: NfaEdge) => (e.kind === "set" ? [e.set] : []))
 					)
 				)
@@ -65,7 +64,11 @@ export const servedMatchersReadBackFromTheServedFormAsBuildNfaMakesThemAndJudgeE
 					const label = `/${pattern.source}/${pattern.flags}`
 					c.note(pattern.flags === matchFlags ? "a pattern under u" : "a pattern under su")
 					const parsed = succeeded(parsePattern(pattern.source, pattern.flags), label)
-					assert.deepEqual(served.nfa(pattern), buildNfa(parsed), `${label}: its served automaton`)
+					assert.deepEqual(
+						served.matcher(pattern).nfa,
+						buildNfa(parsed),
+						`${label}: its served automaton`
+					)
 					const regex: RegexRef = {
 						patterns: [pattern],
 						key: RegexKey(label),

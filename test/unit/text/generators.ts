@@ -12,7 +12,7 @@ import {
 import { Array as Arr, Option, pipe, String as Str } from "effect"
 import { codePointsText } from "#compiler/core/text.ts"
 import type { CharSet } from "#compiler/scalar/regex/charset.ts"
-import type { Nfa } from "#compiler/scalar/regex/match.ts"
+import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { upTo } from "#test/support/up-to.ts"
 

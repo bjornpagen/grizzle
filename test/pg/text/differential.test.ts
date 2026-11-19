@@ -27,7 +27,7 @@ import { Effect, Exit, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { toAre } from "#compiler/scalar/regex/are.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
-import { matches } from "#compiler/scalar/regex/match.ts"
+import { Matcher } from "#compiler/scalar/regex/match.ts"
 import {
 	agreements,
 	compileWithin,
@@ -82,7 +82,7 @@ export const regexMembershipCompilesTheLargestPatternTheLimitsAdmitAlongADrawnSh
 					)
 					assert.equal(
 						truth(rows[0]?.[0]),
-						matches(pattern.nfa, "abcd"),
+						Matcher.of(pattern.nfa).matches("abcd"),
 						Str.slice(0, 160)(growth.at(greatest))
 					)
 				}),

@@ -191,8 +191,9 @@ export const anAdmittedPatternIsParsedWhereItsProgramCompilesOnceATableWhateverR
 			},
 			{
 				file: "packages/engine/src/scalar/regex/patterns.ts",
-				original: "\t\tmatches(this.parse({ source, flags: matchFlags }).nfa, text)\n\n\t/**",
-				replacement: "\t\tmatches(admittedParse({ source, flags: matchFlags }).nfa, text)\n\n\t/**",
+				original: "\t\tthis.parse({ source, flags: matchFlags }).matcher.matches(text)\n\n\t/**",
+				replacement:
+					"\t\tadmittedParse({ source, flags: matchFlags }).matcher.matches(text)\n\n\t/**",
 				why: "A compiled table's match parses its pattern on every call; the host's per-row reads parse, and the property fails."
 			}
 		]

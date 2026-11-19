@@ -13,18 +13,26 @@
  *   order have one key where both are keyed by their automaton, a spelling past the analysis bounds keyed by its IR
  *   or refused; its languages are drawn within spelledMembers, a search budget.
  *
+ * - Work: a matcher's work over a text is linear in it, whatever the pattern, a pattern a backtracker takes exponentially
+ *   many steps over among them, and a text it read is read again for nothing: each pattern's search language is
+ *   determinized where texts reach it and kept (scalar/regex/match.ts Matcher).
+ *
  * Oracle: ECMAScript's RegExp test (generators.ts jsMatcher), which appears only here, never under src/; for the
- * spellings, the finite language's members its construction gives.
+ * spellings, the finite language's members its construction gives; for the work, its bound, the subset construction's
+ * charge (scalar/regex/subset.ts Step), counted, never timed.
  *
  * Features: each family pattern accepting and refusing; admitted, empty and a witness; live text and each plant in the
  * middle; a tautology, a finite language and a bound; equal and distinct keys, distinct keys of patterns one code point
- * apart among them; one member, several, the empty text.
+ * apart among them; one member, several, the empty text; a written pattern a backtracker takes exponentially many steps
+ * over and a drawn one of nested quantifiers, each over a text it matches, one it refuses and one of over a thousand code
+ * points.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { Matcher } from "#compiler/scalar/regex/match.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert } from "#test/support/assert.ts"
@@ -51,11 +59,14 @@ import {
 	patternSketchGen,
 	refineOrEmpty,
 	refusals,
+	runLengths,
 	spelledMembers,
 	type SpellingFeature,
 	tautologies,
 	twoSpellings,
-	utf8Bytes
+	utf8Bytes,
+	workCaseGen,
+	type WorkFeature
 } from "#test/unit/text/membership.fixtures.ts"
 import {
 	plantedFault,
@@ -104,12 +115,11 @@ export const hostNFAMembershipEqualsECMAScriptOnTheHandwrittenFamilyPatternsOver
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/regex/match.ts",
-					original:
-						"\t\tcurrent = closure(nfa, next, { atStart: false, atEnd: i + 1 === n }, mark, stamp++)",
+					file: "packages/engine/src/scalar/regex/subset.ts",
+					original: "\t\t\t[this.nfa.start, ...targets],\n\t\t\t{ atStart: false, atEnd: false },",
 					replacement:
-						"\t\tcurrent = closure(nfa, next, { atStart: false, atEnd: i + 2 === n }, mark, stamp++)",
-					why: "The host NFA reads `$` one code point before the text's end; the membership and admitted text properties fail."
+						"\t\t\t[this.nfa.start, ...targets],\n\t\t\t{ atStart: false, atEnd: true },",
+					why: "The host's search reads `$` as holding past every code point, not only at the text's end; the membership properties fail."
 				}
 			]
 		}
@@ -157,18 +167,16 @@ export const hostNFAMembershipEqualsECMAScriptOnGeneratedPatterns = property.exp
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/match.ts",
-				original: "\t\tconst next = [...current.flatMap((s) => stepsOn(nfa, s, c)), nfa.start]",
-				replacement: "\t\tconst next = current.flatMap((s) => stepsOn(nfa, s, c))",
-				why: "The host NFA tries a match only from the text's start, never restarting at a later code point; the membership property fails."
+				file: "packages/engine/src/scalar/regex/subset.ts",
+				original: "\t\t\t[this.nfa.start, ...targets],",
+				replacement: "\t\t\ttargets,",
+				why: "The host's search goes on only from the paths it is on, never starting a match again at a later code point while one is under way; the membership property fails."
 			},
 			{
-				file: "packages/engine/src/scalar/regex/match.ts",
-				original:
-					"\t\tcurrent = closure(nfa, next, { atStart: false, atEnd: i + 1 === n }, mark, stamp++)",
-				replacement:
-					"\t\tcurrent = closure(nfa, next, { atStart: false, atEnd: i + 2 === n }, mark, stamp++)",
-				why: "The host NFA reads `$` one code point before the text's end; the membership and admitted text properties fail."
+				file: "packages/engine/src/scalar/regex/subset.ts",
+				original: "\t\t\t[this.nfa.start, ...targets],\n\t\t\t{ atStart: false, atEnd: false },",
+				replacement: "\t\t\t[this.nfa.start, ...targets],\n\t\t\t{ atStart: false, atEnd: true },",
+				why: "The host's search reads `$` as holding past every code point, not only at the text's end; the membership properties fail."
 			}
 		]
 	}
@@ -215,16 +223,9 @@ export const hostNFAMembershipEqualsECMAScriptAcceptsNoStringThatIsNotAdmittedTe
 				{
 					file: "packages/engine/src/scalar/regex/match.ts",
 					original:
-						"\t\tcurrent = closure(nfa, next, { atStart: false, atEnd: i + 1 === n }, mark, stamp++)",
-					replacement:
-						"\t\tcurrent = closure(nfa, next, { atStart: false, atEnd: i + 2 === n }, mark, stamp++)",
-					why: "The host NFA reads `$` one code point before the text's end; the membership and admitted text properties fail."
-				},
-				{
-					file: "packages/engine/src/scalar/regex/match.ts",
-					original: "\treturn points.every((c) => isAdmittedCodePoint(c)) ? points : undefined",
-					replacement: "\treturn points",
-					why: "The host NFA matches a text holding a NUL or a lone surrogate; the admitted text property fails."
+						"\t\t\tif (atom === undefined) {\n\t\t\t\treturn false\n\t\t\t}\n\t\t\tstate = this.#step(state, atom)",
+					replacement: "\t\t\tstate = atom === undefined ? state : this.#step(state, atom)",
+					why: "The host's matcher reads a NUL or a lone surrogate as no code point, so it matches a text holding one; the admitted text property fails."
 				}
 			]
 		}
@@ -397,4 +398,79 @@ export const languageEquivalentSpellingsShareOneCanonicalKeyGivesAFiniteLanguage
 		},
 		kept: [],
 		kills: []
+	})
+
+/**
+ * A matcher's work over a text is linear in the text and a text read again costs nothing: over runs of `a` doubling in
+ * length and a last code point, each read by a matcher of its own, the work a matcher is charged (Matcher.spent) is at
+ * most its initial subset's and, for each code point, one transition's, which reads a subset and reaches one, each at
+ * most the NFA's states; reading the text again charges none. Its budget is the runner's default.
+ */
+export const aMatchersWorkOverATextIsLinearInTheTextWhateverThePatternAndATextReadAgainCostsNothing =
+	property.explore(workCaseGen, {
+		needs: {},
+		situations: [
+			"a written pattern a backtracker takes exponentially many steps over",
+			"a drawn pattern of nested quantifiers",
+			"a text it matches",
+			"a text it refuses",
+			"a text of over a thousand code points"
+		] satisfies ReadonlyArray<Reached<WorkFeature>>,
+		check:
+			(_, c: Case<WorkFeature>) =>
+			({ source, drawn, last }) =>
+				Effect.sync(() => {
+					const r = refineOrEmpty(source, "u")
+					if (typeof r === "string") {
+						assert.ok(drawn, `/${source}/u, written by hand, is admitted with a member`)
+						return
+					}
+					c.note(
+						drawn
+							? "a drawn pattern of nested quantifiers"
+							: "a written pattern a backtracker takes exponentially many steps over"
+					)
+					const nfa = buildNfa(r.members[0].ir)
+					const states = nfa.edges.length
+					for (const n of runLengths) {
+						const text = `${Str.repeat(n)("a")}${last}`
+						const length = codePointLength(text)
+						const matcher = Matcher.of(nfa)
+						const initial = matcher.spent
+						const matched = matcher.matches(text)
+						const spent = matcher.spent
+						const label = `/${source}/u over ${length} code points`
+						assert.ok(initial <= states, `${label}: the initial subset charged ${initial}`)
+						assert.ok(
+							spent - initial <= length * 2 * states,
+							`${label}: charged ${spent - initial}, past ${length} transitions of at most ${2 * states} each`
+						)
+						assert.equal(matcher.matches(text), matched, `${label}: read again alike`)
+						assert.equal(matcher.spent, spent, `${label}: read again for nothing`)
+						c.note(matched ? "a text it matches" : "a text it refuses")
+						if (length > 1000) {
+							c.note("a text of over a thousand code points")
+						}
+					}
+				}),
+		oracle: {
+			kind: "specification",
+			name: "the subset construction's charge, linear in the text: a transition a code point, each at most twice the NFA's states"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/regex/match.ts",
+				original: "\tmatches(value: string): boolean {\n\t\tlet state = 0\n",
+				replacement:
+					'\tmatches(value: string): boolean {\n\t\tconst points = Array.from(value, (p) => p.codePointAt(0) ?? 0)\n\t\tconst tried = (s: number, i: number): boolean => {\n\t\t\tthis.#spent += 1\n\t\t\treturn s === this.nfa.accept || entry(this.nfa.edges, s).some((e) => e.kind === "eps" ? tried(e.to, i) : e.kind === "start" ? i === 0 && tried(e.to, i) : e.kind === "end" ? i === points.length && tried(e.to, i) : i < points.length && e.set.some(([lo, hi]) => lo <= entry(points, i) && entry(points, i) <= hi) && tried(e.to, i + 1))\n\t\t}\n\t\tif (points.some((_, i) => tried(this.nfa.start, i)) || tried(this.nfa.start, points.length)) {\n\t\t\treturn true\n\t\t}\n\t\tlet state = 0\n',
+				why: "A backtracking matcher, which tries every path of the NFA from every position: its work over a run of `a`s a pattern's alternation or nested repetition reads two ways doubles with each `a`, past the linear bound at a short run."
+			},
+			{
+				file: "packages/engine/src/scalar/regex/match.ts",
+				original: "\t\tfrom.next[atom] = target\n",
+				replacement: "",
+				why: "A matcher keeps no transition it built, so every code point of every text builds its transition again, as a matcher compiled per call would: reading a text again charges its transitions again."
+			}
+		]
 	})

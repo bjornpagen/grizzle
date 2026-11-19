@@ -28,7 +28,7 @@ import {
  */
 import type { PlainCarrier } from "#compiler/scalar/native.ts"
 import type { RegexNode } from "#compiler/scalar/regex/ir.ts"
-import { matches } from "#compiler/scalar/regex/match.ts"
+import { Matcher } from "#compiler/scalar/regex/match.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { languageOf, type TextRefinement } from "#compiler/text/refinement.ts"
@@ -172,9 +172,9 @@ export const widensTo = (from: ScalarType, to: ScalarType): boolean => {
 	return false
 }
 
-/** Whether an admitted text value matches a refinement: the host NFA matcher (scalar/regex/nfa.ts) over its IR. */
+/** Whether an admitted text value matches a refinement: the host matcher (scalar/regex/match.ts) of its IR's NFA. */
 export const accepts = (refinement: TextRefinement, value: string): boolean =>
-	Arr.every(refinement.members, (member) => matches(buildNfa(member.ir), value))
+	Arr.every(refinement.members, (member) => Matcher.of(buildNfa(member.ir)).matches(value))
 
 /**
  * The language of a parsed pattern (scalar/regex/parse.ts parsePattern), classified as

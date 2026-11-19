@@ -7,7 +7,7 @@
  * - One language: over drawn texts of the pattern's alphabet, and texts its automaton accepts (walked), a string schema
  *   of the printed pattern, judged by the validator the CLI generator pins (test/support/openapi/validator.ts), admits
  *   exactly the texts the automaton accepts; a printed pattern no ECMA-262 engine compiles fails the judgement. Oracle:
- *   nfa.ts buildNfa over the pattern's parse and match.ts matches, the language grizzle's own matchers judge every value
+ *   nfa.ts buildNfa over the pattern's parse and match.ts Matcher, the language grizzle's own matchers judge every value
  *   by.
  *
  * Features: a pattern under u, a pattern under su, a text matched, a text refused, a pattern of an astral code point,
@@ -20,7 +20,7 @@ import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { toEcma } from "#compiler/scalar/regex/ecma.ts"
-import { matches } from "#compiler/scalar/regex/match.ts"
+import { Matcher } from "#compiler/scalar/regex/match.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { assert } from "#test/support/assert.ts"
@@ -60,8 +60,9 @@ export const aRefinedTextsECMA262PatternCompilesUnderUAndHoldsOfExactlyTheTextsT
 				const schema = { type: "string", pattern: toEcma(parsed.value) }
 				const nfa = buildNfa(parsed.value)
 				const walked = notes.draw(array(walkGen(nfa), { min: 0, max: 4 }))
+				const matcher = Matcher.of(nfa)
 				for (const text of [...c.texts, ...Arr.filter(walked, (w) => w !== undefined)]) {
-					const accepted = matches(nfa, text)
+					const accepted = matcher.matches(text)
 					notes.note(accepted ? "a text matched" : "a text refused")
 					if (Str.includes("$")(c.source) && Str.includes("\n")(text)) {
 						notes.note("an end anchor beside a line feed")
@@ -79,7 +80,7 @@ export const aRefinedTextsECMA262PatternCompilesUnderUAndHoldsOfExactlyTheTextsT
 			}),
 		oracle: {
 			kind: "specification",
-			name: "nfa.ts buildNfa over the pattern's parse, judged by match.ts matches"
+			name: "nfa.ts buildNfa over the pattern's parse, judged by match.ts Matcher"
 		},
 		budget: { runs: 800, steered: 0 },
 		kept: [],

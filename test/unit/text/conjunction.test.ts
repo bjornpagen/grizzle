@@ -188,8 +188,8 @@ export const aConjunctionsLanguageIsEveryMembersAtOnceByTheHostAndByTheIntersect
 			kills: [
 				{
 					file: "packages/engine/src/scalar/regex/matcher.ts",
-					original: "\t\tregex.patterns.every((pattern) => matches(nfaOf(pattern), text))",
-					replacement: "\t\tregex.patterns.some((pattern) => matches(nfaOf(pattern), text))",
+					original: "\t\tregex.patterns.every((pattern) => matcherOf(pattern).matches(text))",
+					replacement: "\t\tregex.patterns.some((pattern) => matcherOf(pattern).matches(text))",
 					why: "The host takes a text any member of a conjunction matches; the language property fails."
 				}
 			]

@@ -33,7 +33,7 @@ import {
 	nativeOp,
 	nativeOps
 } from "#compiler/scalar/compute/registry.ts"
-import { matches } from "#compiler/scalar/regex/match.ts"
+import { Matcher } from "#compiler/scalar/regex/match.ts"
 import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
@@ -407,7 +407,7 @@ const collapsedText = (text: string): string => {
 const patternMatch = (text: string, source: string): CatalogResult => {
 	const parsed = parsePattern(source, matchFlags)
 	return parsed.ok
-		? Result.succeed(matches(buildNfa(parsed.value), text))
+		? Result.succeed(Matcher.of(buildNfa(parsed.value)).matches(text))
 		: unsupported(`the pattern /${source}/${matchFlags}, outside the grammar`)
 }
 

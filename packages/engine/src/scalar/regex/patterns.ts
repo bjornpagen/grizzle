@@ -9,7 +9,7 @@ import {
 } from "#compiler/ir/scalar.ts"
 import type { CharSet } from "#compiler/scalar/regex/charset.ts"
 import type { LiveNode } from "#compiler/scalar/regex/ir.ts"
-import { matches, type Nfa, type NfaEdge } from "#compiler/scalar/regex/match.ts"
+import { Matcher } from "#compiler/scalar/regex/match.ts"
 import {
 	edgeCode,
 	matchFlags,
@@ -17,14 +17,17 @@ import {
 	type ServedMatcher,
 	type ServedMatchers
 } from "#compiler/scalar/regex/matcher.ts"
-import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
+import { buildNfa, type NfaEdge } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
 
-/** An admitted pattern parsed: its live node, which a translation's image reads, and its automaton. */
+/**
+ * An admitted pattern parsed: its live node, which a translation's image reads, and the matcher of its automaton
+ * (match.ts Matcher), whose NFA the language proofs read and whose search language membership runs, built once here.
+ */
 export interface ParsedPattern {
 	readonly node: LiveNode
-	readonly nfa: Nfa
+	readonly matcher: Matcher
 }
 
 /**
@@ -41,7 +44,7 @@ const admittedParse = (pattern: PatternSource): ParsedPattern => {
 			`a pattern its admission parsed, with a member: /${pattern.source}/${pattern.flags}`
 		)
 	}
-	return { node: parsed.value, nfa: buildNfa(parsed.value) }
+	return { node: parsed.value, matcher: Matcher.of(buildNfa(parsed.value)) }
 }
 
 /**
@@ -90,10 +93,10 @@ export class CompilePatterns implements PatternAutomata {
 		tabled(this.#table, pattern) ?? entered(this.#table, pattern)
 
 	readonly member = (regex: RegexRef, text: string): boolean =>
-		memberOf(regex, (pattern) => this.parse(pattern).nfa, text)
+		memberOf(regex, (pattern) => this.parse(pattern).matcher, text)
 
 	readonly matches = (source: string, text: string): boolean =>
-		matches(this.parse({ source, flags: matchFlags }).nfa, text)
+		this.parse({ source, flags: matchFlags }).matcher.matches(text)
 }
 
 /**
@@ -128,10 +131,10 @@ export class ProgramPatterns implements PatternAutomata {
 	}
 
 	readonly member = (regex: RegexRef, text: string): boolean =>
-		memberOf(regex, (pattern) => this.parse(pattern).nfa, text)
+		memberOf(regex, (pattern) => this.parse(pattern).matcher, text)
 
 	readonly matches = (source: string, text: string): boolean =>
-		matches(this.parse({ source, flags: matchFlags }).nfa, text)
+		this.parse({ source, flags: matchFlags }).matcher.matches(text)
 
 	/**
 	 * Each pattern of the table with its automaton, in the order the table first met them, over one table of the char
@@ -141,11 +144,11 @@ export class ProgramPatterns implements PatternAutomata {
 	served(): ServedMatchers {
 		const sets = new SetTable()
 		const matchers = [...this.#table].flatMap(([flags, bySource]) =>
-			[...bySource].map(([source, parsed]): ServedMatcher => ({
+			[...bySource].map(([source, { matcher }]): ServedMatcher => ({
 				pattern: { source, flags },
-				start: parsed.nfa.start,
-				accept: parsed.nfa.accept,
-				edges: parsed.nfa.edges.map((out) => out.flatMap((e) => [sets.codeOf(e), e.to]))
+				start: matcher.nfa.start,
+				accept: matcher.nfa.accept,
+				edges: matcher.nfa.edges.map((out) => out.flatMap((e) => [sets.codeOf(e), e.to]))
 			}))
 		)
 		return { sets: sets.sets, matchers }

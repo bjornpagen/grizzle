@@ -14,8 +14,9 @@ import {
 	utf8Classes,
 	utf8Width
 } from "#compiler/scalar/regex/charset.ts"
-import { closure, type Nfa } from "#compiler/scalar/regex/match.ts"
+import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { type CharPartition, partitionOf } from "#compiler/scalar/regex/partition.ts"
+import { SearchSubsets, type Subset, subsetKey } from "#compiler/scalar/regex/subset.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
 
 export interface DfaLimits {
@@ -58,70 +59,8 @@ export interface CanonicalDfa {
 	}>
 }
 
-/** A set's bounds in order, each interval's low then high: equal exactly for two sets of the same intervals. */
-const setBounds = (set: CharSet): ReadonlyArray<number> => set.flatMap(([lo, hi]) => [lo, hi])
-
-/** A set edge of an NFA state: the position of its set among the distinct sets, and its target. */
-interface SetEdge {
-	readonly set: number
-	readonly to: number
-}
-
 /** The element of `xs` at `i`, which the caller's bounds make present (scalar/regex/table.ts entry). */
 const at = (xs: ArrayLike<number>, i: number): number => entry(xs, i)
-
-/**
- * The alphabet of a subset construction. Its segments are the maximal intervals of the admitted domain that no NFA
- * set's boundary cuts, in code point order; its atoms are the classes of segments every NFA set holds alike, numbered
- * in the order their first segments come, so an atom's least code point grows with its number. Each distinct set of
- * the NFA's edges holds whole atoms, which `setAtoms` lists, and `setEdges` holds each state's set edges.
- */
-interface Alphabet extends CharPartition {
-	readonly setEdges: ReadonlyArray<ReadonlyArray<SetEdge>>
-}
-
-/**
- * The alphabet of an NFA: its distinct sets in first-seen order and the partition they cut the domain into
- * (partition.ts partitionOf).
- */
-const alphabetOf = (nfa: Nfa): Alphabet => {
-	const sets: Array<CharSet> = []
-	/** Each distinct set's position, by its bounds (setBounds). */
-	const positions = new TupleMap<ReadonlyArray<number>, number>()
-	const positionOf = (set: CharSet): number => {
-		const bounds = setBounds(set)
-		const known = positions.get(bounds)
-		if (known !== undefined) {
-			return known
-		}
-		positions.set(bounds, sets.length)
-		sets.push(set)
-		return sets.length - 1
-	}
-	const setEdges = nfa.edges.map((edges) =>
-		edges.flatMap((e): ReadonlyArray<SetEdge> =>
-			e.kind === "set" ? [{ set: positionOf(e.set), to: e.to }] : []
-		)
-	)
-	return { ...partitionOf(sets, domain), setEdges }
-}
-
-/**
- * A state of the subset construction: the search's accepting sink, which every later input keeps once a match was
- * found, or a set of NFA states with whether it is the initial one, whose closure at the end of the text reads the start
- * context.
- */
-type Subset =
-	| { readonly kind: "done" }
-	| { readonly kind: "set"; readonly states: ReadonlyArray<number>; readonly initial: boolean }
-
-const done: Subset = { kind: "done" }
-
-/** The key a subset is interned under. */
-const subsetKey = (subset: Subset): string =>
-	subset.kind === "done"
-		? "done"
-		: `${subset.initial ? "i" : "n"}${[...subset.states].toSorted((a, b) => a - b).join(",")}`
 
 interface RawDfa {
 	/** Transition table: target per atom; one row per state, the initial one first. */
@@ -136,26 +75,19 @@ type Construction =
 	| DfaBounded
 
 /**
- * The subset construction with search semantics folded in, within the limits. Every transition counts as work its
- * subset's states and the states it reaches. A subset's set edges are dealt to the atoms of their sets once, and an
- * atom none of them holds reaches the restart closure, computed once, so a transition costs about the work it counts.
+ * The subset construction (subset.ts SearchSubsets) run whole, within the limits: every state it reaches, numbered in
+ * the order it is first reached, each expanded on every atom in turn. Every transition counts as work what its Step is
+ * charged, and the initial subset its closure's states.
  */
 const determinize = (nfa: Nfa, limits: DfaLimits): Construction => {
-	const alphabet = alphabetOf(nfa)
-	const { atomCount, setAtoms, setEdges } = alphabet
-	const mark = new Int32Array(nfa.edges.length).fill(-1)
-	let stamp = 0
-	let work = 0
+	const subsets = new SearchSubsets(nfa)
+	const { alphabet } = subsets
+	const { atomCount } = alphabet
+	let work = subsets.initial.work
 
 	const keys = new Map<string, number>()
 	const members: Array<Subset> = []
 	const next: Array<Array<number>> = []
-	/** Each interned state not yet expanded: its number, its subset and its transition row, which expansion fills. */
-	const queue: Array<{
-		readonly id: number
-		readonly subset: Subset
-		readonly row: Array<number>
-	}> = []
 
 	const intern = (subset: Subset): number | undefined => {
 		const key = subsetKey(subset)
@@ -167,17 +99,11 @@ const determinize = (nfa: Nfa, limits: DfaLimits): Construction => {
 			return undefined
 		}
 		const id = members.length
-		const row: Array<number> = []
 		keys.set(key, id)
 		members.push(subset)
-		next.push(row)
-		queue.push({ id, subset, row })
+		next.push([])
 		return id
 	}
-
-	/** The subset `states` reach: the sink once they hold the NFA's accepting state. */
-	const settle = (states: ReadonlyArray<number>, initial: boolean): Subset =>
-		states.includes(nfa.accept) ? done : { kind: "set", states, initial }
 
 	const bounded = (limit: keyof DfaLimits): DfaBounded => ({
 		kind: "bounded",
@@ -185,78 +111,26 @@ const determinize = (nfa: Nfa, limits: DfaLimits): Construction => {
 		spent: { states: members.length, work }
 	})
 
-	const initialStates = closure(nfa, [nfa.start], { atStart: true, atEnd: false }, mark, stamp++)
-	work += initialStates.length
-	if (intern(settle(initialStates, true)) === undefined) {
+	if (intern(subsets.initial.to) === undefined) {
 		return bounded("maxStates")
 	}
-	/** The states past the first code point that the start state alone reaches, where an unanchored search restarts. */
-	const restart = closure(nfa, [nfa.start], { atStart: false, atEnd: false }, mark, stamp++)
-	/** The restart subset's state, once a transition has interned it. */
-	let restartId: number | undefined
-	const restartTarget = (): number | undefined => {
-		restartId ??= intern(settle(restart, false))
-		return restartId
-	}
-	/** The targets of the expanded subset's set edges that hold each atom, and the atoms some edge holds. */
-	const moved: ReadonlyArray<Array<number>> = Array.from(
-		{ length: atomCount },
-		(): Array<number> => []
-	)
-	const touched: Array<number> = []
-	for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
-		const { id, subset, row } = item
-		if (subset.kind === "done") {
-			for (let a = 0; a < atomCount; a++) {
-				row.push(id)
-			}
-			continue
-		}
-		for (const s of subset.states) {
-			for (const edge of entry(setEdges, s)) {
-				for (const a of entry(setAtoms, edge.set)) {
-					const targets = entry(moved, a)
-					if (targets.length === 0) {
-						touched.push(a)
-					}
-					targets.push(edge.to)
-				}
-			}
-		}
+	for (let id = 0; id < members.length; id++) {
+		const subset = entry(members, id)
+		const row = entry(next, id)
 		for (let a = 0; a < atomCount; a++) {
-			const targets = entry(moved, a)
-			const reached =
-				targets.length === 0
-					? restart
-					: closure(nfa, [nfa.start, ...targets], { atStart: false, atEnd: false }, mark, stamp++)
-			work += subset.states.length + reached.length
+			const step = subsets.target(subset, a)
+			work += step.work
 			if (work > limits.maxWork) {
 				return bounded("maxWork")
 			}
-			const target = targets.length === 0 ? restartTarget() : intern(settle(reached, false))
+			const target = intern(step.to)
 			if (target === undefined) {
 				return bounded("maxStates")
 			}
 			row.push(target)
 		}
-		for (const a of touched) {
-			entry(moved, a).length = 0
-		}
-		touched.length = 0
 	}
-	const accept = members.map((subset) => {
-		if (subset.kind === "done") {
-			return true
-		}
-		const atEnd = closure(
-			nfa,
-			subset.states,
-			{ atStart: subset.initial, atEnd: true },
-			mark,
-			stamp++
-		)
-		return atEnd.includes(nfa.accept)
-	})
+	const accept = members.map((subset) => subsets.acceptsAtEnd(subset))
 	return { kind: "built", dfa: { next, accept, alphabet }, spent: { states: members.length, work } }
 }
 

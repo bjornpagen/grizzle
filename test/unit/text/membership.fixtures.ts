@@ -27,6 +27,7 @@ import {
 	flagsGen,
 	jsMatcher,
 	mostFiniteMembers,
+	nestedPattern,
 	patternOver,
 	stringsOver,
 	walkGen,
@@ -343,3 +344,51 @@ export type SpellingFeature =
 
 /** Whether a key is a language's IR, which keys a pattern past the subset construction's bounds (refinement.ts keyOf). */
 export const keyedByIr = (key: string): boolean => Str.startsWith("ir:")(key)
+
+/**
+ * A case of the work property: an admitted pattern a backtracking matcher would take exponentially many steps over,
+ * whether written by hand or drawn as nested quantifiers (generators.ts nestedPattern) before a `b` no run of its texts
+ * holds, and the code point its texts end in.
+ */
+export interface WorkCase {
+	readonly source: string
+	readonly drawn: boolean
+	readonly last: string
+}
+
+export type WorkFeature =
+	| "a written pattern a backtracker takes exponentially many steps over"
+	| "a drawn pattern of nested quantifiers"
+	| "a text it matches"
+	| "a text it refuses"
+	| "a text of over a thousand code points"
+
+/**
+ * Patterns a backtracking matcher reads a run of `a`s and a last code point over by exponentially many paths: each `a`
+ * matched by either arm of an alternation or either level of a nested repetition, and the last code point refusing every
+ * path but none, so a backtracker tries them all.
+ */
+const catastrophicPatterns: Arr.NonEmptyReadonlyArray<string> = [
+	"^(?:a|a)*$",
+	"^(?:a*)*$",
+	"^(?:a+)+b",
+	"^(?:a|aa)*c$",
+	"(?:a?){8}a{8}x"
+]
+
+export const workCaseGen: Gen<WorkCase> = (source) => {
+	const drawn = source.draw(element([false, true]))
+	return {
+		source: drawn ? `${source.draw(nestedPattern)}b` : source.draw(element(catastrophicPatterns)),
+		drawn,
+		last: source.draw(element(["", "a", "b", "c", "x"]))
+	}
+}
+
+/**
+ * The lengths of a case's runs of `a`, doubling from one past a thousand, so a matcher whose work outgrows a linear
+ * bound passes it at a short run, before its work is too large to wait for.
+ */
+export const runLengths: Arr.NonEmptyReadonlyArray<number> = [
+	1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048
+]

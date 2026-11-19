@@ -1,6 +1,69 @@
+import type { CharSet } from "#compiler/scalar/regex/charset.ts"
 import { copiesOf, type RegexNode } from "#compiler/scalar/regex/ir.ts"
-import type { Nfa, NfaEdge } from "#compiler/scalar/regex/match.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
+
+/**
+ * An automaton's form, as buildNfa makes it and a load rebuilds it from the integers a served file carries (matcher.ts
+ * ServedMatcher), which its readers run with no regex IR: its subset construction (subset.ts), whole for the compiler's
+ * language proofs (dfa.ts) and where texts reach it for membership (match.ts Matcher).
+ */
+export type NfaEdge =
+	| { readonly kind: "eps"; readonly to: number }
+	| { readonly kind: "start"; readonly to: number }
+	| { readonly kind: "end"; readonly to: number }
+	| { readonly kind: "set"; readonly set: CharSet; readonly to: number }
+
+export interface Nfa {
+	readonly start: number
+	readonly accept: number
+	/** Outgoing edges of each state. */
+	readonly edges: ReadonlyArray<ReadonlyArray<NfaEdge>>
+}
+
+/** Which assertion edges a closure may follow. */
+interface Position {
+	readonly atStart: boolean
+	readonly atEnd: boolean
+}
+
+/** Whether a closure follows an edge at `position`: an ε edge always, `^` only at the start, `$` only at the end. */
+const follows = (e: NfaEdge, position: Position): boolean =>
+	e.kind === "eps" ||
+	(e.kind === "start" && position.atStart) ||
+	(e.kind === "end" && position.atEnd)
+
+/**
+ * The states reachable from `seeds` over ε edges and the assertions that hold at the position. `mark` is scratch space
+ * of the NFA's size; `stamp` is fresh for each call.
+ */
+export const closure = (
+	nfa: Nfa,
+	seeds: Iterable<number>,
+	position: Position,
+	mark: Int32Array,
+	stamp: number
+): Array<number> => {
+	const out: Array<number> = []
+	const stack: Array<number> = []
+	const visit = (s: number): void => {
+		if (mark[s] !== stamp) {
+			mark[s] = stamp
+			stack.push(s)
+		}
+	}
+	for (const s of seeds) {
+		visit(s)
+	}
+	for (let s = stack.pop(); s !== undefined; s = stack.pop()) {
+		out.push(s)
+		for (const e of entry(nfa.edges, s)) {
+			if (follows(e, position)) {
+				visit(e.to)
+			}
+		}
+	}
+	return out
+}
 
 /** A state the builder allocated: its number and its outgoing edges, which the builder fills. */
 interface State {
@@ -139,17 +202,17 @@ class Builder {
 }
 
 /**
- * A pure Thompson NFA over the regex IR, and membership by simulation.
+ * A pure Thompson NFA over the regex IR, whose search language its readers determinize (subset.ts).
  *
- * The host evaluates regex membership only where the compiler must decide a constant: a literal written in a
- * description against its field's refinement (ContractLiteral) and the finite and tautology proofs of
- * dfa.ts. It never validates application values, which PostgreSQL alone does, and it never builds a
- * JavaScript RegExp.
+ * The host evaluates regex membership where the compiler decides a constant (a literal written in a description against
+ * its field's refinement, ContractLiteral, and the finite and tautology proofs of dfa.ts) and where it evaluates a row:
+ * a value's domain and a Compute.matches, in a write's fill and its witness, a preview and rowEvaluator (match.ts
+ * Matcher). It never builds a JavaScript RegExp.
  *
  * Membership is ECMAScript's RegExp.prototype.test without the `g`, `y` and `m` flags: whether a match exists starting
- * at any position. `^` holds only at offset 0 and `$` only at the end of the value. The simulation adds
- * the start state at every position and accepts as soon as the accept state is reached, which is exactly the existence
- * question; match preference, which differs between ECMAScript and PostgreSQL, never enters.
+ * at any position. `^` holds only at offset 0 and `$` only at the end of the value. The search re-enters the start state
+ * at every position and accepts as soon as the accept state is reached, which is exactly the existence question; match
+ * preference, which differs between ECMAScript and PostgreSQL, never enters.
  */
 export const buildNfa = (node: RegexNode): Nfa => {
 	const builder = new Builder()
