@@ -813,33 +813,6 @@ const carrierWire: CarrierWires = {
 	}
 }
 
-/** Whether two JSON values are one: equal primitives, or arrays and records of equal members. */
-export const sameJson = (a: WireJson, b: WireJson): boolean => {
-	if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) {
-		return a === b
-	}
-	if (isList(a) || isList(b)) {
-		return (
-			isList(a) &&
-			isList(b) &&
-			a.length === b.length &&
-			a.every((x, i) => {
-				const y = b[i]
-				return y !== undefined && sameJson(x, y)
-			})
-		)
-	}
-	const keys = Object.keys(a)
-	return (
-		Object.keys(b).length === keys.length &&
-		keys.every((key) => {
-			const x = a[key]
-			const y = b[key]
-			return x !== undefined && y !== undefined && sameJson(x, y)
-		})
-	)
-}
-
 /**
  * Whether a code unit is a digit of base64's alphabet, RFC 4648 §4.
  *

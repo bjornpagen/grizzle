@@ -1,5 +1,5 @@
 import { appendAll } from "#compiler/core/array.ts"
-import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
+import { canonicalEquals, type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
@@ -49,13 +49,7 @@ import {
 	type WireInput,
 	type WireParam
 } from "#compiler/live/shape.ts"
-import {
-	type SchemaGap,
-	sameJson,
-	scalarSchema,
-	type WireSchema,
-	withGaps
-} from "#compiler/live/wire.ts"
+import { type SchemaGap, scalarSchema, type WireSchema, withGaps } from "#compiler/live/wire.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { toEcma } from "#compiler/scalar/regex/print.ts"
 import type { ServedFile, ServedMember, ServedRoleForm } from "#compiler/served/forms.ts"
@@ -109,7 +103,7 @@ const leafSchema = (leaf: ServedLeaf): WireSchema => {
 	const schemas = mapNonEmpty(leaf.types, typeSchema)
 	const [first, ...rest] = schemas
 	const distinct = rest.filter(
-		(schema, at) => !schemas.slice(0, at + 1).some((s) => sameJson(s, schema))
+		(schema, at) => !schemas.slice(0, at + 1).some((s) => canonicalEquals(s, schema))
 	)
 	return distinct.length === 0 ? first : { anyOf: [first, ...distinct] }
 }

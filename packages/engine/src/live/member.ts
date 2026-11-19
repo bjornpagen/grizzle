@@ -11,7 +11,7 @@
  */
 import { maxOf } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
-import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
+import { canonicalEquals, type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import {
 	type AttachedForm,
 	type ColumnForm,
@@ -48,7 +48,7 @@ import {
 	type WireParam,
 	type WireRecord
 } from "#compiler/live/shape.ts"
-import { encodeScalar, sameJson, type WireJson, type WireScalar } from "#compiler/live/wire.ts"
+import { encodeScalar, type WireJson, type WireScalar } from "#compiler/live/wire.ts"
 import type { InputData } from "#compiler/runtime/write/normalize.ts"
 import type {
 	ServedChange,
@@ -347,7 +347,7 @@ const fieldsOf = (
 
 /** Whether two fields are one on the wire: one kind, one scalar spelling, one delivery and one child. */
 const sameField = (a: WireField<ServedLeaf>, b: WireField<ServedLeaf>): boolean =>
-	sameJson(
+	canonicalEquals(
 		mapField(a, (leaf) => leaf.wire),
 		mapField(b, (leaf) => leaf.wire)
 	)
@@ -370,7 +370,7 @@ const joinedColumn = (
 ): WireColumn<ServedLeaf> => {
 	if (a.kind === "constant" && b.kind === "constant") {
 		const [first, ...rest] = a.values
-		const more = b.values.filter((v) => !a.values.some((u) => sameJson(u, v)))
+		const more = b.values.filter((v) => !a.values.some((u) => canonicalEquals(u, v)))
 		return {
 			kind: "constant",
 			scalar: joinedLeaf(a.scalar, b.scalar),
@@ -479,7 +479,7 @@ const keyOf = (
 		if (
 			first === undefined ||
 			columns.length < held.length ||
-			rest.some((column) => !sameJson(column.scalar.wire, first.scalar.wire))
+			rest.some((column) => !canonicalEquals(column.scalar.wire, first.scalar.wire))
 		) {
 			return Result.err(
 				refusedAt(
@@ -694,7 +694,7 @@ export const memberShape = (
 				Result.flatMap(
 					Result.each(rest, (change) => changeShape(binding, change)),
 					(others) =>
-						others.every((other) => sameJson(shapeWire(other), shapeWire(shape)))
+						others.every((other) => canonicalEquals(shapeWire(other), shapeWire(shape)))
 							? Result.ok(shape)
 							: Result.err(
 									refusedAt(

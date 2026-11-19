@@ -10,7 +10,7 @@
  *
  * Runtime-free and browser-safe, as live/wire.ts is.
  */
-import type { Path } from "#compiler/core/canonical.ts"
+import { canonicalEquals, type Path } from "#compiler/core/canonical.ts"
 import { type TransientTag, transientTags } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import type { ParamPlace } from "#compiler/core/identity.ts"
@@ -54,7 +54,6 @@ import {
 	encodeGiven,
 	encodeScalar,
 	parseScalar,
-	sameJson,
 	trustedArray,
 	trustedMember,
 	trustedRecord,
@@ -595,7 +594,9 @@ const jsonDoor: InputDoor<
 		return field.kind === "scalar"
 			? parsed
 			: Result.flatMap(parsed, (value) =>
-					field.values.some((literal) => sameJson(literal, encodeScalar(field.scalar, value)))
+					field.values.some((literal) =>
+						canonicalEquals(literal, encodeScalar(field.scalar, value))
+					)
 						? Result.ok(value)
 						: refused("range", at)
 				)
