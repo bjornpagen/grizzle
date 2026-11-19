@@ -1,3 +1,4 @@
+import { sameOrder } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { DeclaredName, Identity, IndexMethod } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId, RelationIdent, StoredRelationName } from "#compiler/core/ids.ts"
@@ -372,11 +373,7 @@ export const keyTuple = (k: KeyColumnSet): KeyTuple =>
 		: [k.kind, k.relation, k.span, ...k.scalars]
 
 /** Whether two KeyColumnSets are one key. */
-const sameKey = (a: KeyColumnSet, b: KeyColumnSet): boolean => {
-	const x = keyTuple(a)
-	const y = keyTuple(b)
-	return x.length === y.length && x.every((element, i) => element === y[i])
-}
+const sameKey = (a: KeyColumnSet, b: KeyColumnSet): boolean => sameOrder(keyTuple(a), keyTuple(b))
 
 /**
  * The key ownership declared on `relation` whose KeyColumnSet is `key`: one at most, as ownership refuses a second key

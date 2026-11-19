@@ -114,9 +114,9 @@ export const endpointFilter = agreeOn({
 	kills: [
 		{
 			file: "packages/engine/src/ir/expr.ts",
-			original: "\treturn was.length === now.length && was.every((a, i) => now[i] === a)",
-			replacement: "\treturn was.length === now.length && was.every((a, i) => true)",
-			why: "Operator mutant (boolean-return) at packages/engine/src/ir/expr.ts:698 in sameArgs: `now[i] === a` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			original: "\tsameOrder<ScalarExpr>(before.args, after.args)",
+			replacement: "\tbefore.args.length === after.args.length",
+			why: "sameArgs compares the arguments' count alone, so a rewrite that changed an argument keeps the expression; the property fails (first lane CATCH's operator mutant at grizzle 0baff5d6)."
 		}
 	],
 	check: noGraphRuleFired

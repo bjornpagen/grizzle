@@ -1,4 +1,4 @@
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll, sameOrder } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal, omitSourceLocs, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -168,9 +168,7 @@ export const unchangedEdges = (
 	node: RelNode,
 	rebuilt: NodeOver<ValueRefs<RelNode>> | NodeSpec
 ): boolean => {
-	const before = edgesOf(node)
-	const after = edgesOf(rebuilt)
-	return before.length === after.length && before.every((edge, i) => after[i] === edge)
+	return sameOrder(edgesOf(node), edgesOf(rebuilt))
 }
 
 /**

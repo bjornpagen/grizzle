@@ -1,5 +1,5 @@
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll, sameOrder } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import {
 	canonicalTextOf,
@@ -702,11 +702,8 @@ export const withArgs = <R extends ArgKinds, S extends ArgKinds>(
  * Whether a restated expression holds the same arguments as `before`, argument for argument: a copy-on-write rewrite
  * that changed none of them keeps the expression itself.
  */
-export const sameArgs = (before: ExprSpec, after: ExprSpec): boolean => {
-	const was: ReadonlyArray<ScalarExpr> = before.args
-	const now: ReadonlyArray<ScalarExpr> = after.args
-	return was.length === now.length && was.every((a, i) => now[i] === a)
-}
+export const sameArgs = (before: ExprSpec, after: ExprSpec): boolean =>
+	sameOrder<ScalarExpr>(before.args, after.args)
 
 /** An expression without its PostgreSQL type, which its outside form (TableExpr) never carries. */
 export const outsideSpec = ({ pgType: _lowered, ...expr }: ScalarExpr): ExprSpec => expr
