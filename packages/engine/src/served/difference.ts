@@ -1,6 +1,6 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { catchSignal } from "@bjornpagen/grizzle-text/base/result"
-import { taggedValueOf } from "#compiler/core/canonical.ts"
+import { collectedEquals } from "#compiler/core/canonical.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
@@ -67,69 +67,6 @@ const revived = (text: string): Readonly<Record<string, unknown>> | undefined =>
 	return read.ok ? read.value : undefined
 }
 
-/**
- * Whether two values a served file's reader rebuilt are one value: the same scalar; a canonical value of one tag and
- * payload, a Roster's its declared name and its handles' digest; lists, Maps and Sets of the same members in order;
- * records of the same members. The pairs still to compare wait on a stack on the heap, so no depth of value deepens the
- * call stack.
- */
-const sameServed = (a: unknown, b: unknown): boolean => {
-	const pending: Array<readonly [unknown, unknown]> = [[a, b]]
-	for (let pair = pending.pop(); pair !== undefined; pair = pending.pop()) {
-		const [x, y] = pair
-		if (x === y) {
-			continue
-		}
-		if (typeof x !== "object" || typeof y !== "object" || x === null || y === null) {
-			return false
-		}
-		const taggedX = taggedValueOf(x)
-		const taggedY = taggedValueOf(y)
-		if (taggedX !== undefined || taggedY !== undefined) {
-			if (
-				taggedX === undefined ||
-				taggedY === undefined ||
-				taggedX.tag !== taggedY.tag ||
-				taggedX.payload !== taggedY.payload
-			) {
-				return false
-			}
-			continue
-		}
-		const listX = x instanceof Map || x instanceof Set ? [...x] : isList(x) ? x : undefined
-		const listY = y instanceof Map || y instanceof Set ? [...y] : isList(y) ? y : undefined
-		if (listX !== undefined || listY !== undefined) {
-			if (
-				listX === undefined ||
-				listY === undefined ||
-				listX.length !== listY.length ||
-				x instanceof Map !== y instanceof Map ||
-				x instanceof Set !== y instanceof Set
-			) {
-				return false
-			}
-			for (const [i, item] of listX.entries()) {
-				pending.push([item, listY[i]])
-			}
-			continue
-		}
-		if (!isObject(x) || !isObject(y)) {
-			return false
-		}
-		const keys = Object.keys(x)
-		if (keys.length !== Object.keys(y).length) {
-			return false
-		}
-		for (const key of keys) {
-			if (!Object.hasOwn(y, key)) {
-				return false
-			}
-			pending.push([x[key], y[key]])
-		}
-	}
-	return true
-}
-
 /** The items of a list member of a record; none when it holds no list. */
 const itemsOf = (record: unknown, member: string): ReadonlyArray<unknown> => {
 	const items = isObject(record) ? record[member] : undefined
@@ -193,19 +130,19 @@ export const servedDifference = (ours: string, committed: string): ServedParting
 	for (const key of keys) {
 		const found =
 			key !== rolesMember
-				? sameServed(own[key], theirs[key])
+				? collectedEquals(own[key], theirs[key])
 					? undefined
 					: ({ kind: "member", member: key } satisfies ServedParting)
 				: firstParted(
 						itemsOf(own, rolesMember),
 						itemsOf(theirs, rolesMember),
 						(role, theirRole, named) =>
-							sameServed(without(role, membersMember), without(theirRole, membersMember))
+							collectedEquals(without(role, membersMember), without(theirRole, membersMember))
 								? firstParted(
 										itemsOf(role, membersMember),
 										itemsOf(theirRole, membersMember),
 										(program, theirProgram, programNamed) =>
-											sameServed(program, theirProgram)
+											collectedEquals(program, theirProgram)
 												? undefined
 												: { kind: "program", role: named.name, program: programNamed.name },
 										(programNamed) => ({

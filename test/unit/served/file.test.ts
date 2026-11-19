@@ -148,6 +148,12 @@ export const aServedFileReadsBackEveryDrawnLoginsFileAsTheRuntimeReadsItAndNoMem
 					original: '\t\t\t\treturn rosterOf(this.#handles, "unordered", payload, within)',
 					replacement: '\t\t\t\treturn rosterOf(this.#handles, "ordered", payload, within)',
 					why: "An unordered roster is read back as an ordered one, over its live handles in code order; the round trip fails."
+				},
+				{
+					file: "packages/engine/src/core/canonical.ts",
+					original: "\tvalue instanceof Map\n",
+					replacement: "\tfalse\n",
+					why: "The served file's equality reads a Map as outside the model, so two files of one Map differ at the first member holding one, and check names that member, not the stale program."
 				}
 			]
 		}

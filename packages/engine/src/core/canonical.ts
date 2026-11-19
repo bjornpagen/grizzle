@@ -495,10 +495,34 @@ const heldMember = (
 }
 
 /**
+ * A Map or a Set as a comparison reads it where its reading holds collections (`collectedOf`): its entries, each a
+ * [key, value] pair, or its members, in their order. No canonical text holds one, so no traversal writes one.
+ */
+interface Collection {
+	readonly kind: "collection"
+	readonly of: "map" | "set"
+	readonly items: ReadonlyArray<unknown>
+}
+
+/** What a comparison reads an object as: the canonical model's object, a collection, or a value outside the model. */
+type Compared = CanonicalObject | Collection | Outside
+
+/**
+ * A value as a reader that rebuilds Maps and Sets holds it (served/json.ts): a Map's entries and a Set's members in
+ * their order (Collection), every other value as the canonical model reads it (canonicalOf).
+ */
+const collectedOf = (value: unknown): CanonicalValue | Collection | Outside =>
+	value instanceof Map
+		? { kind: "collection", of: "map", items: [...value] }
+		: value instanceof Set
+			? { kind: "collection", of: "set", items: [...value] }
+			: canonicalOf(value)
+
+/**
  * The tagged value a canonical object is written as: a vector's, a non-finite number's or a protocol value's; undefined
  * for any other.
  */
-const writtenTag = (read: CanonicalObject | Outside): TaggedValue | undefined => {
+const writtenTag = (read: Compared): TaggedValue | undefined => {
 	switch (read.kind) {
 		case "vector":
 		case "floatSpecial":
@@ -506,6 +530,7 @@ const writtenTag = (read: CanonicalObject | Outside): TaggedValue | undefined =>
 			return read.tagged
 		case "array":
 		case "record":
+		case "collection":
 		case "outside":
 			return undefined
 	}
@@ -548,13 +573,9 @@ const recordPairs = (
 /**
  * What two canonical objects hold one text exactly when, a record's members as `leftOut` leaves them: a vector, a
  * non-finite number or a protocol value beside any of one tag and payload, nothing more; two arrays, their items; two
- * records, their members; and never a value outside the model.
+ * records, their members; two collections of one kind, their items in order; and never a value outside the model.
  */
-const memberPairs = (
-	x: CanonicalObject | Outside,
-	y: CanonicalObject | Outside,
-	leftOut: LeftOut
-): MemberPairs => {
+const memberPairs = (x: Compared, y: Compared, leftOut: LeftOut): MemberPairs => {
 	switch (x.kind) {
 		case "vector":
 		case "floatSpecial":
@@ -568,6 +589,8 @@ const memberPairs = (
 			return y.kind === "array" ? itemPairs(x.items, y.items) : undefined
 		case "record":
 			return y.kind === "record" ? recordPairs(x.record, y.record, leftOut) : undefined
+		case "collection":
+			return y.kind === "collection" && y.of === x.of ? itemPairs(x.items, y.items) : undefined
 		case "outside":
 			return undefined
 	}
@@ -582,8 +605,12 @@ const memberPairs = (
  * at once, so a value is read only where it differs from the other. The pairs still to compare wait on a stack on the
  * heap, so no depth of value deepens the call stack.
  */
-export const sameUnder =
-	(leftOut: LeftOut) =>
+export const sameUnder = (leftOut: LeftOut): ((a: unknown, b: unknown) => boolean) =>
+	sameBy(canonicalOf, leftOut)
+
+/** Whether two values are one under `reading` and `leftOut` (sameUnder), each pair read once as it is met. */
+const sameBy =
+	(reading: (value: unknown) => CanonicalValue | Collection | Outside, leftOut: LeftOut) =>
 	(a: unknown, b: unknown): boolean => {
 		const pending: Array<readonly [unknown, unknown]> = [[a, b]]
 		for (let pair = pending.pop(); pair !== undefined; pair = pending.pop()) {
@@ -591,8 +618,8 @@ export const sameUnder =
 			if (x === y) {
 				continue
 			}
-			const readX = canonicalOf(x)
-			const readY = canonicalOf(y)
+			const readX = reading(x)
+			const readY = reading(y)
 			const pairs =
 				typeof readX === "object" && typeof readY === "object"
 					? memberPairs(readX, readY, leftOut)
@@ -617,6 +644,13 @@ export const sameContent: (a: unknown, b: unknown) => boolean = sameUnder(omitSo
  * compare (sameUnder), so it stops at their first difference and writes nothing.
  */
 export const canonicalEquals: (a: unknown, b: unknown) => boolean = sameUnder(() => false)
+
+/**
+ * Canonical equality of values a reader rebuilt with Maps and Sets (served/json.ts servedFile): a Map and a Set are one
+ * of their kind with the same entries or members in order (Collection), every other value one as canonicalEquals holds
+ * it, so the one structural identity reads them too.
+ */
+export const collectedEquals: (a: unknown, b: unknown) => boolean = sameBy(collectedOf, () => false)
 
 /** A container of a canonical value: an array, or a plain record. */
 type ContainerKind = "array" | "object"
