@@ -329,14 +329,16 @@ const lawOfRule = (rule: QueryRule): RuleLaw<LawSide> => {
 const rulePart = (side: LawSide, spell: Spelling): Part => [
 	spell.relation(side.relation),
 	side.terms.map((t) => [t.kind, spell.field(side.relation, t.field)]),
-	side.texts
+	spell.texts(side)
 ]
 
 /** A side of a rule over a query as its law's display spells it. */
-const ruleDisplay = (side: LawSide, spell: Spelling): string =>
-	`${spell.relation(side.relation)}(${side.terms
+const ruleDisplay = (side: LawSide, spell: Spelling): string => {
+	const texts = spell.texts(side)
+	return `${spell.relation(side.relation)}(${side.terms
 		.map((t) => termText({ ...t, field: spell.field(side.relation, t.field) }))
-		.join(", ")})${side.texts.length === 0 ? "" : ` where ${side.texts.join(" and ")}`}`
+		.join(", ")})${texts.length === 0 ? "" : ` where ${texts.join(" and ")}`}`
+}
 
 /** A rule over a query as the naming door states it: a containment by its sides, a key by its side, a check by its
  * relation and name, as the same rule over stored relations is. */

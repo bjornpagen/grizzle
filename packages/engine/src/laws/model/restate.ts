@@ -6,6 +6,7 @@ import {
 	type ResolvedSelection,
 	type TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
+import type { LawSide } from "#compiler/analysis/theory/query.ts"
 import type { SpelledConjunct, Spelling } from "#compiler/analysis/theory/spelling.ts"
 import { lawStatement } from "#compiler/analysis/theory/theory.ts"
 import { ownedText, withoutSourceLocs } from "#compiler/core/canonical.ts"
@@ -516,34 +517,88 @@ const restatedConjuncts = (
 	choices: Choices
 ): ReadonlyArray<SpelledConjunct> | undefined => {
 	const rosters = new Map(relation.fields.map((f) => [f.name, fieldRoster(f)] as const))
+	const restated = restatedSelection(
+		relation.name,
+		(name) => rosters.get(name),
+		selection.conjuncts.map((c) => c.predicate),
+		names,
+		relations,
+		choices
+	)
+	if (restated === undefined) {
+		return undefined
+	}
+	const previousFields = relation.fields.flatMap((f) => {
+		const was = names.field(relation.name, f.name)
+		return was === undefined ? [] : [was]
+	})
+	return restated.map((p) => ({
+		text: ownedText(p, withoutSourceLocs),
+		reads: previousFields.filter((f) => mentions(p, f))
+	}))
+}
+
+/**
+ * A side of a rule over a query's conjuncts' texts (analysis/theory/query.ts LawSide) as the previous snapshot spells
+ * them, its selection restated as a stored relation's is (restatedSelection): its relation's fields' rosters where it is
+ * a stored relation, and none for a derived relation's head, whose handles a declaration renames nowhere. None where a
+ * conjunct does not restate.
+ */
+const restatedTexts = (
+	side: LawSide,
+	names: PreviousNames,
+	relations: Relations,
+	choices: Choices
+): ReadonlyArray<string> | undefined => {
+	const stored = relations[side.relation]
+	const rosters = new Map(
+		stored === undefined ? [] : stored.fields.map((f) => [f.name, fieldRoster(f)] as const)
+	)
+	return restatedSelection(
+		side.relation,
+		(name) => rosters.get(name),
+		side.selection.conjuncts,
+		names,
+		relations,
+		choices
+	)?.map((p) => ownedText(p, withoutSourceLocs))
+}
+
+/**
+ * A selection's conjuncts over the relation named `relation` as the previous snapshot spells them: each predicate
+ * restated under the previous snapshot's names (restatedExpr), its literals typed by `rosters`, the selection put in
+ * canonical form again (schema/own.ts canonicalSelection), since a renamed field or handle may reorder it, and found
+ * among the selections the previous snapshot records over the relation by their texts under today's rules
+ * (PreviousNames.selections), the one `choices` takes where it records it; today's where it records none. None where a
+ * conjunct does not restate.
+ */
+const restatedSelection = (
+	relation: string,
+	rosters: (field: string) => string | undefined,
+	predicates: ReadonlyArray<ExprDesc>,
+	names: PreviousNames,
+	relations: Relations,
+	choices: Choices
+): ReadonlyArray<ExprDesc> | undefined => {
 	const scope: Scope = {
-		field: (name) => names.field(relation.name, name),
-		roster: (name) => rosters.get(name),
+		field: (name) => names.field(relation, name),
+		roster: rosters,
 		value: undefined,
 		closed: (name) => {
 			const r = relations[name]
 			return r?.kind === "closed" ? r : undefined
 		}
 	}
-	const predicates = each(selection.conjuncts, (c) =>
-		restatedExpr(c.predicate, undefined, scope, names)
-	)
-	if (predicates === undefined) {
+	const restated = each(predicates, (p) => restatedExpr(p, undefined, scope, names))
+	if (restated === undefined) {
 		return undefined
 	}
-	const previousFields = relation.fields.flatMap((f) => {
-		const was = scope.field(f.name)
-		return was === undefined ? [] : [was]
-	})
-	const today = canonicalSelection({ conjuncts: predicates }).conjuncts
+	const today = canonicalSelection({ conjuncts: restated }).conjuncts
 	const recorded = names.selections(
-		names.relation(relation.name) ?? relation.name,
+		names.relation(relation) ?? relation,
 		canonicalTexts({ conjuncts: today })
 	)
-	return (isNonEmpty(recorded) ? choices.pick(recorded) : today).map((p) => ({
-		text: ownedText(p, withoutSourceLocs),
-		reads: previousFields.filter((f) => mentions(p, f))
-	}))
+	return isNonEmpty(recorded) ? choices.pick(recorded) : today
 }
 
 /** A spelling of a statement as the previous snapshot names what it reads (PreviousSpelling), as its readers take it:
@@ -608,6 +663,15 @@ class PreviousSpelling implements RestatingSpelling {
 		if (restated === undefined) {
 			this.#complete = false
 			return []
+		}
+		return restated
+	}
+
+	readonly texts = (side: LawSide): ReadonlyArray<string> => {
+		const restated = restatedTexts(side, this.#names, this.#relations, this.#choices)
+		if (restated === undefined) {
+			this.#complete = false
+			return side.texts
 		}
 		return restated
 	}

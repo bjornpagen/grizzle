@@ -5,7 +5,7 @@ import { Array as Arr, HashMap, Option, Record as Rec } from "effect"
 import { alterationStatement, type Step } from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot, SnapshotLaw } from "#compiler/deploy/snapshot/types.ts"
-import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
+import { type LawChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
@@ -25,6 +25,7 @@ import {
 	check,
 	closed,
 	contained,
+	decodedQuery,
 	eq,
 	f,
 	field,
@@ -110,6 +111,24 @@ export const meaningCases: Gen<MeaningCase> = (source) => ({
 	rule: source.draw(element(canonicalRules))
 })
 
+/** The derived relation D: each unit B holds a row of, its key a projection of B's, so no foreign key holds a
+ * containment into it and the rule judge does. */
+const units = decodedQuery({
+	kind: "rules",
+	arms: [
+		{
+			vars: [{ id: "g", origin: { relation: "B", field: "g" } }],
+			matches: [
+				{ source: { kind: "relation", name: "B" }, bindings: { g: { kind: "var", var: "g" } } }
+			],
+			where: [],
+			head: { g: { kind: "var", var: "g" } },
+			interiors: [],
+			attach: []
+		}
+	]
+})
+
 /**
  * The case's schema: R and the roster Kind, S keyed by n; two keys over the rows of R the predicate keeps, each spelled
  * its own way, on a term of its own, so an earlier grizzle stated them under two canonical texts that today's form
@@ -159,11 +178,48 @@ const schemaOf = (c: MeaningCase): SchemaDesc => {
 	}
 }
 
-/** The case's first installation, drafted from nothing by a grizzle whose canonical form lacked the case's rule. */
-const earlierInstallation = (c: MeaningCase): Installation => {
+/**
+ * The case's schema of a rule over a query: B and C at its base, and above it D, the units B holds a row of, and a
+ * containment from the units of the rows of C the first spelling and `m = 1` keep into D, a rule over a query, whose
+ * identity states its sides by their conjuncts' canonical texts (analysis/theory/query.ts LawSide). Its base states no
+ * law a canonical form spells: an earlier grizzle's lower level is its own (snapshot/build.ts levelsOf).
+ */
+const ruleSchemaOf = (c: MeaningCase): SchemaDesc => ({
+	name: "Judged",
+	relations: [{ kind: "derived", name: "D", level: 1, storage: "live", query: units }],
+	statements: [
+		contained(
+			onWhere("C", ["g"], both(spelledBy[c.rule].spellings[0], eq(field("m"), int(1)))),
+			on("D", ["g"])
+		)
+	],
+	extends: {
+		name: "Unit",
+		relations: [
+			closed.ordered("Kind", ["a", "b", "c"]),
+			relation("B", { g: f.integer, i: f.integer }, ["g", "i"]),
+			relation(
+				"C",
+				{ g: f.integer, i: f.integer, kind: f.closedId("Kind"), n: f.integer, m: f.integer },
+				["g", "i"]
+			)
+		],
+		statements: [],
+		extends: undefined
+	}
+})
+
+/** Each schema of a case: the one of its keys, containments and row check, and the one of its rule over a query. */
+export const schemasOf = (c: MeaningCase): ReadonlyArray<SchemaDesc> => [
+	schemaOf(c),
+	ruleSchemaOf(c)
+]
+
+/** A schema's first installation, drafted from nothing by a grizzle whose canonical form lacked the case's rule. */
+const earlierInstallation = (c: MeaningCase, schema: SchemaDesc): Installation => {
 	const owned = succeeded(
 		ownUnder(
-			succeeded(schemaDescIn(schemaOf(c))),
+			succeeded(schemaDescIn(schema)),
 			canonicalizerOf(new Set(Arr.filter(canonicalRules, (r) => r !== c.rule)))
 		)
 	)
@@ -189,21 +245,30 @@ export interface MeaningDraft {
  * selection it reads (deploy/snapshot/violation.ts MigrationCheck), today's, the converter having proved the law the
  * one of the same meaning today's compile states. Its id stays the earlier one, which a draft restates.
  */
-const converted = (earlier: DeploySnapshot, today: Installation): DeploySnapshot => {
-	const [rule, ...others] = lawChecks(today).rules
-	if (rule === undefined || others.length > 0) {
-		throw new Error("the case's schema holds one law the rule judge holds")
-	}
-	const laws = Rec.map(earlier.theory.laws, (l): SnapshotLaw =>
-		l.kind === "trigger" ? { ...l, digest: rule.digest } : l
+const converted = (
+	earlier: DeploySnapshot,
+	earlierChecks: LawChecks,
+	today: Installation
+): DeploySnapshot => {
+	const digests = new Map<string, string>(
+		Arr.zipWith(
+			earlierChecks.rules,
+			lawChecks(today).rules,
+			(was, now) => [was.law, now.digest] as const
+		)
 	)
+	const laws = Rec.map(earlier.theory.laws, (l, id): SnapshotLaw => {
+		const digest = digests.get(id)
+		return l.kind === "trigger" && digest !== undefined ? { ...l, digest } : l
+	})
 	return { ...earlier, theory: { ...earlier.theory, laws } }
 }
 
-export const draftedOf = (c: MeaningCase): MeaningDraft => {
+export const draftedOf = (c: MeaningCase, schema: SchemaDesc): MeaningDraft => {
+	const installed = earlierInstallation(c, schema)
 	const earlier = succeeded(
 		generate({
-			installation: earlierInstallation(c),
+			installation: installed,
 			timestamp: draftedAt(1),
 			previous: fromEmpty,
 			workload: noWorkload,
@@ -211,13 +276,13 @@ export const draftedOf = (c: MeaningCase): MeaningDraft => {
 			name: "earlier"
 		})
 	).snapshot
-	const codes = succeeded(draftCodes(schemaOf(c), fromSnapshot(earlier), noDeclarations))
-	const today = compile(schemaOf(c), { ...asDrafted, codes: installedCodes(codes) })
+	const codes = succeeded(draftCodes(schema, fromSnapshot(earlier), noDeclarations))
+	const today = compile(schema, { ...asDrafted, codes: installedCodes(codes) })
 	const followUp = succeeded(
 		generate({
 			installation: today,
 			timestamp: draftedAt(2),
-			previous: fromSnapshot(converted(earlier, today)),
+			previous: fromSnapshot(converted(earlier, lawChecks(installed), today)),
 			workload: noWorkload,
 			declared: noDeclarations,
 			name: "today"

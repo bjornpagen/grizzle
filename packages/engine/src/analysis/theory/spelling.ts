@@ -1,4 +1,5 @@
 import type { ResolvedSelection, ResolvedSide } from "#compiler/analysis/theory/laws.ts"
+import type { LawSide } from "#compiler/analysis/theory/query.ts"
 import type { LawStatement, Part } from "#compiler/core/identity.ts"
 import { termText } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -27,6 +28,8 @@ export interface Spelling {
 		relation: TheoryRelation,
 		selection: ResolvedSelection
 	) => ReadonlyArray<SpelledConjunct>
+	/** A side of a rule over a query's conjuncts' canonical texts (query.ts LawSide), in canonical order. */
+	readonly texts: (side: LawSide) => ReadonlyArray<string>
 	readonly literal: (value: TypedLiteral, at: LawField) => TypedLiteral
 }
 
@@ -36,6 +39,7 @@ export const ownSpelling: Spelling = Object.freeze({
 	field: (_relation: string, field: string) => field,
 	conjuncts: (_relation: TheoryRelation, selection: ResolvedSelection) =>
 		selection.conjuncts.map((c) => ({ text: c.text, reads: c.reads.map((f) => f.name) })),
+	texts: (side: LawSide) => side.texts,
 	literal: (value: TypedLiteral) => value
 })
 
