@@ -783,7 +783,11 @@ export const ruleViolation = (
 	violation: InferredQuery
 ): Result.Result<{ readonly dag: ValidDag; readonly root: RelNode }, CompileError> =>
 	Result.map(
-		checkQuery(checked, violation, { read: "rows", label: `rule ${law.named.display}` }),
+		checkQuery(checked, violation, {
+			read: "rows",
+			label: `rule ${law.named.display}`,
+			clock: noClock
+		}),
 		(admitted) => ({
 			dag: admitted.dag,
 			root: admitted.dag.roots[0]
@@ -862,3 +866,4 @@ export const immediateEvidence = (evidence: TheoryEvidence): TheoryEvidence =>
 		checks: evidence.checks,
 		containments: evidence.containments.filter((c) => admitted(c.context))
 	})
+import { noClock } from "#compiler/ir/clock.ts"

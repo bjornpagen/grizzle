@@ -5,6 +5,7 @@ import { type CompileError, malformedDescription } from "#compiler/core/errors.t
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
+import { statedReading } from "#compiler/ir/clock.ts"
 import {
 	type CompareOp,
 	type ComputeFn,
@@ -813,7 +814,10 @@ const lowerEnv = (heading: Heading, hooks: LowerHooks): LowerEnv => ({
 		}
 		return Result.ok(hooks.column(c))
 	},
-	params: { kind: "scope", lower: ({ name }) => Result.ok(hooks.param(name)) },
+	params: {
+		kind: "scope",
+		lower: ({ name }) => Result.ok({ ...hooks.param(name), reading: statedReading })
+	},
 	fieldType: (desc) => {
 		const t = fieldTypeOf(desc)
 		return t === undefined

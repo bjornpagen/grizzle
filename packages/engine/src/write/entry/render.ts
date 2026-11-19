@@ -3,6 +3,7 @@ import type { CheckedEntry, CheckedSchema } from "#compiler/analysis/schema.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { CompileError, prose } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -95,7 +96,8 @@ export const renderMembership = (
 	}
 	const query = checkQuery(options.schema, filter.query, {
 		read: "membership",
-		label: `write ${entry.entry}`
+		label: `write ${entry.entry}`,
+		clock: noClock
 	})
 	if (!query.ok) {
 		return query

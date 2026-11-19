@@ -29,6 +29,7 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { weightOf } from "#compiler/core/zset.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import {
 	defaultOpclass,
@@ -209,7 +210,7 @@ const judgedStatement = (
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
 ): Compiled => {
 	const checked = unwrap(
-		checkQuery(b.checked, navigateQuery(query, loc), { read: "region", label })
+		checkQuery(b.checked, navigateQuery(query, loc), { read: "region", label, clock: noClock })
 	)
 	const requests = requestsOf(b, rule, checked.dag.roots[0])
 	const lowered = unwrap(

@@ -14,12 +14,14 @@ import { asciiFold } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { int4Max, unwrap } from "#compiler/core/canonical.ts"
 import { canonicalTextOf, catchRefusal, Refusal, sameContent } from "#compiler/core/canonical.ts"
+import { clockReadingRange } from "#compiler/core/clock.ts"
 import { maxAllocSize } from "#compiler/core/errors.ts"
 import { CompileError, prose, type ProseTag, ruleRefused } from "#compiler/core/errors.ts"
 import type { FunctionDigest } from "#compiler/core/fingerprint.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { int4Digits, int8Max, int8Min, isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import { integerDigits, integerRanges } from "#compiler/ir/carriers.ts"
+import type { ParamReading } from "#compiler/ir/clock.ts"
 import { dayNumber, firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
 import type {
 	CompareOp,
@@ -278,7 +280,10 @@ export type LowerParams<R extends Refs> =
 			readonly lower: (
 				param: ParamRef<R>,
 				loc: SourceLoc
-			) => Result.Result<{ readonly spec: ExprSpec; readonly type: ScalarType }, CompileError>
+			) => Result.Result<
+				{ readonly spec: ExprSpec; readonly type: ScalarType; readonly reading: ParamReading },
+				CompileError
+			>
 	  }
 
 export const noParams: { readonly kind: "none" } = Object.freeze({ kind: "none" })
@@ -810,6 +815,36 @@ export const contractLevels = (t: ScalarType): ReadonlyArray<ContractInfo> => {
 		levels.push(c)
 	}
 	return levels
+}
+
+/**
+ * What a parameter's reading proves of its values beyond its type (ir/clock.ts ParamReading): nothing for a stated value,
+ * which has its type's bounds; a reading of the database's clock lies in the clock's range too (core/clock.ts
+ * clockReadingRange), its type's bounds refined by it, its facts its type's.
+ */
+const readingProof = (
+	t: ScalarType,
+	reading: ParamReading
+): { readonly bounds: Bounds | undefined; readonly facts: FactSet } | undefined => {
+	switch (reading.kind) {
+		case "stated":
+			return undefined
+		case "clock": {
+			const own = boundsOfType(t)
+			const range = clockReadingRange[reading.unit]
+			return {
+				bounds:
+					own === undefined
+						? undefined
+						: refine(own, {
+								kind: "within",
+								low: exactOf(range.low, 0),
+								high: exactOf(range.high, 0)
+							}),
+				facts: factsOfType(t)
+			}
+		}
+	}
 }
 
 /** The bounds every value of `t` has: its base's, refined by each contract level's atoms over VALUE. */
@@ -1968,9 +2003,9 @@ class Typing<R extends Refs> {
 		if (params.kind === "none") {
 			throw new Refusal(ruleRefused(at, "a schema predicate reads no parameter"))
 		}
-		const { spec, type } = unwrap(params.lower(param, at))
+		const { spec, type, reading } = unwrap(params.lower(param, at))
 		const node = this.record({ kind: "stated", spec: leafSpec(spec) })
-		return this.settle(node, type, spec.type, undefined, [])
+		return this.settle(node, type, spec.type, readingProof(type, reading), [])
 	}
 
 	/**

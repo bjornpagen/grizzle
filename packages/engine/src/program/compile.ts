@@ -206,7 +206,11 @@ export const compileQuery = (
 	const { context, artifacts } = options
 	/** The checked schema the query is checked against, its artifacts' own: a role's, over its base, or reality's. */
 	const read = artifacts.world.kind === "role" ? artifacts.world.checked : artifacts.derived.schema
-	const checkedQuery = checkQuery(read, source.desc, { read: options.read, label: "query" })
+	const checkedQuery = checkQuery(read, source.desc, {
+		read: options.read,
+		label: "query",
+		clock: options.clock
+	})
 	if (!checkedQuery.ok) {
 		return checkedQuery
 	}

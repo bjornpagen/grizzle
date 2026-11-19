@@ -49,6 +49,12 @@ import { makeIdSupply, type NodeId, type ParamId, type VarId } from "#compiler/c
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
 import { DagBuilder, type ReservedNode } from "#compiler/ir/builder.ts"
+import {
+	type ClockBinding,
+	type ParamReading,
+	readingOf,
+	statedReading
+} from "#compiler/ir/clock.ts"
 import { deliverySpine, relNode } from "#compiler/ir/dag.ts"
 import {
 	bindTerms,
@@ -171,6 +177,9 @@ export interface CheckOptions {
 	 * The label of the query's location in diagnostics: "query", `read <name>`, `<op> <relation>`, `derived <name>`.
 	 */
 	readonly label: string
+	/** The program parameters its served member binds to the database's clock (workload clocked), each a reading of the
+	 * clock's range (ir/clock.ts ParamReading); none for a query no member clocks. */
+	readonly clock: ClockBinding
 }
 
 /** A ChangeSet member described by a query: its head takes the types of the relation it is written into. */
@@ -2196,14 +2205,14 @@ export class Checker {
 			cell: ParamCell,
 			loc: SourceLoc
 		) => { readonly name: string; readonly type: ScalarType }
-	): { readonly spec: ExprSpec; readonly type: ScalarType } {
+	): { readonly spec: ExprSpec; readonly type: ScalarType; readonly reading: ParamReading } {
 		const cell = param.cell
 		const resolved = this.#resolveParam(cell, scope, loc)
 		if (resolved.kind === "column") {
 			const c = paramColumn(cell, loc)
 			const spec = storedColumn(node, c.name, c.type)
 			if (param.type.kind === "channel") {
-				return { spec, type: c.type }
+				return { spec, type: c.type, reading: statedReading }
 			}
 			const type = this.paramType(param, loc)
 			if (!compatible(c.type, type)) {
@@ -2213,12 +2222,20 @@ export class Checker {
 					`operands of one type: the variable bound to parameter ${cell.name} is ${typeLabel(c.type)}, declared ${typeLabel(type)}`
 				)
 			}
-			return { spec, type }
+			return { spec, type, reading: statedReading }
 		}
 		const type = this.paramType(param, loc)
 		return resolved.kind === "param"
-			? { spec: paramSpec(resolved.cell.use(type, loc), "compare", compareType(type)), type }
-			: { spec: boundConstant(this.schema, resolved, type, this.patterns), type }
+			? {
+					spec: paramSpec(resolved.cell.use(type, loc), "compare", compareType(type)),
+					type,
+					reading: readingOf(this.options.clock, resolved.cell.name)
+				}
+			: {
+					spec: boundConstant(this.schema, resolved, type, this.patterns),
+					type,
+					reading: statedReading
+				}
 	}
 
 	/** One immutable operator node over `args`, of an overload defined on every value its operands admit. */

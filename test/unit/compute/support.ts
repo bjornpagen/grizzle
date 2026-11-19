@@ -7,6 +7,7 @@ import { type CompileError, malformedDescription } from "#compiler/core/errors.t
 import { identifierOf } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { statedReading } from "#compiler/ir/clock.ts"
 import { type Codebook, codecOf, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
 import type { ExprDesc, FieldDesc, LiteralDesc, Spelled } from "#compiler/ir/desc.ts"
 import {
@@ -314,7 +315,10 @@ const bindAsBase = ({
 	})
 }
 
-export const baseParams: LowerParams<Spelled> = { kind: "scope", lower: bindAsBase }
+export const baseParams: LowerParams<Spelled> = {
+	kind: "scope",
+	lower: (param) => Result.map(bindAsBase(param), (bound) => ({ ...bound, reading: statedReading }))
+}
 
 const env = (
 	mode: LowerEnv["mode"],

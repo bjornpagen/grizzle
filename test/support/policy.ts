@@ -8,6 +8,7 @@ import {
 	checkReadBack
 } from "#compiler/check/index.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { decodeDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { parseSchemaInput, type SchemaInput } from "#compiler/program/schema.ts"
@@ -84,6 +85,7 @@ export const checkAuthored = (
 /** The check options an entry point states for a query read as rows: the query's label. */
 export const checkOptions = (label: string): CheckOptions => ({
 	read: "rows",
+	clock: noClock,
 	label
 })
 

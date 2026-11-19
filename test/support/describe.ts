@@ -4,6 +4,7 @@ import { fromJson } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { MoneyText, moneyTag, VectorText, vectorTag } from "#compiler/ir/carriers.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { DecimalText, decimalTag } from "#compiler/ir/decimal.ts"
 import { decodeDesc, type DescKind, type QueryDesc } from "#compiler/ir/desc.ts"
 import { schemaInfo } from "#compiler/query/build/heading.ts"
@@ -94,6 +95,7 @@ export const queryFromDescription = (
 			Result.flatMap(checkedIn(schema), (checked) =>
 				checkQuery(checked, desc, {
 					read: "rows",
+					clock: noClock,
 					label: "query"
 				})
 			),

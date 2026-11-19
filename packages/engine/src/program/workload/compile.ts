@@ -8,7 +8,7 @@ import { type CompileError, malformedDescription, within } from "#compiler/core/
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { type ClockBinding, noClock } from "#compiler/ir/clock.ts"
 import {
 	type ChangeSetDesc,
 	type WorkloadDesc,
@@ -144,12 +144,13 @@ type ProgramPlan = { readonly params: ReadonlyArray<ParamDecl> } & (
 
 const programPlan = (
 	program: ProgramDesc,
-	reads: WorkloadReads
+	reads: WorkloadReads,
+	clock: ClockBinding
 ): Result.Result<ProgramPlan, CompileError> => {
 	switch (program.kind) {
 		case "query": {
 			const ordered = isOrderedQuery(program.query)
-			return Result.map(queryRead(program.query, reads), (read): ProgramPlan => ({
+			return Result.map(queryRead(program.query, reads, clock), (read): ProgramPlan => ({
 				kind: "query",
 				params: read.params,
 				access: irAccess(rowsIr(read, ordered)),
@@ -162,13 +163,14 @@ const programPlan = (
 				changeSetIr(
 					program.changeSet,
 					world.kind === "role" ? world.checked : reads.artifacts.derived.schema,
-					reads
+					reads,
+					clock
 				),
 				(ir): ProgramPlan => ({ kind: "changeSet", params: ir.params, access: irAccess(ir) })
 			)
 		}
 		case "clocked":
-			return Result.map(programPlan(program.program, reads), (plan): ProgramPlan => {
+			return Result.map(programPlan(program.program, reads, program.clock), (plan): ProgramPlan => {
 				switch (plan.kind) {
 					case "query":
 					case "instant":
@@ -189,7 +191,7 @@ export const workloadQueryRead = (
 	schema: SchemaInput,
 	artifacts: SchemaArtifacts
 ): Result.Result<AnalyzedQuery, CompileError> =>
-	Result.flatMap(workloadReads(schema, artifacts), (reads) => queryRead(query, reads))
+	Result.flatMap(workloadReads(schema, artifacts), (reads) => queryRead(query, reads, noClock))
 
 /**
  * A query program's checked IR, as its access and its footprint are read: over the base, a query over a role reading
@@ -197,13 +199,15 @@ export const workloadQueryRead = (
  */
 const queryRead = (
 	query: QueryDesc,
-	reads: WorkloadReads
+	reads: WorkloadReads,
+	clock: ClockBinding
 ): Result.Result<AnalyzedQuery, CompileError> =>
 	analyzedQuery(
 		reads.world.kind === "role" ? inlineWorlds(query, reads.world.checked) : query,
 		reads.artifacts.derived.schema,
 		"rows",
-		"query"
+		"query",
+		clock
 	)
 
 /**
@@ -240,7 +244,7 @@ const checkedQueryIr = (
 	reading: "rows" | "membership",
 	label: string
 ): Result.Result<ProgramIr, CompileError> =>
-	Result.map(analyzedQuery(query, read, reading, label), (analyzed) =>
+	Result.map(analyzedQuery(query, read, reading, label, noClock), (analyzed) =>
 		rowsIr(analyzed, isOrderedQuery(query))
 	)
 
@@ -276,9 +280,10 @@ const analyzedQuery = (
 	query: QueryDesc,
 	read: CheckedSchema,
 	reading: "rows" | "membership",
-	label: string
+	label: string,
+	clock: ClockBinding
 ): Result.Result<AnalyzedQuery, CompileError> =>
-	Result.flatMap(checkQuery(read, query, { read: reading, label }), (checked) =>
+	Result.flatMap(checkQuery(read, query, { read: reading, label, clock }), (checked) =>
 		Result.flatMap(allenNormalDag(checked.dag), (allen) =>
 			Result.flatMap(keyJoinNormalDag(allen), (dag) =>
 				Result.map(analyzeLogical(dag, checkerEvidence), (analysis): AnalyzedQuery => ({
@@ -297,7 +302,8 @@ const analyzedQuery = (
 const changeSetIr = (
 	changeSet: ChangeSetDesc,
 	read: CheckedSchema,
-	reads: WorkloadReads
+	reads: WorkloadReads,
+	clock: ClockBinding
 ): Result.Result<ProgramIr, CompileError> => {
 	const derived = reads.artifacts.derived
 	const world = reads.world
@@ -309,7 +315,7 @@ const changeSetIr = (
 			derived,
 			world: writeWorld,
 			codes: reads.artifacts.names.codes,
-			clock: noClock
+			clock
 		}),
 		(frontend) => {
 			/** Each relation an action writes facts of, whose primary key every action states. */
@@ -444,7 +450,7 @@ const workloadPlans = (
 	const programs: Array<readonly [string, ProgramPlan]> = []
 	for (const [name, program] of Object.entries(workload.value.desc.programs)) {
 		const planned = Result.mapError(
-			programPlan(program, reads.value),
+			programPlan(program, reads.value, noClock),
 			(e): WorkloadPlanRefused => ({
 				kind: "program",
 				workload: input,

@@ -10,6 +10,7 @@ import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import type { InferredQuery, ReadBackDesc, WriteOp } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 
@@ -109,7 +110,7 @@ export const checkDefinition = (
 	label: string,
 	query: InferredQuery
 ): Result.Result<AdmittedQuery, CompileError> => {
-	const options: CheckOptions = { read: "rows", label }
+	const options: CheckOptions = { read: "rows", label, clock: noClock }
 	return Result.flatMap(validateQueryStructure(query, { read: "rows" }), (q) =>
 		catchRefusal(() => run(base, q, options, rootLoc(label), { kind: "definition" }))
 	)

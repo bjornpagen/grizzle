@@ -1354,7 +1354,7 @@ const compile = (
 				checkMember(
 					checked,
 					{ op: member.op, relation: written, query: navigateQuery(describedQuery, loc), loc },
-					{ label: `${member.op} ${member.relation}` }
+					{ label: `${member.op} ${member.relation}`, clock }
 				)
 			)
 			refuseQueriedOwnerAppend(member, relation, query, members)
@@ -1474,7 +1474,7 @@ const compile = (
 		}
 	}
 	const readBacks = desc.reads.map((r) => {
-		const query = unwrap(checkReadBack(checked, r, { label: `read ${r.name}` }))
+		const query = unwrap(checkReadBack(checked, r, { label: `read ${r.name}`, clock }))
 		for (const p of query.params) {
 			merge(params, p, childLoc(at, "reads", r.name))
 		}
@@ -1496,7 +1496,7 @@ const compile = (
 				checkFill(
 					base,
 					{ op, relation, query: fillQuery(entry, input, loc), loc },
-					{ label: `${op} ${entry.entry}` }
+					{ label: `${op} ${entry.entry}`, clock }
 				)
 			)
 		)

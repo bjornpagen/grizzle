@@ -90,7 +90,9 @@ export default defineConfig({
   binds the bigint parameter `now` of a query, an ordered query or a ChangeSet to the database's clock, the instant
   the call's transaction began, in `"micros"` or `"millis"`: the input omits it, every statement of the call reads the
   one instant, and a clocked read answers `once` alone, never live. Bind a lease's, a timer's or a due instant's `now`
-  so, never the host's clock. A reading is a value, a `bigint`, never an `instant`: a row records when it was written
+  so, never the host's clock; a reading lies in PostgreSQL's timestamptz range in its unit, so `now + delay`, the delay a
+  contract its predicate bounds, casts into its field with no guard where those bounds fit (millis: into a bigint). A
+  reading is a value, a `bigint`, never an `instant`: a row records when it was written
   by a field of type `instant`, which no caller states. Key the row by its natural fields and the instant after them,
   `relation("SignIn", { user, at: instant, ... }, ["user", "at"])`: its `at` is a clock of child `user`, which an
   insert leaving it out stamps with the call's instant at the user, `greatest(clock, the user's latest + 1)`, so a

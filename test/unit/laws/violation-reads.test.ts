@@ -155,8 +155,9 @@ export const aRulesCheckOverEveryRowReadsEachStoredTableNeverAViewInOneChainOfLo
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: '\t\tcheckQuery(b.checked, navigateQuery(query, loc), { read: "region", label })',
-				replacement: '\t\tcheckQuery(b.checked, query, { read: "region", label })',
+				original:
+					'\t\tcheckQuery(b.checked, navigateQuery(query, loc), { read: "region", label, clock: noClock })',
+				replacement: '\t\tcheckQuery(b.checked, query, { read: "region", label, clock: noClock })',
 				why: "The judge reads its queries as written, a join of every relation a probe reads, which PostgreSQL may plan as a product it filters; it fails the first box by its loose joins."
 			}
 		]
