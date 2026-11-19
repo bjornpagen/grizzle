@@ -18,7 +18,7 @@ import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { type RegexRef, rosterOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints } from "#compiler/laws/model/catalog.ts"
-import type { ConstraintLaw, LawModel } from "#compiler/laws/model/model.ts"
+import { compileLaws, type ConstraintLaw, type LawModel } from "#compiler/laws/model/model.ts"
 import { textDomainIdentity } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallNames,
@@ -35,9 +35,9 @@ import {
 	worldTextDomainUses
 } from "#compiler/physical/ddl/roles.ts"
 import {
+	basisOf,
 	contractChain,
 	freshPlanSettings,
-	installBasis,
 	type InstallPlan,
 	unserved,
 	type ParamSource,
@@ -53,7 +53,14 @@ import {
 	type SchemaContent,
 	sameRoleLevel
 } from "#compiler/schema/levels.ts"
-import { type Owned, type OwnedRole, own, ownedOf, ownRole } from "#compiler/schema/own.ts"
+import {
+	type Owned,
+	type OwnedRole,
+	own,
+	ownBuilt,
+	ownedOf,
+	ownRole
+} from "#compiler/schema/own.ts"
 import { ownedEntry } from "#compiler/schema/protocol.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import type { FragmentDesc } from "#compiler/schema/schema.ts"
@@ -352,26 +359,54 @@ export const levelSchema = (
 	}
 }
 
+/** The law model of an owned schema that every installation of it plans over: its every slice's, planned. */
+const plannedModel = (owned: Owned): Result.Result<LawModel, CompileError> =>
+	compileLaws(owned, everySlice(owned), { kind: "planned" })
+
 /**
- * The artifacts of a schema under the target identifiers: those of the Owned the schema owns to, and for a role its
- * base's read through its views (roleArtifacts). Each call computes them: their holder (the layer, generate,
- * describe) computes them once and hands them to every compilation over the schema.
+ * Every built schema's law model (plannedModel), by its schema value: compiled where the value is first read and kept
+ * with it, a built schema being immutable, so every reader of one schema value in a process, insertPreview,
+ * rowEvaluator, lawsOf and its siblings and the schema's artifacts, reads one model. A WeakMap holds nothing alive and is
+ * never enumerated: it is the schema value's state.
+ */
+const builtModels = new WeakMap<object, Result.Result<LawModel, CompileError>>()
+
+/** The law model of a built schema (builtModels): its owned schema's (ownBuilt) over every slice, planned. */
+export const builtLawModel = (built: BuiltSchema): Result.Result<LawModel, CompileError> => {
+	const known = builtModels.get(built.value)
+	if (known !== undefined) {
+		return known
+	}
+	const made = Result.flatMap(ownBuilt(built), plannedModel)
+	builtModels.set(built.value, made)
+	return made
+}
+
+/**
+ * The artifacts of a schema under the target identifiers: those of the Owned the schema owns to, over its law model, a
+ * built schema's the one its value holds (builtLawModel), and for a role its base's read through its views
+ * (roleArtifacts). Each call plans them: their holder (the layer, generate, describe) computes them once and hands them
+ * to every compilation over the schema.
  */
 export const schemaArtifacts = (
 	schema: SchemaInput,
 	options: SchemaArtifactOptions
 ): Result.Result<SchemaArtifacts, CompileError> => {
-	const over = (owned: Owned) =>
-		Result.flatMap(installBasis(owned, options.codes, everySlice(owned)), (basis) =>
-			baseArtifacts(basis, unserved)
-		)
-	return schema.kind === "role"
-		? Result.flatMap(ownRole(schema.desc), (role) =>
-				Result.flatMap(over(role.base), (base) =>
+	const over = (model: LawModel) =>
+		Result.flatMap(basisOf(model, options.codes), (basis) => baseArtifacts(basis, unserved))
+	switch (schema.kind) {
+		case "built":
+			return Result.flatMap(builtLawModel(schema), over)
+		case "role":
+			return Result.flatMap(ownRole(schema.desc), (role) =>
+				Result.flatMap(Result.flatMap(plannedModel(role.base), over), (base) =>
 					Result.flatMap(namedRole(role, base.names.levels), (named) => roleArtifacts(named, base))
 				)
 			)
-		: Result.flatMap(own(schema.desc), over)
+		case "owned":
+		case "desc":
+			return Result.flatMap(Result.flatMap(own(schema.desc), plannedModel), over)
+	}
 }
 
 /**

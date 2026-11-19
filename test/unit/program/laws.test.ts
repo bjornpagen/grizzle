@@ -49,11 +49,17 @@
  *
  * lawsOf(schema) gives each law an id of its own, and every law the installation's map reports, under every id it
  * reports it by, is one of them with that id: a refusal's RefusedLaw.id finds its law there.
+ *
+ * Every reader of one schema value reads one law model, compiled once (program/schema.ts builtLawModel): lawsOf, constraintNamesOf, rowEvaluator and insertPreview of the same value compile its laws once between them, the
+ * count work, never time (kernel/calls.ts callCounts).
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
+import { rowEvaluator } from "#adapter/public/host.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
+import { previewOver } from "#compiler/program/preview.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
 import {
 	type AnyRelation,
@@ -62,9 +68,11 @@ import {
 	lawsOf
 } from "#compiler/public/schema.ts"
 import { constraintLawsOf } from "#compiler/runtime/write/laws.ts"
+import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import { assert, throwsRefused } from "#test/support/assert.ts"
 import { relationName, rootTextFieldsOf, rootTextPattern } from "#test/support/families/fill.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import { identityText, installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
 import {
 	caseGen,
@@ -114,7 +122,7 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 			...Rec.values(lawKinds)
 		] satisfies ReadonlyArray<Reached<LawsFeature>>,
 		check: (_2, k: Case<LawsFeature>) => (c) =>
-			Effect.sync(() => {
+			Effect.gen(function* () {
 				if (Arr.isReadonlyArrayNonEmpty(c.tables)) {
 					throwsRefused(
 						() =>
@@ -130,7 +138,21 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 					k.note("a key restating the primary key refused")
 				}
 				const subject = subjectOf(c, (items) => items)
-				const ids = lawsOf(subject)
+				const [ids, compiles] = yield* callCounts(
+					Effect.sync(() => {
+						const listed = lawsOf(subject)
+						constraintNamesOf(subject)
+						rowEvaluator(subject)
+						previewOver(subject, inForce(bindFrame))
+						return listed
+					}),
+					{ models: { file: "packages/engine/src/laws/model/model.ts", name: "dischargedLaws" } }
+				)
+				assert.equal(
+					compiles.models,
+					1,
+					"lawsOf, constraintNamesOf, rowEvaluator and insertPreview of one schema value compile its laws once"
+				)
 				const laws = Arr.map(ids, (l) => l.law)
 				const installation = installationOf(subject, { kind: "declared" })
 				const names = installationNamesOf(installation)
@@ -475,6 +497,12 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 				original: '\tschemaLaws(lawModelOf(schema, "lawsOf")).laws',
 				replacement: '\tschemaLaws(lawModelOf(schema, "lawsOf")).laws.slice(1)',
 				why: "lawsOf drops its first law."
+			},
+			{
+				file: "packages/engine/src/program/schema.ts",
+				original: "\tconst known = builtModels.get(built.value)",
+				replacement: "\tconst known: Result.Result<LawModel, CompileError> | undefined = undefined",
+				why: "Each reader of a schema value compiles its law model again, so lawsOf, constraintNamesOf, rowEvaluator and insertPreview of one schema compile its laws four times."
 			}
 		]
 	})

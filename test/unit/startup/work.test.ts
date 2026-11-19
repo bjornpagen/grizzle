@@ -117,9 +117,9 @@ export const startupWorkReadsASchemasContentOnceCompilesItOncePerCommandNothingF
 			{
 				file: "packages/engine/src/physical/install/plan.ts",
 				original:
-					'\tResult.flatMap(compileLaws(owned, slice, { kind: "planned" }), (model) =>\n\t\tbasisOver(owned, codes, model)',
+					'\tResult.flatMap(compileLaws(owned, slice, { kind: "planned" }), (model) => basisOf(model, codes))',
 				replacement:
-					'\tResult.flatMap(\n\t\tResult.flatMap(compileLaws(owned, slice, { kind: "planned" }), () =>\n\t\t\tcompileLaws(owned, slice, { kind: "planned" })\n\t\t),\n\t\t(model) => basisOver(owned, codes, model)',
+					'\tResult.flatMap(\n\t\tResult.flatMap(compileLaws(owned, slice, { kind: "planned" }), () =>\n\t\t\tcompileLaws(owned, slice, { kind: "planned" })\n\t\t),\n\t\t(model) => basisOf(model, codes)\n\t)',
 				why: "The installation basis compiles its law model twice."
 			},
 			{

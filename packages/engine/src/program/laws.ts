@@ -6,12 +6,11 @@ import { captureLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { StatementDesc } from "#compiler/ir/desc.ts"
-import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
 import { fieldPatternLaws, patternLawId, planTextDomains } from "#compiler/physical/ddl/domains.ts"
-import { parseBuiltSchema } from "#compiler/program/schema.ts"
-import { canonicalStatementText, ownBuilt } from "#compiler/schema/own.ts"
+import { builtLawModel, parseBuiltSchema } from "#compiler/program/schema.ts"
+import { canonicalStatementText } from "#compiler/schema/own.ts"
 import { malformed, orThrow } from "#compiler/schema/protocol.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import type { IdentifiedLaw, OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import type { AnySchema, StatementsOf } from "#compiler/types/schema/schema.ts"
@@ -41,18 +40,16 @@ interface SchemaLaws {
 }
 
 /**
- * The law model of a schema built by schema(...) or schema.extend, compiled for `operation`, every slice of it planned:
- * CompileError for any other value, a role's included, and for a schema that does not compile.
+ * The law model of a schema built by schema(...) or schema.extend, every slice of it planned, the one its value holds
+ * (program/schema.ts builtLawModel), whatever reads it: CompileError for any other value, a role's included, refused
+ * at `operation`, the reader whose call it is, which labels the refusal alone; and the schema's own CompileError for a
+ * schema that does not compile.
  */
 export const lawModel = (
 	schema: AnySchema,
 	operation: string
 ): Result.Result<LawModel, CompileError> =>
-	Result.flatMap(parseBuiltSchema(schema, captureLoc(operation, [])), (built) =>
-		Result.flatMap(ownBuilt(built), (owned) =>
-			compileLaws(owned, everySlice(owned), { kind: "planned" })
-		)
-	)
+	Result.flatMap(parseBuiltSchema(schema, captureLoc(operation, [])), builtLawModel)
 
 /** The law model of a schema (lawModel), its CompileError thrown, as lawsOf and its siblings document. */
 const lawModelOf = (schema: AnySchema, operation: string): LawModel =>

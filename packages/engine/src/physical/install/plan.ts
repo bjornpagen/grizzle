@@ -122,9 +122,7 @@ export const installBasis = (
 	codes: Codebook,
 	slice: Slice
 ): Result.Result<InstallBasis, CompileError> =>
-	Result.flatMap(compileLaws(owned, slice, { kind: "planned" }), (model) =>
-		basisOver(owned, codes, model)
-	)
+	Result.flatMap(compileLaws(owned, slice, { kind: "planned" }), (model) => basisOf(model, codes))
 
 /** The basis of the law oracle's conservative installation of `owned` (install/compile.ts conservativeInstallation):
  * installBasis's, over the law model that discharges every rule over a query by its triggers (conservativeLaws). */
@@ -133,15 +131,19 @@ export const conservativeBasis = (
 	codes: Codebook,
 	slice: Slice
 ): Result.Result<InstallBasis, CompileError> =>
-	Result.flatMap(conservativeLaws(owned, slice), (model) => basisOver(owned, codes, model))
+	Result.flatMap(conservativeLaws(owned, slice), (model) => basisOf(model, codes))
 
-/** The basis of the installations of `owned` under `codes` over its law model `model`. */
-const basisOver = (
-	owned: Owned,
-	codes: Codebook,
-	model: LawModel
+/**
+ * The basis of the installations of a law model's owned schema under `codes`, over the model `model`: installBasis's
+ * over the model it compiles, and a built schema's artifacts' over the one model its schema value holds
+ * (program/schema.ts builtLawModel).
+ */
+export const basisOf = (
+	model: LawModel,
+	codes: Codebook
 ): Result.Result<InstallBasis, CompileError> =>
 	catchRefusal((): InstallBasis => {
+		const { owned } = model
 		const planned = planClosed(
 			owned,
 			Object.values(model.theory.relations).filter(

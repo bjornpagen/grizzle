@@ -28,14 +28,14 @@ import * as Result from "#compiler/core/result.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { familyKey, type FieldWriting } from "#compiler/ir/law.ts"
-import { parseBuiltSchema, schemaArtifacts } from "#compiler/program/schema.ts"
+import { builtLawModel, parseBuiltSchema, schemaArtifacts } from "#compiler/program/schema.ts"
 import { compileParsed } from "#compiler/program/workload/change.ts"
 import { bindWrite, type InsertedRow } from "#compiler/runtime/write/bind.ts"
 import type { CountedFamily, MemberAt } from "#compiler/runtime/write/binding.ts"
 import { fieldKey } from "#compiler/runtime/write/fill.ts"
 import type { MemberFacts } from "#compiler/runtime/write/normalize.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
-import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { insertableNamesOf, writableNamesOf } from "#compiler/schema/world.ts"
 import type {
 	InsertPreview,
@@ -162,16 +162,15 @@ export const previewOver = (
 	(rows: unknown) => Result.Result<PreviewRowsByName, PreviewRefusal>,
 	CompileError
 > => {
-	const loc = captureLoc("insertPreview", [])
-	const built = parseBuiltSchema(schema, loc)
+	const built = parseBuiltSchema(schema, captureLoc("insertPreview", []))
 	if (!built.ok) {
 		return built
 	}
-	const owned = ownBuilt(built.value)
-	if (!owned.ok) {
-		return owned
+	const model = builtLawModel(built.value)
+	if (!model.ok) {
+		return model
 	}
-	const codes = firstCodebook(rostersOf(owned.value))
+	const codes = firstCodebook(rostersOf(model.value.owned))
 	const artifacts = schemaArtifacts(built.value, { codes })
 	if (!artifacts.ok) {
 		return artifacts
