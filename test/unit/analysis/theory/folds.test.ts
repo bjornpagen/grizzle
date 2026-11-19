@@ -69,7 +69,7 @@ export const aFoldsLawWithNamedAccumulatorsIsViolatedExactlyWhenTheyAreNotTheNai
 			{
 				file: "packages/engine/src/analysis/theory/laws.ts",
 				original:
-					'\t\t\t\tpinViolation(\n\t\t\t\t\tb,\n\t\t\t\t\t{\n\t\t\t\t\t\trelation: member,\n\t\t\t\t\t\tat: s.index,\n\t\t\t\t\t\tfield: p.before,\n\t\t\t\t\t\tbase: { kind: "start", start: p.identity }\n\t\t\t\t\t},\n\t\t\t\t\tgroup,\n\t\t\t\t\twitness\n\t\t\t\t),\n',
+					"\t\t\t\tpinViolation(\n\t\t\t\t\tb,\n\t\t\t\t\t{\n\t\t\t\t\t\trelation: member,\n\t\t\t\t\t\tat: s.index,\n\t\t\t\t\t\tfield: p.before,\n\t\t\t\t\t\tstart: p.identity\n\t\t\t\t\t},\n\t\t\t\t\tgroup,\n\t\t\t\t\twitness\n\t\t\t\t),\n",
 				replacement: "",
 				why: "A named fold's violation omits its first-slot identity pin (analysis/theory/laws.ts foldArms); the visible box fails."
 			}

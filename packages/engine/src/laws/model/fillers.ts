@@ -11,12 +11,15 @@ import type { LawField } from "#compiler/ir/law.ts"
 /**
  * The part a field grizzle draws or accumulates plays in what fills it (analysis/theory/families.ts Namings): its
  * family's or tree's index or count, a tree's parent, start or end, a fold's before, after or end of plane `plane`, or
- * the copy a containment riding a family's axis carries.
+ * the copy a containment riding a family's axis carries: along a tree's owner axis, the rule its root holds by
+ * (`root`), its start, the axis's base, since the root has no parent to copy, so a draft that meets another rule there
+ * draws the copy again.
  */
 export type FillRole =
 	| { readonly kind: DrawnRole }
 	| { readonly kind: "before" | "after" | "foldEnd"; readonly plane: 0 | 1 }
 	| { readonly kind: "copy"; readonly axis: AxisKind }
+	| { readonly kind: "copy"; readonly axis: "owner"; readonly root: "base" }
 
 /**
  * What fills a field grizzle draws or accumulates, and every law that says what the field holds. A field's values are
@@ -135,7 +138,10 @@ export const fillersOf = (theory: Theory): ReadonlyMap<string, ReadonlyMap<strin
 					}
 					put(source, from.field.name, {
 						kind: "carried",
-						role: { kind: "copy", axis },
+						role:
+							axis === "owner" && f.shape.kind === "tree"
+								? { kind: "copy", axis, root: "base" }
+								: { kind: "copy", axis },
 						family: f,
 						law: family,
 						source,

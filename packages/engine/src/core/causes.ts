@@ -574,7 +574,7 @@ const familyNameText = (f: FamilyName): string => `${f.owner}.${f.count}`
 /**
  * Where an UnfillableField's column reads its source: along a family's owner axis (its owner's column), its predecessor
  * axis (the member before it), its last axis (its owner's last member's), or its own row (a fold's step value or
- * selection, or a tree root's copy of itself).
+ * selection, or a generated field it reads).
  */
 export type FillAxis = "owner" | "predecessor" | "last" | "row"
 

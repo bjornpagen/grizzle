@@ -13,8 +13,9 @@
  * - the tree's CHECK: the bound (start = 0 OR at < ‹n›), T2 ((parent = start) = (start = 0)), the root pin (start > 0
  *   OR at = 0), T3 (start = 0 OR at > 0 OR start = parent + 1) and T6 (end > start AND (children > 0 OR end = start +
  *   1));
- * - `owner axis`, FOREIGN KEY (r…, parent, ‹n›, …) REFERENCES T (r…, start, children, …) from the plain group, each root
- *   referencing itself; `predecessor axis`, FOREIGN KEY (r…, ‹parent₀›, ‹p›, start) REFERENCES T (r…, ‹parent₀›, at,
+ * - `owner axis`, FOREIGN KEY (r…, ‹parent₀›, ‹n›, …) REFERENCES T (r…, start, children, …) from the guarded group, no
+ *   root referencing anything, each root's ‹n› its own count by the tree's CHECK and each copy its start by the copy's
+ *   pin; `predecessor axis`, FOREIGN KEY (r…, ‹parent₀›, ‹p›, start) REFERENCES T (r…, ‹parent₀›, at,
  *   end); `last axis`, FOREIGN KEY (r…, start, ‹pn›, end) REFERENCES T (r…, ‹parent₀›, at, end), deferred.
  *
  * The oracle is a second implementation of the theorem: a forest numbered by a naive recursive pre-order walk
@@ -57,8 +58,8 @@ export const treeOfParents = (
 
 /**
  * One row of a keyed tree: its root value, its parent's start (a root's own, 0), its slot, its count, its pre-order
- * interval, ‹n› its parent's count (a root's own), its kind, its parent's kind (a root's own) and the sum of its
- * children's kinds.
+ * interval, ‹n› its parent's count (a root's own), its kind, its parent's kind (a root's the copy's start, 0, the owner
+ * axis's base) and the sum of its children's kinds.
  */
 export interface KeyedRow {
 	readonly root: ReadonlyArray<string>
@@ -81,7 +82,7 @@ const sizeOf = (node: Node): number =>
  * The direct pre-order numbering of a forest: a naive recursive walk of each tree, a node's start its pre-order
  * position, its end its start plus its subtree's size, its `at` its slot, its parent its parent's start, ‹n› and its
  * parent's kind its parent's, and its total the sum of its children's kinds; each root self-parented at slot 0, its ‹n›
- * its own count and its parent's kind its own. Rows come in each tree's pre-order, the trees in the forest's order.
+ * its own count and its parent's kind the copy's start, 0. Rows come in each tree's pre-order, the trees in the forest's order.
  */
 export const numbered = (forest: Forest): ReadonlyArray<KeyedRow> =>
 	Arr.flatMap(forest, ({ root, tree }) => {
@@ -103,7 +104,7 @@ export const numbered = (forest: Forest): ReadonlyArray<KeyedRow> =>
 				end: start + sizeOf(node),
 				copy: parent?.children ?? node.children.length,
 				kind: node.kind,
-				parentKind: parent?.kind ?? node.kind,
+				parentKind: parent?.kind ?? 0,
 				total: Arr.reduce(node.children, 0, (sum, child) => sum + child.kind)
 			})
 			let next = start + 1

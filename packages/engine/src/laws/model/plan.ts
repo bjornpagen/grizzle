@@ -2625,12 +2625,13 @@ export class Recognizer {
 	 *   probe, which binds its every column;
 	 * - its three axes (`#axis`), each carrying its pairs: the former's (a tree's interval copies, a fold's
 	 *   accumulators) and every containment's that rides it;
-	 * - every base pin of a carried copy, the copy's first law's: `i > 0 OR f = s` on a predecessor copy and `n > 0 OR
-	 *   f = s` on a last copy, `s` the copy's start: an accumulated field's, or a hidden accumulator's identity;
-	 * - a tree's owner axis from its plain group, (r…, parent) into its primary key (r…, start), so each root, which
-	 *   references itself, holds its own count as ‹n› and its own value of every copy by the axis's foreign key, with no
-	 *   action: PostgreSQL refuses a cascade over a generated column (42601), and a tree is written whole and rewritten
-	 *   by deletion;
+	 * - every base pin of a carried copy, the copy's first law's: `i > 0 OR f = s` on a predecessor copy, `n > 0 OR
+	 *   f = s` on a last copy and `start > 0 OR f = s` on a tree's owner copy, `s` the copy's start: an accumulated
+	 *   field's, or a hidden accumulator's identity;
+	 * - a tree's owner axis from its guarded group, (r…, ‹parent₀›) into its primary key (r…, start), so it names each
+	 *   member's parent and no root, which is its axis's base: a root's copies are their starts, by their pins, and its
+	 *   ‹n› its own count, by the tree's CHECK; with no action: PostgreSQL refuses a cascade over a generated column
+	 *   (42601), and a tree is written whole and rewritten by deletion;
 	 * - for a tree, the CHECK of the family bound, T2, the root pin (each root, outside the family, holds `at = 0`), T3
 	 *   and T6; its primary key (r…, start) is T1;
 	 * - for each fold, its hidden accumulators and the CHECK of its combine, `after = combine(before, x)` where its step
@@ -2850,7 +2851,7 @@ class FamilyPlanner {
 					: this.#axis(
 							"owner",
 							carried.owner,
-							{ relation: member, base: appendNonEmpty(memberGroup, copy), keyed: memberGroup },
+							{ relation: member, base: appendNonEmpty(group, copy), keyed: group },
 							{ relation: owner, base: ownerTargets },
 							"noAction",
 							this.#recognizer.refillDeferred("owner", f) ? "deferred" : "immediate"
@@ -3214,6 +3215,7 @@ class FamilyPlanner {
 		const one = naturalLiteral(1n)
 		const plus = (x: ExprDesc): ExprDesc => ({ kind: "compute", fn: "add", args: [x, one] })
 		own.add(or([cmp("eq", start, zero), cmp("lt", at, n)]))
+		own.add(or([cmp("gt", start, zero), cmp("eq", n, children)]))
 		own.add(
 			or([
 				and([cmp("eq", parent, start), cmp("eq", start, zero)]),
@@ -3230,15 +3232,25 @@ class FamilyPlanner {
 	/**
 	 * The base pin of a carried copy, where its source has a start: on its axis's source relation, under the copy's
 	 * first law, `at > 0 OR f = s` (predecessor, the index at its first slot, a tree's root included, which the root
-	 * pin holds at slot 0) or `n > 0 OR f = s` (last, an empty family). The owner axis has no base: every member has an
-	 * owner, and a tree's root references itself, so the axis's own foreign key holds its copy at its own value.
+	 * pin holds at slot 0), `n > 0 OR f = s` (last, an empty family) or `start > 0 OR f = s` (a tree's owner axis, its
+	 * root, which the axis's foreign key leaves out). Any other owner axis has no base: every member has an owner.
 	 */
 	#pin(axis: AxisKind, pair: CarriedPair, index: PlannedColumn): void {
 		const start = this.#startOf(pair.from)
-		if (start === undefined || axis === "owner") {
+		const shape = this.#family.shape
+		const at = ((): PlannedColumn | undefined => {
+			switch (axis) {
+				case "predecessor":
+					return index
+				case "last":
+					return fieldColumn(this.#family.count)
+				case "owner":
+					return shape.kind === "tree" ? fieldColumn(shape.start) : undefined
+			}
+		})()
+		if (start === undefined || at === undefined) {
 			return
 		}
-		const at = axis === "predecessor" ? index : fieldColumn(this.#family.count)
 		const relation = axis === "last" ? this.#owner : this.#member
 		const conditions = this.#conditionsFor(pair.laws[0], relation)
 		conditions.add(

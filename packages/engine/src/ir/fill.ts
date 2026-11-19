@@ -55,13 +55,16 @@ export const layoutKey = (relation: string, position: FillAt): string =>
  * - owner: a member's group field, a tree node's root fields and parent below its root among them: its owner's column
  *   `to`;
  * - self: a tree root's parent: its own start `to`, since the root is its own parent; its root fields are the caller's;
- * - own: every copy a tree's owner axis carries, on its root: its own column `to`, since the root references itself
- *   along the owner axis, stated by `law`;
+ * - base: every copy a tree's owner axis carries, on its root, the owner axis's base: the copy's start `base`, since the
+ *   root has no parent to copy, stated by `law`;
  * - index, copy, count, start, end: a drawn natural, from where the row stands: its slot, its family's count, the count
  *   of a family it owns, a tree node's pre-order start, its start plus its subtree's size;
  * - ownerCopy, predecessor, last: an accumulated or hidden column carried along an axis of `family`, the target row's
  *   column `to`, stated by `law`, and `base` at the predecessor and last axes' base, the first slot and the empty
- *   family (an owner axis has none, since every member has an owner);
+ *   family (an owner axis's base, a tree's root, stands at the root's position: `base` above). A predecessor copy may
+ *   read a column that reads the copy back through its row, a generated field over it among them: a chain, a left fold
+ *   along the family's slots whose step is that column's rule, the walk's one member after another and the family
+ *   scan's recursion (write/family/scan.ts);
  * - after: a fold plane's after, `combine(befores, x)` where the step side's selection holds and its before elsewhere,
  *   the fold stated by `law`;
  * - generated: a generated field, PostgreSQL's, evaluated where another column reads it and never written.
@@ -70,7 +73,7 @@ export type FillRule =
 	| { readonly kind: "given" }
 	| { readonly kind: "owner"; readonly to: NativeColumn }
 	| { readonly kind: "self"; readonly to: NativeColumn }
-	| { readonly kind: "own"; readonly to: NativeColumn; readonly law: LawId }
+	| { readonly kind: "base"; readonly base: TypedLiteral; readonly law: LawId }
 	| { readonly kind: "index" }
 	| { readonly kind: "copy" }
 	| { readonly kind: "count"; readonly family: Family }
@@ -142,9 +145,8 @@ export interface FillColumn {
 
 /**
  * The columns a fill column reads, its rule `rule` and its row's own columns `reads` (FillColumn.reads): a predecessor
- * copy's column, which it reads on the member before, or the columns of its own row every other rule reads. The one
- * reading the fill analysis follows a chain of copies by (analysis/theory/fill.ts readsBack) and a backfill's scan
- * reads its rows by (deploy/diff/backfill.ts scanReads).
+ * copy's column, which it reads on the member before, or the columns of its own row every other rule reads: the one
+ * reading a backfill's scan reads its rows by (deploy/diff/backfill.ts scanReads).
  */
 export const filledFrom = (
 	rule: FillRule,

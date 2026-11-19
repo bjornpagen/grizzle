@@ -29,6 +29,7 @@ import {
 	type Axis,
 	besides,
 	buildFill,
+	chainOf,
 	copyNamed,
 	type CopySource,
 	countedFilled,
@@ -72,7 +73,8 @@ export type FillSituation =
 	| "refused: families nesting relations in a cycle below a unit's root"
 	| "refused: a copy of a column filled after its members"
 	| "refused: a copy of a column a counted family fills"
-	| "refused: copies at a tree's root in a cycle"
+	| "admitted: a chain along a predecessor axis"
+	| "admitted: a chain along a tree's owner axis"
 	| "admitted: a tree owning an ordered family"
 	| "admitted: a tree owning a counted family"
 	| "admitted: a counted family of nested owners"
@@ -631,7 +633,7 @@ export const property = (
 				assert.equal(reason.relation, named.relation, "the copy's relation")
 				assert.deepEqual(reason.family, named.family, "the copy's family")
 				assert.ok(
-					refused.value.later.includes(reason.later.kind),
+					Arr.some(refused.value.later, (k) => k === reason.later.kind),
 					`a cause the model gives copy ${named.field}: ${Arr.join(refused.value.later, ", ")}, not ${reason.later.kind}`
 				)
 				if (reason.axis !== "row") {
@@ -648,9 +650,7 @@ export const property = (
 				note(
 					reason.later.kind === "afterMembers"
 						? "refused: a copy of a column filled after its members"
-						: reason.later.kind === "cycle"
-							? "refused: copies at a tree's root in a cycle"
-							: "refused: a copy of a column a counted family fills"
+						: "refused: a copy of a column a counted family fills"
 				)
 				return
 			}
@@ -666,6 +666,19 @@ export const property = (
 			return
 		}
 		note("admitted")
+		for (const j of spec.copies.keys()) {
+			switch (chainOf(spec, j)) {
+				case "predecessor":
+					note("admitted: a chain along a predecessor axis")
+					break
+				case "owner":
+					note("admitted: a chain along a tree's owner axis")
+					break
+				case "last":
+				case undefined:
+					break
+			}
+		}
 		const options = realityWrite(artifacts.value)
 		const checked = checking(value)
 		const inserted = insertedRelations(spec)
@@ -894,7 +907,8 @@ export const fillSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"refused: families nesting relations in a cycle below a unit's root",
 	"refused: a copy of a column filled after its members",
 	"refused: a copy of a column a counted family fills",
-	"refused: copies at a tree's root in a cycle",
+	"admitted: a chain along a predecessor axis",
+	"admitted: a chain along a tree's owner axis",
 	"admitted: a tree owning an ordered family",
 	"admitted: a tree owning a counted family",
 	"admitted: a counted family of nested owners",
@@ -1029,7 +1043,7 @@ interface FillCase {
 }
 
 /**
- * A case over a planted specification (fill.ts `plantedGen`, `rootCycleGen` or `generatedCopyGen`) beside an admitted
+ * A case over a planted specification (fill.ts `plantedGen` or `generatedCopyGen`) beside an admitted
  * one (`besides`, `admittedFillSpecGen`, admitted by construction), with an instance and a follow-up drawn as any
  * case's.
  */
@@ -1043,29 +1057,6 @@ const plantedCaseGen =
 		const rows = source.draw(instanceGen(spec))
 		return { spec, rows, followUp: source.draw(followUpGen(spec, rows)) }
 	}
-
-/**
- * A tree whose one copy along its owner axis reads itself, its relation's flags and its fold drawn: each node holds its
- * parent's value, and its root, which has none, reads its own copy in a cycle, which the reference refuses.
- */
-const rootCycleGen: Gen<FillSpec> = (source) => ({
-	relations: [
-		{
-			generated: source.draw(boolean) ? generationOfV : noGeneration,
-			mutable: source.draw(boolean)
-		}
-	],
-	families: [
-		{
-			kind: "tree",
-			owner: 0,
-			member: 0,
-			fold: source.draw(element(["none", "sum", "count"] as const))
-		}
-	],
-	copies: [{ family: 0, axis: "owner", source: { kind: "copy", copy: 0 } }],
-	steps: []
-})
 
 /**
  * A counted family whose members copy their owner's generated g along its owner axis, its owners nested under its
@@ -1124,6 +1115,8 @@ const aims: ReadonlyArray<readonly [FillSituation, Planted]> = [
 	["admitted: a counted family of nested owners", "counted family of a nested owner"],
 	["admitted: a copy of a tree's end", "copy of a tree's end"],
 	["admitted: a nesting three deep", "nesting three deep"],
+	["admitted: a chain along a predecessor axis", "predecessor chain"],
+	["admitted: a chain along a tree's owner axis", "tree chain"],
 	["refused: families nesting relations in a cycle below a unit's root", "unit cycle"]
 ]
 
@@ -1136,7 +1129,6 @@ export const fillDraw = aimed(caseGen, [
 		aims,
 		([situation, planted]) => [situation, plantedCaseGen(plantedGen(planted))] as const
 	),
-	["refused: copies at a tree's root in a cycle", plantedCaseGen(rootCycleGen)],
 	[
 		"admitted: a counted family's copy of its owner's generated g, its owners nested under its mutable members",
 		plantedCaseGen(generatedCopyGen)

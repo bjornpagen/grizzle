@@ -300,7 +300,7 @@ const fillFamily = (family: Family): FillFamily => ({
 	tree: family.shape.kind === "tree" && family.member.name === family.owner.name
 })
 
-/** A fill rule as data (fold.ts FillRuleData): a tree root's parent (`self`) is its own column, as `own` is. */
+/** A fill rule as data (runtime/write/fill.ts FillRuleData). */
 const ruleData = (rule: FillRule): FillRuleData => {
 	switch (rule.kind) {
 		case "given":
@@ -313,8 +313,9 @@ const ruleData = (rule: FillRule): FillRuleData => {
 		case "ownerCopy":
 			return { kind: rule.kind, to: columnKey(rule.to) }
 		case "self":
-		case "own":
-			return { kind: "own", to: columnKey(rule.to) }
+			return { kind: "self", to: columnKey(rule.to) }
+		case "base":
+			return { kind: "base", base: rule.base }
 		case "count":
 			return { kind: "count", family: familyIdOf(rule.family.id) }
 		case "predecessor":

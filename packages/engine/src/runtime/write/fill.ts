@@ -270,11 +270,12 @@ export interface FillFold {
 /**
  * How the host fills one column of a row at its position, as data (ir/fill.ts FillRule): its targets by column key, its
  * families by id, its bases as their literals, a fold as `FillFold`, and a generated field's expression as its table.
- * A tree root's parent (`self`) is its own column, as `own` is.
+ * A tree root's parent (`self`) is its own start.
  */
 export type FillRuleData =
 	| { readonly kind: "given" | "index" | "copy" | "start" | "end" }
-	| { readonly kind: "owner" | "own" | "ownerCopy"; readonly to: ColumnKey }
+	| { readonly kind: "owner" | "self" | "ownerCopy"; readonly to: ColumnKey }
+	| { readonly kind: "base"; readonly base: TypedLiteral }
 	| { readonly kind: "count"; readonly family: FamilyId }
 	| { readonly kind: "predecessor"; readonly to: ColumnKey; readonly base: TypedLiteral }
 	| {
@@ -329,7 +330,8 @@ export interface HostFill {
  * How the host fills one column of a row at its position (`FillRuleData`), its targets at their positions among their
  * rows' relations' columns (runtime/write/cells.ts Columns) and its bases as host values:
  * - given: the caller's, the row's own value;
- * - owner: its owner's column `to`; own: its own column `to`, a tree root's parent and copies of itself;
+ * - owner: its owner's column `to`; self: its own column `to`, a tree root's parent, its own start;
+ * - base: a tree root's copy along its owner axis, the copy's start as a host value;
  * - index, copy, count, start, end: a drawn natural, from where the row stands;
  * - ownerCopy, predecessor, last: a column carried along an axis, the target row's column `to`, and `base` at the
  *   predecessor and last axes' base;
@@ -339,7 +341,8 @@ export interface HostFill {
 type Rule =
 	| { readonly kind: "given" }
 	| { readonly kind: "owner"; readonly to: number }
-	| { readonly kind: "own"; readonly to: number }
+	| { readonly kind: "self"; readonly to: number }
+	| { readonly kind: "base"; readonly base: unknown }
 	| { readonly kind: "index" }
 	| { readonly kind: "copy" }
 	| { readonly kind: "count"; readonly family: FillFamily }
@@ -426,8 +429,10 @@ const hostRule = (rule: FillRuleData, spec: CarrierSpec, targets: RuleTargets): 
 			}
 			return { kind: rule.kind, to: targets.owner.at(rule.to) }
 		}
-		case "own":
-			return { kind: "own", to: targets.own.at(rule.to) }
+		case "self":
+			return { kind: "self", to: targets.own.at(rule.to) }
+		case "base":
+			return { kind: "base", base: hostOfLiteral(spec.carrier, rule.base) }
 		case "count":
 			return { kind: "count", family: targets.family(rule.family) }
 		case "predecessor":
@@ -934,8 +939,10 @@ const ruleValue = (
 		case "owner":
 		case "ownerCopy":
 			return filledBefore(ownerOf(row), rule.to, row, evaluate)
-		case "own":
+		case "self":
 			return valueOf(row, rule.to, evaluate)
+		case "base":
+			return Result.ok(rule.base)
 		case "index":
 			return Result.ok(BigInt(row.place.kind === "member" ? row.place.at : 0))
 		case "copy":

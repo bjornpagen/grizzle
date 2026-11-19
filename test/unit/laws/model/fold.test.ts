@@ -129,8 +129,8 @@ export const aFoldsNativesAre23sItsCopiesOnTwoAxesItsCombineAndItsIdentityPinsEv
 		kills: [
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
-				original: '\t\tif (start === undefined || axis === "owner") {',
-				replacement: '\t\tif (start === undefined || axis === "owner" || axis === "predecessor") {',
+				original: "\t\tif (start === undefined || at === undefined) {",
+				replacement: '\t\tif (start === undefined || at === undefined || axis === "predecessor") {',
 				why: "The predecessor axis's base pin, and so the first-slot identity pin, dropped (laws/model/plan.ts pin); the natives fail."
 			},
 			{

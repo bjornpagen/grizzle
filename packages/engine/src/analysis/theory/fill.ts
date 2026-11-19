@@ -11,7 +11,15 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
  * its own and its reads': a copy along a sequence's last axis, a fold's end over it among them, waits on that
  * sequence's members; a counted family's end on that family's settling, after its own members; any other column on
  * nothing, filled on entering its row. A tree's interval is drawn on entering, its end its start plus its subtree's
- * size, which the nesting's shape gives before any member is filled.
+ * size, which the nesting's shape gives before any member is filled. A tree root's copies along its owner axis are that
+ * axis's base, each its copy's start, as a sequence's first slot is its predecessor axis's: the root has no parent to
+ * copy, and no containment riding the axis states anything of it.
+ *
+ * A copy across rows may read a column that reads the copy back through its row, a generated field over it among them:
+ * a predecessor copy of such a column is a chain along the family's slots, and a tree node's copy of its parent's along
+ * the tree's depth, each a left fold whose step is that column's rule over its row. The walk fills it one member after
+ * another, each copy reading the row before it filled whole, and a family's scan draws it by recursion over its group's
+ * slots (write/family/scan.ts).
  *
  * The walk fills a row's sequences one after another, and a member of one may copy a column of its owner that waits on
  * another: the walk fills that one first. So each layout orders its sequences, every one after each sequence the
@@ -66,7 +74,6 @@ import {
 	type FillRule,
 	type FillStage,
 	type FillWriter,
-	filledFrom,
 	layoutKey
 } from "#compiler/ir/fill.ts"
 import {
@@ -203,7 +210,6 @@ const readColumn = (relation: LawRelation, name: string): NativeColumn => {
 const readsOfRule = (relation: LawRelation, rule: FillRule): ReadonlyArray<NativeColumn> => {
 	switch (rule.kind) {
 		case "self":
-		case "own":
 			return [rule.to]
 		case "after":
 			return [
@@ -215,6 +221,7 @@ const readsOfRule = (relation: LawRelation, rule: FillRule): ReadonlyArray<Nativ
 			return fieldReads([rule.expr]).map((name) => readColumn(relation, name))
 		case "given":
 		case "owner":
+		case "base":
 		case "index":
 		case "copy":
 		case "count":
@@ -317,10 +324,16 @@ const entriesAt = (
 			continue
 		}
 		const law = pair.laws[0]
+		const base = baseLiteral(f, pair.from)
+		if (root && base === undefined) {
+			throw defect(`the start of ${columnKey(pair.from)}, a copy along a tree's owner axis`)
+		}
 		set(
 			pair.from,
 			typeOf(pair.from),
-			root ? { kind: "own", to: pair.to, law } : { kind: "ownerCopy", family: f, to: pair.to, law },
+			root && base !== undefined
+				? { kind: "base", base, law }
+				: { kind: "ownerCopy", family: f, to: pair.to, law },
 			writer
 		)
 	}
@@ -441,24 +454,17 @@ interface Unfillable {
 }
 
 /** The law that fills a column read across rows or of its own row, and the family it fills it for. */
-const lawAndFamily = (
-	rule: FillRule,
-	position: FillPosition
-): { readonly law: LawId; readonly family: Family } => {
+const lawAndFamily = (rule: FillRule): { readonly law: LawId; readonly family: Family } => {
 	switch (rule.kind) {
 		case "ownerCopy":
 		case "predecessor":
 		case "last":
 		case "after":
 			return { law: rule.law, family: rule.family }
-		case "own":
-			if (position.kind === "top") {
-				throw defect("a tree root's copy of itself stands at its tree's root")
-			}
-			return { law: rule.law, family: position.family }
 		case "given":
 		case "owner":
 		case "self":
+		case "base":
 		case "index":
 		case "copy":
 		case "count":
@@ -507,7 +513,7 @@ const draftAt = (
 	const refusal = (entry: Entry, read: NativeColumn, why: FilledLater): Unfillable => ({
 		relation: relation.name,
 		field: entry.name,
-		...lawAndFamily(entry.rule, position),
+		...lawAndFamily(entry.rule),
 		axis: "row",
 		source: { relation: relation.name, column: columnKey(read) },
 		later: why
@@ -665,32 +671,6 @@ const ownerLater = (
 	return target.waits.after.has(familyKey(family.id)) || target.waits.settling
 		? { kind: "later", later: { kind: "afterMembers" } }
 		: { kind: "after", families: [...target.waits.after.values()] }
-}
-
-/**
- * Whether the column `from` of a draft's row reads `to` through the row's own columns, a generated field's reads among
- * them, and through the predecessor copies it meets, each the column it copies on the member before: a predecessor copy
- * of such a column reads its own value on a member before it, a chain the walk follows but no window of a family's scan
- * draws (write/family/scan.ts). A fold's before is such a copy of its after, which the scan draws as its running
- * aggregate, so fillOrder asks it of every other predecessor copy.
- */
-const readsBack = (draft: Draft, from: NativeColumn, to: NativeColumn): boolean => {
-	const seen = new Set<string>()
-	const pending = [columnKey(from)]
-	for (let key = pending.pop(); key !== undefined; key = pending.pop()) {
-		const column = defined(draft.columns.get(key), `a column ${key} a draft's row reads`)
-		for (const read of filledFrom(column.entry.rule, column.reads)) {
-			const next = columnKey(read)
-			if (next === columnKey(to)) {
-				return true
-			}
-			if (!seen.has(next)) {
-				seen.add(next)
-				pending.push(next)
-			}
-		}
-	}
-	return false
 }
 
 /** Whether a read across rows of a column `target` fills is one a column of `family`'s fill may make. */
@@ -935,13 +915,7 @@ export const fillOrder = (
 				const at: FillPosition = { kind: "member", family: rule.family }
 				const target = columnAt(member, at, rule.to)
 				const later =
-					target === undefined
-						? { kind: "unreached" as const }
-						: rule.kind === "predecessor" &&
-							  target.entry.rule.kind !== "after" &&
-							  readsBack(draftOf(member, at), rule.to, entry.column)
-							? { kind: "cycle" as const }
-							: acrossLater(rule.family, target)
+					target === undefined ? { kind: "unreached" as const } : acrossLater(rule.family, target)
 				if (later !== undefined) {
 					return refused(
 						refusal(rule.kind, rule.family, rule.law, { relation: member, to: rule.to }, later)

@@ -2315,7 +2315,14 @@ A family is a rule over rows the caller writes: each owner's members, counted by
   key `(doc, start)` is the document order: a document in order is one scan of it, and a row's descendants, its tree's
   rows whose `start` lies in its interval, one range scan, with no recursion. A fold over the tree steps on
   `on(T, "doc", "parent", …)` and ends on `on(T, "doc", "start", …)`; a copy down the tree is
-  `contained(on(select(T, (t) => t.gt(t.start, 0n)), "doc", "parent", "x"), on(T, "doc", "start", "y"))`.
+  `contained(on(select(T, (t) => t.gt(t.start, 0n)), "doc", "parent", "x"), on(T, "doc", "start", "y"))`, `x`
+  accumulated: the root, which has no parent, holds `x`'s start.
+- **A chain is a fold whose step is a field.** A copy may read a field that reads the copy back through its row, a
+  generated field over it: `was` accumulated from the predecessor's `state` along
+  `contained(on(F, "o", pred("at"), "was"), on(F, "o", "at", "state"))`, `state` generated from `was` and the row,
+  holds at each member the step applied to every member before it, from `was`'s start at slot 0; a copy down a tree of
+  its parent's generated field so folds down the tree from the root's start. grizzle draws a chain as any copy, on
+  every write, and in SQL one member after another.
 - **`fold(family, Monoid.m, step, end)`**: the members' step values, `step` a side of the member, combined by the
   monoid into the owner's `end` fields, each `accumulated`.
 
@@ -3658,9 +3665,9 @@ deploy.
   added
   after the backfill, `NOT VALID`, and validated, so a value drawn wrongly refuses the migration. A fold added to a
   tree that holds rows, or changed on one, is drawn in the tree's stored sibling order, which is its caller's. A family
-  the stored rows alone don't determine is refused, naming it: copies that read each other, or a fold over a copy. The
-  backfill's window functions and its one recursive step over a tree are migration SQL you review; queries at run time
-  use neither.
+  the stored rows alone don't determine is refused, naming it: copies that read each other, or a fold over a copy. A
+  chain is drawn by recursion: along a family's slots by the family's scan, and down a tree from its roots. The
+  backfill's window functions and its recursive steps are migration SQL you review; queries at run time use neither.
 - **Data steps** go in a custom migration, `generate --custom`: a folder holding only `meta.json`, from the committed
   snapshot to itself.
   Add `01-<words>.sql`, `02-<words>.sql` and so on, each one transaction unless its first line is

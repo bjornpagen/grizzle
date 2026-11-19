@@ -104,6 +104,20 @@ export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsDrawnSchema
 		],
 		kills: [
 			{
+				file: "packages/engine/src/analysis/theory/fill.ts",
+				original:
+					'\t\t\t\t\ttarget === undefined ? { kind: "unreached" as const } : acrossLater(rule.family, target)',
+				replacement:
+					'\t\t\t\t\ttarget === undefined ? { kind: "unreached" as const } : rule.kind === "predecessor" && target.entry.rule.kind === "generated" ? { kind: "cycle" as const } : acrossLater(rule.family, target)',
+				why: "A predecessor copy of a generated field is refused as reading itself back, as readsBack once refused a chain: the planted chain along a predecessor axis, which the reference admits and its writer folds, is refused."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/fill.ts",
+				original: "\t\t\troot && base !== undefined",
+				replacement: "\t\t\tfalse && base !== undefined",
+				why: "A tree root's copy along its owner axis is its parent's, as if the root had one: the walk dies at the root, where the reference holds the copy's start."
+			},
+			{
 				file: "packages/engine/src/write/frontend/compile.ts",
 				original:
 					"\t\t\tconst need = [...f.group.map((g) => columnKeyOf(g.owner.name)), ...heldBy(f.owner, to)]",

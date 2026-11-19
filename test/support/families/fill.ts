@@ -296,7 +296,7 @@ const naturalSource = (spec: FillSpec, source: CopySource, seen: ReadonlySet<num
  * the row but those the axis itself carries (its key, a family's count on the owner axis, a tree's start and root on
  * its owner axis and its end on the others), so a copy adds a column its axis references once. A copy reads another
  * copy of the row by its number, and a copy along a tree's owner axis may read itself: each node then holds its
- * parent's value, which its root holds of itself alone.
+ * parent's value, its root its start, and so every node its start.
  */
 export const sourcesFor = (
 	spec: FillSpec,
@@ -658,7 +658,7 @@ type Stage =
 	| { readonly kind: "counted"; readonly family: number; readonly part: "count" | "end" }
 
 /** Why the reference refuses a copy: the UnfillableField causes it may report (core/causes.ts FilledLater). */
-type LaterKind = "afterMembers" | "countedFill" | "cycle" | "unreached"
+type LaterKind = "afterMembers" | "countedFill" | "unreached"
 
 /**
  * The reference's verdict on a specification, in the order the compiler decides them: a relation no write fills or
@@ -733,24 +733,16 @@ const generationReads = (spec: FillSpec, r: number): ReadonlyArray<string> => {
 }
 
 /**
- * The stage of a source on a row of its relation, by the reference model; `root` for a tree's root, where a copy along
- * its own tree's owner axis reads its own row. A sequence's fold end waits on that sequence's members, and so does a
- * copy along its last axis. A copy's own stage is its source's along the tree's owner axis at the root, a counted
- * family's fill for a copy of a counted family, and entering otherwise. A cycle of copies at a root reads back to
- * itself; `undefined` marks one.
+ * The stage of a source on a row of its relation, by the reference model. A sequence's fold end waits on that
+ * sequence's members, and so does a copy along its last axis. A copy's own stage is a counted family's fill for a copy
+ * of a counted family, and entering otherwise: a tree root's copy along its owner axis is its start, the axis's base.
  */
-const stageOf = (
-	spec: FillSpec,
-	row: number,
-	source: CopySource,
-	root: boolean,
-	seen: ReadonlySet<number>
-): Stage | undefined => {
+const stageOf = (spec: FillSpec, row: number, source: CopySource): Stage => {
 	switch (source.kind) {
 		case "generated": {
 			const generation = relationAt(spec, row).generated
 			return generation.kind === "row"
-				? stageOf(spec, row, generation.source, root, seen)
+				? stageOf(spec, row, generation.source)
 				: { kind: "entering" }
 		}
 		case "caller":
@@ -771,31 +763,16 @@ const stageOf = (
 				: { kind: "counted", family: source.family, part: "end" }
 		}
 		case "copy": {
-			if (seen.has(source.copy)) {
-				return undefined
-			}
 			const copy = copyAt(spec, source.copy)
 			const family = familyAt(spec, copy.family)
 			if (!isSequenceSpec(family)) {
 				return { kind: "counted", family: copy.family, part: "count" }
 			}
-			if (copy.axis === "last") {
-				return { kind: "after", families: new Set([copy.family]) }
-			}
-			return root && copy.axis === "owner" && family.kind === "tree"
-				? stageOf(spec, row, copy.source, root, new Set([...seen, source.copy]))
+			return copy.axis === "last"
+				? { kind: "after", families: new Set([copy.family]) }
 				: { kind: "entering" }
 		}
 	}
-}
-
-/** The positions a copy's source row stands at that the reference tells apart: a tree's root, where its own copies
- * read its own row, and every other. */
-const positionsOf = (spec: FillSpec, j: number): ReadonlyArray<boolean> => {
-	const copy = copyAt(spec, j)
-	return treeOn(spec, sourceRelationOf(spec, copy)) === undefined || copy.axis !== "owner"
-		? [false]
-		: [false, true]
 }
 
 /**
@@ -805,17 +782,15 @@ const positionsOf = (spec: FillSpec, j: number): ReadonlyArray<boolean> => {
 const orderingOf = (
 	spec: FillSpec,
 	j: number
-): ReadonlyArray<{ readonly root: boolean; readonly before: number; readonly family: number }> => {
+): ReadonlyArray<{ readonly before: number; readonly family: number }> => {
 	const copy = copyAt(spec, j)
 	if (copy.axis !== "owner" || !isSequenceSpec(familyAt(spec, copy.family))) {
 		return []
 	}
-	return Arr.flatMap(positionsOf(spec, j), (root) => {
-		const stage = stageOf(spec, sourceRelationOf(spec, copy), copy.source, root, new Set([j]))
-		return stage?.kind === "after" && !stage.families.has(copy.family)
-			? Arr.map([...stage.families], (before) => ({ root, before, family: copy.family }))
-			: []
-	})
+	const stage = stageOf(spec, sourceRelationOf(spec, copy), copy.source)
+	return stage.kind === "after" && !stage.families.has(copy.family)
+		? Arr.map([...stage.families], (before) => ({ before, family: copy.family }))
+		: []
 }
 
 /**
@@ -827,7 +802,7 @@ const orderCycles = (spec: FillSpec): ReadonlySet<number> => {
 	const asked = Arr.flatMap(spec.copies, (copy, j) =>
 		Arr.map(orderingOf(spec, j), (o) => ({ ...o, copy: j, row: sourceRelationOf(spec, copy) }))
 	)
-	const reaches = (row: number, root: boolean, from: number, to: number): boolean => {
+	const reaches = (row: number, from: number, to: number): boolean => {
 		const seen = new Set<number>()
 		const pending = [from]
 		for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
@@ -835,7 +810,7 @@ const orderCycles = (spec: FillSpec): ReadonlySet<number> => {
 				return true
 			}
 			for (const o of asked) {
-				if (o.row === row && o.root === root && o.before === at && !seen.has(o.family)) {
+				if (o.row === row && o.before === at && !seen.has(o.family)) {
 					seen.add(o.family)
 					pending.push(o.family)
 				}
@@ -843,18 +818,23 @@ const orderCycles = (spec: FillSpec): ReadonlySet<number> => {
 		}
 		return false
 	}
-	return new Set(
-		Arr.flatMap(asked, (o) => (reaches(o.row, o.root, o.family, o.before) ? [o.copy] : []))
-	)
+	return new Set(Arr.flatMap(asked, (o) => (reaches(o.row, o.family, o.before) ? [o.copy] : [])))
 }
 
 /**
- * Whether predecessor copy `j` reads itself on a member before it: its source, read through the `g` that reads a field
- * of its row and the predecessor copies of its family it meets, each the source it copies on the member before, comes
- * back to it, a chain no window of the family's scan draws.
+ * The axis along which copy `j` is a chain, none where it is none: its source, read through the `g` that reads a field
+ * of its row and the copies along its own family's axis that it meets, each the source it copies on the row that axis
+ * names, comes back to it. A predecessor copy's chain runs along its family's slots, a tree's owner copy's along its
+ * depth; each is a left fold the reference writer follows to the axis's base, where the copy holds its start.
  */
-const predecessorChain = (spec: FillSpec, j: number): boolean => {
+export const chainOf = (spec: FillSpec, j: number): Axis | undefined => {
 	const copy = copyAt(spec, j)
+	if (
+		copy.axis === "last" ||
+		(copy.axis === "owner" && familyAt(spec, copy.family).kind !== "tree")
+	) {
+		return undefined
+	}
 	const generation = relationAt(spec, holderOf(spec, copy)).generated
 	const seen = new Set<number>()
 	let at: CopySource = copy.source
@@ -864,14 +844,14 @@ const predecessorChain = (spec: FillSpec, j: number): boolean => {
 			continue
 		}
 		if (at.kind !== "copy") {
-			return false
+			return undefined
 		}
 		if (at.copy === j) {
-			return true
+			return copy.axis
 		}
 		const read = copyAt(spec, at.copy)
-		if (read.family !== copy.family || read.axis !== "predecessor" || seen.has(at.copy)) {
-			return false
+		if (read.family !== copy.family || read.axis !== copy.axis || seen.has(at.copy)) {
+			return undefined
 		}
 		seen.add(at.copy)
 		at = read.source
@@ -886,47 +866,27 @@ const refusalsOf = (
 ): ReadonlyArray<LaterKind> => {
 	const copy = copyAt(spec, j)
 	const family = familyAt(spec, copy.family)
-	const later = new Set<LaterKind>([
-		...(cycles.has(j) ? (["afterMembers"] as const) : []),
-		...(copy.axis === "predecessor" && predecessorChain(spec, j) ? (["cycle"] as const) : [])
-	])
-	for (const root of positionsOf(spec, j)) {
-		const stage = stageOf(spec, sourceRelationOf(spec, copy), copy.source, root, new Set([j]))
-		if (stage === undefined) {
-			later.add("cycle")
-			continue
-		}
-		if (stage.kind === "counted") {
-			const own = stage.family === copy.family
-			if (!isSequenceSpec(family) && copy.axis === "owner" && own) {
-				if (stage.part === "end") {
-					later.add("afterMembers")
-				}
-				continue
+	const later = new Set<LaterKind>(cycles.has(j) ? ["afterMembers"] : [])
+	const stage = stageOf(spec, sourceRelationOf(spec, copy), copy.source)
+	if (stage.kind === "counted") {
+		const own = stage.family === copy.family
+		if (!isSequenceSpec(family) && copy.axis === "owner" && own) {
+			if (stage.part === "end") {
+				later.add("afterMembers")
 			}
+		} else {
 			later.add("countedFill")
 			if (readsCopy(spec, sourceRelationOf(spec, copy), copy.source) && !own) {
 				later.add("unreached")
 			}
-			continue
 		}
-		if (
-			copy.axis === "owner" &&
-			isSequenceSpec(family) &&
-			stage.kind === "after" &&
-			stage.families.has(copy.family)
-		) {
-			later.add("afterMembers")
-		}
-	}
-	const atRoot = family.kind === "tree" && copy.axis === "owner"
-	if (atRoot) {
-		const stage = stageOf(spec, sourceRelationOf(spec, copy), copy.source, true, new Set([j]))
-		if (stage === undefined) {
-			later.add("cycle")
-		} else if (stage.kind === "counted") {
-			later.add("countedFill")
-		}
+	} else if (
+		copy.axis === "owner" &&
+		isSequenceSpec(family) &&
+		stage.kind === "after" &&
+		stage.families.has(copy.family)
+	) {
+		later.add("afterMembers")
 	}
 	return Arr.sort([...later], Order.String)
 }
@@ -968,8 +928,8 @@ export const verdictOf = (spec: FillSpec): Verdict => {
 
 /**
  * A copy's own class as the suites' situations name it: what its source is filled by, relative to its axis: entering
- * its row; after the members of the copy's own family; after the members of another sequence its row owns; a counted
- * family's count or end; or a cycle.
+ * its row; after the members of the copy's own family; after the members of another sequence its row owns; or a
+ * counted family's count or end.
  */
 export type SourceClass =
 	| "entering"
@@ -977,15 +937,11 @@ export type SourceClass =
 	| "after another family"
 	| "counted count"
 	| "counted end"
-	| "cycle"
 
 /** The class of a copy's source on a member row of its relation, the reference's stage spelled as a situation. */
 export const sourceClassOf = (spec: FillSpec, j: number): SourceClass => {
 	const copy = copyAt(spec, j)
-	const stage = stageOf(spec, sourceRelationOf(spec, copy), copy.source, false, new Set([j]))
-	if (stage === undefined) {
-		return "cycle"
-	}
+	const stage = stageOf(spec, sourceRelationOf(spec, copy), copy.source)
 	switch (stage.kind) {
 		case "entering":
 			return "entering"
@@ -1441,7 +1397,7 @@ export const writtenRows = (
 		switch (copy.axis) {
 			case "owner": {
 				const up = membership(row, copy.family)
-				return sourceValue(up === undefined ? row : rowOf(up.owner), copy.source)
+				return up === undefined ? 0n : sourceValue(rowOf(up.owner), copy.source)
 			}
 			case "predecessor": {
 				const up = membership(row, copy.family)
@@ -2039,6 +1995,8 @@ export type Planted =
 	| "generated copy"
 	| "counted step of a sequence's copy"
 	| "unit cycle"
+	| "predecessor chain"
+	| "tree chain"
 
 /** A specification holding the shape `planted` (`Planted`), its relations' flags, its folds and its kinds drawn. */
 export const plantedGen =
@@ -2288,6 +2246,51 @@ export const plantedGen =
 					steps: []
 				}
 			}
+			case "predecessor chain": {
+				/**
+				 * A copy along the predecessor axis of R0's ordered family over R1, or of R0's tree, of the member's g, the
+				 * greater of its v and that copy: a left fold of the greater along the slots, from the copy's start.
+				 */
+				const family = sequence(0, 1)
+				const member = family.member
+				return {
+					relations: relationsNonEmpty(
+						Arr.map(relations, (r, i) =>
+							i === member
+								? { ...r, generated: { kind: "row", source: { kind: "copy", copy: 0 } } }
+								: r
+						)
+					),
+					families: [family],
+					copies: [{ family: 0, axis: "predecessor", source: { kind: "generated" } }],
+					steps: []
+				}
+			}
+			case "tree chain": {
+				/**
+				 * A copy along R0's tree's owner axis of its parent's g, the greater of its v and that copy, a left fold of
+				 * the greater down the tree from the root's start; or of the copy itself, which every node holds at its
+				 * start.
+				 */
+				const itself = source.draw(boolean)
+				return {
+					relations: [
+						{
+							...relations[0],
+							generated: itself ? noGeneration : { kind: "row", source: { kind: "copy", copy: 0 } }
+						}
+					],
+					families: [{ kind: "tree", owner: 0, member: 0, fold: fold() }],
+					copies: [
+						{
+							family: 0,
+							axis: "owner",
+							source: itself ? { kind: "copy", copy: 0 } : { kind: "generated" }
+						}
+					],
+					steps: []
+				}
+			}
 		}
 	}
 
@@ -2314,8 +2317,26 @@ export const besides = (base: FillSpec, planted: FillSpec): FillSpec => {
 				return { kind: "copy", copy: s.copy + c }
 		}
 	}
+	const generation = (g: GenerationSpec): GenerationSpec =>
+		g.kind === "row" ? { kind: "row", source: rowSource(g.source) } : g
+	const rowSource = (s: RowSource): RowSource => {
+		switch (s.kind) {
+			case "start":
+			case "end":
+				return s
+			case "count":
+			case "index":
+			case "fold":
+				return { ...s, family: s.family + f }
+			case "copy":
+				return { kind: "copy", copy: s.copy + c }
+		}
+	}
 	return {
-		relations: relationsNonEmpty([...base.relations, ...planted.relations]),
+		relations: relationsNonEmpty([
+			...base.relations,
+			...Arr.map(planted.relations, (x) => ({ ...x, generated: generation(x.generated) }))
+		]),
 		families: [
 			...base.families,
 			...Arr.map(planted.families, (x) => ({ ...x, owner: x.owner + r, member: x.member + r }))

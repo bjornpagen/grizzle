@@ -43,7 +43,11 @@ import {
  *   each alone at slot 0, its before the identity; each row's end its last child's after. A fold added to a tree that
  *   holds rows, or changed on one, is drawn over its stored slots alone.
  * - **Copies:** each copy an axis carries is its target's value, joined to the row its axis names; a row its axis names
- *   no row for keeps the copy's base.
+ *   no row for keeps the copy's base, a tree's root among them.
+ * - **Chains:** a copy of a column that reads the copy back through its row has its source's value over the row its
+ *   axis names as its own copies leave that row: a predecessor copy so is drawn by its family's scan, with the members'
+ *   other columns, as a write draws it (write/family/scan.ts chainLayer); a tree's copy of its parent's by a recursion
+ *   down the tree from its roots, which hold its base (treeChainDerivation).
  *
  * Each of these is a derivation (Derivation): rows computed apart from the table it draws on, each meeting a row of the
  * table at a key the table stores. A derivation reads every column another draws as that one draws it, and is placed
@@ -60,8 +64,9 @@ import {
  * of the table exists (structure.backfill runs before them) would read the whole table for each of its rows.
  *
  * Window functions are admitted here: a migration is reviewed text, and grizzle's limits on them are limits on its
- * run-time queries. No derivation recurs: each is sorts and windows over its table's rows, so its cost is its rows'
- * sort, whatever the depth of a tree or the length of a family.
+ * run-time queries. No derivation but a chain's recurs: each is sorts and windows over its table's rows, so its cost is
+ * its rows' sort, whatever the depth of a tree or the length of a family; a chain's costs a round for each slot of its
+ * longest family, or each level of its deepest tree.
  */
 import { Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
@@ -70,8 +75,16 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { SnapshotTheory } from "#compiler/deploy/snapshot/types.ts"
 import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import { fieldReads, type TypedLiteral } from "#compiler/ir/expr.ts"
-import type { AxisKind, Family, FamilyFold, FoldPlane, TreeShape } from "#compiler/ir/family.ts"
 import {
+	type AxisKind,
+	type Family,
+	type FamilyFold,
+	type FoldPlane,
+	isSequence,
+	type TreeShape
+} from "#compiler/ir/family.ts"
+import {
+	familyDrawn,
 	type FillAt,
 	type FillColumn,
 	type FillLayout,
@@ -79,7 +92,12 @@ import {
 	filledFrom,
 	layoutKey
 } from "#compiler/ir/fill.ts"
-import type { NativeColumn, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
+import {
+	columnKey,
+	type NativeColumn,
+	type RelationInfo,
+	type TableRelation
+} from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
@@ -116,9 +134,11 @@ import {
 	countStar,
 	cte,
 	cteRefAs,
+	cUtf8Collation,
 	derived,
 	desc,
 	eq,
+	join,
 	lit,
 	not,
 	objectName,
@@ -132,6 +152,7 @@ import { assignments, type TableGeneration } from "#compiler/sql/generation.ts"
 import { freshNames, NameSupply } from "#compiler/sql/naming.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 import {
+	chainedColumns,
 	rowColumns,
 	type Scan,
 	scannedColumn,
@@ -317,7 +338,7 @@ export const fillReadsOf = (installation: Installation): FillReads => {
 				return layout.position.kind === "member" ? [at(layout.position.family.owner, rule.to)] : []
 			case "given":
 			case "self":
-			case "own":
+			case "base":
 			case "index":
 			case "copy":
 			case "count":
@@ -472,6 +493,7 @@ const drawnName = (n: number): string => `__drawn_${n}`
  * a column of, whose before is its predecessor's after.
  */
 const drawnNamesOf = (
+	installation: Installation,
 	family: Family,
 	added: ReadonlySet<string>,
 	folds: ReadonlyArray<FamilyFold>
@@ -479,8 +501,28 @@ const drawnNamesOf = (
 	new Set([
 		...(holds(added, family.shape.index) ? [columnOf(family.shape.index)] : []),
 		...(added.has(family.copy) ? [family.copy] : []),
-		...folds.flatMap((fold) => fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after)]))
+		...folds.flatMap((fold) => fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after)])),
+		...[...chainedCopies(installation, family)].filter((c) => added.has(c))
 	])
+
+/**
+ * The predecessor copies of a sequence's members that its scan draws by recursion (write/family/scan.ts
+ * chainedColumns): each copy of a column that reads the copy back through the member's row, the scan's chain, which no
+ * stream of a copy's target draws (copyDerivation), since each member's value is its source's on the member before,
+ * drawn first. The backfill draws them by the family's scan, with its members' other columns, as a write does.
+ */
+const chainedCopies = (installation: Installation, family: Family): ReadonlySet<string> => {
+	if (!isSequence(family)) {
+		return new Set()
+	}
+	const drawn = familyDrawn(installation.laws.theory.fill, family.member.name, family)
+	const chained = chainedColumns(family.member, drawn)
+	return new Set(
+		drawn.flatMap((c) =>
+			c.rule.kind === "predecessor" && chained.has(columnKey(c.column)) ? [columnOf(c.column)] : []
+		)
+	)
+}
 
 /**
  * The columns `names` names a family's member holds at `position`, a member's or a tree's root's, each with the rule its
@@ -641,7 +683,7 @@ const memberDerivation = (
 		installation,
 		family,
 		{ kind: "member", family },
-		drawnNamesOf(family, added, folds)
+		drawnNamesOf(installation, family, added, folds)
 	)
 	const assigned = drawn.filter((c) => holds(added, c.column))
 	if (!isNonEmpty(assigned)) {
@@ -961,7 +1003,7 @@ const treeDerivation = (
 	const folds = family.folds.filter((fold) => planesAdded(fold, added))
 	const drawIndex = holds(added, family.shape.index)
 	const index = columnOf(family.shape.index)
-	const keys = drawnNamesOf(family, added, folds)
+	const keys = drawnNamesOf(installation, family, added, folds)
 	const members = drawnAt(installation, family, { kind: "member", family }, keys)
 	const roots = drawnAt(installation, family, { kind: "root", family }, keys)
 	const assigned = members.filter((c) => holds(added, c.column))
@@ -1420,11 +1462,11 @@ const familyCells = (installation: Installation): ReadonlySet<StoredColumnKey> =
 
 /**
  * A copy a family's axis carries: a column the host fills on the axis's source row, `from`,
- * with the value of `to` on the row the axis names, its target. The owner axis names each member's owner, a tree's
- * row its parent's, the root its own (it references itself), so no row lacks one; the predecessor axis names the
- * member at the slot before, and the first slot holds the copy's base; the last axis names an owner's last member, and
- * an empty family holds the base. The base is an accumulated field's declared start: the placeholder the copy is added
- * under, which the backfill leaves wherever the axis names no row.
+ * with the value of `to` on the row the axis names, its target. The owner axis names each member's owner and a tree's
+ * row its parent, the root none, which holds the copy's base; the predecessor axis names the member at the slot before,
+ * and the first slot holds the base; the last axis names an owner's last member, and an empty family holds the base.
+ * The base is an accumulated field's declared start: the placeholder the copy is added under, which the backfill leaves
+ * wherever the axis names no row.
  */
 interface Copy {
 	readonly family: Family
@@ -1558,6 +1600,7 @@ const copyDerivation = (input: BackfillInput, layer: NonEmptyReadonlyArray<Copy>
 	)
 	const along = ((): {
 		readonly targetKey: NonEmptyReadonlyArray<Expr>
+		readonly targetWhere: Expr | undefined
 		readonly sourceKey: NonEmptyReadonlyArray<Expr>
 		readonly sourceWhere: Expr | undefined
 		readonly reads: ReadonlyArray<Cell>
@@ -1566,6 +1609,7 @@ const copyDerivation = (input: BackfillInput, layer: NonEmptyReadonlyArray<Copy>
 			case "last":
 				return {
 					targetKey: groupAt(family, "owner", "t"),
+					targetWhere: undefined,
 					sourceKey: groupAt(family, "member", "s"),
 					sourceWhere: and(appendNonEmpty(nonRoot(names, family, "s"), lastOf(family, "s"))),
 					reads: [
@@ -1576,16 +1620,18 @@ const copyDerivation = (input: BackfillInput, layer: NonEmptyReadonlyArray<Copy>
 			case "owner":
 				return {
 					targetKey: groupAt(family, "member", "t"),
+					targetWhere: conjunction(nonRoot(names, family, "t")),
 					sourceKey: groupAt(family, "owner", "s"),
 					sourceWhere: undefined,
 					reads: [
-						...cellsOf(copy.source, [...members, ...copied]),
+						...cellsOf(copy.source, [...members, ...rooted, ...copied]),
 						...cellsOf(copy.target, [...owners, ...values])
 					]
 				}
 			case "predecessor":
 				return {
 					targetKey: appendNonEmpty(groupAt(family, "member", "t"), col("t", index)),
+					targetWhere: undefined,
 					sourceKey: appendNonEmpty(
 						groupAt(family, "member", "s"),
 						binary("+", col("s", index), lit.int(1n, types.bigint))
@@ -1604,7 +1650,7 @@ const copyDerivation = (input: BackfillInput, layer: NonEmptyReadonlyArray<Copy>
 		core: streamed({
 			table: copy.source,
 			targetKey: along.targetKey,
-			targetWhere: undefined,
+			targetWhere: along.targetWhere,
 			source: copy.target,
 			sourceKey: along.sourceKey,
 			sourceWhere: along.sourceWhere,
@@ -1614,6 +1660,213 @@ const copyDerivation = (input: BackfillInput, layer: NonEmptyReadonlyArray<Copy>
 		reads: along.reads
 	}
 }
+
+/**
+ * The copies among `copies`, a tree's along its owner axis, that its depth chains: each whose target column, read
+ * through the generated fields of the parent's row, reads itself back, through the copies of the tree's it reads there
+ * in turn, so each node's value is its source's over its parent's row as its own copies leave it, which no stream of the
+ * stored rows draws (copyDerivation); a copy that reads another copy only on the way to the caller's columns is a layer
+ * after it (copyLayers). None for any other family's.
+ */
+const treeChainOf = (
+	installation: Installation,
+	family: Family,
+	copies: ReadonlyArray<Copy>
+): ReadonlyArray<Copy> => {
+	if (family.shape.kind !== "tree") {
+		return []
+	}
+	const member = relationOf(installation, family.member.name)
+	const along = copies.filter((c) => c.axis === "owner")
+	const byColumn = new Map(along.map((c) => [columnOf(c.from), c] as const))
+	/** The tree's copies a column of its row reads, through its generated fields. */
+	const copiesRead = (column: string, seen: ReadonlySet<string>): ReadonlyArray<Copy> => {
+		const copy = byColumn.get(column)
+		if (copy !== undefined) {
+			return [copy]
+		}
+		const field = member.fields.find((f) => f.column === column)
+		return field?.writing.kind === "generated" && !seen.has(column)
+			? fieldReads([field.writing.expr]).flatMap((name) =>
+					copiesRead(
+						defined(
+							member.fields.find((f) => f.name === name),
+							`the field ${name} of ${member.name}`
+						).column,
+						new Set([...seen, column])
+					)
+				)
+			: []
+	}
+	/** Whether `copy` reads itself back through the copies its target reads. */
+	const chained = (copy: Copy): boolean => {
+		const seen = new Set<Copy>()
+		const pending = [...copiesRead(columnOf(copy.to), new Set())]
+		for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
+			if (at === copy) {
+				return true
+			}
+			if (!seen.has(at)) {
+				seen.add(at)
+				for (const next of copiesRead(columnOf(at.to), new Set())) {
+					pending.push(next)
+				}
+			}
+		}
+		return false
+	}
+	return along.filter(chained)
+}
+
+/**
+ * The derivation of a tree's chained copies along its owner axis (`treeChainOf`): a recursive CTE down the tree, each
+ * root holding every copy's base, its start, and each child each copy's target over its parent's row, a generated
+ * field by its generation over that row, the parent's chained copies as the recursion drew them and its other columns
+ * as the table stores them (each a column the derivation reads, so a derivation drawing it is placed before this one).
+ * A depth of the tree is a round of the recursion, each a join of the nodes it reached with their children; every copy
+ * is cast to its base, and a text collated as every stored text is, so the two terms agree.
+ */
+const treeChainDerivation = (
+	input: BackfillInput,
+	family: Family,
+	chain: NonEmptyReadonlyArray<Copy>
+): Derivation => {
+	const { installation } = input
+	const names = installation.names
+	const [{ source: table }] = chain
+	const member = relationOf(installation, family.member.name)
+	const lowering = backfillLowering(installation)
+	const chained = new Map(chain.map((c, n) => [columnOf(c.from), chainName(n)] as const))
+	/** The stored columns the copies' targets read over the parent's row, through its generated fields. */
+	const inputs = new Set<string>()
+	const gather = (column: string): void => {
+		if (chained.has(column) || inputs.has(column)) {
+			return
+		}
+		const field = member.fields.find((f) => f.column === column)
+		if (field?.writing.kind === "generated") {
+			for (const name of fieldReads([field.writing.expr])) {
+				gather(
+					defined(
+						member.fields.find((f) => f.name === name),
+						`the field ${name}`
+					).column
+				)
+			}
+			return
+		}
+		inputs.add(column)
+	}
+	for (const c of chain) {
+		gather(columnOf(c.to))
+	}
+	const members = mapNonEmpty(family.group, (g) => g.member.column)
+	const owners = mapNonEmpty(family.group, (g) => g.owner.column)
+	const carried = dedupeNonEmpty([rowColumn, ...members, ...owners, ...inputs])
+	/** A column of the parent's row at `alias`, a generated field generated over the row as the recursion holds it. */
+	const parentColumn =
+		(alias: string) =>
+		(column: string): Expr => {
+			const drawn = chained.get(column)
+			if (drawn !== undefined) {
+				return col(alias, drawn)
+			}
+			const field = member.fields.find((f) => f.column === column)
+			return field?.writing.kind === "generated"
+				? lowering.expression(field.writing.expr, (name) =>
+						parentColumn(alias)(
+							defined(
+								member.fields.find((f) => f.name === name),
+								`the field ${name}`
+							).column
+						)
+					)
+				: col(alias, column)
+		}
+	const typed = (c: Copy, expr: Expr): Expr => {
+		const type = c.from.kind === "field" ? c.from.field.type : undefined
+		if (type === undefined) {
+			throw defect(`a tree's chained copy ${columnOf(c.from)}, an accumulated field`)
+		}
+		const base = baseTypeRef(names, type)
+		const cast_ = cast(expr, base)
+		return base.kind === "builtin" && base.name === "text"
+			? { kind: "collate", expr: cast_, collation: cUtf8Collation }
+			: cast_
+	}
+	const isRoot = (alias: string): Expr =>
+		and(
+			mapNonEmpty(family.group, (g) =>
+				typedEq(g.owner.type, col(alias, g.member.column), col(alias, g.owner.column), names)
+			)
+		)
+	const rows = (alias: string): ReadonlyArray<Target> =>
+		carried.map((c) => targetAs(col(alias, c), c))
+	const roots = provedCore(
+		"keyed",
+		[
+			...rows("t"),
+			...chain.map((c, n) => {
+				const base = baseOf(installation, c.from)
+				if (base === undefined) {
+					throw defect(`the start of ${columnOf(c.from)}, a copy along a tree's owner axis`)
+				}
+				return targetAs(typed(c, base.placeholder), chainName(n))
+			})
+		],
+		[{ kind: "table", table, alias: "t" }],
+		isRoot("t")
+	)
+	const children = provedCore(
+		"keyed",
+		[
+			...rows("t"),
+			...chain.map((c, n) => targetAs(typed(c, parentColumn("p")(columnOf(c.to))), chainName(n)))
+		],
+		[
+			join(
+				cteRefAs(chainTable, "p"),
+				{ kind: "table", table, alias: "t" },
+				and([
+					...mapNonEmpty(family.group, (g) =>
+						typedEq(g.owner.type, col("t", g.member.column), col("p", g.owner.column), names)
+					),
+					not(isRoot("t"))
+				])
+			)
+		],
+		undefined
+	)
+	const set = mapNonEmpty(chain, (c, n) => ({ column: columnOf(c.from), value: chainName(n) }))
+	return {
+		table,
+		with: {
+			recursive: true,
+			ctes: [
+				cte(
+					chainTable,
+					[...carried, ...chain.map((_, n) => chainName(n))],
+					select(unionAll("disjoint", [roots, children]))
+				)
+			]
+		},
+		core: provedCore(
+			"keyed",
+			[
+				targetAs(col("d", rowColumn), rowColumn),
+				...set.map((d) => targetAs(col("d", d.value), d.value))
+			],
+			[cteRefAs(chainTable, "d")],
+			undefined
+		),
+		set,
+		reads: cellsOf(table, [...members, ...owners, ...inputs])
+	}
+}
+
+/** The recursive CTE of a tree's chained copies (treeChainDerivation), and the name of its `n`th copy's column. */
+const chainTable = "__chain"
+const chainName = (n: number): string => `__chained_${n}`
 
 /** A column of a table the backfill draws or reads. */
 interface Cell {
@@ -2112,12 +2365,14 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 		const ownerTable = tableOf(installation, family.owner.name)
 		const onMember = drawnOn(input, memberTable)
 		const onOwner = drawnOn(input, ownerTable)
+		const chained = chainedCopies(installation, family)
 		const memberColumns = new Set<string>([
 			columnOf(family.shape.index),
 			family.copy,
 			...family.folds.flatMap((fold) =>
 				fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after)])
-			)
+			),
+			...chained
 		])
 		const ownerColumns = new Set<string>([
 			family.count.column,
@@ -2133,7 +2388,8 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 				family.copy,
 				...family.folds.flatMap((fold) =>
 					fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after), p.end.column])
-				)
+				),
+				...chained
 			]
 			const intervals = [shape.start.column, shape.end.column].filter((c) => onMember.has(c))
 			if (isNonEmpty(intervals)) {
@@ -2158,15 +2414,24 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 	const families = familyCells(installation)
 	const copied = new Set<StoredColumnKey>()
 	for (const family of installation.laws.families) {
+		const scanned = chainedCopies(installation, family)
 		const drawn = copiesOf(installation, family, families).filter((c) => {
 			const cell = cellKey({ table: c.source, column: columnOf(c.from) })
-			if (copied.has(cell) || !drawnOn(input, c.source).has(columnOf(c.from))) {
+			if (
+				scanned.has(columnOf(c.from)) ||
+				copied.has(cell) ||
+				!drawnOn(input, c.source).has(columnOf(c.from))
+			) {
 				return false
 			}
 			copied.add(cell)
 			return true
 		})
-		for (const layer of copyLayers(drawn)) {
+		const chain = treeChainOf(installation, family, drawn)
+		if (isNonEmpty(chain)) {
+			plan(family, treeChainDerivation(input, family, chain))
+		}
+		for (const layer of copyLayers(drawn.filter((c) => !chain.includes(c)))) {
 			plan(family, copyDerivation(input, layer))
 		}
 	}

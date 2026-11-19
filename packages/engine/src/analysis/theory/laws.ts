@@ -663,13 +663,8 @@ interface Pin {
 	readonly relation: RelationInfo
 	readonly at: LawField
 	readonly field: LawField
-	/**
-	 * What the field holds at the base: its start; or, at a tree's root, which references itself on the owner axis, the
-	 * root's own value of the field the copy carries, as the axis's foreign key gives it.
-	 */
-	readonly base:
-		| { readonly kind: "start"; readonly start: TypedLiteral }
-		| { readonly kind: "own"; readonly field: LawField }
+	/** What the field holds at the base, where the axis names no row to copy: its start. */
+	readonly start: TypedLiteral
 }
 
 /**
@@ -2169,25 +2164,17 @@ const familyWitness = (f: FamilyShape): NonEmptyReadonlyArray<HeadingColumn> =>
 
 /** A defect: a field the resolved shape guarantees. */
 /**
- * The pins of a riding containment's accumulated carried columns, at its axis's base: the copy's start there, but on a
- * tree's owner axis, whose root references itself, the root's own value of the field it copies.
+ * The pins of a riding containment's accumulated carried columns, at its axis's base, a tree's root on its owner axis
+ * among them: the copy's start there.
  */
 const ridingPins = (f: FamilyShape, ride: Ride): ReadonlyArray<Pin> => {
 	const base = axisBase(f, ride.axis)
-	const own = ride.axis === "owner" && f.shape.kind === "tree"
 	return base === undefined
 		? []
 		: ride.carried.flatMap((p): ReadonlyArray<Pin> => {
 				const w = p.from.column.writing
 				return w.kind === "accumulated"
-					? [
-							{
-								relation: base.relation,
-								at: base.at,
-								field: p.from.column,
-								base: own ? { kind: "own", field: p.to.column } : { kind: "start", start: w.start }
-							}
-						]
+					? [{ relation: base.relation, at: base.at, field: p.from.column, start: w.start }]
 					: []
 			})
 }
@@ -2796,9 +2783,8 @@ const lemma = (
 const zeroLiteral: TypedLiteral = Object.freeze({ kind: "int", value: 0n })
 
 /**
- * The rows of `pin.relation` at its axis's base, `at` zero, whose `field` is not its base value, projected onto the
- * fields `group` as `witness`: an accumulated copy, or a fold's accumulator, off its start where the axis has no row to
- * copy, or a tree root's copy off its own value.
+ * The rows of `pin.relation` at its axis's base, `at` zero, whose `field` is not its start, projected onto the fields
+ * `group` as `witness`: an accumulated copy, or a fold's accumulator, off its start where the axis has no row to copy.
  */
 const pinViolation = (
 	b: ViolationBuilder,
@@ -2806,17 +2792,12 @@ const pinViolation = (
 	group: NonEmptyReadonlyArray<LawField>,
 	witness: NonEmptyReadonlyArray<HeadingColumn>
 ): RelNode => {
-	const own = pin.base.kind === "own" ? [pin.base.field] : []
-	const region = b.scan(pin.relation, [pin.at, pin.field, ...own, ...group], [])
-	const baseValue =
-		pin.base.kind === "own"
-			? b.col(region, pin.base.field)
-			: b.typed(pin.base.start, pin.field.type)
+	const region = b.scan(pin.relation, [pin.at, pin.field, ...group], [])
 	const off = b.filter(
 		region,
 		b.connective("and", [
 			b.op("eq", [b.col(region, pin.at), b.typed(zeroLiteral, pin.at.type)]),
-			b.op("ne", [b.col(region, pin.field), baseValue])
+			b.op("ne", [b.col(region, pin.field), b.typed(pin.start, pin.field.type)])
 		])
 	)
 	return b.project(
@@ -3118,7 +3099,7 @@ const foldArms = (
 						relation: member,
 						at: s.index,
 						field: p.before,
-						base: { kind: "start", start: p.identity }
+						start: p.identity
 					},
 					group,
 					witness
@@ -3130,7 +3111,7 @@ const foldArms = (
 						relation: owner,
 						at: f.count,
 						field: p.end,
-						base: { kind: "start", start: p.identity }
+						start: p.identity
 					},
 					keys,
 					witness

@@ -40,8 +40,9 @@ export const copiesAlongOneAxisCostOneDrawingALayer = property.explore(drawingsC
 	kills: [
 		{
 			file: "packages/engine/src/deploy/diff/backfill.ts",
-			original: "\t\tfor (const layer of copyLayers(drawn)) {",
-			replacement: "\t\tfor (const layer of drawn.map((c): NonEmptyReadonlyArray<Copy> => [c])) {",
+			original: "\t\tfor (const layer of copyLayers(drawn.filter((c) => !chain.includes(c)))) {",
+			replacement:
+				"\t\tfor (const layer of drawn.filter((c) => !chain.includes(c)).map((c): NonEmptyReadonlyArray<Copy> => [c])) {",
 			why: "One drawing a copy (the old backfillOf): K copies along one axis read and sort the axis's rows K times; the property fails."
 		}
 	]

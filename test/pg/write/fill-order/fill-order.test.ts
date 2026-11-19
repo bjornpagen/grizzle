@@ -22,6 +22,7 @@ import {
 	admittedFillSpecGen,
 	besides,
 	buildFill,
+	chainOf,
 	familyAt,
 	type FillSpec,
 	type FollowUp,
@@ -114,6 +115,9 @@ type ClusterSituation =
 	| "a follow-up that re-places an immutable owner of counted members"
 	| "a follow-up that moves an owner of counted members to another owner's group"
 	| "a follow-up that moves an owner whose counted members copy its index"
+	| "a chain along a predecessor axis"
+	| "a chain along a tree's owner axis"
+	| "a follow-up over a chain along a predecessor axis"
 
 const situations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a tree owning an ordered family",
@@ -137,7 +141,10 @@ const situations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a follow-up that re-places an owner of counted members",
 	"a follow-up that re-places an immutable owner of counted members",
 	"a follow-up that moves an owner of counted members to another owner's group",
-	"a follow-up that moves an owner whose counted members copy its index"
+	"a follow-up that moves an owner whose counted members copy its index",
+	"a chain along a predecessor axis",
+	"a chain along a tree's owner axis",
+	"a follow-up over a chain along a predecessor axis"
 ]
 
 /** A call's facts: under each op of a change member's array members, the rows of each, under its relation's name. */
@@ -165,9 +172,12 @@ const shapesOf = (spec: FillSpec): ReadonlyArray<ClusterSituation> => {
 		(r) => owned(r, "tree")
 	)
 	const copyShapes = Arr.flatMap(spec.copies, (copy, j): ReadonlyArray<ClusterSituation> => {
+		const chain = chainOf(spec, j)
 		const family = defined(spec.families[copy.family])
 		return [
 			...(copy.axis === "predecessor" ? (["a predecessor copy"] as const) : []),
+			...(chain === "predecessor" ? (["a chain along a predecessor axis"] as const) : []),
+			...(chain === "owner" ? (["a chain along a tree's owner axis"] as const) : []),
 			...(copy.axis === "last" ? (["a last copy"] as const) : []),
 			...(copy.axis === "owner" && family.kind !== "counted"
 				? (["an owner copy along a sequence"] as const)
@@ -295,6 +305,9 @@ const plantedCase = (planted: Planted): Gen<ClusterCase> =>
  */
 const aims: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]> = [
 	["a tree owning an ordered family", plantedCase("tree with an ordered family")],
+	["a chain along a predecessor axis", plantedCase("predecessor chain")],
+	["a chain along a tree's owner axis", plantedCase("tree chain")],
+	["a follow-up over a chain along a predecessor axis", plantedCase("predecessor chain")],
 	["a tree owning a counted family", plantedCase("tree with a counted family")],
 	["a counted member's copy of a tree node's end", plantedCase("counted copy of a tree's end")],
 	["a counted family of nested owners", plantedCase("counted family of a nested owner")],
@@ -1079,6 +1092,17 @@ const checkCase = (
 			const after = followUpRows(rows, f)
 			yield* stores(after, "the follow-up")
 			c.note("a follow-up written over the stored instance")
+			if (
+				Arr.some(spec.copies, (copy, j) => {
+					const family = familyAt(spec, copy.family)
+					return (
+						chainOf(spec, j) === "predecessor" &&
+						Arr.some(members, (m) => m.relation === family.owner || m.relation === family.member)
+					)
+				})
+			) {
+				c.note("a follow-up over a chain along a predecessor axis")
+			}
 			const verdict = writesVerdict(
 				spec,
 				Arr.map(members, (m) => ({ relation: m.relation, op: m.op }))

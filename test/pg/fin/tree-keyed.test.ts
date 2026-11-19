@@ -5,7 +5,7 @@
  *
  * - **A second implementation:** the direct pre-order numbering of each tree under its root value
  *   (test/support/families/tree.ts numbered): every row's parent (its parent's start in its own tree, a root's its own,
- *   0), slot, count, interval, its parent's kind (a root's its own) and the sum of its children's kinds. What a write of
+ *   0), slot, count, interval, its parent's kind (a root's the copy's start, 0) and the sum of its children's kinds. What a write of
  *   a forest leaves must be exactly that, and nothing else.
  * - **PostgreSQL as the judge:** every lawful forest commits, trees that share every position under different roots
  *   among them; the same forest written again changes nothing (`unchanged`); and a tree that differs from the one stored

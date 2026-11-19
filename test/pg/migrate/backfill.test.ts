@@ -352,9 +352,9 @@ export const keyedForest = property.explore(aimed(forestGen, treeAims), {
 		{
 			file: "packages/engine/src/deploy/diff/backfill.ts",
 			original:
-				'\t\t\t\t\ttargetKey: groupAt(family, "member", "t"),\n\t\t\t\t\tsourceKey: groupAt(family, "owner", "s"),',
+				'\t\t\t\t\ttargetKey: groupAt(family, "member", "t"),\n\t\t\t\t\ttargetWhere: conjunction(nonRoot(names, family, "t")),\n\t\t\t\t\tsourceKey: groupAt(family, "owner", "s"),',
 			replacement:
-				'\t\t\t\t\ttargetKey:\n\t\t\t\t\t\tfamily.members.kind === "tree"\n\t\t\t\t\t\t\t? groupAt(family, "member", "t").slice(-1)\n\t\t\t\t\t\t\t: groupAt(family, "member", "t"),\n\t\t\t\t\tsourceKey:\n\t\t\t\t\t\tfamily.members.kind === "tree"\n\t\t\t\t\t\t\t? groupAt(family, "owner", "s").slice(-1)\n\t\t\t\t\t\t\t: groupAt(family, "owner", "s"),',
+				'\t\t\t\t\ttargetKey:\n\t\t\t\t\t\tfamily.members.kind === "tree"\n\t\t\t\t\t\t\t? groupAt(family, "member", "t").slice(-1)\n\t\t\t\t\t\t\t: groupAt(family, "member", "t"),\n\t\t\t\t\ttargetWhere: conjunction(nonRoot(names, family, "t")),\n\t\t\t\t\tsourceKey:\n\t\t\t\t\t\tfamily.members.kind === "tree"\n\t\t\t\t\t\t\t? groupAt(family, "owner", "s").slice(-1)\n\t\t\t\t\t\t\t: groupAt(family, "owner", "s"),',
 			why: "A copy along a tree's parent is drawn from the node at the parent's start under any root value; two trees sharing a start disagree with the pre-order reference."
 		},
 		{

@@ -196,7 +196,7 @@ const expectedForeignKeys = (s: Shape): ReadonlyArray<ForeignKeyShape> =>
 				to: "Node",
 				pairs: sortText([
 					"doc → doc",
-					"parent → start",
+					`${parent0} → start`,
 					"‹copy› → children",
 					...Arr.map(copiesOf(s), (c) => `${c.from} → ${c.to}`)
 				]),
@@ -256,9 +256,10 @@ const specified = (row: {
 	const bound = row.start === 0n || row.at < row.n
 	const t2 = (row.parent === row.start) === (row.start === 0n)
 	const rootPin = row.start > 0n || row.at === 0n
+	const rootCount = row.start > 0n || row.n === row.children
 	const t3 = row.start === 0n || row.at > 0n || row.start === row.parent + 1n
 	const t6 = row.end > row.start && (row.children > 0n || row.end === row.start + 1n)
-	return bound && t2 && rootPin && t3 && t6
+	return bound && t2 && rootPin && rootCount && t3 && t6
 }
 
 const small = [0n, 1n, 2n, 3n] as const
@@ -313,22 +314,23 @@ const checkConditions = (model: LawModel): void => {
 }
 
 /**
- * The owner axis from the plain group, (doc, parent) into (doc, start): every parent copy rides it and states no pin of
- * its own, since each root references itself, so the axis's foreign key holds the root's ‹n›, its parent and every copy
- * at its own values. Judged by the host model of the foreign key (natives.ts `breaks`) on every root, at start 0, of
- * children 0 or 1 with its parent, each copy and ‹n› at 0 or 1: the axis holds exactly where each is the root's own.
+ * The owner axis from the guarded group, (doc, ‹parent₀›) into (doc, start): every parent copy rides it, and no root
+ * references anything, since the root has no parent: an accumulated copy states its pin, start > 0 or the copy at its
+ * start, 0, which holds the root's copy there, a caller's copy none, and the tree's CHECK holds the root's ‹n› at its
+ * own count (`checkConditions`). Judged by the host model of the foreign key and of each pin (natives.ts `breaks`,
+ * `accepts`) on every root, at start 0, of children 0 or 1 with its parent, each copy and ‹n› at 0 or 1: the axis never
+ * breaks there, and each pin holds exactly where its copy is 0.
  */
 const checkCopies = (model: LawModel, s: Shape): void => {
 	const riding = ridingLaws(model, "owner")
 	const copies = copiesOf(s)
 	assert.equal(riding.length, copies.length, "every parent copy rides the owner axis")
-	for (const r of riding) {
-		assert.equal(
-			checksOf(model, "Node", r).length,
-			0,
-			"a parent copy states no pin: the root references itself"
-		)
-	}
+	const pins = Arr.flatMap(riding, (r) => checksOf(model, "Node", r))
+	assert.equal(
+		pins.length,
+		Arr.filter(copies, (c) => c.copy === "accumulated").length,
+		"an accumulated parent copy states its pin at the root, a caller's none"
+	)
 	const [axis, ...more] = Arr.filter(
 		onRelation(model, "ForeignKey", "Node"),
 		(fk) =>
@@ -355,25 +357,31 @@ const checkCopies = (model: LawModel, s: Shape): void => {
 					[c.to, defined(values[2 * k + 1])] as const
 				])
 			])
-			const own =
-				copyN === children &&
-				parent === 0n &&
-				Arr.every(copies, (_, k) => values[2 * k] === values[2 * k + 1])
+			const label = `a root of ${children} children, ‹n› ${copyN}, parent ${parent}, copies ${Arr.join(Arr.map(values, String), " ")}`
 			assert.equal(
 				breaks(model, axis, new Map([["Node", [row]]])),
-				!own,
-				`a root of ${children} children, ‹n› ${copyN}, parent ${parent}, copies ${Arr.join(Arr.map(values, String), " ")}`
+				false,
+				`${label}: the axis names no row`
+			)
+			const accumulated = Arr.filter(
+				Arr.map(copies, (c, k) => ({ c, value: values[2 * k] })),
+				({ c }) => c.copy === "accumulated"
+			)
+			assert.equal(
+				Arr.every(pins, (pin) => accepts(pin, row)),
+				Arr.every(accumulated, ({ value }) => value === 0n),
+				`${label}: the pins hold each accumulated copy at its start`
 			)
 		}
 	}
 }
 
 /** Each axis's reverse index, over its referencing columns that pair with its target's key, as a set: the owner
- * axis's (doc, parent) from the plain parent, the predecessor's (doc, ‹parent₀›, ‹p›) and the last's (doc, start,
+ * axis's (doc, ‹parent₀›) from the guarded parent, the predecessor's (doc, ‹parent₀›, ‹p›) and the last's (doc, start,
  * ‹pn›); never over a copy an axis carries. */
 const expectedReverse = (): ReadonlyArray<string> =>
 	sortText([
-		setText(["doc", "parent"]),
+		setText(["doc", parent0]),
 		setText(["doc", parent0, "‹generated at›"]),
 		setText(["doc", "start", "‹generated children›"])
 	])
