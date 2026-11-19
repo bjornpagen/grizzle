@@ -142,16 +142,25 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 					Effect.sync(() => {
 						const listed = lawsOf(subject)
 						constraintNamesOf(subject)
+						lawsByStatement(subject)
 						rowEvaluator(subject)
 						previewOver(subject, inForce(bindFrame))
 						return listed
 					}),
-					{ models: { file: "packages/engine/src/laws/model/model.ts", name: "dischargedLaws" } }
+					{
+						models: { file: "packages/engine/src/laws/model/model.ts", name: "dischargedLaws" },
+						laws: { file: "packages/engine/src/program/laws.ts", name: "derivedLaws" }
+					}
 				)
 				assert.equal(
 					compiles.models,
 					1,
-					"lawsOf, constraintNamesOf, rowEvaluator and insertPreview of one schema value compile its laws once"
+					"lawsOf, constraintNamesOf, lawsByStatement, rowEvaluator and insertPreview of one schema value compile its laws once"
+				)
+				assert.equal(
+					compiles.laws,
+					1,
+					"lawsOf, constraintNamesOf and lawsByStatement of one schema value derive its laws once"
 				)
 				const laws = Arr.map(ids, (l) => l.law)
 				const installation = installationOf(subject, { kind: "declared" })
@@ -306,7 +315,24 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 					k.note("another order listing the same laws")
 				}
 
-				const lawsOfStatement = lawsByStatement(subject)
+				const [lawsOfStatement, lookups] = yield* callCounts(
+					Effect.sync(() => {
+						const lookup = lawsByStatement(subject)
+						for (const statement of subject.statements) {
+							lookup(statement)
+						}
+						return lookup
+					}),
+					{
+						laws: { file: "packages/engine/src/program/laws.ts", name: "derivedLaws" },
+						texts: { file: "packages/engine/src/schema/own.ts", name: "canonicalStatement" }
+					}
+				)
+				assert.deepEqual(
+					lookups,
+					{ laws: 0, texts: 0 },
+					"a schema value's lawsByStatement, and its every statement looked up, derives no law and works out no statement's canonical text again"
+				)
 				const stated = statedBy(installation)
 				const looked = Arr.map(subject.statements, (statement) => {
 					const stating = lawsOfStatement(statement)
@@ -497,6 +523,20 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 				original: '\tschemaLaws(lawModelOf(schema, "lawsOf")).laws',
 				replacement: '\tschemaLaws(lawModelOf(schema, "lawsOf")).laws.slice(1)',
 				why: "lawsOf drops its first law."
+			},
+			{
+				file: "packages/engine/src/program/laws.ts",
+				original: "\tconst known = derived.get(model)",
+				replacement: "\tconst known: SchemaLaws | undefined = undefined",
+				why: "Each of lawsOf, constraintNamesOf and lawsByStatement derives a schema's laws from its model again."
+			},
+			{
+				file: "packages/engine/src/schema/statements.ts",
+				original:
+					"\treturn statement === undefined ? undefined : [statement.content.canonical.text]",
+				replacement:
+					"\treturn statement === undefined ? undefined : [canonicalStatementOf(statement.desc).text]",
+				why: "A lookup works out a statement's canonical text again, where the statement's value holds the one its build worked out."
 			},
 			{
 				file: "packages/engine/src/program/schema.ts",

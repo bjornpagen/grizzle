@@ -276,7 +276,7 @@ export interface Owned extends OwnedSchema {
 	 */
 	readonly statements: ReadonlyArray<OwnedStatement>
 	/**
-	 * Each statement's index in `statements` by its canonical text (canonicalStatementText): the owned statement a declared
+	 * Each statement's index in `statements` by its canonical text (CanonicalStatement text): the owned statement a declared
 	 * statement of any level is, which a law's `statements` name.
 	 */
 	readonly statementAt: ReadonlyMap<string, number>
@@ -972,9 +972,6 @@ export interface CanonicalStatement {
 /** A statement's canonical form and text (CanonicalStatement), read once where the statement is built or enters. */
 export const canonicalStatementOf = (s: StatementDesc): CanonicalStatement =>
 	Object.freeze(canonicalStatement(s))
-
-/** The canonical text of a statement, its canonical form's (CanonicalStatement). */
-export const canonicalStatementText = (s: StatementDesc): string => canonicalStatementOf(s).text
 
 /** The row's fields an expression references, added to `out`; a variable, value, parameter or literal holds none. */
 const fieldRefs = (expr: ExprDesc, out: Set<string>): Set<string> => {

@@ -103,6 +103,20 @@ export const statementDescOf = (value: unknown): StatementDesc | undefined =>
 	ownedDesc(value, "statement")
 
 /**
+ * The canonical texts of the statements a statement value is owned as, the ones its build worked out (`ownedStatement`,
+ * and a mirrors' at its build): a mirrors' two containments', any other statement's own; none for a value no statement
+ * builder made.
+ */
+export const statementTextsOf = (value: unknown): ReadonlyArray<string> | undefined => {
+	const expansion = ownedEntry(value, "expansion")
+	if (expansion !== undefined) {
+		return expansion.content.canonical.map((c) => c.text)
+	}
+	const statement = ownedEntry(value, "statement")
+	return statement === undefined ? undefined : [statement.content.canonical.text]
+}
+
+/**
  * A statement value owned with its Description and its canonical form and text (own.ts CanonicalStatement), which its
  * schema's level content and ownership read it by, computed once, here, where the statement is built.
  */

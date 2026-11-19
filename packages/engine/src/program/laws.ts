@@ -3,15 +3,12 @@ import { sameContent } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { StatementDesc } from "#compiler/ir/desc.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { fieldPatternLaws, patternLawId, planTextDomains } from "#compiler/physical/ddl/domains.ts"
 import { builtLawModel, parseBuiltSchema } from "#compiler/program/schema.ts"
-import { canonicalStatementText } from "#compiler/schema/own.ts"
 import { malformed, orThrow } from "#compiler/schema/protocol.ts"
-import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
+import { statementTextsOf } from "#compiler/schema/statements.ts"
 import type { IdentifiedLaw, OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import type { AnySchema, StatementsOf } from "#compiler/types/schema/schema.ts"
 
@@ -55,6 +52,21 @@ export const lawModel = (
 const lawModelOf = (schema: AnySchema, operation: string): LawModel =>
 	orThrow(lawModel(schema, operation))
 
+/** Each law model's laws (`schemaLaws`), derived once per model, as a built schema's model is made once
+ * (program/schema.ts builtLawModel). */
+const derived = new WeakMap<LawModel, SchemaLaws>()
+
+/** A law model's laws (`derivedLaws`), derived where the model's laws are first read and held for it (`derived`). */
+const schemaLaws = (model: LawModel): SchemaLaws => {
+	const known = derived.get(model)
+	if (known !== undefined) {
+		return known
+	}
+	const made = derivedLaws(model)
+	derived.set(model, made)
+	return made
+}
+
 /**
  * The theory's laws in theory order, each described as an outcome describes it, each owned statement's beside it as
  * its normalization merged them (analysis/theory/laws.ts KeptLaw); then each stored field's pattern law and each
@@ -62,7 +74,7 @@ const lawModelOf = (schema: AnySchema, operation: string): LawModel =>
  * a pattern law's under the text domain its pattern's key is planned as (planTextDomains, patternLawId), as the
  * installation identifies it, and a generated field's.
  */
-const schemaLaws = (model: LawModel): SchemaLaws => {
+const derivedLaws = (model: LawModel): SchemaLaws => {
 	const theory = model.theory.laws.map((law, position) => ({
 		placed: Object.freeze({ position, law: lawDescription(law) }),
 		id: law.id,
@@ -126,8 +138,8 @@ const schemaLaws = (model: LawModel): SchemaLaws => {
  * same fields, so the two can never disagree. A law two statements state, such as a key that restates the primary
  * key, is listed once.
  *
- * It throws CompileError for any other value, a role's included, and for a schema that does not compile. Each call
- * compiles the schema's laws.
+ * It throws CompileError for any other value, a role's included, and for a schema that does not compile. A built
+ * schema's laws are compiled once, where any of lawsOf, lawsByStatement and constraintNamesOf first reads them.
  */
 export const lawsOf = (schema: AnySchema): ReadonlyArray<IdentifiedLaw<OwnLaw>> =>
 	schemaLaws(lawModelOf(schema, "lawsOf")).laws
@@ -136,25 +148,21 @@ export const lawsOf = (schema: AnySchema): ReadonlyArray<IdentifiedLaw<OwnLaw>> 
 const aStatedStatement =
 	"a statement the schema states: one built by key, mutable, check, contained, mirrors, alternatives, ordered, counted, tree or fold, which a level of the schema states"
 
-/** The statements a statement value is owned as: a mirrors' two containments, any other statement itself. */
-const ownedAs = (statement: unknown): NonEmptyReadonlyArray<StatementDesc> => {
-	const expansion = expansionDescOf(statement)
-	if (expansion !== undefined) {
-		return expansion.statements
-	}
-	const desc = statementDescOf(statement)
-	if (desc === undefined) {
+/** The canonical texts of the statements a statement value is owned as (schema/statements.ts statementTextsOf). */
+const ownedAs = (statement: unknown): ReadonlyArray<string> => {
+	const texts = statementTextsOf(statement)
+	if (texts === undefined) {
 		throw malformed("lawsByStatement", aStatedStatement)
 	}
-	return [desc]
+	return texts
 }
 
-/** The laws of the owned statement `desc` is, by its canonical text; refused when no level of the schema states it. */
+/** The laws of the owned statement of canonical text `text`; refused when no level of the schema states it. */
 const placedOf = (
 	byStatement: SchemaLaws["byStatement"],
-	desc: StatementDesc
+	text: string
 ): ReadonlyArray<PlacedLaw> => {
-	const placed = byStatement.get(canonicalStatementText(desc))
+	const placed = byStatement.get(text)
 	if (placed === undefined) {
 		throw malformed("lawsByStatement", aStatedStatement)
 	}
@@ -171,7 +179,8 @@ const placedOf = (
  * A statement is its canonical form, as the schema keeps it, so an equal statement built again is the same statement,
  * at whatever level the schema states it. lawsByStatement throws CompileError for a value lawsOf refuses, and the lookup
  * for a statement the schema does not state: a value no statement builder made, or a statement no level of the schema
- * states (MalformedDescription). Each call of lawsByStatement compiles the schema's laws; a lookup compiles nothing.
+ * states (MalformedDescription). A built schema's laws are compiled once (`lawsOf`), and a lookup compiles nothing: it
+ * reads each statement's laws by the canonical text the statement's value holds from its build.
  */
 export const lawsByStatement = <S extends AnySchema>(
 	schema: S
@@ -181,7 +190,7 @@ export const lawsByStatement = <S extends AnySchema>(
 		Object.freeze([
 			...new Map(
 				ownedAs(statement)
-					.flatMap((desc) => placedOf(byStatement, desc))
+					.flatMap((text) => placedOf(byStatement, text))
 					.toSorted((a, b) => a.position - b.position)
 					.map((p) => [p.position, p.law] as const)
 			).values()
@@ -199,7 +208,7 @@ export const lawsByStatement = <S extends AnySchema>(
  * once and the name is never spelled again.
  *
  * constraintNamesOf throws CompileError for a value lawsOf refuses, and the lookup MalformedDescription for a law that
- * is no check of the schema. Each call of constraintNamesOf compiles the schema's laws; a lookup compiles nothing.
+ * is no check of the schema. A built schema's laws are compiled once (`lawsOf`); a lookup compiles nothing.
  */
 export const constraintNamesOf = (
 	schema: AnySchema
