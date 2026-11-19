@@ -59,6 +59,7 @@ import {
 	canonicalTexts,
 	type PreviousNames,
 	restatedBy,
+	restatedLaw,
 	restatedLawColumn,
 	type RestatingSpelling
 } from "#compiler/laws/model/restate.ts"
@@ -559,7 +560,12 @@ export const applyDeclarations = (
 		temporaries
 	)
 	const writings = restatedWritings(parts.previous, target, installation, names)
-	const roles = loginRenamed(writings, target, logins, temporaries)
+	const roles = loginRenamed(
+		restatedLaws(writings, installation, names),
+		target,
+		logins,
+		temporaries
+	)
 	return {
 		statements: [
 			...relations.statements,
@@ -903,6 +909,34 @@ const restatedWritings = (
 		)
 	)
 	return { ...previous, theory: { ...previous.theory, relations } }
+}
+
+/**
+ * The previous snapshot with the record of each law the target states under the target's identifier: a law whose
+ * statement, restated under the previous snapshot's names (laws/model/restate.ts restatedLaw), is one the previous
+ * snapshot states is that very law, though a declaration renamed what it reads or an earlier grizzle's canonical form
+ * spelled its selection otherwise, so the diff reads the previous installation's record of it, by which it held the law
+ * (diff.ts heldBefore, migrationChecks), and checks it again only where its check's identity moved. A record no target
+ * law restates to stands under its own identifier but where a target law holds that identifier, whose record it is not.
+ */
+const restatedLaws = (
+	previous: DeploySnapshot,
+	installation: Installation,
+	names: PreviousNames
+): DeploySnapshot => {
+	const recorded = previous.theory.laws
+	const theory = installation.laws.theory
+	const restated = theory.laws.flatMap((law) => {
+		const was = restatedLaw(law, names, theory.relations)
+		const record = was === undefined ? undefined : recorded[was]
+		return was === undefined || record === undefined ? [] : [{ law: law.id, was, record }]
+	})
+	const taken = new Set<string>([...restated.map((r) => r.was), ...theory.laws.map((l) => l.id)])
+	const laws = Object.fromEntries([
+		...Object.entries(recorded).filter(([id]) => !taken.has(id)),
+		...restated.map((r) => [r.law, r.record] as const)
+	])
+	return { ...previous, theory: { ...previous.theory, laws } }
 }
 
 /** A law column of a target table, and its previous name (restatedLawColumn), none where it is new. */

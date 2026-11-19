@@ -1,10 +1,11 @@
 /** What the property of meaning-identity.test.ts reads: its box of spellings, its schemas and its drafts. */
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { Array as Arr, HashMap, Option } from "effect"
+import { Array as Arr, HashMap, Option, Record as Rec } from "effect"
 import { alterationStatement, type Step } from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import type { DeploySnapshot, SnapshotLaw } from "#compiler/deploy/snapshot/types.ts"
+import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
@@ -112,9 +113,11 @@ export const meaningCases: Gen<MeaningCase> = (source) => ({
 /**
  * The case's schema: R and the roster Kind, S keyed by n; two keys over the rows of R the predicate keeps, each spelled
  * its own way, on a term of its own, so an earlier grizzle stated them under two canonical texts that today's form
- * makes one; a containment from the first's rows into S, on the first's term; and, where the rule moves no SQL, a row
- * check of the predicate. No two laws spelled apart share a term: an earlier grizzle's two law columns that today's
- * form makes one are one column, the other dropped, which no rename keeps.
+ * makes one; a containment from the first's rows into S, on the first's term; where the rule moves no SQL, a row
+ * check of the predicate; and a containment the rule judge holds whole, from the rows of a unit's body C the first
+ * spelling keeps into the unit's body B (laws/model/plan.ts ContainmentDischarge: selected by comparisons, between
+ * immutable relations joined within the unit H). No two laws spelled apart share a term: an earlier grizzle's two law
+ * columns that today's form makes one are one column, the other dropped, which no rename keeps.
  */
 const schemaOf = (c: MeaningCase): SchemaDesc => {
 	const [first, second] = spelledBy[c.rule].spellings
@@ -122,7 +125,14 @@ const schemaOf = (c: MeaningCase): SchemaDesc => {
 		key(onWhere("R", ["m"], first)),
 		key(onWhere("R", ["n"], second)),
 		contained(onWhere("R", ["m"], first), on("S", ["n"])),
-		...(movesSql(c.rule) ? [] : [check("Picked", "R", first)])
+		...(movesSql(c.rule) ? [] : [check("Picked", "R", first)]),
+		{
+			kind: "retirable",
+			header: on("H", ["g"]),
+			lifecycle: "retired",
+			bodies: [on("B", ["g"]), on("C", ["g"])]
+		},
+		contained(onWhere("C", ["g", "i"], first), on("B", ["g", "i"]))
 	]
 	return {
 		name: "Meaning",
@@ -131,7 +141,18 @@ const schemaOf = (c: MeaningCase): SchemaDesc => {
 			relation("R", { id: f.integer, kind: f.closedId("Kind"), n: f.integer, m: f.integer }, [
 				"id"
 			]),
-			relation("S", { n: f.integer }, ["n"])
+			relation("S", { n: f.integer }, ["n"]),
+			relation(
+				"H",
+				{ g: f.integer, retired: { type: f.boolean, writing: { kind: "retirement" } } },
+				["g"]
+			),
+			relation("B", { g: f.integer, i: f.integer }, ["g", "i"]),
+			relation(
+				"C",
+				{ g: f.integer, i: f.integer, kind: f.closedId("Kind"), n: f.integer, m: f.integer },
+				["g", "i"]
+			)
 		],
 		statements,
 		extends: undefined
@@ -162,6 +183,23 @@ export interface MeaningDraft {
 	readonly steps: ReadonlyArray<Step>
 }
 
+/**
+ * The earlier snapshot as the release's converter leaves it (follow-up 6's, outside grizzle): the check identity of its
+ * law the rule judge holds, which is the digest of the law's violation DAG and so moves with the canonical text of the
+ * selection it reads (deploy/snapshot/violation.ts MigrationCheck), today's, the converter having proved the law the
+ * one of the same meaning today's compile states. Its id stays the earlier one, which a draft restates.
+ */
+const converted = (earlier: DeploySnapshot, today: Installation): DeploySnapshot => {
+	const [rule, ...others] = lawChecks(today).rules
+	if (rule === undefined || others.length > 0) {
+		throw new Error("the case's schema holds one law the rule judge holds")
+	}
+	const laws = Rec.map(earlier.theory.laws, (l): SnapshotLaw =>
+		l.kind === "trigger" ? { ...l, digest: rule.digest } : l
+	)
+	return { ...earlier, theory: { ...earlier.theory, laws } }
+}
+
 export const draftedOf = (c: MeaningCase): MeaningDraft => {
 	const earlier = succeeded(
 		generate({
@@ -179,7 +217,7 @@ export const draftedOf = (c: MeaningCase): MeaningDraft => {
 		generate({
 			installation: today,
 			timestamp: draftedAt(2),
-			previous: fromSnapshot(earlier),
+			previous: fromSnapshot(converted(earlier, today)),
 			workload: noWorkload,
 			declared: noDeclarations,
 			name: "today"
@@ -190,19 +228,44 @@ export const draftedOf = (c: MeaningCase): MeaningDraft => {
 
 /** Every statement a plan's steps run, each alteration as the one ALTER TABLE it prints as. */
 export const statementsOf = (steps: ReadonlyArray<Step>): ReadonlyArray<SqlStatement> =>
-	Arr.flatMap(steps, (s): ReadonlyArray<SqlStatement> =>
-		s.draft.kind === "statement"
-			? [s.draft.statement]
-			: s.draft.kind === "alteration"
-				? [alterationStatement(s.draft.table, s.draft.actions)]
-				: s.draft.kind === "confirm"
-					? s.draft.keep
-					: []
-	)
+	Arr.flatMap(steps, (s): ReadonlyArray<SqlStatement> => {
+		switch (s.draft.kind) {
+			case "statement":
+				return [s.draft.statement]
+			case "alteration":
+				return [alterationStatement(s.draft.table, s.draft.actions)]
+			case "confirm":
+				return s.draft.keep
+			case "fill":
+			case "violation":
+			case "loss":
+				return []
+		}
+	})
+
+/** Every step a plan drafts over stored rows beside its statements, each named: a fill of set-aside columns, a law's
+ * violation query over every row, a loss of a schema's rows. Each reads or writes rows the earlier installation holds. */
+export const rowStepsOf = (steps: ReadonlyArray<Step>): ReadonlyArray<string> =>
+	Arr.flatMap(steps, (s): ReadonlyArray<string> => {
+		switch (s.draft.kind) {
+			case "statement":
+			case "alteration":
+			case "confirm":
+				return []
+			case "fill":
+				return [`a fill of ${nameKey(s.draft.table)}`]
+			case "violation":
+				return [`the violation query of ${s.draft.law}`]
+			case "loss":
+				return [`a loss of ${s.draft.loses.schema}`]
+		}
+	})
 
 /** What a follow-up statement does to what the earlier installation holds: renames it, comments it, re-expresses a
- * table's generated columns in place, or anything else, which builds, drops, validates or rewrites something. */
-export type Move = "rename" | "comment" | "reexpress" | "other"
+ * table's generated columns in place, replaces a function, which holds no row, with its grants (the rule judge's,
+ * whose text names each law it judges by its identifier), or anything else, which builds, drops, validates or rewrites
+ * something. */
+export type Move = "rename" | "comment" | "reexpress" | "replace" | "other"
 
 export const moveOf = (s: SqlStatement): Move =>
 	s.kind === "rename" || s.kind === "renameColumn" || s.kind === "renameConstraint"
@@ -211,7 +274,9 @@ export const moveOf = (s: SqlStatement): Move =>
 			? "comment"
 			: s.kind === "alterTable" && Arr.every(s.actions, (a) => a.kind === "setExpression")
 				? "reexpress"
-				: "other"
+				: s.kind === "createFunction" || s.kind === "revoke"
+					? "replace"
+					: "other"
 
 /** The tables a follow-up re-expresses, each with the count of its ALTER TABLEs that do. */
 export const reexpressedTables = (

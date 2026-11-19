@@ -647,7 +647,7 @@ export const restatedBy = <A>(
  * lawStatement) spelled with every relation, field, handle and conjunct it names under its previous name, the one it
  * states (PreviousNames.stated). None where one of them is new to the migration: such a law is new to it.
  */
-const restatedLaw = (
+export const restatedLaw = (
 	law: LawIdentity,
 	names: PreviousNames,
 	relations: Relations

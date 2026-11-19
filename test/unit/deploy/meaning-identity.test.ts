@@ -7,10 +7,13 @@
  * gives it (laws/model/restate.ts PreviousNames.selections, firstHeld), and drops, adds, validates or rebuilds nothing:
  * a membership of one, which PostgreSQL stores as its equality and grizzle writes so, moves no SQL at all, and a rule
  * that reorders a predicate's SQL re-expresses each law column it reorders in place, each table in one ALTER TABLE
- * (deploy/diff/diff.ts reexpressedLawColumn).
+ * (deploy/diff/diff.ts reexpressedLawColumn). A law the rule judge holds, from the first spelling's rows of a unit's
+ * body, is the earlier snapshot's law under today's identifier (deploy/diff/declared.ts restatedLaws): its record, its
+ * check's identity as the release's converter leaves it, is read under that identifier, so the follow-up checks no
+ * stored row against it again and only replaces the judge's function, which names the law by its identifier.
  *
- * The oracle is a specification: every statement of the follow-up a rename, a comment or a table's one re-expression.
- * The box, exhausted: every rule an earlier grizzle lacked.
+ * The oracle is a specification: every statement of the follow-up a rename, a comment, a table's one re-expression or
+ * a function replaced. The box, exhausted: every rule an earlier grizzle lacked.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
@@ -26,6 +29,7 @@ import {
 	moveOf,
 	movesSql,
 	reexpressedTables,
+	rowStepsOf,
 	statementsOf
 } from "#test/unit/deploy/meaning-identity.fixtures.ts"
 
@@ -34,7 +38,7 @@ type Feature = MeaningCase["rule"] | "renamed" | "re-expressed"
 /** A follow-up over an earlier canonical form keeps every object: it renames, comments and re-expresses in place. */
 export const aFollowUpOverASnapshotAnEarlierCanonicalFormWroteKeepsEveryObjectRenamingOrReexpressingItInPlace =
 	property.exhaust(finite(meaningCases), {
-		box: "every rule of today's canonical form an earlier grizzle lacked, over two keys of one predicate spelled two ways, a containment from its rows and, where the rule moves no SQL, a row check of it",
+		box: "every rule of today's canonical form an earlier grizzle lacked, over two keys of one predicate spelled two ways, a containment from its rows, where the rule moves no SQL a row check of it, and a containment the rule judge holds from a unit's rows it keeps",
 		needs: {},
 		situations: [
 			"orientation",
@@ -48,12 +52,13 @@ export const aFollowUpOverASnapshotAnEarlierCanonicalFormWroteKeepsEveryObjectRe
 		check: (_, c: Case<Feature>) => (m) =>
 			Effect.sync(() => {
 				c.note(m.rule)
-				const statements = statementsOf(draftedOf(m).steps)
+				const { steps } = draftedOf(m)
+				const statements = statementsOf(steps)
 				const moved = Arr.filter(statements, (s) => moveOf(s) === "other")
 				assert.deepEqual(
-					Arr.map(moved, printStatement),
+					[...Arr.map(moved, printStatement), ...rowStepsOf(steps)],
 					[],
-					`${m.rule}: the follow-up drops, adds, validates or rebuilds nothing`
+					`${m.rule}: the follow-up drops, adds, validates, checks or rebuilds nothing`
 				)
 				assert.ok(
 					Arr.some(statements, (s) => moveOf(s) === "rename"),
@@ -102,6 +107,12 @@ export const aFollowUpOverASnapshotAnEarlierCanonicalFormWroteKeepsEveryObjectRe
 					'\t\t\tif (generation !== undefined) {\n\t\t\t\tthis.alter("structure", t, [{ kind: "setExpression", column, generation }])\n\t\t\t\treturn\n\t\t\t}\n',
 				replacement: "",
 				why: "A law column whose SQL a rule reordered dropped and added again, with every key and foreign key over it, where SET EXPRESSION keeps them."
+			},
+			{
+				file: "packages/engine/src/deploy/diff/declared.ts",
+				original: "\t\trestatedLaws(writings, installation, names),\n",
+				replacement: "\t\twritings,\n",
+				why: "The earlier snapshot's law records read under the earlier identifiers alone: the law the rule judge holds is found under none, so the follow-up checks every stored row against it again, a violation query over the unit's bodies."
 			}
 		]
 	})
