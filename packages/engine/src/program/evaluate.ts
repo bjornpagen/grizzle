@@ -51,7 +51,7 @@ import {
 import type { EvalStop } from "#compiler/scalar/compute/evaluate.ts"
 import { exprEmitter, lowerPredicate } from "#compiler/scalar/compute/lower.ts"
 import { admittedReads, noParams } from "#compiler/scalar/compute/typing.ts"
-import { ProgramPatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { CompilePatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { hostOf } from "#compiler/scalar/values/identity.ts"
 import { ownedDesc } from "#compiler/schema/protocol.ts"
 import { namedRelation } from "#compiler/schema/relation.ts"
@@ -81,7 +81,7 @@ type Lowered = Result.Result<ExprTable, Unevaluated>
 /**
  * A source as the host evaluates rows of it, read once: its relation's fields as the judge reads them, the fields of
  * its rows a domain holds, each generated field's expression and each row check by name, its selection's predicate,
- * and the judge over the patterns they read.
+ * and the judge over the patterns they read, each parsed once in the evaluator's table, which every source shares.
  */
 interface Prepared {
 	readonly relation: string
@@ -234,12 +234,15 @@ const loweredPatterns = (lowered: Lowered) => (lowered.ok ? tablePatterns(lowere
 
 /**
  * A source of the model read once (Prepared): its relation's reading and its selection's predicate lowered over its
- * fields. The source is a value of the schema's type, so a relation the model does not hold is a defect.
+ * fields, its judge reading the evaluator's pattern table, `table`, so a pattern every source of the evaluator reads is
+ * parsed once, not once a source. The source is a value of the schema's type, so a relation the model does not hold is a
+ * defect.
  */
 const prepare = (
 	model: LawModel,
 	relations: ReadonlyMap<string, ReadRelation>,
 	closed: ReturnType<typeof closedTableOf>,
+	table: CompilePatterns,
 	source: unknown
 ): Prepared => {
 	const selected = selectedOf(source)
@@ -270,7 +273,7 @@ const prepare = (
 		generated,
 		checks,
 		selection,
-		judge: judgeOf({ closed: [...closed.keys()], patterns }, closed, ProgramPatterns.of(patterns))
+		judge: judgeOf({ closed: [...closed.keys()], patterns }, closed, table)
 	}
 }
 
@@ -511,12 +514,13 @@ export const rowEvaluator = <S extends AnySchema>(
 		const relations = readRelations(model)
 		const closed = closedTableOf({ schema: model.checked })
 		const sources = new WeakMap<object, Prepared>()
+		const patterns = new CompilePatterns()
 		const preparedOf = (source: object): Prepared => {
 			const known = sources.get(source)
 			if (known !== undefined) {
 				return known
 			}
-			const prepared = prepare(model, relations, closed, source)
+			const prepared = prepare(model, relations, closed, patterns, source)
 			sources.set(source, prepared)
 			return prepared
 		}

@@ -13,6 +13,7 @@ import {
 	generatedRelation
 } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
+import { selectBuilder } from "#compiler/schema/statements.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { defined } from "#test/support/assert.ts"
@@ -95,8 +96,8 @@ const descriptorOf = (p: Pattern): FieldBase =>
  * The case's schema with each relation copied `copies` times and `rows` closed rows: relation r's copy k, R{r}c{k},
  * holds an id, its text fields t{i}, and m, generated as whether its first text matches its pattern's match.
  */
-export const schemaOf = (c: ParseCase, copies: number, rows: number) => {
-	const relations = Arr.flatMap(c.relations, (fields, r) =>
+const relationsOf = (c: ParseCase, copies: number) =>
+	Arr.flatMap(c.relations, (fields, r) =>
 		Arr.map(indices(copies), (k) => {
 			const name = `R${r}c${k}`
 			const written: Readonly<Record<string, FieldBase>> = {
@@ -126,6 +127,9 @@ export const schemaOf = (c: ParseCase, copies: number, rows: number) => {
 			return [name, R] as const
 		})
 	)
+
+/** The schema of the case's relations, `relations`, and its closed rows, `rows` of them. */
+const schemaOver = (c: ParseCase, relations: ReturnType<typeof relationsOf>, rows: number) => {
 	const Kind = closed("Kind", ["A", "B", "C", "D"], "ordered", [])
 	const Labels = closedRelation(
 		"Labels",
@@ -135,6 +139,37 @@ export const schemaOf = (c: ParseCase, copies: number, rows: number) => {
 		[]
 	)
 	return schema("Parsed", [Kind, Labels, ...Rec.values(Rec.fromEntries(relations))], [], [])
+}
+
+export const schemaOf = (c: ParseCase, copies: number, rows: number) =>
+	schemaOver(c, relationsOf(c, copies), rows)
+
+/**
+ * The case's schema as rowEvaluator reads it: each relation once, R{r}c0, as schemaOf makes it, with `selections`
+ * selections of it, each its own source over one predicate, whether its first text holds a match of its pattern's
+ * match, and a row of it holding each text field's member.
+ */
+export const evaluatorCaseOf = (c: ParseCase, selections: number) => {
+	const once = relationsOf(c, 1)
+	const relations = Arr.map(c.relations, (fields, r) => {
+		const [, R] = defined(once[r], `the relation R${r}c0`)
+		const match = patternAt(c, fields[0]).match
+		return {
+			R,
+			match,
+			member: patternAt(c, fields[0]).member,
+			row: {
+				id: "018f0000-0000-7000-8000-000000000000",
+				...Rec.fromEntries(Arr.map(fields, (t, i) => [`t${i}`, patternAt(c, t).member] as const))
+			},
+			selections: Arr.map(indices(selections), () =>
+				selectBuilder(R, (row: Readonly<Record<string, unknown>>) =>
+					computeCore.matches(row["t0"], computeCore.pattern(match))
+				)
+			)
+		}
+	})
+	return { schema: schemaOver(c, once, c.closedRows), relations }
 }
 
 export const parseSites = Object.freeze({

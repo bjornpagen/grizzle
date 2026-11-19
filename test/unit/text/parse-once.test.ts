@@ -10,7 +10,9 @@
  * pattern against the first, a closed relation's rows, and the texts the host reads. The schema compiles as drawn and
  * with every reader multiplied, each relation copied and every closed row held, and the two compiles' parses agree.
  * Then each relation's generated field is evaluated over every text, with no parse at all, each answer the reference's
- * (oracle/reference/evaluate.ts patternMember).
+ * (oracle/reference/evaluate.ts patternMember). And rowEvaluator over the schema, each relation's row of its members
+ * evaluated as a row of one selection of it and then, by an evaluator of its own, of several, each its own source over
+ * the one predicate, parses each pattern once, however many of its sources read it: its sources share one table.
  *
  * Features: one pattern and several, a relation of several texts, several closed rows, a dotall pattern, a match that
  * holds and one that fails.
@@ -23,6 +25,7 @@ import { indices } from "#compiler/core/array.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
+import { rowEvaluator } from "#compiler/program/evaluate.ts"
 import { closedLeaf, evaluatedRelation, hostEvaluator } from "#compiler/runtime/write/fill.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
@@ -32,6 +35,7 @@ import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
 	caseGen,
+	evaluatorCaseOf,
 	handles,
 	type ParseFeature,
 	parseSites,
@@ -122,6 +126,45 @@ export const anAdmittedPatternIsParsedWhereItsProgramCompilesOnceATableWhateverR
 						)
 					})
 				})
+				const evaluatorRun = (selections: number) =>
+					callCounts(
+						Effect.sync(() => {
+							const built = evaluatorCaseOf(c, selections)
+							const evaluate = succeeded(
+								rowEvaluator(built.schema),
+								"rowEvaluator compiles the schema"
+							)
+							return Arr.map(built.relations, ({ R, match, member, row, selections: sources }) => {
+								const admitted = evaluate.admit(R, row)
+								return {
+									expected: patternMember({ patterns: [{ source: match, flags: "u" }] }, member),
+									selected: Arr.map(sources, (source) =>
+										admitted.ok
+											? evaluate(source, admitted.value).selected
+											: assert.fail(
+													`a row of each member, inside its domains: ${Formatter.format(admitted)}`
+												)
+									)
+								}
+							})
+						}),
+						parseSites
+					)
+				const [, oneCounts] = yield* evaluatorRun(1)
+				const [evaluated, manyCounts] = yield* evaluatorRun(c.copies)
+				assert.equal(
+					manyCounts.admitted,
+					oneCounts.admitted,
+					"an evaluator parses each pattern once, however many of its sources read it"
+				)
+				Arr.forEach(evaluated, ({ expected, selected }) =>
+					Arr.forEach(selected, (s) =>
+						assert.ok(
+							s.ok && s.value === expected,
+							`a selection by its match: ${Formatter.format(s)}`
+						)
+					)
+				)
 				k.note(c.chosen.length === 1 ? "one pattern" : "several patterns")
 				if (Arr.some(c.relations, (fields) => fields.length > 1)) {
 					k.note("a relation of several texts")
@@ -139,6 +182,13 @@ export const anAdmittedPatternIsParsedWhereItsProgramCompilesOnceATableWhateverR
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/program/evaluate.ts",
+				original: "\t\tjudge: judgeOf({ closed: [...closed.keys()], patterns }, closed, table)",
+				replacement:
+					"\t\tjudge: judgeOf({ closed: [...closed.keys()], patterns }, closed, new CompilePatterns())",
+				why: "Each source of an evaluator parses the patterns it reads into a table of its own, so a pattern several sources read is parsed once a source: the evaluator's parses grow with its sources."
+			},
 			{
 				file: "packages/engine/src/scalar/regex/patterns.ts",
 				original: "\t\tmatches(this.parse({ source, flags: matchFlags }).nfa, text)\n\n\t/**",
