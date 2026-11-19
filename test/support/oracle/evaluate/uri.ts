@@ -114,3 +114,34 @@ export const resolvedReference = (base: string, reference: string): string => {
 						}
 	return recompose(target)
 }
+
+/**
+ * How many `..` segments of the path a resolution walks climb past its root (§5.2.2's path, §5.2.4's walk), by a depth
+ * over the path's segments read apart from the rules: the path of a reference with a scheme or an authority is its own,
+ * an empty path walks nothing, an absolute one is its own and a relative one is merged with the base's; then, its root's
+ * `/` aside, each segment between `/`s, an empty one among them, is one step down, `.` none, and `..` one up, or a
+ * climb where no step down is left to undo.
+ */
+export const climbsOf = (base: string, reference: string): number => {
+	const b = partsOf(base)
+	const r = partsOf(reference)
+	const path =
+		r.scheme !== undefined || r.authority !== undefined || Str.startsWith("/")(r.path)
+			? r.path
+			: r.path === ""
+				? undefined
+				: mergePaths(b, r.path)
+	if (path === undefined || path === "") {
+		return 0
+	}
+	const segments = Str.split(Str.startsWith("/")(path) ? Str.slice(1)(path) : path, "/")
+	return Arr.reduce(segments, { depth: 0, climbs: 0 }, ({ depth, climbs }, segment) =>
+		segment === "."
+			? { depth, climbs }
+			: segment === ".."
+				? depth === 0
+					? { depth, climbs: climbs + 1 }
+					: { depth: depth - 1, climbs }
+				: { depth: depth + 1, climbs }
+	).climbs
+}

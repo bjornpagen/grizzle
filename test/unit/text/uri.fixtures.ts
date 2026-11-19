@@ -18,6 +18,7 @@ export type UriFeature =
 	| "a .. past the root"
 	| "an undefined query against a base's"
 	| "the RFC's example base"
+	| "a percent-encoded dot"
 
 /** The RFC's example base (§5.4). */
 const rfcBase = "http://a/b/c/d;p?q"
@@ -79,7 +80,20 @@ export const rfcExamples: Arr.NonEmptyReadonlyArray<{
 	readonly target: string
 }> = Arr.map(examples, ([reference, target]) => ({ base: rfcBase, reference, target }))
 
-const segment = element(["", ".", "..", "g", "g;x", "h", "g.", "..g"] as const)
+/** A path's segment: empty, a dot segment, a name, a name of dots, or percent-encoded dots, which are no dot segment. */
+const segment = element([
+	"",
+	".",
+	"..",
+	"g",
+	"g;x",
+	"h",
+	"g.",
+	"..g",
+	"%2E",
+	"%2E%2E",
+	".%2e"
+] as const)
 
 /** A path of up to four drawn segments, `/` between them, absolute or relative. */
 const pathGen: Gen<string> = (source) => {
@@ -143,7 +157,8 @@ export const referenceCaseGen: Gen<{
 		["a dot segment", Str.includes("./")(reference) || Str.endsWith(".")(r.path)],
 		["a .. past the root", Str.includes("../..")(reference) || Str.startsWith("/..")(r.path)],
 		["an undefined query against a base's", r.query === undefined && Str.includes("?")(base)],
-		["the RFC's example base", base === rfcBase]
+		["the RFC's example base", base === rfcBase],
+		["a percent-encoded dot", Str.includes("%2")(reference) || Str.includes("%2")(base)]
 	]
 	return { base, reference, features: Arr.flatMap(reached, ([f, holds]) => (holds ? [f] : [])) }
 }
