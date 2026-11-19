@@ -782,7 +782,7 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
  *   the law functions and law triggers, the worlds' functions, and PostgreSQL's
  *   internal foreign-key triggers; the worlds' schemas of views, security_barrier exactly where a query entry's; row
  *   security and policies exactly where a world writes through a query entry; no UPDATE on an immutable relation, no
- *   TRUNCATE, no privilege on a sequence, MAINTAIN only to a refresher or a login fencing the table, no PUBLIC grant,
+ *   TRUNCATE, no sequence, MAINTAIN only to a refresher or a login fencing the table, no PUBLIC grant,
  *   nothing granted to a login beyond what admission and a Db transaction take as it, nothing inherited beyond a role's own privileges, no elevated
  *   or undeclared role; no index is invalid; and no table holds two unique indexes of one method over one column set
  *   and predicate, or two indexes of one definition (IndexProblem);

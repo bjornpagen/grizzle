@@ -46,7 +46,6 @@ export type PrivilegedObjectKind =
 	| "table"
 	| "view"
 	| "materialized-view"
-	| "sequence"
 	| "function"
 	| "column"
 	| "type"
@@ -61,7 +60,7 @@ export type PrivilegedObjectKind =
 export type PrivilegeObject =
 	| { readonly kind: "schema"; readonly schema: string }
 	| {
-			readonly kind: "table" | "view" | "materialized-view" | "sequence" | "function" | "type"
+			readonly kind: "table" | "view" | "materialized-view" | "function" | "type"
 			readonly schema: string
 			readonly name: string
 	  }
@@ -87,7 +86,6 @@ const privilegeTypes = {
 		"TRIGGER",
 		"MAINTAIN"
 	],
-	sequence: ["USAGE", "SELECT", "UPDATE"],
 	function: ["EXECUTE"],
 	column: ["SELECT", "INSERT", "UPDATE", "REFERENCES"],
 	type: ["USAGE"],
@@ -157,7 +155,6 @@ const objectText = (o: PrivilegeObject): string => {
 		case "table":
 		case "view":
 		case "materialized-view":
-		case "sequence":
 		case "function":
 		case "type":
 			return `${o.kind} ${o.schema}.${o.name}`
@@ -751,11 +748,6 @@ const queries = {
 	SELECT g.name, x.kind, x.schema, x.name, x.col, p.priv, o.grantable
 	FROM unnest($2::text[]) AS g(name) CROSS JOIN x CROSS JOIN ${privilegesOf("column")}
 	WHERE pg_catalog.has_column_privilege(g.name, x.oid, x.attnum, ${asked}) AND NOT pg_catalog.has_table_privilege(g.name, x.oid, ${asked})`,
-	sequences: privilegeQuery(
-		`SELECT c.oid, 'sequence' AS kind, n.nspname::text AS schema, c.relname::text AS name, '' AS col FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE ${ours("n")} AND c.relkind = 'S'`,
-		"sequence",
-		`pg_catalog.has_sequence_privilege(g.name, x.oid, ${asked})`
-	),
 	functions: privilegeQuery(
 		`SELECT f.oid, 'function' AS kind, n.nspname::text AS schema, f.proname::text AS name, '' AS col FROM pg_catalog.pg_proc f JOIN pg_catalog.pg_namespace n ON n.oid = f.pronamespace WHERE ${ours("n")}`,
 		"function",
@@ -778,7 +770,6 @@ const objectKinds: Arr.NonEmptyReadonlyArray<PrivilegedObjectKind> = [
 	"table",
 	"view",
 	"materialized-view",
-	"sequence",
 	"function",
 	"column",
 	"type",
@@ -812,7 +803,6 @@ const objectOf = (
 		case "table":
 		case "view":
 		case "materialized-view":
-		case "sequence":
 		case "function":
 		case "type":
 			return [k, { kind: k, schema, name }]
@@ -874,14 +864,7 @@ export const installedPrivileges = (
 				)
 			)
 		const privileges = yield* Effect.forEach(
-			[
-				queries.schemas,
-				queries.relations,
-				queries.columns,
-				queries.sequences,
-				queries.functions,
-				queries.types
-			],
+			[queries.schemas, queries.relations, queries.columns, queries.functions, queries.types],
 			privilegesFrom
 		)
 		const memberRead = yield* read(queries.members, roles)
@@ -921,7 +904,7 @@ export const installedPrivileges = (
 
 /**
  * An object of the installation as a statement names it: the object, the SQL name a statement acts on (a relation's,
- * a sequence's, a function's or a type's, quoted and qualified; for a schema, a relation in it, when it holds one; for
+ * a function's or a type's, quoted and qualified; for a schema, a relation in it, when it holds one; for
  * a type that types a column, the type's), the columns a statement can name (each of a relation's, or the column
  * itself), a function's arity, and whether it returns trigger, so no statement can call it.
  */
@@ -953,13 +936,13 @@ type ObjectRows = ReadonlyArray<
  * column types nothing a role holds, so an attempt through it would ask a role that holds the type.
  */
 const objectsQuery = `WITH rel AS (SELECT c.oid, c.relkind, n.nspname::text AS schema, c.relname::text AS name, pg_catalog.quote_ident(n.nspname) || '.' || pg_catalog.quote_ident(c.relname) AS target
-		FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE ${ours("n")} AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')),
-	att AS (SELECT r.oid, r.schema, r.name, a.attnum, a.attname::text AS col, a.atttypid FROM rel r JOIN pg_catalog.pg_attribute a ON a.attrelid = r.oid AND a.attnum > 0 AND NOT a.attisdropped WHERE r.relkind <> 'S'),
+		FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE ${ours("n")} AND c.relkind IN ('r', 'p', 'v', 'm', 'f')),
+	att AS (SELECT r.oid, r.schema, r.name, a.attnum, a.attname::text AS col, a.atttypid FROM rel r JOIN pg_catalog.pg_attribute a ON a.attrelid = r.oid AND a.attnum > 0 AND NOT a.attisdropped),
 	typ AS (SELECT y.kind, y.schema, y.name, y.col, pg_catalog.quote_ident(n.nspname) || '.' || pg_catalog.quote_ident(t.typname) AS target
 		FROM (${typesIn}) y JOIN pg_catalog.pg_type t ON t.oid = y.oid JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace)
-	SELECT 'schema', n.nspname::text, '', '', COALESCE((SELECT r.target FROM rel r WHERE r.schema = n.nspname AND r.relkind <> 'S' ORDER BY r.name LIMIT 1), ''), '{}'::text[], 0, false
+	SELECT 'schema', n.nspname::text, '', '', COALESCE((SELECT r.target FROM rel r WHERE r.schema = n.nspname ORDER BY r.name LIMIT 1), ''), '{}'::text[], 0, false
 		FROM pg_catalog.pg_namespace n WHERE ${ours("n")}
-	UNION ALL SELECT CASE r.relkind WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized-view' WHEN 'S' THEN 'sequence' ELSE 'table' END, r.schema, r.name, '', r.target,
+	UNION ALL SELECT CASE r.relkind WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized-view' ELSE 'table' END, r.schema, r.name, '', r.target,
 		COALESCE((SELECT pg_catalog.array_agg(pg_catalog.quote_ident(a.col) ORDER BY a.attnum) FROM att a WHERE a.oid = r.oid), '{}'::text[]), 0, false FROM rel r
 	UNION ALL SELECT 'column', a.schema, a.name, a.col, (SELECT r.target FROM rel r WHERE r.oid = a.oid), ARRAY[pg_catalog.quote_ident(a.col)], 0, false FROM att a
 	UNION ALL SELECT t.kind, t.schema, t.name, t.col, t.target, CASE t.kind WHEN 'type-of-column' THEN ARRAY[pg_catalog.quote_ident(t.col)] ELSE '{}'::text[] END, 0, false FROM typ t

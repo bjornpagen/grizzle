@@ -89,8 +89,8 @@ const driftBase = (name: string) => {
  * - The drift worlds, whose role writes a query entry under row security: a world function's search_path reset, its
  *   volatility, its EXECUTE to PUBLIC or to a second role; a view's security barrier flipped (nothing when set as it
  *   stands); a world schema's USAGE beyond its role; a policy's predicate or roles; row security disabled or forced;
- *   MAINTAIN beyond the refreshers or a refresher's revoked; and a privilege to a world role on a sequence the drift
- *   creates, which grizzle never does.
+ *   MAINTAIN beyond the refreshers or a refresher's revoked; and a sequence the drift creates, which grizzle never does
+ *   (it mints no ids, 10a0cd919), granted to a world role.
  *
  * The drift worlds over the drift base declared under `name`: `editor` holds Doc and DocCount
  * whole, refreshes DocCount, and writes Mine, the notes of the documents its session's subject owns, whose filter reads
@@ -204,12 +204,6 @@ const grantablesOf = (catalog: Catalog): Arr.NonEmptyReadonlyArray<Grantable> =>
 		object: { kind: "relation", name: t.name },
 		grants: t.grants
 	})),
-	...Arr.map(catalog.sequences, (q): Grantable => ({
-		family: "sequence",
-		target: `SEQUENCE ${qualified(catalog, q.name)}`,
-		object: { kind: "sequence", name: q.name },
-		grants: q.grants
-	})),
 	...Arr.map(catalog.domains, (d): Grantable => ({
 		family: "type",
 		target: `DOMAIN ${qualified(catalog, d.name)}`,
@@ -287,7 +281,7 @@ export type WorldFeature =
 	| "row security forced"
 	| "MAINTAIN beyond the refreshers"
 	| "MAINTAIN revoked from a refresher"
-	| "a sequence privilege to a world role"
+	| "a sequence granted to a world role"
 
 export const worldFeatures: Arr.NonEmptyReadonlyArray<WorldFeature> = [
 	"a world function's search_path reset",
@@ -305,7 +299,7 @@ export const worldFeatures: Arr.NonEmptyReadonlyArray<WorldFeature> = [
 	"row security forced",
 	"MAINTAIN beyond the refreshers",
 	"MAINTAIN revoked from a refresher",
-	"a sequence privilege to a world role"
+	"a sequence granted to a world role"
 ]
 
 /** The volatilities ALTER FUNCTION sets. */
@@ -935,15 +929,8 @@ export const worldDrifts = (x: WorldContext): { readonly [A in WorldArm]: Gen<Wo
 					`CREATE SEQUENCE ${qualified(baseline, sequence)}`,
 					`GRANT ${privilege} ON SEQUENCE ${qualified(baseline, sequence)} TO ${quoteIdent(r)}`
 				],
-				raises: [
-					{
-						kind: "roleHolds",
-						object: { kind: "sequence", name: sequence },
-						role: r,
-						privilege
-					}
-				],
-				feature: "a sequence privilege to a world role"
+				raises: [{ kind: "unexpectedSequence", sequence }],
+				feature: "a sequence granted to a world role"
 			}
 		}
 	}

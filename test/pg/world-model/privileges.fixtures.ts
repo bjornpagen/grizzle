@@ -4,7 +4,7 @@ import { constant, element, type Gen, int, oneOf, weighted } from "@bjornpagen/t
 /** What the properties of privileges.test.ts read: its installations, its expected privileges and its rules. */
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record, Result } from "effect"
-import { quoteIdent, quoteString } from "#compiler/core/text.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { educationInstall } from "#test/support/fixtures/education/index.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -162,30 +162,10 @@ const columnAttempt = (p: PrivilegeType, { onColumns }: On): ReadonlyArray<strin
 	}
 }
 
-const sequenceAttempt = (p: PrivilegeType, { on }: On): ReadonlyArray<string> => {
-	switch (p) {
-		case "USAGE":
-			return on((t) => `SELECT pg_catalog.nextval(${quoteString(t)}::pg_catalog.regclass)`)
-		case "SELECT":
-			return on((t) => `SELECT last_value FROM ${t}`)
-		case "UPDATE":
-			return on((t) => `SELECT pg_catalog.setval(${quoteString(t)}::pg_catalog.regclass, 1, true)`)
-		case "INSERT":
-		case "DELETE":
-		case "TRUNCATE":
-		case "REFERENCES":
-		case "TRIGGER":
-		case "MAINTAIN":
-		case "CREATE":
-		case "EXECUTE":
-			return []
-	}
-}
-
 /**
  * The statements that exercise a privilege on an object alone: a reference through a schema, a CREATE in it, a read, a
  * write or a maintenance statement on a relation or a column (an UPDATE of a relation naming each of its columns), a
- * call of a function that is no trigger function, the use of a sequence, and a type in a temporary table's column.
+ * call of a function that is no trigger function, and a type in a temporary table's column.
  * REFERENCES, which needs a referencing table of the attempter's own, and statements PostgreSQL refuses on the kind of
  * object before it checks a privilege (a view's TRUNCATE, TRIGGER and MAINTAIN) have none. A write may still be refused
  * before any privilege is checked, by what it writes rather than who writes it (a view that is not automatically
@@ -208,8 +188,6 @@ const attemptsOf = (o: InstalledObject, p: PrivilegeType): ReadonlyArray<string>
 			return relationAttempt(object.kind, p, at)
 		case "column":
 			return columnAttempt(p, at)
-		case "sequence":
-			return sequenceAttempt(p, at)
 		case "function":
 			return p === "EXECUTE" && !o.trigger
 				? at.on(
@@ -245,8 +223,7 @@ const held = (
 
 /**
  * Whether a grantee holds no privilege that would let the attempt of `p` on the object through: `p` itself; on a
- * table, `p` on any of its columns; on a column, `p` on its table (a column privilege is read beyond its table's); on a
- * sequence, UPDATE in place of USAGE.
+ * table, `p` on any of its columns; on a column, `p` on its table (a column privilege is read beyond its table's).
  */
 const withheld = (
 	set: PrivilegeSet,
@@ -281,8 +258,6 @@ const withheld = (
 				held(set, grantee, { kind, schema: object.schema, name: object.relation }, p)
 			)
 		}
-		case "sequence":
-			return p !== "USAGE" || !held(set, grantee, object, "UPDATE")
 		case "schema":
 		case "function":
 		case "type":
@@ -458,9 +433,6 @@ export const situations: Arr.NonEmptyReadonlyArray<Reached<Feature>> = [
 	"refused:column:SELECT",
 	"refused:column:INSERT",
 	"refused:column:UPDATE",
-	"refused:sequence:USAGE",
-	"refused:sequence:SELECT",
-	"refused:sequence:UPDATE",
 	"refused:function:EXECUTE",
 	"refused:type-of-column:USAGE"
 ]

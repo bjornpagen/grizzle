@@ -134,7 +134,6 @@ export type CatalogObject =
 	| { readonly kind: "schema"; readonly name: string }
 	| { readonly kind: "relation"; readonly name: string }
 	| { readonly kind: "column"; readonly relation: string; readonly column: string }
-	| { readonly kind: "sequence"; readonly name: string }
 	| { readonly kind: "domain"; readonly name: string }
 	| { readonly kind: "function"; readonly name: string }
 	| { readonly kind: "world"; readonly name: string }
@@ -180,6 +179,7 @@ export type ErasureProblem =
 	| { readonly kind: "undeclaredView"; readonly view: string }
 	| { readonly kind: "foreignRelation"; readonly relation: string; readonly relkind: string }
 	| { readonly kind: "unexpectedTable"; readonly table: string }
+	| { readonly kind: "unexpectedSequence"; readonly sequence: string }
 	| { readonly kind: "decoderLacks"; readonly object: CatalogObject; readonly privilege: string }
 	| { readonly kind: "strangerPublished"; readonly publication: string; readonly table: string }
 	| { readonly kind: "ledgerUnpublished"; readonly publication: string }
@@ -353,8 +353,8 @@ const columnGrants = (t: Table): ReadonlyArray<HeldGrant> =>
 	}))
 
 /**
- * Every grant on an object of the installation: the schema, its relations and their columns, sequences, domains and
- * functions, and each world's schema and views.
+ * Every grant on an object of the installation: the schema, its relations and their columns, domains and functions,
+ * and each world's schema and views.
  */
 const heldGrants = (catalog: Catalog): ReadonlyArray<HeldGrant> => [
 	...on({ kind: "schema", name: catalog.schema }, catalog.schemaGrants),
@@ -362,7 +362,6 @@ const heldGrants = (catalog: Catalog): ReadonlyArray<HeldGrant> => [
 		...on({ kind: "relation", name: t.name }, t.grants),
 		...columnGrants(t)
 	]),
-	...Arr.flatMap(catalog.sequences, (q) => on({ kind: "sequence", name: q.name }, q.grants)),
 	...Arr.flatMap(catalog.domains, (d) => on({ kind: "domain", name: d.name }, d.grants)),
 	...Arr.flatMap(catalog.functions, (f) => on({ kind: "function", name: f.name }, f.grants)),
 	...Arr.flatMap(catalog.worlds, (w) => [
@@ -1196,8 +1195,8 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  * of names here:
  *
  * - only authored tables, the migrations ledger and the live source's secret exist, plus the materialized views of
- *   declared derived relations; no plain view, foreign table, or other type beyond domains and row types, and no
- *   pg_enum row: a roster is a smallint domain;
+ *   declared derived relations; no plain view, foreign table, sequence (grizzle mints no ids, 10a0cd919), or other
+ *   type beyond domains and row types, and no pg_enum row: a roster is a smallint domain;
  * - the only functions are the refusal function, the isolation guard and the snapshot guard, owned by the owner,
  *   SECURITY DEFINER, VOLATILE, with `search_path = pg_catalog, pg_temp`; the
  *   worlds' functions (each writable query entry's filter function and key and unique probes), owned by the owner,
@@ -1224,7 +1223,7 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  *   table or of a column, on an immutable relation (immutable by default is pinned) or TRUNCATE on any relation
  *   (TRUNCATE fires no row trigger and would bypass the laws); a table grants only SELECT, INSERT, DELETE and UPDATE,
  *   a materialized view SELECT and MAINTAIN, the latter to exactly the roles that refresh it, a column SELECT, INSERT
- *   and UPDATE, the schema and a domain USAGE, and a sequence nothing;
+ *   and UPDATE, the schema and a domain USAGE;
  * - row security is enabled exactly on the tables some world's entry narrows, never forced, and only those tables carry
  *   policies: one per world role that writes the table, a permissive FOR ALL policy named after that role, whose USING
  *   and WITH CHECK are one predicate, `true` for a role whose entry holds every row; a table every world writes whole
@@ -1280,9 +1279,10 @@ export const verifyErasure = (
 		...refresherProblems(j),
 		...publicationProblems(j),
 		...fenceProblems(j),
-		...Arr.flatMap(catalog.sequences, (q) =>
-			grantProblems(j, on({ kind: "sequence", name: q.name }, q.grants), allowed.none, allowed.none)
-		),
+		...Arr.map(catalog.sequences, (q): ErasureProblem => ({
+			kind: "unexpectedSequence",
+			sequence: q.name
+		})),
 		...unless(catalog.enumLabels === 0, { kind: "enumLabels", count: catalog.enumLabels }),
 		...Arr.flatMap(catalog.domains, (d) => [
 			...grantProblems(
