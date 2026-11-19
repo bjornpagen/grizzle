@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, Option } from "effect"
 import type { CallError } from "#compiler/live/index.ts"
 import type { Addition } from "#compiler/public/changeset.ts"
-import type { Uuid } from "#compiler/public/fields.ts"
+
 import type { Fact } from "#compiler/public/schema.ts"
 import {
 	type Answer,
@@ -30,6 +30,7 @@ import {
 } from "#test/support/platform/generate.ts"
 
 import { answered, rowsOf } from "#test/support/calls.ts"
+import { type IdValue } from "#test/support/ids.ts"
 import {
 	deleteOp,
 	insertOp,
@@ -66,10 +67,10 @@ export const ids = {
 	line: uid(10, 1),
 	charge: uid(13, 1)
 } as const
-const eventId = (n: number): Uuid => uid(7, n)
-export const grantId = (n: number): Uuid => uid(8, n)
-const refundId = (n: number): Uuid => uid(12, n)
-export const cardId = (n: number): Uuid => uid(6, n)
+const eventId = (n: number): IdValue => uid(7, n)
+export const grantId = (n: number): IdValue => uid(8, n)
+const refundId = (n: number): IdValue => uid(12, n)
+export const cardId = (n: number): IdValue => uid(6, n)
 
 const [first, second] = calendarOf(2)
 const month = defined(first, "the calendar's first month")
@@ -93,14 +94,14 @@ const activeOf = (during: SpanV): Fact<typeof P.ApiKeyActive> => ({
 	during: instants(during)
 })
 
-const cardOf = (id: Uuid, during: SpanV): Fact<typeof P.RateCard> => ({
+const cardOf = (id: IdValue, during: SpanV): Fact<typeof P.RateCard> => ({
 	id,
 	model: ids.model,
 	kind: "input",
 	during: instants(during)
 })
 
-const flatTier = (card: Uuid, rate: bigint): Fact<typeof P.RateTier> => ({
+const flatTier = (card: IdValue, rate: bigint): Fact<typeof P.RateTier> => ({
 	card,
 	tier: { start: P.Tokens(0n), end: P.Tokens(TOKENS_MAX) },
 	rate: P.Rate(rate)
@@ -295,7 +296,7 @@ const rateChangeWrite = (kind: string, label: string, change: P.RateChange): Wri
  * The card in force split at an instant: the fixture's changeRate, its first part keeping its id and tier and the new
  * card taking `rate` from the instant on.
  */
-export const splitWrite = (kind: string, at: bigint, card: Uuid, rate: bigint): Write =>
+export const splitWrite = (kind: string, at: bigint, card: IdValue, rate: bigint): Write =>
 	rateChangeWrite(kind, `the rate split at ${at} to ${rate}`, {
 		retired: {
 			card: cardOf(ids.card, platformSpan(JAN, FAR)),

@@ -21,7 +21,7 @@ import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { pg, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { refresh, workload } from "#compiler/public/workload.ts"
@@ -33,6 +33,7 @@ import {
 } from "#test/pg/derived/oracle/harness.ts"
 import { defined } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
+import { Id } from "#test/support/ids.ts"
 import { replaceMigrated } from "#test/support/install-migrate.ts"
 import { type Names, namesOf, roleNamesOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -112,7 +113,7 @@ const refreshOrders = {
 const build = (name: string) => {
 	const Sitting = relation(
 		"Sitting",
-		{ id: uuid, student: uuid, week: pg.integer, passed: pg.boolean },
+		{ id: Id, student: Id, week: pg.integer, passed: pg.boolean },
 		["id"]
 	)
 	const Edu = schema(name, [Sitting], [])

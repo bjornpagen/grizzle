@@ -9,7 +9,7 @@
  * (doc, ‹parent₀›, ‹p›, start, carried…) and last axis (doc, start, ‹pn›, end, carried…).
  */
 import { Array as Arr, Record as Rec } from "effect"
-import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import {
 	containedBuilder,
@@ -24,6 +24,7 @@ import {
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** A set of families and a tree (the header). */
 export interface AxesCase {
@@ -89,8 +90,8 @@ export const axesParts = (
 	const keys = keysOf(a)
 	const group = groupOf(a)
 	const names = axesRelationsAt(at)
-	const keyFields = Rec.fromEntries(Arr.map(keys, (k) => [k, uuid] as const))
-	const groupFields = Rec.fromEntries(Arr.map(group, (g) => [g, uuid] as const))
+	const keyFields = Rec.fromEntries(Arr.map(keys, (k) => [k, Id] as const))
+	const groupFields = Rec.fromEntries(Arr.map(group, (g) => [g, Id] as const))
 	const OrderedOwner = relationOf(
 		names.orderedOwner,
 		{
@@ -104,7 +105,7 @@ export const axesParts = (
 	const OrderedMember = relationOf(
 		names.orderedMember,
 		{
-			id: uuid,
+			id: Id,
 			...groupFields,
 			at: drawn(natural),
 			x: pg.bigint,
@@ -116,11 +117,11 @@ export const axesParts = (
 		["id"]
 	)
 	const CountedOwner = relationOf(names.countedOwner, { ...keyFields, n: drawn(natural) }, keys)
-	const CountedMember = relationOf(names.countedMember, { id: uuid, ...groupFields }, ["id"])
+	const CountedMember = relationOf(names.countedMember, { id: Id, ...groupFields }, ["id"])
 	const Node = relationOf(
 		names.node,
 		{
-			doc: uuid,
+			doc: Id,
 			parent: drawn(natural),
 			at: drawn(natural),
 			children: drawn(natural),

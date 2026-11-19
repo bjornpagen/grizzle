@@ -2,12 +2,13 @@
 
 import { element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
-import { drawn, generated, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { drawn, generated, natural, pg } from "#compiler/public/fields.ts"
 import { key, on, relation } from "#compiler/public/schema.ts"
 import { nonEmpty } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** Owner(id, n drawn): the owner of the sequence of Member. */
-export const Owner = relation("Owner", { id: uuid, n: drawn(natural) }, ["id"])
+export const Owner = relation("Owner", { id: Id, n: drawn(natural) }, ["id"])
 
 /** The keys a case declares over Member's written fields, by name: each one's fields in the order it declares them. */
 export const shapes = {
@@ -30,7 +31,7 @@ export const declaredFields = (shape: Declared): ReadonlyArray<string> =>
 export const memberOf = (primary: Shape) => {
 	const Member = relation.generated(
 		"Member",
-		{ id: uuid, owner: uuid, at: drawn(natural), x: pg.bigint },
+		{ id: Id, owner: Id, at: drawn(natural), x: pg.bigint },
 		shapes[primary],
 		(r) => ({ y: generated(pg.bigint, r.x) })
 	)

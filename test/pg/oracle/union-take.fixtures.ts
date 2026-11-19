@@ -16,7 +16,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import type { SpecifiedArtifact } from "#compiler/lower/template.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { closedId, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { closedId } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -24,6 +24,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -34,9 +35,9 @@ export const Kind = closed.ordered("Kind", ["Open", "Done", "Held"])
 
 const Text = str.regex("^.{1,80}$", "su")
 
-const Task = relation("Task", { id: uuid, kind: closedId(Kind), title: Text }, ["id"])
+const Task = relation("Task", { id: Id, kind: closedId(Kind), title: Text }, ["id"])
 
-const Memo = relation("Memo", { id: uuid, task: uuid, text: Text }, ["id"])
+const Memo = relation("Memo", { id: Id, task: Id, text: Text }, ["id"])
 
 const Unions = schema(
 	"Unions",
@@ -74,8 +75,8 @@ export const memosOf = (k: number) =>
 		return r.match(first, { id, kind: "Done", text }).find({ id, text })
 	})
 
-const id = (n: number): Uuid =>
-	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+const id = (n: number): IdValue =>
+	Id(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
 
 export type KindHandle = "Open" | "Done" | "Held"
 

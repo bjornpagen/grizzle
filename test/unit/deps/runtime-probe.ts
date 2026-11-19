@@ -309,14 +309,14 @@ const floatsDecoded = Arr.map(["1.5", "-0", "3.4028235e+38", "1e-45", "1e+00"], 
  * states exhaustively; here a compile that is refused fails the probe.
  */
 const { Compute } = await import("#compiler/public/compute.ts")
-const { pg, uuid }: Readonly<typeof import("#compiler/public/fields.ts")> =
+const { contract, pg, uuid }: Readonly<typeof import("#compiler/public/fields.ts")> =
 	await import("#compiler/public/fields.ts")
 const { query, v }: Readonly<typeof import("#compiler/public/query.ts")> =
 	await import("#compiler/public/query.ts")
 const { relation, schema }: Readonly<typeof import("#compiler/public/schema.ts")> =
 	await import("#compiler/public/schema.ts")
 const { compileTemplate, testCompile } = await import("#test/support/compile.ts")
-const Flagged = relation("Flagged", { id: uuid, flag: pg.boolean }, ["id"])
+const Flagged = relation("Flagged", { id: contract("FlagId", uuid), flag: pg.boolean }, ["id"])
 const Flags = schema("Flags", [Flagged], [])
 /** The query compiled, or the probe fails. */
 const compiles = (q: unknown): void => {

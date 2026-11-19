@@ -1,6 +1,6 @@
 import { Record as Rec } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, contract, date, natural, pg, span, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, date, natural, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	alternatives,
@@ -14,6 +14,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * The schema the type/engine agreements draw their queries over (test/support/agreement/queries.ts, admission.ts).
@@ -62,28 +63,28 @@ export const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n), {
 
 export const Item = relation(
 	"Item",
-	{ id: uuid, owner: uuid, n: pg.integer, m: pg.integer, tone: closedId(Tone), cost: Cents },
+	{ id: Id, owner: Id, n: pg.integer, m: pg.integer, tone: closedId(Tone), cost: Cents },
 	["id"]
 )
 
-export const Tag = relation("Tag", { item: uuid, label: pg.integer, w: pg.integer }, [
+export const Tag = relation("Tag", { item: Id, label: pg.integer, w: pg.integer }, [
 	"item",
 	"label"
 ])
-export const Note = relation("Note", { item: uuid, k: pg.integer }, ["item"])
-export const Stray = relation("Stray", { id: uuid, n: pg.integer }, ["id"])
-export const Batch = relation("Batch", { id: uuid, n: pg.integer }, ["id"])
+export const Note = relation("Note", { item: Id, k: pg.integer }, ["item"])
+export const Stray = relation("Stray", { id: Id, n: pg.integer }, ["id"])
+export const Batch = relation("Batch", { id: Id, n: pg.integer }, ["id"])
 
 export const Cell = relation(
 	"Cell",
 	{
-		id: uuid,
+		id: Id,
 		text: str.regex("^.*$", "su"),
 		integer: pg.integer,
 		bigint: pg.bigint,
 		natural,
 		boolean: pg.boolean,
-		uuid,
+		uuid: Id,
 		numeric: pg.numeric(10, 2),
 		money: pg.money,
 		vector: pg.vector(3),
@@ -98,7 +99,7 @@ export const Cell = relation(
 export const Slot = relation(
 	"Slot",
 	{
-		item: uuid,
+		item: Id,
 		during: span(pg.integer),
 		budget: span(Cents),
 		raw: span(pg.bigint),
@@ -215,20 +216,18 @@ const PlanBudget = closed.relation(
 		{ plan: "Pro", budget: Cents(2n) }
 	]
 )
-const Account = relation("Account", { id: uuid, rank: pg.integer, plan: closedId(Plan) }, ["id"])
-const Task = relation(
-	"Task",
-	{ id: uuid, account: uuid, kind: closedId(Kind), score: pg.integer },
-	["id"]
-)
-const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: Cents }, ["task"])
-const ManualTask = relation("ManualTask", { task: uuid, operator: pg.integer }, ["task"])
-const TaskNote = relation("TaskNote", { task: uuid, note: pg.integer }, ["task"])
-const Label = relation("Label", { account: uuid, label: pg.integer, color: pg.integer }, [
+const Account = relation("Account", { id: Id, rank: pg.integer, plan: closedId(Plan) }, ["id"])
+const Task = relation("Task", { id: Id, account: Id, kind: closedId(Kind), score: pg.integer }, [
+	"id"
+])
+const AutomaticTask = relation("AutomaticTask", { task: Id, budget: Cents }, ["task"])
+const ManualTask = relation("ManualTask", { task: Id, operator: pg.integer }, ["task"])
+const TaskNote = relation("TaskNote", { task: Id, note: pg.integer }, ["task"])
+const Label = relation("Label", { account: Id, label: pg.integer, color: pg.integer }, [
 	"account",
 	"label"
 ])
-const TaskLabel = relation("TaskLabel", { task: uuid, account: uuid, label: pg.integer }, [
+const TaskLabel = relation("TaskLabel", { task: Id, account: Id, label: pg.integer }, [
 	"task",
 	"label"
 ])

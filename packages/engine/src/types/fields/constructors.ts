@@ -27,6 +27,7 @@ import type {
 	GeneratedField,
 	Infer,
 	NaturalField,
+	NamedId,
 	NoWriting,
 	NotInstant,
 	NotStoredOnly,
@@ -189,6 +190,6 @@ export type GeneratedTermOf<F extends FieldBase> = InputTerm<DomainOf<F>, never,
  * written fields and closed reads are all a generation expression may read.
  */
 export type GeneratedConstructor = <F extends FieldBase, T extends GeneratedTermOf<F>>(
-	type: F & NoWriting & NotStoredOnly<F["sql"]>,
+	type: F & NoWriting & NotStoredOnly<F["sql"]> & NamedId<F>,
 	term: T & Parameterless<T> & Hosted<T>
 ) => GeneratedField<F>

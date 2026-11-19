@@ -29,10 +29,11 @@ import { boolean, element, finite, shuffled } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import { closedId, uuid } from "#compiler/public/fields.ts"
+import { closedId } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { assert } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
@@ -153,7 +154,7 @@ export const theOptimizedLoweringOfCheckedPublicProgramsLowersARosterMatchAnImpo
 				({ handles, twin }) =>
 					Effect.sync(() => {
 						const Tier = closed.ordered("Tier", handles)
-						const Item = relation("Item", { id: uuid, tier: closedId(Tier) }, ["id"])
+						const Item = relation("Item", { id: Id, tier: closedId(Tier) }, ["id"])
 						const Plant = schema("Plant", [Tier, Item], [])
 						/** The items of the tier a parameter names, by their tier. */
 						const ofTier = query(Plant).rule((r) => {

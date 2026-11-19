@@ -3,10 +3,11 @@
 import { array, element, type Gen, increasing, int, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { drawn as drawnField, natural, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
+import { drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { counted, fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
@@ -14,11 +15,9 @@ const Club = relation("Club", { id: pg.integer, n: drawnField(natural) }, ["id"]
 
 const Member = relation("Member", { m: pg.integer, club: pg.integer }, ["m"])
 
-const Doc = relation("Doc", { id: uuid, lines: drawnField(natural) }, ["id"])
+const Doc = relation("Doc", { id: Id, lines: drawnField(natural) }, ["id"])
 
-const Line = relation("Line", { id: uuid, doc: uuid, at: drawnField(natural), qty: pg.bigint }, [
-	"id"
-])
+const Line = relation("Line", { id: Id, doc: Id, at: drawnField(natural), qty: pg.bigint }, ["id"])
 
 export const Strata = schema(
 	"StrataFamilies",
@@ -96,8 +95,8 @@ interface MemberFact {
 
 /** A doc inserted with its lines nested, in their order. */
 interface DocFact {
-	readonly id: Uuid
-	readonly lines: ReadonlyArray<{ readonly id: Uuid; readonly qty: bigint }>
+	readonly id: IdValue
+	readonly lines: ReadonlyArray<{ readonly id: IdValue; readonly qty: bigint }>
 }
 
 interface StrataCase {

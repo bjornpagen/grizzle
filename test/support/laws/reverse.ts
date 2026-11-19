@@ -16,7 +16,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
  */
 import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { bits, uuid } from "#compiler/public/fields.ts"
+import { bits } from "#compiler/public/fields.ts"
 import { closed } from "#compiler/public/schema.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
@@ -33,6 +33,7 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** nbtree.h's BTMaxItemSize at the default block, restated. */
 const postgresBtreeMaxItem = 2704
@@ -390,7 +391,7 @@ const textOf = (codePoints: number): FieldBase =>
 const descriptorOf = (t: ColumnType, side: "source" | "target"): FieldBase => {
 	switch (t.kind) {
 		case "uuid":
-			return uuid
+			return Id
 		case "bigint":
 			return pgDescriptors.bigint
 		case "integer":
@@ -446,9 +447,9 @@ export const reverseParts = (
 		const A = relation(
 			source,
 			{
-				id: uuid,
+				id: Id,
 				live: pgDescriptors.boolean,
-				x: uuid,
+				x: Id,
 				...Rec.fromEntries(Arr.map(names, (n, i) => [n, descriptorOf(typeAt(i), "source")]))
 			},
 			["id"],

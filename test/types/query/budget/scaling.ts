@@ -174,7 +174,7 @@ const members = (shape: QueryShape): string =>
 			)
 
 /** Context j and the query entry of Ctx that reads it, over relation j, round the first five. */
-const contextBlock = (j: number): string => `export const C${j} = context("C${j}", { user: uuid })
+const contextBlock = (j: number): string => `export const C${j} = context("C${j}", { user: Id })
 export const inC${j} = query(S).rule((r) => {
 	const { id } = v(R${j % relationPeriod}, "e")
 	return r.match(R${j % relationPeriod}, { id }).match(C${j}, { user: id }).find({ id })
@@ -196,7 +196,7 @@ ${Arr.join(
 	Arr.map(
 		indices(shape.relations),
 		(i) =>
-			`export const R${i} = relation("R${i}", { id: uuid, parent: uuid, amount: pg.bigint, label: Label, kind: closedId(Kind), qty: pg.integer }, ["id"])\n`
+			`export const R${i} = relation("R${i}", { id: Id, parent: Id, amount: pg.bigint, label: Label, kind: closedId(Kind), qty: pg.integer }, ["id"])\n`
 	),
 	""
 )}
@@ -208,13 +208,13 @@ ${Arr.join(
 ])
 export const Reader = role(S, "reader", wholeEntriesOf(S))
 export const keyed = workload(Reader, { key: R0 })
-export const readAll = (db: DbOf<typeof Reader, typeof keyed.programs>) => db.workload.key.once({ params: { id: "00000000-0000-4000-8000-000000000001" }, facts: {} })
+export const readAll = (db: DbOf<typeof Reader, typeof keyed.programs>) => db.workload.key.once({ params: { id: Id("00000000-0000-4000-8000-000000000001") }, facts: {} })
 ${Arr.join(
 	Arr.map(indices(shape.rules), (q) => ruleBlock(q, shape.relations)),
 	""
 )}${
 			shape.members > 0
-				? `declare const someId: Uuid
+				? `declare const someId: IdValue
 export const change = ChangeSet.empty(S)
 ${members(shape)}
 `

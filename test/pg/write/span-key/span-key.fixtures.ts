@@ -4,7 +4,7 @@ import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, span, uuid } from "#compiler/public/fields.ts"
+import { pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	mutable,
@@ -17,6 +17,7 @@ import { str } from "#compiler/public/text.ts"
 import type { KeyHost } from "#compiler/types/changeset/changeset.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { answered } from "#test/support/calls.ts"
+import { Id } from "#test/support/ids.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import type { StateRow } from "#test/support/substrate/state.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -47,12 +48,12 @@ import type { FullWorld } from "#test/support/worlds.ts"
  */
 const note = str.regex("^[a-z]{1,8}$")
 
-export const Room = relation("Room", { room: uuid, during: span(pg.bigint), guest: uuid }, [
+export const Room = relation("Room", { room: Id, during: span(pg.bigint), guest: Id }, [
 	"room",
 	"during"
 ])
 
-export const Hold = relation("Hold", { room: uuid, during: span(pg.bigint), note }, [
+export const Hold = relation("Hold", { room: Id, during: span(pg.bigint), note }, [
 	"room",
 	"during"
 ])
@@ -109,13 +110,13 @@ type SpansInstalled = Schema<
 >
 
 export const rooms = [
-	"00000000-0000-4000-8000-000000000001",
-	"00000000-0000-4000-8000-000000000002"
+	Id("00000000-0000-4000-8000-000000000001"),
+	Id("00000000-0000-4000-8000-000000000002")
 ] as const
 
 export const guests = [
-	"00000000-0000-4000-8000-000000000003",
-	"00000000-0000-4000-8000-000000000004"
+	Id("00000000-0000-4000-8000-000000000003"),
+	Id("00000000-0000-4000-8000-000000000004")
 ] as const
 
 export const notes = ["old", "new"] as const

@@ -27,7 +27,7 @@ import { identifierOf } from "#compiler/core/identity.ts"
  */
 import { quoteIdent } from "#compiler/core/text.ts"
 import { type PrivilegeFamily, privilegeFamilies } from "#compiler/deploy/admission/roles.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -64,14 +64,15 @@ import {
 	type ErasureProblem,
 	verifyErasure
 } from "#test/support/catalog/verify.ts"
+import { Id } from "#test/support/ids.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { Ledger } from "#test/unit/physical/fixtures.ts"
 
 const Sub = str.regex("^u_[a-z]{1,8}$")
-const Doc = relation("Doc", { id: uuid, org: uuid, owner: Sub, words: pg.integer }, ["id"])
-const Note = relation("Note", { doc: uuid, no: pg.integer, author: Sub }, ["doc", "no"])
+const Doc = relation("Doc", { id: Id, org: Id, owner: Sub, words: pg.integer }, ["id"])
+const Note = relation("Note", { doc: Id, no: pg.integer, author: Sub }, ["doc", "no"])
 const Session = context("Session", { sub: Sub })
 
 /**

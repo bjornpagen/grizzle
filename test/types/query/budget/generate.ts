@@ -27,7 +27,7 @@ import {
 const largestQuerySize = 200
 
 const relationDeclaration = (ns: string, i: number): string =>
-	`export const ${ns}R${i} = relation("R${i}", { id: uuid, parent: uuid, amount: pg.bigint, label: ${ns}Label, kind: closedId(${ns}Kind), qty: pg.integer }, ["id"])\n`
+	`export const ${ns}R${i} = relation("R${i}", { id: Id, parent: Id, amount: pg.bigint, label: ${ns}Label, kind: closedId(${ns}Kind), qty: pg.integer }, ["id"])\n`
 
 /** One relation's queries, workload and reads, under the prefix `ns`, in a schema of `relations` relations. */
 const relationBlock = (ns: string, i: number, relations: number): string => {
@@ -36,18 +36,18 @@ const relationBlock = (ns: string, i: number, relations: number): string => {
 	return `
 export const ${ns}byParent${i} = query(${ns}S).rule((r) => {
 	const { id, parent, amount, kind } = v(${ns}R${i}, "r${i}")
-	return r.match(${ns}R${i}, { id, parent, amount, kind }).where(r.eq(parent, r.param("parent", uuid)), r.ge(amount, 0n)).find({ id, amount, kind })
+	return r.match(${ns}R${i}, { id, parent, amount, kind }).where(r.eq(parent, r.param("parent", Id)), r.ge(amount, 0n)).find({ id, amount, kind })
 }).attach("children", (p) => query(${ns}S).rule((r) => {
 	const { id } = v(${ns}R${child}, "r${child}")
 	return r.match(${ns}R${child}, { id, parent: p.id }).find({ id })
 }), "array")
 export const ${ns}byId${i} = query(${ns}S).rule((r) => {
 	const { amount, label } = v(${ns}R${i}, "r${i}")
-	return r.match(${ns}R${i}, { id: r.param("id", uuid), amount, label }).find({ amount, label })
+	return r.match(${ns}R${i}, { id: r.param("id", Id), amount, label }).find({ amount, label })
 })
 export const ${ns}byFilter${i} = query(${ns}S).rule((r) => {
 	const { id, label } = v(${ns}R${i}, "r${i}")
-	return r.match(${ns}R${i}, { id, label }).where(r.eq(id, r.param("id", uuid))).find({ label })
+	return r.match(${ns}R${i}, { id, label }).where(r.eq(id, r.param("id", Id))).find({ label })
 })
 export const ${ns}total${i} = query(${ns}S).rule((r) => {
 	const { id, kind, qty } = v(${ns}R${i}, "r${i}")
@@ -82,10 +82,10 @@ export const ${ns}w${i} = workload(${ns}Reader, {
 	top: ${ns}total${i}.orderBy(["kind", "asc"]).take(1)
 })
 export const ${ns}reads${i} = (db: DbOf<typeof ${ns}Reader, typeof ${ns}w${i}.programs>) => [
-	db.workload.byId.once({ params: { id: "00000000-0000-4000-8000-000000000001" }, facts: {} }),
-	db.workload.byFilter.once({ params: { id: "00000000-0000-4000-8000-000000000001" }, facts: {} }),
-	db.workload.key.once({ params: { id: "00000000-0000-4000-8000-000000000001" }, facts: {} }),
-	db.workload.byParent.once({ params: { parent: "00000000-0000-4000-8000-000000000002" }, facts: {} }),
+	db.workload.byId.once({ params: { id: Id("00000000-0000-4000-8000-000000000001") }, facts: {} }),
+	db.workload.byFilter.once({ params: { id: Id("00000000-0000-4000-8000-000000000001") }, facts: {} }),
+	db.workload.key.once({ params: { id: Id("00000000-0000-4000-8000-000000000001") }, facts: {} }),
+	db.workload.byParent.once({ params: { parent: Id("00000000-0000-4000-8000-000000000002") }, facts: {} }),
 	db.workload.arms.once({ params: {}, facts: {} }),
 	db.workload.top.once({ params: {}, facts: {} })
 ] as const

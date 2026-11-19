@@ -5,11 +5,12 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { edgesOf, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { type ConservativeProgram, conservativeInput } from "#compiler/lower/conservative/types.ts"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { assert } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 
 /**
@@ -25,7 +26,7 @@ const Level = closed.ordered("Level", ["Low", "Mid", "High"])
 const Vertex = relation(
 	"Vertex",
 	{
-		id: uuid,
+		id: Id,
 		label: str.regex("^v[0-9]+$"),
 		active: pg.boolean,
 		level: closedId(Level),
@@ -35,8 +36,8 @@ const Vertex = relation(
 	},
 	["id"]
 )
-const Edge = relation("Edge", { from: uuid, to: uuid, cost: pg.integer }, ["from", "to"])
-const Blocked = relation("Blocked", { id: uuid }, ["id"])
+const Edge = relation("Edge", { from: Id, to: Id, cost: pg.integer }, ["from", "to"])
+const Blocked = relation("Blocked", { id: Id }, ["id"])
 export const Graph = schema(
 	"Graph",
 	[Level, Vertex, Edge, Blocked],

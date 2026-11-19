@@ -24,7 +24,7 @@ import { regex as arkregex } from "arkregex"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { keyTextBytes } from "#compiler/public/text.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import {
@@ -42,6 +42,7 @@ import { textLookup } from "#compiler/text/refinement.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
+import { Id } from "#test/support/ids.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import {
 	armOf,
@@ -352,7 +353,7 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyWithAnUnboundedFieldOrAW
 					const names = Rec.keys(keyFields)
 					const R = s.primary
 						? relation("R", keyFields, names, [])
-						: relation("R", { id: uuid, ...keyFields }, ["id"], [])
+						: relation("R", { id: Id, ...keyFields }, ["id"], [])
 					const owned = ownValue(
 						schema("Keys", [Kind, R], s.primary ? [] : [keyBuilder(onBuilder(R, names))], [])
 					)

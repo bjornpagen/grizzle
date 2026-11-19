@@ -42,6 +42,7 @@ import type {
 	FieldBase,
 	GeneratedField,
 	HandleOf,
+	NamedIds,
 	StoredOnlySql,
 	WritingTag
 } from "#compiler/types/fields/field.ts"
@@ -184,7 +185,7 @@ const ordinaryRelation = <
 	const PrimaryKey extends readonly [KeyFieldOf<Fields>, ...KeyFieldOf<Fields>[]]
 >(
 	name: RelationName<Name>,
-	fields: Fields,
+	fields: Fields & NamedIds<Fields>,
 	primaryKey: PrimaryKey & DistinctFields<PrimaryKey>,
 	...extra: ReadonlyArray<never>
 ): Relation<Name, Fields, readonly [...PrimaryKey]> =>
@@ -231,7 +232,7 @@ const generated = <
 	const G extends Record<string, GeneratedField<FieldBase>>
 >(
 	name: RelationName<Name>,
-	written: Written,
+	written: Written & NamedIds<Written>,
 	primaryKey: PrimaryKey & DistinctFields<PrimaryKey>,
 	generate: (
 		row: GenerationRow<Relation<Name, Written, readonly [...PrimaryKey]>>
@@ -304,7 +305,7 @@ const closedRelation = <
 	const Rows extends ReadonlyArray<FactOfFields<Fields>>
 >(
 	name: RelationName<Name>,
-	fields: Fields & ClosedFieldsCheck<Fields>,
+	fields: Fields & ClosedFieldsCheck<Fields> & NamedIds<Fields>,
 	key: KeyFields & DistinctFields<KeyFields>,
 	rows: Rows & DistinctRows<Name, Rows, KeyFields>,
 	...extra: ReadonlyArray<never>

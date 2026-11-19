@@ -4,7 +4,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Order, Record as Rec, String as Str } from "effect"
 import type { LoadedChange } from "#adapter/served/load.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -12,18 +12,19 @@ import { oneForm } from "#compiler/runtime/lower/forms.ts"
 import type { FlightStatement, FlightWrite } from "#compiler/runtime/write/flight.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
 /** A sidecar's fields: a header's variable and its value, keyed by the header and the variable. */
 const sidecarFields = Object.freeze({
-	id: uuid,
+	id: Id,
 	variable: str.regex("^[a-z]{1,8}$"),
 	value: pg.integer
 })
 
 /** The box's relations: a header H; three sidecars S1, S2, S3 from the relation parameters p1, p2, p3; and G, the
  * values p1 or p2 names, from a union of one rule over each. */
-const H = relation("H", { id: uuid }, ["id"])
+const H = relation("H", { id: Id }, ["id"])
 export const S1 = relation("S1", sidecarFields, ["id", "variable"])
 export const S2 = relation("S2", sidecarFields, ["id", "variable"])
 export const S3 = relation("S3", sidecarFields, ["id", "variable"])

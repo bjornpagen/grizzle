@@ -24,7 +24,7 @@ const readers = {
 	],
 	"accumulated's type": ["accumulated(term, 0n)", "TS2741"],
 	"generated's type": [
-		'relation.generated("T", { id: uuid, n: pg.bigint }, ["id"], (r) => ({ g: generated(term, r.n) }))',
+		'relation.generated("T", { id: Id, n: pg.bigint }, ["id"], (r) => ({ g: generated(term, r.n) }))',
 		"TS2345"
 	],
 	"a contract's base": ['contract("C", term, (v) => Compute.gt(v, 0n))', "TS2345"],

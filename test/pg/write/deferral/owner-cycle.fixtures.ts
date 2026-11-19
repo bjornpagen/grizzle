@@ -2,7 +2,7 @@
 
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, pipe, Record as Rec, String as Str } from "effect"
-import { drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { check, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import {
@@ -18,6 +18,7 @@ import {
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
 import { defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
@@ -200,22 +201,22 @@ interface Built {
 export const buildOf = (spec: Spec): Built => {
 	const O = relation(
 		"O",
-		{ id: uuid, x: pg.bigint, flag: pg.boolean, n: drawnField(natural) },
+		{ id: Id, x: pg.bigint, flag: pg.boolean, n: drawnField(natural) },
 		["id"],
 		[]
 	)
 	const M = relation(
 		"M",
 		{
-			...(spec.bare ? {} : { id: uuid, flag: pg.boolean }),
-			o: uuid,
+			...(spec.bare ? {} : { id: Id, flag: pg.boolean }),
+			o: Id,
 			x: pg.bigint,
 			...(spec.family === "ordered" ? { at: drawnField(natural) } : {})
 		},
 		[spec.byOwner ? "o" : "id"],
 		[]
 	)
-	const R = relation("R", { id: uuid, o: uuid, x: pg.bigint }, ["id"], [])
+	const R = relation("R", { id: Id, o: Id, x: pg.bigint }, ["id"], [])
 	const slots = finBuilder(O, "n")
 	const family =
 		spec.family === "counted"

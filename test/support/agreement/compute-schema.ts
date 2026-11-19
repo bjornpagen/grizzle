@@ -1,8 +1,9 @@
 import { Compute } from "#compiler/public/compute.ts"
-import { bits, closedId, contract, Decimal, date, pg, span, uuid } from "#compiler/public/fields.ts"
+import { bits, closedId, contract, Decimal, date, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Id } from "#test/support/ids.ts"
 
 export const Tone = closed.ordered("Tone", ["low", "high"])
 const Shade = closed.ordered("Shade", ["low", "dark"])
@@ -26,7 +27,7 @@ const cellOver = (rate: typeof Rate) =>
 	relation(
 		"Cell",
 		{
-			id: uuid,
+			id: Id,
 			small: pg.smallint,
 			int: pg.integer,
 			big: pg.bigint,

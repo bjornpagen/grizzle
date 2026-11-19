@@ -30,7 +30,7 @@ import { noClock } from "#compiler/ir/clock.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import { ChangeSet as PublicChangeSet } from "#compiler/public/changeset.ts"
-import { pg, uuid, type Uuid, Vector } from "#compiler/public/fields.ts"
+import { pg, type Uuid, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
@@ -57,6 +57,7 @@ import {
 } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { Id } from "#test/support/ids.ts"
 import {
 	generatedTemplate,
 	type Installed,
@@ -75,13 +76,13 @@ import { codecOf } from "#test/unit/codec/support.ts"
 
 const Pair = pg.vector(2)
 
-export const A = relation("A", { id: uuid, value: Pair }, ["id"])
+export const A = relation("A", { id: Id, value: Pair }, ["id"])
 
-export const B = relation("B", { id: uuid, value: Pair }, ["id"])
+export const B = relation("B", { id: Id, value: Pair }, ["id"])
 
-export const Edge = relation("Edge", { id: uuid, from: Pair, to: Pair }, ["id"])
+export const Edge = relation("Edge", { id: Id, from: Pair, to: Pair }, ["id"])
 
-const Note = relation("Note", { id: uuid, value: Pair, rank: pg.bigint }, ["id"])
+const Note = relation("Note", { id: Id, value: Pair, rank: pg.bigint }, ["id"])
 
 const Pairs = schema("VectorPairs", [A, B, Edge, Note], [])
 

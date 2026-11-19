@@ -7,7 +7,7 @@ import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effec
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -32,6 +32,7 @@ import { printExpr } from "#compiler/sql/print.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { owning } from "#test/support/policy.ts"
 
 /** A text field over lowercase words, every literal of the world one. */
@@ -44,7 +45,7 @@ const U2 = "00000000-0000-4000-8000-000000000002"
 const Store = relation(
 	"Store",
 	{
-		id: uuid,
+		id: Id,
 		region: word,
 		label: word,
 		items: drawnField(natural),
@@ -53,13 +54,13 @@ const Store = relation(
 	["id"]
 )
 
-const Item = relation("Item", { id: uuid, store: uuid, region: word, qty: pg.bigint }, ["id"])
+const Item = relation("Item", { id: Id, store: Id, region: word, qty: pg.bigint }, ["id"])
 
-const Open = relation("Open", { store: uuid }, ["store"])
+const Open = relation("Open", { store: Id }, ["store"])
 
-const Shelf = relation("Shelf", { id: uuid, tag: word, slots: drawnField(natural) }, ["id"])
+const Shelf = relation("Shelf", { id: Id, tag: word, slots: drawnField(natural) }, ["id"])
 
-const Slot = relation("Slot", { shelf: uuid, at: drawnField(natural), what: word }, ["shelf", "at"])
+const Slot = relation("Slot", { shelf: Id, at: drawnField(natural), what: word }, ["shelf", "at"])
 
 const items = counted(on(Item, "store"), fin(Store, "items"))
 

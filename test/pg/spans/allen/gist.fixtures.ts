@@ -10,26 +10,27 @@ import type { FieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
-import { pg, span, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { pg, span, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { compileSpans } from "#test/pg/spans/allen/support.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { decodedQuery, type AuthoredExprDesc as ExprDesc } from "#test/support/fixtures/ir/desc.ts"
+import { Id } from "#test/support/ids.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { type ScriptInstall, filledScriptTemplate } from "#test/support/script-template.ts"
 import { volumeFill } from "#test/support/substrate/fill.ts"
 import { Substrate, type SubstrateCase, worldSession } from "#test/support/substrate/substrate.ts"
 
-const Booking = relation("Booking", { room: uuid, during: span(pg.bigint), guest: uuid }, [
+const Booking = relation("Booking", { room: Id, during: span(pg.bigint), guest: Id }, [
 	"room",
 	"during"
 ])
 
 const Visit = relation(
 	"Visit",
-	{ id: pg.integer, room: uuid, during: span(pg.bigint), note: pg.integer },
+	{ id: pg.integer, room: Id, during: span(pg.bigint), note: pg.integer },
 	["id"]
 )
 

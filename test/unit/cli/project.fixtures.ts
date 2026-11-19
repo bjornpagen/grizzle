@@ -66,7 +66,7 @@ import {
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
 import { closed, login, type Relation, role, schema } from "#compiler/public/schema.ts"
 import { installationsOf, ownLogin } from "#compiler/schema/own.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
@@ -83,6 +83,7 @@ import {
 } from "#test/pg/cli/support.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	draftCodes,
@@ -922,7 +923,7 @@ const fieldOf = (kind: FieldKind, roster: ReturnType<typeof rosterOf>): FieldBas
 		case "bool":
 			return pg.boolean
 		case "uuid":
-			return uuid
+			return Id
 		case "code":
 			return closedId(roster)
 	}
@@ -938,7 +939,7 @@ const builtOf = (spec: SchemaSpec) => {
 	const Kind = rosterOf(spec)
 	const relations: Record<string, ReturnType<typeof rosterOf> | ProjectRelation> = { Kind }
 	for (const r of spec.relations) {
-		const fields: Record<string, FieldBase> = { id: uuid }
+		const fields: Record<string, FieldBase> = { id: Id }
 		for (const f of r.fields) {
 			fields[f.name] = fieldOf(f.kind, Kind)
 		}

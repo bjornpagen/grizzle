@@ -18,7 +18,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { interpretRows } from "#compiler/runtime/write/outcome.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
@@ -26,6 +26,7 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
 import { outputText } from "#test/support/wire.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -74,7 +75,7 @@ export const anInsertionOnlyRelationsCountsAreItsRowsCountedUnderTheirInsertions
 		] satisfies ReadonlyArray<Reached<Situation>>,
 		check: (_, c: Case<Situation>) => (box) =>
 			Effect.sync(() => {
-				const Note = relation("Note", { id: uuid, n: pg.bigint, m: pg.bigint }, keys[box.key])
+				const Note = relation("Note", { id: Id, n: pg.bigint, m: pg.bigint }, keys[box.key])
 				const Notes = schema("Notes", [Note], [])
 				const value = ChangeSet.empty(Notes).insert(Note, [
 					{ id: "00000000-0000-7000-8000-000000000001", n: 1n, m: 1n }

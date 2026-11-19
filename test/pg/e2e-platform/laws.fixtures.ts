@@ -7,12 +7,13 @@ import { Array as Arr, Effect, Option, Order } from "effect"
 import { type LawId } from "#compiler/core/ids.ts"
 import { type CallError, type WriteOutcome } from "#compiler/live/index.ts"
 import { type Addition } from "#compiler/public/changeset.ts"
-import { type Uuid } from "#compiler/public/fields.ts"
+
 import { type Fact } from "#compiler/public/schema.ts"
 import { type PlatformDb, platformTemplate } from "#test/pg/e2e-platform/support.ts"
 import { defined } from "#test/support/assert.ts"
 import { type WriteAnswer, answered } from "#test/support/calls.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
+import { type IdValue } from "#test/support/ids.ts"
 import { installationNamesOf, installationOf, lawNamesOf } from "#test/support/kernel/naming.ts"
 import {
 	DAY,
@@ -191,7 +192,7 @@ const balances = (p: Platform) => {
 }
 
 /** A source of event ids no generated platform holds, each new: a family of their own, counted within one plant. */
-const eventIds = (): (() => Uuid) => {
+const eventIds = (): (() => IdValue) => {
 	let serial = 0
 	return () => {
 		serial += 1
@@ -206,10 +207,10 @@ const eventIds = (): (() => Uuid) => {
  */
 const recordAt = (
 	p: Platform,
-	key: Uuid,
+	key: IdValue,
 	t: bigint,
 	tokens: ReadonlyArray<{ readonly kind: TokenKind; readonly tokens: bigint }>,
-	next: () => Uuid
+	next: () => IdValue
 ): Option.Option<P.UsageRecord> => {
 	const view = viewOf(p.facts)
 	const lifted = { ...view, caps: new Map(Arr.map([...view.caps], ([k]) => [k, 10n ** 15n])) }
@@ -261,10 +262,10 @@ const activeAt = (p: Platform, key: string): ReadonlyArray<bigint> => {
  * workspace's cap that month and what it has spent of it.
  */
 interface Slot {
-	readonly key: Uuid
+	readonly key: IdValue
 	readonly t: bigint
-	readonly workspace: Uuid
-	readonly org: Uuid
+	readonly workspace: IdValue
+	readonly org: IdValue
 	readonly month: number
 	readonly cap: bigint
 	readonly spent: bigint
@@ -314,7 +315,7 @@ const firstSome = <A, B>(xs: ReadonlyArray<A>, f: (a: A) => Option.Option<B>): O
 const plantSpendWithinCap = (
 	p: Platform,
 	margin: bigint,
-	next: () => Uuid
+	next: () => IdValue
 ): Option.Option<Planted> =>
 	firstSome(
 		Arr.filter(slotsOf(p), (slot) => slot.cap > 0n && slot.spent === slot.cap),
@@ -335,7 +336,7 @@ const plantSpendWithinCap = (
 const plantRefundWithinInvoice = (
 	p: Platform,
 	margin: bigint,
-	next: () => Uuid
+	next: () => IdValue
 ): Option.Option<Planted> =>
 	Option.map(
 		Arr.findFirst(p.facts.Invoice, (i) => i.state === "paid"),
@@ -362,7 +363,7 @@ const recordWithinCap = (
 	p: Platform,
 	slot: Slot,
 	tokens: ReadonlyArray<{ readonly kind: TokenKind; readonly tokens: bigint }>,
-	next: () => Uuid
+	next: () => IdValue
 ): Option.Option<P.UsageRecord> =>
 	Option.filter(
 		recordAt(p, slot.key, slot.t, tokens, next),
@@ -370,7 +371,11 @@ const recordWithinCap = (
 	)
 
 /** The chargeExact fault: a usage record whose first charge is `margin` more than its pieces. */
-const plantChargeExact = (p: Platform, margin: bigint, next: () => Uuid): Option.Option<Planted> =>
+const plantChargeExact = (
+	p: Platform,
+	margin: bigint,
+	next: () => IdValue
+): Option.Option<Planted> =>
 	firstSome(slotsOf(p), (slot) =>
 		Option.flatMap(
 			recordWithinCap(p, slot, [{ kind: "input", tokens: 1000n + margin }], next),
@@ -401,7 +406,7 @@ const debitOf = (
 	slot: Slot,
 	g: Addition<typeof P.CreditGrant>,
 	rest: bigint,
-	next: () => Uuid
+	next: () => IdValue
 ): Option.Option<Planted> => {
 	const expired = g.valid.end <= slot.t
 	const valid = g.valid.start <= slot.t && slot.t + 1n <= g.valid.end
@@ -450,7 +455,7 @@ const plantDebit = (
 	fault: "debitWhileValid" | "grantWithinAmount",
 	p: Platform,
 	margin: bigint,
-	next: () => Uuid
+	next: () => IdValue
 ): Option.Option<Planted> => {
 	const { left } = balances(p)
 	return firstSome(slotsOf(p), (slot) =>
@@ -469,7 +474,7 @@ const plantDebit = (
 const plantUsageWhileActive = (
 	p: Platform,
 	margin: bigint,
-	next: () => Uuid
+	next: () => IdValue
 ): Option.Option<Planted> => {
 	const months = viewOf(p.facts).months
 	return firstSome(
@@ -509,7 +514,11 @@ const plantUsageWhileActive = (
 }
 
 /** The rateInForce fault: a card of the first card's model and kind overlapping it by `margin`. */
-const plantRateInForce = (p: Platform, margin: bigint, next: () => Uuid): Option.Option<Planted> =>
+const plantRateInForce = (
+	p: Platform,
+	margin: bigint,
+	next: () => IdValue
+): Option.Option<Planted> =>
 	Option.map(Arr.head(p.facts.RateCard), (card) => {
 		const at = card.during.start
 		const insert = (start: bigint, end: bigint): Attempt => {
@@ -540,7 +549,7 @@ const plantRateInForce = (p: Platform, margin: bigint, next: () => Uuid): Option
 const plantRefundOnlyPaid = (
 	p: Platform,
 	margin: bigint,
-	next: () => Uuid
+	next: () => IdValue
 ): Option.Option<Planted> =>
 	Option.map(
 		Option.all({
@@ -548,7 +557,7 @@ const plantRefundOnlyPaid = (
 			paid: Arr.findFirst(p.facts.Invoice, (i) => i.state === "paid")
 		}),
 		(at) => {
-			const refund = (invoice: Uuid): Fact<typeof P.Refund> => ({
+			const refund = (invoice: IdValue): Fact<typeof P.Refund> => ({
 				id: next(),
 				invoice,
 				amount: P.Micros(0n),
@@ -607,7 +616,7 @@ const plantAllocationCovered = (p: Platform, margin: bigint): Option.Option<Plan
 	)
 
 /** The paidWithoutPayment fault: an open invoice put paid without its payment, and paid with it. */
-const plantPaidWithoutPayment = (p: Platform, next: () => Uuid): Option.Option<Planted> =>
+const plantPaidWithoutPayment = (p: Platform, next: () => IdValue): Option.Option<Planted> =>
 	Option.map(
 		Arr.findFirst(p.facts.Invoice, (i) => i.state === "open"),
 		(open) => {
@@ -642,7 +651,7 @@ const plantPaidWithoutPayment = (p: Platform, next: () => Uuid): Option.Option<P
 const plantPricedOutsideCards = (
 	p: Platform,
 	margin: bigint,
-	next: () => Uuid
+	next: () => IdValue
 ): Option.Option<Planted> =>
 	firstSome(slotsOf(p), (slot) =>
 		Option.flatMap(recordWithinCap(p, slot, [{ kind: "input", tokens: 100n }], next), (record) =>
@@ -680,7 +689,7 @@ const plantPricedOutsideCards = (
 const plantCardRetiredUnderCharges = (
 	p: Platform,
 	margin: bigint,
-	next: () => Uuid
+	next: () => IdValue
 ): Option.Option<Planted> =>
 	firstSome(p.facts.UsageCharge, (charge) =>
 		Option.flatMap(

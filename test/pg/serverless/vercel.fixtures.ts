@@ -5,7 +5,7 @@ import { attachDatabasePool } from "@vercel/functions/db-connections"
 import type { Array as Arr } from "effect"
 import type { ConnectionPool } from "#adapter/types/layer.ts"
 import { noWorkload, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import {
 	login,
 	relation,
@@ -15,6 +15,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { defaultPool, loginTemplate } from "#test/pg/adapter/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { atDeclaredName, installationOf } from "#test/support/kernel/naming.ts"
 import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
@@ -24,7 +25,7 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  * layer of the login logs in as `<name>__worker`, the role the substrate creates for the schema.
  */
 export const shopUnder = (name: string) => {
-	const shop = schemaOf(name, [relation("Item", { id: uuid }, ["id"])], [])
+	const shop = schemaOf(name, [relation("Item", { id: Id }, ["id"])], [])
 	const app = role(shop, "app", wholeEntriesOf(shop))
 	/** The shop's snapshot.json, as an import of it yields: what its login's served file is compiled under. */
 	const first = succeeded(

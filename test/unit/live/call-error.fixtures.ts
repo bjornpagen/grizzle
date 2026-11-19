@@ -39,12 +39,13 @@ import type { CallError, CredentialReason, UnavailableCause } from "#compiler/li
 import type { MemberWire, RoleWitness, WireOptions } from "#compiler/live/shape.ts"
 import type { WireJson, WireScalar } from "#compiler/live/wire.ts"
 import { paramDomainsOf } from "#compiler/physical/ddl/domains.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 import { states } from "#test/unit/live/call-error.dictionary.ts"
 
@@ -136,7 +137,7 @@ const Tag = str.regex("^[a-z]{1,8}$", "u")
 /** The heading of joinedRead's relation parameter: one field, `code`, of Tag. */
 const Tagged = relation("Tagged", { code: Tag }, ["code"])
 /** The relation joinedRead matches. */
-const Note = relation("Note", { id: uuid }, ["id"])
+const Note = relation("Note", { id: Id }, ["id"])
 const Notes = schema("Notes", [Note, Tagged], [])
 
 /**

@@ -24,7 +24,7 @@ import { bigint } from "@bjornpagen/testing/values"
 import { regex as arkregex } from "arkregex"
 import { Array as Arr, Effect, Option, Record, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { own } from "#compiler/schema/own.ts"
@@ -62,6 +62,7 @@ import {
 	type SchemaDesc,
 	type AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { Id } from "#test/support/ids.ts"
 import {
 	Account,
 	answers,
@@ -296,8 +297,8 @@ export const conflictingDeclarationsRefusesANameClaimedTwiceWithConflictingMeani
 									: s.conflict === "a contract name over another base"
 										? rawContract(s.name, rawPg.integer, atLeast(s.n))
 										: rawContract(s.name, rawPg.bigint, atLeast(s.n + 1n))
-								const A = relation("A", { id: uuid, amount: first }, ["id"], [])
-								const B = relation("B", { id: uuid, amount: second }, ["id"], [])
+								const A = relation("A", { id: Id, amount: first }, ["id"], [])
+								const B = relation("B", { id: Id, amount: second }, ["id"], [])
 								return ownValue(schema("Pay", [A, B], [], []))
 							}
 							case "a relation name across levels":
@@ -306,7 +307,7 @@ export const conflictingDeclarationsRefusesANameClaimedTwiceWithConflictingMeani
 										schema.extend(
 											Work,
 											"Above",
-											[s.agree ? Task : relation("Task", { id: uuid }, ["id"], [])],
+											[s.agree ? Task : relation("Task", { id: Id }, ["id"], [])],
 											[],
 											[]
 										)
@@ -378,7 +379,7 @@ export const closedRelationsChecksEveryHandleWrittenAgainstAClosedIdFieldAtAnyCo
 							],
 							[]
 						)
-						const Rated = relation("Rated", { id: uuid, grade }, ["id"], [])
+						const Rated = relation("Rated", { id: Id, grade }, ["id"], [])
 						const valid = builtDescOf(schema("W", [Kind, Level, Graded, Rated, Task], [], []))
 						const build = (): unknown => {
 							switch (s.site) {
@@ -764,7 +765,7 @@ export const scopeAndStructureRefusesADescriptionNamingWhatNoLevelDeclaresOrBrea
 											query: definition(
 												queryOver(Work).rule((r: RuleValue) => {
 													const { id } = varsOver(Task, "task")
-													return r.match(Task, { id, account: r.param(s.field, uuid) }).find({ id })
+													return r.match(Task, { id, account: r.param(s.field, Id) }).find({ id })
 												})
 											)
 										}

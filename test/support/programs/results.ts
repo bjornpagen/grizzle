@@ -20,3 +20,4 @@ export {
 	schema,
 	uuid
 } from "#index.ts"
+export { Id } from "#test/support/ids.ts"

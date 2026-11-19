@@ -5,7 +5,7 @@ import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import { Array as Arr, Cause, DateTime, Effect, Equivalence, FileSystem, Option } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { refresh, workload } from "#compiler/public/workload.ts"
@@ -14,6 +14,7 @@ import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -44,7 +45,7 @@ export const memberName = "nightly"
 
 export const servedFilePath = `${schemaDir}/${servedPath(loginName)}`
 
-const Call = relation("Call", { id: uuid, workspace: uuid, cost: pg.bigint }, ["id"])
+const Call = relation("Call", { id: Id, workspace: Id, cost: pg.bigint }, ["id"])
 
 const base = schema(schemaName, [Call], [])
 

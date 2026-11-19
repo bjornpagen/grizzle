@@ -26,7 +26,7 @@ import { entriesFrom } from "#test/types/query/budget/generate.ts"
 const largestSkeletonSize = 200
 
 const relationDeclaration = (ns: string, i: number): string =>
-	`export const ${ns}R${i} = relation("R${i}", { id: uuid, parent: uuid, amount: ${ns}Cents, label: ${ns}Label, kind: closedId(${ns}Kind), qty: pg.integer }, ["id"])\n`
+	`export const ${ns}R${i} = relation("R${i}", { id: Id, parent: Id, amount: ${ns}Cents, label: ${ns}Label, kind: closedId(${ns}Kind), qty: pg.integer }, ["id"])\n`
 
 /** One relation's queries, ChangeSet and its once, under the prefix `ns`, in a schema of `relations` relations. */
 const relationBlock = (ns: string, i: number, relations: number): string => {
@@ -34,7 +34,7 @@ const relationBlock = (ns: string, i: number, relations: number): string => {
 	return `
 export const ${ns}byParent${i} = query(${ns}S).rule((r) => {
 	const { id, parent, amount, kind } = v(${ns}R${i}, "r${i}")
-	return r.match(${ns}R${i}, { id, parent, amount, kind }).where(r.eq(parent, r.param("parent", uuid)), r.ge(amount, 0n)).find({ id, amount, kind })
+	return r.match(${ns}R${i}, { id, parent, amount, kind }).where(r.eq(parent, r.param("parent", Id)), r.ge(amount, 0n)).find({ id, amount, kind })
 }).attach("children", (p) => query(${ns}S).rule((r) => {
 	const { id } = v(${ns}R${child}, "r${child}")
 	return r.match(${ns}R${child}, { id, parent: p.id }).find({ id })
@@ -44,14 +44,14 @@ export const ${ns}owned${i} = query(${ns}S).rule((r) => {
 	return r.match(${ns}R${i}, { id, parent, kind }).find({ id, parent, kind })
 })
 export const ${ns}change${i} = ChangeSet.empty(${ns}S)
-	.insert(${ns}R${i}, [{ id: "00000000-0000-4000-8000-000000000001", parent: "00000000-0000-4000-8000-000000000002", amount: ${ns}Cents(1n), label: "abc", kind: "A", qty: 1 }])
+	.insert(${ns}R${i}, [{ id: Id("00000000-0000-4000-8000-000000000001"), parent: Id("00000000-0000-4000-8000-000000000002"), amount: ${ns}Cents(1n), label: "abc", kind: "A", qty: 1 }])
 	.read("added", (d) => query(${ns}S).rule((r) => {
 		const { id } = v(d.added(${ns}R${i}), "addedR${i}")
 		return r.match(d.added(${ns}R${i}), { id }).find({ id })
 	}))
 export const ${ns}w${i} = workload(${ns}Writer, { change: ${ns}change${i} })
 export const ${ns}run${i} = (db: DbOf<typeof ${ns}Writer, typeof ${ns}w${i}.programs>) =>
-	db.workload.change.once({ params: {}, facts: { insert: { R${i}: [{ id: "00000000-0000-4000-8000-000000000003", parent: "00000000-0000-4000-8000-000000000002", amount: ${ns}Cents(2n), label: "abd", kind: "B", qty: 2 }] } } })
+	db.workload.change.once({ params: {}, facts: { insert: { R${i}: [{ id: Id("00000000-0000-4000-8000-000000000003"), parent: Id("00000000-0000-4000-8000-000000000002"), amount: ${ns}Cents(2n), label: "abd", kind: "B", qty: 2 }] } } })
 `
 }
 

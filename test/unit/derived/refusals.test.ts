@@ -27,12 +27,13 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { admitDerived } from "#compiler/schema/relation.ts"
 import { buildSchema } from "#test/pg/derived/oracle/gen.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import {
 	entries,
 	type LawFeature,
@@ -147,7 +148,7 @@ export const derivedRelationRefusalsRefuseALevelParameterOrContextAnUncheckedDes
 						const column = Arr.headNonEmpty(nonEmpty(base.columns, "a column")).name
 						const parameterized = queryOver(gen.value).rule((r: RuleValue) => {
 							const vars = varsOver(base.value, "base")
-							const p = r.param(`p${mutation.parameter}`, uuid)
+							const p = r.param(`p${mutation.parameter}`, Id)
 							return r
 								.match(base.value, { [column]: vars[column] })
 								.where(r.eq(p, p))

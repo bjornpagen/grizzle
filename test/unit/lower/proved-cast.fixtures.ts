@@ -10,10 +10,11 @@ import {
 	installOptions
 } from "#compiler/physical/install/compile.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { generated, uuid } from "#compiler/public/fields.ts"
+import { generated } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Id } from "#test/support/ids.ts"
 import { owning } from "#test/support/policy.ts"
 
 /** The stored text types an operand is drawn of: any text of a byte bound, and patterns with and without white space. */
@@ -64,8 +65,8 @@ const undeclared = str.bytes(4096, anyText)
 const schemaOf = (c: ProvedCastCase) => {
 	switch (c.site) {
 		case "containment": {
-			const Source = relation("Source", { lex: c.operand.text, node: uuid }, ["node"])
-			const Named = relation("Named", { id: uuid, t: c.operand.text }, ["id"])
+			const Source = relation("Source", { lex: c.operand.text, node: Id }, ["node"])
+			const Named = relation("Named", { id: Id, t: c.operand.text }, ["id"])
 			const base = schema("Base", [Source, Named], [])
 			const Image = derived(
 				"Image",
@@ -90,7 +91,7 @@ const schemaOf = (c: ProvedCastCase) => {
 			return schema(
 				"Cast",
 				[
-					relation.generated("Cast", { lex: c.operand.text, node: uuid }, ["node"], (row) => {
+					relation.generated("Cast", { lex: c.operand.text, node: Id }, ["node"], (row) => {
 						switch (c.map) {
 							case "collapse":
 								return {

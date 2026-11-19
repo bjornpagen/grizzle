@@ -10,7 +10,7 @@ export type { ReadError } from "#adapter/errors/execution.ts"
 export type { CallError, InputOf, KeyedList, KeyedSet } from "#compiler/live/index.ts"
 export { ALLEN } from "#compiler/public/allen.ts"
 export { Compute } from "#compiler/public/compute.ts"
-export { date, Decimal, Money, pg, uuid, Vector } from "#compiler/public/fields.ts"
+export { date, Decimal, Money, pg, Vector } from "#compiler/public/fields.ts"
 export type { CalendarDate, Span, Uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export { paged, workload } from "#compiler/public/workload.ts"
@@ -54,3 +54,4 @@ export {
 	Tones,
 	ToneWeight
 } from "#test/support/agreement/schema.ts"
+export { Id } from "#test/support/ids.ts"

@@ -5,7 +5,7 @@ import { Array as Arr, Record } from "effect"
 import { type CompareOp, type ComputeFn, computeFns } from "#compiler/ir/desc.ts"
 import type { NumericBound } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, pg, uuid } from "#compiler/public/fields.ts"
+import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -15,6 +15,7 @@ import { computeSpecs, type NativeFn, nativeOps } from "#compiler/scalar/compute
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { nonEmpty } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** Whether a lowered program counts by FILTER: a count(*) with a FILTER clause in any statement. */
 export const countsByFilter = (
@@ -35,7 +36,7 @@ export const countsByFilter = (
 	return filtered
 }
 
-const Line = relation("Line", { id: uuid, flag: pg.boolean, qty: pg.integer }, ["id"])
+const Line = relation("Line", { id: Id, flag: pg.boolean, qty: pg.integer }, ["id"])
 
 const Lines = schema("Lines", [Line], [])
 

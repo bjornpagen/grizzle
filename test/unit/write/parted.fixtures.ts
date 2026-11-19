@@ -5,7 +5,7 @@ import { Array as Arr, Effect, Order, Record as Rec } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -16,6 +16,7 @@ import { lexemesOf } from "#compiler/sql/lexer.ts"
 import { compileWrite, type CompiledWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
@@ -24,20 +25,17 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  * values, each from its own relation parameter p1, p2, p3; and G, the variables either of S1's and S2's parameters names,
  * from a union of two rules, one over each.
  */
-export const H = relation("H", { id: uuid }, ["id"])
+export const H = relation("H", { id: Id }, ["id"])
 /** A sidecar's fields: a header's variable and its value, keyed by the header and the variable. */
 const sidecarFields = Object.freeze({
-	id: uuid,
+	id: Id,
 	variable: str.regex("^[a-z]{1,8}$"),
 	value: pg.bigint
 })
 export const S1 = relation("S1", sidecarFields, ["id", "variable"])
 export const S2 = relation("S2", sidecarFields, ["id", "variable"])
 export const S3 = relation("S3", sidecarFields, ["id", "variable"])
-export const G = relation("G", { id: uuid, variable: str.regex("^[a-z]{1,8}$") }, [
-	"id",
-	"variable"
-])
+export const G = relation("G", { id: Id, variable: str.regex("^[a-z]{1,8}$") }, ["id", "variable"])
 const Parted = schema("parted", [H, S1, S2, S3, G], [])
 
 /** The box's schema compiled, whose names each statement's text spells its tables by. */

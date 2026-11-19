@@ -1,10 +1,11 @@
 import { ALLEN } from "#compiler/public/allen.ts"
-import { closedId, contract, pg, span, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
+import { Id } from "#test/support/ids.ts"
 
-const RoomOpen = relation("RoomOpen", { room: uuid, during: span(pg.bigint) }, ["room", "during"])
-export const Booking = relation("Booking", { room: uuid, during: span(pg.bigint), guest: uuid }, [
+const RoomOpen = relation("RoomOpen", { room: Id, during: span(pg.bigint) }, ["room", "during"])
+export const Booking = relation("Booking", { room: Id, during: span(pg.bigint), guest: Id }, [
 	"room",
 	"during"
 ])
@@ -54,7 +55,7 @@ export const ChicagoCalendar = relation(
 	["day"]
 )
 /** A fact that carries only an instant, bucketed into days by the calendar join. */
-const Visit = relation("Visit", { id: uuid, at: Instant }, ["id"])
+const Visit = relation("Visit", { id: Id, at: Instant }, ["id"])
 export const Calendars = schema(
 	"Calendars",
 	[Weekday, ChicagoCalendar, Visit],

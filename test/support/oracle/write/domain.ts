@@ -2,7 +2,7 @@ import { Array as Arr, Formatter, pipe, Record as Rec, String as Str } from "eff
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { closedId, Decimal, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { closedId, Decimal, pg } from "#compiler/public/fields.ts"
 import type { AnyRoster } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { type NumericTypmod, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
@@ -10,6 +10,7 @@ import { floatText } from "#compiler/scalar/values/float.ts"
 import type { CarrierSpec } from "#compiler/scalar/values/identity.ts"
 import type { ParamValue } from "#compiler/types/core/phantom.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { floatLiteralOf } from "#test/support/oracle/gen/domain.ts"
 import { toastLengths, toastPair, toastText } from "#test/support/oracle/gen/toast.ts"
 
@@ -74,8 +75,8 @@ const rosterCodes: RosterCodec = (() => {
 	)
 })()
 
-const uuidOf = (n: number): Uuid =>
-	`00000000-0000-4000-8000-${pipe((0x7700 + n).toString(16), Str.padStart(12, "0"))}`
+const uuidOf = (n: number): IdValue =>
+	Id(`00000000-0000-4000-8000-${pipe((0x7700 + n).toString(16), Str.padStart(12, "0"))}`)
 
 const decimal = (text: string): Decimal => Decimal.of(text)
 
@@ -273,7 +274,7 @@ export const fieldOf = (kind: TypeKind, roster: AnyRoster): FieldBase => {
 		case "text6":
 			return str.regex("^.{0,6}$", "su")
 		case "uuid":
-			return uuid
+			return Id
 		case "bool":
 			return pg.boolean
 		case "code":

@@ -1,5 +1,5 @@
 import { pipe, String as Str } from "effect"
-import { drawn, natural, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { drawn, natural, pg, type Uuid } from "#compiler/public/fields.ts"
 import {
 	check,
 	contained,
@@ -12,6 +12,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Id } from "#test/support/ids.ts"
 
 const label = str.regex("^[a-z]{1,8}$")
 
@@ -22,17 +23,17 @@ const label = str.regex("^[a-z]{1,8}$")
  * primary key (fin.md §6, "at most one"), a counted family whose count a row check bounds (§6, "count in [lo, hi]"),
  * and a pure set, all written by the clerk.
  */
-export const Item = relation("Item", { id: uuid, label, qty: pg.bigint }, ["id"])
-export const Stock = relation("Stock", { id: uuid, label, qty: pg.bigint }, ["id"])
+export const Item = relation("Item", { id: Id, label, qty: pg.bigint }, ["id"])
+export const Stock = relation("Stock", { id: Id, label, qty: pg.bigint }, ["id"])
 export const Seat = relation("Seat", { no: pg.bigint, label }, ["no"])
-const Code = relation("Code", { id: uuid, code: label }, ["id"])
-const Pair = relation("Pair", { a: uuid, b: label }, ["a", "b"])
+const Code = relation("Code", { id: Id, code: label }, ["id"])
+const Pair = relation("Pair", { a: Id, b: label }, ["a", "b"])
 const Counter = relation("Counter", { name: label, n: pg.bigint }, ["name"])
-const Line = relation("Line", { id: uuid, stock: uuid }, ["id"])
-const Worker = relation("Worker", { id: uuid }, ["id"])
-const Task = relation("Task", { id: uuid, worker: uuid }, ["id"])
-const Crew = relation("Crew", { id: uuid, hands: drawn(natural) }, ["id"])
-const Hand = relation("Hand", { id: uuid, crew: uuid, label }, ["id"])
+const Line = relation("Line", { id: Id, stock: Id }, ["id"])
+const Worker = relation("Worker", { id: Id }, ["id"])
+const Task = relation("Task", { id: Id, worker: Id }, ["id"])
+const Crew = relation("Crew", { id: Id, hands: drawn(natural) }, ["id"])
+const Hand = relation("Hand", { id: Id, crew: Id, label }, ["id"])
 
 export const Shop = schema(
 	"Shop",

@@ -13,8 +13,7 @@ import {
 	bytes,
 	drawn as drawnField,
 	generated,
-	natural,
-	uuid
+	natural
 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
@@ -24,6 +23,7 @@ import type { Lowered } from "#compiler/scalar/compute/lower.ts"
 import { CompilePatterns, ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import {
 	baseParams,
 	field,
@@ -179,7 +179,7 @@ const noDigest = Str.repeat(64)("0")
 
 export const Entry = relation.generated(
 	"Entry",
-	{ id: uuid, content: bytes, pages: drawnField(natural) },
+	{ id: Id, content: bytes, pages: drawnField(natural) },
 	["id"],
 	(row) => ({
 		digest: generated(Digest, Compute.sha256(row.content)),
@@ -189,7 +189,7 @@ export const Entry = relation.generated(
 
 const Page = relation(
 	"Page",
-	{ id: uuid, entry: uuid, at: drawnField(natural), entryDigest: accumulated(Digest, noDigest) },
+	{ id: Id, entry: Id, at: drawnField(natural), entryDigest: accumulated(Digest, noDigest) },
 	["id"]
 )
 

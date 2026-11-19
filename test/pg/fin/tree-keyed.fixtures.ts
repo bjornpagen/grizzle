@@ -10,7 +10,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -34,6 +34,7 @@ import {
 	numbered,
 	treeOfParents
 } from "#test/support/families/tree.ts"
+import { Id } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
@@ -122,7 +123,7 @@ export const TwoRoots = schema(
 const Three = relation(
 	"Node",
 	{
-		a: uuid,
+		a: Id,
 		b: RootText,
 		c: pg.integer,
 		parent: drawnField(natural),

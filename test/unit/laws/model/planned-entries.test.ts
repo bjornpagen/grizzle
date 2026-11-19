@@ -28,7 +28,7 @@ import type { KeyFault } from "#compiler/core/causes.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
@@ -36,6 +36,7 @@ import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { containedBuilder, onBuilder } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
 	descriptorOf,
@@ -82,7 +83,7 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesOrTheFirstThatOutgrow
 				const A = relation(
 					"A",
 					{
-						id: uuid,
+						id: Id,
 						...Rec.fromEntries(Arr.map(s.target.order, (p) => [`s${p}`, descriptorAt(p)]))
 					},
 					["id"],

@@ -5,7 +5,7 @@ import { Array as Arr } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { type AnyLogin, login, relation, schema } from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
@@ -14,6 +14,7 @@ import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { owning } from "#test/support/policy.ts"
 
 /**
@@ -33,9 +34,9 @@ import { owning } from "#test/support/policy.ts"
  */
 const Shelf = relation("Shelf", { id: pg.integer }, ["id"])
 
-const Note = relation("Note", { id: uuid, shelf: pg.integer }, ["id"])
+const Note = relation("Note", { id: Id, shelf: pg.integer }, ["id"])
 
-const Card = relation("Card", { id: uuid, shelf: pg.integer }, ["id"])
+const Card = relation("Card", { id: Id, shelf: pg.integer }, ["id"])
 
 const Library = schema("Library", [Shelf, Note, Card], [])
 

@@ -4,16 +4,17 @@ import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import type { PgMember } from "@bjornpagen/testing/pg"
 import { Array as Arr, Predicate, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { pg, type Uuid, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { generatedTemplate } from "#test/support/install-migrate.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 import type { SubmoduleConsumer } from "#test/unit/dev/consumer.ts"
 
-export const Note = relation("Note", { id: uuid, n: pg.integer }, ["id"])
+export const Note = relation("Note", { id: Id, n: pg.integer }, ["id"])
 
 export const declared = (name: string) => schema(name, [Note], [])
 
@@ -114,8 +115,8 @@ export const roundsGen: Gen<ReadonlyArray<ReadonlyArray<number>>> = array(number
 })
 
 /** The uuid of the `i`th note written. */
-export const noteId = (i: number): Uuid =>
-	`00000000-0000-4000-8000-${Str.padStart(12, "0")(String(i))}`
+export const noteId = (i: number): IdValue =>
+	Id(`00000000-0000-4000-8000-${Str.padStart(12, "0")(String(i))}`)
 
 export type ConsumerFeature = "one note" | "several notes" | "a read after an earlier write"
 
@@ -152,9 +153,9 @@ export const consumerConfig = (member: PgMember): string => `import { readFileSy
 import net from "node:net"
 import { Effect, Redacted } from "effect"
 import pgDriver from "pg"
-import { defineConfig, pg, relation, schema, uuid } from "@bjornpagen/grizzle"
+import { contract, defineConfig, pg, relation, schema, uuid } from "@bjornpagen/grizzle"
 
-const Note = relation("Note", { id: uuid, n: pg.integer }, ["id"])
+const Note = relation("Note", { id: contract("Id", uuid), n: pg.integer }, ["id"])
 const Consumer = schema("Consumer", [Note], [])
 
 export default defineConfig({

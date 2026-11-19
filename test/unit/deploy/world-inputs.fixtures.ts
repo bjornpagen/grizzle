@@ -10,11 +10,12 @@ import { draftCodebook, noPreviousRosters } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { generated, pg, uuid } from "#compiler/public/fields.ts"
+import { generated, pg } from "#compiler/public/fields.ts"
 import { contained, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { installationsOf, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
 
@@ -38,8 +39,8 @@ export const turnGen: Gen<Turn> = (s) => ({
  * id where the version holds the foreign key, and its generated `g` its `n` where it exceeds `step`, 0 elsewhere; the reader reads Item, or
  * Item and List, whole. */
 const installationOf = (turn: Turn, keyed: boolean, step: bigint): Installation => {
-	const List = relation("List", { id: uuid }, ["id"])
-	const Item = relation.generated("Item", { id: uuid, list: uuid, n: pg.bigint }, ["id"], (r) => ({
+	const List = relation("List", { id: Id }, ["id"])
+	const Item = relation.generated("Item", { id: Id, list: Id, n: pg.bigint }, ["id"], (r) => ({
 		g: generated(pg.bigint, Compute.cond(Compute.gt(r.n, step), r.n, 0n))
 	}))
 	const base = schema(

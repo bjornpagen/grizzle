@@ -13,8 +13,7 @@ import {
 	generated,
 	natural,
 	pg,
-	retirement,
-	uuid
+	retirement
 } from "#compiler/public/fields.ts"
 import { type AnyRelation, relation } from "#compiler/public/schema.ts"
 import { type lexicalForm, str } from "#compiler/public/text.ts"
@@ -24,6 +23,7 @@ import { decimalTextMaxBytes, formSource, type LexicalTarget } from "#compiler/s
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import {
 	type Candidate,
 	candidateOf,
@@ -86,7 +86,7 @@ export const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Pa
 	[
 		{ kind: "integer", carrier: "int2" },
 		(pattern, route) =>
-			relation.generated("R", { id: uuid, t: typedText(pattern, route) }, ["id"], (r) => ({
+			relation.generated("R", { id: Id, t: typedText(pattern, route) }, ["id"], (r) => ({
 				n: generated(
 					pg.smallint,
 					route === "type"
@@ -102,7 +102,7 @@ export const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Pa
 	[
 		{ kind: "decimal", typmod: { precision: 3, scale: 1 } },
 		(pattern, route) =>
-			relation.generated("R", { id: uuid, t: typedText(pattern, route) }, ["id"], (r) => ({
+			relation.generated("R", { id: Id, t: typedText(pattern, route) }, ["id"], (r) => ({
 				n: generated(
 					pg.numeric(3, 1),
 					route === "type"
@@ -118,7 +118,7 @@ export const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Pa
 	[
 		{ kind: "doubleText" },
 		(pattern, route) =>
-			relation.generated("R", { id: uuid, t: typedText(pattern, route) }, ["id"], (r) => ({
+			relation.generated("R", { id: Id, t: typedText(pattern, route) }, ["id"], (r) => ({
 				n: generated(
 					pg["double precision"],
 					route === "type"
@@ -134,7 +134,7 @@ export const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Pa
 	[
 		{ kind: "boolean" },
 		(pattern, route) =>
-			relation.generated("R", { id: uuid, t: typedText(pattern, route) }, ["id"], (r) => ({
+			relation.generated("R", { id: Id, t: typedText(pattern, route) }, ["id"], (r) => ({
 				n: generated(
 					pg.boolean,
 					route === "type"
@@ -185,11 +185,11 @@ export const decimalRelation = (
 	if (route === "type") {
 		const typed = regexField<string>(pattern, [])
 		const t = bound.kind === "none" ? typed : str.bytes(bound.bytes, typed)
-		return relation.generated("R", { id: uuid, t }, ["id"], (r) => ({
+		return relation.generated("R", { id: Id, t }, ["id"], (r) => ({
 			n: generatedField(pg.boolean, parsedSign(r.t), [])
 		}))
 	}
-	return relation.generated("R", { id: uuid, t: typedText(pattern, route) }, ["id"], (r) => ({
+	return relation.generated("R", { id: Id, t: typedText(pattern, route) }, ["id"], (r) => ({
 		n: generatedField(
 			pg.boolean,
 			computeCore.when(

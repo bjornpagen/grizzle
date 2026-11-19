@@ -19,3 +19,4 @@ export type {
 export type { Infer } from "#compiler/types/fields/field.ts"
 export type { Aggregate } from "#compiler/types/query/terms.ts"
 export { Cell, Cells, Heads, Hue, Tone, Tuning } from "#test/support/agreement/compute-schema.ts"
+export { Id } from "#test/support/ids.ts"

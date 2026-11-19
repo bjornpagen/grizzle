@@ -7,8 +7,7 @@ import {
 	drawn,
 	generated,
 	natural,
-	pg,
-	uuid
+	pg
 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -29,6 +28,7 @@ import {
 	writableNamesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * The schemas the ChangeSet type/engine agreement draws its cases over (test/support/agreement/changesets.ts): Work,
@@ -41,10 +41,10 @@ import { str } from "#compiler/public/text.ts"
  */
 export const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n))
 export const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
-export const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"])
-export const Budget = relation("Budget", { task: uuid, cents: Cents }, ["task"])
-export const Ticket = relation("Ticket", { id: pg.bigint, account: uuid, amount: Cents }, ["id"])
-export const Pair = relation("Pair", { a: pg.bigint, b: pg.integer, note: uuid }, ["a"])
+export const Task = relation("Task", { id: Id, account: Id, kind: closedId(Kind) }, ["id"])
+export const Budget = relation("Budget", { task: Id, cents: Cents }, ["task"])
+export const Ticket = relation("Ticket", { id: pg.bigint, account: Id, amount: Cents }, ["id"])
+export const Pair = relation("Pair", { a: pg.bigint, b: pg.integer, note: Id }, ["a"])
 export const Ledger = relation("Ledger", { id: pg.bigint, balance: pg.bigint, fee: pg.money }, [
 	"id"
 ])
@@ -53,7 +53,7 @@ export const Flag = closed.ordered("Flag", ["on", "off"])
 export const Tag = relation(
 	"Tag",
 	{
-		id: uuid,
+		id: Id,
 		kind: closedId(Kind),
 		flags: bits(Flag),
 		answer: str.regex("^(yes|no)$"),
@@ -63,17 +63,17 @@ export const Tag = relation(
 )
 
 /** An ordered family's owner: its drawn count, and the total its members' quantities sum into. */
-const ownerFields = { id: uuid, n: drawn(natural), total: accumulated(pg.bigint, 0n) } as const
+const ownerFields = { id: Id, n: drawn(natural), total: accumulated(pg.bigint, 0n) } as const
 /** An ordered family's member, keyed by its owner and its drawn index, with its sum's accumulator pair. */
 const sequenceFields = {
-	owner: uuid,
+	owner: Id,
 	at: drawn(natural),
 	qty: pg.bigint,
 	before: accumulated(pg.bigint, 0n),
 	after: accumulated(pg.bigint, 0n)
 } as const
 /** A counted family's owner: its drawn count, and the size its count folds into. */
-const poolFields = { id: uuid, k: drawn(natural), size: accumulated(natural, 0n) } as const
+const poolFields = { id: Id, k: drawn(natural), size: accumulated(natural, 0n) } as const
 
 /** Ordered families over an immutable owner, Order, and a mutable one, Cart. */
 export const Order = relation("Order", ownerFields, ["id"])
@@ -91,7 +91,7 @@ export const Pool = relation("Pool", poolFields, ["id"])
 export const Bin = relation("Bin", poolFields, ["id"])
 export const Item = relation.generated(
 	"Item",
-	{ owner: uuid, v: pg.bigint },
+	{ owner: Id, v: pg.bigint },
 	["owner", "v"],
 	(r) => ({
 		next: generated(
@@ -106,7 +106,7 @@ export const Item = relation.generated(
 )
 export const Chip = relation.generated(
 	"Chip",
-	{ owner: uuid, v: pg.bigint },
+	{ owner: Id, v: pg.bigint },
 	["owner", "v"],
 	(r) => ({
 		next: generated(
@@ -127,11 +127,9 @@ const chips = counted(on(Chip, "owner"), fin(Bin, "k"))
  * pages in order. A put or a delete of a Book is refused by the types and the engine alike: its pages are nested under
  * its rows, which a member's edit does not reach.
  */
-const Shelf = relation("Shelf", { id: uuid, books: drawn(natural) }, ["id"])
-export const Book = relation("Book", { id: uuid, shelf: uuid, pages: drawn(natural) }, ["id"])
-const Page = relation("Page", { id: uuid, book: uuid, at: drawn(natural), words: pg.bigint }, [
-	"id"
-])
+const Shelf = relation("Shelf", { id: Id, books: drawn(natural) }, ["id"])
+export const Book = relation("Book", { id: Id, shelf: Id, pages: drawn(natural) }, ["id"])
+const Page = relation("Page", { id: Id, book: Id, at: drawn(natural), words: pg.bigint }, ["id"])
 const books = counted(on(Book, "shelf"), fin(Shelf, "books"))
 const pages = ordered(on(Page, "book", "at"), fin(Book, "pages"))
 
@@ -142,7 +140,7 @@ const pages = ordered(on(Page, "book", "at"), fin(Book, "pages"))
 export const Node = relation(
 	"Node",
 	{
-		doc: uuid,
+		doc: Id,
 		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),
@@ -210,7 +208,7 @@ export const TaskCount = derived.materialized(
 	})
 )
 export const Reports = schema.extend(Work, "Reports", [TaskCount], [])
-const Note = relation("Note", { id: uuid }, ["id"])
+const Note = relation("Note", { id: Id }, ["id"])
 export const Other = schema("Other", [Note], [])
 export const Twin = schema("Work", [Kind, Task], [])
 

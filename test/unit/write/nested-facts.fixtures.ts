@@ -2,7 +2,7 @@
 
 import { array, boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record } from "effect"
-import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import {
 	fin,
 	fold,
@@ -15,20 +15,18 @@ import {
 } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { dictionaryNameGenOtherThan } from "#test/support/kernel/dict.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** Owner(id, n drawn, total accumulated): the owner of the ordered family of Item. */
 export const Owner = relation(
 	"Owner",
-	{ id: uuid, n: drawnField(natural), total: accumulated(pg.bigint, 0n) },
+	{ id: Id, n: drawnField(natural), total: accumulated(pg.bigint, 0n) },
 	["id"]
 )
 
-const Item = relation("Item", { owner: uuid, at: drawnField(natural), x: pg.bigint }, [
-	"owner",
-	"at"
-])
+const Item = relation("Item", { owner: Id, at: drawnField(natural), x: pg.bigint }, ["owner", "at"])
 
 const items = ordered(on(Item, "owner", "at"), fin(Owner, "n"))
 

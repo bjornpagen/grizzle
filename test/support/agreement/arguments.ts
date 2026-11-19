@@ -3,12 +3,13 @@ import { readParams } from "#adapter/reader/params.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { Agree, Cell } from "#test/support/agreement/schema.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { type PreludeAt, preludeModule } from "#test/support/prelude.ts"
 import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
 
@@ -56,7 +57,7 @@ const valuesOf = (
 		case "uuid":
 			return {
 				valid: {
-					text: '"00000000-0000-4000-8000-000000000001"',
+					text: 'Id("00000000-0000-4000-8000-000000000001")',
 					value: "00000000-0000-4000-8000-000000000001"
 				},
 				wrong: { text: '"x"', value: "x" }
@@ -66,7 +67,7 @@ const valuesOf = (
 		case "relation":
 			return {
 				valid: {
-					text: '[{ id: "00000000-0000-4000-8000-000000000001" }]',
+					text: '[{ id: Id("00000000-0000-4000-8000-000000000001") }]',
 					value: [{ id: "00000000-0000-4000-8000-000000000001" }]
 				},
 				wrong: { text: "[{ id: 1 }]", value: [{ id: 1 }] }
@@ -106,10 +107,10 @@ const queryOf = (shape: Shape): { readonly source: string; readonly value: () =>
 		case "relation":
 			return {
 				source:
-					'query(Agree).rule((r) => { const p = r.relation("p", { id: uuid }); const { id } = v(Cell, "cell"); return r.match(p, { id }).match(Cell, { id }).find({ id }) })',
+					'query(Agree).rule((r) => { const p = r.relation("p", { id: Id }); const { id } = v(Cell, "cell"); return r.match(p, { id }).match(Cell, { id }).find({ id }) })',
 				value: () =>
 					queryOver(Agree).rule((r: RuleValue) => {
-						const p = r.relation("p", { id: uuid })
+						const p = r.relation("p", { id: Id })
 						const cell = varsOver(Cell, "cell")
 						return r
 							.match(p, { id: cell["id"] })

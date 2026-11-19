@@ -1,11 +1,12 @@
 /** What the properties of guarded-span.test.ts read: its spaces, models and helpers. */
 
 import { boolean, type Gen, shuffled } from "@bjornpagen/testing/gen"
-import { pg, span, uuid } from "#compiler/public/fields.ts"
+import { pg, span } from "#compiler/public/fields.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { keyBuilder, onBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import type { rowHelpers, RowTerm } from "#compiler/schema/terms.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** A span key of T: over every fact or a selection of them, and the scalars it compares beside its span, in order. */
 interface SpanKey {
@@ -24,7 +25,7 @@ type TRow = { readonly kind: RowTerm } & typeof rowHelpers
 export const schemaOf = (k: SpanKey) => {
 	const T = relation(
 		"T",
-		{ id: uuid, kind: pg.integer, a: uuid, b: pg.integer, during: span(pg.bigint) },
+		{ id: Id, kind: pg.integer, a: Id, b: pg.integer, during: span(pg.bigint) },
 		["id"],
 		[]
 	)

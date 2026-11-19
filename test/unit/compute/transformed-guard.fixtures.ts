@@ -22,7 +22,7 @@ import { Array as Arr, Formatter, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { decimalText, doubleText, lexicalForm, str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -34,6 +34,7 @@ import { analyzeText } from "#compiler/text/refinement.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { asDrafted, compile } from "#test/support/migrate/kit.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { patternOver } from "#test/unit/text/generators.ts"
@@ -229,7 +230,7 @@ const transformed = (t: Transform, text: unknown): unknown => {
 
 /** A case's relation: its generated field, the guarded operation over T(t), the otherwise a value of its type. */
 export const relationOf = (c: Case) =>
-	relation.generated("R", { id: uuid, t: AnyText }, ["id"], (r) => {
+	relation.generated("R", { id: Id, t: AnyText }, ["id"], (r) => {
 		const subject = transformed(c.transform, r.t)
 		const guarded = <F extends FieldBase>(
 			type: F,
@@ -1031,7 +1032,7 @@ export const installsStored = (
 	Operand: RegexText<string>,
 	Target: RegexText<string>
 ): void => {
-	const Stored = relation.generated("R", { id: uuid, t: Operand }, ["id"], (r) => ({
+	const Stored = relation.generated("R", { id: Id, t: Operand }, ["id"], (r) => ({
 		n: generatedField(Target, chained(steps, r.t), [])
 	}))
 	const Installed = schema("Stored", [Stored], [])

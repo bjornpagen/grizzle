@@ -18,7 +18,7 @@ import { derivedKeyLayout } from "#compiler/analysis/derived/keys.ts"
 import type { DerivedRefusal, KeyFault } from "#compiler/core/causes.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
-import { natural, pg, uuid } from "#compiler/public/fields.ts"
+import { natural, pg } from "#compiler/public/fields.ts"
 import { key, on, type Relation, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -29,6 +29,7 @@ import {
 import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { nonEmptyArgumentsOf } from "#test/support/list.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { descOf, regex, wildcard } from "#test/unit/schema/support.ts"
@@ -192,7 +193,7 @@ const joinBase = (relations: Arr.NonEmptyReadonlyArray<JoinRelation>) => {
 	const keyed = Arr.map(relations, (r, i) => {
 		const value: JoinRelationValue = relationBuilder(
 			`R${i}`,
-			Rec.fromEntries(Arr.map(indices(r.width), (f) => [fieldName(f), uuid] as const)),
+			Rec.fromEntries(Arr.map(indices(r.width), (f) => [fieldName(f), Id] as const)),
 			nonEmpty(Arr.map(bitsOf(r.keys[0], r.width), fieldName), "a primary key"),
 			[]
 		)
@@ -1119,7 +1120,7 @@ export const pastFirstColumnCaseGen: Gen<StorableCase> = (source) => {
 const storedField = (t: StoredType): FieldBase => {
 	switch (t.kind) {
 		case "uuid":
-			return uuid
+			return Id
 		case "integer":
 			return pg.integer
 		case "text":
@@ -1140,7 +1141,7 @@ export const storableOf = (c: StorableCase) => {
 	const Org: JoinRelationValue = relation(
 		"Org",
 		{
-			id: uuid,
+			id: Id,
 			...Rec.fromEntries(Arr.map(c.stored, (t, i) => [columnName(i + 1), storedField(t)] as const))
 		},
 		["id"]
@@ -1149,7 +1150,7 @@ export const storableOf = (c: StorableCase) => {
 	const Wide: JoinRelationValue = relation(
 		"Wide",
 		{
-			id: uuid,
+			id: Id,
 			...Rec.fromEntries(Arr.map(indices(width), (i) => [wideName(i), pg.integer] as const))
 		},
 		["id"]
@@ -1289,7 +1290,7 @@ const keyed = (
 export const storableModel = (c: StorableCase): Expected => {
 	const column = (i: number): ModelColumn => ({
 		name: columnName(i),
-		desc: i === 0 ? descOf(uuid) : descOf(storedField(storedAt(c, i)))
+		desc: i === 0 ? descOf(Id) : descOf(storedField(storedAt(c, i)))
 	})
 	const count = descOf(natural)
 	const shape = c.shape
@@ -1363,7 +1364,7 @@ export type StorableFeature =
 	| "one fact keyed past its first column"
 
 /** A relation keyed by its id, with another field beside it, which a view names under several names. */
-export const Keyed = relation("Keyed", { id: uuid, other: uuid }, ["id"])
+export const Keyed = relation("Keyed", { id: Id, other: Id }, ["id"])
 
 export const keyedBase = schema("Named", [Keyed], [])
 

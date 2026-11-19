@@ -17,9 +17,10 @@ import type { PageCall } from "#adapter/page/execute.ts"
 import { windowCall } from "#adapter/page/window.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { relation, schema } from "#compiler/public/schema.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * The public boundary: every value a JavaScript caller can hand a paged member's input or a schema door is parsed once,
@@ -290,7 +291,7 @@ export const windowFeatures: Arr.NonEmptyReadonlyArray<WindowFeature> = [
 ]
 
 /** A built schema, the one value a schema door admits. */
-const Item = relation("Item", { id: uuid }, ["id"])
+const Item = relation("Item", { id: Id }, ["id"])
 
 export const Shop = schema("BoundaryShop", [Item], [])
 

@@ -5,7 +5,7 @@ import { Array as Arr, Formatter } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { libraryCreate } from "#compiler/physical/ddl/library.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
@@ -14,6 +14,7 @@ import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.
 import { generatedField } from "#compiler/schema/relation.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { baseParams, lowerWith, plainRender, renderSql } from "#test/unit/compute/support.ts"
 import { textColumn } from "#test/unit/compute/text.fixtures.ts"
 import { referenceCaseGen, rfcExamples, type UriFeature } from "#test/unit/text/uri.fixtures.ts"
@@ -81,7 +82,7 @@ const text = str.regex("^.*$", "su")
 /** Links: a base, an href, and the generated target of the href resolved against the base. */
 export const Links = relation.generated(
 	"Links",
-	{ id: uuid, n: pg.integer, base: text, href: text },
+	{ id: Id, n: pg.integer, base: text, href: text },
 	["id"],
 	(r) => ({ target: generatedField(text, Compute.resolveReference(r.base, r.href), []) })
 )

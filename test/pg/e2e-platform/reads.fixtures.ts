@@ -7,11 +7,12 @@ import { fullSwarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import type { Anchor, CallError, Window } from "#compiler/live/index.ts"
-import type { Uuid } from "#compiler/scalar/values/uuid.ts"
+
 import { type PlatformDb, platformTemplate } from "#test/pg/e2e-platform/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
+import { type IdValue } from "#test/support/ids.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 import {
 	billedSketchGen,
@@ -98,7 +99,7 @@ export const monthOf = (p: Platform, pick: number) =>
 		pick
 	)
 
-export const ids = (rows: ReadonlyArray<{ readonly id: Uuid }>) => Arr.map(rows, (r) => r.id)
+export const ids = (rows: ReadonlyArray<{ readonly id: IdValue }>) => Arr.map(rows, (r) => r.id)
 
 /** The window of a paged member's every row: from its start, as many rows as a window takes. */
 export const everyRow: Window = { anchor: { kind: "start" }, size: Number.MAX_SAFE_INTEGER }
@@ -427,7 +428,7 @@ export const checkArms = (readName: string, rows: ReadonlyArray<unknown>): void 
  */
 export const pagedInvoices = (
 	db: PlatformDb,
-	org: Uuid,
+	org: IdValue,
 	size: number,
 	windows: number,
 	refused: () => void

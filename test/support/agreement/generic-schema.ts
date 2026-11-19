@@ -1,5 +1,6 @@
-import { accumulated, closedId, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, closedId, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * The relations the generic-source agreement's helpers are generic over (test/support/agreement/generic-sources.ts),
@@ -12,24 +13,24 @@ export const Kind = closed.ordered("Kind", ["a", "b"])
 export const Other = closed.ordered("Other", ["x", "y"])
 
 /** The members' one heading: a key, a reference, a closed id and a number. */
-const heading = { id: uuid, owner: uuid, kind: closedId(Kind), n: pg.integer } as const
+const heading = { id: Id, owner: Id, kind: closedId(Kind), n: pg.integer } as const
 
 export const A = relation("A", heading, ["id"])
 export const B = relation("B", heading, ["id"])
-export const W = relation("W", { ...heading, extra: uuid }, ["id"])
+export const W = relation("W", { ...heading, extra: Id }, ["id"])
 export const MOwner = relation("MOwner", { ...heading, owner: pg.integer }, ["id"])
 export const MKind = relation("MKind", { ...heading, kind: closedId(Other) }, ["id"])
 export const MN = relation("MN", { ...heading, n: pg.bigint }, ["id"])
 
 /** The indexed members' one heading: a reference to an owner and a drawn index. */
-const indexedHeading = { id: uuid, owner: uuid, at: drawn(natural) } as const
+const indexedHeading = { id: Id, owner: Id, at: drawn(natural) } as const
 
 export const IA = relation("IA", indexedHeading, ["id"])
 export const IB = relation("IB", indexedHeading, ["id"])
 export const IM = relation("IM", { ...indexedHeading, at: pg.integer }, ["id"])
 
 /** The owners' one heading: a key and the count a family draws. */
-const slotsHeading = { id: uuid, k: drawn(natural) } as const
+const slotsHeading = { id: Id, k: drawn(natural) } as const
 
 export const Slots = relation("Slots", slotsHeading, ["id"])
 export const Slots2 = relation("Slots2", slotsHeading, ["id"])
@@ -38,17 +39,17 @@ export const SlotsM = relation("SlotsM", { ...slotsHeading, k: pg.integer }, ["i
 /** An owner whose count fold folds its family's count into `size`. */
 export const Folded = relation(
 	"Folded",
-	{ id: uuid, k: drawn(natural), size: accumulated(natural, 0n) },
+	{ id: Id, k: drawn(natural), size: accumulated(natural, 0n) },
 	["id"]
 )
 
 /** A relation a reference is contained in, and an arm keyed as the members are. */
-export const Target = relation("Target", { id: uuid }, ["id"])
-export const Arm = relation("Arm", { id: uuid }, ["id"])
+export const Target = relation("Target", { id: Id }, ["id"])
+export const Arm = relation("Arm", { id: Id }, ["id"])
 
 /** The trees' one heading: a tree's root field, its drawn parent, index, count and interval. */
 const treeHeading = {
-	doc: uuid,
+	doc: Id,
 	parent: drawn(natural),
 	at: drawn(natural),
 	children: drawn(natural),

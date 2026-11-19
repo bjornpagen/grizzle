@@ -38,7 +38,7 @@ import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import type { ChangedColumn, DerivedReader, FamilyName } from "#compiler/core/causes.ts"
 import type { MemberShape } from "#compiler/ir/family.ts"
-import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { type AnyFamily, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
@@ -63,6 +63,7 @@ import {
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A family's kind: a tree on one relation, or an ordered or a counted family of an owner and a member. */
@@ -973,7 +974,7 @@ export const rootText = str.bytes(16, str.regex(rootTextPattern.source, rootText
 
 /** The fields of relation `r` of a specification, in declared order. */
 const fieldsOf = (spec: FillSpec, r: number): Record<string, FieldBase> => {
-	const fields: Record<string, FieldBase> = { id: uuid, v: pg.bigint }
+	const fields: Record<string, FieldBase> = { id: Id, v: pg.bigint }
 	for (const [f, family] of spec.families.entries()) {
 		if (family.owner === r) {
 			fields[countName(f)] = drawn(natural)
@@ -993,7 +994,7 @@ const fieldsOf = (spec: FillSpec, r: number): Record<string, FieldBase> => {
 				fields["start"] = drawn(natural)
 				fields["end"] = drawn(natural)
 			} else if (treeOn(spec, family.owner) === undefined) {
-				fields[groupName(f)] = uuid
+				fields[groupName(f)] = Id
 			} else {
 				for (const name of groupRootNames(f)) {
 					fields[name] = rootText

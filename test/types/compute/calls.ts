@@ -95,7 +95,7 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/calls.t
 /** Kind and Other, two rosters; Thing, of an id of each; kindOf of a Kind, kindsOf of rows of one; and their schema. */
 const callsHeader = `export const Kind = closed.ordered("Kind", ["a", "b"])
 export const Other = closed.ordered("Other", ["x", "y"])
-export const Thing = relation("Thing", { id: uuid, kind: closedId(Kind), other: closedId(Other) }, ["id"])
+export const Thing = relation("Thing", { id: Id, kind: closedId(Kind), other: closedId(Other) }, ["id"])
 export const kindOf = fn("kindOf", { calls: [], args: { k: closedId(Kind) }, returns: closedId(Kind), volatility: "immutable", language: "sql", body: "SELECT k" })
 const Kinds = rows({ k: closedId(Kind) })
 export const kindsOf = fn("kindsOf", { calls: [], args: { ks: Kinds }, returns: Kinds, volatility: "immutable", language: "sql", body: "SELECT * FROM unnest(ks)" })

@@ -5,7 +5,7 @@ import { Array as Arr } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
 	fin,
 	fold,
@@ -21,6 +21,7 @@ import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { lawNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"
 import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -28,18 +29,18 @@ import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 /** Doc(id, lines drawn, total accumulated): the owner of the ordered family of Line. */
 export const Doc = relation(
 	"Doc",
-	{ id: uuid, lines: drawn(natural), total: accumulated(pg.bigint, 0n) },
+	{ id: Id, lines: drawn(natural), total: accumulated(pg.bigint, 0n) },
 	["id"]
 )
 
-export const Line = relation("Line", { id: uuid, doc: uuid, at: drawn(natural), qty: pg.bigint }, [
+export const Line = relation("Line", { id: Id, doc: Id, at: drawn(natural), qty: pg.bigint }, [
 	"id"
 ])
 
 export const Node = relation(
 	"Node",
 	{
-		root: uuid,
+		root: Id,
 		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),

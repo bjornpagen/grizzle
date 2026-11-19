@@ -18,7 +18,7 @@ import { Array as Arr } from "effect"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
-import { natural, uuid } from "#compiler/public/fields.ts"
+import { natural } from "#compiler/public/fields.ts"
 import { queryOver, queryValueDesc, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import {
@@ -43,6 +43,7 @@ import {
 	type SchemaDesc,
 	type AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { Id } from "#test/support/ids.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { ownInput } from "#test/support/policy.ts"
 import { bareContract, rawClosedId, rawPg, regex, type Row } from "#test/unit/schema/support.ts"
@@ -63,21 +64,16 @@ export const Kind = closed("Kind", kindHandles, "ordered", [])
 
 export const Account = relation(
 	"Account",
-	{ id: uuid, name: regex("^[a-z]{1,40}$", "u") },
+	{ id: Id, name: regex("^[a-z]{1,40}$", "u") },
 	["id"],
 	[]
 )
 
-export const Task = relation(
-	"Task",
-	{ id: uuid, account: uuid, kind: rawClosedId(Kind) },
-	["id"],
-	[]
-)
+export const Task = relation("Task", { id: Id, account: Id, kind: rawClosedId(Kind) }, ["id"], [])
 
-const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: rawPg.bigint }, ["task"], [])
+const AutomaticTask = relation("AutomaticTask", { task: Id, budget: rawPg.bigint }, ["task"], [])
 
-const ManualTask = relation("ManualTask", { task: uuid, assignee: uuid }, ["task"], [])
+const ManualTask = relation("ManualTask", { task: Id, assignee: Id }, ["task"], [])
 
 export const Work = schema(
 	"Work",
@@ -250,7 +246,7 @@ export const relationPlaces = Object.freeze([0, 1, 2, 3, 4, 5])
 
 export const Limits = relation(
 	"Limits",
-	{ id: uuid, limit: rawPg.bigint, maximum: rawPg.bigint },
+	{ id: Id, limit: rawPg.bigint, maximum: rawPg.bigint },
 	["id"],
 	[]
 )
@@ -451,9 +447,9 @@ export const answers: {
 }
 
 /** A pool's claims, a counted family of Claim over Pool's drawn count n. */
-export const Pool = relation("Pool", { id: uuid, n: drawnField(natural, []) }, ["id"], [])
+export const Pool = relation("Pool", { id: Id, n: drawnField(natural, []) }, ["id"], [])
 
-export const Claim = relation("Claim", { id: uuid, pool: uuid }, ["id"], [])
+export const Claim = relation("Claim", { id: Id, pool: Id }, ["id"], [])
 
 export const claimsOf = (member: string, count: string): StatementDesc => ({
 	kind: "family",

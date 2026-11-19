@@ -80,6 +80,9 @@ import {
 import { checking, checkMemberOf, checkOptions } from "#test/support/policy.ts"
 import { sitesRead } from "#test/support/sites.ts"
 
+/** The Description of the test Id contract (test/support/ids.ts), the type every uuid field of the live schemas is. */
+const idDesc: JsonRecord = { kind: "contract", name: "Id", base: { kind: "uuid" }, facts: [] }
+
 type QueryRead = Extract<ProgramRead, { readonly kind: "query" }>
 
 const ok = <A>(r: Result.Result<A, CompileError>, what: string): A => {
@@ -619,7 +622,7 @@ const keyFieldDesc = (key: KeyVar): JsonRecord => {
 		case "float8":
 			return { kind: "pg", type: "double precision" }
 		case "uuid":
-			return { kind: "uuid" }
+			return idDesc
 		case "fixed": {
 			const typmod = defined(numericTypmodOf(key.type), "a fixed field's typmod")
 			return { kind: "numeric", precision: typmod.precision, scale: typmod.scale }
@@ -797,7 +800,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 		[
 			["selfSource", { kind: "self" }],
 			["deltaSource", { kind: "delta", side: "added", relation: "Relation" }],
-			["rowSource", { kind: "row", heading: { f: { kind: "uuid" } } }],
+			["rowSource", { kind: "row", heading: { f: idDesc } }],
 			["unknownRelation", { kind: "relation", name: "NoSuchRelation" }],
 			["undeclaredInterior", { kind: "interior", id: "nope" }]
 		] as const,
@@ -942,7 +945,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 		rules,
 		(rule) =>
 			withMatches(rule, [
-				relationParamMatch("rp", { f: { kind: "uuid" } }),
+				relationParamMatch("rp", { f: idDesc }),
 				relationParamMatch("rp", { f: { kind: "pg", type: "bigint" } })
 			]),
 		"rule",
@@ -954,7 +957,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 		comparableRootArms,
 		(arm, stored) =>
 			withMatches(withComparison(arm, stored, "p9003"), [
-				relationParamMatch("p9003", { id: { kind: "uuid" } })
+				relationParamMatch("p9003", { id: idDesc })
 			]),
 		"arm",
 		malformed
@@ -1019,7 +1022,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 		"allenParamSpan",
 		"wild",
 		(q) => collect(q, (v) => v["kind"] === "allen"),
-		(allen) => ({ ...allen, left: { kind: "param", name: "w", type: { kind: "uuid" } } }),
+		(allen) => ({ ...allen, left: { kind: "param", name: "w", type: idDesc } }),
 		"Allen relation",
 		malformed
 	),

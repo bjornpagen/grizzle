@@ -10,7 +10,7 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noPreviousRosters } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v as v_ } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { installationsOf, type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
@@ -18,6 +18,7 @@ import { loginDescOf } from "#compiler/schema/world.ts"
 import type { Grant, GrantObjects, Grantee, SqlStatement } from "#compiler/sql/ast.ts"
 import { printType } from "#compiler/sql/print.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import type { DeploySubject } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
@@ -115,9 +116,9 @@ export const featureOf = (t: Turn): TurnFeature => {
 const built = (
 	v: Version
 ): { readonly base: DeploySubject; readonly logins: ReadonlyArray<OwnedLogin> } => {
-	const A = relation("A", { id: uuid, note: v.wide ? pg.bigint : pg.integer }, ["id"])
-	const B = relation("B", { id: uuid }, ["id"])
-	const C = relation("C", { id: uuid }, ["id"])
+	const A = relation("A", { id: Id, note: v.wide ? pg.bigint : pg.integer }, ["id"])
+	const B = relation("B", { id: Id }, ["id"])
+	const C = relation("C", { id: Id }, ["id"])
 	const owned = (l: Parameters<typeof loginDescOf>[0]): OwnedLogin =>
 		succeeded(ownLogin(defined(loginDescOf(l), "a login built by login(...)")))
 	if (v.third === "C") {

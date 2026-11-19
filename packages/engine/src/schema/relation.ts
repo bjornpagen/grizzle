@@ -64,6 +64,7 @@ import {
 } from "#compiler/scalar/compute/closed.ts"
 import { termExpr } from "#compiler/scalar/compute/term.ts"
 import { storedLiteral } from "#compiler/scalar/literal.ts"
+import { unnamedIdRefusal } from "#compiler/scalar/minted.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import {
 	carrierSql,
@@ -143,8 +144,19 @@ const descriptorRecord = (fields: unknown, label: string): Readonly<Record<strin
 }
 
 /**
+ * A column's type, which says whose id it holds: a bare uuid is refused (scalar/minted.ts unnamedIdRefusal), and a
+ * contract over uuid names the system it is an id of.
+ */
+const namedColumn = (described: Described, label: string): Described => {
+	if (described.desc.kind === "uuid") {
+		throw builderRefusal(label, unnamedIdRefusal)
+	}
+	return described
+}
+
+/**
  * The fields of a record of descriptors, each as describeDeclared reads it: its Description for the relation's, its
- * column for the relation's fact decoder.
+ * column for the relation's fact decoder; each a column, so none a bare uuid (`namedColumn`).
  */
 const describedFields = (
 	fields: Readonly<Record<string, unknown>>,
@@ -152,7 +164,8 @@ const describedFields = (
 ): Readonly<Record<string, Described>> => {
 	const out: Record<string, Described> = {}
 	for (const [name, descriptor] of Object.entries(fields)) {
-		out[name] = describeDeclared(descriptor, builderLoc(`${label} field ${name}`, []))
+		const at = `${label} field ${name}`
+		out[name] = namedColumn(describeDeclared(descriptor, builderLoc(at, [])), at)
 	}
 	return Object.freeze(out)
 }
@@ -453,8 +466,11 @@ export const generatedField = <F extends FieldBase>(
 	if (extra.length > 0) {
 		throw malformed("generated", "generated(type, term): two arguments")
 	}
-	const described = valueTypeOf(type, "generated type", () =>
-		malformed("generated", "a value type, which no field of a writing of its own is")
+	const described = namedColumn(
+		valueTypeOf(type, "generated type", () =>
+			malformed("generated", "a value type, which no field of a writing of its own is")
+		),
+		"generated type"
 	)
 	const value: GeneratedField<F> = Object.freeze({
 		writing: "generated",

@@ -4,7 +4,7 @@ import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { bindFrame } from "#adapter/wire/batch.ts"
-import { drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
+import { drawn as drawnField, natural } from "#compiler/public/fields.ts"
 import { fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { prepareBinding } from "#compiler/runtime/write/binding.ts"
@@ -17,6 +17,7 @@ import { type CompiledWrite, compileWrite } from "#compiler/write/program/compil
 import { closedTableOf } from "#compiler/write/program/decide.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { lawNamesOf } from "#test/support/kernel/naming.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -24,13 +25,13 @@ import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 /** Owner(id, title, members drawn): the owner of the ordered family of Member. */
 export const Owner = relation(
 	"Owner",
-	{ id: uuid, title: str.regex("^[xy]$"), members: drawnField(natural) },
+	{ id: Id, title: str.regex("^[xy]$"), members: drawnField(natural) },
 	["id"]
 )
 
 const Member = relation(
 	"Member",
-	{ owner: uuid, at: drawnField(natural), body: str.regex("^[ab]*$") },
+	{ owner: Id, at: drawnField(natural), body: str.regex("^[ab]*$") },
 	["owner", "at"]
 )
 

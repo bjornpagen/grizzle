@@ -27,8 +27,7 @@ import {
 	pg,
 	retirement,
 	slot,
-	span,
-	uuid
+	span
 } from "#compiler/public/fields.ts"
 import { closed, fin, relation } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -45,6 +44,7 @@ import {
 	orderedBy
 } from "#test/pg/values/order.fixtures.ts"
 import { type AnyResult, assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
@@ -147,7 +147,7 @@ const declaredCarriers: Arr.NonEmptyReadonlyArray<DeclaredCarrier> = [
 	declaredOf("double precision", pg["double precision"]),
 	declaredOf("money", pg.money),
 	booleanCarrier,
-	declaredOf("uuid", uuid),
+	declaredOf("uuid", Id),
 	declaredOf("text", str.regex("^.*$", "su")),
 	kindCarrier,
 	declaredOf("set", bits(Kind)),
@@ -205,12 +205,12 @@ const Slots = closed.relation(
  */
 const fieldCases: ReadonlyArray<TextCase> = [
 	...Arr.map(declaredCarriers, (c) =>
-		fieldCase("caller", c, () => relation("Texted", { id: uuid, x: c.type }, ["id"]).fields.x)
+		fieldCase("caller", c, () => relation("Texted", { id: Id, x: c.type }, ["id"]).fields.x)
 	),
 	fieldCase(
 		"drawn",
 		naturalCarrier,
-		() => relation("Texted", { id: uuid, x: drawn(natural) }, ["id"]).fields.x
+		() => relation("Texted", { id: Id, x: drawn(natural) }, ["id"]).fields.x
 	),
 	...Arr.map(
 		Arr.filter(declaredCarriers, (c) => !unaccumulable.has(typeOf(c.type).carrier)),
@@ -218,7 +218,7 @@ const fieldCases: ReadonlyArray<TextCase> = [
 			fieldCase(
 				"accumulated",
 				c,
-				(first) => relation("Texted", { id: uuid, x: accumulated(c.type, first) }, ["id"]).fields.x
+				(first) => relation("Texted", { id: Id, x: accumulated(c.type, first) }, ["id"]).fields.x
 			)
 	),
 	...Arr.map(declaredCarriers, (c) =>
@@ -226,7 +226,7 @@ const fieldCases: ReadonlyArray<TextCase> = [
 			"generated",
 			c,
 			() =>
-				relation.generated("Texted", { id: uuid, w: c.type }, ["id"], (row) => ({
+				relation.generated("Texted", { id: Id, w: c.type }, ["id"], (row) => ({
 					x: generated(c.type, row.w)
 				})).fields.x
 		)
@@ -234,7 +234,7 @@ const fieldCases: ReadonlyArray<TextCase> = [
 	fieldCase(
 		"retirement",
 		booleanCarrier,
-		() => relation("Texted", { id: uuid, x: retirement }, ["id"]).fields.x
+		() => relation("Texted", { id: Id, x: retirement }, ["id"]).fields.x
 	),
 	fieldCase(
 		"slot",

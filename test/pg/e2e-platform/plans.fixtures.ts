@@ -7,7 +7,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, type Uuid, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { context, login, role } from "#compiler/public/schema.ts"
 import { type ParamMap } from "#compiler/types/core/phantom.ts"
@@ -15,6 +15,7 @@ import { type OpenedPlatform, platformTemplate } from "#test/pg/e2e-platform/sup
 import { directSql, literal } from "#test/schedules/platform/support.ts"
 import { assert } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { messageOf } from "#test/support/message.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
@@ -91,7 +92,7 @@ export type Reads = { readonly [K in ReadName]: unknown }
  */
 export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 	const billing = world.Billing
-	const Tenant = context("Tenant", { org: uuid })
+	const Tenant = context("Tenant", { org: Id })
 	const { Org, ParentOrg, Workspace, ApiKey, Revocation, ApiKeyActive, UsageEvent, UsageCharge } = P
 	const { EventCharge, ProviderCost, CreditGrant, CreditDebit, WorkspaceLimit, Invoice } = P
 	const { InvoiceLine, UsageLine, PlanLine, Payment, Voiding, Dispute, Refund } = P
@@ -384,8 +385,8 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			Compute.base(Compute.lower(tier, P.Tokens))
 		)
 		return r
-			.match(own.UsageEvent, { id: r.param("event", uuid), model, during })
-			.match(own.UsageCharge, { event: r.param("event", uuid), kind, tokens })
+			.match(own.UsageEvent, { id: r.param("event", Id), model, during })
+			.match(own.UsageCharge, { event: r.param("event", Id), kind, tokens })
 			.match(own.RateCard, { id: card, model, kind, during: inForce })
 			.match(own.RateTier, { card, tier, rate })
 			.where(
@@ -417,7 +418,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		)
 		return r
 			.match(usage, { kind, tokens })
-			.match(own.RateCard, { id: card, model: r.param("model", uuid), kind, during })
+			.match(own.RateCard, { id: card, model: r.param("model", Id), kind, during })
 			.match(own.RateTier, { card, tier, rate })
 			.where(
 				r.allen(during, P.holdsPoint, r.param("now", P.RateCard.fields.during)),
@@ -436,7 +437,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		.rule((r) => {
 			const { id, kind, during } = v(own.RateCard, "rateCard")
 			return r
-				.match(own.RateCard, { id, model: r.param("model", uuid), kind, during })
+				.match(own.RateCard, { id, model: r.param("model", Id), kind, during })
 				.where(r.allen(during, P.holdsPoint, r.param("now", P.RateCard.fields.during)))
 				.find({ id, kind, during })
 		})
@@ -456,13 +457,13 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		return r
 			.match(own.RateCard, {
 				id: before,
-				model: r.param("model", uuid),
+				model: r.param("model", Id),
 				kind: r.param("kind", P.RateCard.fields.kind),
 				during: was
 			})
 			.match(own.RateCard, {
 				id: after,
-				model: r.param("model", uuid),
+				model: r.param("model", Id),
 				kind: r.param("kind", P.RateCard.fields.kind),
 				during: is
 			})
@@ -479,7 +480,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		return r
 			.match(own.EventCharge, {
 				event,
-				workspace: r.param("workspace", uuid),
+				workspace: r.param("workspace", Id),
 				month: r.param("month", P.MonthNo)
 			})
 			.match(own.Month, { month: r.param("month", P.MonthNo), during: month })
@@ -498,7 +499,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		const { during } = v(own.UsageEvent, "usageEvent")
 		const { day, during: span } = v(own.Day, "day")
 		return r
-			.match(own.EventCharge, { event, workspace: r.param("workspace", uuid), amount })
+			.match(own.EventCharge, { event, workspace: r.param("workspace", Id), amount })
 			.match(own.UsageEvent, { id: event, during })
 			.match(own.Day, { day, during: span })
 			.where(
@@ -511,7 +512,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 	const spendByMonth = query(tenant).rule((r) => {
 		const { event, month, amount } = v(own.EventCharge, "eventCharge")
 		return r
-			.match(own.EventCharge, { event, workspace: r.param("workspace", uuid), month, amount })
+			.match(own.EventCharge, { event, workspace: r.param("workspace", Id), month, amount })
 			.find({ month, spend: r.sum(amount) })
 	})
 
@@ -520,7 +521,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		return r
 			.match(own.EventCharge, {
 				event,
-				workspace: r.param("workspace", uuid),
+				workspace: r.param("workspace", Id),
 				month: r.param("month", P.MonthNo),
 				amount
 			})
@@ -539,7 +540,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		const { spend } = v(monthSpend, "monthSpend")
 		const { cap } = v(own.WorkspaceLimit, "workspaceLimit")
 		return r
-			.match(own.Workspace, { id: workspace, org: r.param("org", uuid) })
+			.match(own.Workspace, { id: workspace, org: r.param("org", Id) })
 			.match(monthSpend, { workspace, month: r.param("month", P.MonthNo), spend })
 			.match(own.WorkspaceLimit, { workspace, month: r.param("month", P.MonthNo), cap })
 			.where(r.ge(Compute.mul(spend, 10n), Compute.mul(Compute.numeric(Compute.base(cap)), 9n)))
@@ -553,7 +554,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			return r
 				.match(own.EventCharge, {
 					event,
-					workspace: r.param("workspace", uuid),
+					workspace: r.param("workspace", Id),
 					month: r.param("month", P.MonthNo),
 					amount
 				})
@@ -569,7 +570,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			const { event, amount } = v(own.EventCharge, "eventCharge")
 			const { provider } = v(own.UsageEvent, "usageEvent")
 			return r
-				.match(own.Workspace, { id: workspace, org: r.param("org", uuid) })
+				.match(own.Workspace, { id: workspace, org: r.param("org", Id) })
 				.match(own.EventCharge, { event, workspace, month: r.param("month", P.MonthNo), amount })
 				.match(own.UsageEvent, { id: event, provider })
 				.find({ provider, spend: r.sum(amount) })
@@ -583,7 +584,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		const { provider } = v(own.UsageEvent, "usageEvent")
 		const { amount: cost } = v(own.ProviderCost, "providerCost")
 		return r
-			.match(own.Workspace, { id: workspace, org: r.param("org", uuid) })
+			.match(own.Workspace, { id: workspace, org: r.param("org", Id) })
 			.match(own.EventCharge, { event, workspace, month: r.param("month", P.MonthNo), amount })
 			.match(own.UsageEvent, { id: event, provider })
 			.match(own.ProviderCost, { event, amount: cost })
@@ -591,13 +592,13 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 	})
 
 	const Descendants = query(tenant).recursive("Descendants", {
-		row: { org: uuid },
+		row: { org: Id },
 		base: [
 			(r) => {
 				const { id } = v(own.Org, "org")
 				return r
 					.match(own.Org, { id })
-					.where(r.eq(id, r.param("root", uuid)))
+					.where(r.eq(id, r.param("root", Id)))
 					.find({ org: id })
 			}
 		],
@@ -614,7 +615,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 	})
 
 	const consolidatedSpend = query(tenant).rule((r) => {
-		const tree = Descendants.bind({ root: r.param("root", uuid) })
+		const tree = Descendants.bind({ root: r.param("root", Id) })
 		const { org } = v(tree, "tree")
 		const { id: workspace } = v(own.Workspace, "workspace")
 		const { event, amount } = v(own.EventCharge, "eventCharge")
@@ -629,7 +630,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		.rule((r) => {
 			const { id, amount, valid } = v(own.CreditGrant, "creditGrant")
 			return r
-				.match(own.CreditGrant, { id, org: r.param("org", uuid), amount, valid })
+				.match(own.CreditGrant, { id, org: r.param("org", Id), amount, valid })
 				.where(r.allen(valid, P.holdsPoint, r.param("now", P.CreditGrant.fields.valid)))
 				.find({ id, amount, valid })
 		})
@@ -648,7 +649,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 	const expiringGrants = query(tenant).rule((r) => {
 		const { id, amount, valid } = v(own.CreditGrant, "creditGrant")
 		return r
-			.match(own.CreditGrant, { id, org: r.param("org", uuid), amount, valid })
+			.match(own.CreditGrant, { id, org: r.param("org", Id), amount, valid })
 			.where(
 				r.pointIn(Compute.upper(valid, P.Instant), r.param("window", P.CreditGrant.fields.valid))
 			)
@@ -659,7 +660,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		const { event, kind, amount, during } = v(own.CreditDebit, "creditDebit")
 		const { day, during: span } = v(own.Day, "day")
 		return r
-			.match(own.CreditDebit, { grant: r.param("grant", uuid), event, kind, amount, during })
+			.match(own.CreditDebit, { grant: r.param("grant", Id), event, kind, amount, during })
 			.match(own.Day, { day, during: span })
 			.where(r.pointIn(Compute.lower(during, P.Instant), span))
 			.find({ day, debited: r.sum(amount) })
@@ -670,7 +671,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			const { id, workspace, state } = v(own.ApiKey, "apiKey")
 			return r
 				.match(own.ApiKey, { id, workspace, state })
-				.where(r.eq(id, r.param("key", uuid)))
+				.where(r.eq(id, r.param("key", Id)))
 				.find({ id, workspace, state })
 		})
 		.attach(
@@ -696,7 +697,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		.rule((r) => {
 			const { id, model, provider, during } = v(own.UsageEvent, "usageEvent")
 			return r
-				.match(own.UsageEvent, { id, key: r.param("key", uuid), model, provider, during })
+				.match(own.UsageEvent, { id, key: r.param("key", Id), model, provider, during })
 				.find({ id, model, provider, during, start: Compute.lower(during, P.Instant) })
 		})
 		.orderBy(["start", "desc"], ["id", "asc"])
@@ -712,7 +713,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 	const idleKeys = query(tenant).rule((r) => {
 		const { id } = v(own.ApiKey, "apiKey")
 		return r
-			.match(own.ApiKey, { id, workspace: r.param("workspace", uuid), state: "active" })
+			.match(own.ApiKey, { id, workspace: r.param("workspace", Id), state: "active" })
 			.where(
 				r.not(keysUsedIn.bind({ window: r.param("window", P.UsageEvent.fields.during) }), {
 					key: id
@@ -729,7 +730,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 				.match(own.DailySpend, { workspace, day, amount })
 				.match(own.Day, { day, during })
 				.where(
-					r.eq(workspace, r.param("workspace", uuid)),
+					r.eq(workspace, r.param("workspace", Id)),
 					r.allen(during, P.insideOf, r.param("window", P.Day.fields.during))
 				)
 				.find({ workspace, day, rolled: amount })
@@ -755,7 +756,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		.rule((r) => {
 			const { id, period, amount, state } = v(own.Invoice, "invoice")
 			return r
-				.match(own.Invoice, { id, org: r.param("org", uuid), period, amount, state })
+				.match(own.Invoice, { id, org: r.param("org", Id), period, amount, state })
 				.find({ id, period, amount, state, start: Compute.lower(period, P.Instant) })
 		})
 		.orderBy(["start", "desc"], ["id", "asc"])
@@ -763,7 +764,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 	const invoiceAt = query(tenant).rule((r) => {
 		const { id, period, amount, state } = v(own.Invoice, "invoice")
 		return r
-			.match(own.Invoice, { id, org: r.param("org", uuid), period, amount, state })
+			.match(own.Invoice, { id, org: r.param("org", Id), period, amount, state })
 			.where(r.allen(period, P.holdsPoint, r.param("now", P.Invoice.fields.period)))
 			.find({ id, period, amount, state })
 	})
@@ -771,7 +772,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 	const overdueInvoices = query(tenant).rule((r) => {
 		const { id, period, amount } = v(own.Invoice, "invoice")
 		return r
-			.match(own.Invoice, { id, org: r.param("org", uuid), period, amount, state: "open" })
+			.match(own.Invoice, { id, org: r.param("org", Id), period, amount, state: "open" })
 			.where(r.le(Compute.upper(period, P.Instant), r.param("cutoff", P.Instant)))
 			.find({ id, period, amount })
 	})
@@ -781,7 +782,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			const { id, org, period, amount, state } = v(own.Invoice, "invoice")
 			return r
 				.match(own.Invoice, { id, org, period, amount, state })
-				.where(r.eq(id, r.param("invoice", uuid)))
+				.where(r.eq(id, r.param("invoice", Id)))
 				.find({ id, org, period, amount, state })
 		})
 		.attach(
@@ -851,14 +852,14 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			const { id, amount } = v(own.Invoice, "invoice")
 			const { id: refund, amount: refunded } = v(own.Refund, "refund")
 			return r
-				.match(own.Invoice, { id, org: r.param("org", uuid), amount, state: "paid" })
+				.match(own.Invoice, { id, org: r.param("org", Id), amount, state: "paid" })
 				.match(own.Refund, { id: refund, invoice: id, amount: refunded })
 				.find({ invoice: id, amount, refunded: r.sum(refunded) })
 		})
 		.rule((r) => {
 			const { id, amount } = v(own.Invoice, "invoice")
 			return r
-				.match(own.Invoice, { id, org: r.param("org", uuid), amount, state: "paid" })
+				.match(own.Invoice, { id, org: r.param("org", Id), amount, state: "paid" })
 				.where(r.not(own.Refund, { invoice: id }))
 				.find({ invoice: id, amount, refunded: Compute.literal(pg.numeric(1, 0), 0n) })
 		})
@@ -866,7 +867,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 	const refundsByReason = query(tenant).rule((r) => {
 		const { id, invoice, amount, reason, at } = v(own.Refund, "refund")
 		return r
-			.match(own.Invoice, { id: invoice, org: r.param("org", uuid) })
+			.match(own.Invoice, { id: invoice, org: r.param("org", Id) })
 			.match(own.Refund, { id, invoice, amount, reason, at })
 			.where(r.pointIn(at, r.param("window", P.Invoice.fields.period)))
 			.find({ reason, refunds: r.count(), refunded: r.sum(amount) })
@@ -887,7 +888,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 	const segmentsAt = query(tenant).rule((r) => {
 		const { during, monthlyPrice } = v(own.Segment, "segment")
 		return r
-			.match(own.Segment, { subscription: r.param("subscription", uuid), during, monthlyPrice })
+			.match(own.Segment, { subscription: r.param("subscription", Id), during, monthlyPrice })
 			.where(r.allen(during, P.holdsPoint, r.param("now", P.Segment.fields.during)))
 			.find({ during, monthlyPrice })
 	})
@@ -907,7 +908,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			)
 		)
 		return r
-			.match(own.Invoice, { id: r.param("invoice", uuid), org, period })
+			.match(own.Invoice, { id: r.param("invoice", Id), org, period })
 			.match(own.Subscription, { id: subscription, org })
 			.match(own.Segment, { subscription, during, monthlyPrice })
 			.where(r.allen(during, ALLEN.intersects, period))
@@ -933,7 +934,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		const { id } = v(own.Subscription, "subscription")
 		const { during, monthlyPrice } = v(own.Segment, "segment")
 		return r
-			.match(own.Subscription, { id, org: r.param("org", uuid) })
+			.match(own.Subscription, { id, org: r.param("org", Id) })
 			.match(own.Segment, { subscription: id, during, monthlyPrice })
 			.where(r.allen(during, P.holdsPoint, r.param("now", P.Segment.fields.during)))
 			.find({ mrr: r.sum(monthlyPrice) })
@@ -954,7 +955,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			)
 		)
 		return r
-			.match(own.Subscription, { id: subscription, org: r.param("org", uuid) })
+			.match(own.Subscription, { id: subscription, org: r.param("org", Id) })
 			.match(own.Month, { month: r.param("month", P.MonthNo), during: month })
 			.match(own.Allocation, { line, subscription, during, amount })
 			.where(r.allen(during, ALLEN.intersects, month))
@@ -980,7 +981,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			const { id, amount } = v(own.InvoiceLine, "invoiceLine")
 			const { subscription } = v(own.PlanLine, "planLine")
 			return r
-				.match(own.InvoiceLine, { id, invoice: r.param("invoice", uuid), source: "plan", amount })
+				.match(own.InvoiceLine, { id, invoice: r.param("invoice", Id), source: "plan", amount })
 				.match(own.PlanLine, { line: id, subscription })
 				.find({ id, subscription, amount })
 		})
@@ -1032,14 +1033,14 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 
 /** The entities a read is asked about, busiest first: what each pick chooses among. */
 interface Entities {
-	readonly workspaces: ReadonlyArray<Uuid>
-	readonly orgs: ReadonlyArray<Uuid>
-	readonly keys: ReadonlyArray<Uuid>
-	readonly events: ReadonlyArray<Uuid>
-	readonly models: ReadonlyArray<Uuid>
-	readonly grants: ReadonlyArray<Uuid>
-	readonly invoices: ReadonlyArray<Uuid>
-	readonly subscriptions: ReadonlyArray<Uuid>
+	readonly workspaces: ReadonlyArray<IdValue>
+	readonly orgs: ReadonlyArray<IdValue>
+	readonly keys: ReadonlyArray<IdValue>
+	readonly events: ReadonlyArray<IdValue>
+	readonly models: ReadonlyArray<IdValue>
+	readonly grants: ReadonlyArray<IdValue>
+	readonly invoices: ReadonlyArray<IdValue>
+	readonly subscriptions: ReadonlyArray<IdValue>
 	readonly months: ReadonlyArray<{
 		readonly month: number
 		readonly start: bigint

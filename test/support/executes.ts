@@ -2,7 +2,7 @@ import { array, element, type Gen, subset, weighted } from "@bjornpagen/testing/
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { Bits, bits, closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
+import { Bits, bits, closedId, contract, pg } from "#compiler/public/fields.ts"
 import { check, contained, login, on, select } from "#compiler/public/schema.ts"
 import { closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
@@ -16,6 +16,7 @@ import {
 } from "#compiler/sql/transform.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * Worlds for the EXECUTE grants of roles (physical/ddl/roles.ts roleExecutes): rosters, sets over them, a contract,
@@ -302,12 +303,12 @@ export const buildExecutesWorld = (w: ExecutesWorld, name: string) => {
 			case "plain":
 				return pg.integer
 			case "ref":
-				return uuid
+				return Id
 		}
 	}
 	const relations = new Map(
 		Arr.map(w.relations, (r) => {
-			const fields: Record<string, FieldBase> = { id: uuid }
+			const fields: Record<string, FieldBase> = { id: Id }
 			for (const f of r.fields) {
 				fields[f.name] = descriptor(f)
 			}

@@ -5,14 +5,7 @@ import { type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
-import {
-	accumulated,
-	bytes,
-	drawn as drawnField,
-	natural,
-	pg,
-	uuid
-} from "#compiler/public/fields.ts"
+import { accumulated, bytes, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import {
 	counted,
 	fin,
@@ -34,34 +27,33 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** A path, a chunk's body or a line's note: up to eight letters. */
 const Letters = str.regex("^[a-z]{0,8}$")
 
-const Package = relation("Package", { id: uuid, entries: drawnField(natural) }, ["id"])
+const Package = relation("Package", { id: Id, entries: drawnField(natural) }, ["id"])
 
-const Bin = relation(
-	"Bin",
-	{ id: uuid, n: drawnField(natural), total: accumulated(pg.bigint, 0n) },
-	["id"]
-)
+const Bin = relation("Bin", { id: Id, n: drawnField(natural), total: accumulated(pg.bigint, 0n) }, [
+	"id"
+])
 
 const Shelf = relation(
 	"Shelf",
-	{ id: uuid, n: drawnField(natural), total: accumulated(pg.bigint, 0n) },
+	{ id: Id, n: drawnField(natural), total: accumulated(pg.bigint, 0n) },
 	["id"]
 )
 
 const Entry = relation(
 	"Entry",
 	{
-		package: uuid,
+		package: Id,
 		at: drawnField(natural),
 		path: Letters,
-		bin: uuid,
-		shelf: uuid,
+		bin: Id,
+		shelf: Id,
 		size: pg.bigint,
 		chunks: drawnField(natural),
 		content: bytes
@@ -71,26 +63,26 @@ const Entry = relation(
 
 const Chunk = relation(
 	"Chunk",
-	{ package: uuid, path: Letters, at: drawnField(natural), body: Letters },
+	{ package: Id, path: Letters, at: drawnField(natural), body: Letters },
 	["package", "path", "at"]
 )
 
 const Doc = relation(
 	"Doc",
-	{ id: uuid, lines: drawnField(natural), total: accumulated(pg.bigint, 0n) },
+	{ id: Id, lines: drawnField(natural), total: accumulated(pg.bigint, 0n) },
 	["id"]
 )
 
 const Line = relation(
 	"Line",
-	{ id: uuid, doc: uuid, at: drawnField(natural), qty: pg.bigint, note: Letters },
+	{ id: Id, doc: Id, at: drawnField(natural), qty: pg.bigint, note: Letters },
 	["id"]
 )
 
 const Node = relation(
 	"Node",
 	{
-		root: uuid,
+		root: Id,
 		parent: drawnField(natural),
 		at: drawnField(natural),
 		children: drawnField(natural),

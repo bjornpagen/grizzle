@@ -17,16 +17,7 @@ import {
 } from "effect"
 import { runIdentity, sourceIdentity, writeRunRecord } from "#bench/cold/identity.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import {
-	accumulated,
-	Bits,
-	bits,
-	closedId,
-	date,
-	drawn,
-	natural,
-	uuid
-} from "#compiler/public/fields.ts"
+import { accumulated, Bits, bits, closedId, date, drawn, natural } from "#compiler/public/fields.ts"
 import {
 	alternatives,
 	check,
@@ -45,6 +36,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { InitializedCluster } from "#test/support/cluster.ts"
+import { Id } from "#test/support/ids.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { applicationOf, member, openServedDb } from "#test/support/served-db.ts"
 import { sweep } from "#test/support/substrate/shared.ts"
@@ -86,41 +78,41 @@ const StandardKind = closed.ordered("StandardKind", ["framework", "item"])
 /** Every node of the hierarchy, its kind, and its ordered family of children. */
 const Standard = relation(
 	"Standard",
-	{ id: uuid, kind: closedId(StandardKind), children: drawn(natural) },
+	{ id: Id, kind: closedId(StandardKind), children: drawn(natural) },
 	["id"]
 )
 
 /** A parent's `at`-th child. */
 const StandardChild = relation(
 	"StandardChild",
-	{ parent: uuid, at: drawn(natural), child: uuid, modified: date },
+	{ parent: Id, at: drawn(natural), child: Id, modified: date },
 	["parent", "at"]
 )
 
 /** A framework, the root of one outline. */
-const Framework = relation("Framework", { id: uuid, name: Text, modified: date }, ["id"])
+const Framework = relation("Framework", { id: Id, name: Text, modified: date }, ["id"])
 
 /** A standard: its grades and the day it was last modified. */
-const Item = relation("Item", { id: uuid, grades: bits(Grade), modified: date }, ["id"])
+const Item = relation("Item", { id: Id, grades: bits(Grade), modified: date }, ["id"])
 
 /** Each framework's outline, the hierarchy below it as a tree keyed by its framework and pre-order start. */
 const Outline = relation(
 	"Outline",
 	{
-		framework: uuid,
+		framework: Id,
 		start: drawn(natural),
 		end: drawn(natural),
 		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),
-		standard: uuid,
-		parentStandard: accumulated(uuid, "00000000-0000-0000-0000-000000000000")
+		standard: Id,
+		parentStandard: accumulated(Id, Id("00000000-0000-0000-0000-000000000000"))
 	},
 	["framework", "start"]
 )
 
 /** The frameworks a crosswalk targets. */
-const CrosswalkHub = relation("CrosswalkHub", { framework: uuid }, ["framework"])
+const CrosswalkHub = relation("CrosswalkHub", { framework: Id }, ["framework"])
 
 const outlineMembers = select(Outline, (o) => o.gt(o.start, 0n))
 const items = select(Standard, (s) => s.eq(s.kind, "item"))

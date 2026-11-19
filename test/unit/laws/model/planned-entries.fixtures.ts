@@ -14,9 +14,10 @@ import {
 import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Order } from "effect"
 import type { KeyFault } from "#compiler/core/causes.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import {
 	octetLengthAtMost,
 	rawContract,
@@ -211,7 +212,7 @@ export const typesOf = (s: PlannedSketch): ReadonlyArray<PairType> => {
 export const descriptorOf = (t: PairType, i: number): FieldBase => {
 	switch (t.kind) {
 		case "uuid":
-			return uuid
+			return Id
 		case "bigint":
 			return rawPg.bigint
 		case "integer":

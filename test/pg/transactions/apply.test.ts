@@ -31,7 +31,7 @@ import { CredentialError } from "#adapter/errors/failures.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
@@ -57,6 +57,7 @@ import {
 } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t3, t4, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
+import { Id } from "#test/support/ids.ts"
 import { loadMigrated as load } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
@@ -115,7 +116,7 @@ export const aChangeMembersApplyAnswersTheEmptyAStreamParameterAndABaseLevelChan
 								const extension = schema.extend(
 									s0,
 									"Extended",
-									[relation("Extra", { id: uuid }, ["id"])],
+									[relation("Extra", { id: Id }, ["id"])],
 									[]
 								)
 								/** The ChangeSets the compile refuses, by the value that draws them. */
@@ -159,7 +160,7 @@ export const aChangeMembersApplyAnswersTheEmptyAStreamParameterAndABaseLevelChan
 									streamed: ChangeSet.empty(s0).insert(
 										W.TaskNote,
 										query(s0).rule((r) => {
-											const wanted = r.relation("wanted", { task: uuid })
+											const wanted = r.relation("wanted", { task: Id })
 											const { id } = v(W.Task, "task")
 											return r
 												.match(wanted, { task: id })

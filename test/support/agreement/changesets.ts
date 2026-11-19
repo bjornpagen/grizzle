@@ -139,9 +139,14 @@ interface Lit {
 	readonly value: unknown
 }
 
+/**
+ * The nth uuid as the tests' Id, a call of its contract (test/support/ids.ts): a contract's value is wider than one
+ * literal (types/fields/field.ts contract), so no Id value claims a key the types read; a key the types judge is a
+ * bigint's.
+ */
 const uuidLit = (n: number): Lit => {
 	const text = `00000000-0000-4000-8000-${Str.padStart(12, "0")(String(n))}`
-	return { text: jsonText(text), value: text }
+	return { text: `Id(${jsonText(text)})`, value: text }
 }
 
 /**
@@ -164,10 +169,10 @@ interface FieldInfo {
 const uuids: Arr.NonEmptyReadonlyArray<Lit> = [uuidLit(1), uuidLit(2)]
 
 /**
- * A uuid no single literal types: a call of `uuidOf`, which the program declares returning Uuid, so its type is the
- * field's whole host type, while the engine reads the third uuid, a key no other drawn value holds.
+ * A bigint no single literal types: a call of `bigintOf`, which the program declares returning bigint, so its type is
+ * the field's whole host type, while the engine reads 3n, a key no other drawn value holds.
  */
-const wideUuid: Lit = { text: "uuidOf(3)", value: uuidLit(3).value }
+const wideBigint: Lit = { text: "bigintOf(3)", value: 3n }
 const cents: Arr.NonEmptyReadonlyArray<Lit> = [
 	{ text: "Cents(5n)", value: Cents(5n) },
 	{ text: "Cents(0n)", value: Cents(0n) }
@@ -176,6 +181,11 @@ const plainNumber: Lit = { text: "1", value: 1 }
 const kinds: Arr.NonEmptyReadonlyArray<Lit> = [
 	{ text: '"Automatic"', value: "Automatic" },
 	{ text: '"Manual"', value: "Manual" }
+]
+/** Pair's b, two literal numbers: a payload the key law reads, which two facts at one key differ at. */
+const pairBs: readonly [Lit, Lit] = [
+	{ text: "1", value: 1 },
+	{ text: "2", value: 2 }
 ]
 const bigints: Arr.NonEmptyReadonlyArray<Lit> = [
 	{ text: "1n", value: 1n },
@@ -237,7 +247,7 @@ const fieldsOf: { readonly [R in RelName]: Arr.NonEmptyReadonlyArray<FieldInfo> 
 		{
 			name: "b",
 			key: false,
-			values: [{ text: "1", value: 1 }],
+			values: pairBs,
 			outside: [anotherType({ text: "1n", value: 1n })]
 		},
 		{ name: "note", key: false, values: uuids, outside: uuidOutside }
@@ -296,7 +306,7 @@ type OutsideShape = (typeof outsideShapes)[number]
 
 /**
  * What a key law's conflict stands beside, beyond its two facts: a fact of the relation whose key no single literal
- * types (wideUuid), which claims nothing, so the conflict is judged among the facts whose keys are literals.
+ * types (wideBigint), which claims nothing, so the conflict is judged among the facts whose keys are literals.
  */
 const conflictShapes = ["a key conflict beside a fact no literal keys"] as const
 
@@ -929,7 +939,7 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 		: d.choose(["insert", "delete", "put"] as const)
 	const relation: RelName =
 		fault === "two facts sharing a key"
-			? "Task"
+			? "Pair"
 			: fault === "a value missing its brand"
 				? d.from(["Budget", "Ticket"] as const)
 				: fault === "an exact value into a plain field" || narrowed
@@ -962,13 +972,15 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 				? ([n, Arr.getUnsafe(payload.value.values, 1)] as const)
 				: ([n, l] as const)
 		)
-		const uuidKeys = Arr.filter(fieldsOf[relation], (f) => f.key && f.values === uuids)
+		const bigintKeys = Arr.filter(fieldsOf[relation], (f) => f.key && f.values === bigints)
 		const beside =
-			Arr.isReadonlyArrayNonEmpty(uuidKeys) &&
+			Arr.isReadonlyArrayNonEmpty(bigintKeys) &&
 			(d.aimed("a key conflict beside a fact no literal keys") || d.from([0, 1]) === 1)
 				? [
 						Arr.map(first, ([n, l]) =>
-							Arr.some(uuidKeys, (f) => f.name === n) ? ([n, wideUuid] as const) : ([n, l] as const)
+							Arr.some(bigintKeys, (f) => f.name === n)
+								? ([n, wideBigint] as const)
+								: ([n, l] as const)
 						)
 					]
 				: []
@@ -1583,23 +1595,23 @@ const describedWithParam = (d: Drawing): MemberSpec => {
 }
 
 /**
- * A union of two ChangeSets over Work, each holding one array member of one op and of Task, their facts at one literal
- * key, the second's account another uuid than the first's: the key law refuses a call that passes both.
+ * A union of two ChangeSets over Work, each holding one array member of one op and of Pair, their facts at one literal
+ * key, the second's b another number than the first's: the key law refuses a call that passes both.
  */
 const unionConflict = (d: Drawing): ChangeSpec => {
 	d.note("union")
 	d.note("array member")
 	const op = d.choose(["insert", "put"] as const)
-	const first = factOf(d, "Task", undefined, 0)
+	const first = factOf(d, "Pair", undefined, 0)
 	const second = Arr.map(first, ([name, lit]) =>
-		name === "account"
-			? ([name, lit.text === uuidLit(1).text ? uuidLit(2) : uuidLit(1)] as const)
+		name === "b"
+			? ([name, lit === pairBs[0] ? pairBs[1] : pairBs[0]] as const)
 			: ([name, lit] as const)
 	)
 	const operand = (fact: ReadonlyArray<readonly [string, Lit]>): BuiltSpec => ({
 		kind: "built",
 		level: "Work",
-		members: [{ kind: "array", op, relation: "Task", facts: [fact] }],
+		members: [{ kind: "array", op, relation: "Pair", facts: [fact] }],
 		grouped: false,
 		reads: [],
 		bind: undefined
@@ -1846,15 +1858,15 @@ class Rendering {
 		| "Flag"
 		| RoleName
 		| "plain"
-		| "uuidOf"
+		| "bigintOf"
 	>()
 
 	lit(l: Lit): string {
 		if (l === plainString) {
 			this.uses.add("plain")
 		}
-		if (l === wideUuid) {
-			this.uses.add("uuidOf")
+		if (l === wideBigint) {
+			this.uses.add("bigintOf")
 		}
 		if (Str.startsWith("Cents(")(l.text)) {
 			this.uses.add("Cents")
@@ -2349,8 +2361,8 @@ type Verdict =
 const hostText = (t: ScalarType): string => {
 	const named = t.contract
 	if (named !== undefined) {
-		return named.name === "Cents"
-			? "Infer<typeof Cents>"
+		return named.name === "Cents" || named.name === "Id"
+			? `Infer<typeof ${named.name}>`
 			: named.name === "natural"
 				? "bigint"
 				: `unknown /* ${named.name} */`
@@ -3535,7 +3547,7 @@ export const changeSetProgram = (
 						"export type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
 						"export type Expect<T extends true> = T",
 						...(uses.has("plain") ? ["declare const plain: string"] : []),
-						...(uses.has("uuidOf") ? ["declare const uuidOf: (n: number) => Uuid"] : []),
+						...(uses.has("bigintOf") ? ["declare const bigintOf: (n: number) => bigint"] : []),
 						"export const widen = <R>(_relation: R, facts: ReadonlyArray<Addition<R>>): ReadonlyArray<Addition<R>> => facts",
 						"export type SchemaOf<C> = C extends Phantom<{ readonly schema: Invariant<infer S> }> ? S : never",
 						'export type Hosts = [CalendarDate, Decimal, Money, Uuid, Infer<typeof Cents>, typeof pg, BitsOf<typeof Flag>, Rostered<"Kind">, RegexInfer<"", "u">]',

@@ -1,4 +1,4 @@
-import { closedId, uuid } from "#compiler/public/fields.ts"
+import { closedId } from "#compiler/public/fields.ts"
 import { arm, query, v } from "#compiler/public/query.ts"
 import {
 	alternatives,
@@ -17,22 +17,17 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Cents } from "#test/support/fixtures/api/contracts.ts"
+import { Id } from "#test/support/ids.ts"
 
 export const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
-export const Account = relation("Account", { id: uuid, name: str.regex("^.{1,200}$", "su") }, [
-	"id"
-])
-export const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"])
-export const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: Cents }, ["task"])
-export const ManualTask = relation(
-	"ManualTask",
-	{ task: uuid, operator: str.regex("^.*$", "su") },
-	["task"]
-)
-
-export const TaskNote = relation("TaskNote", { task: uuid, note: str.regex("^.*$", "su") }, [
+export const Account = relation("Account", { id: Id, name: str.regex("^.{1,200}$", "su") }, ["id"])
+export const Task = relation("Task", { id: Id, account: Id, kind: closedId(Kind) }, ["id"])
+export const AutomaticTask = relation("AutomaticTask", { task: Id, budget: Cents }, ["task"])
+export const ManualTask = relation("ManualTask", { task: Id, operator: str.regex("^.*$", "su") }, [
 	"task"
 ])
+
+export const TaskNote = relation("TaskNote", { task: Id, note: str.regex("^.*$", "su") }, ["task"])
 
 /**
  * The worked example, in public-API form: the Work schema, its Reports extension
@@ -86,7 +81,7 @@ export const workReads = <const N extends string>(installed: WorkNamed<N>) => {
 		return r
 			.match(Task, { id, account, kind: "Automatic" })
 			.match(AutomaticTask, { task: id, budget })
-			.where(r.eq(account, r.param("account", uuid)))
+			.where(r.eq(account, r.param("account", Id)))
 			.find({ id, budget })
 	})
 
@@ -96,7 +91,7 @@ export const workReads = <const N extends string>(installed: WorkNamed<N>) => {
 		return r
 			.match(Task, { id, account, kind: "Automatic" })
 			.match(AutomaticTask, { task: id, budget })
-			.where(r.eq(account, r.param("account", uuid)))
+			.where(r.eq(account, r.param("account", Id)))
 			.find({ account, tasks: r.count(), budget: r.sum(budget) })
 	})
 
@@ -127,7 +122,7 @@ export const workReads = <const N extends string>(installed: WorkNamed<N>) => {
 			const { id, account, kind } = v(Task, "task")
 			return r
 				.match(Task, { id, account, kind })
-				.where(r.eq(account, r.param("account", uuid)))
+				.where(r.eq(account, r.param("account", Id)))
 				.find({ id, kind })
 		})
 		.attach(
@@ -184,7 +179,7 @@ export const taskPayloads = query(Work)
 	})
 
 export const tasksById = query(Work).rule((r) => {
-	const wanted = r.relation("ids", { id: uuid })
+	const wanted = r.relation("ids", { id: Id })
 	const { id, kind } = v(Task, "task")
 	return r.match(wanted, { id }).match(Task, { id, kind }).find({ id, kind })
 })
@@ -210,7 +205,7 @@ export const labeledAutomaticTasks = query(Work).rule((r) => {
 	return r
 		.match(automaticTasks, { id, account, budget })
 		.match(Account, { id: account, name })
-		.where(r.eq(account, r.param("account", uuid)))
+		.where(r.eq(account, r.param("account", Id)))
 		.find({ id, name, budget })
 })
 
@@ -295,19 +290,19 @@ export const switchToManualPutMember = query(Work).rule((r) => {
 	const { account } = v(Task, "task")
 	return r
 		.match(Task, { id: r.param("task", Task.fields.id), account, kind: "Automatic" })
-		.find({ id: r.param("task", uuid), account, kind: "Manual" })
+		.find({ id: r.param("task", Id), account, kind: "Manual" })
 })
 
 export const switchToManualDeleteMember = query(Work).rule((r) => {
 	const { budget } = v(AutomaticTask, "automaticTask")
 	return r
 		.match(AutomaticTask, { task: r.param("task", AutomaticTask.fields.task), budget })
-		.find({ task: r.param("task", uuid), budget })
+		.find({ task: r.param("task", Id), budget })
 })
 
 export const switchToManualInsertMember = query(Work).rule((r) =>
 	r.match(Task, { id: r.param("task", Task.fields.id), kind: "Automatic" }).find({
-		task: r.param("task", uuid),
+		task: r.param("task", Id),
 		operator: r.param("operator", ManualTask.fields.operator)
 	})
 )
@@ -323,7 +318,7 @@ const TierBudget = closed.relation(
 		{ tier: "Pro", budget: Cents(1000n) }
 	]
 )
-const Subscription = relation("Subscription", { account: uuid, tier: closedId(Tier) }, ["account"])
+const Subscription = relation("Subscription", { account: Id, tier: closedId(Tier) }, ["account"])
 export const Plans = schema(
 	"Plans",
 	[Tier, TierBudget, Subscription],

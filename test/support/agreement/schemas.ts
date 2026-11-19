@@ -38,7 +38,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { dateDescriptor } from "#compiler/scalar/date.ts"
 import { literalDescFor } from "#compiler/scalar/literal.ts"
-import { mintedRefusal } from "#compiler/scalar/minted.ts"
+import { mintedRefusal, unnamedIdRefusal } from "#compiler/scalar/minted.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import {
@@ -106,6 +106,7 @@ import {
 	testCompile
 } from "#test/support/compile.ts"
 import { admitContract, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
+import { Id } from "#test/support/ids.ts"
 import { messageOf } from "#test/support/message.ts"
 import { checking } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -194,6 +195,7 @@ const schemaConstructs = [
 	"castProbe",
 	"ruleProbe",
 	"mintedProbe",
+	"unnamedIdProbe",
 	"generatedProbe",
 	"slotKeyProbe",
 	"slotSideProbe",
@@ -310,6 +312,7 @@ const schemaFaults = [
 	"accumulatedStart",
 	"rowMissingField",
 	"mintedId",
+	"unnamedId",
 	"endpointType",
 	"widthType",
 	"numericArity",
@@ -584,6 +587,7 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 		"a closed relation's row holds every field"
 	),
 	mintedId: named(mintedRefusal),
+	unnamedId: named(unnamedIdRefusal),
 	endpointType: structural(
 		{ tag: "UnsupportedOperation" },
 		"a span's endpoint is an integer or a bigint, or a contract over one"
@@ -2167,7 +2171,7 @@ const generatedValue = (
 ): AnyRelation =>
 	generatedRelation(
 		"Gen",
-		{ id: uuidDescriptor, ...closedIdFields(c, rosters), depth: pgDescriptors.integer },
+		{ id: Id, ...closedIdFields(c, rosters), depth: pgDescriptors.integer },
 		["id"],
 		(row: Readonly<Record<string, unknown>>) => ({
 			weight: generatedField(
@@ -2238,7 +2242,7 @@ const fieldValue = (
 		case "pg":
 			return pgDescriptors[t.spelling]
 		case "uuid":
-			return uuidDescriptor
+			return Id
 		case "date":
 			return dateDescriptor
 		case "natural":
@@ -2845,7 +2849,7 @@ const fieldSource = (t: FieldType, ids: Ids): string => {
 		case "pg":
 			return t.spelling === "double precision" ? 'Fi.pg["double precision"]' : `Fi.pg.${t.spelling}`
 		case "uuid":
-			return "Fi.uuid"
+			return "Fi.Id"
 		case "date":
 			return "Fi.date"
 		case "natural":
@@ -3374,8 +3378,7 @@ const schemaProbe = (d: Drawing, base: Base): Probe => {
 		...(owner === undefined ? [] : [{ ...valid, fault: "finMember", fin: owner } as const])
 	]
 	const planted = d.from(forms)
-	const clashText = (name: string) =>
-		`Sc.relation(${jsonText(name)}, { clash: Fi.uuid }, ["clash"])`
+	const clashText = (name: string) => `Sc.relation(${jsonText(name)}, { clash: Fi.Id }, ["clash"])`
 	return {
 		construct: "schemaProbe",
 		refused: planted.fault,
@@ -3396,7 +3399,7 @@ const schemaProbe = (d: Drawing, base: Base): Probe => {
 			const mutable =
 				planted.rebound === undefined
 					? ids(planted.mutable)
-					: `Sc.relation(${jsonText(planted.rebound)}, { ...${ids(planted.rebound)}.fields, clash: Fi.uuid }, ${ids(planted.rebound)}.primaryKey)`
+					: `Sc.relation(${jsonText(planted.rebound)}, { ...${ids(planted.rebound)}.fields, clash: Fi.Id }, ${ids(planted.rebound)}.primaryKey)`
 			const root = `Sc.schema("P", [${listed}], [Sc.mutable(${mutable})])`
 			return oneLine(
 				planted.clash !== undefined && planted.above
@@ -3405,14 +3408,14 @@ const schemaProbe = (d: Drawing, base: Base): Probe => {
 			)
 		},
 		judge: (env) => {
-			const clashOf = (name: string) => relation(name, { clash: uuidDescriptor }, ["clash"], [])
+			const clashOf = (name: string) => relation(name, { clash: Id }, ["clash"], [])
 			const descriptors = Rec.fromEntries(
 				Arr.map(
 					declared[0].fields,
 					(f) => [f.name, fieldDescriptor(f, env.rosters, env.contracts)] as const
 				)
 			)
-			const widened: Readonly<Record<string, FieldBase>> = { ...descriptors, clash: uuidDescriptor }
+			const widened: Readonly<Record<string, FieldBase>> = { ...descriptors, clash: Id }
 			const members = [
 				...Arr.map(planted.members, (name) => memberOf(env, name)),
 				...(planted.copy === undefined
@@ -3482,7 +3485,7 @@ const roleProbe = (d: Drawing, base: Base): Probe => {
 		text: (ids) =>
 			oneLine(
 				planted.outside
-					? `Sc.role(${ids("S")}, "probe", { ${ordinary[0].name}: ${ids(ordinary[0].name)}, Outside: Sc.relation("Outside", { id: Fi.uuid }, ["id"]) })`
+					? `Sc.role(${ids("S")}, "probe", { ${ordinary[0].name}: ${ids(ordinary[0].name)}, Outside: Sc.relation("Outside", { id: Fi.Id }, ["id"]) })`
 					: `Sc.role(${ids(level)}, "probe", { ${Arr.join(
 							Arr.map(wholeEntries(base), (name) => `${name}: ${ids(name)}`),
 							", "
@@ -3493,7 +3496,7 @@ const roleProbe = (d: Drawing, base: Base): Probe => {
 				planted.outside
 					? role(env.schema, "probe", {
 							[ordinary[0].name]: got(env.relations, ordinary[0].name),
-							Outside: relation("Outside", { id: uuidDescriptor }, ["id"], [])
+							Outside: relation("Outside", { id: Id }, ["id"], [])
 						})
 					: role(env.level, "probe", env.entries, {
 							write: planted.write,
@@ -4142,12 +4145,7 @@ const predicateProbe = (d: Drawing, base: Base): Probe => {
 			return contract === undefined || built.kind === "refused"
 				? built
 				: compiling(() =>
-						schema(
-							"P",
-							[relation("Holder", { id: uuidDescriptor, x: contract }, ["id"], [])],
-							[],
-							[]
-						)
+						schema("P", [relation("Holder", { id: Id, x: contract }, ["id"], [])], [], [])
 					)
 		}
 	}
@@ -4256,7 +4254,7 @@ const literalProbe = (d: Drawing, base: Base): Probe => {
 				case "select":
 					return {
 						head: [
-							`export const ${own}_lit = Sc.relation("Lit", { id: Fi.uuid, f: ${field} }, ["id"])`
+							`export const ${own}_lit = Sc.relation("Lit", { id: Fi.Id, f: ${field} }, ["id"])`
 						],
 						line:
 							site === "check"
@@ -4278,7 +4276,7 @@ const literalProbe = (d: Drawing, base: Base): Probe => {
 					rowHelpers.eq(row["f"], literal.value)
 				switch (site) {
 					case "check": {
-						const lit = relation("Lit", { id: uuidDescriptor, f: descriptor }, ["id"], [])
+						const lit = relation("Lit", { id: Id, f: descriptor }, ["id"], [])
 						return schema(
 							"P",
 							[...Rec.values(rosters), lit],
@@ -4287,7 +4285,7 @@ const literalProbe = (d: Drawing, base: Base): Probe => {
 						)
 					}
 					case "select": {
-						const lit = relation("Lit", { id: uuidDescriptor, f: descriptor }, ["id"], [])
+						const lit = relation("Lit", { id: Id, f: descriptor }, ["id"], [])
 						return schema(
 							"P",
 							[...Rec.values(rosters), lit],
@@ -4299,7 +4297,7 @@ const literalProbe = (d: Drawing, base: Base): Probe => {
 						const probe = admitContract("Probe", descriptor, [
 							(x: unknown) => rowHelpers.eq(x, literal.value)
 						])
-						const holder = relation("Holder", { id: uuidDescriptor, f: probe }, ["id"], [])
+						const holder = relation("Holder", { id: Id, f: probe }, ["id"], [])
 						return schema("P", [...Rec.values(rosters), holder], [], [])
 					}
 				}
@@ -5206,7 +5204,7 @@ const closedDeclarations = (c: ClosedSpec, ids: Ids): ReadonlyArray<readonly [st
 			? [
 					[
 						"Gen",
-						`Sc.relation.generated("Gen", { id: Fi.uuid, ${idFields}, depth: Fi.pg.integer }, ["id"], (r) => ({ weight: Fi.generated(Fi.pg.integer, ${ids("Rule")}.at("w", ${Arr.join(
+						`Sc.relation.generated("Gen", { id: Fi.Id, ${idFields}, depth: Fi.pg.integer }, ["id"], (r) => ({ weight: Fi.generated(Fi.pg.integer, ${ids("Rule")}.at("w", ${Arr.join(
 							Arr.map(names, (name) => `r.${name}`),
 							", "
 						)})), flags: Fi.generated(Fi.bits(${ids(Arr.lastNonEmpty(c.key).name)}), ${ids("Rule")}.row(${Arr.join(
@@ -6323,7 +6321,7 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 					const reads = Arr.map(echoNames, (name) => `, r.${name}`)
 					return {
 						head: [`export const ${own}_Echo = Sc.closed.ordered("Echo", [${quoted(k1.handles)}])`],
-						line: `export const ${own} = Sc.relation.generated("Echoed", { id: Fi.uuid, echo: Fi.closedId(${roster})${Arr.join(restFields, "")} }, ["id"], (r) => ({ w: Fi.generated(Fi.pg.integer, ${ids("Rule")}.at("w", r.echo${Arr.join(reads, "")})) }))`,
+						line: `export const ${own} = Sc.relation.generated("Echoed", { id: Fi.Id, echo: Fi.closedId(${roster})${Arr.join(restFields, "")} }, ["id"], (r) => ({ w: Fi.generated(Fi.pg.integer, ${ids("Rule")}.at("w", r.echo${Arr.join(reads, "")})) }))`,
 						tail: []
 					}
 				}
@@ -6347,7 +6345,7 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 						const echoed = generatedRelation(
 							"Echoed",
 							{
-								id: uuidDescriptor,
+								id: Id,
 								echo: closedId(form.fault === "echoRoster" ? echo : got(env.rosters, k1.name)),
 								...Rec.fromEntries(
 									Arr.zipWith(echoNames, rest, (name, r) => [
@@ -6445,7 +6443,7 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 					form === "generatedContract"
 						? [`export const ${tally} = Fi.contract(${jsonText(tallyName)}, Fi.pg.bigint)`]
 						: [],
-				line: `export const ${own} = Sc.relation.generated("Generated", { id: Fi.uuid, depth: Fi.pg.integer, w: ${set}${form === "refinedGenerated" ? `, word: Tx.str.regex(${jsonText(wordPattern)})` : ""} }, [${form === "generatedKey" ? '"next"' : '"id"'}], (r) => (${callbackSource(set, tally)}))`,
+				line: `export const ${own} = Sc.relation.generated("Generated", { id: Fi.Id, depth: Fi.pg.integer, w: ${set}${form === "refinedGenerated" ? `, word: Tx.str.regex(${jsonText(wordPattern)})` : ""} }, [${form === "generatedKey" ? '"next"' : '"id"'}], (r) => (${callbackSource(set, tally)}))`,
 				tail: []
 			}
 		},
@@ -6494,7 +6492,7 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 				const made: unknown = Reflect.apply(generatedRelation, undefined, [
 					"Generated",
 					{
-						id: uuidDescriptor,
+						id: Id,
 						depth: pgDescriptors.integer,
 						w: set,
 						...(form === "refinedGenerated" ? { word: regexField(wordPattern, []) } : {})
@@ -6724,6 +6722,38 @@ const mintedProbe = (d: Drawing): Probe => {
 	}
 }
 
+/**
+ * A bare uuid where a column is declared: a relation's key field or a field beside its key. Each is a planted fault, refused by the model's message, say whose id this is, by the types where the column is
+ * written (types/fields/field.ts NamedIds) and by the builders where they describe it (schema/relation.ts
+ * namedColumn), while a contract over uuid, the program's Id, is the column it names. The probe is never admitted, so
+ * its construct is noted where drawn.
+ */
+const unnamedIdProbe = (d: Drawing): Probe => {
+	d.note("unnamedIdProbe")
+	const site = d.from(["key", "payload"] as const)
+	return {
+		construct: "unnamedIdProbe",
+		refused: "unnamedId",
+		text: (_ids, own) =>
+			oneLine(
+				site === "key"
+					? `export const ${own} = Sc.relation("Unnamed", { id: Fi.uuid }, ["id"])`
+					: `export const ${own} = Sc.relation("Unnamed", { id: Fi.Id, of: Fi.uuid }, ["id"])`
+			),
+		judge: () =>
+			building((): unknown =>
+				site === "key"
+					? Reflect.apply(relation, undefined, ["Unnamed", { id: uuidDescriptor }, ["id"], []])
+					: Reflect.apply(relation, undefined, [
+							"Unnamed",
+							{ id: Id, of: uuidDescriptor },
+							["id"],
+							[]
+						])
+			)
+	}
+}
+
 /** How a rule probe writes its query, valid or with one planted fault. */
 type RuleForm =
 	| "inSet"
@@ -6801,7 +6831,7 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 			const lit = `${own}_Lit`
 			const head = [
 				`export const ${own}_Cents = Fi.contract("Cents", Fi.pg.bigint)`,
-				`export const ${lit} = Sc.relation("Lit", { id: Fi.uuid, f: ${fieldSource(type, ids)}, n: Fi.pg.bigint, c: ${own}_Cents }, ["id"])`,
+				`export const ${lit} = Sc.relation("Lit", { id: Fi.Id, f: ${fieldSource(type, ids)}, n: Fi.pg.bigint, c: ${own}_Cents }, ["id"])`,
 				`export const ${own}_P = Sc.schema("P", [${Arr.join(
 					[...Arr.map(base.rosters, (r) => ids(r.name)), lit],
 					", "
@@ -6888,7 +6918,7 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 					return {
 						head: [
 							...head,
-							`export const ${own}_Elsewhere = Sc.relation("Elsewhere", { id: Fi.uuid }, ["id"])`,
+							`export const ${own}_Elsewhere = Sc.relation("Elsewhere", { id: Fi.Id }, ["id"])`,
 							`export const ${own}_Other = Sc.schema("Other", [${own}_Elsewhere], [])`
 						],
 						line: rule(
@@ -6904,7 +6934,7 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 			const lit = relation(
 				"Lit",
 				{
-					id: uuidDescriptor,
+					id: Id,
 					f: fieldValue(type, env.rosters, env.contracts),
 					n: pgDescriptors.bigint,
 					c: cents
@@ -7013,7 +7043,7 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 					)
 				case "attach":
 				case "foreignAttach": {
-					const elsewhere = relation("Elsewhere", { id: uuidDescriptor }, ["id"], [])
+					const elsewhere = relation("Elsewhere", { id: Id }, ["id"], [])
 					const other = schema("Other", [elsewhere], [], [])
 					const child = (parent: Readonly<Record<string, unknown>>) => {
 						const source = form === "attach" ? lit : elsewhere
@@ -7078,13 +7108,13 @@ const castProbe = (d: Drawing): Probe => {
 		refused: "castFits",
 		text: (_ids, own) =>
 			oneLine(
-				`export const ${own} = Sc.relation.generated("Cast", { id: Fi.uuid, depth: Fi.pg.${from} }, ["id"], (r) => ({ next: Fi.generated(Fi.pg.${to}, Cp.Compute.cast(Cp.Compute.add(r.depth, ${from === "bigint" ? "1n" : "1"}), Fi.pg.${to})) }))`
+				`export const ${own} = Sc.relation.generated("Cast", { id: Fi.Id, depth: Fi.pg.${from} }, ["id"], (r) => ({ next: Fi.generated(Fi.pg.${to}, Cp.Compute.cast(Cp.Compute.add(r.depth, ${from === "bigint" ? "1n" : "1"}), Fi.pg.${to})) }))`
 			),
 		judge: () =>
 			compiling(() => {
 				const cast = generatedRelation(
 					"Cast",
-					{ id: uuidDescriptor, depth: pgDescriptors[from] },
+					{ id: Id, depth: pgDescriptors[from] },
 					["id"],
 					(row: Readonly<Record<string, unknown>>) => ({
 						next: generatedField(
@@ -7190,8 +7220,8 @@ const fixedTargetProbe = (d: Drawing): Probe => {
 			const statement = fixedTargetText(form, src, tgt)
 			return {
 				head: [
-					`export const ${tgt} = Sc.relation("Tgt", { id: Fi.uuid, ref: Fi.uuid, flag: Fi.pg.boolean, n: Fi.natural }, ["id"])`,
-					`export const ${src} = Sc.relation("Src", { t: Fi.uuid, m: Fi.natural }, ["t"])`
+					`export const ${tgt} = Sc.relation("Tgt", { id: Fi.Id, ref: Fi.Id, flag: Fi.pg.boolean, n: Fi.natural }, ["id"])`,
+					`export const ${src} = Sc.relation("Src", { t: Fi.Id, m: Fi.natural }, ["t"])`
 				],
 				line: `export const ${own} = ${statement.line}`,
 				tail:
@@ -7205,15 +7235,15 @@ const fixedTargetProbe = (d: Drawing): Probe => {
 				const tgt = relation(
 					"Tgt",
 					{
-						id: uuidDescriptor,
-						ref: uuidDescriptor,
+						id: Id,
+						ref: Id,
 						flag: pgDescriptors.boolean,
 						n: naturalDescriptor
 					},
 					["id"],
 					[]
 				)
-				const src = relation("Src", { t: uuidDescriptor, m: naturalDescriptor }, ["t"], [])
+				const src = relation("Src", { t: Id, m: naturalDescriptor }, ["t"], [])
 				return schema("P", [src, tgt], [fixedTargetValue(form, src, tgt)], [])
 			})
 	}
@@ -7429,6 +7459,7 @@ const probeMakers: ReadonlyArray<
 	["castProbe", (d) => castProbe(d)],
 	["generatedProbe", generatedProbe],
 	["mintedProbe", (d) => mintedProbe(d)],
+	["unnamedIdProbe", (d) => unnamedIdProbe(d)],
 	["ruleProbe", ruleProbe],
 	["slotKeyProbe", (d) => slotKeyProbe(d)],
 	["slotSideProbe", slotSideProbe],

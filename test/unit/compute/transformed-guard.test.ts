@@ -15,7 +15,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { inclusion } from "#compiler/scalar/regex/inclusion.ts"
@@ -23,6 +23,7 @@ import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import {
@@ -156,7 +157,7 @@ export const aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenThe
 					schema(
 						"Bounded",
 						[
-							relation.generated("R", { id: uuid, t: OperandText }, ["id"], (r) => ({
+							relation.generated("R", { id: Id, t: OperandText }, ["id"], (r) => ({
 								n: generatedField(
 									TargetText,
 									castUnder(c.guard, chained(c.steps, r.t), high, TargetText),

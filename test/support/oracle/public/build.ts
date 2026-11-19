@@ -4,7 +4,7 @@ import type { Direction } from "#compiler/core/order.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { date, closedId, contract, pg, span, uuid, Vector } from "#compiler/public/fields.ts"
+import { date, closedId, contract, pg, span, Vector } from "#compiler/public/fields.ts"
 import {
 	key,
 	login,
@@ -29,6 +29,7 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/value.ts"
+import { Id } from "#test/support/ids.ts"
 import { argumentsOf, nonEmptyArgumentsOf } from "#test/support/list.ts"
 import { numeric, vectorDimensions, wideNumericTypmod } from "#test/support/oracle/gen/domain.ts"
 import type { CompareOp } from "#test/support/oracle/gen/ops.ts"
@@ -110,7 +111,7 @@ const descriptor = (kind: FieldKind, roster: RosterValue): FieldBase => {
 		case "prose":
 			return prose
 		case "uuid":
-			return uuid
+			return Id
 		case "handle":
 			return closedId(roster)
 		case "span4":
@@ -156,7 +157,7 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 		case "text":
 			return prose
 		case "uuid":
-			return uuid
+			return Id
 		case "date":
 			return date
 		case "code":

@@ -6,7 +6,7 @@ import { identity } from "#compiler/core/identity.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
-import { contract, pg, span, uuid } from "#compiler/public/fields.ts"
+import { contract, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -15,6 +15,7 @@ import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { decodedQuery } from "#test/support/fixtures/ir/desc.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { sentForms } from "#test/support/oracle/forms.ts"
@@ -23,11 +24,11 @@ const Instant = contract("Instant", pg.bigint)
 
 export const Slot = relation(
 	"Slot",
-	{ id: pg.integer, room: uuid, during: span(pg.integer), at: pg.integer },
+	{ id: pg.integer, room: Id, during: span(pg.integer), at: pg.integer },
 	["id"]
 )
 
-const Visit = relation("Visit", { id: uuid, stay: span(Instant), at: Instant }, ["id"])
+const Visit = relation("Visit", { id: Id, stay: span(Instant), at: Instant }, ["id"])
 
 export const Spans = schema("Spans", [Slot, Visit], [])
 

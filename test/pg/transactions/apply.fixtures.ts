@@ -7,13 +7,14 @@ import type { ServedDbContext } from "#adapter/db/context.ts"
 import { onceCalls, variantOf } from "#adapter/db/handles.ts"
 import type { ChangeCall, LoadedMember } from "#adapter/served/load.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
-import { type Uuid, uuid } from "#compiler/public/fields.ts"
+
 import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, assertVariant } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t3, t4, tMissing } from "#test/support/fixtures/golden/work.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { installedTemplate } from "#test/support/install-migrate.ts"
 import type { StateRow } from "#test/support/substrate/state.ts"
 import { stringsOver } from "#test/unit/text/generators.ts"
@@ -31,7 +32,7 @@ export const counts = (relation: string, added: bigint, deleted: bigint, put: bi
  */
 export const levels = (name: string) => {
 	const Base = schema(name, Rec.values(W.Work.relations), W.Work.statements)
-	const Label = relation("Label", { task: uuid }, ["task"])
+	const Label = relation("Label", { task: Id }, ["task"])
 	const Extended = schema.extend(Base, `${name}_1`, [Label], [])
 	/**
 	 * The app: a full role over Extended writing Work's stored relations but Account, so a write of Account is outside
@@ -65,7 +66,7 @@ export const changes: Arr.NonEmptyReadonlyArray<Change> = [
 
 /** A note of a task: TaskNote's fact, keyed by its task. */
 export interface Note {
-	readonly task: Uuid
+	readonly task: IdValue
 	readonly note: string
 }
 
@@ -80,7 +81,7 @@ export const stored = (n: Note): StateRow => ({ task: n.task, note: n.note })
 interface ApplyCase {
 	readonly change: Change
 	readonly notes: Arr.NonEmptyReadonlyArray<Note>
-	readonly wanted: Arr.NonEmptyReadonlyArray<Uuid>
+	readonly wanted: Arr.NonEmptyReadonlyArray<IdValue>
 	readonly note: string
 }
 
@@ -94,8 +95,8 @@ export type ApplyFeature =
 const noteText: Gen<string> = stringsOver(element([0x61, 0x7a, 0x20, 0x0a, 0xe9, 0x1f600]), 6)
 
 export const applyCase: Gen<ApplyCase> = (source) => {
-	const tasks = source.draw(element<Arr.NonEmptyReadonlyArray<Uuid>>([[t3], [t4], [t3, t4]]))
-	const found = source.draw(element<Arr.NonEmptyReadonlyArray<Uuid>>([[t3], [t4], [t3, t4]]))
+	const tasks = source.draw(element<Arr.NonEmptyReadonlyArray<IdValue>>([[t3], [t4], [t3, t4]]))
+	const found = source.draw(element<Arr.NonEmptyReadonlyArray<IdValue>>([[t3], [t4], [t3, t4]]))
 	return {
 		change: source.draw(element(changes)),
 		notes: Arr.map(tasks, (task): Note => ({ task, note: source.draw(noteText) })),

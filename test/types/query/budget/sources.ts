@@ -95,8 +95,7 @@ export const C = closed.ordered("C", ["a", "b"])
 ${Arr.join(
 	Arr.map(
 		indices(shape.relations),
-		(i) =>
-			`export const R${i} = relation("R${i}", { id: uuid, package: uuid, kind: Kind }, ["id"])\n`
+		(i) => `export const R${i} = relation("R${i}", { id: Id, package: Id, kind: Kind }, ["id"])\n`
 	),
 	""
 )}${Arr.join(

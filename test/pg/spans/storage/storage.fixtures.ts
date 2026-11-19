@@ -18,11 +18,12 @@ import type { ConstraintName } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, pg, span, uuid } from "#compiler/public/fields.ts"
+import { contract, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { spansTemplate } from "#test/pg/spans/allen/support.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import {
 	type Canonical,
 	canonicalize,
@@ -47,7 +48,7 @@ const Tick = contract("Tick", pg.bigint, (value) =>
 /** Slot's declared width. */
 export const slotWidth = 15
 
-const Booking = relation("Booking", { room: uuid, during: span(pg.bigint), guest: uuid }, [
+const Booking = relation("Booking", { room: Id, during: span(pg.bigint), guest: Id }, [
 	"room",
 	"during"
 ])

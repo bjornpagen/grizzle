@@ -1,27 +1,28 @@
 /** What the properties of snapshot-levels.test.ts read: its spaces, models and helpers. */
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
 import { closed, contained, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
+import { Id } from "#test/support/ids.ts"
 
 const Kind = closed.ordered("Kind", ["One", "Two"])
 
 const R = relation(
 	"R",
 	{
-		id: uuid,
+		id: Id,
 		big: pg.bigint,
 		label: str.regex("^[a-z]{1,8}$"),
 		flag: pg.boolean,
-		other: uuid,
+		other: Id,
 		kind: closedId(Kind)
 	},
 	["id"]
 )
 
-const B = relation("B", { id: uuid }, ["id"])
+const B = relation("B", { id: Id }, ["id"])
 
 const literals = ["bigint", "text", "boolean", "uuid", "closed id"] as const
 

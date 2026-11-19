@@ -3,13 +3,14 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
-import { Bits, bits, uuid } from "#compiler/public/fields.ts"
+import { Bits, bits } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { Note, Plans, Task } from "#test/pg/plans/fixture.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { installationOf } from "#test/support/kernel/naming.ts"
 
 type Relation = "Note" | "Task" | "Badge"
@@ -18,7 +19,7 @@ type Guard = "held" | "absent" | "other"
 
 const Tier = closed.ordered("Tier", ["bronze", "silver", "gold"])
 
-const Badge = relation("Badge", { id: uuid, holder: uuid, tiers: bits(Tier) }, ["id"])
+const Badge = relation("Badge", { id: Id, holder: Id, tiers: bits(Tier) }, ["id"])
 
 /** The badge tiers a guard and a read combine: {bronze}, as a term of the field's type, and {silver}. */
 const bronze = () => Compute.literal(Badge.fields.tiers, Bits.of(Tier, ["bronze"]))

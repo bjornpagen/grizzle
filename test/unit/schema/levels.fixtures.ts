@@ -1,7 +1,7 @@
 /** What the properties of levels.test.ts read: its spaces, models and helpers. */
 
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
-import { drawn, natural, uuid } from "#compiler/public/fields.ts"
+import { drawn, natural } from "#compiler/public/fields.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { own } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
@@ -19,18 +19,19 @@ import {
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 
-const A = relation("A", { id: uuid, x: uuid, y: uuid, n: natural }, ["id"])
+const A = relation("A", { id: Id, x: Id, y: Id, n: natural }, ["id"])
 
-const L = relation("L", { id: uuid, owner: uuid }, ["id"])
+const L = relation("L", { id: Id, owner: Id }, ["id"])
 
 const Lo = schema("Lo", [A, L], [key(on(A, "x"))])
 
-const C = relation("C", { id: uuid, a: uuid, n: natural }, ["id"])
+const C = relation("C", { id: Id, a: Id, n: natural }, ["id"])
 
-const U = relation("U", { id: uuid, count: drawn(natural) }, ["id"])
+const U = relation("U", { id: Id, count: drawn(natural) }, ["id"])
 
-const UM = relation("UM", { id: uuid, owner: uuid }, ["id"])
+const UM = relation("UM", { id: Id, owner: Id }, ["id"])
 
 /** Where a side reads: an upper or a lower relation. */
 const places = ["upper", "lower"] as const

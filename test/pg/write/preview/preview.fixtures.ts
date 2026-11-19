@@ -43,8 +43,7 @@ import {
 	drawn,
 	generated,
 	natural,
-	pg,
-	uuid
+	pg
 } from "#compiler/public/fields.ts"
 import {
 	closed,
@@ -81,6 +80,7 @@ import {
 	mutableOrDrawn,
 	relationName
 } from "#test/support/families/fill.ts"
+import { Id } from "#test/support/ids.ts"
 import {
 	type Installed,
 	installMigrated,
@@ -178,7 +178,7 @@ const paletteOf = (hues: Hues) => {
 		"Swatch",
 		{
 			hue,
-			id: uuid,
+			id: Id,
 			tone: hue,
 			n: drawn(natural),
 			strokes: drawn(natural),
@@ -195,9 +195,9 @@ const paletteOf = (hues: Hues) => {
 	const Dab = relation(
 		"Dab",
 		{
-			id: uuid,
+			id: Id,
 			hue,
-			swatch: uuid,
+			swatch: Id,
 			shade: hue,
 			marks: bits(Hue),
 			tone: accumulated(hue, "a"),
@@ -209,7 +209,7 @@ const paletteOf = (hues: Hues) => {
 	)
 	const Stroke = relation(
 		"Stroke",
-		{ id: uuid, hue, swatch: uuid, at: drawn(natural), shade: hue, prior: accumulated(hue, "a") },
+		{ id: Id, hue, swatch: Id, at: drawn(natural), shade: hue, prior: accumulated(hue, "a") },
 		["id"],
 		[]
 	)

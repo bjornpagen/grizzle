@@ -31,8 +31,7 @@ import {
 	closedId,
 	drawn as drawnField,
 	natural,
-	pg,
-	uuid
+	pg
 } from "#compiler/public/fields.ts"
 import {
 	type AnySchema,
@@ -70,6 +69,7 @@ import {
 	type Node as TreeNode,
 	treeOfParents
 } from "#test/support/families/tree.ts"
+import { Id } from "#test/support/ids.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { asDrafted, compile, noDeclarations } from "#test/support/migrate/kit.ts"
@@ -490,11 +490,7 @@ const int4Least = -2_147_483_648
 const noTags = Bits.of(Tag, [])
 
 /** A fin fold seat's members before their family: keyed by member, each with its owner g and its step value x. */
-const storedMembers = <X extends FieldBase>(
-	name: string,
-	x: X,
-	rosters: ReadonlyArray<typeof Tag>
-) =>
+const storedMembers = (name: string, x: FieldBase, rosters: ReadonlyArray<typeof Tag>) =>
 	schema(
 		name,
 		[
@@ -1076,7 +1072,7 @@ const keyFieldOf = (type: KeyType): FieldBase => {
 		case "int8":
 			return pg.bigint
 		case "uuid":
-			return uuid
+			return Id
 	}
 }
 

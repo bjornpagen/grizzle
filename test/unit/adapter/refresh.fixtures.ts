@@ -29,7 +29,7 @@ import type { TransientTag } from "#compiler/core/errors.ts"
 import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
 import type { RoleDesc } from "#compiler/ir/desc.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	type AnyRelation,
@@ -54,6 +54,7 @@ import {
 	sentSql,
 	type StatementAnswer
 } from "#test/support/flight/scripted.ts"
+import { Id } from "#test/support/ids.ts"
 import { atDeclaredName, installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 
@@ -71,7 +72,7 @@ import { nothingReported, serverError } from "#test/support/server-error.ts"
  */
 export const Sitting = relation(
 	"Sitting",
-	{ id: uuid, student: uuid, week: pg.integer, passed: pg.boolean },
+	{ id: Id, student: Id, week: pg.integer, passed: pg.boolean },
 	["id"]
 )
 
@@ -177,7 +178,7 @@ export const built = (c: TargetsCase) => {
 		for (const [position, kind] of kinds.entries()) {
 			const n = count++
 			if (kind === "base") {
-				const value = relationBuilder(`X${n}`, { id: uuid }, ["id"], [])
+				const value = relationBuilder(`X${n}`, { id: Id }, ["id"], [])
 				record[`X${n}`] = value
 				entries[`X${n}`] = value
 			} else {

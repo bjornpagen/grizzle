@@ -12,7 +12,7 @@ import {
 import { Array as Arr, Effect, String as Str } from "effect"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { CallError } from "#compiler/live/index.ts"
-import { bytes, date, pg, uuid, Vector } from "#compiler/public/fields.ts"
+import { bytes, date, pg, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { type AnyLogin, relation, schema } from "#compiler/public/schema.ts"
 import { printRoleSetting } from "#compiler/sql/print.ts"
@@ -25,6 +25,7 @@ import { assert } from "#test/support/assert.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1 } from "#test/support/fixtures/golden/work.ts"
+import { Id } from "#test/support/ids.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
@@ -41,7 +42,7 @@ export const builtinCUtf8 =
  * installs.
  */
 export const vectorProbe = query(W.Work).rule((r) => {
-	const wanted = r.relation("qs", { id: uuid, e: pg.vector(3) })
+	const wanted = r.relation("qs", { id: Id, e: pg.vector(3) })
 	const { id, kind } = v(W.Task, "task")
 	return r.match(wanted, { id }).match(W.Task, { id, kind }).find({ id, kind })
 })
@@ -51,7 +52,7 @@ export const vectorProbe = query(W.Work).rule((r) => {
  * database with pgvector answers it.
  */
 export const searchProbe = query(search.Search).rule((r) => {
-	const wanted = r.relation("qs", { id: uuid, e: pg.vector(3) })
+	const wanted = r.relation("qs", { id: Id, e: pg.vector(3) })
 	const { id, title } = v(search.Document, "document")
 	return r.match(wanted, { id }).match(search.Document, { id, title }).find({ id, title })
 })
@@ -62,14 +63,14 @@ export const searchProbe = query(search.Search).rule((r) => {
  */
 export const Stamp = relation(
 	"Stamp",
-	{ id: uuid, day: date, ratio: pg["double precision"], blob: bytes },
+	{ id: Id, day: date, ratio: pg["double precision"], blob: bytes },
 	["id"]
 )
 
 export const Stamps = schema("Stamps", [Stamp], [])
 
 /** The one stamp a case stores. */
-export const stampId = "00000000-0000-4000-8000-0000000000aa"
+export const stampId = Id("00000000-0000-4000-8000-0000000000aa")
 
 /** A stamp's values: a day as its ISO 8601 text, a ratio and its bytes. */
 interface StampRow {

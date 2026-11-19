@@ -6,12 +6,13 @@ import { checkQuery } from "#compiler/check/index.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { Compute, type Predicate, type Term } from "#compiler/public/compute.ts"
-import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { pg, type Uuid } from "#compiler/public/fields.ts"
 import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { optimizedLowering } from "#test/pg/recursion/lowering/support.ts"
+import { Id } from "#test/support/ids.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
@@ -38,9 +39,9 @@ import { upTo } from "#test/support/up-to.ts"
  */
 
 /** The graph fixture's Network. */
-const Person = relation("Person", { id: uuid, name: str.regex("^.*$", "su") }, ["id"])
+const Person = relation("Person", { id: Id, name: str.regex("^.*$", "su") }, ["id"])
 
-const Follows = relation("Follows", { from: uuid, to: uuid }, ["from", "to"])
+const Follows = relation("Follows", { from: Id, to: Id }, ["from", "to"])
 
 const Network = schema(
 	"Network",
@@ -51,13 +52,13 @@ const Network = schema(
 /** The (person, hops) states reachable from the start in fewer than `limit` hops, which proves depth `limit`. */
 export const walksBelow = (name: string, limit: number) =>
 	query(Network).recursive(name, {
-		row: { person: uuid, hops: pg.integer },
+		row: { person: Id, hops: pg.integer },
 		base: [
 			(r) => {
 				const { id } = v(Person, "person")
 				return r
 					.match(Person, { id })
-					.where(r.eq(id, r.param("start", uuid)))
+					.where(r.eq(id, r.param("start", Id)))
 					.find({ person: id, hops: Compute.literal(pg.integer, 0) })
 			}
 		],
@@ -81,7 +82,7 @@ export const walksBelow = (name: string, limit: number) =>
 /** The people a walk reaches, its hop count dropped. */
 export const reachableBy = (walks: ReturnType<typeof walksBelow>) =>
 	query(Network).rule((r) => {
-		const source = walks.bind({ start: r.param("person", uuid) })
+		const source = walks.bind({ start: r.param("person", Id) })
 		const { person } = v(source, "source")
 		return r.match(source, { person }).find({ person })
 	})
@@ -212,7 +213,7 @@ export type ReachedFeature = "reached people" | "reached nobody"
 type NetworkRule = Rule<typeof Network>
 
 /** The feedback of a counter: the person reached and the hop count. */
-type CounterSelf = SelfSource<{ readonly person: typeof uuid; readonly hops: typeof pg.integer }>
+type CounterSelf = SelfSource<{ readonly person: typeof Id; readonly hops: typeof pg.integer }>
 
 type Hops = Term<number, unknown, unknown, "integer">
 
@@ -304,12 +305,12 @@ const armOf = (arm: Arm) => (r: NetworkRule, self: CounterSelf) => {
 
 export const counterOf = (k: CounterSketch): unknown =>
 	query(Network).recursive("Counter", {
-		row: { person: uuid, hops: pg.integer },
+		row: { person: Id, hops: pg.integer },
 		base: Arr.map(k.seeds, (seed) => (r: NetworkRule) => {
 			const { id } = v(Person, "person")
 			return r
 				.match(Person, { id })
-				.where(r.eq(id, r.param("start", uuid)))
+				.where(r.eq(id, r.param("start", Id)))
 				.find({ person: id, hops: lit(seed) })
 		}),
 		rec: Arr.map(k.arms, armOf)

@@ -29,7 +29,6 @@ import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { draftCodebook, reorderRefusal, type RosterRenames } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { uuid } from "#compiler/public/fields.ts"
 import { login, relation as relationValue, role, schema } from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
@@ -49,6 +48,7 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { Id } from "#test/support/ids.ts"
 import { aliasGroups } from "#test/support/kernel/dict.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
@@ -319,11 +319,11 @@ const subjectOf = (box: Box, at: "start" | "target"): Subject => {
 		const held = heldOf(box, only.dimension, at)
 		return { desc: descOf(only.dimension, held), logins: [] }
 	}
-	const Doc = relationValue("Doc", { id: uuid }, ["id"])
+	const Doc = relationValue("Doc", { id: Id }, ["id"])
 	const stored = Rec.fromEntries(
 		Arr.map(
 			heldOf(box, "relation", at),
-			(n) => [upper(n), relationBuilder(upper(n), { id: uuid }, ["id"], [])] as const
+			(n) => [upper(n), relationBuilder(upper(n), { id: Id }, ["id"], [])] as const
 		)
 	)
 	const base = schema("Renames", [...Rec.values(stored), Doc], [])

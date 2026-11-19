@@ -10,7 +10,7 @@ import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { decodeDesc, type FieldDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { samePatterns } from "#compiler/ir/scalar.ts"
-import { pg, span, uuid } from "#compiler/public/fields.ts"
+import { pg, span } from "#compiler/public/fields.ts"
 import { type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { schema, relation as table } from "#compiler/public/schema.ts"
 import { queryOver as untypedQuery } from "#compiler/query/build/query.ts"
@@ -25,6 +25,7 @@ import {
 	textDesc,
 	type VarDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { Id } from "#test/support/ids.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import {
@@ -579,16 +580,12 @@ export type ShapeFeature =
 	| "several rules refuse"
 
 /** r.pack needs a span state, which Graph has none of: the rule is planted over a schema of spanned links. */
-const Link = table("Link", { from: uuid, to: uuid, during: span(pg.bigint) }, [
-	"from",
-	"to",
-	"during"
-])
+const Link = table("Link", { from: Id, to: Id, during: span(pg.bigint) }, ["from", "to", "during"])
 
 export const Spans = schema("Spans", [Link], [])
 
 /** The recursion's row: a node and the span it is reached during. */
-const row = Object.freeze({ node: uuid, during: span(pg.bigint) })
+const row = Object.freeze({ node: Id, during: span(pg.bigint) })
 
 /**
  * The step's head term is chosen at run time, a producer or a term, which the typed recursive cannot state as the
@@ -602,7 +599,7 @@ export const covered = (pack: boolean) =>
 				const { from, during } = v(Link, "link")
 				return r
 					.match(Link, { from, during })
-					.where(r.eq(from, r.param("start", uuid)))
+					.where(r.eq(from, r.param("start", Id)))
 					.find({ node: from, during })
 			}
 		],

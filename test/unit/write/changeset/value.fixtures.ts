@@ -40,7 +40,7 @@ import {
 	renameQueryParams,
 	type WriteOp
 } from "#compiler/ir/desc.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver as query, type QueryValue, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -68,6 +68,7 @@ import {
 	TaskNote,
 	Work
 } from "#test/support/fixtures/api/work.ts"
+import { Id } from "#test/support/ids.ts"
 import {
 	type Admitted,
 	admittedNames,
@@ -84,7 +85,7 @@ import {
 } from "#test/unit/write/changeset/fixtures.ts"
 
 /** The relation an extension of Work adds, so Work is a level of the extension and not the other way round. */
-const Extra = relation("Extra", { id: uuid }, ["id"])
+const Extra = relation("Extra", { id: Id }, ["id"])
 
 const Ext = schema.extend(Work, "Ext", [Extra], [])
 

@@ -19,13 +19,14 @@ import { Array as Arr, Effect, Formatter, Layer, Option, Order, String as Str } 
 import { Db } from "#adapter/public/db.ts"
 import { textArrayParam } from "#compiler/codec/recordset.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
+import { Id } from "#test/support/ids.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -56,8 +57,8 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * the texts PostgreSQL stores from the text array literal of the texts written, compared as JavaScript strings.
  */
 const Body = str.regex("^.*$", "su")
-const Note = relation("Note", { id: uuid, body: Body }, ["id"])
-const Response = relation("Response", { id: uuid, value: Body }, ["id"])
+const Note = relation("Note", { id: Id, body: Body }, ["id"])
+const Response = relation("Response", { id: Id, value: Body }, ["id"])
 const Texts = schema("TextArrays", [Note, Response], [mutable(Note), mutable(Response)])
 
 /**

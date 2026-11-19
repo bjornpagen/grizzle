@@ -28,12 +28,13 @@ import type { LoadedMember } from "#adapter/served/load.ts"
 import type { Session, SessionPool } from "#adapter/wire/session.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { bytes, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { bytes, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { fin, key, login, on, ordered, relation, role, schema } from "#compiler/public/schema.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import {
@@ -54,11 +55,11 @@ import { textBound } from "#test/support/staged.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** An entry's path: any text its key beside the package's uuid holds, as pantry's EntryPath is bounded. */
-const EntryPath = str.bytes(keyTextBytes([uuid]), str.regex("^.*$", "su"))
-const Package = relation("Package", { id: uuid, entries: drawn(natural), name: pg.integer }, ["id"])
+const EntryPath = str.bytes(keyTextBytes([Id]), str.regex("^.*$", "su"))
+const Package = relation("Package", { id: Id, entries: drawn(natural), name: pg.integer }, ["id"])
 const Entry = relation(
 	"Entry",
-	{ package: uuid, at: drawn(natural), path: EntryPath, content: bytes },
+	{ package: Id, at: drawn(natural), path: EntryPath, content: bytes },
 	["package", "at"]
 )
 
@@ -94,24 +95,21 @@ const imports = (name: string) => {
 /** The stored packages beside the imports, each with one entry, keyed across the uuid range. */
 const stored = 3_000
 
-/** A package's key: a uuid's text. */
-type Key = `${string}-${string}-${string}-${string}-${string}`
-
 /** The uuid of the `n`-th of `of` keys spread evenly across the uuid range. */
-const uuidAt = (n: number, of: number): Key => {
+const uuidAt = (n: number, of: number): IdValue => {
 	const hex = Str.padStart(8, "0")(Math.floor((n / of) * 0xffff_ffff).toString(16))
-	return `${hex}-0000-4000-8000-${Str.padStart(12, "0")(n.toString(16))}`
+	return Id(`${hex}-0000-4000-8000-${Str.padStart(12, "0")(n.toString(16))}`)
 }
 
 /** The two imports' packages, keyed at either end of the uuid range, past every stored one. */
-const first: Key = "00000000-0000-4000-8000-ffffffffffff"
-const second: Key = "ffffffff-ffff-4fff-bfff-ffffffffffff"
+const first: IdValue = Id("00000000-0000-4000-8000-ffffffffffff")
+const second: IdValue = Id("ffffffff-ffff-4fff-bfff-ffffffffffff")
 
 /**
  * One import's facts under the message bound `limit`: its package with three entries of three fifths of the bound each,
  * which a fill carries alone and which pass the bound together, so every import stages.
  */
-const importOf = (id: Key, name: number, limit: number) => ({
+const importOf = (id: IdValue, name: number, limit: number) => ({
 	insert: {
 		Package: [
 			{

@@ -22,21 +22,22 @@ import { Effect } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { fileText, repoRoot } from "#test/support/files.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** A pattern the first version's stored field holds. */
 const Code = str.regex("^[A-Z]{2,6}$")
 /** A pattern no stored field of the first version holds. */
 const Slug = str.regex("^[a-z][a-z0-9-]*$")
 
-const Item = relation("Item", { id: uuid, n: pg.integer }, ["id"])
-const Coded = relation("Coded", { id: uuid, code: Code }, ["id"])
-const Tagged = relation("Tagged", { id: uuid, slug: Slug }, ["id"])
+const Item = relation("Item", { id: Id, n: pg.integer }, ["id"])
+const Coded = relation("Coded", { id: Id, code: Code }, ["id"])
+const Tagged = relation("Tagged", { id: Id, slug: Slug }, ["id"])
 
 /** Which of the two patterns a version stores: Code in Coded's `code`, Slug in Tagged's `slug`. */
 export interface Stored {

@@ -9,7 +9,7 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
@@ -24,13 +24,14 @@ import type {
 import { assert, succeeded } from "#test/support/assert.ts"
 import { lowerAligned, programAsts } from "#test/support/compile.ts"
 import { ownedSchemaFixture } from "#test/support/evidence.ts"
+import { Id } from "#test/support/ids.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { present } from "#test/unit/lower/support.ts"
 
-const Vertex = relation("Vertex", { id: uuid, rank: pg.smallint }, ["id"])
+const Vertex = relation("Vertex", { id: Id, rank: pg.smallint }, ["id"])
 
-const Edge = relation("Edge", { from: uuid, to: uuid }, ["from", "to"])
+const Edge = relation("Edge", { from: Id, to: Id }, ["from", "to"])
 
 const Graph = schema(
 	"Graph",
@@ -140,13 +141,13 @@ export const recursiveCtes = (s: Select): ReadonlyArray<Cte> =>
 /** The walk from a parameter root, one hop at a time from hops 0 while hops is below `below`. */
 export const walkBelow = (below: number) =>
 	query(Graph).recursive("Walks", {
-		row: { node: uuid, hops: pg.integer },
+		row: { node: Id, hops: pg.integer },
 		base: [
 			(r) => {
 				const { id } = v(Vertex, "vertex")
 				return r
 					.match(Vertex, { id })
-					.where(r.eq(id, r.param("start", uuid)))
+					.where(r.eq(id, r.param("start", Id)))
 					.find({ node: id, hops: Compute.literal(pg.integer, 0) })
 			}
 		],

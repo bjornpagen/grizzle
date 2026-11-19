@@ -9,23 +9,22 @@ import {
 	statedOrderOf
 } from "#compiler/lower/shapes/page/compile.ts"
 import { type QueryTemplate, queryInput, querySchema } from "#compiler/program/compile.ts"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { compileTemplate, inputArtifacts, type TestCompileOptions } from "#test/support/compile.ts"
 import { conservativePage } from "#test/support/conservative.ts"
+import { Id } from "#test/support/ids.ts"
 
 const Title = str.regex("^.+$", "su")
 const Level = closed.ordered("Level", ["Low", "High"])
-export const Task = relation(
-	"Task",
-	{ id: uuid, account: uuid, priority: pg.integer, title: Title },
-	["id"]
-)
+export const Task = relation("Task", { id: Id, account: Id, priority: pg.integer, title: Title }, [
+	"id"
+])
 const NoteText = str.regex("^[a-z0-9 ]{1,40}$", "u")
-const Note = relation("Note", { task: uuid, note: NoteText }, ["task", "note"])
-const Flag = relation("Flag", { task: uuid, level: closedId(Level) }, ["task"])
+const Note = relation("Note", { task: Id, note: NoteText }, ["task", "note"])
+const Flag = relation("Flag", { task: Id, level: closedId(Level) }, ["task"])
 export const Paging = schema(
 	"Paging",
 	[Level, Task, Note, Flag],
@@ -36,7 +35,7 @@ const tasksForAccount = query(Paging).rule((r) => {
 	const { id, account, priority, title } = v(Task, "task")
 	return r
 		.match(Task, { id, account, priority, title })
-		.where(r.eq(account, r.param("account", uuid)))
+		.where(r.eq(account, r.param("account", Id)))
 		.find({ id, priority, title })
 })
 
@@ -53,7 +52,7 @@ export const titles = query(Paging)
 		const { account, title } = v(Task, "task")
 		return r
 			.match(Task, { account, title })
-			.where(r.eq(account, r.param("account", uuid)))
+			.where(r.eq(account, r.param("account", Id)))
 			.find({ title })
 	})
 	.orderBy(["title", "desc"])
@@ -64,7 +63,7 @@ export const priorityCounts = query(Paging)
 		const { id, account, priority } = v(Task, "task")
 		return r
 			.match(Task, { id, account, priority })
-			.where(r.eq(account, r.param("account", uuid)))
+			.where(r.eq(account, r.param("account", Id)))
 			.find({ priority, tasks: r.count() })
 	})
 	.orderBy(["tasks", "desc"])
@@ -75,7 +74,7 @@ export const tasksWithNotes = query(Paging)
 		const { id, account, priority } = v(Task, "task")
 		return r
 			.match(Task, { id, account, priority })
-			.where(r.eq(account, r.param("account", uuid)))
+			.where(r.eq(account, r.param("account", Id)))
 			.find({ id, priority })
 	})
 	.attach(
@@ -99,7 +98,7 @@ export const flagged = query(Paging)
 		return r
 			.match(Task, { id, account, priority })
 			.match(Flag, { task: id, level: "High" })
-			.where(r.eq(account, r.param("account", uuid)))
+			.where(r.eq(account, r.param("account", Id)))
 			.find({ level: Level.handle("High"), id, priority })
 	})
 	.rule((r) => {
@@ -107,7 +106,7 @@ export const flagged = query(Paging)
 		return r
 			.match(Task, { id, account, title })
 			.match(Flag, { task: id, level: "Low" })
-			.where(r.eq(account, r.param("account", uuid)))
+			.where(r.eq(account, r.param("account", Id)))
 			.find({ level: Level.handle("Low"), id, title })
 	})
 	.orderBy(["id", "desc"])
@@ -122,7 +121,7 @@ export const flaggedByTitle = query(Paging)
 		return r
 			.match(Task, { id, account, priority, title })
 			.match(Flag, { task: id, level: "High" })
-			.where(r.eq(account, r.param("account", uuid)))
+			.where(r.eq(account, r.param("account", Id)))
 			.find({ level: Level.handle("High"), id, priority, title })
 	})
 	.rule((r) => {
@@ -130,7 +129,7 @@ export const flaggedByTitle = query(Paging)
 		return r
 			.match(Task, { id, account, title })
 			.match(Flag, { task: id, level: "Low" })
-			.where(r.eq(account, r.param("account", uuid)))
+			.where(r.eq(account, r.param("account", Id)))
 			.find({ level: Level.handle("Low"), id, title })
 	})
 	.orderBy(["title", "asc"])
@@ -143,7 +142,7 @@ const Label = str.regex("^.*$", "su")
 export const Measure = relation(
 	"Measure",
 	{
-		id: uuid,
+		id: Id,
 		x: pg["double precision"],
 		amount: pg.numeric(161, 40),
 		big: pg.bigint,

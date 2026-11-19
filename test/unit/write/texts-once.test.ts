@@ -26,7 +26,7 @@ import { Array as Arr, Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { closedId, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
 	closed,
 	counted,
@@ -44,6 +44,7 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
 import { withinMessage } from "#test/support/worlds/execute/offline.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -52,13 +53,13 @@ const kinds = ["leaf", "branch", "root"] as const
 
 const Kind = closed.ordered("Kind", kinds)
 
-const Doc = relation("Doc", { id: uuid, n: drawn(natural) }, ["id"])
+const Doc = relation("Doc", { id: Id, n: drawn(natural) }, ["id"])
 const Node = relation(
 	"Node",
-	{ doc: uuid, at: drawn(natural), attrs: drawn(natural), kind: closedId(Kind) },
+	{ doc: Id, at: drawn(natural), attrs: drawn(natural), kind: closedId(Kind) },
 	["doc", "at"]
 )
-const Attr = relation("Attr", { doc: uuid, at: natural, name: pg.bigint, kind: closedId(Kind) }, [
+const Attr = relation("Attr", { doc: Id, at: natural, name: pg.bigint, kind: closedId(Kind) }, [
 	"doc",
 	"at",
 	"name"

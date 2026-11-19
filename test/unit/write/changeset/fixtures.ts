@@ -2,7 +2,7 @@ import { pipe, String as Str } from "effect"
 import { noClock } from "#compiler/ir/clock.ts"
 import { type Codebook } from "#compiler/ir/codes.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
-import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { contained, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
@@ -23,6 +23,7 @@ import {
 import { succeeded } from "#test/support/assert.ts"
 import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { AutomaticTask, ManualTask, Task, Work } from "#test/support/fixtures/api/work.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
 
 /** Schemas and ChangeSets for the write front end tests, over the real builders: the worked
@@ -68,8 +69,8 @@ export const codesOf = (schemaValue: FixtureSchema): Codebook =>
 export const compiled = (schemaValue: FixtureSchema, value: unknown): WriteFrontend =>
 	succeeded(compileChangeSet(checking(schemaValue), descOf(value), frontendOptions(schemaValue)))
 
-export const uuidOf = (n: number): Uuid =>
-	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+export const uuidOf = (n: number): IdValue =>
+	Id(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
 
 /** The worked example's arm switch, described. */
 export const switchToManual = (): ChangeSetValue =>
@@ -106,16 +107,14 @@ const label = str.regex("^[a-z]{1,8}$")
 
 /** A ledger with a numbered key, a field outside the key, a candidate key, a mutable relation, a pure set and a foreign
  * key: Entry references Book. */
-const Book = relation("Book", { id: uuid, title: label }, ["id"])
-export const BookEntry = relation(
-	"Entry",
-	{ id: uuid, book: uuid, code: label, amount: pg.bigint },
-	["id"]
-)
+const Book = relation("Book", { id: Id, title: label }, ["id"])
+export const BookEntry = relation("Entry", { id: Id, book: Id, code: label, amount: pg.bigint }, [
+	"id"
+])
 const Ticket = relation("Ticket", { id: pg.bigint, note: label }, ["id"])
 const Counter = relation("Counter", { name: label, value: pg.bigint }, ["name"])
-const Status = relation("Status", { id: uuid, state: label }, ["id"])
-const Tag = relation("Tag", { owner: uuid, tag: label }, ["owner", "tag"])
+const Status = relation("Status", { id: Id, state: label }, ["id"])
+const Tag = relation("Tag", { owner: Id, tag: label }, ["owner", "tag"])
 export const LedgerSchema = schema(
 	"Ledger",
 	[Book, BookEntry, Ticket, Counter, Status, Tag],

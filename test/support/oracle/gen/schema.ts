@@ -195,15 +195,16 @@ export const relationNamed = (schema: GenSchema, name: string): GenRelation => {
 }
 
 /**
- * The closed relation declaring a roster's text payload of a pattern, `<roster>Payload`, keyed by the roster's handle,
- * one row per live handle: a Closed node's payload is the query's own, and the installation holds a text domain only
- * for a pattern something it installs declares, as a closed relation's field does. A query delivers such a payload
- * value through min or max, or compares a parameter with it, both of which the delivery checks by a cast to the
- * pattern's domain. None for a roster with no such payload; every other payload type needs no declared domain.
+ * The closed relation declaring a roster's payload of a pattern or a contract, `<roster>Payload`, keyed by the roster's
+ * handle, one row per live handle: a Closed node's payload is the query's own, and the installation holds a text domain
+ * only for a pattern something it installs declares, and a contract's domain only for a contract one does, as a closed
+ * relation's field does (a uuid's payload is the tests' Id, a contract). A query delivers such a payload value through
+ * min or max, or compares a parameter with it, both of which the delivery checks by a cast to its domain. None for a
+ * roster with no such payload; every other payload type needs no declared domain.
  */
 const payloadPatterns = (c: GenClosed): ReadonlyArray<RelationDesc> => {
 	const patterned = Arr.flatMap(c.payload, (col, i) =>
-		col.type.carrier === "text" && col.type.contract === undefined && col.type.text !== "wildcard"
+		col.type.contract !== undefined || (col.type.carrier === "text" && col.type.text !== "wildcard")
 			? [{ col, at: i + 1 }]
 			: []
 	)

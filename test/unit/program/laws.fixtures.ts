@@ -21,7 +21,7 @@ import type { ConstraintOwner } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, contract, pg, span, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, pg, span } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
 	type AnySchema,
@@ -54,6 +54,7 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, Relation } from "#compiler/types/schema/relation.ts"
 import { buildSwarm, featuresGen, type SwarmSpec, swarmSpecGen } from "#test/pg/write/swarm/spec.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { identityText, ownedStatementText } from "#test/support/kernel/naming.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -460,7 +461,7 @@ const keyOf = (t: TableCase): readonly [string, ...Array<string>] =>
 
 const tableOf = (t: TableCase): BuiltRelation => {
 	const written: Record<string, FieldBase> = {
-		id: uuid,
+		id: Id,
 		...(t.keyed === "span" ? { w: span(Minute) } : {}),
 		...Rec.fromEntries(Arr.map(t.fields, ([name, f]) => [name, fieldOf(t, name, f)] as const))
 	}
@@ -483,11 +484,11 @@ const tableOf = (t: TableCase): BuiltRelation => {
 
 const Kind = closed.ordered("Kind", ["plain", "lima", "oscar"])
 
-const Kilo = relation("Kilo", { id: uuid, kind: closedId(Kind) }, ["id"], [])
+const Kilo = relation("Kilo", { id: Id, kind: closedId(Kind) }, ["id"], [])
 
-const Lima = relation("Lima", { kilo: uuid, note: pg.integer }, ["kilo"], [])
+const Lima = relation("Lima", { kilo: Id, note: pg.integer }, ["kilo"], [])
 
-const Oscar = relation("Oscar", { kilo: uuid }, ["kilo"], [])
+const Oscar = relation("Oscar", { kilo: Id }, ["kilo"], [])
 
 const Key = closed.ordered("Key", ["one"])
 

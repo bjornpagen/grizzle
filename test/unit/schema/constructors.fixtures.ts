@@ -42,6 +42,7 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { assert } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import {
 	patternOnly,
@@ -55,12 +56,7 @@ import {
 
 export const Kind = closed("Kind", ["Automatic", "Manual"], "ordered", [])
 
-export const Task = relation(
-	"Task",
-	{ id: uuid, account: uuid, kind: rawClosedId(Kind) },
-	["id"],
-	[]
-)
+export const Task = relation("Task", { id: Id, account: Id, kind: rawClosedId(Kind) }, ["id"], [])
 
 /**
  * A one-rule definition over `over` finding the ids of `sources`, each a relation or a derived relation matched on its
@@ -109,7 +105,7 @@ export const lookAlikeOf = (kind: LookAlike): unknown =>
 			: { ...uuid }
 
 export const builtDescriptors: Arr.NonEmptyReadonlyArray<FieldBase> = [
-	uuid,
+	Id,
 	rawPg.integer,
 	rawPg.bigint,
 	regex("^[a-z]{1,8}$", "u")
@@ -644,7 +640,7 @@ export const featureOf = (k: FieldListCase): FieldListFeature => `${k.site}: ${k
 export const taskFields: Arr.NonEmptyReadonlyArray<string> = ["id", "account", "kind"]
 
 /** A relation with a count, the one type a pred term reads. */
-export const Counted = relation("Counted", { id: uuid, n: natural }, ["id"], [])
+export const Counted = relation("Counted", { id: Id, n: natural }, ["id"], [])
 
 /** Task's facts of one kind, as a JavaScript caller writes the callback. */
 export const ofKind = (handle: string) => (r: Row & { readonly kind: Row["id"] }) =>
@@ -658,7 +654,7 @@ export const predicateOf = (callback: unknown) => {
 
 export type SideStatement = "contained" | "mirrors"
 
-export const Triple = relation("Triple", { a: uuid, b: uuid, c: uuid }, ["a", "b", "c"], [])
+export const Triple = relation("Triple", { a: Id, b: Id, c: Id }, ["a", "b", "c"], [])
 
 export const tripleFields: Arr.NonEmptyReadonlyArray<string> = ["a", "b", "c"]
 
@@ -789,7 +785,7 @@ export const predicateGen = (depth: number): Gen<CheckPredicate> =>
 
 export const Election = relation(
 	"Election",
-	{ id: uuid, limit: rawPg.integer, maximum: rawPg.integer, label: wildcard },
+	{ id: Id, limit: rawPg.integer, maximum: rawPg.integer, label: wildcard },
 	["id"],
 	[]
 )
@@ -944,9 +940,9 @@ export type AlternativesFeature =
 
 export const Alien = closed("Alien", ["X"], "ordered", [])
 
-const Account = relation("Account", { id: uuid, name: regex("^[a-z]{1,40}$", "u") }, ["id"], [])
+const Account = relation("Account", { id: Id, name: regex("^[a-z]{1,40}$", "u") }, ["id"], [])
 
-const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: Cents }, ["task"], [])
+const AutomaticTask = relation("AutomaticTask", { task: Id, budget: Cents }, ["task"], [])
 
 type Entry = "Kind" | "Task" | "Account" | "AutomaticTask"
 

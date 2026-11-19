@@ -18,7 +18,7 @@ import type { LoginRule, RoleRule } from "#compiler/core/causes.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, derived, relation, schema } from "#compiler/public/schema.ts"
 import {
@@ -33,6 +33,7 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { admitRole } from "#compiler/schema/world.ts"
 import { buildSchema } from "#test/pg/derived/oracle/gen.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { fieldSketchGen, pgField, type SketchedField } from "#test/unit/schema/field-sketch.ts"
 import { rawClosedId, regex } from "#test/unit/schema/support.ts"
@@ -43,13 +44,13 @@ const Author = regex("^user_[a-z]{1,8}$", "u")
 
 export const Post = relation(
 	"Post",
-	{ id: uuid, author: Author, kind: rawClosedId(Kind), words: pg.integer },
+	{ id: Id, author: Author, kind: rawClosedId(Kind), words: pg.integer },
 	["id"]
 )
 
-export const Note = relation("Note", { id: uuid, post: uuid }, ["id"])
+export const Note = relation("Note", { id: Id, post: Id }, ["id"])
 
-const Doc = relation("Doc", { id: uuid, a: pg.vector(3), b: pg.vector(3) }, ["id"])
+const Doc = relation("Doc", { id: Id, a: pg.vector(3), b: pg.vector(3) }, ["id"])
 
 const Blog = schema("Blog", [Kind, Post, Note, Doc], [])
 
@@ -63,7 +64,7 @@ const Counts = derived.materialized(
 
 export const Reports = schema.extend(Blog, "Reports", [Counts], [])
 
-const Stray = relation("Stray", { id: uuid }, ["id"])
+const Stray = relation("Stray", { id: Id }, ["id"])
 
 export const Other = schema("Other", [Kind, Post, Stray], [])
 

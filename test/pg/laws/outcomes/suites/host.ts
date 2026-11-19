@@ -18,12 +18,13 @@ import { Array as Arr, Effect, Formatter, Option, Order, pipe, Result, String as
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, contract, generated, pg, Uuid, uuid, Vector } from "#compiler/public/fields.ts"
+import { closedId, contract, generated, pg, Uuid, Vector } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -58,7 +59,7 @@ const codeSource = "^[a-z]{1,8}$"
 const Account = relation.generated(
 	"Account",
 	{
-		id: uuid,
+		id: Id,
 		tier: closedId(Tier),
 		units: Units,
 		code: str.regex(codeSource, "u"),
@@ -162,10 +163,14 @@ const caseGen: Gen<Case> = (source) => ({
 	accounts: source.draw(array(statedGen, { min: 1, max: 4 }))
 })
 
-const idOf = (n: number): Uuid =>
-	succeeded(
-		Uuid.parse(`00000000-0000-4000-8000-${pipe((0x7000 + n).toString(16), Str.padStart(12, "0"))}`),
-		"a version 4 uuid's text"
+const idOf = (n: number): IdValue =>
+	Id(
+		succeeded(
+			Uuid.parse(
+				`00000000-0000-4000-8000-${pipe((0x7000 + n).toString(16), Str.padStart(12, "0"))}`
+			),
+			"a version 4 uuid's text"
+		)
 	)
 
 /** The rule an outcome's law is, among the accounts' rules; undefined for any other law. */

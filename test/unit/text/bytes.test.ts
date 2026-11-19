@@ -17,13 +17,14 @@ import { Array as Arr, Effect } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { textInfoBounds, textOf } from "#compiler/ir/scalar.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { describeField } from "#compiler/scalar/registry.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { containedBuilder, onBuilder } from "#compiler/schema/statements.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
 	featuresOf,
@@ -58,7 +59,7 @@ export const strBytesMeetsATextAByteBoundRefinesMeetsEveryTextItsPatternMeetsAnd
 						"a side's bytes, the lesser bound"
 					)
 				}
-				const A = relation("A", { id: uuid, t: source }, ["id"], [])
+				const A = relation("A", { id: Id, t: source }, ["id"], [])
 				const B = relation("B", { u: target }, ["u"], [])
 				const statements: ReadonlyArray<Statement> = [
 					containedBuilder(onBuilder(A, ["t"]), onBuilder(B, ["u"]))

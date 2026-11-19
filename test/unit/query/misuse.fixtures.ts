@@ -16,7 +16,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import { type CompileReasonTag, isCompileError } from "#compiler/core/errors.ts"
 import type { Built } from "#compiler/core/phantom.ts"
 import { descText } from "#compiler/ir/desc.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import {
 	queryOver as query,
 	type QueryValue,
@@ -28,6 +28,7 @@ import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { Account, AutomaticTask, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
+import { Id } from "#test/support/ids.ts"
 import {
 	Booking,
 	Document,
@@ -171,7 +172,7 @@ const positions = [
 	{
 		kind: "inner",
 		name: "a filter's predicate",
-		live: ({ r, vars: task }) => r.eq(task["account"], r.param("a", uuid)),
+		live: ({ r, vars: task }) => r.eq(task["account"], r.param("a", Id)),
 		build: (arg) =>
 			ruled((r, task) =>
 				r
@@ -188,14 +189,14 @@ const positions = [
 			ruled((r, task) =>
 				r
 					.match(Task, { id: task["id"], account: task["account"] })
-					.where(r.eq(arg({ r, vars: task }), r.param("a", uuid)))
+					.where(r.eq(arg({ r, vars: task }), r.param("a", Id)))
 					.find({ id: task["id"] })
 			)
 	},
 	{
 		kind: "inner",
 		name: "a comparison's right side",
-		live: ({ r }) => r.param("a", uuid),
+		live: ({ r }) => r.param("a", Id),
 		build: (arg) =>
 			ruled((r, task) =>
 				r
@@ -212,14 +213,14 @@ const positions = [
 			ruled((r, task) =>
 				r
 					.match(Task, { id: task["id"], account: task["account"] })
-					.where(r.eq(task["account"], r.param(arg({ r, vars: task }), uuid)))
+					.where(r.eq(task["account"], r.param(arg({ r, vars: task }), Id)))
 					.find({ id: task["id"] })
 			)
 	},
 	{
 		kind: "inner",
 		name: "a parameter's descriptor",
-		live: () => uuid,
+		live: () => Id,
 		build: (arg) =>
 			ruled((r, task) =>
 				r

@@ -38,9 +38,10 @@ import { Db } from "#adapter/public/db.ts"
 import { Uuid } from "#compiler/public/fields.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
-const member = (n: number): Uuid =>
-	`00000000-0000-4000-8000-${pipe((0x6000 + n).toString(16), Str.padStart(12, "0"))}`
+const member = (n: number): IdValue =>
+	Id(`00000000-0000-4000-8000-${pipe((0x6000 + n).toString(16), Str.padStart(12, "0"))}`)
 import { answered } from "#test/support/calls.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 
 /** One lawful club with two members, the first its captain. */
 const clubFacts = {
@@ -170,14 +171,14 @@ const clubKeyGen: Gen<ClubKey> = (source) => ({
 type NativeCase =
 	| {
 			readonly kind: "a candidate key"
-			readonly id: Uuid
+			readonly id: IdValue
 			readonly email: "ann@example.org" | "ben@example.org"
 	  }
-	| { readonly kind: "a selected side's UNIQUE"; readonly id: Uuid; readonly email: string }
+	| { readonly kind: "a selected side's UNIQUE"; readonly id: IdValue; readonly email: string }
 	| {
 			readonly kind: "a selected side's UNIQUE within one input"
 			readonly club: ClubKey
-			readonly ids: readonly [Uuid, Uuid]
+			readonly ids: readonly [IdValue, IdValue]
 			readonly emails: readonly [string, string]
 	  }
 	| { readonly kind: "a table CHECK"; readonly club: ClubKey; readonly seats: number }
@@ -185,7 +186,7 @@ type NativeCase =
 	| { readonly kind: "a text refinement domain"; readonly club: ClubKey }
 	| {
 			readonly kind: "a text refinement domain another relation shares"
-			readonly id: Uuid
+			readonly id: IdValue
 			readonly email: string
 			readonly code: string
 	  }
@@ -194,9 +195,9 @@ type NativeCase =
  * A member id no stored member holds, its first hex digit `lead`: every stored member's id (`member`) begins with 0, so
  * an id led by another digit is fresh, and two leads give two ids that differ.
  */
-const freshIdGen = (lead: "e" | "f"): Gen<Uuid> =>
+const freshIdGen = (lead: "e" | "f"): Gen<IdValue> =>
 	map(uuid(4), (text) =>
-		succeeded(Uuid.parse(`${lead}${Str.slice(1)(text)}`), "a version 4 uuid's text")
+		Id(succeeded(Uuid.parse(`${lead}${Str.slice(1)(text)}`), "a version 4 uuid's text"))
 	)
 
 /**
@@ -358,7 +359,7 @@ export const witnessSuite = (): void => {
 									}
 									case "a selected side's UNIQUE within one input": {
 										/** Two captains of a new club the same ChangeSet inserts: a pair no stored fact meets. */
-										const captainOf = (id: Uuid, email: string) => ({
+										const captainOf = (id: IdValue, email: string) => ({
 											id,
 											...k.club,
 											email,

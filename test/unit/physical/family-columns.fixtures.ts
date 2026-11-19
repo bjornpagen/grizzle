@@ -8,7 +8,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { NativeOf } from "#compiler/ir/law.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { closedId, uuid } from "#compiler/public/fields.ts"
+import { closedId } from "#compiler/public/fields.ts"
 import { closed, login, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -24,12 +24,13 @@ import {
 	type FillSpec,
 	treeOn
 } from "#test/support/families/fill.ts"
+import { Id } from "#test/support/ids.ts"
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import { owning } from "#test/support/policy.ts"
 
 const Flag = closed.ordered("Flag", ["on", "off"])
 
-const Item = relation("Item", { id: uuid, kind: closedId(Flag) }, ["id"])
+const Item = relation("Item", { id: Id, kind: closedId(Flag) }, ["id"])
 
 /** How a login's roles write one relation of the family schema: not at all, whole, or through a query entry. */
 type Writing = "none" | "whole" | "entry"

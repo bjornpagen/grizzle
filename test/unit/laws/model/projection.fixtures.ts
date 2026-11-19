@@ -19,7 +19,7 @@ import {
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
-import { natural, pg, uuid } from "#compiler/public/fields.ts"
+import { natural, pg } from "#compiler/public/fields.ts"
 import {
 	contained,
 	key,
@@ -47,25 +47,26 @@ import type {
 import { types } from "#compiler/sql/build.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { installationNamesOf, type Names } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
 
-const Owner = relation("Owner", { id: uuid, rank: pg.integer, live: pg.boolean, slots: natural }, [
+const Owner = relation("Owner", { id: Id, rank: pg.integer, live: pg.boolean, slots: natural }, [
 	"id"
 ])
 
 const Item = relation(
 	"Item",
-	{ id: uuid, owner: uuid, code: pg.integer, live: pg.boolean, at: natural },
+	{ id: Id, owner: Id, code: pg.integer, live: pg.boolean, at: natural },
 	["id"]
 )
 
-const Note = relation("Note", { id: uuid, owner: uuid }, ["id"])
+const Note = relation("Note", { id: Id, owner: Id }, ["id"])
 
 /** Two relations of their keys alone, which no write replaces at a referenced key: only a cycle defers a key into them. */
-const Profile = relation("Profile", { owner: uuid }, ["owner"])
+const Profile = relation("Profile", { owner: Id }, ["owner"])
 
-const Seat = relation("Seat", { owner: uuid }, ["owner"])
+const Seat = relation("Seat", { owner: Id }, ["owner"])
 
 const ops = ["gt", "ge", "lt", "le"] as const
 

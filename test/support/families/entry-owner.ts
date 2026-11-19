@@ -1,5 +1,5 @@
 import { Array as Arr, String as Str } from "effect"
-import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
 	type AnySchema,
 	contained,
@@ -18,6 +18,7 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { nonEmpty } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
 
 /**
@@ -114,7 +115,7 @@ export const shopOf = (name: string) => {
 	const Store = relation(
 		"Store",
 		{
-			id: uuid,
+			id: Id,
 			region: word,
 			label: word,
 			items: drawn(natural),
@@ -122,7 +123,7 @@ export const shopOf = (name: string) => {
 		},
 		["id"]
 	)
-	const Item = relation("Item", { id: uuid, store: uuid, region: word, qty: pg.bigint }, ["id"])
+	const Item = relation("Item", { id: Id, store: Id, region: word, qty: pg.bigint }, ["id"])
 	const items = counted(on(Item, "store"), fin(Store, "items"))
 	const shop = schema(
 		name,

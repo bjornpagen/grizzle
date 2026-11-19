@@ -1,14 +1,15 @@
 import { Effect } from "effect"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
+import { Id } from "#test/support/ids.ts"
 import { compiledLogin } from "#test/support/served-login.ts"
 import { firstCodes } from "#test/unit/live/openapi.fixtures.ts"
 
 /** The login whose OpenAPI document the client is opened over: one role reading one query of one relation. */
-const Item = relation("Item", { id: uuid, n: pg.integer }, ["id"])
+const Item = relation("Item", { id: Id, n: pg.integer }, ["id"])
 const Shop = schema("Shop", [Item], [])
 const items = query(Shop).rule((r) => {
 	const { id, n } = v(Item, "item")

@@ -1,10 +1,11 @@
 import { Array as Arr, Formatter, Record as Rec } from "effect"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
-import { pg, span, uuid } from "#compiler/public/fields.ts"
+import { pg, span } from "#compiler/public/fields.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * The example schemas over the real field descriptors, str.regex and the schema builders, for the query builder
@@ -12,14 +13,12 @@ import { queryValueDesc } from "#compiler/query/build/query.ts"
  * query value's canonical Description.
  */
 
-export const Preference = relation("Preference", { account: uuid, enabled: pg.boolean }, [
-	"account"
-])
+export const Preference = relation("Preference", { account: Id, enabled: pg.boolean }, ["account"])
 export const Settings = schema("Settings", [Preference], [])
 
 /** The span example. */
-const RoomOpen = relation("RoomOpen", { room: uuid, during: span(pg.bigint) }, ["room", "during"])
-export const Booking = relation("Booking", { room: uuid, during: span(pg.bigint), guest: uuid }, [
+const RoomOpen = relation("RoomOpen", { room: Id, during: span(pg.bigint) }, ["room", "during"])
+export const Booking = relation("Booking", { room: Id, during: span(pg.bigint), guest: Id }, [
 	"room",
 	"during"
 ])
@@ -34,19 +33,17 @@ export const Schedule = schema(
 const DocumentVector = pg.vector(4)
 export const Document = relation(
 	"Document",
-	{ id: uuid, account: uuid, title: str.regex("^.+$", "su") },
+	{ id: Id, account: Id, title: str.regex("^.+$", "su") },
 	["id"]
 )
 
-export const DocumentCurrent = relation(
-	"DocumentCurrent",
-	{ document: uuid, revision: pg.bigint },
-	["document"]
-)
+export const DocumentCurrent = relation("DocumentCurrent", { document: Id, revision: pg.bigint }, [
+	"document"
+])
 
 export const DocumentEmbedding = relation(
 	"DocumentEmbedding",
-	{ document: uuid, revision: pg.bigint, value: DocumentVector },
+	{ document: Id, revision: pg.bigint, value: DocumentVector },
 	["document", "revision"]
 )
 

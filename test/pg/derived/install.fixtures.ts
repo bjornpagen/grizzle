@@ -11,7 +11,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import { uuid, type Uuid } from "#compiler/public/fields.ts"
+
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -21,6 +21,7 @@ import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import {
 	type Installed,
 	loadMigrated as load,
@@ -60,8 +61,8 @@ import {
  * oracle's; the installed catalog is the catalog spec checker's.
  */
 
-export const id = (n: number): Uuid =>
-	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+export const id = (n: number): IdValue =>
+	Id(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
 
 /** The view of a derived relation and its columns, in heading order. */
 export const viewOf = (installed: Installed, relation: string) => {
@@ -410,7 +411,7 @@ export const descriptorSchemaOf = (c: DescriptorCase) => {
 	const R = relation(
 		"R",
 		{
-			id: uuid,
+			id: Id,
 			...Rec.fromEntries(Arr.map(c.fields, (f, i) => [fieldName(i), fieldOf(f, rosters)] as const))
 		},
 		["id"]

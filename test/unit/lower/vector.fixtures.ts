@@ -21,7 +21,7 @@ import {
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { compute } from "#compiler/scalar/compute/builders.ts"
@@ -37,6 +37,7 @@ import {
 	DocumentEmbedding,
 	Search
 } from "#test/support/fixtures/api/search.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { checking, checkOptions, owning } from "#test/support/policy.ts"
@@ -190,7 +191,7 @@ const searchCandidates = queryOver(Search)
 /** The candidates of a parameter's account and vector, bound in a rule. */
 const candidatesIn = (r: RuleValue) =>
 	searchCandidates.bind({
-		account: r.param("account", uuid),
+		account: r.param("account", Id),
 		vector: r.param("vector", DocumentEmbedding.fields.value)
 	})
 

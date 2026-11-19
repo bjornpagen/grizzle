@@ -11,7 +11,7 @@ import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { installed, type ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
 import type { PhysicalKind } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -29,6 +29,7 @@ import { str } from "#compiler/public/text.ts"
 import type { ObjectName, PlFunction } from "#compiler/sql/ast.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * What a case plants after the installation's migration, as its owner: nothing; a PL/pgSQL function of one kind created
@@ -86,7 +87,7 @@ const noteText = str.regex("^[a-z\\t]{0,8}$", "u")
  */
 export const versionOf = (name: string) => {
 	const Kind = closed.ordered("Kind", ["plain", "tabbed"])
-	const Fact = relation("Fact", { id: uuid, k: pg.integer, kind: closedId(Kind), note: noteText }, [
+	const Fact = relation("Fact", { id: Id, k: pg.integer, kind: closedId(Kind), note: noteText }, [
 		"id"
 	])
 	const T = relation("T", { k: pg.integer }, ["k"])

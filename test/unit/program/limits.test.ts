@@ -3,12 +3,13 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import {
 	boundedKinds,
 	boundOf,
@@ -80,7 +81,7 @@ export const postgreSQLsLimitsCompileAQueryWhoseLiteralIsDrawnPast2MiBEachStatem
 			Effect.gen(function* () {
 				const body = (([unit, times]) => Str.repeat(times)(unit))(sketch)
 				return yield* Effect.sync(() => {
-					const Note = relation("Note", { id: uuid, body: str.regex("^.*$", "su") }, ["id"])
+					const Note = relation("Note", { id: Id, body: str.regex("^.*$", "su") }, ["id"])
 					const Notes = schema("Notes", [Note], [])
 					const matching = query(Notes).rule((r) => {
 						const { id } = v(Note, "note")

@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Option, Record as Rec, Result } from "effect"
 import { login } from "#compiler/program/workload/login.ts"
-import { closedId, pg, span, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg, span } from "#compiler/public/fields.ts"
 import {
 	type AnyClosed,
 	type AnyRelation,
@@ -28,6 +28,7 @@ import type { Relation, Roster } from "#compiler/types/schema/relation.ts"
 import type { AnyContext } from "#compiler/types/schema/world.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { contractDescriptor as contractField } from "#test/support/fixtures/descriptors.ts"
+import { Id } from "#test/support/ids.ts"
 import { argumentsOf, nonEmptyArgumentsOf } from "#test/support/list.ts"
 import { definitionOf, type RuleSources } from "#test/support/worlds/execute/describe.ts"
 import { carrierOf, isWide } from "#test/support/worlds/execute/host.ts"
@@ -113,7 +114,7 @@ interface Kit {
 const fieldOf = (domain: FieldDomain, kit: Kit): Effect.Effect<FieldBase> => {
 	switch (domain.kind) {
 		case "uuid":
-			return Effect.succeed(uuid)
+			return Effect.succeed(Id)
 		case "text":
 			return Effect.succeed(regexField(domain.pattern, [domain.flags]))
 		case "integer":

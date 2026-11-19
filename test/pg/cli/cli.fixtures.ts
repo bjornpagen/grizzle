@@ -4,12 +4,13 @@ import { array, constant, element, type Gen, map, oneOf } from "@bjornpagen/test
 import { Array as Arr, Effect, FileSystem, Option, pipe, String as Str } from "effect"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { Db } from "#adapter/public/db.ts"
-import type { Uuid } from "#compiler/public/fields.ts"
+
 import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
 import { bin, cli, cliClock, servedFromFile } from "#test/pg/cli/support.ts"
 import { openMigrator } from "#test/pg/migrate/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { answered, oneOf as oneRowOf } from "#test/support/calls.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -82,8 +83,8 @@ export type CliFeature =
 	| `connected by ${Connection}`
 	| `a role that does not own the schemas refused, run by ${Executor}`
 
-const id = (n: number): Uuid =>
-	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+const id = (n: number): IdValue =>
+	Id(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
 
 /** The texts of a schema's committed snapshot files. */
 export const snapshotFilesOf = (dir: string, schema: string) =>

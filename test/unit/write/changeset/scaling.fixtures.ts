@@ -15,10 +15,12 @@ import { Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
 import { sitesRead } from "#test/support/sites.ts"
 import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
-/** The arrays and plain objects reachable from `value`, added to `into`. */
+/** The arrays and plain objects reachable from `value`, added to `into`: every pending value is read, an undefined field
+ * among them, which ends no walk. */
 const containersOf = (value: unknown, into: Set<object>): Set<object> => {
 	const pending: Array<unknown> = [value]
-	for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
+	while (pending.length > 0) {
+		const at = pending.pop()
 		if (isRecord(at) && !into.has(at)) {
 			into.add(at)
 			for (const child of Rec.values(at)) {
@@ -33,7 +35,8 @@ const containersOf = (value: unknown, into: Set<object>): Set<object> => {
 const freshContainers = (value: unknown, known: ReadonlySet<object>): number => {
 	const seen = new Set<object>()
 	const pending: Array<unknown> = [value]
-	for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
+	while (pending.length > 0) {
+		const at = pending.pop()
 		if (isRecord(at) && !known.has(at) && !seen.has(at)) {
 			seen.add(at)
 			for (const child of Rec.values(at)) {

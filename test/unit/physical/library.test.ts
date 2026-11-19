@@ -26,7 +26,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, uuid } from "#compiler/public/fields.ts"
+import { contract } from "#compiler/public/fields.ts"
 import { check, login, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installationsOf, ownLogin, rostersOf } from "#compiler/schema/own.ts"
@@ -36,6 +36,7 @@ import type { FunctionName, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { owning } from "#test/support/policy.ts"
 
 /** Where the schema calls Compute.resolveReference. */
@@ -61,7 +62,7 @@ const Unfragmented = contract(
 /** The schema, its Links relation calling Compute.resolveReference at `use`, and a login of a writer and a reader. */
 const built = (use: Use) => {
 	const fields = {
-		id: uuid,
+		id: Id,
 		base: text,
 		href: use === "a contract's predicate" ? Unfragmented : text
 	}

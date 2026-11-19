@@ -26,7 +26,7 @@ import {
 	roleSpaceOf
 } from "#compiler/core/identity.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { query, v } from "#compiler/public/query.ts"
 import {
 	type AnyLogin,
@@ -39,6 +39,7 @@ import {
 import { workload } from "#compiler/public/workload.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { assert, throwsRefused } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { compiledLogin } from "#test/support/served-login.ts"
 
@@ -227,7 +228,7 @@ const boundNotes: { readonly [B in "at" | "past" | "budget"]: NameFeature } = {
 
 export const nameCase = (n: Names, c: Case<NameFeature>) =>
 	Effect.gen(function* () {
-		const base = schema(n.schema, [relation("Item", { id: uuid }, ["id"])], [])
+		const base = schema(n.schema, [relation("Item", { id: Id }, ["id"])], [])
 		const roles = Arr.map(n.roles, (name) => role(base, name, wholeEntriesOf(base)))
 		const reader = Arr.headNonEmpty(roles)
 		const items = query(reader).rule((r) => {

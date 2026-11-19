@@ -3,11 +3,12 @@
 import { array, codePoint, element, type Gen, oneOf, string } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import type { ParamPlace } from "#compiler/core/identity.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { Id } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A pattern no stored field of the schema declares, so the installation holds no domain of it. */
@@ -17,7 +18,7 @@ const Slug = str.regex("^[a-z]{1,8}$", "u")
 const Code = str.regex("^[a-z]{1,4}$", "u")
 
 /** A schema whose one stored relation declares Code and no field of Slug. */
-const Note = relation("Note", { id: uuid, code: Code }, ["id"])
+const Note = relation("Note", { id: Id, code: Code }, ["id"])
 
 export const Notes = schema("Notes", [Note], [])
 

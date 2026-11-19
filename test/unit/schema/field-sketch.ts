@@ -1,9 +1,10 @@
 import { boolean, type Gen, int, map, oneOf, option, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { bits, pg, uuid } from "#compiler/public/fields.ts"
+import { bits, pg } from "#compiler/public/fields.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRoster } from "#compiler/types/schema/relation.ts"
 import { nonEmpty } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { bareContract, rawClosedId, rawSpan, regex } from "#test/unit/schema/support.ts"
 
 /**
@@ -158,7 +159,7 @@ const baseOf = (s: BaseSketch, rosters: Arr.NonEmptyReadonlyArray<DrawnRoster>):
 		case "numeric":
 			return pg.numeric(s.precision, s.scale)
 		case "uuid":
-			return uuid
+			return Id
 		case "text": {
 			const p = patternOf(s.pattern)
 			return regex(p.source, p.flags)

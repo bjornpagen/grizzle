@@ -5,10 +5,11 @@ import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result } from "effect"
 import { ExecutionFailure } from "#adapter/errors/execution.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { Id } from "#test/support/ids.ts"
 import { installedTemplate } from "#test/support/install-migrate.ts"
 
 /** The fixture's shape under the declared name `name`.
@@ -41,7 +42,7 @@ import { installedTemplate } from "#test/support/install-migrate.ts"
 export const build = (name: string) => {
 	const Sitting = relation(
 		"Sitting",
-		{ id: uuid, student: uuid, week: pg.integer, passed: pg.boolean },
+		{ id: Id, student: Id, week: pg.integer, passed: pg.boolean },
 		["id"]
 	)
 	const Edu = schema(name, [Sitting], [])

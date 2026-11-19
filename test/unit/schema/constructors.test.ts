@@ -43,7 +43,7 @@ import {
 	type SideDesc,
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
@@ -91,6 +91,7 @@ import {
 	succeeded,
 	throwsRefused
 } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { whereIndex } from "#test/support/oracle/pick.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import {
@@ -212,7 +213,7 @@ export const relationRequiresANonemptyNameBuiltDescriptorsAndANonemptyDistinctPr
 						fields[defined(names[0])] = lookAlikeOf(s.lookAlike)
 					}
 					if (s.defect === "an empty field name") {
-						fields[""] = uuid
+						fields[""] = Id
 					}
 					const primaryKey: Array<string> =
 						s.defect === "an empty key"
@@ -250,7 +251,7 @@ export const relationRequiresANonemptyNameBuiltDescriptorsAndANonemptyDistinctPr
 					c.note(s.mutation)
 					switch (s.mutation) {
 						case "add a field":
-							descriptors["added"] = uuid
+							descriptors["added"] = Id
 							break
 						case "extend the key":
 							primaryKey.push("added")
@@ -591,7 +592,7 @@ export const aLiteralOppositeAFieldRecordsTheValueAsWrittenInAComparisonAndAsThe
 							agrees(succeeded(kept), stored)
 						}
 						const expected = site === "closed row" ? stored : compared
-						const Rated = relation("Rated", { id: uuid, value: descriptor }, ["id"], [])
+						const Rated = relation("Rated", { id: Id, value: descriptor }, ["id"], [])
 						const recorded = (): LiteralDesc => {
 							switch (site) {
 								case "closed row": {
@@ -947,7 +948,7 @@ export const alternativesIsOneStatementOfItsArmedHandlesInRosterOrderExpandingTo
 					const Mode = closed("Mode", rosterOf(s.handles), "ordered", [])
 					const Job = relation(
 						"Job",
-						{ id: uuid, mode: rawClosedId(Mode), other: uuid, alien: rawClosedId(Alien) },
+						{ id: Id, mode: rawClosedId(Mode), other: Id, alien: rawClosedId(Alien) },
 						["id"],
 						[]
 					)
@@ -973,7 +974,7 @@ export const alternativesIsOneStatementOfItsArmedHandlesInRosterOrderExpandingTo
 					> = {}
 					for (const h of armedHandles) {
 						const i = s.handles.indexOf(h)
-						const Arm = relation(`Arm${i}`, { job: uuid, extra: uuid }, ["job"], [])
+						const Arm = relation(`Arm${i}`, { job: Id, extra: Id }, ["job"], [])
 						const unlike = s.defect === "an arm keyed unlike the parent" && h === target
 						const two = s.wide !== unlike
 						const viaKey = two || s.arming[i] === true
@@ -1308,9 +1309,7 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 												"ByAccount",
 												queryOver(current).rule((r: RuleValue) => {
 													const { id } = varsOver(Task, "task")
-													return r
-														.match(Task, { id, account: r.param("account", uuid) })
-														.find({ id })
+													return r.match(Task, { id, account: r.param("account", Id) }).find({ id })
 												}),
 												[]
 											)

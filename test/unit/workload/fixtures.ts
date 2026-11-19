@@ -1,13 +1,14 @@
 import type { WorkloadPlan } from "#compiler/program/workload/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { compileTestWorkload, type FixtureSchema, testCompile } from "#test/support/compile.ts"
 import * as Sp from "#test/support/fixtures/api/spans.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * Workloads for the workload tests, over the real builders and the public-API fixtures (test/support/fixtures/api).
@@ -75,18 +76,16 @@ export const workPrograms = {
  * path).
  */
 const Title = str.regex("^[A-Za-z0-9 ]{1,64}$")
-const BoardTask = relation(
-	"Task",
-	{ id: uuid, account: uuid, priority: pg.integer, title: Title },
-	["id"]
-)
+const BoardTask = relation("Task", { id: Id, account: Id, priority: pg.integer, title: Title }, [
+	"id"
+])
 export const Board = schema("Board", [BoardTask], [])
 
 export const tasksForAccount = query(Board).rule((r) => {
 	const { id, account, priority, title } = v(BoardTask, "boardTask")
 	return r
 		.match(BoardTask, { id, account, priority, title })
-		.where(r.eq(account, r.param("account", uuid)))
+		.where(r.eq(account, r.param("account", Id)))
 		.find({ id, priority, title })
 })
 
@@ -108,7 +107,7 @@ export const urgentAtLeast = query(Board).rule((r) => {
 	const { id, account, priority } = v(BoardTask, "boardTask")
 	return r
 		.match(BoardTask, { id, account, priority })
-		.where(r.eq(account, r.param("account", uuid)), r.ge(priority, r.param("floor", pg.integer)))
+		.where(r.eq(account, r.param("account", Id)), r.ge(priority, r.param("floor", pg.integer)))
 		.find({ id, priority })
 })
 

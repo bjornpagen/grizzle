@@ -20,13 +20,13 @@ import {
 	natural,
 	pg,
 	retirement,
-	slot,
-	uuid
+	slot
 } from "#compiler/public/fields.ts"
 import { closed as closedRelations, fin, relation } from "#compiler/public/schema.ts"
 import { admittedClosedId, closedBuilder as closed } from "#compiler/schema/relation.ts"
 import type { FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
 import { defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** The type of a key's other field. */
 type CompanionType = "uuid" | "natural" | "integer" | "smallint" | "boolean" | "closedId"
@@ -62,7 +62,7 @@ export const Kind = closed("Kind", ["A", "B"], "ordered", [])
 export const descriptorOf = (c: CompanionType): FieldBase => {
 	switch (c) {
 		case "uuid":
-			return uuid
+			return Id
 		case "natural":
 			return natural
 		case "integer":
@@ -130,7 +130,7 @@ export const fieldOf = (c: Companion): FieldBase | GeneratedField<FieldBase> => 
 		case "accumulated":
 			return accumulated(declared, startOf(c.type))
 		case "generated":
-			return relation.generated("Companion", { id: uuid, w: declared }, ["id"], (row) => ({
+			return relation.generated("Companion", { id: Id, w: declared }, ["id"], (row) => ({
 				x: generated(declared, row.w)
 			})).fields.x
 		case "drawn":

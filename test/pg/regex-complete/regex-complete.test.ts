@@ -67,7 +67,7 @@ import {
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, contract, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -94,6 +94,7 @@ import {
 	workloadOver
 } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import {
 	type ColumnTextDomain,
 	installationNamesOf,
@@ -133,13 +134,13 @@ const TierLabel = closed.relation(
 		{ tier: "Pro", label: "pro-plan" }
 	]
 )
-const Article = relation("Article", { id: uuid, slug: Slug, title: Prose }, ["id"])
-const Draft = relation("Draft", { id: uuid, slug: SlugAgain, note: Note }, ["id"])
-const Comment = relation("Comment", { id: uuid, article: uuid, slug: Slug }, ["id"])
+const Article = relation("Article", { id: Id, slug: Slug, title: Prose }, ["id"])
+const Draft = relation("Draft", { id: Id, slug: SlugAgain, note: Note }, ["id"])
+const Comment = relation("Comment", { id: Id, article: Id, slug: Slug }, ["id"])
 /** Numeric contracts: a bigint bound and an exact rate in the unit interval. */
 const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n))
 const Rate = contract("Rate", pg.numeric(7, 6), (x) => Compute.between(x, 0n, 1n))
-const Price = relation("Price", { id: uuid, amount: Cents, rate: Rate }, ["id"])
+const Price = relation("Price", { id: Id, amount: Cents, rate: Rate }, ["id"])
 const Content = schema(
 	"Content",
 	[Tier, TierLabel, Article, Draft, Comment, Price],
@@ -149,7 +150,8 @@ const Content = schema(
 /** Content's codes as a fresh installation drafts them, from no codes: what every template of it binds under. */
 const contentCodes = firstCodebook(rostersOf(owning(Content)))
 
-const id = (n: number): Uuid => `00000000-0000-4000-8000-${Str.padStart(12, "0")(n.toString(16))}`
+const id = (n: number): IdValue =>
+	Id(`00000000-0000-4000-8000-${Str.padStart(12, "0")(n.toString(16))}`)
 
 /** The articles: valid slugs, and titles that are valid slugs except where a test says otherwise. */
 const articles = (count: number): ReadonlyArray<{ id: string; slug: string; title: string }> =>
@@ -223,7 +225,7 @@ const slugsOrEcho = query(Content)
 
 /** A relation parameter's slugs delivered under their refinement. */
 const givenSlugs = query(Content).rule((r) => {
-	const given = r.relation("given", { id: uuid, slug: Slug })
+	const given = r.relation("given", { id: Id, slug: Slug })
 	const { id: row, slug } = v(given, "given")
 	return r.match(given, { id: row, slug }).find({ id: row, slug })
 })
@@ -596,7 +598,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 		rows: ReadonlyArray<{ id: string; slug: string; title: string }>
 	): string =>
 		`INSERT INTO ${quoteIdent(schemaName)}."article" ("id", "slug", "title") VALUES ${Arr.join(
-			Arr.map(rows, (a) => `('${a.id}'::uuid, ${literal(a.slug)}, ${literal(a.title)})`),
+			Arr.map(rows, (a) => `('${a.id}'::Id, ${literal(a.slug)}, ${literal(a.title)})`),
 			", "
 		)}`
 

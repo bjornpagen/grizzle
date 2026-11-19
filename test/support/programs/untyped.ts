@@ -17,3 +17,4 @@ export {
 	schema
 } from "#compiler/public/schema.ts"
 export { workload } from "#compiler/public/workload.ts"
+export { Id } from "#test/support/ids.ts"

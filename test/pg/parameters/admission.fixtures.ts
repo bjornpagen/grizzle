@@ -3,19 +3,20 @@
 import { boolean, codePoint, element, type Gen, oneOf, string } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { Id } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A pattern a stored field declares. */
 const Code = str.regex("^[a-z]{1,4}$", "u")
 
-const Item = relation("Item", { id: uuid, code: Code }, ["id"])
+const Item = relation("Item", { id: Id, code: Code }, ["id"])
 
-const Pick = relation("Pick", { item: uuid, code: Code }, ["item"])
+const Pick = relation("Pick", { item: Id, code: Code }, ["item"])
 
 export const Admit = schema("Admit", [Item, Pick], [])
 
@@ -55,17 +56,17 @@ const listed = ChangeSet.sequence(
 )
 
 export const stored = [
-	{ id: "00000000-0000-4000-8000-000000000001", code: "abc" },
-	{ id: "00000000-0000-4000-8000-000000000002", code: "de" }
+	{ id: Id("00000000-0000-4000-8000-000000000001"), code: "abc" },
+	{ id: Id("00000000-0000-4000-8000-000000000002"), code: "de" }
 ] as const
 
-export const freshId = "00000000-0000-4000-8000-000000000003"
+export const freshId = Id("00000000-0000-4000-8000-000000000003")
 
 /** The first stratum's item that collides with no stored one. */
 export const freshItem = { id: freshId, code: "xyz" } as const
 
 /** The first stratum's item that collides with the first stored one: its key, another code. */
-export const collidingItem = { id: "00000000-0000-4000-8000-000000000001", code: "zz" } as const
+export const collidingItem = { id: Id("00000000-0000-4000-8000-000000000001"), code: "zz" } as const
 
 /** A text inside Code about half the time: lowercase letters, or printable ASCII of any length up to six. */
 const textGen: Gen<string> = oneOf([

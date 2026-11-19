@@ -13,7 +13,7 @@ import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Record as Rec, String as Str, Stream } from "effect"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import type { RelationColumn } from "#compiler/lower/conservative/types.ts"
-import { closedId, pg, uuid as uuidField } from "#compiler/public/fields.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { baseCheck, columnDefinition, types } from "#compiler/sql/build.ts"
@@ -22,6 +22,7 @@ import { defined, succeeded } from "#test/support/assert.ts"
 import { codebookFor, firstCodes, schemaInputOf } from "#test/support/compile.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { Id } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
@@ -66,12 +67,12 @@ export const Color = closed.ordered("Color", handles)
 export const Sample = relation(
 	"Sample",
 	{
-		id: uuidField,
+		id: Id,
 		color: closedId(Color),
 		whole: pg.integer,
 		big: pg.bigint,
 		flag: pg.boolean,
-		ref: uuidField,
+		ref: Id,
 		label: str.regex("^.*$", "su")
 	},
 	["id"]
@@ -92,7 +93,7 @@ const parameterKinds = [
 	{ field: "flag", type: pg.boolean, valid: true, wrong: ["true", 1, { wild: true }] },
 	{
 		field: "ref",
-		type: uuidField,
+		type: Id,
 		valid: "00000000-0000-4000-8000-000000000001",
 		wrong: [7, true, { wild: true }]
 	},

@@ -16,12 +16,13 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
-import type { Uuid } from "#compiler/public/fields.ts"
+
 import { query, v } from "#compiler/public/query.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { isList } from "#test/support/list.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 
@@ -43,8 +44,10 @@ export const plain = (value: unknown): unknown => {
 	return value
 }
 
-export const uuidAt = (group: number, n: number): Uuid =>
-	`00000000-0000-4000-${(0x9000 + group).toString(16)}-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+export const uuidAt = (group: number, n: number): IdValue =>
+	Id(
+		`00000000-0000-4000-${(0x9000 + group).toString(16)}-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+	)
 
 /** The id of a delivered row, every row here being a record with one. */
 const idOf = (row: unknown): string => {

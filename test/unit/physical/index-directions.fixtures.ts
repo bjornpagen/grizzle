@@ -3,15 +3,16 @@
 import { array, boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { type Direction, directions, opposite } from "#compiler/core/order.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** A direction vector over the order's three columns, a, b and id, in that order. */
 type Vector = readonly [Direction, Direction, Direction]
 
-const T = relation("T", { id: uuid, g: uuid, a: pg.integer, b: pg.integer }, ["id"])
+const T = relation("T", { id: Id, g: Id, a: pg.integer, b: pg.integer }, ["id"])
 
 export const Dirs = schema("Dirs", [T], [])
 
@@ -40,7 +41,7 @@ export const program = (vector: Vector, prefixed: boolean) =>
 		.rule((r) => {
 			const { id, g, a, b } = v(T, "t")
 			const matched = r.match(T, { id, g, a, b })
-			return (prefixed ? matched.where(r.eq(g, r.param("g", uuid))) : matched).find({ id, a, b })
+			return (prefixed ? matched.where(r.eq(g, r.param("g", Id))) : matched).find({ id, a, b })
 		})
 		.orderBy(["a", vector[0]], ["b", vector[1]], ["id", vector[2]])
 

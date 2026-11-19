@@ -6,7 +6,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -16,6 +16,7 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { servingParams, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { conservativeWrite } from "#test/support/conservative.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"
 
@@ -101,7 +102,7 @@ const layoutOf = (layout: Layout) => {
 			}
 		}
 		case "uuid": {
-			const R = relation("R", { id: pg.integer, v: uuid }, ["id"])
+			const R = relation("R", { id: pg.integer, v: Id }, ["id"])
 			const S = schema(schemaName, [R], [mutable(R)])
 			return {
 				S,

@@ -10,7 +10,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { sameScalarType, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
@@ -27,6 +27,7 @@ import {
 	type SchemaDesc,
 	value
 } from "#test/support/fixtures/ir/desc.ts"
+import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
 import { lit, match, ref, relationSource, rule, typedLit, vars } from "#test/unit/check/dsl.ts"
 
@@ -81,19 +82,19 @@ const TierPlan = closed.relation(
 
 const Article = relation(
 	"Article",
-	{ id: uuid, slug: Slug, state: State, title: Prose, amount: Cents },
+	{ id: Id, slug: Slug, state: State, title: Prose, amount: Cents },
 	["id"]
 )
 
 const Draft = relation(
 	"Draft",
-	{ id: uuid, slug: SlugAgain, state: State, title: Prose, amount: pg.numeric(10, 2) },
+	{ id: Id, slug: SlugAgain, state: State, title: Prose, amount: pg.numeric(10, 2) },
 	["id"]
 )
 
-const Sheet = relation("Sheet", { id: uuid, amount: pg.numeric(12, 2), count: pg.bigint }, ["id"])
+const Sheet = relation("Sheet", { id: Id, amount: pg.numeric(12, 2), count: pg.bigint }, ["id"])
 
-const Ledger = relation("Ledger", { id: uuid, amount: pg.numeric(12, 4) }, ["id"])
+const Ledger = relation("Ledger", { id: Id, amount: pg.numeric(12, 4) }, ["id"])
 
 const Content = schema("Content", [Tier, TierPlan, Article, Draft, Sheet, Ledger], [])
 
@@ -377,7 +378,7 @@ export const armOf = (d: Deliverer) =>
 				],
 				where: [],
 				head: {
-					id: typedLit("00000000-0000-4000-8000-000000000001", f.uuid),
+					id: typedLit("00000000-0000-4000-8000-000000000001", f.contract("Id", f.uuid, undefined)),
 					value: ref(d.relation, d.field)
 				},
 				interiors: [],

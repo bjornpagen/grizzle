@@ -1,5 +1,5 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { closedId, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	alternatives,
@@ -18,6 +18,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
+import { Id } from "#test/support/ids.ts"
 
 const customerName = str.regex("^[a-z]{1,40}$")
 
@@ -26,14 +27,14 @@ const customerName = str.regex("^[a-z]{1,40}$")
  */
 export type ShopWorkload = "full" | "withoutByName" | "none"
 
-const Order = relation("Order", { id: uuid, customer: uuid, cents: pg.bigint }, ["id"])
+const Order = relation("Order", { id: Id, customer: Id, cents: pg.bigint }, ["id"])
 
 /**
  * The shop schema under `name` at version 1, Customer(id, name), its login owning the workload `programs` names. Each
  * call builds a schema of its own: a schema and its login are read from one call.
  */
 export const shopV1 = (name: string, programs: ShopWorkload) => {
-	const Customer = relation("Customer", { id: uuid, name: customerName }, ["id"])
+	const Customer = relation("Customer", { id: Id, name: customerName }, ["id"])
 	const s = schema(name, [Customer, Order], [contained(on(Order, "customer"), on(Customer, "id"))])
 	const reader = role(s, "reader", wholeEntriesOf(s))
 	const writer = role(s, "writer", wholeEntriesOf(s), { write: writableNamesOf(s) })
@@ -50,7 +51,7 @@ export const shopV1 = (name: string, programs: ShopWorkload) => {
 		const o = v(Order, "order")
 		return r
 			.match(Order, { id: o.id, customer: o.customer, cents: o.cents })
-			.where(r.eq(o.customer, r.param("customer", uuid)))
+			.where(r.eq(o.customer, r.param("customer", Id)))
 			.find({ id: o.id, cents: o.cents })
 	})
 	const owned =
@@ -82,7 +83,7 @@ export const shopV1 = (name: string, programs: ShopWorkload) => {
  * Each call builds a schema of its own: a schema and its login are read from one call.
  */
 export const shopV2 = (name: string, programs: ShopWorkload) => {
-	const Customer = relation("Customer", { id: uuid, name: customerName, tier: pg.integer }, ["id"])
+	const Customer = relation("Customer", { id: Id, name: customerName, tier: pg.integer }, ["id"])
 	const s = schema(name, [Customer, Order], [contained(on(Order, "customer"), on(Customer, "id"))])
 	const reader = role(s, "reader", wholeEntriesOf(s))
 	const writer = role(s, "writer", wholeEntriesOf(s), { write: writableNamesOf(s) })
@@ -97,7 +98,7 @@ export const shopV2 = (name: string, programs: ShopWorkload) => {
 		const o = v(Order, "order")
 		return r
 			.match(Order, { id: o.id, customer: o.customer, cents: o.cents })
-			.where(r.eq(o.customer, r.param("customer", uuid)))
+			.where(r.eq(o.customer, r.param("customer", Id)))
 			.find({ id: o.id, cents: o.cents })
 	})
 	const owned =
@@ -164,18 +165,16 @@ export const shop = (name: string, version: 1 | 2, programs: ShopWorkload): Shop
  */
 export const ledger = (name: string) => {
 	const Plan = closed.ordered("Plan", ["Card", "Invoice"])
-	const Customer = relation("Customer", { id: uuid, name: customerName }, ["id"])
+	const Customer = relation("Customer", { id: Id, name: customerName }, ["id"])
 	const Payment = relation(
 		"Payment",
-		{ id: uuid, customer: uuid, plan: closedId(Plan), cents: pg.bigint },
+		{ id: Id, customer: Id, plan: closedId(Plan), cents: pg.bigint },
 		["id"]
 	)
-	const CardPayment = relation("CardPayment", { payment: uuid, last4: str.regex("^[0-9]{4}$") }, [
+	const CardPayment = relation("CardPayment", { payment: Id, last4: str.regex("^[0-9]{4}$") }, [
 		"payment"
 	])
-	const InvoicePayment = relation("InvoicePayment", { payment: uuid, days: pg.integer }, [
-		"payment"
-	])
+	const InvoicePayment = relation("InvoicePayment", { payment: Id, days: pg.integer }, ["payment"])
 	const base = schema(
 		name,
 		[Plan, Customer, Payment, CardPayment, InvoicePayment],
@@ -249,8 +248,8 @@ const subject = str.regex("^u_[a-z]{1,8}$")
  * `desk`. Each call builds a schema of its own.
  */
 export const worlds = (name: string) => {
-	const Doc = relation("Doc", { id: uuid, owner: subject, words: pg.integer }, ["id"])
-	const Note = relation("Note", { id: uuid, doc: uuid, author: subject }, ["id"])
+	const Doc = relation("Doc", { id: Id, owner: subject, words: pg.integer }, ["id"])
+	const Note = relation("Note", { id: Id, doc: Id, author: subject }, ["id"])
 	const Session = context("Session", { sub: subject })
 	const base = schema(name, [Doc, Note], [mutable(Doc), contained(on(Note, "doc"), on(Doc, "id"))])
 	const mine = query(base).rule((r) => {

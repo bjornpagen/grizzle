@@ -11,7 +11,7 @@ import { columnKeyOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import type { Cells } from "#compiler/runtime/write/cells.ts"
@@ -62,6 +62,7 @@ import {
 	type WritesVerdict,
 	writtenRows
 } from "#test/support/families/fill.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -429,7 +430,7 @@ const neededBy = (
 /** A put's rows from a query over `value`: the rows of a relation parameter, which the host never sees. */
 const restated = (value: ReturnType<ReturnType<typeof buildFill>["rename"]>) =>
 	query(value).rule((r) => {
-		const rows = r.relation("rows", { id: uuid, v: pg.bigint })
+		const rows = r.relation("rows", { id: Id, v: pg.bigint })
 		const row = v(rows, "row")
 		return r.match(rows, { id: row.id, v: row.v }).find({ id: row.id, v: row.v })
 	})

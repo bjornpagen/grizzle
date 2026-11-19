@@ -160,9 +160,9 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/handles
 
 /** The level, its programs, the workload serving them and the Dbs over it: every cell reads them. */
 const handleHeader: ReadonlyArray<string> = [
-	'export const Item = relation("Item", { id: uuid, label: pg.integer }, ["id"])',
-	'export const Note = relation("Note", { id: uuid, count: pg.bigint }, ["id"])',
-	'export const Extra = relation("Extra", { id: uuid }, ["id"])',
+	'export const Item = relation("Item", { id: Id, label: pg.integer }, ["id"])',
+	'export const Note = relation("Note", { id: Id, count: pg.bigint }, ["id"])',
+	'export const Extra = relation("Extra", { id: Id }, ["id"])',
 	'export const Root = schema("Root", [Item, Note], [])',
 	'export const Wider = schema.extend(Root, "Wider", [Extra], [])',
 	'export const level = role(Root, "level", wholeEntriesOf(Root))',

@@ -25,7 +25,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import { columnKeyOf } from "#compiler/ir/law.ts"
-import { drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { counted, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import type { Cells } from "#compiler/runtime/write/cells.ts"
@@ -36,16 +36,14 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
 import { withinMessage } from "#test/support/worlds/execute/offline.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
-const Doc = relation("Doc", { id: uuid, n: drawn(natural) }, ["id"])
-const Node = relation("Node", { doc: uuid, at: drawn(natural), attrs: drawn(natural) }, [
-	"doc",
-	"at"
-])
-const Attr = relation("Attr", { doc: uuid, at: natural, name: pg.bigint }, ["doc", "at", "name"])
+const Doc = relation("Doc", { id: Id, n: drawn(natural) }, ["id"])
+const Node = relation("Node", { doc: Id, at: drawn(natural), attrs: drawn(natural) }, ["doc", "at"])
+const Attr = relation("Attr", { doc: Id, at: natural, name: pg.bigint }, ["doc", "at", "name"])
 const Pages = schema(
 	"Pages",
 	[Doc, Node, Attr],

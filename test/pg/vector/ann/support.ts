@@ -28,7 +28,7 @@ import {
 import { queryInput } from "#compiler/program/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -38,6 +38,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { compileTestWorkload, lowerAligned, testCompile } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { type Installed, seededTemplate } from "#test/support/install-migrate.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
@@ -47,17 +48,17 @@ export const dimensions = 8
 const DocumentVector = pg.vector(dimensions)
 const Title = str.regex("^.+$", "su")
 const TagName = str.regex("^[a-z]{1,16}$")
-const Document = relation("Document", { id: uuid, account: uuid, title: Title }, ["id"])
-const DocumentCurrent = relation("DocumentCurrent", { document: uuid, revision: pg.bigint }, [
+const Document = relation("Document", { id: Id, account: Id, title: Title }, ["id"])
+const DocumentCurrent = relation("DocumentCurrent", { document: Id, revision: pg.bigint }, [
 	"document"
 ])
 
 export const DocumentEmbedding = relation(
 	"DocumentEmbedding",
-	{ document: uuid, revision: pg.bigint, value: DocumentVector },
+	{ document: Id, revision: pg.bigint, value: DocumentVector },
 	["document", "revision"]
 )
-const DocumentTag = relation("DocumentTag", { document: uuid, tag: TagName }, ["document", "tag"])
+const DocumentTag = relation("DocumentTag", { document: Id, tag: TagName }, ["document", "tag"])
 /**
  * The approximate-retrieval fixture on PostgreSQL 19.
  *
@@ -197,8 +198,10 @@ export const shared = query(AnnSearch)
 			.find({ document })
 	})
 
-const uuidOf = (prefix: number, n: number): Uuid =>
-	`${pipe(prefix.toString(16), Str.padStart(8, "0"))}-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+const uuidOf = (prefix: number, n: number): IdValue =>
+	Id(
+		`${pipe(prefix.toString(16), Str.padStart(8, "0"))}-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+	)
 
 export const accountA = uuidOf(0xa, 1)
 export const accountB = uuidOf(0xb, 1)
@@ -464,13 +467,13 @@ const populated = <const P extends AnnPrograms>(opened: AnnOpened<P>) =>
 		for (const batch of chunks(facts, 500)) {
 			statements.push(
 				`INSERT INTO ${table("Document")} ("id", "account", "title") VALUES ${Arr.join(
-					Arr.map(batch, (d) => `('${d.id}'::uuid, '${d.account}'::uuid, 'doc ${d.id}'::text)`),
+					Arr.map(batch, (d) => `('${d.id}'::Id, '${d.account}'::Id, 'doc ${d.id}'::text)`),
 					", "
 				)}`
 			)
 			statements.push(
 				`INSERT INTO ${table("DocumentCurrent")} ("document", "revision") VALUES ${Arr.join(
-					Arr.map(batch, (d) => `('${d.id}'::uuid, ${d.current}::bigint)`),
+					Arr.map(batch, (d) => `('${d.id}'::Id, ${d.current}::bigint)`),
 					", "
 				)}`
 			)
@@ -488,7 +491,7 @@ const populated = <const P extends AnnPrograms>(opened: AnnOpened<P>) =>
 			}
 			statements.push(
 				`INSERT INTO ${table("DocumentTag")} ("document", "tag") VALUES ${Arr.join(
-					Arr.flatMap(batch, (d) => Arr.map(d.tags, (t) => `('${d.id}'::uuid, '${t}'::text)`)),
+					Arr.flatMap(batch, (d) => Arr.map(d.tags, (t) => `('${d.id}'::Id, '${t}'::text)`)),
 					", "
 				)}`
 			)

@@ -8,7 +8,7 @@ import type { AmbientSession } from "#test/support/ambient.ts"
 import type { IdentifierFeature } from "#test/support/kernel/dict.ts"
 import type { StorageCarrier } from "#test/support/oracle/gen/domain.ts"
 import {
-	compareParamType,
+	declaredParamType,
 	scalarOfSpec,
 	type SpelledValue
 } from "#test/support/oracle/gen/domain.ts"
@@ -228,7 +228,7 @@ export interface Var {
 }
 
 /**
- * How a parameter is declared: with its compared field's base descriptor (compareParamType), or with the field's own
+ * How a parameter is declared: with its compared field's base descriptor (declaredParamType), or with the field's own
  * descriptor, a contract's or a typmod's.
  */
 export type ParamDeclaration =
@@ -663,7 +663,7 @@ export const plainKinds: ReadonlySet<FieldKind> = new Set<FieldKind>([
 /**
  * A read a suite constructs to reach a requirement its drawn cases seldom meet: `stored`'s facts whose `bound` fields
  * are each a parameter bound to the value beside it, declared with the field's base as the generator declares a bound
- * parameter (compareParamType), every other field in the head under its own name. A read binding a key whole delivers
+ * parameter (declaredParamType), every other field in the head under its own name. A read binding a key whole delivers
  * at most one row, and one binding fields no key is within selects by their correlation.
  */
 export const boundRead = (
@@ -681,7 +681,7 @@ export const boundRead = (
 			field.name,
 			{
 				name: `p0_${at}`,
-				type: compareParamType(field.type),
+				type: declaredParamType(field.type),
 				value,
 				declaration: { kind: "base" }
 			}

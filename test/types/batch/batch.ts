@@ -229,6 +229,12 @@ const diagnosticLine = regex(
 /** A continuation line of the diagnostic above it. */
 const continuationLine = regex("^\\s")
 
+/**
+ * A refusal as a diagnostic prints its type, `Refusal<"…">`: the message as TypeScript spells a string literal type, a
+ * double quote or a backslash in it escaped, as JSON escapes them.
+ */
+const printedRefusal = (refusal: string): string => `Refusal<${jsonText(refusal)}>`
+
 /** The text from `Refusal<"` through the next `">`: the refusal a diagnostic prints, none where it prints none. */
 const refusalFragment = (text: string): Option.Option<string> =>
 	Option.flatMap(Str.indexOf('Refusal<"')(text), (start) =>
@@ -287,7 +293,7 @@ const contradicted = (
 				]
 			case "refusal":
 				return !Arr.isReadonlyArrayNonEmpty(matched) ||
-					Arr.some(matched, (e) => Str.includes(`Refusal<"${claim.refusal}">`)(e.text))
+					Arr.some(matched, (e) => Str.includes(printedRefusal(claim.refusal))(e.text))
 					? []
 					: [{ kind: "refusal missing", at, refusal: claim.refusal }]
 			case "refused":

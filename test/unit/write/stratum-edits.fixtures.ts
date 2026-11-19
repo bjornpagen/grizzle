@@ -4,7 +4,7 @@ import { array, type Gen, subset, weighted } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { strataAt, type StratumAt } from "#compiler/ir/stratum.ts"
-import { drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { counted, fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import {
@@ -16,6 +16,7 @@ import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 
@@ -23,11 +24,9 @@ const Club = relation("Club", { id: pg.integer, n: drawnField(natural) }, ["id"]
 
 const Member = relation("Member", { m: pg.integer, club: pg.integer }, ["m"])
 
-const Doc = relation("Doc", { id: uuid, lines: drawnField(natural) }, ["id"])
+const Doc = relation("Doc", { id: Id, lines: drawnField(natural) }, ["id"])
 
-const Line = relation("Line", { id: uuid, doc: uuid, at: drawnField(natural), qty: pg.bigint }, [
-	"id"
-])
+const Line = relation("Line", { id: Id, doc: Id, at: drawnField(natural), qty: pg.bigint }, ["id"])
 
 const Tag = relation("Tag", { id: pg.integer, label: pg.integer }, ["id"])
 

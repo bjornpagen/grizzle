@@ -4,9 +4,10 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
 import { relation } from "#compiler/public/dynamic.ts"
-import { contract, date, Decimal, pg, uuid } from "#compiler/public/fields.ts"
+import { contract, date, Decimal, pg } from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** A text of every value but NUL, which its type's input function refuses before any pattern reads it. */
 const anyText = str.regex("^.*$", "su")
@@ -17,7 +18,7 @@ const anyText = str.regex("^.*$", "su")
  * domain loop's), so a value the input function refuses reaches both the column's type and its domain.
  */
 export const cellFields = {
-	id: uuid,
+	id: Id,
 	i2: pg.smallint,
 	i4: pg.integer,
 	i8: pg.bigint,
@@ -39,7 +40,7 @@ export const Admissions = schema("Admissions", [Cells], [])
 
 /** A row of Cells every field of which its type and its domain admit. */
 export const admittedRow = {
-	id: "00000000-0000-4000-8000-000000000001",
+	id: Id("00000000-0000-4000-8000-000000000001"),
 	i2: 1,
 	i4: 1,
 	i8: 1n,

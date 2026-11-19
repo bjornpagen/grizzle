@@ -8,7 +8,7 @@ import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { constantOfLiteral, type Entry } from "#compiler/ir/cells.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { closedId, drawn as drawnField, natural, slot, uuid } from "#compiler/public/fields.ts"
+import { closedId, drawn as drawnField, natural, slot } from "#compiler/public/fields.ts"
 import {
 	type AnyClosed,
 	type AnyRelation,
@@ -32,6 +32,7 @@ import {
 import type { PackConstant, SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { ownedInput } from "#test/support/policy.ts"
 
 const Version = closed.ordered("Version", ["v0", "v1"])
@@ -582,7 +583,7 @@ export const plant = ({ declaration: d, fault }: Faulted): Planted => {
 		case "a slot in an ordinary relation":
 			return {
 				stage: "builder",
-				attempt: () => relation("Slotted", { id: uuid, at: positionSlot }, ["id"]),
+				attempt: () => relation("Slotted", { id: Id, at: positionSlot }, ["id"]),
 				at: { path: [], label: "relation Slotted" }
 			}
 		case "a fin over an ordinary relation":
@@ -591,7 +592,7 @@ export const plant = ({ declaration: d, fault }: Faulted): Planted => {
 				attempt: () =>
 					slotField(
 						closedId(Position),
-						finBuilder(relation("Owner", { id: uuid, n: drawnField(natural) }, ["id"]), "n"),
+						finBuilder(relation("Owner", { id: Id, n: drawnField(natural) }, ["id"]), "n"),
 						[]
 					),
 				at: { path: [], label: "slot" }

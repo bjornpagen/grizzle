@@ -1,5 +1,5 @@
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -14,21 +14,20 @@ import {
 	writableNamesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** The dimension count of the Search schema's vectors. */
 export const documentDimensions = 4
 export const DocumentVector = pg.vector(documentDimensions)
 const Title = str.regex("^.+$", "su")
-export const Document = relation("Document", { id: uuid, account: uuid, title: Title }, ["id"])
-export const DocumentCurrent = relation(
-	"DocumentCurrent",
-	{ document: uuid, revision: pg.bigint },
-	["document"]
-)
+export const Document = relation("Document", { id: Id, account: Id, title: Title }, ["id"])
+export const DocumentCurrent = relation("DocumentCurrent", { document: Id, revision: pg.bigint }, [
+	"document"
+])
 
 export const DocumentEmbedding = relation(
 	"DocumentEmbedding",
-	{ document: uuid, revision: pg.bigint, value: DocumentVector },
+	{ document: Id, revision: pg.bigint, value: DocumentVector },
 	["document", "revision"]
 )
 

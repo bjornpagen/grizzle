@@ -23,6 +23,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
@@ -401,14 +402,14 @@ const functionsOf = (v: VersionSketch): ReadonlyArray<AnyFunction> => {
  * extension over a root of B(id), N beside them in the schema `peek`'s search_path names; one login writes and reads
  * them. */
 export const versionFor = (c: FunctionCase, v: VersionSketch) => (name: string) => {
-	const N = relation("N", { id: uuid }, ["id"])
+	const N = relation("N", { id: Id }, ["id"])
 	const functions = functionsOf(v)
 	if (c.level === "root") {
 		const s = schema(name, [N, ...functions], [])
 		const writer = role(s, "writer", wholeEntriesOf(s), { write: writableNamesOf(s) })
 		return { schema: s, logins: [login(s, "desk", [writer])] }
 	}
-	const base = schema(name, [relation("B", { id: uuid }, ["id"])], [])
+	const base = schema(name, [relation("B", { id: Id }, ["id"])], [])
 	const s = schema.extend(base, `${name}_fn`, [N, ...functions], [])
 	const writer = role(s, "writer", wholeEntriesOf(s), { write: writableNamesOf(s) })
 	return { schema: s, logins: [login(s, "desk", [writer])] }

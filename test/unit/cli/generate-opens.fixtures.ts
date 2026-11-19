@@ -2,12 +2,13 @@ import { type Gen, int, map } from "@bjornpagen/testing/gen"
 import { Record as Rec } from "effect"
 import { noParamTypes } from "#compiler/physical/ddl/domains.ts"
 import type { InstalledSource } from "#compiler/program/schema.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema, type RelationName } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { selectMaxEntries } from "#compiler/sql/print.ts"
 import { repoRoot } from "#test/support/files.ts"
+import { Id } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
@@ -47,8 +48,8 @@ const side = <const Name extends string>(
 	prefix: string,
 	count: number
 ) => {
-	const fields: Readonly<Record<string, typeof uuid | typeof pg.boolean>> = {
-		id: uuid,
+	const fields: Readonly<Record<string, typeof Id | typeof pg.boolean>> = {
+		id: Id,
 		...Rec.fromEntries(upTo(count, (i) => [`${prefix}${i}`, pg.boolean] as const))
 	}
 	return relation(name, fields, ["id"])

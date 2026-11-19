@@ -6,7 +6,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import type { WriteOp } from "#compiler/ir/desc.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -24,6 +24,7 @@ import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"
 import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -31,11 +32,11 @@ import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 /** Ledger(id, total, n drawn, t accumulated): the owner of the counted family of Entry. */
 const Ledger = relation(
 	"Ledger",
-	{ id: uuid, total: pg.bigint, n: drawnField(natural), t: accumulated(pg.bigint, 0n) },
+	{ id: Id, total: pg.bigint, n: drawnField(natural), t: accumulated(pg.bigint, 0n) },
 	["id"]
 )
 
-const Entry = relation("Entry", { id: uuid, ledger: uuid, x: pg.bigint }, ["id"])
+const Entry = relation("Entry", { id: Id, ledger: Id, x: pg.bigint }, ["id"])
 
 const entries = counted(on(Entry, "ledger"), fin(Ledger, "n"))
 
@@ -53,7 +54,7 @@ const Books = schema(
 
 /** Ledgers read from the relation parameter `given`: facts no row need hold, so a write of them may insert each. */
 const givenLedgers = query(Books).rule((r) => {
-	const given = r.relation("given", { id: uuid, total: pg.bigint })
+	const given = r.relation("given", { id: Id, total: pg.bigint })
 	const { id, total } = v(Ledger, "ledger")
 	return r.match(given, { id, total }).find({ id, total })
 })
@@ -63,7 +64,7 @@ const restatedLedger = query(Books).rule((r) => {
 	const { id, total } = v(Ledger, "ledger")
 	return r
 		.match(Ledger, { id, total })
-		.where(r.eq(id, r.param("ledger", uuid)))
+		.where(r.eq(id, r.param("ledger", Id)))
 		.find({ id, total: r.param("total", pg.bigint) })
 })
 

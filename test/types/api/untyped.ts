@@ -220,12 +220,12 @@ ${Arr.join(lines, ",\n")}
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/untyped.ts"))
 
 /** The relations, roles, programs and members every cell's call reads, the batch's own. */
-const untypedHeader = `export const Parent = relation("Parent", { id: uuid, kids: drawn(natural) }, ["id"])
-export const Kid = relation("Kid", { parent: uuid, at: drawn(natural), label: pg.integer }, ["parent", "at"])
+const untypedHeader = `export const Parent = relation("Parent", { id: Id, kids: drawn(natural) }, ["id"])
+export const Kid = relation("Kid", { parent: Id, at: drawn(natural), label: pg.integer }, ["parent", "at"])
 export const nesting = ordered(on(Kid, "parent", "at"), fin(Parent, "kids"))
 export const Root = schema("Root", [Parent, Kid], [nesting])
-export const Bag = relation("Bag", { id: uuid, items: drawn(natural) }, ["id"])
-export const Item = relation("Item", { bag: uuid, at: drawn(natural), label: pg.integer }, ["bag", "at"])
+export const Bag = relation("Bag", { id: Id, items: drawn(natural) }, ["id"])
+export const Item = relation("Item", { bag: Id, at: drawn(natural), label: pg.integer }, ["bag", "at"])
 export const bagging = ordered(on(Item, "bag", "at"), fin(Bag, "items"))
 export const Labels = derived.materialized(
 	"Labels",

@@ -2,9 +2,10 @@
 
 import { Array as Arr } from "effect"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
+import { Id } from "#test/support/ids.ts"
 import { typedLit, varRef } from "#test/unit/check/dsl.ts"
 
 export const integer: FieldDesc = { kind: "pg", type: "integer" }
@@ -34,8 +35,8 @@ export const setsOver = ([first, ...rest]: Arr.NonEmptyReadonlyArray<string>) =>
 		"Sets",
 		[
 			closed.ordered("Flag", [first, ...rest]),
-			relation("Node", { id: uuid }, ["id"]),
-			relation("Link", { from: uuid, to: uuid }, ["from", "to"])
+			relation("Node", { id: Id }, ["id"]),
+			relation("Link", { from: Id, to: Id }, ["from", "to"])
 		],
 		[]
 	)

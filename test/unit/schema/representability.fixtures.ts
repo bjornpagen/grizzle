@@ -17,7 +17,7 @@ import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { type ExprDesc, type FieldDesc, fieldTypes } from "#compiler/ir/desc.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
-import { natural, uuid } from "#compiler/public/fields.ts"
+import { natural } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
 import {
 	accumulatedField,
@@ -47,6 +47,7 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { ownInput } from "#test/support/policy.ts"
 import {
@@ -788,7 +789,7 @@ const fixedDescriptor = (type: FixedType): FieldBase => {
 		case "boolean":
 			return rawPg.boolean
 		case "uuid":
-			return uuid
+			return Id
 		case "closedId":
 			return rawClosedId(Kind)
 	}
@@ -1138,14 +1139,14 @@ const orderedAxis = (bytes: number, spelling: Spelling) => {
 	const text = keyText(bytes, spelling)
 	const Doc = relation(
 		"Doc",
-		{ id: uuid, n: drawnField(natural, []), text: accumulatedField(text, "", []) },
+		{ id: Id, n: drawnField(natural, []), text: accumulatedField(text, "", []) },
 		["id"],
 		[]
 	)
 	const Line = relation(
 		"Line",
 		{
-			doc: uuid,
+			doc: Id,
 			at: drawnField(natural, []),
 			piece: text,
 			before: accumulatedField(text, "", []),
@@ -1177,7 +1178,7 @@ const treeAxis = (bytes: number, spelling: Spelling) => {
 	const Node = relation(
 		"Node",
 		{
-			doc: uuid,
+			doc: Id,
 			parent: drawnField(natural, []),
 			at: drawnField(natural, []),
 			children: drawnField(natural, []),
@@ -1239,7 +1240,7 @@ const keyArm = (s: Extract<BudgetCase, { readonly arm: KeyArm }>): Arm => {
 			}
 			const R = relation(
 				"R",
-				{ id: uuid, live: rawPg.boolean, ...Rec.fromEntries(fields) },
+				{ id: Id, live: rawPg.boolean, ...Rec.fromEntries(fields) },
 				["id"],
 				[]
 			)
@@ -1269,7 +1270,7 @@ export const armOf = (s: BudgetCase): Arm => {
 			return keyArm(s)
 		case "ordered axis":
 			return {
-				fields: [uuid, natural],
+				fields: [Id, natural],
 				companions: [uuidCompanion, naturalCompanion],
 				schemaAt: (bytes) => orderedAxis(bytes, s.spelling),
 				entryAt: (bytes) =>
@@ -1281,7 +1282,7 @@ export const armOf = (s: BudgetCase): Arm => {
 			}
 		case "tree axis":
 			return {
-				fields: [uuid, natural, natural, natural],
+				fields: [Id, natural, natural, natural],
 				companions: [uuidCompanion, naturalCompanion, naturalCompanion, naturalCompanion],
 				schemaAt: (bytes) => treeAxis(bytes, s.spelling),
 				entryAt: (bytes) =>
@@ -1368,7 +1369,7 @@ export const gistDatumGen: Gen<{ readonly family: GistFamily; readonly bytes: nu
  * them, a span and nothing else is always representable.
  */
 const scalarKeyFields: Arr.NonEmptyReadonlyArray<FieldBase> = [
-	uuid,
+	Id,
 	rawPg.bigint,
 	rawPg.integer,
 	rawPg.smallint,

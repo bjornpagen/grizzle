@@ -1,5 +1,5 @@
 import { Array as Arr, Record as Rec } from "effect"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
 	closed,
@@ -14,6 +14,7 @@ import {
 	select
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * The schemas of selected sides, each owned here once: the projection suites' families (families.ts) draw their
@@ -96,15 +97,13 @@ const Week = str.regex("^[ -~]{1,40}$", "u")
 export const statuses = ["pending", "approved"] as const
 export type ShiftStatus = (typeof statuses)[number]
 const Status = closed.ordered("Status", statuses)
-export const Sheet = relation("Sheet", { employee: uuid, week: Week, ceiling: pg.integer }, [
+export const Sheet = relation("Sheet", { employee: Id, week: Week, ceiling: pg.integer }, [
 	"employee",
 	"week"
 ])
-const Shift = relation(
-	"Shift",
-	{ id: uuid, employee: uuid, week: Week, status: closedId(Status) },
-	["id"]
-)
+const Shift = relation("Shift", { id: Id, employee: Id, week: Week, status: closedId(Status) }, [
+	"id"
+])
 export const rotaRelations = Object.freeze({ Sheet, Shift })
 
 export interface RotaParams {
@@ -251,14 +250,14 @@ export const priorities = ["low", "high"] as const
 const Priority = closed.ordered("Priority", priorities)
 export const Ticket = relation(
 	"Ticket",
-	{ id: uuid, level: pg.integer, lang: str.regex("^[a-z]{2}$", "u"), priority: closedId(Priority) },
+	{ id: Id, level: pg.integer, lang: str.regex("^[a-z]{2}$", "u"), priority: closedId(Priority) },
 	["id"]
 )
 /** A ticket's follow-ups, each keyed by its ticket: three are all key, and a translation carries its text. */
-export const Escalation = relation("Escalation", { ticket: uuid }, ["ticket"])
-export const Translation = relation("Translation", { ticket: uuid, text: anyText }, ["ticket"])
-export const Page = relation("Page", { ticket: uuid }, ["ticket"])
-export const Watch = relation("Watch", { ticket: uuid }, ["ticket"])
+export const Escalation = relation("Escalation", { ticket: Id }, ["ticket"])
+export const Translation = relation("Translation", { ticket: Id, text: anyText }, ["ticket"])
+export const Page = relation("Page", { ticket: Id }, ["ticket"])
+export const Watch = relation("Watch", { ticket: Id }, ["ticket"])
 export const signalsRelations = Object.freeze({ Ticket, Escalation, Translation, Page, Watch })
 
 export interface SignalsParams {

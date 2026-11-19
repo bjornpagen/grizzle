@@ -3,12 +3,13 @@
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, pipe, String as Str } from "effect"
 import type { ParamMap } from "#compiler/plan/common.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { query, v } from "#compiler/public/query.ts"
 import { context, login, role } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { defined } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
+import { Id } from "#test/support/ids.ts"
 import { migratedOnceTemplate, rebuild } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
@@ -56,7 +57,7 @@ const accountName = (n: number): string => `account ${pipe(String(n), Str.padSta
  */
 export const tenantWorld = (name: string) => {
 	const base = rebuild(W.Work, name)
-	const Tenant = context("Tenant", { account: uuid })
+	const Tenant = context("Tenant", { account: Id })
 	const { Account, Task, AutomaticTask, ManualTask, TaskNote } = W
 	const accounts = query(base).rule((r) => {
 		const { id, name: label } = v(Account, "account")
@@ -119,7 +120,7 @@ export const tenantWorld = (name: string) => {
 		return r
 			.match(own.Task, { id, account, kind: "Automatic" })
 			.match(own.AutomaticTask, { task: id, budget })
-			.where(r.eq(account, r.param("account", uuid)))
+			.where(r.eq(account, r.param("account", Id)))
 			.find({ id, budget })
 	})
 	const automaticBudgetFor = query(tenant).rule((r) => {
@@ -128,7 +129,7 @@ export const tenantWorld = (name: string) => {
 		return r
 			.match(own.Task, { id, account, kind: "Automatic" })
 			.match(own.AutomaticTask, { task: id, budget })
-			.where(r.eq(account, r.param("account", uuid)))
+			.where(r.eq(account, r.param("account", Id)))
 			.find({ account, tasks: r.count(), budget: r.sum(budget) })
 	})
 	const labeledAutomaticTasks = query(tenant).rule((r) => {
@@ -139,7 +140,7 @@ export const tenantWorld = (name: string) => {
 			.match(own.Task, { id, account, kind: "Automatic" })
 			.match(own.AutomaticTask, { task: id, budget })
 			.match(own.Account, { id: account, name: label })
-			.where(r.eq(account, r.param("account", uuid)))
+			.where(r.eq(account, r.param("account", Id)))
 			.find({ id, name: label, budget })
 	})
 	const taskCards = query(tenant)
@@ -147,7 +148,7 @@ export const tenantWorld = (name: string) => {
 			const { id, account, kind } = v(own.Task, "task")
 			return r
 				.match(own.Task, { id, account, kind })
-				.where(r.eq(account, r.param("account", uuid)))
+				.where(r.eq(account, r.param("account", Id)))
 				.find({ id, kind })
 		})
 		.attach(
@@ -169,7 +170,7 @@ export const tenantWorld = (name: string) => {
 			"option"
 		)
 	const tasksById = query(tenant).rule((r) => {
-		const wanted = r.relation("ids", { id: uuid })
+		const wanted = r.relation("ids", { id: Id })
 		const { id, kind } = v(own.Task, "task")
 		return r.match(wanted, { id }).match(own.Task, { id, kind }).find({ id, kind })
 	})

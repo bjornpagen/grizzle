@@ -4,12 +4,13 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid, Vector } from "#compiler/public/fields.ts"
+import { pg, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import type { QueryValue } from "#compiler/query/build/query.ts"
 import { nonEmpty, succeeded } from "#test/support/assert.ts"
 import { compileTemplateOver, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
 import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 
@@ -82,7 +83,7 @@ const refusalOf: { readonly [S in Site]: Refused } = {
 }
 
 /** The schema the program and the oracle read: a relation of a value to order by and a vector to rank by. */
-const Point = relation("Point", { id: uuid, n: pg.integer, at: pg.vector(3) }, ["id"])
+const Point = relation("Point", { id: Id, n: pg.integer, at: pg.vector(3) }, ["id"])
 const Points = schema("Points", [Point], [])
 const artifacts = succeeded(testArtifacts(Points, testCompile), "the take program's artifacts")
 const origin = Vector.make(Float32Array.from([1, 0, 0]), 3)
@@ -181,7 +182,7 @@ const cellLines = (c: TakeCell, index: number): ReadonlyArray<string> => {
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/take.ts"))
 
 /** The schema and the queries every cell bounds, the batch's own. */
-const takeHeader = `export const Point = relation("Point", { id: uuid, n: pg.integer, at: pg.vector(3) }, ["id"])
+const takeHeader = `export const Point = relation("Point", { id: Id, n: pg.integer, at: pg.vector(3) }, ["id"])
 export const Points = schema("Points", [Point], [])
 export const origin = Vector.make(Float32Array.from([1, 0, 0]), 3)
 export const scored = query(Points).rule((r) => {

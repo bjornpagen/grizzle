@@ -12,7 +12,7 @@ import {
 	Stream
 } from "effect"
 import type { ColdLogin } from "#bench/cold/workload.ts"
-import type { Uuid } from "#compiler/scalar/values/uuid.ts"
+import { type IdValue } from "#test/support/ids.ts"
 
 const boot = performance.now()
 
@@ -51,7 +51,7 @@ export type ProbeDatabase = {
 	/** The idle timeout of the probe's pool, its parent's: the longest delay a Node timer keeps (timerMaxMs). */
 	readonly idleTimeoutMs: number
 	/** The account whose tasks the parameterized reads read. */
-	readonly account: Uuid
+	readonly account: IdValue
 }
 
 /** A load probe, or a database probe with the installation it reads; each with the login's served file's text. */

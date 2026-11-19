@@ -17,7 +17,7 @@ import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Option, String as Str } from "effect"
 import { type FieldDesc, pgScalarNames } from "#compiler/ir/desc.ts"
 import { type DeclaredType, languageOfText, languageWithin, textOf } from "#compiler/ir/scalar.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
 import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -27,6 +27,7 @@ import { textLookup } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { f, textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { Id } from "#test/support/ids.ts"
 import { decimalGen, numericText } from "#test/unit/values/support.ts"
 
 /** Groups of spellings of one Decimal value, and values alone. */
@@ -346,7 +347,7 @@ const constructedGen: Gen<Constructed> = oneOf<Constructed>([
 	})),
 	oneOf(Arr.map(typedSpaces, ([, space]) => space)),
 	element<Constructed>([
-		{ by: "a public field descriptor", value: uuid },
+		{ by: "a public field descriptor", value: Id },
 		{ by: "a public field descriptor", value: pg.integer },
 		{ by: "a public field descriptor", value: pg.bigint },
 		{ by: "a public field descriptor", value: pg.numeric(10, 2) },

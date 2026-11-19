@@ -10,7 +10,7 @@ import {
 } from "#compiler/ir/codes.ts"
 import { Roster, type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { bits, closedId, contract, generated, pg, uuid } from "#compiler/public/fields.ts"
+import { bits, closedId, contract, generated, pg } from "#compiler/public/fields.ts"
 import { check, type RowScalars, type Statement } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -25,6 +25,7 @@ import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyClosed, AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { type BuiltSchema, generatedSchemaName } from "#test/support/oracle/public/build.ts"
 import type { ProgramSchema } from "#test/support/oracle/public/program.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -147,7 +148,7 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 	const Count = contract("LawCount", pg.integer, (x) => Compute.ge(x, level.least[0]))
 	const Tally = contract("LawTally", pg.integer, (x) => Compute.ge(x, level.least[1]))
 	const holderName = fresh("LawHolder", taken)
-	const holderFields = { id: uuid, code: closedId(Kind), marks: bits(Kind), count: Count }
+	const holderFields = { id: Id, code: closedId(Kind), marks: bits(Kind), count: Count }
 	const Holder =
 		level.key === "id"
 			? relationBuilder(holderName, holderFields, ["id"], [])
@@ -155,7 +156,7 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 				? relationBuilder(holderName, holderFields, ["code"], [])
 				: relationBuilder(holderName, holderFields, ["id", "code"], [])
 	const counterName = fresh("LawCounter", taken)
-	const counterFields = { id: uuid, tally: Tally, base: pg.integer }
+	const counterFields = { id: Id, tally: Tally, base: pg.integer }
 	const Counter = level.generated
 		? generatedRelation(
 				counterName,

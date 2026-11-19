@@ -72,9 +72,9 @@ type Spelling = (typeof spellings)[number]
 
 /** The arguments each constructor takes after the name: a relation of a written field, a roster of two handles. */
 const restOf: { readonly [C in ConstructorName]: ReadonlyArray<string> } = {
-	relation: ["{ id: uuid, n: pg.integer }", '["id"]'],
+	relation: ["{ id: Id, n: pg.integer }", '["id"]'],
 	"relation.generated": [
-		"{ id: uuid, n: pg.integer }",
+		"{ id: Id, n: pg.integer }",
 		'["id"]',
 		"(r) => ({ m: generated(pg.integer, r.n) })"
 	],
@@ -87,9 +87,9 @@ const restOf: { readonly [C in ConstructorName]: ReadonlyArray<string> } = {
 	],
 	derived: ["Items"],
 	"derived.materialized": ["Items"],
-	dynamicRelation: ["{ id: uuid, n: pg.integer }", '["id"]'],
+	dynamicRelation: ["{ id: Id, n: pg.integer }", '["id"]'],
 	"dynamicRelation.generated": [
-		"{ id: uuid, n: pg.integer }",
+		"{ id: Id, n: pg.integer }",
 		'["id"]',
 		"(r) => ({ m: generated(pg.integer, r.n) })"
 	],
@@ -247,16 +247,16 @@ const caseBlock = (c: NameCase, index: number): ReadonlyArray<string> => [
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/names.ts"))
 
 /** The root, the roster and the relations every cell's call and level read, the batch's own. */
-const namesHeader = `export const Item = relation("Item", { id: uuid, n: pg.integer }, ["id"])
+const namesHeader = `export const Item = relation("Item", { id: Id, n: pg.integer }, ["id"])
 export const Kind = closed.ordered("Kind", ["a", "b"])
 export const Root = schema("Root", [Item, Kind], [])
-export const Tag = relation("Tag", { id: uuid, item: uuid }, ["id"])
+export const Tag = relation("Tag", { id: Id, item: Id }, ["id"])
 export const tagged = contained(on(Tag, "item"), on(Item, "id"))
 export const Items = query(Root).rule((r) => {
 	const { id, n } = v(Item, "item")
 	return r.match(Item, { id, n }).find({ id, n })
 })
-export const tagId = "00000000-0000-0000-0000-000000000000"
+export const tagId = Id("00000000-0000-0000-0000-000000000000")
 `
 
 /** The program over a batch's cells, its imports read through its prelude as `entry` reaches it. */

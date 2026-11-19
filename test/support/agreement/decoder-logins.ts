@@ -1,9 +1,10 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, pg, uuid } from "#compiler/public/fields.ts"
+import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { clocked, deferrable, paged, workload } from "#compiler/public/workload.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * The decoder agreement's box (test/types/api/decoder.ts): one login over Shelf for each kind of member the decision of
@@ -21,8 +22,8 @@ import { clocked, deferrable, paged, workload } from "#compiler/public/workload.
  */
 const Instant = contract("Instant", pg.bigint, (m) => Compute.ge(m, 0n))
 
-const Item = relation("Item", { id: uuid }, ["id"])
-const Due = relation("Due", { id: uuid, at: Instant }, ["id"])
+const Item = relation("Item", { id: Id }, ["id"])
+const Due = relation("Due", { id: Id, at: Instant }, ["id"])
 const Shelf = schema("Shelf", [Item, Due], [])
 
 /** The login `name`'s role: every relation of Shelf whole, writing Item. */

@@ -6,7 +6,7 @@ import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema } from "#cli/generate.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload, workloadState } from "#compiler/program/workload/value.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { query, v } from "#compiler/public/query.ts"
 import {
 	type AnyLogin,
@@ -23,6 +23,7 @@ import { sittingShape } from "#test/pg/isolation/support/shapes.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { platformAt } from "#test/support/fixtures/api/platform.ts"
+import { Id } from "#test/support/ids.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 
 /** The fixtures: the sitting shape with its learner's members and the importer's extension or not, and the platform. */
@@ -100,24 +101,22 @@ const sittingRead = (reader: SittingReader, read: SittingRead): unknown => {
 		case "docByNode":
 			return query(reader).rule((r) => {
 				const { n } = v(Doc, "doc")
-				return r.match(Doc, { node: r.param("node", uuid), n }).find({ n })
+				return r.match(Doc, { node: r.param("node", Id), n }).find({ n })
 			})
 		case "poolsOfDoc":
 			return query(reader).rule((r) => {
 				const { pool, size } = v(Pool, "pool")
-				return r.match(Pool, { doc: r.param("doc", uuid), pool, size }).find({ pool, size })
+				return r.match(Pool, { doc: r.param("doc", Id), pool, size }).find({ pool, size })
 			})
 		case "sittingsOfDoc":
 			return query(reader).rule((r) => {
 				const { id, child } = v(Sitting, "sitting")
-				return r.match(Sitting, { id, doc: r.param("doc", uuid), child }).find({ id, child })
+				return r.match(Sitting, { id, doc: r.param("doc", Id), child }).find({ id, child })
 			})
 		case "servedOfSitting":
 			return query(reader).rule((r) => {
 				const { pool, size } = v(Served, "served")
-				return r
-					.match(Served, { sitting: r.param("sitting", uuid), pool, size })
-					.find({ pool, size })
+				return r.match(Served, { sitting: r.param("sitting", Id), pool, size }).find({ pool, size })
 			})
 		case "docs":
 			return query(reader).rule((r) => {

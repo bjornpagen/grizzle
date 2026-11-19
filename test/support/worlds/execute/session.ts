@@ -10,7 +10,7 @@ import type { LoadedMember } from "#adapter/served/load.ts"
 import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 import { type Anchor, type KeyFields, keyOf } from "#compiler/live/index.ts"
 import { pagedMember, refreshMember, workload } from "#compiler/program/workload/value.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
@@ -21,6 +21,7 @@ import { changeSetOver, type ChangeSetValue } from "#compiler/write/changeset/va
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { defined } from "#test/support/assert.ts"
 import type { TestCompileOptions } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { flown } from "#test/support/read-calls.ts"
 import { applicationOf } from "#test/support/served-db.ts"
@@ -351,7 +352,7 @@ export const rowField = (domain: FieldDomain): Option.Option<unknown> => {
 		bits === 16 ? pg.smallint : bits === 32 ? pg.integer : pg.bigint
 	switch (domain.kind) {
 		case "uuid":
-			return Option.some(uuid)
+			return Option.some(Id)
 		case "text":
 			return Option.some(regexField(domain.pattern, [domain.flags]))
 		case "integer":

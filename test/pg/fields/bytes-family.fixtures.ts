@@ -4,10 +4,11 @@ import { aimed, array, element, type Gen, int, weighted } from "@bjornpagen/test
 import { Array as Arr } from "effect"
 import { bytesChunkLength } from "#compiler/codec/delivery.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { bytes, drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
+import { bytes, drawn as drawnField, natural } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** `length` bytes of a xorshift stream from `seed`. */
 export const streamBytes = (length: number, seed: number): Uint8Array<ArrayBuffer> => {
@@ -105,9 +106,9 @@ export const notes = (d: Drawn): ReadonlyArray<Feature> => {
 	return out
 }
 
-const Owner = relation("Owner", { id: uuid, badge: bytes, members: drawnField(natural) }, ["id"])
+const Owner = relation("Owner", { id: Id, badge: bytes, members: drawnField(natural) }, ["id"])
 
-const Member = relation("Member", { id: uuid, owner: uuid, at: drawnField(natural), body: bytes }, [
+const Member = relation("Member", { id: Id, owner: Id, at: drawnField(natural), body: bytes }, [
 	"id"
 ])
 

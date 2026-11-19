@@ -9,7 +9,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { fieldColumnType } from "#compiler/ir/physical.ts"
 import { baseOf, textInfoOf } from "#compiler/ir/scalar.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -41,6 +41,7 @@ import {
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined as present, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
+import { Id } from "#test/support/ids.ts"
 import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
 import { namesOf, parsedName, roleNamesOf } from "#test/support/kernel/naming.ts"
 import { checkedIn } from "#test/support/policy.ts"
@@ -148,7 +149,7 @@ export const derivedRelationsOnPostgreSQL19ARefinedTextLiteralColumnHasItsPatter
 							const declared = patternOf(c.declared)
 							const Coded = relation(
 								"Coded",
-								{ id: uuid, code: regex(declared.source, declared.flags) },
+								{ id: Id, code: regex(declared.source, declared.flags) },
 								["id"]
 							)
 							const C = schema("C", [Coded], [])

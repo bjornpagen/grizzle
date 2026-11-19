@@ -2,11 +2,12 @@
 
 import { type Gen, int, map, option, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 
 type Binding =
 	| { readonly kind: "open" }
@@ -57,9 +58,9 @@ export const importCaseGen: Gen<ImportCase> = (source) => ({
 	own: source.draw(option(int(0, pool - 1)))
 })
 
-const R0 = relation("R0", { f0: uuid, f1: uuid, f2: uuid }, ["f0"])
+const R0 = relation("R0", { f0: Id, f1: Id, f2: Id }, ["f0"])
 
-const R1 = relation("R1", { f0: uuid, f1: uuid, f2: uuid }, ["f0"])
+const R1 = relation("R1", { f0: Id, f1: Id, f2: Id }, ["f0"])
 
 const S = schema("S", [R0, R1], [])
 
@@ -84,7 +85,7 @@ export const importerOf = (c: ImportCase): unknown => {
 					: [
 							[
 								name,
-								f.kind === "variable" ? vars[name] : r.param(parameterName(f.name), uuid)
+								f.kind === "variable" ? vars[name] : r.param(parameterName(f.name), Id)
 							] as const
 						]
 			})
@@ -105,7 +106,7 @@ export const importerOf = (c: ImportCase): unknown => {
 								case "variable":
 									return [[parameterName(name), vars["f1"]] as const]
 								case "parameter":
-									return [[parameterName(name), r.param(parameterName(b.name), uuid)] as const]
+									return [[parameterName(name), r.param(parameterName(b.name), Id)] as const]
 								case "literal":
 									return [[parameterName(name), "00000000-0000-4000-8000-000000000001"] as const]
 							}
@@ -118,7 +119,7 @@ export const importerOf = (c: ImportCase): unknown => {
 			.match(source, { f0: vars["f0"] })
 		const conditioned = Option.match(c.own, {
 			onNone: () => matched,
-			onSome: (name) => matched.where(r.eq(vars["f1"], r.param(parameterName(name), uuid)))
+			onSome: (name) => matched.where(r.eq(vars["f1"], r.param(parameterName(name), Id)))
 		})
 		return conditioned.find({ f0: vars["f0"] })
 	})

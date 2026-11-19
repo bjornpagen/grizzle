@@ -7,15 +7,7 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import { generatedLaw } from "#compiler/ir/law.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
-import {
-	accumulated,
-	closedId,
-	drawn,
-	generated,
-	natural,
-	pg,
-	uuid
-} from "#compiler/public/fields.ts"
+import { accumulated, closedId, drawn, generated, natural, pg } from "#compiler/public/fields.ts"
 import {
 	closed,
 	fin,
@@ -40,6 +32,7 @@ import { closedTableOf } from "#compiler/write/program/decide.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
@@ -67,7 +60,7 @@ type Selection = (typeof selections)[number]
 
 const Member = relation.generated(
 	"Member",
-	{ id: uuid, owner: uuid, at: drawn(natural), kind: closedId(Kind), qty: pg.bigint },
+	{ id: Id, owner: Id, at: drawn(natural), kind: closedId(Kind), qty: pg.bigint },
 	["id"],
 	(r) => ({ w: generated(pg.bigint, Weights.at("weight", r.kind)) })
 )
@@ -86,7 +79,7 @@ const stepSideOf = (selection: Selection) => {
 
 /** The schema of a selection, with the weight fold or without it, and its owner relation. */
 const schemaOf = (selection: Selection, weighed: boolean) => {
-	const ownerFields = { id: uuid, n: drawn(natural), total: accumulated(pg.bigint, 0n) }
+	const ownerFields = { id: Id, n: drawn(natural), total: accumulated(pg.bigint, 0n) }
 	if (!weighed) {
 		const Owner = relation("Owner", ownerFields, ["id"])
 		const family = ordered(on(Member, "owner", "at"), fin(Owner, "n"))

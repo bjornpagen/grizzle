@@ -1,8 +1,9 @@
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { Id } from "#test/support/ids.ts"
 
-const Posting = relation("Posting", { id: uuid, account: uuid, amount: pg.bigint }, ["id"])
+const Posting = relation("Posting", { id: Id, account: Id, amount: pg.bigint }, ["id"])
 
 /**
  * The contribution-identity ledger in public-API form: a fold reads each fact it matches once, by its key. byFact binds

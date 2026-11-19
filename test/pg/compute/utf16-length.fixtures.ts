@@ -15,7 +15,7 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
@@ -25,6 +25,7 @@ import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import {
 	baseParams,
@@ -244,7 +245,7 @@ const sourceField = (s: Source) => {
 export const schemaOf = (c: Case) => {
 	const Texts = relation.generated(
 		"Texts",
-		{ id: uuid, n: pg.integer, text: sourceField(c.source) },
+		{ id: Id, n: pg.integer, text: sourceField(c.source) },
 		["id"],
 		(r) => ({
 			units: generatedField(

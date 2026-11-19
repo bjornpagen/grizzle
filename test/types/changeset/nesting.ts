@@ -24,7 +24,7 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
 export type Form = "interface" | "alias" | "intersection"
 
 /** The fields a member type may state that its nesting does not take, by the member type that states it. */
-const nodeExcess = { parent: "bigint", doc: "Uuid", at: "bigint", note: "number" } as const
+const nodeExcess = { parent: "bigint", doc: "IdValue", at: "bigint", note: "number" } as const
 const lineExcess = { at: "bigint", node: "bigint" } as const
 const partExcess = { line: "bigint", at: "bigint" } as const
 
@@ -137,7 +137,7 @@ const caseBlock = (c: NestingCase, index: number): ReadonlyArray<string> => {
 	)
 	return Str.split(
 		`// ${c.form}, T1 … T${c.members}, the last nesting ${c.back === 0 ? "the root" : `T${c.back}`}, ${c.excess.kind === "none" ? "no field beyond its nesting's" : `${c.excess.kind === "node" ? `T${c.excess.member}` : c.excess.kind} stating ${c.excess.field}`}
-${memberType(c.form, parts, ["y: number", ...stated(c.excess, "part", 0)], [])}${memberType(c.form, lines, ["qty: number", ...stated(c.excess, "line", 0)], [`m: ReadonlyArray<${parts}>`])}${Arr.join(nodes, "")}${memberType(c.form, t(0), ["doc: Uuid", "label: number"], [`children: ReadonlyArray<${t(1)}>`, `n: ReadonlyArray<${lines}>`])}declare const root${index}: ${t(0)}
+${memberType(c.form, parts, ["y: number", ...stated(c.excess, "part", 0)], [])}${memberType(c.form, lines, ["qty: number", ...stated(c.excess, "line", 0)], [`m: ReadonlyArray<${parts}>`])}${Arr.join(nodes, "")}${memberType(c.form, t(0), ["doc: IdValue", "label: number"], [`children: ReadonlyArray<${t(1)}>`, `n: ReadonlyArray<${lines}>`])}declare const root${index}: ${t(0)}
 export const insert${index} = ChangeSet.empty(Nesting).insert(
 	Node,
 ${nestingRefused(c) ? "\t// @ts-expect-error -- refusal: a member fact is not a fact of the relation\n" : ""}	[root${index}]
@@ -153,11 +153,11 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/budget.
 /** The schema every case inserts into, the batch's own. */
 const nestingSchema = `export const Node = relation(
 	"Node",
-	{ doc: uuid, parent: drawn(natural), at: drawn(natural), children: drawn(natural), start: drawn(natural), end: drawn(natural), label: pg.integer, n: drawn(natural) },
+	{ doc: Id, parent: drawn(natural), at: drawn(natural), children: drawn(natural), start: drawn(natural), end: drawn(natural), label: pg.integer, n: drawn(natural) },
 	["doc", "start"]
 )
-export const Line = relation("Line", { doc: uuid, node: natural, at: drawn(natural), qty: pg.integer, m: drawn(natural) }, ["doc", "node", "at"])
-export const Part = relation("Part", { doc: uuid, node: natural, line: natural, at: drawn(natural), y: pg.integer }, ["doc", "node", "line", "at"])
+export const Line = relation("Line", { doc: Id, node: natural, at: drawn(natural), qty: pg.integer, m: drawn(natural) }, ["doc", "node", "at"])
+export const Part = relation("Part", { doc: Id, node: natural, line: natural, at: drawn(natural), y: pg.integer }, ["doc", "node", "line", "at"])
 export const nodes = tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["doc"] })
 export const lines = ordered(on(Line, "doc", "node", "at"), fin(Node, "n"))
 export const parts = ordered(on(Part, "doc", "node", "line", "at"), fin(Line, "m"))

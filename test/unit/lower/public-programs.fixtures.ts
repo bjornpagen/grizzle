@@ -19,12 +19,13 @@ import {
 	type OptimizedProgram
 } from "#compiler/lower/optimize/pipeline.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { messageOf } from "#test/support/message.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { checkedLowering } from "#test/support/oracle/verify/index.ts"
@@ -139,7 +140,7 @@ export const lowersValid = (
  * demand pass narrows to an identity, and an attachment whose child projects nothing over its scans of Stop, the unit
  * relation per parent.
  */
-const Item = relation("Item", { id: uuid, x: pg.integer, y: pg.integer }, ["id"])
+const Item = relation("Item", { id: Id, x: pg.integer, y: pg.integer }, ["id"])
 
 const Items = schema("Items", [Item], [])
 

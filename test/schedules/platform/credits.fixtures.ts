@@ -24,6 +24,7 @@ import {
 import * as W from "#test/schedules/platform/world.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
+import { Id } from "#test/support/ids.ts"
 import { FAR, JAN } from "#test/support/platform/generate.ts"
 import { rowsIn, type State } from "#test/support/platform/laws.ts"
 import { covers, type GrantM, settle, platformSpan } from "#test/support/platform/model.ts"
@@ -109,8 +110,8 @@ export const creditSketchGen: Gen<CreditSketch> = (source) => {
 /** The grants of a state, as the host model reads them. */
 const grantsIn = (s: State): ReadonlyArray<GrantM> =>
 	Arr.map(rowsIn(s, "CreditGrant"), (g) => ({
-		id: succeeded(Uuid.parse(textOf(g, "id")), "a stored grant's id"),
-		org: succeeded(Uuid.parse(textOf(g, "org")), "a stored grant's organization"),
+		id: Id(succeeded(Uuid.parse(textOf(g, "id")), "a stored grant's id")),
+		org: Id(succeeded(Uuid.parse(textOf(g, "org")), "a stored grant's organization")),
 		amount: amountOf(g, "amount"),
 		valid: spanField(g, "valid")
 	}))

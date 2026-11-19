@@ -23,7 +23,7 @@ import { Array as Arr, Effect, Record as Rec } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import {
@@ -38,6 +38,7 @@ import { regexField } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
@@ -78,7 +79,7 @@ export const theTextAnalysisRunsOnceForEachDistinctPatternASchemasFieldsDeclareW
 							const fields = Rec.fromEntries(
 								Arr.map(texts, (t, i): readonly [string, FieldBase] => [`t${i}`, descriptorAt(t)])
 							)
-							const R = relation(`R${r}`, { id: uuid, ...fields }, ["id"], [])
+							const R = relation(`R${r}`, { id: Id, ...fields }, ["id"], [])
 							Arr.forEach(texts, (t, i) => {
 								if (patternAt(t).bounded) {
 									statements.push(

@@ -17,7 +17,7 @@ import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { compilePage, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
 import { type QueryTemplate, queryInput } from "#compiler/program/compile.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
-import { date, pg, uuid, Vector } from "#compiler/public/fields.ts"
+import { date, pg, Vector } from "#compiler/public/fields.ts"
 import { keyLookup } from "#compiler/query/build/key.ts"
 import { isQueryValue, queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -58,6 +58,7 @@ import {
 	testCompile,
 	type TestCompileOptions
 } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { admittedNames, refusedNames } from "#test/support/kernel/dict.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { messageOf } from "#test/support/message.ts"
@@ -2249,6 +2250,7 @@ const nearestOf = (d: Drawing, rule: RuleSpec): Nearest => {
 /** A calendar date a literal of index `value` names, in January 2026. */
 const dateOf = (value: number): string => `2026-01-${pipe(String(value + 1), Str.padStart(2, "0"))}`
 
+/** The text of the uuid of index `value`, which the program writes as the tests' Id, `Id("…")`. */
 const uuidOf = (value: number): string =>
 	`00000000-0000-4000-8000-${pipe(String(value), Str.padStart(12, "0"))}`
 
@@ -2283,7 +2285,7 @@ const stageOwnerText = (owner: StageOwner): string => {
 		case "param":
 			return ` owner: r.param(${jsonText(owner.name)}, Item.fields.owner),`
 		case "literal":
-			return ` owner: ${jsonText(uuidOf(owner.value))},`
+			return ` owner: Id(${jsonText(uuidOf(owner.value))}),`
 		case "free":
 			return ""
 	}
@@ -2319,7 +2321,7 @@ class Rendering {
 					case "date":
 						return jsonText(dateOf(t.value))
 					case "uuid":
-						return jsonText(uuidOf(t.value))
+						return `Id(${jsonText(uuidOf(t.value))})`
 					case "code":
 						return jsonText(toneOf(t.value))
 				}
@@ -2473,7 +2475,7 @@ class Rendering {
 		const entries = Arr.map(fields, (f) => {
 			switch (f.kind) {
 				case "uuid":
-					return `${f.name}: uuid`
+					return `${f.name}: Id`
 				case "int":
 					return `${f.name}: pg.integer`
 				case "code":
@@ -2998,7 +3000,7 @@ const scopeName = (spelling: Option.Option<Spelling>, scope: string): string =>
 const rowsDescriptor = (f: Field): unknown => {
 	switch (f.kind) {
 		case "uuid":
-			return uuid
+			return Id
 		case "int":
 			return pg.integer
 		case "code":
@@ -3559,7 +3561,7 @@ const keyValues: { readonly [K in KeyTarget]: unknown } = {
 const keyValueText = (type: ScalarType): string => {
 	switch (type.carrier) {
 		case "uuid":
-			return jsonText(uuidOf(1))
+			return `Id(${jsonText(uuidOf(1))})`
 		case "int4":
 			return "1"
 		case "code":

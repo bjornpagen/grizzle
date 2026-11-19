@@ -3,7 +3,7 @@
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Gen, subarray, constant } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record } from "effect"
-import { closedId, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -17,6 +17,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
+import { Id } from "#test/support/ids.ts"
 import { pickGen } from "#test/support/pick.ts"
 
 /** Extended statistics on derived relations on PostgreSQL 19.
@@ -49,7 +50,7 @@ export const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 	const Account = relation("Account", { code: Code, region: Code }, ["code"])
 	const Task = relation(
 		"Task",
-		{ id: uuid, account: Code, kind: closedId(Kind), weight: pg.integer },
+		{ id: Id, account: Code, kind: closedId(Kind), weight: pg.integer },
 		["id"]
 	)
 	const base = schema(

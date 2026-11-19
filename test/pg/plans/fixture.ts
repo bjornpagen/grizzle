@@ -1,23 +1,24 @@
 import { Array as Arr, pipe, String as Str } from "effect"
 import { codeOf, type RosterCodec } from "#compiler/ir/codes.ts"
-import { closedId, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { closedId, pg, type Uuid } from "#compiler/public/fields.ts"
 import { closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Id } from "#test/support/ids.ts"
 import type { VolumeFill } from "#test/support/substrate/fill.ts"
 
 const text = str.regex("^.*$", "su")
 
 const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
-export const Account = relation("Account", { id: uuid, name: text }, ["id"])
-export const Posting = relation("Posting", { id: uuid, account: uuid, amount: pg.bigint }, ["id"])
-export const Entry = relation("Entry", { account: uuid, seq: pg.bigint, amount: pg.bigint }, [
+export const Account = relation("Account", { id: Id, name: text }, ["id"])
+export const Posting = relation("Posting", { id: Id, account: Id, amount: pg.bigint }, ["id"])
+export const Entry = relation("Entry", { account: Id, seq: pg.bigint, amount: pg.bigint }, [
 	"account",
 	"seq"
 ])
-export const Item = relation("Item", { id: uuid, amount: pg.bigint }, ["id"])
-export const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"])
-const Ticket = relation("Ticket", { id: uuid }, ["id"])
-export const Note = relation("Note", { id: uuid, ticket: uuid, open: pg.boolean }, ["id"])
+export const Item = relation("Item", { id: Id, amount: pg.bigint }, ["id"])
+export const Task = relation("Task", { id: Id, account: Id, kind: closedId(Kind) }, ["id"])
+const Ticket = relation("Ticket", { id: Id }, ["id"])
+export const Note = relation("Note", { id: Id, ticket: Id, open: pg.boolean }, ["id"])
 
 /**
  * The plan-property fixture. Plan-property tests run VACUUM ANALYZE on fixtures with pinned sizes and read EXPLAIN

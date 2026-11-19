@@ -32,11 +32,12 @@ import { OpenError } from "#adapter/errors/execution.ts"
 import { ClaimRefused, type SettingRule } from "#adapter/errors/failures.ts"
 import { served } from "#adapter/public/layer.ts"
 import type { DbConfigShape } from "#adapter/types/layer.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { query, v } from "#compiler/public/query.ts"
 import { context, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { compiledServedFile } from "#test/support/compiled-served.ts"
+import { Id } from "#test/support/ids.ts"
 import { tlsMaterial } from "#test/support/memory-tls.ts"
 import { processValue, variableGen, type VariableValue } from "#test/support/process-env.ts"
 
@@ -122,13 +123,13 @@ const pem = (body: string): string =>
  * A login whose one role reads no context, which a valid config names; and one whose role reads a context, which needs
  * a verify.
  */
-const Item = relation("Item", { id: uuid, owner: uuid }, ["id"])
+const Item = relation("Item", { id: Id, owner: Id }, ["id"])
 
 const Shelf = schema("Shelf", [Item], [])
 
 export const Plain = login(Shelf, "plain", [role(Shelf, "shelver", { Item })])
 
-const Session = context("Session", { sub: uuid })
+const Session = context("Session", { sub: Id })
 
 const owned = query(Shelf).rule((r) => {
 	const { id, owner } = v(Item, "item")

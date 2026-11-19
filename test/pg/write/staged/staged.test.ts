@@ -58,14 +58,7 @@ import type { LoadedChange, LoadedMember } from "#adapter/served/load.ts"
 import type { Session, SessionPool, WireQuery } from "#adapter/wire/session.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import {
-	accumulated,
-	bytes,
-	drawn as drawnField,
-	natural,
-	pg,
-	uuid
-} from "#compiler/public/fields.ts"
+import { accumulated, bytes, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -86,6 +79,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
+import { Id } from "#test/support/ids.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
@@ -95,34 +89,32 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** An entry's path: any text its key beside the package's uuid holds, as pantry's EntryPath is bounded. */
-const EntryPath = str.bytes(keyTextBytes([uuid]), str.regex("^.*$", "su"))
+const EntryPath = str.bytes(keyTextBytes([Id]), str.regex("^.*$", "su"))
 
 /** An entry's share of the most bytes an entry within the bound holds, in thousandths, of `whole` at most. */
 const whole = 1_000
 
 /** The largest size the CHECK Small admits: four fifths of a whole share. */
 const small = 800n
-const Package = relation("Package", { id: uuid, entries: drawnField(natural), name: pg.integer }, [
+const Package = relation("Package", { id: Id, entries: drawnField(natural), name: pg.integer }, [
 	"id"
 ])
-const Bin = relation(
-	"Bin",
-	{ id: uuid, n: drawnField(natural), total: accumulated(pg.bigint, 0n) },
-	["id"]
-)
+const Bin = relation("Bin", { id: Id, n: drawnField(natural), total: accumulated(pg.bigint, 0n) }, [
+	"id"
+])
 const Shelf = relation(
 	"Shelf",
-	{ id: uuid, n: drawnField(natural), total: accumulated(pg.bigint, 0n) },
+	{ id: Id, n: drawnField(natural), total: accumulated(pg.bigint, 0n) },
 	["id"]
 )
 const Entry = relation(
 	"Entry",
 	{
-		package: uuid,
+		package: Id,
 		at: drawnField(natural),
 		path: EntryPath,
-		bin: uuid,
-		shelf: uuid,
+		bin: Id,
+		shelf: Id,
 		size: pg.bigint,
 		content: bytes
 	},

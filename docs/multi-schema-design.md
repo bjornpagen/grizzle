@@ -54,16 +54,21 @@ export const AuthorApp = login(Qti, "author_app", [Author], { workload: [exportW
 
 // EduLLM: the ledger's names are illustrative
 export const ClerkUser = str.regex("^user_[0-9A-Za-z]{1,64}$")
-export const Sitting = relation("Sitting", { id: uuid, child: ClerkUser, package: uuid }, ["id"])
+/** A sitting is its child, its package and the instant it began; a served step, its sitting's key and its place. */
+export const Sitting = relation("Sitting", { child: ClerkUser, package: PackageName, at: instant }, [
+	"child",
+	"package",
+	"at"
+])
 export const Served = relation(
 	"Served",
-	{ sitting: uuid, step: natural, resource: uuid, kind: closedId(NodeKind) },
-	["sitting", "step"]
+	{ child: ClerkUser, package: PackageName, at: instant, step: natural, resource: ResourceId, kind: closedId(NodeKind) },
+	["child", "package", "at", "step"]
 )
 export const Ledger = schema.extend(Qti, "Ledger", { Sitting, Served, Answer, Grade }, [
-	contained(on(Sitting, "package"), on(Package, "id")),
+	contained(on(Sitting, "package"), on(Package, "name")),
 	contained(on(Served, "resource"), on(Resource, "node")),
-	contained(on(Served, "sitting"), on(Sitting, "id"))
+	contained(on(Served, "child", "package", "at"), on(Sitting, "child", "package", "at"))
 	// …
 ])
 export const Child = role(

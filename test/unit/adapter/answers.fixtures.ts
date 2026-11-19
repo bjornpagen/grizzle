@@ -20,7 +20,7 @@ import {
 import { codeNames } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
@@ -35,6 +35,7 @@ import {
 	schemaInputOf,
 	testCompile
 } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { outputText } from "#test/support/wire.ts"
 import { ascendingTasks, compiledPageResult, Paging } from "#test/unit/page/fixtures.ts"
@@ -146,8 +147,8 @@ export const deliveryCases: Gen<DeliveryCase> = (source) => ({
 
 export type DeliveryFeature = "delivered" | "a defect" | "a proof that does not license the reader"
 
-const Post = relation("Post", { id: uuid, n: pg.numeric(10, 2) }, ["id"])
-const Comment = relation("Comment", { id: uuid, post: uuid, n: pg.numeric(10, 2) }, ["id"])
+const Post = relation("Post", { id: Id, n: pg.numeric(10, 2) }, ["id"])
+const Comment = relation("Comment", { id: Id, post: Id, n: pg.numeric(10, 2) }, ["id"])
 const Blog = schema("Blog", [Post, Comment], [contained(on(Comment, "post"), on(Post, "id"))])
 
 /** Each post with its comments: a root statement and one attachment statement, its rows led by the parent key. */

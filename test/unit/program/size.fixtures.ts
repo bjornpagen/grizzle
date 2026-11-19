@@ -4,7 +4,7 @@ import { int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { type Relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -18,6 +18,7 @@ import {
 	programAsts,
 	testCompile
 } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
@@ -56,9 +57,9 @@ const keyedRelation = (
 	uuids: ReadonlyArray<string>,
 	integers: ReadonlyArray<string>
 ): RelationValue => {
-	const descriptors: Record<string, FieldBase> = { id: uuid }
+	const descriptors: Record<string, FieldBase> = { id: Id }
 	for (const f of uuids) {
-		descriptors[f] = uuid
+		descriptors[f] = Id
 	}
 	for (const f of integers) {
 		descriptors[f] = pg.integer

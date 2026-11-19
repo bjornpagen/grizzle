@@ -10,7 +10,7 @@ import { compileInstallation, installOptions } from "#compiler/physical/install/
 import { login } from "#compiler/program/workload/login.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { key, on, relation, schema, select, type Statement } from "#compiler/public/schema.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
@@ -24,6 +24,7 @@ import {
 	offlineOwner
 } from "#test/pg/cli/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { callCounts, type CallSite } from "#test/support/kernel/calls.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterPool } from "#test/support/pg.ts"
@@ -48,8 +49,8 @@ type Counts = Readonly<Record<keyof typeof sites, number>>
 
 /** The schema of k guarded keys, its writer role, and the login whose workload inserts into U and T. */
 const loginOf = (k: number) => {
-	const T = relation("T", { id: uuid, kind: pg.integer, a: uuid }, ["id"])
-	const U = relation("U", { id: uuid }, ["id"])
+	const T = relation("T", { id: Id, kind: pg.integer, a: Id }, ["id"])
+	const U = relation("U", { id: Id }, ["id"])
 	const keys: ReadonlyArray<Statement> = upTo(k, (j) =>
 		key(
 			on(
@@ -143,7 +144,7 @@ export const heapBound = (pushes: number): number => {
 export const orderedAt = (r: number) =>
 	Effect.gen(function* () {
 		const relations = upTo(r, (i) =>
-			relationBuilder(`R${i}`, { id: uuid, a: pg.integer }, ["id"], [])
+			relationBuilder(`R${i}`, { id: Id, a: pg.integer }, ["id"], [])
 		)
 		const owned = succeeded(
 			ownedInput(

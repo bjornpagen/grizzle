@@ -5,7 +5,7 @@ import { Array as Arr, Effect, Option } from "effect"
 import type { ServedLogin } from "#adapter/types/layer.ts"
 import type { Anchor, KeyedList, RowKey } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	type AnyLogin,
@@ -23,6 +23,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, t4, t5 } from "#test/support/fixtures/golden/work.ts"
+import { Id } from "#test/support/ids.ts"
 import { type Installed, installedTemplate } from "#test/support/install-migrate.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
@@ -69,7 +70,7 @@ export const assertFlight = (label: string, window: WireWindow, frame: Transacti
 
 /** A derived relation over one base relation, the role that refreshes it, and its login. */
 export const derivedFixture = (name: string) => {
-	const Sitting = relation("Sitting", { id: uuid, student: uuid, week: pg.integer }, ["id"])
+	const Sitting = relation("Sitting", { id: Id, student: Id, week: pg.integer }, ["id"])
 	const Edu = schema(name, [Sitting], [])
 	const StudentWeekly = derived.materialized(
 		"StudentWeekly",

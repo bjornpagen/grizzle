@@ -4,12 +4,13 @@ import { array, boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { login } from "#compiler/program/workload/login.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { nonEmpty } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** How a role holds a relation: whole, or through a query entry fixing the shelf at 1 or at 2. */
 type Holding = "whole" | "shelf 1" | "shelf 2"
@@ -60,8 +61,8 @@ export const caseGen: Gen<RowSecurityCase> = (source) => ({
 
 /** The version under the declared name `name`, each role holding and writing each relation as `uses` says. */
 export const versionOf = (name: string, uses: Uses) => {
-	const Note = relation("Note", { id: uuid, shelf: pg.integer }, ["id"])
-	const Card = relation("Card", { id: uuid, shelf: pg.integer }, ["id"])
+	const Note = relation("Note", { id: Id, shelf: pg.integer }, ["id"])
+	const Card = relation("Card", { id: Id, shelf: pg.integer }, ["id"])
 	const base = schema(name, [Note, Card], [])
 	/** A relation's facts on one shelf, a query entry whose filter fixes the shelf. */
 	const shelvedNote = (shelf: 1 | 2) =>

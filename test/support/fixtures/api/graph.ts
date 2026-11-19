@@ -1,11 +1,12 @@
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Id } from "#test/support/ids.ts"
 
-const Person = relation("Person", { id: uuid, name: str.regex("^.*$", "su") }, ["id"])
-const Follows = relation("Follows", { from: uuid, to: uuid }, ["from", "to"])
+const Person = relation("Person", { id: Id, name: str.regex("^.*$", "su") }, ["id"])
+const Follows = relation("Follows", { from: Id, to: Id }, ["from", "to"])
 
 /**
  * Recursion and graphs in public-API form: the Network schema, the Walks
@@ -23,13 +24,13 @@ export const Network = schema(
  * (scripts/dev/profile/phases.ts) lowers every query a fixture module exports.
  */
 export const Walks = query(Network).recursive("Walks", {
-	row: { person: uuid, hops: pg.integer },
+	row: { person: Id, hops: pg.integer },
 	base: [
 		(r) => {
 			const { id } = v(Person, "person")
 			return r
 				.match(Person, { id })
-				.where(r.eq(id, r.param("start", uuid)))
+				.where(r.eq(id, r.param("start", Id)))
 				.find({ person: id, hops: Compute.literal(pg.integer, 0) })
 		}
 	],
@@ -49,7 +50,7 @@ export const Walks = query(Network).recursive("Walks", {
 
 /** The parameter bound explicitly at the import. */
 export const Reachable = query(Network).rule((r) => {
-	const source = Walks.bind({ start: r.param("person", uuid) })
+	const source = Walks.bind({ start: r.param("person", Id) })
 	const { person } = v(source, "source")
 	return r.match(source, { person }).find({ person })
 })

@@ -5,12 +5,13 @@ import { Db } from "#adapter/public/db.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { refresh, workload } from "#compiler/public/workload.ts"
 import { dimensions, probeOf, vectorText } from "#test/pg/vector/ann/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { type Generated, generatedTemplate, type Installed } from "#test/support/install-migrate.ts"
 import { type ServedFixture, servedGenerated } from "#test/support/served-db.ts"
 import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
@@ -21,10 +22,10 @@ import { withLayer } from "#test/support/with-layer.ts"
  * documents, `scored`, and the refresher's refresh of the view, `embeddings`.
  */
 const build = (name: string) => {
-	const Document = relation("Document", { id: uuid, account: uuid }, ["id"])
+	const Document = relation("Document", { id: Id, account: Id }, ["id"])
 	const DocumentEmbedding = relation(
 		"DocumentEmbedding",
-		{ document: uuid, value: pg.vector(dimensions) },
+		{ document: Id, value: pg.vector(dimensions) },
 		["document"]
 	)
 	const Core = schema(
@@ -50,7 +51,7 @@ const build = (name: string) => {
 	/** The exact scoring of an account's documents through the view, the viewer's one relation. */
 	const scored = query(viewer).rule((r) => {
 		const { document, value } = v(Embeddings, "embeddings")
-		return r.match(Embeddings, { document, account: r.param("account", uuid), value }).find({
+		return r.match(Embeddings, { document, account: r.param("account", Id), value }).find({
 			document,
 			distance: Compute.cosineDistance(value, r.param("vector", DocumentEmbedding.fields.value))
 		})
@@ -71,8 +72,10 @@ const build = (name: string) => {
 	}
 }
 
-const id = (prefix: number, n: number): Uuid =>
-	`${pipe(prefix.toString(16), Str.padStart(8, "0"))}-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+const id = (prefix: number, n: number): IdValue =>
+	Id(
+		`${pipe(prefix.toString(16), Str.padStart(8, "0"))}-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+	)
 
 export const derivedAccountA = id(0xa, 1)
 
@@ -138,7 +141,7 @@ export const openedIn = (taken: SubstrateCase<Generated>, vectors: number) =>
 			}
 			yield* s.admin.query(
 				`INSERT INTO ${table("Document")} ("id", "account") VALUES ${Arr.join(
-					Arr.map(documents, (d) => `('${d.id}'::uuid, '${d.account}'::uuid)`),
+					Arr.map(documents, (d) => `('${d.id}'::Id, '${d.account}'::Id)`),
 					", "
 				)}`,
 				[]
@@ -148,7 +151,7 @@ export const openedIn = (taken: SubstrateCase<Generated>, vectors: number) =>
 					Arr.flatMap(documents, (d) =>
 						d.value === undefined
 							? []
-							: [`('${d.id}'::uuid, '${vectorText(d.value)}'::vector_ext.vector)`]
+							: [`('${d.id}'::Id, '${vectorText(d.value)}'::vector_ext.vector)`]
 					),
 					", "
 				)}`,

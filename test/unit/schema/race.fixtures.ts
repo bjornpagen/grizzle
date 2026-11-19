@@ -1,7 +1,7 @@
 /** What the properties of race.test.ts read: its spaces, models and helpers. */
 
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
-import { drawn, natural, pg, span, uuid } from "#compiler/public/fields.ts"
+import { drawn, natural, pg, span } from "#compiler/public/fields.ts"
 import {
 	closed,
 	counted,
@@ -13,6 +13,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { raceBuilder } from "#compiler/schema/statements.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** How a plainly keyed R's primary key stands: beside a payload, as its whole heading, over a span, or drawn. */
 export const keys = ["payload", "whole", "span", "drawn"] as const
@@ -73,13 +74,13 @@ export const caseText = (c: RaceCase): RaceFeature => {
 const plainR = (key: KeyShape) => {
 	switch (key) {
 		case "payload":
-			return relation("R", { k: uuid, holder: uuid }, ["k"])
+			return relation("R", { k: Id, holder: Id }, ["k"])
 		case "whole":
-			return relation("R", { k: uuid, holder: uuid }, ["k", "holder"])
+			return relation("R", { k: Id, holder: Id }, ["k", "holder"])
 		case "span":
-			return relation("R", { k: uuid, during: span(pg.bigint), holder: uuid }, ["k", "during"])
+			return relation("R", { k: Id, during: span(pg.bigint), holder: Id }, ["k", "during"])
 		case "drawn":
-			return relation("R", { k: uuid, n: drawn(natural), holder: uuid }, ["k", "n"])
+			return relation("R", { k: Id, n: drawn(natural), holder: Id }, ["k", "n"])
 	}
 }
 
@@ -92,8 +93,8 @@ export const schemaOf = (c: RaceCase): unknown => {
 		}
 		case "family": {
 			if (c.part === "member") {
-				const R = relation("R", { o: uuid, n: pg.integer, holder: uuid }, ["o", "n"])
-				const O = relation("O", { id: uuid, n: drawn(natural) }, ["id"])
+				const R = relation("R", { o: Id, n: pg.integer, holder: Id }, ["o", "n"])
+				const O = relation("O", { id: Id, n: drawn(natural) }, ["id"])
 				const family = counted(on(R, "o"), fin(O, "n"))
 				return schema(
 					"Races",
@@ -101,8 +102,8 @@ export const schemaOf = (c: RaceCase): unknown => {
 					c.mutable ? [family, race(R), mutable(R)] : [family, race(R)]
 				)
 			}
-			const R = relation("R", { id: uuid, holder: uuid, n: drawn(natural) }, ["id"])
-			const M = relation("M", { o: uuid, n: pg.integer }, ["o", "n"])
+			const R = relation("R", { id: Id, holder: Id, n: drawn(natural) }, ["id"])
+			const M = relation("M", { o: Id, n: pg.integer }, ["o", "n"])
 			const family = counted(on(M, "o"), fin(R, "n"))
 			return schema("Races", [R, M], c.mutable ? [family, race(R), mutable(R)] : [family, race(R)])
 		}

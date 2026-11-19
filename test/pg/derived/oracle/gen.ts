@@ -4,7 +4,7 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, contract, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, natural, pg } from "#compiler/public/fields.ts"
 import type {
 	AnyRoster,
 	AnyDerived,
@@ -26,6 +26,7 @@ import {
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
+import { Id } from "#test/support/ids.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import type { StorageCarrier } from "#test/support/oracle/gen/domain.ts"
 import { floatLiteralOf } from "#test/support/oracle/gen/domain.ts"
@@ -208,7 +209,7 @@ const Word = str.regex("^[a-z]{0,4}$")
 const descriptor = (k: BaseKind): FieldBase => {
 	switch (k) {
 		case "uuid":
-			return uuid
+			return Id
 		case "int4":
 			return pg.integer
 		case "int8":
@@ -231,9 +232,9 @@ const descriptor = (k: BaseKind): FieldBase => {
 }
 
 const uuids = [
-	"00000000-0000-4000-8000-000000000001",
-	"00000000-0000-4000-8000-000000000002",
-	"00000000-0000-4000-8000-00000000000a"
+	Id("00000000-0000-4000-8000-000000000001"),
+	Id("00000000-0000-4000-8000-000000000002"),
+	Id("00000000-0000-4000-8000-00000000000a")
 ] as const
 const words = ["", "ab", "zz"] as const
 const colors = ["red", "green", "blue"] as const

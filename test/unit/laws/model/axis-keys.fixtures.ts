@@ -2,7 +2,7 @@
 
 import { constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
-import { accumulated, Bits, bits, drawn, natural, uuid } from "#compiler/public/fields.ts"
+import { accumulated, Bits, bits, drawn, natural } from "#compiler/public/fields.ts"
 import {
 	closed,
 	fin as finOf,
@@ -29,6 +29,7 @@ import {
 	type SchemaDesc,
 	value
 } from "#test/support/fixtures/ir/desc.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -163,14 +164,14 @@ const none = Bits.of(Tag, [])
 
 const Order = relationOf(
 	"Order",
-	{ id: uuid, n: drawn(natural), seen: accumulated(bits(Tag), none) },
+	{ id: Id, n: drawn(natural), seen: accumulated(bits(Tag), none) },
 	["id"]
 )
 
 const Line = relationOf(
 	"Line",
 	{
-		order: uuid,
+		order: Id,
 		at: drawn(natural),
 		flags: bits(Tag),
 		before: accumulated(bits(Tag), none),

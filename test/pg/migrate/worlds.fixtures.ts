@@ -3,7 +3,7 @@
 import { boolean, constant, element, type Gen, map, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -18,6 +18,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import type { Aim } from "#test/pg/migrate/support.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** What a version holds, each a knob a history turns. */
 export interface Knobs {
@@ -42,20 +43,20 @@ export const versionOf = (name: string, k: Knobs) => {
 	const Cap = contract("Cap", pg.integer, (x) => Compute.ge(x, k.capLeast))
 	const Quota = context("Quota", { cap: Cap }, { claim: "q" })
 	const Tier = closed.ordered("Tier", k.tiers)
-	const Org = relation("Org", { id: uuid, tier: closedId(Tier) }, ["id"])
+	const Org = relation("Org", { id: Id, tier: closedId(Tier) }, ["id"])
 	const Doc = relation(
 		"Doc",
 		{
-			id: uuid,
-			org: uuid,
+			id: Id,
+			org: Id,
 			owner: Sub,
 			words: k.words === "integer" ? pg.integer : pg.bigint,
 			cap: Cap
 		},
 		["id"]
 	)
-	const Share = relation("Share", { doc: uuid, user: Sub }, ["doc", "user"])
-	const Note = relation("Note", { doc: uuid, no: pg.integer, author: Sub }, ["doc", "no"])
+	const Share = relation("Share", { doc: Id, user: Sub }, ["doc", "user"])
+	const Note = relation("Note", { doc: Id, no: pg.integer, author: Sub }, ["doc", "no"])
 	const base = schema(name, [Tier, Org, Doc, Share, Note], [mutable(Doc)])
 	const Busy = derived.materialized(
 		"Busy",

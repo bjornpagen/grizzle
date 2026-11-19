@@ -24,7 +24,8 @@
  */
 import type { Option } from "effect"
 import { Array as Arr, Order } from "effect"
-import type { Span, Uuid } from "#compiler/public/fields.ts"
+import type { Span } from "#compiler/public/fields.ts"
+import { type IdValue } from "#test/support/ids.ts"
 
 export type SpanV = Span<bigint>
 
@@ -79,8 +80,8 @@ interface TierM {
 }
 
 export interface CardM {
-	readonly id: Uuid
-	readonly model: Uuid
+	readonly id: IdValue
+	readonly model: IdValue
 	readonly kind: TokenKind
 	readonly during: SpanV
 	readonly tiers: ReadonlyArray<TierM>
@@ -166,14 +167,14 @@ const largestRemainder = (total: bigint, weights: ReadonlyArray<bigint>): Readon
 }
 
 export interface GrantM {
-	readonly id: Uuid
-	readonly org: Uuid
+	readonly id: IdValue
+	readonly org: IdValue
 	readonly amount: bigint
 	readonly valid: SpanV
 }
 
 interface DebitM {
-	readonly grant: Uuid
+	readonly grant: IdValue
 	readonly kind: TokenKind
 	readonly amount: bigint
 }
@@ -192,7 +193,7 @@ export interface Settlement {
 export const settle = (
 	charges: ReadonlyArray<{ readonly kind: TokenKind; readonly amount: bigint }>,
 	grants: ReadonlyArray<GrantM>,
-	left: (grant: Uuid) => bigint,
+	left: (grant: IdValue) => bigint,
 	window: SpanV
 ): Settlement => {
 	const kinds = Arr.flatMap(tokenKinds, (k) => Arr.filter(charges, (c) => c.kind === k))
@@ -204,7 +205,7 @@ export const settle = (
 			Order.mapInput(Order.String, (g: GrantM) => g.id)
 		)
 	)
-	const paid: Array<{ readonly grant: Uuid; readonly amount: bigint }> = []
+	const paid: Array<{ readonly grant: IdValue; readonly amount: bigint }> = []
 	let owed = total
 	for (const g of eligible) {
 		if (owed === 0n) {

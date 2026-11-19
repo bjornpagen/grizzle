@@ -19,7 +19,7 @@ import type { RoleDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
-import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -42,6 +42,7 @@ import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { changeSetOver, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { owning } from "#test/support/policy.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
 import { offlineCompile, parsedChange } from "#test/support/worlds/execute/offline.ts"
@@ -52,7 +53,7 @@ const word = str.regex("^[a-z]{1,8}$")
 const Store = relation(
 	"Store",
 	{
-		id: uuid,
+		id: Id,
 		region: word,
 		label: word,
 		items: drawnField(natural),
@@ -61,13 +62,13 @@ const Store = relation(
 	["id"]
 )
 
-const Item = relation("Item", { id: uuid, store: uuid, region: word, qty: pg.bigint }, ["id"])
+const Item = relation("Item", { id: Id, store: Id, region: word, qty: pg.bigint }, ["id"])
 
-const Open = relation("Open", { store: uuid }, ["store"])
+const Open = relation("Open", { store: Id }, ["store"])
 
-const Shelf = relation("Shelf", { id: uuid, tag: word, slots: drawnField(natural) }, ["id"])
+const Shelf = relation("Shelf", { id: Id, tag: word, slots: drawnField(natural) }, ["id"])
 
-const Slot = relation("Slot", { shelf: uuid, at: drawnField(natural), what: word }, ["shelf", "at"])
+const Slot = relation("Slot", { shelf: Id, at: drawnField(natural), what: word }, ["shelf", "at"])
 
 const Ticket = relation("Ticket", { no: pg.bigint, note: word }, ["no"])
 

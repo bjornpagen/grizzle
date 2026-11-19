@@ -19,10 +19,11 @@ import {
 	writableNamesOf
 } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
-import type { Uuid } from "#compiler/scalar/values/uuid.ts"
+
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { levelNameAt } from "#test/support/compile.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { type Generated, generatedTemplate } from "#test/support/install-migrate.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import type { SubstrateCase } from "#test/support/substrate/substrate.ts"
@@ -33,7 +34,7 @@ const Kind = closed.ordered("Kind", ["Practice", "Test"])
 
 export const Item = relation("Item", { id: Code, n: pg.integer }, ["id"])
 
-export const Sitting = relation("Sitting", { id: uuid, item: Code, kind: closedId(Kind) }, ["id"])
+export const Sitting = relation("Sitting", { id: Id, item: Code, kind: closedId(Kind) }, ["id"])
 
 /** A level of the installation. */
 export type Level = "lower" | "upper"
@@ -107,14 +108,14 @@ const levelsAt = (name: string) => {
 /** The ids a case draws from: few, so sittings meet items and deletions meet references. */
 const POOL = 4
 
-const ids: Arr.NonEmptyReadonlyArray<Uuid> = [
-	"00000000-0000-4000-8000-000000000000",
-	"00000000-0000-4000-8000-000000000001",
-	"00000000-0000-4000-8000-000000000002",
-	"00000000-0000-4000-8000-000000000003"
+const ids: Arr.NonEmptyReadonlyArray<IdValue> = [
+	Id("00000000-0000-4000-8000-000000000000"),
+	Id("00000000-0000-4000-8000-000000000001"),
+	Id("00000000-0000-4000-8000-000000000002"),
+	Id("00000000-0000-4000-8000-000000000003")
 ]
 
-export const idAt = (i: number): Uuid => defined(ids[i], `id ${i} of the pool`)
+export const idAt = (i: number): IdValue => defined(ids[i], `id ${i} of the pool`)
 
 type Op =
 	| { readonly kind: "addItem"; readonly id: number; readonly n: number }

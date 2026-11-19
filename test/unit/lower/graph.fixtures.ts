@@ -15,7 +15,7 @@ import { metaSpecOf, type NodeOf } from "#compiler/ir/rel.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -24,6 +24,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { lowerAligned } from "#test/support/compile.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import { genCatalog, ownedSchemaFixture } from "#test/support/evidence.ts"
+import { Id } from "#test/support/ids.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
@@ -42,10 +43,10 @@ import { present } from "#test/unit/lower/support.ts"
 const text = str.regex("^.*$", "su")
 
 /** The network's people. */
-const Person = relation("Person", { id: uuid, name: text }, ["id"])
+const Person = relation("Person", { id: Id, name: text }, ["id"])
 
 /** Who follows whom. */
-const Follows = relation("Follows", { from: uuid, to: uuid }, ["from", "to"])
+const Follows = relation("Follows", { from: Id, to: Id }, ["from", "to"])
 
 /** The network: people and follows, each end of a follow a person. */
 const Network = schema(
@@ -87,13 +88,13 @@ const recursions = (q: LogicalQuery): ReadonlyArray<NodeOf<"Recursive">> =>
 
 /** The Walks example: hops computed, the person advanced. */
 const Walks = query(Network).recursive("Walks", {
-	row: { person: uuid, hops: pg.integer },
+	row: { person: Id, hops: pg.integer },
 	base: [
 		(r) => {
 			const { id } = v(Person, "person")
 			return r
 				.match(Person, { id })
-				.where(r.eq(id, r.param("start", uuid)))
+				.where(r.eq(id, r.param("start", Id)))
 				.find({ person: id, hops: Compute.literal(pg.integer, 0) })
 		}
 	],
@@ -113,7 +114,7 @@ const Walks = query(Network).recursive("Walks", {
 
 /** Every person with the people it reaches: the origin carried by the step, the person advanced. */
 const Reach = query(Network).recursive("Reach", {
-	row: { origin: uuid, person: uuid },
+	row: { origin: Id, person: Id },
 	base: [
 		(r) => {
 			const { id } = v(Person, "person")
@@ -159,8 +160,8 @@ export const pushQuery = (column: Column, spelling: Spelling, twice: boolean): u
 				const { origin: o2 } = v(Reach, "second")
 				const first =
 					spelling === "where"
-						? r.match(Reach, { origin, person }).where(r.eq(origin, r.param("p", uuid)))
-						: r.match(Reach, { origin: r.param("p", uuid), person })
+						? r.match(Reach, { origin, person }).where(r.eq(origin, r.param("p", Id)))
+						: r.match(Reach, { origin: r.param("p", Id), person })
 				return twice
 					? first.match(Reach, { origin: o2, person }).find({ person })
 					: first.find({ person })
@@ -171,30 +172,30 @@ export const pushQuery = (column: Column, spelling: Spelling, twice: boolean): u
 				const { person: p2 } = v(Reach, "second")
 				const first =
 					spelling === "where"
-						? r.match(Reach, { origin, person }).where(r.eq(person, r.param("p", uuid)))
-						: r.match(Reach, { origin, person: r.param("p", uuid) })
+						? r.match(Reach, { origin, person }).where(r.eq(person, r.param("p", Id)))
+						: r.match(Reach, { origin, person: r.param("p", Id) })
 				return twice
 					? first.match(Reach, { origin, person: p2 }).find({ origin })
 					: first.find({ origin })
 			})
 		case "Walks.person":
 			return query(Network).rule((r) => {
-				const walks = Walks.bind({ start: r.param("start", uuid) })
-				const again = Walks.bind({ start: r.param("start", uuid) })
+				const walks = Walks.bind({ start: r.param("start", Id) })
+				const again = Walks.bind({ start: r.param("start", Id) })
 				const { person, hops } = v(walks, "walks")
 				const { person: p2 } = v(again, "again")
 				const first =
 					spelling === "where"
-						? r.match(walks, { person, hops }).where(r.eq(person, r.param("p", uuid)))
-						: r.match(walks, { person: r.param("p", uuid), hops })
+						? r.match(walks, { person, hops }).where(r.eq(person, r.param("p", Id)))
+						: r.match(walks, { person: r.param("p", Id), hops })
 				return twice
 					? first.match(again, { person: p2, hops }).find({ hops })
 					: first.find({ hops })
 			})
 		case "Walks.hops":
 			return query(Network).rule((r) => {
-				const walks = Walks.bind({ start: r.param("start", uuid) })
-				const again = Walks.bind({ start: r.param("start", uuid) })
+				const walks = Walks.bind({ start: r.param("start", Id) })
+				const again = Walks.bind({ start: r.param("start", Id) })
 				const { person, hops } = v(walks, "walks")
 				const { hops: h2 } = v(again, "again")
 				const first =

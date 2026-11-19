@@ -31,7 +31,7 @@ import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { admittedNames, literalDictionary, readmeStrings } from "#test/support/kernel/dict.ts"
 import {
 	canonicallySpelled,
-	compareParamType,
+	declaredParamType,
 	hasCap,
 	numeric as wideNumeric,
 	numericPaddings,
@@ -1780,7 +1780,7 @@ class ReadScope {
 			(field.kind === "fixed" && (how === "compare" || this.keep("typmod param")))
 		return own
 			? this.param(field.type, value, { kind: "field", field })
-			: this.param(compareParamType(field.type), value, { kind: "base" })
+			: this.param(declaredParamType(field.type), value, { kind: "base" })
 	}
 
 	/** A fresh parameter of the read declared and typed as `param`, binding `value`. */
@@ -2703,9 +2703,13 @@ const resolveDrawnRule = <P>(
 		const bind = elementOf(m.binds, sourceFields(source).indexOf(key), "a bind sketch")
 		const operand: Operand<P> = {
 			kind: "param",
-			param: scope.param(compareParamType(key.type), drawValue(key.type, bind.value, scope.dense), {
-				kind: "base"
-			})
+			param: scope.param(
+				declaredParamType(key.type),
+				drawValue(key.type, bind.value, scope.dense),
+				{
+					kind: "base"
+				}
+			)
 		}
 		return resolveMatch(state, source, m, new Map([[key, operand]]), "drawn")
 	}
@@ -4233,7 +4237,7 @@ const acceptanceCollapse = (sketch: CaseSketch): ProgramCase => {
 	const [v0, v1, v2, v3, v4] = [mint(amount), mint(route), mint(span), mint(tick), mint(scaled)]
 	const p0: Param = {
 		name: "p0_0",
-		type: compareParamType(payroll.type),
+		type: declaredParamType(payroll.type),
 		value: { kind: "handle", handle: "Green" },
 		declaration: { kind: "base" }
 	}

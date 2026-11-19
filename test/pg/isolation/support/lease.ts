@@ -1,6 +1,6 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { contract, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -13,6 +13,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * den's lease race (README's Races) as the isolation oracle installs it, each a function of its installed name, with its
@@ -38,22 +39,17 @@ import { workload } from "#compiler/public/workload.ts"
  */
 const Instant = contract("Instant", pg.bigint)
 
-const Step = relation("Step", { id: uuid }, ["id"])
-const Due = relation("Due", { step: uuid, at: Instant }, ["step"])
+const Step = relation("Step", { id: Id }, ["id"])
+const Due = relation("Due", { step: Id, at: Instant }, ["step"])
 const Claim = relation(
 	"Claim",
-	{ step: uuid, attempt: natural, holder: pg.integer, at: Instant, ttl: pg.bigint },
+	{ step: Id, attempt: natural, holder: pg.integer, at: Instant, ttl: pg.bigint },
 	["step", "attempt"]
 )
-const Finished = relation("Finished", { step: uuid, attempt: natural, holder: pg.integer }, [
-	"step"
-])
-const Log = relation("Log", { step: uuid, attempt: natural, holder: pg.integer }, [
-	"step",
-	"attempt"
-])
-const Seen = relation("Seen", { step: uuid }, ["step"])
-const Took = relation("Took", { step: uuid, attempt: natural }, ["step", "attempt"])
+const Finished = relation("Finished", { step: Id, attempt: natural, holder: pg.integer }, ["step"])
+const Log = relation("Log", { step: Id, attempt: natural, holder: pg.integer }, ["step", "attempt"])
+const Seen = relation("Seen", { step: Id }, ["step"])
+const Took = relation("Took", { step: Id, attempt: natural }, ["step", "attempt"])
 
 const relations = { Step, Due, Claim, Finished, Log, Seen, Took } as const
 
@@ -81,13 +77,11 @@ const spawnOf = (spawner: ReturnType<typeof spawnerOf>) =>
 	ChangeSet.sequence(
 		ChangeSet.empty(spawner).insert(
 			spawner.relations.Step,
-			query(spawner).rule((r) => r.find({ id: r.param("step", uuid) }))
+			query(spawner).rule((r) => r.find({ id: r.param("step", Id) }))
 		),
 		ChangeSet.empty(spawner).insert(
 			spawner.relations.Due,
-			query(spawner).rule((r) =>
-				r.find({ step: r.param("step", uuid), at: r.param("at", Instant) })
-			)
+			query(spawner).rule((r) => r.find({ step: r.param("step", Id), at: r.param("at", Instant) }))
 		)
 	)
 
@@ -101,7 +95,7 @@ const claimOf = (claimer: Claimer) =>
 		claimer.relations.Claim,
 		query(claimer).rule((r) =>
 			r.find({
-				step: r.param("step", uuid),
+				step: r.param("step", Id),
 				attempt: r.param("attempt", natural),
 				holder: r.param("holder", pg.integer),
 				at: r.param("at", Instant),
@@ -118,12 +112,12 @@ const logMine = (claimer: Claimer) =>
 			const { holder } = v(claimer.relations.Claim, "claim")
 			return r
 				.match(claimer.relations.Claim, {
-					step: r.param("step", uuid),
+					step: r.param("step", Id),
 					attempt: r.param("attempt", natural),
 					holder
 				})
 				.where(r.eq(holder, r.param("holder", pg.integer)))
-				.find({ step: r.param("step", uuid), attempt: r.param("attempt", natural), holder })
+				.find({ step: r.param("step", Id), attempt: r.param("attempt", natural), holder })
 		})
 	)
 
@@ -135,11 +129,11 @@ const logOther = (claimer: Claimer) =>
 			const { holder } = v(claimer.relations.Claim, "claim")
 			return r
 				.match(claimer.relations.Claim, {
-					step: r.param("other", uuid),
+					step: r.param("other", Id),
 					attempt: r.param("attempt", natural),
 					holder
 				})
-				.find({ step: r.param("other", uuid), attempt: r.param("attempt", natural), holder })
+				.find({ step: r.param("other", Id), attempt: r.param("attempt", natural), holder })
 		})
 	)
 
@@ -155,14 +149,14 @@ export const leaseShape = (name: string) => {
 			const { at, ttl } = v(c.Claim, "before")
 			return r
 				.match(c.Claim, {
-					step: r.param("step", uuid),
+					step: r.param("step", Id),
 					attempt: r.param("prev", natural),
 					at,
 					ttl
 				})
 				.where(r.lt(Compute.add(Compute.base(at), ttl), Compute.base(r.param("now", Instant))))
 				.find({
-					step: r.param("step", uuid),
+					step: r.param("step", Id),
 					attempt: r.param("attempt", natural),
 					holder: r.param("holder", pg.integer),
 					at: r.param("now", Instant),
@@ -174,7 +168,7 @@ export const leaseShape = (name: string) => {
 		committer.relations.Finished,
 		query(committer).rule((r) =>
 			r.find({
-				step: r.param("step", uuid),
+				step: r.param("step", Id),
 				attempt: r.param("attempt", natural),
 				holder: r.param("holder", pg.integer)
 			})
@@ -277,7 +271,7 @@ export const countShape = (name: string) => {
 				.match(claims, { n })
 				.where(r.lt(n, 1n))
 				.find({
-					step: r.param("step", uuid),
+					step: r.param("step", Id),
 					attempt: r.param("attempt", natural),
 					holder: r.param("holder", pg.integer),
 					at: r.param("at", Instant),
@@ -309,25 +303,25 @@ export const unmatchedShape = (name: string) => {
 				const { holder, at, ttl } = v(a.Claim, "claim")
 				return r
 					.match(a.Claim, {
-						step: r.param("step", uuid),
+						step: r.param("step", Id),
 						attempt: r.param("attempt", natural),
 						holder,
 						at,
 						ttl
 					})
-					.find({ step: r.param("step", uuid), attempt: r.param("attempt", natural) })
+					.find({ step: r.param("step", Id), attempt: r.param("attempt", natural) })
 			})
 			.rule((r) => {
 				const { holder, at, ttl } = v(a.Claim, "claim")
 				return r
 					.match(a.Claim, {
-						step: r.param("other", uuid),
+						step: r.param("other", Id),
 						attempt: r.param("attempt", natural),
 						holder,
 						at,
 						ttl
 					})
-					.find({ step: r.param("other", uuid), attempt: r.param("attempt", natural) })
+					.find({ step: r.param("other", Id), attempt: r.param("attempt", natural) })
 			})
 	)
 	const workloads = [

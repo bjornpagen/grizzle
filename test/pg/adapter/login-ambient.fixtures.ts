@@ -15,7 +15,7 @@ import { Array as Arr, Effect, Option } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Anchor, KeyedList } from "#compiler/live/index.ts"
 import { roleDefaultSettings } from "#compiler/physical/ddl/roles.ts"
-import { Money, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
+import { Money, pg } from "#compiler/public/fields.ts"
 import { contained, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { printRoleSetting } from "#compiler/sql/print.ts"
@@ -28,19 +28,20 @@ import {
 	ambientSettingValues
 } from "#test/support/ambient.ts"
 import { nonEmpty } from "#test/support/assert.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { pickGen } from "#test/support/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Note = str.regex("^.{0,40}$", "su")
 
-export const TextRelation = relation("Text", { id: uuid, note: Note }, ["id"])
+export const TextRelation = relation("Text", { id: Id, note: Note }, ["id"])
 
-export const UuidRelation = relation("Uuid", { id: uuid, text: uuid }, ["id"])
+export const UuidRelation = relation("Uuid", { id: Id, text: Id }, ["id"])
 
 export const MoneyRelation = relation(
 	"Money",
 	{
-		id: uuid,
+		id: Id,
 		amount: pg.money,
 		ratio: pg.real,
 		exact: pg["double precision"],
@@ -57,18 +58,18 @@ export const Shadowed = schema(
 
 /** The ids a case's facts take. */
 const ids = [
-	"00000000-0000-4000-8000-000000000001",
-	"00000000-0000-4000-8000-000000000002",
-	"00000000-0000-4000-8000-000000000003",
-	"00000000-0000-4000-8000-000000000004"
+	Id("00000000-0000-4000-8000-000000000001"),
+	Id("00000000-0000-4000-8000-000000000002"),
+	Id("00000000-0000-4000-8000-000000000003"),
+	Id("00000000-0000-4000-8000-000000000004")
 ] as const
 
 type Id = (typeof ids)[number]
 
 /** The link into no text a case may add, and the text it names, which no case stores. */
-export const danglingLink: Uuid = "00000000-0000-4000-8000-0000000000fe"
+export const danglingLink: IdValue = Id("00000000-0000-4000-8000-0000000000fe")
 
-export const absentText: Uuid = "00000000-0000-4000-8000-0000000000ff"
+export const absentText: IdValue = Id("00000000-0000-4000-8000-0000000000ff")
 
 const notes = ["", "a", "two words", "zz"] as const
 

@@ -36,7 +36,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { writeMeta } from "#compiler/deploy/render/folder.ts"
 import { findMarkers, placeholderMarker } from "#compiler/deploy/render/markers.ts"
 import type { CallError } from "#compiler/live/index.ts"
-import type { Uuid } from "#compiler/public/fields.ts"
+
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 import { shopV1, shopV2 } from "#test/pg/cli/fixture.ts"
@@ -56,6 +56,7 @@ import {
 import { openMigrator } from "#test/pg/migrate/support.ts"
 import { assert, defined, lacksText, succeeded } from "#test/support/assert.ts"
 import { oneOf } from "#test/support/calls.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { type DecoderCredential, decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
@@ -179,8 +180,8 @@ const filesPass = (model: Readonly<Model>): boolean => model.unresolved === 0
 const checks = (model: Readonly<Model>): boolean =>
 	filesPass(model) && same(model.generated, model.config)
 
-const id = (n: number): Uuid =>
-	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+const id = (n: number): IdValue =>
+	Id(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
 
 const schemaDir = (r: Workspace) => `${r.dir}/migrations/${r.schema}`
 

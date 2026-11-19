@@ -1,4 +1,4 @@
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -12,6 +12,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * The values the access agreement (test/support/agreement/access.ts) draws its worlds from, which its generated
@@ -32,10 +33,10 @@ const TierInfo = closed.relation(
 )
 export const Account = relation(
 	"Account",
-	{ id: uuid, name: str.regex("^[a-z]{1,32}$"), tier: closedId(Tier) },
+	{ id: Id, name: str.regex("^[a-z]{1,32}$"), tier: closedId(Tier) },
 	["id"]
 )
-export const Task = relation("Task", { id: uuid, account: uuid }, ["id"])
+export const Task = relation("Task", { id: Id, account: Id }, ["id"])
 export const Work = schema(
 	"Work",
 	[Tier, TierInfo, Account, Task],
@@ -85,7 +86,7 @@ export const accountTasks = query(Reports).rule((r) => {
 	return r.match(AccountTasks, { id, account }).find({ id, account })
 })
 
-export const Org = context("Org", { id: uuid }, { claim: "o" })
+export const Org = context("Org", { id: Id }, { claim: "o" })
 export const Session = context("Session", { sub: str.regex("^[a-z]{1,32}$") })
 
 /** The accounts of the claimed organisation: a query a definition imports, reading Org through it. */

@@ -3,12 +3,13 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import type { Uuid } from "#compiler/public/fields.ts"
+
 import { query, v } from "#compiler/public/query.ts"
 import { alternatives } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, t2, t4, t7, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
+import { type IdValue } from "#test/support/ids.ts"
 import { lawNamesOf } from "#test/support/kernel/naming.ts"
 import { recordEntryOf } from "#test/support/oracle/pick.ts"
 
@@ -91,7 +92,7 @@ type Form = "enumerated" | "described"
 type Budget = "stored" | "stale"
 
 interface Switch {
-	readonly task: Uuid
+	readonly task: IdValue
 	readonly form: Form
 	readonly budget: Budget
 	readonly operator: "Ruth" | "Sam"

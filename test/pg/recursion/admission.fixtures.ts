@@ -5,10 +5,11 @@ import { Array as Arr } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { pg, type Uuid } from "#compiler/public/fields.ts"
 import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
+import { Id } from "#test/support/ids.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
@@ -31,11 +32,11 @@ import { upTo } from "#test/support/up-to.ts"
  * three attached recursions, which carry their parent's id in their state.
  */
 
-const V = relation("V", { id: uuid }, ["id"])
+const V = relation("V", { id: Id }, ["id"])
 
-const E = relation("E", { from: uuid, to: uuid, cost: pg.integer }, ["from", "to"])
+const E = relation("E", { from: Id, to: Id, cost: pg.integer }, ["from", "to"])
 
-const B = relation("B", { id: uuid }, ["id"])
+const B = relation("B", { id: Id }, ["id"])
 
 const Net = schema(
 	"Net",
@@ -137,13 +138,13 @@ const lit = (n: number) => Compute.literal(pg.integer, n)
 /** Walks: each vertex and hop count reachable from the start in fewer than `bound` hops. */
 const walksBelow = (bound: number) =>
 	query(Net).recursive("Walks", {
-		row: { node: uuid, hops: pg.integer },
+		row: { node: Id, hops: pg.integer },
 		base: [
 			(r) => {
 				const { id } = v(V, "v")
 				return r
 					.match(V, { id })
-					.where(r.eq(id, r.param("start", uuid)))
+					.where(r.eq(id, r.param("start", Id)))
 					.find({ node: id, hops: lit(0) })
 			}
 		],
@@ -164,7 +165,7 @@ const walksBelow = (bound: number) =>
 /** The arms several definitions share: a rule over Net, and the feedback of a definition whose state is one vertex. */
 type NetRule = Rule<typeof Net>
 
-type NodeSelf = SelfSource<{ readonly node: typeof uuid }>
+type NodeSelf = SelfSource<{ readonly node: typeof Id }>
 
 const forward = (r: NetRule, self: NodeSelf) => {
 	const { node } = v(self, "self")
@@ -182,18 +183,18 @@ const rootArm = (r: NetRule) => {
 	const { id } = v(V, "v")
 	return r
 		.match(V, { id })
-		.where(r.eq(id, r.param("start", uuid)))
+		.where(r.eq(id, r.param("start", Id)))
 		.find({ node: id })
 }
 
 const Both = query(Net).recursive("Both", {
-	row: { node: uuid },
+	row: { node: Id },
 	base: [rootArm],
 	rec: [forward, backward]
 })
 
 const Open = query(Net).recursive("Open", {
-	row: { node: uuid },
+	row: { node: Id },
 	base: [rootArm],
 	rec: [
 		(r, self) => {
@@ -211,7 +212,7 @@ const Open = query(Net).recursive("Open", {
 			return r
 				.match(self, { node })
 				.match(E, { from: node, to })
-				.where(r.ne(to, r.param("avoid", uuid)))
+				.where(r.ne(to, r.param("avoid", Id)))
 				.find({ node: to })
 		}
 	]
@@ -220,13 +221,13 @@ const Open = query(Net).recursive("Open", {
 /** A countdown from `seed` along the edges while it is above zero. */
 const countdownFrom = (seed: number) =>
 	query(Net).recursive("Countdown", {
-		row: { node: uuid, left: pg.integer },
+		row: { node: Id, left: pg.integer },
 		base: [
 			(r) => {
 				const { id } = v(V, "v")
 				return r
 					.match(V, { id })
-					.where(r.eq(id, r.param("start", uuid)))
+					.where(r.eq(id, r.param("start", Id)))
 					.find({ node: id, left: lit(seed) })
 			}
 		],
@@ -244,22 +245,22 @@ const countdownFrom = (seed: number) =>
 	})
 
 const Reach = query(Net).recursive("Reach", {
-	row: { node: uuid },
+	row: { node: Id },
 	base: [rootArm],
 	rec: [forward]
 })
 
 const Upstream = query(Net).recursive("Upstream", {
-	row: { node: uuid },
+	row: { node: Id },
 	base: [
 		(r) => {
-			const source = Reach.bind({ start: r.param("start", uuid) })
+			const source = Reach.bind({ start: r.param("start", Id) })
 			const { node } = v(source, "source")
 			const { from } = v(E, "e")
 			return r
 				.match(source, { node })
 				.match(E, { from, to: node })
-				.where(r.eq(node, r.param("target", uuid)))
+				.where(r.eq(node, r.param("target", Id)))
 				.find({ node: from })
 		}
 	],
@@ -267,7 +268,7 @@ const Upstream = query(Net).recursive("Upstream", {
 })
 
 const Pairs = query(Net).recursive("Pairs", {
-	row: { a: uuid, b: uuid },
+	row: { a: Id, b: Id },
 	base: [
 		(r) => {
 			const { from, to } = v(E, "e")
@@ -284,7 +285,7 @@ const Pairs = query(Net).recursive("Pairs", {
 			const { b } = v(self, "self")
 			const { from } = v(E, "e")
 			return r
-				.match(self, { a: r.param("start", uuid), b })
+				.match(self, { a: r.param("start", Id), b })
 				.match(E, { from, to: b })
 				.find({ a: from, b })
 		}
@@ -304,7 +305,7 @@ const Below = query(Net)
 		"below",
 		(p) =>
 			query(Net).recursive("Below", {
-				row: { node: uuid },
+				row: { node: Id },
 				base: [
 					(r) => {
 						const { to } = v(E, "e")
@@ -330,7 +331,7 @@ const Rooted = query(Net)
 		"below",
 		(p) =>
 			query(Net).recursive("Rooted", {
-				row: { node: uuid, root: uuid },
+				row: { node: Id, root: Id },
 				base: [
 					(r) => {
 						const { to } = v(E, "e")
@@ -361,7 +362,7 @@ const Around = query(Net)
 		"around",
 		(p) =>
 			query(Net).recursive("Around", {
-				row: { node: uuid },
+				row: { node: Id },
 				base: [
 					(r) => {
 						const { to } = v(E, "e")

@@ -13,13 +13,14 @@ import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { regexCheck } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { generated, pg, uuid } from "#compiler/public/fields.ts"
+import { generated, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { formSource } from "#compiler/scalar/lexical.ts"
 import type { Inclusion } from "#compiler/scalar/regex/inclusion.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { domainValue, membership, type TextRefinement } from "#compiler/text/refinement.ts"
+import { Id } from "#test/support/ids.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
@@ -225,7 +226,7 @@ export const guardedParse = (subject: string, guard: string) =>
 	schema(
 		"Guarded",
 		[
-			relation.generated("R", { id: uuid, t: regexField<string>(subject, []) }, ["id"], (r) => ({
+			relation.generated("R", { id: Id, t: regexField<string>(subject, []) }, ["id"], (r) => ({
 				n: generated(
 					pg.smallint,
 					Compute.when(

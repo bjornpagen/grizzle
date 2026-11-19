@@ -4,12 +4,13 @@ import { codePoints } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
+import { Id } from "#test/support/ids.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { stringsOver } from "#test/unit/text/generators.ts"
 
@@ -119,7 +120,7 @@ export const schemaOf = (c: Case) => {
 	const Target = str.bytes(c.target, str.regex("^.*$", "su"))
 	const Texts = relation.generated(
 		"Texts",
-		{ id: uuid, n: pg.integer, text: sourceField(c.source) },
+		{ id: Id, n: pg.integer, text: sourceField(c.source) },
 		["id"],
 		(r) => ({
 			stored: generatedField(

@@ -53,6 +53,7 @@ import { oneOf as oneRow, rowsOf } from "#test/support/calls.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, workFacts } from "#test/support/fixtures/golden/work.ts"
+import { Id } from "#test/support/ids.ts"
 import { installMigratedIn as installIn } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -230,7 +231,7 @@ export const dbOpenYieldsADbWhateverTheDatabaseWhoseReadsMeetTheFenceTheStoredDe
 								const found = yield* Effect.result(
 									oneRow(
 										db.workload.document.once({
-											params: { id: "00000000-0000-4000-8000-000000000001" },
+											params: { id: Id("00000000-0000-4000-8000-000000000001") },
 											facts: {}
 										})
 									)

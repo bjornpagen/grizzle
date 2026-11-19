@@ -41,3 +41,4 @@ export type {
 	SpanField,
 	VectorField
 } from "#compiler/public/fields.ts"
+export { Id } from "#test/support/ids.ts"

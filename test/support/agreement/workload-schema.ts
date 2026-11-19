@@ -1,5 +1,5 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { closedId, uuid } from "#compiler/public/fields.ts"
+import { closedId } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -14,6 +14,7 @@ import {
 	writableNamesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * The values the workload agreement (test/support/agreement/workloads.ts) draws its workloads from, which its generated
@@ -23,8 +24,8 @@ import { str } from "#compiler/public/text.ts"
  * kind of program over each of them: queries, ordered queries, ChangeSets and keys.
  */
 export const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
-export const Account = relation("Account", { id: uuid, name: str.regex("^[a-z]{1,32}$") }, ["id"])
-export const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"])
+export const Account = relation("Account", { id: Id, name: str.regex("^[a-z]{1,32}$") }, ["id"])
+export const Task = relation("Task", { id: Id, account: Id, kind: closedId(Kind) }, ["id"])
 export const byName = key(on(Account, "name"))
 export const Work = schema(
 	"Work",
@@ -40,7 +41,7 @@ export const Tally = derived.materialized(
 	})
 )
 export const Reports = schema.extend(Work, "Reports", [Tally], [])
-export const Thing = relation("Thing", { id: uuid }, ["id"])
+export const Thing = relation("Thing", { id: Id }, ["id"])
 export const Other = schema("Other", [Thing], [])
 const Twin = schema("Work", [Account], [])
 

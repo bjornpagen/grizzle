@@ -162,14 +162,14 @@ const sideLines = (name: string, t: Text): ReadonlyArray<string> => [
 const caseLines = (c: MeetCase, at: number): ReadonlyArray<string> => [
 	...sideLines(`S${at}`, c.source),
 	...sideLines(`T${at}`, c.target),
-	`export const A${at} = relation("A${at}", { id: uuid, t: S${at} }, ["id"])`,
+	`export const A${at} = relation("A${at}", { id: Id, t: S${at} }, ["id"])`,
 	`export const B${at} = relation("B${at}", { u: T${at} }, ["u"])`,
 	`export const Schema${at} = schema("Meets${at}", [A${at}, B${at}], [contained(on(A${at}, "t"), on(B${at}, "u"))])`
 ]
 
-/** The modules a program's header imports the public API from, by repository path. */
+/** The modules a program's header imports the public API and the tests' Id from, by repository path. */
 const publicModules = {
-	fields: "packages/engine/src/public/fields.ts",
+	ids: "test/support/ids.ts",
 	schema: "packages/engine/src/public/schema.ts",
 	text: "packages/engine/src/public/text.ts"
 } as const
@@ -182,7 +182,7 @@ export const bytesProgram = (cases: Arr.NonEmptyReadonlyArray<MeetCase>, entry: 
 			{
 				owner: batchOwned,
 				lines: [
-					`import { uuid } from ${jsonText(entry(publicModules.fields))}`,
+					`import { Id } from ${jsonText(entry(publicModules.ids))}`,
 					`import { contained, on, relation, schema } from ${jsonText(entry(publicModules.schema))}`,
 					`import { str } from ${jsonText(entry(publicModules.text))}`,
 					"type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false"

@@ -23,7 +23,7 @@ import { paramDomainsOf } from "#compiler/physical/ddl/domains.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, pg, uuid } from "#compiler/public/fields.ts"
+import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -38,6 +38,7 @@ import {
 	workloadOver
 } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { oracleOwnedLogin } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -57,9 +58,9 @@ const Cents = contract("Cents", pg.bigint, (x) => Compute.between(x, 0n, 10_000n
 
 const Rate = contract("Rate", pg.numeric(7, 6), (x) => Compute.between(x, 0n, 1n))
 
-const Article = relation("Article", { id: uuid, slug: Slug }, ["id"])
+const Article = relation("Article", { id: Id, slug: Slug }, ["id"])
 
-const Price = relation("Price", { id: uuid, amount: Cents, rate: Rate }, ["id"])
+const Price = relation("Price", { id: Id, amount: Cents, rate: Rate }, ["id"])
 
 const Shop = schema("Shop", [Article, Price], [])
 

@@ -70,7 +70,7 @@ import type { ParamMap } from "#compiler/plan/common.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { bytes, drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
+import { bytes, drawn as drawnField, natural } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
@@ -99,6 +99,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { makeTap, type Tap, type WireWindow } from "#test/support/wire-tap.ts"
 
 import { regex } from "arkregex"
+import { Id } from "#test/support/ids.ts"
 /**
  * A schema no Db of the suite opens, holding Work's TaskNote: a ChangeSet over it is over no level of any role here.
  */
@@ -469,8 +470,8 @@ const refusalOf = (c: RefusalCase): RefusalFeature =>
 			: "explained"
 
 /** A box, the owner of an ordered family of parts whose bodies are bytes, as pantry's import nests its entries. */
-const Box = relation("Box", { id: uuid, parts: drawnField(natural) }, ["id"])
-const Part = relation("Part", { box: uuid, at: drawnField(natural), body: bytes }, ["box", "at"])
+const Box = relation("Box", { id: Id, parts: drawnField(natural) }, ["id"])
+const Part = relation("Part", { box: Id, at: drawnField(natural), body: bytes }, ["box", "at"])
 /**
  * A later stratum's members, each a query member over a relation parameter of the call, since a call's facts name one
  * array member per op and relation: the first stratum's.
@@ -589,7 +590,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 							const { id, name } = v(W.Account, "account")
 							return r
 								.match(W.Account, { id, name })
-								.where(r.eq(id, r.param("account", uuid)))
+								.where(r.eq(id, r.param("account", Id)))
 								.find({ id, name })
 						})
 						.attach(

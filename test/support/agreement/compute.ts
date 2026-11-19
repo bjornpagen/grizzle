@@ -11,7 +11,7 @@ import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { type RosterOrder, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { Bits, bytes, Decimal, Money, uuid } from "#compiler/public/fields.ts"
+import { Bits, bytes, Decimal, Money } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { lexicalForm, str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -38,6 +38,7 @@ import {
 	testArtifacts,
 	testCompile
 } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { messageOf } from "#test/support/message.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
 import {
@@ -2018,7 +2019,7 @@ const bytesSchemaText = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): s
 			: spec.guard.kind === "uncast"
 				? "r.text"
 				: cast
-	return `schema("Bytes", [relation.generated("Texts", { id: uuid, text: Cell.fields.${spec.text} }, ["id"], (r) => ({ stored: generated(${target}, ${term}) }))], [])`
+	return `schema("Bytes", [relation.generated("Texts", { id: Id, text: Cell.fields.${spec.text} }, ["id"], (r) => ({ stored: generated(${target}, ${term}) }))], [])`
 }
 
 /** The engine's reading of a byte guard case: the same schema, built by the public constructors and Compute's core. */
@@ -2028,7 +2029,7 @@ const bytesSchema = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): Fixtu
 	return schema(
 		"Bytes",
 		[
-			relation.generated("Texts", { id: uuid, text: Cell.fields[spec.text] }, ["id"], (r) => ({
+			relation.generated("Texts", { id: Id, text: Cell.fields[spec.text] }, ["id"], (r) => ({
 				stored: generatedField(
 					target,
 					guard.kind === "within"
@@ -2067,7 +2068,7 @@ const digestOf = (d: Drawing): CaseSpec => ({
 const digestSchemaText = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): string => {
 	const digest = `Compute.sha256(r.${spec.operand})`
 	const term = spec.cast ? `Compute.cast(${digest}, ${spec.target.text})` : digest
-	return `schema("Digests", [relation.generated("Media", { id: uuid, content: bytes, text: Cell.fields.text, word: Cell.fields.word, body: Cell.fields.body }, ["id"], (r) => ({ stored: generated(${spec.target.text}, ${term}) }))], [])`
+	return `schema("Digests", [relation.generated("Media", { id: Id, content: bytes, text: Cell.fields.text, word: Cell.fields.word, body: Cell.fields.body }, ["id"], (r) => ({ stored: generated(${spec.target.text}, ${term}) }))], [])`
 }
 
 /** The engine's reading of a digest case: the same schema, built by the public constructors and Compute's core. */
@@ -2079,7 +2080,7 @@ const digestSchema = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): Fix
 			relation.generated(
 				"Media",
 				{
-					id: uuid,
+					id: Id,
 					content: bytes,
 					text: Cell.fields.text,
 					word: Cell.fields.word,
@@ -2202,7 +2203,7 @@ const closedKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "closed" }>> 
  * The fields of the relation a closed read's case generates over: an id, the tone Tuning is keyed by, and each tuned
  * field.
  */
-const tunedRelationText = `{ id: uuid, tone: Cell.fields.tone${Arr.join(
+const tunedRelationText = `{ id: Id, tone: Cell.fields.tone${Arr.join(
 	Arr.map(tunedFields, (f) => `, ${f}: Cell.fields.${f}`),
 	""
 )} }`
@@ -2248,7 +2249,7 @@ const closedSchema = (spec: Extract<CaseSpec, { readonly kind: "closed" }>): Fix
 			relation.generated(
 				"Rows",
 				{
-					id: uuid,
+					id: Id,
 					tone: Cell.fields.tone,
 					small: Cell.fields.small,
 					int: Cell.fields.int,

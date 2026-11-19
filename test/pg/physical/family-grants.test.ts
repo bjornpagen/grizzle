@@ -48,7 +48,7 @@ import type { LoadedMember } from "#adapter/served/load.ts"
  */
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { accumulated, drawn, natural, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, pg, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -67,6 +67,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { assert, assertVariant, defined, nonEmpty } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
+import { Id } from "#test/support/ids.ts"
 import { migrated, type Version } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -90,7 +91,7 @@ const versionOf = (name: string) => {
 	const Store = relation(
 		"Store",
 		{
-			id: uuid,
+			id: Id,
 			region: word,
 			label: word,
 			items: drawn(natural),
@@ -98,9 +99,9 @@ const versionOf = (name: string) => {
 		},
 		["id"]
 	)
-	const Item = relation("Item", { id: uuid, store: uuid, region: word, qty: pg.bigint }, ["id"])
-	const Shelf = relation("Shelf", { id: uuid, tag: word, slots: drawn(natural) }, ["id"])
-	const Slot = relation("Slot", { shelf: uuid, at: drawn(natural), what: word }, ["shelf", "at"])
+	const Item = relation("Item", { id: Id, store: Id, region: word, qty: pg.bigint }, ["id"])
+	const Shelf = relation("Shelf", { id: Id, tag: word, slots: drawn(natural) }, ["id"])
+	const Slot = relation("Slot", { shelf: Id, at: drawn(natural), what: word }, ["shelf", "at"])
 	const items = counted(on(Item, "store"), fin(Store, "items"))
 	const base = schema(
 		name,

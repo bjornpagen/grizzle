@@ -8,7 +8,7 @@ import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effe
 import type { RoleCertificate } from "#compiler/analysis/isolation/certify.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
 import {
 	check,
@@ -38,6 +38,7 @@ import {
 	stateSql
 } from "#test/pg/isolation/support/race.ts"
 import { defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { replaceMigrated } from "#test/support/install-migrate.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { openActors, textOfValue } from "#test/support/schedules/actors.ts"
@@ -47,18 +48,15 @@ import type { ScheduleOutcome } from "#test/support/schedules/types.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
-const Doc = relation("Doc", { id: uuid, slug: pg.integer, title: pg.integer }, ["id"])
+const Doc = relation("Doc", { id: Id, slug: pg.integer, title: pg.integer }, ["id"])
 
 const Invoice = relation(
 	"Invoice",
-	{ id: uuid, amount: pg.integer, lines: drawnField(natural), total: accumulated(pg.integer, 0) },
+	{ id: Id, amount: pg.integer, lines: drawnField(natural), total: accumulated(pg.integer, 0) },
 	["id"]
 )
 
-const Line = relation("Line", { invoice: uuid, n: pg.integer, amount: pg.integer }, [
-	"invoice",
-	"n"
-])
+const Line = relation("Line", { invoice: Id, n: pg.integer, amount: pg.integer }, ["invoice", "n"])
 
 const invoiceLines = counted(on(Line, "invoice"), fin(Invoice, "lines"))
 
@@ -77,7 +75,7 @@ export const importShape = (name: string) => {
 		mine.Doc,
 		query(importer).rule((r) =>
 			r.find({
-				id: r.param("id", uuid),
+				id: r.param("id", Id),
 				slug: r.param("slug", pg.integer),
 				title: r.param("title", pg.integer)
 			})

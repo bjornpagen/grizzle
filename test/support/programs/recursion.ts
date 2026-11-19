@@ -16,3 +16,4 @@ export type {
 export type { WorkloadHandles } from "#adapter/types/db.ts"
 export type { CallError, InputOf, KeyedSet } from "#compiler/live/index.ts"
 export { Edge, Graph, Node, Reader } from "#test/support/agreement/recursion-schema.ts"
+export { Id } from "#test/support/ids.ts"

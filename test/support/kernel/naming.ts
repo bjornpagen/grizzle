@@ -98,6 +98,7 @@ import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"
 import type { AlternativesBase } from "#compiler/types/schema/statements.ts"
 import { allocatedLevels } from "#test/support/compile.ts"
 import type { AuthoredStatementDesc, SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { Id } from "#test/support/ids.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { ownedInput, ownInput } from "#test/support/policy.ts"
 
@@ -161,10 +162,11 @@ export const localVectorSchema = "vector_ext"
  * vector extension in `vectorSchema` and the installation's codes `codes` (a fresh one's: ir/codes.ts firstCodebook):
  * each name minted at the naming door (core/identity.ts), a relation's as a stored relation's table. A structural text
  * domain exists only where an installation types a column by it, so these names name none; and they name no closed
- * relation's constant or rows, no contract's domain but natural's and no column a lookup index holds by its image,
- * which only an installation holds, since a contract's domain is named by its definition's digest and an index is its
- * installation's: natural's definition is the one every installation holds, a count's type, so its digest is known
- * without one. A declared function is named as a root level's, in `at`'s schema.
+ * relation's constant or rows, no contract's domain but natural's and the tests' Id's, and no column a lookup index
+ * holds by its image, which only an installation holds, since a contract's domain is named by its definition's digest
+ * and an index is its installation's: natural's definition is the one every installation holds, a count's type, and
+ * Id's the one every test relation keyed by a uuid declares (test/support/ids.ts), so their digests are known without
+ * one. A declared function is named as a root level's, in `at`'s schema.
  */
 export const productionNames = (
 	declaredSchema: string,
@@ -191,19 +193,17 @@ export const productionNames = (
 			return { schema: types, name: identifierOf(identity.bitsDomain(roster, codec.width)) }
 		},
 		contractDomain: (contract) => {
-			if (contract !== naturalInfo.name) {
+			const info = knownContracts.get(contract)
+			if (info === undefined) {
 				throw new Error(
-					`productionNames names no contract's domain but natural's, so none of contract ${contract}: a contract's domain is named by its definition's digest, which only an installation holds, so a test that names one reads installationOf(subject, at).names`
+					`productionNames names no contract's domain but natural's and Id's, so none of contract ${contract}: a contract's domain is named by its definition's digest, which only an installation holds, so a test that names one reads installationOf(subject, at).names`
 				)
 			}
 			return {
 				schema: types,
 				name: identifierOf(
 					identity.contractDomain(
-						contractDigest(names, contract, {
-							base: naturalInfo.base,
-							check: domainCheck(naturalInfo)
-						})
+						contractDigest(names, contract, { base: info.base, check: domainCheck(info) })
 					)
 				)
 			}
@@ -237,14 +237,25 @@ export const productionNames = (
 	return names
 }
 
-/** natural's contract, the one contract every installation holds (schema/own.ts), which productionNames names. */
-const naturalInfo = ((): ContractInfo => {
-	const info = describeFieldOrThrow(naturalDescriptor, SourceLoc("natural", [])).scalar.contract
+/** The contract a contract descriptor describes. */
+const contractInfoOf = (descriptor: unknown, name: string): ContractInfo => {
+	const info = describeFieldOrThrow(descriptor, SourceLoc(name, [])).scalar.contract
 	if (info === undefined) {
-		throw new Error("natural is a contract")
+		throw new Error(`${name} is a contract`)
 	}
 	return info
-})()
+}
+
+/**
+ * The contracts whose definitions productionNames knows without an installation, by name: natural's, the one contract
+ * every installation holds (schema/own.ts), and the tests' Id (test/support/ids.ts).
+ */
+const knownContracts: ReadonlyMap<string, ContractInfo> = new Map(
+	Arr.map([contractInfoOf(naturalDescriptor, "natural"), contractInfoOf(Id, "Id")], (info) => [
+		info.name,
+		info
+	])
+)
 
 /**
  * The kinds of constraint a test names by its fields: a primary key, a foreign key, a key (a unique constraint or

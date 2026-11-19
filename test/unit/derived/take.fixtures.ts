@@ -7,7 +7,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { login } from "#compiler/program/workload/login.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { queryOver as query, type QueryValue, varsOver as v } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
@@ -18,11 +18,12 @@ import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { owning } from "#test/support/policy.ts"
 
 /** The field types a base relation declares: each ordered, and a key alone. */
-const fieldTypes = { int: pg.integer, bigint: pg.bigint, uuid } as const
+const fieldTypes = { int: pg.integer, bigint: pg.bigint, uuid: Id } as const
 
 type FieldType = keyof typeof fieldTypes
 

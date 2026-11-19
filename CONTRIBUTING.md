@@ -325,6 +325,9 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   read or write the `__proto__` accessor: a null-prototype object is the `{ __proto__: null }` literal or
   `Object.create(null)`, a key from outside is read with `Object.hasOwn`, and a record of such keys is a Map or a
   null-prototype object (oxlint `no-proto`). Nothing sends SIGUSR1.
+- **A test's ids are named.** grizzle mints no ids and refuses a bare uuid column, so a test relation keyed by a uuid
+  names it by `Id` (`test/support/ids.ts`), one contract every such relation shares, its values `Id(uuid)`; a
+  relation that needs no uuid is keyed by its natural fields.
 - **Names come from the naming door.** `packages/engine/src/core/identity.ts` is the one module that mints the
   installed identifiers' brands (oxlint `brands-sole-mint`, whose options in `oxlint.config.ts` name each brand's doors);
   elsewhere a name is admitted from text only at a decode
@@ -560,10 +563,9 @@ text match. A type agreement's requirements are its property's situations, which
   through three implementations on PostgreSQL, which must agree. They are the conservative lowering, the optimized
   lowering, and the reference evaluator.
 - **The write oracle** (`test/pg/write/oracle`, `test/support/oracle/write`): each run draws a schema (pure sets,
-  candidate keys, identity columns, a relation whose every column is an identity, mutable relations, deferred and
-  immediate foreign keys, references into candidate keys, numerics at typmods that round onto each other,
-  and texts of two lengths), planner statistics and a perturbation. Its ChangeSets draw Stream members, described
-  additions of no field, bound parameters (`ChangeSet.bind`) and compiled handles (`db.compile`). Each ChangeSet runs
+  candidate keys, mutable relations, deferred and immediate foreign keys, references into candidate keys, numerics at
+  typmods that round onto each other, and texts of two lengths), planner statistics and a perturbation. Its ChangeSets
+  draw Stream members, bound parameters (`ChangeSet.bind`) and compiled handles (`db.compile`). Each ChangeSet runs
   through `db.apply` and through the conservative realization of the same program, and both must give the add-wins
   model's outcome, including the host's refusals, which write nothing, and a domain's refusal of a value its field
   does not admit, such as a longer text read into a shorter field. Every artifact is held to its position invariants,

@@ -14,6 +14,7 @@ import type { CalendarDate } from "#compiler/ir/date.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
+import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import type {
 	BaseOf,
 	DeclaresAll,
@@ -80,6 +81,33 @@ export type StoredOnlySql = BytesField["sql"]
 export type NotStoredOnly<Sql> = [Sql] extends [StoredOnlySql]
 	? Refusal<"bytes are stored only, written and read back whole: no key, rule, computation, parameter or filter reads them">
 	: unknown
+
+/**
+ * Whether a column's type is a bare uuid: of SQL type uuid, its values every Uuid, with no brand, which a contract over
+ * uuid gives them (Contract), so no contract names whose id it holds.
+ */
+type BareUuid<F> = [F] extends [{ readonly sql: "uuid" }]
+	? [Uuid] extends [FieldHost<F>]
+		? true
+		: false
+	: false
+
+/**
+ * The refusal of each column of `Fields` that is a bare uuid (BareUuid), nothing for any other: an id says whose it is,
+ * a contract over uuid, so a Clerk user's id is never written where a Stripe customer's belongs (scalar/minted.ts
+ * unnamedIdRefusal, which the relation builders refuse at run time).
+ */
+export type NamedIds<Fields> = {
+	readonly [K in keyof Fields]: BareUuid<Fields[K]> extends true
+		? Refusal<'say whose id this is: contract("ClerkUserId", uuid)'>
+		: unknown
+}
+
+/** The refusal of a column type that is a bare uuid (BareUuid), nothing for any other. */
+export type NamedId<F> =
+	BareUuid<F> extends true
+		? Refusal<'say whose id this is: contract("ClerkUserId", uuid)'>
+		: unknown
 
 export interface Field<out Host, out Sql extends SqlTag, out D = Host, out F extends Facts = Facts>
 	extends FieldBase, Proving<F> {

@@ -4,7 +4,7 @@ import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
 
 /**
  * The parameter program: a child query a function builds, its parent's field taken as an input term,
- * `Term<Uuid, unknown, InputOrigin, "uuid">`, against the same child written inline over the parent's own variable. The
+ * `Term<IdValue, unknown, InputOrigin, "uuid">`, against the same child written inline over the parent's own variable. The
  * box is every schema of the probe and every delivery: Nodes of a Doc, each with Comments keyed by their node, where
  * the comments lie within the nodes (at most one per node) or every node has one (exactly one); and each delivery the
  * child's comment is attached by, array, option and one.
@@ -13,7 +13,7 @@ import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
  * same refusal where it does not (one twin label for both), and an app that attaches the function's query to its
  * parent's field has the head of the app that writes it inline. The inline verdicts are the evidence's: an array always,
  * an option over a key the parent fixes, and the one child where the schema also proves existence (Node.id within
- * Comment.node). A function generic over its parent's field, `<D extends Meets<Uuid, "uuid">>`, defers the equality's
+ * Comment.node). A function generic over its parent's field, `<D extends Meets<IdValue, "uuid">>`, defers the equality's
  * evidence until the call and proves neither option nor one: a known limit of the types, which this program does not
  * state.
  *
@@ -82,7 +82,7 @@ const cellBlock = (box: Box, delivery: Delivery): ReadonlyArray<string> => {
 	const cell = `${box.name}_${delivery}`
 	return [
 		`/** ${box.name}, the comment delivered as ${delivery}: by a function, and inline. */`,
-		`export const scan_${cell} = (document: Term<Uuid, unknown, InputOrigin, "uuid">) =>`,
+		`export const scan_${cell} = (document: Term<IdValue, unknown, InputOrigin, "uuid">) =>`,
 		`\t${nodesOf(box, "document")}`,
 		...comment(box, delivery, "node.id"),
 		`export const builder_${cell} = ${appOf(box, `scan_${cell}(doc.id)`)}`,
@@ -117,7 +117,7 @@ const keyedBlock = (box: Box): ReadonlyArray<string> => {
 	const nodes = `query(${box.name}).rule((r) => { const { id, document: d } = v(Node, "node"); return r.match(Node, { id, document: d }).find({ id }) })`
 	return [
 		`/** ${box.name}, the comment by an equality with the node's id: by a function, and inline. */`,
-		`export const comment_${box.name} = (node: Term<Uuid, unknown, InputOrigin, "uuid">) => ${child("node")}`,
+		`export const comment_${box.name} = (node: Term<IdValue, unknown, InputOrigin, "uuid">) => ${child("node")}`,
 		`export const keyed_${box.name} = ${nodes}.attach("comment", (node) => comment_${box.name}(node.id), "option")`,
 		`export const keyedInline_${box.name} = ${nodes}.attach("comment", (node) => ${child("node.id")}, "option")`,
 		`export type SameKeyed_${box.name} = Expect<Equals<HeadOf<typeof keyed_${box.name}>, HeadOf<typeof keyedInline_${box.name}>>>`,
@@ -145,6 +145,7 @@ export const parameterBoxItems: Arr.NonEmptyReadonlyArray<ParameterCell> = Arr.a
 /** The package's public names the program may read, each a value or a type. */
 const publicNames: ReadonlyArray<readonly [string, "value" | "type"]> = [
 	["contained", "value"],
+	["contract", "value"],
 	["HeadOf", "type"],
 	["InputOrigin", "type"],
 	["on", "value"],
@@ -154,7 +155,6 @@ const publicNames: ReadonlyArray<readonly [string, "value" | "type"]> = [
 	["schema", "value"],
 	["Term", "type"],
 	["uuid", "value"],
-	["Uuid", "type"],
 	["v", "value"]
 ]
 
@@ -163,9 +163,11 @@ const parameterHeader: ReadonlyArray<string> = [
 	"export type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
 	"export type Expect<T extends true> = T",
 	"",
-	'export const Doc = relation("Doc", { id: uuid }, ["id"])',
-	'export const Node = relation("Node", { id: uuid, document: uuid }, ["id"])',
-	'export const Comment = relation("Comment", { node: uuid, value: pg.bigint }, ["node"])',
+	'export const Id = contract("Id", uuid)',
+	"export type IdValue = ReturnType<typeof Id>",
+	'export const Doc = relation("Doc", { id: Id }, ["id"])',
+	'export const Node = relation("Node", { id: Id, document: Id }, ["id"])',
+	'export const Comment = relation("Comment", { node: Id, value: pg.bigint }, ["node"])',
 	...Arr.flatMap(schemas, (box) => Str.split(schemaBlock(box), "\n")),
 	""
 ]

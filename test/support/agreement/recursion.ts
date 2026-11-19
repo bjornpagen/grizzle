@@ -13,11 +13,11 @@ import { type KeyClasses, type KeyProof, keyFactors } from "#compiler/ir/keys.ts
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
-import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import { groupFields, paramsType, recordType } from "#test/support/agreement/heading.ts"
 import { Edge, Graph, Node } from "#test/support/agreement/recursion-schema.ts"
 import { defined } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { messageOf } from "#test/support/message.ts"
 import { identifiers, preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -378,7 +378,7 @@ const armSource = (arm: Arm, recursive: boolean): string => {
 	const filters = Arr.join(
 		Arr.map(arm.filters, (f) =>
 			f.kind === "param"
-				? `.where(r.${f.op}(${refSource(f.ref)}, r.param(${jsonText(f.name)}, uuid)))`
+				? `.where(r.${f.op}(${refSource(f.ref)}, r.param(${jsonText(f.name)}, Id)))`
 				: `.where(r.not(self, ${bindingsSource(f.bindings)}))`
 		),
 		""
@@ -388,7 +388,7 @@ const armSource = (arm: Arm, recursive: boolean): string => {
 
 /** The row, in the program: a descriptor per field. */
 const rowSource = (spec: RecursionSpec): string =>
-	spec.ranked ? "{ from: uuid, to: uuid, rank: pg.integer }" : "{ from: uuid, to: uuid }"
+	spec.ranked ? "{ from: Id, to: Id, rank: pg.integer }" : "{ from: Id, to: Id }"
 
 /** A recursion's lines in the program, each with the site it is the line of. */
 const linesOf = (
@@ -437,7 +437,7 @@ const builtArm = (arm: Arm, r: RuleValue, self: unknown): unknown => {
 	const filtered = Arr.reduce(arm.filters, matched, (rule, f) =>
 		rule.where(
 			f.kind === "param"
-				? r[f.op](term(f.ref), r.param(f.name, uuidDescriptor))
+				? r[f.op](term(f.ref), r.param(f.name, Id))
 				: r.not(self, bound(f.bindings))
 		)
 	)
@@ -446,8 +446,8 @@ const builtArm = (arm: Arm, r: RuleValue, self: unknown): unknown => {
 
 /** The row as the builder is given it. */
 const rowValue = (spec: RecursionSpec): Readonly<Record<string, unknown>> => ({
-	from: uuidDescriptor,
-	to: uuidDescriptor,
+	from: Id,
+	to: Id,
 	...(spec.ranked ? { rank: pgDescriptors.integer } : {})
 })
 

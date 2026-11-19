@@ -7,11 +7,12 @@ import { regex as arkregex } from "arkregex"
 import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
-import { natural, uuid } from "#compiler/public/fields.ts"
+import { natural } from "#compiler/public/fields.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
+import { Id } from "#test/support/ids.ts"
 import {
 	type Admitted,
 	admittedSchemaNames,
@@ -92,8 +93,8 @@ export const statedGen = (
 /** A relation of the name `name` in the variant `variant`: an id, and in the second variant a count beside it. */
 export const relationOf = (name: string, variant: 0 | 1): AnyRelation =>
 	variant === 0
-		? relation(name, { id: uuid }, ["id"], [])
-		: relation(name, { id: uuid, n: natural }, ["id"], [])
+		? relation(name, { id: Id }, ["id"], [])
+		: relation(name, { id: Id, n: natural }, ["id"], [])
 
 /**
  * A statement of a composition that builds, as the model holds it: the name of the relation it is over, the level

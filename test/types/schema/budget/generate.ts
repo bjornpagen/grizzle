@@ -42,8 +42,8 @@ const generatedProbe = 2
 
 const relationDeclaration = (ns: string, i: number): string =>
 	generates(i)
-		? `export const ${ns}R${i} = relation.generated("R${i}", { id: uuid, parent: uuid, label: ${ns}Label }, ["id"], (r) => ({ tag: generated(${ns}Label, r.label) }))\n`
-		: `export const ${ns}R${i} = relation("R${i}", { id: uuid, parent: uuid, label: ${ns}Label }, ["id"])\n`
+		? `export const ${ns}R${i} = relation.generated("R${i}", { id: Id, parent: Id, label: ${ns}Label }, ["id"], (r) => ({ tag: generated(${ns}Label, r.label) }))\n`
+		: `export const ${ns}R${i} = relation("R${i}", { id: Id, parent: Id, label: ${ns}Label }, ["id"])\n`
 
 /**
  * The statements over the relations `declared`, under the prefix `ns`: a candidate key on every fourth relation, and a
@@ -73,7 +73,7 @@ export const ${ns}S = schema("Scale", [${Arr.join(
 	)}], [
 ${statements(ns, declared)}
 ])
-export const ${ns}Stray = relation("Stray", { id: uuid, parent: uuid, label: ${ns}Label }, ["id"])
+export const ${ns}Stray = relation("Stray", { id: Id, parent: Id, label: ${ns}Label }, ["id"])
 export const ${ns}lastIds = query(${ns}S).rule((r) => {
 	const { id } = v(${ns}R${last}, "last")
 	return r.match(${ns}R${last}, { id }).find({ id })

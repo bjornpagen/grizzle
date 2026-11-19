@@ -6,22 +6,21 @@ import { Array as Arr, pipe, Record as Rec, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { pg, type Uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { nonEmpty, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { Id } from "#test/support/ids.ts"
 import { installedTemplate } from "#test/support/install-migrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
-export const Embedding = relation(
-	"Embedding",
-	{ id: uuid, value: pg.vector(4), raw: pg.vector(4) },
-	["id"]
-)
+export const Embedding = relation("Embedding", { id: Id, value: pg.vector(4), raw: pg.vector(4) }, [
+	"id"
+])
 
 const Store = schema("VectorStore", [Embedding], [])
 

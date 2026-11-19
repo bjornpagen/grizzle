@@ -6,19 +6,20 @@ import type { Plan } from "#adapter/types/db.ts"
 import { findNodes, type PlanNode } from "#bench/harness/explain.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { lateralParentMax } from "#compiler/lower/shapes/index.ts"
-import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { seededFixtureTemplate } from "#test/pg/reads/support.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { volumeFill } from "#test/support/substrate/fill.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-export const Account = relation("Account", { id: uuid }, ["id"])
-export const Entry = relation("Entry", { account: uuid, seq: pg.bigint, amount: pg.bigint }, [
+export const Account = relation("Account", { id: Id }, ["id"])
+export const Entry = relation("Entry", { account: Id, seq: pg.bigint, amount: pg.bigint }, [
 	"account",
 	"seq"
 ])
-export const Latest = relation("Latest", { account: uuid, seq: pg.bigint, amount: pg.bigint }, [
+export const Latest = relation("Latest", { account: Id, seq: pg.bigint, amount: pg.bigint }, [
 	"account",
 	"seq"
 ])
@@ -31,8 +32,8 @@ const entriesPerAccount = 30
 export const taken = 2
 
 /** A deterministic uuid of account `n`. */
-export const uid = (n: number): Uuid =>
-	`00000001-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+export const uid = (n: number): IdValue =>
+	Id(`00000001-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
 
 const uidSql = (n: string): string =>
 	`('00000001-0000-4000-8000-' || lpad(to_hex(${n}), 12, '0'))::uuid`

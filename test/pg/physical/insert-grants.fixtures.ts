@@ -3,7 +3,7 @@
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Result } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	counted,
@@ -19,6 +19,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Id } from "#test/support/ids.ts"
 import { migratedOnceTemplate } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -28,12 +29,12 @@ export const versionOf = (name: string) => {
 	const word = str.regex("^[a-z]{1,8}$")
 	const Store = relation(
 		"Store",
-		{ id: uuid, label: word, items: drawn(natural), stock: accumulated(pg.bigint, 0n) },
+		{ id: Id, label: word, items: drawn(natural), stock: accumulated(pg.bigint, 0n) },
 		["id"]
 	)
-	const Item = relation("Item", { id: uuid, store: uuid, qty: pg.bigint }, ["id"])
-	const Shelf = relation("Shelf", { id: uuid, tag: word, slots: drawn(natural) }, ["id"])
-	const Slot = relation("Slot", { shelf: uuid, at: drawn(natural), what: word }, ["shelf", "at"])
+	const Item = relation("Item", { id: Id, store: Id, qty: pg.bigint }, ["id"])
+	const Shelf = relation("Shelf", { id: Id, tag: word, slots: drawn(natural) }, ["id"])
+	const Slot = relation("Slot", { shelf: Id, at: drawn(natural), what: word }, ["shelf", "at"])
 	const Ticket = relation("Ticket", { no: pg.bigint, note: word }, ["no"])
 	const items = counted(on(Item, "store"), fin(Store, "items"))
 	const base = schema(

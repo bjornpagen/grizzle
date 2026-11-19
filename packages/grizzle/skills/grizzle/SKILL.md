@@ -460,6 +460,8 @@ schema or workload that does not compile) are `check`'s alone.
 | the login has no OpenAPI document beside snapshot.json (an ungenerated change) | run grizzle generate, which writes the OpenAPI document |
 | the OpenAPI document is of a login the configuration does not list over the schema | run grizzle generate, which removes the OpenAPI document |
 | the schema or a login's workload does not compile | fix the schema or workload it names, then run grizzle generate |
+| grizzle mints no ids (a `pg.serial` or `pg.uuidv7` field) | key the relation by what identifies its fact: its parent's key and its own name or place, `sha256` of its content, a published name and version, or an outside system's id under a contract of its own (README "Identity: natural keys") |
+| say whose id this is (a bare `uuid` column) | `contract("ClerkUserId", uuid)`: name the system the id is of, so two systems' ids are two types |
 | the schema no longer holds a name snapshot.json holds, and no --drop or --rename declares what became of it | run grizzle generate <config> --drop <name>, or --rename <old>=<new> where it was renamed |
 | an ordered roster declares a handle before one that holds a lower code in snapshot.json | append new handles, since an ordered roster's order is its codes' order, or declare the roster closed.unordered where its order means nothing |
 | unresolved placeholder | write the value or the UPDATE, then delete the marker line |

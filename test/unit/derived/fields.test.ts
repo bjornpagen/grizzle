@@ -21,7 +21,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record } from "effect"
 import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -35,6 +35,7 @@ import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { f as field } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { Id } from "#test/support/ids.ts"
 import { checkedIn, checking } from "#test/support/policy.ts"
 import {
 	contractCaseGen,
@@ -81,7 +82,7 @@ export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldTy
 				const Line = relation(
 					"Line",
 					{
-						id: uuid,
+						id: Id,
 						...Record.fromEntries(
 							Arr.map(d.fields, (f, i) => [`f${i}`, fieldOf(f, rosters)] as const)
 						)
@@ -158,13 +159,13 @@ export const derivedFieldInferenceRefusesAContractTheSchemaDeclaresOnNoRelationI
 							? [
 									[
 										`Holder${i}`,
-										relationBuilder(`Holder${i}`, { id: uuid, price: cents }, ["id"], [])
+										relationBuilder(`Holder${i}`, { id: Id, price: cents }, ["id"], [])
 									] as const
 								]
 							: []
 					)
 				)
-				const Line = relation("Line", { id: uuid, amount: pg.bigint }, ["id"])
+				const Line = relation("Line", { id: Id, amount: pg.bigint }, ["id"])
 				const L = schema("L", [...Record.values(holders), Line], [])
 				const q = queryOver(L).rule((r: RuleValue) => {
 					const vars = varsOver(Line, "line")

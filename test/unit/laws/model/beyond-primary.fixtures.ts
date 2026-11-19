@@ -5,7 +5,7 @@ import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { PrimaryKeyObject, UniqueObject, UniqueObjects } from "#compiler/laws/model/uniques.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
@@ -18,6 +18,7 @@ import {
 import type { rowHelpers, RowTerm } from "#compiler/schema/terms.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** A conjunct of a key's selection of T. */
 type Atom =
@@ -140,18 +141,18 @@ export const schemaOf = (c: BeyondCase) => {
 	const T = relation(
 		"T",
 		{
-			id: uuid,
-			a: uuid,
-			b: uuid,
+			id: Id,
+			a: Id,
+			b: Id,
 			kind: pgDescriptors.integer,
 			flag: pgDescriptors.boolean
 		},
 		["id"],
 		[]
 	)
-	const K = relation("K", { id: uuid }, ["id"], [])
+	const K = relation("K", { id: Id }, ["id"], [])
 	const sources = Arr.map(indices(c.sources), (i) =>
-		relation(`S${i}`, { id: uuid, t: uuid, live: pgDescriptors.boolean }, ["id"], [])
+		relation(`S${i}`, { id: Id, t: Id, live: pgDescriptors.boolean }, ["id"], [])
 	)
 	const atom = (r: TRow, a: Atom) =>
 		a.kind === "kind" ? r.eq(r.kind, a.value) : r.eq(r.flag, a.value)

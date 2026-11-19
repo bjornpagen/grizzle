@@ -1,6 +1,6 @@
 import type { LawId } from "#compiler/core/ids.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import {
 	check,
 	closed,
@@ -12,6 +12,7 @@ import {
 	select
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Id } from "#test/support/ids.ts"
 import { installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
 
 const Region = closed.ordered("Region", ["North", "South"])
@@ -26,7 +27,7 @@ export const Club = relation(
 export const Member = relation(
 	"Member",
 	{
-		id: uuid,
+		id: Id,
 		region: closedId(Region),
 		number: pg.bigint,
 		code,

@@ -134,7 +134,8 @@ const pgNames = {
 	bool: "boolean"
 } as const
 
-/** The field descriptor a spec declares its column with. */
+/** The field descriptor a spec declares its column with: a uuid's the tests' Id (test/support/ids.ts), since no column
+ * is a bare uuid. */
 const specDesc = (spec: TypeSpec): FieldDesc => {
 	switch (spec.carrier) {
 		case "int2":
@@ -146,7 +147,13 @@ const specDesc = (spec: TypeSpec): FieldDesc => {
 		case "bool":
 			return { kind: "pg", type: pgNames[spec.carrier] }
 		case "uuid":
-			return { kind: "uuid" }
+			return {
+				kind: "contract",
+				name: "Id",
+				base: { kind: "uuid" },
+				predicate: undefined,
+				facts: []
+			}
 		case "numericTypmod":
 			return { kind: "numeric", precision: spec.precision, scale: spec.scale }
 		case "text":
@@ -222,6 +229,17 @@ export const compareParamType = (type: ScalarType): ScalarType => {
 		: base.carrier === "numeric" && base.typmod === undefined
 			? scalarOfSpec(wideNumericSpec)
 			: base
+}
+
+/**
+ * The type a public program declares a comparison parameter of `type` at where it declares it by its base
+ * (compareParamType): that base, but a uuid's is the generated uuid itself, the tests' Id, since no value is a bare uuid
+ * and a contract never meets its base without Compute.base. Its binding is the base's, as every comparison
+ * parameter's.
+ */
+export const declaredParamType = (type: ScalarType): ScalarType => {
+	const base = compareParamType(type)
+	return base.carrier === "uuid" ? scalarOfSpec({ carrier: "uuid" }) : base
 }
 
 /**

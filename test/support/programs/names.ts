@@ -15,3 +15,4 @@ export {
 	type RelationName,
 	schema
 } from "#compiler/public/schema.ts"
+export { Id } from "#test/support/ids.ts"

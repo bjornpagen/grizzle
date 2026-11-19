@@ -2,17 +2,18 @@
 
 import { codePoint, element, type Gen, oneOf, string } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { Id } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A pattern a stored field declares. */
 const Code = str.regex("^[a-z]{1,4}$", "u")
 
-const Item = relation("Item", { id: uuid, code: Code }, ["id"])
+const Item = relation("Item", { id: Id, code: Code }, ["id"])
 
 export const Unread = schema("Unread", [Item], [])
 
@@ -37,8 +38,8 @@ const relationRead = (filter: Filter) =>
 	})
 
 export const stored = [
-	{ id: "00000000-0000-4000-8000-000000000001", code: "abc" },
-	{ id: "00000000-0000-4000-8000-000000000002", code: "de" }
+	{ id: Id("00000000-0000-4000-8000-000000000001"), code: "abc" },
+	{ id: Id("00000000-0000-4000-8000-000000000002"), code: "de" }
 ] as const
 
 /** A text inside Code about half the time, a stored item's code among them: lowercase letters, or printable ASCII. */

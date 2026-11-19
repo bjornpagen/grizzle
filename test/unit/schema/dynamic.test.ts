@@ -14,10 +14,11 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { sameContent } from "#compiler/core/canonical.ts"
 import { closed as dynamicClosed, relation as dynamicRelation } from "#compiler/public/dynamic.ts"
-import { closedId, generated, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, generated, pg } from "#compiler/public/fields.ts"
 import { closed, relation } from "#compiler/public/schema.ts"
 import { relationDescOf } from "#compiler/schema/relation.ts"
 import { assert } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { doorConstructors } from "#test/unit/schema/dynamic.dictionary.ts"
 
 type DoorConstructor = (typeof doorConstructors)[number]
@@ -33,15 +34,15 @@ const valuesOf = (callee: DoorConstructor, runtimeName: string): readonly [unkno
 	switch (callee) {
 		case "relation":
 			return [
-				dynamicRelation(runtimeName, { id: uuid, n: pg.integer }, ["id"]),
-				relation("Drawn", { id: uuid, n: pg.integer }, ["id"])
+				dynamicRelation(runtimeName, { id: Id, n: pg.integer }, ["id"]),
+				relation("Drawn", { id: Id, n: pg.integer }, ["id"])
 			]
 		case "relation.generated":
 			return [
-				dynamicRelation.generated(runtimeName, { id: uuid, n: pg.integer }, ["id"], (r) => ({
+				dynamicRelation.generated(runtimeName, { id: Id, n: pg.integer }, ["id"], (r) => ({
 					m: generated(pg.integer, r.n)
 				})),
-				relation.generated("Drawn", { id: uuid, n: pg.integer }, ["id"], (r) => ({
+				relation.generated("Drawn", { id: Id, n: pg.integer }, ["id"], (r) => ({
 					m: generated(pg.integer, r.n)
 				}))
 			]

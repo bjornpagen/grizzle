@@ -69,6 +69,7 @@ import {
 	unitCycleRoots,
 	uuidOfRow
 } from "#test/support/families/fill.ts"
+import { Id } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** An extra fold end over a family: max over its member's `v`, or or over its member's set `b`, into its owner's `e<f>`. */
@@ -639,7 +640,7 @@ const Mask = closed("Mask", maskHandles, "ordered", [])
 /** The fields of family relation `r`, fill.ts's in its order, then its set `b` and each extra end it owns. */
 const fieldsOf = (spec: SwarmSpec, r: number): Record<string, FieldBase> => {
 	const core = spec.fill
-	const fields: Record<string, FieldBase> = { id: uuid, v: pg.bigint }
+	const fields: Record<string, FieldBase> = { id: Id, v: pg.bigint }
 	for (const [f, family] of core.families.entries()) {
 		if (family.owner === r) {
 			fields[countName(f)] = drawn(natural)
@@ -700,8 +701,8 @@ const namedFamilies = (spec: SwarmSpec, r: number): ReadonlyArray<number> =>
 const namedFields = (spec: SwarmSpec, r: number): Readonly<Record<string, FieldBase>> =>
 	Rec.fromEntries(
 		Arr.flatMap(namedFamilies(spec, r), (f): ReadonlyArray<readonly [string, FieldBase]> => [
-			[groupName(f), uuid],
-			[namedIdName(f), uuid],
+			[groupName(f), Id],
+			[namedIdName(f), Id],
 			[namedValueName(f), pg.bigint]
 		])
 	)
@@ -711,7 +712,7 @@ const namedFields = (spec: SwarmSpec, r: number): Readonly<Record<string, FieldB
  * and the columns it names a member's row by.
  */
 export const callerFields = (spec: SwarmSpec, r: number): Readonly<Record<string, FieldBase>> => ({
-	id: uuid,
+	id: Id,
 	v: pg.bigint,
 	...(holdsMask(spec, r) ? { b: bits(Mask) } : {}),
 	...namedFields(spec, r)
@@ -781,7 +782,7 @@ export const swarmFacts = (
 
 /** The fields of plain relation `j`. */
 const plainFields = (p: PlainSpec): Record<string, FieldBase> =>
-	p.kind === "set" ? { x: pg.bigint } : { id: uuid, r: uuid, x: pg.bigint }
+	p.kind === "set" ? { x: pg.bigint } : { id: Id, r: Id, x: pg.bigint }
 
 /** The field names of family relation `r` (its generated `g` among them) or of plain relation `j`, in heading order. */
 export const fieldNames = (

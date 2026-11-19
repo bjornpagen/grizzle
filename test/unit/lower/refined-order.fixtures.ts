@@ -3,7 +3,7 @@
 import { identity } from "#compiler/core/identity.ts"
 import { type Direction } from "#compiler/core/order.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -12,6 +12,7 @@ import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { allocatedLevels, servingParams } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
 
@@ -19,7 +20,7 @@ const Slug = str.regex("^[a-z][a-z0-9-]*$")
 
 const Prose = str.regex("^.*$", "su")
 
-const Article = relation("Article", { id: uuid, slug: Slug, title: Prose }, ["id"])
+const Article = relation("Article", { id: Id, slug: Slug, title: Prose }, ["id"])
 
 const Stored = schema("RefinedOrder", [Article], [])
 

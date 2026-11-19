@@ -7,7 +7,7 @@ import type { Refused } from "#compiler/core/refusals.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { compilePage, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
 import { type QueryTemplate, queryInput } from "#compiler/program/compile.ts"
-import { Decimal, Money, pg, uuid, Vector } from "#compiler/public/fields.ts"
+import { Decimal, Money, pg, Vector } from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -27,6 +27,7 @@ import {
 	Tone
 } from "#test/support/agreement/schema.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { type PreludeAt, preludeModule } from "#test/support/prelude.ts"
 import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
 
@@ -1413,10 +1414,10 @@ const matchedOf = (
 
 /** Cell's ids keyed by a relation parameter of ids, the query whose parameter the relation cells bind. */
 const byIdsSource =
-	'export const byIds = query(Agree).rule((r) => { const ids = r.relation("ids", { id: uuid }); const { id } = v(Cell, "cell"); return r.match(ids, { id }).match(Cell, { id }).find({ id }) })'
+	'export const byIds = query(Agree).rule((r) => { const ids = r.relation("ids", { id: Id }); const { id } = v(Cell, "cell"); return r.match(ids, { id }).match(Cell, { id }).find({ id }) })'
 const byIds = (): QueryValue =>
 	queryOver(Agree).rule((r: RuleValue) => {
-		const ids = r.relation("ids", { id: uuid })
+		const ids = r.relation("ids", { id: Id })
 		const vars = varsOver(Cell, "cell")
 		return r.match(ids, { id: vars["id"] }).match(Cell, { id: vars["id"] }).find({ id: vars["id"] })
 	})
@@ -1430,8 +1431,8 @@ const relationSourceOf = (
 	switch (source) {
 		case "relationParam":
 			return {
-				source: 'r.relation("outer", { id: uuid })',
-				value: (r) => r.relation("outer", { id: uuid })
+				source: 'r.relation("outer", { id: Id })',
+				value: (r) => r.relation("outer", { id: Id })
 			}
 		case "query":
 			return { source: cellIds.source, value: () => cellIds.value() }

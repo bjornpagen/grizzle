@@ -11,8 +11,7 @@ import {
 	generated,
 	natural,
 	pg,
-	span,
-	uuid
+	span
 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -40,6 +39,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { Cents, Instant } from "#test/support/fixtures/api/contracts.ts"
+import { Id } from "#test/support/ids.ts"
 
 export const Rate = contract("Rate", pg.numeric(7, 6), (x) => Compute.between(x, 0n, 1n))
 export const Micros = contract("Micros", pg.bigint, (x) => Compute.ge(x, 0n))
@@ -81,46 +81,46 @@ const LevyRate = closed.relation(
 /** An employer: its approvers a counted family, `approvers` their drawn count. */
 export const Employer = relation(
 	"Employer",
-	{ id: uuid, ein: Ein, name: LegalName, approvers: drawn(natural) },
+	{ id: Id, ein: Ein, name: LegalName, approvers: drawn(natural) },
 	["id"]
 )
 export const Employee = relation(
 	"Employee",
-	{ id: uuid, employer: uuid, code: EmployeeCode, name: LegalName },
+	{ id: Id, employer: Id, code: EmployeeCode, name: LegalName },
 	["id"]
 )
-export const ReportsTo = relation("ReportsTo", { employee: uuid, manager: uuid }, ["employee"])
-export const Approver = relation("Approver", { employer: uuid, approver: uuid }, [
+export const ReportsTo = relation("ReportsTo", { employee: Id, manager: Id }, ["employee"])
+export const Approver = relation("Approver", { employer: Id, approver: Id }, [
 	"employer",
 	"approver"
 ])
 
 export const TaxProfile = relation(
 	"TaxProfile",
-	{ employee: uuid, filing: closedId(Filing), extra: Cents },
+	{ employee: Id, filing: closedId(Filing), extra: Cents },
 	["employee"]
 )
 
 export const Employment = relation(
 	"Employment",
-	{ employee: uuid, during: span(Instant), basis: closedId(Basis) },
+	{ employee: Id, during: span(Instant), basis: closedId(Basis) },
 	["employee", "during"]
 )
 
 export const Assignment = relation(
 	"Assignment",
-	{ employee: uuid, during: span(Instant), costCenter: CostCenter },
+	{ employee: Id, during: span(Instant), costCenter: CostCenter },
 	["employee", "during"]
 )
 
-export const Salary = relation("Salary", { employee: uuid, during: span(Instant), annual: Cents }, [
+export const Salary = relation("Salary", { employee: Id, during: span(Instant), annual: Cents }, [
 	"employee",
 	"during"
 ])
 
 export const Leave = relation(
 	"Leave",
-	{ employee: uuid, during: span(Instant), reason: closedId(LeaveReason) },
+	{ employee: Id, during: span(Instant), reason: closedId(LeaveReason) },
 	["employee", "during"]
 )
 
@@ -131,7 +131,7 @@ export const Leave = relation(
 export const Timesheet = relation(
 	"Timesheet",
 	{
-		employee: uuid,
+		employee: Id,
 		week: Week,
 		ceiling: Micros,
 		shifts: drawn(natural),
@@ -143,7 +143,7 @@ export const Timesheet = relation(
 /** A shift, whose `hours` PostgreSQL generates from its span: the width `upper − lower` (fin.md §6, "duration"). */
 export const Shift = relation.generated(
 	"Shift",
-	{ employee: uuid, during: span(Instant), week: Week, status: closedId(ShiftStatus) },
+	{ employee: Id, during: span(Instant), week: Week, status: closedId(ShiftStatus) },
 	["employee", "during"],
 	(r) => ({
 		hours: generated(
@@ -159,13 +159,13 @@ export const Shift = relation.generated(
 
 export const PayRun = relation(
 	"PayRun",
-	{ id: uuid, employer: uuid, period: span(Instant), stage: closedId(Stage) },
+	{ id: Id, employer: Id, period: span(Instant), stage: closedId(Stage) },
 	["id"]
 )
-export const Approval = relation("Approval", { run: uuid, approver: uuid, at: Instant }, ["run"])
-export const Payment = relation("Payment", { run: uuid, settled: Instant }, ["run"])
-export const Voiding = relation("Voiding", { run: uuid, reason: Memo }, ["run"])
-export const Reissue = relation("Reissue", { run: uuid, replaces: uuid }, ["run"])
+export const Approval = relation("Approval", { run: Id, approver: Id, at: Instant }, ["run"])
+export const Payment = relation("Payment", { run: Id, settled: Instant }, ["run"])
+export const Voiding = relation("Voiding", { run: Id, reason: Memo }, ["run"])
+export const Reissue = relation("Reissue", { run: Id, replaces: Id }, ["run"])
 /**
  * A pay line: its deposits are a counted family, `deposits` their drawn count, and `deposited` the sum fold of their
  * amounts (fin.md §6, "count in [lo, hi]" and "weighted").
@@ -173,9 +173,9 @@ export const Reissue = relation("Reissue", { run: uuid, replaces: uuid }, ["run"
 export const PayLine = relation(
 	"PayLine",
 	{
-		id: uuid,
-		run: uuid,
-		employee: uuid,
+		id: Id,
+		run: Id,
+		employee: Id,
 		gross: Cents,
 		net: Cents,
 		offCycle: pg.boolean,
@@ -184,30 +184,30 @@ export const PayLine = relation(
 	},
 	["id"]
 )
-export const OffCycleReason = relation("OffCycleReason", { line: uuid, reason: Memo }, ["line"])
+export const OffCycleReason = relation("OffCycleReason", { line: Id, reason: Memo }, ["line"])
 export const Deposit = relation(
 	"Deposit",
-	{ line: uuid, account: AccountNo, amount: Cents, remainder: pg.boolean },
+	{ line: Id, account: AccountNo, amount: Cents, remainder: pg.boolean },
 	["line", "account"]
 )
 
 export const LevyLine = relation(
 	"LevyLine",
-	{ line: uuid, levy: closedId(Levy), employeeRate: Rate, withheld: Cents },
+	{ line: Id, levy: closedId(Levy), employeeRate: Rate, withheld: Cents },
 	["line", "levy"]
 )
 
 export const Posting = relation(
 	"Posting",
 	{
-		line: uuid,
+		line: Id,
 		account: closedId(LedgerAccount),
 		side: closedId(Side),
 		amount: Cents
 	},
 	["line", "account"]
 )
-export const Request = relation("Request", { id: uuid, digest: Digest, result: Memo }, ["id"])
+export const Request = relation("Request", { id: Id, digest: Digest, result: Memo }, ["id"])
 
 /**
  * The payroll ledger fixture, in public-API form: the Payroll schema and its
@@ -479,7 +479,7 @@ export const payslip = query(Payroll)
 		const { id, run, employee, gross, net, offCycle } = v(PayLine, "payLine")
 		return r
 			.match(PayLine, { id, run, employee, gross, net, offCycle })
-			.where(r.eq(id, r.param("line", uuid)))
+			.where(r.eq(id, r.param("line", Id)))
 			.find({ id, run, employee, gross, net, offCycle })
 	})
 	.attach(
@@ -594,7 +594,7 @@ export const ledger = query(Payroll)
 		return r
 			.match(Posting, { line, account, side, amount })
 			.match(PayLine, { id: line, run })
-			.where(r.eq(run, r.param("run", uuid)))
+			.where(r.eq(run, r.param("run", Id)))
 			.find({ line, account, side, amount })
 	})
 	.orderBy(["line", "asc"], ["account", "asc"])
@@ -605,7 +605,7 @@ export const ledgerBalance = query(Payroll).rule((r) => {
 	return r
 		.match(Posting, { line, account, side, amount })
 		.match(PayLine, { id: line, run })
-		.where(r.eq(run, r.param("run", uuid)))
+		.where(r.eq(run, r.param("run", Id)))
 		.find({
 			debits: r.sum(Compute.cond(r.eq(side, "debit"), Compute.base(amount), 0n)),
 			credits: r.sum(Compute.cond(r.eq(side, "credit"), Compute.base(amount), 0n))
@@ -620,7 +620,7 @@ export const splitSegments = query(Payroll).rule((r) => {
 		.match(Employee, { id: employee, employer })
 		.match(Salary, { employee, during, annual })
 		.where(
-			r.eq(run, r.param("run", uuid)),
+			r.eq(run, r.param("run", Id)),
 			r.allen(during, ALLEN.overlaps | ALLEN.overlappedBy, period)
 		)
 		.find({ employee, during, annual })
@@ -653,7 +653,7 @@ export const withholdingFor = query(Payroll).rule((r) => {
  * (scripts/dev/profile/phases.ts) lowers every query a fixture module exports.
  */
 export const Org = query(Payroll).recursive("Org", {
-	row: { employee: uuid },
+	row: { employee: Id },
 	base: [
 		(r) => {
 			const { employee } = v(ReportsTo, "reportsTo")
@@ -699,7 +699,7 @@ export const withinTwo = query(Payroll)
 export const runTotalOf = query(Reporting).rule((r) => {
 	const { lines, gross, net } = v(RunTotal, "runTotal")
 	return r
-		.match(RunTotal, { run: r.param("run", uuid), lines, gross, net })
+		.match(RunTotal, { run: r.param("run", Id), lines, gross, net })
 		.find({ lines, gross, net })
 })
 
@@ -766,13 +766,13 @@ export const payPutMember = query(Payroll).rule((r) => {
 	const { employer, period } = v(PayRun, "payRun")
 	return r
 		.match(PayRun, { id: r.param("run", PayRun.fields.id), employer, period, stage: "approved" })
-		.find({ id: r.param("run", uuid), employer, period, stage: "paid" })
+		.find({ id: r.param("run", Id), employer, period, stage: "paid" })
 })
 
 export const payPaymentMember = query(Payroll).rule((r) =>
 	r
 		.match(PayRun, { id: r.param("run", PayRun.fields.id), stage: "approved" })
-		.find({ run: r.param("run", uuid), settled: r.param("now", Instant) })
+		.find({ run: r.param("run", Id), settled: r.param("now", Instant) })
 )
 
 /** reverse's put of PayRun, its deletion of Payment and its insert of Voiding. */
@@ -780,18 +780,18 @@ export const reversePutMember = query(Payroll).rule((r) => {
 	const { employer, period } = v(PayRun, "payRun")
 	return r
 		.match(PayRun, { id: r.param("run", PayRun.fields.id), employer, period, stage: "paid" })
-		.find({ id: r.param("run", uuid), employer, period, stage: "voided" })
+		.find({ id: r.param("run", Id), employer, period, stage: "voided" })
 })
 
 export const reverseDeleteMember = query(Payroll).rule((r) => {
 	const { settled } = v(Payment, "payment")
 	return r
 		.match(Payment, { run: r.param("run", Payment.fields.run), settled })
-		.find({ run: r.param("run", uuid), settled })
+		.find({ run: r.param("run", Id), settled })
 })
 
 export const reverseVoidingMember = query(Payroll).rule((r) =>
 	r
 		.match(PayRun, { id: r.param("run", PayRun.fields.id), stage: "paid" })
-		.find({ run: r.param("run", uuid), reason: r.param("reason", Voiding.fields.reason) })
+		.find({ run: r.param("run", Id), reason: r.param("reason", Voiding.fields.reason) })
 )

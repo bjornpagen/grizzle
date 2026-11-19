@@ -5,7 +5,7 @@ import { array, boolean, constant, element, type Gen, int, weighted } from "@bjo
 import { Array as Arr, Option, Order, pipe, String as Str } from "effect"
 import { login } from "#compiler/program/workload/login.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, pg, uuid } from "#compiler/public/fields.ts"
+import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -13,6 +13,7 @@ import { roleBuilder as role } from "#compiler/schema/world.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { fixedDefaults, searchDefaults } from "#test/support/catalog/installed.ts"
+import { Id } from "#test/support/ids.ts"
 import { whereIndex } from "#test/support/oracle/pick.ts"
 
 const Slug = str.regex("^[a-z]{1,8}$")
@@ -22,11 +23,11 @@ const State = str.regex("^(on|off)$")
 /** A contract over a refined text: its domain rests on the text's, a base chain of two domains of the schema. */
 const Handle = contract("Handle", Slug, (x) => Compute.le(Compute.charLength(x), 6))
 
-const Doc = relation("Doc", { id: uuid, slug: Slug, handle: Handle }, ["id"])
+const Doc = relation("Doc", { id: Id, slug: Slug, handle: Handle }, ["id"])
 
-const Embedding = relation("Embedding", { doc: uuid, value: pg.vector(3) }, ["doc"])
+const Embedding = relation("Embedding", { doc: Id, value: pg.vector(3) }, ["doc"])
 
-const Tag = relation("Tag", { doc: uuid, state: State }, ["doc"])
+const Tag = relation("Tag", { doc: Id, state: State }, ["doc"])
 
 /** The schema under `name`: the stored relations, and Vectors in a level that extends them. */
 export const searchAt = (name: string) => {

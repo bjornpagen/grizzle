@@ -10,9 +10,7 @@ import {
 	natural,
 	pg,
 	type Span,
-	span as spanOf,
-	type Uuid,
-	uuid
+	span as spanOf
 } from "#compiler/public/fields.ts"
 import { arm, query, v } from "#compiler/public/query.ts"
 import {
@@ -38,6 +36,7 @@ import {
 	writableNamesOf
 } from "#compiler/public/schema.ts"
 import { paged, refresh, workload } from "#compiler/public/workload.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 
 export const Instant = contract("Instant", pg.bigint)
 export const Micros = contract("Micros", pg.bigint, (x) => Compute.ge(x, 0n))
@@ -59,27 +58,27 @@ const InvoiceState = closed.ordered("InvoiceState", ["open", "paid", "void", "di
 const LineSource = closed.ordered("LineSource", ["usage", "plan"])
 const RefundReason = closed.ordered("RefundReason", ["requested", "duplicate", "outage", "dispute"])
 
-export const Org = relation("Org", { id: uuid }, ["id"])
+export const Org = relation("Org", { id: Id }, ["id"])
 /** Reseller and consolidated billing: an organization bills through at most one parent. */
-export const ParentOrg = relation("ParentOrg", { child: uuid, parent: uuid }, ["child"])
-export const Workspace = relation("Workspace", { id: uuid, org: uuid }, ["id"])
-export const ApiKey = relation("ApiKey", { id: uuid, workspace: uuid, state: closedId(KeyState) }, [
+export const ParentOrg = relation("ParentOrg", { child: Id, parent: Id }, ["child"])
+export const Workspace = relation("Workspace", { id: Id, org: Id }, ["id"])
+export const ApiKey = relation("ApiKey", { id: Id, workspace: Id, state: closedId(KeyState) }, [
 	"id"
 ])
-export const Revocation = relation("Revocation", { key: uuid, at: Instant }, ["key"])
+export const Revocation = relation("Revocation", { key: Id, at: Instant }, ["key"])
 /** The spans a key may be used in: a span key, so one key's spans never overlap. */
-export const ApiKeyActive = relation("ApiKeyActive", { key: uuid, during: spanOf(Instant) }, [
+export const ApiKeyActive = relation("ApiKeyActive", { key: Id, during: spanOf(Instant) }, [
 	"key",
 	"during"
 ])
 
-export const Provider = relation("Provider", { id: uuid }, ["id"])
-export const Model = relation("Model", { id: uuid }, ["id"])
-export const Route = relation("Route", { model: uuid, provider: uuid }, ["model", "provider"])
+export const Provider = relation("Provider", { id: Id }, ["id"])
+export const Model = relation("Model", { id: Id }, ["id"])
+export const Route = relation("Route", { model: Id, provider: Id }, ["model", "provider"])
 /** What a provider charges upstream per million tokens of a model's kind, over time. */
 export const ProviderPrice = relation(
 	"ProviderPrice",
-	{ provider: uuid, model: uuid, kind: closedId(TokenKind), during: spanOf(Instant), rate: Rate },
+	{ provider: Id, model: Id, kind: closedId(TokenKind), during: spanOf(Instant), rate: Rate },
 	["provider", "model", "kind", "during"]
 )
 
@@ -88,12 +87,12 @@ export const ProviderPrice = relation(
  */
 export const RateCard = relation(
 	"RateCard",
-	{ id: uuid, model: uuid, kind: closedId(TokenKind), during: spanOf(Instant) },
+	{ id: Id, model: Id, kind: closedId(TokenKind), during: spanOf(Instant) },
 	["id"]
 )
 
 /** A card's graduated tiers over token counts: each prices the part of an event's tokens it overlaps. */
-export const RateTier = relation("RateTier", { card: uuid, tier: spanOf(Tokens), rate: Rate }, [
+export const RateTier = relation("RateTier", { card: Id, tier: spanOf(Tokens), rate: Rate }, [
 	"card",
 	"tier"
 ])
@@ -101,7 +100,7 @@ export const RateTier = relation("RateTier", { card: uuid, tier: spanOf(Tokens),
 /** The immutable, high-volume stream: one API request over its window. */
 export const UsageEvent = relation(
 	"UsageEvent",
-	{ id: uuid, key: uuid, model: uuid, provider: uuid, during: spanOf(Instant) },
+	{ id: Id, key: Id, model: Id, provider: Id, during: spanOf(Instant) },
 	["id"]
 )
 
@@ -114,9 +113,9 @@ export const UsageEvent = relation(
 export const UsageCharge = relation(
 	"UsageCharge",
 	{
-		event: uuid,
+		event: Id,
 		kind: closedId(TokenKind),
-		model: uuid,
+		model: Id,
 		priced: spanOf(Instant),
 		tokens: Tokens,
 		amount: Micros,
@@ -134,8 +133,8 @@ export const UsageCharge = relation(
 export const EventCharge = relation(
 	"EventCharge",
 	{
-		event: uuid,
-		workspace: uuid,
+		event: Id,
+		workspace: Id,
 		month: MonthNo,
 		amount: Micros,
 		charges: drawn(natural),
@@ -144,7 +143,7 @@ export const EventCharge = relation(
 	["event"]
 )
 /** What the provider charged upstream for an event. */
-export const ProviderCost = relation("ProviderCost", { event: uuid, amount: Micros }, ["event"])
+export const ProviderCost = relation("ProviderCost", { event: Id, amount: Micros }, ["event"])
 
 /**
  * A prepaid grant, valid over a span. Its debits are a counted family (grantDebits), `debits` their drawn count and
@@ -154,8 +153,8 @@ export const ProviderCost = relation("ProviderCost", { event: uuid, amount: Micr
 export const CreditGrant = relation(
 	"CreditGrant",
 	{
-		id: uuid,
-		org: uuid,
+		id: Id,
+		org: Id,
 		amount: Micros,
 		valid: spanOf(Instant),
 		debits: drawn(natural),
@@ -171,7 +170,7 @@ export const CreditGrant = relation(
  */
 export const CreditDebit = relation(
 	"CreditDebit",
-	{ grant: uuid, event: uuid, kind: closedId(TokenKind), amount: Micros, during: spanOf(Instant) },
+	{ grant: Id, event: Id, kind: closedId(TokenKind), amount: Micros, during: spanOf(Instant) },
 	["grant", "event", "kind"]
 )
 
@@ -182,7 +181,7 @@ export const CreditDebit = relation(
 export const WorkspaceLimit = relation(
 	"WorkspaceLimit",
 	{
-		workspace: uuid,
+		workspace: Id,
 		month: MonthNo,
 		cap: Micros,
 		charges: drawn(natural),
@@ -202,8 +201,8 @@ export const Month = relation("Month", { month: MonthNo, during: spanOf(Instant)
 export const Invoice = relation(
 	"Invoice",
 	{
-		id: uuid,
-		org: uuid,
+		id: Id,
+		org: Id,
 		period: spanOf(Instant),
 		amount: Micros,
 		state: closedId(InvoiceState),
@@ -223,8 +222,8 @@ export const Invoice = relation(
 export const InvoiceLine = relation(
 	"InvoiceLine",
 	{
-		id: uuid,
-		invoice: uuid,
+		id: Id,
+		invoice: Id,
 		source: closedId(LineSource),
 		amount: Micros,
 		allocations: drawn(natural),
@@ -236,32 +235,32 @@ export const InvoiceLine = relation(
 /** A usage line's detail: the billed remainder of one model's token kind over the period. */
 export const UsageLine = relation(
 	"UsageLine",
-	{ line: uuid, model: uuid, kind: closedId(TokenKind), tokens: Tokens },
+	{ line: Id, model: Id, kind: closedId(TokenKind), tokens: Tokens },
 	["line"]
 )
 /** A Team plan line's detail: one subscription's charge over the period. */
-export const PlanLine = relation("PlanLine", { line: uuid, subscription: uuid }, ["line"])
-export const Payment = relation("Payment", { invoice: uuid, charge: uuid }, ["invoice"])
-export const Voiding = relation("Voiding", { invoice: uuid, at: Instant }, ["invoice"])
-export const Dispute = relation("Dispute", { invoice: uuid, at: Instant }, ["invoice"])
+export const PlanLine = relation("PlanLine", { line: Id, subscription: Id }, ["line"])
+export const Payment = relation("Payment", { invoice: Id, charge: Id }, ["invoice"])
+export const Voiding = relation("Voiding", { invoice: Id, at: Instant }, ["invoice"])
+export const Dispute = relation("Dispute", { invoice: Id, at: Instant }, ["invoice"])
 export const Refund = relation(
 	"Refund",
-	{ id: uuid, invoice: uuid, amount: Micros, reason: closedId(RefundReason), at: Instant },
+	{ id: Id, invoice: Id, amount: Micros, reason: closedId(RefundReason), at: Instant },
 	["id"]
 )
 
-export const Subscription = relation("Subscription", { id: uuid, org: uuid }, ["id"])
+export const Subscription = relation("Subscription", { id: Id, org: Id }, ["id"])
 /** A subscription's monthly price over time: a span key, so two segments of one subscription never overlap. */
 export const Segment = relation(
 	"Segment",
-	{ subscription: uuid, during: spanOf(Instant), monthlyPrice: Micros },
+	{ subscription: Id, during: spanOf(Instant), monthlyPrice: Micros },
 	["subscription", "during"]
 )
 
 /** A plan line apportioned across the priced segments it bills, to the micro-dollar. */
 export const Allocation = relation(
 	"Allocation",
-	{ line: uuid, subscription: uuid, during: spanOf(Instant), amount: Micros },
+	{ line: Id, subscription: Id, during: spanOf(Instant), amount: Micros },
 	["line", "during"]
 )
 
@@ -661,8 +660,8 @@ export const eventCost = query(Platform).rule((r) => {
 		Compute.base(Compute.lower(tier, Tokens))
 	)
 	return r
-		.match(UsageEvent, { id: r.param("event", uuid), model, during })
-		.match(UsageCharge, { event: r.param("event", uuid), kind, tokens })
+		.match(UsageEvent, { id: r.param("event", Id), model, during })
+		.match(UsageCharge, { event: r.param("event", Id), kind, tokens })
 		.match(RateCard, { id: card, model, kind, during: inForce })
 		.match(RateTier, { card, tier, rate })
 		.where(
@@ -695,7 +694,7 @@ export const quote = query(Platform).rule((r) => {
 	)
 	return r
 		.match(usage, { kind, tokens })
-		.match(RateCard, { id: card, model: r.param("model", uuid), kind, during })
+		.match(RateCard, { id: card, model: r.param("model", Id), kind, during })
 		.match(RateTier, { card, tier, rate })
 		.where(
 			r.allen(during, holdsPoint, r.param("now", RateCard.fields.during)),
@@ -715,7 +714,7 @@ export const ratesAt = query(Platform)
 	.rule((r) => {
 		const { id, kind, during } = v(RateCard, "rateCard")
 		return r
-			.match(RateCard, { id, model: r.param("model", uuid), kind, during })
+			.match(RateCard, { id, model: r.param("model", Id), kind, during })
 			.where(r.allen(during, holdsPoint, r.param("now", RateCard.fields.during)))
 			.find({ id, kind, during })
 	})
@@ -736,13 +735,13 @@ export const rateHistory = query(Platform).rule((r) => {
 	return r
 		.match(RateCard, {
 			id: before,
-			model: r.param("model", uuid),
+			model: r.param("model", Id),
 			kind: r.param("kind", RateCard.fields.kind),
 			during: was
 		})
 		.match(RateCard, {
 			id: after,
-			model: r.param("model", uuid),
+			model: r.param("model", Id),
 			kind: r.param("kind", RateCard.fields.kind),
 			during: is
 		})
@@ -763,7 +762,7 @@ export const repricedInMonth = query(Platform).rule((r) => {
 	return r
 		.match(EventCharge, {
 			event,
-			workspace: r.param("workspace", uuid),
+			workspace: r.param("workspace", Id),
 			month: r.param("month", MonthNo)
 		})
 		.match(Month, { month: r.param("month", MonthNo), during: month })
@@ -783,7 +782,7 @@ export const spendByDay = query(Platform).rule((r) => {
 	const { during } = v(UsageEvent, "usageEvent")
 	const { day, during: span } = v(Day, "day")
 	return r
-		.match(EventCharge, { event, workspace: r.param("workspace", uuid), amount })
+		.match(EventCharge, { event, workspace: r.param("workspace", Id), amount })
 		.match(UsageEvent, { id: event, during })
 		.match(Day, { day, during: span })
 		.where(
@@ -797,7 +796,7 @@ export const spendByDay = query(Platform).rule((r) => {
 export const spendByMonth = query(Platform).rule((r) => {
 	const { event, month, amount } = v(EventCharge, "eventCharge")
 	return r
-		.match(EventCharge, { event, workspace: r.param("workspace", uuid), month, amount })
+		.match(EventCharge, { event, workspace: r.param("workspace", Id), month, amount })
 		.find({ month, spend: r.sum(amount) })
 })
 
@@ -807,7 +806,7 @@ export const workspaceMonth = query(Platform).rule((r) => {
 	return r
 		.match(EventCharge, {
 			event,
-			workspace: r.param("workspace", uuid),
+			workspace: r.param("workspace", Id),
 			month: r.param("month", MonthNo),
 			amount
 		})
@@ -828,7 +827,7 @@ export const nearCap = query(Platform).rule((r) => {
 	const { spend } = v(monthSpend, "monthSpend")
 	const { cap } = v(WorkspaceLimit, "workspaceLimit")
 	return r
-		.match(Workspace, { id: workspace, org: r.param("org", uuid) })
+		.match(Workspace, { id: workspace, org: r.param("org", Id) })
 		.match(monthSpend, { workspace, month: r.param("month", MonthNo), spend })
 		.match(WorkspaceLimit, { workspace, month: r.param("month", MonthNo), cap })
 		.where(r.ge(Compute.mul(spend, 10n), Compute.mul(Compute.numeric(Compute.base(cap)), 9n)))
@@ -843,7 +842,7 @@ export const topModels = query(Platform)
 		return r
 			.match(EventCharge, {
 				event,
-				workspace: r.param("workspace", uuid),
+				workspace: r.param("workspace", Id),
 				month: r.param("month", MonthNo),
 				amount
 			})
@@ -860,7 +859,7 @@ export const topProviders = query(Platform)
 		const { event, amount } = v(EventCharge, "eventCharge")
 		const { provider } = v(UsageEvent, "usageEvent")
 		return r
-			.match(Workspace, { id: workspace, org: r.param("org", uuid) })
+			.match(Workspace, { id: workspace, org: r.param("org", Id) })
 			.match(EventCharge, { event, workspace, month: r.param("month", MonthNo), amount })
 			.match(UsageEvent, { id: event, provider })
 			.find({ provider, spend: r.sum(amount) })
@@ -875,7 +874,7 @@ export const marginByProvider = query(Platform).rule((r) => {
 	const { provider } = v(UsageEvent, "usageEvent")
 	const { amount: cost } = v(ProviderCost, "providerCost")
 	return r
-		.match(Workspace, { id: workspace, org: r.param("org", uuid) })
+		.match(Workspace, { id: workspace, org: r.param("org", Id) })
 		.match(EventCharge, { event, workspace, month: r.param("month", MonthNo), amount })
 		.match(UsageEvent, { id: event, provider })
 		.match(ProviderCost, { event, amount: cost })
@@ -884,13 +883,13 @@ export const marginByProvider = query(Platform).rule((r) => {
 
 /** Every organization below a reseller, the reseller included. */
 const Descendants = query(Platform).recursive("Descendants", {
-	row: { org: uuid },
+	row: { org: Id },
 	base: [
 		(r) => {
 			const { id } = v(Org, "org")
 			return r
 				.match(Org, { id })
-				.where(r.eq(id, r.param("root", uuid)))
+				.where(r.eq(id, r.param("root", Id)))
 				.find({ org: id })
 		}
 	],
@@ -905,7 +904,7 @@ const Descendants = query(Platform).recursive("Descendants", {
 
 /** A reseller's consolidated spend in a month, per organization of its tree. */
 export const consolidatedSpend = query(Platform).rule((r) => {
-	const tree = Descendants.bind({ root: r.param("root", uuid) })
+	const tree = Descendants.bind({ root: r.param("root", Id) })
 	const { org } = v(tree, "tree")
 	const { id: workspace } = v(Workspace, "workspace")
 	const { event, amount } = v(EventCharge, "eventCharge")
@@ -921,7 +920,7 @@ export const balanceAt = query(Platform)
 	.rule((r) => {
 		const { id, amount, valid } = v(CreditGrant, "creditGrant")
 		return r
-			.match(CreditGrant, { id, org: r.param("org", uuid), amount, valid })
+			.match(CreditGrant, { id, org: r.param("org", Id), amount, valid })
 			.where(r.allen(valid, holdsPoint, r.param("now", CreditGrant.fields.valid)))
 			.find({ id, amount, valid })
 	})
@@ -941,7 +940,7 @@ export const balanceAt = query(Platform)
 export const expiringGrants = query(Platform).rule((r) => {
 	const { id, amount, valid } = v(CreditGrant, "creditGrant")
 	return r
-		.match(CreditGrant, { id, org: r.param("org", uuid), amount, valid })
+		.match(CreditGrant, { id, org: r.param("org", Id), amount, valid })
 		.where(r.pointIn(Compute.upper(valid, Instant), r.param("window", CreditGrant.fields.valid)))
 		.find({ id, amount, valid })
 })
@@ -951,7 +950,7 @@ export const burnDown = query(Platform).rule((r) => {
 	const { event, kind, amount, during } = v(CreditDebit, "creditDebit")
 	const { day, during: span } = v(Day, "day")
 	return r
-		.match(CreditDebit, { grant: r.param("grant", uuid), event, kind, amount, during })
+		.match(CreditDebit, { grant: r.param("grant", Id), event, kind, amount, during })
 		.match(Day, { day, during: span })
 		.where(r.pointIn(Compute.lower(during, Instant), span))
 		.find({ day, debited: r.sum(amount) })
@@ -963,7 +962,7 @@ export const keyCard = query(Platform)
 		const { id, workspace, state } = v(ApiKey, "apiKey")
 		return r
 			.match(ApiKey, { id, workspace, state })
-			.where(r.eq(id, r.param("key", uuid)))
+			.where(r.eq(id, r.param("key", Id)))
 			.find({ id, workspace, state })
 	})
 	.attach(
@@ -990,7 +989,7 @@ export const usageLog = query(Platform)
 	.rule((r) => {
 		const { id, model, provider, during } = v(UsageEvent, "usageEvent")
 		return r
-			.match(UsageEvent, { id, key: r.param("key", uuid), model, provider, during })
+			.match(UsageEvent, { id, key: r.param("key", Id), model, provider, during })
 			.find({ id, model, provider, during, start: Compute.lower(during, Instant) })
 	})
 	.orderBy(["start", "desc"], ["id", "asc"])
@@ -1007,7 +1006,7 @@ const keysUsedIn = query(Platform).rule((r) => {
 export const idleKeys = query(Platform).rule((r) => {
 	const { id } = v(ApiKey, "apiKey")
 	return r
-		.match(ApiKey, { id, workspace: r.param("workspace", uuid), state: "active" })
+		.match(ApiKey, { id, workspace: r.param("workspace", Id), state: "active" })
 		.where(
 			r.not(keysUsedIn.bind({ window: r.param("window", UsageEvent.fields.during) }), { key: id })
 		)
@@ -1023,7 +1022,7 @@ export const rollupVersusLive = query(Billing)
 			.match(DailySpend, { workspace, day, amount })
 			.match(Day, { day, during })
 			.where(
-				r.eq(workspace, r.param("workspace", uuid)),
+				r.eq(workspace, r.param("workspace", Id)),
 				r.allen(during, insideOf, r.param("window", Day.fields.during))
 			)
 			.find({ workspace, day, rolled: amount })
@@ -1050,7 +1049,7 @@ export const invoices = query(Platform)
 	.rule((r) => {
 		const { id, period, amount, state } = v(Invoice, "invoice")
 		return r
-			.match(Invoice, { id, org: r.param("org", uuid), period, amount, state })
+			.match(Invoice, { id, org: r.param("org", Id), period, amount, state })
 			.find({ id, period, amount, state, start: Compute.lower(period, Instant) })
 	})
 	.orderBy(["start", "desc"], ["id", "asc"])
@@ -1059,7 +1058,7 @@ export const invoices = query(Platform)
 export const invoiceAt = query(Platform).rule((r) => {
 	const { id, period, amount, state } = v(Invoice, "invoice")
 	return r
-		.match(Invoice, { id, org: r.param("org", uuid), period, amount, state })
+		.match(Invoice, { id, org: r.param("org", Id), period, amount, state })
 		.where(r.allen(period, holdsPoint, r.param("now", Invoice.fields.period)))
 		.find({ id, period, amount, state })
 })
@@ -1068,7 +1067,7 @@ export const invoiceAt = query(Platform).rule((r) => {
 export const overdueInvoices = query(Platform).rule((r) => {
 	const { id, period, amount } = v(Invoice, "invoice")
 	return r
-		.match(Invoice, { id, org: r.param("org", uuid), period, amount, state: "open" })
+		.match(Invoice, { id, org: r.param("org", Id), period, amount, state: "open" })
 		.where(r.le(Compute.upper(period, Instant), r.param("cutoff", Instant)))
 		.find({ id, period, amount })
 })
@@ -1079,7 +1078,7 @@ export const invoicePreview = query(Platform)
 		const { id, org, period, amount, state } = v(Invoice, "invoice")
 		return r
 			.match(Invoice, { id, org, period, amount, state })
-			.where(r.eq(id, r.param("invoice", uuid)))
+			.where(r.eq(id, r.param("invoice", Id)))
 			.find({ id, org, period, amount, state })
 	})
 	.attach(
@@ -1153,14 +1152,14 @@ export const refundable = query(Platform)
 		const { id, amount } = v(Invoice, "invoice")
 		const { id: refund, amount: refunded } = v(Refund, "refund")
 		return r
-			.match(Invoice, { id, org: r.param("org", uuid), amount, state: "paid" })
+			.match(Invoice, { id, org: r.param("org", Id), amount, state: "paid" })
 			.match(Refund, { id: refund, invoice: id, amount: refunded })
 			.find({ invoice: id, amount, refunded: r.sum(refunded) })
 	})
 	.rule((r) => {
 		const { id, amount } = v(Invoice, "invoice")
 		return r
-			.match(Invoice, { id, org: r.param("org", uuid), amount, state: "paid" })
+			.match(Invoice, { id, org: r.param("org", Id), amount, state: "paid" })
 			.where(r.not(Refund, { invoice: id }))
 			.find({ invoice: id, amount, refunded: Compute.literal(pg.numeric(1, 0), 0n) })
 	})
@@ -1169,7 +1168,7 @@ export const refundable = query(Platform)
 export const refundsByReason = query(Platform).rule((r) => {
 	const { id, invoice, amount, reason, at } = v(Refund, "refund")
 	return r
-		.match(Invoice, { id: invoice, org: r.param("org", uuid) })
+		.match(Invoice, { id: invoice, org: r.param("org", Id) })
 		.match(Refund, { id, invoice, amount, reason, at })
 		.where(r.pointIn(at, r.param("window", Invoice.fields.period)))
 		.find({ reason, refunds: r.count(), refunded: r.sum(amount) })
@@ -1192,7 +1191,7 @@ export const mostRefunded = query(Platform)
 export const segmentsAt = query(Platform).rule((r) => {
 	const { during, monthlyPrice } = v(Segment, "segment")
 	return r
-		.match(Segment, { subscription: r.param("subscription", uuid), during, monthlyPrice })
+		.match(Segment, { subscription: r.param("subscription", Id), during, monthlyPrice })
 		.where(r.allen(during, holdsPoint, r.param("now", Segment.fields.during)))
 		.find({ during, monthlyPrice })
 })
@@ -1216,7 +1215,7 @@ export const prorationFor = query(Platform).rule((r) => {
 		)
 	)
 	return r
-		.match(Invoice, { id: r.param("invoice", uuid), org, period })
+		.match(Invoice, { id: r.param("invoice", Id), org, period })
 		.match(Subscription, { id: subscription, org })
 		.match(Segment, { subscription, during, monthlyPrice })
 		.where(r.allen(during, ALLEN.intersects, period))
@@ -1243,7 +1242,7 @@ export const mrrAt = query(Platform).rule((r) => {
 	const { id } = v(Subscription, "subscription")
 	const { during, monthlyPrice } = v(Segment, "segment")
 	return r
-		.match(Subscription, { id, org: r.param("org", uuid) })
+		.match(Subscription, { id, org: r.param("org", Id) })
 		.match(Segment, { subscription: id, during, monthlyPrice })
 		.where(r.allen(during, holdsPoint, r.param("now", Segment.fields.during)))
 		.find({ mrr: r.sum(monthlyPrice) })
@@ -1268,7 +1267,7 @@ export const recognizedIn = query(Platform).rule((r) => {
 		)
 	)
 	return r
-		.match(Subscription, { id: subscription, org: r.param("org", uuid) })
+		.match(Subscription, { id: subscription, org: r.param("org", Id) })
 		.match(Month, { month: r.param("month", MonthNo), during: month })
 		.match(Allocation, { line, subscription, during, amount })
 		.where(r.allen(during, ALLEN.intersects, month))
@@ -1295,7 +1294,7 @@ export const allocationBreakdown = query(Platform)
 		const { id, amount } = v(InvoiceLine, "invoiceLine")
 		const { subscription } = v(PlanLine, "planLine")
 		return r
-			.match(InvoiceLine, { id, invoice: r.param("invoice", uuid), source: "plan", amount })
+			.match(InvoiceLine, { id, invoice: r.param("invoice", Id), source: "plan", amount })
 			.match(PlanLine, { line: id, subscription })
 			.find({ id, subscription, amount })
 	})
@@ -1450,7 +1449,7 @@ const revokeKey = ChangeSet.empty(Platform)
 
 /** The facts of a key's revocation at `at`: its active span deleted, and the span's part before `at` inserted. */
 export const revokeFacts = (
-	key: Uuid,
+	key: IdValue,
 	at: Infer<typeof Instant>,
 	active: Span<Infer<typeof Instant>>
 ) => ({

@@ -1,6 +1,6 @@
 import { Record as Rec } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -19,6 +19,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * The schemas the isolation oracle installs, each a function of its installed name (test/support/schedules/rig.ts),
@@ -56,12 +57,9 @@ import { workload } from "#compiler/public/workload.ts"
  *   whole by one call.
  */
 
-const Parent = relation("Parent", { id: uuid, g: pg.integer }, ["id"])
-const PointChild = relation("Child", { parent: uuid, k: pg.integer, g: pg.integer }, [
-	"parent",
-	"k"
-])
-const Save = relation("Save", { parent: uuid, k: pg.integer, at: pg.integer, v: pg.integer }, [
+const Parent = relation("Parent", { id: Id, g: pg.integer }, ["id"])
+const PointChild = relation("Child", { parent: Id, k: pg.integer, g: pg.integer }, ["parent", "k"])
+const Save = relation("Save", { parent: Id, k: pg.integer, at: pg.integer, v: pg.integer }, [
 	"parent",
 	"k",
 	"at"
@@ -79,7 +77,7 @@ export const pointShape = (name: string) => {
 	const start = ChangeSet.sequence(
 		ChangeSet.empty(learner).insert(
 			mine.Parent,
-			query(learner).rule((r) => r.find({ id: r.param("id", uuid), g: r.param("g", pg.integer) }))
+			query(learner).rule((r) => r.find({ id: r.param("id", Id), g: r.param("g", pg.integer) }))
 		),
 		ChangeSet.empty(learner).insert(
 			mine.Child,
@@ -87,7 +85,7 @@ export const pointShape = (name: string) => {
 				const { id, g } = v(mine.Parent, "parent")
 				return r
 					.match(mine.Parent, { id, g })
-					.where(r.eq(id, r.param("id", uuid)))
+					.where(r.eq(id, r.param("id", Id)))
 					.find({ parent: id, k: r.param("k", pg.integer), g })
 			})
 		)
@@ -98,7 +96,7 @@ export const pointShape = (name: string) => {
 			const { parent, k } = v(mine.Child, "child")
 			return r
 				.match(mine.Child, { parent, k })
-				.where(r.eq(parent, r.param("parent", uuid)), r.eq(k, r.param("k", pg.integer)))
+				.where(r.eq(parent, r.param("parent", Id)), r.eq(k, r.param("k", pg.integer)))
 				.find({ parent, k, at: r.param("at", pg.integer), v: r.param("v", pg.integer) })
 		})
 	)
@@ -110,16 +108,13 @@ export const pointShape = (name: string) => {
 	}
 }
 
-const Doc = relation("Doc", { node: uuid, n: pg.integer }, ["node"])
-const Pool = relation("Pool", { doc: uuid, pool: pg.integer, size: pg.integer }, ["doc", "pool"])
-const Sitting = relation("Sitting", { id: uuid, doc: uuid, child: pg.integer, pools: natural }, [
-	"id"
+const Doc = relation("Doc", { node: Id, n: pg.integer }, ["node"])
+const Pool = relation("Pool", { doc: Id, pool: pg.integer, size: pg.integer }, ["doc", "pool"])
+const Sitting = relation("Sitting", { id: Id, doc: Id, child: pg.integer, pools: natural }, ["id"])
+const Served = relation("Served", { sitting: Id, doc: Id, pool: pg.integer, size: pg.integer }, [
+	"sitting",
+	"pool"
 ])
-const Served = relation(
-	"Served",
-	{ sitting: uuid, doc: uuid, pool: pg.integer, size: pg.integer },
-	["sitting", "pool"]
-)
 
 /**
  * The sitting shape under the name `name`, its learner's members `members`, with the importer's `extend` where
@@ -137,11 +132,10 @@ export const sittingShape = (name: string, members: "start" | "named", extended:
 	const learner = role(base, "learner", relations, { insert: ["Sitting", "Served"] })
 	const theirs = importer.relations
 	const mine = learner.relations
-	const docOf = (n: number) =>
-		query(importer).rule((r) => r.find({ node: r.param("node", uuid), n }))
+	const docOf = (n: number) => query(importer).rule((r) => r.find({ node: r.param("node", Id), n }))
 	const poolOf = (pool: number, size: "a" | "b") =>
 		query(importer).rule((r) =>
-			r.find({ doc: r.param("node", uuid), pool, size: r.param(size, pg.integer) })
+			r.find({ doc: r.param("node", Id), pool, size: r.param(size, pg.integer) })
 		)
 	const import1 = ChangeSet.empty(importer)
 		.insert(theirs.Doc, docOf(1))
@@ -151,7 +145,7 @@ export const sittingShape = (name: string, members: "start" | "named", extended:
 		.insert(
 			theirs.Pool,
 			poolOf(0, "a").rule((r) =>
-				r.find({ doc: r.param("node", uuid), pool: 1, size: r.param("b", pg.integer) })
+				r.find({ doc: r.param("node", Id), pool: 1, size: r.param("b", pg.integer) })
 			)
 		)
 	const extend = ChangeSet.empty(importer).insert(
@@ -160,26 +154,26 @@ export const sittingShape = (name: string, members: "start" | "named", extended:
 			const { node } = v(theirs.Doc, "doc")
 			return r
 				.match(theirs.Doc, { node })
-				.where(r.eq(node, r.param("node", uuid)))
+				.where(r.eq(node, r.param("node", Id)))
 				.find({ doc: node, pool: r.param("pool", pg.integer), size: r.param("a", pg.integer) })
 		})
 	)
 	const counted = query(learner).rule((r) => {
 		const { pool } = v(mine.Pool, "pool")
-		return r.match(mine.Pool, { doc: r.param("doc", uuid), pool }).find({ pools: r.count() })
+		return r.match(mine.Pool, { doc: r.param("doc", Id), pool }).find({ pools: r.count() })
 	})
 	const start = ChangeSet.sequence(
 		ChangeSet.empty(learner).insert(
 			mine.Sitting,
 			query(learner).rule((r) => {
-				const count = counted.bind({ doc: r.param("doc", uuid) })
+				const count = counted.bind({ doc: r.param("doc", Id) })
 				const { pools } = v(count, "count")
 				return r
-					.match(mine.Doc, { node: r.param("doc", uuid) })
+					.match(mine.Doc, { node: r.param("doc", Id) })
 					.match(count, { pools })
 					.find({
-						id: r.param("id", uuid),
-						doc: r.param("doc", uuid),
+						id: r.param("id", Id),
+						doc: r.param("doc", Id),
 						child: r.param("child", pg.integer),
 						pools
 					})
@@ -193,7 +187,7 @@ export const sittingShape = (name: string, members: "start" | "named", extended:
 				return r
 					.match(mine.Sitting, { id, doc })
 					.match(mine.Pool, { doc, pool, size })
-					.where(r.eq(id, r.param("id", uuid)))
+					.where(r.eq(id, r.param("id", Id)))
 					.find({ sitting: id, doc, pool, size })
 			})
 		)
@@ -201,16 +195,16 @@ export const sittingShape = (name: string, members: "start" | "named", extended:
 	const named = (pools: 1 | 2) => {
 		const sitting = query(learner).rule((r) =>
 			r.find({
-				id: r.param("id", uuid),
-				doc: r.param("doc", uuid),
+				id: r.param("id", Id),
+				doc: r.param("doc", Id),
 				child: r.param("child", pg.integer),
 				pools: BigInt(pools)
 			})
 		)
 		const first = query(learner).rule((r) =>
 			r.find({
-				sitting: r.param("id", uuid),
-				doc: r.param("doc", uuid),
+				sitting: r.param("id", Id),
+				doc: r.param("doc", Id),
 				pool: 0,
 				size: r.param("a", pg.integer)
 			})
@@ -220,8 +214,8 @@ export const sittingShape = (name: string, members: "start" | "named", extended:
 				? first
 				: first.rule((r) =>
 						r.find({
-							sitting: r.param("id", uuid),
-							doc: r.param("doc", uuid),
+							sitting: r.param("id", Id),
+							doc: r.param("doc", Id),
 							pool: 1,
 							size: r.param("b", pg.integer)
 						})
@@ -243,15 +237,12 @@ export const sittingShape = (name: string, members: "start" | "named", extended:
 
 const Invoice = relation(
 	"Invoice",
-	{ id: uuid, amount: pg.integer, lines: drawn(natural), total: accumulated(pg.integer, 0) },
+	{ id: Id, amount: pg.integer, lines: drawn(natural), total: accumulated(pg.integer, 0) },
 	["id"]
 )
-const Line = relation("Line", { invoice: uuid, n: pg.integer, amount: pg.integer }, [
-	"invoice",
-	"n"
-])
+const Line = relation("Line", { invoice: Id, n: pg.integer, amount: pg.integer }, ["invoice", "n"])
 const invoiceLines = counted(on(Line, "invoice"), fin(Invoice, "lines"))
-const Copied = relation("Copied", { invoice: uuid, n: pg.integer, amount: pg.integer }, [
+const Copied = relation("Copied", { invoice: Id, n: pg.integer, amount: pg.integer }, [
 	"invoice",
 	"n"
 ])
@@ -274,7 +265,7 @@ export const foldShape = (name: string) => {
 			const { invoice, n, amount } = v(auditor.relations.Line, "line")
 			return r
 				.match(auditor.relations.Line, { invoice, n, amount })
-				.where(r.eq(invoice, r.param("id", uuid)))
+				.where(r.eq(invoice, r.param("id", Id)))
 				.find({ invoice, n, amount })
 		})
 	)
@@ -549,8 +540,8 @@ export const carrierShape = (name: string) => {
 	}
 }
 
-const PartialChild = relation("Child", { parent: uuid, k: pg.integer }, ["parent", "k"])
-const Seen = relation("Seen", { parent: uuid, reader: pg.integer, k: pg.integer }, [
+const PartialChild = relation("Child", { parent: Id, k: pg.integer }, ["parent", "k"])
+const Seen = relation("Seen", { parent: Id, reader: pg.integer, k: pg.integer }, [
 	"parent",
 	"reader",
 	"k"
@@ -568,7 +559,7 @@ export const partialShape = (name: string) => {
 	const join = ChangeSet.sequence(
 		ChangeSet.empty(joiner).insert(
 			mine.Parent,
-			query(joiner).rule((r) => r.find({ id: r.param("id", uuid), g: 0 }))
+			query(joiner).rule((r) => r.find({ id: r.param("id", Id), g: 0 }))
 		),
 		ChangeSet.sequence(
 			ChangeSet.empty(joiner).insert(
@@ -577,7 +568,7 @@ export const partialShape = (name: string) => {
 					const { id } = v(mine.Parent, "parent")
 					return r
 						.match(mine.Parent, { id })
-						.where(r.eq(id, r.param("id", uuid)))
+						.where(r.eq(id, r.param("id", Id)))
 						.find({ parent: id, k: r.param("k", pg.integer) })
 				})
 			),
@@ -587,7 +578,7 @@ export const partialShape = (name: string) => {
 					const { parent, k } = v(mine.Child, "child")
 					return r
 						.match(mine.Child, { parent, k })
-						.where(r.eq(parent, r.param("id", uuid)))
+						.where(r.eq(parent, r.param("id", Id)))
 						.find({ parent, reader: r.param("k", pg.integer), k })
 				})
 			)

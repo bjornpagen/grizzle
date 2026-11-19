@@ -23,7 +23,7 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { numericBoundOf } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { uuid } from "#compiler/public/fields.ts"
+
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -32,6 +32,7 @@ import * as N from "#compiler/scalar/compute/numeric.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { strictRead } from "#test/support/kernel/strict.ts"
 import { aggregate } from "#test/support/oracle/reference/aggregate.ts"
 import { asDecimal } from "#test/support/oracle/reference/values.ts"
@@ -169,7 +170,7 @@ export const minMaxLEASTAndGREATESTDeliverTheContractOfTheInputTheyReturn = prop
 			([k, returning, reading]) =>
 				Effect.sync(() => {
 					c.note(`${returning} over a ${reading}`)
-					const Held = relation("Held", { id: uuid, a: k, b: k }, ["id"])
+					const Held = relation("Held", { id: Id, a: k, b: k }, ["id"])
 					const held = queryOver(schema("Held", [Held], [])).rule((r: RuleValue) => {
 						const x = varsOver(Held, "held")
 						return r

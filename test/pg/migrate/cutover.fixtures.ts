@@ -42,7 +42,7 @@ import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { findMarkers, splitStatements } from "#compiler/plan/migration.ts"
-import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { type AnyRelation, schema, type Statement } from "#compiler/public/schema.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
@@ -75,6 +75,7 @@ import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { writeOnce } from "#test/support/calls.ts"
 import { filledSql } from "#test/support/compile.ts"
+import { Id } from "#test/support/ids.ts"
 import { type Installed, installedOf, loginCredentials } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -453,7 +454,7 @@ const builtOf = (w: World, declared: string) => {
 		const fields: Record<string, FieldBase> = {}
 		switch (rel.key.kind) {
 			case "uuid":
-				fields["id"] = uuid
+				fields["id"] = Id
 				break
 			case "identifier":
 				fields["ki"] = textField(rel.key.width)
@@ -468,7 +469,7 @@ const builtOf = (w: World, declared: string) => {
 			const target = nth(w.rels, ref.target, "relation")
 			switch (target.key.kind) {
 				case "uuid":
-					fields[`p${ref.target}`] = uuid
+					fields[`p${ref.target}`] = Id
 					break
 				case "identifier":
 					fields[`p${ref.target}`] = textField(target.key.width)

@@ -29,6 +29,7 @@ import {
 } from "#test/pg/cli/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { answered, oneOf } from "#test/support/calls.ts"
+import { Id, type IdValue } from "#test/support/ids.ts"
 import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool, freshDatabase } from "#test/support/pg.ts"
 import { uniqueSchemaName } from "#test/support/substrate/names.ts"
@@ -176,8 +177,7 @@ export const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 						verify: testVerify
 					})
 				)
-			const idOf = (n: number): `${string}-${string}-${string}-${string}-${string}` =>
-				`00000000-0000-4000-8000-00000000000${n}`
+			const idOf = (n: number): IdValue => Id(`00000000-0000-4000-8000-00000000000${n}`)
 			const write = (i: Installation, n: number) =>
 				Effect.flatMap(layerOver(i, i.database), (l) =>
 					Effect.scoped(

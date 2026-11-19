@@ -5,7 +5,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
 	check,
 	contained,
@@ -31,6 +31,7 @@ import {
 import { succeeded } from "#test/support/assert.ts"
 import { declaredParams, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { conservativeWrite } from "#test/support/conservative.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -42,27 +43,27 @@ import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 const label = str.regex("^[a-z]{1,8}$")
 
 /** Item is immutable, the pinned default; Stock is its mutable twin. */
-export const Item = relation("Item", { id: uuid, label, qty: pg.bigint }, ["id"])
-export const Stock = relation("Stock", { id: uuid, label, qty: pg.bigint }, ["id"])
+export const Item = relation("Item", { id: Id, label, qty: pg.bigint }, ["id"])
+export const Stock = relation("Stock", { id: Id, label, qty: pg.bigint }, ["id"])
 /** A mutable relation keyed by its number. */
 export const Seat = relation("Seat", { no: pg.bigint, label }, ["no"])
 /** A mutable relation with a candidate key outside its primary key. */
-export const Code = relation("Code", { id: uuid, code: label }, ["id"])
+export const Code = relation("Code", { id: Id, code: label }, ["id"])
 /** A mutable pure set. */
-export const Pair = relation("Pair", { a: uuid, b: label }, ["a", "b"])
+export const Pair = relation("Pair", { a: Id, b: label }, ["a", "b"])
 /** A mutable relation with a field outside its key. */
 export const Counter = relation("Counter", { name: label, n: pg.bigint }, ["name"])
 /** An immutable relation referencing Stock: a put on Stock can replace a referenced row, so the reference is deferred
  * and its check is a deferred event of each Line fact. */
-const Line = relation("Line", { id: uuid, stock: uuid }, ["id"])
+const Line = relation("Line", { id: Id, stock: Id }, ["id"])
 /** A mutable relation keyed on a field outside its primary key: at most one Task per Worker, a key over Task's worker
  * (fin.md §6, at most one). */
-const Worker = relation("Worker", { id: uuid }, ["id"])
-const Task = relation("Task", { id: uuid, worker: uuid }, ["id"])
+const Worker = relation("Worker", { id: Id }, ["id"])
+const Task = relation("Task", { id: Id, worker: Id }, ["id"])
 /** Every Crew has one or two Hands: Hand a counted family of Crew over its drawn count, and a check on the count
  * (fin.md §6, a count in [lo, hi]). */
-export const Crew = relation("Crew", { id: uuid, hands: drawn(natural) }, ["id"])
-export const Hand = relation("Hand", { id: uuid, crew: uuid, label }, ["id"])
+export const Crew = relation("Crew", { id: Id, hands: drawn(natural) }, ["id"])
+export const Hand = relation("Hand", { id: Id, crew: Id, label }, ["id"])
 
 const shopRelations = {
 	Item,

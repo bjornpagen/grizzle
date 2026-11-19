@@ -4,11 +4,12 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, type Gen, constant } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
+import { drawn as drawnField, natural } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { Id } from "#test/support/ids.ts"
 
 /**
  * A nested write whose texts sum past the longest string V8 holds (maxStringLength) is accepted by
@@ -27,13 +28,12 @@ import { fixtureTemplate } from "#test/pg/reads/support.ts"
  * Features: an owner with no members, members read back, members of two lengths, and the kept bodies past the longest
  * string.
  */
-const Owner = relation("Owner", { id: uuid, members: drawnField(natural) }, ["id"])
+const Owner = relation("Owner", { id: Id, members: drawnField(natural) }, ["id"])
 
-const Member = relation(
-	"Member",
-	{ at: drawnField(natural), body: str.regex("^a*$"), owner: uuid },
-	["owner", "at"]
-)
+const Member = relation("Member", { at: drawnField(natural), body: str.regex("^a*$"), owner: Id }, [
+	"owner",
+	"at"
+])
 
 export const Bodies = schema(
 	"NestedBodies",

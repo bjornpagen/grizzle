@@ -55,7 +55,7 @@ import { conservativeMeta } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"
+import { pg, Vector, type Uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
 import { normTolerance } from "#test/pg/vector/support.ts"
@@ -71,6 +71,7 @@ import {
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { Id } from "#test/support/ids.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf, parsedSchemaName, roleNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -85,9 +86,9 @@ import { Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 const vectorType = (dims: number): ScalarType => scalarOf({ kind: "vector", dimensions: dims }, {})
 
 /** Vector columns at the three dimension counts the domain is argued for, each with its CHECK. */
-const Narrow = relation("Narrow", { id: uuid, value: pg.vector(4) }, ["id"])
-const Wide = relation("Wide", { id: uuid, value: pg.vector(2000) }, ["id"])
-const Widest = relation("Widest", { id: uuid, value: pg.vector(16000) }, ["id"])
+const Narrow = relation("Narrow", { id: Id, value: pg.vector(4) }, ["id"])
+const Wide = relation("Wide", { id: Id, value: pg.vector(2000) }, ["id"])
+const Widest = relation("Widest", { id: Id, value: pg.vector(16000) }, ["id"])
 const Widths = schema("VectorWidths", [Narrow, Wide, Widest], [])
 
 /** The text of any vector's components, the codec's text form without its domain check: the carrier's own. */
@@ -211,15 +212,15 @@ const load = (schema: string, f: Facts) => {
 	return Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		yield* admin.query(
-			`INSERT INTO ${t("document")} ("id", "account", "title") VALUES ${values(Arr.map(f.documents, (d) => [`'${d.id}'::uuid`, `'${d.account}'::uuid`, `'title ${d.id}'`]))}`,
+			`INSERT INTO ${t("document")} ("id", "account", "title") VALUES ${values(Arr.map(f.documents, (d) => [`'${d.id}'::Id`, `'${d.account}'::Id`, `'title ${d.id}'`]))}`,
 			[]
 		)
 		yield* admin.query(
-			`INSERT INTO ${t("document_current")} ("document", "revision") VALUES ${values(Arr.map(f.current, (c) => [`'${c.document}'::uuid`, `${c.revision}::bigint`]))}`,
+			`INSERT INTO ${t("document_current")} ("document", "revision") VALUES ${values(Arr.map(f.current, (c) => [`'${c.document}'::Id`, `${c.revision}::bigint`]))}`,
 			[]
 		)
 		yield* admin.query(
-			`INSERT INTO ${t("document_embedding")} ("document", "revision", "value") VALUES ${values(Arr.map(f.embeddings, (e) => [`'${e.document}'::uuid`, `${e.revision}::bigint`, `'${textOf(e.value)}'::"vector_ext"."vector"(4)`]))}`,
+			`INSERT INTO ${t("document_embedding")} ("document", "revision", "value") VALUES ${values(Arr.map(f.embeddings, (e) => [`'${e.document}'::Id`, `${e.revision}::bigint`, `'${textOf(e.value)}'::"vector_ext"."vector"(4)`]))}`,
 			[]
 		)
 		yield* admin.query(

@@ -3,7 +3,7 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import {
 	admittedClosedId,
@@ -17,6 +17,7 @@ import { selectBuilder } from "#compiler/schema/statements.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { defined } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 
 /** A pattern a text field may declare, the pattern its relation's generated field matches, and a member a row holds. */
 interface Pattern {
@@ -101,7 +102,7 @@ const relationsOf = (c: ParseCase, copies: number) =>
 		Arr.map(indices(copies), (k) => {
 			const name = `R${r}c${k}`
 			const written: Readonly<Record<string, FieldBase>> = {
-				id: uuid,
+				id: Id,
 				...Rec.fromEntries(
 					Arr.map(fields, (t, i) => [`t${i}`, descriptorOf(patternAt(c, t))] as const)
 				)
@@ -159,7 +160,7 @@ export const evaluatorCaseOf = (c: ParseCase, selections: number) => {
 			match,
 			member: patternAt(c, fields[0]).member,
 			row: {
-				id: "018f0000-0000-7000-8000-000000000000",
+				id: Id("018f0000-0000-7000-8000-000000000000"),
 				...Rec.fromEntries(Arr.map(fields, (t, i) => [`t${i}`, patternAt(c, t).member] as const))
 			},
 			selections: Arr.map(indices(selections), () =>
