@@ -1,7 +1,11 @@
 import { Context, Effect, Layer, type Scope } from "effect"
 import { pgCluster } from "#test/support/env.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
-import { type RolledBack, Substrate } from "#test/support/substrate/substrate.ts"
+import {
+	type RolledBack,
+	Substrate,
+	type SubstrateShape
+} from "#test/support/substrate/substrate.ts"
 
 /**
  * A connection and the statements around a piece of an oracle case's work on it: `open` sent in one flush with the
@@ -53,28 +57,25 @@ export class OracleSeat extends Context.Service<OracleSeat, OracleSeatShape>()(
 		reading: Effect.succeed({ connection: held.bare, ...readingSavepoint })
 	})
 	/**
-	 * A Vitest file's substrate (Substrate.layer) with its oracle cases' seat over it, as the Vitest suites run them: an
-	 * installation committed in a transaction of its own, a reading in its own transaction on a pinned owner session,
-	 * rolled back, a schema name the substrate allocates and drops with its roles when the scope closes.
+	 * An oracle case on a substrate of the case's own (Substrate.installing): an installation committed in a transaction of
+	 * its own, a reading in its own transaction on a pinned owner session, rolled back, a schema name the substrate
+	 * allocates and drops with its roles when the case's scope closes. For a case that reads its substrate beside its seat
+	 * (its owner, its admin session), which the rolled-back seat has none of.
 	 */
+	static readonly ofSubstrate = (substrate: SubstrateShape): OracleSeatShape => ({
+		database: substrate.database,
+		owner: substrate.owner.role,
+		schema: (label: string) => substrate.schema({ create: false, label }),
+		lasting: { connection: substrate.admin, open: ["BEGIN"], close: ["COMMIT"] },
+		reading: Effect.map(substrate.admin.pin, (connection) => ({
+			connection,
+			open: ["BEGIN"],
+			close: ["ROLLBACK"]
+		}))
+	})
+	/** A Vitest file's substrate (Substrate.layer) with its oracle cases' seat over it (ofSubstrate). */
 	static readonly layer = Layer.provideMerge(
-		Layer.effect(
-			OracleSeat,
-			Effect.gen(function* () {
-				const substrate = yield* Substrate
-				return {
-					database: substrate.database,
-					owner: substrate.owner.role,
-					schema: (label: string) => substrate.schema({ create: false, label }),
-					lasting: { connection: substrate.admin, open: ["BEGIN"], close: ["COMMIT"] },
-					reading: Effect.map(substrate.admin.pin, (connection) => ({
-						connection,
-						open: ["BEGIN"],
-						close: ["ROLLBACK"]
-					}))
-				}
-			})
-		),
+		Layer.effect(OracleSeat, Effect.map(Effect.service(Substrate), OracleSeat.ofSubstrate)),
 		Substrate.layer
 	)
 }
