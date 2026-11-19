@@ -1190,6 +1190,13 @@ export interface ComputeApi {
 	 */
 	pattern<const S extends string>(source: PatternValidate<S>): Pattern<S>
 	/**
+	 * A pattern for Compute.matches written in XML Schema 1.0's dialect, a pattern facet (Part 2, Appendix F): read by
+	 * grizzle's one front end of that dialect, anchored at both ends as XML Schema reads every facet, its `\\i` and `\\c` XML
+	 * 1.0 Second Edition's name characters and its alphabet XML's Char, printed in grizzle's grammar, which the
+	 * Pattern's source holds, and admitted as Compute.pattern admits one, so a refused facet throws where it is written.
+	 */
+	xsdPattern(source: string): Pattern
+	/**
 	 * Whether the text holds a match of the pattern, PostgreSQL's `~` (textregexeq), as a str.regex refinement holds
 	 * one: the pattern is in grizzle's grammar under the flags "u", and `^` and `$` anchor it. The pattern is a Pattern,
 	 * Compute.pattern(source), admitted where it was made, or a text term that meets the subject's type, a contract's

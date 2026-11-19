@@ -9,6 +9,7 @@
 		"scripts/dev/profile/compile.ts",
 		"scripts/dev/profile/read.ts",
 		"scripts/gen/allen/main.ts",
+		"scripts/gen/unicode/main.ts",
 		"packages/pg/src/foreign-postmasters.ts",
 		"packages/pg/src/pin-verdict.ts",
 		"scripts/dev/toolchain-imports.ts",

@@ -57,6 +57,7 @@ const catalogue: ComputeApi = {
 	startsWith: (a, b) => C.startsWith(a, b),
 	endsWith: (a, b) => C.endsWith(a, b),
 	pattern: (source) => C.pattern(source),
+	xsdPattern: (source) => C.xsdPattern(source),
 	matches: (subject, pattern) => C.matches(subject, pattern),
 	translate: (x, from, to) => C.translate(x, from, to),
 	lowerAscii: (x) => C.lowerAscii(x),

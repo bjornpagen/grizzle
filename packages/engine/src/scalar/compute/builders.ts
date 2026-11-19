@@ -1,7 +1,7 @@
 import { replaceMap } from "@bjornpagen/grizzle-text/text"
 import { nominal } from "#compiler/core/brand.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
-import { malformedDescription } from "#compiler/core/errors.ts"
+import { CompileError, malformedDescription, prose, unsupported } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { captureLoc, childLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -77,6 +77,8 @@ import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { admitMatch, matchRefusalAt } from "#compiler/scalar/regex/admit.ts"
 import { Pattern } from "#compiler/scalar/regex/pattern.ts"
+import { printSource } from "#compiler/scalar/regex/print.ts"
+import { xsdPattern } from "#compiler/scalar/regex/xsd.ts"
 import {
 	carrierSql,
 	describeField,
@@ -757,6 +759,42 @@ const admittedPattern = <S extends string>(source: S): Pattern<S> => {
 	return Pattern.admitted(admission)
 }
 
+/**
+ * Compute.xsdPattern(source): a Compute.matches pattern written in XML Schema 1.0's dialect, a pattern facet (Part 2,
+ * Appendix F), read by that dialect's one front end (scalar/regex/xsd.ts) anchored at both ends, as XML Schema reads
+ * every facet, printed in grizzle's grammar (scalar/regex/print.ts printSource), which the Pattern's source holds, and
+ * admitted as Compute.pattern admits one: a facet outside Appendix F's grammar is refused at its offset in the facet,
+ * and one past PostgreSQL's regex compile space, or one no text matches, where it is written.
+ */
+const xsdAdmittedPattern = (source: unknown): Pattern => {
+	const loc = captureLoc("Compute.xsdPattern", [])
+	if (typeof source !== "string") {
+		return malformed(loc, "an XML Schema pattern source string")
+	}
+	const read = xsdPattern(source)
+	if (!read.ok) {
+		const { reason, offset, construct, message } = read.error
+		throw CompileError.make(
+			prose(
+				reason,
+				childLoc(childLoc(loc, "pattern"), offset),
+				`${construct} at offset ${offset} of the XML Schema pattern ${source}: ${message}`
+			)
+		)
+	}
+	if (read.value.kind === "never") {
+		throw unsupported(
+			childLoc(loc, "pattern"),
+			`a pattern some text matches: the XML Schema pattern ${source} matches no text value, so the match could never hold`
+		)
+	}
+	const admission = admitMatch(printSource(read.value, (set) => set))
+	if (admission.kind === "refused") {
+		throw matchRefusalAt(admission, loc)
+	}
+	return Pattern.admitted(admission)
+}
+
 /** A JavaScript caller's Compute.pattern source the types forbid: a malformed argument, thrown synchronously. */
 const refuseNonString = (source: unknown): void => {
 	if (typeof source !== "string") {
@@ -1221,6 +1259,7 @@ export const compute = Object.freeze({
 	parseDecimal: (x: unknown) => plain(checks.parseDecimal(x, []), "numeric"),
 	sha256: (x: unknown) => plain(checks.sha256(x, []), "text"),
 	pattern: admittedPattern,
+	xsdPattern: xsdAdmittedPattern,
 	matches: <T, S extends SqlTag>(subject: TermCarrier<T, S>, pattern: unknown) =>
 		guardValue(checks.matches(subject, pattern), subject),
 	cosineDistance: (a: unknown, b: unknown) =>
@@ -1365,6 +1404,7 @@ export const computeCore = Object.freeze({
 		typeof source === "string"
 			? admittedPattern(source)
 			: malformed(captureLoc("Compute.pattern", []), "a pattern source string"),
+	xsdPattern: xsdAdmittedPattern,
 	matches: (subject: unknown, pattern: unknown) => guardBy(checks.matches(subject, pattern)),
 	cosineDistance: (a: unknown, b: unknown) => plainBy(checks.cosineDistance(a, b)),
 	union: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {
