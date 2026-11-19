@@ -1,5 +1,4 @@
 import { maxOf } from "@bjornpagen/grizzle-text/base/array"
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
@@ -119,12 +118,7 @@ const imageSources = (
 	node: LiveNode,
 	map: CharMap
 ): { readonly exact: string; readonly within: string } => {
-	const print = (n: RegexNode): string => {
-		if (n.kind === "never") {
-			throw defect("the whole-value form of a language with a member, which has one too")
-		}
-		return printSource(n, (set) => imageOfSet(set, map))
-	}
+	const print = (n: RegexNode): string => printSource(n, (set) => imageOfSet(set, map))
 	const within = print(node)
 	return {
 		exact: sameSet(imageOfSet(domain, map), domain) ? within : print(whole(node)),

@@ -18,9 +18,9 @@ import { regexMaxRepeat } from "#text/regex/parse.ts"
  *
  * The printer folds the IR children first (ir.ts folded), so a pattern of any depth prints without recursing. The
  * translation is total over the IR: every pattern grizzle admits has each dialect's spelling by construction. The empty
- * language, which a Compute.matches pattern may be (admit.ts admitMatch), has an ARE (toAre) and no other dialect's,
- * since a refinement, which ECMA and grizzle's own grammar print, holds a language with a member (text/refinement.ts
- * languageOf).
+ * language, which a Compute.matches pattern may be (admit.ts admitMatch) and a computed text type's image may come to,
+ * has an ARE (toAre) and a spelling in grizzle's own grammar (printSource), and no ECMA-262 one, since a refinement,
+ * which an OpenAPI document states, holds a language with a member (text/refinement.ts languageOf).
  */
 interface Dialect {
 	/** One code point, spelled so that it means itself both outside and inside a class. */
@@ -255,12 +255,20 @@ export const toEcma = (node: LiveNode): string => {
 }
 
 /**
- * A node's source in grizzle's own grammar under sourceFlags, which its parser reads back, each of its sets printed as
- * `setOf` gives it: what a computed text type states its language by, the image of a translation's or a collapse's
- * operand, so the text analysis admits and keys it as it does a declared str.regex.
+ * The empty language in grizzle's own grammar: the class of no code point, `[]`, which ECMA-262's grammar reads as a
+ * class no character is a member of (CharacterClass `[` ClassContents `]` with empty ClassContents), so it matches no
+ * text, and which grizzle's parser reads back as the empty language.
  */
-export const printSource = (node: LiveNode, setOf: (s: CharSet) => CharSet): string =>
-	printIn(sourceDialect(setOf), node)
+const emptyLanguageSource = "[]"
+
+/**
+ * A node's source in grizzle's own grammar under sourceFlags, which its parser reads back as the same language, each of
+ * its sets printed as `setOf` gives it: what a computed text type states its language by, the image of a translation's
+ * or a collapse's operand, so the text analysis admits and keys it as it does a declared str.regex. The empty language
+ * is `[]` (emptyLanguageSource), so every node has its source, an image no text reaches among them.
+ */
+export const printSource = (node: RegexNode, setOf: (s: CharSet) => CharSet): string =>
+	node.kind === "never" ? emptyLanguageSource : printIn(sourceDialect(setOf), node)
 
 /** A set as grizzle's grammar spells it: one code point, or a class of its intervals, each a code point, a pair or a range. */
 export const sourceSet = (s: CharSet): string =>
