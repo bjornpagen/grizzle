@@ -50,8 +50,10 @@ Do the second.
    repository's exhaustiveness lint prove it. Prefer a record of handlers keyed by tag, a method on the variant, or
    `Match`, over scattered conditionals.
 7. **Choose coordinates that delete special cases:** half-open ranges, a sentinel or empty element instead of "first
-   and last are special", one uniform node shape instead of per-kind side tables, a UUIDv7 id that is its row's
-   creation time instead of a timestamp column beside it.
+   and last are special", one uniform node shape instead of per-kind side tables, and a row keyed by what identifies
+   its fact (its parent's key plus its own name or place, a content digest, an outside id under its source's name)
+   with its time an instant on the database's clock, never a minted id: a serial or a UUID is a compound key with its
+   meaning thrown away.
 8. **Reify hairy control flow as data:** a small table or IR plus an evaluator, as a compiler does for its input,
    instead of nested branching.
 
