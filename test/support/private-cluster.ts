@@ -1,17 +1,18 @@
 import {
 	clusterUp,
 	destroyCluster,
+	freePort,
 	localCluster,
 	type PgMember,
 	type Platform
 } from "@bjornpagen/testing/pg"
 import { ConfigProvider, Effect, FileSystem, type Scope } from "effect"
 import { pgCluster } from "#test/support/env.ts"
-import { freePort } from "#test/unit/dev/consumer.ts"
 
 /**
  * A cluster of grizzle's spec (pg.config.ts: its build, owner, template and extensions) that is one case's own: one
- * member on a port free when it is made, at PostgreSQL's default sizes, its state under a home of its own in the
+ * member on a port free when it is made, its connections sized per worker as the shared cluster's are and its other
+ * sizes PostgreSQL's defaults, its state under a home of its own in the
  * temporary directory (whose path is short enough for the member's socket), made by the testing library as every member
  * is (@bjornpagen/testing/pg clusterUp: its TLS, hba and the settings every member holds), and destroyed, its postmaster
  * stopped, when the scope closes. For a case that changes a cluster's own state or needs its settings fresh from their
@@ -21,18 +22,19 @@ export const privateCluster: Effect.Effect<PgMember, never, Scope.Scope | Platfo
 	function* () {
 		const fs = yield* FileSystem.FileSystem
 		const home = yield* Effect.orDie(fs.makeTempDirectoryScoped({ prefix: "gz-pg-" }))
-		const port = yield* freePort
+		const port = yield* Effect.orDie(freePort([]))
 		const spec = localCluster({
 			port,
 			bin: pgCluster.bin,
 			owner: pgCluster.owner,
 			template: pgCluster.template,
 			extensions: pgCluster.extensions,
+			ownerParameters: pgCluster.ownerParameters,
 			peerLogins: [],
 			durability: "throwaway",
 			family: { kind: "one" },
 			sizing: {
-				connections: { kind: "default" },
+				connections: pgCluster.sizing.connections,
 				replication: { kind: "default" },
 				sharedBuffers: { kind: "default" }
 			}

@@ -44,23 +44,24 @@ import { repeatsOn } from "#test/support/oracle/compare.ts"
 import { mutants } from "#test/support/oracle/mutants/mutants.ts"
 import { printOracleCase } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
+import { workerCluster } from "#test/support/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Each invalid mutant is killed by its witnesses with its listed counterexample, and the reference tells I1 apart. */
 export const invalid = property.exhaust(finite(word(killSearches)), {
-	needs: { tx: Substrate.transaction },
+	needs: { tx: Substrate.transaction, cluster: workerCluster },
 	situations: Arr.map(killSearches, killedFeature) satisfies ReadonlyArray<Reached<KilledFeature>>,
 	check:
-		({ tx }, c: Case<KilledFeature>) =>
+		({ tx, cluster }, c: Case<KilledFeature>) =>
 		(search) =>
-			Effect.flatMap(tx, (held) =>
+			Effect.flatMap(Effect.all([tx, cluster]), ([held, services]) =>
 				Effect.provideService(
 					Effect.gen(function* () {
 						const mutant = mutants[search.id]
 						assert.equal(mutant.valid, false, `${search.id} is an invalid mutant of the roster`)
 						if (search.judge === "conservative") {
 							const { gen, shape } = populations[search.id]
-							const run = yield* runMutant(mutant, gen, `mutants/${search.id}`)
+							const run = yield* runMutant(mutant, gen, `mutants/${search.id}`, services)
 							assert.deepEqual(run.harnessErrors, [], Arr.join(run.harnessErrors, "\n\n"))
 							if (run.result.kind === "survived") {
 								return assert.fail(`${search.id} (${mutant.check}) survived its witnesses`)
@@ -74,7 +75,8 @@ export const invalid = property.exhaust(finite(word(killSearches)), {
 						const run = yield* runAgainstReference(
 							mutant,
 							populations.I1.gen,
-							"oracle/reference-i1"
+							"oracle/reference-i1",
+							services
 						)
 						assert.deepEqual(run.harnessErrors, [], Arr.join(run.harnessErrors, "\n\n"))
 						if (run.result.kind === "survived") {

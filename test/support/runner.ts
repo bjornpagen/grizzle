@@ -1,5 +1,10 @@
 import type { PgMember, Platform } from "@bjornpagen/testing/pg"
-import type { Need, NeedFailed as NeedFailedError } from "@bjornpagen/testing/property"
+import type {
+	Need,
+	NeedFailed as NeedFailedError,
+	RunLease,
+	WorkerIndex
+} from "@bjornpagen/testing/property"
 import { NeedFailed } from "@bjornpagen/testing/property"
 import { DatabasePrefix, PgCluster, type PgSession } from "@bjornpagen/testing/resources"
 import { Context, Deferred, Effect, Layer, Option, Scope } from "effect"
@@ -141,7 +146,11 @@ const ownerSession =
  * toolchain's owner sessions and advisory locks in the owner's own database, every session the owner's (ownerSession);
  * and the worker's leases (WorkerLeases), which the owner's sessions and every substrate of the worker draw from.
  */
-export const grizzleCluster: Layer.Layer<PgCluster | WorkerLeases, never, Platform> = Layer.unwrap(
+export const grizzleCluster: Layer.Layer<
+	PgCluster | WorkerLeases,
+	never,
+	Platform | RunLease | WorkerIndex
+> = Layer.unwrap(
 	Effect.gen(function* () {
 		const scope = yield* Effect.scope
 		const leases = workerLeases(scope)

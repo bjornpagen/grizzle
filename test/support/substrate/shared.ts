@@ -183,37 +183,28 @@ const slotSettingsQuery = `SELECT pg_catalog.current_setting('max_connections'):
 const leaseTable = (name: string): string => `public.${quoteIdent(name)}`
 
 /**
- * The parameters grizzle's tests SET as the owner beyond deadlock_timeout, which the testing library grants every
- * cluster's owner: session_replication_role, which the oracle's reset sets to replica as grizzle_dev, so its truncates
- * fire no trigger and check no foreign key.
- */
-const ownerParameters = ["session_replication_role"] as const
-
-/**
  * Whether grizzle's own setup of a member is whole, as the owner's session reads it, which the testing library's
- * making of the member leaves out: every name of its first parameter names a table in the owner's own database's
- * public schema (the lease's tables), and the owner holds SET on every parameter of its second.
+ * making of the member leaves out: every name of its parameter names a table in the owner's own database's public
+ * schema (the lease's tables). The owner's SET on the parameters grizzle's tests set is the spec's (pg.config.ts
+ * ownerParameters), which the library's making grants.
  */
 const setUpQuery = `SELECT NOT EXISTS (SELECT FROM pg_catalog.unnest($1::text[]) AS t
-		WHERE pg_catalog.to_regclass(pg_catalog.format('public.%I', t)) IS NULL)
-	AND (SELECT pg_catalog.bool_and(pg_catalog.has_parameter_privilege(p, 'SET')) FROM pg_catalog.unnest($2::text[]) AS p)`
+		WHERE pg_catalog.to_regclass(pg_catalog.format('public.%I', t)) IS NULL)`
 
 /**
  * The member setup's lock: a transaction-level advisory lock in the owner's own database, which a lease that finds
  * grizzle's setup of its member missing holds while it makes it, so two first leases on a member never create one
- * table at once (CREATE TABLE IF NOT EXISTS of one name at once fails one of them on pg_type's unique index) nor update
- * one parameter's ACL at once.
+ * table at once (CREATE TABLE IF NOT EXISTS of one name at once fails one of them on pg_type's unique index).
  */
 const memberSetupKey = 1735289963
 
 /**
  * grizzle's own setup of the member `initialized`, which the testing library's making of a cluster leaves out: the
- * owner's SET on ownerParameters, and the lease's tables `names`, owned by the owner. The owner's session `session`
- * reads whether it is whole (setUpQuery); when it is not, the bootstrap superuser makes all of it in the owner's
- * own database, in one transaction under the setup lock (memberSetupKey), the tables as the owner: what the first
+ * lease's tables `names`, owned by the owner. The owner's session `session` reads whether it is whole (setUpQuery);
+ * when it is not, the bootstrap superuser makes all of it in the owner's own database, in one transaction under the setup lock (memberSetupKey), the tables as the owner: what the first
  * lease on a member does. A lease that finds nothing missing takes no lock, so only the first leases on a member, or
  * those after a member grows past the slots its tables cover, wait on it; the wait is a declared one (waitingOn), behind
- * a holder that only grants and creates tables.
+ * a holder that only creates tables.
  */
 const ensureMemberSetUp = (
 	initialized: PgMember,
@@ -221,7 +212,7 @@ const ensureMemberSetUp = (
 	names: ReadonlyArray<string>
 ): Effect.Effect<void, SqlError> =>
 	Effect.gen(function* () {
-		const [[whole] = []] = yield* session.queryValues(setUpQuery, [names, ownerParameters])
+		const [[whole] = []] = yield* session.queryValues(setUpQuery, [names])
 		if (whole === true) {
 			return
 		}
@@ -237,11 +228,6 @@ const ensureMemberSetUp = (
 				const owner = quoteIdent(initialized.owner)
 				yield* run("BEGIN", [])
 				yield* waitingOn(run("SELECT pg_catalog.pg_advisory_xact_lock($1::int8)", [memberSetupKey]))
-				yield* Effect.forEach(
-					ownerParameters,
-					(parameter) => run(`GRANT SET ON PARAMETER ${parameter} TO ${owner}`, []),
-					{ discard: true }
-				)
 				yield* run(`SET LOCAL ROLE ${owner}`, [])
 				yield* Effect.forEach(
 					names,

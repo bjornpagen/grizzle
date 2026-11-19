@@ -9,8 +9,8 @@
  * acquisition and its release; the hanging case never finishes. The search runs as a fiber of its own, which is
  * interrupted once the hanging case has started; the oracle is the count itself: every acquisition the search made has
  * its release by the time the interruption returns. A case left holding never releases, and the runner's case deadline
- * names it: no clock decides the verdict. The nested search runs under grizzle's runner services (test/support/runner.ts
- * grizzleCluster), as a worker's would; its property needs none, so no cluster is reached. Features: the hanging case
+ * names it: no clock decides the verdict. The nested search runs under the worker's own runner services (test/support/
+ * runner.ts workerCluster), as every nested search does; its property needs none, so no cluster is reached. Features: the hanging case
  * first, and after finished cases.
  */
 import { type Reached } from "@bjornpagen/testing/features"
@@ -18,64 +18,66 @@ import { finite, int } from "@bjornpagen/testing/gen"
 import { inlineRun, searchInline } from "@bjornpagen/testing/inline"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { fnv1a32 } from "@bjornpagen/testing/random"
-import { Deferred, Effect, Fiber, Layer } from "effect"
+import { Deferred, Effect, Fiber } from "effect"
 import { assert } from "#test/support/assert.ts"
-import { grizzleCluster } from "#test/support/runner.ts"
+import { workerCluster } from "#test/support/runner.ts"
 import { type Held, interruptedGen } from "#test/unit/oracle-runner/case-run.fixtures.ts"
 
 /** A generated suite's cases are interrupted, or have ended, and release what they hold, when the check itself is interrupted. */
 export const aGeneratedSuitesCasesAreInterruptedOrHaveEndedAndReleaseWhatTheyHoldWhenTheCheckItselfIsInterrupted =
 	property.exhaust(finite(interruptedGen), {
-		needs: {},
+		needs: { cluster: workerCluster },
 		situations: ["the first case hangs", "after finished cases"] satisfies ReadonlyArray<
 			Reached<Held>
 		>,
-		check: (_, c: Case<Held>) => (drawnSearch) =>
-			Effect.gen(function* () {
-				const counts = { started: 0, finished: 0, released: 0 }
-				const hung = yield* Deferred.make<void>()
-				const holding = (index: number) =>
-					Effect.scoped(
-						Effect.gen(function* () {
-							yield* Effect.acquireRelease(Effect.void, () =>
-								Effect.sync(() => {
-									counts.released++
-								})
-							)
-							if (index === drawnSearch.hangs) {
-								yield* Deferred.succeed(hung, undefined)
-								return yield* Effect.never
-							}
-							yield* Effect.yieldNow
-							counts.finished++
-						})
+		check:
+			({ cluster }, c: Case<Held>) =>
+			(drawnSearch) =>
+				Effect.gen(function* () {
+					const counts = { started: 0, finished: 0, released: 0 }
+					const hung = yield* Deferred.make<void>()
+					const holding = (index: number) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								yield* Effect.acquireRelease(Effect.void, () =>
+									Effect.sync(() => {
+										counts.released++
+									})
+								)
+								if (index === drawnSearch.hangs) {
+									yield* Deferred.succeed(hung, undefined)
+									return yield* Effect.never
+								}
+								yield* Effect.yieldNow
+								counts.finished++
+							})
+						)
+					const id = `case-run.test.ts#interrupted/${drawnSearch.hangs}`
+					const services = yield* cluster
+					const check = yield* Effect.forkChild(
+						Effect.provide(
+							searchInline(
+								property.explore(int(0, 2 ** 31 - 1), {
+									needs: {},
+									situations: [],
+									check: () => () => Effect.suspend(() => holding(counts.started++)),
+									oracle: {
+										kind: "specification",
+										name: "a search planted to hang one case, interrupted from outside"
+									},
+									kept: [],
+									kills: []
+								}),
+								inlineRun(id, fnv1a32(id))
+							),
+							services
+						)
 					)
-				const id = `case-run.test.ts#interrupted/${drawnSearch.hangs}`
-				const services = yield* Layer.build(grizzleCluster)
-				const check = yield* Effect.forkChild(
-					Effect.provide(
-						searchInline(
-							property.explore(int(0, 2 ** 31 - 1), {
-								needs: {},
-								situations: [],
-								check: () => () => Effect.suspend(() => holding(counts.started++)),
-								oracle: {
-									kind: "specification",
-									name: "a search planted to hang one case, interrupted from outside"
-								},
-								kept: [],
-								kills: []
-							}),
-							inlineRun(id, fnv1a32(id))
-						),
-						services
-					)
-				)
-				yield* Deferred.await(hung)
-				yield* Fiber.interrupt(check)
-				assert.equal(counts.released, counts.started)
-				c.note(counts.finished > 0 ? "after finished cases" : "the first case hangs")
-			}),
+					yield* Deferred.await(hung)
+					yield* Fiber.interrupt(check)
+					assert.equal(counts.released, counts.started)
+					c.note(counts.finished > 0 ? "after finished cases" : "the first case hangs")
+				}),
 		oracle: {
 			kind: "specification",
 			name: "every acquisition of an interrupted search has its release"

@@ -490,7 +490,7 @@ aborting the process. Termination, by a `vm` timeout or by the inspector's `Runt
 `finally` of every async scope it unwinds, and every Effect fiber resume enters one, so Node then finds its async-hook
 stack corrupted. So a case is terminable only with its process. A case that yields is its hang guard's to stop, with
 CaseHung. A case that holds the main thread past the moment its guard would stop it (its hang limit, or its search's cut
-if that comes first) and the watchdog's grace (`WATCHDOG_GRACE_MILLIS`, vendor/toolchain/packages/testing/src/live.ts) ends its process.
+if that comes first) and the watchdog's grace (`watchdogGraceMillis`, vendor/toolchain/packages/testing/src/live.ts) ends its process.
 The watchdog prints the case's hang report, with its replay token, on stderr; the toolchain's packages/testing/src/blocking.test.ts
 holds it to that. Replay the token to reproduce the case alone.
 

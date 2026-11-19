@@ -1,4 +1,3 @@
-import { createServer } from "node:net"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import {
 	Array as Arr,
@@ -274,18 +273,3 @@ export const packageFrom = (
 		const parent = path.dirname(directory)
 		return parent === directory ? Option.none<string>() : yield* packageFrom(parent, name)
 	})
-
-/** A port on localhost no listener holds, which the operating system picks for a listen on port 0 and frees again. */
-export const freePort: Effect.Effect<number> = Effect.callback<number>((resume) => {
-	const server = createServer()
-	server.listen({ port: 0, host: "localhost", exclusive: true }, () => {
-		const address = server.address()
-		server.close(() => {
-			resume(
-				typeof address === "object" && address !== null
-					? Effect.succeed(address.port)
-					: Effect.die(new Error("a listener on port 0 has no port"))
-			)
-		})
-	})
-})

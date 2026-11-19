@@ -24,14 +24,15 @@ import {
 	property
 } from "@bjornpagen/testing/property"
 import { fnv1a32 } from "@bjornpagen/testing/random"
+import type { PgCluster } from "@bjornpagen/testing/resources"
 import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
 import {
 	Array as Arr,
 	Cause,
+	Context,
 	Data,
 	Effect,
 	Formatter,
-	Layer,
 	MutableHashMap,
 	Option,
 	Order,
@@ -137,7 +138,7 @@ import { type DeclineReason, ReferenceUnsupported } from "#test/support/oracle/r
 import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import type { PgConnection, PipelineRefused, SqlError } from "#test/support/pg.ts"
-import { grizzleCluster } from "#test/support/runner.ts"
+import type { WorkerLeases } from "#test/support/runner.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { Substrate, type SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
@@ -1581,14 +1582,15 @@ export interface KillSpec<S, F extends string> {
 }
 
 /**
- * A kill population's search (a mutant's), nested in the case that states it and run in its process (searchInline) on
- * its witnesses alone, the floor and steered phase its identity `id` fixes, so a mutant is killed on every run seed or
+ * A kill population's search (a mutant's), nested in the case that states it and run in its process (searchInline) under
+ * the worker's own runner services (`services`, the case's workerCluster need), on its witnesses alone, the floor and steered phase its identity `id` fixes, so a mutant is killed on every run seed or
  * on none: `space`'s values, each drawn with its second reading's restorage, run unperturbed by `check` on the case's
  * own seat (OracleSeat). A failing witness is the search's result rather than the case's failure: the shrunk kill, with the
  * verdict its check's typed failure carried, which the case then judges (KillFound).
  */
 export const killSearched = <S, const F extends string>(
 	id: string,
+	services: Context.Context<PgCluster | WorkerLeases>,
 	space: Space<S>,
 	spec: KillSpec<S, F>,
 	check: (
@@ -1615,7 +1617,6 @@ export const killSearched = <S, const F extends string>(
 								(error) => ({ value, verdict: verdictOf(error) })
 							)
 						)
-		const services = yield* Layer.build(grizzleCluster)
 		const verdict = yield* Effect.provideContext(
 			searchInline(
 				property.explore(conditioned(space, "none"), {

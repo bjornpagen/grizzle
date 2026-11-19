@@ -1,5 +1,6 @@
 import type { Gen } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect } from "effect"
+import type { PgCluster } from "@bjornpagen/testing/resources"
+import { Array as Arr, type Context, Effect } from "effect"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { mutantLowering, mutationSites } from "#test/support/oracle/mutants/index.ts"
 import type { Mutant } from "#test/support/oracle/mutants/mutants.ts"
@@ -12,6 +13,7 @@ import {
 	runOracle
 } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
+import type { WorkerLeases } from "#test/support/runner.ts"
 
 /** What a mutant's population reaches against the conservative lowering: a case the mutant rewrote, and one whose conservative run delivered a row. */
 type MutantFeature = "mutation applied" | "nonempty"
@@ -40,7 +42,12 @@ const within = 500
  * name: its kill search's result (the shrunk kill's outcome has the conservative run on the left, the mutant's on the
  * right) and the harness failures it recorded.
  */
-export const runMutant = (mutant: Mutant, gen: Gen<QueryCase>, id: string) =>
+export const runMutant = (
+	mutant: Mutant,
+	gen: Gen<QueryCase>,
+	id: string,
+	services: Context.Context<PgCluster | WorkerLeases>
+) =>
 	Effect.gen(function* () {
 		const seat = yield* OracleSeat
 		const schema = yield* seat.schema("mutant")
@@ -49,6 +56,7 @@ export const runMutant = (mutant: Mutant, gen: Gen<QueryCase>, id: string) =>
 		/** Unperturbed, as the kill populations always ran: a kill's listed shape rests on the facts as drawn. */
 		const result = yield* killSearched(
 			id,
+			services,
 			gen,
 			{
 				situations: ["mutation applied", "nonempty"] satisfies ReadonlyArray<MutantFeature>,
@@ -101,7 +109,12 @@ export const runMutant = (mutant: Mutant, gen: Gen<QueryCase>, id: string) =>
  * mutant the left side and the reference the right (the order of the two is no contract): its kill search's result and
  * the harness failures it recorded (a statement that does not run, an oracle failure).
  */
-export const runAgainstReference = (mutant: Mutant, gen: Gen<QueryCase>, id: string) =>
+export const runAgainstReference = (
+	mutant: Mutant,
+	gen: Gen<QueryCase>,
+	id: string,
+	services: Context.Context<PgCluster | WorkerLeases>
+) =>
 	Effect.gen(function* () {
 		const seat = yield* OracleSeat
 		const name = yield* seat.schema("oracle")
@@ -109,6 +122,7 @@ export const runAgainstReference = (mutant: Mutant, gen: Gen<QueryCase>, id: str
 		const harnessErrors: Array<string> = []
 		const result = yield* killSearched(
 			id,
+			services,
 			gen,
 			{
 				situations: [],

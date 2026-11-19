@@ -1,4 +1,4 @@
-import { grizzle, toolchain } from "@bjornpagen/devtools/config"
+import { toolchain } from "@bjornpagen/devtools/config"
 
 /**
  * Every experiment, a package of its own of scripts run by hand that nothing type-checks, until its verdict deletes it
@@ -123,5 +123,5 @@ export default toolchain({
 		experiments
 	],
 	effectFree: ["packages/engine", "packages/text"],
-	packs: [grizzle()]
+	packs: { grizzle: true }
 })

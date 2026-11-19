@@ -130,6 +130,7 @@ export default localCluster({
 	owner: "grizzle_dev",
 	template: "grizzle_template",
 	extensions: [{ name: "vector", schema: "vector_ext" }],
+	ownerParameters: ["deadlock_timeout", "session_replication_role"],
 	peerLogins: [],
 	durability: "throwaway",
 	family: { kind: "spread", workersPerMember },

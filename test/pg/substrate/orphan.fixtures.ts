@@ -1,7 +1,7 @@
 /** What the property of orphan.test.ts reads: its forms and their space, the throwaway postmaster, and one case's run. */
 import { boolean, type Space } from "@bjornpagen/testing/gen"
 import { liveMillis, liveSleep } from "@bjornpagen/testing/live"
-import type { Platform } from "@bjornpagen/testing/pg"
+import { clientCheckInterval, type Platform } from "@bjornpagen/testing/pg"
 import {
 	Array as Arr,
 	Duration,
@@ -190,13 +190,10 @@ const runningBackend = (observer: Client, form: Form): Effect.Effect<number, Sql
 		}
 	})
 
-/** The client check interval the server runs, in milliseconds, as pg_settings reports it. */
-const checkIntervalQuery =
-	"SELECT s.setting FROM pg_catalog.pg_settings AS s WHERE s.name = 'client_connection_check_interval'"
-
 /**
  * Polls pg_stat_activity for backend `pid` at backendWaitStep until it is gone, then answers how long after `killed`
- * it was seen gone; once it is still there at `killed` plus orphanExitBound of the server's client check interval, the
+ * it was seen gone; once it is still there at `killed` plus orphanExitBound of every member's client check interval
+ * (@bjornpagen/testing/pg clientCheckInterval), the
  * case fails with what it shows.
  */
 const goneAfter = (
@@ -205,11 +202,7 @@ const goneAfter = (
 	killed: number
 ): Effect.Effect<number, SqlError> =>
 	Effect.gen(function* () {
-		const [[interval] = []] = yield* rowsOf(observer, checkIntervalQuery, [])
-		if (interval === undefined || interval === null) {
-			return assert.fail("pg_settings holds no client_connection_check_interval")
-		}
-		const bound = orphanExitBound(Number(interval))
+		const bound = orphanExitBound(clientCheckInterval)
 		for (;;) {
 			const listed = yield* rowsOf(
 				observer,
