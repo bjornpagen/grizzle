@@ -7,6 +7,7 @@ import { ledgerTable } from "#compiler/deploy/ledger/ledger.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 import { refusalFunctionName } from "#compiler/write/refusal.ts"
+import { idName } from "#test/support/ids.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -215,8 +216,9 @@ const columnOf = (names: InstalledNames, relation: string, field: string): strin
 
 /**
  * The installation type a value of a domain is stored at, by a key that names it: a text field's structural domain by
- * its pattern and flags, a handle's roster domain by its roster; a base type (uuid, the integers, boolean, a span's
- * range) is no installation type. Two patterns of one language share one domain, which these keys would split: the
+ * its pattern and flags, a handle's roster domain by its roster, a contract's domain by its name, and a uuid field's
+ * the tests' Id contract's, which the worlds build every uuid field as (execute/build.ts fieldOf, since d4a2aaf70
+ * refused a bare uuid); a base type (the integers, boolean, a span's range) is no installation type. Two patterns of one language share one domain, which these keys would split: the
  * bases spell each language once.
  */
 const typeKeyOf = (domain: FieldDomain): Option.Option<string> => {
@@ -228,6 +230,7 @@ const typeKeyOf = (domain: FieldDomain): Option.Option<string> => {
 		case "contract":
 			return Option.some(`contract ${domain.name}`)
 		case "uuid":
+			return Option.some(`contract ${idName}`)
 		case "integer":
 		case "boolean":
 		case "span":
