@@ -12,7 +12,14 @@ import { strictIntegers, strictRead } from "#test/support/kernel/strict.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { type CatalogResult, declinedOps } from "#test/support/oracle/evaluate/catalog.ts"
 import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
+import { noTables } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
+import {
+	installTemplate,
+	ownerSession,
+	Substrate,
+	type SubstrateTemplate
+} from "#test/support/substrate/substrate.ts"
 
 /** A text cell of a row: every column the tests' catalog queries read is cast to text. */
 export const textCell = (row: ReadonlyArray<unknown>, i: number): string => {
@@ -52,6 +59,31 @@ EXCEPTION WHEN OTHERS THEN
 END $body$`,
 		[]
 	)
+
+/**
+ * A schema holding the evaluator (installEvaluator) as a template (substrate.ts installTemplate): made once per member,
+ * where each search made it before its cases, so a case seated on it (Substrate.seat) evaluates over its clone's schema
+ * and installs nothing. Its cases write nothing, so nothing is emptied after one.
+ */
+export const evaluatorTemplate = (
+	declaredIn: ImportMeta,
+	name: string
+): SubstrateTemplate<string> =>
+	installTemplate({
+		declaredIn,
+		name,
+		content: { evaluator: "try_eval" },
+		plan: (names) => Effect.succeed(names.schema),
+		install: () =>
+			Effect.gen(function* () {
+				const s = yield* Substrate
+				const schema = yield* s.schema({ create: true, label: "install" })
+				const db = yield* s.session(ownerSession())
+				yield* installEvaluator(db, schema)
+			}),
+		bind: (schema) => schema,
+		reset: () => noTables
+	})
 
 export type PgAnswer =
 	| { readonly kind: "value"; readonly text: string; readonly type: string }

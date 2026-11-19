@@ -16,6 +16,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import {
 	alteredGeneratedTemplate,
+	seededGeneratedTemplate,
 	type Generated,
 	type GeneratedSpec,
 	generatedTemplate,
@@ -321,6 +322,26 @@ export const alteredFixtureTemplate = <
 	alter: (generated: Generated) => Effect.Effect<void, E, Substrate | Scope.Scope>
 ): SubstrateTemplate<Generated> =>
 	alteredGeneratedTemplate({ ...fixtureSpec(declaredIn, fixture, options), alter })
+
+/**
+ * fixtureTemplate's installation with what every case reads written once per member right after the install
+ * (install-migrate.ts seededGeneratedTemplate): `seed` fills what the cases read, such as a volume of rows analyzed,
+ * where the search filled it once before its cases. Its seat empties no table, so a case commits nothing to the
+ * seeded tables. A case opens it as fixtureTemplate's (openedIn).
+ */
+export const seededFixtureTemplate = <
+	const N extends string,
+	R extends Record<string, AnyRelation | AnyClosed>,
+	const St extends ReadonlyArray<Statement>,
+	const P extends Readonly<Record<string, unknown>>,
+	E
+>(
+	declaredIn: ImportMeta,
+	fixture: ReadFixture<N, R, St>,
+	options: FixtureInstall<P>,
+	seed: (generated: Generated) => Effect.Effect<void, E, Substrate | Scope.Scope>
+): SubstrateTemplate<Generated> =>
+	seededGeneratedTemplate({ ...fixtureSpec(declaredIn, fixture, options), seed })
 
 /**
  * A read fixture's generated template's spec (fixtureTemplate): its full world's login, whose workload holds

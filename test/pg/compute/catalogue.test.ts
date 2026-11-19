@@ -32,17 +32,12 @@ import {
 	labelOf,
 	lcmPastOperandDigits,
 	reached,
-	situations
+	situations,
+	catalogueEvaluator
 } from "#test/pg/compute/catalogue.fixtures.ts"
-import {
-	caseChunk,
-	compareAnswers,
-	installEvaluator,
-	type PgAnswer,
-	runCases
-} from "#test/pg/compute/support.ts"
+import { caseChunk, compareAnswers, type PgAnswer, runCases } from "#test/pg/compute/support.ts"
 import { assert } from "#test/support/assert.ts"
-import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * The Compute catalogue against PostgreSQL 19 agrees with PostgreSQL on the result type and value of every operation at every boundary, and refuses only what the values justify.
@@ -56,53 +51,56 @@ export const theComputeCatalogueAgainstPostgreSQL19AgreesWithPostgreSQLOnTheResu
 			Arr.flatMap(catalogue, (e) => Arr.map(e.situations, (s) => [s, e.gen] as const))
 		),
 		{
-			needs: { substrate: Substrate.installing },
+			needs: { evaluator: Substrate.seat(catalogueEvaluator) },
 			situations: situations satisfies ReadonlyArray<Reached<CatalogueFeature>>,
 			check:
-				({ substrate }, c: Case<CatalogueFeature>) =>
+				({ evaluator }, c: Case<CatalogueFeature>) =>
 				(k) =>
-					Effect.provideServiceEffect(
-						Effect.gen(function* () {
-							const { session, schema } = yield* Substrate
-							const db = yield* session(ownerSession())
-							const s = yield* schema(freshSchema)
-							yield* installEvaluator(db, s)
+					Effect.scoped(
+						Effect.flatMap(evaluator, (taken) =>
+							Effect.provideService(
+								Effect.gen(function* () {
+									const { session } = yield* Substrate
+									const db = yield* session(ownerSession())
+									const s = taken.value
 
-							const label = labelOf(k)
-							const all = buildCases(k)
-							const unjustified = Arr.flatMap(all, (r) =>
-								r.built.kind === "refused" && !justified(r.built.precondition, r.read)
-									? [
-											`${r.built.label} refused for ${r.built.precondition} at ${Arr.join(
-												Arr.map(r.read, (o) => Formatter.format(o.value)),
-												", "
-											)}`
-										]
-									: []
+									const label = labelOf(k)
+									const all = buildCases(k)
+									const unjustified = Arr.flatMap(all, (r) =>
+										r.built.kind === "refused" && !justified(r.built.precondition, r.read)
+											? [
+													`${r.built.label} refused for ${r.built.precondition} at ${Arr.join(
+														Arr.map(r.read, (o) => Formatter.format(o.value)),
+														", "
+													)}`
+												]
+											: []
+									)
+									assert.deepEqual(unjustified.slice(0, 10), [])
+									const ran = Arr.flatMap(all, (r) => (r.built.kind === "case" ? [r] : []))
+									const cases = Arr.flatMap(ran, (r) =>
+										r.built.kind === "case" ? [r.built.evalCase] : []
+									)
+									const answers: ReadonlyArray<PgAnswer> = yield* runCases(db, s, cases, caseChunk)
+									assert.equal(answers.length, cases.length)
+									const result = compareAnswers(cases, answers)
+									assert.deepEqual(result.mismatches.slice(0, 10), [])
+									assert.equal(result.typedOnly, 0)
+									const agreed = new Map(
+										Arr.map(ran, (r, i) => [r, result.agreed[i] === true] as const)
+									)
+									if (result.declined > 0) {
+										c.note(`${label} declined by the host`)
+									}
+									c.noteAll(reached(all, agreed))
+									if (Arr.some(ran, (r) => lcmPastOperandDigits(r, agreed.get(r) === true))) {
+										c.note("lcm/numeric past its operands' integer digits")
+									}
+								}),
+								Substrate,
+								taken.substrate
 							)
-							assert.deepEqual(unjustified.slice(0, 10), [])
-							const ran = Arr.flatMap(all, (r) => (r.built.kind === "case" ? [r] : []))
-							const cases = Arr.flatMap(ran, (r) =>
-								r.built.kind === "case" ? [r.built.evalCase] : []
-							)
-							const answers: ReadonlyArray<PgAnswer> = yield* runCases(db, s, cases, caseChunk)
-							assert.equal(answers.length, cases.length)
-							const result = compareAnswers(cases, answers)
-							assert.deepEqual(result.mismatches.slice(0, 10), [])
-							assert.equal(result.typedOnly, 0)
-							const agreed = new Map(
-								Arr.map(ran, (r, i) => [r, result.agreed[i] === true] as const)
-							)
-							if (result.declined > 0) {
-								c.note(`${label} declined by the host`)
-							}
-							c.noteAll(reached(all, agreed))
-							if (Arr.some(ran, (r) => lcmPastOperandDigits(r, agreed.get(r) === true))) {
-								c.note("lcm/numeric past its operands' integer digits")
-							}
-						}),
-						Substrate,
-						substrate
+						)
 					),
 			oracle: {
 				kind: "postgresql",

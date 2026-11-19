@@ -24,6 +24,7 @@ import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal, type FiniteDecimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { EvalCase } from "#test/pg/compute/support.ts"
+import { evaluatorTemplate } from "#test/pg/compute/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { numericPaddings } from "#test/support/oracle/gen/domain.ts"
@@ -977,3 +978,6 @@ export const lcmPastOperandDigits = (k: ReadCase, agreed: boolean): boolean => {
 		integerDigits(host.success) > Arr.reduce(read, 0, (n, x) => n + integerDigits(x))
 	)
 }
+
+/** The evaluator's schema the property seats its cases on (compute/support.ts evaluatorTemplate). */
+export const catalogueEvaluator = evaluatorTemplate(import.meta, "catalogue evaluator")
