@@ -7,7 +7,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
-import { canonicalEquals, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { canonicalEquals, catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
@@ -244,13 +244,6 @@ export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
 	readonly slots: ReadonlyArray<SlotGroup>
 	/** What binding one application reads besides its values, decided here (decide.ts decideBinding). */
 	readonly binding: Binding
-}
-
-const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
-	if (!r.ok) {
-		throw new Refusal(r.error)
-	}
-	return r.value
 }
 
 /** What decides which of a write op's unique violations abort the apply: a MERGE; any other probed statement; or

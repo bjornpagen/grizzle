@@ -14,7 +14,7 @@ import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { clockParams } from "#compiler/check/clock.ts"
 import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose, ruleRefused } from "#compiler/core/errors.ts"
 import { type EntryName, type LawId, ParamId, type StoredRelationName } from "#compiler/core/ids.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -565,13 +565,6 @@ const refuseUnstatedKey = (member: WriteMemberDesc, relation: WrittenRelation): 
 			)
 		}
 	}
-}
-
-const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
-	if (!r.ok) {
-		throw new Refusal(r.error)
-	}
-	return r.value
 }
 
 /** The parameter a write's member slot binds, spelled by the one slot rule (slots.ts reservedSlot) at its stratum's

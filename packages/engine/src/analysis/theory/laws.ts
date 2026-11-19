@@ -60,13 +60,13 @@ import {
 	violationQuery
 } from "#compiler/analysis/theory/query.ts"
 import { type RegionFacts, wholeRule } from "#compiler/analysis/theory/unit.ts"
-import { unwrap } from "#compiler/check/fail.ts"
 import { combineRule, foldPlane } from "#compiler/check/fold.ts"
 import {
 	canonicalEquals,
 	catchRefusal,
 	ownedText,
 	Refusal,
+	unwrap,
 	withoutSourceLocs
 } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"

@@ -6,7 +6,8 @@ import {
 	traceApproximate
 } from "#compiler/check/approximate/trace.ts"
 import type { ApproximatePlugin, ApproximateStage, CheckServices } from "#compiler/check/context.ts"
-import { fail, unwrap } from "#compiler/check/fail.ts"
+import { fail } from "#compiler/check/fail.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { dagDigest } from "#compiler/ir/dag.ts"

@@ -9,7 +9,7 @@ import {
 	derivedAnalysis
 } from "#compiler/analysis/schema.ts"
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	compareIdentities,
@@ -54,13 +54,6 @@ import type {
 	Revoke
 } from "#compiler/sql/ast.ts"
 import { columnKey } from "#compiler/sql/build.ts"
-
-const unwrapResult = <A>(result: Result.Result<A, CompileError>): A => {
-	if (!result.ok) {
-		throw new Refusal(result.error)
-	}
-	return result.value
-}
 
 /**
  * The laws a derived key's proof rests on, by their identities and each once: a stored relation's key law for each declared key
@@ -129,7 +122,7 @@ const viewObjects = (
 	 * only the containments that hold at every statement: a deferred foreign key or a residual law proves nothing in
 	 * it. */
 	const catalog = evidenceCatalog({ laws: b.model, views: lowerKeys })
-	const lowered = unwrapResult(
+	const lowered = unwrap(
 		lowerDefinition(name, a.query, {
 			names: b.names,
 			catalog

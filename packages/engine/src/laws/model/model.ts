@@ -33,7 +33,7 @@ import {
 	theoryEvidence,
 	typingEnv
 } from "#compiler/analysis/theory/theory.ts"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription, prose } from "#compiler/core/errors.ts"
 import {
 	type Identity,
@@ -475,13 +475,6 @@ const lawPatterns = (
 		...families.flatMap((f) => f.folds.flatMap((fold) => fold.where.flatMap(exprPatterns))),
 		...natives.flatMap(nativePatterns)
 	])
-}
-
-const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
-	if (!r.ok) {
-		throw new Refusal(r.error)
-	}
-	return r.value
 }
 
 /** A native object's identity (`nativeIdentity`) as a TupleMap key: a key's KeyColumnSet tuple, or any other object's

@@ -3,7 +3,7 @@ import { allenExpr } from "#compiler/check/allen.ts"
 import { approximate } from "#compiler/check/approximate/index.ts"
 import type { CheckedNodeSpec, ScopedServices, StageScope } from "#compiler/check/context.ts"
 import { only } from "#compiler/check/defined.ts"
-import { fail, failWith, unwrap } from "#compiler/check/fail.ts"
+import { fail, failWith } from "#compiler/check/fail.ts"
 import { completeStatedOrders, type StatedOrder } from "#compiler/check/order.ts"
 import type {
 	ParamCell,
@@ -43,7 +43,7 @@ import {
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { MemberRelation, SchemaReading } from "#compiler/check/schema.ts"
 import { allenMaskMax } from "#compiler/core/allen.ts"
-import { canonicalEquals, catchRefusal } from "#compiler/core/canonical.ts"
+import { canonicalEquals, catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { makeIdSupply, type NodeId, type ParamId, type VarId } from "#compiler/core/ids.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"

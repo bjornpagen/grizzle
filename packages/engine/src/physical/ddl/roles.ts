@@ -23,7 +23,7 @@ import { refuse } from "#compiler/analysis/theory/build.ts"
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import type { AdmittedQuery } from "#compiler/check/index.ts"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	compareIdentities,
@@ -267,13 +267,6 @@ const readsOf = (
 		transformStatement(statement, hooks)
 	}
 	return [...read]
-}
-
-const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
-	if (!result.ok) {
-		throw new Refusal(result.error)
-	}
-	return result.value
 }
 
 /** A field of a context an installed role reads, typed against the base: what the installation plans a claim's domain

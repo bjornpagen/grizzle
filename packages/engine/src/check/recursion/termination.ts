@@ -2,7 +2,7 @@ import { stronglyConnected } from "@bjornpagen/grizzle-text/base/graph"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { CheckServices } from "#compiler/check/context.ts"
-import { failRecursion, unwrap } from "#compiler/check/fail.ts"
+import { failRecursion } from "#compiler/check/fail.ts"
 import type {
 	ResolvedExpr,
 	ResolvedHead,
@@ -13,7 +13,7 @@ import type {
 import type { Arm, RecArm } from "#compiler/check/recursion/scan.ts"
 import type { StateType } from "#compiler/check/recursion/state.ts"
 import { entries } from "#compiler/check/scan.ts"
-import { encode, everyProperty } from "#compiler/core/canonical.ts"
+import { encode, everyProperty, unwrap } from "#compiler/core/canonical.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"

@@ -1,6 +1,6 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
 import { TemporaryCensus } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -95,13 +95,6 @@ export type MigrationDraft = DraftOf<Omit<DraftedFolder, "name">>
 
 /** A draft whose folder is named `<timestamp>_<name>`, as `grizzle generate` writes it. */
 export type GenerateResult = DraftOf<DraftedFolder>
-
-const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
-	if (!r.ok) {
-		throw new Refusal(r.error)
-	}
-	return r.value
-}
 
 /** One table's constraint names to their laws, each also under every name `swaps` builds it under on `table`. */
 const builtUnder = (

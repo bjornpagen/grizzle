@@ -10,7 +10,7 @@ import type { Patterns, PatternSource } from "@bjornpagen/grizzle-text/regex/par
 import { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
 import { asciiFold } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
-import { int4Max } from "#compiler/core/canonical.ts"
+import { int4Max, unwrap } from "#compiler/core/canonical.ts"
 import { canonicalTextOf, catchRefusal, Refusal, sameContent } from "#compiler/core/canonical.ts"
 import { maxAllocSize } from "#compiler/core/errors.ts"
 import { CompileError, prose, type ProseTag, ruleRefused } from "#compiler/core/errors.ts"
@@ -753,13 +753,6 @@ export const stop = (
 	capability: string
 ): never => {
 	throw new Refusal(CompileError.make(prose(reason, loc, capability)))
-}
-
-export const unwrapOrRefuse = <A>(r: Result.Result<A, CompileError>): A => {
-	if (!r.ok) {
-		throw new Refusal(r.error)
-	}
-	return r.value
 }
 
 /**
@@ -1570,7 +1563,7 @@ const patternRead = <R extends Refs>(
 			return typeof part.desc.value === "string"
 				? {
 						kind: "admitted",
-						source: unwrapOrRefuse(matchSourceAt(admitMatch(part.desc.value), pattern))
+						source: unwrap(matchSourceAt(admitMatch(part.desc.value), pattern))
 					}
 				: stop("MalformedDescription", at, "a text literal as matches's pattern")
 		case "closedAt":
@@ -1984,7 +1977,7 @@ class Typing<R extends Refs> {
 		if (params.kind === "none") {
 			throw new Refusal(ruleRefused(at, "a schema predicate reads no parameter"))
 		}
-		const { spec, type } = unwrapOrRefuse(params.lower(param, at))
+		const { spec, type } = unwrap(params.lower(param, at))
 		const node = this.record({ kind: "stated", spec: leafSpec(spec) })
 		return this.settle(node, type, spec.type, undefined, [])
 	}
@@ -1995,7 +1988,7 @@ class Typing<R extends Refs> {
 	 */
 	whole(desc: ExprDesc<Located, R>, at: SourceLoc): Typed {
 		return isReference(desc)
-			? this.emit(leafSpec(unwrapOrRefuse(this.env.leaf(desc, at))))
+			? this.emit(leafSpec(unwrap(this.env.leaf(desc, at))))
 			: this.term(desc, at)
 	}
 
@@ -2005,7 +1998,7 @@ class Typing<R extends Refs> {
 	 * (sha256).
 	 */
 	reference(desc: LeafDesc<R>, at: SourceLoc): Typed {
-		const leaf = this.emit(leafSpec(unwrapOrRefuse(this.env.leaf(desc, at))))
+		const leaf = this.emit(leafSpec(unwrap(this.env.leaf(desc, at))))
 		return storedOnly(leaf.nominal)
 			? stop(
 					"UnsupportedOperation",
@@ -2154,7 +2147,7 @@ class Typing<R extends Refs> {
 				return this.param(desc, at)
 			case "literal": {
 				if (desc.type !== undefined) {
-					const t = inferredType(desc.type, (d) => unwrapOrRefuse(this.env.fieldType(d, at)))
+					const t = inferredType(desc.type, (d) => unwrap(this.env.fieldType(d, at)))
 					return this.literal(desc.value, t, at)
 				}
 				return this.bareLiteral(desc.value, at)
@@ -2931,11 +2924,11 @@ class Typing<R extends Refs> {
 					`a function of value arguments as a term; ${fn.name} takes rows at ${a.name}, which a match reads as a source`
 				)
 			}
-			const type = unwrapOrRefuse(this.env.fieldType(a.type.type, where))
+			const type = unwrap(this.env.fieldType(a.type.type, where))
 			const term = defined(desc.args[a.name], "an argument the call names, checked above")
 			return { type, node: this.callArgument(term, type, a.name, where).node }
 		})
-		const type = unwrapOrRefuse(this.env.fieldType(returns.type, here))
+		const type = unwrap(this.env.fieldType(returns.type, here))
 		return this.emit({
 			kind: "call",
 			function: { name: fn.name, volatility: fn.desc.volatility, definition: fn.definition },
@@ -3325,9 +3318,9 @@ class Typing<R extends Refs> {
 		analyze: TextLookup,
 		at: SourceLoc
 	): ScalarType {
-		const pattern = unwrapOrRefuse(analyze(patterns))
+		const pattern = unwrap(analyze(patterns))
 		const language = octets === undefined ? pattern : languageWithin(pattern, octets)
-		return unwrapOrRefuse(
+		return unwrap(
 			this.env.fieldType({ kind: "text", patterns, bytes: languageOctets(language), language }, at)
 		)
 	}
@@ -3401,7 +3394,7 @@ class Typing<R extends Refs> {
 
 	cast(desc: Extract<ExprDesc<Located, R>, { readonly kind: "cast" }>, at: SourceLoc): Typed {
 		const arg = this.term(desc.arg, childLoc(at, "cast"))
-		const to = unwrapOrRefuse(this.env.fieldType(desc.to, childLoc(at, "cast", "to")))
+		const to = unwrap(this.env.fieldType(desc.to, childLoc(at, "cast", "to")))
 		return this.castTo(arg, to, childLoc(at, "cast"))
 	}
 

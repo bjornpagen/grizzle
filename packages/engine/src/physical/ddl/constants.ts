@@ -6,8 +6,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import { unwrap } from "#compiler/check/fail.ts"
-import { maxStringLength } from "#compiler/core/canonical.ts"
+import { maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import { everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { int4Max } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, resourceBound } from "#compiler/core/errors.ts"

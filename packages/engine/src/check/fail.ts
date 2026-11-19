@@ -1,4 +1,3 @@
-import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import {
@@ -38,13 +37,6 @@ export function failWith(reason: CompileReason): never {
  */
 export function failRecursion(loc: SourceLoc, cause: RecursionRefusal): never {
 	throw new Refusal(recursionRefused(loc, cause))
-}
-
-export const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
-	if (!result.ok) {
-		throw new Refusal(result.error)
-	}
-	return result.value
 }
 
 export const rootLoc = (label: string): SourceLoc => SourceLoc(label, [])

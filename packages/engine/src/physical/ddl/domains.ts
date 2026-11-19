@@ -7,7 +7,7 @@ import {
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
-import { catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, everyProperty, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { type DomainDigest, domainDigest } from "#compiler/core/fingerprint.ts"
 import {
@@ -59,13 +59,6 @@ import {
 import { and } from "#compiler/sql/build.ts"
 import { domainValue, membershipTerms, textDomainDefinition } from "#compiler/text/refinement.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
-
-const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
-	if (!result.ok) {
-		throw new Refusal(result.error)
-	}
-	return result.value
-}
 
 /** The regex of a column that a structural text domain types: refined text outside any contract. */
 export const structuralRegex = (t: ScalarType): RegexRef | undefined =>

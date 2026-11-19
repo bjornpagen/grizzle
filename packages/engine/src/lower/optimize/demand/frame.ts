@@ -1,5 +1,4 @@
 import { invariant } from "@bjornpagen/grizzle-text/base/invariant"
-import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/demand/demand.ts"
 import {
 	analyzePhysicalUnder,
@@ -9,8 +8,7 @@ import {
 	propsUnder,
 	unplaced
 } from "#compiler/analysis/physical/analyze.ts"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import { type Certificate, makeCertificate } from "#compiler/ir/certificate.ts"
 import type { FinishedCells } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
@@ -134,14 +132,6 @@ interface RewritePassSpec {
 	readonly rules: ReadonlyArray<Rule>
 	/** The pass's potential, chosen once from the DAG the pass starts from. */
 	readonly potential: (start: RewriteCx) => Potential
-}
-
-/** The success of a compile result, or a refusal that fails the pass with its error. */
-const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
-	if (!r.ok) {
-		throw new Refusal(r.error)
-	}
-	return r.value
 }
 
 /**

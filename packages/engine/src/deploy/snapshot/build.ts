@@ -5,7 +5,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { maxStringLength } from "#compiler/core/canonical.ts"
+import { maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import {
 	canonicalEquals,
 	catchRefusal,
@@ -590,7 +590,7 @@ const levelsOf = (installation: Installation): ReadonlyArray<SnapshotLevel> => {
 		const theory =
 			i === top || desc === undefined
 				? installation.laws.theory
-				: unwrapCompiled(
+				: unwrap(
 						Result.flatMap(
 							ownLevel(
 								desc,
@@ -619,14 +619,6 @@ const levelsOf = (installation: Installation): ReadonlyArray<SnapshotLevel> => {
 			laws: laws.toSorted((a, b) => compareStrings(a.law, b.law))
 		}
 	})
-}
-
-/** A compiled value, or its refusal thrown, which targetState returns. */
-const unwrapCompiled = <A>(result: Result.Result<A, CompileError>): A => {
-	if (!result.ok) {
-		throw new Refusal(result.error)
-	}
-	return result.value
 }
 
 /** An installed table as snapshotTablesOf gathers it: its relation, each field by its column, and its indexes. */
@@ -1481,14 +1473,6 @@ export const writeJsonText = (value: unknown): Result.Result<string, CompileErro
 		)
 	)
 
-/** A kernel result's value, or its failure thrown as a Refusal for the writer's door to return. */
-const valueOf = <A>(r: Result.Result<A, CompileError>): A => {
-	if (!r.ok) {
-		throw new Refusal(r.error)
-	}
-	return r.value
-}
-
 /**
  * snapshot.json's text of a form value, `head` before its first line and `tail` after its last: an installed statement
  * on one line, its compact canonical JSON, written in one pass (canonical.ts encode, the text writeCanonicalJson writes
@@ -1497,11 +1481,11 @@ const valueOf = <A>(r: Result.Result<A, CompileError>): A => {
  */
 const formValue = (out: Lines, head: string, value: FormOf<CompactLine>, tail: string): void => {
 	if (value instanceof CompactLine) {
-		const compact = valueOf(encode(value.value, everyProperty))
+		const compact = unwrap(encode(value.value, everyProperty))
 		return out.line(`${head}${compact}${tail}`)
 	}
 	if (typeof value !== "object") {
-		return jsonValue(out, head, valueOf(toJson(value, everyProperty)), tail)
+		return jsonValue(out, head, unwrap(toJson(value, everyProperty)), tail)
 	}
 	return nestedValue(out, head, value, tail, formValue)
 }
@@ -1509,7 +1493,7 @@ const formValue = (out: Lines, head: string, value: FormOf<CompactLine>, tail: s
 /** A snapshot file's text of its form: written with object keys in code point order and indented by tabs for review,
  * each installed statement compact on a line of its own (formValue), ending in a newline. */
 const fileText = (form: RecordOf<CompactLine>): string =>
-	valueOf(
+	unwrap(
 		textOf(maxStringLength, "\t", jsonTextLoc, (out) => {
 			formValue(out, "", form, "")
 			out.line("")
@@ -1530,7 +1514,7 @@ export const writeSnapshot = (
 		snapshot: fileText(runtimeForm(snapshot, derived, asLines)),
 		manifest: fileText({
 			...migrationForm(snapshot, asLines, laidOutRelationForm),
-			seal: valueOf(snapshotSeal(recordForm(snapshot, asValues)))
+			seal: unwrap(snapshotSeal(recordForm(snapshot, asValues)))
 		})
 	}))
 

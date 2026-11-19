@@ -5,7 +5,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { catchRefusal, int4Max, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, int4Max, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import {
 	CompileError,
@@ -109,7 +109,6 @@ import {
 	type TypingEnv,
 	type CallableFunction,
 	unprovedFact,
-	unwrapOrRefuse,
 	withinGuards
 } from "#compiler/scalar/compute/typing.ts"
 import { binary64MaxExponent, decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
@@ -739,10 +738,10 @@ class Lowering<R extends Refs> {
 			)
 		}
 		const at = childLoc(entry.at, entry.desc.kind)
-		return unwrapOrRefuse(
+		return unwrap(
 			env.extension(entry.desc, entry.at, (child) =>
 				catchRefusal(() => {
-					const typed = unwrapOrRefuse(typeWithin(child, typingEnvOf(env), entry.scope, at))
+					const typed = unwrap(typeWithin(child, typingEnvOf(env), entry.scope, at))
 					this.replay(typed.tape)
 					return this.lowered(typed.root)
 				})
@@ -976,7 +975,7 @@ class Lowering<R extends Refs> {
 				"a pattern of at least one value: the closed relation it reads holds no row, so the match could never be stated"
 			)
 		}
-		return patternTableOf(mapNonEmpty(admitted, (a) => unwrapOrRefuse(matchSourceAt(a, at))))
+		return patternTableOf(mapNonEmpty(admitted, (a) => unwrap(matchSourceAt(a, at))))
 	}
 
 	/**

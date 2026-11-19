@@ -10,7 +10,7 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
-import { arrayText, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { arrayText, catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import type { RoleRule } from "#compiler/core/causes.ts"
 import {
 	CompileError,
@@ -613,13 +613,6 @@ const checkUnits = (
 				continue
 		}
 	}
-}
-
-const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
-	if (!result.ok) {
-		throw new Refusal(result.error)
-	}
-	return result.value
 }
 
 /** `name` declared, a `kind` at `loc`, into `namespace` (core/identity.ts DeclaredNamespace): the name, parsed, or its

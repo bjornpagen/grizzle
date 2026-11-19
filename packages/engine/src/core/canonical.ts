@@ -249,6 +249,17 @@ export const catchRefusal = <A>(f: () => A): Result.Result<A, CompileError> =>
 	Result.mapError(Result.catchSignal(Refusal, f), (refusal) => refusal.error)
 
 /**
+ * A compile's value, or its CompileError thrown as a Refusal for the catchRefusal around it to return: the inverse of
+ * catchRefusal, the one way a step inside a refusal-catching compile reads a Result it cannot go on without.
+ */
+export const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
+	if (!result.ok) {
+		throw new Refusal(result.error)
+	}
+	return result.value
+}
+
+/**
  * Runs a public builder, which throws its CompileError to the JavaScript caller (schema(...), relation(...), the
  * query builder), turning that throw or a kernel Refusal into a failure; any other throw is a defect and propagates.
  */

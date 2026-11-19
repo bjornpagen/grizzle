@@ -13,7 +13,7 @@ import {
 } from "#compiler/analysis/derived/analyze.ts"
 import { analyzeWorld, type WorldAnalysis } from "#compiler/analysis/derived/world.ts"
 import { closedReads, closedReadsAmong } from "#compiler/check/closed.ts"
-import { fail, failWith, unwrap } from "#compiler/check/fail.ts"
+import { fail, failWith } from "#compiler/check/fail.ts"
 import {
 	closedReadNames,
 	generatedRule,
@@ -21,7 +21,7 @@ import {
 	rowNode
 } from "#compiler/check/generated.ts"
 import type { ClosedRelation, SchemaReading } from "#compiler/check/schema.ts"
-import { catchRefusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { GeneratedRule, KeyFault } from "#compiler/core/causes.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
