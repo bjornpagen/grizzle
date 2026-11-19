@@ -45,10 +45,12 @@ export const readme = boxAgreement(statedRefusals, {
 			why: "An order names a closed id of an unordered roster (types/query/query.ts OrderedKeys requires nothing of it), so the README's statesInOrder, an orderBy of InvoiceState, compiles: armed, its directive is unused, and disarmed, the refusal is missing."
 		},
 		{
-			file: "packages/engine/src/types/compute/scalar.ts",
-			original: "\t: [T] extends [Unordered]\n\t\t? Refusal<",
-			replacement: "\t: [T] extends [never]\n\t\t? Refusal<",
-			why: "A row check's field of an unordered roster compares by its codes (types/compute/scalar.ts OrderedType requires nothing of it), so the README's stateCheck compiles: armed, its directive is unused, and disarmed, the refusal is missing."
+			file: "packages/engine/src/types/compute/compute.ts",
+			original:
+				'\t\t\tHasOrder<A>,\n\t\t\t"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles"',
+			replacement:
+				'\t\t\ttrue,\n\t\t\t"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles"',
+			why: "A row check's comparison of a field of an unordered roster compares by its codes (types/compute/compute.ts Ordered requires nothing of it), so the README's stateCheck compiles: armed, its directive is unused, and disarmed, the refusal is missing."
 		}
 	]
 })

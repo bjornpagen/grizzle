@@ -3,6 +3,7 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { login } from "#compiler/program/workload/login.ts"
+import { Compute } from "#compiler/public/compute.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import type {
 	AnyRoster,
@@ -178,7 +179,7 @@ const aggregated = (a: Aggregate): { readonly key: AggregateKey; readonly kind: 
 const condColumn = "p"
 
 const Color = closed("Color", ["red", "green", "blue"], "ordered", [])
-const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
+const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n))
 const Word = str.regex("^[a-z]{0,4}$")
 
 const descriptor = (k: BaseKind): FieldBase => {

@@ -18,6 +18,7 @@ import type { CompareOp, ExprDesc } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { contractOf, sameScalarType, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { Lowered } from "#compiler/scalar/compute/lower.ts"
 import { commonType, widening } from "#compiler/scalar/compute/types.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -51,10 +52,10 @@ import {
 	testSpan
 } from "#test/unit/compute/support.ts"
 
-const Cents = testContract("Cents", testPg.bigint, (x) => x.ge(0n))
+const Cents = testContract("Cents", testPg.bigint, (x) => Compute.ge(x, 0n))
 
 /** A numeric(5,2) contract that admits no negative value. */
-const Rate = testContract("Rate", testPg.numericOf(5, 2), (x) => x.ge("0"))
+const Rate = testContract("Rate", testPg.numericOf(5, 2), (x) => Compute.ge(x, "0"))
 
 /** A leaf bound to a column, the one binding the column hook reads. */
 type ColumnBinding = Extract<LeafBinding, { readonly kind: "column" }>

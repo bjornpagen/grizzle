@@ -169,7 +169,7 @@ export const theOwnedProductFingerprintsCanonicalContentOrderRepeatsAndLocations
 					const bounded = (rewrite: boolean, change: boolean) =>
 						checkBuilder("Bounded", Limits, (r: LimitsRow) =>
 							change
-								? r.and(limitsPredicate(r, s.predicate, rewrite), r.limit.ge(-6n))
+								? r.and(limitsPredicate(r, s.predicate, rewrite), r.ge(r.limit, -6n))
 								: limitsPredicate(r, s.predicate, rewrite)
 						)
 					const declare = (form: "written" | "rewritten" | "changed") => {
@@ -392,11 +392,11 @@ export const closedRelationsChecksEveryHandleWrittenAgainstAClosedIdFieldAtAnyCo
 									)
 								case "a built selection":
 									return selectBuilder(Rated, (r: Row & { readonly grade: Row["id"] }) =>
-										r.grade.eq(s.handle)
+										r.eq(r.grade, s.handle)
 									)
 								case "a built check literal":
 									return checkBuilder("Graded", Rated, (r: Row & { readonly grade: Row["id"] }) =>
-										r.grade.eq(s.handle)
+										r.eq(r.grade, s.handle)
 									)
 								case "a decoded row":
 								case "a decoded selection":
@@ -605,7 +605,9 @@ export const statementsOverADerivedRelationOwnsAKeyCheckContainmentEitherWayAndM
 						ownValue(schema.extend(Work, "Above", [TaskIds], [statement], []))
 					switch (law.kind) {
 						case "check":
-							verdict(extended(checkBuilder("Positive", TaskIds, (row: Row) => row.id.eq(row.id))))
+							verdict(
+								extended(checkBuilder("Positive", TaskIds, (row: Row) => row.eq(row.id, row.id)))
+							)
 							return
 						case "an alternatives arm":
 							throwsRefused(
@@ -725,7 +727,7 @@ export const scopeAndStructureRefusesADescriptionNamingWhatNoLevelDeclaresOrBrea
 										Record.values(Work.relations),
 										[
 											...Work.statements,
-											checkBuilder(s.name, Task, (row: Row) => row.account.ne(row.id))
+											checkBuilder(s.name, Task, (row: Row) => row.ne(row.account, row.id))
 										],
 										[]
 									)

@@ -49,7 +49,7 @@ const resultsHeader: ReadonlyArray<string> = [
 	'export const Account = relation.generated("Account", { id: uuid, units: pg.bigint }, ["id"], (r) => ({',
 	"\tcopied: generated(pg.bigint, r.units)",
 	"}))",
-	'export const Accounts = schema("Accounts", [Account], [check("Positive", Account, (a) => a.units.gt(0n))])',
+	'export const Accounts = schema("Accounts", [Account], [check("Positive", Account, (a) => a.gt(a.units, 0n))])',
 	"export const unitsText = codecText(Account.fields.units)",
 	"export const evaluator = rowEvaluator(Accounts)",
 	"export const preview = insertPreview(Accounts)",

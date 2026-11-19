@@ -5,7 +5,7 @@
  * Each case is a predicate over a row of two integers and a short text, drawn from the forms a row check may use:
  * a field compared with a literal or with the other field, BETWEEN (its bounds sometimes reversed, which holds on
  * nothing), an IN list, char_length over the text, the text's equality, inequality and IN, and AND, OR and NOT over
- * them, each leaf written both as a field term's method and as the row's helper. A run installs one relation per case,
+ * them, each leaf written with the row's helpers. A run installs one relation per case,
  * each with its check, through its first migration (the migrated catalog checked against the fresh install's), and
  * inserts rows of small integers and short texts as the migration identity, a direct SQL writer. A row is stored
  * exactly when the predicate, evaluated here in two-valued logic over the NOT NULL row, holds; otherwise the insert is
@@ -69,29 +69,25 @@ type Pred =
 			readonly op: Op
 			readonly field: Field
 			readonly right: number | Field
-			readonly helper: boolean
 	  }
 	| {
 			readonly kind: "between"
 			readonly field: Field
 			readonly low: number
 			readonly high: number
-			readonly helper: boolean
 	  }
 	| {
 			readonly kind: "in"
 			readonly field: Field
 			readonly values: ReadonlyArray<number>
-			readonly helper: boolean
 	  }
 	| { readonly kind: "length"; readonly op: Op; readonly n: number }
 	| {
 			readonly kind: "text"
 			readonly op: "eq" | "ne"
 			readonly value: string
-			readonly helper: boolean
 	  }
-	| { readonly kind: "textIn"; readonly values: ReadonlyArray<string>; readonly helper: boolean }
+	| { readonly kind: "textIn"; readonly values: ReadonlyArray<string> }
 	| { readonly kind: "and" | "or"; readonly args: readonly [Pred, ...Array<Pred>] }
 	| { readonly kind: "not"; readonly arg: Pred }
 
@@ -131,33 +127,28 @@ const leaf: Gen<Pred> = oneOf<Pred>([
 		kind: "compare",
 		op: source.draw(op),
 		field: source.draw(field),
-		right: source.draw(oneOf<number | Field>([small, field])),
-		helper: source.draw(boolean)
+		right: source.draw(oneOf<number | Field>([small, field]))
 	}),
 	(source) => ({
 		kind: "between",
 		field: source.draw(field),
 		low: source.draw(small),
-		high: source.draw(small),
-		helper: source.draw(boolean)
+		high: source.draw(small)
 	}),
 	(source) => ({
 		kind: "in",
 		field: source.draw(field),
-		values: source.draw(array(small, { min: 1, max: 3 })),
-		helper: source.draw(boolean)
+		values: source.draw(array(small, { min: 1, max: 3 }))
 	}),
 	(source) => ({ kind: "length", op: source.draw(op), n: source.draw(int(0, 3)) }),
 	(source) => ({
 		kind: "text",
 		op: source.draw(element<"eq" | "ne">(["eq", "ne"])),
-		value: source.draw(text),
-		helper: source.draw(boolean)
+		value: source.draw(text)
 	}),
 	(source) => ({
 		kind: "textIn",
-		values: source.draw(array(text, { min: 1, max: 3 })),
-		helper: source.draw(boolean)
+		values: source.draw(array(text, { min: 1, max: 3 }))
 	})
 ])
 
@@ -268,19 +259,15 @@ const holds = (p: Pred, r: Row): boolean => {
 	}
 }
 
-/** The forms a predicate may use: each leaf's kind, operator and writing (a method or a helper). */
+/** The forms a predicate may use: each leaf's kind and operator. */
 type CheckForm =
 	| "compare literal"
 	| "compare field"
 	| `op ${Op}`
-	| "method"
-	| "helper"
 	| "between"
 	| "between reversed"
 	| "in"
 	| "textIn"
-	| "in method"
-	| "in helper"
 	| "length"
 	| "text eq"
 	| "text ne"
@@ -288,28 +275,20 @@ type CheckForm =
 	| "or"
 	| "not"
 
-const writing = (helper: boolean): CheckForm => (helper ? "helper" : "method")
-
 /** The forms a predicate uses, the exploration's features. */
 const forms = (p: Pred): ReadonlyArray<CheckForm> => {
 	switch (p.kind) {
 		case "compare":
-			return [
-				typeof p.right === "number" ? "compare literal" : "compare field",
-				`op ${p.op}`,
-				writing(p.helper)
-			]
+			return [typeof p.right === "number" ? "compare literal" : "compare field", `op ${p.op}`]
 		case "between":
-			return p.low > p.high
-				? ["between", "between reversed", writing(p.helper)]
-				: ["between", writing(p.helper)]
+			return p.low > p.high ? ["between", "between reversed"] : ["between"]
 		case "in":
 		case "textIn":
-			return [p.kind, p.helper ? "in helper" : "in method"]
+			return [p.kind]
 		case "length":
 			return ["length", `op ${p.op}`]
 		case "text":
-			return [p.op === "eq" ? "text eq" : "text ne", writing(p.helper)]
+			return [p.op === "eq" ? "text eq" : "text ne"]
 		case "and":
 		case "or":
 			return [p.kind, ...Arr.flatMap(p.args, forms)]
@@ -361,14 +340,10 @@ const requiredForms: Arr.NonEmptyReadonlyArray<Feature> = [
 	"op le",
 	"op gt",
 	"op ge",
-	"method",
-	"helper",
 	"between",
 	"between reversed",
 	"in",
 	"textIn",
-	"in method",
-	"in helper",
 	"length",
 	"text eq",
 	"text ne",
@@ -383,27 +358,24 @@ const itemOf = (name: string) =>
 type Item = ReturnType<typeof itemOf>
 type ItemRow = RowScalars<Item>
 
-/** The predicate as the row check's callback writes it, each leaf as a method or as the row's helper. */
+/** The predicate as the row check's callback writes it, each leaf with the row's helpers. */
 const build = (p: Pred, r: ItemRow) => {
 	const go = (q: Pred): Predicate => {
 		switch (q.kind) {
 			case "compare": {
 				const right = typeof q.right === "number" ? q.right : r[q.right]
-				if (q.helper) {
-					return r[q.op](r[q.field], right)
-				}
-				return r[q.field][q.op](right)
+				return r[q.op](r[q.field], right)
 			}
 			case "between":
-				return q.helper ? r.between(r[q.field], q.low, q.high) : r[q.field].between(q.low, q.high)
+				return r.between(r[q.field], q.low, q.high)
 			case "in":
-				return q.helper ? r.in(r[q.field], q.values) : r[q.field].in(q.values)
+				return r.in(r[q.field], q.values)
 			case "length":
-				return r.charLength(r.t)[q.op](q.n)
+				return r[q.op](r.charLength(r.t), q.n)
 			case "text":
-				return q.helper ? r[q.op](r.t, q.value) : r.t[q.op](q.value)
+				return r[q.op](r.t, q.value)
 			case "textIn":
-				return q.helper ? r.in(r.t, q.values) : r.t.in(q.values)
+				return r.in(r.t, q.values)
 			case "and":
 			case "or": {
 				const [first, ...rest] = q.args

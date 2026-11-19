@@ -128,59 +128,64 @@ export type CompareOp = "eq" | "ne" | "lt" | "le" | "gt" | "ge"
  * `row`, closed reads at a key their relation holds no row at, or at a NULL key; every other operation yields NULL
  * from a NULL operand by its SQL semantics, but where it decides otherwise: a conditional, a guard and an extremum.
  */
-export type Term =
+export type NullTerm =
 	| { readonly t: "field"; readonly field: Field }
 	| { readonly t: "lit"; readonly literal: Literal }
 	| { readonly t: "at"; readonly field: PickField; readonly key: KindKey }
-	| { readonly t: "weight"; readonly flag: Term }
-	| { readonly t: "succ"; readonly flag: Term }
-	| { readonly t: "singleton"; readonly a: Term }
-	| { readonly t: "row"; readonly flag: Term }
-	| { readonly t: "arith"; readonly op: "add" | "sub" | "mul"; readonly a: Term; readonly b: Term }
+	| { readonly t: "weight"; readonly flag: NullTerm }
+	| { readonly t: "succ"; readonly flag: NullTerm }
+	| { readonly t: "singleton"; readonly a: NullTerm }
+	| { readonly t: "row"; readonly flag: NullTerm }
+	| {
+			readonly t: "arith"
+			readonly op: "add" | "sub" | "mul"
+			readonly a: NullTerm
+			readonly b: NullTerm
+	  }
 	| {
 			readonly t: "farith"
 			readonly op: "add" | "sub" | "mul" | "div"
-			readonly a: Term
-			readonly b: Term
+			readonly a: NullTerm
+			readonly b: NullTerm
 	  }
-	| { readonly t: "tofloat"; readonly e: Term }
-	| { readonly t: "unary"; readonly op: "neg" | "abs" | "sign"; readonly a: Term }
+	| { readonly t: "tofloat"; readonly e: NullTerm }
+	| { readonly t: "unary"; readonly op: "neg" | "abs" | "sign"; readonly a: NullTerm }
 	| {
 			readonly t: "extremum"
 			readonly op: "greatest" | "least"
-			readonly a: Term
-			readonly b: Term
+			readonly a: NullTerm
+			readonly b: NullTerm
 	  }
-	| { readonly t: "cond"; readonly p: Pred; readonly a: Term; readonly b: Term }
+	| { readonly t: "cond"; readonly p: Pred; readonly a: NullTerm; readonly b: NullTerm }
 	| {
 			readonly t: "divide"
 			readonly op: "div" | "mod"
-			readonly a: Term
-			readonly d: Term
-			readonly o: Term
+			readonly a: NullTerm
+			readonly d: NullTerm
+			readonly o: NullTerm
 	  }
-	| { readonly t: "narrow"; readonly e: Term; readonly o: Term }
-	| { readonly t: "widen"; readonly e: Term }
-	| { readonly t: "concat"; readonly a: Term; readonly b: Term }
-	| { readonly t: "charLength"; readonly a: Term }
+	| { readonly t: "narrow"; readonly e: NullTerm; readonly o: NullTerm }
+	| { readonly t: "widen"; readonly e: NullTerm }
+	| { readonly t: "concat"; readonly a: NullTerm; readonly b: NullTerm }
+	| { readonly t: "charLength"; readonly a: NullTerm }
 	| {
 			readonly t: "affix"
 			readonly op: "startsWith" | "endsWith"
-			readonly a: Term
-			readonly b: Term
+			readonly a: NullTerm
+			readonly b: NullTerm
 	  }
 	| {
 			readonly t: "setop"
 			readonly op: "union" | "intersection" | "difference"
-			readonly a: Term
-			readonly b: Term
+			readonly a: NullTerm
+			readonly b: NullTerm
 	  }
-	| { readonly t: "card"; readonly a: Term }
+	| { readonly t: "card"; readonly a: NullTerm }
 	| {
 			readonly t: "settest"
 			readonly op: "subset" | "disjoint"
-			readonly a: Term
-			readonly b: Term
+			readonly a: NullTerm
+			readonly b: NullTerm
 	  }
 	| { readonly t: "endpoint"; readonly op: "lower" | "upper" | "width" }
 
@@ -191,15 +196,15 @@ export type Term =
  */
 export type HasKey =
 	| { readonly rel: "pick"; readonly key: KindKey }
-	| { readonly rel: "wt"; readonly flag: Term }
-	| { readonly rel: "next"; readonly from: Term; readonly to: Term }
+	| { readonly rel: "wt"; readonly flag: NullTerm }
+	| { readonly rel: "next"; readonly from: NullTerm; readonly to: NullTerm }
 
 /** A predicate: a comparison, BETWEEN, IN over a list of literals, a presence, and AND, OR and NOT. */
 export type Pred =
-	| { readonly p: "cmp"; readonly op: CompareOp; readonly a: Term; readonly b: Term }
+	| { readonly p: "cmp"; readonly op: CompareOp; readonly a: NullTerm; readonly b: NullTerm }
 	| { readonly p: "has"; readonly key: HasKey }
-	| { readonly p: "between"; readonly a: Term; readonly lo: Term; readonly hi: Term }
-	| { readonly p: "in"; readonly a: Term; readonly values: NonEmptyReadonlyArray<ListLiteral> }
+	| { readonly p: "between"; readonly a: NullTerm; readonly lo: NullTerm; readonly hi: NullTerm }
+	| { readonly p: "in"; readonly a: NullTerm; readonly values: NonEmptyReadonlyArray<ListLiteral> }
 	| { readonly p: "and" | "or"; readonly args: readonly [Pred, Pred] }
 	| { readonly p: "not"; readonly arg: Pred }
 
@@ -216,7 +221,7 @@ const meet = (a: Sort, b: Sort): Sort | undefined =>
 			: undefined
 
 /** A term's sort. */
-export const sortOf = (term: Term): Sort => {
+export const sortOf = (term: NullTerm): Sort => {
 	switch (term.t) {
 		case "field":
 			return fieldSorts[term.field]
@@ -267,7 +272,7 @@ export const sortOf = (term: Term): Sort => {
 }
 
 /** Whether a term reads a closed relation anywhere in it, its conditions' terms included. */
-export const readsClosed = (term: Term): boolean => {
+export const readsClosed = (term: NullTerm): boolean => {
 	switch (term.t) {
 		case "at":
 		case "weight":
@@ -520,22 +525,22 @@ const fieldOf = (sort: Sort): Field | undefined => {
  * The leaves of a sort past its literal: a field the vocabulary's row holds, a closed read, or a term no operand of the
  * sort's own reaches.
  */
-const leavesOf = (w: World, sort: Sort, v: Vocabulary): ReadonlyArray<Weighted<Term>> => {
+const leavesOf = (w: World, sort: Sort, v: Vocabulary): ReadonlyArray<Weighted<NullTerm>> => {
 	const field = sort === "set" && !openRow(v) ? undefined : fieldOf(sort)
 	const picked = pickFieldOf(sort)
-	const flagLeaf: Gen<Term> = (s) => s.draw(termGen(w, "code", 0, v))
-	const weightLeaf: Gen<Term> = (s) => ({ t: "weight", flag: s.draw(flagLeaf) })
-	const rowLeaf: Gen<Term> = (s) => ({ t: "row", flag: s.draw(flagLeaf) })
-	const widthLeaf: Gen<Term> = () => ({ t: "endpoint", op: "width" })
-	const cardLeaf: Gen<Term> = (s) => ({ t: "card", a: s.draw(termGen(w, "set", 0, v)) })
-	const baseFlag: Gen<Term> = oneOf<Term>([
+	const flagLeaf: Gen<NullTerm> = (s) => s.draw(termGen(w, "code", 0, v))
+	const weightLeaf: Gen<NullTerm> = (s) => ({ t: "weight", flag: s.draw(flagLeaf) })
+	const rowLeaf: Gen<NullTerm> = (s) => ({ t: "row", flag: s.draw(flagLeaf) })
+	const widthLeaf: Gen<NullTerm> = () => ({ t: "endpoint", op: "width" })
+	const cardLeaf: Gen<NullTerm> = (s) => ({ t: "card", a: s.draw(termGen(w, "set", 0, v)) })
+	const baseFlag: Gen<NullTerm> = oneOf<NullTerm>([
 		() => ({ t: "field", field: "flag" }),
 		(s) => ({ t: "lit", literal: s.draw(literalGen(w, "code")) }),
 		(s) => ({ t: "at", field: "flag", key: s.draw(kindKeyGen(w)) })
 	])
-	const succLeaf: Gen<Term> = (s) => ({ t: "succ", flag: s.draw(baseFlag) })
-	const singletonLeaf: Gen<Term> = (s) => ({ t: "singleton", a: s.draw(flagLeaf) })
-	const options: ReadonlyArray<Weighted<Term> | undefined> = [
+	const succLeaf: Gen<NullTerm> = (s) => ({ t: "succ", flag: s.draw(baseFlag) })
+	const singletonLeaf: Gen<NullTerm> = (s) => ({ t: "singleton", a: s.draw(flagLeaf) })
+	const options: ReadonlyArray<Weighted<NullTerm> | undefined> = [
 		field === undefined ? undefined : [2, () => ({ t: "field", field })],
 		picked === undefined
 			? undefined
@@ -547,18 +552,18 @@ const leavesOf = (w: World, sort: Sort, v: Vocabulary): ReadonlyArray<Weighted<T
 		sort === "exact" && openRow(v) ? [1, widthLeaf] : undefined,
 		sort === "big" ? [2, cardLeaf] : undefined
 	]
-	return Arr.filter(options, (option): option is Weighted<Term> => option !== undefined)
+	return Arr.filter(options, (option): option is Weighted<NullTerm> => option !== undefined)
 }
 
 /** A leaf of a sort: a literal, a field, or a closed read, which is NULL at a key its relation holds no row at. */
-const leafGen = (w: World, sort: Sort, v: Vocabulary): Gen<Term> =>
+const leafGen = (w: World, sort: Sort, v: Vocabulary): Gen<NullTerm> =>
 	weighted([
-		[1, (s): Term => ({ t: "lit", literal: s.draw(literalGen(w, sort)) })],
+		[1, (s): NullTerm => ({ t: "lit", literal: s.draw(literalGen(w, sort)) })],
 		...leavesOf(w, sort, v)
 	])
 
 /** An integer-like operand of arithmetic: an integer or an exact integer. */
-const intLike = (w: World, depth: number, v: Vocabulary): Gen<Term> =>
+const intLike = (w: World, depth: number, v: Vocabulary): Gen<NullTerm> =>
 	weighted([
 		[3, termGen(w, "int", depth, v)],
 		[1, termGen(w, "exact", depth, v)]
@@ -570,28 +575,32 @@ const stepsOf = (
 	sort: Sort,
 	depth: number,
 	v: Vocabulary
-): NonEmptyReadonlyArray<Gen<Term>> => {
+): NonEmptyReadonlyArray<Gen<NullTerm>> => {
 	const d = depth - 1
-	const sub = (of: Sort): Gen<Term> => termGen(w, of, d, v)
-	const cond: Gen<Term> = (s) => ({
+	const sub = (of: Sort): Gen<NullTerm> => termGen(w, of, d, v)
+	const cond: Gen<NullTerm> = (s) => ({
 		t: "cond",
 		p: s.draw(predGen(w, d, v)),
 		a: s.draw(sub(sort)),
 		b: s.draw(sub(sort))
 	})
-	const charLength: Gen<Term> = (s) => ({ t: "charLength", a: s.draw(sub("text")) })
-	const endpoint: Gen<Term> = (s) => ({
+	const charLength: Gen<NullTerm> = (s) => ({ t: "charLength", a: s.draw(sub("text")) })
+	const endpoint: Gen<NullTerm> = (s) => ({
 		t: "endpoint",
 		op: s.draw(element(["lower", "upper"] as const))
 	})
-	const floatArith: Gen<Term> = (s) => ({
+	const floatArith: Gen<NullTerm> = (s) => ({
 		t: "farith",
 		op: s.draw(element(["add", "sub", "mul", "div"] as const)),
 		a: s.draw(sub(sort)),
 		b: s.draw(sub(sort))
 	})
-	const concat: Gen<Term> = (s) => ({ t: "concat", a: s.draw(sub("text")), b: s.draw(sub("text")) })
-	const extremum: Gen<Term> = (s) => ({
+	const concat: Gen<NullTerm> = (s) => ({
+		t: "concat",
+		a: s.draw(sub("text")),
+		b: s.draw(sub("text"))
+	})
+	const extremum: Gen<NullTerm> = (s) => ({
 		t: "extremum",
 		op: v === "query" && s.draw(boolean) ? "least" : "greatest",
 		a: s.draw(sub(sort)),
@@ -715,7 +724,7 @@ const stepsOf = (
 }
 
 /** A term of a sort, at most `depth` operations deep, in a vocabulary. */
-export const termGen = (w: World, sort: Sort, depth: number, v: Vocabulary): Gen<Term> =>
+export const termGen = (w: World, sort: Sort, depth: number, v: Vocabulary): Gen<NullTerm> =>
 	depth <= 0
 		? leafGen(w, sort, v)
 		: weighted([
@@ -727,7 +736,7 @@ export const termGen = (w: World, sort: Sort, depth: number, v: Vocabulary): Gen
  * A term of the exact sort itself, never an integer that meets it: what a narrowing's guard bounds. Its leaf is the
  * span's width where the row holds the span, and otherwise an integer leaf negated or made absolute.
  */
-const exactGen = (w: World, depth: number, v: Vocabulary): Gen<Term> =>
+const exactGen = (w: World, depth: number, v: Vocabulary): Gen<NullTerm> =>
 	depth > 0
 		? oneOf(stepsOf(w, "exact", depth, v))
 		: openRow(v)
@@ -742,9 +751,10 @@ const exactGen = (w: World, depth: number, v: Vocabulary): Gen<Term> =>
  * An exact integer of sums, differences, negations and absolute values of integers, closed reads among them: one of
  * at most a few more digits than an integer, so a cast of it into a bigint is total.
  */
-const additiveGen = (w: World, depth: number, v: Vocabulary): Gen<Term> => {
-	const operand: Gen<Term> = depth <= 0 ? termGen(w, "int", 0, v) : additiveOrInt(w, depth - 1, v)
-	return oneOf<Term>([
+const additiveGen = (w: World, depth: number, v: Vocabulary): Gen<NullTerm> => {
+	const operand: Gen<NullTerm> =
+		depth <= 0 ? termGen(w, "int", 0, v) : additiveOrInt(w, depth - 1, v)
+	return oneOf<NullTerm>([
 		(s) => ({
 			t: "arith",
 			op: s.draw(element(["add", "sub"] as const)),
@@ -755,14 +765,14 @@ const additiveGen = (w: World, depth: number, v: Vocabulary): Gen<Term> => {
 	])
 }
 
-const additiveOrInt = (w: World, depth: number, v: Vocabulary): Gen<Term> =>
+const additiveOrInt = (w: World, depth: number, v: Vocabulary): Gen<NullTerm> =>
 	weighted([
 		[2, termGen(w, "int", depth, v)],
 		[1, additiveGen(w, depth, v)]
 	])
 
 /** A term of exactly a sort: an exact integer's is never an integer that meets it. */
-const strictGen = (w: World, sort: Sort, depth: number, v: Vocabulary): Gen<Term> =>
+const strictGen = (w: World, sort: Sort, depth: number, v: Vocabulary): Gen<NullTerm> =>
 	sort === "exact" ? exactGen(w, depth, v) : termGen(w, sort, depth, v)
 
 /** The sorts a comparison draws, and the sort each meets on its other side. */
@@ -926,14 +936,14 @@ const storedSorts: NonEmptyReadonlyArray<StoredSort> = [
 ]
 
 /** A numeric(3, 1) term: a leaf, or a conditional or an extremum of such. */
-const storedNumGen = (w: World, depth: number): Gen<Term> =>
+const storedNumGen = (w: World, depth: number): Gen<NullTerm> =>
 	depth <= 0
 		? leafGen(w, "num", "check")
 		: weighted([
 				[2, leafGen(w, "num", "check")],
 				[
 					1,
-					(s): Term => ({
+					(s): NullTerm => ({
 						t: "cond",
 						p: s.draw(predGen(w, depth - 1, "check")),
 						a: s.draw(storedNumGen(w, depth - 1)),
@@ -942,7 +952,7 @@ const storedNumGen = (w: World, depth: number): Gen<Term> =>
 				],
 				[
 					1,
-					(s): Term => ({
+					(s): NullTerm => ({
 						t: "extremum",
 						op: "greatest",
 						a: s.draw(storedNumGen(w, depth - 1)),
@@ -952,7 +962,7 @@ const storedNumGen = (w: World, depth: number): Gen<Term> =>
 			])
 
 /** A term a generated field of a stored sort holds, at most `depth` deep. */
-const storedGen = (w: World, sort: StoredSort, depth: number): Gen<Term> =>
+const storedGen = (w: World, sort: StoredSort, depth: number): Gen<NullTerm> =>
 	sort === "num" ? storedNumGen(w, depth) : termGen(w, sort, depth, "check")
 
 /** The operator families a NULL operand reaches, each judged by its own SQL semantics. */
@@ -1151,7 +1161,7 @@ const asText = (v: Val): string =>
 const divide = (op: "div" | "mod", a: bigint, d: bigint): bigint => (op === "div" ? a / d : a % d)
 
 /** Where a singleton's NULL id comes from: a read at a key its relation holds no row at, at a NULL key, or an operation. */
-const singletonOfNull = (w: World, item: Item, id: Term): Decision =>
+const singletonOfNull = (w: World, item: Item, id: NullTerm): Decision =>
 	id.t === "at" || (id.t === "succ" && evalTerm(w, item, id.flag, silent) !== null)
 		? "a singleton of an id read at an absent key is NULL"
 		: id.t === "succ"
@@ -1159,9 +1169,9 @@ const singletonOfNull = (w: World, item: Item, id: Term): Decision =>
 			: "a singleton of an id an operation leaves NULL is NULL"
 
 /** The model's value of a term over a row: SQL's, NULL included, each node noting what it reached. */
-export const evalTerm = (w: World, item: Item, term: Term, trace: Trace): Val | null => {
-	const ev = (t: Term): Val | null => evalTerm(w, item, t, trace)
-	const spanned = (operands: ReadonlyArray<Term>): void => {
+export const evalTerm = (w: World, item: Item, term: NullTerm, trace: Trace): Val | null => {
+	const ev = (t: NullTerm): Val | null => evalTerm(w, item, t, trace)
+	const spanned = (operands: ReadonlyArray<NullTerm>): void => {
 		if (Arr.some(operands, (o) => o.t === "endpoint")) {
 			trace.reached("span")
 		}
@@ -1414,7 +1424,7 @@ export const evalTerm = (w: World, item: Item, term: Term, trace: Trace): Val | 
  * none does.
  */
 const heldOf = (w: World, item: Item, key: HasKey, trace: Trace): Truth => {
-	const code = (t: Term): number | null => {
+	const code = (t: NullTerm): number | null => {
 		const v = evalTerm(w, item, t, trace)
 		return v === null ? null : asNumber(v)
 	}
@@ -1445,7 +1455,7 @@ const heldOf = (w: World, item: Item, key: HasKey, trace: Trace): Truth => {
 }
 
 export const evalPred = (w: World, item: Item, pred: Pred, trace: Trace): Truth => {
-	const ev = (t: Term): Val | null => evalTerm(w, item, t, trace)
+	const ev = (t: NullTerm): Val | null => evalTerm(w, item, t, trace)
 	switch (pred.p) {
 		case "has":
 			return heldOf(w, item, pred.key, trace)
@@ -1570,7 +1580,7 @@ const floatSql = (x: number, sort: FloatSort): string => {
 const floatType = (sort: FloatSort): string => (sort === "f8" ? "float8" : "real")
 
 /** A term's float sort, which its typing guarantees where the term is a float operation's operand. */
-const floatSortOf = (term: Term): FloatSort => {
+const floatSortOf = (term: NullTerm): FloatSort => {
 	const sort = sortOf(term)
 	return sort === "f8" || sort === "f4" ? sort : assert.fail(`a float term, not one of ${sort}`)
 }
@@ -1580,8 +1590,8 @@ const floatSortOf = (term: Term): FloatSort => {
  * meaning alone: a closed read is a scalar subquery, NULL where no row is; integers compute as numeric; a set is a bit
  * string, bit `code` at position `code`; a guard is a CASE.
  */
-const termSql = (w: World, term: Term): string => {
-	const sql = (t: Term): string => termSql(w, t)
+const termSql = (w: World, term: NullTerm): string => {
+	const sql = (t: NullTerm): string => termSql(w, t)
 	switch (term.t) {
 		case "field":
 			return `r.${term.field}`
@@ -1707,7 +1717,7 @@ const predSql = (w: World, pred: Pred): string => {
 }
 
 /** A term's value as text PostgreSQL prints for the model to read (parseAnswer): a numeric as its tenths. */
-export const answerSql = (w: World, term: Term): string => {
+export const answerSql = (w: World, term: NullTerm): string => {
 	const sql = termSql(w, term)
 	switch (sortOf(term)) {
 		case "int":
@@ -1915,9 +1925,9 @@ export const heldKindPred: Pred = {
 }
 
 /** A term of a sort that is NULL at every row of an aimed world: a read at its last kind, or an operation over one. */
-const nullOf = (w: World, sort: Sort): Term => {
+const nullOf = (w: World, sort: Sort): NullTerm => {
 	const absent: KindKey = { k: "handle", code: w.kinds - 1 }
-	const at = (field: PickField): Term => ({ t: "at", field, key: absent })
+	const at = (field: PickField): NullTerm => ({ t: "at", field, key: absent })
 	switch (sort) {
 		case "int":
 			return at("n")
@@ -1950,7 +1960,7 @@ const compareOpGen = (sort: Sort): Gen<CompareOp> =>
 
 /** A comparison of a term with a drawn term of its own sort. */
 const comparedWith =
-	(w: World, term: Term, v: OpenVocabulary): Gen<Pred> =>
+	(w: World, term: NullTerm, v: OpenVocabulary): Gen<Pred> =>
 	(s) => {
 		const sort = sortOf(term)
 		return {
@@ -1978,7 +1988,7 @@ export const aimedPredGen = (w: World, family: Family, v: OpenVocabulary): Gen<P
 		case "between":
 			return (s) => {
 				const sort = s.draw(element(orderedSorts))
-				const other = (): Term => s.draw(termGen(w, sort, 1, v))
+				const other = (): NullTerm => s.draw(termGen(w, sort, 1, v))
 				const at = s.draw(int(0, 2))
 				return {
 					p: "between",
@@ -2032,19 +2042,19 @@ export const aimedPredGen = (w: World, family: Family, v: OpenVocabulary): Gen<P
 }
 
 /** A term in which a node of `family` meets a NULL operand at every row of an aimed world. */
-const aimedTermGen = (w: World, family: Family, v: OpenVocabulary): Gen<Term> => {
+const aimedTermGen = (w: World, family: Family, v: OpenVocabulary): Gen<NullTerm> => {
 	const int1 = termGen(w, "int", 1, v)
 	switch (family) {
 		case "arith": {
-			const exact: Gen<Term> = (s) => ({
+			const exact: Gen<NullTerm> = (s) => ({
 				t: "arith",
 				op: s.draw(element(["add", "sub", "mul"] as const)),
 				a: nullOf(w, "int"),
 				b: s.draw(int1)
 			})
-			const float: Gen<Term> = (s) => {
+			const float: Gen<NullTerm> = (s) => {
 				const sort = s.draw(element(["f8", "f4"] as const))
-				const zero: Term = { t: "lit", literal: { sort, value: 0 } }
+				const zero: NullTerm = { t: "lit", literal: { sort, value: 0 } }
 				return {
 					t: "farith",
 					op: s.draw(element(["add", "sub", "mul", "div"] as const)),
@@ -2052,7 +2062,7 @@ const aimedTermGen = (w: World, family: Family, v: OpenVocabulary): Gen<Term> =>
 					b: s.draw(boolean) ? zero : s.draw(termGen(w, sort, 1, v))
 				}
 			}
-			return v === "query" ? oneOf<Term>([exact, float]) : exact
+			return v === "query" ? oneOf<NullTerm>([exact, float]) : exact
 		}
 		case "extremum":
 			return (s) => {
@@ -2065,12 +2075,12 @@ const aimedTermGen = (w: World, family: Family, v: OpenVocabulary): Gen<Term> =>
 				}
 			}
 		case "cast":
-			return oneOf<Term>([
+			return oneOf<NullTerm>([
 				() => ({ t: "widen", e: nullOf(w, "int") }),
 				(s) => ({ t: "tofloat", e: nullOf(w, s.draw(element(["int", "f4"] as const))) })
 			])
 		case "text": {
-			const affix: Gen<Term> = (s) => ({
+			const affix: Gen<NullTerm> = (s) => ({
 				t: "affix",
 				op: s.draw(element(["startsWith", "endsWith"] as const)),
 				a: nullOf(w, "text"),
@@ -2078,14 +2088,14 @@ const aimedTermGen = (w: World, family: Family, v: OpenVocabulary): Gen<Term> =>
 			})
 			return v === "query"
 				? affix
-				: oneOf<Term>([
+				: oneOf<NullTerm>([
 						(s) => ({ t: "concat", a: nullOf(w, "text"), b: s.draw(termGen(w, "text", 1, v)) }),
 						() => ({ t: "charLength", a: nullOf(w, "text") }),
 						affix
 					])
 		}
 		case "set":
-			return oneOf<Term>([
+			return oneOf<NullTerm>([
 				(s) => ({
 					t: "setop",
 					op: s.draw(element(["union", "intersection", "difference"] as const)),
@@ -2112,7 +2122,7 @@ const aimedTermGen = (w: World, family: Family, v: OpenVocabulary): Gen<Term> =>
 		case "cond":
 			return (s) => ({ t: "cond", p: s.draw(nullCompare(w, v)), a: s.draw(int1), b: s.draw(int1) })
 		case "guard":
-			return oneOf<Term>([
+			return oneOf<NullTerm>([
 				(s) => {
 					const op = s.draw(element(["div", "mod"] as const))
 					return {
@@ -2169,7 +2179,7 @@ export type NullIdSource = "absent key" | "NULL key" | "operation"
  * A singleton's id NULL at every row of an aimed world, from `source`: Pick's flag at the absent kind, Succ's flag at
  * that NULL, or greatest of two such reads.
  */
-export const nullIdOf = (w: World, source: NullIdSource): Term => {
+export const nullIdOf = (w: World, source: NullIdSource): NullTerm => {
 	const absent = nullOf(w, "code")
 	switch (source) {
 		case "absent key":
@@ -2195,11 +2205,11 @@ export const nullSingletonPred = (w: World, source: NullIdSource): Pred => ({
 /** A generated field's sort and term. */
 export interface Stored {
 	readonly sort: StoredSort
-	readonly term: Term
+	readonly term: NullTerm
 }
 
 /** The stored sort of a term an aim built, where a generated field stores it: never an exact integer. */
-const storedOf = (term: Term, otherwise: Term): Stored => {
+const storedOf = (term: NullTerm, otherwise: NullTerm): Stored => {
 	const sort = sortOf(term)
 	return sort === "exact"
 		? { sort: "int", term: { t: "narrow", e: term, o: otherwise } }

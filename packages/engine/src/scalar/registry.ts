@@ -3,11 +3,11 @@ import { type CompileError, malformedDescription, unsupported } from "#compiler/
 import { hostRead } from "#compiler/core/host.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { captureLoc, childLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, built, builtMark } from "#compiler/core/phantom.ts"
 import { deepFreeze, hasProperties } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { ExprDesc, FieldDesc, InferredFieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
+import type { ExprDesc, FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import {
@@ -33,9 +33,7 @@ import {
 	textInfoOf,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
-import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { nativeCapabilities, unorderedCodeCapabilities } from "#compiler/scalar/native.ts"
-import { describeFault } from "#compiler/scalar/values/fault.ts"
 
 /** The capability set of a carrier. */
 export const capabilitiesOf = (carrier: Carrier): CapabilitySet =>
@@ -796,12 +794,3 @@ export const inferredType = (
 	desc: InferredFieldDesc,
 	declared: (desc: FieldDesc) => ScalarType
 ): ScalarType => (desc.kind === "computedNumeric" ? numericValue(desc.bound) : declared(desc))
-
-/** The throwing form, for builders: a literal of the wrong host kind is MalformedDescription naming what was needed. */
-export const literalDescOrThrow = (t: ScalarType, value: unknown, label: string): LiteralDesc => {
-	const literal = literalDescFor(t, value)
-	if (!literal.ok) {
-		throw malformedDescription(captureLoc(label, []), describeFault(literal.error))
-	}
-	return literal.value
-}

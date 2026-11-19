@@ -91,14 +91,14 @@ export const impliedFacts = (base: Base, atoms: ReadonlyArray<Atom>): ReadonlyAr
 const comparison = (x: ScalarTerm, atom: Atom, base: Base): { readonly expr: OpenExpr } => {
 	switch (atom.op) {
 		case "between":
-			return x.between(base.literal(atom.low), base.literal(atom.high))
+			return Compute.between(x, base.literal(atom.low), base.literal(atom.high))
 		case "ge":
 		case "gt":
 		case "le":
 		case "lt":
 		case "ne":
 		case "eq":
-			return x[atom.op](base.literal(atom.value))
+			return Compute[atom.op](x, base.literal(atom.value))
 	}
 }
 

@@ -59,7 +59,7 @@ import {
 	type Pred,
 	type Sort,
 	sortOf,
-	type Term,
+	type NullTerm,
 	type Trace,
 	type Truth,
 	truthSql,
@@ -112,8 +112,8 @@ const slotGen: Gen<Slot> = (s) => {
 const keyOf = (slot: Slot): KindKey => ({ k: "handle", code: slot })
 
 /** A term of a sort that reads the slot's value. */
-const slotTerm = (sort: Sort, slot: Slot): Term => {
-	const at = (field: PickField): Term => ({ t: "at", field, key: keyOf(slot) })
+const slotTerm = (sort: Sort, slot: Slot): NullTerm => {
+	const at = (field: PickField): NullTerm => ({ t: "at", field, key: keyOf(slot) })
 	switch (sort) {
 		case "int":
 			return at("n")
@@ -307,7 +307,7 @@ export const caseGen: Gen<OperatorCase> = (s) => {
 /** What a case evaluates: a predicate, a term, which a check orders against a literal, or a rounding of a slot. */
 type Expression =
 	| { readonly kind: "pred"; readonly pred: Pred }
-	| { readonly kind: "term"; readonly term: Term }
+	| { readonly kind: "term"; readonly term: NullTerm }
 	| {
 			readonly kind: "rounding"
 			readonly op: Rounding
@@ -319,7 +319,7 @@ type Expression =
 const expressionOf = ({ operation, slots }: OperatorCase): Expression => {
 	const [a = 2, b = 2, c = 2] = slots
 	const pred = (p: Pred): Expression => ({ kind: "pred", pred: p })
-	const term = (t: Term): Expression => ({ kind: "term", term: t })
+	const term = (t: NullTerm): Expression => ({ kind: "term", term: t })
 	switch (operation.form) {
 		case "compare":
 			return pred({
@@ -408,7 +408,7 @@ const firstValue = (sort: ListSort) => {
 }
 
 /** A literal a term of a sort meets. */
-const literalOf = (sort: Sort): Term => {
+const literalOf = (sort: Sort): NullTerm => {
 	switch (sort) {
 		case "int":
 		case "exact":
@@ -627,7 +627,7 @@ const roundingCase = (
 	c: Case<Feature>
 ) =>
 	Effect.gen(function* () {
-		const read: Term = { t: "at", field: "d", key: keyOf(e.slot) }
+		const read: NullTerm = { t: "at", field: "d", key: keyOf(e.slot) }
 		const rounded = (r: Row): unknown =>
 			e.scaled
 				? C[e.op === "round" ? "round" : "trunc"](buildTerm(closed, r, read), 1)

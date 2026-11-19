@@ -26,6 +26,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import { describeOp, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { textOf } from "#compiler/ir/scalar.ts"
+import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { computeSpecs } from "#compiler/scalar/compute/registry.ts"
 import type { TapeEntry, TermTyping, TypedNode } from "#compiler/scalar/compute/typing.ts"
 import { replaceMap } from "#compiler/scalar/regex/whitespace.ts"
@@ -56,7 +57,7 @@ const fields: Readonly<Record<string, TestField>> = {
 	digits: testPg.regex("^[0-9]{1,6}$", "u"),
 	u: testPg.uuid,
 	day: field({ kind: "pg", type: "date" }, "date"),
-	cents: testContract("Cents", testPg.bigint, (x) => x.ge(0n)),
+	cents: testContract("Cents", testPg.bigint, (x) => Compute.ge(x, 0n)),
 	mood: field({ kind: "closedId", roster: "Mood" }, "code"),
 	moods: field({ kind: "bits", roster: "Mood" }, "bits"),
 	span: testSpan(testPg.integer),

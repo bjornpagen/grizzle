@@ -7,6 +7,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { CompareOp, ExprDesc, LiteralDesc } from "#compiler/ir/desc.ts"
+import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
@@ -445,4 +446,4 @@ export const verdictOf = (r: Result.Result<unknown, CompileError>): Verdict =>
 			? `Refused:${r.error.reason.refusal}`
 			: r.error.reason._tag
 
-export const Cents = testContract("Cents", testPg.bigint, (x) => x.ge(0n))
+export const Cents = testContract("Cents", testPg.bigint, (x) => Compute.ge(x, 0n))

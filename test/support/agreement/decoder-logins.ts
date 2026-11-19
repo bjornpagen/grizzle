@@ -19,7 +19,7 @@ import { clocked, deferrable, paged, workload } from "#compiler/public/workload.
  * A clocked read's instant: a checked contract over bigint, milliseconds, never negative, whose domain the clocked
  * read's statement casts the clock's reading to; a field of Due types by it, so Shelf installs that domain.
  */
-const Instant = contract("Instant", pg.bigint, (m) => m.ge(0n))
+const Instant = contract("Instant", pg.bigint, (m) => Compute.ge(m, 0n))
 
 const Item = relation("Item", { id: uuid }, ["id"])
 const Due = relation("Due", { id: uuid, at: Instant }, ["id"])

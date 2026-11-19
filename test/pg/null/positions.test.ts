@@ -136,7 +136,7 @@ import {
 	type Stored,
 	storedFieldGen,
 	sortOf,
-	type Term,
+	type NullTerm,
 	termGen,
 	type Trace,
 	type Truth,
@@ -187,7 +187,7 @@ interface NullCase {
 	readonly fold: Pred
 	readonly filter: Pred
 	readonly aggregate: Pred
-	readonly head: Term
+	readonly head: NullTerm
 }
 
 const generatedSpecGen =
@@ -471,7 +471,7 @@ const meetsNull = (w: World, item: Item, pred: Pred): boolean => {
 /** One expression judged at rows: a predicate's truth or a term's value. */
 type Judged =
 	| { readonly kind: "pred"; readonly pred: Pred; readonly position: Position }
-	| { readonly kind: "term"; readonly term: Term; readonly position: Position }
+	| { readonly kind: "term"; readonly term: NullTerm; readonly position: Position }
 
 /** PostgreSQL's answers to each judged expression at each row, in order, from one SELECT. */
 const postgresAnswers = (
@@ -1091,8 +1091,8 @@ const keptItem: Item = {
 	s: [0, 1]
 }
 
-const nOf: Term = { t: "field", field: "n" }
-const atN: Term = { t: "at", field: "n", key: { k: "own" } }
+const nOf: NullTerm = { t: "field", field: "n" }
+const atN: NullTerm = { t: "at", field: "n", key: { k: "own" } }
 const holds: Pred = { p: "cmp", op: "eq", a: nOf, b: nOf }
 const fails: Pred = { p: "cmp", op: "ne", a: nOf, b: nOf }
 const unknownAtN: Pred = { p: "cmp", op: "eq", a: atN, b: nOf }

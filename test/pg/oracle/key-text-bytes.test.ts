@@ -89,7 +89,7 @@ export const exactlyKeyTextBytes = property.explore(caseSpace, {
 				Effect.gen(function* () {
 					const budget = keyTextBytes(Arr.map(c.companions, fieldOf))
 					const KeyText = contract("KeyText", str.regex("^.*$", "su"), (v) =>
-						Compute.octetLength(v).le(budget)
+						Compute.le(Compute.octetLength(v), budget)
 					)
 					const names = [...Arr.map(indices(c.companions.length), (i) => `c${i}`), "t"]
 					const fields = Rec.fromEntries([

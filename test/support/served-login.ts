@@ -143,7 +143,7 @@ export interface RoleShape {
  * The type of a clocked read's `now` (see the header): a checked contract over bigint, an instant in milliseconds, never
  * negative, whose domain's CHECK a reading cast to it meets.
  */
-const Instant = contract("Instant", pg.bigint, (m) => m.ge(0n))
+const Instant = contract("Instant", pg.bigint, (m) => Compute.ge(m, 0n))
 
 /** The name of a role's refresh of the law level's view, by the role's place. */
 const refreshName = (place: number): string => `${roleName(place)}refresh`

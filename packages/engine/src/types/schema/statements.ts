@@ -10,7 +10,6 @@ import type {
 	Refusal,
 	Repeats,
 	SqlOfCarrier,
-	Term,
 	Unordered
 } from "#compiler/types/core/phantom.ts"
 import type {
@@ -588,30 +587,20 @@ export type Statement =
  * Each field of the source V shows as a Scalar of its field's domain and SQL type, whose language is the field's
  * values, beside the comparison and boolean helpers of Compute: a relation shows its own name and heading, and a
  * builder passes what it inferred of its argument (Shows), so a row of a generic source is typed by the heading its
- * relations share. A bytes field shows as a term of no comparison, which only Compute.sha256 reads (RowBytes).
+ * relations share. A bytes field's scalar is one no comparison or operation but Compute.sha256 takes (FirstTerm), since
+ * a bytes value has no equality, so a row check, selection or generated field reads it only through its digest.
  */
 export type RowScalars<V extends Shows<string, unknown>> = {
-	readonly [K in keyof V["heading"]]: V["heading"][K] extends { readonly sql: StoredOnlySql }
-		? RowBytes<FieldTypeOf<V["heading"], K>, Origin<V["name"], K & string>>
-		: Scalar<
-				FieldTypeOf<V["heading"], K> extends readonly [infer D, SqlTag] ? D : never,
-				unknown,
-				Origin<V["name"], K & string>,
-				FieldTypeOf<V["heading"], K> extends readonly [unknown, infer Sql extends SqlTag]
-					? Sql
-					: SqlTag,
-				FactOfFields<V["heading"]>[K]
-			>
+	readonly [K in keyof V["heading"]]: Scalar<
+		FieldTypeOf<V["heading"], K> extends readonly [infer D, SqlTag] ? D : never,
+		unknown,
+		Origin<V["name"], K & string>,
+		FieldTypeOf<V["heading"], K> extends readonly [unknown, infer Sql extends SqlTag]
+			? Sql
+			: SqlTag,
+		FactOfFields<V["heading"]>[K]
+	>
 } & ScalarHelpers
-
-/**
- * A bytes field of a row, of its domain and SQL type T, from origin O: a term with no comparison, since a bytes value
- * has no equality, which every operation and helper but Compute.sha256 refuses (FirstTerm), so a row check, selection or
- * generated field reads it only through its digest.
- */
-type RowBytes<T, O> = T extends readonly [infer D, infer Sql extends SqlTag]
-	? Term<D, unknown, O, Sql>
-	: never
 
 /** The fields of the heading C that are natural (types/fields NaturalField), the fields pred reads. */
 type NaturalIn<C> = {

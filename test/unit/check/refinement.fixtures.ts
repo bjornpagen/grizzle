@@ -39,11 +39,11 @@ const State = str.regex("^(?:draft|published)$")
 
 const Prose = str.regex("^.*$", "su")
 
-const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
+const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n))
 
 const Brand = contract("Brand", pg.bigint)
 
-const Handle = contract("Handle", Slug, (x) => Compute.charLength(x).le(20))
+const Handle = contract("Handle", Slug, (x) => Compute.le(Compute.charLength(x), 20))
 
 const Tier = closed.ordered("Tier", ["Free", "Pro"])
 

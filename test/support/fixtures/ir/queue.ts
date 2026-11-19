@@ -10,8 +10,8 @@
  *   const Outcome = closed.ordered("Outcome", ["succeeded", "failed"])
  *   const Reason = closed.ordered("Reason", ["malformed", "unsupported"])
  *   const Digest = contract("Digest", str.regex("^[0-9a-f]{64}$"))     // a lowercase SHA-256 hex digest
- *   const Slot = contract("Slot", pg.integer, (v) => v.ge(0))
- *   const SeatNo = contract("SeatNo", pg.integer, (v) => v.ge(0))
+ *   const Slot = contract("Slot", pg.integer, (v) => Compute.ge(v, 0))
+ *   const SeatNo = contract("SeatNo", pg.integer, (v) => Compute.ge(v, 0))
  *   const Instant = contract("Instant", pg.bigint)                      // epoch microseconds; brand only
  *
  * Digest keys are bounded ASCII text, so they are representable B-tree keys and spread uniformly; Instant is the

@@ -9,6 +9,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { rowEvaluator } from "#adapter/public/host.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { Compute } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import {
 	closed,
@@ -144,7 +145,7 @@ export const required: NonEmptyReadonlyArray<Feature> = [
 ]
 
 const Short = str.regex("^[a-c]{0,3}$")
-const Units = contract("Units", pg.integer, (x) => x.le(5))
+const Units = contract("Units", pg.integer, (x) => Compute.le(x, 5))
 
 const letters = (spelled: string) => characterOf(nonEmpty(Arr.fromIterable(spelled), spelled))
 

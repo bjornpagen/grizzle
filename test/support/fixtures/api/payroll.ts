@@ -41,12 +41,12 @@ import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { Cents, Instant } from "#test/support/fixtures/api/contracts.ts"
 
-export const Rate = contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))
-export const Micros = contract("Micros", pg.bigint, (x) => x.ge(0n))
+export const Rate = contract("Rate", pg.numeric(7, 6), (x) => Compute.between(x, 0n, 1n))
+export const Micros = contract("Micros", pg.bigint, (x) => Compute.ge(x, 0n))
 export const Week = contract("Week", pg.bigint)
 export const Ein = contract("Ein", str.regex("^[0-9]{2}-[0-9]{7}$"))
 export const LegalName = contract("LegalName", str.regex("^.+$", "su"), (x) =>
-	Compute.charLength(x).le(300)
+	Compute.le(Compute.charLength(x), 300)
 )
 
 const EmployeeCode = str.regex("^E[0-9]{6}$")

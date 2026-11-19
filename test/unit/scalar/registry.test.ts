@@ -37,6 +37,7 @@ import {
 	sameScalarType,
 	spanOf
 } from "#compiler/ir/scalar.ts"
+import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
@@ -278,7 +279,7 @@ export const scalarTypeOfAFieldDescToItsScalarTypeTakesTheCheckersPredicateTable
 								: "a bound above zero"
 					)
 					const Branded = contractDescriptor(name, pgDescriptors.bigint, (v: ScalarTerm) =>
-						v.ge(bound)
+						Compute.ge(v, bound)
 					)
 					const { desc } = succeeded(describeField(Branded, SourceLoc(name, [])))
 					const base = succeeded(

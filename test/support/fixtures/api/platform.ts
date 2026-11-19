@@ -40,9 +40,9 @@ import {
 import { paged, refresh, workload } from "#compiler/public/workload.ts"
 
 export const Instant = contract("Instant", pg.bigint)
-export const Micros = contract("Micros", pg.bigint, (x) => x.ge(0n))
-export const Tokens = contract("Tokens", pg.bigint, (x) => x.ge(0n))
-export const Rate = contract("Rate", pg.bigint, (x) => x.ge(0n))
+export const Micros = contract("Micros", pg.bigint, (x) => Compute.ge(x, 0n))
+export const Tokens = contract("Tokens", pg.bigint, (x) => Compute.ge(x, 0n))
+export const Rate = contract("Rate", pg.bigint, (x) => Compute.ge(x, 0n))
 export const DayNo = contract("DayNo", pg.integer)
 export const MonthNo = contract("MonthNo", pg.integer)
 

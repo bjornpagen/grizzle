@@ -36,14 +36,6 @@ import {
 
 export interface RowTerm extends Built {
 	readonly expr: OpenExpr
-	readonly eq: (other: unknown) => PredicateValue
-	readonly ne: (other: unknown) => PredicateValue
-	readonly lt: (other: unknown) => PredicateValue
-	readonly le: (other: unknown) => PredicateValue
-	readonly gt: (other: unknown) => PredicateValue
-	readonly ge: (other: unknown) => PredicateValue
-	readonly between: (low: unknown, high: unknown) => PredicateValue
-	readonly in: (values: unknown) => PredicateValue
 }
 
 /**
@@ -132,49 +124,28 @@ const termOperand = (
 	return { expr, type: typeOf(value) }
 }
 
-const literalList = (values: unknown, type: TermType | undefined, label: string) => {
+const literalList = (values: unknown, type: TermType | undefined) => {
 	if (!isList(values)) {
-		throw malformed(label, "a finite list of literals")
+		throw malformed("in", "a finite list of literals")
 	}
 	return values.map((v) =>
 		type === undefined
-			? untypedLiteral(v, label)
-			: literalFor(type.desc, v, label, type.roster?.handles)
+			? untypedLiteral(v, "in")
+			: literalFor(type.desc, v, "in", type.roster?.handles)
 	)
 }
-
-const compare =
-	(op: CompareOp, left: OpenExpr, type: TermType | undefined) =>
-	(other: unknown): PredicateValue =>
-		predicateValue({ kind: "compare", op, left, right: operand(other, type, `${op} operand`) })
 
 /** A term over `expr` whose literal operands adopt `type`. */
 const rowTerm = (expr: OpenExpr, type: TermType): RowTerm => termOver(expr, type, type.typing)
 
 /**
- * A term over `expr`, typed for Compute by `typing`, whose literal operands adopt `type` where its field's descriptor is
- * known, and are recorded as written where it is not, for the schema's compilation to type.
+ * A term over `expr`, typed for Compute by `typing`, whose literal operands, in a row helper's comparison, adopt `type`
+ * where its field's descriptor is known, and are recorded as written where it is not, for the schema's compilation to
+ * type.
  */
 const termOver = (expr: OpenExpr, type: TermType | undefined, typing: HeadingTyping): RowTerm => {
-	const comparisons = {
-		eq: compare("eq", expr, type),
-		ne: compare("ne", expr, type),
-		lt: compare("lt", expr, type),
-		le: compare("le", expr, type),
-		gt: compare("gt", expr, type),
-		ge: compare("ge", expr, type),
-		between: (low: unknown, high: unknown) =>
-			predicateValue({
-				kind: "between",
-				arg: expr,
-				low: operand(low, type, "between low"),
-				high: operand(high, type, "between high")
-			}),
-		in: (values: unknown) =>
-			predicateValue({ kind: "in", arg: expr, values: literalList(values, type, "in") })
-	}
 	if (typing.kind === "untyped") {
-		const term: RowTerm = Object.freeze({ ...builtMark, expr, ...comparisons })
+		const term: RowTerm = Object.freeze({ ...builtMark, expr })
 		if (type !== undefined) {
 			types.set(term, type)
 		}
@@ -184,8 +155,7 @@ const termOver = (expr: OpenExpr, type: TermType | undefined, typing: HeadingTyp
 		...builtMark,
 		expr,
 		column: typing.carrier.column,
-		sql: typing.carrier.sql,
-		...comparisons
+		sql: typing.carrier.sql
 	})
 	if (type !== undefined) {
 		types.set(term, type)
@@ -260,7 +230,7 @@ export const rowHelpers = Object.freeze({
 		return predicateValue({
 			kind: "in",
 			arg: arg.expr,
-			values: literalList(values, arg.type, "in")
+			values: literalList(values, arg.type)
 		})
 	},
 	and: connective("and"),
@@ -319,8 +289,8 @@ const rowOf = <A>(
  *
  * `check(name, R, (row) => predicate)` runs its callback once, at construction, over a RowScalars value and records the
  * predicate's ExprDesc (callbacks build descriptions; they never run per row). RowScalars exposes each field
- * of R as a Scalar, a term with the comparisons eq, ne, lt, le, gt, ge, between and in, beside the Compute helpers a
- * check may use: eq, ne, lt, le, gt, ge, between, in, and, or, not, charLength, octetLength and utf16Length.
+ * of R as a Scalar beside the Compute helpers a check compares them with: eq, ne, lt, le, gt, ge, between, in, and, or,
+ * not, charLength, octetLength and utf16Length.
  *
  * A literal operand adopts the type of the term it meets and is checked at construction:
  * over a numeric field a JavaScript number is refused. Whether each partial operation's precondition is proved, a

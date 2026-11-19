@@ -52,7 +52,7 @@ const Rate = closed.relation(
 		{ tier: "silver", rate: 500 }
 	]
 )
-const Units = contract("Units", pg.integer, (x) => x.le(1000))
+const Units = contract("Units", pg.integer, (x) => Compute.le(x, 1000))
 /** The pattern an account's code and its alias share, so one domain types both columns, each field its own law. */
 const codeSource = "^[a-z]{1,8}$"
 const Account = relation.generated(

@@ -806,7 +806,7 @@ const handlesOf = (n: number, h: (code: number) => string): NonEmptyReadonlyArra
 	...upTo(n - 1, (code) => h(code + 1))
 ]
 
-const Units = contract("Units", pg.integer, (x) => x.le(5))
+const Units = contract("Units", pg.integer, (x) => Compute.le(x, 5))
 const Wild = str.regex("^.*$", "su")
 const Short = str.regex("^[a-z]{1,8}$", "u")
 

@@ -120,7 +120,7 @@ const SlugAgain = str.regex("^[a-z](?:[a-z0-9]|-){0,62}$")
 const Prose = str.regex("^.*$", "su")
 /** A length bound is a contract predicate; over the wildcard the CHECK holds only the bound. */
 const limit = 5
-const Note = contract("Note", Prose, (x) => Compute.charLength(x).le(limit))
+const Note = contract("Note", Prose, (x) => Compute.le(Compute.charLength(x), limit))
 
 const Tier = closed.ordered("Tier", ["Free", "Pro"])
 const TierLabel = closed.relation(
@@ -136,8 +136,8 @@ const Article = relation("Article", { id: uuid, slug: Slug, title: Prose }, ["id
 const Draft = relation("Draft", { id: uuid, slug: SlugAgain, note: Note }, ["id"])
 const Comment = relation("Comment", { id: uuid, article: uuid, slug: Slug }, ["id"])
 /** Numeric contracts: a bigint bound and an exact rate in the unit interval. */
-const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
-const Rate = contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))
+const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n))
+const Rate = contract("Rate", pg.numeric(7, 6), (x) => Compute.between(x, 0n, 1n))
 const Price = relation("Price", { id: uuid, amount: Cents, rate: Rate }, ["id"])
 const Content = schema(
 	"Content",

@@ -72,7 +72,7 @@ import {
 	sideDescOf,
 	statementDescOf
 } from "#compiler/schema/statements.ts"
-import type { RowTerm } from "#compiler/schema/terms.ts"
+import type { RowTerm, rowHelpers } from "#compiler/schema/terms.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
@@ -587,7 +587,9 @@ export const literalsTakeTheirFieldsValueRoundsARealToBinary32AndANumericPSToIts
 								case "selection": {
 									const side = sideDescOf(
 										onBuilder(
-											selectBuilder(Rated, (r: { readonly value: RowTerm }) => r.value.eq(host)),
+											selectBuilder(Rated, (r: { readonly value: RowTerm } & typeof rowHelpers) =>
+												r.eq(r.value, host)
+											),
 											["id"]
 										)
 									)
@@ -603,8 +605,10 @@ export const literalsTakeTheirFieldsValueRoundsARealToBinary32AndANumericPSToIts
 								}
 								case "check operand": {
 									const desc = statementDescOf(
-										checkBuilder("Bounded", Rated, (r: { readonly value: RowTerm }) =>
-											r.value.le(host)
+										checkBuilder(
+											"Bounded",
+											Rated,
+											(r: { readonly value: RowTerm } & typeof rowHelpers) => r.le(r.value, host)
 										)
 									)
 									if (

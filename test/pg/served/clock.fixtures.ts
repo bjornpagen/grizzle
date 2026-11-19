@@ -5,6 +5,7 @@ import { Record as Rec } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import { clockedMember } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
+import { Compute } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -37,9 +38,9 @@ const Instant = contract("Instant", pg.bigint)
 
 const year2100 = 4_102_444_800_000n
 
-const Before2100 = contract("Before2100", pg.bigint, (x) => x.le(year2100))
+const Before2100 = contract("Before2100", pg.bigint, (x) => Compute.le(x, year2100))
 
-const After2100 = contract("After2100", pg.bigint, (x) => x.ge(year2100))
+const After2100 = contract("After2100", pg.bigint, (x) => Compute.ge(x, year2100))
 
 const Wanted = relation("Wanted", { key: pg.integer, due: Instant }, ["key"])
 

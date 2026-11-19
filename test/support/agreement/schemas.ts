@@ -4153,7 +4153,7 @@ const predicateProbe = (d: Drawing, base: Base): Probe => {
 			case "select":
 				return `Sc.select(${ids(r.name)}, (row) => row.eq(row.${field.name}, ${operand(ids, `row.${field.name}`)}))`
 			case "contract":
-				return `Fi.contract("Probe", ${ids(r.name)}.fields.${field.name}, (x) => x.eq(${operand(ids, "x")}))`
+				return `Fi.contract("Probe", ${ids(r.name)}.fields.${field.name}, (x) => Cp.Compute.eq(x, ${operand(ids, "x")}))`
 		}
 	}
 	return {
@@ -4325,7 +4325,7 @@ const literalProbe = (d: Drawing, base: Base): Probe => {
 					}
 				case "contract":
 					return oneLine(
-						`export const ${own} = Fi.contract("Probe", ${field}, (x) => x.eq(${literal.source}))`
+						`export const ${own} = Fi.contract("Probe", ${field}, (x) => Cp.Compute.eq(x, ${literal.source}))`
 					)
 			}
 		},

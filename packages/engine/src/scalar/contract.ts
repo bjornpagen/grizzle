@@ -4,24 +4,16 @@ import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import { type CompareOp, decodeDesc, type ExprDesc, type FieldDesc } from "#compiler/ir/desc.ts"
+import { decodeDesc, type ExprDesc, type FieldDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type Fact, factNames } from "#compiler/ir/proof.ts"
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import {
-	type PredicateValue,
-	predicateExpr,
-	predicateValue,
-	registerTerm,
-	type TermCarrier,
-	termExpr
-} from "#compiler/scalar/compute/term.ts"
+import { predicateExpr, registerTerm, type TermCarrier } from "#compiler/scalar/compute/term.ts"
 
 import {
 	contractType,
 	type Described,
 	describeFieldOrThrow,
-	literalDescOrThrow,
 	type ScalarEnv,
 	type SqlTag,
 	serialNameOf
@@ -29,67 +21,18 @@ import {
 
 interface ScalarTerm extends Built, TermCarrier {
 	readonly expr: OpenExpr
-	readonly eq: (other: unknown) => PredicateValue
-	readonly ne: (other: unknown) => PredicateValue
-	readonly lt: (other: unknown) => PredicateValue
-	readonly le: (other: unknown) => PredicateValue
-	readonly gt: (other: unknown) => PredicateValue
-	readonly ge: (other: unknown) => PredicateValue
-	readonly between: (low: unknown, high: unknown) => PredicateValue
-	readonly in: (values: unknown) => PredicateValue
 }
-
-/** The operand opposite a term of type `t`: another term or a literal of t's base. */
-const operandExpr = (operand: unknown, t: ScalarType, label: string): OpenExpr => {
-	const term = termExpr(operand)
-	if (term !== undefined) {
-		return term
-	}
-	if (predicateExpr(operand) !== undefined) {
-		throw malformedDescription(captureLoc(label, []), "a scalar operand, not a predicate")
-	}
-	return { kind: "literal", value: literalDescOrThrow(t, operand, label) }
-}
-
-const compare =
-	(op: CompareOp, left: OpenExpr, t: ScalarType) =>
-	(other: unknown): PredicateValue =>
-		predicateValue({ kind: "compare", op, left, right: operandExpr(other, t, `${op} operand`) })
 
 /**
- * A scalar term over `expr`, whose comparisons take operands of type `t`, its carrier the column and SQL type of the
- * value it stands for.
+ * The term a contract predicate's callback receives for its value: a scalar term over `expr` of type `t`, its carrier
+ * the column and SQL type of the value it stands for, which Compute's comparisons read.
  */
-const scalarTerm = (expr: OpenExpr, t: ScalarType, carrier: TermCarrier): ScalarTerm => {
-	const term: ScalarTerm = Object.freeze({
-		...builtMark,
+const scalarTerm = (expr: OpenExpr, t: ScalarType, carrier: TermCarrier): ScalarTerm =>
+	registerTerm(
+		Object.freeze({ ...builtMark, expr, column: carrier.column, sql: carrier.sql }),
 		expr,
-		column: carrier.column,
-		sql: carrier.sql,
-		eq: compare("eq", expr, t),
-		ne: compare("ne", expr, t),
-		lt: compare("lt", expr, t),
-		le: compare("le", expr, t),
-		gt: compare("gt", expr, t),
-		ge: compare("ge", expr, t),
-		between: (low: unknown, high: unknown) =>
-			predicateValue({
-				kind: "between",
-				arg: expr,
-				low: operandExpr(low, t, "between low"),
-				high: operandExpr(high, t, "between high")
-			}),
-		in: (values: unknown) => {
-			if (!isList(values)) {
-				throw malformedDescription(captureLoc("in", []), "a finite list of literals")
-			}
-			const list: ReadonlyArray<unknown> = values
-			const literals = list.map((v) => literalDescOrThrow(t, v, "in value"))
-			return predicateValue({ kind: "in", arg: expr, values: literals })
-		}
-	})
-	return registerTerm(term, expr, t)
-}
+		t
+	)
 
 /** The ScalarEnv that re-reads a base's own resolved roster, which a FieldDesc names but does not hold. */
 const baseEnv = (base: ScalarType): ScalarEnv => {
@@ -114,7 +57,7 @@ const buildPredicate = (predicate: unknown, base: Described, name: string): Expr
 	if (expr === undefined) {
 		throw malformedDescription(
 			captureLoc(`contract ${name} predicate`, []),
-			"a predicate built from the value's comparisons"
+			"a predicate built from Compute's comparisons over the value"
 		)
 	}
 	const owned = decodeDesc("expr", expr)
@@ -197,8 +140,8 @@ interface ContractParts {
  * also has `predicate: true`. The Compute catalogue (scalar/compute), the query builder and
  * the row checks build terms and predicates and register them by identity in compute/term.ts's one registry,
  * and read them with `termExpr` and `predicateExpr`, which consult that registry and never a value's members, so a
- * Compute expression over a contract's value composes with the value's own comparisons:
- * `contract("Body", text, (v) => Compute.charLength(v).le(2000))`, and a copy of a term is no term. A parameter
+ * Compute expression over a contract's value is compared as any term is:
+ * `contract("Body", text, (v) => Compute.le(Compute.charLength(v), 2000))`, and a copy of a term is no term. A parameter
  * (r.param) is any value with a string `param` member and no `expr`; it adopts the type it meets.
  *
  * The admission core of contract: a JavaScript caller can pass anything in every position. `rest` is what follows the

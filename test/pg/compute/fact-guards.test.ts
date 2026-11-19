@@ -240,15 +240,15 @@ const contractOver = (base: Base, keeps: Keeps): TestField => {
 		case "every value":
 			return testContract("Guarded", field, undefined)
 		case "ne":
-			return testContract("Guarded", field, (x) => x.ne(zero))
+			return testContract("Guarded", field, (x) => Compute.ne(x, zero))
 		case "gt":
-			return testContract("Guarded", field, (x) => x.gt(zero))
+			return testContract("Guarded", field, (x) => Compute.gt(x, zero))
 		case "ge":
-			return testContract("Guarded", field, (x) => x.ge(zero))
+			return testContract("Guarded", field, (x) => Compute.ge(x, zero))
 		case "lt":
-			return testContract("Guarded", field, (x) => x.lt(zero))
+			return testContract("Guarded", field, (x) => Compute.lt(x, zero))
 		case "le":
-			return testContract("Guarded", field, (x) => x.le(zero))
+			return testContract("Guarded", field, (x) => Compute.le(x, zero))
 	}
 }
 

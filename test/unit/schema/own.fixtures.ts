@@ -207,9 +207,9 @@ export type LimitsRow = Row & { readonly limit: Row["id"]; readonly maximum: Row
 export const limitsPredicate = (r: LimitsRow, p: LimitsPredicate, rewrite: boolean): unknown => {
 	switch (p.kind) {
 		case "at least":
-			return r[p.field].ge(p.n)
+			return r.ge(r[p.field], p.n)
 		case "equal":
-			return r[p.field].eq(p.n)
+			return r.eq(r[p.field], p.n)
 		case "within maximum":
 			return r.le(r.limit, r.maximum)
 		case "and":

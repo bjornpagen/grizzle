@@ -21,7 +21,7 @@ import {
 	v
 } from "#test/unit/compute/support.ts"
 
-const Cents = testContract("Cents", testPg.bigint, (x) => x.ge(0n))
+const Cents = testContract("Cents", testPg.bigint, (x) => Compute.ge(x, 0n))
 
 const EpochDay = testContract("EpochDay", testPg.bigint, undefined)
 

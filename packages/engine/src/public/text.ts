@@ -86,7 +86,7 @@ export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<stri
  * worst alignment padding. `fields` are every other column of the index: a key's other fields, declared or over a
  * selection; for a family axis that carries the text, its group fields, its natural index, the other values it carries
  * and a tree's `end`. A text field whose contract bounds it there,
- * `contract("KeyText", str.regex("^.*$", "su"), (v) => Compute.octetLength(v).le(keyTextBytes(fields)))`, sits in any of
+ * `contract("KeyText", str.regex("^.*$", "su"), (v) => Compute.le(Compute.octetLength(v), keyTextBytes(fields)))`, sits in any of
  * them. A field of a relation is read as its declared type (schema/relation.ts describeDeclared), a drawn index or a
  * generated field among them. It throws CompileError (UnrepresentableKey) for fields of no byte bound, such as an
  * unbounded text, for more fields than an index holds beside a text, and for fields that leave a text no byte.

@@ -1,3 +1,13 @@
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Result, String as Str } from "effect"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { int8Digits, integerDigits } from "#compiler/ir/carriers.ts"
+import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { type AggregateOverload, aggregateOverload } from "#compiler/scalar/aggregate.ts"
 /**
  * Aggregate typing against PostgreSQL 19 (scalar/aggregate.ts): count(*), and every aggregate of the language, sum,
  * mean, min and max, over a sample of each carrier a field holds, a closed id, a set and a contract among them.
@@ -16,16 +26,7 @@
  *
  * Features: count(*), and an admitted aggregate checked over a closed id, a contract and booleans.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Result, String as Str } from "effect"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { int8Digits, integerDigits } from "#compiler/ir/carriers.ts"
-import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { type AggregateOverload, aggregateOverload } from "#compiler/scalar/aggregate.ts"
+import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { catalogTypeName } from "#compiler/scalar/compute/registry.ts"
 import { exactNumericBound, valueType } from "#compiler/scalar/compute/types.ts"
 import { concreteTypeName, textCell } from "#test/pg/compute/support.ts"
@@ -52,7 +53,7 @@ interface Sample {
 
 const mood = field({ kind: "closedId", roster: "Mood" }, "code")
 const moods = field({ kind: "bits", roster: "Mood" }, "bits")
-const Cents = testContract("Cents", testPg.bigint, (x) => x.ge(0n))
+const Cents = testContract("Cents", testPg.bigint, (x) => Compute.ge(x, 0n))
 
 const plain = (label: string, f: TestField, values: string): Sample => ({
 	label,

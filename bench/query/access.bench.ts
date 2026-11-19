@@ -53,6 +53,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { ConservativeParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { SentStatement } from "#compiler/lower/shapes/index.ts"
+import { Compute } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
@@ -66,7 +67,7 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Kind = closed.ordered("Kind", ["Open", "Done", "Held"])
-const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
+const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n))
 const Entry = relation(
 	"Entry",
 	{

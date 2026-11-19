@@ -22,6 +22,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { paramDomainsOf } from "#compiler/physical/ddl/domains.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
+import { Compute } from "#compiler/public/compute.ts"
 import { contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -53,9 +54,9 @@ const Slug = str.regex("^[a-z]{1,8}$", "u")
 /** A pattern no stored field declares: only a parameter's pattern domain checks it. */
 const Tag = str.regex("^#[0-9]{1,3}$", "u")
 
-const Cents = contract("Cents", pg.bigint, (x) => x.between(0n, 10_000n))
+const Cents = contract("Cents", pg.bigint, (x) => Compute.between(x, 0n, 10_000n))
 
-const Rate = contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))
+const Rate = contract("Rate", pg.numeric(7, 6), (x) => Compute.between(x, 0n, 1n))
 
 const Article = relation("Article", { id: uuid, slug: Slug }, ["id"])
 

@@ -144,8 +144,8 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 	)
 	const kindName = fresh("LawKind", taken)
 	const Kind = closedBuilder(kindName, live, level.order, [])
-	const Count = contract("LawCount", pg.integer, (x) => x.ge(level.least[0]))
-	const Tally = contract("LawTally", pg.integer, (x) => x.ge(level.least[1]))
+	const Count = contract("LawCount", pg.integer, (x) => Compute.ge(x, level.least[0]))
+	const Tally = contract("LawTally", pg.integer, (x) => Compute.ge(x, level.least[1]))
 	const holderName = fresh("LawHolder", taken)
 	const holderFields = { id: uuid, code: closedId(Kind), marks: bits(Kind), count: Count }
 	const Holder =

@@ -206,7 +206,7 @@ export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
 
 /** README: "Hard in Drizzle, one declaration here", 2. Top three per group, with exact types. */
 /** Millionths of a dollar, never negative; and an instant, in milliseconds since the epoch. */
-const Micros = contract("Micros", pg.bigint, (m) => m.ge(0n))
+const Micros = contract("Micros", pg.bigint, (m) => Compute.ge(m, 0n))
 const Millis = contract("Millis", pg.bigint)
 
 /** One API call: its workspace, its model, when it ran and what it cost. */
@@ -381,7 +381,7 @@ export const Books = schema(
 	[
 		entryPostings,
 		fold(entryPostings, Monoid.sum, on(Posting, "entry", "amount"), on(Entry, "id", "total")),
-		check("Balanced", Entry, (e) => e.total.eq(0n))
+		check("Balanced", Entry, (e) => e.eq(e.total, 0n))
 	]
 )
 
@@ -762,7 +762,7 @@ export const loadViews = (views: ReadonlyArray<{ readonly post: Uuid; readonly v
 	)
 
 /** README: "Rules", the box office. */
-const Cents = contract("Cents", pg.bigint, (c) => c.ge(0n))
+const Cents = contract("Cents", pg.bigint, (c) => Compute.ge(c, 0n))
 
 export const Show = relation(
 	"Show",
@@ -784,7 +784,7 @@ export const BoxOffice = schema(
 		contained(on(Run, "stage"), on(Stage, "id")),
 		contained(on(Run, "show"), on(Show, "id")),
 		key(on(Ticket, "show", "holder")),
-		check("SomeSeats", Show, (s) => s.seats.ge(1n)),
+		check("SomeSeats", Show, (s) => s.ge(s.seats, 1n)),
 		check("NoOversell", Show, (s) => s.le(s.tickets, s.seats)),
 		mutable(Show)
 	]
@@ -1401,7 +1401,7 @@ export const latestState = query(Invoices).rule((r) => {
 /** "a comparison ... of states is a type error": a row check's comparison of its own field. */
 export const stateCheck = check("PaidOrLater", Invoice, (i) =>
 	// @ts-expect-error -- refusal: a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles
-	i.state.ge("paid")
+	i.ge(i.state, "paid")
 )
 
 /** "A query over the schema is a type error on a role that does not hold every table whole". */

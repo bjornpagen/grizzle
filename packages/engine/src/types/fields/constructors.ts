@@ -84,8 +84,8 @@ export interface Pg {
 
 /**
  * A nominal contract over a base descriptor, with an optional total predicate over one value. The predicate receives
- * the base's scalar, of the base's domain and SQL type, whose language is the base's host type, so
- * `contract("Cents", pg.bigint, (v) => v.ge(0n))` reads naturally.
+ * the base's scalar, of the base's domain and SQL type, whose language is the base's host type, which Compute's
+ * comparisons read: `contract("Cents", pg.bigint, (v) => Compute.ge(v, 0n))`.
  * A contract is a value domain and lowers to a PostgreSQL domain; a serial is a column generation declaration, not a
  * value domain, and PostgreSQL admits an identity column only over smallint, integer or bigint, never
  * over a domain. So the base is never a serial; a contract over the underlying integer type is the value domain.
@@ -94,7 +94,7 @@ export interface Pg {
  *
  * After the predicate, `{ proves: ["nonzero"] }` declares the facts it proves, which the contract's type then states
  * of its values, so a divisor of the contract needs no guard; compilation proves each from the predicate, else refuses
- * the declaration: `contract("Divisor", pg.bigint, (v) => v.ne(0n), { proves: ["nonzero"] })`.
+ * the declaration: `contract("Divisor", pg.bigint, (v) => Compute.ne(v, 0n), { proves: ["nonzero"] })`.
  */
 export type ContractConstructor = <
 	const Name extends string,

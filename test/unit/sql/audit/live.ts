@@ -369,9 +369,9 @@ const gauges = schema(
 	[
 		check("RealReading", Gauge, (g) =>
 			g.and(
-				g.reading.ne(Number.NaN),
-				g.reading.lt(Number.POSITIVE_INFINITY),
-				g.reading.gt(Number.NEGATIVE_INFINITY)
+				g.ne(g.reading, Number.NaN),
+				g.lt(g.reading, Number.POSITIVE_INFINITY),
+				g.gt(g.reading, Number.NEGATIVE_INFINITY)
 			)
 		)
 	]

@@ -27,8 +27,8 @@ export const Resource = closed.ordered("Resource", ["gpu", "cpu"])
 export const Outcome = closed.ordered("Outcome", ["succeeded", "failed"])
 export const Reason = closed.ordered("Reason", ["malformed", "unsupported"])
 export const Digest = contract("Digest", str.regex("^[0-9a-f]{64}$"))
-export const Slot = contract("Slot", pg.integer, (x) => x.ge(0))
-export const SeatNo = contract("SeatNo", pg.integer, (x) => x.ge(0))
+export const Slot = contract("Slot", pg.integer, (x) => Compute.ge(x, 0))
+export const SeatNo = contract("SeatNo", pg.integer, (x) => Compute.ge(x, 0))
 
 export const Standing = closed.ordered("Standing", ["wanted", "leased", "done", "denied"])
 

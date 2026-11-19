@@ -25,7 +25,7 @@ import {
 	type Pred,
 	type Sort,
 	type StoredSort,
-	type Term,
+	type NullTerm,
 	narrowBound,
 	tenthsText,
 	floatOf,
@@ -256,8 +256,8 @@ const listValue = (literal: ListLiteral): unknown => {
 export type Row = Readonly<Record<string, unknown>>
 
 /** A term built through grizzle's untyped Compute (a JavaScript caller's), over a row. */
-export const buildTerm = (c: Closed, row: Row, term: Term): unknown => {
-	const b = (t: Term): unknown => buildTerm(c, row, t)
+export const buildTerm = (c: Closed, row: Row, term: NullTerm): unknown => {
+	const b = (t: NullTerm): unknown => buildTerm(c, row, t)
 	const pick: ClosedReads = c.Pick
 	const weight: ClosedReads = c.Wt
 	const succ: ClosedReads = c.Succ

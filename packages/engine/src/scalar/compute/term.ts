@@ -43,8 +43,8 @@ export interface TermCarrier<out T = unknown, out S extends SqlTag = SqlTag> {
  * expression is open (ir/open.ts OpenExpr): a query variable, a parent variable or an interior stage in it is the builder's reference object until the
  * rule that uses it spells it, and a row check or a contract parses it into a Description's. This is the protocol the field
  * package's contract predicates (scalar/contract.ts), the query builder and the row checks build terms with, so a
- * Compute expression over a contract's VALUE composes with the value's own comparisons:
- * `contract("Body", text, (v) => Compute.charLength(v).le(2000))`.
+ * Compute expression over a contract's VALUE is compared as any term is:
+ * `contract("Body", text, (v) => Compute.le(Compute.charLength(v), 2000))`.
  *
  * Terms and predicates are admitted by identity, as queries and sources are. Every builder that makes one registers
  * the frozen value here with its expression and type (registerTerm, registerPredicate), and termExpr, termOf and
@@ -58,8 +58,8 @@ export interface TermCarrier<out T = unknown, out S extends SqlTag = SqlTag> {
  * be a Term of name's type over balance's expression. Such a copy is refused (MalformedDescription), and a value no
  * builder made, whatever its members, is no term.
  *
- * Every term carries the comparisons of a Scalar (eq, ne, lt, le, gt, ge, between, in); Compute.charLength's
- * result is typed a Scalar, and the others are typed Term, whose comparisons are r.eq and Compute.eq.
+ * A term carries no comparison of its own: its comparisons are Compute's (Compute.eq), a row's helpers (row.eq) and a
+ * rule's (r.eq).
  *
  * A typed term: its expression and its carrier, whose column delivers T; the ScalarType its literal operands adopt is
  * the one its builder registered (registerTerm).
@@ -67,14 +67,6 @@ export interface TermCarrier<out T = unknown, out S extends SqlTag = SqlTag> {
 export interface ScalarTerm<out T = unknown, out S extends SqlTag = SqlTag>
 	extends Built, TermCarrier<T, S> {
 	readonly expr: OpenExpr
-	readonly eq: (other: unknown) => PredicateValue
-	readonly ne: (other: unknown) => PredicateValue
-	readonly lt: (other: unknown) => PredicateValue
-	readonly le: (other: unknown) => PredicateValue
-	readonly gt: (other: unknown) => PredicateValue
-	readonly ge: (other: unknown) => PredicateValue
-	readonly between: (low: unknown, high: unknown) => PredicateValue
-	readonly in: (values: unknown) => PredicateValue
 }
 
 /**

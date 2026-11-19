@@ -7,16 +7,13 @@ import type { Span } from "#compiler/scalar/values/span.ts"
 import type { Vector } from "#compiler/scalar/values/vector.ts"
 import type {
 	BaseOf,
-	ComputedOrigin,
 	DeclaredOf,
 	Facts,
 	FactsOf,
 	HasOrigin,
 	LiteralOrigin,
 	Meets,
-	OperandOrigin,
 	OriginOfTerm,
-	ParamsOfTerm,
 	Predicate,
 	Refusal,
 	SqlOfTerm,
@@ -247,56 +244,27 @@ export interface Guard<out G, in P = unknown, out O = unknown> extends Predicate
 }
 
 /**
- * Scalar terms with comparison methods, operands, and PostgreSQL's native result typing. A scalar's language L is its
- * values, which its JavaScript operands are of.
+ * A scalar: a term whose facts are the ones its type declares (DeclaredOf) and whose column delivers its language L,
+ * its values, which its JavaScript operands are of: a contract predicate's value, a row check's fields and a length
+ * Compute measures. A value of a contract has its facts wherever it is read, a stored field's as a heading column's
+ * (ColumnFacts), as compilation reads a value's facts off its type. A scalar carries no comparison of its own: Compute's,
+ * a row's helpers' and a rule's compare it.
  *
  * An operation's result type is read off a table keyed by its operand's SQL type, the term's `sql` member
  * (scalar/compute/tables.ts): arithmetic keeps the operand's SQL type without its contract, money / money is double
  * precision, SUM over integer is bigint. The operand families each operation admits are SQL types too, a type
  * parameter's constraint, and the tables follow the overload registry of packages/engine/src/scalar/compute, which
  * test/pg/compute verifies against PostgreSQL 19's catalog.
- *
- * A scalar with comparison methods: a contract predicate's value, a row check's fields. A comparison's origin is what
- * its operands read. Its facts are the ones its type declares (DeclaredOf): a value of a contract has them wherever it is
- * read, a stored field's as a heading column's (ColumnFacts), as compilation reads a value's facts off its type.
  */
-export interface Scalar<
-	in out T,
-	in P = unknown,
-	out O = unknown,
-	out Sql extends SqlTag = SqlTag,
-	in out L = T
-> extends Term<T, P, O, Sql, L, DeclaredOf<T>, L> {
-	eq<const B extends Operand<T, Sql, L>>(
-		other: B
-	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
-	ne<const B extends Operand<T, Sql, L>>(
-		other: B
-	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
-	lt<const B extends Operand<T, Sql, L>>(
-		other: B & OrderedType<T>
-	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
-	le<const B extends Operand<T, Sql, L>>(
-		other: B & OrderedType<T>
-	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
-	gt<const B extends Operand<T, Sql, L>>(
-		other: B & OrderedType<T>
-	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
-	ge<const B extends Operand<T, Sql, L>>(
-		other: B & OrderedType<T>
-	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
-	between<const Lo extends Operand<T, Sql, L>, const Hi extends Operand<T, Sql, L>>(
-		low: Lo & OrderedType<T>,
-		high: Hi
-	): Predicate<
-		P & ParamsOfTerm<Lo> & ParamsOfTerm<Hi>,
-		ComputedOrigin<O | OperandOrigin<Lo> | OperandOrigin<Hi>>
-	>
-	in(values: ReadonlyArray<LiteralOf<L>>): Predicate<P, ComputedOrigin<O>>
-}
-
-/** A comparison's origin: a computation over the scalar, of origin O, and the operand B. */
-type ComparisonOrigin<O, B> = ComputedOrigin<O | OperandOrigin<B>>
+export type Scalar<T, P = unknown, O = unknown, Sql extends SqlTag = SqlTag, L = T> = Term<
+	T,
+	P,
+	O,
+	Sql,
+	L,
+	DeclaredOf<T>,
+	L
+>
 
 /**
  * Whether a term's values have no order: its type carries Unordered, a closed id of a closed.unordered roster, whose
@@ -324,16 +292,6 @@ export type OrderedOperand<A> =
 	HasOrder<A> extends true
 		? unknown
 		: Refusal<"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles">
-
-/**
- * What a scalar of type T requires of an ordering's other operand: OrderedOperand's refusal where T, a closed id of a
- * closed.unordered roster, has no order (HasNoOrder), and nothing otherwise.
- */
-type OrderedType<T> = [T] extends [never]
-	? unknown
-	: [T] extends [Unordered]
-		? Refusal<"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles">
-		: unknown
 
 /**
  * A precondition on an inferred argument: `a: A & Requires<Cond, "message">` keeps A inferable from the argument and

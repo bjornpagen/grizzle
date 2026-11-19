@@ -6,6 +6,7 @@
 export type { Brand, Option } from "effect"
 export type { DbOf } from "#adapter/types/db.ts"
 export { ChangeSet } from "#compiler/public/changeset.ts"
+export { Compute } from "#compiler/public/compute.ts"
 export type {
 	Addition,
 	AdditionIn,

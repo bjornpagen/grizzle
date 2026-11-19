@@ -623,7 +623,7 @@ export const Counted = relation("Counted", { id: uuid, n: natural }, ["id"], [])
 
 /** Task's facts of one kind, as a JavaScript caller writes the callback. */
 export const ofKind = (handle: string) => (r: Row & { readonly kind: Row["id"] }) =>
-	r.kind.eq(handle)
+	r.eq(r.kind, handle)
 
 /** The predicate a check records for `callback` over Task: what a selection over the same callback records. */
 export const predicateOf = (callback: unknown) => {
@@ -665,7 +665,6 @@ type CheckPredicate =
 			readonly op: Op
 			readonly left: Operand
 			readonly value: number
-			readonly helper: boolean
 	  }
 	| { readonly kind: "length"; readonly op: Op; readonly n: number }
 	| { readonly kind: "and" | "or"; readonly args: Arr.NonEmptyReadonlyArray<CheckPredicate> }
@@ -733,8 +732,7 @@ const atomGen: Gen<CheckPredicate> = weighted([
 			(source) => ({
 				op: source.draw(opGen),
 				left: source.draw(operandGen),
-				value: source.draw(int(-1000, 1000)),
-				helper: source.draw(boolean)
+				value: source.draw(int(-1000, 1000))
 			}),
 			(r): CheckPredicate => ({ kind: "literal", ...r })
 		)
@@ -800,14 +798,10 @@ export const built = (e: Row, p: CheckPredicate): unknown => {
 	switch (p.kind) {
 		case "fields":
 			return e[p.op](operandTerm(e, p.left), e[p.right])
-		case "literal": {
-			const term = operandTerm(e, p.left)
-			return p.helper || p.left.kind === "sum"
-				? e[p.op](term, p.value)
-				: e[p.left.field][p.op](p.value)
-		}
+		case "literal":
+			return e[p.op](operandTerm(e, p.left), p.value)
 		case "length":
-			return e.charLength(e.label)[p.op](p.n)
+			return e[p.op](e.charLength(e.label), p.n)
 		case "and":
 		case "or":
 			return e[p.kind](...argumentsOf(Arr.map(p.args, (a) => built(e, a))))
@@ -868,15 +862,15 @@ export const plantedConjunct = (e: Row, defect: CheckDefect): unknown => {
 	const sum = computeCore.add(e.limit, 1)
 	switch (defect) {
 		case "a fraction for an integer field":
-			return e.limit.ge(1.5)
+			return e.ge(e.limit, 1.5)
 		case "a bigint for an integer field":
-			return e.limit.ge(1n)
+			return e.ge(e.limit, 1n)
 		case "an integer beyond int4":
-			return e.limit.ge(2 ** 31)
+			return e.ge(e.limit, 2 ** 31)
 		case "a parameter":
-			return e.limit.ge({ param: "x" })
+			return e.ge(e.limit, { param: "x" })
 		case "charLength of an integer field":
-			return e.charLength(e.limit).le(3)
+			return e.le(e.charLength(e.limit), 3)
 		case "a look-alike term":
 			return e.le({ expr: sum.expr }, e.maximum)
 		case "a spread copy of a term":
@@ -885,7 +879,7 @@ export const plantedConjunct = (e: Row, defect: CheckDefect): unknown => {
 			return e.lt(untypedTerm(sum.expr), Symbol("x"))
 		case "none":
 		case "a callback returning no predicate":
-			return e.limit.ge(0)
+			return e.ge(e.limit, 0)
 	}
 }
 

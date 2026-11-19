@@ -8,10 +8,10 @@ export const Tone = closed.ordered("Tone", ["low", "high"])
 const Shade = closed.ordered("Shade", ["low", "dark"])
 /** Tone's handles in a roster whose order means nothing: a closed id of it has no order, which no ordered operation reads. */
 export const Hue = closed.unordered("Hue", ["low", "high"])
-const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n), { proves: ["nonnegative"] })
+const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n), { proves: ["nonnegative"] })
 const EpochDay = contract("EpochDay", pg.bigint)
-const Rate = contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))
-const Divisor = contract("Divisor", pg.integer, (x) => x.ne(0), { proves: ["nonzero"] })
+const Rate = contract("Rate", pg.numeric(7, 6), (x) => Compute.between(x, 0n, 1n))
+const Divisor = contract("Divisor", pg.integer, (x) => Compute.ne(x, 0), { proves: ["nonzero"] })
 const Body = contract("Body", str.regex("^.*$", "su"))
 
 /**

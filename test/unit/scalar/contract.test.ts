@@ -27,6 +27,7 @@ import { Array as Arr, Effect } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { contractOf, numericTypmodOf, sameScalarType } from "#compiler/ir/scalar.ts"
+import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
@@ -97,7 +98,7 @@ export const contractIdentityIsADomainOverItsBaseAndItsOwnBrandOneIdentityPerEqu
 									() =>
 										contractDescriptor(name, pgDescriptors.serial, (v: ScalarTerm) => {
 											ran = true
-											return v.ge(0)
+											return Compute.ge(v, 0)
 										}),
 									"Refused"
 								),

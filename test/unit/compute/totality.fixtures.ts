@@ -203,10 +203,10 @@ export const declaring = (field: OperandField, fact: Entry["needs"]): TestField 
 		field,
 		(x) =>
 			fact === "nonzero"
-				? x.ne(field.zero)
+				? Compute.ne(x, field.zero)
 				: fact === "nonnegative"
-					? x.ge(field.zero)
-					: x.between("-1000000", "1000000"),
+					? Compute.ge(x, field.zero)
+					: Compute.between(x, "-1000000", "1000000"),
 		[fact]
 	)
 

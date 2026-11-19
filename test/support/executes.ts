@@ -1,6 +1,7 @@
 import { array, element, type Gen, subset, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import { Compute } from "#compiler/public/compute.ts"
 import { Bits, bits, closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import { check, contained, login, on, select } from "#compiler/public/schema.ts"
 import { closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
@@ -278,7 +279,7 @@ export const executesWorldGen: Gen<ExecutesWorld> = (source) => {
 }
 
 /** The contract every count field is typed by: an integer above zero. */
-const Count = contract("Count", pg.integer, (x) => x.gt(0))
+const Count = contract("Count", pg.integer, (x) => Compute.gt(x, 0))
 
 /**
  * The world built through the public builders under the declared name `name`: its schema and its login `desk`, whose

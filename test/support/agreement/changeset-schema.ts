@@ -39,7 +39,7 @@ import { str } from "#compiler/public/text.ts"
  * an extension of it, a level above it, and two schemas of which neither is a level of Work, one of its name; and
  * Work's worlds.
  */
-export const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
+export const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n))
 export const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
 export const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"])
 export const Budget = relation("Budget", { task: uuid, cents: Cents }, ["task"])

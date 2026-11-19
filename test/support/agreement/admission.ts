@@ -834,7 +834,7 @@ const statementOf = (
 		case "checkRow":
 			return {
 				lines: [
-					`export const ${name} = check(${jsonText(name)}, Cell, (p) => p.${col}.eq(${c.source}))`
+					`export const ${name} = check(${jsonText(name)}, Cell, (p) => p.eq(p.${col}, ${c.source}))`
 				],
 				verdict: () =>
 					Result.flatMap(

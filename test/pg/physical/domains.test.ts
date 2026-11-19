@@ -22,6 +22,7 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
+import { Compute } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { cleared, seatOf } from "#test/pg/fin/installed.ts"
@@ -41,14 +42,14 @@ interface Definition {
 /** Contract A under a definition. */
 const contractA = (d: Definition) =>
 	d.base === "int4"
-		? contract("A", pg.integer, (v) => v.ge(d.least))
-		: contract("A", pg.bigint, (v) => v.ge(BigInt(d.least)))
+		? contract("A", pg.integer, (v) => Compute.ge(v, d.least))
+		: contract("A", pg.bigint, (v) => Compute.ge(v, BigInt(d.least)))
 
 /** Contract B under a definition. */
 const contractB = (d: Definition) =>
 	d.base === "int4"
-		? contract("B", pg.integer, (v) => v.ge(d.least))
-		: contract("B", pg.bigint, (v) => v.ge(BigInt(d.least)))
+		? contract("B", pg.integer, (v) => Compute.ge(v, d.least))
+		: contract("B", pg.bigint, (v) => Compute.ge(v, BigInt(d.least)))
 
 const schemaOf = (a: Definition, b: Definition) =>
 	schema(

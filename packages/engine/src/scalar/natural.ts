@@ -1,21 +1,17 @@
 import type { Column } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { descText, type ExprDesc, type FieldDesc, type TermDesc } from "#compiler/ir/desc.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { contractParts } from "#compiler/scalar/contract.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { defineField } from "#compiler/scalar/registry.ts"
-
-/** The comparison natural's predicate reads its VALUE by: a scalar of bigint, compared with a bigint literal. */
-interface NaturalValue {
-	readonly ge: (other: bigint) => unknown
-}
 
 /**
  * natural's admission: the contract `natural` over pg.bigint, whose values are never below zero, which it declares it
  * proves, admitted by the one path every contract is.
  */
 const parts = contractParts("natural", pgDescriptors.bigint, [
-	(v: NaturalValue) => v.ge(0n),
+	(v: unknown) => computeCore.ge(v, 0n),
 	{ proves: ["nonnegative"] }
 ])
 

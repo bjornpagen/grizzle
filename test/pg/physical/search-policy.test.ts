@@ -53,7 +53,7 @@ import { roleSession, Substrate } from "#test/support/substrate/substrate.ts"
 const Slug = str.regex("^[a-z]{1,8}$")
 const State = str.regex("^(on|off)$")
 /** A contract over a refined text: its domain rests on the text's, a base chain of two domains of the schema. */
-const Handle = contract("Handle", Slug, (x) => Compute.charLength(x).le(6))
+const Handle = contract("Handle", Slug, (x) => Compute.le(Compute.charLength(x), 6))
 const Doc = relation("Doc", { id: uuid, slug: Slug, handle: Handle }, ["id"])
 const Embedding = relation("Embedding", { doc: uuid, value: pg.vector(3) }, ["doc"])
 const Tag = relation("Tag", { doc: uuid, state: State }, ["doc"])

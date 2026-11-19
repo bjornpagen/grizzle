@@ -75,39 +75,13 @@ interface ProducerValue<
 const headValue = <V extends Built>(value: V, desc: OpenHead, typing: Typing): V =>
 	registerHead(value, desc, typing)
 
-/** The untyped term: comparisons recorded as written, literal operands carried by host kind for the checker to type. */
+/** The untyped term: a rule's comparisons record it as written, its literal operands carried by host kind for the checker to type. */
 export interface UntypedTerm extends Built {
 	readonly expr: OpenExpr
-	readonly eq: (other: unknown) => PredicateValue
-	readonly ne: (other: unknown) => PredicateValue
-	readonly lt: (other: unknown) => PredicateValue
-	readonly le: (other: unknown) => PredicateValue
-	readonly gt: (other: unknown) => PredicateValue
-	readonly ge: (other: unknown) => PredicateValue
-	readonly between: (low: unknown, high: unknown) => PredicateValue
-	readonly in: (values: unknown) => PredicateValue
 }
 
-/** A term's comparisons, each a predicate over the term `self` answers, which the term holds once it is built. */
-const comparisons = (self: () => UntypedTerm): Omit<UntypedTerm, keyof Built | "expr"> => ({
-	eq: (other: unknown) => compare("eq")(self(), other),
-	ne: (other: unknown) => compare("ne")(self(), other),
-	lt: (other: unknown) => compare("lt")(self(), other),
-	le: (other: unknown) => compare("le")(self(), other),
-	gt: (other: unknown) => compare("gt")(self(), other),
-	ge: (other: unknown) => compare("ge")(self(), other),
-	between: (low: unknown, high: unknown) => between(self(), low, high),
-	in: (values: unknown) => inSet(self(), values)
-})
-
-export const untypedTerm = (expr: OpenExpr): UntypedTerm => {
-	const term: UntypedTerm = Object.freeze({
-		...builtMark,
-		expr,
-		...comparisons(() => term)
-	})
-	return registerUntyped(term, expr)
-}
+export const untypedTerm = (expr: OpenExpr): UntypedTerm =>
+	registerUntyped(Object.freeze({ ...builtMark, expr }), expr)
 
 /**
  * A carried term: its carrier is known, but its type the checker reads from the term it meets. A JavaScript value in a
@@ -123,8 +97,7 @@ const carriedTerm = <T, S extends SqlTag>(
 		...builtMark,
 		expr,
 		column: carrier.column,
-		sql: carrier.sql,
-		...comparisons(() => term)
+		sql: carrier.sql
 	})
 	return registerCarried(term, expr)
 }

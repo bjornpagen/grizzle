@@ -91,7 +91,7 @@ const shopLaws = [
 	key(on(Task, "worker")),
 	contained(on(Hand, "crew"), on(Crew, "id")),
 	counted(on(Hand, "crew"), fin(Crew, "hands")),
-	check("OneOrTwoHands", Crew, (r) => r.hands.between(1n, 2n))
+	check("OneOrTwoHands", Crew, (r) => r.between(r.hands, 1n, 2n))
 ] as const
 
 const Shop = schema("Shop", Rec.values(shopRelations), shopLaws)

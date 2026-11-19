@@ -281,7 +281,7 @@ installation holds them both ([Levels](#levels)). `natural` is a count, a `bigin
 - **`contained(on(Post, "org"), on(Subscription, "org"))`**: an organization posts only once it has a subscription. A
   containment's target is a key, here `Subscription`'s primary key.
 - **`check("WithinPlan", Subscription, ...)`**: a check is a condition every fact of one relation meets, written over
-  its fields, as in `(s) => s.seats.ge(1n)`. This one reads the price list: `PlanLimits.at("seats", s.plan)` is the
+  its fields, as in `(s) => s.ge(s.seats, 1n)`. This one reads the price list: `PlanLimits.at("seats", s.plan)` is the
   seats of the subscription's plan.
 
 `PlanLimits` has no table. Its rows become IMMUTABLE constants, which PostgreSQL folds into every statement that reads
@@ -550,10 +550,10 @@ The amounts are contracts. **A `contract`** is a named type over a base type, wi
 **The declaration.**
 
 ```ts
-import { contract } from "@bjornpagen/grizzle"
+import { Compute, contract } from "@bjornpagen/grizzle"
 
 /** Millionths of a dollar, never negative; and an instant, in milliseconds since the epoch. */
-const Micros = contract("Micros", pg.bigint, (m) => m.ge(0n))
+const Micros = contract("Micros", pg.bigint, (m) => Compute.ge(m, 0n))
 const Millis = contract("Millis", pg.bigint)
 
 /** One API call: its workspace, its model, when it ran and what it cost. */
@@ -950,14 +950,14 @@ export const Books = schema(
 	[
 		entryPostings,
 		fold(entryPostings, Monoid.sum, on(Posting, "entry", "amount"), on(Entry, "id", "total")),
-		check("Balanced", Entry, (e) => e.total.eq(0n))
+		check("Balanced", Entry, (e) => e.eq(e.total, 0n))
 	]
 )
 ```
 
 **What you get.** An entry goes in as its written row, `{ id, memo }`, and each posting as its own row naming its entry, in one ChangeSet. grizzle draws the count and the total from the postings, and `Balanced` reads the total, so a ChangeSet that leaves an entry unbalanced comes back `refused` on `Balanced`, and changes nothing. It compiles as the grant's rule does, to keys, CHECKs and foreign keys over the postings' hidden columns, and every writer meets it, psql included.
 
-`Entry` is not `mutable`, so its postings are fixed once it is inserted: deleting one is a type error, and a correction is a reversing entry, as a ledger wants. The check states the bound: `e.total.eq(0n)` is an exact total, and `i.total.eq(i.amount)` makes a total equal a column instead, as in "an invoice's lines add up to its amount".
+`Entry` is not `mutable`, so its postings are fixed once it is inserted: deleting one is a type error, and a correction is a reversing entry, as a ledger wants. The check states the bound: `e.eq(e.total, 0n)` is an exact total, and `i.eq(i.total, i.amount)` makes a total equal a column instead, as in "an invoice's lines add up to its amount".
 
 ### 7. States that carry their own data
 
@@ -1227,7 +1227,7 @@ For porting an app, each Drizzle construct and what takes its place:
 | `pgEnum("status", [...])`                              | `closed.ordered("Status", [...])`, or `closed.unordered` where the order means nothing, with `closedId(Status)` for the column |
 | `.references(() => post.id)`                           | `contained(on(Comment, "post"), on(Post, "id"))`                                                |
 | `unique().on(t.show, t.holder)`                        | `key(on(Ticket, "show", "holder"))`                                                             |
-| `` check("some_seats", sql`...`) ``                    | `check("SomeSeats", Show, (s) => s.seats.ge(1n))`                                               |
+| `` check("some_seats", sql`...`) ``                    | `check("SomeSeats", Show, (s) => s.ge(s.seats, 1n))`                                               |
 | `index().on(...)`                                      | nothing: `grizzle generate` derives indexes from your rules and your `workload(...)` queries    |
 | `pgPolicy(...)`, and `set_config` around each request  | `context(...)` and `role(...)`                                                                  |
 | `pgMaterializedView(...)`                              | `derived.materialized(...)`                                                                     |
@@ -1963,9 +1963,9 @@ installs it in 35 ms.
 Rules are declared in a schema's list, beside its tables. A box office:
 
 ```ts
-import { check, contract, counted, drawn, fin, key, mutable, natural, span } from "@bjornpagen/grizzle"
+import { check, Compute, contract, counted, drawn, fin, key, mutable, natural, span } from "@bjornpagen/grizzle"
 
-const Cents = contract("Cents", pg.bigint, (c) => c.ge(0n))
+const Cents = contract("Cents", pg.bigint, (c) => Compute.ge(c, 0n))
 
 export const Show = relation(
 	"Show",
@@ -1987,7 +1987,7 @@ export const BoxOffice = schema(
 		contained(on(Run, "stage"), on(Stage, "id")),
 		contained(on(Run, "show"), on(Show, "id")),
 		key(on(Ticket, "show", "holder")),
-		check("SomeSeats", Show, (s) => s.seats.ge(1n)),
+		check("SomeSeats", Show, (s) => s.ge(s.seats, 1n)),
 		check("NoOversell", Show, (s) => s.le(s.tickets, s.seats)),
 		mutable(Show)
 	]
@@ -2008,7 +2008,7 @@ key, so two runs on one stage never share a night.
 | Both ways      | `mirrors(on(A, "x"), on(B, "y"))`                                         | `contained(a, b)` and `contained(b, a)`, the two rules it stands for          |
 | Coverage       | `contained` between two `span` fields                                     | the target's spans cover each source span                                     |
 | One of several | `alternatives(Task, "kind", Kind, { Automatic, Manual })`                 | each row has exactly one detail row, in the table its `kind` names            |
-| Row check      | `check("SomeSeats", Show, (s) => s.seats.ge(1n))`                         | the condition holds on every row                                              |
+| Row check      | `check("SomeSeats", Show, (s) => s.ge(s.seats, 1n))`                         | the condition holds on every row                                              |
 | Counted family | `counted(on(Ticket, "show"), fin(Show, "tickets"))`                       | each show's `tickets` is the number of tickets that name it                   |
 | Ordered family | `ordered(on(Line, "order", "at"), fin(Order, "n"))`                       | each order's lines hold `at` exactly 0 … n − 1                                |
 | Tree           | `tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["doc"] })` | Node keyed (doc, start): each `doc`'s rows one tree, `[start, end)` each row's pre-order interval |
@@ -2759,9 +2759,9 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 
 - **Exact.** Integer arithmetic delivers `bigint`, an *exact integer*, and money arithmetic exact `Money`; neither overflows.
 - **Floats are IEEE 754:** `x / 0.0` is ±Infinity and `sqrt(-1.0)` is NaN.
-- **A partial operation needs its precondition proved:** division or remainder by a value that may be zero, a numeric square root of one that may be negative, a power, `widthBucket` and `minScale` of values that may be infinite, and a cast that narrows. The proof is a literal's own type, as in `Compute.div(x, 7n)`; a contract that declares it, `contract("Divisor", pg.bigint, (v) => v.ne(0n), { proves: ["nonzero"] })`; or a guard, `Compute.when(Compute.nonzero(b), (b) => Compute.div(a, b), 0n)`, whose function receives `b` proved nonzero and whose last argument is the value where the guard does not hold. Only the function's parameter is proved, as TypeScript narrows a callback's parameter and never a term the callback captures: `(_) => Compute.div(a, b)` reads `b` with its own facts, and is refused. An unproved divisor is a type error that names the guard to write.
+- **A partial operation needs its precondition proved:** division or remainder by a value that may be zero, a numeric square root of one that may be negative, a power, `widthBucket` and `minScale` of values that may be infinite, and a cast that narrows. The proof is a literal's own type, as in `Compute.div(x, 7n)`; a contract that declares it, `contract("Divisor", pg.bigint, (v) => Compute.ne(v, 0n), { proves: ["nonzero"] })`; or a guard, `Compute.when(Compute.nonzero(b), (b) => Compute.div(a, b), 0n)`, whose function receives `b` proved nonzero and whose last argument is the value where the guard does not hold. Only the function's parameter is proved, as TypeScript narrows a callback's parameter and never a term the callback captures: `(_) => Compute.div(a, b)` reads `b` with its own facts, and is refused. An unproved divisor is a type error that names the guard to write.
 - **Guards** are `Compute.nonzero`, `Compute.nonnegative`, `Compute.positive`, `Compute.isFinite` and `Compute.within(x, low, high)`, each a predicate too. A guard's subject is any term, a parameter included: over `d = r.param("d", pg.bigint)`, `Compute.when(Compute.nonzero(d), (d) => Compute.div(x, d), 0n)` delivers `0n` where `d` is bound to zero, under every plan.
-- **A contract's facts are exactly the ones its `proves` declares.** Compilation proves each from the predicate and refuses one the predicate does not imply. A fact the predicate implies but `proves` leaves out is no fact of its values: `Compute.minScale(rate)` over `contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))` is refused, naming `{ proves: ["finite"] }` to add. A parameter of a contract has its declared facts, its binding checking every value, so `Compute.div(x, Compute.base(r.param("d", Divisor)))` needs no guard.
+- **A contract's facts are exactly the ones its `proves` declares.** Compilation proves each from the predicate and refuses one the predicate does not imply. A fact the predicate implies but `proves` leaves out is no fact of its values: `Compute.minScale(rate)` over `contract("Rate", pg.numeric(7, 6), (x) => Compute.between(x, 0n, 1n))` is refused, naming `{ proves: ["finite"] }` to add. A parameter of a contract has its declared facts, its binding checking every value, so `Compute.div(x, Compute.base(r.param("d", Divisor)))` needs no guard.
 - **Magnitudes are proved by `Compute.within`.** A narrowing's range or a power's is proved from `Compute.within`'s bounds, or refused as `PartialOperation`: narrow an exact integer into an integer field with `Compute.when(Compute.within(x, 0n, 1000000n), (x) => Compute.cast(x, pg.integer), 0)`.
 - **Exact and plain values share no type.** An exact value binds at a plain integer or money column, but a ChangeSet member stores one into a field only through that cast: a head that writes `Compute.add(balance, amount)` into a `pg.bigint` field is a type error. Where PostgreSQL would widen the plain value implicitly, `Compute.cond`, `Compute.when`, `Compute.least` and `Compute.greatest` refuse an exact value beside a plain one of its family, in either order, naming the cast of the exact one into the plain one's type. A bare literal takes its term's type, an exact one's included, and is refused where it has more digits than that type holds.
 - **A member writes each field at the field's own type,** as a generated field's term and an accumulator's step do: only a text's pattern and byte bound are left to the field's domain, which refuses a value outside them. A computed numeric, the value of `r.sum`, `r.mean` or a numeric operation, enters a `pg.numeric(p, s)` field only through `Compute.cast` under a guard that proves it fits, and a numeric of another precision or scale, or a span of another width, only through `Compute.cast`, since a typmod rounds and a sum can pass the field's precision. Compilation refuses any other head as `DescribedHeadingMismatch`.
@@ -3686,7 +3686,7 @@ it, by the one evaluator grizzle judges a refused write's rows by. Bind it once,
 grizzle answers, here and in `codecText`, `insertPreview` and `indexesOf`, is Effect's (`effect/Result`), read with
 `Result.isSuccess`, `Result.match` or `Effect.fromResult`. A row is admitted
 once, `evaluate.admit(Account, row)`, then evaluated as a row of any source of its relation, `evaluate(Account,
-admitted)` or `evaluate(select(Account, (a) => a.units.gt(3)), admitted)` for a selection. A source is any relation of
+admitted)` or `evaluate(select(Account, (a) => a.gt(a.units, 3)), admitted)` for a selection. A source is any relation of
 the schema, stored, derived or closed, a roster among the closed ones, or a selection of one. The row is typed off the
 relation: every field but the generated ones, each its codec's value, so a contract's value is its brand, `Units(5)`.
 PostgreSQL's domains refuse a value outside its contract or its pattern before anything else, which a brand does not

@@ -196,7 +196,7 @@ const build = (p: Pred, a: AttributeRow): Predicate => {
 		case "matches":
 			return Compute.matches(a.value, Compute.pattern(p.pattern))
 		case "compare":
-			return a.n[p.op](p.n)
+			return a[p.op](a.n, p.n)
 		case "not":
 			return a.not(build(p.arg, a))
 		case "and":

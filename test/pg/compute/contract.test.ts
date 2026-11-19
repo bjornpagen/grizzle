@@ -135,7 +135,7 @@ const int8Edges = Object.freeze([
 const bigints: Gen<bigint> = oneOf([bigint(-20000n, 20000n), bigint(-(2n ** 63n), 2n ** 63n - 1n)])
 
 const fixtures = (): ReadonlyArray<Fixture> => {
-	const Cents = testContract("Cents", testPg.bigint, (x) => x.ge(0n))
+	const Cents = testContract("Cents", testPg.bigint, (x) => Compute.ge(x, 0n))
 	/** Arithmetic at the int8 limits: exact once cast to numeric, so nothing overflows. */
 	const Shares = testContract("Shares", testPg.bigint, (x) =>
 		Compute.and(
@@ -146,9 +146,9 @@ const fixtures = (): ReadonlyArray<Fixture> => {
 		)
 	)
 	const Basis = testContract("Basis", testPg.integer, (x) =>
-		Compute.or(x.between(0, 10000), x.in([-5, -7]))
+		Compute.or(Compute.between(x, 0, 10000), Compute.in(x, [-5, -7]))
 	)
-	const Rate = testContract("Rate", testPg.numericOf(7, 6), (x) => x.between(0n, 1n))
+	const Rate = testContract("Rate", testPg.numericOf(7, 6), (x) => Compute.between(x, 0n, 1n))
 	/** Integer division truncates toward zero once widened: div(x, 2) = 3 admits 6 and 7, and -6 and -7 over -2. */
 	const Halves = testContract("Halves", testPg.bigint, (x) =>
 		Compute.or(Compute.eq(Compute.div(x, 2n), 3n), Compute.eq(Compute.div(x, -2n), 3n))
@@ -158,11 +158,11 @@ const fixtures = (): ReadonlyArray<Fixture> => {
 		Compute.and(Compute.gt(Compute.mul(x, "2.5"), "-10"), Compute.le(Compute.div(x, "0.3"), 100n))
 	)
 	/** A lower bound alone admits NaN and +Infinity; a finite upper bound excludes both. */
-	const NonNegative = testContract("NonNegative", testPg.double, (x) => x.ge(0))
+	const NonNegative = testContract("NonNegative", testPg.double, (x) => Compute.ge(x, 0))
 	const Unit = testContract("Unit", testPg.double, (x) =>
-		Compute.and(x.between(0, 1), Compute.ne(Compute.abs(x), 0.5))
+		Compute.and(Compute.between(x, 0, 1), Compute.ne(Compute.abs(x), 0.5))
 	)
-	const Short = testContract("Short", testPg.text, (x) => Compute.charLength(x).le(3))
+	const Short = testContract("Short", testPg.text, (x) => Compute.le(Compute.charLength(x), 3))
 	/**
 	 * Effect Schema's isMaxLength(3) and isMinLength(3) over a string, which count UTF-16 code units: utf16Length under
 	 * the guard of the text's bytes that README states, three bytes a unit, so a text past 9 bytes is past 3 units and
@@ -483,7 +483,9 @@ layer(Substrate.layer)("contract predicates against PostgreSQL 19 domains", (it)
 				ctx,
 				Effect.gen(function* () {
 					const { db, s } = yield* evaluatorSchema
-					const Rate = testContract("Rate", testPg.numericOf(7, 6), (x) => x.between(0n, 1n))
+					const Rate = testContract("Rate", testPg.numericOf(7, 6), (x) =>
+						Compute.between(x, 0n, 1n)
+					)
 					const predicate = contractOf(Rate.scalar)?.predicate
 					if (predicate === undefined) {
 						return yield* Effect.die(new Error("Rate has no predicate table"))

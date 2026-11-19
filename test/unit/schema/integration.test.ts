@@ -66,7 +66,10 @@ export const rowChecksOverTheFieldRegistryAndComputeComposesComputeArithmeticCas
 											Compute.ge(Compute.numeric(r.bal), `${n}.5`)
 										)
 									: checkBuilder("short", Account, (r: Row) =>
-											Compute.and(Compute.charLength(r.slug).le(bound), r.kind.ne(handle))
+											Compute.and(
+												Compute.le(Compute.charLength(r.slug), bound),
+												r.ne(r.kind, handle)
+											)
 										)
 						succeeded(
 							own(
@@ -124,7 +127,7 @@ export const rowChecksOverTheFieldRegistryAndComputeRefusesARowFieldsLiteralOfAn
 										Compute.ge(Compute.add(r.bal, n), 0n)
 									)
 								case "a handle off the roster":
-									return checkBuilder("bad", Account, (r: LooseRow) => r.kind.eq("c"))
+									return checkBuilder("bad", Account, (r: LooseRow) => r.eq(r.kind, "c"))
 								case "two contracts meeting": {
 									/** A contract's name is one literal by its type: the other identity is written here. */
 									const Pair = relation("Pair", { a: Cents, b: contract("Other", pg.bigint) }, [

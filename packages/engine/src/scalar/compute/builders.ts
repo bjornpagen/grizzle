@@ -488,29 +488,17 @@ const inList = (a: unknown, values: unknown): PredicateValue => {
 	)
 }
 
-/**
- * A scalar term over `expr` whose literal operands adopt `t`, with a Scalar's comparisons, carried by `carrier`: its
- * column delivers T and S is its SQL type.
- */
+/** A scalar term over `expr` whose literal operands adopt `t`, carried by `carrier`: its column delivers T and S is its SQL type. */
 export const scalarTerm = <T, S extends SqlTag>(
 	expr: OpenExpr,
 	t: ScalarType,
 	carrier: TermCarrier<T, S>
 ): ScalarTerm<T, S> => {
-	const self = (): ScalarTerm<T, S> => term
 	const term: ScalarTerm<T, S> = Object.freeze({
 		...builtMark,
 		expr,
 		column: carrier.column,
-		sql: carrier.sql,
-		eq: (other: unknown) => comparison("eq")(self(), other),
-		ne: (other: unknown) => comparison("ne")(self(), other),
-		lt: (other: unknown) => comparison("lt")(self(), other),
-		le: (other: unknown) => comparison("le")(self(), other),
-		gt: (other: unknown) => comparison("gt")(self(), other),
-		ge: (other: unknown) => comparison("ge")(self(), other),
-		between: (low: unknown, high: unknown) => between(self(), low, high),
-		in: (values: unknown) => inList(self(), values)
+		sql: carrier.sql
 	})
 	return registerTerm(term, expr, t)
 }
