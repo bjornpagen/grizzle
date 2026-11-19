@@ -570,10 +570,18 @@ export const describedOf = (c: RoleCase): Option.Option<unknown> => {
 
 export type RoleFeature = Broken["feature"] | "none" | "described"
 
-/** A context's field: its name and its drawn type. */
+/**
+ * A context field as a case declares it: a drawn type its caller writes, or `drawn(natural)`, which grizzle writes, its
+ * sequence drawing it, though its type, natural, a contract over bigint, is a claim's.
+ */
+export type ContextFieldSketch =
+	| { readonly kind: "caller"; readonly type: SketchedField }
+	| { readonly kind: "drawn" }
+
+/** A context's field: its name and how it is declared. */
 interface ContextField {
 	readonly name: string
-	readonly type: SketchedField
+	readonly field: ContextFieldSketch
 }
 
 interface ContextCase {
@@ -592,7 +600,18 @@ export const contextCaseGen: Gen<ContextCase> = (source) => {
 		fields: nonEmpty(
 			Arr.map(names, (name, i) => ({
 				name,
-				type: source.draw(fieldSketchGen(rosters.length, (s) => `Claim${i}${s.draw(int(0, 1))}`))
+				field: source.draw(
+					weighted<ContextFieldSketch>([
+						[
+							5,
+							(s) => ({
+								kind: "caller",
+								type: s.draw(fieldSketchGen(rosters.length, (n) => `Claim${i}${n.draw(int(0, 1))}`))
+							})
+						],
+						[1, () => ({ kind: "drawn" })]
+					])
+				)
 			})),
 			"the context's fields"
 		),
@@ -608,6 +627,10 @@ const claimTypes: ReadonlySet<string> = new Set([
 	"boolean",
 	"uuid"
 ])
+
+/** Whether a context field is a claim: its caller writes it, and its type is a claim's. */
+export const claimable = (f: ContextFieldSketch): boolean =>
+	f.kind === "caller" && claimDescribed(f.type)
 
 /** Whether a field type is a claim's: the claim rule over the type. */
 export const claimDescribed = (t: SketchedField): boolean => {
@@ -633,6 +656,7 @@ export type ContextFeature =
 	| "refused"
 	| "a contract over a claim"
 	| "a later field refused"
+	| "a field grizzle writes, whose type a claim's is"
 
 /** Whether a rebuilt query value is a Query, not an Ordered: a Query has `rule`. */
 export const isQuery = (value: QueryValue | OrderedValue): value is QueryValue => "rule" in value

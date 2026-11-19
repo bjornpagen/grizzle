@@ -3,8 +3,9 @@
  * ownLogin), against the rules of roles restated as the oracle:
  *
  * - a context's fields are claims of scalar types: text, uuid, boolean, the integer types, a contract over one of them,
- *   or a closed handle. Each case draws a context of one to three fields of any drawn type (field-sketch.ts): the
- *   builder refuses it at the first field no claim is, a description at any field whose type no claim's is;
+ *   or a closed handle, which its caller writes. Each case draws a context of one to three fields of any drawn type
+ *   (field-sketch.ts), or drawn(natural), which grizzle writes though its type, natural, is a claim's: the builder
+ *   refuses it at the first field no claim is, a description at any field whose type no claim's is;
  * - a role relation is a whole relation of the base under its own name, or a query built over the base or one of its
  *   levels that reads only the base's relations, reads no parameter, attaches nothing, searches nothing approximately
  *   and is a Query, not an Ordered; a role writes whole ordinary relations and query entries the writable-entry rule
@@ -27,6 +28,7 @@ import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { decodeDesc } from "#compiler/ir/desc.ts"
 import { lowerQuery } from "#compiler/program/describe.ts"
+import { drawn, natural } from "#compiler/public/fields.ts"
 import { queryOver, queryValueDesc, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { ownLogin, ownRole } from "#compiler/schema/own.ts"
@@ -55,6 +57,7 @@ import { type DrawnRoster, fieldOf } from "#test/unit/schema/field-sketch.ts"
 import { descOf } from "#test/unit/schema/support.ts"
 import {
 	admitted,
+	claimable,
 	claimDescribed,
 	contextCaseGen,
 	type ContextFeature,
@@ -86,7 +89,8 @@ export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefus
 			"admitted",
 			"refused",
 			"a contract over a claim",
-			"a later field refused"
+			"a later field refused",
+			"a field grizzle writes, whose type a claim's is"
 		] satisfies ReadonlyArray<Reached<ContextFeature>>,
 		check: (_, k: Case<ContextFeature>) => (c) =>
 			Effect.sync(() => {
@@ -105,12 +109,21 @@ export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefus
 					)
 				)
 				const fields = Rec.fromEntries(
-					Arr.map(c.fields, (f) => [f.name, fieldOf(f.type, rosters)] as const)
+					Arr.map(
+						c.fields,
+						(f) =>
+							[
+								f.name,
+								f.field.kind === "caller" ? fieldOf(f.field.type, rosters) : drawn(natural)
+							] as const
+					)
 				)
 				const options = c.claim ? { claim: "o" } : undefined
-				const refusedAt = Arr.findFirstIndex(c.fields, (f) => !claimDescribed(f.type))
+				const refusedAt = Arr.findFirstIndex(c.fields, (f) => !claimable(f.field))
 				for (const f of c.fields) {
-					if (f.type.kind === "contract" && claimDescribed(f.type)) {
+					if (f.field.kind === "drawn") {
+						k.note("a field grizzle writes, whose type a claim's is")
+					} else if (f.field.type.kind === "contract" && claimDescribed(f.field.type)) {
 						k.note("a contract over a claim")
 					}
 				}
@@ -131,12 +144,22 @@ export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefus
 						field: defined(c.fields[refusedAt.value]).name
 					})
 				}
+				/** A description holds each field's type alone, drawn(natural)'s natural, which writes nothing. */
 				const described = decodeDesc("context", {
 					name: "Claims",
-					fields: Rec.map(fields, descOf),
+					fields: Rec.fromEntries(
+						Arr.map(
+							c.fields,
+							(f) =>
+								[
+									f.name,
+									descOf(f.field.kind === "caller" ? fieldOf(f.field.type, rosters) : natural)
+								] as const
+						)
+					),
 					claim: undefined
 				})
-				if (Arr.every(c.fields, (f) => claimDescribed(f.type))) {
+				if (Arr.every(c.fields, (f) => f.field.kind === "drawn" || claimDescribed(f.field.type))) {
 					succeeded(described, "a description of claim types")
 				} else {
 					refused(described, "MalformedDescription")
@@ -144,15 +167,15 @@ export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefus
 			}),
 		oracle: {
 			kind: "specification",
-			name: "a claim is text, uuid, boolean, an integer type, a contract over one or a closed handle, and no sequence writes it"
+			name: "a claim is text, uuid, boolean, an integer type, a contract over one or a closed handle, and its caller writes it"
 		},
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/schema/world.ts",
-				original: '\t\tif (!contextFieldAdmits(desc) || writingOf(descriptor).kind !== "caller") {',
-				replacement: "\t\tif (!contextFieldAdmits(desc)) {",
-				why: "A context field its sequence writes admitted as a claim (schema/world.ts admitContext)."
+				original: '\t\tif (writingOf(descriptor).kind !== "caller") {',
+				replacement: "\t\tif (false) {",
+				why: "A context field grizzle writes, drawn(natural), read as its descriptor (schema/world.ts admitContext), which refuses it as no descriptor rather than as no claim."
 			}
 		]
 	})

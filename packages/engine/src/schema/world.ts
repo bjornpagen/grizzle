@@ -161,16 +161,23 @@ export const admitContext = (
 	if (!isPlainRecord(fields)) {
 		throw malformed(label, "a record of field descriptors")
 	}
+	/** A field no claim is: one grizzle writes, read before its descriptor, which a written field is none of, or one of
+	 * a type no claim's is. */
+	const noClaim = (field: string) =>
+		CompileError.make({
+			_tag: "ContextRefused",
+			at: builderLoc(`${label} field ${field}`, []),
+			context: contextName,
+			rule: { kind: "claimType", field }
+		})
 	const descs: Record<string, FieldDesc> = {}
 	for (const [field, descriptor] of Object.entries(fields)) {
+		if (writingOf(descriptor).kind !== "caller") {
+			throw noClaim(field)
+		}
 		const desc = describedField(descriptor, `${label} field ${field}`).desc
-		if (!contextFieldAdmits(desc) || writingOf(descriptor).kind !== "caller") {
-			throw CompileError.make({
-				_tag: "ContextRefused",
-				at: builderLoc(`${label} field ${field}`, []),
-				context: contextName,
-				rule: { kind: "claimType", field }
-			})
+		if (!contextFieldAdmits(desc)) {
+			throw noClaim(field)
 		}
 		descs[field] = desc
 	}
