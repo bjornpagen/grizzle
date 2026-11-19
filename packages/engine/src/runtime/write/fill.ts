@@ -41,7 +41,7 @@ import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import { type ExprTable, tableReads, type TypedLiteral } from "#compiler/ir/expr.ts"
-import { type FillAt, layoutKey } from "#compiler/ir/fill.ts"
+import { type FillAt, type FillStep, layoutKey } from "#compiler/ir/fill.ts"
 import {
 	type FamilyId,
 	familyKey,
@@ -285,7 +285,7 @@ export type FillRuleData =
 			readonly fold: FillFold
 			readonly plane: 0 | 1
 			readonly befores: ReadonlyArray<ColumnKey>
-			readonly x: ColumnKey | undefined
+			readonly step: FillStep<ColumnKey>
 	  }
 	| { readonly kind: "generated"; readonly expr: ExprTable }
 
@@ -355,7 +355,7 @@ type Rule =
 			readonly fold: HostFold
 			readonly plane: 0 | 1
 			readonly befores: ReadonlyArray<number>
-			readonly x: number | undefined
+			readonly step: FillStep<number>
 	  }
 	| { readonly kind: "generated"; readonly expr: ExprTable }
 
@@ -443,7 +443,8 @@ const hostRule = (rule: FillRuleData, spec: CarrierSpec, targets: RuleTargets): 
 				fold: { monoid: rule.fold.monoid, where: rule.fold.where.map(selection) },
 				plane: rule.plane,
 				befores: rule.befores.map(targets.own.at),
-				x: rule.x === undefined ? undefined : targets.own.at(rule.x)
+				step:
+					rule.step.kind === "one" ? rule.step : { kind: "value", x: targets.own.at(rule.step.x) }
 			}
 		case "generated":
 			return rule
@@ -973,7 +974,8 @@ const ruleValue = (
 			if (!selected.value) {
 				return Result.ok(befores[rule.plane])
 			}
-			const x = rule.x === undefined ? Result.ok(undefined) : valueOf(row, rule.x, evaluate)
+			const x =
+				rule.step.kind === "one" ? Result.ok(undefined) : valueOf(row, rule.step.x, evaluate)
 			if (!x.ok) {
 				return x
 			}

@@ -347,7 +347,8 @@ const ruleData = (rule: FillRule): FillRuleData => {
 				fold: { monoid: rule.fold.monoid, where: rule.fold.where.map(predicateTable) },
 				plane: rule.plane,
 				befores: rule.befores.map(columnKey),
-				x: rule.x === undefined ? undefined : columnKey(rule.x)
+				step:
+					rule.step.kind === "one" ? { kind: "one" } : { kind: "value", x: columnKey(rule.step.x) }
 			}
 		case "generated":
 			return { kind: "generated", expr: predicateTable(rule.expr) }

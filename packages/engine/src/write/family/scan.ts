@@ -684,7 +684,9 @@ const columnOf = (
 			const monoid = monoidSpecs[rule.fold.monoid]
 			const accumulates = defined(monoid.planes[plane], `the ${monoid.name} fold's plane ${plane}`)
 			const step: CombineStep<Expr> =
-				rule.x === undefined ? { kind: "one" } : { kind: "value", expr: value(columnKey(rule.x)) }
+				rule.step.kind === "one"
+					? { kind: "one" }
+					: { kind: "value", expr: value(columnKey(rule.step.x)) }
 			const delta = deltaOf(
 				accumulates,
 				step,

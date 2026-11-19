@@ -102,10 +102,16 @@ export type FillRule =
 			readonly fold: FamilyFold
 			readonly plane: 0 | 1
 			readonly befores: ReadonlyArray<NativeColumn>
-			readonly x: NativeColumn | undefined
+			readonly step: FillStep<NativeColumn>
 			readonly law: LawId
 	  }
 	| { readonly kind: "generated"; readonly expr: ScalarExpr }
+
+/**
+ * What a fold's after steps by at a member (ir/family.ts FamilyFold `step`): one, a count's, or the value of the member's
+ * column `x`, the field its step side names, at the column's key `C`.
+ */
+export type FillStep<C> = { readonly kind: "one" } | { readonly kind: "value"; readonly x: C }
 
 /**
  * When a write fills a column of its row, in its row's stages (the module's header): on entering the row; once the walk

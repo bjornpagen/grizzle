@@ -211,7 +211,7 @@ const readsOfRule = (relation: LawRelation, rule: FillRule): ReadonlyArray<Nativ
 		case "after":
 			return [
 				...rule.befores,
-				...(rule.x === undefined ? [] : [rule.x]),
+				...(rule.step.kind === "value" ? [rule.step.x] : []),
 				...rule.fold.where.flatMap((w) => readsOf(w).map((name) => readColumn(relation, name)))
 			]
 		case "generated":
@@ -354,7 +354,10 @@ const entriesAt = (
 					fold,
 					plane: p === 0 ? 0 : 1,
 					befores,
-					x: fold.step.kind === "value" ? fieldColumn(fold.step.field) : undefined,
+					step:
+						fold.step.kind === "value"
+							? { kind: "value", x: fieldColumn(fold.step.field) }
+							: { kind: "one" },
 					law: pairLaw(f, "predecessor", plane.before, plane.after)
 				},
 				writer

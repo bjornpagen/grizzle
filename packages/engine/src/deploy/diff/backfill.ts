@@ -540,8 +540,8 @@ const scanReads = (
 				for (const b of c.rule.befores) {
 					read(b)
 				}
-				if (c.rule.x !== undefined) {
-					read(c.rule.x)
+				if (c.rule.step.kind === "value") {
+					read(c.rule.step.x)
 				}
 				for (const w of c.rule.fold.where) {
 					readsOf(w)
