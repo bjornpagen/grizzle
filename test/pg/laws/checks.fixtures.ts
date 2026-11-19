@@ -1,0 +1,476 @@
+/** What the properties of checks.test.ts read: its spaces, models and helpers. */
+
+import type { Case as SearchCase } from "@bjornpagen/testing/explore"
+import {
+	array,
+	boolean,
+	characterOf,
+	element,
+	type Gen,
+	int,
+	oneOf,
+	string,
+	weighted
+} from "@bjornpagen/testing/gen"
+import { Array as Arr, Effect, Formatter, Record, String as Str } from "effect"
+import { indices } from "#compiler/core/array.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
+import { pg } from "#compiler/public/fields.ts"
+import {
+	check,
+	constraintNamesOf,
+	lawsOf,
+	schema,
+	type Statement
+} from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
+import { relationBuilder } from "#compiler/schema/relation.ts"
+import type { Predicate } from "#compiler/types/core/phantom.ts"
+import type { RowScalars } from "#compiler/types/schema/statements.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { installMigrated as install } from "#test/support/install-migrate.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
+import { argumentsOf } from "#test/support/list.ts"
+import { pgErrorFields } from "#test/support/substrate/errors.ts"
+import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+
+type Field = "a" | "b"
+
+type Op = "eq" | "ne" | "lt" | "le" | "gt" | "ge"
+
+type Pred =
+	| {
+			readonly kind: "compare"
+			readonly op: Op
+			readonly field: Field
+			readonly right: number | Field
+	  }
+	| {
+			readonly kind: "between"
+			readonly field: Field
+			readonly low: number
+			readonly high: number
+	  }
+	| {
+			readonly kind: "in"
+			readonly field: Field
+			readonly values: ReadonlyArray<number>
+	  }
+	| { readonly kind: "length"; readonly op: Op; readonly n: number }
+	| {
+			readonly kind: "text"
+			readonly op: "eq" | "ne"
+			readonly value: string
+	  }
+	| { readonly kind: "textIn"; readonly values: ReadonlyArray<string> }
+	| { readonly kind: "and" | "or"; readonly args: readonly [Pred, ...Array<Pred>] }
+	| { readonly kind: "not"; readonly arg: Pred }
+
+interface Row {
+	readonly a: number
+	readonly b: number
+	readonly t: string
+}
+
+/** How a check name spells one of its segments: a capitalized word, a lowercase word, an acronym or a digit run. */
+type Spelling = "word" | "lower" | "acronym" | "digits"
+
+/** What joins a segment to the one before it: nothing, one underscore or two. */
+type Join = "" | "_" | "__"
+
+/** A drawn check name, a letter first, beside each of its segments' spellings and the joins before them. */
+interface CheckName {
+	readonly text: string
+	readonly segments: ReadonlyArray<{ readonly spelling: Spelling; readonly join: Join }>
+	readonly trailing: boolean
+}
+
+/** A case: a predicate, its check's name, and the rows inserted against it. */
+interface Case {
+	readonly pred: Pred
+	readonly name: CheckName
+	readonly rows: ReadonlyArray<Row>
+}
+
+const small = int(-3, 3)
+
+const text = string(characterOf(["a", "b", "c"]), { min: 0, max: 3 })
+
+const field = element<Field>(["a", "b"])
+
+const op = element<Op>(["eq", "ne", "lt", "le", "gt", "ge"])
+
+const leaf: Gen<Pred> = oneOf<Pred>([
+	(source) => ({
+		kind: "compare",
+		op: source.draw(op),
+		field: source.draw(field),
+		right: source.draw(oneOf<number | Field>([small, field]))
+	}),
+	(source) => ({
+		kind: "between",
+		field: source.draw(field),
+		low: source.draw(small),
+		high: source.draw(small)
+	}),
+	(source) => ({
+		kind: "in",
+		field: source.draw(field),
+		values: source.draw(array(small, { min: 1, max: 3 }))
+	}),
+	(source) => ({ kind: "length", op: source.draw(op), n: source.draw(int(0, 3)) }),
+	(source) => ({
+		kind: "text",
+		op: source.draw(element<"eq" | "ne">(["eq", "ne"])),
+		value: source.draw(text)
+	}),
+	(source) => ({
+		kind: "textIn",
+		values: source.draw(array(text, { min: 1, max: 3 }))
+	})
+])
+
+/** How deep AND, OR and NOT nest: a leaf three times in five at every level, and only a leaf at the deepest. */
+const predDepth = 4
+
+/** A predicate nested at most `depth` levels: a leaf, or AND or OR over one to three predicates, or NOT of one. */
+const predGen = (depth: number): Gen<Pred> => {
+	if (depth === 0) {
+		return leaf
+	}
+	const inner = predGen(depth - 1)
+	return weighted<Pred>([
+		[3, leaf],
+		[
+			1,
+			(source) => ({
+				kind: source.draw(element<"and" | "or">(["and", "or"])),
+				args: [source.draw(inner), ...source.draw(array(inner, { min: 0, max: 2 }))]
+			})
+		],
+		[1, (source) => ({ kind: "not", arg: source.draw(inner) })]
+	])
+}
+
+const lowercase = nonEmpty(Arr.fromIterable("abcdefghijklmnopqrstuvwxyz"), "lowercase letters")
+
+const uppercase = nonEmpty(Arr.fromIterable("ABCDEFGHIJKLMNOPQRSTUVWXYZ"), "capital letters")
+
+const digits = nonEmpty(Arr.fromIterable("0123456789"), "digits")
+
+/** One segment as `spelling` spells it, at most six characters. */
+const segmentOf = (spelling: Spelling): Gen<string> => {
+	switch (spelling) {
+		case "word":
+			return (source) =>
+				`${source.draw(characterOf(uppercase))}${source.draw(string(characterOf(lowercase), { min: 1, max: 5 }))}`
+		case "lower":
+			return string(characterOf(lowercase), { min: 1, max: 6 })
+		case "acronym":
+			return string(characterOf(uppercase), { min: 2, max: 4 })
+		case "digits":
+			return string(characterOf(digits), { min: 1, max: 3 })
+	}
+}
+
+const letterLed = element<Spelling>(["word", "lower", "acronym"])
+
+const anySpelling = element<Spelling>(["word", "lower", "acronym", "digits"])
+
+const join = element<Join>(["", "_", "__"])
+
+/** A check name of one to four segments, the first led by a letter, its conversion far inside 63 bytes. */
+const checkNameGen: Gen<CheckName> = (source) => {
+	const first = source.draw(letterLed)
+	const rest = source.draw(
+		array((s) => ({ spelling: s.draw(anySpelling), join: s.draw(join) }), { min: 0, max: 3 })
+	)
+	const segments = [{ spelling: first, join: "" as const }, ...rest]
+	const trailing = source.draw(boolean)
+	const spelled = Arr.map(segments, (g) => `${g.join}${source.draw(segmentOf(g.spelling))}`)
+	return { text: `${Arr.join(spelled, "")}${trailing ? "_" : ""}`, segments, trailing }
+}
+
+const caseGen =
+	(names: Arr.NonEmptyReadonlyArray<CheckName>): Gen<Case> =>
+	(source) => ({
+		pred: source.draw(predGen(predDepth)),
+		name: source.draw(element(names)),
+		rows: source.draw(
+			array((row) => ({ a: row.draw(small), b: row.draw(small), t: row.draw(text) }), {
+				min: 4,
+				max: 8
+			})
+		)
+	})
+
+const compare = (o: Op, x: number, y: number): boolean =>
+	o === "eq"
+		? x === y
+		: o === "ne"
+			? x !== y
+			: o === "lt"
+				? x < y
+				: o === "le"
+					? x <= y
+					: o === "gt"
+						? x > y
+						: x >= y
+
+/** The predicate on a row, in two-valued logic: every field is NOT NULL. */
+const holds = (p: Pred, r: Row): boolean => {
+	switch (p.kind) {
+		case "compare":
+			return compare(p.op, r[p.field], typeof p.right === "number" ? p.right : r[p.right])
+		case "between":
+			return p.low <= r[p.field] && r[p.field] <= p.high
+		case "in":
+			return p.values.includes(r[p.field])
+		case "length":
+			return compare(p.op, Array.from(r.t).length, p.n)
+		case "text":
+			return p.op === "eq" ? r.t === p.value : r.t !== p.value
+		case "textIn":
+			return p.values.includes(r.t)
+		case "and":
+			return Arr.every(p.args, (x) => holds(x, r))
+		case "or":
+			return Arr.some(p.args, (x) => holds(x, r))
+		case "not":
+			return !holds(p.arg, r)
+	}
+}
+
+/** The forms a predicate may use: each leaf's kind and operator. */
+type CheckForm =
+	| "compare literal"
+	| "compare field"
+	| `op ${Op}`
+	| "between"
+	| "between reversed"
+	| "in"
+	| "textIn"
+	| "length"
+	| "text eq"
+	| "text ne"
+	| "and"
+	| "or"
+	| "not"
+
+/** The forms a predicate uses, the exploration's features. */
+const forms = (p: Pred): ReadonlyArray<CheckForm> => {
+	switch (p.kind) {
+		case "compare":
+			return [typeof p.right === "number" ? "compare literal" : "compare field", `op ${p.op}`]
+		case "between":
+			return p.low > p.high ? ["between", "between reversed"] : ["between"]
+		case "in":
+		case "textIn":
+			return [p.kind]
+		case "length":
+			return ["length", `op ${p.op}`]
+		case "text":
+			return [p.op === "eq" ? "text eq" : "text ne"]
+		case "and":
+		case "or":
+			return [p.kind, ...Arr.flatMap(p.args, forms)]
+		case "not":
+			return ["not", ...forms(p.arg)]
+	}
+}
+
+/** How the batch's check names are spelled: each segment's spelling, each join, an underscore last, and one name on two
+ * relations. */
+type NameForm =
+	| `name ${Spelling}`
+	| "name joined directly"
+	| "name joined by _"
+	| "name joined by __"
+	| "name ending in _"
+	| "a name two relations share"
+
+const joinForms = {
+	"": "name joined directly",
+	_: "name joined by _",
+	__: "name joined by __"
+} as const satisfies Readonly<Record<Join, NameForm>>
+
+/** The spellings a check name uses. */
+const nameForms = (n: CheckName): ReadonlyArray<NameForm> => [
+	...Arr.map(n.segments, (g): NameForm => `name ${g.spelling}`),
+	...Arr.map(Arr.drop(n.segments, 1), (g) => joinForms[g.join]),
+	...(n.trailing ? ["name ending in _" as const] : [])
+]
+
+export type Feature = CheckForm | NameForm
+
+export const requiredForms: Arr.NonEmptyReadonlyArray<Feature> = [
+	"name word",
+	"name lower",
+	"name acronym",
+	"name digits",
+	"name joined directly",
+	"name joined by _",
+	"name joined by __",
+	"name ending in _",
+	"a name two relations share",
+	"compare literal",
+	"compare field",
+	"op eq",
+	"op ne",
+	"op lt",
+	"op le",
+	"op gt",
+	"op ge",
+	"between",
+	"between reversed",
+	"in",
+	"textIn",
+	"length",
+	"text eq",
+	"text ne",
+	"and",
+	"or",
+	"not"
+]
+
+const Txt = str.regex("^[a-c]{0,3}$")
+
+const itemOf = (name: string) =>
+	relationBuilder(name, { id: pg.integer, a: pg.integer, b: pg.integer, t: Txt }, ["id"], [])
+
+type Item = ReturnType<typeof itemOf>
+
+type ItemRow = RowScalars<Item>
+
+/** The predicate as the row check's callback writes it, each leaf with the row's helpers. */
+const build = (p: Pred, r: ItemRow) => {
+	const go = (q: Pred): Predicate => {
+		switch (q.kind) {
+			case "compare": {
+				const right = typeof q.right === "number" ? q.right : r[q.right]
+				return r[q.op](r[q.field], right)
+			}
+			case "between":
+				return r.between(r[q.field], q.low, q.high)
+			case "in":
+				return r.in(r[q.field], q.values)
+			case "length":
+				return r[q.op](r.charLength(r.t), q.n)
+			case "text":
+				return r[q.op](r.t, q.value)
+			case "textIn":
+				return r.in(r.t, q.values)
+			case "and":
+			case "or": {
+				const [first, ...rest] = q.args
+				return r[q.kind](go(first), ...argumentsOf(Arr.map(rest, go)))
+			}
+			case "not":
+				return r.not(go(q.arg))
+		}
+	}
+	return go(p)
+}
+
+const literal = (s: string): string => `'${Str.replaceAll("'", "''")(s)}'`
+
+/** Predicates per batch, each its own relation of the batch's one schema. */
+const cases = 48
+
+/** A batch: a pool of one to twelve check names, and its cases, each check named from the pool. */
+export const batch: Gen<ReadonlyArray<Case>> = (source) => {
+	const names: Arr.NonEmptyReadonlyArray<CheckName> = [
+		source.draw(checkNameGen),
+		...source.draw(array(checkNameGen, { min: 0, max: 11 }))
+	]
+	return source.draw(array(caseGen(names), { min: cases, max: cases }))
+}
+
+/**
+ * Installs a batch's predicates as one schema, and inserts each predicate's rows as a direct writer: each relation's one
+ * check constraint, and each refusal's, is the name constraintNamesOf's lookup gives the check's law.
+ */
+export const checkBatch = (b: ReadonlyArray<Case>, note: SearchCase<Feature>["noteAll"]) =>
+	Effect.gen(function* () {
+		const items = Arr.map(indices(b.length), (i) => itemOf(`Item${i}`))
+		const statements: Array<Statement> = Arr.flatMap(b, (s, i) => {
+			const item = items[i]
+			return item === undefined ? [] : [check(s.name.text, item, (r) => build(s.pred, r))]
+		})
+		const declared = schema(
+			"Checks",
+			Record.values(Record.fromEntries(Arr.map(items, (item, i) => [`Item${i}`, item]))),
+			statements
+		)
+		const laws = Arr.map(lawsOf(declared), (l) => l.law)
+		const constraintNameOf = constraintNamesOf(declared)
+		const installed = yield* install(declared, {
+			ambient: ordinarySession,
+			label: "checks",
+			logins: [],
+			extensions: []
+		})
+		const substrate = yield* Substrate
+		const session = yield* substrate.session({ ...ownerSession(), label: "checks writer" })
+		const names = namesOf(installed)
+		const spelled = Arr.map(b, (s) => s.name.text)
+		if (new Set(spelled).size < spelled.length) {
+			note(["a name two relations share"])
+		}
+		for (const [i, s] of b.entries()) {
+			note(forms(s.pred))
+			note(nameForms(s.name))
+			const name = installed.names.relation(`Item${i}`)
+			const columns = Arr.join(
+				Arr.map(["id", "a", "b", "t"], (c) => quoteIdent(installed.names.column(`Item${i}`, c))),
+				", "
+			)
+			const table = `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
+			/** The row check's constraint, which names a refusal. */
+			const constraint = names.constraintOf(
+				names.lawOf(defined(statements[i], `the row check of Item${i}`)),
+				"TableCheck"
+			)
+			const constraints = yield* session.values(
+				`SELECT conname::text FROM pg_catalog.pg_constraint WHERE conrelid = '${table}'::regclass AND contype = 'c'`,
+				[]
+			)
+			const [law, ...more] = Arr.flatMap(laws, (l) =>
+				l.kind === "check" && l.relation === `Item${i}` ? [l] : []
+			)
+			assert.ok(
+				law !== undefined && more.length === 0,
+				`lawsOf lists one check law of Item${i}, its row check's`
+			)
+			const exported = constraintNameOf(law)
+			assert.equal(
+				exported,
+				constraint,
+				`constraintNamesOf names the row check of Item${i} as the installation's naming does`
+			)
+			assert.ok(
+				Arr.some(constraints, (r) => r[0] === exported),
+				`${table}'s row check ${Formatter.format(s.name.text)} is installed as constraintNamesOf names it`
+			)
+			for (const [j, row] of s.rows.entries()) {
+				const where = `predicate ${i}, ${Formatter.format(s.pred)}, on ${Formatter.format(row)}`
+				const inserted = yield* Effect.result(
+					session.query(
+						`INSERT INTO ${table} (${columns}) VALUES (${j}, ${row.a}, ${row.b}, ${literal(row.t)})`,
+						[]
+					)
+				)
+				const lawful = holds(s.pred, row)
+				assert.equal(
+					inserted._tag,
+					lawful ? "Success" : "Failure",
+					`${where} is ${lawful ? "refused" : "stored"}`
+				)
+				const fields = inserted._tag === "Failure" ? pgErrorFields(inserted.failure) : undefined
+				assert.equal(fields?.code, lawful ? undefined : "23514", where)
+				assert.equal<string | undefined>(fields?.constraint, lawful ? undefined : exported, where)
+			}
+		}
+	})

@@ -1,473 +1,200 @@
-import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import {
-	boolean,
-	constant,
-	element,
-	type Gen,
-	int,
-	map,
-	oneOf,
-	option
-} from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
+/**
+ * A query entry's write meets every unique object of its target a stored fact at any unique object, inside the entry or outside it, is that object's law with the submitted key.
+ *
+ * Its pre-conversion budget: runs 60, coverage cases 60 (test/pg/write/entry-occupants/entry-occupants.test.ts at 8e0978628).
+ */
+import { type Reached } from "@bjornpagen/testing/features"
+import { steered } from "@bjornpagen/testing/gen"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import type { LawId } from "#compiler/core/ids.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import { context, key, login, on, relation, role, schema, select } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import { workload } from "#compiler/public/workload.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { type LawId } from "#compiler/core/ids.ts"
+import {
+	seatsTemplate,
+	codeKey,
+	metIn,
+	type ObjectName,
+	occupantCases,
+	type OccupantFeature,
+	oneLead,
+	oneSeat,
+	row,
+	same,
+	Seat,
+	seatsAt
+} from "#test/pg/write/entry-occupants/entry-occupants.fixtures.ts"
+import { assert } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
-import { migrated, noObservation } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { servedFixture } from "#test/support/served-db.ts"
 import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, ownerSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { tokenOf } from "#test/support/worlds.ts"
-
-/**
- * A query entry's write meets every stored fact at every unique object of its target as that object's law.
- *
- * README, "Writing through a role" and "Errors and outcomes": a put or insert that collides with a fact outside the
- * entry, at a key, is `refused` on that key's law alone, and a key broken by a stored fact inside the entry
- * or outside it shows the key you submitted, in the fields you wrote it in.
- *
- * Seat(id, code, grp, lead, team, holder) has four unique objects, each a key (fin.md §6, "at most one"): its primary
- * key; the candidate key code; at most one lead per group, `key(on(select(Seat, lead), "grp"))`, a UNIQUE over the
- * selected side's generated law column; and at most one seat per team, `key(on(Seat, "team"))`. The role `holder`
- * writes MySeat, the seats of the session's subject, so a seat of another holder is a fact outside its world. A case
- * stores carl's seat (outside ann's world), ann's own seat (inside it), both or neither, lawfully, and ann inserts one
- * seat through MySeat. Every stored seat that conflicts with hers at an object is a refusal by that object's law,
- * whichever world holds it; with none she inserts it, and an exact repeat of her own changes nothing. No outcome is a
- * TransientFailure: nothing runs concurrently, so a write that meets a stored fact the role cannot see and fails
- * transiently fails again on every retry (the livelock FR2 fixed at the at-most-one objects, which the precheck did not
- * probe). The oracle is the specification turned into a checker: each object's conflict, stated over the drawn values.
- *
- * Features: an occupant outside the entry at each unique object, one inside it at the selected and the team keys, an
- * exact repeat, and an insert accepted.
- *
- * Kept: a lead-free seat inserted into an empty table (TEST_SEED=432815973's floor case 2, shrunk), whose precheck met
- * the at most one lead object at the UNIQUE's own law column and was "permission denied for table seat": ann's role
- * holds column SELECT on Seat's fields alone, so a write through her entry meets that object at its fields and its
- * selection (write/insert/unique.ts entryUniques).
- */
-const Subject = str.regex("^u_[a-z]{1,8}$")
-const Seat = relation(
-	"Seat",
-	{
-		id: pg.integer,
-		code: pg.integer,
-		grp: pg.integer,
-		lead: pg.boolean,
-		team: pg.integer,
-		holder: Subject
-	},
-	["id"]
-)
-const codeKey = key(on(Seat, "code"))
-const oneLead = key(
-	on(
-		select(Seat, (x) => x.eq(x.lead, true)),
-		"grp"
-	)
-)
-const oneSeat = key(on(Seat, "team"))
-
-const seatsAt = (name: string) => {
-	const base = schema(name, [Seat], [codeKey, oneLead, oneSeat])
-	const Session = context("Session", { sub: Subject })
-	const mine = query(base).rule((r) => {
-		const { id, code, grp, lead, team, holder } = v(Seat, "seat")
-		return r
-			.match(Seat, { id, code, grp, lead, team, holder })
-			.match(Session, { sub: holder })
-			.find({ id, code, grp, lead, team })
-	})
-	const holder = role(base, "holder", { MySeat: mine }, { write: ["MySeat"] })
-	return {
-		base,
-		holder,
-		desk: login(base, "desk", [holder], {
-			workload: [
-				workload(holder, {
-					insertSeat: ChangeSet.empty(holder).insert(holder.relations.MySeat, [])
-				})
-			]
-		})
-	}
-}
-
-/** A seat as MySeat holds it. */
-interface Values {
-	readonly id: number
-	readonly code: number
-	readonly grp: number
-	readonly lead: boolean
-	readonly team: number
-}
-
-/** A seat over small domains, so every object meets, its lead drawn by `lead`. */
-const valuesOf =
-	(lead: Gen<boolean>): Gen<Values> =>
-	(source) => ({
-		id: source.draw(int(1, 3)),
-		code: source.draw(int(1, 3)),
-		grp: source.draw(int(1, 2)),
-		lead: source.draw(lead),
-		team: source.draw(int(1, 3))
-	})
-
-const valuesGen = valuesOf(boolean)
-
-type ObjectName = "primary key" | "candidate key" | "at most one lead" | "at most one seat"
-
-/** A unique object of Seat: the head fields its refusal's witness names, and when two seats conflict there. */
-interface UniqueObject {
-	readonly name: ObjectName
-	readonly witness: ReadonlyArray<keyof Values>
-	readonly conflict: (a: Values, b: Values) => boolean
-}
-
-const objects: ReadonlyArray<UniqueObject> = [
-	{ name: "primary key", witness: ["id"], conflict: (a, b) => a.id === b.id },
-	{ name: "candidate key", witness: ["code"], conflict: (a, b) => a.code === b.code },
-	{
-		name: "at most one lead",
-		witness: ["grp"],
-		conflict: (a, b) => a.lead && b.lead && a.grp === b.grp
-	},
-	{ name: "at most one seat", witness: ["team"], conflict: (a, b) => a.team === b.team }
-]
-
-/** A seat held by `holder` as a VALUES row of Seat's columns. */
-const row = (s: Values, holder: string): string =>
-	`(${s.id}, ${s.code}, ${s.grp}, ${s.lead}, ${s.team}, '${holder}')`
-
-const same = (a: Values, b: Values): boolean =>
-	a.id === b.id && a.code === b.code && a.grp === b.grp && a.lead === b.lead && a.team === b.team
-
-/** Carl's seat and ann's own, each stored or not, never conflicting; and the seat ann inserts. */
-interface OccupantCase {
-	readonly hidden: Option.Option<Values>
-	readonly inside: Option.Option<Values>
-	readonly submitted: Values
-}
-
-/** `s` with its `field` taken from `from`. */
-const withField = (s: Values, field: keyof Values, from: Values): Values => {
-	switch (field) {
-		case "id":
-			return { ...s, id: from.id }
-		case "code":
-			return { ...s, code: from.code }
-		case "grp":
-			return { ...s, grp: from.grp }
-		case "lead":
-			return { ...s, lead: from.lead }
-		case "team":
-			return { ...s, team: from.team }
-	}
-}
-
-/** A whole number of `lo..hi` other than `taken`, which lies in that range: drawn among the rest, never retried. */
-const apartFrom = (taken: number, lo: number, hi: number): Gen<number> =>
-	map(int(lo, hi - 1), (n) => (n >= taken ? n + 1 : n))
-
-/** A seat that meets `other` at no unique object: another id, code and team, and, where both lead, another group. */
-const besideGen =
-	(other: Values): Gen<Values> =>
-	(source) => {
-		const lead = source.draw(boolean)
-		return {
-			id: source.draw(apartFrom(other.id, 1, 3)),
-			code: source.draw(apartFrom(other.code, 1, 3)),
-			grp: source.draw(lead && other.lead ? apartFrom(other.grp, 1, 2) : int(1, 2)),
-			lead,
-			team: source.draw(apartFrom(other.team, 1, 3))
-		}
-	}
-
-/**
- * The stored seats, lawful together by construction: carl's seat or none, then ann's own or none, drawn apart from
- * carl's at every unique object where he holds one.
- */
-const storedGen: Gen<Pick<OccupantCase, "hidden" | "inside">> = (source) => {
-	const hidden = source.draw(option(valuesGen))
-	const inside = source.draw(
-		option(
-			Option.match(hidden, {
-				onNone: () => valuesGen,
-				onSome: besideGen
-			})
-		)
-	)
-	return { hidden, inside }
-}
-
-/**
- * Ann's seat, drawn fresh, or a stored seat itself (her exact repeat, or carl's seat at every object), or a stored seat
- * with one field drawn again, so it meets the objects that field leaves alone.
- */
-const caseGen: Gen<OccupantCase> = (source) => {
-	const { hidden, inside } = source.draw(storedGen)
-	const near = Arr.map(Arr.getSomes([hidden, inside]), (s) =>
-		oneOf([
-			constant(s),
-			(drawing) =>
-				withField(
-					s,
-					drawing.draw(element(["id", "code", "grp", "lead", "team"] as const)),
-					drawing.draw(valuesGen)
-				)
-		])
-	)
-	return { hidden, inside, submitted: source.draw(oneOf([valuesGen, ...near])) }
-}
-
-/**
- * Ann's own seat a lead, stored alone, and her insert of another seat leading its group, at another id, code and team:
- * a seat her own occupant meets at the at most one lead and at no other object.
- */
-const insideLeadGen: Gen<OccupantCase> = (source) => {
-	const inside = source.draw(valuesOf(constant(true)))
-	return {
-		hidden: Option.none(),
-		inside: Option.some(inside),
-		submitted: {
-			id: source.draw(apartFrom(inside.id, 1, 3)),
-			code: source.draw(apartFrom(inside.code, 1, 3)),
-			grp: inside.grp,
-			lead: true,
-			team: source.draw(apartFrom(inside.team, 1, 3))
-		}
-	}
-}
-
-type OccupantFeature =
-	| `${"hidden" | "inside"} occupant at the ${ObjectName}`
-	| "an exact repeat"
-	| "accepted"
-
-/**
- * The case a witness checks, drawn under its steering: while an occupant inside the entry at the at most one lead is
- * pending, in half its cases one built to meet it (insideLeadGen), which a drawn case meets too rarely for the floor and
- * the steered phase; otherwise a drawn one, as a rotating case always is. The generator draws it, so it is the case the
- * search runs, prints and keeps.
- */
-const occupantCases: Steered<OccupantCase, OccupantFeature> = (steering) =>
-	Option.exists(steering, (pending) => pending.names("inside occupant at the at most one lead"))
-		? oneOf([caseGen, insideLeadGen])
-		: caseGen
-
-/** The objects where the stored seat of `world` conflicts with the submitted one: ann's own, unless it is the same
- * seat, an exact repeat; carl's, whatever its values, since a seat of his is never hers. */
-const metIn = (c: OccupantCase, world: "hidden" | "inside"): ReadonlyArray<UniqueObject> =>
-	Option.match(c[world], {
-		onNone: () => [],
-		onSome: (stored) =>
-			world === "inside" && same(stored, c.submitted)
-				? []
-				: Arr.filter(objects, (o) => o.conflict(stored, c.submitted))
-	})
-
-layer(Substrate.layer)("a query entry's write meets every unique object of its target", (it) => {
-	it.effect(
-		"a stored fact at any unique object, inside the entry or outside it, is that object's law with the submitted key",
-		(ctx) =>
-			searched(
-				ctx,
+export const aQueryEntrysWriteMeetsEveryUniqueObjectOfItsTargetAStoredFactAtAnyUniqueObjectInsideTheEntryOrOutsideItIsThatObjectsLawWithTheSubmittedKey =
+	property.explore(steered(occupantCases), {
+		needs: { seats: Substrate.seat(seatsTemplate) },
+		situations: [
+			"hidden occupant at the primary key",
+			"hidden occupant at the candidate key",
+			"hidden occupant at the at most one lead",
+			"hidden occupant at the at most one seat",
+			"inside occupant at the at most one lead",
+			"inside occupant at the at most one seat",
+			"an exact repeat",
+			"accepted"
+		] satisfies ReadonlyArray<Reached<OccupantFeature>>,
+		check:
+			({ seats }, cx: Case<OccupantFeature>) =>
+			(c) =>
 				Effect.scoped(
-					Effect.gen(function* () {
-						const built: Array<ReturnType<typeof seatsAt>> = []
-						const m = yield* migrated({
-							label: "seats",
-							schemaName: { kind: "unique" },
-							first: (name) => {
-								const seats = seatsAt(name)
-								built.push(seats)
-								return { schema: seats.base, logins: [seats.desk] }
-							},
-							later: [],
-							apply: { kind: "noPlaceholders" },
-							declared: () => noDeclarations,
-							observe: noObservation
-						})
-						const { desk } = defined(built[0], "the installed version")
-						const names = namesOf(m)
-						const lawOf: Readonly<Record<ObjectName, LawId>> = {
-							"primary key": names.primaryKeyLaw(Seat),
-							"candidate key": names.lawOf(codeKey),
-							"at most one lead": names.lawOf(oneLead),
-							"at most one seat": names.lawOf(oneSeat)
-						}
-						const table = names.table(Seat)
-						const columns = Arr.join(
-							Arr.map(["id", "code", "grp", "lead", "team", "holder"] as const, (f) =>
-								names.column(Seat, f)
-							),
-							", "
-						)
-						const served = yield* servedFixture(m, desk)
-						/** ann's Db, opened and used inside the layer of the served login that holds her role. */
-						const explored = Effect.gen(function* () {
-							const db = yield* Db.open(served.login.roles.holder, {
-								token: tokenOf({ sub: "u_ann" })
-							})
-							return yield* explore(
-								{
-									oracle: {
-										kind: "specification",
-										name: "each unique object's conflict over the drawn seats, its law and the submitted key as witness"
-									},
-									suite: "pg/write/entry-occupants",
-									draw: steered(occupantCases, (c) => c),
-									literal: Formatter.format,
-									coverage: required<OccupantFeature>(
-										[
-											"hidden occupant at the primary key",
-											"hidden occupant at the candidate key",
-											"hidden occupant at the at most one lead",
-											"hidden occupant at the at most one seat",
-											"inside occupant at the at most one lead",
-											"inside occupant at the at most one seat",
-											"an exact repeat",
-											"accepted"
-										],
-										{ cases: 60, sense: notesOnly }
+					Effect.flatMap(seats, (taken) =>
+						Effect.provideService(
+							Effect.gen(function* () {
+								const m = taken.value
+								const { desk } = seatsAt(m.declared)
+								const s = yield* Substrate
+								const owner = yield* s.session({ ...ownerSession(), label: "seats owner" })
+								const names = namesOf(m)
+								const lawOf: Readonly<Record<ObjectName, LawId>> = {
+									"primary key": names.primaryKeyLaw(Seat),
+									"candidate key": names.lawOf(codeKey),
+									"at most one lead": names.lawOf(oneLead),
+									"at most one seat": names.lawOf(oneSeat)
+								}
+								const table = names.table(Seat)
+								const columns = Arr.join(
+									Arr.map(["id", "code", "grp", "lead", "team", "holder"] as const, (f) =>
+										names.column(Seat, f)
 									),
-									kept: [
-										{
-											note: "a lead-free seat into an empty table: its precheck read the at most one lead's law column, which ann may not read (TEST_SEED=432815973, floor case 2)",
-											sketch: {
-												hidden: Option.none(),
-												inside: Option.none(),
-												submitted: { id: 1, code: 1, grp: 1, lead: false, team: 1 }
-											},
-											draws: "",
-											reaches: ["accepted"]
-										}
-									],
-									runs: 60,
-									shrink: completeShrink,
-									steerEvery: 16,
-									caseHang
-								},
-								(c, cx) =>
-									Effect.gen(function* () {
-										const stored = [
-											...Option.match(c.hidden, {
-												onNone: () => [],
-												onSome: (s) => [row(s, "u_carl")]
-											}),
-											...Option.match(c.inside, {
-												onNone: () => [],
-												onSome: (s) => [row(s, "u_ann")]
+									", "
+								)
+								const served = yield* servedFixture(m, desk)
+								return yield* Effect.gen(function* () {
+									const db = yield* Db.open(served.login.roles.holder, {
+										token: tokenOf({ sub: "u_ann" })
+									})
+
+									const stored = [
+										...Option.match(c.hidden, {
+											onNone: () => [],
+											onSome: (s) => [row(s, "u_carl")]
+										}),
+										...Option.match(c.inside, {
+											onNone: () => [],
+											onSome: (s) => [row(s, "u_ann")]
+										})
+									]
+									yield* clearRows(owner, installationGroup(names))
+									if (stored.length > 0) {
+										yield* owner.query(
+											`INSERT INTO ${table} (${columns}) VALUES ${Arr.join(stored, ", ")}`,
+											[]
+										)
+									}
+									const before = yield* owner.values(
+										`SELECT ${columns} FROM ${table} ORDER BY 1`,
+										[]
+									)
+									const applied = yield* Effect.result(
+										answered(
+											db.workload.insertSeat.once({
+												params: {},
+												facts: { insert: { MySeat: [c.submitted] } }
 											})
-										]
-										yield* clearRows(m.owner, installationGroup(names))
-										if (stored.length > 0) {
-											yield* m.sql(
-												`INSERT INTO ${table} (${columns}) VALUES ${Arr.join(stored, ", ")}`
-											)
-										}
-										const before = yield* m.owner.values(
-											`SELECT ${columns} FROM ${table} ORDER BY 1`,
-											[]
 										)
-										const applied = yield* Effect.result(
-											answered(
-												db.workload.insertSeat.once({
-													params: {},
-													facts: { insert: { MySeat: [c.submitted] } }
-												})
-											)
+									)
+									if (Result.isFailure(applied)) {
+										return assert.fail(
+											`ann's insert of ${Formatter.format(c.submitted)} failed with ${applied.failure.kind}: ${applied.failure.message}`
 										)
-										if (Result.isFailure(applied)) {
-											return assert.fail(
-												`ann's insert of ${Formatter.format(c.submitted)} failed with ${applied.failure.kind}: ${applied.failure.message}`
-											)
-										}
-										const outcome = applied.success
-										const after = yield* m.owner.values(
-											`SELECT ${columns} FROM ${table} ORDER BY 1`,
-											[]
+									}
+									const outcome = applied.success
+									const after = yield* owner.values(
+										`SELECT ${columns} FROM ${table} ORDER BY 1`,
+										[]
+									)
+									const hiddenMet = metIn(c, "hidden")
+									const insideMet = metIn(c, "inside")
+									for (const o of hiddenMet) {
+										cx.note(`hidden occupant at the ${o.name}`)
+									}
+									for (const o of insideMet) {
+										cx.note(`inside occupant at the ${o.name}`)
+									}
+									const met = [...hiddenMet, ...insideMet]
+									const repeat = Option.exists(c.inside, (s) => same(s, c.submitted))
+									if (met.length === 0) {
+										cx.note(repeat ? "an exact repeat" : "accepted")
+										assert.equal(outcome.kind, repeat ? "unchanged" : "accepted", "the outcome")
+										const { id, code, grp, lead, team } = c.submitted
+										assert.deepEqual(
+											after,
+											repeat
+												? before
+												: Arr.sort(
+														[...before, [id, code, grp, lead, team, "u_ann"]],
+														Order.mapInput(Order.Number, (r: ReadonlyArray<unknown>) =>
+															Number(r[0])
+														)
+													),
+											"the seats stored after the insert: ann's beside the ones before it"
 										)
-										const hiddenMet = metIn(c, "hidden")
-										const insideMet = metIn(c, "inside")
-										for (const o of hiddenMet) {
-											cx.note(`hidden occupant at the ${o.name}`)
-										}
-										for (const o of insideMet) {
-											cx.note(`inside occupant at the ${o.name}`)
-										}
-										const met = [...hiddenMet, ...insideMet]
-										const repeat = Option.exists(c.inside, (s) => same(s, c.submitted))
-										if (met.length === 0) {
-											cx.note(repeat ? "an exact repeat" : "accepted")
-											assert.equal(outcome.kind, repeat ? "unchanged" : "accepted", "the outcome")
-											const { id, code, grp, lead, team } = c.submitted
-											assert.deepEqual(
-												after,
-												repeat
-													? before
-													: Arr.sort(
-															[...before, [id, code, grp, lead, team, "u_ann"]],
-															Order.mapInput(Order.Number, (r: ReadonlyArray<unknown>) =>
-																Number(r[0])
-															)
-														),
-												"the seats stored after the insert: ann's beside the ones before it"
-											)
-											return
-										}
-										if (outcome.kind !== "refused") {
-											return assert.fail(
-												`ann's insert of ${Formatter.format(c.submitted)} met ${Arr.join(
+										return
+									}
+									if (outcome.kind !== "refused") {
+										return assert.fail(
+											`ann's insert of ${Formatter.format(c.submitted)} met ${Arr.join(
+												Arr.map(met, (o) => o.name),
+												", "
+											)} and answered ${outcome.kind}`
+										)
+									}
+									const [law, ...more] = Arr.map(outcome.refused.laws, (l) => names.reported(l))
+									assert.deepEqual(more, [], "a key's refusal names its one law")
+									const object = Option.getOrThrowWith(
+										Arr.findFirst(met, (o) => lawOf[o.name] === law),
+										() =>
+											new Error(
+												`the refusal's law ${law} is none of the objects ann's seat met: ${Arr.join(
 													Arr.map(met, (o) => o.name),
 													", "
-												)} and answered ${outcome.kind}`
+												)}`
 											)
-										}
-										const [law, ...more] = Arr.map(outcome.refused.laws, (l) => names.reported(l))
-										assert.deepEqual(more, [], "a key's refusal names its one law")
-										const object = Option.getOrThrowWith(
-											Arr.findFirst(met, (o) => lawOf[o.name] === law),
-											() =>
-												new Error(
-													`the refusal's law ${law} is none of the objects ann's seat met: ${Arr.join(
-														Arr.map(met, (o) => o.name),
-														", "
-													)}`
-												)
-										)
-										assert.deepEqual(
-											outcome.witness,
-											{
-												kind: "key",
-												relation: "MySeat",
-												values: Rec.fromEntries(
-													Arr.map(object.witness, (f) => [f, c.submitted[f]] as const)
-												)
-											},
-											`the witness of the ${object.name}: the key ann submitted, in MySeat's fields`
-										)
-										assert.deepEqual(after, before, "a refused insert stores nothing")
-									})
-							)
-						})
-						return yield* Effect.scoped(explored).pipe(withLayer(served.layer))
-					})
-				)
-			)
-	)
-})
+									)
+									assert.deepEqual(
+										outcome.witness,
+										{
+											kind: "key",
+											relation: "MySeat",
+											values: Rec.fromEntries(
+												Arr.map(object.witness, (f) => [f, c.submitted[f]] as const)
+											)
+										},
+										`the witness of the ${object.name}: the key ann submitted, in MySeat's fields`
+									)
+									assert.deepEqual(after, before, "a refused insert stores nothing")
+								}).pipe(Effect.scoped, withLayer(served.layer))
+							}).pipe(Effect.scoped),
+							Substrate,
+							taken.substrate
+						)
+					)
+				),
+		oracle: {
+			kind: "specification",
+			name: "each unique object's conflict over the drawn seats, its law and the submitted key as witness"
+		},
+		budget: { runs: 60, steered: 60 },
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/write/entry-occupants/entry-occupants.test.ts#aQueryEntrysWriteMeetsEveryUniqueObjectOfItsTargetAStoredFactAtAnyUniqueObjectInsideTheEntryOrOutsideItIsThatObjectsLawWithTheSubmittedKey:-:0.0.0.0.0.0.0"
+				),
+				reason:
+					"a lead-free seat into an empty table: its precheck read the at most one lead's law column, which ann may not read (TEST_SEED=432815973, floor case 2)",
+				since: "2026-11-19"
+			}
+		],
+		kills: []
+	})
