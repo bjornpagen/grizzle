@@ -1,18 +1,19 @@
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+/** What the properties of codes.test.ts read: the hole patterns, their probes and templates, and each case's judgment. */
+import { type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, steered, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
-import type { MigrateError } from "#adapter/migrate/errors.ts"
-import type { FolderTexts } from "#adapter/migrate/input.ts"
+import { type MigrateError } from "#adapter/migrate/errors.ts"
+import { type FolderTexts } from "#adapter/migrate/input.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { ConstraintName } from "#compiler/core/ids.ts"
+import { type ConstraintName } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { ParamText } from "#compiler/core/wire.ts"
-import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
-import { rosterFates } from "#compiler/deploy/snapshot/build.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import { type Codebook, draftCodebook, noRenames } from "#compiler/ir/codes.ts"
+import { type ParamText } from "#compiler/core/wire.ts"
+import { type Declarations, type Named } from "#compiler/deploy/diff/plan.ts"
+import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
+import { type DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import { type Codebook } from "#compiler/ir/codes.ts"
 import { type ScalarType } from "#compiler/ir/scalar.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { login } from "#compiler/program/workload/login.ts"
@@ -24,13 +25,10 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { own, rostersOf } from "#compiler/schema/own.ts"
 import { closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
-import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { apply, kept, noFurther, openMigrator, reviewedSource } from "#test/pg/migrate/support.ts"
-import { succeeded } from "#test/support/assert.ts"
+import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	ALIAS_CODE,
@@ -45,7 +43,7 @@ import {
 	sizeOf
 } from "#test/support/closed/generate.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import type { Installed } from "#test/support/install-migrate.ts"
+import { draftVersion, type Installed } from "#test/support/install-migrate.ts"
 import {
 	migrated,
 	migratedOnceTemplate,
@@ -54,10 +52,10 @@ import {
 	workloadOf
 } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName, roleNamesOf } from "#test/support/kernel/naming.ts"
-import { draftedAt, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
-import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
+import { fromSnapshot, noDeclarations } from "#test/support/migrate/kit.ts"
+import { type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { expectConstraint, inTransaction } from "#test/support/substrate/expect.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
+import { type RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { paramText } from "#test/support/wire.ts"
@@ -234,9 +232,10 @@ export interface Drafted {
 }
 
 /**
- * The next migration of `m`, from the snapshot `previous` to `version`, as the `ordinal`-th draft, declaring
- * `declared`: its codes drafted from the previous snapshot's for the version's rosters, its installation planned under
- * `m`'s schema with them, and the draft reviewed with every candidate kept.
+ * The next migration of `m`, from the snapshot `previous` to `version`, as the `ordinal`-th folder of its history,
+ * declaring `declared`, drafted as every history drafts a version (install-migrate.ts draftVersion), at its step's
+ * instant after the installation's own folder, and reviewed with every loss written in, '0' for each placeholder; its
+ * codes the codebook of the snapshot it reaches.
  */
 export const draftNext = (
 	m: Installed,
@@ -245,46 +244,32 @@ export const draftNext = (
 	ordinal: number,
 	declared: Declarations
 ) =>
-	Effect.sync(() => {
-		const owned = succeeded(own(defined(schemaDescOf(version.schema), "a version's schema value")))
-		const rosters = rostersOf(owned)
-		const codes = succeeded(
-			draftCodebook(
-				rosterFates(
-					previous,
-					declared,
-					Arr.map(rosters, (r) => r.closed)
-				),
-				noRenames,
-				rosters
-			),
-			"a version keeps every roster's codes in order"
-		)
-		const workload = workloadOf(version)
-		const plan = succeeded(
-			planRealInstall(version.schema, {
-				installation: identity.schema(parsedSchemaName(m.declared)),
-				logins: version.logins,
-				extensions: workload.extensions,
-				codes,
-				compile: compileInstallation
-			}),
-			"the installation of the next version"
-		)
-		const g = succeeded(
-			generate({
-				previous: fromSnapshot(previous),
-				installation: plan.installation,
-				name: `step_${ordinal}`,
-				timestamp: draftedAt(ordinal),
-				workload: workload.draft,
-				declared
-			}),
-			"the next migration"
-		)
-		const drafted: Drafted = { plan, snapshot: g.snapshot, folder: reviewedSource(g, kept), codes }
-		return drafted
-	})
+	Effect.map(
+		Effect.orDie(
+			draftVersion(
+				{
+					version: { schema: version.schema, logins: version.logins, declarations: declared },
+					workload: workloadOf(version)
+				},
+				{
+					installation: identity.schema(parsedSchemaName(m.declared)),
+					previous: fromSnapshot(previous),
+					step: ordinal - 1
+				},
+				{
+					extensions: [],
+					compile: compileInstallation,
+					review: { kind: "values", value: () => "'0'" }
+				}
+			)
+		),
+		(drafted): Drafted => ({
+			plan: drafted.plan,
+			snapshot: drafted.snapshot,
+			folder: drafted.folder,
+			codes: codebookOf(drafted.snapshot)
+		})
+	)
 
 /** Applies `m`'s folders and then `next` as `m`'s owner login, the runner's MigrateError its failure. */
 export const applyNext = (m: Installed, next: ReadonlyArray<Drafted>) =>
