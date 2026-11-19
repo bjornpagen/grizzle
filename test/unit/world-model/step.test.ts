@@ -24,7 +24,7 @@
 
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { assert, defined } from "#test/support/assert.ts"
 import { draftedPhases } from "#test/support/worlds/execute/catalog.ts"
@@ -140,8 +140,23 @@ export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumb
 			name: "the phases of the folder grizzle's generate drafts"
 		},
 		budget: { runs: 30, steered: 0 },
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:0.1.0.9.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.9.9.0.0.1.0.0.0.0.2.0.0.0.0.1.9"
+				),
+				reason:
+					"a check added on Doc under beta, which reads Doc whole: Structure drops beta's view, adds the check NOT VALID, creates the view again and grants it right there, Validate validates the check, and no Publish file follows",
+				since: "2026-11-19"
+			}
+		],
 		kills: [
+			{
+				file: "packages/engine/src/deploy/diff/diff.ts",
+				original: "\t\t\t\tif (this.worldWithin(v)) {",
+				replacement: "\t\t\t\tif (false) {",
+				why: "A held role's world object is created again in Publish, where Structure dropped it, so a check added under a reader drafts a Publish file the model says it does not; this property fails."
+			},
 			{
 				file: "packages/engine/src/sql/lexer.ts",
 				original: "const isDigit = (c: number): boolean => c >= 0x30 && c <= 0x39",
