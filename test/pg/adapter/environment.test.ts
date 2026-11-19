@@ -30,20 +30,15 @@ import {
 	featuresOf,
 	type Offered,
 	passFileField,
+	serverLogin,
 	settingsSql,
 	situations
 } from "#test/pg/adapter/environment.fixtures.ts"
-import {
-	defaultPool,
-	poolFor,
-	roleDefaults,
-	rowsOn,
-	substrateLogin
-} from "#test/pg/adapter/support.ts"
+import { defaultPool, poolFor, roleDefaults, rowsOn } from "#test/pg/adapter/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { noPassword } from "#test/support/pg.ts"
 import { processEnvironment, processValue } from "#test/support/process-env.ts"
-import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A login's sessions under a hostile process environment authenticate with the configured password alone, and start under the pinned defaults alone.
@@ -52,73 +47,74 @@ import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aLoginsSessionsUnderAHostileProcessEnvironmentAuthenticateWithTheConfiguredPasswordAloneAndStartUnderThePinnedDefaultsAlone =
 	property.explore(caseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { login: Substrate.seat(serverLogin) },
 		situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ substrate }, k: Case<Feature>) =>
+			({ login }, k: Case<Feature>) =>
 			(c) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const fs = yield* FileSystem.FileSystem
-						const path = yield* Path.Path
-						const schema = yield* s.schema(freshSchema)
-						const credentials = yield* substrateLogin(schema, "server", roleDefaults)
-						const own = Redacted.value(credentials.password)
-						const other = `other-${own}`
-						const dir = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-pgpass-" })
-						const passFile = path.join(dir, "pgpass")
-						const noFile = path.join(dir, "absent")
-						const secretOf = (offered: Offered): string => (offered === "own" ? own : other)
-						const configuredOf = (c: Configured): Password => {
-							switch (c.kind) {
-								case "own":
-									return c.lazy ? Effect.succeed(credentials.password) : credentials.password
-								case "other":
-									return Redacted.make(other)
-								case "none":
-									return noPassword
+				Effect.flatMap(login, ({ substrate: seat, value: credentials }) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const fs = yield* FileSystem.FileSystem
+							const path = yield* Path.Path
+							const own = Redacted.value(credentials.password)
+							const other = `other-${own}`
+							const dir = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-pgpass-" })
+							const passFile = path.join(dir, "pgpass")
+							const noFile = path.join(dir, "absent")
+							const secretOf = (offered: Offered): string => (offered === "own" ? own : other)
+							const configuredOf = (c: Configured): Password => {
+								switch (c.kind) {
+									case "own":
+										return c.lazy ? Effect.succeed(credentials.password) : credentials.password
+									case "other":
+										return Redacted.make(other)
+									case "none":
+										return noPassword
+								}
 							}
-						}
-						return yield* Effect.scoped(
-							Effect.gen(function* () {
-								if (c.passwordFile !== "absent") {
-									yield* fs.writeFileString(
-										passFile,
-										`*:*:*:*:${passFileField(secretOf(c.passwordFile))}\n`,
-										{ mode: 0o600 }
+							return yield* Effect.scoped(
+								Effect.gen(function* () {
+									if (c.passwordFile !== "absent") {
+										yield* fs.writeFileString(
+											passFile,
+											`*:*:*:*:${passFileField(secretOf(c.passwordFile))}\n`,
+											{ mode: 0o600 }
+										)
+									}
+									yield* processEnvironment({
+										PGPASSWORD:
+											c.PGPASSWORD === "absent"
+												? Option.none()
+												: Option.some(secretOf(c.PGPASSWORD)),
+										PGPASSFILE: Option.some(c.passwordFile === "absent" ? noFile : passFile),
+										PGOPTIONS: processValue(c.PGOPTIONS)
+									})
+									const pool = yield* poolFor(credentials, {
+										...defaultPool,
+										password: { kind: "given", password: configuredOf(c.configured) }
+									})
+									const exit = yield* Effect.exit(
+										Effect.scoped(
+											Effect.flatMap(pool.lease, (session) => rowsOn(session, settingsSql, []))
+										)
 									)
-								}
-								yield* processEnvironment({
-									PGPASSWORD:
-										c.PGPASSWORD === "absent" ? Option.none() : Option.some(secretOf(c.PGPASSWORD)),
-									PGPASSFILE: Option.some(c.passwordFile === "absent" ? noFile : passFile),
-									PGOPTIONS: processValue(c.PGOPTIONS)
+									if (c.configured.kind !== "own") {
+										assert.ok(
+											Exit.isFailure(exit),
+											"a pool not configured with the login's own password authenticates"
+										)
+									} else {
+										assert.ok(Exit.isSuccess(exit), "the login's own password is refused")
+										assert.deepEqual(exit.value, [Arr.map(roleDefaults, storedSettingValue)])
+									}
+									k.noteAll(featuresOf(c))
 								})
-								const pool = yield* poolFor(credentials, {
-									...defaultPool,
-									password: { kind: "given", password: configuredOf(c.configured) }
-								})
-								const exit = yield* Effect.exit(
-									Effect.scoped(
-										Effect.flatMap(pool.lease, (session) => rowsOn(session, settingsSql, []))
-									)
-								)
-								if (c.configured.kind !== "own") {
-									assert.ok(
-										Exit.isFailure(exit),
-										"a pool not configured with the login's own password authenticates"
-									)
-								} else {
-									assert.ok(Exit.isSuccess(exit), "the login's own password is refused")
-									assert.deepEqual(exit.value, [Arr.map(roleDefaults, storedSettingValue)])
-								}
-								k.noteAll(featuresOf(c))
-							})
-						)
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate
+							)
+						}).pipe(Effect.scoped),
+						Substrate,
+						seat
+					)
 				),
 		oracle: {
 			kind: "specification",

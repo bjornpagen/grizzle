@@ -3,7 +3,7 @@
 import { boolean, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, pipe, String as Str } from "effect"
 import { quoteString } from "#compiler/core/text.ts"
-import { roleDefaults } from "#test/pg/adapter/support.ts"
+import { loginTemplate, roleDefaults } from "#test/pg/adapter/support.ts"
 import { variableGen, type VariableValue } from "#test/support/process-env.ts"
 
 /** A password the environment offers: the login's own, or another. */
@@ -89,3 +89,6 @@ export const settingsSql = `SELECT ${Arr.join(
 	Arr.map(roleDefaults, (s) => `pg_catalog.current_setting(${quoteString(s.parameter)})`),
 	", "
 )}`
+
+/** The schema and login `server` whose sessions the cases start, made once per member (support.ts loginTemplate). */
+export const serverLogin = loginTemplate(import.meta, "environment server")

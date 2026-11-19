@@ -32,8 +32,13 @@ import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { deployedWorkloadOver, inputArtifacts, testCompile } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
-import { type Installed, installedOf, loginCredentials } from "#test/support/install-migrate.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import {
+	type Installed,
+	installedOf,
+	loginCredentials,
+	templateInstalledOf
+} from "#test/support/install-migrate.ts"
+import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	draftCodes,
 	fromEmpty,
@@ -45,8 +50,15 @@ import {
 import { type Decisions, type Placeholder, review } from "#test/support/migrate/review.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { installationGroup } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
-import { dropRole, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import {
+	dropRole,
+	installTemplate,
+	ownerSession,
+	Substrate,
+	type SubstrateTemplate
+} from "#test/support/substrate/substrate.ts"
 
 /**
  * One version of a migrated schema: its schema value, or its descriptor where a test draws the schema's shape, built
@@ -293,70 +305,25 @@ export const migrated = (options: MigrateOptions) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const name = yield* schemaNameOf(options)
-		const installation = identity.schema(parsedSchemaName(name))
-		const versions: ReadonlyArray<AnyVersion> = [
-			options.first(name),
-			...Arr.map(options.later, (f) => f(name))
-		]
+		const steps = migratedSteps(options, name)
 		const session = yield* substrate.session({ ...ownerSession(), label: `owner ${options.label}` })
-		const ownerLogin = yield* ambientOwner(ordinarySession, [identifierOf(installation)])
+		const ownerLogin = yield* ambientOwner(ordinarySession, [
+			identifierOf(identity.schema(parsedSchemaName(name)))
+		])
 		const migrator = yield* openMigrator(substrate, ownerLogin.credentials)
-		const reviewing = options.apply
-		const placeholderValue =
-			reviewing.kind === "noPlaceholders" ? noValue(options.label) : reviewing.value
-		const edited = (version: number, file: ReviewedText): string =>
-			reviewing.kind === "reviewed" ? reviewing.edit(version, file) : file.text
-		const folders: Array<FolderTexts> = []
-		const steps: Array<{
-			readonly version: AnyVersion
-			readonly plan: RealInstallPlan
-			readonly snapshot: DeploySnapshot
-		}> = []
-		let previous: Previous = fromEmpty
-		for (const [i, version] of versions.entries()) {
-			const workload = workloadOf(version)
-			/** The version's complete installation, every installer extension a deployment needs and its logins' worlds. */
-			const plan = succeeded(
-				planRealInstall(version.schema, {
-					installation,
-					logins: version.logins,
-					extensions: workload.extensions,
-					codes: draftedCodes(previous, version, options.declared(i)),
-					compile: compileInstallation
-				})
+		for (const [i, step] of steps.entries()) {
+			yield* apply(
+				migrator,
+				{ snapshot: step.snapshot, folders: foldersThrough(steps, i) },
+				noFurther
 			)
-			const g = succeeded(
-				generate({
-					previous,
-					installation: plan.installation,
-					name: `step_${i + 1}`,
-					timestamp: draftedAt(i + 1),
-					workload: workload.draft,
-					declared: options.declared(i)
-				})
-			)
-			const decisions: Decisions = {
-				losses: "written",
-				value: placeholderValue
-			}
-			const reviewed = review(g, decisions)
-			folders.push({
-				name: g.folder.name,
-				metaText: g.folder.metaText,
-				files: Arr.map(reviewed.files, (f) => ({ name: f.name, text: edited(i, f) }))
-			})
-			yield* apply(migrator, { snapshot: g.snapshot, folders: [...folders] }, noFurther)
 			yield* Option.match(options.observe, {
 				onNone: () => Effect.void,
 				onSome: (observe) => observe(i, session)
 			})
-			steps.push({ version, plan, snapshot: g.snapshot })
-			previous = fromSnapshot(g.snapshot)
 		}
-		const { plan, snapshot } = Arr.lastNonEmpty(
-			nonEmpty(steps, "a migrated schema has its first version")
-		)
-		const history = nonEmpty(folders, "a migrated schema has its first migration")
+		const { plan, snapshot } = Arr.lastNonEmpty(steps)
+		const history = Arr.map(steps, (step) => step.folder)
 		const installed = yield* installedOf({
 			plan,
 			declared: name,
@@ -374,4 +341,132 @@ export const migrated = (options: MigrateOptions) =>
 			sql: (text) => Effect.asVoid(session.query(Str.replaceAll("$S", quoted)(text), []))
 		}
 		return result
+	})
+
+/** One version as migrated drafts it under the installed name: its plan, its reviewed folder, and its snapshot. */
+interface MigratedStep {
+	readonly plan: RealInstallPlan
+	readonly folder: FolderTexts
+	readonly snapshot: DeploySnapshot
+}
+
+/** What migratedSteps drafts from: a migration's versions, their declarations and how their folders are reviewed. */
+type MigratedDraft = Pick<MigrateOptions, "label" | "first" | "later" | "apply" | "declared">
+
+/**
+ * Every version of `options` drafted under `name` as a deployment drafts it, each from the snapshot the one before
+ * reached: its complete installation, every installer extension a deployment needs and its logins' worlds, its
+ * generated folder reviewed as the caller says, and the snapshot it reaches. Pure: what migrated applies in turn.
+ */
+const migratedSteps = (
+	options: MigratedDraft,
+	name: string
+): Arr.NonEmptyReadonlyArray<MigratedStep> => {
+	const installation = identity.schema(parsedSchemaName(name))
+	const versions: Arr.NonEmptyReadonlyArray<AnyVersion> = [
+		options.first(name),
+		...Arr.map(options.later, (f) => f(name))
+	]
+	const reviewing = options.apply
+	const placeholderValue =
+		reviewing.kind === "noPlaceholders" ? noValue(options.label) : reviewing.value
+	const edited = (version: number, file: ReviewedText): string =>
+		reviewing.kind === "reviewed" ? reviewing.edit(version, file) : file.text
+	const steps: Array<MigratedStep> = []
+	let previous: Previous = fromEmpty
+	for (const [i, version] of versions.entries()) {
+		const workload = workloadOf(version)
+		const plan = succeeded(
+			planRealInstall(version.schema, {
+				installation,
+				logins: version.logins,
+				extensions: workload.extensions,
+				codes: draftedCodes(previous, version, options.declared(i)),
+				compile: compileInstallation
+			})
+		)
+		const g = succeeded(
+			generate({
+				previous,
+				installation: plan.installation,
+				name: `step_${i + 1}`,
+				timestamp: draftedAt(i + 1),
+				workload: workload.draft,
+				declared: options.declared(i)
+			})
+		)
+		const reviewed = review(g, { losses: "written", value: placeholderValue })
+		steps.push({
+			plan,
+			folder: {
+				name: g.folder.name,
+				metaText: g.folder.metaText,
+				files: Arr.map(reviewed.files, (f) => ({ name: f.name, text: edited(i, f) }))
+			},
+			snapshot: g.snapshot
+		})
+		previous = fromSnapshot(g.snapshot)
+	}
+	return nonEmpty(steps, "a migrated schema has its first version")
+}
+
+/** The folders of `steps` through the one at `at`: what a migration has applied once that version's migration ran. */
+const foldersThrough = (
+	steps: Arr.NonEmptyReadonlyArray<MigratedStep>,
+	at: number
+): Arr.NonEmptyReadonlyArray<FolderTexts> =>
+	nonEmpty(
+		Arr.map(steps.slice(0, at + 1), (step) => step.folder),
+		"a migration through a version"
+	)
+
+/**
+ * migrated's installation as a template (substrate.ts installTemplate): every version drafted under the template's name
+ * by every worker as it plans (migratedSteps), applied once per member by the real runner as the template's owner
+ * login, as migrated applies them, each login given its password; each case's Installed the last version's in its
+ * clone, every login logging in with the password the template derived (install-migrate.ts templateInstalledOf), and
+ * the seat's reset emptying every stored relation's table. `name` tells it from its module's other templates.
+ */
+export const migratedOnceTemplate = (spec: {
+	readonly declaredIn: ImportMeta
+	readonly name: string
+	readonly options: MigratedDraft
+}): SubstrateTemplate<Installed> =>
+	installTemplate({
+		declaredIn: spec.declaredIn,
+		name: spec.name,
+		content: { label: spec.options.label },
+		plan: (names) =>
+			Effect.sync(() => ({ names, steps: migratedSteps(spec.options, names.schema) })),
+		install: ({ names, steps }) =>
+			Effect.gen(function* () {
+				const substrate = yield* Substrate
+				const ownerLogin = yield* ambientOwner(ordinarySession, [
+					identifierOf(identity.schema(parsedSchemaName(names.schema)))
+				])
+				const migrator = yield* openMigrator(substrate, ownerLogin.credentials)
+				for (const [i, step] of steps.entries()) {
+					yield* apply(
+						migrator,
+						{ snapshot: step.snapshot, folders: foldersThrough(steps, i) },
+						noFurther
+					)
+				}
+				yield* loginCredentials(Arr.lastNonEmpty(steps).plan, new Map(), new Map())
+			}),
+		bind: ({ names, steps }, binding) => {
+			const last = Arr.lastNonEmpty(steps)
+			return templateInstalledOf(
+				names,
+				{
+					plan: last.plan,
+					folders: Arr.map(steps, (step) => step.folder),
+					snapshot: last.snapshot
+				},
+				ordinarySession,
+				new Map(),
+				binding
+			)
+		},
+		reset: (installed) => installationGroup(namesOf(installed))
 	})

@@ -43,6 +43,7 @@ import {
 	leaseRefused,
 	providerAt,
 	refusedBy,
+	serverLogin,
 	tlsConfigs,
 	type TlsFeature
 } from "#test/pg/adapter/connection.fixtures.ts"
@@ -63,7 +64,7 @@ import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const adapterConnectionsConnectsExactlyWhenTheCAIsTheServersAndTheVerifiedNameIsOneItsCertificateCarries =
 	property.exhaust(finite(tlsConfigs), {
-		needs: { substrate: Substrate.installing },
+		needs: { login: Substrate.seat(serverLogin) },
 		situations: [
 			"connected",
 			"refused wrong ca",
@@ -72,46 +73,46 @@ export const adapterConnectionsConnectsExactlyWhenTheCAIsTheServersAndTheVerifie
 			"connected through an override"
 		] satisfies ReadonlyArray<Reached<TlsFeature>>,
 		check:
-			({ substrate }, c: Case<TlsFeature>) =>
+			({ login }, c: Case<TlsFeature>) =>
 			(config) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const schema = yield* s.schema(freshSchema)
-						const writer = yield* substrateLogin(schema, "server", roleDefaults)
+				Effect.flatMap(login, ({ substrate: seat, value: writer }) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const s = yield* Substrate
 
-						const verified =
-							config.servername.kind === "host" ? config.host : config.servername.servername
-						const pool = yield* poolFor(writer, {
-							...defaultPool,
-							transport: {
-								kind: "given",
+							const verified =
+								config.servername.kind === "host" ? config.host : config.servername.servername
+							const pool = yield* poolFor(writer, {
+								...defaultPool,
 								transport: {
-									...clusterTransport(s.cluster),
-									host: config.host,
-									ca: caOf(s.cluster)[config.ca],
-									servername: verified
+									kind: "given",
+									transport: {
+										...clusterTransport(s.cluster),
+										host: config.host,
+										ca: caOf(s.cluster)[config.ca],
+										servername: verified
+									}
 								}
+							})
+							if (config.ca !== "local") {
+								const refusal = yield* refusedBy(pool)
+								assert.equal(refusal, "TlsRefused")
+								c.note(`refused ${config.ca} ca`)
+							} else if (!certificateNames.has(verified)) {
+								const refusal = yield* refusedBy(pool)
+								assert.equal(refusal, "TlsRefused")
+								c.note(`refused ${config.servername.kind === "host" ? "host" : "override"} name`)
+							} else {
+								const leasedRows = yield* leased(pool, currentUser)
+								assert.deepEqual(leasedRows, [[writer.role, "true"]])
+								c.note(
+									config.servername.kind === "host" ? "connected" : "connected through an override"
+								)
 							}
-						})
-						if (config.ca !== "local") {
-							const refusal = yield* refusedBy(pool)
-							assert.equal(refusal, "TlsRefused")
-							c.note(`refused ${config.ca} ca`)
-						} else if (!certificateNames.has(verified)) {
-							const refusal = yield* refusedBy(pool)
-							assert.equal(refusal, "TlsRefused")
-							c.note(`refused ${config.servername.kind === "host" ? "host" : "override"} name`)
-						} else {
-							const leasedRows = yield* leased(pool, currentUser)
-							assert.deepEqual(leasedRows, [[writer.role, "true"]])
-							c.note(
-								config.servername.kind === "host" ? "connected" : "connected through an override"
-							)
-						}
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate
+						}).pipe(Effect.scoped),
+						Substrate,
+						seat
+					)
 				),
 		oracle: {
 			kind: "specification",
@@ -129,7 +130,7 @@ export const adapterConnectionsConnectsExactlyWhenTheCAIsTheServersAndTheVerifie
  */
 export const adapterConnectionsNeverFallsBackToPlaintextAfterItsSSLRequestAClientSendsNothingButATLSHandshakeWhateverTheServerAnswers =
 	property.explore(answerGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { login: Substrate.seat(serverLogin) },
 		situations: [
 			"answered yes",
 			"answered no",
@@ -138,38 +139,38 @@ export const adapterConnectionsNeverFallsBackToPlaintextAfterItsSSLRequestAClien
 			"answered more than one byte"
 		] satisfies ReadonlyArray<Reached<AnswerFeature>>,
 		check:
-			({ substrate }, c: Case<AnswerFeature>) =>
+			({ login }, c: Case<AnswerFeature>) =>
 			(bytes) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const schema = yield* s.schema(freshSchema)
-						const writer = yield* substrateLogin(schema, "server", roleDefaults)
+				Effect.flatMap(login, ({ substrate: seat, value: writer }) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const s = yield* Substrate
 
-						const answer = Buffer.from(bytes)
-						const server = yield* answeringServer(answer)
-						const pool = yield* poolFor(writer, {
-							...defaultPool,
-							transport: {
-								kind: "given",
-								transport: { ...clusterTransport(s.cluster), port: server.port }
+							const answer = Buffer.from(bytes)
+							const server = yield* answeringServer(answer)
+							const pool = yield* poolFor(writer, {
+								...defaultPool,
+								transport: {
+									kind: "given",
+									transport: { ...clusterTransport(s.cluster), port: server.port }
+								}
+							})
+							const refused = yield* Effect.flip(Effect.scoped(leaseRefused(pool)))
+							const after = yield* server.after
+							assert.equal(refused.stage, "acquire")
+							assertVariant(refused.reason, "_tag", "TlsRefused")
+							const fault = answerFault(answer)
+							assert.equal(refused.reason.fault.kind, fault)
+							if (fault === "handshake") {
+								assert.equal(after[0], handshakeRecord, "what follows yes is a TLS handshake")
+							} else {
+								assert.equal(after.length, 0, "a client told anything but yes sends nothing")
 							}
-						})
-						const refused = yield* Effect.flip(Effect.scoped(leaseRefused(pool)))
-						const after = yield* server.after
-						assert.equal(refused.stage, "acquire")
-						assertVariant(refused.reason, "_tag", "TlsRefused")
-						const fault = answerFault(answer)
-						assert.equal(refused.reason.fault.kind, fault)
-						if (fault === "handshake") {
-							assert.equal(after[0], handshakeRecord, "what follows yes is a TLS handshake")
-						} else {
-							assert.equal(after.length, 0, "a client told anything but yes sends nothing")
-						}
-						c.note(answerFeature(answer))
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate
+							c.note(answerFeature(answer))
+						}).pipe(Effect.scoped),
+						Substrate,
+						seat
+					)
 				),
 		oracle: {
 			kind: "specification",

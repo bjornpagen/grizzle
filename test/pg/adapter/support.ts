@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, type Redacted, type Scope } from "effect"
+import { Array as Arr, Effect, Redacted, type Scope } from "effect"
 import type { CredentialError } from "#adapter/errors/failures.ts"
 import type { BatchRefused } from "#adapter/errors/failures.ts"
 import type { ConnectionPool, PoolBounds, Transport } from "#adapter/types/layer.ts"
@@ -19,8 +19,11 @@ import {
 	type SqlError
 } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
+import { roleName } from "#test/support/substrate/names.ts"
+import { noTables } from "#test/support/substrate/replace.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { installTemplate, Substrate } from "#test/support/substrate/substrate.ts"
+import { templatePassword } from "#test/support/substrate/templates.ts"
 import { paramText } from "#test/support/wire.ts"
 
 /**
@@ -59,6 +62,31 @@ export const substrateLogin = (
 			)
 		}
 		return credentials
+	})
+/**
+ * substrateLogin's schema and login `server` with the pinned role defaults as a template (substrate.ts installTemplate):
+ * made once per member, where a search made them once before its cases, each case's credentials the login's, its
+ * password the one the template's allocations derived (substrate/templates.ts templatePassword). A case that changes
+ * the login itself (its password, its defaults) needs a login of its own: a template's login is every clone's on the
+ * member.
+ */
+export const loginTemplate = (declaredIn: ImportMeta, name: string) =>
+	installTemplate({
+		declaredIn,
+		name,
+		content: { login: "server" },
+		plan: (names) => Effect.succeed(names.schema),
+		install: () =>
+			Effect.gen(function* () {
+				const s = yield* Substrate
+				const schema = yield* s.schema({ create: true, label: "install" })
+				yield* substrateLogin(schema, "server", roleDefaults)
+			}),
+		bind: (schema, binding): Credentials => {
+			const role = roleName(schema, "server")
+			return { role, password: Redacted.make(templatePassword(binding.cluster, role)) }
+		},
+		reset: () => noTables
 	})
 
 export interface PoolOptions {

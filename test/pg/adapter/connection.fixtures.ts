@@ -8,6 +8,7 @@ import { ReadFailure } from "#adapter/errors/execution.ts"
 import type { TlsFault } from "#adapter/errors/failures.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { rowsOn } from "#test/pg/adapter/support.ts"
+import { loginTemplate } from "#test/pg/adapter/support.ts"
 import { pgPin } from "#test/support/env.ts"
 
 export const currentUser =
@@ -288,3 +289,6 @@ export const tlsConfigs: Gen<TlsConfig> = (source) => ({
 		])
 	)
 })
+
+/** The schema and login `server` the TLS and SSLRequest cases connect as, made once per member (support.ts loginTemplate). */
+export const serverLogin = loginTemplate(import.meta, "connection server")

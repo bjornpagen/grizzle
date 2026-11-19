@@ -26,9 +26,9 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	allowed,
 	asRole,
-	type InsertGrantsBuilt,
 	countOf,
 	type Feature,
+	grantsTemplate,
 	holdsOwner,
 	insertedOf,
 	inserts,
@@ -43,9 +43,7 @@ import {
 	ways
 } from "#test/pg/physical/insert-grants.fixtures.ts"
 import { assert, defined } from "#test/support/assert.ts"
-import { migrated, type Version } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -55,7 +53,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aDirectWriterThroughAnInsertRoleIsRefusedEveryUPDATEAndDELETEWhereTheWriteRoleIsRefusedOnlyWhatItLacks =
 	property.explore(probesGen, {
-		needs: { substrate2: Substrate.installing },
+		needs: { grants: Substrate.seat(grantsTemplate) },
 		situations: [
 			"an insert role refused an UPDATE",
 			"an insert role refused a DELETE",
@@ -68,102 +66,91 @@ export const aDirectWriterThroughAnInsertRoleIsRefusedEveryUPDATEAndDELETEWhereT
 			"a role refused a table it does not hold"
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ substrate2 }, c: Case<Feature>) =>
+			({ grants }, c: Case<Feature>) =>
 			(probes) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						let built: InsertGrantsBuilt | undefined
-						const substrate = yield* Substrate
-						const m = yield* migrated({
-							label: "insert_grants",
-							schemaName: { kind: "unique" },
-							first: (name: string): Version => {
-								built = versionOf(name)
-								return { schema: built.schema, logins: [built.login] }
-							},
-							later: [],
-							apply: { kind: "noPlaceholders" },
-							declared: () => noDeclarations,
-							observe: Option.none()
-						})
-						const b = defined(built, "the version")
-						const names = namesOf(m)
-						const tableOf = (t: Table): string => names.table(b.relations[t])
-						const column = (t: Table, field: string): string =>
-							quoteIdent(names.columnIdent({ name: t }, field))
-						const roleOf = (r: RoleName): string =>
-							defined(
-								Arr.findFirst(
-									Arr.flatMap(m.installation.worlds, (l) => l.roles),
-									(x) => x.name === r
-								).pipe(Option.getOrUndefined),
-								`the role ${r}`
-							).role
-						const sqlOf = (p: Probe): string => {
-							const table = tableOf(p.table)
-							const key = column(p.table, keyOf[p.table])
-							switch (p.statement) {
-								case "select":
-									return `SELECT ${key} FROM ${table} WHERE false`
-								case "insert": {
-									const inserted = column(p.table, insertedOf[p.table])
-									return `INSERT INTO ${table} (${inserted}) SELECT ${inserted} FROM ${table} WHERE false`
+				Effect.flatMap(grants, ({ substrate: seat, value: m }) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const substrate = yield* Substrate
+							const b = versionOf(m.declared)
+							const names = namesOf(m)
+							const tableOf = (t: Table): string => names.table(b.relations[t])
+							const column = (t: Table, field: string): string =>
+								quoteIdent(names.columnIdent({ name: t }, field))
+							const roleOf = (r: RoleName): string =>
+								defined(
+									Arr.findFirst(
+										Arr.flatMap(m.installation.worlds, (l) => l.roles),
+										(x) => x.name === r
+									).pipe(Option.getOrUndefined),
+									`the role ${r}`
+								).role
+							const sqlOf = (p: Probe): string => {
+								const table = tableOf(p.table)
+								const key = column(p.table, keyOf[p.table])
+								switch (p.statement) {
+									case "select":
+										return `SELECT ${key} FROM ${table} WHERE false`
+									case "insert": {
+										const inserted = column(p.table, insertedOf[p.table])
+										return `INSERT INTO ${table} (${inserted}) SELECT ${inserted} FROM ${table} WHERE false`
+									}
+									case "update": {
+										const payload = column(p.table, payloadOf[p.table])
+										return `UPDATE ${table} SET ${payload} = ${payload} WHERE false`
+									}
+									case "recount": {
+										const count = column(
+											p.table,
+											isOwner(p.table) ? countOf[p.table] : keyOf[p.table]
+										)
+										return `UPDATE ${table} SET ${count} = ${count} WHERE false`
+									}
+									case "delete":
+										return `DELETE FROM ${table} WHERE false`
 								}
-								case "update": {
-									const payload = column(p.table, payloadOf[p.table])
-									return `UPDATE ${table} SET ${payload} = ${payload} WHERE false`
-								}
-								case "recount": {
-									const count = column(
-										p.table,
-										isOwner(p.table) ? countOf[p.table] : keyOf[p.table]
-									)
-									return `UPDATE ${table} SET ${count} = ${count} WHERE false`
-								}
-								case "delete":
-									return `DELETE FROM ${table} WHERE false`
 							}
-						}
-						const owner = yield* substrate.session({
-							...ownerSession(),
-							label: "insert grants owner"
-						})
+							const owner = yield* substrate.session({
+								...ownerSession(),
+								label: "insert grants owner"
+							})
 
-						for (const p of probes) {
-							const sql = sqlOf(p)
-							const got = yield* asRole(owner, roleOf(p.role), sql)
-							const may = allowed(p.role, p.table, p.statement)
-							assert.deepEqual(
-								got,
-								may ? { rows: 0 } : { refused: "42501" },
-								`${p.role} ${may ? "may send" : "is refused"}: ${sql}`
-							)
-							const holds = ways[p.role][p.table] !== "none" || holdsOwner(p.role, p.table)
-							if (!holds) {
-								c.note("a role refused a table it does not hold")
-							} else if (inserts[p.role]) {
-								if (p.statement === "update") {
-									c.note("an insert role refused an UPDATE")
-								} else if (p.statement === "delete") {
-									c.note("an insert role refused a DELETE")
-								} else if (p.statement === "recount") {
-									c.note("an insert role refused a recount")
-								} else if (p.statement === "insert" && may) {
-									c.note("an insert role inserts")
-								} else if (p.statement === "select" && holdsOwner(p.role, p.table)) {
-									c.note("an insert role selects an owner's family columns")
+							for (const p of probes) {
+								const sql = sqlOf(p)
+								const got = yield* asRole(owner, roleOf(p.role), sql)
+								const may = allowed(p.role, p.table, p.statement)
+								assert.deepEqual(
+									got,
+									may ? { rows: 0 } : { refused: "42501" },
+									`${p.role} ${may ? "may send" : "is refused"}: ${sql}`
+								)
+								const holds = ways[p.role][p.table] !== "none" || holdsOwner(p.role, p.table)
+								if (!holds) {
+									c.note("a role refused a table it does not hold")
+								} else if (inserts[p.role]) {
+									if (p.statement === "update") {
+										c.note("an insert role refused an UPDATE")
+									} else if (p.statement === "delete") {
+										c.note("an insert role refused a DELETE")
+									} else if (p.statement === "recount") {
+										c.note("an insert role refused a recount")
+									} else if (p.statement === "insert" && may) {
+										c.note("an insert role inserts")
+									} else if (p.statement === "select" && holdsOwner(p.role, p.table)) {
+										c.note("an insert role selects an owner's family columns")
+									}
+								} else if (may && p.statement === "update") {
+									c.note("the write role updates")
+								} else if (may && p.statement === "delete") {
+									c.note("the write role deletes")
+								} else if (may && p.statement === "recount") {
+									c.note("the write role recounts")
 								}
-							} else if (may && p.statement === "update") {
-								c.note("the write role updates")
-							} else if (may && p.statement === "delete") {
-								c.note("the write role deletes")
-							} else if (may && p.statement === "recount") {
-								c.note("the write role recounts")
 							}
-						}
-					}),
-					Substrate,
-					substrate2
+						}),
+						Substrate,
+						seat
+					)
 				),
 		oracle: {
 			kind: "specification",

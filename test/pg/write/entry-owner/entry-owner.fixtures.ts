@@ -13,6 +13,8 @@ import {
 	roleName,
 	shopOf
 } from "#test/support/families/entry-owner.ts"
+import { migratedOnceTemplate } from "#test/support/installed.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
 
 export const holdsAll = ["neither", "count", "end", "both"] as const
@@ -161,4 +163,22 @@ export const versionOf = (name: string) => {
 	}
 }
 
-export type EntryOwnerBuilt = ReturnType<typeof versionOf>
+/**
+ * The shop installed once per member through its generated migration, as migrated drafts and applies it
+ * (support/installed.ts migratedOnceTemplate), where each case installed it: a case rebuilds the version under the
+ * installed name (versionOf).
+ */
+export const shopTemplate = migratedOnceTemplate({
+	declaredIn: import.meta,
+	name: "entry owner",
+	options: {
+		label: "entry_owner",
+		first: (name) => {
+			const version = versionOf(name)
+			return { schema: version.built.shop, logins: [version.login] }
+		},
+		later: [],
+		apply: { kind: "noPlaceholders" },
+		declared: () => noDeclarations
+	}
+})

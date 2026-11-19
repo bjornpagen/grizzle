@@ -918,19 +918,42 @@ export const templateInstalled = (
 	binding: TemplateBinding
 ): Installed => {
 	const last = Arr.lastNonEmpty(history)
-	return installedAt(
-		{
-			plan: last.plan,
-			declared: names.schema,
-			folders: Arr.map(history, (d) => d.folder),
-			snapshot: last.snapshot,
-			ambientOwner: templateAmbientOwner(ambient, templateLogin(binding, names.ownerLogin)),
-			files,
-			credentials: templateCredentials(binding, loginRoles(last.plan, files))
-		},
+	return templateInstalledOf(
+		names,
+		{ plan: last.plan, folders: Arr.map(history, (d) => d.folder), snapshot: last.snapshot },
+		ambient,
+		files,
 		binding
 	)
 }
+
+/**
+ * A template's installation as a case over a clone of it sees it in `binding`'s database (templateInstalled), from
+ * what its build applied: the last version's plan and snapshot, and every folder it ran.
+ */
+export const templateInstalledOf = (
+	names: TemplateNames,
+	applied: {
+		readonly plan: RealInstallPlan
+		readonly folders: Arr.NonEmptyReadonlyArray<FolderTexts>
+		readonly snapshot: DeploySnapshot
+	},
+	ambient: AmbientSession,
+	files: ReadonlyMap<string, unknown>,
+	binding: TemplateBinding
+): Installed =>
+	installedAt(
+		{
+			plan: applied.plan,
+			declared: names.schema,
+			folders: applied.folders,
+			snapshot: applied.snapshot,
+			ambientOwner: templateAmbientOwner(ambient, templateLogin(binding, names.ownerLogin)),
+			files,
+			credentials: templateCredentials(binding, loginRoles(applied.plan, files))
+		},
+		binding
+	)
 
 /**
  * Installs `schema` through its first migration (installMigratedThrough), planned as `grizzle generate` composes it

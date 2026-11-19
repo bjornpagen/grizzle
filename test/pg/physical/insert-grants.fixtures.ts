@@ -19,6 +19,8 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { migratedOnceTemplate } from "#test/support/installed.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 /** The version under the declared name `name`. */
@@ -68,8 +70,6 @@ export const versionOf = (name: string) => {
 		login: login(base, "desk", [appender, editor, filer])
 	}
 }
-
-export type InsertGrantsBuilt = ReturnType<typeof versionOf>
 
 const roleNames = ["appender", "editor", "filer"] as const
 
@@ -216,3 +216,23 @@ export const probesGen: Gen<Arr.NonEmptyReadonlyArray<Probe>> = (source) => [
 	source.draw(probeGen),
 	...source.draw(array(probeGen, { min: 0, max: 5 }))
 ]
+
+/**
+ * The version installed once per member through its generated migration, as migrated drafts and applies it
+ * (support/installed.ts migratedOnceTemplate), where each case installed it: a case rebuilds the version under the
+ * installed name (versionOf).
+ */
+export const grantsTemplate = migratedOnceTemplate({
+	declaredIn: import.meta,
+	name: "insert grants",
+	options: {
+		label: "insert_grants",
+		first: (name) => {
+			const built = versionOf(name)
+			return { schema: built.schema, logins: [built.login] }
+		},
+		later: [],
+		apply: { kind: "noPlaceholders" },
+		declared: () => noDeclarations
+	}
+})

@@ -1,15 +1,15 @@
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import {
-	type EntryOwnerBuilt,
 	caseGen,
 	expectedOf,
 	type Feature,
 	holdsAll,
 	type Row,
 	rowOf,
+	shopTemplate,
 	statedFilters,
 	uuidAt,
 	versionOf
@@ -17,9 +17,7 @@ import {
 import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { entryName, roleName } from "#test/support/families/entry-owner.ts"
-import { migrated, type Version } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -31,7 +29,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aFamilysOwnerWrittenThroughARolesQueryEntryOnPostgreSQL19rc2InsertsAndPutsTheNorthStoresEachEntrySeesAsTheModelOfTheEntryOverTheFamilyStatesLeavingEveryCountStockAndItemAsTheFamilyHoldsThem =
 	property.explore(caseGen, {
-		needs: { substrate2: Substrate.installing },
+		needs: { shop: Substrate.seat(shopTemplate) },
 		situations: [
 			...Arr.flatMap(["insert", "put"] as const, (op) =>
 				Arr.map(
@@ -44,26 +42,13 @@ export const aFamilysOwnerWrittenThroughARolesQueryEntryOnPostgreSQL19rc2Inserts
 			...Arr.map(holdsAll, (holds): Feature => `a head holding ${holds}`)
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ substrate2 }, run: Case<Feature>) =>
+			({ shop }, run: Case<Feature>) =>
 			(c) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						let version: EntryOwnerBuilt | undefined
-						return yield* Effect.gen(function* () {
+				Effect.flatMap(shop, ({ substrate: seat, value: m }) =>
+					Effect.provideService(
+						Effect.gen(function* () {
 							const substrate = yield* Substrate
-							const m = yield* migrated({
-								label: "entry_owner",
-								schemaName: { kind: "unique" },
-								first: (name: string): Version => {
-									version = versionOf(name)
-									return { schema: version.built.shop, logins: [version.login] }
-								},
-								later: [],
-								apply: { kind: "noPlaceholders" },
-								declared: () => noDeclarations,
-								observe: Option.none()
-							})
-							const b = defined(version, "the version")
+							const b = versionOf(m.declared)
 							const names = namesOf(m)
 							const store = names.table(b.built.Store)
 							const items = names.table(b.built.Item)
@@ -206,10 +191,10 @@ export const aFamilysOwnerWrittenThroughARolesQueryEntryOnPostgreSQL19rc2Inserts
 								run.note(situation)
 								run.note(`a head holding ${w.holds}`)
 							}).pipe(Effect.scoped)
-						}).pipe(Effect.scoped)
-					}),
-					Substrate,
-					substrate2
+						}).pipe(Effect.scoped),
+						Substrate,
+						seat
+					)
 				),
 		oracle: {
 			kind: "second-implementation",
