@@ -78,6 +78,7 @@ import {
 	types,
 	unionAll
 } from "#compiler/sql/build.ts"
+import { assignments } from "#compiler/sql/generation.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import {
 	type Hop,
@@ -1937,7 +1938,7 @@ const writesOf = (
 				with: undefined,
 				table: w.names.relation(name),
 				alias: t,
-				set,
+				set: assignments(w.generation(name), t, set),
 				from: [
 					{
 						kind: "joins",
@@ -2211,7 +2212,7 @@ const recountOf = (
 			with: undefined,
 			table: w.names.relation(name),
 			alias: o,
-			set: [firstSet, ...restSets],
+			set: assignments(w.generation(name), o, [firstSet, ...restSets]),
 			from: [cteRefAs(barrier, b), cteRefAs(keyset.name, k)],
 			where: and([
 				keyedAt(w, k, keyset, o),

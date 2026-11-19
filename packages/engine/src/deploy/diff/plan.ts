@@ -10,6 +10,7 @@ import type {
 	Select,
 	SqlStatement
 } from "#compiler/sql/ast.ts"
+import type { GenerationAnchor } from "#compiler/sql/generation.ts"
 
 /**
  * A name a draft's declarations speak of, as `--rename` and `--drop` spell it: a relation (`Relation`), a field of one
@@ -338,7 +339,9 @@ export const alterationStatement = (
  * - `fill`: a table's fill of its set-aside fields (SetAside), in structure.fill, after every table's alteration: one
  *   UPDATE setting each set-aside column to the reviewer's value at its placeholder, under a marker each, the row aliased
  *   "t" and each old column still under its field's name, the last value free to be followed by the FROM and WHERE the
- *   values join. Its settling, in structure.settle after every table's fill, is statements (diff.ts fillSteps): the
+ *   values join; where no set-aside field feeds a stored generated column, the table's anchor assigned its own value
+ *   comes first, so PostgreSQL builds the table's generation expressions once, not for every row (sql/generation.ts).
+ *   Its settling, in structure.settle after every table's fill, is statements (diff.ts fillSteps): the
  *   fields' old columns dropped, each set-aside column renamed into its field's name, one ALTER TABLE setting each
  *   field's NOT NULL, identity or uuidv7() default and the NOT NULL of every generated column over one, and an
  *   identity's advance;
@@ -357,6 +360,7 @@ export type Action =
 			readonly kind: "fill"
 			readonly table: ObjectName
 			readonly fields: NonEmptyReadonlyArray<SetAside>
+			readonly anchor: GenerationAnchor | undefined
 	  }
 	| { readonly kind: "violation"; readonly law: LawId; readonly query: Select }
 	| { readonly kind: "analyze"; readonly table: ObjectName }

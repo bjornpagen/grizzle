@@ -33,6 +33,7 @@ import {
 } from "#compiler/deploy/render/markers.ts"
 import type { ColumnDef, ObjectName, PlBlock, Select, SqlStatement } from "#compiler/sql/ast.ts"
 import { cast, lit, tableCol, types, whenFound } from "#compiler/sql/build.ts"
+import type { GenerationAnchor } from "#compiler/sql/generation.ts"
 import {
 	commandsOf,
 	commented,
@@ -158,15 +159,22 @@ const placeholdersOf = (actions: ReadonlyArray<Alteration>): ReadonlyArray<Place
 		a.kind === "placeholderColumn" ? [a] : []
 	)
 
-/** A fill's UPDATE of `table`, each set-aside column at its placeholder, one assignment a line. */
+/** A fill's UPDATE of `table`: its anchor assigned its own value where it has one (plan.ts Action `fill`), then each
+ * set-aside column at its placeholder, one assignment a line, the last free to be followed by a FROM. */
 const writeFill = (
 	out: Lines,
 	table: ObjectName,
-	fields: NonEmptyReadonlyArray<SetAside>
+	fields: NonEmptyReadonlyArray<SetAside>,
+	anchor: GenerationAnchor | undefined
 ): void => {
 	out.line(`UPDATE ${printObjectName(table)} AS ${quoteIdent("t")}`)
 	out.line("SET")
 	const assignments = out.nested()
+	if (anchor !== undefined) {
+		assignments.line(
+			`${quoteIdent(anchor.column)} = ${quoteIdent("t")}.${quoteIdent(anchor.column)},`
+		)
+	}
 	for (const [i, f] of fields.entries()) {
 		assignments.line(
 			`${quoteIdent(f.aside)} = ${placeholderToken}${i === fields.length - 1 ? "" : ","}`
@@ -231,7 +239,7 @@ const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 			return [
 				{
 					above: action.fields.map((f) => fillNote(action.table, f)),
-					write: (out) => writeFill(out, action.table, action.fields)
+					write: (out) => writeFill(out, action.table, action.fields, action.anchor)
 				}
 			]
 		case "violation":

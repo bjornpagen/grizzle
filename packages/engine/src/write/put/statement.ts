@@ -54,6 +54,7 @@ import {
 	unionAll
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
+import { assignments } from "#compiler/sql/generation.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import { arbiterLaw, type WrittenRelation } from "#compiler/write/frontend/compile.ts"
@@ -422,10 +423,14 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 				columns: mapNonEmpty(pk, column),
 				action: {
 					kind: "doUpdate",
-					set: mapNonEmpty(payload, (f): Assignment => ({
-						column: column(f),
-						value: { kind: "excluded", column: column(f) }
-					})),
+					set: assignments(
+						w.generation(relation.name),
+						r3,
+						mapNonEmpty(payload, (f): Assignment => ({
+							column: column(f),
+							value: { kind: "excluded", column: column(f) }
+						}))
+					),
 					where: rowNe(
 						{
 							fields: payload,
@@ -511,7 +516,11 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 			kind: "update",
 			table: w.names.relation(relation.name),
 			alias: r3,
-			set: mapNonEmpty(payload, (f): Assignment => ({ column: column(f), value: inCol(f) })),
+			set: assignments(
+				w.generation(relation.name),
+				r3,
+				mapNonEmpty(payload, (f): Assignment => ({ column: column(f), value: inCol(f) }))
+			),
 			from: [cteRef(r1)],
 			where: and(
 				concatNonEmpty(
@@ -671,7 +680,11 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 					),
 					action: {
 						kind: "update",
-						set: mapNonEmpty(payload, (f) => ({ column: column(f), value: inCol(f) }))
+						set: assignments(
+							w.generation(relation.name),
+							r3,
+							mapNonEmpty(payload, (f) => ({ column: column(f), value: inCol(f) }))
+						)
 					}
 				},
 				{

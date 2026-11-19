@@ -26,6 +26,7 @@ import {
 import type { DeltaSide, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { completeClass, type ReadBack, type SerialClass } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import { generations } from "#compiler/laws/model/generation.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
@@ -1633,7 +1634,8 @@ const compile = (
 			params: frontend.params,
 			dispatch: sharing.dispatch,
 			share,
-			level: options.level
+			level: options.level,
+			generation: generations(options.laws, options.world)
 		})
 	}
 	const plan = planWrite(

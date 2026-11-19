@@ -38,6 +38,7 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { call, cast, lit, provedCore, sameTypeRef, targetAs, types } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
+import type { TableGeneration } from "#compiler/sql/generation.ts"
 import { NameSupply, type NameSupplyStart } from "#compiler/sql/naming.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
 
@@ -271,6 +272,9 @@ export interface WriteContext {
 	readonly start: NameSupplyStart
 	/** The statements the compilation built, which an equal request shares (StatementShare). */
 	readonly share: StatementShare
+	/** What an UPDATE of a relation's table meets of its stored generated columns, as the compilation's updater runs it
+	 * (laws/model/generation.ts generations), which every UPDATE's SET list is built against (sql/generation.ts). */
+	readonly generation: (relation: string) => TableGeneration
 }
 
 /** A statement of its own numbers its relations from r0 and its columns from c1. */
@@ -288,6 +292,7 @@ interface WriteContextOptions {
 	readonly dispatch: ConstructorParameters<typeof LowerContext>[2]
 	readonly share: StatementShare
 	readonly level: Isolation
+	readonly generation: (relation: string) => TableGeneration
 }
 
 export const writeContext = (dag: ValidDag, options: WriteContextOptions): WriteContext => {
@@ -305,7 +310,8 @@ export const writeContext = (dag: ValidDag, options: WriteContextOptions): Write
 		names: options.names,
 		level: options.level,
 		start: ownStatement,
-		share: options.share
+		share: options.share,
+		generation: options.generation
 	}
 }
 

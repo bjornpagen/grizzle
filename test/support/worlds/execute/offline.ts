@@ -3,6 +3,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import * as Engine from "#compiler/core/result.ts"
+import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { type BindResult, bindWrite } from "#compiler/runtime/write/bind.ts"
 import { memberFactsOf } from "#compiler/runtime/write/members.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
@@ -38,7 +39,7 @@ export const offlineCompile = (
 		names: artifacts.names,
 		reads: artifacts.reads,
 		claims: { kind: "facts", present: claims },
-		world: { kind: "role", names: world.names },
+		world: writeWorldOf(world, artifacts.laws),
 		laws: artifacts.laws,
 		derived: artifacts.derived,
 		level: "serializable"

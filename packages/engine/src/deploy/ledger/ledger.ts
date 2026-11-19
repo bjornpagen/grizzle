@@ -44,6 +44,7 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
+import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { claimsSettingName } from "#compiler/sql/print.ts"
 
@@ -329,7 +330,8 @@ const redraftUpdate = (schema: string): Update => {
 		with: undefined,
 		table: ledgerName(schema),
 		alias: r1,
-		set: [
+		/** The ledger table generates no column (physical/ddl/ledger.ts). */
+		set: assignments(ungenerated, r1, [
 			{ column: "target", value: param(2, types.text) },
 			{
 				column: "digest",
@@ -345,7 +347,7 @@ const redraftUpdate = (schema: string): Update => {
 					else: col(r1, "digest")
 				}
 			}
-		],
+		]),
 		from: [],
 		where: eq(col(r1, "folder"), param(1, types.text)),
 		returning: []

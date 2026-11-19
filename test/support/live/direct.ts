@@ -2,6 +2,7 @@ import { Array as Arr, Effect, Option, Record as Rec, Result } from "effect"
 import type { Expr, Insert, SqlStatement } from "#compiler/sql/ast.ts"
 import { col, eq } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
+import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { defined } from "#test/support/assert.ts"
 import {
@@ -96,7 +97,7 @@ const updateOf = (table: OracleTable, row: DirectRow): SqlStatement => {
 		kind: "update",
 		table: table.name,
 		alias: "r1",
-		set,
+		set: assignments(ungenerated, "r1", set),
 		where: keyOf(table, row),
 		with: undefined,
 		from: [],

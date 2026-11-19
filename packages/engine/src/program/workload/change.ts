@@ -18,6 +18,7 @@ import {
 	type SchemaArtifacts
 } from "#compiler/program/schema.ts"
 import { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
+import { writeWorldOf } from "#compiler/program/write-world.ts"
 import {
 	type ChangeSetValue,
 	parseChangeSet,
@@ -102,7 +103,7 @@ export const compileParsed = <S extends ParamSource>(
 				names: artifacts.names,
 				reads: artifacts.reads,
 				claims: { kind: "facts", present: claims },
-				world: world.kind === "role" ? { kind: "role", names: world.names } : { kind: "reality" },
+				world: writeWorldOf(world, artifacts.laws),
 				laws: artifacts.laws,
 				derived: artifacts.derived,
 				level

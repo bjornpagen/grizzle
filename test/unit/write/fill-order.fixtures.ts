@@ -8,6 +8,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
@@ -531,7 +532,7 @@ export const guards = (spec: FillSpec, note: (situation: FillSituation) => void)
 						names: roleArtifacts.names,
 						reads: roleArtifacts.reads,
 						claims: { kind: "facts", present: new Set<string>() },
-						world: { kind: "role", names: world.names },
+						world: writeWorldOf(world, roleArtifacts.laws),
 						laws: roleArtifacts.laws,
 						derived: roleArtifacts.derived,
 						level: "serializable"

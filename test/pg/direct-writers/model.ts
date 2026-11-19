@@ -15,6 +15,7 @@ import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { Expr, Insert, SqlStatement } from "#compiler/sql/ast.ts"
 import { and, col, eq, lit, provedSelect } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
+import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { ALIAS_CODE } from "#test/support/closed/generate.ts"
 import { type OracleState, oracleState, type SequenceState } from "#test/support/oracle/addwins.ts"
@@ -781,10 +782,14 @@ const sqlOf = (t: WriteInstallation, s: Statement): string => {
 					kind: "update",
 					table: table.name,
 					alias: "r1",
-					set: Arr.map(s.set, ([f, x]) => ({
-						column: columnOf(table, f),
-						value: literalOf(table, f, x)
-					})),
+					set: assignments(
+						ungenerated,
+						"r1",
+						Arr.map(s.set, ([f, x]) => ({
+							column: columnOf(table, f),
+							value: literalOf(table, f, x)
+						}))
+					),
 					where: matching(table, s.key),
 					with: undefined,
 					from: [],

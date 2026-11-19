@@ -79,6 +79,7 @@ import {
 import type { NativeColumn, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { migrationGenerations } from "#compiler/laws/model/generation.ts"
 import { columnReads } from "#compiler/laws/model/uniques.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import { lowerPersistent, persistentClosed } from "#compiler/physical/ddl/expr.ts"
@@ -121,6 +122,7 @@ import {
 	types,
 	unionAll
 } from "#compiler/sql/build.ts"
+import { assignments, type TableGeneration } from "#compiler/sql/generation.ts"
 import { freshNames, NameSupply } from "#compiler/sql/naming.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 import {
@@ -1809,7 +1811,10 @@ const derivationCte = (
  * reads of another table's drawn columns it draws itself, by the same derivations. Each table's rows are written once,
  * so a migration writes one new version of each row it backfills, however many of its families' columns it draws.
  */
-const passes = (derivations: ReadonlyArray<Derivation>): ReadonlyArray<Update> => {
+const passes = (
+	derivations: ReadonlyArray<Derivation>,
+	generationOf: (table: ObjectName) => TableGeneration
+): ReadonlyArray<Update> => {
 	const named = derivations.map((derivation, i): Named => ({
 		name: drawingName(i + 1),
 		derivation
@@ -1852,7 +1857,11 @@ const passes = (derivations: ReadonlyArray<Derivation>): ReadonlyArray<Update> =
 			with: { recursive: false, ctes },
 			table,
 			alias: "t",
-			set: mapNonEmpty(columns, (column) => ({ column, value: col("b", column) })),
+			set: assignments(
+				generationOf(table),
+				"t",
+				mapNonEmpty(columns, (column) => ({ column, value: col("b", column) }))
+			),
 			from: [derived(staged(table, columns, ownerOf, true), "b", [], false)],
 			where: eq(col("t", rowColumn), col("b", rowColumn)),
 			returning: []
@@ -2038,5 +2047,6 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 					]
 		}
 	)
-	return { checks, updates: passes(ordered(planned)), dropDefaults }
+	const generationOf = migrationGenerations(installation.laws, (r) => tableOf(installation, r))
+	return { checks, updates: passes(ordered(planned), generationOf), dropDefaults }
 }

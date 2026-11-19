@@ -32,6 +32,7 @@ import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
 import { namedRole, selectionKeysOf } from "#compiler/physical/ddl/names.ts"
 import { compileQuery, type QueryTemplate, querySchema } from "#compiler/program/compile.ts"
 import { roleArtifacts, type SchemaArtifacts, type SchemaInput } from "#compiler/program/schema.ts"
+import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { fullRoleDesc, type OwnedLogin, type OwnedRole, ownLogin } from "#compiler/schema/own.ts"
 import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
@@ -1040,7 +1041,7 @@ export const compiledChange = (
 					names: artifacts.names,
 					reads: artifacts.reads,
 					claims: { kind: "facts", present: new Set() },
-					world: world.kind === "role" ? { kind: "role", names: world.names } : { kind: "reality" },
+					world: writeWorldOf(world, artifacts.laws),
 					laws: artifacts.laws,
 					derived: artifacts.derived,
 					level: "serializable"

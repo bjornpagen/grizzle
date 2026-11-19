@@ -95,6 +95,7 @@ import type {
 import type { LawChecks, MigrationCheck, RuleCheck } from "#compiler/deploy/snapshot/violation.ts"
 import { keptRosters, type PreviousRoster, type RosterFate } from "#compiler/ir/codes.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
+import { migrationGenerations } from "#compiler/laws/model/generation.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -138,6 +139,7 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
+import { anchorFor, type TableGeneration } from "#compiler/sql/generation.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 
@@ -723,7 +725,8 @@ const drawOf = (column: ColumnDef): ReadonlyArray<AlterTableAction> => {
 const fillSteps = (
 	fill: TableFill,
 	structure: TableAlteration | undefined,
-	aside: AsideColumns
+	aside: AsideColumns,
+	generation: TableGeneration
 ): ReadonlyArray<Step> => {
 	const t = fill.table
 	const fields = mapNonEmpty([fill.first, ...fill.rest], (f) => f)
@@ -739,7 +742,20 @@ const fillSteps = (
 	)
 	const settled = (s: SqlStatement): Step => ({ slot: "structure.settle", draft: statement(s) })
 	return [
-		{ slot: "structure.fill", draft: { kind: "fill", table: t, fields } },
+		{
+			slot: "structure.fill",
+			draft: {
+				kind: "fill",
+				table: t,
+				fields,
+				/** Each generated column over a set-aside field reads its set-aside column, which the fill sets
+				 * (asideSubcommand). */
+				anchor: anchorFor(
+					generation,
+					fields.map((f) => f.column.name)
+				)
+			}
+		},
 		settled(
 			alter(
 				t,
@@ -805,6 +821,8 @@ class Differ {
 	readonly constrainedKeys = new Set<KeyAfter>()
 	/** Each table's fill of its set-aside fields, by table key (setAside). */
 	readonly fills = new Map<string, TableFill>()
+	/** Each target table's generation as a fill's UPDATE meets it (laws/model/generation.ts). */
+	readonly generationOf: (table: ObjectName) => TableGeneration
 	readonly prev: ReadonlyMap<string, RecordedObject>
 	readonly next: ReadonlyMap<string, ManifestObject>
 	/** The parts of every relation of the previous and of the target installation, by name key (partsByTable). */
@@ -865,6 +883,9 @@ class Differ {
 		this.input = input
 		this.schema = input.target.schema
 		this.drawn = drawnColumns(input.installation)
+		this.generationOf = migrationGenerations(input.installation.laws, (r) =>
+			input.installation.names.relation(r)
+		)
 		const previousObjects = input.previous.manifest.objects
 		const targetObjects = input.target.manifest.objects
 		this.prev = new Map(previousObjects.map((o) => [o.ident, o]))
@@ -1235,7 +1256,8 @@ class Differ {
 				return fillSteps(
 					d.fill,
 					this.alterations.structure.get(nameKey(d.fill.table)),
-					asideColumnsOf(d.fill)
+					asideColumnsOf(d.fill),
+					this.generationOf(d.fill.table)
 				)
 		}
 	}

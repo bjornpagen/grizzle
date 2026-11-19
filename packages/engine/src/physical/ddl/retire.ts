@@ -6,6 +6,7 @@ import { rowEq } from "#compiler/ir/compare.ts"
 import type { TermDesc } from "#compiler/ir/desc.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import { fieldColumnType } from "#compiler/ir/physical.ts"
+import { generations, reality } from "#compiler/laws/model/generation.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { OwnedStatement } from "#compiler/schema/own.ts"
@@ -54,6 +55,7 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
+import { assignments } from "#compiler/sql/generation.ts"
 import { raised, refusalFunctionName } from "#compiler/write/refusal.ts"
 
 /** A body relation of a unit as its functions read it: its table and its group fields in the header key's order. */
@@ -377,7 +379,9 @@ const retireLocked = (
 		with: undefined,
 		table: unit.table,
 		alias: header,
-		set: [{ column: unit.lifecycle.column, value: lit.bool(true) }],
+		set: assignments(generations(b.model, reality)(unit.header), header, [
+			{ column: unit.lifecycle.column, value: lit.bool(true) }
+		]),
 		from: [cteRefAs(locked.name, groups)],
 		where: atGroup(b, unit, header, groups),
 		returning: one

@@ -2,6 +2,7 @@
 
 import { constant, element, type Gen, shuffled, subarray, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order as Ord, Record as Rec } from "effect"
+import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { Money, pg } from "#compiler/public/fields.ts"
 import { param } from "#compiler/public/query.ts"
@@ -404,7 +405,7 @@ const roleWorld = Object.freeze(
 				names: artifacts.names,
 				reads: artifacts.reads,
 				claims: { kind: "every" } as const,
-				world: { kind: "role", names: world.names } as const,
+				world: writeWorldOf(world, artifacts.laws),
 				laws: artifacts.laws,
 				derived: artifacts.derived,
 				level: "serializable" as const

@@ -11,6 +11,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { isSequence } from "#compiler/ir/family.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { contractOf } from "#compiler/ir/scalar.ts"
+import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { Bits, Money, pg } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -2513,7 +2514,7 @@ const roleWorldOf = (name: RoleName) => {
 			names: artifacts.value.names,
 			reads: artifacts.value.reads,
 			claims: { kind: "every" } as const,
-			world: { kind: "role", names: world.names } as const,
+			world: writeWorldOf(world, artifacts.value.laws),
 			laws: artifacts.value.laws,
 			derived: artifacts.value.derived,
 			level: "serializable" as const

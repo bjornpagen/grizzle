@@ -73,6 +73,7 @@ import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { namedRole, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
+import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { ownRole } from "#compiler/schema/own.ts"
@@ -1237,7 +1238,7 @@ const precheck = (
 				names: artifacts.names,
 				reads: artifacts.reads,
 				claims: { kind: "facts", present: new Set(Arr.map(base.contexts, (c) => c.name)) },
-				world: { kind: "role", names: world.names },
+				world: writeWorldOf(world, artifacts.laws),
 				laws: artifacts.laws,
 				derived: artifacts.derived,
 				level: "serializable"

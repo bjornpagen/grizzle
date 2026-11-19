@@ -1,5 +1,6 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
+import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { Money, pg } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
@@ -432,7 +433,7 @@ const worlds = (() => {
 				names: wherer.names,
 				reads: wherer.reads,
 				claims: { kind: "every" } as const,
-				world: { kind: "role", names: world.names } as const,
+				world: writeWorldOf(world, wherer.laws),
 				laws: wherer.laws,
 				derived: wherer.derived,
 				level: "serializable" as const

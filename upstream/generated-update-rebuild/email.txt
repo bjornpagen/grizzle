@@ -1,0 +1,47 @@
+To: pgsql-bugs@lists.postgresql.org
+Subject: UPDATE rebuilds stored generated column expressions per row when none needs computing
+
+Hi,
+
+On PostgreSQL 18.6 and 19rc1, an UPDATE of a table with stored generated
+columns, none of which reads a column the UPDATE assigns, initializes the
+generation expressions again for every row it updates.  Each row parses
+every stored generated column's expression again (build_column_default())
+and builds its attrs_used bitmap, in the per-query memory context, and
+nothing frees them before the statement ends.  Memory grows with the rows
+updated, and so does time.
+
+The attached repro.sql (psql -X, as a superuser for
+pg_backend_memory_contexts) creates a table with one stored generated
+column over a, whose expression is a 1,000-element IN list, and reads
+ExecutorState in a statement-level AFTER UPDATE trigger:
+
+  statement            | rows  | executor_state_bytes
+  SET a = a, b = b + 1 |  2000 |               262144
+  SET a = a, b = b + 1 | 32000 |               262144
+  SET b = b + 1        |  2000 |            167772160
+  SET b = b + 1        | 32000 |           2592079872
+
+that is about 81 kB per row for UPDATE t SET b = b + 1, and 13.4 s
+against 0.76 s for 32,000 rows on 19rc1.  18.6 gives the same numbers.
+In a migration of ours, an UPDATE of 865,000 rows over a table with 104
+stored generated columns grew ExecutorState to 71.7 GB before we
+cancelled it.
+
+The cause is in nodeModifyTable.c.  When no stored generated column
+depends on an UPDATE target column, ExecInitGenerated() frees the array
+it built ("didn't need it after all") and stores NULL in
+ri_GeneratedExprsU.  ExecComputeStoredGenerated() tests
+ri_GeneratedExprsU == NULL to decide whether to initialize, so every row
+calls ExecInitGenerated() again; the "Don't call twice" Assert tests the
+same NULL and does not fire.  REL_17_STABLE's ExecInitStoredGenerated()
+always kept the array, so 17 is not affected; REL_18_STABLE and master
+have the same code as 19rc1.
+
+A possible fix is to test the flag ExecInitGenerated() always sets for an
+UPDATE, ri_extraUpdatedCols_valid, instead of the array's NULL (attached
+diff, unbuilt and untested), or to keep the empty array.  A workaround
+for users is to assign, in the same UPDATE, some column a stored generated
+column reads to itself.
+
+Thanks,

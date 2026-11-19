@@ -14,9 +14,11 @@ import {
 	type SerialClass
 } from "#compiler/ir/write.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import { generations, reality } from "#compiler/laws/model/generation.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import type { ConservativeProgram, DeltaRelation } from "#compiler/lower/conservative/types.ts"
+import { roleUpdates } from "#compiler/physical/ddl/roles.ts"
 
 import type { CarrierCasts } from "#compiler/runtime/write/steps.ts"
 import { freshNames } from "#compiler/sql/naming.ts"
@@ -119,6 +121,15 @@ interface ConservativeWriteOptions {
 	readonly level: Isolation
 }
 
+/** Who runs the realization's UPDATEs: reality, or the role whose checked schema the frontend was compiled over, with the
+ * columns its grants let it update. */
+const updaterOf = (frontend: WriteFrontend) => {
+	const world = frontend.schema.world
+	return world.kind === "role"
+		? { kind: "role" as const, updates: roleUpdates(frontend.laws, world) }
+		: reality
+}
+
 const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): ConservativeWrite => {
 	const { ir } = frontend
 	/** Whether a relation owns a family, whose count and ends grizzle draws on the owner's row. */
@@ -131,7 +142,8 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		params: frontend.params,
 		/** The conservative realization lowers every described member by the conservative baseline. */
 		dispatch: dispatchNode,
-		share: options.share
+		share: options.share,
+		generation: generations(frontend.laws, updaterOf(frontend))
 	})
 	const supply = new CarrierSupply((t, at) => w.cx.typeRef(t, at))
 	const steps: Array<ConservativeStep> = []

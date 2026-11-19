@@ -428,8 +428,8 @@ const roleRelation = (e: RoleEntry): RoleRelation => {
 
 /** Each writable entry of a role, in name order, with the relation it writes: the role's write list over the installed
  * schema's handles (analysis/schema.ts RoleWrite), which names only relations the installed schema declares. */
-const roleWrites = (checked: CheckedSchema<RoleWorld>): ReadonlyArray<WrittenEntry> =>
-	[...checked.world.writes.values()].map((write) => ({
+const roleWrites = (world: RoleWorld): ReadonlyArray<WrittenEntry> =>
+	[...world.writes.values()].map((write) => ({
 		write,
 		relation: write.kind === "whole" ? write.relation : write.writable.target
 	}))
@@ -1017,13 +1017,12 @@ interface OwnerHold {
 	readonly update: ReadonlyArray<LawField>
 }
 
-/** The owners whose members a role writes (`written`), each with what the role holds on it (`OwnerHold`), in the law
- * model's order of their first family. */
-const ownerHolds = (
+/** The families whose members a role writes (`written`) and whose owner it does not write whole, grouped by owner, in
+ * the law model's order of each owner's first family. */
+const heldFamilies = (
 	model: LawModel,
-	role: OwnedRole,
 	written: ReadonlyArray<WrittenEntry>
-): ReadonlyArray<OwnerHold> => {
+): ReadonlyArray<NonEmptyReadonlyArray<Family>> => {
 	const writes = new Set(written.map((w) => w.relation.name))
 	const whole = new Set(written.flatMap((w) => (w.write.kind === "whole" ? [w.relation.name] : [])))
 	const byOwner = new Map<string, NonEmptyReadonlyArray<Family>>()
@@ -1033,7 +1032,43 @@ const ownerHolds = (
 			byOwner.set(f.owner.name, at === undefined ? [f] : appendNonEmpty(at, f))
 		}
 	}
-	return [...byOwner].map(([name, families]): OwnerHold => {
+	return [...byOwner.values()]
+}
+
+/** What a role holds on `owner`, the owner of `families` (`OwnerHold`). */
+const holdOn = (
+	owner: RelationInfo,
+	families: NonEmptyReadonlyArray<Family>,
+	role: OwnedRole
+): OwnerHold => {
+	const selected = new Set(
+		families.flatMap((f) => [
+			...f.group.map((g) => g.owner.name),
+			...ownerReadColumns(f).map((c) => c.name)
+		])
+	)
+	const updated = new Set(
+		owner.mutable && role.writing === "write"
+			? families.flatMap((f) => [f.count.name, ...endColumns(f).map((c) => c.name)])
+			: []
+	)
+	return {
+		owner,
+		families,
+		select: owner.fields.filter((field) => selected.has(field.name)),
+		update: owner.fields.filter((field) => updated.has(field.name))
+	}
+}
+
+/** The owners whose members a role writes (`written`), each with what the role holds on it (`OwnerHold`), in the law
+ * model's order of their first family, each owner an ordinary relation of the model. */
+const ownerHolds = (
+	model: LawModel,
+	role: OwnedRole,
+	written: ReadonlyArray<WrittenEntry>
+): ReadonlyArray<OwnerHold> =>
+	heldFamilies(model, written).map((families) => {
+		const name = families[0].owner.name
 		const owner = (
 			model.relations.get(name) ??
 			refuse(
@@ -1042,24 +1077,42 @@ const ownerHolds = (
 				`a family owned by an ordinary relation, not ${name}`
 			)
 		).relation
-		const selected = new Set(
-			families.flatMap((f) => [
-				...f.group.map((g) => g.owner.name),
-				...ownerReadColumns(f).map((c) => c.name)
-			])
-		)
-		const updated = new Set(
-			owner.mutable && role.writing === "write"
-				? families.flatMap((f) => [f.count.name, ...endColumns(f).map((c) => c.name)])
-				: []
-		)
-		return {
-			owner,
-			families,
-			select: owner.fields.filter((field) => selected.has(field.name)),
-			update: owner.fields.filter((field) => updated.has(field.name))
-		}
+		return holdOn(owner, families, role)
 	})
+
+/**
+ * Whether a role holds UPDATE on a column of a relation, as its grants hold it (writePlan, ownerHolds): every column of
+ * a relation it writes whole with UPDATE, a table grant; a query entry's updatable fields; an owner hold's count and
+ * ends; no column of any other relation. What an UPDATE the role runs may assign, its anchor among them
+ * (laws/model/generation.ts).
+ */
+export const roleUpdates = (
+	model: LawModel,
+	world: RoleWorld
+): ((relation: string, column: string) => boolean) => {
+	const written = roleWrites(world)
+	const whole = new Set<string>()
+	const columns = new Map<string, ReadonlySet<string>>()
+	const hold = (relation: string, fields: ReadonlyArray<LawField>): void => {
+		columns.set(
+			relation,
+			new Set([...(columns.get(relation) ?? []), ...fields.map((f) => f.column)])
+		)
+	}
+	for (const w of written) {
+		if (!entryPrivileges(world.role.writing, w).includes("UPDATE")) {
+			continue
+		}
+		if (w.write.kind === "whole") {
+			whole.add(w.relation.name)
+		} else {
+			hold(w.relation.name, updatableFields(w.relation, w.write.writable))
+		}
+	}
+	for (const families of heldFamilies(model, written)) {
+		hold(families[0].owner.name, holdOn(families[0].owner, families, world.role).update)
+	}
+	return (relation, column) => whole.has(relation) || (columns.get(relation)?.has(column) ?? false)
 }
 
 /**
@@ -1074,7 +1127,7 @@ export const grantedPrivileges = (
 	checked: CheckedSchema<RoleWorld>
 ): ReadonlyMap<string, ReadonlySet<TablePrivilege>> => {
 	const role = checked.world.role
-	const written = roleWrites(checked)
+	const written = roleWrites(checked.world)
 	const held = new Map<string, Set<TablePrivilege>>()
 	const hold = (relation: string, privileges: ReadonlyArray<TablePrivilege>): void => {
 		const at = held.get(relation)
@@ -1335,7 +1388,7 @@ const addRole = (
 	}
 
 	const writers: Array<Writer> = []
-	const written = roleWrites(checked)
+	const written = roleWrites(checked.world)
 	for (const w of written) {
 		const plan = writePlan(b, cx, role, named, w)
 		const relation = w.relation.name

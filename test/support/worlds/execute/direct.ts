@@ -25,6 +25,7 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
+import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printExpr, printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { valueText } from "#test/support/laws/model.ts"
@@ -319,7 +320,11 @@ const onConflictSql = (
 					? { kind: "doSelect" as const, where: yield* where(resolution.where) }
 					: {
 							kind: "doUpdate" as const,
-							set: Arr.map(updated, (column) => ({ column, value: col("excluded", column) })),
+							set: assignments(
+								ungenerated,
+								"r",
+								Arr.map(updated, (column) => ({ column, value: col("excluded", column) }))
+							),
 							where: yield* where(resolution.where)
 						}
 		const sql = yield* emitted({
@@ -576,7 +581,7 @@ export const directSql = (
 					kind: "update",
 					table: t.name,
 					alias: "r",
-					set,
+					set: assignments(ungenerated, "r", set),
 					where: yield* matching(names, t, statement.key),
 					with: undefined,
 					from: [],

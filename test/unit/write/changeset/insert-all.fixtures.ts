@@ -3,6 +3,7 @@
 import { element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Stream } from "effect"
 import { descText } from "#compiler/ir/desc.ts"
+import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { role } from "#compiler/public/schema.ts"
 import {
@@ -212,7 +213,7 @@ const roleWorld = Object.freeze(
 				names: artifacts.names,
 				reads: artifacts.reads,
 				claims: { kind: "every" } as const,
-				world: { kind: "role", names: world.names } as const,
+				world: writeWorldOf(world, artifacts.laws),
 				laws: artifacts.laws,
 				derived: artifacts.derived,
 				level: "serializable" as const

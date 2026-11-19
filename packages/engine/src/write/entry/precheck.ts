@@ -55,10 +55,15 @@ export interface CheckNames {
 }
 
 /** What a write compiles as: reality, whose writes check nothing, or a role, whose names name the filter functions its
- * query entries' checks call. */
+ * query entries' checks call and whose grants the columns it may update (physical/ddl/roles.ts roleUpdates), which an
+ * UPDATE's anchor is among (laws/model/generation.ts Updater). */
 export type WriteWorld =
 	| { readonly kind: "reality" }
-	| { readonly kind: "role"; readonly names: CheckNames }
+	| {
+			readonly kind: "role"
+			readonly names: CheckNames
+			readonly updates: (relation: string, column: string) => boolean
+	  }
 
 /** What a check reads of a requested fact for one probe, and what it refuses: the fields the probe's arguments are,
  * each once, in its argument order, and its function at their types; the law a fact outside the entry conflicting

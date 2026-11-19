@@ -66,6 +66,7 @@ import {
 	types,
 	windowOf
 } from "#compiler/sql/build.ts"
+import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { type FlatRowSource } from "#test/support/expanded.ts"
 import { unitCarrierName } from "#test/support/sql.ts"
@@ -1345,7 +1346,10 @@ const mergeWhen = (w: WhenSpec): MergeWhen => {
 				condition,
 				action:
 					w.action === "update"
-						? { kind: "update", set: [{ column: "c_b", value: one }] }
+						? {
+								kind: "update",
+								set: assignments(ungenerated, "t", [{ column: "c_b", value: one }])
+							}
 						: w.action === "delete"
 							? { kind: "delete" }
 							: { kind: "doNothing" }
@@ -1399,7 +1403,7 @@ const buildDml = (
 													? { kind: "doSelect", where: undefined }
 													: {
 															kind: "doUpdate",
-															set: [{ column: "c_a", value: one }],
+															set: assignments(ungenerated, "t", [{ column: "c_a", value: one }]),
 															where: undefined
 														}
 									},
@@ -1442,7 +1446,7 @@ const buildDml = (
 				with: outer,
 				table: TABLES[d.rel],
 				alias: "t",
-				set: [{ column: "c_a", value: one }],
+				set: assignments(ungenerated, "t", [{ column: "c_a", value: one }]),
 				from: c.from,
 				where: keyedWhere(c.where, d.keyed),
 				returning: []

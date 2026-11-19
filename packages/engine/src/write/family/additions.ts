@@ -106,6 +106,7 @@ import {
 	unionAll,
 	windowOf
 } from "#compiler/sql/build.ts"
+import { assignments } from "#compiler/sql/generation.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import {
 	type Deferring,
@@ -2406,7 +2407,7 @@ const recountOf = (
 			with: undefined,
 			table: w.names.relation(name),
 			alias: o,
-			set: [firstSet, ...restSets],
+			set: assignments(w.generation(name), o, [firstSet, ...restSets]),
 			from: [cteRefAs(recount.source, row)],
 			where: and([
 				recount.at,

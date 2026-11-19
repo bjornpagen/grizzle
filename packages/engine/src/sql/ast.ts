@@ -2,6 +2,7 @@ import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Assignments } from "#compiler/sql/generation.ts"
 import type { CarrierName, NameMap } from "#compiler/sql/naming.ts"
 
 /** A schema object's name, always schema-qualified: every object grizzle installs or names lives in a named schema. */
@@ -1043,7 +1044,7 @@ export type ConflictAction =
 	| { readonly kind: "doSelect"; readonly where: Expr | undefined }
 	| {
 			readonly kind: "doUpdate"
-			readonly set: NonEmptyReadonlyArray<Assignment>
+			readonly set: Assignments
 			readonly where: Expr | undefined
 	  }
 
@@ -1107,7 +1108,7 @@ export interface Update {
 	readonly with: With | undefined
 	readonly table: ObjectName
 	readonly alias: string
-	readonly set: NonEmptyReadonlyArray<Assignment>
+	readonly set: Assignments
 	readonly from: ReadonlyArray<FromItem>
 	readonly where: Expr | undefined
 	/** May name old."c" and new."c". */
@@ -1126,7 +1127,7 @@ export interface Delete {
 
 export interface MergeUpdate {
 	readonly kind: "update"
-	readonly set: NonEmptyReadonlyArray<Assignment>
+	readonly set: Assignments
 }
 
 /**

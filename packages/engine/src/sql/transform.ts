@@ -73,6 +73,7 @@ import type {
 	With
 } from "#compiler/sql/ast.ts"
 import { isSetBody, isSetQuery, isValuesTarget } from "#compiler/sql/ast.ts"
+import { type Assignments, mapValues } from "#compiler/sql/generation.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
 
 /**
@@ -676,7 +677,12 @@ export class Transform {
 			: { body, orderBy, limit, offset }
 	}
 
-	assignments(list: NonEmptyReadonlyArray<Assignment>): NonEmptyReadonlyArray<Assignment> {
+	assignments(list: Assignments): Assignments {
+		return mapValues(list, (e) => this.expr(e))
+	}
+
+	/** A MERGE insert's row, each column with its value. */
+	row(list: NonEmptyReadonlyArray<Assignment>): NonEmptyReadonlyArray<Assignment> {
 		return mapNonEmptyKept(list, (a) => {
 			const value = this.expr(a.value)
 			return value === a.value ? a : { ...a, value }
@@ -801,7 +807,7 @@ export class Transform {
 		if (a.kind === "insertDefault") {
 			return a
 		}
-		const row = this.assignments(a.row)
+		const row = this.row(a.row)
 		return row === a.row ? a : { ...a, row }
 	}
 

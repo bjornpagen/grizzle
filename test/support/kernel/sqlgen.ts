@@ -71,6 +71,7 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 
+import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import {
 	identityHooks,
 	inertVisitor,
@@ -1741,7 +1742,11 @@ const insertOf = (
 			const assigned = d.from(assignable)
 			const excluded: Expr = { kind: "excluded", column: assigned.name }
 			const value = d.from([excluded, col(rel.alias, assigned.name)])
-			return { kind: "doUpdate", set: [{ column: assigned.name, value }], ...condition() }
+			return {
+				kind: "doUpdate",
+				set: assignments(ungenerated, rel.alias, [{ column: assigned.name, value }]),
+				...condition()
+			}
 		})
 	}
 	if (returned !== undefined) {
@@ -1793,7 +1798,7 @@ const updateOf = (
 	const from = writeItems(d, inScope, "update from")
 	const rels = [rel, ...(from?.rels ?? [])]
 	const scope: Env = { ...inScope, visible: rels }
-	const set = assignmentsOf(d, scope, t)
+	const set = assignments(ungenerated, rel.alias, assignmentsOf(d, scope, t))
 	const where = d.keep("where") ? exprOf(d, scope, "boolean", 0) : undefined
 	const returned = returningOf(
 		d,
@@ -1917,7 +1922,7 @@ const mergeOf = (
 			condition,
 			action:
 				action === "update"
-					? { kind: "update", set: assignmentsOf(d, sees, t) }
+					? { kind: "update", set: assignments(ungenerated, rel.alias, assignmentsOf(d, sees, t)) }
 					: action === "delete"
 						? { kind: "delete" }
 						: { kind: "doNothing" }

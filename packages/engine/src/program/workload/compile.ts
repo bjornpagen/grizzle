@@ -38,7 +38,7 @@ import { type WorkloadPhysical, workloadRequests } from "#compiler/physical/acce
 import { extractAccess } from "#compiler/physical/access/extract.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
 import { type ParamTypes, paramTypesOf } from "#compiler/physical/ddl/domains.ts"
-import { namedRole, type WorldNames, worldNames } from "#compiler/physical/ddl/names.ts"
+import { namedRole, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { RoleHold, RoleOfLogin } from "#compiler/physical/install/extension.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
 import {
@@ -48,7 +48,7 @@ import {
 } from "#compiler/physical/statistics/statistics.ts"
 
 import { certification } from "#compiler/program/isolation/certification.ts"
-import type { SchemaArtifacts, SchemaInput } from "#compiler/program/schema.ts"
+import type { ArtifactsWorld, SchemaArtifacts, SchemaInput } from "#compiler/program/schema.ts"
 import {
 	type ChangeLogin,
 	type ChangeRefused,
@@ -59,9 +59,9 @@ import {
 } from "#compiler/program/workload/change.ts"
 import { workloadState } from "#compiler/program/workload/value.ts"
 import { inlineWorlds } from "#compiler/program/workload/world.ts"
+import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { ownBuiltRole, type OwnedRole } from "#compiler/schema/own.ts"
-import type { WriteWorld } from "#compiler/write/entry/precheck.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import { createsCarrier } from "#compiler/write/program/artifact.ts"
@@ -202,22 +202,12 @@ const queryRead = (
 		"query"
 	)
 
-/** What a workload's programs are checked over: reality, or a role over the artifacts' base, with the role's names. */
-type WorkloadWorld =
-	| { readonly kind: "reality" }
-	| {
-			readonly kind: "role"
-			readonly role: OwnedRole
-			readonly checked: CheckedSchema
-			readonly names: WorldNames
-	  }
-
 /**
  * What every program of a workload is checked and planned over, read once for the workload: its world, and the base's
  * artifacts (its checked schema, derived analysis and law model).
  */
 interface WorkloadReads {
-	readonly world: WorkloadWorld
+	readonly world: ArtifactsWorld
 	readonly artifacts: SchemaArtifacts
 }
 
@@ -307,8 +297,7 @@ const changeSetIr = (
 ): Result.Result<ProgramIr, CompileError> => {
 	const derived = reads.artifacts.derived
 	const world = reads.world
-	const writeWorld: WriteWorld =
-		world.kind === "role" ? { kind: "role", names: world.names } : { kind: "reality" }
+	const writeWorld = writeWorldOf(world, reads.artifacts.laws)
 	return Result.map(
 		compileChangeSet(read, changeSet, {
 			claims: { kind: "every" },
