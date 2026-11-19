@@ -160,7 +160,6 @@ export const sendIn = (world: SendWorld) =>
 					Layer.succeed(Terminal.Terminal, terminal),
 					Input.stdinClaimLayer,
 					Layer.effect(RunCredentials)(Ref.make(world.recorded)),
-					Output.runWarningsLayer,
 					Layer.succeed(Client.Transport, {
 						certified: Option.none(),
 						plain: { direct: client, environment: client }

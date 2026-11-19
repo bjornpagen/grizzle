@@ -144,7 +144,6 @@ const run = async (world: World) => {
 		Layer.succeed(Terminal.Terminal, terminal),
 		Input.stdinClaimLayer,
 		recorded,
-		Output.runWarningsLayer,
 		Layer.succeed(Transport, {
 			certified: Option.none(),
 			plain: { direct: client, environment: client }

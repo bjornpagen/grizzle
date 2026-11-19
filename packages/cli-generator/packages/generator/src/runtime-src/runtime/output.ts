@@ -1367,24 +1367,6 @@ export class ClientPolicy extends Context.Service<
 >()("openapi-cli/runtime/ClientPolicy") {}
 
 /**
- * The once-per-run warning lines this run has printed (design 13.1 R3): `send` prints such a line
- * only when it is not here yet, then records it. Run-scoped, like `RunCredentials`; the emitted
- * `bin.ts` provides `runWarningsLayer`. `send` reads it with `Effect.serviceOption`, and without it
- * the documented default applies: nothing printed yet, so each `send` prints its warning (audit
- * ad9f808b F2).
- */
-export class RunWarnings extends Context.Service<RunWarnings, Ref.Ref<ReadonlySet<string>>>()(
-	"openapi-cli/runtime/RunWarnings"
-) {}
-
-/**
- * A fresh record per run: no warning printed yet.
- */
-export const runWarningsLayer: Layer.Layer<RunWarnings> = Layer.effect(RunWarnings)(
-	Ref.make<ReadonlySet<string>>(new Set())
-)
-
-/**
  * The errors `send` fails with.
  */
 export type SendError =
@@ -1603,26 +1585,6 @@ const warnMissingHeaders = (
 		{ discard: true }
 	)
 }
-
-/**
- * Print `line` on stderr unless this run printed it already (`RunWarnings`).
- */
-const warnOncePerRun = (line: Option.Option<string>): Effect.Effect<void, never, Stdio.Stdio> =>
-	Effect.gen(function* warnOnce() {
-		if (Option.isNone(line)) {
-			return
-		}
-
-		const record = yield* Effect.serviceOption(RunWarnings)
-		const first = Option.isNone(record)
-			? true
-			: yield* Ref.modify(record.value, (printed) =>
-					printed.has(line.value) ? [false, printed] : [true, new Set([...printed, line.value])]
-				)
-		if (first) {
-			yield* printStderr(sanitize(line.value))
-		}
-	})
 
 /**
  * Under `--verbose`, one stderr notice that a 2xx response's media type matches no declared key
@@ -2106,8 +2068,8 @@ const printDryRun = (
  * operation's effective servers: its meta's override, else the root table from `Servers`) joined to
  * the builder's path and query; `Accept` from the declared response media or `accept` (`--accept`),
  * leaving the builder's `Content-Type`; the security requirement evaluated against `Schemes` before
- * any connection (`CredentialMissing`); the plaintext warning of design 13.1 R3, once per run
- * (`RunWarnings`), when `--allow-credentials-for-base-url` is what lets credentials reach an
+ * any connection (`CredentialMissing`); the plaintext warning of design 13.1 R3, which a run prints once since a
+ * generated command sends once, when `--allow-credentials-for-base-url` is what lets credentials reach an
  * `http:` base; the policy client; then response matching, after a stderr warning for each required
  * header the matched case declares and the response lacks. A 2xx streams to the output sink (a
  * bodiless one, `isBodiless`, writes nothing and reads nothing), after the `--verbose` notice for
@@ -2206,7 +2168,10 @@ export const send =
 
 			// The flag let them through only when the base is not bound without it.
 			const allowedByFlag = sendsToBase && !bound.includes(baseOrigin)
-			yield* warnOncePerRun(plaintextWarning(baseUrl, allowedByFlag))
+			yield* Option.match(plaintextWarning(baseUrl, allowedByFlag), {
+				onNone: () => Effect.void,
+				onSome: (warning) => printStderr(sanitize(warning))
+			})
 
 			const policy = yield* ClientPolicy
 			const sensitive = sensitiveHeaderNames(meta.sensitiveHeaders)

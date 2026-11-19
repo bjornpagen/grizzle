@@ -300,12 +300,11 @@ const clientCertificateStatements = (): readonly Statement[] => {
  * redirects; the runtime's own loop does. With a `mutualTLS` scheme whose files this run
  * configured it also builds the certified pair, whose pools present the certificate to the host and
  * never to a proxy (`clientCertificateStatements`); without one the certified pair is none. Then
- * the client policy (the `User-Agent` name and version), the run-scoped `RunCredentials`,
- * `RunRecord` (the error format and retry-hint record) and `RunWarnings` (the once-per-run
- * warnings) outside the final catch, the runtime presenter with no second formatter, the runtime's
- * built-in flags (`Output.builtIns`: every effect default but `--wizard`, help and version without
- * `-h`/`-v`), logs to stderr and no trace propagation. `runMain` reports no error: the final catch
- * already rendered it.
+ * the client policy (the `User-Agent` name and version), the run-scoped `RunCredentials` and
+ * `RunRecord` (the error format and retry-hint record) outside the final catch, the runtime
+ * presenter with no second formatter, the runtime's built-in flags (`Output.builtIns`: every
+ * effect default but `--wizard`, help and version without `-h`/`-v`), logs to stderr and no trace
+ * propagation. `runMain` reports no error: the final catch already rendered it.
  */
 const binModule = (config: AuthorConfig, mutualTls: boolean): Module => {
 	const pool = (constructor: string) =>
@@ -386,7 +385,6 @@ const binModule = (config: AuthorConfig, mutualTls: boolean): Module => {
 		path("clientPolicy"),
 		path("Redact.runCredentialsLayer"),
 		path("Output.runRecordLayer"),
-		path("Output.runWarningsLayer"),
 		fn("CliOutput.layerPresenter", path("Output.presenter")),
 		fn("CliConfig.layer", obj([["builtIns", path("Output.builtIns")]])),
 		fn("Layer.succeed", path("References.LogToStderr"), bool(true)),
