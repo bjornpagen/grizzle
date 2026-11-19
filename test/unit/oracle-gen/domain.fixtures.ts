@@ -7,6 +7,7 @@ import type { NumericBound, ScalarType } from "#compiler/ir/scalar.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
 import { btreeMaxItemSize, btreeEntryBytes, datumBound } from "#compiler/schema/representability.ts"
 import { allTypeSpecs, fieldDescOf, scalarOfSpec } from "#test/support/oracle/gen/domain.ts"
+import { naturalType } from "#test/support/oracle/gen/natural.ts"
 
 const roster = scalarOfSpec({
 	carrier: "code",
@@ -22,7 +23,7 @@ const computed: ReadonlyArray<ScalarType> = Arr.flatMap([0, 1, 2, 20], (digits) 
 )
 
 const types: Arr.NonEmptyReadonlyArray<ScalarType> = Arr.appendAll(
-	Arr.append(Arr.map(allTypeSpecs, scalarOfSpec), roster),
+	Arr.append(Arr.append(Arr.map(allTypeSpecs, scalarOfSpec), roster), naturalType),
 	computed
 )
 
@@ -62,6 +63,7 @@ export type TypeFeature =
 	| "edge classes"
 	| "a type that is its own key type"
 	| "a computed numeric"
+	| "a contract's predicate"
 
 /** How a key field keeps its type: as a span or as a scalar. */
 type Keep = "span" | "scalar"

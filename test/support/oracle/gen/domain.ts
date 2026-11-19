@@ -23,7 +23,9 @@ import {
 	textPatterns,
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
+import { refined } from "#compiler/scalar/compute/evaluate.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { noRosters, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -779,7 +781,10 @@ export const valueClasses = (type: ScalarType, edge: boolean): Classes => {
 					Arr.map(raw, (literal) => withinNumericBound(literal, bound)),
 					(a: TypedLiteral, b: TypedLiteral) => nativeEqualityKey(a) === nativeEqualityKey(b)
 				)
-	const classes = Arr.filter(drawn, (literal) => literalProblem(literal, type) === undefined)
+	const classes = Arr.filter(
+		drawn,
+		(literal) => literalProblem(literal, type) === undefined && admittedAt(literal, type)
+	)
 	if (classes.length === 0) {
 		throw new Error(
 			`no generated value fits the ${carrier} type (typmod ${typmodText(type)}, ${flavor} text, edge ${edge})`
@@ -787,6 +792,18 @@ export const valueClasses = (type: ScalarType, edge: boolean): Classes => {
 	}
 	return classes
 }
+
+/** The automata a refined type's admission reads its patterns by. */
+const admissionPatterns = new CompilePatterns()
+
+/**
+ * Whether a value of a type's base is one of the type's values: every contract level's predicate and refinement holding
+ * of it, judged as a schema's literal at the type is (scalar/compute/evaluate.ts refined, admitLiteral's ContractLiteral
+ * judgment), the door a literal goes through, where literalProblem judges the base alone, so a contract's classes hold
+ * only what it admits (natural over bigint none of int8's negatives).
+ */
+const admittedAt = (literal: TypedLiteral, type: ScalarType): boolean =>
+	refined(literal, type, admissionPatterns).ok
 
 /**
  * A carrier's input spellings beside its canonical one: none ("canonical": every input of one value is stored and

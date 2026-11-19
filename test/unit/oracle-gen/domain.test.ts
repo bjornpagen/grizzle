@@ -21,6 +21,8 @@ import { Array as Arr, Effect } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { literalProblem } from "#compiler/ir/expr.ts"
 import { isRefined, numericBoundOf, textOf } from "#compiler/ir/scalar.ts"
+import { refined } from "#compiler/scalar/compute/evaluate.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
@@ -55,7 +57,8 @@ export const generatedScalarTypesHoldOnlyExactlyStoredValuesOneNativeEqualityVal
 			"vector",
 			"edge classes",
 			"a type that is its own key type",
-			"a computed numeric"
+			"a computed numeric",
+			"a contract's predicate"
 		] satisfies ReadonlyArray<Reached<TypeFeature>>,
 		check:
 			(_, c: Case<TypeFeature>) =>
@@ -65,6 +68,13 @@ export const generatedScalarTypesHoldOnlyExactlyStoredValuesOneNativeEqualityVal
 					assert.ok(classes.length > 1, "a domain of one class tells nothing apart")
 					for (const literal of classes) {
 						assert.equal(literalProblem(literal, t), undefined)
+						assert.ok(
+							refined(literal, t, new CompilePatterns()).ok,
+							"a class the type admits, every contract level's predicate holding of it"
+						)
+					}
+					if (t.contract?.predicate !== undefined) {
+						c.note("a contract's predicate")
 					}
 					const keys = Arr.map(classes, literalEqualityKey)
 					assert.equal(new Set(keys).size, classes.length, "distinct classes")
@@ -108,6 +118,13 @@ export const generatedScalarTypesHoldOnlyExactlyStoredValuesOneNativeEqualityVal
 		box: "every generated type, computed numerics included, with and without its edge classes, each key kept as a span or as a scalar",
 		kept: [],
 		kills: [
+			{
+				file: "test/support/oracle/gen/domain.ts",
+				original:
+					"\t\t(literal) => literalProblem(literal, type) === undefined && admittedAt(literal, type)",
+				replacement: "\t\t(literal) => literalProblem(literal, type) === undefined",
+				why: "A type's value classes are drawn through the base-only literal check, as before: natural over bigint keeps int8's negatives, which its predicate refuses, so a generated query's natural-typed literal is one no schema's literal can be (per-evaluation's 23514 on natural's domain at follow-up 5's e75c06e31); this property fails."
+			},
 			{
 				file: "packages/engine/src/ir/expr.ts",
 				original: `\t\t\treturn inRange(literal.value, range) ? undefined : \`\${literal.value} lies outside \${carrier}\``,
