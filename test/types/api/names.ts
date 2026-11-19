@@ -6,8 +6,9 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
 
 /**
  * The relation-name program: the box of every constructor that names a relation (relation, relation.generated,
- * closed.ordered, closed.unordered, closed.relation, derived, derived.materialized) by every spelling of the name it
- * is handed, exhausted and printed as one program the type batch checks.
+ * closed.ordered, closed.unordered, closed.relation, derived, derived.materialized, and the dynamic door's relation,
+ * relation.generated, closed.ordered, closed.unordered and closed.relation) by every spelling of the name it is
+ * handed, exhausted and printed as one program the type batch checks.
  *
  * The oracle: a call is refused exactly when the type of the name it is handed is no one string literal (string, a
  * template with a hole, a union of names), or is one the declared-name rule refuses (ASCII letters, digits and
@@ -17,7 +18,8 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * parameter's type, `RelationName<"A" | "B">`, under which its members are compared one at a time, so its diagnostic
  * prints no refusal. Every call it admits keeps its level's types: the relation, listed in a level over the root
  * beside a relation whose containment reads the root, leaves that relation's inputs its rows, where a level holding
- * a relation of a name no literal states holds every relation under any name, and its inputs none.
+ * a relation of a name no literal states holds every relation under any name, and its inputs none. The dynamic door
+ * (public/dynamic.ts) admits every spelling, a name its caller knows only at run time, which the run time checks.
  */
 
 /** The constructors that name a relation, each by the callee a program writes. */
@@ -28,10 +30,35 @@ const constructorNames = [
 	"closed.unordered",
 	"closed.relation",
 	"derived",
-	"derived.materialized"
+	"derived.materialized",
+	"dynamicRelation",
+	"dynamicRelation.generated",
+	"dynamicClosed.ordered",
+	"dynamicClosed.unordered",
+	"dynamicClosed.relation"
 ] as const
 
 type ConstructorName = (typeof constructorNames)[number]
+
+/** Whose types a constructor's name is checked by: the package root's, or the dynamic door's, which take any string. */
+const doorOf = (callee: ConstructorName): "checked" | "dynamic" => {
+	switch (callee) {
+		case "relation":
+		case "relation.generated":
+		case "closed.ordered":
+		case "closed.unordered":
+		case "closed.relation":
+		case "derived":
+		case "derived.materialized":
+			return "checked"
+		case "dynamicRelation":
+		case "dynamicRelation.generated":
+		case "dynamicClosed.ordered":
+		case "dynamicClosed.unordered":
+		case "dynamicClosed.relation":
+			return "dynamic"
+	}
+}
 
 /**
  * How a call spells the relation's name: a literal; a literal the declared-name rule refuses (undeclarable); a
@@ -67,7 +94,20 @@ const restOf: { readonly [C in ConstructorName]: ReadonlyArray<string> } = {
 		'[{ kind: "a", w: 1 }]'
 	],
 	derived: ["Items"],
-	"derived.materialized": ["Items"]
+	"derived.materialized": ["Items"],
+	dynamicRelation: ["{ id: uuid, n: pg.integer }", '["id"]'],
+	"dynamicRelation.generated": [
+		"{ id: uuid, n: pg.integer }",
+		'["id"]',
+		"(r) => ({ m: generated(pg.integer, r.n) })"
+	],
+	"dynamicClosed.ordered": ['["a", "b"]'],
+	"dynamicClosed.unordered": ['["a", "b"]'],
+	"dynamicClosed.relation": [
+		"{ kind: closedId(Kind), w: pg.integer }",
+		'["kind"]',
+		'[{ kind: "a", w: 1 }]'
+	]
 }
 
 /** One case: its callee and the spelling of the name its call is handed. */
@@ -94,11 +134,14 @@ const characterRefusal: Refused =
 	"a declared name: ASCII letters, digits and underscores, a letter first"
 
 /**
- * The directive over a case's name, none where its name is one declarable literal: the refusal grizzle's type names,
- * or, for a union of names, the refusal no diagnostic prints.
+ * The directive over a case's name, none where its name is one declarable literal or its constructor the dynamic
+ * door's: the refusal grizzle's type names, or, for a union of names, the refusal no diagnostic prints.
  */
-const directiveOf = (spelling: Spelling): ReadonlyArray<string> => {
-	switch (spelling) {
+const directiveOf = (c: NameCase): ReadonlyArray<string> => {
+	if (doorOf(c.callee) === "dynamic") {
+		return []
+	}
+	switch (c.spelling) {
 		case "literal":
 		case "forwarded":
 			return []
@@ -152,7 +195,7 @@ const nameExpression = (spelling: Spelling, index: number): string => {
 /** The constructor's call over the name expression, each argument on a line of its own under `indent`. */
 const callLines = (c: NameCase, index: number, indent: string): ReadonlyArray<string> => [
 	`${c.callee}(`,
-	...Arr.map(directiveOf(c.spelling), (line) => `${indent}\t${line}`),
+	...Arr.map(directiveOf(c), (line) => `${indent}\t${line}`),
 	`${indent}\t${Arr.join([nameExpression(c.spelling, index), ...restOf[c.callee]], `,\n${indent}\t`)}`,
 	`${indent})`
 ]
@@ -185,9 +228,15 @@ export const ${value} = make${index}("N${index}")`,
 
 /**
  * What an admitted case keeps: its relation, listed in a level of its own beside Tag, whose containment reads the
- * root, leaves Tag's inputs its rows.
+ * root, leaves Tag's inputs its rows. A dynamic door's value keeps no name: its type's name is `string` whatever its
+ * call is handed, so no schema's types key on it.
  */
 const keptLines = (c: NameCase, index: number): ReadonlyArray<string> => {
+	if (doorOf(c.callee) === "dynamic") {
+		return [
+			`export const lost${index}: string extends (typeof c${index})["name"] ? true : false = true`
+		]
+	}
 	switch (c.spelling) {
 		case "literal":
 		case "forwarded":

@@ -24,6 +24,7 @@
 		"./internal/plan/read.ts": "./src/plan/read.ts",
 		"./internal/plan/runtime.ts": "./src/plan/runtime.ts",
 		"./internal/plan/serve.ts": "./src/plan/serve.ts",
+		"./internal/public/dynamic.ts": "./src/public/dynamic.ts",
 		"./package.json": "./package.json",
 		"./core/page": "./src/core/page.ts",
 		"./codec/delivery": "./src/codec/delivery.ts",

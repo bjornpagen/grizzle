@@ -3,6 +3,7 @@
  * program imports these alone, each through this module.
  */
 export type { InsertAllRowsOf } from "#compiler/public/changeset.ts"
+export { closed as dynamicClosed, relation as dynamicRelation } from "#compiler/public/dynamic.ts"
 export { closedId, generated, pg, uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export {

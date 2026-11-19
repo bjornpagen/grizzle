@@ -20,6 +20,7 @@
 		"./runtime": "./src/runtime.ts",
 		"./client": "./src/client.ts",
 		"./compile": "./src/compile.ts",
+		"./dynamic": "./src/dynamic.ts",
 		"./http": "./src/http/index.ts",
 		"./package.json": "./package.json",
 		"./adapter/connection/config": "./src/adapter/connection/config.ts"

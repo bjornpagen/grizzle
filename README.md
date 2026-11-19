@@ -149,8 +149,15 @@ Three relations, a roster of statuses, two rules and one query.
 relations and the rules between them into one PostgreSQL schema. A relation's name is one string literal of ASCII
 letters, digits and underscores, a letter first, the key the schema's types hold it under: `relation`, `closed` and
 `derived` refuse a name typed `string`, or a literal of other characters, at the call that passes it, and a helper that
-builds a relation takes its name as `RelationName<N>`. Each `Post` row is a fact: this post exists, in this
-organization, by this author, with this title, body and status. Three things follow:
+builds a relation takes its name as `RelationName<N>`. A schema a program generates from data, whose relations' names
+it knows only at run time, declares them through `@bjornpagen/grizzle/dynamic`: its `relation`, `relation.generated`,
+`closed.ordered`, `closed.unordered` and `closed.relation` take any string as a name, and their values' types say what
+that loses. Each is an `AnyRelation`, `AnyRoster` or `AnyClosedRelation`, which states no name, fields or key, so a
+schema that lists one holds its relations under any name and no typed statement or query reads its fields; the run
+time checks its name, fields, key and rows, as it checks a JavaScript caller's. It is the door for a generated schema,
+not a way around the checked API: a relation whose name a literal states is declared through the package root. Each
+`Post` row is a fact: this post exists, in this organization, by this author, with this title, body and status. Three
+things follow:
 
 - **Every field is required.** There are no nullable columns. A post that has never been viewed has no `PostViews` row,
   and one that has been viewed has exactly one: a value that may be missing is a fact that may be missing.
@@ -1297,7 +1304,7 @@ Then depend on it from your package, beside its peers:
 }
 ```
 
-Import it as `@bjornpagen/grizzle`, `@bjornpagen/grizzle/runtime`, `@bjornpagen/grizzle/compile`, `@bjornpagen/grizzle/client` and `@bjornpagen/grizzle/http`. `pnpm exec grizzle` runs the command line from `src/cli/main.ts`. To upgrade, move the submodule to a newer commit and run `pnpm install`.
+Import it as `@bjornpagen/grizzle`, `@bjornpagen/grizzle/runtime`, `@bjornpagen/grizzle/compile`, `@bjornpagen/grizzle/dynamic`, `@bjornpagen/grizzle/client` and `@bjornpagen/grizzle/http`. `pnpm exec grizzle` runs the command line from `src/cli/main.ts`. To upgrade, move the submodule to a newer commit and run `pnpm install`.
 
 The agent guide is `vendor/grizzle/packages/grizzle/skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again after upgrading grizzle.
 

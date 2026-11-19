@@ -189,7 +189,10 @@ type GeneratedApart<Written, G> = [keyof Written & keyof G] extends [never]
  * never writes (UnwrittenFieldsOf), a drawn or an accumulated one, which grizzle writes on the host: PostgreSQL
  * generates a column from the caller's fields alone.
  */
-type GenerationRow<R extends Shows<string, unknown>> = Omit<RowScalars<R>, UnwrittenFieldsOf<R>>
+export type GenerationRow<R extends Shows<string, unknown>> = Omit<
+	RowScalars<R>,
+	UnwrittenFieldsOf<R>
+>
 
 /**
  * relation.generated(name, written, primaryKey, (row) => ({ f: generated(type, term), ... })): a relation whose

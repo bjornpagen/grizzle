@@ -68,6 +68,7 @@ const DICTIONARY_MINTS = [
 	"test/unit/live/values.dictionary.ts",
 	"test/unit/scalar/descriptors.dictionary.ts",
 	"test/unit/scalar/registry.dictionary.ts",
+	"test/unit/schema/dynamic.dictionary.ts",
 	"test/unit/world-model/generate.dictionary.ts"
 ] as const
 

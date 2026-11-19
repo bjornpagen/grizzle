@@ -310,6 +310,8 @@ export interface AnyClosedRelation {
 	readonly name: string
 	readonly fields: unknown
 	readonly key: NonEmptyReadonlyArray<string>
+	/** Its facts, one per distinct row its declaration writes. */
+	readonly rows: ReadonlyArray<unknown>
 	readonly fact: RowDecoder<unknown>
 	readonly heading: unknown
 }

@@ -354,6 +354,12 @@
 				"patterns": ["packages/grizzle/src/runtime.ts"]
 			},
 			{
+				// @bjornpagen/grizzle/dynamic: the door for a generated schema, the engine's constructors of relations whose
+				// names are known only at run time (public/dynamic.ts), which the root never re-exports.
+				"name": "dynamic-entry",
+				"patterns": ["packages/grizzle/src/dynamic.ts"]
+			},
+			{
 				// @bjornpagen/grizzle/http: a served login's runtime over HTTP, which loads what a Db does and no more: the
 				// runtime shell (a layer's held roles, Db.open's context, a member's calls), the engine's runtime facade and
 				// what it re-exports of core, the live model and the wire's codecs; the served forms and the schema's types by
@@ -906,6 +912,10 @@
 			{
 				"from": "runtime-entry",
 				"allow": ["adapter-runtime"]
+			},
+			{
+				"from": "dynamic-entry",
+				"allow": ["public"]
 			},
 			{
 				"from": "http",
