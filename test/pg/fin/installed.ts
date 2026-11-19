@@ -365,25 +365,6 @@ export const constraintText = (c: Catalogued): string =>
 		onSome: (t) => ` → ${t.relation}(${Arr.join(t.columns, ", ")})`
 	})}${c.deferrable ? " deferrable" : ""}${c.cascades ? " on update cascade" : ""}`
 
-/** Drops one installed constraint, as the owner: a mutant of the installed lowering without it. */
-export const droppedSql = (seat: Seat, c: Catalogued): string =>
-	`ALTER TABLE ${seat.table(c.relation)} DROP CONSTRAINT ${quoteIdent(c.name)}`
-
-/** Runs a mutant's DDL as the owner, then re-reads the seat's catalog, so its constraints are the mutant's. */
-export const mutated = (
-	seat: Seat,
-	relations: Arr.NonEmptyReadonlyArray<string>,
-	label: string,
-	ddl: ReadonlyArray<string>
-): Effect.Effect<Seat, SqlError, Substrate | Scope.Scope> =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		for (const statement of ddl) {
-			yield* substrate.admin.query(statement, [])
-		}
-		return yield* seatOfInstalled(seat.installed, relations, label)
-	})
-
 /** The TRUNCATE of every row of the relations, in one statement. */
 const truncateSql = (seat: Seat, relations: Arr.NonEmptyReadonlyArray<string>): string =>
 	`TRUNCATE ${Arr.join(Arr.map(relations, seat.table), ", ")}`

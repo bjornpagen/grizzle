@@ -11,7 +11,6 @@
  * owners of one key.
  */
 import { Array as Arr, Data, Effect, Formatter, Option, type Scope } from "effect"
-import type { CompileError } from "#compiler/core/errors.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { counted, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import {
@@ -25,7 +24,6 @@ import {
 	type SeatTemplate,
 	type Start,
 	sameRoles,
-	seatOf,
 	seatOfInstalled,
 	seatTemplate,
 	seededSeatTemplate
@@ -69,7 +67,7 @@ const CountedFamily = schema(
 	[counted(on(CountedMember, "g"), fin(Owner, "n"))]
 )
 
-export const FAMILY_RELATIONS = ["Owner", "Member"] as const
+const FAMILY_RELATIONS = ["Owner", "Member"] as const
 
 /** A family seat: an installed shape, its index's role, and the family's own law. */
 export interface FamilySeat {
@@ -93,19 +91,6 @@ const familyOf = (shape: Shape, seat: Seat, label: string): Effect.Effect<Family
 	}
 	return Effect.succeed({ shape, seat, index: shape === "ordered" ? "at" : "‹i›", law })
 }
-
-/** Installs a shape's family in a schema of its own. */
-export const familySeat = (
-	shape: Shape,
-	label: string
-): Effect.Effect<
-	FamilySeat,
-	CompileError | SqlError | TransactionRolledBack,
-	Substrate | Scope.Scope
-> =>
-	Effect.flatMap(seatOf(familySchema(shape), FAMILY_RELATIONS, label), (seat) =>
-		familyOf(shape, seat, label)
-	)
 
 /**
  * A shape's family installed once per member as a template (installed.ts seatTemplate), named by `label` and the
