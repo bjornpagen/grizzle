@@ -1440,6 +1440,54 @@ export const installingOracleProperty = <S, const F extends string, E>(
 	})
 
 /**
+ * What an oracle property over templates states (seatedOracleProperty): an oracle property's statement (OracleSpec)
+ * whose check of a case runs on the case's own Substrate, its seat of the template its value names, and reads that
+ * template's value bound to the case's clone.
+ */
+export interface SeatedOracleSpec<S, T, F extends string, E> extends Omit<
+	OracleSpec<S, F, E>,
+	"check"
+> {
+	readonly check: (
+		c: PropertyCase<F>,
+		installed: T
+	) => (value: S) => Effect.Effect<void, E, Substrate | Scope.Scope>
+}
+
+/**
+ * An oracle property (oracleProperty) whose case runs on the worker's seat of the one of `templates` its value names
+ * (`seatOf`; Substrate.oneOf with Substrate.seat, so a worker builds only the templates its cases drew), provided as
+ * the Substrate service, with the template's value bound to its clone, under its perturbation.
+ */
+export const seatedOracleProperty = <K extends string, T, S, const F extends string, E>(
+	templates: Readonly<Record<K, SubstrateTemplate<T>>>,
+	seatOf: (value: S) => K,
+	space: Space<S> | Aimed<S, F>,
+	spec: SeatedOracleSpec<S, T, F, E>
+) =>
+	property.explore(conditionedAimed(space, spec.perturb), {
+		needs: Substrate.oneOf(templates, Substrate.seat),
+		situations: spec.situations,
+		check:
+			(seats, c: PropertyCase<F>) =>
+			([value, conditions]) =>
+				Effect.scoped(
+					Effect.flatMap(seats[seatOf(value)], (taken) =>
+						Effect.provideService(
+							underPerturbation(spec.check(c, taken.value)(value), conditions),
+							Substrate,
+							taken.substrate
+						)
+					)
+				),
+		oracle: spec.oracle,
+		kept: spec.kept,
+		kills: spec.kills,
+		budget: spec.budget,
+		show: ([value]: readonly [S, Conditions]) => spec.show(value)
+	})
+
+/**
  * What an oracle property over an installed template states (installedOracleProperty): an oracle property's statement
  * (OracleSpec) whose check of a case also reads the template's value bound to the case's clone.
  */

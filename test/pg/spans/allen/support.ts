@@ -23,9 +23,11 @@ import { oracleOwnedLogin } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
+import { type ScriptInstall, scriptTemplate } from "#test/support/script-template.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession, SubstrateWorld } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 import { oracleWorld } from "#test/support/worlds.ts"
 
 export interface InstalledSpans {
@@ -79,6 +81,24 @@ export const installSpans = (
 		yield* transaction(s.admin, installationSql(installation, s.database))
 		const out: InstalledSpans = { schema, installation, world: yield* oracleWorld(installation) }
 		return out
+	})
+
+/**
+ * installSpans as a template (script-template.ts scriptTemplate): `desc` compiled under the template's schema name
+ * (compileSpans) by every worker, its script run once per member and its oracle login given its password, each case's
+ * installation the template's in its clone. `name` tells it from its module's other templates.
+ */
+export const spansTemplate = (
+	declaredIn: ImportMeta,
+	name: string,
+	desc: FixtureSchema,
+	options: SpanInstallOptions
+): SubstrateTemplate<ScriptInstall> =>
+	scriptTemplate({
+		declaredIn,
+		name,
+		label: options.label,
+		compile: (schema) => compileSpans(desc, schema, options)
 	})
 
 /** A query value compiled for the installed schema. */

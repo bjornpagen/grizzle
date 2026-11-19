@@ -1,7 +1,8 @@
 import { array, boolean, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { ALLEN, fullAllenMask } from "#compiler/allen/mask.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import type { FieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import {
 	decodedQuery,
@@ -13,7 +14,6 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 
-import { jsonText } from "#compiler/core/trusted.ts"
 import {
 	type CalendarDate,
 	dateOfDayNumber,
@@ -31,8 +31,13 @@ import {
 } from "#test/support/oracle/allen.ts"
 import { cyclicAt, elementAt } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { noTables } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
-import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
+import {
+	installTemplate,
+	Substrate,
+	type SubstrateTemplate
+} from "#test/support/substrate/substrate.ts"
 
 export const spanEndpointKinds = ["integer", "bigint", "contract", "date"] as const
 export type SpanEndpointKind = (typeof spanEndpointKinds)[number]
@@ -446,7 +451,7 @@ const resolveQuery = (
  * - the expected rows by brute force (`referenceRows`), from the endpoints alone: the Allen relation of a pair from
  *   the endpoint classifier of test/support/oracle/allen.ts, never from the shipped mask table, and the producers by
  *   endpoint arithmetic that the pg suite cross-checks against point sets;
- * - an independent handwritten SQL evaluation (`inSpanCase`, `referenceSql`), which classifies Allen
+ * - an independent handwritten SQL evaluation (`inSpanSchema`, `referenceSql`), which classifies Allen
  *   relations from lower() and upper() and uses PostgreSQL's own range operators and functions for the producers, so
  *   the reference is checked against PostgreSQL itself (test/pg/spans/oracle).
  *
@@ -851,59 +856,87 @@ const spanSchemaStatements = (schema: string, spans: SpanSchema): ReadonlyArray<
 	})
 ]
 
-/** A value for each keying of a relation: span-keyed, or keyed by an integer id. */
-interface ByKeying<A> {
-	readonly spanKeyed: A
-	readonly idKeyed: A
+/** How a relation of a span schema is keyed: by its span, or by an integer id. */
+export type Keying = "span" | "id"
+
+const keyingOf = (relation: SpanRelation): Keying => (relation.spanKeyed ? "span" : "id")
+
+/** A span schema a case can have, by its endpoint and the keying of Left and then Right. */
+export type SpanVariant = `${SpanEndpointKind} ${Keying} ${Keying}`
+
+/** The span schema of a case: its variant (SpanVariant). */
+export const spanVariantOf = (c: SpanCase): SpanVariant =>
+	`${c.schema.endpoint} ${keyingOf(c.schema.relations.Left)} ${keyingOf(c.schema.relations.Right)}`
+
+/**
+ * The span schema of a variant installed as a template (substrate.ts installTemplate), once per member: btree_gist,
+ * which supplies the scalar components of a span key, and Left and Right under the template's schema name, whose name
+ * is the value a case over a clone of it reads. A case writes its facts inside one transaction it rolls back
+ * (inSpanSchema), so the seat's reset empties no table.
+ */
+const spanSchemaTemplate = (
+	declaredIn: ImportMeta,
+	label: string,
+	endpoint: SpanEndpointKind,
+	left: Keying,
+	right: Keying
+): SubstrateTemplate<string> => {
+	const spans: SpanSchema = {
+		endpoint,
+		relations: {
+			Left: { name: "Left", spanKeyed: left === "span" },
+			Right: { name: "Right", spanKeyed: right === "span" }
+		}
+	}
+	return installTemplate({
+		declaredIn,
+		name: `${label} ${endpoint} ${left} ${right}`,
+		content: { label, endpoint, left, right },
+		plan: (names) => Effect.succeed(names.schema),
+		install: (schema) =>
+			Effect.gen(function* () {
+				const s = yield* Substrate
+				yield* s.admin.query("CREATE EXTENSION IF NOT EXISTS btree_gist", [])
+				yield* s.admin.query(`CREATE SCHEMA ${quoteIdent(schema)}`, [])
+				for (const statement of spanSchemaStatements(schema, spans)) {
+					yield* s.admin.query(statement, [])
+				}
+			}),
+		bind: (schema) => schema,
+		reset: () => noTables
+	})
 }
 
-const keyingOf = (relation: SpanRelation): keyof ByKeying<unknown> =>
-	relation.spanKeyed ? "spanKeyed" : "idKeyed"
+/** A value for every span schema a case can have, by its variant, `make` given its endpoint and keyings. */
+export const bySpanVariant = <A>(
+	make: (endpoint: SpanEndpointKind, left: Keying, right: Keying) => A
+): Readonly<Record<SpanVariant, A>> => ({
+	"integer span span": make("integer", "span", "span"),
+	"integer span id": make("integer", "span", "id"),
+	"integer id span": make("integer", "id", "span"),
+	"integer id id": make("integer", "id", "id"),
+	"bigint span span": make("bigint", "span", "span"),
+	"bigint span id": make("bigint", "span", "id"),
+	"bigint id span": make("bigint", "id", "span"),
+	"bigint id id": make("bigint", "id", "id"),
+	"contract span span": make("contract", "span", "span"),
+	"contract span id": make("contract", "span", "id"),
+	"contract id span": make("contract", "id", "span"),
+	"contract id id": make("contract", "id", "id"),
+	"date span span": make("date", "span", "span"),
+	"date span id": make("date", "span", "id"),
+	"date id span": make("date", "id", "span"),
+	"date id id": make("date", "id", "id")
+})
 
-/**
- * The PostgreSQL schema each span schema is installed under, by its endpoint and the keying of Left and then Right:
- * every span schema a case can have, each installed and committed once.
- */
-type SpanInstallations = Readonly<Record<SpanEndpointKind, ByKeying<ByKeying<string>>>>
-
-/**
- * Installs every span schema once, each under a schema of its own that the test's scope drops, after btree_gist,
- * which supplies the scalar components of a span key.
- */
-export const installSpanSchemas = (
-	db: RawSession,
+/** Every span schema a case can have, each its template (spanSchemaTemplate), by its variant. */
+const spanSchemaTemplates = (
+	declaredIn: ImportMeta,
 	label: string
-): Effect.Effect<SpanInstallations, SqlError, Scope.Scope | Substrate> =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		yield* db.query("CREATE EXTENSION IF NOT EXISTS btree_gist", [])
-		const installed = (endpoint: SpanEndpointKind, left: boolean, right: boolean) =>
-			Effect.gen(function* () {
-				const schema = yield* s.schema({ ...freshSchema, label })
-				const spans: SpanSchema = {
-					endpoint,
-					relations: {
-						Left: { name: "Left", spanKeyed: left },
-						Right: { name: "Right", spanKeyed: right }
-					}
-				}
-				for (const statement of spanSchemaStatements(schema, spans)) {
-					yield* db.query(statement, [])
-				}
-				return schema
-			})
-		const byKeying = <A, E, R>(
-			f: (spanKeyed: boolean) => Effect.Effect<A, E, R>
-		): Effect.Effect<ByKeying<A>, E, R> => Effect.all({ spanKeyed: f(true), idKeyed: f(false) })
-		const ofEndpoint = (endpoint: SpanEndpointKind) =>
-			byKeying((left) => byKeying((right) => installed(endpoint, left, right)))
-		return yield* Effect.all({
-			integer: ofEndpoint("integer"),
-			bigint: ofEndpoint("bigint"),
-			contract: ofEndpoint("contract"),
-			date: ofEndpoint("date")
-		} satisfies Record<SpanEndpointKind, unknown>)
-	})
+): Readonly<Record<SpanVariant, SubstrateTemplate<string>>> =>
+	bySpanVariant((endpoint, left, right) =>
+		spanSchemaTemplate(declaredIn, label, endpoint, left, right)
+	)
 
 /** One INSERT of a list of facts through jsonb_to_recordset, with its one parameter. */
 export const spanInsert = (
@@ -932,21 +965,20 @@ export const spanInsert = (
 	}
 }
 
+/** Every span schema a case can have, each installed once per member: the templates the span suites' seats clone. */
+export const spanSchemas = spanSchemaTemplates(import.meta, "spans")
+
 /**
- * `body` run on `db` with the PostgreSQL schema the case's span schema is installed under, inside one transaction that
+ * `body` run on `db` with `schema`, the case's span schema installed (spanSchemaTemplate), inside one transaction that
  * stores the case's facts and is rolled back however `body` ends, so every case starts from empty tables.
  */
-export const inSpanCase = <A, E, R>(
+export const inSpanSchema = <A, E, R>(
 	db: RawSession,
-	installations: SpanInstallations,
+	schema: string,
 	c: SpanCase,
 	body: (schema: string) => Effect.Effect<A, E, R>
-): Effect.Effect<A, E | SqlError, R> => {
-	const schema =
-		installations[c.schema.endpoint][keyingOf(c.schema.relations.Left)][
-			keyingOf(c.schema.relations.Right)
-		]
-	return Effect.gen(function* () {
+): Effect.Effect<A, E | SqlError, R> =>
+	Effect.gen(function* () {
 		yield* db.begin
 		return yield* Effect.gen(function* () {
 			for (const name of spanRelationNames) {
@@ -958,7 +990,6 @@ export const inSpanCase = <A, E, R>(
 			return yield* body(schema)
 		}).pipe(Effect.ensuring(Effect.ignore(db.rollback)))
 	})
-}
 
 /**
  * The basic relation of (A, B) from the endpoints, bit 0 (before) to bit 12 (finishedBy), as a CASE over lower() and
