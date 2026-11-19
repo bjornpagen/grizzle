@@ -1,0 +1,340 @@
+/** What the properties of stream.test.ts read: its spaces, models and helpers. */
+
+import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/runtime"
+import { constant, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
+import { Array as Arr, Option, Result, Stream } from "effect"
+import type { ServedCalls } from "#adapter/db/handles.ts"
+import type { LoadedMember } from "#adapter/served/load.ts"
+import type { Json } from "#compiler/core/canonical.ts"
+import { isRecord } from "#compiler/core/record.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
+import { wireText } from "#compiler/plan/runtime.ts"
+import { ChangeSet } from "#compiler/public/changeset.ts"
+import { pg } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { mutable, relation, schema } from "#compiler/public/schema.ts"
+import { paged } from "#compiler/public/workload.ts"
+import { listFrame, setFrame, type SlotEncoders, writeFrame } from "#http/events.ts"
+import type { SseEvent } from "#http/sse.ts"
+import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
+import type { StreamEvent } from "#test/support/event-stream.ts"
+
+const Item = relation("Item", { id: pg.integer, score: pg.integer }, ["id"])
+
+export const Items = schema("Items", [Item], [mutable(Item)])
+
+/** An item as stored and as a call states it. */
+type ItemFact = Readonly<{ id: number; score: number }>
+
+/** The login's members: a set read by a floor, an ordered read by its windows, a key, and a put. */
+export const programs = Object.freeze({
+	atLeast: query(Items).rule((r) => {
+		const { id, score } = v(Item, "item")
+		return r
+			.match(Item, { id, score })
+			.where(r.ge(score, r.param("floor", pg.integer)))
+			.find({ id, score })
+	}),
+	ranked: paged(
+		query(Items)
+			.rule((r) => {
+				const { id, score } = v(Item, "item")
+				return r.match(Item, { id, score }).find({ id, score })
+			})
+			.orderBy(["score", "desc"])
+	),
+	item: Item,
+	put: ChangeSet.empty(Items).put(Item, [])
+})
+
+/** One call: a member's input as JSON, which is its host input too, every value an int4's JSON integer. */
+type Call =
+	| { readonly member: "atLeast"; readonly input: { readonly params: { readonly floor: number } } }
+	| {
+			readonly member: "ranked"
+			readonly input: {
+				readonly window: {
+					readonly anchor: { readonly kind: "start" | "end" }
+					readonly size: number
+				}
+			}
+	  }
+	| { readonly member: "item"; readonly input: { readonly params: { readonly id: number } } }
+	| { readonly member: "put"; readonly input: { readonly put: ReadonlyArray<ItemFact> } }
+
+/**
+ * A case: the stored items, one call, the write committed while a read is live, and the heartbeat's interval its
+ * handler is built with.
+ */
+interface StreamCase {
+	readonly stored: ReadonlyArray<ItemFact>
+	readonly call: Call
+	readonly write: ReadonlyArray<ItemFact>
+	readonly heartbeatMs: number
+}
+
+export type Feature =
+	| "a set read"
+	| "an ordered read from its start"
+	| "an ordered read from its end"
+	| "a key"
+	| "a write accepted"
+	| "a write unchanged"
+	| "a live change reaching both answers"
+	| "a disconnect while live"
+	| "a read called again once the slot stood"
+
+const ids = Object.freeze(Arr.range(1, 12))
+
+/** Items of distinct ids among `ids`, each with a score. */
+const itemsGen =
+	(min: number, max: number): Gen<ReadonlyArray<ItemFact>> =>
+	(source) =>
+		Arr.map(source.draw(shuffled(ids, { min, max })), (id) => ({
+			id,
+			score: source.draw(int(-3, 3))
+		}))
+
+const callGen =
+	(stored: ReadonlyArray<ItemFact>): Gen<Call> =>
+	(source) => {
+		switch (source.draw(element(["atLeast", "ranked", "item", "put"] as const))) {
+			case "atLeast":
+				return { member: "atLeast", input: { params: { floor: source.draw(int(-3, 3)) } } }
+			case "ranked":
+				return {
+					member: "ranked",
+					input: {
+						window: {
+							anchor: { kind: source.draw(element(["start", "end"] as const)) },
+							size: source.draw(int(1, 5))
+						}
+					}
+				}
+			case "item":
+				return {
+					member: "item",
+					input: { params: { id: source.draw(element([...ids] as const)) } }
+				}
+			case "put":
+				return {
+					member: "put",
+					input: {
+						put: source.draw(oneOf([constant(Arr.take(stored, 2)), itemsGen(1, 3)]))
+					}
+				}
+		}
+	}
+
+/**
+ * The heartbeat's interval a case's handler is built with: a Node timer's delay, from the least to the longest, its
+ * range's ends or one between. A heartbeat is a comment line, so no answer's events depend on it.
+ */
+const heartbeatGen: Gen<number> = oneOf<number>([
+	constant(timerMinMs),
+	constant(timerMaxMs),
+	int(timerMinMs, timerMaxMs)
+])
+
+export const caseGen: Gen<StreamCase> = (source) => {
+	const stored = source.draw(itemsGen(0, 6))
+	return {
+		stored,
+		call: source.draw(callGen(stored)),
+		write: source.draw(itemsGen(1, 3)),
+		heartbeatMs: source.draw(heartbeatGen)
+	}
+}
+
+/**
+ * Each call feature with the case constructed to reach it, which a case whose turn aims at that pending feature draws
+ * (aimed), so the cases of one window aim at distinct pending features: a set read, a key, an ordered read's window
+ * from its start or its end, a put of one item at an id the stored items leave free, which no stored item states, so it
+ * is accepted, and a put of stored items as stored, so it is unchanged.
+ */
+export const aims: ReadonlyArray<readonly [Feature, Gen<StreamCase>]> = Arr.map(
+	[
+		[
+			"a set read",
+			(): Gen<Call> => (source) => ({
+				member: "atLeast",
+				input: { params: { floor: source.draw(int(-3, 3)) } }
+			})
+		],
+		[
+			"a key",
+			(): Gen<Call> => (source) => ({
+				member: "item",
+				input: { params: { id: source.draw(element([...ids] as const)) } }
+			})
+		],
+		...Arr.map(
+			["start", "end"] as const,
+			(kind) =>
+				[
+					kind === "start" ? "an ordered read from its start" : "an ordered read from its end",
+					(): Gen<Call> => (source) => ({
+						member: "ranked",
+						input: { window: { anchor: { kind }, size: source.draw(int(1, 5)) } }
+					})
+				] as const
+		),
+		[
+			"a write accepted",
+			(stored: ReadonlyArray<ItemFact>): Gen<Call> =>
+				(source) => {
+					const free = Arr.filter(ids, (id) => !Arr.some(stored, (item) => item.id === id))
+					return {
+						member: "put",
+						input: {
+							put: [
+								{
+									id: source.draw(element(Arr.isReadonlyArrayNonEmpty(free) ? free : ids)),
+									score: source.draw(int(-3, 3))
+								}
+							]
+						}
+					}
+				}
+		],
+		[
+			"a write unchanged",
+			(stored: ReadonlyArray<ItemFact>): Gen<Call> =>
+				() => ({
+					member: "put",
+					input: { put: Arr.take(stored, 2) }
+				})
+		]
+	] as const,
+	([feature, callOf]): readonly [Feature, Gen<StreamCase>] => [
+		feature,
+		(source) => {
+			const stored = source.draw(itemsGen(feature === "a write unchanged" ? 1 : 0, 6))
+			return {
+				stored,
+				call: source.draw(callOf(stored)),
+				write: source.draw(itemsGen(1, 3)),
+				heartbeatMs: source.draw(heartbeatGen)
+			}
+		}
+	]
+)
+
+/** A call's body, `{ params, facts }` and a window's, every member present, `{}` where none. */
+export const bodyOf = (call: Call): Json => {
+	switch (call.member) {
+		case "atLeast":
+		case "item":
+			return { params: call.input.params, facts: {} }
+		case "ranked":
+			return { params: {}, facts: {}, window: call.input.window }
+		case "put":
+			return { params: {}, facts: { put: { Item: call.input.put } } }
+	}
+}
+
+/** A frame as an event stream carries it: its name, and its data's JSON text. */
+const carried = (frame: SseEvent): StreamEvent => ({
+	event: frame.event,
+	data: wireText(frame.data)
+})
+
+/** The in-process answer of a member's calls to `body`, each event framed as the member's wire spells it. */
+export const inProcess = (
+	calls: ServedCalls,
+	slots: SlotEncoders,
+	body: unknown
+): Stream.Stream<StreamEvent> => {
+	switch (calls.shape) {
+		case "set":
+			return Stream.map(calls.watch(body), (event) => carried(setFrame(slots, event)))
+		case "list":
+			return Stream.map(calls.watch(body), (event) => carried(listFrame(slots, event)))
+		case "instantSet":
+			return Stream.map(calls.answer(body), (event) => carried(setFrame(slots, event)))
+		case "instantList":
+			return Stream.map(calls.answer(body), (event) => carried(listFrame(slots, event)))
+		case "write":
+			return Stream.map(calls.watch(body), (event) => carried(writeFrame(slots, event)))
+	}
+}
+
+/** The events from `from` through the `count`th `ready` at or after it: one batch of an answer. */
+export const batch = (
+	events: ReadonlyArray<StreamEvent>,
+	from: number,
+	count: number
+): ReadonlyArray<StreamEvent> => {
+	const readies = Arr.filterMap(events, (e, place) =>
+		e.event === "ready" && place >= from ? Result.succeed(place) : Result.failVoid
+	)
+	return events.slice(from, defined(readies[count - 1], `ready ${count}`) + 1)
+}
+
+/** That two batches are one: a set read's in any order, an ordered read's in order. */
+export const sameBatch = (
+	shape: "set" | "list",
+	http: ReadonlyArray<StreamEvent>,
+	local: ReadonlyArray<StreamEvent>,
+	why: string
+): void => (shape === "set" ? unorderedEqual(http, local, why) : assert.deepEqual(http, local, why))
+
+/** Whether `stored` holds every item `put` states, as it states it. */
+export const holdsAll = (stored: ReadonlyArray<ItemFact>, put: ReadonlyArray<ItemFact>): boolean =>
+	Arr.every(put, (item) => Arr.some(stored, (s) => s.id === item.id && s.score === item.score))
+
+/** An id no drawn item takes. */
+const sentinelId = 13
+
+/**
+ * The item a live read's next batch must show, beside the case's drawn write: a set read's new item above every floor,
+ * a key's own item rescored past every drawn score, an ordered read's new item first in its order from the start and
+ * last from the end. Every drawn item of the key's id is left out of the write, which puts each key once.
+ */
+export const visibleWrite = (
+	call: Call,
+	write: ReadonlyArray<ItemFact>
+): ReadonlyArray<ItemFact> => {
+	switch (call.member) {
+		case "atLeast":
+			return [...write, { id: sentinelId, score: 3 }]
+		case "item":
+			return [
+				...Arr.filter(write, (item) => item.id !== call.input.params.id),
+				{ id: call.input.params.id, score: 4 }
+			]
+		case "ranked":
+			return [
+				...write,
+				{ id: sentinelId, score: call.input.window.anchor.kind === "start" ? 4 : -4 }
+			]
+		case "put":
+			return write
+	}
+}
+
+/** The feature a read's call exercises. */
+export const readFeature = (call: Exclude<Call, { readonly member: "put" }>): Feature => {
+	switch (call.member) {
+		case "atLeast":
+			return "a set read"
+		case "item":
+			return "a key"
+		case "ranked":
+			return call.input.window.anchor.kind === "start"
+				? "an ordered read from its start"
+				: "an ordered read from its end"
+	}
+}
+
+/** An outcome event's kind, off its data's JSON. */
+export const outcomeKind = (event: StreamEvent | undefined): unknown => {
+	const data: unknown = trustedJson<unknown>(defined(event, "the outcome event").data)
+	return isRecord(data) && isRecord(data["outcome"]) ? data["outcome"]["kind"] : undefined
+}
+
+/** The member of the opened role named `name`, as its layer loaded it. */
+export const memberNamed = (members: ReadonlyArray<LoadedMember>, name: string): LoadedMember =>
+	defined(Option.getOrUndefined(Arr.findFirst(members, (m) => m.name === name)), `member ${name}`)
+
+export const origin = "http://grizzle.invalid"

@@ -17,29 +17,22 @@
  * Features: a missing or wrong configured password refused beside the login's own in PGPASSWORD or the password file,
  * the login's own admitted beside another, and admitted under a PGOPTIONS that is set.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { boolean, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import * as NodeServices from "@effect/platform-node/NodeServices"
-import { layer } from "@effect/vitest"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Exit, FileSystem, Option, Path, Redacted } from "effect"
+import type { Password } from "#adapter/wire/session.ts"
+import { storedSettingValue } from "#compiler/sql/print.ts"
 import {
-	Array as Arr,
-	Effect,
-	Exit,
-	FileSystem,
-	Formatter,
-	Layer,
-	Option,
-	Path,
-	pipe,
-	Redacted,
-	String as Str
-} from "effect"
-import { type Password } from "#adapter/wire/session.ts"
-import { quoteString, storedSettingValue } from "#compiler/sql/print.ts"
+	caseGen,
+	type Configured,
+	type Feature,
+	featuresOf,
+	type Offered,
+	passFileField,
+	settingsSql,
+	situations
+} from "#test/pg/adapter/environment.fixtures.ts"
 import {
 	defaultPool,
 	poolFor,
@@ -48,109 +41,23 @@ import {
 	substrateLogin
 } from "#test/pg/adapter/support.ts"
 import { assert } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
-
 import { noPassword } from "#test/support/pg.ts"
-import {
-	processEnvironment,
-	processValue,
-	type VariableValue,
-	variableGen
-} from "#test/support/process-env.ts"
+import { processEnvironment, processValue } from "#test/support/process-env.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
-/** A password the environment offers: the login's own, or another. */
-type Offered = "own" | "other"
-
-/** The password the pool is configured with: the login's own, given now or by an Effect; another; or none. */
-type Configured =
-	| { readonly kind: "own"; readonly lazy: boolean }
-	| { readonly kind: "other" }
-	| { readonly kind: "none" }
-
-interface EnvironmentCase {
-	readonly configured: Configured
-	readonly PGPASSWORD: Offered | "absent"
-	readonly passwordFile: Offered | "absent"
-	readonly PGOPTIONS: VariableValue
-}
-
-const offeredGen: Gen<Offered | "absent"> = weighted<Offered | "absent">([
-	[1, constant<Offered | "absent">("absent")],
-	[2, constant<Offered | "absent">("own")],
-	[1, constant<Offered | "absent">("other")]
-])
-
-const configuredGen: Gen<Configured> = weighted<Configured>([
-	[1, (source): Configured => ({ kind: "own", lazy: source.draw(boolean) })],
-	[1, constant<Configured>({ kind: "other" })],
-	[2, constant<Configured>({ kind: "none" })]
-])
-
-const caseGen: Gen<EnvironmentCase> = (source) => ({
-	configured: source.draw(configuredGen),
-	PGPASSWORD: source.draw(offeredGen),
-	passwordFile: source.draw(offeredGen),
-	PGOPTIONS: source.draw(variableGen)
-})
-
-type Feature =
-	| "none refused beside its own PGPASSWORD"
-	| "none refused beside its own password file alone"
-	| "another refused beside its own PGPASSWORD"
-	| "own admitted beside another PGPASSWORD"
-	| "own admitted beside another password file alone"
-	| "admitted under PGOPTIONS set"
-
-const situations: Arr.NonEmptyReadonlyArray<Feature> = [
-	"none refused beside its own PGPASSWORD",
-	"none refused beside its own password file alone",
-	"another refused beside its own PGPASSWORD",
-	"own admitted beside another PGPASSWORD",
-	"own admitted beside another password file alone",
-	"admitted under PGOPTIONS set"
-]
-
-/** What a case reaches, by what it drew. */
-const featuresOf = (c: EnvironmentCase): ReadonlyArray<Feature> => [
-	...(c.configured.kind === "none" && c.PGPASSWORD === "own"
-		? ["none refused beside its own PGPASSWORD" as const]
-		: []),
-	...(c.configured.kind === "none" && c.PGPASSWORD === "absent" && c.passwordFile === "own"
-		? ["none refused beside its own password file alone" as const]
-		: []),
-	...(c.configured.kind === "other" && c.PGPASSWORD === "own"
-		? ["another refused beside its own PGPASSWORD" as const]
-		: []),
-	...(c.configured.kind === "own" && c.PGPASSWORD === "other"
-		? ["own admitted beside another PGPASSWORD" as const]
-		: []),
-	...(c.configured.kind === "own" && c.PGPASSWORD === "absent" && c.passwordFile === "other"
-		? ["own admitted beside another password file alone" as const]
-		: []),
-	...(c.configured.kind === "own" && c.PGOPTIONS.kind === "text"
-		? ["admitted under PGOPTIONS set" as const]
-		: [])
-]
-
-/** A field of a password file's line, its colons and backslashes escaped. */
-const passFileField = (text: string): string =>
-	pipe(Str.replaceAll("\\", "\\\\")(text), Str.replaceAll(":", "\\:"))
-
-/** Every pinned default, as one row of the session's current settings. */
-const settingsSql = `SELECT ${Arr.join(
-	Arr.map(roleDefaults, (s) => `pg_catalog.current_setting(${quoteString(s.parameter)})`),
-	", "
-)}`
-
-layer(Layer.merge(Substrate.layer, NodeServices.layer))(
-	"a login's sessions under a hostile process environment",
-	(it) => {
-		it.effect(
-			"authenticate with the configured password alone, and start under the pinned defaults alone",
-			(ctx) =>
-				searched(
-					ctx,
+/**
+ * A login's sessions under a hostile process environment authenticate with the configured password alone, and start under the pinned defaults alone.
+ *
+ * Its pre-conversion budget: runs 40, coverage cases 80 (test/pg/adapter/environment.test.ts at d8eed1786).
+ */
+export const aLoginsSessionsUnderAHostileProcessEnvironmentAuthenticateWithTheConfiguredPasswordAloneAndStartUnderThePinnedDefaultsAlone =
+	property.explore(caseGen, {
+		needs: { substrate: Substrate.installing },
+		situations: situations satisfies ReadonlyArray<Reached<Feature>>,
+		check:
+			({ substrate }, k: Case<Feature>) =>
+			(c) =>
+				Effect.provideServiceEffect(
 					Effect.gen(function* () {
 						const s = yield* Substrate
 						const fs = yield* FileSystem.FileSystem
@@ -173,64 +80,51 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 									return noPassword
 							}
 						}
-						return yield* explore(
-							{
-								oracle: {
-									kind: "specification",
-									name: "a session authenticates by the configured password alone and starts under the pinned defaults"
-								},
-								suite: "pg/adapter/login-environment",
-								draw: drawn(caseGen),
-								literal: Formatter.format,
-								coverage: required<Feature>(situations, { cases: 80, sense: notesOnly }),
-								kept: [],
-								runs: 40,
-								shrink: completeShrink,
-								steerEvery: 8,
-								caseHang
-							},
-							(c, k) =>
-								Effect.scoped(
-									Effect.gen(function* () {
-										if (c.passwordFile !== "absent") {
-											yield* fs.writeFileString(
-												passFile,
-												`*:*:*:*:${passFileField(secretOf(c.passwordFile))}\n`,
-												{ mode: 0o600 }
-											)
-										}
-										yield* processEnvironment({
-											PGPASSWORD:
-												c.PGPASSWORD === "absent"
-													? Option.none()
-													: Option.some(secretOf(c.PGPASSWORD)),
-											PGPASSFILE: Option.some(c.passwordFile === "absent" ? noFile : passFile),
-											PGOPTIONS: processValue(c.PGOPTIONS)
-										})
-										const pool = yield* poolFor(credentials, {
-											...defaultPool,
-											password: { kind: "given", password: configuredOf(c.configured) }
-										})
-										const exit = yield* Effect.exit(
-											Effect.scoped(
-												Effect.flatMap(pool.lease, (session) => rowsOn(session, settingsSql, []))
-											)
-										)
-										if (c.configured.kind !== "own") {
-											assert.ok(
-												Exit.isFailure(exit),
-												"a pool not configured with the login's own password authenticates"
-											)
-										} else {
-											assert.ok(Exit.isSuccess(exit), "the login's own password is refused")
-											assert.deepEqual(exit.value, [Arr.map(roleDefaults, storedSettingValue)])
-										}
-										k.noteAll(featuresOf(c))
-									})
+						return yield* Effect.scoped(
+							Effect.gen(function* () {
+								if (c.passwordFile !== "absent") {
+									yield* fs.writeFileString(
+										passFile,
+										`*:*:*:*:${passFileField(secretOf(c.passwordFile))}\n`,
+										{ mode: 0o600 }
+									)
+								}
+								yield* processEnvironment({
+									PGPASSWORD:
+										c.PGPASSWORD === "absent" ? Option.none() : Option.some(secretOf(c.PGPASSWORD)),
+									PGPASSFILE: Option.some(c.passwordFile === "absent" ? noFile : passFile),
+									PGOPTIONS: processValue(c.PGOPTIONS)
+								})
+								const pool = yield* poolFor(credentials, {
+									...defaultPool,
+									password: { kind: "given", password: configuredOf(c.configured) }
+								})
+								const exit = yield* Effect.exit(
+									Effect.scoped(
+										Effect.flatMap(pool.lease, (session) => rowsOn(session, settingsSql, []))
+									)
 								)
+								if (c.configured.kind !== "own") {
+									assert.ok(
+										Exit.isFailure(exit),
+										"a pool not configured with the login's own password authenticates"
+									)
+								} else {
+									assert.ok(Exit.isSuccess(exit), "the login's own password is refused")
+									assert.deepEqual(exit.value, [Arr.map(roleDefaults, storedSettingValue)])
+								}
+								k.noteAll(featuresOf(c))
+							})
 						)
-					}).pipe(Effect.scoped)
-				)
-		)
-	}
-)
+					}).pipe(Effect.scoped),
+					Substrate,
+					substrate
+				),
+		oracle: {
+			kind: "specification",
+			name: "a session authenticates by the configured password alone and starts under the pinned defaults"
+		},
+		budget: { runs: 40, steered: 80 },
+		kept: [],
+		kills: []
+	})
