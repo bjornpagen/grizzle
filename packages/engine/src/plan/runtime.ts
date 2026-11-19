@@ -47,6 +47,7 @@ export { type Prepared, type StatementName, statementNameBytes } from "#compiler
 export { hasProperties, isList, isRecord } from "#compiler/core/record.ts"
 export * as Engine from "#compiler/core/result.ts"
 export { Sqlstate, sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
+export { stemOf } from "#compiler/core/stems.ts"
 export { temporarySchema } from "#compiler/core/temporary.ts"
 export { isDecimal } from "#compiler/core/text.ts"
 export { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"

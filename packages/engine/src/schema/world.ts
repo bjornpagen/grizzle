@@ -7,6 +7,7 @@ import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/c
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
+import { recordStem } from "#compiler/core/stems.ts"
 import {
 	admitLoginRoles,
 	type ContextDesc,
@@ -581,7 +582,6 @@ export const roleBuilder = <
 			...builtMark,
 			kind: "role",
 			name,
-			stem: roleStem(admitted.desc),
 			base,
 			relations: relationsValue,
 			statements: Object.freeze([...base.statements, ...base.listed].filter(kept)),
@@ -598,6 +598,7 @@ export const roleBuilder = <
 		admitted.desc,
 		admitted.level
 	)
+	recordStem(value, roleStem(admitted.desc))
 	return value
 }
 
@@ -797,11 +798,12 @@ export const loginBuilder = <
 	/** Role names are identifiers whose first character is no underscore, so none is an accessor of the prototype. */
 	const reached: Record<string, AnyLoginRole> = {}
 	const value = ownValue(
-		{ ...builtMark, kind: "login", name, stem: loginStem(desc), base, roles: reached, workload },
+		{ ...builtMark, kind: "login", name, base, roles: reached, workload },
 		"login",
 		desc,
 		undefined
 	)
+	recordStem(value, loginStem(desc))
 	for (const r of roles) {
 		const loginRole: AnyLoginRole = Object.freeze({
 			...builtMark,

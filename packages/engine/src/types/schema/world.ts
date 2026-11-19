@@ -1,7 +1,5 @@
 import type { RowDecoder } from "#compiler/core/decoder.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
 import type { Built, Phantom, phantom } from "#compiler/core/phantom.ts"
-import type { Result } from "#compiler/core/result.ts"
 import type {
 	Carriers,
 	Headed,
@@ -377,14 +375,6 @@ type AmongEntries<R, E> = [R] extends [E] ? true : false
 export type KeptStatements<Base, Relations> = KeptIn<StatementsOf<Base>[number], Relations>
 
 /**
- * A login's or a role's stem, the PostgreSQL role its identity spells, which `grizzle generate` commits, computed once
- * as login(...) or role(...) builds the value (schema/stem.ts): an installation installs it under its role prefix
- * (roleNameOf). Its refusal, a declared name the naming door refuses or a role past PostgreSQL's 63 bytes, is kept as
- * the stem, for roleNameOf to throw and generate to report.
- */
-export type WorldStem = Result<string, CompileError>
-
-/**
  * Any role: the members every one has. A role is no schema: it is relations defined over its base, a schema, and keeps
  * the base's laws among its whole entries, so its name, relations and statements are its own members, and no builder
  * that takes a schema takes it.
@@ -392,8 +382,6 @@ export type WorldStem = Result<string, CompileError>
 export interface AnyRole extends Built {
 	readonly kind: "role"
 	readonly name: string
-	/** Its stem (WorldStem). */
-	readonly stem: WorldStem
 	readonly base: AnySchema
 	readonly relations: Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived | AnyWorld>>
 	readonly statements: ReadonlyArray<Statement>
@@ -420,8 +408,6 @@ export interface Role<
 }> {
 	readonly kind: "role"
 	readonly name: Name
-	/** Its stem (WorldStem). */
-	readonly stem: WorldStem
 	readonly base: Base
 	readonly relations: Relations
 	readonly statements: ReadonlyArray<KeptStatements<Base, Relations>>
@@ -520,8 +506,6 @@ export type RefreshListOf<R> = R extends {
 export interface AnyLogin extends Built {
 	readonly kind: "login"
 	readonly name: string
-	/** Its stem (WorldStem). */
-	readonly stem: WorldStem
 	readonly base: AnySchema
 	readonly roles: Readonly<Record<string, AnyLoginRole>>
 	readonly workload: ReadonlyArray<AnyWorkload>
@@ -569,8 +553,6 @@ export interface Login<
 > extends Built {
 	readonly kind: "login"
 	readonly name: Name
-	/** Its stem (WorldStem). */
-	readonly stem: WorldStem
 	readonly base: Base
 	readonly roles: LoginRoles<Roles, Ws>
 	readonly workload: Ws

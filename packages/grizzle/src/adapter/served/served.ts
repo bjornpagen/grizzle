@@ -21,6 +21,7 @@ import {
 	roleSpaceOf,
 	SourceLoc,
 	servedFile,
+	stemOf,
 	trusted
 } from "#compiler/plan/runtime.ts"
 import type { ServedLive } from "#compiler/plan/serve.ts"
@@ -127,7 +128,7 @@ interface Stemmed {
 }
 
 /** The stem `named` carries: a served login's, its file's; a decoder login's, the file's live source's; a login's or a
- * role's, as login(...) or role(...) computed it, whose refusal it throws. */
+ * role's, as login(...) or role(...) computed and recorded it (core/stems.ts), whose refusal it throws. */
 const stemmed = <L>(named: AnyLogin | AnyRole | ServedLogin<L> | DecoderLogin): Stemmed => {
 	if (named.kind === "servedLogin") {
 		return { stem: named.file.role, at: SourceLoc(`login ${named.name}`, []), of: "login" }
@@ -139,11 +140,12 @@ const stemmed = <L>(named: AnyLogin | AnyRole | ServedLogin<L> | DecoderLogin): 
 			of: "login"
 		}
 	}
-	if (!named.stem.ok) {
-		throw named.stem.error
+	const stem = stemOf(named)
+	if (!stem.ok) {
+		throw stem.error
 	}
 	return {
-		stem: named.stem.value,
+		stem: stem.value,
 		at: SourceLoc(`${named.kind} ${named.name}`, []),
 		of: named.kind
 	}
