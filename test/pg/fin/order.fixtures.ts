@@ -2,6 +2,7 @@
 
 import { element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
+import { familyTemplates } from "#test/pg/fin/family.ts"
 import type { EndFeature } from "#test/pg/fin/installed.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import type { MutationStatement } from "#test/support/families/mutate.ts"
@@ -95,3 +96,6 @@ export type OrderFeature =
 	| `${Shape} one insert committed`
 	| `${Shape} one insert with a successor first committed`
 	| `${Shape} ${"descending" | "ascending"} cut ${"committed" | "refused"}`
+
+/** Each shape's family installed once per member (family.ts familyTemplates), the one a case draws seated for it. */
+export const orderTemplates = familyTemplates(import.meta, "order")

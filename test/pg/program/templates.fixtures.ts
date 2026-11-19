@@ -23,6 +23,7 @@ import {
 	type TestCompileOptions
 } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
+import { pgCluster } from "#test/support/env.ts"
 import {
 	Account,
 	AutomaticTask,
@@ -35,8 +36,9 @@ import {
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { owning } from "#test/support/policy.ts"
+import { noTables } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { installTemplate, Substrate } from "#test/support/substrate/substrate.ts"
 
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
@@ -173,7 +175,7 @@ export const templateFeatures = (c: TemplateCase): ReadonlyArray<TemplateFeature
 }
 
 /** TaskNote matched to Task on its deferred foreign key: R03 in a snapshot only. */
-export const notes = query(Work).rule((r) => {
+const notes = query(Work).rule((r) => {
 	const { task, note } = v(TaskNote, "taskNote")
 	return r.match(TaskNote, { task, note }).match(Task, { id: task }).find({ task, note })
 })
@@ -201,7 +203,7 @@ export const runSpecs = (
 		return raws
 	})
 
-export const compiled = (
+const compiled = (
 	q: unknown,
 	schema: string,
 	context: TestCompileOptions["context"]
@@ -217,22 +219,47 @@ export const compiled = (
 	return r.value
 }
 
-export const installed = Effect.gen(function* () {
-	const s = yield* Substrate
-	const schema = yield* s.schema({ create: false, label: "template" })
-	const owned = owning(Work)
-	const installation = compileInstallation(owned, {
-		...installOptions(owned, s.owner.role),
-		levels: [identity.schema(parsedSchemaName(schema))]
-	})
-	if (!installation.ok) {
-		return yield* Effect.die(new Error(installation.error.message))
-	}
-	yield* transaction(s.admin, [
-		...installationSql(installation.value, s.database),
-		...facts(installation.value.names)
-	])
-	return { schema, names: installation.value.names }
+/**
+ * Work installed from its compiled installation script with the cases' facts, once per member (substrate.ts
+ * installTemplate), where the search installed it once before its cases: a case reads the installation's names, and
+ * the two templates of `notes` compiled under that name, the transaction's and the snapshot's, which each
+ * worker compiles once as it plans. A case writes only inside a transaction it rolls back, so its clone keeps the facts
+ * and the reset empties no table.
+ */
+export const workTemplate = installTemplate({
+	declaredIn: import.meta,
+	name: "template",
+	content: { schema: Work.name },
+	plan: (names) =>
+		Effect.gen(function* () {
+			const owned = owning(Work)
+			const installation = compileInstallation(owned, {
+				...installOptions(owned, pgCluster.owner),
+				levels: [identity.schema(parsedSchemaName(names.schema))]
+			})
+			if (!installation.ok) {
+				return yield* Effect.die(new Error(installation.error.message))
+			}
+			return {
+				installation: installation.value,
+				snapshot: compiled(notes, names.schema, "snapshot"),
+				tx: compiled(notes, names.schema, "transaction")
+			}
+		}),
+	install: ({ installation }) =>
+		Effect.gen(function* () {
+			const s = yield* Substrate
+			yield* transaction(s.admin, [
+				...installationSql(installation, s.database),
+				...facts(installation.names)
+			])
+		}),
+	bind: ({ installation, snapshot, tx }) => ({
+		names: installation.names,
+		snapshot,
+		tx
+	}),
+	reset: () => noTables
 })
 
 export const uuids = (ids: ReadonlyArray<string>) =>

@@ -43,6 +43,7 @@ import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { StatementShare, type WriteStatement } from "#compiler/write/insert/statement.ts"
 import type { PutStatement } from "#compiler/write/put/statement.ts"
 import { textRows } from "#test/pg/codec/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { arraysEncoder } from "#test/support/arrays.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import {
@@ -56,7 +57,12 @@ import {
 } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import type { Installed } from "#test/support/install-migrate.ts"
+import {
+	generatedTemplate,
+	type Installed,
+	installedTemplate,
+	templateNamed
+} from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { realizeConservative } from "#test/support/oracle/write/realize.ts"
 import { checking } from "#test/support/policy.ts"
@@ -77,7 +83,7 @@ export const Edge = relation("Edge", { id: uuid, from: Pair, to: Pair }, ["id"])
 
 const Note = relation("Note", { id: uuid, value: Pair, rank: pg.bigint }, ["id"])
 
-export const Pairs = schema("VectorPairs", [A, B, Edge, Note], [])
+const Pairs = schema("VectorPairs", [A, B, Edge, Note], [])
 
 const pairType = scalarOf({ kind: "vector", dimensions: 2 }, {})
 
@@ -105,10 +111,10 @@ const decodedComponents = (stored: string): string => {
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
-export const compiled = (q: unknown, installed: Installed): OracleTemplate => {
+const compiled = (q: unknown, installation: string): OracleTemplate => {
 	const r = compileTemplate(q, undefined, {
 		...testCompile,
-		installation: identity.schema(parsedSchemaName(installed.declared))
+		installation: identity.schema(parsedSchemaName(installation))
 	})
 	if (!r.ok) {
 		throw new Error(r.error.message)
@@ -608,3 +614,73 @@ export type WriteFeature =
 	| "a delete of a differing fact"
 	| "a put displacing its occupant"
 	| "a put of the stored fact"
+
+/**
+ * Pairs under its template's name with its full world's served login (servedPairs), drafted and served as `grizzle
+ * generate` does once per member (install-migrate.ts generatedTemplate), which each case's seat holds.
+ */
+export const pairsTemplate = generatedTemplate({
+	declaredIn: import.meta,
+	name: "vpairs",
+	content: { schema: Pairs.name },
+	build: (name) => {
+		const world = servedPairs(name)
+		return { schema: world.value, logins: [world.server] }
+	},
+	ambient: ordinarySession
+})
+
+/**
+ * The four queries a case runs against vector equality, compiled under the template's installed name once per worker
+ * (install-migrate.ts templateNamed): a parameter binding of a vector column, a vector variable shared by two relations
+ * (a join on native equality), one variable bound to two columns of one relation (the loops), and an anti-join
+ * correlated on a vector (the A facts whose value no B fact has).
+ */
+export const pairsQueries = templateNamed(
+	"test/pg/vector/exact/equality.fixtures.ts pairsQueries",
+	pairsTemplate,
+	(names) => ({
+		byValue: compiled(
+			query(Pairs).rule((r) => {
+				const { id: key } = v(A, "a")
+				return r.match(A, { id: key, value: r.param("probe", A.fields.value) }).find({ id: key })
+			}),
+			names.schema
+		),
+		join: compiled(
+			query(Pairs).rule((r) => {
+				const { id: a, value } = v(A, "a")
+				const { id: b } = v(B, "b")
+				return r.match(A, { id: a, value }).match(B, { id: b, value }).find({ a, b })
+			}),
+			names.schema
+		),
+		loops: compiled(
+			query(Pairs).rule((r) => {
+				const { id: key, from } = v(Edge, "edge")
+				return r.match(Edge, { id: key, from, to: from }).find({ id: key })
+			}),
+			names.schema
+		),
+		unmatched: compiled(
+			query(Pairs).rule((r) => {
+				const { id: key, value } = v(A, "a")
+				return r.match(A, { id: key, value }).where(r.not(B, { value })).find({ id: key })
+			}),
+			names.schema
+		)
+	})
+)
+
+/** Pairs installed once per member with its full world's login (install-migrate.ts installedTemplate). */
+export const writeTemplate = installedTemplate({
+	declaredIn: import.meta,
+	name: "vwrite",
+	schema: Pairs,
+	options: {
+		ambient: ordinarySession,
+		label: "vwrite",
+		logins: [pairsWorld.server],
+		extensions: []
+	}
+})

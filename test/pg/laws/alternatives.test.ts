@@ -22,10 +22,10 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { codeOf } from "#compiler/ir/codes.ts"
-import { cleared, seatOf } from "#test/pg/fin/installed.ts"
+import { seatIn } from "#test/pg/fin/installed.ts"
 import {
-	Alternatives,
 	type AlternativesFeature,
+	alternativesTemplate,
 	type Broken,
 	brokenOf,
 	Disagreed,
@@ -42,7 +42,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const alternativesThroughGrizzlesLoweringOnPostgreSQL19rc2CommitExactlyTheStatesWhoseEveryArmRowHasItsArmedParentAndEveryArmedParentItsArmRefusingEachArmsForwardAndReverseNatively =
 	property.exhaust(finite(sketchGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { seated: Substrate.seat(alternativesTemplate) },
 		situations: [
 			"committed",
 			"committed an unarmed parent",
@@ -50,75 +50,71 @@ export const alternativesThroughGrizzlesLoweringOnPostgreSQL19rc2CommitExactlyTh
 			"refused reverse"
 		] satisfies ReadonlyArray<Reached<AlternativesFeature>>,
 		check:
-			({ substrate }, c: Case<AlternativesFeature>) =>
+			({ seated }, c: Case<AlternativesFeature>) =>
 			(s) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const seat = yield* seatOf(Alternatives, RELATIONS, "alternatives")
-						const codec = Arr.findFirst(
-							[...seat.installed.names.codes.rosters.values()],
-							(r) => r.roster === Kind.name
-						)
-						const code = (h: Handle) => codeOf(Option.getOrThrow(codec), h)
-						const laws = seat.lawsOf("containment")
+				Effect.gen(function* () {
+					const taken = yield* seated
+					const seat = yield* seatIn(taken, RELATIONS, "alternatives")
+					const codec = Arr.findFirst(
+						[...seat.installed.names.codes.rosters.values()],
+						(r) => r.roster === Kind.name
+					)
+					const code = (h: Handle) => codeOf(Option.getOrThrow(codec), h)
+					const laws = seat.lawsOf("containment")
 
-						const parents = Arr.flatMap(s.kinds, (k, id) =>
-							k === undefined ? [] : [`(${id}, ${code(k)})`]
-						)
-						const col = (r: string, f: string) => seat.column(r, f)
-						const statements = [
-							...(parents.length === 0
+					const parents = Arr.flatMap(s.kinds, (k, id) =>
+						k === undefined ? [] : [`(${id}, ${code(k)})`]
+					)
+					const col = (r: string, f: string) => seat.column(r, f)
+					const statements = [
+						...(parents.length === 0
+							? []
+							: [
+									`INSERT INTO ${seat.table("Item")} (${col("Item", "id")}, ${col("Item", "kind")}) VALUES ${Arr.join(parents, ", ")}`
+								]),
+						...Arr.flatMap(["A", "B"] as const, (arm) => {
+							const ids = arm === "A" ? s.a : s.b
+							return ids.length === 0
 								? []
 								: [
-										`INSERT INTO ${seat.table("Item")} (${col("Item", "id")}, ${col("Item", "kind")}) VALUES ${Arr.join(parents, ", ")}`
-									]),
-							...Arr.flatMap(["A", "B"] as const, (arm) => {
-								const ids = arm === "A" ? s.a : s.b
-								return ids.length === 0
-									? []
-									: [
-											`INSERT INTO ${seat.table(arm)} (${col(arm, "item")}) VALUES ${Arr.join(
-												Arr.map(ids, (id) => `(${id})`),
-												", "
-											)}`
-										]
-							})
-						]
-						const real = yield* attempt(seat.session, statements)
-						const broken = brokenOf(s)
-						if (real.kind === "committed") {
-							yield* cleared(seat, RELATIONS)
-							if (broken.length > 0) {
-								return yield* new Disagreed({
-									message: `committed a state that breaks the ${Arr.join(broken, " and ")}: ${Formatter.format(s)}`
-								})
-							}
-							c.note(Arr.contains(s.kinds, "c") ? "committed an unarmed parent" : "committed")
-							return
-						}
-						const named = seat.refusedBy(real.fields)
-						const by: Option.Option<Broken> = Option.flatMap(named, (k) =>
-							k.kind !== "foreign"
-								? Option.none()
-								: k.relation === "Item"
-									? Option.some("reverse")
-									: Option.some("forward")
-						)
-						if (
-							real.fields.code !== "23503" ||
-							Option.isNone(by) ||
-							!broken.includes(by.value) ||
-							!Option.exists(named, (k) => Option.exists(k.law, (l) => laws.includes(l)))
-						) {
+										`INSERT INTO ${seat.table(arm)} (${col(arm, "item")}) VALUES ${Arr.join(
+											Arr.map(ids, (id) => `(${id})`),
+											", "
+										)}`
+									]
+						})
+					]
+					const real = yield* attempt(seat.session, statements)
+					const broken = brokenOf(s)
+					if (real.kind === "committed") {
+						if (broken.length > 0) {
 							return yield* new Disagreed({
-								message: `refused ${momentText(real.moment)} by ${refusalText(real.fields)}, where the state breaks ${Formatter.format(broken)}: ${Formatter.format(s)}`
+								message: `committed a state that breaks the ${Arr.join(broken, " and ")}: ${Formatter.format(s)}`
 							})
 						}
-						c.note(`refused ${by.value}`)
-					}),
-					Substrate,
-					substrate
-				),
+						c.note(Arr.contains(s.kinds, "c") ? "committed an unarmed parent" : "committed")
+						return
+					}
+					const named = seat.refusedBy(real.fields)
+					const by: Option.Option<Broken> = Option.flatMap(named, (k) =>
+						k.kind !== "foreign"
+							? Option.none()
+							: k.relation === "Item"
+								? Option.some("reverse")
+								: Option.some("forward")
+					)
+					if (
+						real.fields.code !== "23503" ||
+						Option.isNone(by) ||
+						!broken.includes(by.value) ||
+						!Option.exists(named, (k) => Option.exists(k.law, (l) => laws.includes(l)))
+					) {
+						return yield* new Disagreed({
+							message: `refused ${momentText(real.moment)} by ${refusalText(real.fields)}, where the state breaks ${Formatter.format(broken)}: ${Formatter.format(s)}`
+						})
+					}
+					c.note(`refused ${by.value}`)
+				}),
 		oracle: {
 			kind: "specification",
 			name: "fin.md §7's alternatives as a checker: every arm row's parent of an armed kind, every armed parent its arm"

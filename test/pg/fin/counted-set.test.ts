@@ -11,7 +11,7 @@ import {
 	attrRowOf,
 	type Broken,
 	caseGen,
-	declared,
+	countedSetTemplate,
 	declaredSchema,
 	family,
 	Owner,
@@ -23,9 +23,7 @@ import {
 	type State,
 	verdictOf
 } from "#test/pg/fin/counted-set.fixtures.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, deepEquals, unorderedEqual } from "#test/support/assert.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { applicationOf, member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
@@ -39,149 +37,144 @@ import { fullWorld } from "#test/support/worlds.ts"
  */
 export const aCountedSetKeyedByThreeFieldsAndANameStoresEachOwnersCountAndFoldsOfExactlyTheModelsMembersAfterEveryInsertDeleteMoveAndRefill =
 	property.explore(aimed(caseGen, aims), {
-		needs: { substrate: Substrate.installing },
+		needs: { counted: Substrate.seat(countedSetTemplate) },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
-			({ substrate }, c: Case<Situation>) =>
+			({ counted }, c: Case<Situation>) =>
 			(writes) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const done = yield* installMigrated(declared, {
-							ambient: ordinarySession,
-							label: "countedset",
-							logins: [fullWorld(declared, {}).server],
-							extensions: []
-						})
-						const value = declaredSchema(done.schema)
-						const world = fullWorld(value, {})
-						const names = namesOf(done)
-						const lawNames = lawNamesOf(value)
-						const lawOf: { readonly [B in Broken]: LawId } = {
-							"the owner's key": lawNames.primaryKeyLaw({ name: Owner.name }),
-							"the member's key": lawNames.primaryKeyLaw({ name: Attr.name }),
-							"the family": lawNames.lawOf(family)
-						}
-						const s = yield* Substrate
-						const db = yield* openServedDb(done, world.server.roles.app, {})
-						const loaded = yield* db.load({
-							insert: ChangeSet.empty(value).insert(Owner, []).insert(Attr, []),
-							delete: ChangeSet.empty(value).delete(Attr, []),
-							move: ChangeSet.empty(value).delete(Attr, []).insert(Attr, []),
-							restep: ChangeSet.empty(value).put(Attr, []),
-							relabel: ChangeSet.empty(value).put(Owner, [])
-						})
+				Effect.flatMap(counted, ({ substrate: s, value: done }) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const value = declaredSchema(done.schema)
+							const world = fullWorld(value, {})
+							const names = namesOf(done)
+							const lawNames = lawNamesOf(value)
+							const lawOf: { readonly [B in Broken]: LawId } = {
+								"the owner's key": lawNames.primaryKeyLaw({ name: Owner.name }),
+								"the member's key": lawNames.primaryKeyLaw({ name: Attr.name }),
+								"the family": lawNames.lawOf(family)
+							}
+							const db = yield* openServedDb(done, world.server.roles.app, {})
+							const loaded = yield* db.load({
+								insert: ChangeSet.empty(value).insert(Owner, []).insert(Attr, []),
+								delete: ChangeSet.empty(value).delete(Attr, []),
+								move: ChangeSet.empty(value).delete(Attr, []).insert(Attr, []),
+								restep: ChangeSet.empty(value).put(Attr, []),
+								relabel: ChangeSet.empty(value).put(Owner, [])
+							})
 
-						yield* s.admin.query(`TRUNCATE ${names.table(Attr)}, ${names.table(Owner)}`, [])
-						let state: State = { owners: [], attrs: [] }
-						for (const [i, w] of writes.entries()) {
-							const label = `write ${String(i)} ${Formatter.format(w)}`
-							const verdict = verdictOf(state, w)
-							const facts = (() => {
-								switch (w.kind) {
-									case "insert":
-										return {
-											insert: {
-												Owner: Arr.map(w.owners, ownerFact),
-												Attr: Arr.map(w.attrs, attrRowOf)
+							let state: State = { owners: [], attrs: [] }
+							for (const [i, w] of writes.entries()) {
+								const label = `write ${String(i)} ${Formatter.format(w)}`
+								const verdict = verdictOf(state, w)
+								const facts = (() => {
+									switch (w.kind) {
+										case "insert":
+											return {
+												insert: {
+													Owner: Arr.map(w.owners, ownerFact),
+													Attr: Arr.map(w.attrs, attrRowOf)
+												}
 											}
-										}
-									case "delete":
-										return { delete: { Attr: Arr.map(w.attrs, attrRowOf) } }
-									case "move":
-										return {
-											delete: { Attr: [attrRowOf(w.from)] },
-											insert: { Attr: [attrRowOf(w.to)] }
-										}
-									case "restep":
-										return { put: { Attr: Arr.map(w.attrs, attrRowOf) } }
-									case "relabel":
-										return { put: { Owner: Arr.map(w.owners, ownerFact) } }
-								}
-							})()
-							const outcome: ApplyOutcome<unknown> = yield* applicationOf(
-								db.ctx,
-								member(loaded, w.kind)
-							)({ params: {}, facts })
-							if (verdict.kind === "refused") {
-								if (outcome.kind !== "invariant-rejected") {
-									return assert.fail(
-										`${label}: it breaks ${Formatter.format([...verdict.broken])}, so it is invariant-rejected, not ${outcome.kind}`
-									)
-								}
-								const allowed = new Set(Arr.map([...verdict.broken], (b) => lawOf[b]))
-								const named = Arr.map(outcome.refused.laws, names.reported)
-								switch (outcome.refused.kind) {
-									case "every":
-										for (const law of named) {
-											assert.ok(
-												allowed.has(law),
-												`${label}: it names ${law}, which it does not break`
-											)
-										}
-										break
-									case "some":
-										assert.ok(
-											Arr.some(named, (law) => allowed.has(law)),
-											`${label}: of ${Formatter.format(named)} it names none it breaks`
-										)
-										break
-									case "first":
-									case "above":
+										case "delete":
+											return { delete: { Attr: Arr.map(w.attrs, attrRowOf) } }
+										case "move":
+											return {
+												delete: { Attr: [attrRowOf(w.from)] },
+												insert: { Attr: [attrRowOf(w.to)] }
+											}
+										case "restep":
+											return { put: { Attr: Arr.map(w.attrs, attrRowOf) } }
+										case "relabel":
+											return { put: { Owner: Arr.map(w.owners, ownerFact) } }
+									}
+								})()
+								const outcome: ApplyOutcome<unknown> = yield* applicationOf(
+									db.ctx,
+									member(loaded, w.kind)
+								)({ params: {}, facts })
+								if (verdict.kind === "refused") {
+									if (outcome.kind !== "invariant-rejected") {
 										return assert.fail(
-											`${label}: a key's or a family's refusal is decided, not ${outcome.refused.kind}`
-										)
-								}
-								const keyNamed = Arr.filter(verdict.keyed, (x) => named.includes(lawOf[x.broken]))
-								const witness = outcome.witness
-								if (Arr.isReadonlyArrayNonEmpty(keyNamed)) {
-									if (witness.kind === "unreported") {
-										return assert.fail(
-											`${label}: a key its stated rows break reports no witness: ${Formatter.format(outcome)}, the rows ${Formatter.format(keyNamed)}`
+											`${label}: it breaks ${Formatter.format([...verdict.broken])}, so it is invariant-rejected, not ${outcome.kind}`
 										)
 									}
-									assert.ok(
-										Arr.some(keyNamed, (x) => {
-											const keyFields =
-												x.broken === "the owner's key" ? ["a", "b", "k"] : ["a", "b", "k", "name"]
-											const row: Readonly<Record<string, unknown>> = { ...x.row }
-											return (
-												witness.relation === (x.broken === "the owner's key" ? "Owner" : "Attr") &&
-												deepEquals<unknown>(
-													witness.values,
-													Rec.fromEntries(Arr.map(keyFields, (f) => [f, row[f]] as const))
+									const allowed = new Set(Arr.map([...verdict.broken], (b) => lawOf[b]))
+									const named = Arr.map(outcome.refused.laws, names.reported)
+									switch (outcome.refused.kind) {
+										case "every":
+											for (const law of named) {
+												assert.ok(
+													allowed.has(law),
+													`${label}: it names ${law}, which it does not break`
 												)
+											}
+											break
+										case "some":
+											assert.ok(
+												Arr.some(named, (law) => allowed.has(law)),
+												`${label}: of ${Formatter.format(named)} it names none it breaks`
 											)
-										}),
-										`${label}: the witness ${Formatter.format(witness)} is the key of a stated row that breaks it`
-									)
+											break
+										case "first":
+										case "above":
+											return assert.fail(
+												`${label}: a key's or a family's refusal is decided, not ${outcome.refused.kind}`
+											)
+									}
+									const keyNamed = Arr.filter(verdict.keyed, (x) => named.includes(lawOf[x.broken]))
+									const witness = outcome.witness
+									if (Arr.isReadonlyArrayNonEmpty(keyNamed)) {
+										if (witness.kind === "unreported") {
+											return assert.fail(
+												`${label}: a key its stated rows break reports no witness: ${Formatter.format(outcome)}, the rows ${Formatter.format(keyNamed)}`
+											)
+										}
+										assert.ok(
+											Arr.some(keyNamed, (x) => {
+												const keyFields =
+													x.broken === "the owner's key" ? ["a", "b", "k"] : ["a", "b", "k", "name"]
+												const row: Readonly<Record<string, unknown>> = { ...x.row }
+												return (
+													witness.relation ===
+														(x.broken === "the owner's key" ? "Owner" : "Attr") &&
+													deepEquals<unknown>(
+														witness.values,
+														Rec.fromEntries(Arr.map(keyFields, (f) => [f, row[f]] as const))
+													)
+												)
+											}),
+											`${label}: the witness ${Formatter.format(witness)} is the key of a stated row that breaks it`
+										)
+									} else {
+										assert.equal(
+											witness.kind,
+											"unreported",
+											`${label}: a family's refusal names no row`
+										)
+									}
 								} else {
-									assert.equal(
-										witness.kind,
-										"unreported",
-										`${label}: a family's refusal names no row`
-									)
+									assert.equal(outcome.kind, verdict.changed ? "accepted" : "no-change", label)
 								}
-							} else {
-								assert.equal(outcome.kind, verdict.changed ? "accepted" : "no-change", label)
+								c.noteAll(situationsOf(state, w, verdict))
+								state = verdict.kind === "written" ? verdict.next : state
+								const owners = yield* tableState(done, Owner)
+								unorderedEqual<Readonly<Record<string, unknown>>>(
+									owners,
+									ownerRowsOf(state),
+									`the owners after ${label}`
+								)
+								const attrs = yield* tableState(done, Attr)
+								unorderedEqual<Readonly<Record<string, unknown>>>(
+									attrs,
+									Arr.map(state.attrs, attrRowOf),
+									`the members after ${label}`
+								)
 							}
-							c.noteAll(situationsOf(state, w, verdict))
-							state = verdict.kind === "written" ? verdict.next : state
-							const owners = yield* tableState(done, Owner)
-							unorderedEqual<Readonly<Record<string, unknown>>>(
-								owners,
-								ownerRowsOf(state),
-								`the owners after ${label}`
-							)
-							const attrs = yield* tableState(done, Attr)
-							unorderedEqual<Readonly<Record<string, unknown>>>(
-								attrs,
-								Arr.map(state.attrs, attrRowOf),
-								`the members after ${label}`
-							)
-						}
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate
+						}).pipe(Effect.scoped),
+						Substrate,
+						s
+					)
 				),
 		oracle: {
 			kind: "specification",

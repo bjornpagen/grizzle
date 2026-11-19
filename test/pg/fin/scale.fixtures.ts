@@ -4,6 +4,9 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter } from "effect"
 import { outcomeText } from "#bench/harness/outcome.ts"
 import type { TransactionMeasure } from "#bench/harness/transaction.ts"
+import { familyTemplates } from "#test/pg/fin/family.ts"
+import { seatTemplate } from "#test/pg/fin/installed.ts"
+import { Trees } from "#test/pg/fin/tree.ts"
 import { assert } from "#test/support/assert.ts"
 import { type Shape, SHAPES } from "#test/support/families/theorem.ts"
 
@@ -56,3 +59,9 @@ export const queueBytes = (m: TransactionMeasure): number => {
  */
 export const committed = (m: TransactionMeasure, what: string): void =>
 	assert.equal(m.outcome.kind, "committed", `${what}; it ${outcomeText(m.outcome)}`)
+
+/** Each shape's family installed once per member (family.ts familyTemplates), which each case's seats hold. */
+export const scaleFamilies = familyTemplates(import.meta, "scale")
+
+/** The tree installed once per member (installed.ts seatTemplate), which each case's seat holds. */
+export const scaleTree = seatTemplate(import.meta, Trees, "scale tree")

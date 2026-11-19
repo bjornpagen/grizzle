@@ -2,8 +2,9 @@
 
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
-import type { FamilySeat } from "#test/pg/fin/family.ts"
-import { cleared, type Seat } from "#test/pg/fin/installed.ts"
+import { type FamilySeat, familyTemplates } from "#test/pg/fin/family.ts"
+import { cleared, type Seat, seatTemplate } from "#test/pg/fin/installed.ts"
+import { Trees } from "#test/pg/fin/tree.ts"
 import { assert } from "#test/support/assert.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -127,3 +128,9 @@ export const suffixRewrite = (f: FamilySeat, k: number): ReadonlyArray<string> =
 	`UPDATE ${f.seat.table("Owner")} SET ${f.seat.column("Owner", "n")} = ${k - 1} WHERE ${f.seat.column("Owner", "id")} = 0`,
 	`INSERT INTO ${f.seat.table("Member")} (${memberColumns(f)}) SELECT a + ${k}, 0, a, ${k - 1} FROM pg_catalog.generate_series(0, ${k - 2}) AS a`
 ]
+
+/** Each shape's family installed once per member (family.ts familyTemplates), which each case's seats hold. */
+export const costFamilies = familyTemplates(import.meta, "cost")
+
+/** The tree installed once per member (installed.ts seatTemplate), which each case's seat holds. */
+export const costTree = seatTemplate(import.meta, Trees, "cost tree")

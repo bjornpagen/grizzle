@@ -27,15 +27,15 @@
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Pool } from "effect"
-import { cleared, seatOf, seatPool } from "#test/pg/fin/installed.ts"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { seatIn } from "#test/pg/fin/installed.ts"
 import {
-	Coverage,
 	type CoverageFeature,
+	coverageRefusalOf,
+	coverageTemplate,
 	Disagreed,
 	insertSql,
 	modelOf,
-	coverageRefusalOf,
 	RELATIONS,
 	sketchGen,
 	SQLSTATE
@@ -55,7 +55,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const coverageThroughGrizzlesLoweringOnPostgreSQL19rc2CommitExactlyTheCoveredStatesOfG2sBoxRefuseAGapOrAnOverlapByItsNativeAndAnEmptySpanByTheSpansNamedCHECKEachAtItsStatement =
 	property.exhaust(finite(sketchGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { seated: Substrate.seat(coverageTemplate) },
 		situations: [
 			"committed",
 			"committed with a source outside its selection",
@@ -65,69 +65,63 @@ export const coverageThroughGrizzlesLoweringOnPostgreSQL19rc2CommitExactlyTheCov
 			"refused coverage across a gap"
 		] satisfies ReadonlyArray<Reached<CoverageFeature>>,
 		check:
-			({ substrate }, c: Case<CoverageFeature>) =>
+			({ seated }, c: Case<CoverageFeature>) =>
 			(sketch) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const seats = yield* seatPool(seatOf(Coverage, RELATIONS, "coverage"))
-
-						const seat = yield* Pool.get(seats)
-						const laws = namesOf(seat.installed)
-						const model = modelOf(sketch)
-						const statements = [
-							...(Arr.isReadonlyArrayNonEmpty(sketch.targets)
-								? [insertSql(seat, "Target", sketch.targets, 0)]
-								: []),
-							insertSql(seat, "Source", [sketch.source], 100)
-						]
-						const real: Attempted = yield* attempt(seat.session, statements)
-						const disagree = (why: string) =>
-							new Disagreed({
-								message: `${why}: the model predicts ${Formatter.format(model)}, PostgreSQL gave ${real.kind === "committed" ? "commit" : `refusal ${momentText(real.moment)}: ${refusalText(real.fields)}`}, for ${Formatter.format(sketch)}`
-							})
-						if (real.kind === "committed") {
-							yield* cleared(seat, RELATIONS)
-							if (model.kind !== "committed") {
-								return yield* disagree("PostgreSQL committed")
-							}
-							c.note(
-								sketch.source.span.kind === "null"
-									? "committed with a source outside its selection"
-									: "committed"
-							)
-							return
+				Effect.gen(function* () {
+					const taken = yield* seated
+					const seat = yield* seatIn(taken, RELATIONS, "coverage")
+					const laws = namesOf(seat.installed)
+					const model = modelOf(sketch)
+					const statements = [
+						...(Arr.isReadonlyArrayNonEmpty(sketch.targets)
+							? [insertSql(seat, "Target", sketch.targets, 0)]
+							: []),
+						insertSql(seat, "Source", [sketch.source], 100)
+					]
+					const real: Attempted = yield* attempt(seat.session, statements)
+					const disagree = (why: string) =>
+						new Disagreed({
+							message: `${why}: the model predicts ${Formatter.format(model)}, PostgreSQL gave ${real.kind === "committed" ? "commit" : `refusal ${momentText(real.moment)}: ${refusalText(real.fields)}`}, for ${Formatter.format(sketch)}`
+						})
+					if (real.kind === "committed") {
+						if (model.kind !== "committed") {
+							return yield* disagree("PostgreSQL committed")
 						}
-						if (model.kind !== "refused") {
-							return yield* disagree("PostgreSQL refused")
-						}
-						const named = Option.flatMap(seat.refusedBy(real.fields), coverageRefusalOf(laws))
+						c.note(
+							sketch.source.span.kind === "null"
+								? "committed with a source outside its selection"
+								: "committed"
+						)
+						return
+					}
+					if (model.kind !== "refused") {
+						return yield* disagree("PostgreSQL refused")
+					}
+					const named = Option.flatMap(seat.refusedBy(real.fields), coverageRefusalOf(laws))
+					if (
+						!sameMoment(real.moment, model.moment) ||
+						!Option.contains(named, model.by) ||
+						real.fields.code !== SQLSTATE[model.by]
+					) {
+						return yield* disagree("the moment, the native or the SQLSTATE differs")
+					}
+					c.note(`refused ${model.by}`)
+					if (model.by === "coverage" && sketch.source.span.kind === "span") {
+						const { lo, hi } = sketch.source.span
 						if (
-							!sameMoment(real.moment, model.moment) ||
-							!Option.contains(named, model.by) ||
-							real.fields.code !== SQLSTATE[model.by]
+							Arr.some(
+								sketch.targets,
+								(t) =>
+									t.k === sketch.source.k &&
+									t.span.kind === "span" &&
+									t.span.lo < hi &&
+									lo < t.span.hi
+							)
 						) {
-							return yield* disagree("the moment, the native or the SQLSTATE differs")
+							c.note("refused coverage across a gap")
 						}
-						c.note(`refused ${model.by}`)
-						if (model.by === "coverage" && sketch.source.span.kind === "span") {
-							const { lo, hi } = sketch.source.span
-							if (
-								Arr.some(
-									sketch.targets,
-									(t) =>
-										t.k === sketch.source.k &&
-										t.span.kind === "span" &&
-										t.span.lo < hi &&
-										lo < t.span.hi
-								)
-							) {
-								c.note("refused coverage across a gap")
-							}
-						}
-					}),
-					Substrate,
-					substrate
-				),
+					}
+				}),
 		oracle: {
 			kind: "specification",
 			name: "G2's coverage model (test/pg/substrate/temporal.ts covered, keyRefusal) as a checker, an empty span refused first by its field's shape CHECK"

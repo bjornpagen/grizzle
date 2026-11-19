@@ -28,25 +28,22 @@ import {
 	lowest,
 	Point,
 	pointGen,
-	Points,
+	pointsTemplate,
+	pointsWorld,
 	sameVector,
 	spelled,
-	Store,
 	type StoredFeature,
 	storedGen,
+	storeTemplate,
 	unit,
 	vectorColumns,
-	world,
-	worldNeed
+	world
 } from "#test/pg/vector/exact/storage.fixtures.ts"
 import { exactVectorText, normOf, normTolerance, vectorInVerdict } from "#test/pg/vector/support.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, faulted, succeeded } from "#test/support/assert.ts"
-import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { strictRead } from "#test/support/kernel/strict.ts"
 import { expectConstraint, expectSqlstate } from "#test/support/substrate/expect.ts"
-import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -56,7 +53,7 @@ import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
  */
 export const vectorStorageTheNormCHECKPgvectorsInputChecksAndTheCodecRefuseTheSameVectorsAndAdmitTheBounds =
 	property.explore(storedGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { store: Substrate.seat(storeTemplate) },
 		situations: [
 			"admitted at a bound",
 			"admitted inside",
@@ -66,82 +63,72 @@ export const vectorStorageTheNormCHECKPgvectorsInputChecksAndTheCodecRefuseTheSa
 			"the other column"
 		] satisfies ReadonlyArray<Reached<StoredFeature>>,
 		check:
-			({ substrate }, k: Case<StoredFeature>) =>
+			({ store: seated }, k: Case<StoredFeature>) =>
 			({ column, components }) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const store = yield* install(Store, {
-							ambient: ordinarySession,
-							label: "vstore",
-							logins: [world.server],
-							extensions: []
-						})
-						const names = namesOf(store)
-						const table = names.table(Embedding)
-						const writer = yield* s.session({
-							...worldSession(store.world(world.app)),
-							label: "writer"
-						})
+				Effect.gen(function* () {
+					const { substrate: s, value: store } = yield* seated
+					const names = namesOf(store)
+					const table = names.table(Embedding)
+					const writer = yield* s.session({
+						...worldSession(store.world(world.app)),
+						label: "writer"
+					})
 
-						const values = Arr.map(vectorColumns, (name) =>
-							name === column ? exactVectorText(components) : unit
-						)
-						const insert = writer.values(
-							`INSERT INTO ${table} ("id", ${Arr.join(
-								Arr.map(vectorColumns, (name) => names.column(Embedding, name)),
-								", "
-							)}) VALUES ($1::text::uuid, ${Arr.join(
-								Arr.map(vectorColumns, (_, i) => `$${i + 2}::text::"vector_ext"."vector"(4)`),
-								", "
-							)})`,
-							[id(1), ...values]
-						)
-						if (column !== Arr.headNonEmpty(vectorColumns)) {
-							k.note("the other column")
-						}
-						const input = vectorInVerdict(components, Option.some(4))
-						if (input !== "admitted") {
-							k.note(input === "22003" ? "refused past binary32" : "refused as malformed")
-							yield* expectSqlstate(insert, input)
-							return
-						}
-						const host = Vector.make(Float32Array.from(components), 4)
-						const norm = normOf(components)
-						const inside = norm >= lowest && norm <= highest
-						const encoded = codec.encode(host)
-						if (!inside) {
-							k.note("refused by the norm CHECK")
-							const e = yield* expectConstraint(insert, names.normCheck(Embedding, column), "23514")
-							assert.equal(e.code, "23514")
-							faulted(encoded, "vectorNorm", "the codec refuses what the CHECK refuses")
-							return
-						}
-						k.note(norm === lowest || norm === highest ? "admitted at a bound" : "admitted inside")
-						yield* insert
-						const text = succeeded(encoded)
-						const [first] = yield* s.admin.queryValues(
-							`SELECT "vector_ext"."vector_norm"(${names.column(Embedding, column)})::text, ${names.column(Embedding, column)}::text FROM ${table} WHERE "id" = $1::text::uuid`,
-							[id(1)]
-						)
-						const [native, stored] = defined(first, "the stored row")
-						assert.ok(
-							Math.abs(Number(native) - norm) <= normTolerance(4, norm),
-							`vector_norm ${String(native)}, the host's ${norm}`
-						)
-						const read = strictRead(embeddingType(), String(stored))
-						if (Result.isFailure(read) || !isVector(read.success)) {
-							return assert.fail(`the strict reader refused ${String(stored)}`)
-						}
-						assert.equal(
-							succeeded(codec.encode(read.success)),
-							text,
-							"what pgvector stores reads back as the codec's text of the host vector"
-						)
-					}),
-					Substrate,
-					substrate
-				),
+					const values = Arr.map(vectorColumns, (name) =>
+						name === column ? exactVectorText(components) : unit
+					)
+					const insert = writer.values(
+						`INSERT INTO ${table} ("id", ${Arr.join(
+							Arr.map(vectorColumns, (name) => names.column(Embedding, name)),
+							", "
+						)}) VALUES ($1::text::uuid, ${Arr.join(
+							Arr.map(vectorColumns, (_, i) => `$${i + 2}::text::"vector_ext"."vector"(4)`),
+							", "
+						)})`,
+						[id(1), ...values]
+					)
+					if (column !== Arr.headNonEmpty(vectorColumns)) {
+						k.note("the other column")
+					}
+					const input = vectorInVerdict(components, Option.some(4))
+					if (input !== "admitted") {
+						k.note(input === "22003" ? "refused past binary32" : "refused as malformed")
+						yield* expectSqlstate(insert, input)
+						return
+					}
+					const host = Vector.make(Float32Array.from(components), 4)
+					const norm = normOf(components)
+					const inside = norm >= lowest && norm <= highest
+					const encoded = codec.encode(host)
+					if (!inside) {
+						k.note("refused by the norm CHECK")
+						const e = yield* expectConstraint(insert, names.normCheck(Embedding, column), "23514")
+						assert.equal(e.code, "23514")
+						faulted(encoded, "vectorNorm", "the codec refuses what the CHECK refuses")
+						return
+					}
+					k.note(norm === lowest || norm === highest ? "admitted at a bound" : "admitted inside")
+					yield* insert
+					const text = succeeded(encoded)
+					const [first] = yield* s.admin.queryValues(
+						`SELECT "vector_ext"."vector_norm"(${names.column(Embedding, column)})::text, ${names.column(Embedding, column)}::text FROM ${table} WHERE "id" = $1::text::uuid`,
+						[id(1)]
+					)
+					const [native, stored] = defined(first, "the stored row")
+					assert.ok(
+						Math.abs(Number(native) - norm) <= normTolerance(4, norm),
+						`vector_norm ${String(native)}, the host's ${norm}`
+					)
+					const read = strictRead(embeddingType(), String(stored))
+					if (Result.isFailure(read) || !isVector(read.success)) {
+						return assert.fail(`the strict reader refused ${String(stored)}`)
+					}
+					assert.equal(
+						succeeded(codec.encode(read.success)),
+						text,
+						"what pgvector stores reads back as the codec's text of the host vector"
+					)
+				}),
 		oracle: {
 			kind: "postgresql",
 			name: "pgvector's input and the column's norm CHECK, against a model of pgvector's checks and the norm"
@@ -158,58 +145,45 @@ export const vectorStorageTheNormCHECKPgvectorsInputChecksAndTheCodecRefuseTheSa
  */
 export const vectorStorageAVectorKeyHoldsOneFactPerValueTwoSpellingsOfOneVectorCollideOnItAndDistinctVectorsDoNot =
 	property.explore(array(pointGen, { min: 1, max: 6 }), {
-		needs: { substrate: Substrate.installing, worldNeed },
+		needs: { points: Substrate.seat(pointsTemplate) },
 		situations: [
 			"a distinct vector stored",
 			"an exact repeat refused",
 			"a twin spelling refused"
 		] satisfies ReadonlyArray<Reached<KeyFeature>>,
 		check:
-			({ substrate, worldNeed }, k: Case<KeyFeature>) =>
+			({ points: seated }, k: Case<KeyFeature>) =>
 			(points) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const world = yield* worldNeed
-						const s = yield* Substrate
-						const store = yield* install(Points, {
-							ambient: ordinarySession,
-							label: "vkeys",
-							logins: [world.server],
-							extensions: []
-						})
-						const names = namesOf(store)
-						const table = names.table(Point)
-						const key = names.fieldConstraint(Point, "pk", ["at"])
-						const writer = yield* s.session({
-							...worldSession(store.world(world.app)),
-							label: "writer"
-						})
-
-						yield* clearRows(s.admin, installationGroup(names))
-						const stored: Array<readonly [number, number]> = []
-						for (const [label, at] of points.entries()) {
-							const insert = writer.values(
-								`INSERT INTO ${table} ("at", "label") VALUES ($1::text::"vector_ext"."vector"(2), $2::text::int4)`,
-								[spelled(at), String(label)]
-							)
-							const earlier = Arr.findFirst(stored, (other) => sameVector(other, at))
-							if (Option.isNone(earlier)) {
-								yield* insert
-								stored.push(at)
-								k.note("a distinct vector stored")
-								continue
-							}
-							yield* expectConstraint(insert, key, "23505")
-							k.note(
-								spelled(earlier.value) === spelled(at)
-									? "an exact repeat refused"
-									: "a twin spelling refused"
-							)
+				Effect.gen(function* () {
+					const { substrate: s, value: store } = yield* seated
+					const names = namesOf(store)
+					const table = names.table(Point)
+					const key = names.fieldConstraint(Point, "pk", ["at"])
+					const writer = yield* s.session({
+						...worldSession(store.world(pointsWorld.app)),
+						label: "writer"
+					})
+					const stored: Array<readonly [number, number]> = []
+					for (const [label, at] of points.entries()) {
+						const insert = writer.values(
+							`INSERT INTO ${table} ("at", "label") VALUES ($1::text::"vector_ext"."vector"(2), $2::text::int4)`,
+							[spelled(at), String(label)]
+						)
+						const earlier = Arr.findFirst(stored, (other) => sameVector(other, at))
+						if (Option.isNone(earlier)) {
+							yield* insert
+							stored.push(at)
+							k.note("a distinct vector stored")
+							continue
 						}
-					}),
-					Substrate,
-					substrate
-				),
+						yield* expectConstraint(insert, key, "23505")
+						k.note(
+							spelled(earlier.value) === spelled(at)
+								? "an exact repeat refused"
+								: "a twin spelling refused"
+						)
+					}
+				}),
 		oracle: {
 			kind: "second-implementation",
 			name: "a vector's value is its binary32 components, -0 equal to 0"

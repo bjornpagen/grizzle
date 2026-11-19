@@ -20,7 +20,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { identifierOf, type Identity, identity } from "#compiler/core/identity.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { cleared, seatOf } from "#test/pg/fin/installed.ts"
+import { seatIn } from "#test/pg/fin/installed.ts"
 import {
 	Disagreed,
 	empty,
@@ -31,7 +31,7 @@ import {
 	predict,
 	RELATIONS,
 	runGen,
-	Units
+	unitsTemplate
 } from "#test/pg/laws/retirable.fixtures.ts"
 import { attempt, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -43,7 +43,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aRetirableUnitInstalledOnPostgreSQL19rc2AdmitsRowsOnlyIntoOpenGroupsHoldsOnlyOpenGroupsAndRetiresAGroupWholeKeepingItsHeaderForGood =
 	property.explore(runGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { seated: Substrate.seat(unitsTemplate) },
 		situations: [
 			"a header inserted",
 			"a header refused at its key",
@@ -59,81 +59,77 @@ export const aRetirableUnitInstalledOnPostgreSQL19rc2AdmitsRowsOnlyIntoOpenGroup
 			"a retirement that changes nothing"
 		] satisfies ReadonlyArray<Reached<LifeFeature>>,
 		check:
-			({ substrate }, c: Case<LifeFeature>) =>
+			({ seated }, c: Case<LifeFeature>) =>
 			(run) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const seat = yield* seatOf(Units, RELATIONS, "retire_life")
-						const unitFunction = (named: Identity<"hold" | "retire">) =>
-							printObjectName({
-								schema: seat.installed.names.relation("Root").schema,
-								name: identifierOf(named)
-							})
-						const col = (r: string, f: string) => seat.column(r, f)
-						const sqlOf = (op: Op): string => {
-							switch (op.kind) {
-								case "header":
-									return `INSERT INTO ${seat.table("Root")} (${col("Root", "id")}) VALUES (${op.group})`
-								case "step":
-									return `INSERT INTO ${seat.table("Step")} (${col("Step", "root")}, ${col("Step", "step")}) VALUES (${op.group}, ${op.step})`
-								case "claim":
-									return `INSERT INTO ${seat.table("Claim")} (${col("Claim", "root")}, ${col("Claim", "step")}, ${col("Claim", "attempt")}) VALUES (${op.group}, ${op.step}, ${op.attempt})`
-								case "hold":
-									return `SELECT ${unitFunction(identity.hold("Root"))}(${groupsArray(op.groups)})`
-								case "retire":
-									return `SELECT ${unitFunction(identity.retire("Root"))}(${groupsArray(op.groups)})`
-							}
-						}
-						const readRows = Effect.gen(function* () {
-							const rows = (sql: string) =>
-								Effect.map(seat.session.values(sql, []), (rs) =>
-									Arr.map(rs, (r) => Arr.join(Arr.map(r, String), ","))
-								)
-							return [
-								yield* rows(
-									`SELECT ${col("Root", "id")}, ${col("Root", "retired")} FROM ${seat.table("Root")} ORDER BY 1`
-								),
-								yield* rows(
-									`SELECT ${col("Step", "root")}, ${col("Step", "step")} FROM ${seat.table("Step")} ORDER BY 1, 2`
-								),
-								yield* rows(
-									`SELECT ${col("Claim", "root")}, ${col("Claim", "step")}, ${col("Claim", "attempt")} FROM ${seat.table("Claim")} ORDER BY 1, 2, 3`
-								)
-							]
+				Effect.gen(function* () {
+					const taken = yield* seated
+					const seat = yield* seatIn(taken, RELATIONS, "retire_life")
+					const unitFunction = (named: Identity<"hold" | "retire">) =>
+						printObjectName({
+							schema: seat.installed.names.relation("Root").schema,
+							name: identifierOf(named)
 						})
+					const col = (r: string, f: string) => seat.column(r, f)
+					const sqlOf = (op: Op): string => {
+						switch (op.kind) {
+							case "header":
+								return `INSERT INTO ${seat.table("Root")} (${col("Root", "id")}) VALUES (${op.group})`
+							case "step":
+								return `INSERT INTO ${seat.table("Step")} (${col("Step", "root")}, ${col("Step", "step")}) VALUES (${op.group}, ${op.step})`
+							case "claim":
+								return `INSERT INTO ${seat.table("Claim")} (${col("Claim", "root")}, ${col("Claim", "step")}, ${col("Claim", "attempt")}) VALUES (${op.group}, ${op.step}, ${op.attempt})`
+							case "hold":
+								return `SELECT ${unitFunction(identity.hold("Root"))}(${groupsArray(op.groups)})`
+							case "retire":
+								return `SELECT ${unitFunction(identity.retire("Root"))}(${groupsArray(op.groups)})`
+						}
+					}
+					const readRows = Effect.gen(function* () {
+						const rows = (sql: string) =>
+							Effect.map(seat.session.values(sql, []), (rs) =>
+								Arr.map(rs, (r) => Arr.join(Arr.map(r, String), ","))
+							)
+						return [
+							yield* rows(
+								`SELECT ${col("Root", "id")}, ${col("Root", "retired")} FROM ${seat.table("Root")} ORDER BY 1`
+							),
+							yield* rows(
+								`SELECT ${col("Step", "root")}, ${col("Step", "step")} FROM ${seat.table("Step")} ORDER BY 1, 2`
+							),
+							yield* rows(
+								`SELECT ${col("Claim", "root")}, ${col("Claim", "step")}, ${col("Claim", "attempt")} FROM ${seat.table("Claim")} ORDER BY 1, 2, 3`
+							)
+						]
+					})
 
-						yield* cleared(seat, RELATIONS)
-						let model = empty
-						for (const [at, op] of run.entries()) {
-							const predicted = predict(model, op)
-							const real = yield* attempt(seat.session, [sqlOf(op)])
-							const said = `transaction ${at} (${Formatter.format(op)}) of ${Formatter.format(run)}`
-							if (predicted.kind === "committed") {
-								if (real.kind !== "committed") {
-									return yield* new Disagreed({
-										message: `${said} was refused by ${refusalText(real.fields)}; the model commits it`
-									})
-								}
-								model = predicted.next
-							} else if (real.kind === "committed" || real.fields.code !== predicted.code) {
+					let model = empty
+					for (const [at, op] of run.entries()) {
+						const predicted = predict(model, op)
+						const real = yield* attempt(seat.session, [sqlOf(op)])
+						const said = `transaction ${at} (${Formatter.format(op)}) of ${Formatter.format(run)}`
+						if (predicted.kind === "committed") {
+							if (real.kind !== "committed") {
 								return yield* new Disagreed({
-									message: `${said} ${real.kind === "committed" ? "committed" : `was refused by ${refusalText(real.fields)}`}; the model refuses it with ${predicted.code}`
+									message: `${said} was refused by ${refusalText(real.fields)}; the model commits it`
 								})
 							}
-							c.note(predicted.feature)
-							const rows = yield* readRows
-							yield* agree(
-								[
-									[`the tables after ${said}`, rows],
-									["the model", modelRows(model)]
-								],
-								exact
-							)
+							model = predicted.next
+						} else if (real.kind === "committed" || real.fields.code !== predicted.code) {
+							return yield* new Disagreed({
+								message: `${said} ${real.kind === "committed" ? "committed" : `was refused by ${refusalText(real.fields)}`}; the model refuses it with ${predicted.code}`
+							})
 						}
-					}),
-					Substrate,
-					substrate
-				),
+						c.note(predicted.feature)
+						const rows = yield* readRows
+						yield* agree(
+							[
+								[`the tables after ${said}`, rows],
+								["the model", modelRows(model)]
+							],
+							exact
+						)
+					}
+				}),
 		oracle: {
 			kind: "second-implementation",
 			name: "the unit's lifecycle as a model: each group absent, open or retired, and each body's rows in it"

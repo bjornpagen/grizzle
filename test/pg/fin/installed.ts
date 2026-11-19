@@ -1,5 +1,5 @@
 import { constant, type Gen, type Weight, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, Pool, type Scope, Semaphore, String as Str } from "effect"
+import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 /**
@@ -21,8 +21,11 @@ import type { LawModel } from "#compiler/laws/model/model.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
-import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
-import { casesAtOnce, testIdleTimeout } from "#test/support/limits.ts"
+import {
+	type Installed,
+	installedTemplate,
+	installMigrated
+} from "#test/support/install-migrate.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
 	type Attempted,
@@ -33,7 +36,12 @@ import {
 } from "#test/support/substrate.ts"
 import type { PgErrorFields, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import {
+	ownerSession,
+	Substrate,
+	type SubstrateCase,
+	type SubstrateTemplate
+} from "#test/support/substrate/substrate.ts"
 
 /** A constraint's kind as pg_constraint's contype states it, a unique index backing none a `unique`. */
 export type ConstraintKind = "primary" | "unique" | "check" | "foreign"
@@ -183,29 +191,35 @@ export const seatOf = (
 		return yield* seatOfInstalled(installed, relations, label)
 	})
 
-/**
- * The seats a search's cases run on at once, `acquire` making each (seatOf, familySeat): a case holds one for its run
- * (Pool.get), so no two cases at once share a table or a session, and finds it empty, as a committed case clears its
- * rows and a refused one is rolled back. As many as fit in a test's pool, a seat holding its owner session alone once
- * made (casesAtOnce); each made when a case first finds none free, one at a time, as the file's one seat was: two
- * installations migrating at once into one database fail, one of them with XX000 (tuple concurrently updated) in its
- * publish step; and none dropped while its test runs (testIdleTimeout), so a search runs as many cases at once as it
- * asks of the pool (seatsAtOnce).
- */
-export const seatPool = <A, E, R>(
-	acquire: Effect.Effect<A, E, R>
-): Effect.Effect<Pool.Pool<A, E>, never, R | Scope.Scope> =>
-	Effect.flatMap(Semaphore.make(1), (installing) =>
-		Pool.makeWithTTL({
-			acquire: installing.withPermit(acquire),
-			min: 0,
-			max: seatsAtOnce,
-			timeToLive: testIdleTimeout
-		})
-	)
+/** A fin schema's template (seatTemplate), and a case over a clone of it, whose value is its installation there. */
+export type SeatTemplate = SubstrateTemplate<Installed>
 
-/** How many cases of a search over a seat pool run at once: one on each seat it may hold (seatPool). */
-const seatsAtOnce: number = casesAtOnce(1)
+export type SeatCase = SubstrateCase<Installed>
+
+/**
+ * seatOf's installation as a template (install-migrate.ts installedTemplate): `schema` migrated through its first
+ * migration once per member, under `label`, which names the template among its declaring module's. A case takes the
+ * worker's clone of it (Substrate.seat, its tables emptied after the case) and reads its seat there (seatIn).
+ */
+export const seatTemplate = (
+	declaredIn: ImportMeta,
+	schema: FixtureSchema,
+	label: string
+): SeatTemplate =>
+	installedTemplate({
+		declaredIn,
+		name: label,
+		schema,
+		options: { ambient: ordinarySession, extensions: [], label: schemaLabelOf(label), logins: [] }
+	})
+
+/** The seat of a case over a clone of a fin template (seatTemplate): seatOfInstalled on the case's own substrate. */
+export const seatIn = (
+	taken: SeatCase,
+	relations: Arr.NonEmptyReadonlyArray<string>,
+	label: string
+): Effect.Effect<Seat, SqlError, Scope.Scope> =>
+	Effect.provideService(seatOfInstalled(taken.value, relations, label), Substrate, taken.substrate)
 
 /**
  * The seat of an installation already made: its owner session, and the catalog of every PostgreSQL schema `relations`

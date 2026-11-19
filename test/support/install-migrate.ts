@@ -1,4 +1,5 @@
 import { inspect } from "node:util"
+import type { Need } from "@bjornpagen/testing/property"
 import type { Content } from "@bjornpagen/testing/resources"
 import {
 	Array as Arr,
@@ -80,8 +81,13 @@ import { type SqlError, wireSession } from "#test/support/pg.ts"
 import { schemaDescIn } from "#test/support/policy.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import type { TemplateNames } from "#test/support/substrate/names.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
+import { type TemplateNames, templateNames } from "#test/support/substrate/names.ts"
+import {
+	installationGroup,
+	noTables,
+	replaceRows,
+	type ResetGroup
+} from "#test/support/substrate/replace.ts"
 import type { Credentials, SubstrateWorld } from "#test/support/substrate/session.ts"
 import {
 	type TemplateBinding,
@@ -89,7 +95,7 @@ import {
 	Substrate,
 	type SubstrateTemplate
 } from "#test/support/substrate/substrate.ts"
-import { templatePassword } from "#test/support/substrate/templates.ts"
+import { templateDigest, templatePassword } from "#test/support/substrate/templates.ts"
 
 import { regex } from "arkregex"
 /**
@@ -831,20 +837,32 @@ export const appliedHistory = (
 		return installed
 	})
 
-/**
- * A history's template (substrate.ts installTemplate): `versions` drafted under the template's names (draftedHistory)
- * by every worker, applied once per member by the build exactly as installMigratedThrough applies a history
- * (appliedHistory), and each case's Installed the last version's, in the case's clone, every login logging in with the
- * password its template derived. `content` is what tells this template from another its module declares (the
- * versions' and options' data): its module's import closure covers their code.
- */
-export const migratedTemplate = (spec: {
+/** A history's template's spec, as migratedTemplate takes it. */
+interface HistorySpec {
 	readonly declaredIn: ImportMeta
 	readonly name: string
 	readonly content: Content
 	readonly versions: Arr.NonEmptyReadonlyArray<InstallVersion>
 	readonly options: HistoryOptions
-}): SubstrateTemplate<Installed> =>
+}
+
+/**
+ * A history's template (historyTemplate's) as its build seeds it once the history is applied, and as a seat's reset
+ * empties it after each case: `seed` writes, as the build's owner, what every case over a clone of it starts from, and
+ * `reset` names the tables a case writes.
+ */
+interface Seeding<E> {
+	readonly seed: (installed: Installed) => Effect.Effect<void, E, Substrate | Scope.Scope>
+	readonly reset: (installed: Installed) => ResetGroup
+}
+
+/**
+ * A history's template (substrate.ts installTemplate): `versions` drafted under the template's names (draftedHistory)
+ * by every worker, applied once per member by the build exactly as installMigratedThrough applies a history
+ * (appliedHistory) and seeded as `seeding` says, and each case's Installed the last version's, in the case's clone,
+ * every login logging in with the password its template derived.
+ */
+const historyTemplate = <E>(spec: HistorySpec, seeding: Seeding<E>): SubstrateTemplate<Installed> =>
 	installTemplate({
 		declaredIn: spec.declaredIn,
 		name: spec.name,
@@ -855,11 +873,40 @@ export const migratedTemplate = (spec: {
 				(history) => ({ names, history })
 			),
 		install: ({ names, history }) =>
-			Effect.asVoid(appliedHistory(history, names.schema, spec.options, new Map())),
-		reset: (installed) => installationGroup(namesOf(installed)),
+			Effect.flatMap(appliedHistory(history, names.schema, spec.options, new Map()), seeding.seed),
+		reset: seeding.reset,
 		bind: ({ names, history }, binding) =>
 			templateInstalled(names, history, spec.options.ambient, new Map(), binding)
 	})
+
+/**
+ * A history's template (historyTemplate) whose build seeds nothing and whose seat's reset empties every stored
+ * relation's table of the installation. `content` is what tells this template from another its module declares (the
+ * versions' and options' data): its module's import closure covers their code.
+ */
+export const migratedTemplate = (spec: HistorySpec): SubstrateTemplate<Installed> =>
+	historyTemplate(spec, {
+		seed: () => Effect.void,
+		reset: (installed) => installationGroup(namesOf(installed))
+	})
+
+/**
+ * What every case over a clone of `template` derives from the template's names alone (its installed schema name, its
+ * owner login), such as a statement compiled under the installation's name: a need that derives it once per worker,
+ * from the template's identity as its build names it (substrate/templates.ts templateDigest, names.ts templateNames),
+ * where each case derived it again from its own Installed. A derivation that throws fails the property once, as a
+ * need's open does.
+ */
+export const templateNamed = <A>(
+	key: string,
+	template: Pick<SubstrateTemplate<never>, "database">,
+	derive: (names: TemplateNames) => A
+): Need<A> => ({
+	key,
+	open: Effect.map(templateDigest(template.database), (digest) =>
+		Effect.succeed(derive(templateNames(digest)))
+	)
+})
 
 /**
  * A template's installation of `history` (draftedHistory under the template's names), as a case over a clone of it sees
@@ -907,6 +954,55 @@ export const installMigrated = (
 		ambient: options.ambient,
 		compile: compileInstallation
 	})
+
+/**
+ * installMigrated's installation as a template (migratedTemplate): `schema` migrated through its first migration with
+ * `options`' logins and extensions, planned as `grizzle generate` composes it (compileInstallation), once per member,
+ * and each case's Installed the schema in its clone. A case over it does none of the install installMigrated does per
+ * call. `name` tells it from the other templates its declaring module states; that module's import closure covers the
+ * schema, the logins, the extensions and the ambient session.
+ */
+export const installedTemplate = (spec: {
+	readonly declaredIn: ImportMeta
+	readonly name: string
+	readonly schema: FixtureSchema
+	readonly options: MigratedOptions
+}): SubstrateTemplate<Installed> => migratedTemplate(installedSpec(spec))
+
+/** installMigrated's one version and its options, as a history's template takes them (installedTemplate). */
+const installedSpec = (spec: {
+	readonly declaredIn: ImportMeta
+	readonly name: string
+	readonly schema: FixtureSchema
+	readonly options: MigratedOptions
+}): HistorySpec => ({
+	declaredIn: spec.declaredIn,
+	name: spec.name,
+	content: { label: spec.options.label },
+	versions: [{ schema: spec.schema, logins: spec.options.logins, declarations: noDeclarations }],
+	options: {
+		label: spec.options.label,
+		extensions: spec.options.extensions,
+		ambient: spec.options.ambient,
+		compile: compileInstallation
+	}
+})
+
+/**
+ * installedTemplate's installation with what every case starts from written once per member, as the build's owner,
+ * right after the install: `seed` (facts loaded, a materialized view refreshed) on the installation it made, where a
+ * search did it once before its cases. Every case over a seat of it commits nothing (a transaction it rolls back): the
+ * seat's reset empties no table, and the clone must hold the seeded state again after the case, or it is replaced and
+ * the case fails.
+ */
+export const seededTemplate = <E>(spec: {
+	readonly declaredIn: ImportMeta
+	readonly name: string
+	readonly schema: FixtureSchema
+	readonly options: MigratedOptions
+	readonly seed: Seeding<E>["seed"]
+}): SubstrateTemplate<Installed> =>
+	historyTemplate(installedSpec(spec), { seed: spec.seed, reset: () => noTables })
 
 /**
  * A schema installed as `grizzle generate` drafts it with its logins (installGenerated), at one version of its history:

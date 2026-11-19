@@ -27,8 +27,16 @@ import { Array as Arr, Effect, Fiber, Option, Stream } from "effect"
 import { readCallOf } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
 import { type ReadCall, readStream, setEvents } from "#adapter/reader/stream.ts"
-import { all, caseGen, Note, Notes, rowOf, type Seen } from "#test/pg/reads/stream.fixtures.ts"
-import { installed } from "#test/pg/reads/support.ts"
+import {
+	caseGen,
+	Note,
+	Notes,
+	notesInstall,
+	notesTemplate,
+	rowOf,
+	type Seen
+} from "#test/pg/reads/stream.fixtures.ts"
+import { openedIn } from "#test/pg/reads/support.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
@@ -46,106 +54,103 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  */
 export const aReadsRowsStreamItHasOfferedItsFirstUpsertOnceOneRowHasReachedTheDriverAndItsEventsAreItsResetItsRowsAndOneReady =
 	property.explore(caseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { notes: Substrate.seat(notesTemplate) },
 		situations: ["a read of two rows or more"] satisfies ReadonlyArray<
 			Reached<"a read of two rows or more">
 		>,
 		check:
-			({ substrate }, c: CaseOf<"a read of two rows or more">) =>
+			({ notes }, c: CaseOf<"a read of two rows or more">) =>
 			({ n, width }) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const opened = yield* installed(Notes, {}, { label: "stream", programs: { all } })
-						const names = namesOf(opened.installed)
-						const insert = `INSERT INTO ${names.table(Note)} (${names.column(Note, "id")}, ${names.column(Note, "body")}) VALUES ($1::int4, $2::text)`
-						const role = opened.server.roles.app
-						const file = opened.served.login
-						return yield* Effect.gen(function* () {
-							const rows = Array.from({ length: n }, (_, at) => rowOf(at + 1, width))
-							yield* replaceRows(
-								s.admin,
-								installationGroup(names),
-								Arr.map(rows, (row) => ({ sql: insert, params: [String(row.id), row.body] }))
+				Effect.gen(function* () {
+					const seat = yield* notes
+					const s = seat.substrate
+					const opened = yield* openedIn(Notes, {}, notesInstall, seat)
+					const names = namesOf(opened.installed)
+					const insert = `INSERT INTO ${names.table(Note)} (${names.column(Note, "id")}, ${names.column(Note, "body")}) VALUES ($1::int4, $2::text)`
+					const role = opened.server.roles.app
+					const file = opened.served.login
+					return yield* Effect.gen(function* () {
+						const rows = Array.from({ length: n }, (_, at) => rowOf(at + 1, width))
+						yield* replaceRows(
+							s.admin,
+							installationGroup(names),
+							Arr.map(rows, (row) => ({ sql: insert, params: [String(row.id), row.body] }))
+						)
+						const tap = makeTap(opened.installed.cluster)
+						const dbLayer = sourcedDbLayer(opened.installed, {
+							...clusterConnection(
+								opened.installed.cluster,
+								opened.installed.database,
+								opened.installed.as(opened.server).password
+							),
+							transport: tap.transport,
+							pool: { ...clusterPool, min: 0, max: 1 },
+							login: file,
+							verify: testVerify
+						})
+						yield* Effect.gen(function* () {
+							const db = yield* openServed(
+								defined(file.roles[role.role.name], "the role's served handle"),
+								{ token: tokenOf({}) }
 							)
-							const tap = makeTap(opened.installed.cluster)
-							const dbLayer = sourcedDbLayer(opened.installed, {
-								...clusterConnection(
-									opened.installed.cluster,
-									opened.installed.database,
-									opened.installed.as(opened.server).password
-								),
-								transport: tap.transport,
-								pool: { ...clusterPool, min: 0, max: 1 },
-								login: file,
-								verify: testVerify
-							})
-							yield* Effect.gen(function* () {
-								const db = yield* openServed(
-									defined(file.roles[role.role.name], "the role's served handle"),
-									{ token: tokenOf({}) }
-								)
-								const member = defined(
-									Option.getOrUndefined(Arr.findFirst(db.role.members, (m) => m.name === "all")),
-									"the read member"
-								)
-								const parse = readCallOf(member)
-								if (Option.isNone(parse)) {
-									return assert.fail("the read member loads as no read")
+							const member = defined(
+								Option.getOrUndefined(Arr.findFirst(db.role.members, (m) => m.name === "all")),
+								"the read member"
+							)
+							const parse = readCallOf(member)
+							if (Option.isNone(parse)) {
+								return assert.fail("the read member loads as no read")
+							}
+							const parsed = yield* parse.value({ params: {}, facts: {} })
+							const decoded = { count: 0 }
+							const counted: ReadCall = {
+								...parsed.call,
+								decode: (row) => {
+									decoded.count += 1
+									return parsed.call.decode(row)
 								}
-								const parsed = yield* parse.value({ params: {}, facts: {} })
-								const decoded = { count: 0 }
-								const counted: ReadCall = {
-									...parsed.call,
-									decode: (row) => {
-										decoded.count += 1
-										return parsed.call.decode(row)
-									}
-								}
-								const mark = tap.mark()
-								yield* Stream.runDrain(readStream(db.ctx, parsed.call, setEvents).events)
-								const framed = backendCount(tap.since(mark), "D") - n
-								const seen: Seen = { kinds: [], rows: [], resetKey: [] }
-								const run = readStream(db.ctx, counted, setEvents)
-								tap.gate.hold(framed + 1, { kind: "type", type: "D" })
-								const consumer = yield* Effect.forkChild(
-									Stream.runForEach(run.events, (event) =>
-										Effect.sync(() => {
-											seen.kinds.push(event.kind)
-											if (event.kind === "reset") {
-												seen.resetKey.push(event.key)
-											}
-											if (event.kind === "upsert") {
-												seen.rows.push(event.row)
-											}
-										})
-									)
+							}
+							const mark = tap.mark()
+							yield* Stream.runDrain(readStream(db.ctx, parsed.call, setEvents).events)
+							const framed = backendCount(tap.since(mark), "D") - n
+							const seen: Seen = { kinds: [], rows: [], resetKey: [] }
+							const run = readStream(db.ctx, counted, setEvents)
+							tap.gate.hold(framed + 1, { kind: "type", type: "D" })
+							const consumer = yield* Effect.forkChild(
+								Stream.runForEach(run.events, (event) =>
+									Effect.sync(() => {
+										seen.kinds.push(event.kind)
+										if (event.kind === "reset") {
+											seen.resetKey.push(event.key)
+										}
+										if (event.kind === "upsert") {
+											seen.rows.push(event.row)
+										}
+									})
 								)
-								yield* tap.gate.holding
-								const atHold = { decoded: decoded.count, offered: yield* run.offered }
-								tap.gate.release()
-								yield* Fiber.join(consumer)
-								assert.deepEqual(
-									atHold,
-									{ decoded: 1, offered: 2 },
-									`once one row of ${n} has reached the driver, the read has decoded it and offered its reset and its upsert`
-								)
-								assert.equal(seen.kinds[0], "reset", "the first event")
-								assert.deepEqual(seen.resetKey, [["id"]], "the reset's key fields")
-								assert.equal(seen.kinds[seen.kinds.length - 1], "ready", "the last event")
-								assert.equal(Arr.filter(seen.kinds, (k) => k === "ready").length, 1, "one ready")
-								unorderedEqual(
-									Arr.map(seen.rows, (row) => ({ ...row })),
-									rows,
-									"the upserts are the table's rows"
-								)
-								c.note("a read of two rows or more")
-							}).pipe(withLayer(dbLayer))
-						}).pipe(Effect.scoped)
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate
-				),
+							)
+							yield* tap.gate.holding
+							const atHold = { decoded: decoded.count, offered: yield* run.offered }
+							tap.gate.release()
+							yield* Fiber.join(consumer)
+							assert.deepEqual(
+								atHold,
+								{ decoded: 1, offered: 2 },
+								`once one row of ${n} has reached the driver, the read has decoded it and offered its reset and its upsert`
+							)
+							assert.equal(seen.kinds[0], "reset", "the first event")
+							assert.deepEqual(seen.resetKey, [["id"]], "the reset's key fields")
+							assert.equal(seen.kinds[seen.kinds.length - 1], "ready", "the last event")
+							assert.equal(Arr.filter(seen.kinds, (k) => k === "ready").length, 1, "one ready")
+							unorderedEqual(
+								Arr.map(seen.rows, (row) => ({ ...row })),
+								rows,
+								"the upserts are the table's rows"
+							)
+							c.note("a read of two rows or more")
+						}).pipe(withLayer(dbLayer))
+					}).pipe(Effect.scoped)
+				}).pipe(Effect.scoped),
 		oracle: {
 			kind: "specification",
 			name: "the rows the case inserted, and the count on the read's own decoder"

@@ -21,9 +21,13 @@ import {
 	ended,
 	replaced,
 	type Seat,
+	type SeatCase,
+	type SeatTemplate,
 	type Start,
 	sameRoles,
-	seatOf
+	seatIn,
+	seatOf,
+	seatTemplate
 } from "#test/pg/fin/installed.ts"
 import { canonical, emptyStored, sqlstateOf } from "#test/pg/substrate/fin.ts"
 import { deepEquals } from "#test/support/assert.ts"
@@ -75,6 +79,20 @@ export interface FamilySeat {
 	readonly law: string
 }
 
+/** A shape's family schema. */
+const familySchema = (shape: Shape) => (shape === "ordered" ? OrderedFamily : CountedFamily)
+
+/** A seat of a shape's family as a family seat: its index's role and its one family law. */
+const familyOf = (shape: Shape, seat: Seat, label: string): Effect.Effect<FamilySeat> => {
+	const [law, ...more] = seat.lawsOf("family")
+	if (law === undefined || more.length > 0) {
+		return Effect.die(
+			`${label}: the schema holds ${seat.lawsOf("family").length} family laws, not one`
+		)
+	}
+	return Effect.succeed({ shape, seat, index: shape === "ordered" ? "at" : "‹i›", law })
+}
+
 /** Installs a shape's family in a schema of its own. */
 export const familySeat = (
 	shape: Shape,
@@ -84,20 +102,36 @@ export const familySeat = (
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > =>
-	Effect.gen(function* () {
-		const seat = yield* seatOf(
-			shape === "ordered" ? OrderedFamily : CountedFamily,
-			FAMILY_RELATIONS,
-			label
-		)
-		const [law, ...more] = seat.lawsOf("family")
-		if (law === undefined || more.length > 0) {
-			return yield* Effect.die(
-				`${label}: the schema holds ${seat.lawsOf("family").length} family laws, not one`
-			)
-		}
-		return { shape, seat, index: shape === "ordered" ? "at" : "‹i›", law }
-	})
+	Effect.flatMap(seatOf(familySchema(shape), FAMILY_RELATIONS, label), (seat) =>
+		familyOf(shape, seat, label)
+	)
+
+/**
+ * A shape's family installed once per member as a template (installed.ts seatTemplate), named by `label` and the
+ * shape, which a case seats (familySeatIn).
+ */
+export const familyTemplate = (declaredIn: ImportMeta, shape: Shape, label: string): SeatTemplate =>
+	seatTemplate(declaredIn, familySchema(shape), `${label} ${shape}`)
+
+/**
+ * Every shape's family template (familyTemplate): a property's needs take them through Substrate.oneOf, and a case
+ * seats the shape it draws.
+ */
+export const familyTemplates = (
+	declaredIn: ImportMeta,
+	label: string
+): Readonly<Record<Shape, SeatTemplate>> => ({
+	ordered: familyTemplate(declaredIn, "ordered", label),
+	counted: familyTemplate(declaredIn, "counted", label)
+})
+
+/** The family seat of a case over a clone of a shape's family template (familyTemplates), as familySeat reads one. */
+export const familySeatIn = (
+	shape: Shape,
+	taken: SeatCase,
+	label: string
+): Effect.Effect<FamilySeat, SqlError, Scope.Scope> =>
+	Effect.flatMap(seatIn(taken, FAMILY_RELATIONS, label), (seat) => familyOf(shape, seat, label))
 
 /** The families model's constraint an installed constraint is, by its columns' roles; none for the owner's keys. */
 export const constraintOf = (f: FamilySeat, c: Catalogued): Option.Option<Constraint> => {

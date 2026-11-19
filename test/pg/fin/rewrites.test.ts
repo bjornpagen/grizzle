@@ -25,12 +25,13 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { constraintOf, Disagreed, familySeat, judgedFamily } from "#test/pg/fin/family.ts"
+import { constraintOf, Disagreed, familySeatIn, judgedFamily } from "#test/pg/fin/family.ts"
 import { endedBy, endGen, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
 import {
 	before,
 	type RewriteFeature,
 	rewriteGen,
+	rewritesTemplate,
 	shrinks,
 	statementsOf
 } from "#test/pg/fin/rewrites.fixtures.ts"
@@ -44,7 +45,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const orderedRewritesAndTheShrinkOrderThroughGrizzlesLoweringOnPostgreSQL19rc2CommitEverySuffixRewriteSentDeletesCountInsertsAndRefuseAShrinkWhoseCountComesFirstAtThatCountByTheBound =
 	property.exhaust(finite(rewriteGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { ordered: Substrate.seat(rewritesTemplate) },
 		situations: [
 			"a case ended by COMMIT",
 			"a case ended by SET CONSTRAINTS and ROLLBACK",
@@ -59,57 +60,54 @@ export const orderedRewritesAndTheShrinkOrderThroughGrizzlesLoweringOnPostgreSQL
 			"a shrink sent count first refused at its count by the bound, 23514, reporting the family's law"
 		] satisfies ReadonlyArray<Reached<RewriteFeature>>,
 		check:
-			({ substrate }, c: Case<RewriteFeature>) =>
+			({ ordered }, c: Case<RewriteFeature>) =>
 			(r) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const f = yield* familySeat("ordered", "rewrites")
+				Effect.gen(function* () {
+					const taken = yield* ordered
+					const f = yield* familySeatIn("ordered", taken, "rewrites")
 
-						const { statements, after } = statementsOf(r)
-						const outcome = run("ordered", before(r.members), statements)
-						const j = yield* judgedFamily(
-							f,
-							{ kind: "replaced", before: storedOf(before(r.members)) },
-							statements,
-							settledOf(outcome),
-							c.draw(endGen)
-						)
-						c.note(`${r.form} ${r.sending} ${j.committed ? "committed" : "refused"}`)
-						c.note(endedBy(j.end))
-						if (Option.exists(j.moment, (m) => m.kind === "commit")) {
-							c.note(refusedAtCommitBy(j.end))
-						}
+					const { statements, after } = statementsOf(r)
+					const outcome = run("ordered", before(r.members), statements)
+					const j = yield* judgedFamily(
+						f,
+						{ kind: "replaced", before: storedOf(before(r.members)) },
+						statements,
+						settledOf(outcome),
+						c.draw(endGen)
+					)
+					c.note(`${r.form} ${r.sending} ${j.committed ? "committed" : "refused"}`)
+					c.note(endedBy(j.end))
+					if (Option.exists(j.moment, (m) => m.kind === "commit")) {
+						c.note(refusedAtCommitBy(j.end))
+					}
+					if (
+						r.sending === "prescribed" &&
+						(!j.committed || outcome.kind !== "committed" || !deepEquals(outcome.after, after))
+					) {
+						return yield* new Disagreed({
+							message: `the prescribed ${r.form} of ${Formatter.format(r)} was ${j.verdict}, or committed to other families than ${Formatter.format(after)}`
+						})
+					}
+					if (r.sending === "count first" && shrinks(r)) {
+						const bound = Option.flatMap(j.refusedBy, (k) => constraintOf(f, k))
+						const counted = Arr.findFirstIndex(statements, (s) => s.kind === "count")
 						if (
-							r.sending === "prescribed" &&
-							(!j.committed || outcome.kind !== "committed" || !deepEquals(outcome.after, after))
+							!Option.contains(bound, "bound") ||
+							!Option.exists(
+								j.moment,
+								(m) => m.kind === "statement" && Option.contains(counted, m.index)
+							) ||
+							!Option.exists(j.refusedBy, (k) => Option.contains(k.law, f.law))
 						) {
 							return yield* new Disagreed({
-								message: `the prescribed ${r.form} of ${Formatter.format(r)} was ${j.verdict}, or committed to other families than ${Formatter.format(after)}`
+								message: `a shrink sent count first was ${j.verdict}, not refused at its count by the bound reporting the family's law: ${Formatter.format(r)}`
 							})
 						}
-						if (r.sending === "count first" && shrinks(r)) {
-							const bound = Option.flatMap(j.refusedBy, (k) => constraintOf(f, k))
-							const counted = Arr.findFirstIndex(statements, (s) => s.kind === "count")
-							if (
-								!Option.contains(bound, "bound") ||
-								!Option.exists(
-									j.moment,
-									(m) => m.kind === "statement" && Option.contains(counted, m.index)
-								) ||
-								!Option.exists(j.refusedBy, (k) => Option.contains(k.law, f.law))
-							) {
-								return yield* new Disagreed({
-									message: `a shrink sent count first was ${j.verdict}, not refused at its count by the bound reporting the family's law: ${Formatter.format(r)}`
-								})
-							}
-							c.note(
-								"a shrink sent count first refused at its count by the bound, 23514, reporting the family's law"
-							)
-						}
-					}),
-					Substrate,
-					substrate
-				),
+						c.note(
+							"a shrink sent count first refused at its count by the bound, 23514, reporting the family's law"
+						)
+					}
+				}),
 		oracle: {
 			kind: "second-implementation",
 			name: "the families model of each transaction (test/support/families/mutate.ts run); the prescribed order's families as the rewrite states them"

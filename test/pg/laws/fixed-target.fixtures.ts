@@ -12,6 +12,7 @@ import {
 	schema,
 	select
 } from "#compiler/public/schema.ts"
+import { seatTemplate } from "#test/pg/fin/installed.ts"
 
 export const NodeKind = closed.ordered("NodeKind", ["document", "element"])
 
@@ -28,7 +29,7 @@ const Document = relation("Document", { node: pg.integer }, ["node"])
  * judged whole at COMMIT and installs no foreign key (laws/model/plan.ts containmentDischarge, since bb62f0fa1), and
  * this box reads the fixed target's native lowering, its foreign key into the shared target.
  */
-export const FixedTarget = schema(
+const FixedTarget = schema(
 	"fixed_target",
 	[NodeKind, Node, Document],
 	[
@@ -100,3 +101,6 @@ export const missedOf = (s: Sketch, id: number): ReadonlyArray<Missed> => {
 }
 
 export type FixedTargetFeature = "committed" | "committed a document" | `refused for ${Missed}`
+
+/** FixedTarget installed once per member (fin/installed.ts seatTemplate), which each case's seat holds. */
+export const fixedTargetTemplate = seatTemplate(import.meta, FixedTarget, "fixed_target")

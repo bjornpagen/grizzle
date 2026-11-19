@@ -43,7 +43,7 @@ import {
 	WIDTHS
 } from "#test/pg/substrate/bits.fixtures.ts"
 import { deepEquals } from "#test/support/assert.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * The bit algebra of fin.md §16 on PostgreSQL 19rc2 compute every bit(n) operator, law and twos fold as the host bitsets and the reference set do.
@@ -52,7 +52,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const theBitAlgebraOfFinMd16OnPostgreSQL19rc2ComputeEveryBitNOperatorLawAndTwosFoldAsTheHostBitsetsAndTheReferenceSetDo =
 	property.explore(caseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { tx: Substrate.transaction },
 		situations: [
 			...Arr.map(WIDTHS, (w): BitFeature => `width ${w}`),
 			"a drawn width",
@@ -70,84 +70,79 @@ export const theBitAlgebraOfFinMd16OnPostgreSQL19rc2ComputeEveryBitNOperatorLawA
 			"a cell past either end"
 		] satisfies ReadonlyArray<Reached<BitFeature>>,
 		check:
-			({ substrate }, k: Case<BitFeature>) =>
+			({ tx }, k: Case<BitFeature>) =>
 			(c) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const db = yield* s.session({ ...ownerSession(), label: "bits" })
+				Effect.gen(function* () {
+					const { session: db } = yield* tx
 
-						const n = c.width
-						const [A, B, K] = [positions(c.a), positions(c.b), positions(c.k)]
-						const [ones, twos] = foldSql(n, c.folded)
-						const [onesBack, twosBack] = foldSql(n, Arr.reverse(c.folded))
-						const read = `substring(a FROM ${c.cellIndex * c.cellWidth + 1} FOR ${c.cellWidth})::int4`
-						const [row = []] = yield* db.values(
-							`SELECT (a & b)::text, (a | b)::text, (a # b)::text, (~a)::text, bit_count(a)::int4, substring(a FROM ${c.from} FOR ${c.length})::text, bit_count(a & ~b) = 0, bit_count(a & b) = 0, bit_count(a & k) <> 0, bit_count(a & k) <= 1, ${read}, ${ones}::text, ${twos}::text, ${onesBack}::text, ${twosBack}::text, bit_count(${twos} & k) = 0 FROM (SELECT ${literalOf(c.a)} AS a, ${literalOf(c.b)} AS b, ${literalOf(c.k)} AS k) AS v`,
-							[]
-						)
-						const counts = Arr.map(
-							indices(n),
-							(i) => Arr.filter(c.folded, (set) => set[i] === true).length
-						)
-						const first = Math.max(c.from, 1)
-						const last = Math.min(c.from + c.length - 1, n)
-						const reference = {
-							and: spelt(n, (i) => A.has(i) && B.has(i)),
-							or: spelt(n, (i) => A.has(i) || B.has(i)),
-							xor: spelt(n, (i) => A.has(i) !== B.has(i)),
-							not: spelt(n, (i) => !A.has(i)),
-							count: A.size,
-							members: Arr.filter(indices(n), (i) => A.has(i)),
-							substring: Str.slice(first - 1, Math.max(last, first - 1))(spelt(n, (i) => A.has(i))),
-							subset: Arr.every(Array.from(A), (i) => B.has(i)),
-							disjoint: Arr.every(Array.from(A), (i) => !B.has(i)),
-							least: Arr.some(Array.from(A), (i) => K.has(i)),
-							most: Arr.filter(Array.from(A), (i) => K.has(i)).length <= 1,
-							cell: Arr.reduce(
-								Arr.filter(
-									indices(c.cellWidth),
-									(j) => c.cellIndex >= 0 && c.cellIndex * c.cellWidth + j < n
-								),
-								0,
-								(value, j) =>
-									A.has(c.cellIndex * c.cellWidth + j)
-										? value | (1 << (c.cellWidth - 1 - j))
-										: value
+					const n = c.width
+					const [A, B, K] = [positions(c.a), positions(c.b), positions(c.k)]
+					const [ones, twos] = foldSql(n, c.folded)
+					const [onesBack, twosBack] = foldSql(n, Arr.reverse(c.folded))
+					const read = `substring(a FROM ${c.cellIndex * c.cellWidth + 1} FOR ${c.cellWidth})::int4`
+					const [row = []] = yield* db.values(
+						`SELECT (a & b)::text, (a | b)::text, (a # b)::text, (~a)::text, bit_count(a)::int4, substring(a FROM ${c.from} FOR ${c.length})::text, bit_count(a & ~b) = 0, bit_count(a & b) = 0, bit_count(a & k) <> 0, bit_count(a & k) <= 1, ${read}, ${ones}::text, ${twos}::text, ${onesBack}::text, ${twosBack}::text, bit_count(${twos} & k) = 0 FROM (SELECT ${literalOf(c.a)} AS a, ${literalOf(c.b)} AS b, ${literalOf(c.k)} AS k) AS v`,
+						[]
+					)
+					const counts = Arr.map(
+						indices(n),
+						(i) => Arr.filter(c.folded, (set) => set[i] === true).length
+					)
+					const first = Math.max(c.from, 1)
+					const last = Math.min(c.from + c.length - 1, n)
+					const reference = {
+						and: spelt(n, (i) => A.has(i) && B.has(i)),
+						or: spelt(n, (i) => A.has(i) || B.has(i)),
+						xor: spelt(n, (i) => A.has(i) !== B.has(i)),
+						not: spelt(n, (i) => !A.has(i)),
+						count: A.size,
+						members: Arr.filter(indices(n), (i) => A.has(i)),
+						substring: Str.slice(first - 1, Math.max(last, first - 1))(spelt(n, (i) => A.has(i))),
+						subset: Arr.every(Array.from(A), (i) => B.has(i)),
+						disjoint: Arr.every(Array.from(A), (i) => !B.has(i)),
+						least: Arr.some(Array.from(A), (i) => K.has(i)),
+						most: Arr.filter(Array.from(A), (i) => K.has(i)).length <= 1,
+						cell: Arr.reduce(
+							Arr.filter(
+								indices(c.cellWidth),
+								(j) => c.cellIndex >= 0 && c.cellIndex * c.cellWidth + j < n
 							),
-							ones: spelt(n, (i) => (counts[i] ?? 0) >= 1),
-							twos: spelt(n, (i) => (counts[i] ?? 0) >= 2),
-							foldMost: Arr.every(Array.from(K), (i) => (counts[i] ?? 0) <= 1)
-						}
-						const hostAnd = copy(fromText(textOf(c.a)))
-						and(hostAnd, fromText(textOf(c.b)))
-						const hostOr = copy(fromText(textOf(c.a)))
-						or(hostOr, fromText(textOf(c.b)))
-						const hostDiff = copy(fromText(textOf(c.a)))
-						andNot(hostDiff, fromText(textOf(c.b)))
-						const hostA = fromText(textOf(c.a))
-						const [
-							andPg,
-							orPg,
-							xorPg,
-							notPg,
-							countPg,
-							substringPg,
-							subsetPg,
-							disjointPg,
-							leastPg,
-							mostPg,
-							cellPg,
-							onesPg,
-							twosPg,
-							onesBackPg,
-							twosBackPg,
-							foldMostPg
-						] = row
-						/** Each answer beside the reference's: PostgreSQL's for every operation, the host's for each it has. */
-						const checks: ReadonlyArray<
-							readonly [what: string, actual: unknown, expected: unknown]
-						> = [
+							0,
+							(value, j) =>
+								A.has(c.cellIndex * c.cellWidth + j) ? value | (1 << (c.cellWidth - 1 - j)) : value
+						),
+						ones: spelt(n, (i) => (counts[i] ?? 0) >= 1),
+						twos: spelt(n, (i) => (counts[i] ?? 0) >= 2),
+						foldMost: Arr.every(Array.from(K), (i) => (counts[i] ?? 0) <= 1)
+					}
+					const hostAnd = copy(fromText(textOf(c.a)))
+					and(hostAnd, fromText(textOf(c.b)))
+					const hostOr = copy(fromText(textOf(c.a)))
+					or(hostOr, fromText(textOf(c.b)))
+					const hostDiff = copy(fromText(textOf(c.a)))
+					andNot(hostDiff, fromText(textOf(c.b)))
+					const hostA = fromText(textOf(c.a))
+					const [
+						andPg,
+						orPg,
+						xorPg,
+						notPg,
+						countPg,
+						substringPg,
+						subsetPg,
+						disjointPg,
+						leastPg,
+						mostPg,
+						cellPg,
+						onesPg,
+						twosPg,
+						onesBackPg,
+						twosBackPg,
+						foldMostPg
+					] = row
+					/** Each answer beside the reference's: PostgreSQL's for every operation, the host's for each it has. */
+					const checks: ReadonlyArray<readonly [what: string, actual: unknown, expected: unknown]> =
+						[
 							["PostgreSQL's &", andPg, reference.and],
 							["PostgreSQL's |", orPg, reference.or],
 							["PostgreSQL's #", xorPg, reference.xor],
@@ -175,29 +170,26 @@ export const theBitAlgebraOfFinMd16OnPostgreSQL19rc2ComputeEveryBitNOperatorLawA
 							["the host's subset law", count(hostDiff) === 0, reference.subset],
 							["the host's cell read", cell(hostA, c.cellIndex, c.cellWidth), reference.cell]
 						]
-						for (const [what, actual, expected] of checks) {
-							if (!deepEquals(actual, expected)) {
-								return yield* new Disagreed({
-									message: `${what} is ${Formatter.format(actual)}, the reference's ${Formatter.format(expected)}, for ${Formatter.format(c)}`
-								})
-							}
+					for (const [what, actual, expected] of checks) {
+						if (!deepEquals(actual, expected)) {
+							return yield* new Disagreed({
+								message: `${what} is ${Formatter.format(actual)}, the reference's ${Formatter.format(expected)}, for ${Formatter.format(c)}`
+							})
 						}
-						k.note(widthFeature(n))
-						k.note(`subset ${reference.subset}`)
-						k.note(`disjoint ${reference.disjoint}`)
-						k.note(`at least one ${reference.least}`)
-						k.note(`at most one ${reference.most}`)
-						k.note(`at most one through the fold ${reference.foldMost}`)
-						if (c.from < 1 || c.from + c.length - 1 > n) {
-							k.note("a substring past either end")
-						}
-						if (c.cellIndex < 0 || (c.cellIndex + 1) * c.cellWidth > n) {
-							k.note("a cell past either end")
-						}
-					}),
-					Substrate,
-					substrate
-				),
+					}
+					k.note(widthFeature(n))
+					k.note(`subset ${reference.subset}`)
+					k.note(`disjoint ${reference.disjoint}`)
+					k.note(`at least one ${reference.least}`)
+					k.note(`at most one ${reference.most}`)
+					k.note(`at most one through the fold ${reference.foldMost}`)
+					if (c.from < 1 || c.from + c.length - 1 > n) {
+						k.note("a substring past either end")
+					}
+					if (c.cellIndex < 0 || (c.cellIndex + 1) * c.cellWidth > n) {
+						k.note("a cell past either end")
+					}
+				}),
 		oracle: {
 			kind: "second-implementation",
 			name: "a Set<number> of positions, and the host bitsets (packages/engine/src/codec/bits.ts) wherever the host has the operation"

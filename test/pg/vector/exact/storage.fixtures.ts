@@ -1,9 +1,8 @@
 /** What the properties of storage.test.ts read: its spaces, models and helpers. */
 
 import { array, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
-import type { Need } from "@bjornpagen/testing/property"
 import { float } from "@bjornpagen/testing/values"
-import { Array as Arr, Effect, pipe, Record as Rec, String as Str } from "effect"
+import { Array as Arr, pipe, Record as Rec, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -11,8 +10,10 @@ import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { nonEmpty, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { installedTemplate } from "#test/support/install-migrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
@@ -22,12 +23,12 @@ export const Embedding = relation(
 	["id"]
 )
 
-export const Store = schema("VectorStore", [Embedding], [])
+const Store = schema("VectorStore", [Embedding], [])
 
 /** A relation keyed by a vector: its key's B-tree index compares by pgvector's equality. */
 export const Point = relation("Point", { at: pg.vector(2), label: pg.integer }, ["at"])
 
-export const Points = schema("VectorPoints", [Point], [])
+const Points = schema("VectorPoints", [Point], [])
 
 export const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
@@ -147,11 +148,26 @@ export const codec = codecOf(embeddingType(), emptyCodebook)
 /** A unit vector, admitted by every check: the other column's value. */
 export const unit = "[1,0,0,0]"
 
-/** What the search built once before its cases (world), now once per worker: every case on it reads it. */
-export const worldNeed = {
-	key: "test/pg/vector/exact/storage.fixtures.ts worldNeed",
-	open: Effect.sync(() => {
-		const world = fullWorld(Points, {})
-		return Effect.succeed(world)
-	})
-} as const satisfies Need<unknown>
+/** Store installed once per member with its full world's login (install-migrate.ts installedTemplate). */
+export const storeTemplate = installedTemplate({
+	declaredIn: import.meta,
+	name: "vstore",
+	schema: Store,
+	options: { ambient: ordinarySession, label: "vstore", logins: [world.server], extensions: [] }
+})
+
+/** Points' full world, whose writer each key case takes on. */
+export const pointsWorld = fullWorld(Points, {})
+
+/** Points installed once per member with its full world's login (install-migrate.ts installedTemplate). */
+export const pointsTemplate = installedTemplate({
+	declaredIn: import.meta,
+	name: "vkeys",
+	schema: Points,
+	options: {
+		ambient: ordinarySession,
+		label: "vkeys",
+		logins: [pointsWorld.server],
+		extensions: []
+	}
+})

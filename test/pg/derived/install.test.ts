@@ -35,8 +35,7 @@ import {
 	typmodOf,
 	viewAndDefinition,
 	viewOf,
-	workFacts,
-	Written
+	writtenTemplate
 } from "#test/pg/derived/install.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined as present, succeeded, unorderedEqual } from "#test/support/assert.ts"
@@ -256,83 +255,65 @@ export const derivedRelationsOnPostgreSQL19ARefinedTextLiteralColumnHasItsPatter
  */
 export const derivedRelationsOnPostgreSQL19ARefreshInsideAnOwnersTransactionWhoseWritesLeaveADeferredContainmentFalseEqualsTheDefinitionThere =
 	property.explore(deferredCaseGen, {
-		needs: { substrate2: Substrate.installing },
+		needs: { written: Substrate.seat(writtenTemplate) },
 		situations: [
 			"a task of an absent account added",
 			"a task of a held account added",
 			"an account of tasks removed"
 		] satisfies ReadonlyArray<Reached<DeferredFeature>>,
 		check:
-			({ substrate2 }, k: Case<DeferredFeature>) =>
+			({ written }, k: Case<DeferredFeature>) =>
 			(c) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const substrate = yield* Substrate
-						const installed = yield* install(Written, {
-							ambient: ordinarySession,
-							extensions: [],
-							label: "derived",
-							logins: []
-						})
-						const names = namesOf(installed)
-						const { view, columns } = viewOf(installed, "OwnedTasks")
-						const owner = yield* substrate.session({ ...ownerSession(), label: "owner" })
-						const constraint = yield* owner.values(
-							`SELECT condeferrable::text FROM pg_catalog.pg_constraint WHERE conrelid = '${names.table(W.Task)}'::regclass AND confrelid = '${names.table(W.Account)}'::regclass AND contype = 'f'`,
-							[]
-						)
-						const [[deferrable]] = trusted<Arr.NonEmptyReadonlyArray<readonly [string]>>(constraint)
-						assert.equal(deferrable, "true")
-						yield* load(installed, workFacts)
-						/** A handle of Kind as the code the installation's codebook gives it. */
-						const manual = codeOf(
-							present(
-								installed.names.codes.rosters.get(parsedName(W.Kind.name)),
-								"the installation's codes of Kind"
-							),
-							"Manual"
-						)
-						yield* owner.query(`REFRESH MATERIALIZED VIEW ${view}`, [])
-						return yield* Effect.ensuring(
-							Effect.gen(function* () {
-								yield* owner.begin
-								yield* owner.query("SET CONSTRAINTS ALL DEFERRED", [])
-								for (const [i, account] of c.added.entries()) {
-									const task = id(16 + i)
-									yield* owner.query(
-										`INSERT INTO ${names.table(W.Task)} (${names.column(W.Task, "id")}, ${names.column(W.Task, "account")}, ${names.column(W.Task, "kind")}) VALUES ('${task}'::uuid, '${account}'::uuid, ${manual}::smallint)`,
-										[]
-									)
-									yield* owner.query(
-										`INSERT INTO ${names.table(W.ManualTask)} (${names.column(W.ManualTask, "task")}, ${names.column(W.ManualTask, "operator")}) VALUES ('${task}'::uuid, 'ops')`,
-										[]
-									)
-								}
-								for (const account of c.removed) {
-									yield* owner.query(
-										`DELETE FROM ${names.table(W.Account)} WHERE ${names.column(W.Account, "id")} = '${account}'::uuid`,
-										[]
-									)
-								}
-								yield* owner.query(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`, [])
-								const stored = yield* owner.values(
-									`SELECT "r1"."${columns[0]}"::text FROM ${view} AS "r1"`,
+				Effect.gen(function* () {
+					const { substrate, value: installed } = yield* written
+					const names = namesOf(installed)
+					const { view, columns } = viewOf(installed, "OwnedTasks")
+					const owner = yield* substrate.session({ ...ownerSession(), label: "owner" })
+					/** A handle of Kind as the code the installation's codebook gives it. */
+					const manual = codeOf(
+						present(
+							installed.names.codes.rosters.get(parsedName(W.Kind.name)),
+							"the installation's codes of Kind"
+						),
+						"Manual"
+					)
+					return yield* Effect.ensuring(
+						Effect.gen(function* () {
+							yield* owner.begin
+							yield* owner.query("SET CONSTRAINTS ALL DEFERRED", [])
+							for (const [i, account] of c.added.entries()) {
+								const task = id(16 + i)
+								yield* owner.query(
+									`INSERT INTO ${names.table(W.Task)} (${names.column(W.Task, "id")}, ${names.column(W.Task, "account")}, ${names.column(W.Task, "kind")}) VALUES ('${task}'::uuid, '${account}'::uuid, ${manual}::smallint)`,
 									[]
 								)
-								const defined = yield* owner.values(
-									`SELECT "r1"."id"::text FROM (${conservativeSql(installed, "OwnedTasks")}) AS "r1"`,
+								yield* owner.query(
+									`INSERT INTO ${names.table(W.ManualTask)} (${names.column(W.ManualTask, "task")}, ${names.column(W.ManualTask, "operator")}) VALUES ('${task}'::uuid, 'ops')`,
 									[]
 								)
-								assert.deepEqual(sorted(stored), sorted(defined))
-								assert.deepEqual<ReadonlyArray<string>>(sorted(stored), ownedOf(c))
-								k.noteAll(deferredFeatures(c))
-							}),
-							Effect.orDie(owner.rollback)
-						)
-					}),
-					Substrate,
-					substrate2
-				),
+							}
+							for (const account of c.removed) {
+								yield* owner.query(
+									`DELETE FROM ${names.table(W.Account)} WHERE ${names.column(W.Account, "id")} = '${account}'::uuid`,
+									[]
+								)
+							}
+							yield* owner.query(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`, [])
+							const stored = yield* owner.values(
+								`SELECT "r1"."${columns[0]}"::text FROM ${view} AS "r1"`,
+								[]
+							)
+							const defined = yield* owner.values(
+								`SELECT "r1"."id"::text FROM (${conservativeSql(installed, "OwnedTasks")}) AS "r1"`,
+								[]
+							)
+							assert.deepEqual(sorted(stored), sorted(defined))
+							assert.deepEqual<ReadonlyArray<string>>(sorted(stored), ownedOf(c))
+							k.noteAll(deferredFeatures(c))
+						}),
+						Effect.orDie(owner.rollback)
+					)
+				}),
 		oracle: {
 			kind: "second-implementation",
 			name: "the tasks whose account the transaction holds, on the host, and the definition's conservative lowering"

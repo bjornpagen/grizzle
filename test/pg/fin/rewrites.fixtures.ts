@@ -2,6 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
+import { familyTemplate } from "#test/pg/fin/family.ts"
 import type { EndFeature } from "#test/pg/fin/installed.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import type { MutationStatement } from "#test/support/families/mutate.ts"
@@ -108,3 +109,6 @@ export type RewriteFeature =
 	| EndFeature
 	| `${Form} ${Sending} ${"committed" | "refused"}`
 	| "a shrink sent count first refused at its count by the bound, 23514, reporting the family's law"
+
+/** The ordered family installed once per member (family.ts familyTemplate), which each case's seat holds. */
+export const rewritesTemplate = familyTemplate(import.meta, "ordered", "rewrites")

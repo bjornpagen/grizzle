@@ -6,6 +6,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { seatTemplate } from "#test/pg/fin/installed.ts"
 
 const Tag = str.regex("^[a-z]{1,4}$")
 
@@ -25,7 +26,7 @@ const Open = derived(
 	})
 )
 
-export const RuleProbePattern = schema.extend(
+const RuleProbePattern = schema.extend(
 	Base,
 	"RuleProbePatternRule",
 	[Open],
@@ -130,3 +131,10 @@ export class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message:
 export const literalOf = (s: Sketch): string => Formatter.format(s)
 
 export const text = (tag: TagValue) => `'${tag}'`
+
+/** RuleProbePattern installed once per member (fin/installed.ts seatTemplate), which each case's seat holds. */
+export const ruleProbePatternTemplate = seatTemplate(
+	import.meta,
+	RuleProbePattern,
+	"rule_probe_pattern"
+)

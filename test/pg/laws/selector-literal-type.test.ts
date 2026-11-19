@@ -24,7 +24,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { cleared, seatOf } from "#test/pg/fin/installed.ts"
+import { seatIn } from "#test/pg/fin/installed.ts"
 import {
 	B_OF,
 	Disagreed,
@@ -33,7 +33,7 @@ import {
 	lawful,
 	literalOf,
 	RELATIONS,
-	SelectorLiteral,
+	selectorLiteralTemplate,
 	sketchGen
 } from "#test/pg/laws/selector-literal-type.fixtures.ts"
 import { attempt, momentText, refusalText } from "#test/support/substrate.ts"
@@ -44,64 +44,60 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aContainmentIntoASideALiteralSelectsBareAtItsFieldsTypeOrAtAnotherOnPostgreSQL19rc2CommitExactlyTheStatesWhoseEverySourceRowsBRowHoldsAnXTheLiteralEqualsAsTheSelectionComparesThemRefusingTheRestBy23503 =
 	property.exhaust(finite(sketchGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { seated: Substrate.seat(selectorLiteralTemplate) },
 		situations: FEATURES satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ substrate }, c: Case<Feature>) =>
+			({ seated }, c: Case<Feature>) =>
 			(s) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const seat = yield* seatOf(SelectorLiteral, RELATIONS, "selector_literal")
-						const col = (r: string, f: string) => seat.column(r, f)
+				Effect.gen(function* () {
+					const taken = yield* seated
+					const seat = yield* seatIn(taken, RELATIONS, "selector_literal")
+					const col = (r: string, f: string) => seat.column(r, f)
 
-						const b = B_OF[s.family]
-						const statements = [
-							...(s.stored === undefined
-								? []
-								: [
-										`INSERT INTO ${seat.table(b)} (${col(b, "id")}, ${col(b, "x")}) VALUES (1, ${s.stored.sql})`
-									]),
-							...Arr.map(
-								s.sources,
-								(x) => `INSERT INTO ${seat.table(x.relation)} (${col(x.relation, "id")}) VALUES (1)`
-							)
-						]
-						const unlawful = Arr.filter(s.sources, (x) => !lawful(s, x))
-						const real = yield* attempt(seat.session, statements)
-						if (real.kind === "committed") {
-							yield* cleared(seat, RELATIONS)
-							if (unlawful.length > 0) {
-								return yield* new Disagreed({
-									message: `committed a state whose rows of ${Arr.join(
-										Arr.map(unlawful, (x) => x.relation),
-										", "
-									)} meet no B row their literal selects: ${literalOf(s)}`
-								})
-							}
-							for (const x of s.sources) {
-								c.note(`held ${x.relation}`)
-							}
-							return
-						}
-						const named = seat.refusedBy(real.fields)
-						const namesLawful = Option.exists(
-							named,
-							(k) => k.kind === "foreign" && !Arr.some(unlawful, (x) => x.relation === k.relation)
+					const b = B_OF[s.family]
+					const statements = [
+						...(s.stored === undefined
+							? []
+							: [
+									`INSERT INTO ${seat.table(b)} (${col(b, "id")}, ${col(b, "x")}) VALUES (1, ${s.stored.sql})`
+								]),
+						...Arr.map(
+							s.sources,
+							(x) => `INSERT INTO ${seat.table(x.relation)} (${col(x.relation, "id")}) VALUES (1)`
 						)
-						if (real.fields.code !== "23503" || unlawful.length === 0 || namesLawful) {
+					]
+					const unlawful = Arr.filter(s.sources, (x) => !lawful(s, x))
+					const real = yield* attempt(seat.session, statements)
+					if (real.kind === "committed") {
+						if (unlawful.length > 0) {
 							return yield* new Disagreed({
-								message: `refused ${momentText(real.moment)} by ${refusalText(real.fields)}, where the unlawful rows are ${Formatter.format(
-									Arr.map(unlawful, (x) => x.relation)
-								)}: ${literalOf(s)}`
+								message: `committed a state whose rows of ${Arr.join(
+									Arr.map(unlawful, (x) => x.relation),
+									", "
+								)} meet no B row their literal selects: ${literalOf(s)}`
 							})
 						}
-						if (unlawful.length === 1) {
-							c.note(`refused ${Arr.getUnsafe(unlawful, 0).relation}`)
+						for (const x of s.sources) {
+							c.note(`held ${x.relation}`)
 						}
-					}),
-					Substrate,
-					substrate
-				),
+						return
+					}
+					const named = seat.refusedBy(real.fields)
+					const namesLawful = Option.exists(
+						named,
+						(k) => k.kind === "foreign" && !Arr.some(unlawful, (x) => x.relation === k.relation)
+					)
+					if (real.fields.code !== "23503" || unlawful.length === 0 || namesLawful) {
+						return yield* new Disagreed({
+							message: `refused ${momentText(real.moment)} by ${refusalText(real.fields)}, where the unlawful rows are ${Formatter.format(
+								Arr.map(unlawful, (x) => x.relation)
+							)}: ${literalOf(s)}`
+						})
+					}
+					if (unlawful.length === 1) {
+						c.note(`refused ${Arr.getUnsafe(unlawful, 0).relation}`)
+					}
+				}),
 		oracle: {
 			kind: "specification",
 			name: "each source row's containment as a checker: B holds its id at an x its literal equals as the selection compares them"

@@ -6,6 +6,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn as drawnField, natural, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { counted, fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
@@ -41,7 +42,7 @@ const nested = () => ChangeSet.empty(Strata).insert(Doc, [])
  * The full world's workload: the clubs and their stored members, seeded; the edit beside the nested insert in each
  * placement; and the members, clubs, docs and lines read back.
  */
-export const programs = Object.freeze({
+const programs = Object.freeze({
 	seed: ChangeSet.sequence(
 		ChangeSet.empty(Strata).insert(Club, []),
 		ChangeSet.empty(Strata).insert(Member, [])
@@ -66,6 +67,15 @@ export const programs = Object.freeze({
 		return r.match(Line, { id, doc, at, qty }).find({ id, doc, at, qty })
 	})
 })
+
+/** What every case installs: Strata, its full world's workload holding the programs. */
+export const strataInstall = { label: "strata_families", programs } as const
+
+/**
+ * Strata installed once per member (reads/support.ts fixtureTemplate), which each case's seat holds, its tables empty
+ * before every case.
+ */
+export const strataTemplate = fixtureTemplate(import.meta, Strata, strataInstall)
 
 type Placement = "the edit first" | "the nested insert first" | "one stratum"
 

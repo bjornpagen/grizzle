@@ -1,10 +1,16 @@
 /** What the properties of workload-index.test.ts read: its spaces, models and helpers. */
 
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
-import { pipe, String as Str } from "effect"
+import { Effect, pipe, String as Str } from "effect"
+import { workload } from "#compiler/program/workload/value.ts"
 import { pg, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { workloadOver } from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
+import { seededTemplate } from "#test/support/install-migrate.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Workload indexes on a derived relation on PostgreSQL 19.
@@ -28,6 +34,32 @@ export const busyAccounts = query(W.Reports).rule((r) => {
 		.match(W.AccountBudget, { account, tasks, budget })
 		.where(r.ge(tasks, r.param("least", pg.bigint)))
 		.find({ account, budget })
+})
+
+/**
+ * Reports installed once per member with busyAccounts' workload index, AccountBudget refreshed over its empty tables,
+ * where the search did both once before its cases (install-migrate.ts seededTemplate): each case writes only inside
+ * the owner's transaction it rolls back.
+ */
+export const reportsTemplate = seededTemplate({
+	declaredIn: import.meta,
+	name: "derived workload",
+	schema: W.Reports,
+	options: {
+		ambient: ordinarySession,
+		extensions: [
+			workloadOver([{ login: "server", workloads: [workload(W.Reports, { busyAccounts })] }])
+		],
+		label: "derived_workload",
+		logins: []
+	},
+	seed: (installed) =>
+		Effect.flatMap(Substrate, (substrate) =>
+			substrate.admin.query(
+				`REFRESH MATERIALIZED VIEW ${printObjectName(installed.names.relation("AccountBudget"))}`,
+				[]
+			)
+		)
 })
 
 export const id = (n: number): Uuid =>

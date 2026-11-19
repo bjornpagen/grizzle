@@ -20,11 +20,11 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { codeOf } from "#compiler/ir/codes.ts"
-import { cleared, seatOf } from "#test/pg/fin/installed.ts"
+import { seatIn } from "#test/pg/fin/installed.ts"
 import {
 	Disagreed,
-	FixedTarget,
 	type FixedTargetFeature,
+	fixedTargetTemplate,
 	type Kind,
 	missedOf,
 	NodeKind,
@@ -39,7 +39,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aContainmentIntoATargetFixedByValuesAndByItsOwnTermOnPostgreSQL19rc2CommitExactlyTheStatesWhoseEveryDocumentRowsNodeIsOfKindDocumentItsOwnDocumentAndAtDepth0RefusingTheRestByTheDocumentsForeignKey =
 	property.exhaust(finite(sketchGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { seated: Substrate.seat(fixedTargetTemplate) },
 		situations: [
 			"committed",
 			"committed a document",
@@ -49,72 +49,68 @@ export const aContainmentIntoATargetFixedByValuesAndByItsOwnTermOnPostgreSQL19rc
 			"refused for a node deeper"
 		] satisfies ReadonlyArray<Reached<FixedTargetFeature>>,
 		check:
-			({ substrate }, c: Case<FixedTargetFeature>) =>
+			({ seated }, c: Case<FixedTargetFeature>) =>
 			(s) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const seat = yield* seatOf(FixedTarget, RELATIONS, "fixed_target")
-						const codec = Arr.findFirst(
-							[...seat.installed.names.codes.rosters.values()],
-							(r) => r.roster === NodeKind.name
-						)
-						const code = (k: Kind) => codeOf(Option.getOrThrow(codec), k)
-						const laws = seat.lawsOf("containment")
+				Effect.gen(function* () {
+					const taken = yield* seated
+					const seat = yield* seatIn(taken, RELATIONS, "fixed_target")
+					const codec = Arr.findFirst(
+						[...seat.installed.names.codes.rosters.values()],
+						(r) => r.roster === NodeKind.name
+					)
+					const code = (k: Kind) => codeOf(Option.getOrThrow(codec), k)
+					const laws = seat.lawsOf("containment")
 
-						const col = (r: string, f: string) => seat.column(r, f)
-						const nodes = Arr.flatMap(s.nodes, (n, id) =>
-							n === undefined ? [] : [`(${id}, ${code(n.kind)}, ${n.document}, ${n.depth})`]
-						)
-						const statements = [
-							...(nodes.length === 0
-								? []
-								: [
-										`INSERT INTO ${seat.table("Node")} (${col("Node", "id")}, ${col("Node", "kind")}, ${col("Node", "document")}, ${col("Node", "depth")}) VALUES ${Arr.join(nodes, ", ")}`
-									]),
-							...(s.documents.length === 0
-								? []
-								: [
-										`INSERT INTO ${seat.table("Document")} (${col("Document", "node")}) VALUES ${Arr.join(
-											Arr.map(s.documents, (id) => `(${id})`),
-											", "
-										)}`
-									])
-						]
-						const real = yield* attempt(seat.session, statements)
-						const missed = Arr.flatMap(s.documents, (id) => missedOf(s, id))
-						if (real.kind === "committed") {
-							yield* cleared(seat, RELATIONS)
-							if (missed.length > 0) {
-								return yield* new Disagreed({
-									message: `committed a state whose document rows meet no node (${Arr.join(missed, ", ")}): ${Formatter.format(s)}`
-								})
-							}
-							c.note(s.documents.length > 0 ? "committed a document" : "committed")
-							return
-						}
-						const named = seat.refusedBy(real.fields)
-						if (
-							real.fields.code !== "23503" ||
-							missed.length === 0 ||
-							!Option.exists(
-								named,
-								(k) =>
-									k.kind === "foreign" &&
-									k.relation === "Document" &&
-									Option.exists(k.law, (l) => laws.includes(l))
-							)
-						) {
+					const col = (r: string, f: string) => seat.column(r, f)
+					const nodes = Arr.flatMap(s.nodes, (n, id) =>
+						n === undefined ? [] : [`(${id}, ${code(n.kind)}, ${n.document}, ${n.depth})`]
+					)
+					const statements = [
+						...(nodes.length === 0
+							? []
+							: [
+									`INSERT INTO ${seat.table("Node")} (${col("Node", "id")}, ${col("Node", "kind")}, ${col("Node", "document")}, ${col("Node", "depth")}) VALUES ${Arr.join(nodes, ", ")}`
+								]),
+						...(s.documents.length === 0
+							? []
+							: [
+									`INSERT INTO ${seat.table("Document")} (${col("Document", "node")}) VALUES ${Arr.join(
+										Arr.map(s.documents, (id) => `(${id})`),
+										", "
+									)}`
+								])
+					]
+					const real = yield* attempt(seat.session, statements)
+					const missed = Arr.flatMap(s.documents, (id) => missedOf(s, id))
+					if (real.kind === "committed") {
+						if (missed.length > 0) {
 							return yield* new Disagreed({
-								message: `refused ${momentText(real.moment)} by ${refusalText(real.fields)}, where the state's document rows miss ${Formatter.format(missed)}: ${Formatter.format(s)}`
+								message: `committed a state whose document rows meet no node (${Arr.join(missed, ", ")}): ${Formatter.format(s)}`
 							})
 						}
-						for (const m of Arr.dedupe(missed)) {
-							c.note(`refused for ${m}`)
-						}
-					}),
-					Substrate,
-					substrate
-				),
+						c.note(s.documents.length > 0 ? "committed a document" : "committed")
+						return
+					}
+					const named = seat.refusedBy(real.fields)
+					if (
+						real.fields.code !== "23503" ||
+						missed.length === 0 ||
+						!Option.exists(
+							named,
+							(k) =>
+								k.kind === "foreign" &&
+								k.relation === "Document" &&
+								Option.exists(k.law, (l) => laws.includes(l))
+						)
+					) {
+						return yield* new Disagreed({
+							message: `refused ${momentText(real.moment)} by ${refusalText(real.fields)}, where the state's document rows miss ${Formatter.format(missed)}: ${Formatter.format(s)}`
+						})
+					}
+					for (const m of Arr.dedupe(missed)) {
+						c.note(`refused for ${m}`)
+					}
+				}),
 		oracle: {
 			kind: "specification",
 			name: "the containment's meaning as a checker: every document row's node of kind document, its own document, at depth 0"

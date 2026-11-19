@@ -7,6 +7,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Schema } from "#compiler/types/schema/schema.ts"
+import { fixtureTemplate } from "#test/pg/reads/support.ts"
 
 const Tag = str.regex("^[a-z]{1,4}$")
 
@@ -60,6 +61,12 @@ export const topOver = <N extends string>(over: Schema<N, (typeof Scores)["relat
 		.take("k")
 
 /** The tags a mark holds; a binding also draws one no mark holds. */
+/** What every case installs: Scores, its full world's workload holding the query `top`. */
+export const scoresInstall = { label: "real", programs: { top: topOver(Scores) } } as const
+
+/** Scores installed once per member (reads/support.ts fixtureTemplate), which each case's seat holds. */
+export const scoresTemplate = fixtureTemplate(import.meta, Scores, scoresInstall)
+
 const markTags = ["red", "blue"] as const
 
 const tags = [...markTags, "gold"] as const

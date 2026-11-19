@@ -8,16 +8,23 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { fixtureTemplate } from "#test/pg/reads/support.ts"
 
 export const Note = relation("Note", { id: pg.integer, body: str.regex("^[a-z]*$") }, ["id"])
 
 export const Notes = schema("Notes", [Note], [])
 
 /** Every note: the one read of the login's workload, a member of its full world's role. */
-export const all = query(Notes).rule((r) => {
+const all = query(Notes).rule((r) => {
 	const { id, body } = v(Note, "note")
 	return r.match(Note, { id, body }).find({ id, body })
 })
+
+/** What every case installs: Notes, its full world's workload holding the read `all`. */
+export const notesInstall = { label: "stream", programs: { all } } as const
+
+/** Notes installed once per member (reads/support.ts fixtureTemplate), which each case's seat holds. */
+export const notesTemplate = fixtureTemplate(import.meta, Notes, notesInstall)
 
 /** A case: the table's rows, n of them, each a text of `width` characters. */
 interface Case {

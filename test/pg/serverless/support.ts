@@ -86,12 +86,16 @@ export const vercelRuntime = (
 			})
 	).pipe(Effect.map(({ context }) => context))
 
-/** The number of backends logged in as `role`. */
+/**
+ * The number of backends logged in as `role` in the substrate's database. A role is the cluster's, and a template's
+ * login is every clone's on the member (substrate.ts installTemplate), so a case counts the backends of its own
+ * database, where its pools connect, never another worker's clone's.
+ */
 export const roleBackends = (role: string) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const rows = yield* s.admin.queryValues(
-			"SELECT count(*)::int4 FROM pg_catalog.pg_stat_activity WHERE usename = $1::text",
+			"SELECT count(*)::int4 FROM pg_catalog.pg_stat_activity WHERE usename = $1::text AND datname = pg_catalog.current_database()",
 			[role]
 		)
 		return Number(rows[0]?.[0])

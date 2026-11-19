@@ -29,9 +29,11 @@ import {
 	Item,
 	Mark,
 	Scores,
+	scoresInstall,
+	scoresTemplate,
 	topOver
 } from "#test/pg/reads/bind-literal.fixtures.ts"
-import { installed } from "#test/pg/reads/support.ts"
+import { openedIn } from "#test/pg/reads/support.ts"
 import { unorderedEqual } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -49,7 +51,7 @@ export const anImportedQuerysParametersBoundToLiteralsReadTheRowsTheQueryReadsWi
 		(source) =>
 			[source.draw(factsGen), source.draw(array(bindingGen, { min: 1, max: 4 }))] as const,
 		{
-			needs: { substrate: Substrate.installing },
+			needs: { scores: Substrate.seat(scoresTemplate) },
 			situations: [
 				"an importer reading no row",
 				"the take cutting the eligible rows",
@@ -57,68 +59,61 @@ export const anImportedQuerysParametersBoundToLiteralsReadTheRowsTheQueryReadsWi
 				"a binding outside the facts"
 			] satisfies ReadonlyArray<Reached<BindFeature>>,
 			check:
-				({ substrate }, c: Case<BindFeature>) =>
+				({ scores }, c: Case<BindFeature>) =>
 				([facts, bindings]) =>
-					Effect.provideServiceEffect(
-						Effect.gen(function* () {
-							const s = yield* Substrate
-							const opened = yield* installed(
-								Scores,
-								{},
-								{ label: "real", programs: { top: topOver(Scores) } }
-							)
-							const names = namesOf(opened.installed)
-							const itemInsert = `INSERT INTO ${names.table(Item)} (${names.column(Item, "id")}, ${names.column(Item, "grp")}, ${names.column(Item, "score")}) VALUES ($1::int4, $2::int4, $3::int4)`
-							const markInsert = `INSERT INTO ${names.table(Mark)} (${names.column(Mark, "item")}, ${names.column(Mark, "tag")}) VALUES ($1::int4, $2::text)`
-							const top = topOver(opened.schema)
-							return yield* Effect.gen(function* () {
-								yield* replaceRows(s.admin, installationGroup(names), [
-									...Arr.map(facts.items, (i) => ({
-										sql: itemInsert,
-										params: [String(i.id), String(i.grp), String(i.score)]
-									})),
-									...Arr.map(facts.marks, (m) => ({
-										sql: markInsert,
-										params: [String(m.item), m.tag]
-									}))
-								])
-								/** Each binding's importer, by its index. */
-								const imports = Rec.fromEntries(
-									Arr.map(bindings, (b, i) => [
-										`imported${i}`,
-										query(opened.schema).rule((r) => {
-											const bound = top.bind({ grp: b.grp, lo: b.lo, k: b.k, tag: b.tag })
-											const { id, score } = v(bound, "bound")
-											return r.match(bound, { id, score }).find({ id, score })
-										})
-									])
-								)
-								yield* withServedDb(opened.installed, opened.server.roles.app, {}, ({ serve }) =>
-									Effect.gen(function* () {
-										const served = yield* serve({ top, ...imports })
-										for (const [i, b] of bindings.entries()) {
-											const direct = yield* readOnce(member(served, "top"))({
-												params: { ...b },
-												facts: {}
-											})
-											const viaImport = yield* readOnce(member(served, `imported${i}`))({
-												params: {},
-												facts: {}
-											})
-											unorderedEqual(
-												viaImport,
-												direct,
-												`${Formatter.format(b)} over ${Formatter.format(facts)}`
-											)
-											c.noteAll(featuresOf(facts, b))
-										}
+					Effect.gen(function* () {
+						const seat = yield* scores
+						const s = seat.substrate
+						const opened = yield* openedIn(Scores, {}, scoresInstall, seat)
+						const names = namesOf(opened.installed)
+						const itemInsert = `INSERT INTO ${names.table(Item)} (${names.column(Item, "id")}, ${names.column(Item, "grp")}, ${names.column(Item, "score")}) VALUES ($1::int4, $2::int4, $3::int4)`
+						const markInsert = `INSERT INTO ${names.table(Mark)} (${names.column(Mark, "item")}, ${names.column(Mark, "tag")}) VALUES ($1::int4, $2::text)`
+						const top = topOver(opened.schema)
+						return yield* Effect.gen(function* () {
+							yield* replaceRows(s.admin, installationGroup(names), [
+								...Arr.map(facts.items, (i) => ({
+									sql: itemInsert,
+									params: [String(i.id), String(i.grp), String(i.score)]
+								})),
+								...Arr.map(facts.marks, (m) => ({
+									sql: markInsert,
+									params: [String(m.item), m.tag]
+								}))
+							])
+							/** Each binding's importer, by its index. */
+							const imports = Rec.fromEntries(
+								Arr.map(bindings, (b, i) => [
+									`imported${i}`,
+									query(opened.schema).rule((r) => {
+										const bound = top.bind({ grp: b.grp, lo: b.lo, k: b.k, tag: b.tag })
+										const { id, score } = v(bound, "bound")
+										return r.match(bound, { id, score }).find({ id, score })
 									})
-								)
-							}).pipe(Effect.scoped)
-						}).pipe(Effect.scoped),
-						Substrate,
-						substrate
-					),
+								])
+							)
+							yield* withServedDb(opened.installed, opened.server.roles.app, {}, ({ serve }) =>
+								Effect.gen(function* () {
+									const served = yield* serve({ top, ...imports })
+									for (const [i, b] of bindings.entries()) {
+										const direct = yield* readOnce(member(served, "top"))({
+											params: { ...b },
+											facts: {}
+										})
+										const viaImport = yield* readOnce(member(served, `imported${i}`))({
+											params: {},
+											facts: {}
+										})
+										unorderedEqual(
+											viaImport,
+											direct,
+											`${Formatter.format(b)} over ${Formatter.format(facts)}`
+										)
+										c.noteAll(featuresOf(facts, b))
+									}
+								})
+							)
+						}).pipe(Effect.scoped)
+					}).pipe(Effect.scoped),
 			oracle: {
 				kind: "second-implementation",
 				name: "the query executed with the binding's values as its parameters"

@@ -13,6 +13,7 @@ import {
 	type Statement
 } from "#compiler/public/schema.ts"
 import type { Catalogued, Seat } from "#test/pg/fin/installed.ts"
+import { seatTemplate } from "#test/pg/fin/installed.ts"
 import { covered, isEmpty, keyRefusal, type Row, SPANS } from "#test/pg/substrate/temporal.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
@@ -46,7 +47,7 @@ const coverage = contained(
 	on(selectedTarget, "k", "during")
 )
 
-export const Coverage = schema("fin_coverage", [Target, Source], [targetKey, coverage])
+const Coverage = schema("fin_coverage", [Target, Source], [targetKey, coverage])
 
 export const RELATIONS = ["Target", "Source"] as const
 
@@ -154,3 +155,6 @@ export type CoverageFeature =
 	| "committed with a source outside its selection"
 	| `refused ${Refusal}`
 	| "refused coverage across a gap"
+
+/** Coverage installed once per member (fin/installed.ts seatTemplate), which each case's seat holds. */
+export const coverageTemplate = seatTemplate(import.meta, Coverage, "coverage")

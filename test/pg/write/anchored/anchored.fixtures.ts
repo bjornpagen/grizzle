@@ -1,11 +1,21 @@
 /** What the properties of anchored.test.ts read: its spaces, models and helpers. */
 
 import { constant, element, type Gen, increasing, int, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
 import { type EstimatedNode, planNodes } from "#bench/harness/explain.ts"
-import { SeatNo, Slot } from "#bench/queue/support/queue.ts"
+import { digestOf, queueSchema, SeatNo, Slot } from "#bench/queue/support/queue.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
+import { codeOf } from "#compiler/ir/codes.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { defined } from "#test/support/assert.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import { QueueKind, Resource } from "#test/support/fixtures/api/queue.ts"
+import { seededTemplate } from "#test/support/install-migrate.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
+import { transaction } from "#test/support/oracle/install/transaction.ts"
+import { volumeFill } from "#test/support/substrate/fill.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A deletion whose member is its relation's own facts reads that relation once.
  *
@@ -37,7 +47,7 @@ export type AnchoredFeature =
 
 /** Wanted and Work items loaded, keyed by digest: enough that a probe per input row is the right join at any estimate of
  * a relation parameter's arrays, their length in a custom plan and the default ten in a generic one. */
-export const items = 200_000
+const items = 200_000
 
 /**
  * One member's shape, and every parameter any member reads, drawn: the plan is the deletion's for these values. An item
@@ -129,7 +139,64 @@ export const bounded = (n: EstimatedNode): boolean =>
 		Option.isSome(n.indexCond)) ||
 	(n.nodeType === "Bitmap Heap Scan" && Option.isSome(n.recheckCond))
 
-export const item = "(g + 1)"
+const item = "(g + 1)"
 
-/** The relations whose user triggers each case disables, as its search named them before its cases. */
-export const governed = ["Work", "Wanted"] as const
+/** The relations whose user triggers the fill disables, as its search named them before its cases. */
+const governed = ["Work", "Wanted"] as const
+
+/**
+ * The queue schema installed once per member with `items` rows of Work and Wanted filled under their user triggers
+ * disabled, then vacuumed and analyzed, where the search did all of it once before its cases (install-migrate.ts
+ * seededTemplate): each case only plans a deletion, inside a transaction it rolls back.
+ */
+export const queueTemplate = seededTemplate({
+	declaredIn: import.meta,
+	name: "anchored",
+	schema: queueSchema("Queue"),
+	options: { ambient: ordinarySession, label: "anchored", extensions: [], logins: [] },
+	seed: (o) =>
+		Effect.gen(function* () {
+			const s = yield* Substrate
+			const names = o.installation.names
+			const table = (relation: string) => printObjectName(names.relation(relation))
+			const column = (relation: string, field: string) => quoteIdent(names.column(relation, field))
+			const codeIn = (roster: string, handle: string): string =>
+				`${codeOf(defined(names.codes.rosters.get(parsedName(roster)), `the codes of ${roster}`), handle)}::smallint`
+			yield* transaction(
+				s.admin,
+				Arr.map(governed, (t) => `ALTER TABLE ${table(t)} DISABLE TRIGGER USER`)
+			)
+			yield* volumeFill(s.admin, [
+				{
+					tables: [
+						{
+							table: table("Work"),
+							columns: [
+								[column("Work", "key"), digestOf(item)],
+								[column("Work", "kind"), codeIn("Kind", "render")],
+								[column("Work", "slot"), "0"],
+								[column("Work", "standing"), codeIn("Standing", "wanted")],
+								[column("Work", "epoch"), "0"],
+								[column("Work", "enqueued"), item]
+							]
+						},
+						{
+							table: table("Wanted"),
+							columns: [
+								[column("Wanted", "key"), digestOf(item)],
+								[column("Wanted", "due"), "0"],
+								[column("Wanted", "attempts"), "0"]
+							]
+						}
+					],
+					rows: items,
+					conflicts: "refused"
+				}
+			])
+			yield* transaction(
+				s.admin,
+				Arr.map(governed, (t) => `ALTER TABLE ${table(t)} ENABLE TRIGGER USER`)
+			)
+			yield* s.admin.query(`VACUUM (ANALYZE) ${Arr.join(Arr.map(governed, table), ", ")}`, [])
+		})
+})

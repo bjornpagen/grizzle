@@ -21,17 +21,17 @@
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { Disagreed, familySeat, judgedFamily } from "#test/pg/fin/family.ts"
+import { Effect, Formatter, Option } from "effect"
+import { Disagreed, familySeatIn, judgedFamily } from "#test/pg/fin/family.ts"
 import { endedBy, endGen, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
 import {
 	type OrderFeature,
+	orderTemplates,
 	sketchGen,
 	statementsOf,
 	successorFirst
 } from "#test/pg/fin/order.fixtures.ts"
 import { run, settledOf } from "#test/support/families/mutate.ts"
-import { type Shape, SHAPES } from "#test/support/families/theorem.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -39,7 +39,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const rowOrderThroughGrizzlesLoweringOnPostgreSQL19rc2PassTheImmediatePredecessorAxisOnOneInsertOfAFamilysRowsInEveryOrderSuccessorFirstIncludedAndCheckItAtEachStatementOfACutWriteWhenOrdered =
 	property.exhaust(finite(sketchGen), {
-		needs: { substrate: Substrate.installing },
+		needs: Substrate.oneOf(orderTemplates, Substrate.seat),
 		situations: [
 			"a case ended by COMMIT",
 			"a case ended by SET CONSTRAINTS and ROLLBACK",
@@ -51,53 +51,40 @@ export const rowOrderThroughGrizzlesLoweringOnPostgreSQL19rc2PassTheImmediatePre
 			"counted descending cut committed",
 			"counted ascending cut committed"
 		] satisfies ReadonlyArray<Reached<OrderFeature>>,
-		check:
-			({ substrate }, c: Case<OrderFeature>) =>
-			(sketch) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const seats = yield* Effect.forEach(SHAPES, (shape) =>
-							familySeat(shape, `order ${shape}`)
-						)
-						const seatOf = (shape: Shape) =>
-							Arr.getUnsafe(
-								Arr.filter(seats, (s) => s.shape === shape),
-								0
-							)
-
-						const statements = statementsOf(sketch)
-						const outcome = run(sketch.shape, [], statements)
-						const j = yield* judgedFamily(
-							seatOf(sketch.shape),
-							{ kind: "empty" },
-							statements,
-							settledOf(outcome),
-							c.draw(endGen)
-						)
-						c.note(endedBy(j.end))
-						if (Option.exists(j.moment, (m) => m.kind === "commit")) {
-							c.note(refusedAtCommitBy(j.end))
-						}
-						if (sketch.sent.kind === "one insert") {
-							if (!j.committed) {
-								return yield* new Disagreed({
-									message: `one insert of ${Formatter.format(sketch.sent.rows)} was ${j.verdict}`
-								})
-							}
-							c.note(
-								successorFirst(sketch.sent.rows)
-									? `${sketch.shape} one insert with a successor first committed`
-									: `${sketch.shape} one insert committed`
-							)
-						} else {
-							c.note(
-								`${sketch.shape} ${sketch.sent.order} cut ${j.committed ? "committed" : "refused"}`
-							)
-						}
-					}),
-					Substrate,
-					substrate
-				),
+		check: (seats, c: Case<OrderFeature>) => (sketch) =>
+			Effect.gen(function* () {
+				const taken = yield* seats[sketch.shape]
+				const seat = yield* familySeatIn(sketch.shape, taken, `order ${sketch.shape}`)
+				const statements = statementsOf(sketch)
+				const outcome = run(sketch.shape, [], statements)
+				const j = yield* judgedFamily(
+					seat,
+					{ kind: "empty" },
+					statements,
+					settledOf(outcome),
+					c.draw(endGen)
+				)
+				c.note(endedBy(j.end))
+				if (Option.exists(j.moment, (m) => m.kind === "commit")) {
+					c.note(refusedAtCommitBy(j.end))
+				}
+				if (sketch.sent.kind === "one insert") {
+					if (!j.committed) {
+						return yield* new Disagreed({
+							message: `one insert of ${Formatter.format(sketch.sent.rows)} was ${j.verdict}`
+						})
+					}
+					c.note(
+						successorFirst(sketch.sent.rows)
+							? `${sketch.shape} one insert with a successor first committed`
+							: `${sketch.shape} one insert committed`
+					)
+				} else {
+					c.note(
+						`${sketch.shape} ${sketch.sent.order} cut ${j.committed ? "committed" : "refused"}`
+					)
+				}
+			}),
 		oracle: {
 			kind: "second-implementation",
 			name: "the families model of each transaction (test/support/families/mutate.ts run), each constraint at the RFC lowering's moment"

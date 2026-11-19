@@ -4,6 +4,7 @@ import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Option, String as Str } from "effect"
 import { pg, retirement } from "#compiler/public/fields.ts"
 import { contained, on, relation, retirable, schema } from "#compiler/public/schema.ts"
+import { seatTemplate } from "#test/pg/fin/installed.ts"
 
 const Root = relation("Root", { id: pg.integer, retired: retirement }, ["id"])
 
@@ -15,7 +16,7 @@ const Claim = relation("Claim", { root: pg.integer, step: pg.integer, attempt: p
 	"attempt"
 ])
 
-export const Units = schema(
+const Units = schema(
 	"retire_life",
 	[Root, Step, Claim],
 	[
@@ -204,3 +205,6 @@ export const modelRows = (m: Model): ReadonlyArray<ReadonlyArray<string>> => [
 
 export const groupsArray = (groups: ReadonlyArray<number>) =>
 	`ARRAY[${Arr.join(Arr.map(groups, String), ", ")}]::int4[]`
+
+/** Units installed once per member (fin/installed.ts seatTemplate), which each case's seat holds. */
+export const unitsTemplate = seatTemplate(import.meta, Units, "retire_life")

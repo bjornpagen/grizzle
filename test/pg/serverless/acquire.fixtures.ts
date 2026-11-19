@@ -6,6 +6,7 @@ import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { paged } from "#compiler/public/workload.ts"
+import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 
 type Call = "read" | "key" | "page" | "write"
@@ -38,7 +39,7 @@ export const statedOf = (failure: CallError): ReadonlyArray<string> =>
  * The full world's workload, one member per call that needs a session: a read of an account's automatic tasks, the
  * Task key's read, a page of every task by id, and a note written with the facts each call gives.
  */
-export const programs = Object.freeze({
+const programs = Object.freeze({
 	automaticTasksFor: W.workReads(W.Work).automaticTasksFor,
 	task: W.Task,
 	tasks: paged(
@@ -51,6 +52,12 @@ export const programs = Object.freeze({
 	),
 	note: ChangeSet.empty(W.Work).insert(W.TaskNote, [])
 })
+
+/** What every case installs: Work, its full world's workload holding the calls' members (programs). */
+export const acquireInstall = { label: "acquire", programs } as const
+
+/** Work installed once per member (reads/support.ts fixtureTemplate), which each case's seat holds. */
+export const acquireTemplate = fixtureTemplate(import.meta, W.Work, acquireInstall)
 
 /** What a call failed with: its error, or the call's success, which no case here expects. */
 export const acquireFailureOf = <A, E>(

@@ -7,6 +7,7 @@ import { Array as Arr, Effect, Order, pipe, Record as Rec, String as Str } from 
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { indices } from "#compiler/core/array.ts"
 import * as Result from "#compiler/core/result.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
@@ -17,9 +18,15 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { closedBuilder, materializedDerived as runtimeDerived } from "#compiler/schema/relation.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { nonEmpty } from "#test/support/assert.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { assert, nonEmpty } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
-import type { Installed } from "#test/support/install-migrate.ts"
+import {
+	type Installed,
+	loadMigrated as load,
+	seededTemplate
+} from "#test/support/install-migrate.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import { compiledPattern } from "#test/support/regex.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -116,7 +123,7 @@ export const viewAndDefinition = (installed: Installed, relation: string) =>
 		return { stored: sorted(stored), defined: sorted(defined) }
 	})
 
-export const workFacts = Object.freeze({
+const workFacts = Object.freeze({
 	Account: [
 		{ id: id(1), name: "alpha" },
 		{ id: id(2), name: "beta" },
@@ -454,7 +461,36 @@ const ownedTasks = query(W.Work).rule((r) => {
 const OwnedTasks = derived.materialized("OwnedTasks", ownedTasks)
 
 /** Account's name lies outside the referenced key, which makes Task.account -> Account.id deferred. */
-export const Written = schema.extend(W.Work, "Written", [OwnedTasks], [])
+const Written = schema.extend(W.Work, "Written", [OwnedTasks], [])
+
+/**
+ * Written installed once per member with the worked example's facts and OwnedTasks refreshed over them, where the
+ * search did all three once before its cases (install-migrate.ts seededTemplate): the build checks the reference from
+ * Task to Account is deferrable, as every case requires, and each case writes only inside the owner's transaction it
+ * rolls back.
+ */
+export const writtenTemplate = seededTemplate({
+	declaredIn: import.meta,
+	name: "derived",
+	schema: Written,
+	options: { ambient: ordinarySession, extensions: [], label: "derived", logins: [] },
+	seed: (installed) =>
+		Effect.gen(function* () {
+			const substrate = yield* Substrate
+			const names = namesOf(installed)
+			const constraint = yield* substrate.admin.queryValues(
+				`SELECT condeferrable::text FROM pg_catalog.pg_constraint WHERE conrelid = '${names.table(W.Task)}'::regclass AND confrelid = '${names.table(W.Account)}'::regclass AND contype = 'f'`,
+				[]
+			)
+			const [[deferrable]] = trusted<Arr.NonEmptyReadonlyArray<readonly [string]>>(constraint)
+			assert.equal(deferrable, "true")
+			yield* load(installed, workFacts)
+			yield* substrate.admin.query(
+				`REFRESH MATERIALIZED VIEW ${viewOf(installed, "OwnedTasks").view}`,
+				[]
+			)
+		})
+})
 
 export const sorted = (rows: ReadonlyArray<ReadonlyArray<unknown>>) =>
 	Arr.sort(

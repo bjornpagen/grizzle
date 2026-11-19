@@ -37,7 +37,9 @@
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
+	costFamilies,
 	costGen,
+	costTree,
 	familyOf,
 	linear,
 	sizesOf,
@@ -45,9 +47,9 @@ import {
 	touched,
 	wholeDelete
 } from "#test/pg/fin/cost.fixtures.ts"
-import { familySeat } from "#test/pg/fin/family.ts"
-import { cleared, seatOf } from "#test/pg/fin/installed.ts"
-import { nodeBatchParams, nodeBatchSql, RELATIONS, Trees } from "#test/pg/fin/tree.ts"
+import { familySeatIn } from "#test/pg/fin/family.ts"
+import { cleared, seatIn } from "#test/pg/fin/installed.ts"
+import { nodeBatchParams, nodeBatchSql, RELATIONS } from "#test/pg/fin/tree.ts"
 import { loadTree } from "#test/pg/substrate/tree.ts"
 import { SHAPES } from "#test/support/families/theorem.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -59,58 +61,56 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const theCostOfRewritingFamiliesAndTreesOnPostgreSQL19rc2AFamilysWholeDeleteAndSuffixRewriteAndATreesWholeDeleteReadBuffersLinearInItsSize =
 	property.explore(costGen, {
-		needs: { substrate: Substrate.installing },
+		needs: {
+			ordered: Substrate.seat(costFamilies.ordered),
+			counted: Substrate.seat(costFamilies.counted),
+			tree: Substrate.seat(costTree)
+		},
 		situations: [],
-		check:
-			({ substrate }) =>
-			(c) =>
-				Effect.provideServiceEffect(
+		check: (seats) => (c) =>
+			Effect.gen(function* () {
+				const sizes = sizesOf(c)
+				const [n1, n2, n4] = sizes
+				for (const shape of SHAPES) {
+					const taken = yield* seats[shape]
+					const f = yield* familySeatIn(shape, taken, `cost ${shape}`)
+					/** A family of k members, its whole delete's work and its suffix rewrite's. */
+					const at = (k: number) =>
+						Effect.gen(function* () {
+							yield* familyOf(f, k)
+							const whole = yield* touched(f.seat, "Member", wholeDelete(f))
+							const suffix = yield* touched(f.seat, "Member", suffixRewrite(f, k))
+							return { whole, suffix }
+						})
+					const [m1, m2, m4] = yield* Effect.provideService(
+						Effect.all([at(n1), at(n2), at(n4)]),
+						Substrate,
+						taken.substrate
+					)
+					linear([m1.whole, m2.whole, m4.whole], sizes, `the ${f.shape} family's whole delete`)
+					linear([m1.suffix, m2.suffix, m4.suffix], sizes, `the ${f.shape} family's suffix rewrite`)
+				}
+				const tree = yield* seats.tree
+				const trees = yield* seatIn(tree, RELATIONS, "cost tree")
+				/** A tree of k rows, and its whole delete's work. */
+				const treeAt = (k: number) =>
 					Effect.gen(function* () {
-						const families = yield* Effect.forEach(SHAPES, (shape) =>
-							familySeat(shape, `cost ${shape}`)
-						)
-						const trees = yield* seatOf(Trees, RELATIONS, "cost tree")
-
-						const sizes = sizesOf(c)
-						const [n1, n2, n4] = sizes
-						for (const f of families) {
-							/** A family of k members, its whole delete's work and its suffix rewrite's. */
-							const at = (k: number) =>
-								Effect.gen(function* () {
-									yield* familyOf(f, k)
-									const whole = yield* touched(f.seat, "Member", wholeDelete(f))
-									const suffix = yield* touched(f.seat, "Member", suffixRewrite(f, k))
-									return { whole, suffix }
-								})
-							const [m1, m2, m4] = yield* Effect.all([at(n1), at(n2), at(n4)])
-							linear([m1.whole, m2.whole, m4.whole], sizes, `the ${f.shape} family's whole delete`)
-							linear(
-								[m1.suffix, m2.suffix, m4.suffix],
-								sizes,
-								`the ${f.shape} family's suffix rewrite`
-							)
-						}
-						/** A tree of k rows, and its whole delete's work. */
-						const treeAt = (k: number) =>
-							Effect.gen(function* () {
-								yield* cleared(trees, RELATIONS)
-								yield* trees.session.begin
-								yield* trees.session.query(
-									nodeBatchSql(trees),
-									nodeBatchParams(loadTree(k, c.fanout))
-								)
-								yield* trees.session.commit
-								yield* trees.session.query(`ANALYZE ${trees.table("Node")}`, [])
-								return yield* touched(trees, "Node", [
-									`DELETE FROM ${trees.table("Node")} WHERE ${trees.column("Node", "doc")} = 0`
-								])
-							})
-						const deleted = yield* Effect.all([treeAt(n1), treeAt(n2), treeAt(n4)])
-						linear(deleted, sizes, "the tree's whole delete")
-					}),
+						yield* cleared(trees, RELATIONS)
+						yield* trees.session.begin
+						yield* trees.session.query(nodeBatchSql(trees), nodeBatchParams(loadTree(k, c.fanout)))
+						yield* trees.session.commit
+						yield* trees.session.query(`ANALYZE ${trees.table("Node")}`, [])
+						return yield* touched(trees, "Node", [
+							`DELETE FROM ${trees.table("Node")} WHERE ${trees.column("Node", "doc")} = 0`
+						])
+					})
+				const deleted = yield* Effect.provideService(
+					Effect.all([treeAt(n1), treeAt(n2), treeAt(n4)]),
 					Substrate,
-					substrate
-				),
+					tree.substrate
+				)
+				linear(deleted, sizes, "the tree's whole delete")
+			}),
 		oracle: {
 			kind: "postgresql",
 			name: "PostgreSQL's per-transaction count of the buffers each operation read, w(2k)^2 <= 8 w(k)^2 at k = n, 2n"

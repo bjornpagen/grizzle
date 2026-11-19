@@ -4,6 +4,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data } from "effect"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { alternatives, closed, mutable, relation, schema } from "#compiler/public/schema.ts"
+import { seatTemplate } from "#test/pg/fin/installed.ts"
 
 export const Kind = closed.ordered("Kind", ["a", "b", "c"])
 
@@ -18,7 +19,7 @@ const B = relation("B", { item: pg.integer }, ["item"])
  * judged whole at COMMIT and installs no foreign key (laws/model/plan.ts containmentDischarge, since bb62f0fa1), and
  * this box reads the alternatives' native lowering.
  */
-export const Alternatives = schema(
+const Alternatives = schema(
 	"fin_alternatives",
 	[Kind, Item, A, B],
 	[alternatives(Item, "kind", Kind, { a: A, b: B }), mutable(Item), mutable(A), mutable(B)]
@@ -62,3 +63,6 @@ export const brokenOf = (s: Sketch): ReadonlyArray<Broken> => {
 }
 
 export type AlternativesFeature = "committed" | "committed an unarmed parent" | `refused ${Broken}`
+
+/** Alternatives installed once per member (fin/installed.ts seatTemplate), which each case's seat holds. */
+export const alternativesTemplate = seatTemplate(import.meta, Alternatives, "alternatives")

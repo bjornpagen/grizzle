@@ -25,7 +25,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { cleared, seatOf } from "#test/pg/fin/installed.ts"
+import { seatIn } from "#test/pg/fin/installed.ts"
 import {
 	after,
 	Disagreed,
@@ -34,7 +34,7 @@ import {
 	keeps,
 	literalOf,
 	RELATIONS,
-	RuleProbePattern,
+	ruleProbePatternTemplate,
 	sketchGen,
 	text
 } from "#test/pg/laws/rule-probe-pattern.fixtures.ts"
@@ -46,71 +46,66 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aRuleOverAQueryWhoseProbesReadAPatternTypedFieldOnPostgreSQL19rc2CommitsExactlyTheWritesThatLeaveEveryItemsTagOpensRefusingTheRestBy23503ItsProbesCastingEachTagToItsColumnsOwnType =
 	property.exhaust(finite(sketchGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { seated: Substrate.seat(ruleProbePatternTemplate) },
 		situations: FEATURES satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ substrate }, c: Case<Feature>) =>
+			({ seated }, c: Case<Feature>) =>
 			(s) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const seat = yield* seatOf(RuleProbePattern, RELATIONS, "rule_probe_pattern")
-						const col = (r: string, f: string) => seat.column(r, f)
+				Effect.gen(function* () {
+					const taken = yield* seated
+					const seat = yield* seatIn(taken, RELATIONS, "rule_probe_pattern")
+					const col = (r: string, f: string) => seat.column(r, f)
 
-						const stored = [
-							...Arr.map(
-								s.state.allowed,
-								(tag) =>
-									`INSERT INTO ${seat.table("Allowed")} (${col("Allowed", "tag")}) VALUES (${text(tag)})`
-							),
-							...Arr.map(
-								s.state.closed,
-								(tag) =>
-									`INSERT INTO ${seat.table("Closed")} (${col("Closed", "tag")}) VALUES (${text(tag)})`
-							),
-							...(s.state.item === undefined
-								? []
-								: [
-										`INSERT INTO ${seat.table("Item")} (${col("Item", "id")}, ${col("Item", "tag")}) VALUES (1, ${text(s.state.item)})`
-									])
-						]
-						const seeded = yield* attempt(seat.session, stored)
-						if (seeded.kind !== "committed") {
-							yield* cleared(seat, RELATIONS)
+					const stored = [
+						...Arr.map(
+							s.state.allowed,
+							(tag) =>
+								`INSERT INTO ${seat.table("Allowed")} (${col("Allowed", "tag")}) VALUES (${text(tag)})`
+						),
+						...Arr.map(
+							s.state.closed,
+							(tag) =>
+								`INSERT INTO ${seat.table("Closed")} (${col("Closed", "tag")}) VALUES (${text(tag)})`
+						),
+						...(s.state.item === undefined
+							? []
+							: [
+									`INSERT INTO ${seat.table("Item")} (${col("Item", "id")}, ${col("Item", "tag")}) VALUES (1, ${text(s.state.item)})`
+								])
+					]
+					const seeded = yield* attempt(seat.session, stored)
+					if (seeded.kind !== "committed") {
+						return yield* new Disagreed({
+							message: `refused a state that keeps the rule ${momentText(seeded.moment)} by ${refusalText(seeded.fields)}: ${literalOf(s)}`
+						})
+					}
+					const w = s.write
+					const statement =
+						w.kind === "insert item"
+							? `INSERT INTO ${seat.table("Item")} (${col("Item", "id")}, ${col("Item", "tag")}) VALUES (2, ${text(w.tag)})`
+							: w.kind === "update item"
+								? `UPDATE ${seat.table("Item")} SET ${col("Item", "tag")} = ${text(w.tag)} WHERE ${col("Item", "id")} = 1`
+								: w.kind === "delete allowed"
+									? `DELETE FROM ${seat.table("Allowed")} WHERE ${col("Allowed", "tag")} = ${text(w.tag)}`
+									: `INSERT INTO ${seat.table("Closed")} (${col("Closed", "tag")}) VALUES (${text(w.tag)}) ON CONFLICT DO NOTHING`
+					const real = yield* attempt(seat.session, [statement])
+					const lawful = keeps(after(s.state, w))
+					if (real.kind === "committed") {
+						if (!lawful) {
 							return yield* new Disagreed({
-								message: `refused a state that keeps the rule ${momentText(seeded.moment)} by ${refusalText(seeded.fields)}: ${literalOf(s)}`
+								message: `committed a write that leaves an Item's tag outside Open: ${literalOf(s)}`
 							})
 						}
-						const w = s.write
-						const statement =
-							w.kind === "insert item"
-								? `INSERT INTO ${seat.table("Item")} (${col("Item", "id")}, ${col("Item", "tag")}) VALUES (2, ${text(w.tag)})`
-								: w.kind === "update item"
-									? `UPDATE ${seat.table("Item")} SET ${col("Item", "tag")} = ${text(w.tag)} WHERE ${col("Item", "id")} = 1`
-									: w.kind === "delete allowed"
-										? `DELETE FROM ${seat.table("Allowed")} WHERE ${col("Allowed", "tag")} = ${text(w.tag)}`
-										: `INSERT INTO ${seat.table("Closed")} (${col("Closed", "tag")}) VALUES (${text(w.tag)}) ON CONFLICT DO NOTHING`
-						const real = yield* attempt(seat.session, [statement])
-						yield* cleared(seat, RELATIONS)
-						const lawful = keeps(after(s.state, w))
-						if (real.kind === "committed") {
-							if (!lawful) {
-								return yield* new Disagreed({
-									message: `committed a write that leaves an Item's tag outside Open: ${literalOf(s)}`
-								})
-							}
-							c.note(`committed ${w.kind}`)
-							return
-						}
-						if (lawful || real.fields.code !== "23503") {
-							return yield* new Disagreed({
-								message: `refused ${momentText(real.moment)} by ${refusalText(real.fields)}, where the state it leaves ${lawful ? "keeps" : "breaks"} the rule: ${literalOf(s)}`
-							})
-						}
-						c.note(`refused ${w.kind}`)
-					}),
-					Substrate,
-					substrate
-				),
+						c.note(`committed ${w.kind}`)
+						return
+					}
+					if (lawful || real.fields.code !== "23503") {
+						return yield* new Disagreed({
+							message: `refused ${momentText(real.moment)} by ${refusalText(real.fields)}, where the state it leaves ${lawful ? "keeps" : "breaks"} the rule: ${literalOf(s)}`
+						})
+					}
+					c.note(`refused ${w.kind}`)
+				}),
 		oracle: {
 			kind: "specification",
 			name: "the containment as a checker: every Item's tag an Allowed tag no Closed row holds"
