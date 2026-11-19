@@ -30,7 +30,9 @@ import {
 	closedLeaf,
 	closedNamed,
 	type ClosedTable,
-	type Evaluation
+	type Evaluation,
+	keyHostOf,
+	wholeKey
 } from "#compiler/runtime/write/fill.ts"
 import {
 	type GroupData,
@@ -51,15 +53,7 @@ import {
 } from "#compiler/scalar/compute/evaluate.ts"
 import { hostOfLiteral } from "#compiler/scalar/compute/literal.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
-import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
-import {
-	admitted,
-	admittedText,
-	type Carrier,
-	type CarrierHost,
-	type HostValue,
-	hostOf
-} from "#compiler/scalar/values/identity.ts"
+import { admitted, admittedText, type HostValue, hostOf } from "#compiler/scalar/values/identity.ts"
 import type {
 	KeyHost,
 	OwnLaw,
@@ -368,7 +362,7 @@ const uniqueJudgement = (
 			const f = fieldOf(relation, name)
 			const raw = hostField(fact.row, f)
 			const spec = carrierSpecOf(f.type, w.codes)
-			const value = raw === undefined ? undefined : keyHost(admitted(spec, raw))
+			const value = raw === undefined ? undefined : keyHostOf(admitted(spec, raw))
 			if (raw === undefined || value === undefined) {
 				return none
 			}
@@ -386,13 +380,6 @@ const uniqueJudgement = (
 		? none
 		: { witness: keyWitness(relation.name, found.values), laws: refusedByObject }
 }
-
-/** Whether an admitted value is a set's. */
-const isSet = (value: CarrierHost[Carrier]): value is ReadonlySet<string> => value instanceof Set
-
-/** A key field's admitted value as a key value, or undefined for a set's or bytes', which no key holds. */
-const keyHost = (value: CarrierHost[Carrier]): KeyHost | undefined =>
-	isSet(value) || isAdmittedBytes(value) ? undefined : value
 
 /**
  * What the witness reads, prepared once from its data under the installation's codes (`WitnessData`): its judge, its
@@ -425,27 +412,12 @@ const statedKey = (
 	relation: WitnessTable,
 	row: JudgedRow,
 	codes: Codebook
-): Readonly<Record<string, KeyHost>> | undefined => {
-	for (const key of relation.keys) {
-		const values: Record<string, KeyHost> = {}
-		let whole = true
-		for (const name of key) {
-			const f = fieldOf(relation, name)
-			const raw = hostField(row, f)
-			const value =
-				raw === undefined ? undefined : keyHost(admitted(carrierSpecOf(f.type, codes), raw))
-			if (value === undefined) {
-				whole = false
-				break
-			}
-			values[f.name] = value
-		}
-		if (whole) {
-			return values
-		}
-	}
-	return undefined
-}
+): Readonly<Record<string, KeyHost>> | undefined =>
+	wholeKey(relation.keys, (name) => {
+		const f = fieldOf(relation, name)
+		const raw = hostField(row, f)
+		return raw === undefined ? undefined : keyHostOf(admitted(carrierSpecOf(f.type, codes), raw))
+	})
 
 /** A query entry's fact as a fact of its target: each head field under the target field it writes, a literal-fixed
  * field at its literal; a context-fixed field, whose value the claims hold, left out. */

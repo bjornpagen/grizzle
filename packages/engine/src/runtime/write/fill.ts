@@ -830,24 +830,23 @@ const refusalAt = (row: Row, column: Column, stop: FillStop): FillRefusal => ({
 const isSet = (value: CarrierHost[Carrier]): value is ReadonlySet<string> => value instanceof Set
 
 /** A key field's admitted value as a key value, none for a set's or bytes', which no key holds. */
-const keyHostOf = (value: CarrierHost[Carrier]): KeyHost | undefined =>
+export const keyHostOf = (value: CarrierHost[Carrier]): KeyHost | undefined =>
 	isSet(value) || isAdmittedBytes(value) ? undefined : value
 
 /**
- * A row's key as the walk holds it: its relation's first declared key, the primary key first, whose every field the
- * row holds, by field name; none where none is whole.
+ * A row's key: the first of a relation's declared keys `keys`, its primary key first, whose every field `read` gives a
+ * key value of, by field name; none where none is whole. The walk's rows (`keyOf`) and the witness's stated rows
+ * (runtime/write/witness.ts statedKey) are keyed by it.
  */
-const keyOf = (row: Row): Readonly<Record<string, KeyHost>> | undefined => {
-	for (const key of row.layout.relation.keys) {
+export const wholeKey = (
+	keys: ReadonlyArray<ReadonlyArray<string>>,
+	read: (field: string) => KeyHost | undefined
+): Readonly<Record<string, KeyHost>> | undefined => {
+	for (const key of keys) {
 		const values: Record<string, KeyHost> = {}
 		let whole = true
 		for (const name of key) {
-			const column = row.layout.columns.get(columnKeyOf(name))
-			const raw = column === undefined ? undefined : row.values[column.at]
-			const value =
-				column === undefined || raw === undefined
-					? undefined
-					: keyHostOf(admitted(column.spec, raw))
+			const value = read(name)
 			if (value === undefined) {
 				whole = false
 				break
@@ -860,6 +859,16 @@ const keyOf = (row: Row): Readonly<Record<string, KeyHost>> | undefined => {
 	}
 	return undefined
 }
+
+/** A row's key as the walk holds it (`wholeKey`), each field's value admitted at its column's carrier. */
+const keyOf = (row: Row): Readonly<Record<string, KeyHost>> | undefined =>
+	wholeKey(row.layout.relation.keys, (name) => {
+		const column = row.layout.columns.get(columnKeyOf(name))
+		const raw = column === undefined ? undefined : row.values[column.at]
+		return column === undefined || raw === undefined
+			? undefined
+			: keyHostOf(admitted(column.spec, raw))
+	})
 
 /**
  * A column of a row the walk filled before the row it fills now reads it, which the fill order guarantees: its value, a
