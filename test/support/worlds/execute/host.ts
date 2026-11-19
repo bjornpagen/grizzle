@@ -1,6 +1,5 @@
 import { Effect, Predicate, Record as Rec } from "effect"
 import { type Codebook, codeNames } from "#compiler/ir/codes.ts"
-import { isDrawn, type Sendable } from "#test/support/laws/model.ts"
 import type { FieldDomain, HostFact, HostValue } from "#test/support/worlds/model/types.ts"
 
 import { regex } from "arkregex"
@@ -8,38 +7,23 @@ import { regex } from "arkregex"
 export const isWide = (domain: FieldDomain): boolean =>
 	(domain.kind === "integer" && domain.bits === 64) ||
 	(domain.kind === "contract" && domain.bits === 64) ||
-	(domain.kind === "serial" && domain.bits === 64) ||
 	(domain.kind === "span" && domain.bits === 64)
-
-/**
- * A host value the executor hands the real system: any value but a draw, which no writer can name (draws.ts
- * nameableFacts), so a draw here is a defect of whatever drew the action.
- */
-export const sendable = (value: HostValue): Sendable => {
-	if (isDrawn(value)) {
-		throw new Error(
-			`the executor was handed draw #${value.draw}, a value an identity drew that no writer has seen`
-		)
-	}
-	return value
-}
 
 /**
  * A host value as grizzle's carrier of a field's domain, the one way the executor hands grizzle a model value: an
  * int8's number as a bigint, a wide span's endpoints too.
  */
 export const carrierOf = (domain: FieldDomain, value: HostValue): unknown => {
-	const given = sendable(value)
 	if (!isWide(domain)) {
-		return given
+		return value
 	}
-	if (typeof given === "number") {
-		return BigInt(given)
+	if (typeof value === "number") {
+		return BigInt(value)
 	}
-	if (typeof given === "object") {
-		return { start: BigInt(given.start), end: BigInt(given.end) }
+	if (typeof value === "object") {
+		return { start: BigInt(value.start), end: BigInt(value.end) }
 	}
-	return given
+	return value
 }
 
 /**
@@ -138,7 +122,6 @@ export const valueOfText = (
 				return handle === undefined || handle === "" ? refused(what, text) : Effect.succeed(handle)
 			})
 		case "integer":
-		case "serial":
 		case "contract":
 			return integerOf(text, what)
 		case "boolean":

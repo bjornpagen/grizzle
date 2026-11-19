@@ -253,7 +253,6 @@ const entriesAt = (
 	for (const field of relation.fields) {
 		switch (field.writing.kind) {
 			case "caller":
-			case "serial":
 				set(fieldColumn(field), field.type, { kind: "given" }, walk)
 				break
 			case "generated":
@@ -394,7 +393,7 @@ const generatedAt = (
 	const laid = new Map<string, Entry>()
 	for (const field of relation.fields) {
 		const column = fieldColumn(field)
-		if (field.writing.kind === "caller" || field.writing.kind === "serial") {
+		if (field.writing.kind === "caller") {
 			laid.set(
 				columnKey(column),
 				defined(entries.get(columnKey(column)), `the column of ${field.name}`)

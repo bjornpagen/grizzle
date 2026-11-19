@@ -528,12 +528,9 @@ export class Reading {
 		return Arr.flatMap([...this.#tables.values()], (t) => t.foreignKeys)
 	}
 
-	/** The columns a law adds to `relation`: every generated column but an identity. */
+	/** The columns a law adds to `relation`: every generated column. */
 	lawColumns(relation: string): ReadonlyArray<ColumnDef> {
-		return Arr.filter(
-			this.table(relation).columns,
-			(c) => c.generated !== undefined && c.generated.kind !== "identity"
-		)
+		return Arr.filter(this.table(relation).columns, (c) => c.generated !== undefined)
 	}
 
 	/**

@@ -7,7 +7,6 @@ import {
 	constant,
 	element,
 	type Gen,
-	int,
 	map,
 	oneOf,
 	option,
@@ -23,7 +22,6 @@ import {
 	Formatter,
 	Option,
 	Order,
-	pipe,
 	Predicate,
 	Record as Rec,
 	Result,
@@ -87,7 +85,6 @@ import {
 	scopedItems,
 	Seat,
 	servedChanges,
-	Ticket,
 	Zed
 } from "#test/schedules/write/support.ts"
 import { deepEquals, defined } from "#test/support/assert.ts"
@@ -116,7 +113,6 @@ import {
 import { beginSerializableAction, type StepOutcome } from "#test/support/schedules/types.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate, type TextRows } from "#test/support/substrate/substrate.ts"
-import { upTo } from "#test/support/up-to.ts"
 import { type FrontendMessage, makeTap } from "#test/support/wire-tap.ts"
 
 const ids = ["1", "2", "3"] as const
@@ -144,7 +140,6 @@ const factGens: Readonly<Record<Rel, Gen<Fact>>> = {
 	Item: (source) => [source.draw(idGen), source.draw(labelGen)],
 	Note: (source) => [source.draw(idGen), source.draw(labelGen)],
 	Code: (source) => [source.draw(idGen), source.draw(idGen)],
-	Ticket: (source) => [source.draw(idGen), source.draw(labelGen)],
 	Room: (source) => {
 		const room = source.draw(element(rooms))
 		const [start, end] = source.draw(element(spans))
@@ -175,7 +170,7 @@ const refsGen = (items: ReadonlyArray<string>): Gen<ReadonlyArray<Fact>> => {
 }
 
 /**
- * A lawful initial state by construction: keys, codes and Ticket labels distinct, each room's spans disjoint, every
+ * A lawful initial state by construction: keys and codes distinct, each room's spans disjoint, every
  * reference to a stored Item, Zed empty so every blocker is free.
  */
 const initialGen: Gen<State> = (source) => {
@@ -183,8 +178,6 @@ const initialGen: Gen<State> = (source) => {
 	const note = source.draw(keyed(source.draw(subarray(ids)), labelGen))
 	const codeKeys = source.draw(subarray(ids))
 	const codes = source.draw(shuffled(ids, { min: 3, max: 3 }))
-	const ticketKeys = source.draw(subarray(["1", "2"]))
-	const ticketLabels = source.draw(shuffled(labels, { min: 2, max: 2 }))
 	const perRoom = Arr.map(rooms, (r) =>
 		Arr.map(source.draw(subarray(spans.slice(0, 3))), ([start, end]): Fact => [r, start, end])
 	)
@@ -194,13 +187,12 @@ const initialGen: Gen<State> = (source) => {
 		Item: item,
 		Note: note,
 		Code: Arr.map(codeKeys, (k, i): Fact => [k, codes[i] ?? k]),
-		Ticket: Arr.zipWith(ticketKeys, ticketLabels, (k, l): Fact => [k, l]),
 		Room: room,
 		Ref: source.draw(refsGen(Arr.map(item, (f) => f[0] ?? "")))
 	}
 }
 
-/** Grizzle members, each drawn over the domains; a generated member's labels are given later (labelGenerated). */
+/** Grizzle members, each drawn over the domains. */
 const enumerated = (op: "insert" | "delete" | "put", relation: Rel, most: number): Gen<Member> =>
 	map(array(factGens[relation], { min: 1, max: most }), (facts): Member => ({
 		kind: "enumerated",
@@ -210,7 +202,7 @@ const enumerated = (op: "insert" | "delete" | "put", relation: Rel, most: number
 	}))
 
 /** The relations a ChangeSet's member writes. */
-type Written = "Item" | "Note" | "Code" | "Ticket" | "Room" | "Ref" | "Zed"
+type Written = "Item" | "Note" | "Code" | "Room" | "Ref" | "Zed"
 
 /** Each written relation's members: what a member drawn for it may be, each equally often. */
 const membersOf: { readonly [R in Written]: Arr.NonEmptyReadonlyArray<Gen<Member>> } = {
@@ -230,32 +222,18 @@ const membersOf: { readonly [R in Written]: Arr.NonEmptyReadonlyArray<Gen<Member
 		map(idGen, (id): Member => ({ kind: "copied", id }))
 	],
 	Code: [enumerated("insert", "Code", 1), enumerated("put", "Code", 1)],
-	Ticket: [
-		map(int(1, 2), (n): Member => ({ kind: "generated", labels: upTo(n, () => "") })),
-		enumerated("insert", "Ticket", 1)
-	],
 	Room: [enumerated("insert", "Room", 1), enumerated("put", "Room", 1)],
 	Ref: [enumerated("insert", "Ref", 1), enumerated("delete", "Ref", 1)],
 	Zed: [enumerated("put", "Zed", 1)]
 }
 
-const written: Arr.NonEmptyReadonlyArray<Written> = [
-	"Item",
-	"Note",
-	"Code",
-	"Ticket",
-	"Room",
-	"Ref",
-	"Zed"
-]
+const written: Arr.NonEmptyReadonlyArray<Written> = ["Item", "Note", "Code", "Room", "Ref", "Zed"]
 
 /** The relation a member writes. */
 const writtenBy = (m: Member): Rel => {
 	switch (m.kind) {
 		case "enumerated":
 			return m.relation
-		case "generated":
-			return "Ticket"
 		case "move":
 		case "scoped":
 		case "copied":
@@ -282,14 +260,10 @@ const opGen: Gen<GrizzleOp> = (source) => {
 
 /**
  * An array member's operation and relation, the key a served call gives its facts under (adapter/served/load.ts
- * ChangeCall): an enumerated member's, or a generated addition's insert into Ticket; a query member has none.
+ * ChangeCall): an enumerated member's; a query member has none.
  */
 const arrayKey = (m: Member): string | undefined =>
-	m.kind === "enumerated"
-		? `${m.op} ${m.relation}`
-		: m.kind === "generated"
-			? "insert Ticket"
-			: undefined
+	m.kind === "enumerated" ? `${m.op} ${m.relation}` : undefined
 
 /**
  * A ChangeSet as a served workload can hold it (`servable`): each later stratum's array members of an operation and
@@ -327,19 +301,8 @@ const servingOf = (
 	return { servable: { strata }, repeats }
 }
 
-/** The relations a direct DELETE draws its key from: every one but Ticket, whose serial a direct writer never deletes. */
-const deletable: Arr.NonEmptyReadonlyArray<Rel> = ["Item", "Note", "Code", "Room", "Ref", "Zed"]
-
 /** The relations `app` and `direct` hold and write: every one but `inserter`'s Badge and Gate. */
-const shared: Arr.NonEmptyReadonlyArray<Rel> = [
-	"Item",
-	"Note",
-	"Code",
-	"Ticket",
-	"Room",
-	"Ref",
-	"Zed"
-]
+const shared: Arr.NonEmptyReadonlyArray<Rel> = ["Item", "Note", "Code", "Room", "Ref", "Zed"]
 
 const statementGen: Gen<Statement> = weighted([
 	[
@@ -352,7 +315,7 @@ const statementGen: Gen<Statement> = weighted([
 	[
 		4,
 		(source): Statement => {
-			const relation = source.draw(element(deletable))
+			const relation = source.draw(element(shared))
 			const f = source.draw(factGens[relation])
 			return { kind: "delete", relation, key: relation === "Room" ? f.slice(0, 3) : f.slice(0, 1) }
 		}
@@ -402,8 +365,6 @@ const plantedRaces = [
 	"a deletion before an insert beside a concurrent occupant",
 	"two puts of one key",
 	"repeat beside a deletion",
-	"generated beside explicit",
-	"generated beside a deletion of its label's occupant",
 	"span put over another key",
 	"update beside an ON CONFLICT put",
 	"update beside an UPDATE ... FROM put",
@@ -455,11 +416,6 @@ const direct = (actor: DirectActorName, ...statements: ReadonlyArray<Statement>)
 	kind: "direct",
 	actor,
 	statements
-})
-
-const generated = (...named: ReadonlyArray<string>): Member => ({
-	kind: "generated",
-	labels: named
 })
 
 /** A planted race's drawn values: two distinct keys, three distinct labels and a blocker. */
@@ -534,19 +490,6 @@ const plantedRace = (name: PlantedRace, { k, k2, l1, l2, l3, z }: PlantedValues)
 				direct("d1", { kind: "insert", relation: "Zed", fact: [z] }),
 				grizzle("app", ops([ins("Item", [k, l1], [k2, l1])], blockerStratum(z))),
 				grizzle("app2", ops([del("Item", [k, l1], [k2, l1])]))
-			)
-		case "generated beside explicit":
-			return race(
-				{ Ticket: [["1", l1]] },
-				direct("d1", { kind: "insert", relation: "Ticket", fact: ["2", l2] }),
-				grizzle("app", ops([generated("ga", "gb")])),
-				grizzle("app2", ops([ins("Ticket", ["3", l3])]))
-			)
-		case "generated beside a deletion of its label's occupant":
-			return race(
-				{},
-				direct("d1", { kind: "insert", relation: "Ticket", fact: ["9", l1] }),
-				grizzle("app", ops([del("Ticket", ["9", l1]), generated(l1)]))
 			)
 		case "span put over another key":
 			return race(
@@ -627,34 +570,6 @@ const drawnRaceGen: Gen<Race> = (source) => {
 }
 
 /**
- * Each generated member's labels in a drawn race, distinct across the race and from every explicit label: "g" and a
- * letter. A planted race states its own.
- */
-const labelGenerated = (race: Race): Race => {
-	let next = 0
-	const fresh = (): string => `g${String.fromCharCode(97 + next++)}`
-	return {
-		...race,
-		sessions: Arr.map(race.sessions, (s) =>
-			s.kind === "direct"
-				? s
-				: {
-						...s,
-						ops: Arr.map(s.ops, (op) => ({
-							strata: Arr.map(op.strata, (stratum) =>
-								Arr.map(stratum, (m): Member =>
-									m.kind === "generated"
-										? { kind: "generated", labels: Arr.map(m.labels, fresh) }
-										: m
-								)
-							)
-						}))
-					}
-		)
-	}
-}
-
-/**
  * A case: every planted race, then one drawn race, on one installation. A race of too many moves to run in every order
  * draws its PCT schedule in the property, once its sessions are known.
  */
@@ -669,7 +584,7 @@ interface RaceCase {
 }
 
 export const raceCaseGen: Gen<RaceCase> = (source) => {
-	const drawn = labelGenerated(source.draw(drawnRaceGen))
+	const drawn = source.draw(drawnRaceGen)
 	const planted = ops(
 		[ins("Zed", [source.draw(element(blockers))])],
 		blockerStratum(source.draw(element(blockers)))
@@ -695,7 +610,7 @@ export const raceCaseGen: Gen<RaceCase> = (source) => {
 	}
 }
 
-const relationOf = { Item, Note, Code, Ticket, Room, Ref, Zed, Badge, Gate, Claim, Seat } as const
+const relationOf = { Item, Note, Code, Room, Ref, Zed, Badge, Gate, Claim, Seat } as const
 
 /** A fact as the record a ChangeSet member gives. */
 const recordOf = (relation: Rel, f: Fact): Readonly<Record<string, unknown>> => {
@@ -707,8 +622,6 @@ const recordOf = (relation: Rel, f: Fact): Readonly<Record<string, unknown>> => 
 		case "Code":
 		case "Badge":
 			return { id: Number(cell(0)), code: Number(cell(1)) }
-		case "Ticket":
-			return { no: BigInt(cell(0)), label: cell(1) }
 		case "Room":
 			return {
 				room: Number(cell(0)),
@@ -732,7 +645,6 @@ const valuesOf = (r: Rel, f: Fact): string => {
 	switch (r) {
 		case "Item":
 		case "Note":
-		case "Ticket":
 			return `(${cell(0)}, '${cell(1)}')`
 		case "Code":
 		case "Ref":
@@ -761,8 +673,6 @@ const sqlOf = (o: Opened) => {
 				return `${o.names.column(Item, "id")}, ${o.names.column(Item, "label")}`
 			case "Code":
 				return `${o.names.column(Code, "id")}, ${o.names.column(Code, "code")}`
-			case "Ticket":
-				return `${o.names.column(Ticket, "no")}, ${o.names.column(Ticket, "label")}`
 			case "Room":
 				return `${o.names.column(Room, "room")}, ${o.names.column(Room, "during")}, ${o.names.column(Room, "label")}`
 			case "Ref":
@@ -780,7 +690,7 @@ const sqlOf = (o: Opened) => {
 		}
 	}
 	const insert = (r: Rel, f: Fact): string =>
-		`INSERT INTO ${t(r)} (${columns(r)})${r === "Ticket" ? " OVERRIDING SYSTEM VALUE" : ""} VALUES ${valuesOf(r, f)}`
+		`INSERT INTO ${t(r)} (${columns(r)}) VALUES ${valuesOf(r, f)}`
 	const keyCondition = (r: Rel, key: Fact): string =>
 		r === "Room"
 			? `${o.names.column(Room, "room")} = ${key[0] ?? ""} AND ${o.names.column(Room, "during")} = pg_catalog.int8range(${key[1] ?? ""}, ${key[2] ?? ""})`
@@ -797,21 +707,15 @@ const sqlOf = (o: Opened) => {
 				return `UPDATE ${t("Item")} SET ${o.names.column(Item, "label")} = '${s.label}' WHERE ${o.names.column(Item, "id")} = ${s.id}`
 		}
 	}
-	/**
-	 * The owner's reset to a state, written whole (rig.replace truncates every relation's table): the state's facts
-	 * loaded, Ticket's sequence behind every stored value.
-	 */
-	const reset = (state: State): ReadonlyArray<string> => [
-		...Arr.flatMap(relationNames, (r) => Arr.map(state[r], (f) => insert(r, f))),
-		`SELECT pg_catalog.setval(pg_catalog.pg_get_serial_sequence('${pipe(t("Ticket"), Str.replaceAll("'", "''"))}', '${o.names.columnIdent(Ticket, "no")}'), 1, false)`
-	]
+	/** The owner's reset to a state, written whole (rig.replace truncates every relation's table): the state's facts. */
+	const reset = (state: State): ReadonlyArray<string> =>
+		Arr.flatMap(relationNames, (r) => Arr.map(state[r], (f) => insert(r, f)))
 	/** Every relation's facts as text rows: the relation's name, then its columns, padded to four. */
 	const read = Arr.join(
 		[
 			`SELECT 'Item'::text, ${o.names.column(Item, "id")}::text, ${o.names.column(Item, "label")}::text, NULL::text, NULL::text FROM ${t("Item")}`,
 			`SELECT 'Note', ${o.names.column(Note, "id")}::text, ${o.names.column(Note, "label")}::text, NULL, NULL FROM ${t("Note")}`,
 			`SELECT 'Code', ${o.names.column(Code, "id")}::text, ${o.names.column(Code, "code")}::text, NULL, NULL FROM ${t("Code")}`,
-			`SELECT 'Ticket', ${o.names.column(Ticket, "no")}::text, ${o.names.column(Ticket, "label")}::text, NULL, NULL FROM ${t("Ticket")}`,
 			`SELECT 'Room', ${o.names.column(Room, "room")}::text, pg_catalog.lower(${o.names.column(Room, "during")})::text, pg_catalog.upper(${o.names.column(Room, "during")})::text, ${o.names.column(Room, "label")}::text FROM ${t("Room")}`,
 			`SELECT 'Ref', ${o.names.column(Ref, "id")}::text, ${o.names.column(Ref, "item")}::text, NULL, NULL FROM ${t("Ref")}`,
 			`SELECT 'Zed', ${o.names.column(Zed, "id")}::text, NULL, NULL, NULL FROM ${t("Zed")}`,
@@ -960,11 +864,6 @@ const changeSetOf = (
 							? changes.delete(relation, facts)
 							: changes.put(relation, facts)
 				}
-				case "generated":
-					return changes.insert(
-						Ticket,
-						Arr.map(m.labels, (label) => ({ label }))
-					)
 				case "move":
 					return changes.put(
 						Note,
@@ -1017,7 +916,7 @@ type CallFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<u
 
 /**
  * A grizzle op's facts as its served call gives them (adapter/served/load.ts ChangeCall): each array member's records
- * under its operation and its relation, a generated addition's labels under Ticket's insert.
+ * under its operation and its relation.
  */
 const factsOf = (op: GrizzleOp): CallFacts => {
 	const facts: Record<string, Record<string, Array<unknown>>> = {}
@@ -1036,12 +935,6 @@ const factsOf = (op: GrizzleOp): CallFacts => {
 				m.op,
 				m.relation,
 				Arr.map(m.facts, (f) => recordOf(m.relation, f))
-			)
-		} else if (m.kind === "generated") {
-			add(
-				"insert",
-				"Ticket",
-				Arr.map(m.labels, (label) => ({ label }))
 			)
 		}
 	}
@@ -1090,8 +983,6 @@ const describeMember = (m: Member): string => {
 				Arr.map(m.facts, (f) => `(${Arr.join(f, ", ")})`),
 				" "
 			)}`
-		case "generated":
-			return `insert Ticket generated ${Arr.join(m.labels, " ")}`
 		case "move":
 			return `put Note at ${m.id} label ${m.label} (described over Note)`
 		case "scoped":
@@ -1145,9 +1036,6 @@ export type RaceFeature =
 	| "a deadlock broken"
 	| "nature branched"
 	| "a write held between its strata"
-	| "generated serial committed"
-	| "explicit serial committed"
-	| "a generated addition met its label's occupant unseen"
 	| "a repeat across strata refused"
 	| "every order"
 	| "pct"
@@ -1170,13 +1058,9 @@ export const situations: Arr.NonEmptyReadonlyArray<RaceFeature> = [
 	"grizzle accepted",
 	"grizzle unchanged",
 	"grizzle refused",
-	"transient GeneratedSerialUnique",
 	"direct committed",
 	"a step waited",
 	"a write held between its strata",
-	"generated serial committed",
-	"explicit serial committed",
-	"a generated addition met its label's occupant unseen",
 	"a repeat across strata refused",
 	"every order",
 	...Arr.map(plantedRaces, (name): RaceFeature => `planted ${name}`)
@@ -1263,7 +1147,6 @@ const stateOfRows = (rows: TextRows): State => {
 		Item: [],
 		Note: [],
 		Code: [],
-		Ticket: [],
 		Room: [],
 		Ref: [],
 		Zed: [],
@@ -1551,26 +1434,9 @@ const runFeatures = (
 					? [`direct ${x.answer.code}`]
 					: []
 		}
-		const members = x.answer.kind === "accepted" ? x.op.strata.flat() : []
-		const generates = Arr.some(x.op.strata.flat(), (m) => m.kind === "generated")
 		return [
 			`grizzle ${x.answer.kind}`,
-			...Arr.map(x.refused, (reason): RaceFeature => `transient ${reason}`),
-			...(generates &&
-			x.refused.includes("SerializationFailure") &&
-			race.origin.kind === "planted" &&
-			race.origin.name === "generated beside a deletion of its label's occupant"
-				? ["a generated addition met its label's occupant unseen" as const]
-				: []),
-			...(Arr.some(members, (m) => m.kind === "generated")
-				? ["generated serial committed" as const]
-				: []),
-			...(Arr.some(
-				members,
-				(m) => m.kind === "enumerated" && m.relation === "Ticket" && m.op === "insert"
-			)
-				? ["explicit serial committed" as const]
-				: [])
+			...Arr.map(x.refused, (reason): RaceFeature => `transient ${reason}`)
 		]
 	})
 	return [

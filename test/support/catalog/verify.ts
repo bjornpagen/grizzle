@@ -10,8 +10,8 @@ import type {
 
 /**
  * What a function of the installation is, by the object that installs it, which decides how it is installed and who
- * may execute it: a world's function (a writable query entry's filter function, key probe or unique probe), a serial
- * field's advance function, moving the identity sequence of `table`, the refusal function, the snapshot guard, the
+ * may execute it: a world's function (a writable query entry's filter function, key probe or unique probe), the
+ * refusal function, the snapshot guard, the
  * isolation guard, a rule over a query's trigger function, a retirable unit's hold or retirement, or a constant: a roster's names constant, which the roster domain `domain`'s CHECK reads; a
  * roster's live-codes constant, derived from the names constant `names` and read by the bits domain `domain`'s CHECK;
  * or a closed relation's or a side's constant, named by its content's digest.
@@ -23,7 +23,6 @@ export type InstalledFunction =
 			readonly kind: "declared"
 			readonly volatility: "i" | "s" | "v"
 	  }
-	| { readonly kind: "advance"; readonly table: string }
 	| { readonly kind: "refusal" }
 	| { readonly kind: "snapshotGuard" }
 	| { readonly kind: "isolationGuard" }
@@ -197,20 +196,7 @@ export type ErasureProblem =
 			readonly function: string
 			readonly executors: ReadonlyArray<string>
 	  }
-	| {
-			readonly kind: "advanceWithoutInsert"
-			readonly function: string
-			readonly role: string
-			readonly table: string
-	  }
-	| {
-			readonly kind: "insertWithoutAdvance"
-			readonly function: string
-			readonly role: string
-			readonly table: string
-	  }
 	| { readonly kind: "foreignFunction"; readonly function: string }
-	| { readonly kind: "advanceMissing"; readonly function: string; readonly table: string }
 	| { readonly kind: "triggerDisabled"; readonly trigger: string; readonly table: string }
 	| { readonly kind: "malformedGuard"; readonly table: string }
 	| { readonly kind: "foreignTrigger"; readonly trigger: string; readonly table: string }
@@ -663,45 +649,9 @@ const refresherProblems = (j: Judging): ReadonlyArray<ErasureProblem> =>
 		)
 	)
 
-/** An advance function is executable by exactly the roles that insert into its table. */
-const advanceProblems = (
-	j: Judging,
-	f: Fn,
-	table: string,
-	executors: ReadonlySet<string>
-): ReadonlyArray<ErasureProblem> => {
-	const installed = Arr.findFirst(j.catalog.tables, (t) => t.kind === "r" && t.name === table)
-	const inserts = (role: string) =>
-		Option.exists(installed, (t) =>
-			Arr.some(
-				[...t.grants, ...t.columnGrants],
-				(g) => g.grantee === role && g.privilege === "INSERT"
-			)
-		)
-	return [
-		...grantProblems(
-			j,
-			on({ kind: "function", name: f.name }, f.grants),
-			allowed.function,
-			allowed.none
-		),
-		...Arr.flatMap([...executors], (role) =>
-			unless(inserts(role), { kind: "advanceWithoutInsert", function: f.name, role, table })
-		),
-		...Arr.flatMap([...j.worldRoles], (role) =>
-			unless(!inserts(role) || executors.has(role), {
-				kind: "insertWithoutAdvance",
-				function: f.name,
-				role,
-				table
-			})
-		)
-	]
-}
-
 /**
  * A SECURITY DEFINER function grizzle installs, owned by the owner, its search_path fixed: a world's function is STABLE
- * and executable by one role; every other is VOLATILE, and is an advance function, the refusal function or a retirable
+ * and executable by one role; every other is VOLATILE, and is the refusal function or a retirable
  * unit's hold or retirement (EXECUTE to world roles alone), the snapshot guard (EXECUTE to every login and no role), or
  * the isolation guard or a law function (EXECUTE to no one). A function the installation does not include is
  * foreign, and judged as one that grants EXECUTE to no one.
@@ -775,8 +725,6 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 					executors: Arr.sort([...executors], Order.String)
 				})
 			]
-		case "advance":
-			return [...definer, ...advanceProblems(j, f, expected.table, executors)]
 		case "refusal":
 		case "hold":
 		case "retire":
@@ -1245,15 +1193,15 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  * - only authored tables, the migrations ledger and the live source's secret exist, plus the materialized views of
  *   declared derived relations; no plain view, foreign table, or other type beyond domains and row types, and no
  *   pg_enum row: a roster is a smallint domain;
- * - the only functions are the refusal function, the isolation guard, the snapshot guard and each serial field's
- *   advance function, owned by the owner, SECURITY DEFINER, VOLATILE, with `search_path = pg_catalog, pg_temp`; the
+ * - the only functions are the refusal function, the isolation guard and the snapshot guard, owned by the owner,
+ *   SECURITY DEFINER, VOLATILE, with `search_path = pg_catalog, pg_temp`; the
  *   worlds' functions (each writable query entry's filter function and key and unique probes), owned by the owner,
  *   SECURITY DEFINER, STABLE, with the same search_path; and the constants, each named by its content's digest, a SQL function of no
  *   argument, IMMUTABLE, owned by the owner, neither SECURITY DEFINER nor carrying a SET clause: a roster's names
  *   constant, the live-codes constant derived from it, and a closed relation's constants. EXECUTE goes to no one on
  *   the isolation guard, to world roles alone on the refusal function, to exactly the logins on the snapshot guard,
- *   which every Db transaction calls as its login, to the one role whose entry it serves on a world's function, on an
- *   advance function to exactly the world roles that insert into its table, and on a constant to exactly the world
+ *   which every Db transaction calls as its login, to the one role whose entry it serves on a world's function, and on
+ *   a constant to exactly the world
  *   roles that call it as invokers: through USAGE on a domain whose CHECK reads it, a view that decodes through it, or
  *   another constant derived from it;
  * - a roster's domain and a set's domain each have one CHECK, which calls exactly their constant;
@@ -1271,8 +1219,7 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  *   table or of a column, on an immutable relation (immutable by default is pinned) or TRUNCATE on any relation
  *   (TRUNCATE fires no row trigger and would bypass the laws); a table grants only SELECT, INSERT, DELETE and UPDATE,
  *   a materialized view SELECT and MAINTAIN, the latter to exactly the roles that refresh it, a column SELECT, INSERT
- *   and UPDATE, the schema and a domain USAGE, and an identity sequence nothing: a write moves it through the advance
- *   function;
+ *   and UPDATE, the schema and a domain USAGE, and a sequence nothing;
  * - row security is enabled exactly on the tables some world's entry narrows, never forced, and only those tables carry
  *   policies: one per world role that writes the table, a permissive FOR ALL policy named after that role, whose USING
  *   and WITH CHECK are one predicate, `true` for a role whose entry holds every row; a table every world writes whole
@@ -1342,14 +1289,6 @@ export const verifyErasure = (
 			...unless(!d.notNull, { kind: "domainNotNull", domain: d.name })
 		]),
 		...Arr.flatMap(catalog.functions, (f) => functionProblems(j, f)),
-		...Arr.flatMap([...expect.functions], ([name, expected]) =>
-			expected.kind === "advance"
-				? unless(
-						Arr.some(catalog.functions, (f) => f.name === name),
-						{ kind: "advanceMissing", function: name, table: expected.table }
-					)
-				: []
-		),
 		...Arr.flatMap(catalog.triggers, (t) => triggerProblems(j, t)),
 		...rosterDomainProblems(j),
 		...unless(

@@ -3,16 +3,12 @@
  * a write another transaction read the absence of, and that transaction's deletion of the met row are a write skew,
  * which SSI refuses with 40001.
  *
- * Held(id, k, a) draws `id` by its `uuidv7()` default and is keyed by k, so a generated addition arbitrates at k: the
- * `returned` form of write/insert/protocol.ts, ON CONFLICT (k) DO SELECT, whose unique pre-check reads the occupant
- * again under the query's snapshot at SERIALIZABLE (PostgreSQL's execIndexing.c check_exclusion_or_unique_constraint,
- * 19rc1 and 19rc2 alike), so SSI sees each met row as read. Mark(k) is a pure set. The role `writer` inserts both,
- * and its workload is `meet`, an insertion of Held and of Mark in one stratum that
- * reads back the Held rows it added and the stored ones it met, Held's from a query over the call's relation parameter
- * `held`, whose head leaves the id out, so its rows are one generated addition's and its read-backs ride that
- * statement (an array of Held is two insertions, of the rows that state the id and of those that leave it out, whose
- * read-back the compile refuses: README "Where a read-back runs"). The role `direct` deletes Held, so generate serves
- * `writer` SERIALIZABLE (the case requires it). The stored state is m = Held(k 1, a 0) and o = Held(k 2, a 0).
+ * Held(k, a) is keyed by k, its natural identity, so an insertion arbitrates at k, and its met rows are classified in
+ * the insert's own statement under its snapshot at SERIALIZABLE (write/insert/protocol.ts), so SSI sees each met row as
+ * read. Mark(k) is a pure set. The role `writer` inserts both, and its workload is `meet`, an insertion of Held and of
+ * Mark in one stratum that reads back the Held rows it added and the stored ones it met, Held's from a query over the
+ * call's relation parameter `held`. The role `direct` deletes Held, so generate serves `writer` SERIALIZABLE (the case
+ * requires it). The stored state is m = Held(k 1, a 0) and o = Held(k 2, a 0).
  *
  * One schedule per case: D, a direct SQL session of `direct`, begins SERIALIZABLE and reads whether Mark holds a key;
  * L, a served writer of `writer`, runs `meet` and commits; D deletes a stored Held row and commits.
@@ -21,8 +17,8 @@
  * L's key, 5, or at another, 6. Exhausted.
  *
  * Properties, per case:
- * - L commits, reading back as met exactly the stored m, its id included, where it repeats m, and as added exactly the
- *   row it made at k 3, with its drawn id, where it states that key.
+ * - L commits, reading back as met exactly the stored m where it repeats m, and as added exactly the row it made at
+ *   k 3 where it states that key.
  * - Every run is serializable: where L met m, D read the absence of L's Mark row and D deletes m, no serial order
  *   explains both (L before D would show D L's mark; D before L would leave L no m to meet), so D fails with 40001.
  *   Anywhere else D commits, or fails with 40001 where SSI judges coarser than the rows (a relation-level SIRead lock
@@ -78,7 +74,7 @@ export const aSERIALIZABLEInsertionsMetRowIsAReadSSISeesAWriteSkewThroughItNever
 							const names = namesOf(rig.installed)
 							const held = names.table(Held)
 							const mark = names.table(Mark)
-							const column = (field: "id" | "k" | "a") => names.column(Held, field)
+							const column = (field: "k" | "a") => names.column(Held, field)
 							const markColumn = names.column(Mark, "k")
 							const l = yield* rig.servedWriter(
 								"l",
@@ -97,11 +93,11 @@ export const aSERIALIZABLEInsertionsMetRowIsAReadSSISeesAWriteSkewThroughItNever
 							const { d } = yield* openActors(s, { d: { kind: "raw", as: rig.direct } })
 							const heldState = Effect.map(
 								s.admin.queryValues(
-									`SELECT ${column("k")}::text, ${column("a")}::text, ${column("id")}::text FROM ${held} ORDER BY 1`,
+									`SELECT ${column("k")}::text, ${column("a")}::text FROM ${held} ORDER BY 1`,
 									[]
 								),
 								(rows): ReadonlyArray<HeldText> =>
-									Arr.map(rows, ([k, a, id]) => ({ k: String(k), a: String(a), id: String(id) }))
+									Arr.map(rows, ([k, a]) => ({ k: String(k), a: String(a) }))
 							)
 							const markState = Effect.map(
 								s.admin.queryValues(`SELECT ${markColumn}::text FROM ${mark} ORDER BY 1`, []),
@@ -136,7 +132,7 @@ export const aSERIALIZABLEInsertionsMetRowIsAReadSSISeesAWriteSkewThroughItNever
 							)
 							const deleted = yield* d.perform({
 								_tag: "Sql",
-								sql: `DELETE FROM ${held} WHERE ${column("id")} = '${target.id}'`
+								sql: `DELETE FROM ${held} WHERE ${column("k")} = ${target.k}`
 							})
 							const ended = deleted._tag === "Ok" ? yield* d.perform({ _tag: "Commit" }) : deleted
 							if (ended._tag !== "Ok" && ended._tag !== "RolledBack") {
@@ -154,12 +150,12 @@ export const aSERIALIZABLEInsertionsMetRowIsAReadSSISeesAWriteSkewThroughItNever
 							assert.deepEqual(
 								byKey(Arr.map(outcome.reads.met, heldText)),
 								c.repeats ? [m] : [],
-								"L reads back as met exactly the stored m it repeats, its id included"
+								"L reads back as met exactly the stored m it repeats"
 							)
 							assert.deepEqual(
 								byKey(Arr.map(outcome.reads.added, heldText)),
 								c.repeats ? [] : made,
-								"L reads back as added exactly the row it made, its drawn id included"
+								"L reads back as added exactly the row it made"
 							)
 							assert.deepEqual(marks, [String(markKey)], "L's mark is stored")
 							if (c.repeats && c.deletesMet && c.readsMark) {
@@ -180,7 +176,7 @@ export const aSERIALIZABLEInsertionsMetRowIsAReadSSISeesAWriteSkewThroughItNever
 							}
 							assert.deepEqual(
 								after,
-								byKey(Arr.filter([...before, ...made], (r) => r.id !== target.id)),
+								byKey(Arr.filter([...before, ...made], (r) => r.k !== target.k)),
 								"the table ends as L, then D, leave it"
 							)
 							k.note(

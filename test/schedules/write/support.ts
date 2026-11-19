@@ -73,7 +73,6 @@ export const threeKeys: Gen<Three> = (source) => {
 export const Item = relation("Item", { id: pg.integer, label }, ["id"])
 export const Note = relation("Note", { id: pg.integer, label }, ["id"])
 export const Code = relation("Code", { id: pg.integer, code: pg.integer }, ["id"])
-export const Ticket = relation("Ticket", { no: pg.bigserial, label }, ["no"])
 export const Room = relation("Room", { room: pg.integer, during: span(pg.bigint), label }, [
 	"room",
 	"during"
@@ -85,24 +84,22 @@ export const Gate = relation("Gate", { id: pg.integer }, ["id"])
 export const Claim = relation("Claim", { id: pg.integer, holder: pg.integer }, ["id"])
 export const Seat = relation("Seat", { id: pg.integer, holder: pg.integer }, ["id"])
 
-/** Code's and Ticket's candidate keys, and Ref's foreign key into Item, which the write model reads off the schema's own
- * description (races.test.ts lawsOf). */
+/** Code's candidate key, and Ref's foreign key into Item, which the write model reads off the schema's own description
+ * (races.test.ts lawsOf). */
 const codeKey = key(on(Code, "code"))
-const ticketLabel = key(on(Ticket, "label"))
 const refItem = contained(on(Ref, "item"), on(Item, "id"))
 /** Badge's candidate key: the unique object beside its arbiter that two certified READ COMMITTED inserts race at. */
 export const badgeCode = key(on(Badge, "code"))
 
-const shared = { Item, Note, Code, Ticket, Room, Ref, Zed } as const
+const shared = { Item, Note, Code, Room, Ref, Zed } as const
 const relations = { ...shared, Badge, Gate, Claim, Seat } as const
-const written = ["Item", "Note", "Code", "Ticket", "Room", "Ref", "Zed"] as const
+const written = ["Item", "Note", "Code", "Room", "Ref", "Zed"] as const
 const statements = [
 	mutable(Note),
 	mutable(Code),
 	mutable(Room),
 	mutable(Zed),
 	codeKey,
-	ticketLabel,
 	refItem,
 	badgeCode,
 	race(Claim),
@@ -177,7 +174,7 @@ const schedSchema = (name: string) => schema(name, Rec.values(relations), statem
  * Shared setup for the grizzle write schedules.
  *
  * A small schema installs under a fresh schema name as generate drafts and serves it (openRig), with two full roles over
- * its first seven relations, each writing every one of them: `app`, which the grizzle writers open through Db.open and
+ * its first six relations, each writing every one of them: `app`, which the grizzle writers open through Db.open and
  * a DbLayer of the served login `server` exactly as an application does (the rig's `servedWriter`), its workload's
  * `noop`, the empty ChangeSet, a writer's first call, and `direct`, which raw pinned sessions take on through the login
  * `psql` to play the concurrent direct SQL writer. Both are certified SERIALIZABLE, and every table they write keeps its
@@ -191,8 +188,6 @@ const schedSchema = (name: string) => schema(name, Rec.values(relations), statem
  * - Note: `mutable`, keyed by id: a put in place, ON CONFLICT DO UPDATE, UPDATE ... FROM or MERGE by its member;
  * - Code: `mutable`, keyed by id, with the candidate key code: a unique object beside the arbiter (UnseenOccupant), and
  *   a put that stays the pair for its candidate key;
- * - Ticket: a bigserial key, for generated and explicit serial values (GeneratedSerialUnique), with the candidate key
- *   label: a unique object a generated addition, which has no arbiter, is probed at (UnseenOccupant);
  * - Room: `mutable`, a span key (room, during): WITHOUT OVERLAPS (SpanKeyChange), a put that stays the pair;
  * - Ref: an immutable relation whose foreign key into Item is deferred (Item holds a payload, so it is no pure set): a
  *   law at COMMIT beside the writes;

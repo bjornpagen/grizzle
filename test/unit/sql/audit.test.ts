@@ -53,7 +53,6 @@ import {
 	breakSituations,
 	candidates,
 	clip,
-	explicit,
 	type FaithfulFeature,
 	faithfulReaching,
 	faithfulSituations,
@@ -146,9 +145,6 @@ export const everyStatementAGeneratedWriteProgramPlacesPassesBothAuditsPrintsAsI
 					universal(twinned)
 					c.note(`statement ${twinned.statement.kind}`)
 					c.noteAll(shapeFeatures(shapeOf(twinned.statement)))
-					if (writesWhere(twinned.statement, explicit)) {
-						c.note("overriding system value")
-					}
 					if (writesWhere(twinned.statement, marksMet)) {
 						c.note("old under IS TRUE in an INSERT's RETURNING")
 					}

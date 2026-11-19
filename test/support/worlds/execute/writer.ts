@@ -1,16 +1,10 @@
 import { Array as Arr, Effect, Option, Record as Rec, type Scope, String as Str } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { type PgErrorFields, reportedOwnerOf } from "#test/support/substrate/errors.ts"
 import type { PsqlWriter } from "#test/support/substrate/psql.ts"
-import {
-	advancesOf,
-	type DirectNames,
-	directSql,
-	type Reads
-} from "#test/support/worlds/execute/direct.ts"
+import { type DirectNames, directSql, type Reads } from "#test/support/worlds/execute/direct.ts"
 import { valueOfText } from "#test/support/worlds/execute/host.ts"
 import type { Found } from "#test/support/worlds/execute/leak.ts"
 import { sqlStateOf } from "#test/support/worlds/execute/observe.ts"
@@ -246,34 +240,8 @@ const refusalOf = (reading: LawReading, fields: PgErrorFields): Effect.Effect<Se
 		return { observation, found: fieldTexts(fields), told: toldOf(fields) }
 	})
 
-/**
- * One direct statement on the writer's session, as the README's writer sends it: the statement, then, once it
- * succeeded, the advance calls it owes (direct.ts advancesOf), the first refused one's refusal being the statement's.
- */
+/** One direct statement's SQL on the writer's session, as the README's writer sends it, and what it answered. */
 export const runDirect = (
-	reading: LawReading,
-	names: DirectNames,
-	session: DirectSession,
-	statement: DirectStatement
-): Effect.Effect<Seen> =>
-	Effect.gen(function* () {
-		const ran = yield* runOne(reading, names, session, statement)
-		if (ran.observation.kind !== "ok" && ran.observation.kind !== "rows") {
-			return ran
-		}
-		const found: Array<Found> = [...ran.found]
-		for (const advance of yield* advancesOf(names, statement)) {
-			const advanced = yield* runOne(reading, names, session, advance)
-			appendAll(found, advanced.found)
-			if (advanced.observation.kind !== "ok") {
-				return { ...advanced, found }
-			}
-		}
-		return { ...ran, found }
-	})
-
-/** One statement's SQL on the writer's session, and what it answered. */
-const runOne = (
 	reading: LawReading,
 	names: DirectNames,
 	session: DirectSession,

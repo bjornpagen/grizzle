@@ -2,7 +2,7 @@
  * What a role that writes a family's member holds on the family's owner O (physical/ddl/roles.ts, rows-first), over
  * generated worlds: two roles, each writing each relation whole, through a query entry that holds every row, through
  * one narrowed by a literal or by a join, or not at all, over a counted family with a fold and a copy and an ordered
- * one, each owner mutable or not, and a serial field on the owner and on a relation of its own.
+ * one, each owner mutable or not.
  *
  * - **Declaration refusals:** a role is refused when it is declared exactly when it writes through a query entry over a
  *   relation whose key holds a field the relation's family draws, judged from the schema's declarations: a Slot is keyed
@@ -21,15 +21,12 @@
  *   a field that is neither its group nor a copy, or writes the owner through a narrowed entry whose filter is not the
  *   members' translated; the refusal names the role and the family.
  * - **The audit naming rule:** every installed statement, a translated policy's included, passes the SQL audit.
- * - **The advance closure:** every role that holds INSERT on a table with a serial field holds EXECUTE on the field's
- *   advance function, and no other role does: a member writer, holding SELECT and UPDATE on its owner, holds none.
  *
  * Oracles: the rule restated over the case, the control installation for the grants the role's own entries make, and a
  * host evaluator of the policies' predicates over literal rows that shares no code with the installer's rendering.
  *
  * Features: each way a member writer's filter is translated or refused, a narrowed owner entry refused, a member writer
- * under its owner's row security, a serial written whole and through a query entry, and a writable entry whose key holds
- * a drawn index refused when declared.
+ * under its owner's row security, and a writable entry whose key holds a drawn index refused when declared.
  */
 
 import { property } from "@bjornpagen/testing/property"
@@ -66,7 +63,7 @@ import {
 	type Writer
 } from "#test/unit/physical/family-grants.fixtures.ts"
 
-/** A member writer's hold on its family's owner exact column grants, the owner rows its policy admits, translation refusals and the advance closure. Its budget is its suite's before it was a property (test/unit/physical/family-grants.test.ts at 4ca3036a): 160 runs and 160 steered cases. */
+/** A member writer's hold on its family's owner exact column grants, the owner rows its policy admits, and translation refusals. Its budget is its suite's before it was a property (test/unit/physical/family-grants.test.ts at 4ca3036a): 160 runs and 160 steered cases. */
 export const aMemberWritersHoldOnItsFamilysOwnerExactColumnGrantsTheOwnerRowsItsPolicyAdmitsTranslationRefusalsAndTheAdvanceClosure =
 	property.explore(worldGen, {
 		needs: {},
@@ -151,31 +148,6 @@ export const aMemberWritersHoldOnItsFamilysOwnerExactColumnGrantsTheOwnerRowsIts
 								`${r}'s ${p} on ${o} is its own entries' and the family rule's`
 							)
 						}
-					}
-					for (const [t, f] of [
-						["Store", "seq"],
-						["Ticket", "no"]
-					] as const) {
-						const advance = i.names.advance(t, f)
-						const inserts =
-							held(i.statements, theory, i.names.relation(t).name, "INSERT", columnsOf(i, t)).size >
-							0
-						const executes = Arr.some(
-							i.statements,
-							(s) =>
-								s.kind === "grant" &&
-								s.on.kind === "FUNCTION" &&
-								Arr.some(
-									s.on.names,
-									(n) => n.schema === advance.schema && n.name === advance.name
-								) &&
-								Arr.some(s.to, (g) => g.kind === "role" && g.name === theory)
-						)
-						assert.equal(
-							executes,
-							inserts,
-							`${r} holds EXECUTE on ${t}.${f}'s advance exactly when it inserts into ${t}`
-						)
 					}
 				}
 				const { secured, policies } = security(i)

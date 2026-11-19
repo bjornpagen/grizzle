@@ -55,11 +55,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * relation whose every native object is a unique object are settled by one INSERT … ON CONFLICT DO NOTHING arbitrating
  * every object, its met rows classified in the same statement (write/insert/protocol.ts Arbitration `every`, since
  * bdc6fb77, kept by cdf8da2d): a complete proposal reads no stored row for a fact it inserts. Every other insert of the
- * protocol, at READ COMMITTED, a generated addition, or into a relation with a native object that is no unique object,
- * is ON CONFLICT on its arbiter's key DO SELECT (`returned`). Exact repeats return no row. This file reads each form off
- * the compiled program's audited AST: the SERIALIZABLE form of an immutable relation ordered by its key, of a `mutable`
- * one and of a pure set; the DO SELECT of a generated addition at its arbiter key and of the immutable relation's insert
- * compiled at READ COMMITTED. It runs the protocol with a grizzle writer (a Db opened through its login's served layer, applying
+ * protocol, at READ COMMITTED or into a relation with a native object that is no unique object, is ON CONFLICT on its
+ * arbiter's key DO SELECT (`returned`). Exact repeats return no row. This file reads each form off the compiled
+ * program's audited AST: the SERIALIZABLE form of an immutable relation ordered by its key, of a `mutable` one and of a
+ * pure set; and the DO SELECT of the immutable relation's insert compiled at READ COMMITTED. It runs the protocol with a grizzle writer (a Db opened through its login's served layer, applying
  * ChangeSets as members of its served workload) beside a direct SQL writer that takes on the same role through its
  * login:
  * - an identical insert in flight waits, then after its commit meets 40001, a TransientFailure, and the caller's second
@@ -82,14 +81,8 @@ const Note = defineRelation("Note", { id: pg.bigint, v: pg.integer }, ["id"])
 const Tag = defineRelation("Tag", { id: pg.bigint }, ["id"])
 const Coded = defineRelation("Coded", { id: pg.bigint, code: pg.bigint }, ["id"])
 const Anchor = defineRelation("Anchor", { id: pg.integer }, ["id"])
-/** A relation whose key its sequence draws, and a declared key on `code` that holds no field it draws. */
-const Ticket = defineRelation("Ticket", { id: pg.serial, code: pg.bigint }, ["id"])
 const build = (name: string) =>
-	schema(
-		name,
-		[Item, Note, Tag, Coded, Anchor, Ticket],
-		[mutable(Note), key(on(Coded, "code")), key(on(Ticket, "code"))]
-	)
+	schema(name, [Item, Note, Tag, Coded, Anchor], [mutable(Note), key(on(Coded, "code"))])
 
 interface Options extends Readonly<Record<string, unknown>> {
 	/** Facts per timed batch. */
@@ -387,25 +380,12 @@ export default defineGate({
 				ChangeSet.empty(S).insert(Note, [{ id: 9n, v: 1 }])
 			)
 			const tagStatements = yield* statementsOf(ChangeSet.empty(S).insert(Tag, [{ id: 9n }]))
-			const ticketStatements = yield* statementsOf(
-				ChangeSet.empty(S).insert(Ticket, [{ code: 9n }])
-			)
 			const itemStatement = insertStatement(itemStatements, Item.name)
 			const noteStatement = insertStatement(noteStatements, Note.name)
 			const tagStatement = insertStatement(tagStatements, Tag.name)
-			const ticketStatement = theStatement(
-				ticketStatements,
-				"the generated addition's insert of Ticket",
-				(l) =>
-					l.kind === "write" &&
-					l.relation === Ticket.name &&
-					l.result.kind === "insert" &&
-					l.result.serial.kind === "generated"
-			)
 			const itemAst = theInsert(itemStatement)
 			const noteAst = theInsert(noteStatement)
 			const tagAst = theInsert(tagStatement)
-			const ticketAst = theInsert(ticketStatement)
 			const itemReadCommitted = readCommittedInsert(db, itemInsert(9n, 1))
 			const tagLabel = tagStatement.label
 
@@ -627,11 +607,6 @@ export default defineGate({
 							tagLabel.result.variant === "pureSet" &&
 							everyDoNothing(tagAst),
 						tagStatement.sql
-					),
-					mechanism(
-						"a generated addition is ON CONFLICT on its arbiter key, the declared key that holds no field it draws, DO SELECT",
-						doSelectOn(ticketAst, [fx.columnName("Ticket", "code")]),
-						ticketStatement.sql
 					),
 					mechanism(
 						"at READ COMMITTED an immutable relation's insert is ON CONFLICT on its key DO SELECT",

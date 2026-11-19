@@ -2,8 +2,8 @@
  * The scalar descriptors (scalar/pg.ts, scalar/registry.ts describeField, schema/relation.ts closedId, contracts and
  * spans), each held to its own definition:
  *
- * - descriptor identity and distinct types: two spellings of the pg namespace are two descriptors, of one type exactly
- *   when one is a serial of the other's integer, and two descriptors one type exactly when their parts name one; a
+ * - descriptor identity and distinct types: two spellings of the pg namespace are two descriptors of two types, and two
+ *   descriptors one type exactly when their parts name one; a
  *   descriptor's Description decodes to itself, keys in order. Oracle: the sketches' own parts (test/unit/scalar/support.ts), a specification.
  * - typmods: numeric(p, s) and vector(n) admit exactly what PostgreSQL's rules admit, at every integer near their
  *   bounds and every wild argument, and refuse every other argument and arity as MalformedDescription. Oracle:
@@ -35,7 +35,7 @@ import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { carrierSql, describeField } from "#compiler/scalar/registry.ts"
 import { checkNumericTypmod } from "#compiler/scalar/values/decimal.ts"
 import { admitVectorDimensions } from "#compiler/scalar/vector.ts"
-import { admittedClosedId, writingOf, closedBuilder } from "#compiler/schema/relation.ts"
+import { admittedClosedId, closedBuilder } from "#compiler/schema/relation.ts"
 import { assert, defined, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
@@ -63,7 +63,6 @@ import {
 	plainPairGen,
 	precisionBounds,
 	type SpanWidthFeature,
-	type SpellingFeature,
 	scalarOf,
 	scaleBounds,
 	spanWidthSpace,
@@ -73,57 +72,33 @@ import {
 	type VectorFeature,
 	vectorSpace
 } from "#test/unit/scalar/descriptors.fixtures.ts"
-import {
-	descriptorGen,
-	descriptorOf,
-	isSerial,
-	spanCarrierOf,
-	typeKeyOf
-} from "#test/unit/scalar/support.ts"
+import { descriptorGen, descriptorOf, spanCarrierOf, typeKeyOf } from "#test/unit/scalar/support.ts"
 
-/** Two spellings of the pg namespace are two descriptors, of one type exactly when one is a serial of the other's integer. */
-export const twoSpellingsAreTwoDescriptorsOfOneTypeExactlyWhenOneIsASerialOfTheOthersInteger =
-	property.exhaust(finite(plainPairGen), {
-		box: "every pair of the pg namespace's descriptors",
-		needs: {},
-		situations: ["one type, two writings", "two types"] satisfies ReadonlyArray<
-			Reached<SpellingFeature>
-		>,
-		check:
-			(_, c: Case<SpellingFeature>) =>
-			([x, y]) =>
-				Effect.sync(() => {
-					const a = descriptorOf(x)
-					const b = descriptorOf(y)
-					const oneType = typeKeyOf(x) === typeKeyOf(y)
-					const oneWriting = writingOf(a).kind === writingOf(b).kind
-					const label = `${Formatter.format(x)} and ${Formatter.format(y)}`
-					assert.equal(oneType && oneWriting, false, `${label}: one type and writing spelled twice`)
-					assert.equal(a === b, false, label)
-					assert.equal(identityOf(a) === identityOf(b), oneType, label)
-					assert.equal(Object.isFrozen(a), true, label)
-					if (!oneType) {
-						c.note("two types")
-						return
-					}
-					c.note("one type, two writings")
-					assert.equal(sameScalarType(scalarOf(a), scalarOf(b)), true, label)
-					assert.deepEqual(descOf(a), descOf(b), label)
-				}),
-		oracle: {
-			kind: "specification",
-			name: "the SQL type each spelling names, which the catalog suite holds PostgreSQL to, and its writing"
-		},
-		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/ir/scalar.ts",
-				original: '\t\tcase "date":\n\t\tcase "bytes":\n\t\t\treturn true',
-				replacement: '\t\tcase "date":\n\t\tcase "bytes":\n\t\t\treturn false',
-				why: "Two plain types of a carrier with no fields of its own are two types (samePlain answers false for them), so a serial and its integer are two types; the spelling property fails."
-			}
-		]
-	})
+/** Two spellings of the pg namespace are two descriptors of two types. */
+export const twoSpellingsAreTwoDescriptorsOfTwoTypes = property.exhaust(finite(plainPairGen), {
+	box: "every pair of the pg namespace's descriptors",
+	needs: {},
+	situations: ["two types"] satisfies ReadonlyArray<Reached<"two types">>,
+	check:
+		(_, c: Case<"two types">) =>
+		([x, y]) =>
+			Effect.sync(() => {
+				const a = descriptorOf(x)
+				const b = descriptorOf(y)
+				const label = `${Formatter.format(x)} and ${Formatter.format(y)}`
+				assert.equal(typeKeyOf(x) === typeKeyOf(y), false, `${label}: one type spelled twice`)
+				assert.equal(a === b, false, label)
+				assert.equal(identityOf(a) === identityOf(b), false, label)
+				assert.equal(Object.isFrozen(a), true, label)
+				c.note("two types")
+			}),
+	oracle: {
+		kind: "specification",
+		name: "the SQL type each spelling names, which the catalog suite holds PostgreSQL to"
+	},
+	kept: [],
+	kills: []
+})
 
 /**
  * Descriptor identity makes two descriptors one type exactly when their parts name one.
@@ -383,16 +358,7 @@ export const typmodValidationAdmitsAPositiveSpanWidthOfTheEndpointsBaseTypeAndRe
 		},
 		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/schema/relation.ts",
-				original:
-					'\treturn hasProperties(value) && value["writing"] === "serial" ? { kind: "serial" } : callerWriting',
-				replacement:
-					'\treturn hasProperties(value) && value["writing"] !== "serial" ? { kind: "serial" } : callerWriting',
-				why: "Operator mutant (comparison) at packages/engine/src/schema/relation.ts:183 in writingOf: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
-			}
-		]
+		kills: []
 	})
 
 /**
@@ -405,15 +371,13 @@ export const typmodValidationAdmitsAPositiveSpanWidthOfTheEndpointsBaseTypeAndRe
 export const spanEndpointEligibilityAdmitsIntegerBigintAndContractsOverThemAsInt4rangeAndInt8rangeAndRefusesEveryOtherEndpoint =
 	property.explore(descriptorGen(2), {
 		needs: {},
-		situations: ["range4", "range8", "refused", "a serial"] satisfies ReadonlyArray<
-			Reached<EndpointFeature>
-		>,
+		situations: ["range4", "range8", "refused"] satisfies ReadonlyArray<Reached<EndpointFeature>>,
 		check: (_, c: Case<EndpointFeature>) => (sketch) =>
 			Effect.sync(() => {
 				const endpoint = descriptorOf(sketch)
 				const expected = spanCarrierOf(sketch)
 				if (expected === undefined) {
-					c.note(sketch.kind === "spelling" && isSerial(sketch.name) ? "a serial" : "refused")
+					c.note("refused")
 					throwsRefused(() => spanDescriptor(endpoint), "UnsupportedOperation")
 					return
 				}
@@ -436,15 +400,7 @@ export const spanEndpointEligibilityAdmitsIntegerBigintAndContractsOverThemAsInt
 		},
 		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/scalar/registry.ts",
-				original:
-					'\tif (carrier !== "int2" && carrier !== "int4" && carrier !== "int8" && carrier !== "uuid") {',
-				replacement: '\tif (carrier !== "int2" && carrier !== "int4" && carrier !== "int8") {',
-				why: 'Operator mutant (conjunct) at packages/engine/src/scalar/registry.ts:435 in serialNameOf: `carrier !== "int2" && carrier !== "int4" && carrier !== "int8" && carrier !== "u` becomes `carrier !== "int2" && carrier !== "int4" && carrier !== "int8"`; the property fails (lane CATCH, grizzle 0baff5d6).'
-			}
-		]
+		kills: []
 	})
 
 /**

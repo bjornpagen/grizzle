@@ -3,9 +3,9 @@
  * fieldDescOf), so a derived relation's heading needs no restatement.
  *
  * - Declared kinds: over drawn relations of one to four fields of every declarable type (field-sketch.ts: every pg
- *   descriptor, serials among them, the numeric typmod box, refined and wildcard text, contracts over drawn bases,
+ *   descriptor, the numeric typmod box, refined and wildcard text, contracts over drawn bases,
  *   spans, closed ids and sets over drawn rosters, vectors), every declared field's descriptor comes back from its
- *   type unchanged. Oracle: the round trip fieldDescOf ∘ scalarOf = id. Features: each kind, and a serial form.
+ *   type unchanged. Oracle: the round trip fieldDescOf ∘ scalarOf = id. Features: each kind.
  * - Undeclared contracts: over drawn contracts, each declared by a relation or not, and a derived field cast to one
  *   of them, a contract no relation declares has no descriptor, fieldDescOf names it and the derived field is
  *   refused at that field (DerivedRefused, undeclaredContract); a declared one is the derived field's descriptor, as
@@ -43,7 +43,7 @@ import {
 	handlesOf,
 	nonNegative
 } from "#test/unit/derived/fields.fixtures.ts"
-import { fieldOf, serialMember } from "#test/unit/schema/field-sketch.ts"
+import { fieldOf } from "#test/unit/schema/field-sketch.ts"
 import { bareContract, rawContract } from "#test/unit/schema/support.ts"
 
 /**
@@ -65,8 +65,7 @@ export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldTy
 			"kind span",
 			"kind closedId",
 			"kind bits",
-			"kind vector",
-			"a serial form"
+			"kind vector"
 		] satisfies ReadonlyArray<Reached<DeclaredFeature>>,
 		check: (_, c: Case<DeclaredFeature>) => (d) =>
 			Effect.sync(() => {
@@ -102,9 +101,6 @@ export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldTy
 				assert.ok(line.kind === "relation", "Line is a relation")
 				for (const [i, sketch] of d.fields.entries()) {
 					c.note(`kind ${sketch.kind}`)
-					if (sketch.kind === "pg" && serialMember(sketch.member)) {
-						c.note("a serial form")
-					}
 					const declared = defined(line.fields[`f${i}`], `Line.f${i}`).type
 					assert.deepEqual(
 						succeeded(fieldDescOf(scalarOf(declared, handles), owned.contracts)),

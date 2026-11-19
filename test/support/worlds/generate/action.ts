@@ -1,6 +1,5 @@
 import {
 	array,
-	boolean,
 	constant,
 	element,
 	type Gen,
@@ -74,11 +73,11 @@ import {
 import { migrationStrata } from "#test/support/worlds/invalid/migrations.ts"
 import { roleArms } from "#test/support/worlds/invalid/roles.ts"
 import { tokenArms } from "#test/support/worlds/invalid/tokens.ts"
-import { nameableFacts } from "#test/support/worlds/model/draws.ts"
 import { classifyEntry, isMember } from "#test/support/worlds/model/host.ts"
 import { membershipOf } from "#test/support/worlds/model/session/catalog.ts"
 import { parametersOf } from "#test/support/worlds/model/session/direct.ts"
 import {
+	factsIn,
 	loginOf,
 	noFacts,
 	relationSpecOf,
@@ -96,7 +95,6 @@ import { step } from "#test/support/worlds/model/step.ts"
 import type {
 	Action,
 	ActionKind,
-	BaseSpec,
 	ClaimsSetting,
 	ContextFacts,
 	DirectSessionState,
@@ -440,8 +438,8 @@ const projectionOf = (fact: HostFact, fields: ReadonlyArray<string>): HostFact =
 	)
 
 /**
- * The statements of a direct writer's open transaction, stratified. Live: every statement with live arguments (an
- * insert naming a serial field's value, or leaving it to its identity), and as the login, half the time SET ROLE to one
+ * The statements of a direct writer's open transaction, stratified. Live: every statement with live arguments, and as
+ * the login, half the time SET ROLE to one
  * of its roles; a stratum per role reference kind of SET ROLE and SET SESSION AUTHORIZATION, and per claims kind of
  * setting `grizzle.claims`. Every write and table read names a base relation: a derived one changes only through its
  * declaration or a refresh (README "Derived tables"), and its role relations read it.
@@ -465,12 +463,6 @@ const statementStrata = (state: ModelState, session: number): Strata<DirectState
 		),
 		"the entries"
 	)
-	const serialFields = Arr.flatMap(base.relations, (r) =>
-		Arr.flatMap(r.fields, (f) =>
-			f.domain.kind === "serial" ? [{ relation: r.name, field: f.name }] : []
-		)
-	)
-	const [firstSerial, ...moreSerials] = serialFields
 	const [firstFunction, ...moreFunctions] = worldFunctionsOf(state)
 	const roles = roleArms(state.install, { kind: "login", login })
 	const claims = claimsArms(state, current)
@@ -510,14 +502,14 @@ const statementStrata = (state: ModelState, session: number): Strata<DirectState
 			}))
 		),
 		withRelation((relation) =>
-			map(insertedGen(state, relation), (fact): DirectStatement => ({
+			map(baseFactGen(state, relation), (fact): DirectStatement => ({
 				kind: "insert",
 				relation,
 				fact
 			}))
 		),
 		withRelation((relation) => (source) => {
-			const fact = source.draw(insertedGen(state, relation))
+			const fact = source.draw(baseFactGen(state, relation))
 			return {
 				kind: "insert-on-conflict",
 				relation,
@@ -595,19 +587,6 @@ const statementStrata = (state: ModelState, session: number): Strata<DirectState
 							)
 						}
 					}
-				]),
-		...(firstSerial === undefined
-			? []
-			: [
-					(source: Source): DirectStatement => {
-						const at = source.draw(element([firstSerial, ...moreSerials]))
-						return {
-							kind: "setval",
-							relation: at.relation,
-							field: at.field,
-							value: source.draw(element([0, 1, 12, 13, 1000, -1, 2_147_483_647]))
-						}
-					}
 				])
 	])
 	/**
@@ -678,7 +657,7 @@ const worldStatements = (
 	const claims = map(liveClaims, (setting): DirectStatement => ({ kind: "set-claims", setting }))
 	const writes = Arr.flatMap(writtenOf(base, role), (w): ReadonlyArray<Gen<DirectStatement>> => {
 		const target = relationSpecOf(base, w.target)
-		const [firstStored, ...moreStored] = nameableFacts(view, w.target)
+		const [firstStored, ...moreStored] = factsIn(view, w.target)
 		if (target === undefined || firstStored === undefined) {
 			return []
 		}
@@ -707,10 +686,7 @@ const worldStatements = (
 		}
 		const functions = Arr.filter(
 			worldFunctionsOf(state),
-			(fn) =>
-				(fn.kind === "key-probe" || fn.kind === "filter") &&
-				fn.role === role.name &&
-				fn.entry === w.entry
+			(fn) => fn.role === role.name && fn.entry === w.entry
 		)
 		const membership = w.kind === "query" ? membershipOf(base, w.rules, target) : undefined
 		/** A call's arguments from a stored fact: a key probe's key fields, a filter function's membership fields. */
@@ -720,7 +696,6 @@ const worldStatements = (
 					case "key-probe":
 						return keysOf(base, relation)[fn.key] ?? []
 					case "filter":
-					case "advance":
 						return membership ?? []
 				}
 			}
@@ -828,26 +803,6 @@ const byMembership = (
 			Arr.isReadonlyArrayNonEmpty(facts) ? [element(facts)] : []
 	)
 	return first === undefined ? element(stored) : oneOf([first, ...rest])
-}
-
-/** A fact a direct writer inserts: a base fact naming its serial fields' values, or leaving them to the identity. */
-const insertedGen =
-	(state: ModelState, relation: string): Gen<HostFact> =>
-	(source) => {
-		const fact = source.draw(baseFactGen(state, relation))
-		return source.draw(boolean) ? fact : withoutSerials(state.install.base, relation, fact)
-	}
-
-/** A fact without its relation's serial fields. */
-const withoutSerials = (base: BaseSpec, relation: string, fact: HostFact): HostFact => {
-	const serials = new Set(
-		Arr.flatMap(base.relations, (r) =>
-			r.name === relation
-				? Arr.flatMap(r.fields, (f) => (f.domain.kind === "serial" ? [f.name] : []))
-				: []
-		)
-	)
-	return Record.fromEntries(Arr.filter(Record.toEntries(fact), ([field]) => !serials.has(field)))
 }
 
 /**

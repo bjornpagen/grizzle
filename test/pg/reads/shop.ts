@@ -18,16 +18,16 @@ const label = str.regex("^[a-z]{1,8}$")
 /**
  * The put fixtures' Shop schema (test/unit/write/put/support.ts), declaration for declaration, built through the typed
  * public barrels, so the ChangeSets the explain suite builds over it carry their precise types: immutable and mutable
- * relations, a serial key, a serial field outside the key, a candidate key, an at-most-one key over a field outside the
+ * relations, a numbered key, a field outside the key, a candidate key, an at-most-one key over a field outside the
  * primary key (fin.md §6, "at most one"), a counted family whose count a row check bounds (§6, "count in [lo, hi]"),
  * and a pure set, all written by the clerk.
  */
 export const Item = relation("Item", { id: uuid, label, qty: pg.bigint }, ["id"])
 export const Stock = relation("Stock", { id: uuid, label, qty: pg.bigint }, ["id"])
-export const Seat = relation("Seat", { no: pg.bigserial, label }, ["no"])
+export const Seat = relation("Seat", { no: pg.bigint, label }, ["no"])
 const Code = relation("Code", { id: uuid, code: label }, ["id"])
 const Pair = relation("Pair", { a: uuid, b: label }, ["a", "b"])
-const Counter = relation("Counter", { name: label, n: pg.bigint, seq: pg.serial }, ["name"])
+const Counter = relation("Counter", { name: label, n: pg.bigint }, ["name"])
 const Line = relation("Line", { id: uuid, stock: uuid }, ["id"])
 const Worker = relation("Worker", { id: uuid }, ["id"])
 const Task = relation("Task", { id: uuid, worker: uuid }, ["id"])

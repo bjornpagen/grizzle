@@ -36,7 +36,7 @@ export const declaredGen: Gen<DeclaredCase> = (source) => {
 	}
 }
 
-export type DeclaredFeature = `kind ${SketchedField["kind"]}` | "a serial form"
+export type DeclaredFeature = `kind ${SketchedField["kind"]}`
 
 /** Contracts over bigint, each checked or not, the ones a relation declares, and the one a derived field is cast to. */
 interface ContractCase {

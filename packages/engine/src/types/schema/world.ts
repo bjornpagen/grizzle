@@ -17,13 +17,7 @@ import type {
 	DefinitionQuery,
 	DefinitionShape
 } from "#compiler/types/derived/derived.ts"
-import type {
-	Field,
-	NotSerial,
-	NotSerialBases,
-	SerialField,
-	UnwrittenField
-} from "#compiler/types/fields/field.ts"
+import type { Field, NoWriting, UnwrittenField } from "#compiler/types/fields/field.ts"
 import type { ContextsOf, QueryBase } from "#compiler/types/query/query.ts"
 import type {
 	AnyClosed,
@@ -48,17 +42,14 @@ import type {
 import type { Statement } from "#compiler/types/schema/statements.ts"
 
 /**
- * A context field: text, uuid, boolean, an integer type, a contract over one of them, or a closed handle; never a
- * serial generation declaration.
+ * A context field: text, uuid, boolean, an integer type, a contract over one of them, or a closed handle; never a field
+ * of a writing of its own.
  */
 export type ContextField = Field<
 	unknown,
 	"text" | "uuid" | "boolean" | "smallint" | "integer" | "bigint" | "code"
 > &
-	NotSerial
-
-/** A context's fields with every contract's base chain read: a field whose chain ends at a serial is never. */
-export type ContextFieldBases<Fields> = { readonly [K in keyof Fields]: NotSerialBases<Fields[K]> }
+	NoWriting
 
 /**
  * Any context: the members every one has. `claim` names the nested claim object its fields are read from, undefined
@@ -134,30 +125,6 @@ export interface World<Name extends string, Q extends DefinitionQuery>
 	readonly heading: Q["heading"]
 	readonly fact: RowDecoder<FactOfFields<Q["heading"]>>
 }
-
-/**
- * The head fields of a world relation its definition takes from a serial field of a base relation, each a term v minted
- * over that field: an addition into the world may omit them, as an addition into the relation may, and the identity
- * default draws them. A filter of the entry that reads such a field needs it in every fact, which the types cannot see
- * and the host refuses as a missing field.
- */
-export type WorldSerialFields<W> = W extends {
-	readonly heading: infer H
-	readonly definition: Phantom<{ readonly schema: Invariant<infer S> }>
-}
-	? { [K in keyof H]-?: SerialOrigin<S, H[K]> extends true ? K : never }[keyof H]
-	: never
-
-type SerialOrigin<S, T> =
-	T extends Phantom<{ readonly origin: Origin<infer N, infer F> }>
-		? UnderName<RelationsOf<S>, N> extends { readonly fields: infer Fs }
-			? F extends keyof Fs
-				? Fs[F] extends Pick<SerialField<unknown, never>, "writing">
-					? true
-					: false
-				: false
-			: false
-		: false
 
 /**
  * The head fields of a world relation W that its definition takes from a field of the base that its caller does not

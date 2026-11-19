@@ -2,25 +2,17 @@
 
 import { boolean, element, type Gen, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { maxOf } from "#compiler/core/array.ts"
 import { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { ActionCore } from "#compiler/ir/write.ts"
-import { completeClass } from "#compiler/ir/write.ts"
-import { upTo } from "#test/support/up-to.ts"
 
-/** An operation of a stratum's action on C, or an explicit one on P. */
+/** An operation of a stratum's action on C or on P. */
 type Op = "delete" | "put" | "insert"
 
-/** An operation of a stratum's action on P: an explicit one, or a generated insertion, which draws P's id. */
-type TargetOp = Op | "generated"
-
-/** The phase of an operation on its own relation, the schedule's: deletions, then puts, then insertions, then generated
- * insertions. */
-export const phase: { readonly [O in TargetOp]: number } = {
+/** The phase of an operation on its own relation, the schedule's: deletions, then puts, then insertions. */
+export const phase: { readonly [O in Op]: number } = {
 	delete: 0,
 	put: 1,
-	insert: 2,
-	generated: 3
+	insert: 2
 }
 
 /** A stratum's shape: its actions, C's name and C's and P's payloads. */
@@ -32,7 +24,7 @@ interface Shape {
 	/** Whether P has a payload, every fact of it at its one key, so its put displaces the occupant there and an insert
 	 * meets it. */
 	readonly targetKeyed: boolean
-	readonly onP: ReadonlyArray<TargetOp>
+	readonly onP: ReadonlyArray<Op>
 	readonly onC: ReadonlyArray<Op>
 }
 
@@ -42,16 +34,17 @@ type Fact = readonly [id: number, p: number]
 /** The ids of the box. */
 const ids: Arr.NonEmptyReadonlyArray<number> = Arr.range(1, 2)
 
-/** A write of an instance: an action's fact, or P's generated insertion, which is given none and draws its id. */
-type Written =
-	| { readonly relation: "C" | "P"; readonly op: Op; readonly fact: Fact }
-	| { readonly relation: "P"; readonly op: "generated" }
+/** A write of an instance: an action's fact. */
+interface Written {
+	readonly relation: "C" | "P"
+	readonly op: Op
+	readonly fact: Fact
+}
 
-/** A state of the box: P's ids, C's facts, and the last id P's sequence passed, at or past every stored P id. */
+/** A state of the box: P's ids and C's facts. */
 type State = {
 	readonly p: ReadonlyArray<number>
 	readonly c: ReadonlyArray<Fact>
-	readonly seq: number
 }
 
 /** An instance of a shape: the state before, and each action's write. */
@@ -80,16 +73,14 @@ const sameFacts = (a: State, b: State): boolean =>
 	Arr.every(a.c, (f) => Arr.some(b.c, (g) => same(f, g)))
 
 /**
- * An instance's writes as the host's normalization leaves them: a P id both deleted and added explicitly is only added,
- * and one both put and inserted is only put; a drawn id is no write's, so nothing nets against it; C writes one fact.
+ * An instance's writes as the host's normalization leaves them: a P id both deleted and added is only added, and one
+ * both put and inserted is only put; C writes one fact.
  */
 const normalized = (instance: Instance): ReadonlyArray<Written> => {
 	const added = (op: Op) =>
-		Arr.flatMap(instance.writes, (w) =>
-			w.op !== "generated" && w.relation === "P" && w.op === op ? [w.fact[0]] : []
-		)
+		Arr.flatMap(instance.writes, (w) => (w.relation === "P" && w.op === op ? [w.fact[0]] : []))
 	return Arr.filter(instance.writes, (w) => {
-		if (w.op === "generated" || w.relation === "C") {
+		if (w.relation === "C") {
 			return true
 		}
 		switch (w.op) {
@@ -103,21 +94,11 @@ const normalized = (instance: Instance): ReadonlyArray<Written> => {
 	})
 }
 
-/**
- * One action's statements, each a change of the state, in the order the action sends them. An explicit P id advances
- * P's sequence past it, and a generated insertion adds the next id the sequence draws.
- */
+/** One action's statements, each a change of the state, in the order the action sends them. */
 const statementsOf = (shape: Shape, w: Written): ReadonlyArray<(s: State) => State> => {
-	if (w.op === "generated") {
-		return [(s) => ({ ...s, p: [...s.p, s.seq + 1], seq: s.seq + 1 })]
-	}
 	if (w.relation === "P") {
 		const [id] = w.fact
-		const add = (s: State): State => ({
-			...s,
-			p: s.p.includes(id) ? s.p : [...s.p, id],
-			seq: Math.max(s.seq, id)
-		})
+		const add = (s: State): State => ({ ...s, p: s.p.includes(id) ? s.p : [...s.p, id] })
 		return w.op === "delete"
 			? [(s) => ({ ...s, p: Arr.filter(s.p, (x) => x !== id) })]
 			: w.op === "put" && shape.targetKeyed
@@ -157,12 +138,12 @@ const run = (shape: Shape, state: State, writes: ReadonlyArray<Written>): State 
 
 /**
  * A stratum's one final state: its normalized writes in phase order on the state before, P's deletions there, then its
- * additions, the draw past every explicit id, then C's write, whatever the states between them.
+ * additions, then C's write, whatever the states between them.
  */
 const finalOf = (shape: Shape, instance: Instance): State => {
 	const writes = normalized(instance)
 	const phased = [
-		...Arr.flatMap(["delete", "put", "insert", "generated"] as const, (op) =>
+		...Arr.flatMap(["delete", "put", "insert"] as const, (op) =>
 			Arr.filter(writes, (w) => w.relation === "P" && w.op === op)
 		),
 		...Arr.filter(writes, (w) => w.relation === "C")
@@ -179,7 +160,7 @@ const finalOf = (shape: Shape, instance: Instance): State => {
 export const keeps = (
 	shape: Shape,
 	instance: Instance,
-	order: ReadonlyArray<{ readonly relation: "C" | "P"; readonly op: TargetOp }>
+	order: ReadonlyArray<{ readonly relation: "C" | "P"; readonly op: Op }>
 ): boolean => {
 	const writes = normalized(instance)
 	const reached = run(
@@ -194,21 +175,16 @@ export const keeps = (
 
 /**
  * Every lawful instance of a shape: every state of the box whose facts keep both keys and whose C facts reference P,
- * at every position of P's sequence at or past its stored ids where the shape draws one, with every write of each
- * action at an id of the box, whose final state keeps them too.
+ * with every write of each action at an id of the box, whose final state keeps them too.
  */
 export const instancesOf = (shape: Shape): ReadonlyArray<Instance> => {
 	const facts = (ref: number): Fact => [1, ref]
-	const passed = (p: ReadonlyArray<number>): ReadonlyArray<number> =>
-		shape.onP.includes("generated") ? upTo(3 - maxOf(p, 0), (i) => maxOf(p, 0) + i) : [maxOf(p, 0)]
 	const states = Arr.flatMap(subsets(ids), (p) =>
-		Arr.flatMap(subsets(Arr.map(ids, facts)), (c) => Arr.map(passed(p), (seq) => ({ p, c, seq })))
+		Arr.map(subsets(Arr.map(ids, facts)), (c): State => ({ p, c }))
 	)
 	const choices: ReadonlyArray<ReadonlyArray<Written>> = [
-		...Arr.map(shape.onP, (op): ReadonlyArray<Written> =>
-			op === "generated"
-				? [{ relation: "P", op }]
-				: Arr.map(ids, (id): Written => ({ relation: "P", op, fact: [id, id] }))
+		...Arr.map(shape.onP, (op) =>
+			Arr.map(ids, (id): Written => ({ relation: "P", op, fact: [id, id] }))
 		),
 		...Arr.map(shape.onC, (op) =>
 			Arr.map(ids, (id): Written => ({ relation: "C", op, fact: facts(id) }))
@@ -251,14 +227,12 @@ export const orders = <A>(items: ReadonlyArray<A>): ReadonlyArray<ReadonlyArray<
 export const nameOf = (shape: Shape, relation: "C" | "P"): StoredRelationName =>
 	StoredRelationName((relation === "C") === shape.sourceFirst ? "A" : "B")
 
-export const actionOf = (shape: Shape, relation: "C" | "P", op: TargetOp): ActionCore => {
+export const actionOf = (shape: Shape, relation: "C" | "P", op: Op): ActionCore => {
 	const source = { kind: "enumerated", slot: ParamId(`${relation} ${op}`) } as const
 	const name = nameOf(shape, relation)
 	switch (op) {
-		case "generated":
-			return { op: "insert", serial: { kind: "generated", drawn: ["id"] }, relation: name, source }
 		case "insert":
-			return { op: "insert", serial: completeClass, relation: name, source }
+			return { op: "insert", relation: name, source }
 		case "put":
 			return { op: "put", relation: name, source }
 		case "delete":
@@ -269,20 +243,16 @@ export const actionOf = (shape: Shape, relation: "C" | "P", op: TargetOp): Actio
 /** The explicit operations of an action. */
 const explicitOps = ["delete", "put", "insert"] as const
 
-/**
- * Every shape: C's name, both payloads, any set of P's actions, a generated insertion among them where P is a pure set,
- * whose id is its key, and one action of C or none.
- */
+/** Every shape: C's name, both payloads, any set of P's actions, and one action of C or none. */
 export const shapeGen: Gen<Shape> = (source) => {
 	const sourceFirst = source.draw(boolean)
 	const keyed = source.draw(boolean)
 	const targetKeyed = source.draw(boolean)
-	const onP: ReadonlyArray<TargetOp> = targetKeyed ? explicitOps : [...explicitOps, "generated"]
 	return {
 		sourceFirst,
 		keyed,
 		targetKeyed,
-		onP: source.draw(subarray(onP)),
+		onP: source.draw(subarray(explicitOps)),
 		onC: source.draw(boolean) ? [source.draw(element(explicitOps))] : []
 	}
 }
@@ -293,4 +263,3 @@ export type Situation =
 	| "a pure set's deletion after its addition"
 	| "both put, the source named first"
 	| "both put, the target named first"
-	| "a generated insertion beside its relation's deletion"

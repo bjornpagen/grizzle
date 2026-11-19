@@ -78,7 +78,6 @@ import {
 	keyOrCheckDefinition,
 	type ManifestObject,
 	objectTable,
-	type PartOf,
 	type Parts,
 	partsAt,
 	partsByTable,
@@ -140,19 +139,11 @@ import {
 
 import { dropLiveSlot } from "#compiler/physical/ddl/live.ts"
 import {
-	call,
 	cast,
-	col,
 	columnKey,
-	desc,
 	functionNameOf,
-	ge,
-	lit,
 	objectName,
-	provedSelect,
-	table as tableFrom,
 	tableCol,
-	targetAs,
 	types
 } from "#compiler/sql/build.ts"
 import { anchorFor, type TableGeneration } from "#compiler/sql/generation.ts"
@@ -207,10 +198,10 @@ const asideWhy = (a: Aside): string => {
 	}
 }
 
-/** What a set-aside holder owns that goes aside with it: a relation's indexes, sequences and statistics; a type, none. */
+/** What a set-aside holder owns that goes aside with it: a relation's indexes and statistics; a type, none. */
 const ownedAside = (a: Aside): string =>
 	(a.kind === "table" || a.kind === "materializedView") && a.owned.length > 0
-		? ", with each index, identity sequence and statistics object it owns, whose names a relation of its old name would take, renamed aside too"
+		? ", with each index and statistics object it owns, whose names a relation of its old name would take, renamed aside too"
 		: ""
 
 /** What a migration does to a column of a table it keeps (ColumnFates): kept as it is; revalued, kept with its values
@@ -308,7 +299,6 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	lawTrigger: 3,
 	isolationTrigger: 3,
 	refusalFunction: 11,
-	advanceFunction: 11,
 	unitFunction: 11,
 	isolationFunction: 11,
 	snapshotGuard: 11,
@@ -438,8 +428,7 @@ interface KeptTable {
 const columnFate = (kept: KeptTable, column: string): ColumnFate =>
 	kept.fates.get(column) ?? refuse(kept.object.ident, `a table whose columns include ${column}`)
 
-/** A kept table as its visit drafts it, planned before anything is drafted: its fields paired by name, and its identity
- * sequences paired by column, one the target names otherwise renamed. */
+/** A kept table as its visit drafts it, planned before anything is drafted: its fields paired by name. */
 interface KeptPlan {
 	readonly table: KeptTable
 	/** The previous declaration's fields the migration drops, each list in drop order, every field before the fields
@@ -456,12 +445,6 @@ interface KeptPlan {
 		| { readonly kind: "added"; readonly column: ColumnDef }
 		| { readonly kind: "held"; readonly column: ColumnDef; readonly was: ColumnDef }
 	>
-	/** Each identity sequence of a field both hold whose identity stays, the previous one's with the target's, which a
-	 * target naming it otherwise renames it to. */
-	readonly sequences: ReadonlyArray<{
-		readonly was: PartOf<"sequence">
-		readonly now: PartOf<"sequence">
-	}>
 }
 
 /** A removal drafted for publish.removed, ordered by the drop order (dropOrder), then reverse install order, then as
@@ -657,8 +640,6 @@ const asideSubcommand = (
 				},
 				checked: [a.column.name]
 			}
-		case "identity":
-		case "uuidv7":
 		case "retirement":
 			return { alteration: a, checked: [] }
 	}
@@ -682,14 +663,10 @@ const alterationDraft = (a: TableAlteration, aside: AsideColumns): Action => ({
 	)
 })
 
-/** The draw a set-aside field takes once its fill renames it into its name: its identity, its uuidv7() or retirement
- * default, or none for a field its caller writes. */
+/** The draw a set-aside field takes once its fill renames it into its name: its retirement default, or none for a field
+ * its caller writes. */
 const drawOf = (column: ColumnDef): ReadonlyArray<AlterTableAction> => {
 	switch (column.generated?.kind) {
-		case "identity":
-			return [{ kind: "addIdentity", column: column.name, sequence: column.generated.sequence }]
-		case "uuidv7":
-			return [{ kind: "setUuidv7Default", column: column.name }]
 		case "retirement":
 			return [{ kind: "setRetirementDefault", column: column.name }]
 		case "stored":
@@ -704,9 +681,8 @@ const drawOf = (column: ColumnDef): ReadonlyArray<AlterTableAction> => {
  * then its settling, in structure.settle, after every table's fill, so a fill that joins another table's old column,
  * a field set aside or declared dropped, reads it still standing under its name: the fields' old columns dropped; each
  * set-aside column renamed into its field's name; then one ALTER TABLE setting the NOT NULL of each field and of each
- * generated column over one (asideSubcommand's `checked`, read off the table's Structure alteration `structure`), each
- * field's identity, uuidv7() or retirement default, and each identity's advance after it, past the values the fill
- * drew.
+ * generated column over one (asideSubcommand's `checked`, read off the table's Structure alteration `structure`), and
+ * each field's retirement default.
  */
 const fillSteps = (
 	fill: TableFill,
@@ -721,11 +697,6 @@ const fillSteps = (
 			? []
 			: [structure.first, ...structure.rest].flatMap((a) => asideSubcommand(a, aside).checked)
 	const takes = fields.flatMap(({ column }) => drawOf(column))
-	const advances = fields.flatMap(({ column }): ReadonlyArray<SqlStatement> =>
-		column.generated?.kind === "identity"
-			? [advance(t, column.name, column.generated.sequence, column.type)]
-			: []
-	)
 	const settled = (s: SqlStatement): Step => ({ slot: "structure.settle", draft: statement(s) })
 	return [
 		{
@@ -760,8 +731,7 @@ const fillSteps = (
 				...checked.map((column): AlterTableAction => ({ kind: "setNotNull", column })),
 				...takes
 			])
-		),
-		...advances.map(settled)
+		)
 	]
 }
 
@@ -838,9 +808,6 @@ class Differ {
 	/** Relations this migration drops at the start of Structure and does not create again, by table key: a view the
 	 * target no longer has that reads a recreated relation. Their privileges went with them. */
 	readonly dropped: ReadonlySet<NameKey>
-	/** The identity sequences of a table both snapshots install that this migration drops, by name key, each with its
-	 * fate (sequenceFatesOf). */
-	readonly sequences: ReadonlyMap<NameKey, SequenceFate>
 	/** What each installed materialized view reads, by table key: the previous snapshot's edges, and the qualified
 	 * names of every installed definition. */
 	readonly reads: ReadonlyMap<NameKey, ReadonlySet<NameKey>>
@@ -900,7 +867,6 @@ class Differ {
 		])
 		this.reads = installedReads(input.previous, this.levelSchemas)
 		this.keptTables = this.keptTablesOf()
-		this.sequences = sequenceFatesOf(this.keptTables.values())
 		const replacedBy = this.takenByReplacement()
 		this.viewDrops = this.viewDropsOf()
 		this.recreatedViews = new Set(
@@ -1759,9 +1725,6 @@ class Differ {
 	 * The refusal function, the isolation guard and the snapshot guard, created in Setup and replaced there in place when
 	 * their definition changes: a function's name and signature are its identity, so CREATE OR REPLACE keeps its grants.
 	 *
-	 * A serial field's advance function, created after its table, and replaced in place when its definition changes (the
-	 * sequence it names renamed with its relation or field), which keeps its grants.
-	 *
 	 * A role's views, world functions and policies: created again when this migration dropped them at the start of
 	 * Structure, since it changes them or what they read (worldChangesOf), in install order: at the end of Structure, in the transaction that dropped them, with
 	 * their grants, when the role they serve stands before this migration (worldWithin); in Publish, after the
@@ -1839,11 +1802,6 @@ class Differ {
 					this.sql("structure", o.ddl)
 				} else if (!sameRecord(before, o)) {
 					this.unitFunction(before, v.create, o.ddl)
-				}
-				return
-			case "advanceFunction":
-				if (before === undefined || !sameRecord(before, o)) {
-					this.sql("structure", o.ddl)
 				}
 				return
 			case "functionOwner":
@@ -2184,11 +2142,9 @@ class Differ {
 	}
 
 	/** A kept table as its visit drafts it (KeptPlan): its fields paired by name, a field the target lacks removed, one
-	 * the previous declaration lacks added; and each identity sequence of a field both hold whose identity stays, which
-	 * the target may name otherwise. A declared rename renamed every field and relation before the diff, so a field of
-	 * one name is one field. */
+	 * the previous declaration lacks added. A declared rename renamed every field and relation before the diff, so a
+	 * field of one name is one field. */
 	planKept(kept: KeptTable): KeptPlan {
-		const t = kept.create.table
 		const old = kept.old.columns
 		/** The fields of fate `fate`, in drop order. */
 		const dropped = (fate: "redefined" | "dropped"): ReadonlyArray<ColumnDef> => {
@@ -2199,12 +2155,6 @@ class Differ {
 					)
 				: columns
 		}
-		const before = partsAt(this.prevParts, t).sequence
-		const after = partsAt(this.nextParts, t).sequence
-		const sequences = [...before.values()].flatMap((was) => {
-			const now = [...after.values()].find((s) => s.column === was.column)
-			return now !== undefined && columnFate(kept, was.column).kind === "kept" ? [{ was, now }] : []
-		})
 		return {
 			table: kept,
 			drops: { first: dropped("redefined"), last: dropped("dropped") },
@@ -2213,8 +2163,7 @@ class Differ {
 				return was === undefined
 					? ({ kind: "added", column: c } as const)
 					: ({ kind: "held", column: c, was } as const)
-			}),
-			sequences
+			})
 		}
 	}
 
@@ -2258,10 +2207,8 @@ class Differ {
 	/** A table both installations hold, as planned (KeptPlan). Each field dropped and added again, or removed over a
 	 * column the migration replaces, is dropped in structure.drop, before anything is converted or added; each other
 	 * removed column, which the migration declares dropped, is dropped at the end of the migration, once nothing reads
-	 * it any longer.
-	 *
-	 * DROP IDENTITY drops the sequence, and its privileges with it. */
-	keptTable({ table: kept, drops, fields, sequences }: KeptPlan): void {
+	 * it any longer. */
+	keptTable({ table: kept, drops, fields }: KeptPlan): void {
 		const t = kept.create.table
 		const drop = (c: ColumnDef): Action =>
 			statement(alter(t, [{ kind: "dropColumn", column: c.name }]))
@@ -2271,15 +2218,6 @@ class Differ {
 		for (const c of drops.last) {
 			this.removal(dropOrder.column, kept.order, drop(c))
 		}
-		this.sql(
-			"structure",
-			sequences.flatMap((p): ReadonlyArray<SqlStatement> =>
-				changeOf(kept.changes, p.now.column).kind === "kept" &&
-				nameKey(p.was.sequence) !== nameKey(p.now.sequence)
-					? [{ kind: "rename", object: "SEQUENCE", name: p.was.sequence, to: p.now.name }]
-					: []
-			)
-		)
 		for (const f of fields) {
 			if (f.kind === "added") {
 				this.alter("structure", t, [this.addedField(t, f.column)])
@@ -2289,8 +2227,7 @@ class Differ {
 		}
 	}
 
-	/** What a field both tables hold drafts for its change from `b` to `c` (fieldChangesOf), besides the rename of its
-	 * identity sequence, which its table's visit drafts before its alteration (keptTable): a rewritten field dropped before
+	/** What a field both tables hold drafts for its change from `b` to `c` (fieldChangesOf): a rewritten field dropped before
 	 * anything is converted, in structure.drop, since PostgreSQL refuses to convert a column a generated column reads,
 	 * and added again once the conversions ran (rewriteField); a kept one, nothing, nor a redrawn one, whose values the
 	 * backfill draws again in place (backfill); otherwise its steps in place (changeInPlace). */
@@ -2953,7 +2890,6 @@ class Differ {
 				drop(v.kind, statement(dropObject(v)))
 				return
 			case "refusalFunction":
-			case "advanceFunction":
 			case "unitFunction":
 			case "isolationFunction":
 			case "snapshotGuard":
@@ -3087,7 +3023,7 @@ class Differ {
 	 * privilege a previous `privileges` object states and no target one does is revoked, and every privilege a target
 	 * one states and no previous one does is granted; a privilege both state is neither, so an object a migration leaves
 	 * alone keeps its grants, whatever changes beside it. An object this migration creates again (a materialized view, a
-	 * role's view or world function, an identity sequence) lost its privileges with its drop, so it is granted again
+	 * role's view or world function) lost its privileges with its drop, so it is granted again
 	 * every privilege the target states on it, but those Structure granted again right after it (regrantWorld); and an
 	 * object it drops takes its privileges with it, so it revokes none on it, but from a grantee it drops too, which
 	 * PostgreSQL drops only once it holds nothing (publish.removed drops roles before tables and functions). A column grant
@@ -3198,10 +3134,9 @@ class Differ {
 	}
 
 	/** The keys of the objects whose privileges Structure takes away before Publish grants (privileges.ts objectKey): each
-	 * materialized view it drops, recreated or not, each role's view and world function it drops at its start, each
-	 * declared function it drops and creates again for a changed signature or result (recreatedFunctions), and each
-	 * identity sequence it creates again under its name. Publish revokes nothing on one, and grants again every privilege
-	 * the target states on one it holds. */
+	 * materialized view it drops, recreated or not, each role's view and world function it drops at its start, and each
+	 * declared function it drops and creates again for a changed signature or result (recreatedFunctions). Publish
+	 * revokes nothing on one, and grants again every privilege the target states on one it holds. */
 	resetObjects(): ReadonlySet<string> {
 		const reset = (x: GrantObject): boolean => {
 			switch (x.kind) {
@@ -3213,8 +3148,6 @@ class Differ {
 					const key = nameKey(x.name)
 					return this.worldGone.has(key) || this.recreatedFunctions.has(key)
 				}
-				case "SEQUENCE":
-					return this.sequences.get(nameKey(x.name)) === "recreated"
 				case "DOMAIN":
 				case "TYPE":
 				case "SCHEMA":
@@ -3230,7 +3163,7 @@ class Differ {
 	}
 
 	/** The keys of the objects of the previous installation this migration drops in Publish, which take their privileges
-	 * with them: each object the target no longer holds, and an identity sequence it drops. */
+	 * with them: each object the target no longer holds. */
 	droppedObjects(): ReadonlySet<string> {
 		const held = new Set(
 			this.input.target.manifest.objects.flatMap((o) => grantObjectsOf(installed(o)).map(objectKey))
@@ -3239,10 +3172,7 @@ class Differ {
 			this.input.previous.manifest.objects.flatMap((o) =>
 				grantObjectsOf(installed(o)).flatMap((x) => {
 					const key = objectKey(x)
-					return !held.has(key) ||
-						(x.kind === "SEQUENCE" && this.sequences.get(nameKey(x.name)) === "dropped")
-						? [key]
-						: []
+					return held.has(key) ? [] : [key]
 				})
 			)
 		)
@@ -3271,9 +3201,7 @@ class Differ {
 	 * revokes whenever they change. A query among the role defaults readies the session for
 	 * the settings listed after it (the vector library's load before the search policy's `hnsw.*` settings, which the
 	 * migration identity can store or reset only once the library is loaded): it runs, once,
-	 * before the first such setting the migration stores or resets.
-	 *
-	 * An identity sequence created again under its old name starts from its default privileges. */
+	 * before the first such setting the migration stores or resets. */
 	defaults(): void {
 		const previousDefaults = this.input.previous.manifest.roleDefaults
 		const targetDefaults = this.input.target.manifest.roleDefaults
@@ -3323,11 +3251,8 @@ class Differ {
 				r.kind === "alterDefaultPrivileges" ? [canonicalTextOf(r)] : []
 			)
 		)
-		/** A privilege PUBLIC loses again: one no previous revoke took, or one of an identity sequence this migration
-		 * created again under its name, which took its PUBLIC revoke with its drop. */
-		const again = (h: HeldPrivilege): boolean =>
-			!wasRevoked.has(h.key) ||
-			(h.object.kind === "SEQUENCE" && this.sequences.get(nameKey(h.object.name)) === "recreated")
+		/** A privilege PUBLIC loses again: one no previous revoke took. */
+		const again = (h: HeldPrivilege): boolean => !wasRevoked.has(h.key)
 		for (const r of this.input.target.manifest.publicRevokes) {
 			if (r.kind === "revoke") {
 				this.sql("publish.defaults", cutGrants([grantOf(r)], again).map(revokeOf))
@@ -3576,21 +3501,13 @@ interface Replaced {
 const strongestReplacement = (hows: ReadonlyArray<Replacement>): Replacement | undefined =>
 	hows.includes("converted") ? "converted" : hows.includes("redefined") ? "redefined" : undefined
 
-/** What a migration does to an identity sequence of a table both snapshots install: dropped with the identity that owns
- * it, or dropped and created again under its name, which leaves it with the default privileges. */
-type SequenceFate = "dropped" | "recreated"
-
-/** How a column a migration converts in place was drawn: by nothing; by an identity, whose sequence the conversion
- * drops or creates again under its name (SequenceFate); or by its `uuidv7()` default, which the conversion drops first,
- * since PostgreSQL casts a column's default with its values and casts no uuid to another type. */
-type DrawnBefore =
-	| { readonly kind: "none" }
-	| { readonly kind: SequenceFate; readonly sequence: ObjectName }
-	| { readonly kind: "uuidv7" | "retirement" }
+/** How a column a migration converts in place was drawn: by nothing, or by a retirement field's default, which the
+ * conversion drops first, since PostgreSQL casts a column's default with its values. */
+type DrawnBefore = { readonly kind: "none" } | { readonly kind: "retirement" }
 
 /** What a migration does to a field of a table both snapshots install, read off its type, its writing and its draw
  * before and after:
- * - converted in place, its type changed, with what becomes of its draw when it was serial;
+ * - converted in place, its type changed, with what drew it before (DrawnBefore);
  * - re-expressed, a generated field whose generation expression changes and whose type does not, by SET EXPRESSION,
  *   which recomputes every row and keeps what is built over the column;
  * - redrawn, a field the target draws or accumulates whose values the migration draws again, its filler or what its
@@ -3600,29 +3517,18 @@ type DrawnBefore =
  * - rewritten, dropped and added again: a field whose writing changes between its caller and a generation, a generated
  *   field whose type changes, which PostgreSQL converts by no expression of the reviewer's, or a generated field that
  *   reads a field its table converts in place, which PostgreSQL refuses to convert under it;
- * - otherwise kept, declared serial, or serial no longer, its draw added or dropped in place (inPlace): an integer's
- *   identity, or a uuid's `uuidv7()` default.
+ * - otherwise kept, or its retirement default declared or removed in place (inPlace).
  *
- * A serial column converted gives its draw up first, whatever its new type: its identity, which drops the sequence and
- * its privileges, or its default. It takes the target's draw once converted: its identity, its sequence created again
- * under its name, or its default. A field serial before and after keeps its sequence, which its table's pairing renames
- * when the target names it otherwise (KeptPlan sequences). */
+ * A column a default drew gives its default up first when it is converted, whatever its new type, and takes the
+ * target's retirement default once converted. */
 type FieldChange =
 	| { readonly kind: "kept" }
 	| { readonly kind: "converted"; readonly drawn: DrawnBefore }
 	| { readonly kind: "reexpressed"; readonly expr: Expr }
 	| { readonly kind: "redrawn" }
 	| { readonly kind: "rewritten" }
-	| { readonly kind: "serialDeclared"; readonly sequence: ObjectName }
-	| { readonly kind: "serialRemoved"; readonly sequence: ObjectName }
-	| { readonly kind: "uuidv7Declared" }
-	| { readonly kind: "uuidv7Removed" }
 	| { readonly kind: "retirementDeclared" }
 	| { readonly kind: "retirementRemoved" }
-
-/** The identity sequence of a serial column. */
-const identitySequence = (c: ColumnDef): ObjectName | undefined =>
-	c.generated?.kind === "identity" ? c.generated.sequence : undefined
 
 /** A generated field's generation expression: its column's stored generation, none for a field its caller writes. */
 const generationOf = (c: ColumnDef): Expr | undefined =>
@@ -3634,8 +3540,6 @@ type Retyped = (b: ColumnDef, c: ColumnDef) => boolean
 /** The one reading of a field's change from its column before and after, alone (fieldChangesOf reads a table's), its type
  * changing as `retyped` reads it. */
 const fieldChange = (b: ColumnDef, c: ColumnDef, retyped: Retyped): FieldChange => {
-	const was = identitySequence(b)
-	const now = identitySequence(c)
 	const before = generationOf(b)
 	const after = generationOf(c)
 	if ((before === undefined) !== (after === undefined)) {
@@ -3647,39 +3551,15 @@ const fieldChange = (b: ColumnDef, c: ColumnDef, retyped: Retyped): FieldChange 
 		}
 		return canonicalEquals(before, after) ? { kind: "kept" } : { kind: "reexpressed", expr: after }
 	}
-	const wasUuidv7 = b.generated?.kind === "uuidv7"
-	const nowUuidv7 = c.generated?.kind === "uuidv7"
 	const wasRetirement = b.generated?.kind === "retirement"
 	const nowRetirement = c.generated?.kind === "retirement"
 	if (retyped(b, c)) {
-		return {
-			kind: "converted",
-			drawn: wasUuidv7
-				? { kind: "uuidv7" }
-				: wasRetirement
-					? { kind: "retirement" }
-					: was === undefined
-						? { kind: "none" }
-						: {
-								kind: now !== undefined && nameKey(now) === nameKey(was) ? "recreated" : "dropped",
-								sequence: was
-							}
-		}
-	}
-	if (was !== undefined) {
-		return now === undefined ? { kind: "serialRemoved", sequence: was } : { kind: "kept" }
-	}
-	if (now !== undefined) {
-		return { kind: "serialDeclared", sequence: now }
+		return { kind: "converted", drawn: wasRetirement ? { kind: "retirement" } : { kind: "none" } }
 	}
 	if (wasRetirement !== nowRetirement) {
 		return nowRetirement ? { kind: "retirementDeclared" } : { kind: "retirementRemoved" }
 	}
-	return wasUuidv7 === nowUuidv7
-		? { kind: "kept" }
-		: nowUuidv7
-			? { kind: "uuidv7Declared" }
-			: { kind: "uuidv7Removed" }
+	return { kind: "kept" }
 }
 
 /** The fields two declarations of one relation share, each before and after. */
@@ -3790,10 +3670,6 @@ const drawnAnew = (change: FieldChange): FieldChange => {
 		case "converted":
 		case "reexpressed":
 		case "rewritten":
-		case "serialDeclared":
-		case "serialRemoved":
-		case "uuidv7Declared":
-		case "uuidv7Removed":
 		case "retirementDeclared":
 		case "retirementRemoved":
 			return { kind: "rewritten" }
@@ -3867,15 +3743,13 @@ const changeOf = (changes: ReadonlyMap<string, FieldChange>, column: string): Fi
 }
 
 /** The steps that change a field of `t` from `b` to `c` in place, by its change (fieldChange), `convert` converting the
- * column to its new type: a serial column gives its draw up before its conversion, and a column serial after takes the
- * target's draw once converted, an identity advanced past the stored maximum or a `uuidv7()` default; a field declared
- * serial takes its draw, an identity advanced the same way, and one serial no longer gives it up; a generated field
- * re-expressed takes its new expression; a field rewritten is dropped and added again by `add`; a field kept as it is
- * takes none. The one reading for a field of a table both install but a rewritten one, which changeField drops before
- * the conversions. A conversion the reviewer's value makes is set aside instead (InPlace setAside), its old column's
- * identity or default leaving with the column. Each alteration joins its table's one ALTER TABLE in Structure
- * (Differ.alter), which PostgreSQL runs pass by pass, every give-up before every conversion and every conversion before
- * every take; an identity's advance reads the values that statement leaves, so it follows it. */
+ * column to its new type: a retirement field gives its default up before its conversion and takes it again once
+ * converted; a generated field re-expressed takes
+ * its new expression; a field rewritten is dropped and added again by `add`; a field kept as it is takes none. The one
+ * reading for a field of a table both install but a rewritten one, which changeField drops before the conversions. A
+ * conversion the reviewer's value makes is set aside instead (InPlace setAside), its old column's default leaving with
+ * the column. Each alteration joins its table's one ALTER TABLE in Structure (Differ.alter), which
+ * PostgreSQL runs pass by pass, every give-up before every conversion and every conversion before every take. */
 const inPlace = (
 	t: ObjectName,
 	b: ColumnDef,
@@ -3886,12 +3760,6 @@ const inPlace = (
 ): InPlace => {
 	const altering = (a: AlterTableAction): Action => ({ kind: "alteration", table: t, actions: [a] })
 	const steps = (list: ReadonlyArray<Action>): InPlace => ({ kind: "steps", steps: list })
-	const take = (sequence: ObjectName): ReadonlyArray<Action> => [
-		altering({ kind: "addIdentity", column: c.name, sequence }),
-		statement(advance(t, c.name, sequence, c.type))
-	]
-	const giveUp = altering({ kind: "dropIdentity", column: b.name })
-	const takeUuidv7 = altering({ kind: "setUuidv7Default", column: c.name })
 	const takeRetirement = altering({ kind: "setRetirementDefault", column: c.name })
 	const giveUpDefault = altering({ kind: "dropDefault", column: b.name })
 	switch (change.kind) {
@@ -3902,20 +3770,11 @@ const inPlace = (
 			if (conversion.kind === "placeholderRetype") {
 				return { kind: "setAside", reason: conversion.reason }
 			}
-			const before =
-				change.drawn.kind === "none"
-					? []
-					: change.drawn.kind === "uuidv7" || change.drawn.kind === "retirement"
-						? [giveUpDefault]
-						: [giveUp]
+			const before = change.drawn.kind === "none" ? [] : [giveUpDefault]
 			return steps(
-				c.generated?.kind === "identity"
-					? [...before, altering(conversion), ...take(c.generated.sequence)]
-					: c.generated?.kind === "uuidv7"
-						? [...before, altering(conversion), takeUuidv7]
-						: c.generated?.kind === "retirement"
-							? [...before, altering(conversion), takeRetirement]
-							: [...before, altering(conversion)]
+				c.generated?.kind === "retirement"
+					? [...before, altering(conversion), takeRetirement]
+					: [...before, altering(conversion)]
 			)
 		}
 		case "reexpressed":
@@ -3924,14 +3783,6 @@ const inPlace = (
 			return steps([])
 		case "rewritten":
 			return steps([altering({ kind: "dropColumn", column: b.name }), altering(add(c))])
-		case "serialDeclared":
-			return steps(take(change.sequence))
-		case "serialRemoved":
-			return steps([giveUp])
-		case "uuidv7Declared":
-			return steps([takeUuidv7])
-		case "uuidv7Removed":
-			return steps([giveUpDefault])
 		case "retirementDeclared":
 			return steps([takeRetirement])
 		case "retirementRemoved":
@@ -3940,31 +3791,10 @@ const inPlace = (
 }
 
 /** What a field's change in place drafts (inPlace): its steps, or, for a conversion the reviewer's value makes, its
- * setting aside (SetAside), which draws its identity or its uuidv7() or retirement default once its fill renames
- * it. */
+ * setting aside (SetAside), which draws its retirement default once its fill renames it. */
 type InPlace =
 	| { readonly kind: "steps"; readonly steps: ReadonlyArray<Action> }
 	| { readonly kind: "setAside"; readonly reason: RetypeReason }
-
-/** The identity sequences of the tables both install that a migration drops, by name key, each with its fate, read off
- * each field's change before any object is visited: a serial field converted in place drops its sequence, created again
- * when it takes the target's identity under its name; a field serial no longer drops it. */
-const sequenceFatesOf = (kept: Iterable<KeptTable>): ReadonlyMap<NameKey, SequenceFate> => {
-	const out = new Map<NameKey, SequenceFate>()
-	for (const { changes } of kept) {
-		for (const change of changes.values()) {
-			if (
-				change.kind === "converted" &&
-				(change.drawn.kind === "dropped" || change.drawn.kind === "recreated")
-			) {
-				out.set(nameKey(change.drawn.sequence), change.drawn.kind)
-			} else if (change.kind === "serialRemoved") {
-				out.set(nameKey(change.sequence), "dropped")
-			}
-		}
-	}
-	return out
-}
 
 /** The drop of a domain or a relation, which must find it. */
 const dropObject = (
@@ -4145,20 +3975,13 @@ const grantOf = (r: Revoke): Grant => ({
 })
 
 /**
- * The objects a GRANT may name that an installed object is (privileges.ts GrantObject): a table, with its identity
- * sequences, the ledger, a role's view and a materialized view as a TABLE; a domain; a declared function's row type as
- * a TYPE; every function, constant and declared function by its name and argument types; a level's schema and a
- * role's; none for any other.
+ * The objects a GRANT may name that an installed object is (privileges.ts GrantObject): a table, the ledger, a role's
+ * view and a materialized view as a TABLE; a domain; a declared function's row type as a TYPE; every function,
+ * constant and declared function by its name and argument types; a level's schema and a role's; none for any other.
  */
 const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => {
 	switch (v.kind) {
 		case "table":
-			return [
-				{ kind: "TABLE", name: v.create.table },
-				...v.create.columns.flatMap((c): ReadonlyArray<GrantObject> =>
-					c.generated?.kind === "identity" ? [{ kind: "SEQUENCE", name: c.generated.sequence }] : []
-				)
-			]
 		case "ledger":
 			return [{ kind: "TABLE", name: v.create.table }]
 		case "view":
@@ -4172,7 +3995,6 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 			return [{ kind: "FUNCTION", name: functionNameOf(v.create) }]
 		case "constant":
 		case "refusalFunction":
-		case "advanceFunction":
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
@@ -4282,36 +4104,6 @@ const worldChangesOf = (
 	return { drops, creates }
 }
 
-/** The sequence advance after declaring an existing field serial: past the stored maximum when it is positive, and
- * nothing on an empty table or one whose values are all below 1, which leaves the new sequence at its start: an
- * identity sequence starts at 1, its minimum, so it is already past every stored value below 1, and setval to one
- * would fall outside its bounds. */
-const advance = (
-	t: ObjectName,
-	column: string,
-	sequence: ObjectName,
-	type: ColumnDef["type"]
-): SqlStatement => {
-	const value = col("r1", column)
-	const argument =
-		type.kind === "builtin" && type.name === "bigint" ? value : cast(value, types.bigint)
-	return {
-		...provedSelect(
-			"oneRow",
-			[
-				targetAs(
-					cast(call("setval", [{ kind: "regclass", relation: sequence }, argument]), types.text),
-					"c1"
-				)
-			],
-			[tableFrom(t.schema, t.name, "r1")],
-			ge(value, lit.int(1n, types.integer))
-		),
-		orderBy: [desc(value)],
-		limit: lit.int(1n, types.integer)
-	}
-}
-
 /** The pure diff: previous snapshot plus target snapshot state, producing a phased plan.
  *
  * The diff compares the two manifests object by object, by graph identity, and drafts each
@@ -4325,8 +4117,7 @@ const advance = (
  * constraints are declared valid and its indexes built by ordinary CREATE INDEX in a transaction. The
  * rules, with their slots:
  *
- * - Adding a field: ADD COLUMN ... NOT NULL DEFAULT with a marked placeholder, then DROP DEFAULT (structure); a serial
- *   field is ADD COLUMN ... GENERATED ALWAYS AS IDENTITY and needs none.
+ * - Adding a field: ADD COLUMN ... NOT NULL DEFAULT with a marked placeholder, then DROP DEFAULT (structure).
  * - Removing a field: DROP COLUMN, at the end of Publish (publish.removed), after every statement that may still read
  *   it: the reviewer's data steps; a loss
  *   of its values, which the reviewer decides.
@@ -4343,11 +4134,7 @@ const advance = (
  *   refuse the conversion under it, and is built again as the target declares it, as on a relation that may hold rows,
  *   but for a key, which is added again in the same Structure transaction right after the conversion, so it holds at
  *   every commit;
- *   the materialized views over the table are dropped and recreated. A serial column changing type gives its identity
- *   up before the conversion, which drops its sequence, and takes one again after it, advanced past the stored maximum.
- * - Declaring a field serial: ALTER COLUMN ... ADD GENERATED ALWAYS AS IDENTITY and the sequence advanced past the
- *   stored maximum in the same transaction; removing serial: DROP IDENTITY, which drops the sequence and its grants,
- *   so Publish revokes nothing on it (structure).
+ *   the materialized views over the table are dropped and recreated.
  * - A generated field: its expression changed, SET EXPRESSION (structure), which recomputes every row; its writing
  *   changed between its caller and a generation, its type changed, or a field it reads converted in place, dropped
  *   (structure.drop, a loss the reviewer decides when its caller wrote it) and added again (structure).

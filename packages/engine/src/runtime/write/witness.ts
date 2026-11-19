@@ -34,12 +34,7 @@ import {
 	keyHostOf,
 	wholeKey
 } from "#compiler/runtime/write/fill.ts"
-import {
-	type GroupData,
-	type InputData,
-	inputSlotsOf,
-	type SlotData
-} from "#compiler/runtime/write/normalize.ts"
+import type { GroupData, InputData, SlotData } from "#compiler/runtime/write/normalize.ts"
 import { keyWitness } from "#compiler/runtime/write/outcome.ts"
 import {
 	comparisonHolds,
@@ -79,7 +74,7 @@ export type FilledColumn =
 
 /**
  * A row a refused statement writes that the ChangeSet states, as the host judges it (runtime/write/bind.ts): the
- * fields the ChangeSet states, by name, its key and its caller's and serial fields, or a query entry's head, never a
+ * fields the ChangeSet states, by name, its key and its caller's fields, or a query entry's head, never a
  * count, an end or a copy; and every other column of its relation, a drawn or an accumulated field by its field key, a
  * law column by its own, as the write fills it. Its kind is what the host knows of the row the write leaves at its key:
  * - known: the row is as `filled` gives it, a column the host does not hold unfilled;
@@ -110,7 +105,7 @@ export interface WitnessField {
 	readonly column: ColumnIdent
 	readonly type: ScalarType
 	readonly writing:
-		| { readonly kind: "caller" | "drawn" | "serial" | "accumulated" | "retirement" }
+		| { readonly kind: "caller" | "drawn" | "accumulated" | "retirement" }
 		| { readonly kind: "generated"; readonly expr: ExprTable }
 }
 
@@ -214,12 +209,10 @@ export interface WitnessData {
 }
 
 /** A stated row's field as the host holds it: a field the ChangeSet states, or one its write fills; a retirement field
- * false, the state every insert writes it at; none for a generated field, a field PostgreSQL draws, or a column the host
- * does not hold. */
+ * false, the state every insert writes it at; none for a generated field or a column the host does not hold. */
 const hostField = (row: JudgedRow, field: Pick<WitnessField, "name" | "writing">): unknown => {
 	switch (field.writing.kind) {
 		case "caller":
-		case "serial":
 			return row.stated[field.name]
 		case "drawn":
 		case "accumulated": {
@@ -259,7 +252,7 @@ export type Refuser =
  * which casts the facts the action writes into the relation's types (artifact.ts CarrierCasts), stating every fact the
  * ChangeSet adds or puts into them there; a query entry's precheck, which casts the entry's own stated facts into its
  * target's types before any statement writes them; or a statement that states no fact the ChangeSet states: another
- * carrier's, an ANALYZE, a serial advance, a read-back or the COMMIT.
+ * carrier's, an ANALYZE, a read-back or the COMMIT.
  */
 export type StatementAt =
 	| {
@@ -414,7 +407,7 @@ const fieldOf = (relation: WitnessTable, name: string): WitnessField =>
 
 /**
  * The key a fact of `relation` states, its first declared key whose every field it carries, the primary key first;
- * undefined where it carries none whole, as a generated addition omits the serial fields its identity draws.
+ * undefined where it carries none whole.
  */
 const statedKey = (
 	relation: WitnessTable,
@@ -522,7 +515,7 @@ const groupFacts = (
 	group.inputs.flatMap((input) =>
 		input.kind === "single" && input.act.op === "delete"
 			? []
-			: inputSlotsOf(input).flatMap((slot) => slotFacts(w, stated, group, input, slot, relation))
+			: slotFacts(w, stated, group, input, input.slot, relation)
 	)
 
 /**
@@ -832,9 +825,7 @@ export const prepareWitness = (
 	>()
 	for (const group of groups) {
 		for (const input of group.inputs) {
-			for (const slot of inputSlotsOf(input)) {
-				slots.set(slot.slot, { group, input, slot })
-			}
+			slots.set(input.slot.slot, { group, input, slot: input.slot })
 		}
 	}
 	return Object.freeze({
@@ -1306,7 +1297,7 @@ const refuserJudge = (w: Witnessing, refuser: Refuser): RefuserJudge => {
  *   the host names none of them.
  *
  * Where the host finds none (a row only PostgreSQL computes, a query's, a row whose law reads a value the host does not
- * hold or cannot evaluate, one stated with no whole key, as a generated addition's identity is drawn, or one of several
+ * hold or cannot evaluate, one stated with no whole key, or one of several
  * owners no read looked up), the witness is `unreported`.
  */
 export const hostJudgement = (

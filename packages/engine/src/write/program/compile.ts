@@ -24,7 +24,7 @@ import {
 	type StatementSpec
 } from "#compiler/ir/products.ts"
 import type { DeltaSide, RelDag, RelNode } from "#compiler/ir/rel.ts"
-import { completeClass, type ReadBack, type SerialClass } from "#compiler/ir/write.ts"
+import type { ReadBack } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { generations } from "#compiler/laws/model/generation.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
@@ -80,7 +80,6 @@ import {
 import {
 	buildEntryCheck,
 	type EntryCheck,
-	outsideProbes,
 	type WriteWorld
 } from "#compiler/write/entry/precheck.ts"
 
@@ -138,7 +137,6 @@ import {
 	type WriteStatement,
 	writeContext
 } from "#compiler/write/insert/statement.ts"
-import { readsDrawn } from "#compiler/write/insert/unique.ts"
 import { withCarrierAnalysis } from "#compiler/write/program/analyze.ts"
 import { castsNothing } from "#compiler/write/program/artifact.ts"
 import {
@@ -190,7 +188,6 @@ import {
 	planWrite,
 	type WritePlan
 } from "#compiler/write/schedule/plan.ts"
-import { buildSequenceAdvance } from "#compiler/write/serial/advance.ts"
 
 export interface CompileWriteOptions {
 	/** The installed names the statements write (`InstallNames`, `schemaArtifacts`). */
@@ -252,20 +249,14 @@ const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 	return r.value
 }
 
-/** What decides which of a write op's unique violations abort the apply: a generated addition's class, whose drawn
- * fields tell an unseen occupant from a draw a stored value meets; a MERGE; any other probed statement; or none. */
+/** What decides which of a write op's unique violations abort the apply: a MERGE; any other probed statement; or
+ * none. */
 type AbortKind =
-	| {
-			readonly kind: "generated"
-			readonly serial: Extract<SerialClass, { readonly kind: "generated" }>
-	  }
 	| { readonly kind: "merge" }
 	| { readonly kind: "probed" }
 	| { readonly kind: "other" }
 
-/** The 23505 and 23P01 violations at a statement into `relation` that abort the apply: a generated addition's at every
- * unique object, which its probe leaves only an occupant its snapshot did not see at an object that reads no field it
- * draws, and at one that reads a drawn field a stored value the sequence had not passed; a MERGE insert at the primary
+/** The 23505 and 23P01 violations at a statement into `relation` that abort the apply: a MERGE insert at the primary
  * key its put targets, or at a unique object besides it, which compares every field of that key (`uniqueBesideKey`),
  * so it is the same concurrent commit; and a probed insert's, at every unique object besides its arbiter, which after
  * the probe only an occupant its snapshot did not see raises. */
@@ -286,12 +277,6 @@ export const uniqueAbortsOf = (
 			return aborts(others, "UnseenOccupant")
 		case "merge":
 			return aborts([arbiter, ...others], "PutTargetConflict")
-		case "generated":
-			return [arbiter, ...others].map((u): UniqueAbort => ({
-				constraint: u.name,
-				relation: relation.name,
-				reason: readsDrawn(u, kind.serial.drawn) ? "GeneratedSerialUnique" : "UnseenOccupant"
-			}))
 	}
 }
 
@@ -315,16 +300,14 @@ export interface ArtifactBuilder {
 
 export const newBuilder = (codes: Codebook): ArtifactBuilder => ({ statements: [], codes })
 
-/** The member slots of an enumerated input whose facts a stratum inserts whole: a nested insert's own rows, a plain
- * insertion's, and a classed insertion's complete class, whose facts carry every serial field. */
+/** The member slots of an enumerated input whose facts a stratum inserts whole: a nested insert's own rows and a plain
+ * insertion's. */
 const insertingSlots = (input: EnumeratedInput): ReadonlyArray<MemberSlot> => {
 	switch (input.kind) {
 		case "nested":
 			return [input.slot]
 		case "single":
 			return input.act.op === "insert" ? [input.slot] : []
-		case "classed":
-			return [input.complete]
 	}
 }
 
@@ -705,7 +688,6 @@ const placeSpec = (
 		{
 			readonly kind:
 				| "write"
-				| "advance"
 				| "carrier"
 				| "single"
 				| "check"
@@ -740,7 +722,7 @@ const placeSpec = (
 export const place = (
 	b: ArtifactBuilder,
 	statement: WriteStatement | PutStatement,
-	step: Extract<WriteStep, { readonly kind: "write" | "advance" | "carrier" | "check" }>,
+	step: Extract<WriteStep, { readonly kind: "write" | "carrier" | "check" }>,
 	dependsOn: ReadonlyArray<number>
 ): number =>
 	placeSpec(
@@ -925,10 +907,7 @@ const optimizedPlacement = (
 		dependsOn: ReadonlyArray<number>,
 		step: (
 			statement: S
-		) => Extract<
-			WriteStep,
-			{ readonly kind: "write" | "advance" | "carrier" | "check" | "hold" | "retire" }
-		>
+		) => Extract<WriteStep, { readonly kind: "write" | "carrier" | "check" | "hold" | "retire" }>
 	): number => {
 		const { statement, forms } = formed(build, sentOf)
 		return placeSpec(
@@ -1152,30 +1131,6 @@ const optimizedPlacement = (
 				)
 				for (const x of step.writes) {
 					record(x.action, position)
-				}
-				break
-			}
-			case "advance": {
-				const spec = { relation: step.relation, input: step.input }
-				for (const field of step.fields) {
-					const deps = tracker.addAfter(
-						[...inputReads([step.input]), ...describedReads([step.input])],
-						[`sequence:${step.relation.name}.${field.name}`],
-						actionDeps(step.action)
-					)
-					const position = placed(
-						() => buildSequenceAdvance(w, spec, field),
-						deps,
-						(statement) => ({
-							kind: "advance",
-							stratum: step.action.stratum,
-							action: step.action.index,
-							relation: step.relation.name,
-							field: field.name,
-							needs: statement.needs
-						})
-					)
-					record(step.action, position)
 				}
 				break
 			}
@@ -1479,12 +1434,7 @@ const buildWriteOp = (
 	const { relation, input } = step
 	switch (step.op) {
 		case "insert":
-			return buildInsert(w, {
-				relation,
-				serial: step.serial,
-				input,
-				of: "insert"
-			})
+			return buildInsert(w, { relation, input, of: "insert" })
 		case "exactDelete":
 			return buildExactDelete(w, { relation, input, except: step.except })
 		case "anchoredDelete":
@@ -1492,12 +1442,7 @@ const buildWriteOp = (
 		case "displace":
 			return buildDisplacingDelete(w, { relation, input, payload: step.payload })
 		case "putInsert":
-			return buildInsert(w, {
-				relation,
-				serial: completeClass,
-				input,
-				of: "put"
-			})
+			return buildInsert(w, { relation, input, of: "put" })
 		case "upsert":
 			return buildUpsert(w, {
 				relation,
@@ -1518,15 +1463,10 @@ const buildWriteOp = (
 	}
 }
 
-/** Which of an insert's unique violations abort the apply, by the class it inserts. */
-export const insertAborts = (serial: SerialClass): AbortKind =>
-	serial.kind === "generated" ? { kind: "generated", serial } : { kind: "probed" }
-
 /** Which of a write op's unique violations abort the apply (uniqueAbortsOf). */
 const abortsOf = (step: PlannedWrite): AbortKind => {
 	switch (step.op) {
 		case "insert":
-			return insertAborts(step.serial)
 		case "putInsert":
 		case "upsert":
 			return { kind: "probed" }
@@ -1543,7 +1483,7 @@ const abortsOf = (step: PlannedWrite): AbortKind => {
 /** The duplicate-elimination placement the optimized artifact lowers its described members under, and the shape facts
  * it gives. No root of the write DAG observes repeats, because each consumer of a
  * member decides its own set boundary: a write statement reads it through SELECT DISTINCT unless distinctByEvidence
- * proves it distinct, a deletion and a sequence advance ignore repeats, and a read-back is lowered on its own.
+ * proves it distinct, a deletion ignores repeats, and a read-back is lowered on its own.
  * So the placement places a DISTINCT only where a node inside a member observes repeats, a fold, a
  * bound or a set form, and elides every other boundary the conservative realization emits, each elision under its
  * certificate. The conservative artifact keeps every boundary, and the write oracle compares the two. Its proofs
@@ -1589,7 +1529,7 @@ const entryCheckOf = (
 		kind: "membership",
 		entry: check.entry,
 		relation,
-		probes: outsideProbes(relation, check.serial),
+		probes: relation.uniques.probes,
 		base: frontend.schema.definitions(),
 		catalog: evidenceCatalog(frontend),
 		world: check.names
@@ -1704,7 +1644,7 @@ const compile = (
  * 3. The schedule: the statements in order, each described member a leading CTE or a carrier, each read-back riding
  *    the one statement that makes its deltas, or after the strata where it reads none a statement makes, and each
  *    stratum where one snapshot suffices one single statement.
- * 4. The optimized artifact: each planned statement built by its package (insert/, delete/, serial/, carriers/, put/),
+ * 4. The optimized artifact: each planned statement built by its package (insert/, delete/, carriers/, put/),
  *    a single statement's writes its parts, each riding read-back a part of its statement over that statement's
  *    RETURNING, and each read-back after the strata lowered over the post-change state. Each carrier is analyzed after it is filled and before
  *    the first statement that joins it against a stored relation. The conservative realization, the write oracle's

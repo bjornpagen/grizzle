@@ -25,7 +25,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, type FixtureSchema, testCompile } from "#test/support/compile.ts"
 import { sameIdentity } from "#test/support/kernel/identity.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { isDrawn, isSpan } from "#test/support/laws/model.ts"
+import { isSpan } from "#test/support/laws/model.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import {
 	type Bindings,
@@ -328,8 +328,7 @@ export const fieldValue = (fact: HostFact, field: string): HostValue => {
 	return value
 }
 
-const hostText = (v: HostValue): string =>
-	isSpan(v) ? `[${v.start},${v.end})` : isDrawn(v) ? `draw ${String(v.draw)}` : String(v)
+const hostText = (v: HostValue): string => (isSpan(v) ? `[${v.start},${v.end})` : String(v))
 
 /** The session's facts as the reference reads them: each context holding a fact, its value at each field. */
 type SessionFacts = Readonly<Record<string, Readonly<Record<string, ReferenceValue>>>>

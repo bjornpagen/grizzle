@@ -251,7 +251,6 @@ type ClosedDefect =
 	| "a mistyped value"
 	| "two rows of one key, other payloads"
 	| "a key of an open field"
-	| "a field its sequence writes"
 	| "a fifth argument"
 
 export const closedDefects: Arr.NonEmptyReadonlyArray<ClosedDefect> = [
@@ -262,7 +261,6 @@ export const closedDefects: Arr.NonEmptyReadonlyArray<ClosedDefect> = [
 	"a mistyped value",
 	"two rows of one key, other payloads",
 	"a key of an open field",
-	"a field its sequence writes",
 	"a fifth argument"
 ]
 

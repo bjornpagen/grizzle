@@ -101,7 +101,7 @@ export interface AnyLive extends AnyDerived {
  *
  * Its fields are its definition's heading, the record of carriers v mints variables over: each head term's column and
  * SQL type, a variable's its field's own, contract included, an aggregate's or a computed term's its result's. A view
- * column is never an identity column, and a term carries no serial declaration. The compiler's inference
+ * column is a plain column of its type. The compiler's inference
  * (analysis/derived) of each column's descriptor is exact, and the snapshot records it. Its facts are decoded by
  * `fact`, the record of those carriers (schema/record.ts record), as a relation's are by its fields'.
  *

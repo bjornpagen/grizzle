@@ -1,6 +1,6 @@
 /** What the properties of oracle.test.ts read: its spaces, models and helpers. */
 
-import { Array as Arr, Effect, Option, Order, pipe, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Order, pipe, String as Str } from "effect"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { type FixtureWorlds, worldsExpectation } from "#test/pg/physical/support.ts"
@@ -82,25 +82,10 @@ export const installedCatalog = <A>(
 		Effect.orDie(pinned.query("ROLLBACK", []))
 	)
 
-/** The identity sequence of the installed column `column` of the installed table `table`, as `<schema>.<sequence>`. */
-const sequenceOf = (installation: Installation, table: string, column: string): string => {
-	for (const r of Rec.values(installation.owned.relations)) {
-		if (r.kind !== "relation" || r.ident !== table) {
-			continue
-		}
-		const field = Arr.findFirst(Rec.values(r.fields), (f) => f.column === column)
-		if (Option.isSome(field)) {
-			const s = installation.names.sequence(r.name, field.value.name)
-			return `${s.schema}.${s.name}`
-		}
-	}
-	throw new Error(`no owned field is installed as ${table}.${column}`)
-}
-
 /**
  * The real installation's catalog holds what its manifest promises, the worlds included: every column NOT NULL but a
  * law column generated under a guard, NULL outside its selection; text columns and those of a domain with a collation
- * in pg_c_utf8; each identity over its named sequence; domains with no NOT NULL and every constraint validated, every
+ * in pg_c_utf8; no identity column, since grizzle mints no ids; domains with no NOT NULL and every constraint validated, every
  * index valid; no enum label, a closed id being a code under its roster's int2 domain, whose one CHECK calls its names
  * constant; no grant to PUBLIC; and the owner's default privileges on functions and types reset for every schema, the
  * global form, which PUBLIC's own defaults yield to (test/pg/sql/print.test.ts), so nothing the owner creates later is
@@ -142,9 +127,11 @@ export const installedAsPromised = (
 			) {
 				assert.deepEqual(c.collation, Option.some("pg_catalog.pg_c_utf8"), `${t.name}.${c.name}`)
 			}
-			if (c.generation.kind === "identity") {
-				assert.equal(c.generation.sequence, sequenceOf(installation, t.name, c.name))
-			}
+			assert.notEqual(
+				c.generation.kind,
+				"identity",
+				`${t.name}.${c.name} is no identity: grizzle mints no ids`
+			)
 		}
 		for (const k of t.constraints) {
 			assert.equal(k.validated, true, `${t.name}.${k.name} is validated`)

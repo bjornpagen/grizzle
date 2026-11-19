@@ -18,7 +18,6 @@ import * as Result from "#compiler/core/result.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
-import { addAdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
 import { addClosedRelations, addRosters } from "#compiler/physical/ddl/constants.ts"
 import { InstallBuilder, type InstallSettings } from "#compiler/physical/ddl/context.ts"
 import {
@@ -447,8 +446,7 @@ export const installationOver = (
 					...addOutsideContractDomains(b, plan.outsideContracts)
 				]
 				const declared = addFunctions(b)
-				const { keyIndexes, tables, sequences } = addTables(b)
-				const advance = addAdvanceFunctions(b)
+				const { keyIndexes, tables } = addTables(b)
 				const units = addUnitFunctions(b)
 				const ruleRequests = addRules(b)
 				addSpanStorage(b, plan.spans)
@@ -480,9 +478,8 @@ export const installationOver = (
 				const live = liveOf(options.extensions)
 				const worlds = addWorlds(
 					b,
-					advance,
 					units,
-					{ tables, sequences, domains: [...domains, ...paramDomains] },
+					{ tables, domains: [...domains, ...paramDomains] },
 					plan.logins,
 					statedOnce(
 						installedRoles(plan),

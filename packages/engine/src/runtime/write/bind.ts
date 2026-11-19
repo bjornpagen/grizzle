@@ -153,16 +153,14 @@ export interface BoundWrite {
  * stratum's appends draw on an owner, the fields a nesting's walk draws, each counted family's columns where a fresh
  * fill drew its group, and the law columns among them; and what the SQL gives it instead. `scanned` is each counted
  * family it is a member of whose group no fresh fill drew, the stratum inserting none of its owner, so the family's
- * statement draws its columns past the group's stored members (write/family/additions.ts); `serial` is each serial
- * field its insert leaves out, which PostgreSQL draws, its classed input's generated slot's (frontend/compile.ts
- * EnumeratedInput "classed"). A row the host filled whole has neither. A group a fresh fill drew that holds stored
- * members is the scan's as the statement runs (additions.ts HostDrawn), so where no row is stored, as in a fresh
- * installation, a row the host filled whole is the row the write stores.
+ * statement draws its columns past the group's stored members (write/family/additions.ts). A row the host filled whole
+ * has none. A group a fresh fill drew that holds stored members is the scan's as the statement runs (additions.ts
+ * HostDrawn), so where no row is stored, as in a fresh installation, a row the host filled whole is the row the write
+ * stores.
  */
 export interface InsertedRow {
 	readonly values: Cells
 	readonly scanned: ReadonlyArray<CountedFamily>
-	readonly serial: ReadonlyArray<string>
 }
 
 /**
@@ -256,8 +254,7 @@ const sentFormOf = (
 	switch (statement.kind) {
 		case "whole": {
 			const step = statement.step
-			return (step.kind === "write" || step.kind === "advance" || step.kind === "check") &&
-				!holds(step.needs, holdsFact)
+			return (step.kind === "write" || step.kind === "check") && !holds(step.needs, holdsFact)
 				? undefined
 				: sentForm(statement, runsLarge)
 		}
@@ -499,9 +496,9 @@ export const bindWrite = (
 	 * `source` gives it, its value, none where the row holds none, `op` how its statement writes it, `keyed` whether they
 	 * hold its whole primary key, and `proposal` which of its facts the statement that writes it proposes
 	 * (insert/statement.ts Proposal), an action's INSERT into a family owner only those no stored row holds the key of. It
-	 * states its caller's and serial fields; every other column is, in turn, an owner's count or end as its insert carries
-	 * it where the write drew it into the row's facts, else, for an insert, at its empty family's, the walk's value, and
-	 * otherwise unfilled. A row whose statement proposes it only where no stored row holds its key is `ifFresh`.
+	 * states its caller's fields; every other column is, in turn, an owner's count or end as its insert carries it where
+	 * the write drew it into the row's facts, else, for an insert, at its empty family's, the walk's value, and otherwise
+	 * unfilled. A row whose statement proposes it only where no stored row holds its key is `ifFresh`.
 	 */
 	const judgedRow = (
 		fill: StatedFill,
@@ -770,10 +767,8 @@ export const bindWrite = (
 		[...new Set([...binding.groups.map((g) => g.stratum), ...binding.nested.map((n) => n.stratum)])]
 			.toSorted((a, b) => a - b)
 			.map((stratum): InsertedStratum => {
-				/** Each relation's rows whose key the host holds, by it, and those whose serial fields PostgreSQL draws, as
-				 * their slot states them: their key may be among those fields, so no other source's row is theirs. */
+				/** Each relation's rows, by their key, which the host holds. */
 				const keyed = new Map<StoredRelationName, TupleMap<MemberKey, KeyedRow>>()
-				const drawnBySql = new Map<StoredRelationName, Array<InsertedRow>>()
 				/** A row of `relation` at its key: its source's cells themselves, and where another source gave the key cells
 				 * before, those cells with this one's over them (`overlaid`). */
 				const add = (relation: StoredRelationName, key: MemberKey, filled: Cells): void => {
@@ -805,16 +800,6 @@ export const bindWrite = (
 									addFacts(group.relation, input.slot.slot)
 								}
 								break
-							case "classed": {
-								addFacts(group.relation, input.complete.slot)
-								const of = drawnBySql.get(group.relation) ?? []
-								drawnBySql.set(group.relation, of)
-								const columns = prepared.columns(group.relation)
-								for (const fact of slotFacts(input.generated.slot).facts) {
-									of.push({ values: factCells(columns, fact), scanned: [], serial: input.serial })
-								}
-								break
-							}
 							case "nested":
 								addFacts(group.relation, input.slot.slot)
 								break
@@ -860,20 +845,15 @@ export const bindWrite = (
 						}
 					}
 				}
-				const relations = new Set([...keyed.keys(), ...drawnBySql.keys()])
 				return {
 					stratum,
 					rows: new Map(
-						[...relations].map((relation) => [
+						[...keyed].map(([relation, of]) => [
 							relation,
-							[
-								...[...(keyed.get(relation)?.values() ?? [])].map((row): InsertedRow => ({
-									values: row.values,
-									scanned: row.scanned,
-									serial: []
-								})),
-								...(drawnBySql.get(relation) ?? [])
-							]
+							[...of.values()].map((row): InsertedRow => ({
+								values: row.values,
+								scanned: row.scanned
+							}))
 						])
 					)
 				}
@@ -928,7 +908,6 @@ const partOf = (step: OwnStep): ExecutionPart => {
 		case "analyze":
 			return "analyze"
 		case "write":
-		case "advance":
 		case "check":
 		case "single":
 		case "familyWrite":

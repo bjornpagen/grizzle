@@ -1187,8 +1187,7 @@ const conflictLines = (out: Lines, conflict: OnConflict): void => {
 const insertBlock = (out: Lines, insert: Insert): void => {
 	const alias = insert.alias === undefined ? "" : ` AS ${quoteIdent(insert.alias)}`
 	const columns = isNonEmpty(insert.columns) ? ` (${printIdentList(insert.columns)})` : ""
-	const overriding = insert.overriding === undefined ? "" : ` OVERRIDING ${insert.overriding}`
-	out.line(`INSERT INTO ${printTableName(insert.table)}${alias}${columns}${overriding}`)
+	out.line(`INSERT INTO ${printTableName(insert.table)}${alias}${columns}`)
 	out.line(
 		insert.source.kind === "query"
 			? printSelectInline(insert.source.query)
@@ -1228,10 +1227,9 @@ const mergeActionText = (action: MergeWhen["action"]): string => {
 		case "update":
 			return `UPDATE SET ${printAssignments(action.set)}`
 		case "insert": {
-			const overriding = action.overriding === undefined ? "" : ` OVERRIDING ${action.overriding}`
 			const columns = printIdentList(action.row.map((a) => a.column))
 			const values = action.row.map((a) => printExpr(a.value)).join(", ")
-			return `INSERT (${columns})${overriding} VALUES (${values})`
+			return `INSERT (${columns}) VALUES (${values})`
 		}
 		case "insertDefault":
 			return "INSERT DEFAULT VALUES"
@@ -1288,10 +1286,6 @@ const listed = (out: Lines, items: ReadonlyArray<string>): void => {
  * name. */
 const printGeneration = (g: ColumnGeneration): string => {
 	switch (g.kind) {
-		case "identity":
-			return `GENERATED ALWAYS AS IDENTITY (SEQUENCE NAME ${printObjectName(g.sequence)})`
-		case "uuidv7":
-			return "DEFAULT pg_catalog.uuidv7()"
 		case "retirement":
 			return "DEFAULT false"
 		case "stored":
@@ -1391,16 +1385,10 @@ const printAlterTableAction = (action: AlterTableAction): string => {
 			return `DROP COLUMN ${quoteIdent(action.column)}`
 		case "dropDefault":
 			return `ALTER COLUMN ${quoteIdent(action.column)} DROP DEFAULT`
-		case "setUuidv7Default":
-			return `ALTER COLUMN ${quoteIdent(action.column)} SET ${printGeneration({ kind: "uuidv7" })}`
 		case "setRetirementDefault":
 			return `ALTER COLUMN ${quoteIdent(action.column)} SET ${printGeneration({ kind: "retirement" })}`
 		case "alterColumnType":
 			return `ALTER COLUMN ${quoteIdent(action.column)} TYPE ${printType(action.type)}${action.collation === undefined ? "" : ` COLLATE ${printObjectName(action.collation)}`} USING ${printUsing(action.using)}`
-		case "addIdentity":
-			return `ALTER COLUMN ${quoteIdent(action.column)} ADD GENERATED ALWAYS AS IDENTITY (SEQUENCE NAME ${printObjectName(action.sequence)})`
-		case "dropIdentity":
-			return `ALTER COLUMN ${quoteIdent(action.column)} DROP IDENTITY`
 		case "addConstraint":
 			return `ADD ${printConstraint(action.constraint)}${action.notValid ? " NOT VALID" : ""}`
 		case "addConstraintUsingIndex":
@@ -1484,12 +1472,11 @@ const databaseWide: Emitter = (command) => [(out) => writeCommand(out, databaseL
  * How a GRANT or REVOKE on each kind of object is emitted (Emitter): the current database's ACL is a row of
  * pg_database every installation in the database writes; a schema's is a row of pg_namespace, and an installation
  * grants on the vector extension's schema (physical/ddl/roles.ts), which every installation of the database shares, by
- * the same arm it grants on its own schemas, so a grant on any schema is database-wide. A table's, a sequence's, a
- * domain's and a function's are the installation's own.
+ * the same arm it grants on its own schemas, so a grant on any schema is database-wide. A table's, a domain's and a
+ * function's are the installation's own.
  */
 const grantEmitter: { readonly [K in GrantObjects["kind"]]: Emitter } = {
 	TABLE: own,
-	SEQUENCE: own,
 	DOMAIN: own,
 	TYPE: own,
 	FUNCTION: own,
@@ -1525,7 +1512,6 @@ const printGrantObjects = (on: NamedGrantObjects): string => {
 		case "FUNCTION":
 			return `FUNCTION ${on.names.map(printFunctionSignature).join(", ")}`
 		case "TABLE":
-		case "SEQUENCE":
 		case "DOMAIN":
 		case "TYPE":
 			return `${on.kind} ${on.names.map(printObjectName).join(", ")}`
@@ -1899,7 +1885,6 @@ export const printCommentTarget = (on: CommentTarget): string => {
 		case "MATERIALIZED VIEW":
 		case "DOMAIN":
 		case "TYPE":
-		case "SEQUENCE":
 		case "INDEX":
 		case "STATISTICS":
 			return `${on.kind} ${printObjectName(on.name)}`

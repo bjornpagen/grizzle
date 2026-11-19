@@ -170,7 +170,6 @@ const valueOf = (domain: FieldSpec["domain"], kind: ValueKind): Option.Option<un
 		case "uuid":
 			return uuidValue(kind)
 		case "integer":
-		case "serial":
 		case "contract":
 			return integerValue(kind)
 		case "boolean":

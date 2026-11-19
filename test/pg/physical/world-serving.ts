@@ -388,7 +388,7 @@ const unreached = 26 ** 5 - 1
 
 /**
  * A field of no row as SQL, by its domain, as the load writes its rows (docsLoads): a uuid and a subject at a number no
- * load reaches, an integer at -1, a serial at 0, below the identity's first value, and a contract at its greatest
+ * load reaches, an integer at -1, and a contract at its greatest
  * value, which Org's check keeps the load from.
  */
 const absentSql = (domain: FieldDomain): string => {
@@ -399,8 +399,6 @@ const absentSql = (domain: FieldDomain): string => {
 			return subjectOf(String(unreached))
 		case "integer":
 			return "-1"
-		case "serial":
-			return "0"
 		case "contract":
 			return String(domain.max)
 		case "boolean":
@@ -418,7 +416,6 @@ const claimSql = (domain: FieldDomain): string => {
 		case "text":
 			return subjectOf("0")
 		case "integer":
-		case "serial":
 		case "contract":
 			return "3"
 		case "boolean":
@@ -443,9 +440,9 @@ export const rowsPerSpreadValue = 50
  *   each spread over rows / rowsPerSpreadValue values;
  * - Share: a document per number, at most one per document as the one-share variant's key admits, a user spread over
  *   rows / rowsPerSpreadValue;
- * - Note: its identity numbers it, a document and an author each spread over rows / rowsPerSpreadValue, every document
+ * - Note: a number per number, a document and an author each spread over rows / rowsPerSpreadValue, every document
  *   one Doc holds;
- * - Visit: its two serials number it, so it writes no field of its own.
+ * - Visit: a number per number, and its sequence the number too.
  *
  * Every value a spread field holds is one an identity field holds too, so a link from either finds its fact, and each
  * spread value is held by some rowsPerSpreadValue rows, so a probe that rechecks another field on them is told from one
@@ -469,10 +466,14 @@ const docsLoads = (base: BaseSpec, rows: number): ReadonlyArray<VolumeLoad> => {
 			["user", subjectOf(spread(3, many))]
 		],
 		Note: [
+			["no", "g::int8"],
 			["doc", uuidOf(spread(4, many))],
 			["author", subjectOf(spread(5, many))]
 		],
-		Visit: []
+		Visit: [
+			["no", "g::int8"],
+			["seq", "g::int4"]
+		]
 	}
 	return Arr.map(base.relations, (r) => ({
 		relation: r.name,

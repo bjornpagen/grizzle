@@ -74,7 +74,6 @@ import {
 	type SchemaRelationDesc,
 	schemaLevelDesc,
 	type SelectionDesc,
-	serialDraw,
 	type SideDesc,
 	type SlotsDesc,
 	type StatementDesc,
@@ -126,8 +125,6 @@ interface OwnedField {
 	readonly writing: Writing
 	readonly named: Identity<"column">
 	readonly column: ColumnIdent
-	/** A serial field's identity sequence; any other field has none. */
-	readonly sequence: Identity<"sequence"> | undefined
 }
 
 export interface OwnedKey {
@@ -374,9 +371,7 @@ export const ownedIdentities = (owned: Owned): ReadonlyArray<Identity<IdentityKi
 	...owned.levels.map((l) => l.installation),
 	...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [
 		...installedIdentity(r),
-		...Object.values(r.fields).flatMap((f) =>
-			f.sequence === undefined ? [f.named] : [f.named, f.sequence]
-		),
+		...Object.values(r.fields).map((f) => f.named),
 		...r.keys.map((k) => k.named),
 		...(r.kind === "relation" ? r.checks.map((c) => c.named) : [])
 	])
@@ -2206,7 +2201,7 @@ class Owner {
 		}
 		const drawn = key.filter((f) => {
 			const writing = r.fields[f]?.writing.kind
-			return writing === "serial" || writing === "drawn"
+			return writing === "drawn"
 		})
 		if (drawn.length > 0) {
 			fail(
@@ -2343,7 +2338,7 @@ class Owner {
 		}
 	}
 
-	/** A stored relation's columns, identity sequences, keys and row checks. */
+	/** A stored relation's columns, keys and row checks. */
 	#ownStored(
 		laws: RelationLaws,
 		owning: OwnedBase,
@@ -2361,18 +2356,13 @@ class Owner {
 				labeledChildLoc(entry.desc.loc, declared, `field ${name}.${declared}`)
 			)
 			const named = identity.column(field)
-			const sequence =
-				decl.writing.kind === "serial" && serialDraw(decl.type) === "identity"
-					? identity.sequence(name, field)
-					: undefined
 			fields[field] = {
 				id: FieldId(name, field),
 				name: field,
 				desc: decl.type,
 				writing: decl.writing,
 				named,
-				column: identifierOf(named),
-				sequence
+				column: identifierOf(named)
 			}
 		}
 		const primary = ownKey(
@@ -2397,7 +2387,7 @@ class Owner {
 		}
 	}
 
-	/** A roster's or closed relation's fields: every one fixed when the schema compiles, none a serial. */
+	/** A roster's or closed relation's fields: every one fixed when the schema compiles. */
 	#closedFields(
 		owning: OwnedBase,
 		entry: RelationEntry,
@@ -2420,8 +2410,7 @@ class Owner {
 				desc,
 				writing: callerWritten,
 				named,
-				column: identifierOf(named),
-				sequence: undefined
+				column: identifierOf(named)
 			}
 		}
 		return fields

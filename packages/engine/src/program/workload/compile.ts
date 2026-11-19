@@ -312,17 +312,8 @@ const changeSetIr = (
 			clock: noClock
 		}),
 		(frontend) => {
-			/**
-			 * Each relation an action writes facts of whose primary key it states: every one but a generated
-			 * addition's, whose key its sequences draw.
-			 */
-			const targeted = new Set(
-				frontend.ir.strata.flatMap((s) =>
-					s.actions.flatMap((a) =>
-						a.op === "insert" && a.serial.kind === "generated" ? [] : [a.relation]
-					)
-				)
-			)
+			/** Each relation an action writes facts of, whose primary key every action states. */
+			const targeted = new Set(frontend.ir.strata.flatMap((s) => s.actions.map((a) => a.relation)))
 			const targets = frontend.written
 				.filter((r) => targeted.has(r.name))
 				.map((r): AccessPath => ({

@@ -237,7 +237,6 @@ export const registryTypes = (artifacts: ReadonlyArray<PageArtifact>): void => {
 					if (
 						isPlainCarrier(t.carrier) &&
 						t.contract === undefined &&
-						!("serial" in t) &&
 						numericTypmodOf(t) === undefined
 					) {
 						assert.ok(

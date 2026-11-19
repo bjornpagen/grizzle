@@ -1,5 +1,4 @@
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { DeltaSide, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 
@@ -8,38 +7,11 @@ export type ActionSource =
 	| { readonly kind: "stream"; readonly slot: ParamId }
 	| { readonly kind: "described"; readonly node: RelNode }
 
-/**
- * The serial class of an insertion's facts: complete, facts that carry every field; or generated, an addition that
- * leaves out `drawn`, the serial fields of the relation its sequences draw at the insert, and carries every other field.
- * A member of the relation draws every serial field of it; a member of a query entry draws the entry's classed serial
- * head fields, and carries a serial field its filter reads or its fill fixes, the value the filter checked. The front
- * end decides `drawn` once per target (write/frontend/compile.ts classesOf), and every statement reads it there. A put
- * and a deletion name complete facts. Every serial field an addition carries is an explicit serial value, inserted
- * OVERRIDING SYSTEM VALUE and advanced past (write/serial/advance.ts explicitSerials). An insertion into a target with
- * serial fields drafts both classes whatever facts it is applied with (the front end's InsertClasses), and a class whose
- * facts carry no field is the unit relation: the one empty fact, or none.
- */
-export type SerialClass =
-	| { readonly kind: "complete" }
-	| { readonly kind: "generated"; readonly drawn: NonEmptyReadonlyArray<string> }
-
-/** The class of complete facts. */
-export const completeClass: Extract<SerialClass, { readonly kind: "complete" }> = {
-	kind: "complete"
-}
-
-/** An operation, an insertion with the serial class of its facts. */
+/** An operation: an insertion, a put or a deletion. */
 export type ActionOp =
-	| { readonly op: "insert"; readonly serial: SerialClass }
+	| { readonly op: "insert" }
 	| { readonly op: "put" }
 	| { readonly op: "delete" }
-
-/**
- * Whether an operation adds complete facts: a put, or an insertion of complete facts. A deletion of the relation reads
- * D EXCEPT A over these additions of its stratum.
- */
-export const completeAddition = (a: ActionOp): boolean =>
-	a.op === "put" || (a.op === "insert" && a.serial.kind === "complete")
 
 /** What an action does: insert, put or delete its source's facts. */
 export type ActionCore = ActionOp & {
@@ -91,7 +63,7 @@ export interface ReadBack {
  * post-change state, typed by immediate evidence only.
  *
  * The WriteIR records what each action does, never the statement that realizes it: an insertion's follows from its
- * relation and serial class, a deletion's is the exact deletion, and a put's is chosen from what only the whole
+ * relation, a deletion's is the exact deletion, and a put's is chosen from what only the whole
  * ChangeSet shows (write/put/choose.ts).
  *
  * The described members and the read-backs are queries in the WriteIR's own DAG, so the delta sources a read-back

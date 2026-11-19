@@ -328,7 +328,6 @@ const refusedFeature = (reason: TransientTag): ReadonlyArray<DerivedFeature> => 
 		case "ConcurrentRefresh":
 			return ["refused: ConcurrentRefresh"]
 		case "PutTargetConflict":
-		case "GeneratedSerialUnique":
 		case "SpanKeyChange":
 		case "UnseenOccupant":
 			return []

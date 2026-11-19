@@ -697,7 +697,7 @@ const orderableArmsGen = (s: DrawnSchema): Gen<Arr.NonEmptyReadonlyArray<Arm>> =
  * columns.
  */
 export const keyedOrderCaseGen: Gen<UnionCase> = (source) => {
-	const schema = source.draw(drawnSchemaGen(3, false))
+	const schema = source.draw(drawnSchemaGen(3))
 	const relation = source.draw(element(Arr.map(schema.relations, (_, i) => i)))
 	const at = source.draw(int(0, handles.length - 1))
 	const step = source.draw(int(1, handles.length - 1))
@@ -723,8 +723,7 @@ export const keyedOrderCaseGen: Gen<UnionCase> = (source) => {
 const idOnly = (name: string, kind: ColumnKind): DrawnRelation => ({
 	name,
 	fields: [{ name: "id", kind }],
-	key: ["id"],
-	serial: false
+	key: ["id"]
 })
 
 /**
@@ -768,7 +767,7 @@ export const attachedWidenedCaseGen: Gen<UnionCase> = (source) => {
  * headings are all one or all distinct, and never beside a set column, whose type has no admitted order.
  */
 export const unionCaseGen: Gen<UnionCase> = (source) => {
-	const schema = source.draw(drawnSchemaGen(3, false))
+	const schema = source.draw(drawnSchemaGen(3))
 	const reader = source.draw(element(["delivered", "ordered", "taken", "matched"] as const))
 	const ordering = reader === "ordered" || reader === "taken"
 	const arms = ordering

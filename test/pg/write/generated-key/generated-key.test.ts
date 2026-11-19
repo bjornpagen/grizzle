@@ -390,7 +390,6 @@ const relationOf = (
 	table: name,
 	fields: Arr.map(fields, (f) => ({ name: f, column: f })),
 	key: keyFields,
-	serial: [],
 	mutable: isMutable
 })
 

@@ -16,13 +16,7 @@ import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types
  * immutable, inserts, deletes and puts what the worlds model says. The model judges each outcome: the refusal's law, its
  * witness (the keys the writer submitted, and those of relations its role holds whole, at most: a key's, a row check's
  * and a domain's at a stated fact the host judges, none of a containment's, a coverage's or an alternatives law's),
- * and the state every accepted write leaves, read back as the owner. A row check over the tickets base
- * (model/bases/tickets.ts) refuses a ticket added without the number the database draws for it, its witness the
- * ticket's code, the first key it states, and a ticket added without its number that repeats a stored one at every
- * field it states meets it at its arbiter, the code key, and is that ticket: no change (the drawn-key property's kept case);
- * with a second key beside the code, on seats, as a migration declaring it leaves the base, a ticket's arbiter is
- * ambiguous and an insertion that may leave the number out is refused when it compiles.
- * Reads walk a world's span fields, and chain which rooms adjoin which by a recursive query. Beside the model, a shown
+ * and the state every accepted write leaves, read back as the owner. Reads walk a world's span fields, and chain which rooms adjoin which by a recursive query. Beside the model, a shown
  * witness carries only what the writer submitted or holds whole (drive/acting.ts witnessesShowTheirOwn).
  */
 export const focus: Focus = [
@@ -83,15 +77,3 @@ export const domainRefusing: Lead = (weights, install, at) =>
 	Arr.map(dbSession(["law:domain:entry:shown"])(weights, install, at), (w) =>
 		w.actions.apply > 0 ? { ...w, validity: { live: 0, stale: 0, wild: 1 } } : w
 	)
-
-/**
- * What the drawn-key suite must reach, over the tickets base: a row check refusing a ticket added without the number
- * the database draws, its witness the ticket's code.
- */
-export const drawnKeyRequired: Situations<WorldFeature> = ["law:check:declared-key"]
-
-/**
- * What the ambiguous-arbiter suite must reach, over the tickets base with a second key beside the drawn number
- * (ticketsTwoKeysInstall): an insertion through the clerk's whole entry refused when it compiles, its arbiter ambiguous.
- */
-export const ambiguousRequired: Situations<WorldFeature> = ["addition:generated:arbiter-ambiguous"]

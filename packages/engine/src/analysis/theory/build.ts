@@ -168,7 +168,7 @@ const scannedFacts = (input: RelNode, columns: ReadonlyArray<string>): FoldInput
  * over the owned schema's relations: one Base or Closed source per scan, one MatchRegion per rule, typed literals and
  * native operators resolved through the Compute catalogue (scalar/compute/registry.ts), so a violation query never
  * invents an OpId and is validated by DagBuilder.build like any other DAG. Two operand columns of compatible but not
- * identical types (a numeric typmod, a regex refinement, a serial declaration, a contract) meet as the common value
+ * identical types (a numeric typmod, a regex refinement, a contract) meet as the common value
  * type through an unchecked, identity-preserving cast, because the compiler never adds a cast that could
  * change a value and two incompatible fields never meet at all (theory/classes.ts).
  *
@@ -659,8 +659,7 @@ export class ViolationBuilder {
 }
 
 /**
- * The type two compatible operand columns meet as: their common value type, the serial declaration and every
- * contract dropped, with a numeric typmod or a regex refinement widened when they differ.
+ * The type two compatible operand columns meet as: their common value type, every contract dropped, with a numeric typmod or a regex refinement widened when they differ.
  */
 export const meetType = (a: ScalarType, b: ScalarType): ScalarType =>
 	commonType(valueType(a), valueType(b))

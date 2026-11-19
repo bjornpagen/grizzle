@@ -9,8 +9,7 @@ import { type Codebook, codecOf, firstCodebook, type RosterCodec } from "#compil
 import {
 	admitLoginRoles,
 	type LoginDesc,
-	type SchemaDesc as EngineSchemaDesc,
-	serialDraw
+	type SchemaDesc as EngineSchemaDesc
 } from "#compiler/ir/desc.ts"
 import { fieldColumnType, domainBase } from "#compiler/ir/physical.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
@@ -297,12 +296,6 @@ const build = (input: FixtureSchema, options: RealPlanOptions): RealInstallPlan 
 				field,
 				column: f.column,
 				type: typeOf(heading.value.type, false),
-				drawn:
-					heading.value.writing.kind !== "serial"
-						? { kind: "none" }
-						: serialDraw(heading.value.desc) === "identity"
-							? { kind: "identity", name: names.sequence(r.name, field) }
-							: { kind: "uuidv7" },
 				location
 			}
 		})

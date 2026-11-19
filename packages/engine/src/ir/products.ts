@@ -222,7 +222,7 @@ export type StatementRole =
 	| "probe"
 	| "member"
 	| "readBack"
-	| "setval"
+	| "call"
 	| "carrier"
 
 /**
@@ -487,7 +487,6 @@ export const physicalKinds = [
 	"check",
 	"foreignKey",
 	"refusalFunction",
-	"advanceFunction",
 	"unitFunction",
 	"isolationFunction",
 	"snapshotGuard",

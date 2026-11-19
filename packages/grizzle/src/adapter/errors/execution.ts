@@ -10,7 +10,6 @@ import {
 	Deadlock,
 	DriverFailure,
 	type ExpiryRefused,
-	GeneratedSerialUnique,
 	InputRejected,
 	InputTooLarge,
 	LawRejected,
@@ -243,11 +242,6 @@ export const transientReason = (reason: EngineTransientReason): TransientReason 
 			return new Deadlock()
 		case "PutTargetConflict":
 			return new PutTargetConflict({ relation: reason.relation })
-		case "GeneratedSerialUnique":
-			return new GeneratedSerialUnique({
-				relation: reason.relation,
-				constraint: reason.constraint
-			})
 		case "SpanKeyChange":
 			return new SpanKeyChange({ relation: reason.relation })
 		case "UnseenOccupant":

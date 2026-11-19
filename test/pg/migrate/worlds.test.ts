@@ -6,7 +6,7 @@
  * the drift check, Db.open's admission and the installed-catalog checker.
  *
  * The schema: documents of organizations on a tier (a roster, whose closed ids are smallint codes), each with a word
- * count and a cap (a contract), their shares and their notes (a serial field), and a derived relation over the
+ * count and a cap (a contract), their shares and their notes (each its document's and its number there), and a derived relation over the
  * documents' word counts. Two contexts are read: the session's subject, and a quota whose cap is the contract. `editor`
  * holds the documents and the derived relation whole, refreshes it, reads Capped (the documents at the quota's cap) and
  * writes Mine, its notes under row security; `viewer` holds the organizations, the tier and the derived relation whole.

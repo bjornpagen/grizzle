@@ -38,7 +38,7 @@ import { compareStrings } from "#compiler/core/order.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import * as Result from "#compiler/core/result.ts"
 import { typedEq } from "#compiler/ir/compare.ts"
-import { type FieldDesc, type RoleWritingKey, serialDraw } from "#compiler/ir/desc.ts"
+import type { FieldDesc, RoleWritingKey } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type {
@@ -55,7 +55,6 @@ import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/cat
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
-import type { AdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
 import { namesConstant } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import {
@@ -125,8 +124,7 @@ import {
 	qualifiedCall,
 	simpleSelect,
 	table,
-	target,
-	types
+	target
 } from "#compiler/sql/build.ts"
 import { nameOf } from "#compiler/sql/constants.ts"
 import { printExpr, printStartupOptions } from "#compiler/sql/print.ts"
@@ -270,12 +268,6 @@ const readsOf = (
 	}
 	return [...read]
 }
-
-/** The serial fields of a stored relation its identity sequences draw, each with an advance function, in heading order. */
-const serialFields = (relation: TheoryRelation): ReadonlyArray<string> =>
-	relation.fields
-		.filter((c) => c.writing.kind === "serial" && serialDraw(c.desc) === "identity")
-		.map((c) => c.name)
 
 const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
 	if (!result.ok) {
@@ -714,15 +706,6 @@ const writePlan = (
 		on,
 		to: grantee
 	})
-	/** EXECUTE on the advance function of each serial field of the relation: no role holds a privilege on
-	 * an identity sequence. */
-	const advances = serialFields(written).map((field): FunctionName => ({
-		...b.names.advance(written.name, field),
-		args: [types.bigint]
-	}))
-	const advanceGrants: ReadonlyArray<SqlStatement> = isNonEmpty(advances)
-		? [grant(["EXECUTE"], { kind: "FUNCTION", names: advances })]
-		: []
 	if (e.kind === "whole") {
 		const r = e.relation
 		const tableName = b.names.relation(r.name)
@@ -733,8 +716,7 @@ const writePlan = (
 				grant(held, {
 					kind: "TABLE",
 					names: [tableName]
-				}),
-				...advanceGrants
+				})
 			]
 		}
 	}
@@ -744,7 +726,7 @@ const writePlan = (
 	const column = (field: LawField): string => b.names.column(relation, field.name)
 	const all = written.fields.map(column)
 	/** The columns a write names: every field but a generated one, the caller's and those grizzle writes for it (a
-	 * serial field's explicit value, a family's drawn index and count, a fold's accumulator), then the drawn law columns
+	 * family's drawn index and count, a fold's accumulator), then the drawn law columns
 	 * grizzle writes. A generated field, which PostgreSQL computes, takes no INSERT or UPDATE. */
 	const insertable = [
 		...written.fields.filter((f) => f.writing.kind !== "generated").map(column),
@@ -762,8 +744,7 @@ const writePlan = (
 		...columnGrant("SELECT", all),
 		...columnGrant("INSERT", insertable),
 		...columnGrant("UPDATE", updatable),
-		...(held.includes("DELETE") ? [grant(["DELETE"], { kind: "TABLE", names: [tableName] })] : []),
-		...advanceGrants
+		...(held.includes("DELETE") ? [grant(["DELETE"], { kind: "TABLE", names: [tableName] })] : [])
 	]
 	/** The entry's probes (see `addWorlds`), exactly those of T's unique objects (write/insert/unique.ts
 	 * RelationUniques.probes) an entry's precheck calls: whether T holds a fact that conflicts with the submitted values
@@ -1318,7 +1299,6 @@ const addRole = (
 	cx: WorldsContext,
 	{ theory: named, checked }: CheckedRole,
 	login: { readonly role: string; readonly object: Node<"publish"> },
-	advance: AdvanceFunctions,
 	carriers: boolean,
 	held: ReadonlyArray<CalledFunction>
 ): RoleOutcome => {
@@ -1409,12 +1389,7 @@ const addRole = (
 		const relation = w.relation.name
 		columnDomains(b, w.relation.fields, use)
 		appendAll(grants, plan.grants)
-		appendAll(after, [
-			b.table(relation),
-			...serialFields(w.relation).map((f) =>
-				defined(advance.get(relation)?.get(f), "every serial field has its advance function")
-			)
-		])
+		after.push(b.table(relation))
 		const functions = plan.functions.map((fn) =>
 			b.add(fn.spec, [b.schemaNode, ...readsOf(b, fn.spec.ddl)])
 		)
@@ -1557,7 +1532,6 @@ const addLogin = (
 	b: InstallBuilder,
 	cx: WorldsContext,
 	{ login, roles }: CheckedLogin,
-	advance: AdvanceFunctions,
 	carriers: ReadonlyArray<RoleOfLogin>,
 	fenced: ReadonlyArray<string>,
 	held: (role: OwnedRole) => ReadonlyArray<CalledFunction>
@@ -1620,7 +1594,6 @@ const addLogin = (
 				cx,
 				r,
 				{ role, object: roleObject },
-				advance,
 				carriers.some((c) => c.login === login.name && c.role === r.checked.world.role.name),
 				held(r.checked.world.role)
 			)
@@ -1775,9 +1748,7 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   default is pinned); a query entry's column SELECT and INSERT on T's fields (the head's, the fixed ones and those
  *   T's family draws, which are all of them), column UPDATE on its mutable head fields that are neither fixed, nor in a
  *   key, nor drawn by T's family, and DELETE;
- *   EXECUTE on the advance function of every serial field of T (`addAdvanceFunctions`), the one way a write moves the field's
- *   identity sequence past explicit values, since no role holds a privilege on a sequence; EXECUTE on its filter
- *   functions and key and unique probes. For each family whose member it writes, on the family's owner O, unless it
+ *   EXECUTE on its filter functions and key and unique probes. For each family whose member it writes, on the family's owner O, unless it
  *   writes O whole (`ownerHolds`): column SELECT on O's key, count, ends and the fields its owner axis copies into
  *   members, and, when O is mutable, column UPDATE on what its recount sets, O's count and ends, none on an immutable O, whose family is fixed at insert; USAGE on those fields' domains.
  *   EXECUTE on the refusal function, to every role, whatever it writes: a write's statements refuse through it, a
@@ -1812,7 +1783,7 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  * row security and no policy: each policy would be TRUE, and the grants already decide every write (`addRowSecurity`).
  *
  * For the schema as a whole: REVOKE ALL ... FROM PUBLIC on the base schema and every role's schema, every table and
- * view, every identity sequence and every domain, and each constant in its own object, so PUBLIC holds nothing on any
+ * view and every domain, and each constant in its own object, so PUBLIC holds nothing on any
  * schema object; and
  * default-privilege resets so future objects grant nothing implicitly: ALTER DEFAULT PRIVILEGES FOR ROLE <owner> IN
  * SCHEMA <schema> REVOKE ALL ON TABLES and ON SEQUENCES FROM PUBLIC, and, because PostgreSQL adds per-schema default
@@ -1820,7 +1791,6 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  * the global ALTER DEFAULT PRIVILEGES FOR ROLE <owner> REVOKE ALL ON FUNCTIONS and ON TYPES FROM PUBLIC. */
 export const addWorlds = (
 	b: InstallBuilder,
-	advance: AdvanceFunctions,
 	units: ReadonlyMap<string, UnitFunctions>,
 	revocable: Revocable,
 	checkedLogins: ReadonlyArray<CheckedLogin>,
@@ -1862,7 +1832,6 @@ export const addWorlds = (
 			b,
 			cx,
 			login,
-			advance,
 			carriers,
 			fences.find((f) => f.login === login.login.name)?.relations ?? [],
 			held
@@ -1896,17 +1865,16 @@ export const addWorlds = (
 	}
 }
 
-/** What PUBLIC is revoked from beside the base schema: the tables with their identity sequences, and the domains, each
- * in the order the installation added them. A function's own revoke is in its object's statements. */
+/** What PUBLIC is revoked from beside the base schema: the tables and the domains, each in the order the installation
+ * added them. A function's own revoke is in its object's statements. */
 export interface Revocable {
 	readonly tables: ReadonlyArray<ObjectName>
-	readonly sequences: ReadonlyArray<ObjectName>
 	readonly domains: ReadonlyArray<ObjectName>
 }
 
 /** PUBLIC holds no privilege on any schema object, and the owner's future objects grant it nothing: every level's
- * schema and every role's schema, every table and role view, every identity sequence and domain. Each default-privilege
- * reset is the current role's, the migration identity's, which owns everything the installation creates. */
+ * schema and every role's schema, every table and role view, and every domain. Each default-privilege reset is the
+ * current role's, the migration identity's, which owns everything the installation creates. */
 const publicRevokes = (
 	b: InstallBuilder,
 	objects: Revocable & {
@@ -1930,15 +1898,7 @@ const publicRevokes = (
 	if (isNonEmpty(tables)) {
 		out.push({ kind: "revoke", privileges: ["ALL"], on: { kind: "TABLE", names: tables }, from })
 	}
-	const { sequences, domains } = objects
-	if (isNonEmpty(sequences)) {
-		out.push({
-			kind: "revoke",
-			privileges: ["ALL"],
-			on: { kind: "SEQUENCE", names: sequences },
-			from
-		})
-	}
+	const { domains } = objects
 	if (isNonEmpty(domains)) {
 		out.push({
 			kind: "revoke",

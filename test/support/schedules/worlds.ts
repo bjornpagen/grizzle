@@ -255,7 +255,6 @@ const statementFootprint = (install: InstallSpec, statement: DirectStatement): F
 		case "delete":
 		case "update":
 		case "truncate":
-		case "setval":
 			return writeFootprint(install, [statement.relation])
 		case "call":
 		case "prepare":

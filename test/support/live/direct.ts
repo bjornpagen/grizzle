@@ -66,7 +66,6 @@ const insertOf = (table: OracleTable, row: DirectRow): Insert => {
 		table: table.name,
 		alias: undefined,
 		columns: Arr.map(fields, ([f]) => columnOf(table, f)),
-		overriding: undefined,
 		source: {
 			kind: "values",
 			rows: [Arr.map(fields, ([f, value]) => literalOf(table, f, value))]

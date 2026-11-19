@@ -17,14 +17,13 @@
  *   pipelined attachments, a relation parameter of drawn ids), each a served member, is explained, and analyzed under
  *   EXPLAIN ANALYZE, one plan per statement its execute sends, under its name, over its text, every node reading within
  *   the footprint;
- * - a ChangeSet drawn over the Shop fixture (one or two strata of generated additions, inserts, puts and deletes,
+ * - a ChangeSet drawn over the Shop fixture (one or two strata of inserts, puts and deletes,
  *   with or without read-backs of delta.added and delta.removed, one joining Item's added facts with Stock), a
  *   change member whose first stratum's rows are the call's facts and whose second's are query members over the call's
  *   relation parameters, is explained one plan per plannable statement its apply sends, under its name, over its text,
- *   in a transaction that is rolled back: no fact written, no identity sequence advanced, which EXPLAIN ANALYZE would
- *   have done; a read-back rides the statement that makes its delta, so no plan reads a carrier but a staged member
- *   slot's, the call's own facts that two statements read (write/program/slot-carriers.ts: the first stratum's array of
- *   Seat is two insertions, so its slot is staged);
+ *   in a transaction that is rolled back: no fact written, which EXPLAIN ANALYZE would have done; a read-back rides
+ *   the statement that makes its delta, so no plan reads a carrier but a staged member slot's, the call's own facts
+ *   that two statements read (write/program/slot-carriers.ts);
  * - a served ChangeSet inserting a box with its parts nested, each part's body a drawn share of the session's message
  *   bound, within it or past it, and among the cases bodies each within it and together past it, which the application
  *   cuts across executions, on a session whose bound is planted at the longest Parse message of the texts explain
@@ -97,7 +96,6 @@ import { explainedTextBound } from "#test/support/staged.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { upTo } from "#test/support/up-to.ts"
 import { makeTap, type Tap, type WireWindow } from "#test/support/wire-tap.ts"
 
 import { regex } from "arkregex"
@@ -351,7 +349,7 @@ const queryCaseGen: Gen<QueryCase> = (source) => ({
 })
 
 type ChangeFeature =
-	| "a generated addition"
+	| "a seat inserted"
 	| "an insert"
 	| "a put"
 	| "a delete"
@@ -362,7 +360,7 @@ type ChangeFeature =
 
 /** One ChangeSet stratum's operations over Shop, drawn. */
 type ShopOp =
-	| { readonly kind: "seat"; readonly label: number }
+	| { readonly kind: "seat"; readonly id: number; readonly label: number }
 	| { readonly kind: "item"; readonly id: number; readonly qty: number }
 	| {
 			readonly kind: "put stock"
@@ -376,21 +374,20 @@ const labels = ["old", "new", "aisle", "bin"] as const
 
 const label = int(0, labels.length - 1)
 
-/** Where a stratum's operation goes: a seat, whose number its relation draws, or an operation of a kind at a key. */
-type OpSlot =
-	| { readonly kind: "seat" }
-	| { readonly kind: "item" | "put stock" | "delete stock"; readonly id: number }
+/** Where a stratum's operation goes: an operation of a kind at a key. */
+interface OpSlot {
+	readonly kind: "seat" | "item" | "put stock" | "delete stock"
+	readonly id: number
+}
 
 /**
- * Every slot of a stratum: up to three seats, and each keyed kind at each id 1 to 3, so a stratum drawn as distinct
- * slots holds one fact per key of each kind by construction (a same-key pair is the refusal property's below).
+ * Every slot of a stratum: each kind at each key 1 to 3, so a stratum drawn as distinct slots holds one fact per key
+ * of each kind by construction (a same-key pair is the refusal property's below).
  */
-const opSlots: ReadonlyArray<OpSlot> = [
-	...upTo(3, (): OpSlot => ({ kind: "seat" })),
-	...Arr.flatMap(["item", "put stock", "delete stock"] as const, (kind) =>
-		Arr.map([1, 2, 3], (id): OpSlot => ({ kind, id }))
-	)
-]
+const opSlots: ReadonlyArray<OpSlot> = Arr.flatMap(
+	["seat", "item", "put stock", "delete stock"] as const,
+	(kind) => Arr.map([1, 2, 3], (id): OpSlot => ({ kind, id }))
+)
 
 /** The operation at a slot, its payload drawn. */
 const opAt =
@@ -398,7 +395,7 @@ const opAt =
 	(source) => {
 		switch (slot.kind) {
 			case "seat":
-				return { kind: "seat", label: source.draw(label) }
+				return { kind: "seat", id: slot.id, label: source.draw(label) }
 			case "item":
 				return { kind: "item", id: slot.id, qty: source.draw(int(0, 9)) }
 			case "put stock":
@@ -421,9 +418,7 @@ const stratumGen: Gen<ReadonlyArray<ShopOp>> = (source) =>
  * A drawn ChangeSet: one or two strata of operations, and what it reads back: nothing, both sides of Item's delta, or
  * Item's added facts joined with Stock. Every stratum writes Seat, Item and Stock, so a delta of one is made by one
  * statement only where there is one stratum, and a ChangeSet of two reads nothing back (write/schedule/plan.ts
- * placeReadBacks refuses a delta two statements make). Nothing reads Seat's delta back: the first stratum's array of
- * Seat is two insertions, of the rows that state its serial `no` and of those that leave it out, so its added side is
- * two statements' in every ChangeSet.
+ * placeReadBacks refuses a delta two statements make). Nothing reads Seat's delta back.
  */
 interface ChangeCase {
 	readonly strata: ReadonlyArray<ReadonlyArray<ShopOp>>
@@ -481,9 +476,9 @@ const Part = relation("Part", { box: uuid, at: drawnField(natural), body: bytes 
  * array member per op and relation: the first stratum's.
  */
 const seatsFrom = query(Shop).rule((r) => {
-	const rows = r.relation("seats", { label: Seat.fields.label })
-	const { label } = v(Seat, "seat")
-	return r.match(rows, { label }).find({ label })
+	const rows = r.relation("seats", { no: Seat.fields.no, label: Seat.fields.label })
+	const { no, label } = v(Seat, "seat")
+	return r.match(rows, { no, label }).find({ no, label })
 })
 const itemsFrom = query(Shop).rule((r) => {
 	const rows = r.relation("items", {
@@ -720,20 +715,12 @@ layer(Substrate.layer)("workload explain", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const s = yield* Substrate
 					const o = yield* installed(Shop, {}, { label: "real", programs: { later: laterStratum } })
-					const sequence = o.installed.installation.names.sequence("Seat", "no")
-					const lastValue = () =>
-						s.admin.queryValues(
-							`SELECT last_value::text, is_called FROM "${sequence.schema}"."${sequence.name}"`,
-							[]
-						)
 					const state = () =>
 						Effect.all([
 							tableState(o.installed, Seat),
 							tableState(o.installed, Stock),
-							tableState(o.installed, Item),
-							lastValue()
+							tableState(o.installed, Item)
 						])
 					const indexes = yield* catalogIndexes
 					const tableOf = (relation: string) => o.installed.installation.names.relation(relation)
@@ -754,14 +741,14 @@ layer(Substrate.layer)("workload explain", (it) => {
 											name: "the application of the same call on a tapped session: one plan per plannable statement it sent, under its name, over its text, and the state before it unchanged by the explain; and the catalog's indexes of the footprint's tables"
 										},
 										...budget,
-										/** Nothing executed: no fact written, the sequence not advanced. */
+										/** Nothing executed: no fact written. */
 										suite: "reads/explain changesets",
 										draw: drawn(changeCaseGen),
 										kept: [],
 										runs: 40,
 										coverage: required<ChangeFeature>(
 											[
-												"a generated addition",
+												"a seat inserted",
 												"an insert",
 												"a put",
 												"a delete",
@@ -777,7 +764,9 @@ layer(Substrate.layer)("workload explain", (it) => {
 											/** A stratum's operations, each kind's facts together. */
 											const strata = Arr.map(c.strata, (ops) => {
 												const seats = Arr.flatMap(ops, (op) =>
-													op.kind === "seat" ? [{ label: defined(labels[op.label]) }] : []
+													op.kind === "seat"
+														? [{ no: BigInt(op.id), label: defined(labels[op.label]) }]
+														: []
 												)
 												const items = Arr.flatMap(ops, (op) =>
 													op.kind === "item"
@@ -801,7 +790,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 														: []
 												)
 												if (seats.length > 0) {
-													notes.note("a generated addition")
+													notes.note("a seat inserted")
 												}
 												if (items.length > 0) {
 													notes.note("an insert")

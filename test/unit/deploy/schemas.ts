@@ -72,17 +72,10 @@ export const shopV2: SchemaDesc = {
 	extends: undefined
 }
 
-/** Version 3: the field removed, `mutable` removed, a handle added, and a serial field added. */
+/** Version 3: the field removed, `mutable` removed, and a handle added. */
 export const shopV3: SchemaDesc = {
 	name: "Shop",
-	relations: [
-		Kind,
-		PriorityV2,
-		relation("Account", { id: f.uuid, name: AccountName, number: f.bigserial }, ["id"]),
-		Task,
-		automatic(CentsV2),
-		ManualTask
-	],
+	relations: [Kind, PriorityV2, Account, Task, automatic(CentsV2), ManualTask],
 	statements: [
 		contained(on("Task", ["account"]), on("Account", ["id"])),
 		alternatives(Task, "kind", Kind, { Automatic: automatic(Cents), Manual: ManualTask }),
@@ -164,15 +157,7 @@ const Kind3 = closed.ordered("Kind", ["Automatic", "Manual", "Scheduled"])
 const ScheduledTask = relation("ScheduledTask", { task: f.uuid, at: f.bigint }, ["task"])
 export const shopV4: SchemaDesc = {
 	...shopV3,
-	relations: [
-		Kind3,
-		PriorityV2,
-		relation("Account", { id: f.uuid, name: AccountName, number: f.bigserial }, ["id"]),
-		Task,
-		automatic(CentsV2),
-		ManualTask,
-		ScheduledTask
-	],
+	relations: [Kind3, PriorityV2, Account, Task, automatic(CentsV2), ManualTask, ScheduledTask],
 	statements: [
 		contained(on("Task", ["account"]), on("Account", ["id"])),
 		alternatives(Task, "kind", Kind3, {

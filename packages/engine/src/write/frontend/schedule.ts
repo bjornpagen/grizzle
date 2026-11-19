@@ -255,12 +255,8 @@ export interface UnitOrder {
 	readonly reads: (action: ActionCore) => boolean
 }
 
-/** Whether an action is a generated addition, which draws the values its serial fields take. */
-const isGenerated = (a: ActionCore): boolean => a.op === "insert" && a.serial.kind === "generated"
-
 /** The phase of an action on its own relation. */
-const phaseOf = (a: ActionCore): 0 | 1 | 2 | 3 =>
-	a.op === "delete" ? 0 : a.op === "put" ? 1 : isGenerated(a) ? 3 : 2
+const phaseOf = (a: ActionCore): 0 | 1 | 2 => (a.op === "delete" ? 0 : a.op === "put" ? 1 : 2)
 
 /**
  * Whether an action removes facts: a deletion, or a put of a relation with a payload, which displaces the occupant of
@@ -273,13 +269,10 @@ const adds = (s: Scheduled): boolean => s.action.op === "insert" || s.action.op 
 /**
  * Whether `b` runs after `a`, two actions of one relation: in a later phase, but for a deletion before a put or an
  * insert of given facts where the relation's facts meet nowhere (`Meeting`): every fact the addition gives is its own
- * key, so it meets no fact the deletion frees, and either order leaves the stratum's one state. A generated addition
- * still follows it: the deletion excepts only the complete additions of its stratum (ir/write.ts completeAddition), so
- * after a generated one it would delete a drawn fact at a value it names.
+ * key, so it meets no fact the deletion frees, and either order leaves the stratum's one state.
  */
 const followsOnRelation = (a: Scheduled, b: Scheduled): boolean =>
-	phaseOf(a.action) < phaseOf(b.action) &&
-	!(a.meeting === "nowhere" && a.action.op === "delete" && !isGenerated(b.action))
+	phaseOf(a.action) < phaseOf(b.action) && !(a.meeting === "nowhere" && a.action.op === "delete")
 
 /** The canonical order of a stratum's actions: an action of a relation in `last` after every other, then relation,
  * phase, then (the sort being stable) the order given. */
@@ -317,12 +310,10 @@ export const canonicalActionOrder = <A extends Scheduled>(
  *
  * - On one relation, removals come before additions, because primary keys and UNIQUE constraints are immediate and
  *   cannot be wished away: the exact deletions first, then the puts, whose implied deletion frees each
- *   replaced key before its insertion, then the inserts with explicit or no serial values, then the generated
- *   additions. A relation whose facts meet nowhere (`Meeting`) takes its deletion in any order beside its puts and
- *   inserts, since no fact they give meets one the deletion frees. An insert after the puts meets a put's new fact as an exact repeat or a conflict witness of the insert
- *   protocol, never as a displaced occupant, which is what makes a put and an insert of one key with different
- *   payloads a key conflict; and the sequence advance after explicit serial values precedes every
- *   value a generated addition draws.
+ *   replaced key before its insertion, then the inserts. A relation whose facts meet nowhere (`Meeting`) takes its
+ *   deletion in any order beside its puts and inserts, since no fact they give meets one the deletion frees. An insert
+ *   after the puts meets a put's new fact as an exact repeat or a conflict witness of the insert protocol, never as a
+ *   displaced occupant, which is what makes a put and an insert of one key with different payloads a key conflict.
  * - Across relations, an immediate foreign key from C into P (`natives`, deferrable false) is checked at
  *   each statement, so P's additions precede C's, and C's removals precede P's. A deferred reference tolerates any
  *   order until COMMIT, so it orders nothing. A put is both a removal and an addition, but a pure set's put displaces

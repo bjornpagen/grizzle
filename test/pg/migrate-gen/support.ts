@@ -60,7 +60,6 @@ import {
 } from "#compiler/physical/statistics/statistics.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import type { ColumnDef } from "#compiler/sql/ast.ts"
-import { types as sqlTypes } from "#compiler/sql/build.ts"
 import { printType } from "#compiler/sql/print.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import type {
@@ -85,7 +84,6 @@ import {
 	scalarOfSpec
 } from "#test/support/oracle/gen/domain.ts"
 
-import { int8Max } from "#compiler/ir/carriers.ts"
 import { noLive } from "#compiler/live/notify.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -136,11 +134,8 @@ import { upTo } from "#test/support/up-to.ts"
  * which declares again the fields an earlier edit removed, with their keys and containment. Beside the oracle schema each
  * version carries what the oracle schema has no form for, each by pick into its relations and fields so renames carry
  * it along: bound checks on integer fields (a law family a successor adds to, changes and removes), extended
- * statistics over two fields (a workload of synthetic requests, which grizzle installs as it does a program's), a field
- * `sq` that is a serial, a bigserial, a pg.uuidv7 or a uuid its caller writes (a successor adds, removes or retypes it,
- * which converts an integer serial to a uuidv7 and back, and declares a uuid's draw and removes it), existing integer fields declared
- * serial (an identity added to a column that holds rows, or removed), and relations the role `reader` does not hold
- * (a successor drops or adds them, its view going or coming). Every sketch resolves to a valid schema, and so does every edited one.
+ * statistics over two fields (a workload of synthetic requests, which grizzle installs as it does a program's), and
+ * relations the role `reader` does not hold (a successor drops or adds them, its view going or coming). Every sketch resolves to a valid schema, and so does every edited one.
  *
  * A renamed path (renamedDrawGen) also makes a few renames in B, and maybe in C, as a user renames: relations and
  * fields, a field of a key a containment references, a field with its type changed, a relation with the type of one of
@@ -192,11 +187,6 @@ const extraKinds = [
 	"removeChecks",
 	"addStatistics",
 	"dropStatistics",
-	"addSerial",
-	"dropSerial",
-	"retypeSerial",
-	"addIdentity",
-	"dropIdentity",
 	"toggleRead",
 	"addCoded"
 ] as const
@@ -472,10 +462,6 @@ export interface Extras {
 		readonly first: number
 		readonly second: number
 	}>
-	/** The relations with a field `sq`, by its type (SqType). */
-	readonly serials: ReadonlyArray<{ readonly relation: number; readonly type: SqType }>
-	/** Integer fields declared serial: an identity over a column of the oracle schema. */
-	readonly identities: ReadonlyArray<{ readonly relation: number; readonly column: number }>
 	/** The relations the reader does not read, by position. */
 	readonly unread: ReadonlyArray<number>
 	/** The coded pair, when the path draws it. */
@@ -489,8 +475,6 @@ export type Coded = { readonly kind: "absent" } | { readonly kind: "present" }
 export const noExtras: Extras = {
 	checks: [],
 	statistics: [],
-	serials: [],
-	identities: [],
 	unread: [],
 	coded: { kind: "absent" }
 }
@@ -518,34 +502,6 @@ export const codedFacts: Readonly<
 			code: typedLiteralDesc({ kind: "text", value: code }, codeType)
 		})
 	)
-}
-
-/** The type of the field `sq`: an integer serial, int4 or int8, drawn by its identity; a pg.uuidv7, drawn by its
- * `uuidv7()` default; or a uuid its caller writes. */
-export type SqType = "serial" | "bigserial" | "uuidv7" | "uuid"
-
-const sqTypes: Arr.NonEmptyReadonlyArray<SqType> = ["serial", "bigserial", "uuidv7", "uuid"]
-
-/** The type a pick draws `sq` with, among all four without modulo skew. */
-const sqTypeOf = (pick: number): SqType =>
-	defined(sqTypes[pickIndex(pick, sqTypes.length)], "a type of sq")
-
-/**
- * The type a successor retypes `sq` to, by `flag`: an integer serial to the other width or to a uuidv7, a uuidv7 to a
- * serial or to a uuid, a uuid to a uuidv7. No uuid becomes a bigserial: the reviewer converts a column to a bigint
- * serial by its cast (typedValue castsSerial), which reads an integer.
- */
-const retypedSq = (type: SqType, flag: boolean): SqType => {
-	switch (type) {
-		case "serial":
-			return flag ? "bigserial" : "uuidv7"
-		case "bigserial":
-			return flag ? "serial" : "uuidv7"
-		case "uuidv7":
-			return flag ? "serial" : "uuid"
-		case "uuid":
-			return "uuidv7"
-	}
 }
 
 const without = <A>(xs: ReadonlyArray<A>, pick: number): ReadonlyArray<A> =>
@@ -577,29 +533,6 @@ const applyExtraEdit = (x: Extras, { kind, picks }: ExtraEdit): Extras => {
 			}
 		case "dropStatistics":
 			return { ...x, statistics: without(x.statistics, picks.first) }
-		case "addSerial":
-			return {
-				...x,
-				serials: [...x.serials, { relation: picks.first, type: sqTypeOf(picks.second) }]
-			}
-		case "dropSerial":
-			return { ...x, serials: without(x.serials, picks.first) }
-		case "retypeSerial": {
-			const k = indexIn(picks.first, x.serials.length)
-			return {
-				...x,
-				serials: Arr.map(x.serials, (s, i) =>
-					i === k ? { ...s, type: retypedSq(s.type, picks.flag) } : s
-				)
-			}
-		}
-		case "addIdentity":
-			return {
-				...x,
-				identities: [...x.identities, { relation: picks.first, column: picks.second }]
-			}
-		case "dropIdentity":
-			return { ...x, identities: without(x.identities, picks.first) }
 		case "toggleRead": {
 			const relation = pickIndex(picks.first, pathLimits.maxRelations)
 			return {
@@ -621,16 +554,12 @@ const pathLimits: SchemaLimits = { ...defaultSchemaLimits, maxRelations: 3, maxC
 interface ExtrasSketch {
 	readonly checks: ReadonlyArray<Picks>
 	readonly statistics: ReadonlyArray<Picks>
-	readonly serials: ReadonlyArray<Picks>
-	readonly identities: ReadonlyArray<Picks>
 	readonly unread: ReadonlyArray<number>
 }
 
 const extrasSketchGen: Gen<ExtrasSketch> = (source) => ({
 	checks: source.draw(array(picksGen, { min: 0, max: 2 })),
 	statistics: source.draw(array(picksGen, { min: 0, max: 2 })),
-	serials: source.draw(array(picksGen, { min: 0, max: 1 })),
-	identities: source.draw(array(picksGen, { min: 0, max: 1 })),
 	unread: source.draw(array(pickGen, { min: 0, max: 1 }))
 })
 
@@ -731,26 +660,8 @@ const boundsOf = (type: ScalarType): readonly [LiteralDesc, LiteralDesc] | undef
 	}
 }
 
-/** The integer types a serial field may have, whose sequence draws its values. */
-const serialTypes: ReadonlySet<string> = new Set(["smallint", "integer", "bigint"])
-
 /** A field its caller writes. */
 const callerWritten = (type: FieldDesc): FieldDecl => ({ type, writing: { kind: "caller" } })
-
-/** The field `sq` of its type: an integer serial GENERATED ALWAYS AS IDENTITY, its sequence drawing its values; a
- * pg.uuidv7, its `uuidv7()` default drawing them; or a uuid its caller writes. */
-const sqDecl = (type: SqType): FieldDecl => {
-	switch (type) {
-		case "serial":
-			return { type: { kind: "pg", type: "integer" }, writing: { kind: "serial" } }
-		case "bigserial":
-			return { type: { kind: "pg", type: "bigint" }, writing: { kind: "serial" } }
-		case "uuidv7":
-			return { type: { kind: "uuid" }, writing: { kind: "serial" } }
-		case "uuid":
-			return callerWritten({ kind: "uuid" })
-	}
-}
 
 /** The bound checks of a version: each on its integer field, skipped where the field is of another type. */
 const checksOf = (schema: GenSchema, extras: Extras): ReadonlyArray<StatementDesc> =>
@@ -777,7 +688,6 @@ const checksOf = (schema: GenSchema, extras: Extras): ReadonlyArray<StatementDes
 		]
 	})
 
-/** The serial field's name: no oracle schema field is named like it, and no rename takes it. */
 /**
  * Whether a version names a relation or a closed relation as PostgreSQL names one of its types or functions: the name
  * the type namespace's builtins shadow-check against.
@@ -791,82 +701,12 @@ export const holdsCatalogName = (v: Version): boolean =>
 		}
 	)
 
-export const serialField = "sq"
-
-/** The fields a version declares serial, `<relation>.<field>`: its serial field's, and each integer field the extras
- * declare serial. */
-export const serialFields = (v: Version): ReadonlySet<string> =>
-	new Set(
-		Arr.flatMap(v.desc.relations, (r) =>
-			r.kind === "relation"
-				? Arr.flatMap(Rec.toEntries(r.fields), ([f, d]) =>
-						d.writing.kind === "serial" ? [`${r.name}.${f}`] : []
-					)
-				: []
-		)
-	)
-
-/** The relations of a version with a field `sq`, and its type. */
-export const serialRelations = (schema: GenSchema, extras: Extras): ReadonlyMap<string, SqType> =>
-	new Map(
-		Arr.flatMap(extras.serials, (s) => {
-			const r = at(schema.relations, s.relation)
-			return r === undefined ? [] : [[r.name, s.type] as const]
-		})
-	)
-
-/** The fields of a version declared serial, `<relation>.<field>`, with their declaration: integer fields only. */
-const identityFields = (schema: GenSchema, extras: Extras): ReadonlyMap<string, FieldDecl> =>
-	new Map(
-		Arr.flatMap(extras.identities, (x) => {
-			const r = at(schema.relations, x.relation)
-			const col = r === undefined ? undefined : at(r.columns, x.column)
-			const desc = col === undefined ? undefined : fieldDescOf(col.type)
-			if (
-				r === undefined ||
-				col === undefined ||
-				desc?.kind !== "pg" ||
-				!serialTypes.has(desc.type)
-			) {
-				return []
-			}
-			const decl: FieldDecl = { type: desc, writing: { kind: "serial" } }
-			return [[`${r.name}.${col.name}`, decl] as const]
-		})
-	)
-
 const withExtras = (schema: GenSchema, extras: Extras): AuthoredSchemaDesc => {
 	const desc = schemaDesc(schema)
-	const serials = serialRelations(schema, extras)
-	const identities = identityFields(schema, extras)
 	const coded = codedOf(extras.coded)
 	return {
 		...desc,
-		relations: [
-			...Arr.map(desc.relations, (r): AuthoredSchemaDesc["relations"][number] => {
-				if (r.kind !== "relation") {
-					return r
-				}
-				const fields = Rec.fromEntries(
-					Arr.map(
-						Rec.toEntries(r.fields),
-						([f, d]) => [f, identities.get(`${r.name}.${f}`) ?? d] as const
-					)
-				)
-				const serial = serials.get(r.name)
-				return {
-					...r,
-					fields:
-						serial === undefined
-							? fields
-							: {
-									...fields,
-									[serialField]: sqDecl(serial)
-								}
-				}
-			}),
-			...coded.relations
-		],
+		relations: [...desc.relations, ...coded.relations],
 		statements: [...desc.statements, ...checksOf(schema, extras), ...coded.statements]
 	}
 }
@@ -1027,12 +867,6 @@ const initialExtras = (drawn: Swarm<PathKind>, sketch: ExtrasSketch): Extras => 
 		: [],
 	statistics: kindOn(drawn, "addStatistics")
 		? Arr.map(sketch.statistics, (p) => ({ relation: p.first, first: p.second, second: p.third }))
-		: [],
-	serials: kindOn(drawn, "addSerial")
-		? Arr.map(sketch.serials, (p) => ({ relation: p.first, type: sqTypeOf(p.second) }))
-		: [],
-	identities: kindOn(drawn, "addIdentity")
-		? Arr.map(sketch.identities, (p) => ({ relation: p.first, column: p.second }))
 		: [],
 	unread: kindOn(drawn, "toggleRead")
 		? Arr.map(sketch.unread, (p) => pickIndex(p, pathLimits.maxRelations))
@@ -1216,12 +1050,11 @@ const relationNameFree = (schema: GenSchema, name: string, self: string): boolea
 	)
 }
 
-/** Whether a field of `relation` may take `name`: it converts, to no other field's identifier, nor the serial field's. */
+/** Whether a field of `relation` may take `name`: it converts, to no other field's identifier. */
 const fieldNameFree = (relation: GenRelation, name: string, self: string): boolean => {
 	const ident = converted(name)
 	return (
 		ident !== undefined &&
-		ident !== converted(serialField) &&
 		!Arr.some(relation.columns, (c) => c.name !== self && converted(c.name) === ident)
 	)
 }
@@ -1870,28 +1703,6 @@ const sameHeading = (a: GenRelation, b: GenRelation): boolean =>
 const relationOf = (schema: GenSchema, name: string): Option.Option<GenRelation> =>
 	Arr.findFirst(schema.relations, (r) => r.name === name)
 
-/** Whether a relation of version `av` and one of `bv` have one heading as the draft compares a whole table's: their
- * fields, the serial field `sq` of each version's extras, and which of their integer fields each declares serial. */
-const sameTableHeading = (av: Version, a: GenRelation, bv: Version, b: GenRelation): boolean => {
-	const serial = (v: Version, r: GenRelation) => serialRelations(v.schema, v.extras).get(r.name)
-	const identities = (v: Version, r: GenRelation) =>
-		Arr.join(
-			Arr.sort(
-				Arr.map(
-					Arr.filter([...identityFields(v.schema, v.extras).keys()], (key) =>
-						Str.startsWith(`${r.name}.`)(key)
-					),
-					(key) => conversionOf(Str.slice(r.name.length + 1)(key))
-				),
-				Order.String
-			),
-			","
-		)
-	return (
-		sameHeading(a, b) && serial(av, a) === serial(bv, b) && identities(av, a) === identities(bv, b)
-	)
-}
-
 /** The identifiers of the relations whose kept name the draft sets aside, as documented: a
  * relation of both versions, by identifier, whose heading changes while another relation of `to`, added or itself
  * changed, has exactly the heading it held. Its identity may move there: its rows go where the reviewer chooses, and
@@ -1901,19 +1712,16 @@ const movedRelations = (from: Version, to: Version): ReadonlySet<string> => {
 		Arr.findFirst(v.schema.relations, (x) => conversionOf(x.name) === ident)
 	const open = Arr.filter(to.schema.relations, (r) => {
 		const was = at(from, conversionOf(r.name))
-		return Option.isNone(was) || !sameTableHeading(from, was.value, to, r)
+		return Option.isNone(was) || !sameHeading(was.value, r)
 	})
 	return new Set(
 		Arr.flatMap(from.schema.relations, (was) => {
 			const ident = conversionOf(was.name)
 			const now = at(to, ident)
-			if (Option.isNone(now) || sameTableHeading(from, was, to, now.value)) {
+			if (Option.isNone(now) || sameHeading(was, now.value)) {
 				return []
 			}
-			return Arr.some(
-				open,
-				(o) => conversionOf(o.name) !== ident && sameTableHeading(from, was, to, o)
-			)
+			return Arr.some(open, (o) => conversionOf(o.name) !== ident && sameHeading(was, o))
 				? [ident]
 				: []
 		})
@@ -1928,8 +1736,7 @@ export interface TracedVersion {
 
 /** Whether the draft pairs a removed relation with an added one as a candidate this model chooses: one heading, or one
  * primary key and one set of fields with only field types changed (the draft converts them in place). A key a
- * containment references may change: the candidate drops the reference before the key and the draft adds it again. The
- * extras' serial fields and identities, which the oracle schema has no form for, change in place with the rename too. */
+ * containment references may change: the candidate drops the reference before the key and the draft adds it again. */
 const renamePairs = (removed: GenRelation, added: GenRelation): boolean => {
 	if (sameHeading(removed, added)) {
 		return true
@@ -2121,21 +1928,6 @@ const declarationsOf = (
 					to: { kind: "field", relation: named(carried.to), field: named(into.value.name) }
 				})
 			}
-		}
-	}
-	/** Each relation's field `sq`, which an extra declares, holds the values its rows were given, so its drop is
-	 * declared: a relation carried to one that declares none. */
-	const serialsA = serialRelations(a.schema, a.extras)
-	const serialsB = serialRelations(b.schema, b.extras)
-	for (const ar of a.schema.relations) {
-		const carried = carriedTo(ar.name)
-		if (
-			serialsA.has(ar.name) &&
-			carried !== undefined &&
-			Arr.some(b.schema.relations, (r) => r.name === carried.to) &&
-			!serialsB.has(carried.to)
-		) {
-			drops.push({ kind: "field", relation: named(ar.name), field: named(serialField) })
 		}
 	}
 	for (const ac of a.schema.closed) {
@@ -2604,21 +2396,11 @@ const renamedWithRetype: StatedRenamedPath = plantedRename(
 const typedDefault = (type: GenColumn["type"]): TypedLiteral =>
 	resolveValue(type, { cls: 0, sp: 0 }, false)
 
-/** The type of the column of `sq`, by its type: an integer as wide as its sequence, or a uuid. */
-const serialColumnType: Readonly<Record<SqType, ScalarType>> = {
-	serial: int4,
-	bigserial: int8,
-	uuidv7: scalarOfSpec({ carrier: "uuid" }),
-	uuid: scalarOfSpec({ carrier: "uuid" })
-}
-
-/** The type of each physical column of a version's plan, by table and column: each oracle schema field's, and the
- * serial field's. */
+/** The type of each physical column of a version's plan, by table and column: each oracle schema field's. */
 const physicalTypes = (
 	plan: RealInstallPlan,
 	v: Version
 ): ReadonlyMap<string, ReadonlyMap<string, ScalarType>> => {
-	const serials = serialRelations(v.schema, v.extras)
 	const tables = new Map<string, ReadonlyMap<string, ScalarType>>()
 	for (const r of v.schema.relations) {
 		const table = defined(plan.tables[r.name], `the table of ${r.name}`)
@@ -2627,69 +2409,21 @@ const physicalTypes = (
 				Arr.findFirst(table.columns, (c) => c.field === field),
 				() => new Error(`the column of ${r.name}.${field}`)
 			).column
-		const serial = serials.get(r.name)
 		tables.set(
 			table.name.name,
-			new Map([
-				...Arr.map(r.columns, (c) => [column(c.name), c.type] as const),
-				...(serial === undefined ? [] : [[column(serialField), serialColumnType[serial]] as const])
-			])
+			new Map(Arr.map(r.columns, (c) => [column(c.name), c.type] as const))
 		)
 	}
 	return tables
 }
 
-/** Whether a placeholder converts a column `to` declares serial to bigint, which holds every value of every integer
- * type: the reviewer converts such a column by its cast, so its values, and its identity's advance past them, carry
- * (carriedRow). The field `sq` is cast only from an integer, its type before by its relation's name in `to` (`sqBefore`):
- * no uuid casts to a bigint. */
-const castsSerial = (
-	to: { readonly plan: RealInstallPlan },
-	sqBefore: SqBefore,
-	p: Extract<Placeholder, { readonly kind: "placeholderRetype" }>
-): boolean =>
-	printType(p.column.type) === printType(sqlTypes.bigint) &&
-	Arr.some(
-		Rec.values(to.plan.tables),
-		(t) =>
-			t.name.schema === p.table.schema &&
-			t.name.name === p.table.name &&
-			Arr.some(
-				t.columns,
-				(c) =>
-					c.column === p.column.name &&
-					c.drawn.kind === "identity" &&
-					(c.field !== serialField ||
-						sqBefore(t.relation) === "serial" ||
-						sqBefore(t.relation) === "bigserial")
-			)
-	)
-
-/** The type of the field `sq` a relation of a migration's target held before it, by the relation's name in the target:
- * none where it held no `sq`. */
-export type SqBefore = (relation: string) => SqType | undefined
-
-/** The types of `sq` in `before`, read at each target relation through the renames that carry it (Renames: a target
- * relation's name to its name in `before`, the name it keeps where none renames it). */
-export const sqBeforeOf =
-	(before: Version, renames: Renames): SqBefore =>
-	(relation) =>
-		serialRelations(before.schema, before.extras).get(renames.relations.get(relation) ?? relation)
-
-/** A migration whose target's relations held no `sq` before it: one whose versions declare no extras. */
-export const noSq: SqBefore = () => undefined
-
-/** The SQL a reviewer writes for each placeholder of a migration to `to` (planned under the migrated schema): a serial
- * column converted to bigint by its cast (castsSerial, `sq` by its type before, `sqBefore`), any other the typed default
- * of the type it is written for, a type of `to`'s columns. A placeholder of a type no column of `to` has is a defect of
- * the case, thrown. */
-export const typedValue = (
-	to: {
-		readonly plan: RealInstallPlan
-		readonly version: Version
-	},
-	sqBefore: SqBefore
-): ((placeholder: Placeholder) => string) => {
+/** The SQL a reviewer writes for each placeholder of a migration to `to` (planned under the migrated schema): the typed
+ * default of the type it is written for, a type of `to`'s columns. A placeholder of a type no column of `to` has is a
+ * defect of the case, thrown. */
+export const typedValue = (to: {
+	readonly plan: RealInstallPlan
+	readonly version: Version
+}): ((placeholder: Placeholder) => string) => {
 	/** The target's scalar type of each physical type a target column has, by its printed SQL type: a placeholder carries
 	 * the type it is written for, also when it converts a removed column under its removed names, as an enum rebuild's
 	 * conversion a chosen candidate offers does. */
@@ -2710,11 +2444,6 @@ export const typedValue = (
 	return (p) => {
 		switch (p.kind) {
 			case "placeholderRetype":
-				return castsSerial(to, sqBefore, p)
-					? `${quoteIdent(p.column.name)}::${printType(p.column.type)}`
-					: quoteString(
-							inputText(typedDefault(typeOf(p)), typeOf(p), to.plan.installation.names.codes)
-						)
 			case "addColumnPlaceholder":
 				return quoteString(
 					inputText(typedDefault(typeOf(p)), typeOf(p), to.plan.installation.names.codes)
@@ -2723,42 +2452,15 @@ export const typedValue = (
 	}
 }
 
-/** Whether a column of A converts to the serial field `bc` of B by its cast (typedValue castsSerial): B's field is a
- * bigint and A's column an integer, so the value carries. */
-const castToSerial = (was: GenColumn, bc: GenColumn): boolean => {
-	const from = fieldDescOf(was.type)
-	const to = fieldDescOf(bc.type)
-	return (
-		to.kind === "pg" &&
-		to.type === "bigint" &&
-		from.kind === "pg" &&
-		(from.type === "smallint" || from.type === "integer" || from.type === "bigint")
-	)
-}
-
 export interface Carry {
 	/** The facts loaded into A: A's generated facts lawful in A, whose carried forms are lawful in B. */
 	readonly loaded: ValueFacts
 	/** B's facts after the migration, by B relation. */
 	readonly expected: ValueFacts
-	/** The fields of B, `<relation>.<field>`, whose values the migration numbers: B declares each serial and its
-	 * relation's rows in A hold no column of its name, so the draft adds it with its identity, which numbers the rows
-	 * from 1 in the order the table is read. The model numbers them in its own order, so a numbered field's values are
-	 * compared as a set (rowsSql). */
-	readonly numbered: ReadonlySet<string>
 	/** The relation of A each relation of B is carried from, by name: its rows in `expected` are the images of that one's
 	 * rows in `loaded`, position by position. */
 	readonly sources: ReadonlyMap<string, string>
 }
-
-/** Whether the field `bc` of B is numbered when the rows of A's relation `a` are carried into B's `b` (Carry.numbered). */
-const isNumbered = (
-	a: GenRelation,
-	b: GenRelation,
-	bc: GenColumn,
-	renames: Renames,
-	serial: ReadonlySet<string>
-) => serial.has(`${b.name}.${bc.name}`) && Option.isNone(columnWas(a, b, bc, renames))
 
 /** The column of A's relation `a` that B's field `bc` of `b` is: the field a chosen rename names, else the field of its
  * identifier, the column it is by name in the table A's relation became (a field spelt otherwise is the same column). */
@@ -2775,31 +2477,24 @@ const columnWas = (
 }
 
 /**
- * The row of `a` carried into `b`, numbered `ordinal` among the carried rows; none where it holds a handle B's roster
- * removed, a hole B's domain refuses, which no reviewed data step keeps.
+ * The row of `a` carried into `b`; none where it holds a handle B's roster removed, a hole B's domain refuses, which no
+ * reviewed data step keeps.
  */
 const carriedRow = (
 	a: GenRelation,
 	b: GenRelation,
 	row: LiteralRow,
-	renames: Renames,
-	serial: ReadonlySet<string>,
-	ordinal: number
+	renames: Renames
 ): LiteralRow | undefined => {
 	const image = Arr.map(b.columns, (bc): TypedLiteral | undefined => {
-		if (isNumbered(a, b, bc, renames, serial)) {
-			return { kind: "int", value: BigInt(ordinal) }
-		}
-		/** The column of A the field is, where it keeps that column's type or is a serial field of B the reviewer casts
-		 * it to (castToSerial), and the row's value in it. */
+		/** The column of A the field is, where it keeps that column's type, and the row's value in it. */
 		const kept = Option.flatMap(
 			Option.filter(
 				Option.map(columnWas(a, b, bc, renames), (at) => ({
 					at,
 					was: defined(a.columns[at], `column ${at} of ${a.name}`)
 				})),
-				({ was }) =>
-					sameType(was, bc) || (serial.has(`${b.name}.${bc.name}`) && castToSerial(was, bc))
+				({ was }) => sameType(was, bc)
 			),
 			({ at, was }) => Option.map(Arr.get(row, at), (value) => ({ was, value }))
 		)
@@ -2849,16 +2544,10 @@ const contains = (
  * chosen rename carries the renamed relation's rows, or the renamed field's values, and the relation of A a rename takes
  * to another name leaves its own name to a relation afresh; any other relation of B carries the rows of A's relation of
  * its name, which the draft keeps and changes in place, since a draft renames only what is declared, a field it adds
- * holding the reviewer's value. `serial` holds the fields B declares serial, `<relation>.<field>`.
+ * holding the reviewer's value.
  *
  * A's containments, in declaration order: a target precedes its source. */
-export const carry = (
-	av: Version,
-	bv: Version,
-	facts: ValueFacts,
-	renames: Renames,
-	serial: ReadonlySet<string>
-): Carry => {
+export const carry = (av: Version, bv: Version, facts: ValueFacts, renames: Renames): Carry => {
 	const a = av.schema
 	const b = bv.schema
 	const loaded: Record<string, Array<LiteralRow>> = {}
@@ -2881,7 +2570,6 @@ export const carry = (
 			loaded[r.name] = kept
 		}
 		const expected: Record<string, Array<LiteralRow>> = {}
-		const numbered = new Set<string>()
 		const sources = new Map<string, string>()
 		for (const br of b.relations) {
 			const from = renames.relations.get(br.name)
@@ -2898,23 +2586,10 @@ export const carry = (
 			}
 			const ar = carried.value
 			sources.set(br.name, ar.name)
-			const counted = Arr.map(
-				Arr.filter(br.columns, (bc) => isNumbered(ar, br, bc, renames, serial)),
-				(bc) => bc.name
-			)
-			for (const f of counted) {
-				numbered.add(`${br.name}.${f}`)
-			}
-			/** Whether a row's containment holds in B by the value the draft numbers it with, which depends on the order
-			 * the table is read in: the model loads no such row. A numbered key a containment targets is no such case,
-			 * since its values are the same set in every order. */
-			const ordered = Option.exists(containmentFrom(b, br.name), (c) =>
-				Arr.some(c.from.fields, (f) => counted.includes(f))
-			)
 			const rows = loaded[ar.name] ?? []
 			const keep: Array<LiteralRow> = []
 			for (const row of rows) {
-				const image = carriedRow(ar, br, row, renames, serial, out.length + 1)
+				const image = carriedRow(ar, br, row, renames)
 				if (image === undefined) {
 					removed = true
 					continue
@@ -2924,7 +2599,7 @@ export const carry = (
 					const k = literalRowKey(image, cols)
 					return Arr.some(out, (other) => literalRowKey(other, cols) === k)
 				})
-				if (ordered || conflict || !contains(b, br, image, expected)) {
+				if (conflict || !contains(b, br, image, expected)) {
 					removed = true
 					continue
 				}
@@ -2934,7 +2609,7 @@ export const carry = (
 			loaded[ar.name] = keep
 		}
 		if (!removed) {
-			return { loaded, expected, numbered, sources }
+			return { loaded, expected, sources }
 		}
 	}
 }
@@ -2944,19 +2619,18 @@ const rowText = (row: LiteralRow): string => literalRowKey(row, indices(row.leng
 
 /** The carry model of a chain of two migrations, A to B to C, and A to C directly: removes rows of A until every carried
  * form is lawful in B, its image in B carried on to C is lawful in C, and A's rows carried to C directly are lawful in C,
- * each migration's validation being a reviewed data step. `renames` holds each migration's chosen renames; `serial` the
- * fields B and C declare serial. The result is the A to B carry of the rows so kept. */
+ * each migration's validation being a reviewed data step. `renames` holds each migration's chosen renames. The result is
+ * the A to B carry of the rows so kept. */
 export const carryChain = (
 	versions: { readonly a: Version; readonly b: Version; readonly c: Version },
 	facts: ValueFacts,
-	renames: { readonly ab: Renames; readonly bc: Renames; readonly ac: Renames },
-	serial: { readonly b: ReadonlySet<string>; readonly c: ReadonlySet<string> }
+	renames: { readonly ab: Renames; readonly bc: Renames; readonly ac: Renames }
 ): Carry => {
 	let loaded: ValueFacts = facts
 	for (;;) {
-		const ab = carry(versions.a, versions.b, loaded, renames.ab, serial.b)
-		const bc = carry(versions.b, versions.c, ab.expected, renames.bc, serial.c)
-		const ac = carry(versions.a, versions.c, ab.loaded, renames.ac, serial.c)
+		const ab = carry(versions.a, versions.b, loaded, renames.ab)
+		const bc = carry(versions.b, versions.c, ab.expected, renames.bc)
+		const ac = carry(versions.a, versions.c, ab.loaded, renames.ac)
 		/** Each row of A kept: carried to C directly, and its image in B, if it has one, carried on to C. */
 		const next: Record<string, Array<LiteralRow>> = {}
 		let removed = false
@@ -3014,12 +2688,11 @@ export const planOf = (v: Version, schema: string): RealInstallPlan => {
 
 /** The rows of every relation of a version in `schema`, its fields in declaration order, each value as its output
  * function's text, sorted: a multiset that two installations of one version compare by. Each query is keyed by its
- * relation, or by `<relation>.<field>` for a numbered field's values. */
+ * relation. */
 export const rowsSql = (
 	plan: RealInstallPlan,
 	v: Version,
-	schema: string,
-	numbered: ReadonlySet<string>
+	schema: string
 ): ReadonlyArray<readonly [string, string]> =>
 	Arr.flatMap(v.schema.relations, (r) => {
 		const table = plan.tables[r.name]
@@ -3027,25 +2700,13 @@ export const rowsSql = (
 			return []
 		}
 		const from = `${quoteIdent(schema)}.${quoteIdent(table.name.name)}`
-		/** The oracle schema's fields only: a serial field's values are the sequence's, not the facts'. A numbered field
-		 * (Carry.numbered) is read on its own, its values a set. */
+		/** The oracle schema's fields only. */
 		const fields = Arr.filter(table.columns, (c) => Arr.some(r.columns, (x) => x.name === c.field))
-		const counted = (c: (typeof fields)[number]) => numbered.has(`${r.name}.${c.field}`)
 		const cols = Arr.join(
-			Arr.map(
-				Arr.filter(fields, (c) => !counted(c)),
-				(c) => `${quoteIdent(c.column)}::text`
-			),
+			Arr.map(fields, (c) => `${quoteIdent(c.column)}::text`),
 			", "
 		)
-		return [
-			[r.name, `SELECT ${cols} FROM ${from}`] as const,
-			...Arr.map(
-				Arr.filter(fields, counted),
-				(c) =>
-					[`${r.name}.${c.field}`, `SELECT ${quoteIdent(c.column)}::text FROM ${from}`] as const
-			)
-		]
+		return [[r.name, `SELECT ${cols} FROM ${from}`] as const]
 	})
 
 /** Extras requesting extended statistics over two fields of a relation each, by position: the relation `relation` of a
@@ -3173,32 +2834,11 @@ const payloadRostersRenamed: StatedRenamedPath = plantedRename(
 	{ toB: ["relation"], toC: [] }
 )
 
-/** R0 keyed by its bigint field a. */
-const bigintKeyed = statedSchema(
-	[statedRelation("R0", [{ name: "a", type: int8 }], ["a"], false)],
-	[]
-)
-
-/** R0's field a declared serial. */
-const aSerial: Extras = { ...noExtras, identities: [{ relation: 0, column: 0 }] }
-
-/** A's R0 holds bigint's greatest value in a, and B declares a serial, C as B: the migration's advance leaves a's new
- * identity at its type's end, where it generates no value at all, so none repeats the stored one, on both paths. The
- * generated paths found it with a row at bigint's greatest value in a key field B declared serial. */
-const serialDeclaredAtEnd: StatedRenamedPath = plantedRenameWith(
-	{ a: bigintKeyed, b: bigintKeyed, c: bigintKeyed },
-	{ a: noExtras, b: aSerial, c: aSerial },
-	{ R0: [one(int8Max)] },
-	{ a: fieldsOfR0(["a"]), b: fieldsOfR0(["a"]), c: fieldsOfR0(["a"]) },
-	false,
-	{ toB: [], toC: [] }
-)
-
 /** The adversarial rename generator: named rename intents over a hazard base.
  *
  * The base A holds one of each hazard: the roster K0 of six handles; R0 keyed by k, with a handle a of K0 and an
  * integer b under a bound check; and R1 keyed by id, whose r is contained in R0's key (a foreign key on a key) and whose
- * c sits beside r under extended statistics over (r, c), with a serial field. B applies one intent or more to A, and C
+ * c sits beside r under extended statistics over (r, c). B applies one intent or more to A, and C
  * one intent or none to B. An intent names its target by origin (Origins), never by name, so intents compose: each
  * renames whatever name its target has by then, and every name an intent gives is fresh (its step's prefix and its
  * position), so no intent is a silent no-op. The legal intents:
@@ -3213,9 +2853,6 @@ const serialDeclaredAtEnd: StatedRenamedPath = plantedRenameWith(
  * - removeLastHandle: K0's last handle removed, its code a hole R0's a then refuses;
  * - retypeRosterField: R0's a, of K0, retyped to an integer, a code column converted to the integer it holds;
  * - hop: K0 renamed afresh and R1 renamed to K0's old name, a name hopping across the relation and type namespaces;
- * - retypeSerial: R1's serial field, an integer serial, widened to bigserial; no uuid widens;
- * - sqUuidv7, sqSerial, sqUuid: R1's field `sq` retyped to a pg.uuidv7, a serial or a uuid its caller writes, which
- *   converts an integer serial to a uuidv7 and back, and declares a uuid's `uuidv7()` draw in place and removes it;
  * - retypedOffRebuilt, relationRetypedOffRebuilt: K0's last handle removed while R0's a, of K0, is renamed with its
  *   type changed to an integer, or while R0 is renamed with a so retyped: one conversion of a code column, whichever
  *   way the reviewer decides.
@@ -3242,10 +2879,6 @@ export const legalIntents = [
 	"removeLastHandle",
 	"retypeRosterField",
 	"hop",
-	"retypeSerial",
-	"sqUuidv7",
-	"sqSerial",
-	"sqUuid",
 	"retypedOffRebuilt",
 	"relationRetypedOffRebuilt"
 ] as const
@@ -3343,47 +2976,12 @@ const hazardBase: GenSchema = {
 	containments: [containedIn("R1", "r", "R0", "k")]
 }
 
-/** The extras with every field `sq` retyped to `type`. */
-const sqRetyped = (extras: Extras, type: SqType): Extras => ({
-	...extras,
-	serials: Arr.map(extras.serials, (s) => ({ ...s, type }))
-})
-
-/** A conversion of `sq` between two versions, at one relation of both: one of the four a uuidv7 draw makes. */
-export type SqConversion =
-	| "an integer serial to a uuidv7"
-	| "a uuidv7 to an integer serial"
-	| "a uuid to a uuidv7"
-	| "a uuidv7 to a uuid"
-
-/** The conversions of `sq` from `from` to `to`, at each relation of both by its name. */
-export const sqConversions = (from: Version, to: Version): ReadonlyArray<SqConversion> => {
-	const before = serialRelations(from.schema, from.extras)
-	return Arr.flatMap(
-		[...serialRelations(to.schema, to.extras)],
-		([relation, now]): ReadonlyArray<SqConversion> => {
-			const was = before.get(relation)
-			const integer = (type: SqType | undefined) => type === "serial" || type === "bigserial"
-			return integer(was) && now === "uuidv7"
-				? ["an integer serial to a uuidv7"]
-				: was === "uuidv7" && integer(now)
-					? ["a uuidv7 to an integer serial"]
-					: was === "uuid" && now === "uuidv7"
-						? ["a uuid to a uuidv7"]
-						: was === "uuidv7" && now === "uuid"
-							? ["a uuidv7 to a uuid"]
-							: []
-		}
-	)
-}
-
-/** A bound check on R0's b, statistics over R1's r and c, and R1's serial field. */
-const hazardExtras = (big: boolean): Extras => ({
+/** A bound check on R0's b, and statistics over R1's r and c. */
+const hazardExtras: Extras = {
 	...noExtras,
 	checks: [{ relation: 0, column: 2, lower: true }],
-	statistics: [{ relation: 1, first: 1, second: 2 }],
-	serials: [{ relation: 1, type: big ? "bigserial" : "serial" }]
-})
+	statistics: [{ relation: 1, first: 1, second: 2 }]
+}
 
 const hazardFacts: ValueFacts = {
 	R0: [
@@ -3543,23 +3141,6 @@ const applyIntent = (
 			const away = rosterRenamedTo(t, fresh.roster)
 			return step(renameRelation(away, relationOfOrigin(away, "R1"), was))
 		}
-		case "retypeSerial":
-			return {
-				t,
-				extras: {
-					...extras,
-					serials: Arr.map(extras.serials, (s) => ({
-						...s,
-						type: s.type === "serial" ? "bigserial" : s.type
-					}))
-				}
-			}
-		case "sqUuidv7":
-			return { t, extras: sqRetyped(extras, "uuidv7") }
-		case "sqSerial":
-			return { t, extras: sqRetyped(extras, "serial") }
-		case "sqUuid":
-			return { t, extras: sqRetyped(extras, "uuid") }
 		case "retypedOffRebuilt": {
 			const shortened = lastHandleRemoved(t, 0)
 			const a = fieldOfOrigin(shortened, "R0", "a")
@@ -3607,10 +3188,6 @@ const intentRenameKinds: { readonly [K in LegalIntentKind]: ReadonlyArray<Rename
 	removeLastHandle: ["removeHandle"],
 	retypeRosterField: [],
 	hop: ["hop"],
-	retypeSerial: [],
-	sqUuidv7: [],
-	sqSerial: [],
-	sqUuid: [],
 	retypedOffRebuilt: ["retyped", "removeHandle"],
 	relationRetypedOffRebuilt: ["relationRetyped", "removeHandle"]
 }
@@ -3623,7 +3200,7 @@ const legalIntentPath = (
 	sketch: IntentSketch & { readonly kind: "legal" }
 ): { readonly path: StatedRenamedPath; readonly intents: ReadonlyArray<LegalIntent> } => {
 	const a: TracedSchema = { schema: hazardBase, origins: ownOrigins(hazardBase) }
-	const extrasA = hazardExtras(false)
+	const extrasA = hazardExtras
 	const b = applyIntents({ t: a, extras: extrasA }, sketch.toB, "q", sketch.freshRelations)
 	const dropped = fieldOfOrigin(b.t, "R1", "c")
 	/** takeDropped: B drops R1's c, whose statistics and origin go with it, and C renames R1's r to c. */
@@ -3696,8 +3273,7 @@ const statedRenamedPaths = [
 	renamedWithRetype,
 	statisticsOverRetyped,
 	statisticsOfRenamedRelation,
-	payloadRostersRenamed,
-	serialDeclaredAtEnd
+	payloadRostersRenamed
 ] as const
 
 /** A finding of the generated renamed paths, drawn as its stated path: the arm a suite draws its kept findings by. */

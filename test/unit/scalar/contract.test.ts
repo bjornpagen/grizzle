@@ -2,8 +2,8 @@
  * A contract over a base drawn from the descriptor kinds a contract takes, with a predicate that bounds the value or
  * none: a domain over its base (the base's SQL type, carrier, typmod and capabilities),
  * exposing the caller's base descriptor itself, an unchecked brand constructor returning its argument, one identity per
- * equal declaration and distinct by name, its type compatible across a predicate change; a serial base is refused
- * before the predicate runs, as the one refusal its rule names, and a callback that builds no predicate is malformed.
+ * equal declaration and distinct by name, its type compatible across a predicate change; a base of the serial family is
+ * refused before the predicate runs, as grizzle mints no ids, and a callback that builds no predicate is malformed.
  *
  * Admission: contract(name, base) builds exactly from a declared name, a descriptor and no argument past the predicate,
  * over Live names near the rule's edges and Wild names and bases of every kind (@bjornpagen/testing/lsw); everything else
@@ -12,7 +12,7 @@
  * Oracles: the base's own description, for what a domain keeps of it; the field identity text, for one identity per
  * declaration; the declared-name rule (parseDeclaredName), for admission.
  *
- * Features: each base with and without a predicate, a serial refused, no predicate built; a live contract, a string
+ * Features: each base with and without a predicate, a minted base refused, no predicate built; a live contract, a string
  * name the rule refuses, every wild kind as name and as base, an extra argument.
  */
 
@@ -29,6 +29,7 @@ import type { Refused } from "#compiler/core/refusals.ts"
 import { capsOf, numericTypmodOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
+import { mintedRefusal } from "#compiler/scalar/minted.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
 import { assert, defined, succeeded, throwsRefused } from "#test/support/assert.ts"
@@ -58,9 +59,9 @@ export const contractIdentityIsADomainOverItsBaseAndItsOwnBrandOneIdentityPerEqu
 	property.explore(
 		(source) => ({
 			kind: source.draw(
-				weighted<"declaration" | "serial" | "no predicate">([
+				weighted<"declaration" | "minted" | "no predicate">([
 					[2, constant("declaration")],
-					[1, constant("serial")],
+					[1, constant("minted")],
 					[1, constant("no predicate")]
 				])
 			),
@@ -79,19 +80,19 @@ export const contractIdentityIsADomainOverItsBaseAndItsOwnBrandOneIdentityPerEqu
 				...Arr.map(baseNames, (b): IdentityFeature => `${b} without a predicate`),
 				"integer with a predicate",
 				"bigint with a predicate",
-				"serial refused",
+				"a minted base refused",
 				"no predicate built"
 			] satisfies ReadonlyArray<Reached<IdentityFeature>>,
 			check:
 				(_, c: Case<IdentityFeature>) =>
 				({ kind, base: baseName, precision, name, other, value, withPredicate }) =>
 					Effect.sync(() => {
-						if (kind === "serial") {
-							c.note("serial refused")
+						if (kind === "minted") {
+							c.note("a minted base refused")
 							let ran = false
 							/**
-							 * A serial's type is its integer's, so its writing is what refuses it, for the rule the types name
-							 * too: a contract is over the serial's value type instead.
+							 * A spelling of the serial family is no descriptor, so a contract over it is refused by the model's own
+							 * rule, as the field is, before its predicate runs.
 							 */
 							const refusals = [
 								throwsRefused(
@@ -102,15 +103,14 @@ export const contractIdentityIsADomainOverItsBaseAndItsOwnBrandOneIdentityPerEqu
 										}),
 									"Refused"
 								),
-								throwsRefused(() => contractDescriptor(name, pgDescriptors.bigserial), "Refused")
+								throwsRefused(() => contractDescriptor(name, pgDescriptors.uuidv7), "Refused")
 							] as const
 							assert.equal(ran, false)
-							const serialRule: Refused =
-								"a contract is a value domain; a serial is a generation declaration, so use its value type"
+							const mintedRule: Refused = mintedRefusal
 							for (const thrown of refusals) {
 								assert.equal(
 									thrown.reason._tag === "Refused" ? thrown.reason.refusal : undefined,
-									serialRule
+									mintedRule
 								)
 							}
 							return

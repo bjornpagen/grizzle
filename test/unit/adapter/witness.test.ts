@@ -58,7 +58,6 @@ export const aServerErrorAtAWriteMeansWhatTheClassificationRulesSayOfTheFieldsGr
 			"execution: a precheck naming no entry the role writes through",
 			"SerializationFailure",
 			"Deadlock",
-			"GeneratedSerialUnique",
 			"UnseenOccupant",
 			"PutTargetConflict",
 			"defect on a code domain",
@@ -603,7 +602,6 @@ export const aServerErrorAtAWriteMeansWhatTheClassificationRulesSayOfTheFieldsGr
 									? "a concurrent change"
 									: tag === "SerializationFailure" ||
 										  tag === "Deadlock" ||
-										  tag === "GeneratedSerialUnique" ||
 										  tag === "UnseenOccupant" ||
 										  tag === "PutTargetConflict"
 										? tag

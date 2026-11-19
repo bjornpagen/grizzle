@@ -274,8 +274,6 @@ export const worldsGrants = (
 			switch (fn.kind) {
 				case "refusal":
 					return on("function", name, [writer.role, reader], ["EXECUTE"])
-				case "advance":
-					return on("function", name, [writer.role], ["EXECUTE"])
 				case "snapshotGuard":
 					return on("function", name, [writer.login], ["EXECUTE"])
 				case "names":

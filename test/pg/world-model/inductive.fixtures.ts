@@ -45,8 +45,7 @@ import {
 	docsInstall,
 	docsLevelInstall,
 	docsOneShareEditorInstall,
-	docsOneShareInstall,
-	docsVisitsInstall
+	docsOneShareInstall
 } from "#test/support/worlds/model/bases/docs.ts"
 import { roleContexts, rolesOfLogin, samePlain } from "#test/support/worlds/model/session/state.ts"
 import type {
@@ -78,8 +77,7 @@ export const situations = requiredWorldFeatures
 
 /**
  * The fixed installations a case may draw, by key: the documents base's own, its one-share and level worlds, its worlds
- * with an editor beside (one share or many), its worlds writing Visit through serial shapes, and its held-roster
- * worlds. Each is a template a case within its database clones (inductiveTemplates).
+ * with an editor beside (one share or many), and its held-roster worlds. Each is a template a case within its database clones (inductiveTemplates).
  */
 const fixedInstalls = {
 	docs: docsInstall,
@@ -87,7 +85,6 @@ const fixedInstalls = {
 	docsLevel: docsLevelInstall,
 	docsEditor: docsEditorInstall,
 	docsOneShareEditor: docsOneShareEditorInstall,
-	docsVisits: docsVisitsInstall,
 	docsHeldRoster: docsHeldRosterInstall
 } as const satisfies Readonly<Record<string, InstallSpec>>
 
@@ -442,12 +439,9 @@ const planGen =
  * base's (drive/suite.ts docsInstalls, its five fixed installations or a generated one) two times in five; one of its worlds with an
  * editor beside (docsEditorInstall, docsOneShareEditorInstall) one time in five, whose every fact outside an entry it
  * writes lies outside its world one way only: visible through a relation it holds whole, or hidden, which a Db or a
- * direct writer of the editor's meets each way under no claims, and a generated installation's roles rarely offer; its
- * worlds with Visit written through a unit entry, one filtering on a serial field and one fixing one
- * (docsVisitsInstall), the serial shapes a generated installation's roles rarely offer, one time in five; and
+ * direct writer of the editor's meets each way under no claims, and a generated installation's roles rarely offer; and
  * otherwise the held-roster worlds (docsHeldRosterInstall), where a stored visit holds a handle of Tier, which no other
- * documents base's field holds (migration:roster-removal-held), and a role of two writes Visit through a filter on a
- * serial field (fact:filtered-serial-omitted).
+ * documents base's field holds (migration:roster-removal-held).
  */
 const installsGen: Gen<DrawnInstall> = weighted([
 	[
@@ -467,7 +461,6 @@ const installsGen: Gen<DrawnInstall> = weighted([
 		])
 	],
 	[1, map(element<FixedInstall>(["docsEditor", "docsOneShareEditor"]), fixed)],
-	[1, constant(fixed("docsVisits"))],
 	[1, constant(fixed("docsHeldRoster"))]
 ])
 

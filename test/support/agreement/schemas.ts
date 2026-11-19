@@ -38,6 +38,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { dateDescriptor } from "#compiler/scalar/date.ts"
 import { literalDescFor } from "#compiler/scalar/literal.ts"
+import { mintedRefusal } from "#compiler/scalar/minted.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import {
@@ -122,7 +123,7 @@ import {
  *   directive naming the diagnostic its fault raises, `Refusal<"…">` where the types name the refusal, and the batch
  *   checks the program disarmed, so a probe the types refuse and the engine admits is a diagnostic no directive names,
  *   and one they admit and the engine refuses a directive whose diagnostic never comes;
- * - every fact type, addition, nested addition, key, key lookup, serial set, write list, projection head, statement,
+ * - every fact type, addition, nested addition, key, key lookup, write list, projection head, statement,
  *   descriptor, literal, closed read and text language the types infer equals what the engine describes: the host type
  *   of each field's scalar type, the fields its writing leaves to the caller, the families its statements nest, the
  *   candidate keys its laws state, each statement's Description, each descriptor's Description and writing;
@@ -162,7 +163,6 @@ const schemaConstructs = [
 	"spanField",
 	"closedIdField",
 	"bitsField",
-	"serialField",
 	"keyStatement",
 	"containment",
 	"mutableStatement",
@@ -193,7 +193,7 @@ const schemaConstructs = [
 	"closedReadProbe",
 	"castProbe",
 	"ruleProbe",
-	"serialChainProbe",
+	"mintedProbe",
 	"generatedProbe",
 	"slotKeyProbe",
 	"slotSideProbe",
@@ -230,7 +230,6 @@ const schemaForms = [
 	"derivedMin",
 	"derivedMax",
 	"derivedLiteral",
-	"derivedSerial",
 	"derivedLeft",
 	"derivedRight",
 	"derivedMirrors",
@@ -310,7 +309,7 @@ const schemaFaults = [
 	"accumulatedWriting",
 	"accumulatedStart",
 	"rowMissingField",
-	"contractOverSerial",
+	"mintedId",
 	"endpointType",
 	"widthType",
 	"numericArity",
@@ -350,8 +349,6 @@ const schemaFaults = [
 	"bindingType",
 	"negatedBindingType",
 	"foreignAttach",
-	"serialUnderContract",
-	"spanOverSerialChain",
 	"setPrimaryKey",
 	"setKey",
 	"conflictingRow",
@@ -586,9 +583,7 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 		{ tag: "MalformedDescription" },
 		"a closed relation's row holds every field"
 	),
-	contractOverSerial: named(
-		"a contract is a value domain; a serial is a generation declaration, so use its value type"
-	),
+	mintedId: named(mintedRefusal),
 	endpointType: structural(
 		{ tag: "UnsupportedOperation" },
 		"a span's endpoint is an integer or a bigint, or a contract over one"
@@ -670,16 +665,6 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 	foreignAttach: structural(
 		{ tag: "ForeignLevel" },
 		"an arm attaches a child over a level of its rule's schema"
-	),
-	serialUnderContract: named(
-		"a contract is a value domain; a serial is a generation declaration, so use its value type"
-	),
-	spanOverSerialChain: structural(
-		{
-			refused:
-				"a contract is a value domain; a serial is a generation declaration, so use its value type"
-		},
-		"a span endpoint's contract chain holds no serial"
 	),
 	setPrimaryKey: structural({ tag: "UnrepresentableKey" }, "a primary key lists no set"),
 	setKey: named("a key lists no set: a set's bit string is too wide for an index entry"),
@@ -915,12 +900,8 @@ const pgSpellings = [
 ] as const
 type PgSpelling = (typeof pgSpellings)[number]
 
-/** The integer serials' spellings, each drawn by an identity. */
-const integerSerialSpellings = ["smallserial", "serial", "bigserial"] as const
-
-/** Every serial's spelling: the integer serials', and pg.uuidv7, drawn by its `uuidv7()` default. */
-const serialSpellings = [...integerSerialSpellings, "uuidv7"] as const
-type SerialSpelling = (typeof serialSpellings)[number]
+/** The serial family's spellings, each a refusal of a descriptor: grizzle mints no ids (scalar/minted.ts). */
+const mintedSpellings = ["smallserial", "serial", "bigserial", "uuidv7"] as const
 
 /** The integer spellings a span's endpoint may be. */
 const endpointSpellings = ["integer", "bigint"] as const
@@ -984,7 +965,6 @@ type Endpoint =
 /** A field's type as a case draws it, every spelling of it. */
 type FieldType =
 	| { readonly kind: "pg"; readonly spelling: PgSpelling }
-	| { readonly kind: "serial"; readonly spelling: SerialSpelling }
 	| { readonly kind: "uuid" }
 	| { readonly kind: "date" }
 	| { readonly kind: "natural" }
@@ -1176,7 +1156,7 @@ interface Base {
 	readonly slots: SlotsSpec | undefined
 	/** Public values asked whether they are field descriptors, and pairs of pg spellings asked whether one is the other. */
 	readonly publics: ReadonlyArray<PublicValue>
-	readonly spellings: ReadonlyArray<readonly [Spelling, Spelling]>
+	readonly spellings: ReadonlyArray<readonly [PgSpelling, PgSpelling]>
 }
 
 /**
@@ -1253,9 +1233,7 @@ const slotStatements = (slots: SlotsSpec): ReadonlyArray<StatementSpec> => [
 const publicValues = ["numeric", "vector", "integer", "str", "uuid", "natural", "date"] as const
 type PublicValue = (typeof publicValues)[number]
 
-/** A pg member that is a descriptor: every scalar and serial spelling. */
-type Spelling = PgSpelling | SerialSpelling
-const spellingsOf: Arr.NonEmptyReadonlyArray<Spelling> = [...pgSpellings, ...serialSpellings]
+const spellingsOf: Arr.NonEmptyReadonlyArray<PgSpelling> = pgSpellings
 
 /** A public value as the program spells it, and as the engine holds it. */
 const publicSource = (v: PublicValue): string => {
@@ -1404,7 +1382,7 @@ const orderedRosters = (
 /** The contracts a case may declare, over the types a contract admits, one over another. */
 const contractNames = ["Cents", "Rate", "Code", "Day", "Mode", "Outer"] as const
 
-/** A type a contract may be over: a value domain, never a serial, set, vector or span. */
+/** A type a contract may be over: a value domain, never a set, vector or span. */
 const contractBaseOf = (
 	d: Drawing,
 	roster: RosterSpec,
@@ -1448,7 +1426,7 @@ const contractsOf = (
 	)
 }
 
-/** Whether a contract's chain ends at an integer or a bigint: a span's endpoint, never a serial. */
+/** Whether a contract's chain ends at an integer or a bigint: a span's endpoint. */
 const integerContract = (contracts: ReadonlyArray<ContractSpec>, name: string): boolean => {
 	const found = Arr.findFirst(contracts, (c) => c.name === name)
 	if (Option.isNone(found)) {
@@ -1502,7 +1480,6 @@ const fieldTypeOf = (
 				return { kind: "span", endpoint, width: d.upTo(1) === 1 ? width : undefined }
 			}
 		],
-		["serialField", () => ({ kind: "serial", spelling: d.from(serialSpellings) })],
 		...(Arr.isReadonlyArrayNonEmpty(contracts)
 			? [
 					[
@@ -1523,7 +1500,6 @@ const keyable = (t: FieldType, contracts: ReadonlyArray<ContractSpec>): boolean 
 	switch (t.kind) {
 		case "pg":
 			return !Arr.contains(["real", "double precision", "money"] as const, t.spelling)
-		case "serial":
 		case "uuid":
 		case "date":
 		case "natural":
@@ -1578,8 +1554,8 @@ const relationNames = ["Account", "Task", "Ticket"] as const
 const callerWriting: WritingSpec = { kind: "caller" }
 
 /**
- * An ordinary relation: its key field id of a keyable type, then up to four fields of drawn types, at most one serial,
- * its primary key id and, sometimes, a keyable field after it.
+ * An ordinary relation: its key field id of a keyable type, then up to four fields of drawn types, its primary key id
+ * and, sometimes, a keyable field after it.
  */
 const relationOf = (
 	d: Drawing,
@@ -1589,23 +1565,14 @@ const relationOf = (
 ): RelationSpec => {
 	const idType = d.from<FieldType>([
 		{ kind: "uuid" },
-		{ kind: "pg", spelling: d.from(["bigint", "integer"] as const) },
-		...(d.keep("serialField")
-			? [{ kind: "serial", spelling: d.from(serialSpellings) } as const]
-			: [])
+		{ kind: "pg", spelling: d.from(["bigint", "integer"] as const) }
 	])
 	const names = Arr.take(d.some(fieldNames), 1 + d.upTo(3))
-	const fields = Arr.reduce(
-		names,
-		[],
-		(made: ReadonlyArray<FieldSpec>, field): ReadonlyArray<FieldSpec> => {
-			const drawn = fieldTypeOf(d, rosters, contracts)
-			const serials = Arr.filter([{ type: idType }, ...made], (f) => f.type.kind === "serial")
-			return drawn.kind === "serial" && Arr.isReadonlyArrayNonEmpty(serials)
-				? made
-				: [...made, { name: field, type: drawn, writing: callerWriting }]
-		}
-	)
+	const fields = Arr.map(names, (field): FieldSpec => ({
+		name: field,
+		type: fieldTypeOf(d, rosters, contracts),
+		writing: callerWriting
+	}))
 	const keyed = Arr.filter(fields, (f) => keyable(f.type, contracts))
 	const second = Arr.isReadonlyArrayNonEmpty(keyed) && d.upTo(3) === 0 ? [d.from(keyed).name] : []
 	return {
@@ -1620,8 +1587,6 @@ const aggregatable = (t: FieldType, contracts: ReadonlyArray<ContractSpec>): boo
 	switch (t.kind) {
 		case "pg":
 			return !Arr.contains(["money", "boolean"] as const, t.spelling)
-		case "serial":
-			return t.spelling !== "uuidv7"
 		case "numeric":
 			return true
 		case "contract": {
@@ -1708,8 +1673,6 @@ const typeText = (t: FieldType): string => {
 	switch (t.kind) {
 		case "pg":
 			return `pg ${pgCanonical[t.spelling]}`
-		case "serial":
-			return serialText[t.spelling]
 		case "uuid":
 		case "date":
 		case "natural":
@@ -1741,13 +1704,6 @@ const pgCanonical: { readonly [S in PgSpelling]: string } = {
 	boolean: "boolean"
 }
 
-/** A serial's type text, its value type's: an integer serial's integer, and pg.uuidv7's uuid. */
-const serialText: { readonly [S in SerialSpelling]: string } = {
-	smallserial: "pg smallint",
-	serial: "pg integer",
-	bigserial: "pg bigint",
-	uuidv7: "uuid"
-}
 /**
  * A containment between two relations of the base: a field of one into the primary key of another, whose key is one
  * field, its source field drawn of the target key's type where one is, so the engine admits it.
@@ -2071,12 +2027,8 @@ const baseOf = (d: Drawing): Base => {
 				}
 	if (derivedSpec !== undefined) {
 		d.note("derived")
-		const counted = relationNamed(ordinary, derivedSpec.over)
 		for (const x of derivedSpec.extras) {
 			d.note(extraForm[x.kind])
-			if (x.kind !== "literal" && fieldOf(counted, x.field).type.kind === "serial") {
-				d.note("derivedSerial")
-			}
 		}
 	}
 	const sameRoster = d.from(rosters)
@@ -2283,7 +2235,6 @@ const fieldValue = (
 ): FieldBase => {
 	switch (t.kind) {
 		case "pg":
-		case "serial":
 			return pgDescriptors[t.spelling]
 		case "uuid":
 			return uuidDescriptor
@@ -2652,37 +2603,26 @@ const declsOf = (value: AnyRelation): ReadonlyArray<readonly [string, FieldDecl]
 }
 
 /**
- * What the engine says of a relation's facts and additions: each field's host type, the fields its caller writes
- * (caller and serial), and its serial fields.
+ * What the engine says of a relation's facts and additions: each field's host type, and the fields its caller writes.
  */
 interface Heading {
 	readonly fact: ReadonlyArray<readonly [string, string]>
 	readonly written: ReadonlyArray<string>
-	readonly serial: ReadonlyArray<string>
 }
 
 const headingOf = (value: AnyRelation, base: Base, ids: Ids): Heading => {
 	const decls = declsOf(value)
 	return {
 		fact: Arr.map(decls, ([name, decl]) => [name, hostOfDesc(decl.type, base, ids)] as const),
-		written: Arr.flatMap(decls, ([name, decl]) =>
-			decl.writing.kind === "caller" || decl.writing.kind === "serial" ? [name] : []
-		),
-		serial: Arr.flatMap(decls, ([name, decl]) => (decl.writing.kind === "serial" ? [name] : []))
+		written: Arr.flatMap(decls, ([name, decl]) => (decl.writing.kind === "caller" ? [name] : []))
 	}
 }
 
-/**
- * An addition as the engine admits one: the written fields, or those less every serial field, all or none; two arms,
- * one type where the relation has no serial field.
- */
-const additionType = (h: Heading, without: ReadonlyArray<string>): string => {
-	const row = (omitted: ReadonlyArray<string>) =>
-		objectType(
-			Arr.filter(h.fact, ([name]) => Arr.contains(h.written, name) && !Arr.contains(omitted, name))
-		)
-	return `${row(without)} | ${row([...without, ...h.serial])}`
-}
+/** An addition as the engine admits one: the fields its caller writes, less `without`. */
+const additionType = (h: Heading, without: ReadonlyArray<string>): string =>
+	objectType(
+		Arr.filter(h.fact, ([name]) => Arr.contains(h.written, name) && !Arr.contains(without, name))
+	)
 
 /**
  * The candidate keys over a relation's heading the engine compiles the schema to: its owned keys, the primary key and
@@ -2900,7 +2840,6 @@ const quoted = (names: ReadonlyArray<string>): string => Arr.join(Arr.map(names,
 const fieldSource = (t: FieldType, ids: Ids): string => {
 	switch (t.kind) {
 		case "pg":
-		case "serial":
 			return t.spelling === "double precision" ? 'Fi.pg["double precision"]' : `Fi.pg.${t.spelling}`
 		case "uuid":
 			return "Fi.uuid"
@@ -4136,9 +4075,7 @@ type PredicateSite = "check" | "select" | "contract"
 const predicateProbe = (d: Drawing, base: Base): Probe => {
 	const r = d.from(ordinaryOf(base))
 	const field = fieldOf(r, r.key[0])
-	const site = d.from<PredicateSite>(
-		field.type.kind === "serial" ? ["check", "select"] : ["check", "select", "contract"]
-	)
+	const site = d.from<PredicateSite>(["check", "select", "contract"])
 	const parameter = d.upTo(1) === 1
 	const faults: { readonly [P in PredicateSite]: SchemaFault } = {
 		check: "parameterizedCheck",
@@ -4974,7 +4911,7 @@ const fieldCallValue = (call: FieldCall, env: Env): unknown => {
 
 /**
  * A field constructor: drawn over a natural or another type, accumulated over a value type or a field of a writing of
- * its own, its start of its type or not, a contract over a value domain or a serial, a span over an integer endpoint
+ * its own, its start of its type or not, a contract over a value domain, a span over an integer endpoint
  * or another, its width of its endpoint's host type or not, numeric with its scale or without, a typmod of its type or
  * a text, a relation over a plain object shaped like a descriptor, which no builder made, and an accumulated set
  * starting at a set over another roster of the same spellings.
@@ -5039,10 +4976,6 @@ const fieldProbe = (d: Drawing, base: Base): Probe => {
 			}
 		},
 		{
-			fault: "contractOverSerial",
-			call: { kind: "contract", base: { kind: "serial", spelling: d.from(serialSpellings) } }
-		},
-		{
 			fault: undefined,
 			call: {
 				kind: "span",
@@ -5064,7 +4997,6 @@ const fieldProbe = (d: Drawing, base: Base): Probe => {
 				kind: "span",
 				endpoint: d.from<FieldType>([
 					{ kind: "pg", spelling: "smallint" },
-					{ kind: "serial", spelling: d.from(integerSerialSpellings) },
 					{ kind: "pg", spelling: "money" },
 					{ kind: "numeric", precision: 10, scale: 0 }
 				]),
@@ -5491,8 +5423,6 @@ const descriptorType = (decl: FieldDecl, base: Base, ids: Ids): string => {
 			return "Fi.RetirementField"
 		case "accumulated":
 			return `Fi.AccumulatedField<${valueDescriptorType(decl.type, base, ids)}>`
-		case "serial":
-			return `Fi.SerialField<${hostOfDesc(decl.type, base, ids)}, ${jsonText(sqlOfDesc(decl.type))}>`
 		case "caller":
 		case "generated":
 			return valueDescriptorType(decl.type, base, ids)
@@ -5577,17 +5507,7 @@ const baseAssertions = (
 		const keys = keysOf(artifacts, r.name)
 		return [
 			expect(`fact_${r.name}`, `Sc.Fact<typeof ${ids(r.name)}>`, objectType(h.fact)),
-			expect(
-				`written_${r.name}`,
-				`Cs.Written<typeof ${ids(r.name)}>`,
-				objectType(Arr.filter(h.fact, ([name]) => Arr.contains(h.written, name)))
-			),
 			expect(`addition_${r.name}`, `Cs.Addition<typeof ${ids(r.name)}>`, additionType(h, [])),
-			expect(
-				`serial_${r.name}`,
-				`Sc.SerialFieldsOf<typeof ${ids(r.name)}>`,
-				literalUnion(h.serial)
-			),
 			expect(
 				`keys_${r.name}`,
 				`Sc.KeysOf<typeof ${ids("S")}, typeof ${ids(r.name)}>`,
@@ -5951,7 +5871,7 @@ const publicAssertions = (base: Base, ids: Ids): ReadonlyArray<string> => {
 		const same = dx !== undefined && dy !== undefined && dx.ok && dy.ok && dx.value === dy.value
 		const wy = writingOf(pgDescriptors[y]).kind
 		const assignable = same && (wy === "caller" || writingOf(pgDescriptors[x]).kind === wy)
-		const spelled = (s: Spelling) =>
+		const spelled = (s: PgSpelling) =>
 			s === "double precision" ? 'Fi.pg["double precision"]' : `Fi.pg.${s}`
 		return expect(
 			`spelling_${i}`,
@@ -6766,35 +6686,34 @@ const slotKeyProbe = (d: Drawing): Probe => {
 }
 
 /**
- * A contract over a serial, refused where it is declared, then read where a descriptor is admitted: as the base of a
- * further contract, the serial at depth two of its chain, or as a span's endpoint. Each is a planted fault, the
- * serial anywhere down the chain refused as at depth one; the engine refuses the inner contract, so the chain is never
- * built. The probe is never admitted, so its construct is noted where drawn.
+ * A spelling of the serial family read where a descriptor is: a relation's field, a contract's base or a span's
+ * endpoint. Each is a planted fault, refused by the model's message, grizzle mints no ids, by the types where the
+ * spelling is written and by the engine where it reads the descriptor (scalar/registry.ts refusedField). The probe is
+ * never admitted, so its construct is noted where drawn.
  */
-const serialChainProbe = (d: Drawing): Probe => {
-	d.note("serialChainProbe")
-	const serial = d.from(serialSpellings)
-	const fault = d.from(["serialUnderContract", "spanOverSerialChain"] as const)
-	const inner = () => admitContract("Inner", pgDescriptors[serial], [])
+const mintedProbe = (d: Drawing): Probe => {
+	d.note("mintedProbe")
+	const spelling = d.from(mintedSpellings)
+	const site = d.from(["field", "contract", "span"] as const)
+	const refusal = pgDescriptors[spelling]
 	return {
-		construct: "serialChainProbe",
-		refused: fault,
-		text: (_ids, own) => ({
-			head: [
-				"// @ts-expect-error -- refusal: a contract is a value domain; a serial is a generation declaration, so use its value type",
-				`export const ${own}_inner = Fi.contract("Inner", Fi.pg.${serial})`
-			],
-			line:
-				fault === "serialUnderContract"
-					? `export const ${own} = Fi.contract("Outer", ${own}_inner)`
-					: `export const ${own} = Fi.span(${own}_inner)`,
-			tail: []
-		}),
+		construct: "mintedProbe",
+		refused: "mintedId",
+		text: (_ids, own) =>
+			oneLine(
+				site === "field"
+					? `export const ${own} = Sc.relation("Minted", { id: Fi.pg.${spelling} }, ["id"])`
+					: site === "contract"
+						? `export const ${own} = Fi.contract("Minted", Fi.pg.${spelling})`
+						: `export const ${own} = Fi.span(Fi.pg.${spelling})`
+			),
 		judge: () =>
-			building(() =>
-				fault === "serialUnderContract"
-					? admitContract("Outer", inner(), [])
-					: spanDescriptor(inner())
+			building((): unknown =>
+				site === "field"
+					? Reflect.apply(relation, undefined, ["Minted", { id: refusal }, ["id"], []])
+					: site === "contract"
+						? admitContract("Minted", refusal, [])
+						: spanDescriptor(refusal)
 			)
 	}
 }
@@ -7503,7 +7422,7 @@ const probeMakers: ReadonlyArray<
 	["closedReadProbe", closedReadProbe],
 	["castProbe", (d) => castProbe(d)],
 	["generatedProbe", generatedProbe],
-	["serialChainProbe", (d) => serialChainProbe(d)],
+	["mintedProbe", (d) => mintedProbe(d)],
 	["ruleProbe", ruleProbe],
 	["slotKeyProbe", (d) => slotKeyProbe(d)],
 	["slotSideProbe", slotSideProbe],

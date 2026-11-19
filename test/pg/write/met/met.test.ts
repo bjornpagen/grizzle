@@ -2,17 +2,14 @@
  * The rows an insertion met (README, "Rows an insertion met"), against PostgreSQL 19, at both levels and in every form
  * an insert arbitrates by (write/insert/protocol.ts Arbitration).
  *
- * Four shapes of relation, each twice: K (k, a, b), keyed by k, complete facts with a payload; P (k, a), a pure set; D
- * (id, k, a), its id drawn by uuidv7() and declared keyed by k, a generated addition arbitrated at k with a payload;
- * and E (id, k), the same with none. The role `rc` inserts the four `…rc` relations and nothing else, so generate
- * certifies it READ COMMITTED (the case requires it): each insert is the `returned` form, ON CONFLICT DO SELECT, met
- * rows returned by the arbiter. The role `ser` inserts the four `…ser` relations, which the role `direct` deletes, so
- * it runs SERIALIZABLE: K and P are the `every` form, complete facts met under the transaction snapshot, and D and E the
- * `returned` form with each met row read again under it. Each relation's member inserts its rows and reads back
- * delta.added and delta.met of it, every field: K's and P's an array of them, and D's and E's a query over the call's
- * relation parameter `rows`, whose head leaves the id out, so every row is a generated addition. An array of D's or E's
- * rows would be two insertions, one of the rows that state the id and one of those that leave it out, so its added and
- * met sides would be two statements' and the read-back refused (README "Where a read-back runs").
+ * Four shapes of relation, each twice: K (k, a, b), keyed by k, complete facts with a payload; P (k, a), a pure set; Q
+ * (k, a), keyed by k with a payload, its facts a query's; and O (k), keyed by its one field, its facts a query's. The
+ * role `rc` inserts the four `…rc` relations and nothing else, so generate certifies it READ COMMITTED (the case
+ * requires it): each insert is the `returned` form, ON CONFLICT DO SELECT, met rows returned by the arbiter. The role
+ * `ser` inserts the four `…ser` relations, which the role `direct` deletes, so it runs SERIALIZABLE: each insert is the
+ * `every` form, complete facts met under the transaction snapshot. Each relation's member inserts its rows and reads
+ * back delta.added and delta.met of it, every field: K's and P's an array of them, and Q's and O's a query over the
+ * call's relation parameter `rows`.
  *
  * Each case stores up to three facts of one relation and inserts one to three requests into it, each a copy of a
  * stored fact (an exact repeat), a fact at a stored key with another payload, or a fact at a free key, at distinct keys.
@@ -21,8 +18,8 @@
  * - A request at a stored key whose payload differs refuses the call on that key's law, its witness one of those keys,
  *   and the table is unchanged.
  * - Otherwise the call is accepted where it adds a request and unchanged where it adds none, with that count; it reads
- *   back as added exactly the rows it made, their drawn ids as stored, and as met exactly the stored rows at the keys
- *   it repeats, each whole, its id included; and the table holds the stored facts and the ones it made.
+ *   back as added exactly the rows it made, and as met exactly the stored rows at the keys it repeats, each whole; and
+ *   the table holds the stored facts and the ones it made.
  *
  * Oracle: specification, the insertion over the stated rows: an exact repeat meets its stored fact, a differing one
  * refuses its key, any other is added.
@@ -43,9 +40,6 @@ import {
 	answerOf,
 	byKey,
 	columnsOf,
-	drawnRow,
-	drawnSetRow,
-	drawsId,
 	type Fact,
 	keyedRow,
 	type MetFeature,
@@ -54,11 +48,11 @@ import {
 	metRig,
 	metSchema,
 	type Name,
+	oneRow,
+	pairRow,
 	relations,
 	type Request,
-	type Row,
 	sameKey,
-	setRow,
 	shapes
 } from "#test/pg/write/met/met.fixtures.ts"
 import { assert, deepEquals } from "#test/support/assert.ts"
@@ -115,9 +109,8 @@ export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevel
 							)
 							const columnOf = (n: Name, field: string): string =>
 								quoteIdent(tables.columnIdent(relations[n], field))
-							/** A relation's stored rows, each read as text and then as a Row, in key order. */
+							/** A relation's stored rows, each read as text and then as a fact, in key order. */
 							const stateOf = (n: Name) => {
-								const { shape } = shapes[n]
 								const fields = columnsOf(n)
 								return Effect.map(
 									s.admin.queryValues(
@@ -129,7 +122,7 @@ export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevel
 									),
 									(rows) =>
 										Arr.sort(
-											Arr.map(rows, (row): Row => {
+											Arr.map(rows, (row): Fact => {
 												const value = (field: string): Option.Option<string> =>
 													Option.flatMap(
 														Arr.findFirstIndex(fields, (f) => f === field),
@@ -140,8 +133,7 @@ export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevel
 												return {
 													k: number("k"),
 													a: number("a"),
-													b: number("b"),
-													id: drawsId(shape) ? value("id") : Option.none()
+													b: number("b")
 												}
 											}),
 											byKey
@@ -152,7 +144,7 @@ export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevel
 							const call = (n: Name, facts: ReadonlyArray<Fact>): Effect.Effect<Answer> => {
 								const keyed = Arr.map(facts, (f) => ({ k: f.k, a: f.a, b: f.b }))
 								const set = Arr.map(facts, (f) => ({ k: f.k, a: f.a }))
-								const drawnSet = Arr.map(facts, (f) => ({ k: f.k }))
+								const one = Arr.map(facts, (f) => ({ k: f.k }))
 								switch (n) {
 									case "Krc":
 										return answerOf(
@@ -169,21 +161,19 @@ export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevel
 											rc.db.workload.Prc.once({ params: {}, facts: { insert: { Prc: set } } }).pipe(
 												answered
 											),
-											setRow
+											pairRow
 										)
-									case "Drc":
+									case "Qrc":
 										return answerOf(
 											n,
-											rc.db.workload.Drc.once({ params: { rows: set }, facts: {} }).pipe(answered),
-											drawnRow
+											rc.db.workload.Qrc.once({ params: { rows: set }, facts: {} }).pipe(answered),
+											pairRow
 										)
-									case "Erc":
+									case "Orc":
 										return answerOf(
 											n,
-											rc.db.workload.Erc.once({ params: { rows: drawnSet }, facts: {} }).pipe(
-												answered
-											),
-											drawnSetRow
+											rc.db.workload.Orc.once({ params: { rows: one }, facts: {} }).pipe(answered),
+											oneRow
 										)
 									case "Kser":
 										return answerOf(
@@ -201,29 +191,29 @@ export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevel
 												params: {},
 												facts: { insert: { Pser: set } }
 											}).pipe(answered),
-											setRow
+											pairRow
 										)
-									case "Dser":
+									case "Qser":
 										return answerOf(
 											n,
-											ser.db.workload.Dser.once({ params: { rows: set }, facts: {} }).pipe(
+											ser.db.workload.Qser.once({ params: { rows: set }, facts: {} }).pipe(
 												answered
 											),
-											drawnRow
+											pairRow
 										)
-									case "Eser":
+									case "Oser":
 										return answerOf(
 											n,
-											ser.db.workload.Eser.once({ params: { rows: drawnSet }, facts: {} }).pipe(
+											ser.db.workload.Oser.once({ params: { rows: one }, facts: {} }).pipe(
 												answered
 											),
-											drawnSetRow
+											oneRow
 										)
 								}
 							}
 
 							const { shape } = shapes[c.relation]
-							const stated = Arr.filter(columnsOf(c.relation), (col) => col !== "id")
+							const stated = columnsOf(c.relation)
 							const valueOf = (f: Fact, col: string): number =>
 								col === "k" ? f.k : col === "a" ? f.a : f.b
 							yield* rig.replace(
@@ -252,7 +242,7 @@ export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevel
 								Arr.map(c.requests, (r) => r.fact)
 							)
 							const after = yield* stateOf(c.relation)
-							const at = (rows: ReadonlyArray<Row>, requests: ReadonlyArray<Request>) =>
+							const at = (rows: ReadonlyArray<Fact>, requests: ReadonlyArray<Request>) =>
 								Arr.filter(rows, (row) => Arr.some(requests, (r) => sameKey(shape, row, r.fact)))
 							const differing = Arr.filter(c.requests, (r) => r.kind === "differing")
 							if (Arr.isReadonlyArrayNonEmpty(differing)) {
@@ -285,7 +275,7 @@ export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevel
 							assert.deepEqual(
 								Arr.sort(answer.addedRows, byKey),
 								at(after, free),
-								"added: exactly the rows it made, their drawn ids as stored"
+								"added: exactly the rows it made"
 							)
 							assert.deepEqual(
 								Arr.sort(answer.metRows, byKey),

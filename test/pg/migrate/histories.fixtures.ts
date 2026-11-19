@@ -29,9 +29,7 @@ import { rostersOf } from "#compiler/schema/own.ts"
 import {
 	carry,
 	noExtras,
-	noSq,
 	type Renames,
-	serialFields,
 	typedValue,
 	type Version,
 	versionOf
@@ -1114,7 +1112,7 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 			)
 			const reviewed = review(g, {
 				losses: "written",
-				value: typedValue({ plan, version: v }, noSq)
+				value: typedValue({ plan, version: v })
 			})
 			assert.deepEqual(
 				readsBack(g, reviewed.files),
@@ -1137,13 +1135,7 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 				)
 			}
 			h.loginRoles = loginRolesOf(after, plan)
-			const model = carry(
-				versionOfModel(before),
-				v,
-				h.rows,
-				identityRenames(before, after),
-				serialFields(v)
-			)
+			const model = carry(versionOfModel(before), v, h.rows, identityRenames(before, after))
 			h.rows = model.expected
 			const fresh = yield* substrate.schema({ create: false, label: "histories_fresh" })
 			const freshPlan = planned(built, fresh)
@@ -1154,8 +1146,8 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 				return assert.fail(loaded.error.message)
 			}
 			yield* transaction(substrate.admin, loaded.value)
-			const migratedRows = yield* storedRowsOf(m, plan, v, h.schema, model.numbered)
-			const freshRows = yield* storedRowsOf(m, freshPlan, v, fresh, model.numbered)
+			const migratedRows = yield* storedRowsOf(m, plan, v, h.schema)
+			const freshRows = yield* storedRowsOf(m, freshPlan, v, fresh)
 			assert.deepEqual(
 				migratedRows,
 				freshRows,

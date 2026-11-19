@@ -16,9 +16,6 @@ import {
 	type RenamedDraw,
 	renamedDrawGen,
 	type RenamedPath,
-	serialFields,
-	type SqConversion,
-	sqConversions,
 	statedRenamedDrawGen,
 	type Version
 } from "#test/pg/migrate-gen/support.ts"
@@ -28,7 +25,6 @@ import {
 	directory,
 	drafted,
 	factSetOf,
-	identitiesPast,
 	noFurther,
 	openMigrator,
 	sameCatalog,
@@ -67,7 +63,6 @@ const featureNames = [
 export type Feature =
 	| (typeof featureNames)[number]
 	| `the intent ${LegalIntentKind}`
-	| `sq: ${SqConversion}`
 	| AmbientFeature
 	| "catalog-type name"
 
@@ -134,21 +129,13 @@ export const pathCase = (p: RenamedPath, ambient: AmbientSession, notes: Case<Fe
 				}
 			}
 			noteRenames(notes, p)
-			for (const conversion of [
-				...sqConversions(p.path.a, p.path.b),
-				...sqConversions(p.path.b, p.path.c),
-				...sqConversions(p.path.a, p.path.c)
-			]) {
-				notes.note(`sq: ${conversion}`)
-			}
 			notes.note(p.choose ? "the path's renames declared" : "every removal declared a drop")
 			/** The facts A holds: those whose carried forms are lawful through both chains, A to B to C and A to C. */
-			const model = carryChain(
-				{ a: p.path.a, b: p.path.b, c: p.path.c },
-				p.path.facts,
-				{ ab: carried(a, b, p.choose), bc: carried(b, c, p.choose), ac: carried(a, c, p.choose) },
-				{ b: serialFields(p.path.b), c: serialFields(p.path.c) }
-			)
+			const model = carryChain({ a: p.path.a, b: p.path.b, c: p.path.c }, p.path.facts, {
+				ab: carried(a, b, p.choose),
+				bc: carried(b, c, p.choose),
+				ac: carried(a, c, p.choose)
+			})
 			const load = (schema: string, v: Version, facts: ValueFacts) =>
 				Effect.gen(function* () {
 					const statements = factStatements(planOf(v, schema), factSetOf(v, facts))
@@ -178,7 +165,6 @@ export const pathCase = (p: RenamedPath, ambient: AmbientSession, notes: Case<Fe
 			yield* apply(m, directory(dx, 1), noFurther)
 			notes.note("a step applied")
 			yield* fresh(x, p.path.b, "(a) A to B")
-			yield* identitiesPast(planOf(p.path.b, x), "(d) A to B")
 			/** (b) against a fresh installation of B holding the model's rows. */
 			const freshRows = yield* Effect.scoped(
 				Effect.gen(function* () {
@@ -188,10 +174,10 @@ export const pathCase = (p: RenamedPath, ambient: AmbientSession, notes: Case<Fe
 						filledSql(planOf(p.path.b, f).drafted, substrate.database)
 					)
 					yield* load(f, p.path.b, model.expected)
-					return yield* storedRowsOf(m, planOf(p.path.b, f), p.path.b, f, model.numbered)
+					return yield* storedRowsOf(m, planOf(p.path.b, f), p.path.b, f)
 				})
 			)
-			const migratedRows = yield* storedRowsOf(m, planOf(p.path.b, x), p.path.b, x, model.numbered)
+			const migratedRows = yield* storedRowsOf(m, planOf(p.path.b, x), p.path.b, x)
 			yield* same(
 				migratedRows,
 				freshRows,
@@ -199,7 +185,6 @@ export const pathCase = (p: RenamedPath, ambient: AmbientSession, notes: Case<Fe
 			)
 			yield* apply(m, directory(dx, 2), noFurther)
 			yield* fresh(x, p.path.c, "(a) A to B to C")
-			yield* identitiesPast(planOf(p.path.c, x), "(d) A to B to C")
 
 			/** (c) Y: A, then C directly, its rosters' codes the direct migration's (directVersion). */
 			const direct = directVersion(p.path)
@@ -210,7 +195,6 @@ export const pathCase = (p: RenamedPath, ambient: AmbientSession, notes: Case<Fe
 			yield* load(y, p.path.a, model.loaded)
 			yield* apply(m, directory(dy, 1), noFurther)
 			yield* fresh(y, direct, "(c) A to C")
-			yield* identitiesPast(planOf(direct, y), "(d) A to C")
 		})
 	)
 

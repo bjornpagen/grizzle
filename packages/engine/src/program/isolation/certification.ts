@@ -96,8 +96,7 @@ const variantWrites = (variants: CompiledVariants): ReadonlyArray<CompiledWrite>
  * - the role's view of a whole entry is its relation; a view of a query entry is none, its definition's reads being
  *   the view's own;
  * - a column of a stored relation's table is its field, and none of a law column;
- * - the refusal function, each closed relation's constant functions and each serial field's advance function read no
- *   table; a retirable unit's retirement function writes its header's and its bodies' tables by a retirement; any other
+ * - the refusal function and each closed relation's constant functions read no table; a retirable unit's retirement function writes its header's and its bodies' tables by a retirement; any other
  *   function may read any;
  * - the objects an ON CONFLICT with no target arbitrates on a relation's table are its primary key's, each UNIQUE's and
  *   each span key's natives, each by the columns of its fields.
@@ -145,10 +144,6 @@ const extractNames = (role: RoleChanges): ExtractNames => {
 		if (r.kind === "relation") {
 			for (const field of Object.values(r.fields)) {
 				columns.set([name, names.column(name, field.name)], field.name)
-				if (field.sequence !== undefined) {
-					const advance = names.advance(name, field.name)
-					noTable.add([advance.schema, advance.name])
-				}
 			}
 		} else if (r.kind === "closedRelation") {
 			for (const fn of names.closed(name).functions) {

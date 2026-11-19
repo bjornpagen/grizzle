@@ -178,16 +178,10 @@ const fieldEntryOf = (value: unknown): FieldEntry | undefined =>
 /** Whether a field value is one slot(type, fin) made. */
 const isSlot = (value: unknown): boolean => fieldEntryOf(value)?.kind === "slot"
 
-/**
- * How a field value is written: as drawn(…) or accumulated(…) recorded it, by its sequence for a serial descriptor,
- * whose `writing` member says so, and by its caller otherwise.
- */
+/** How a field value is written: as drawn(…), accumulated(…) or retirement recorded it, and by its caller otherwise. */
 export const writingOf = (value: unknown): Writing => {
 	const recorded = fieldEntryOf(value)
-	if (recorded?.kind === "written") {
-		return recorded.writing
-	}
-	return hasProperties(value) && value["writing"] === "serial" ? { kind: "serial" } : callerWriting
+	return recorded?.kind === "written" ? recorded.writing : callerWriting
 }
 
 /** How a caller's field is written. */
@@ -422,7 +416,7 @@ export const admitRelation = (
 /**
  * generated(type, term): a field PostgreSQL writes, carrying its declared type's column and SQL type so that it is read
  * as every field of that type is. It records the term, which relation.generated reads against the row it was built
- * over. A serial is written by its sequence, so no generated field is one.
+ * over.
  */
 export const generatedField = <F extends FieldBase>(
 	type: F,
@@ -809,10 +803,7 @@ export const admitClosedRelation = (
 	const descriptors = descriptorRecord(fields, label)
 	for (const [field, value] of Object.entries(descriptors)) {
 		if (writingOf(value).kind !== "caller") {
-			throw malformed(
-				label,
-				`fields its declaration's rows hold; ${field} is written by ${writingOf(value).kind === "serial" ? "its sequence" : "grizzle"}`
-			)
+			throw malformed(label, `fields its declaration's rows hold; ${field} is written by grizzle`)
 		}
 	}
 	keyListedOnce(key, label)

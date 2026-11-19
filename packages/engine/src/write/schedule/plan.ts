@@ -10,12 +10,7 @@ import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/c
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import { type DeltaSide, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
-import {
-	completeAddition,
-	completeClass,
-	type ReadBack,
-	type SerialClass
-} from "#compiler/ir/write.ts"
+import type { ReadBack } from "#compiler/ir/write.ts"
 import type { CarriedShare } from "#compiler/lower/shapes/share/statements.ts"
 import {
 	type CarrierTyping,
@@ -52,7 +47,6 @@ import type {
 } from "#compiler/write/put/choose.ts"
 import type { MergeScope } from "#compiler/write/put/proof.ts"
 import { deltaTarget } from "#compiler/write/readback/deltas.ts"
-import { explicitSerials } from "#compiler/write/serial/advance.ts"
 
 /** An action a planned statement realizes: its stratum, its position among the stratum's actions
  * (ir.strata[stratum].actions), and the positions there of the earlier actions that must complete first (`Action`), whose
@@ -63,16 +57,14 @@ export interface PlanAction {
 	readonly dependsOn: ReadonlyArray<number>
 }
 
-/** What a check of a query entry refuses: an addition's facts outside the entry or at a key a
- * fact outside it holds, the addition's serial class saying which keys it can probe; or any fact of an addition the
- * Db's claims leave outside the world. */
+/** What a check of a query entry refuses: an addition's facts outside the entry or at a key a fact outside it holds; or
+ * any fact of an addition the Db's claims leave outside the world. */
 export type PlannedCheck =
 	| {
 			readonly kind: "membership"
 			readonly entry: CheckedEntry
 			/** The role's names its checks call. */
 			readonly names: CheckNames
-			readonly serial: SerialClass
 			/** The addition it checks, which follows it. */
 			readonly action: PlanAction
 			readonly relation: WrittenRelation
@@ -86,7 +78,7 @@ export type PlannedCheck =
  * relation input, a MERGE carries the scope it was proved over); the deletion a MERGE absorbs has no statement of its
  * own. */
 type WriteOpStep =
-	| { readonly op: "insert"; readonly serial: SerialClass }
+	| { readonly op: "insert" }
 	| { readonly op: "exactDelete"; readonly except: ReadonlyArray<WriteInput> }
 	| { readonly op: "anchoredDelete"; readonly anchor: DeleteAnchor }
 	| { readonly op: "displace"; readonly payload: NonEmptyReadonlyArray<LawField> }
@@ -122,7 +114,6 @@ export type PlannedWrite = {
  * - `single`, a stratum's write actions as one statement over one snapshot (see `planWrite`): each sub-query several of
  *   them read, a CTE of the statement, and each action's write, in action order, its member read inline or as a
  *   relation parameter, then the read-backs that ride it, a lone write with read-backs riding it among them;
- * - `advance`, a sequence advance after an addition whose facts carry explicit serial values;
  * - `readBack`, a read-back after the last stratum, one that reads no delta a statement writes;
  * - `check`, a query entry's check of an addition's facts, `input`;
  * - `family`, a family statement of the stratum (frontend/schedule.ts FamilyNode), where its schedule runs it among
@@ -160,14 +151,6 @@ export type PlanStep =
 			/** The read-backs riding the statement, evaluated in it over its writes' RETURNING (`placeReadBacks`). */
 			readonly readBacks: ReadonlyArray<ReadBack>
 	  }
-	| {
-			readonly kind: "advance"
-			readonly action: PlanAction
-			readonly relation: WrittenRelation
-			readonly input: RereadInput
-			/** The explicit serial fields the addition carries, each advanced past (serial/advance.ts explicitSerials). */
-			readonly fields: NonEmptyReadonlyArray<LawField>
-	  }
 	| { readonly kind: "readBack"; readonly read: ReadBack }
 	| {
 			readonly kind: "check"
@@ -192,24 +175,16 @@ export interface WritePlan {
 type DraftStep =
 	| Exclude<WriteOpStep, { readonly op: "exactDelete" | "anchoredDelete" }>
 	| { readonly op: "exactDelete" }
-	| { readonly op: "advance"; readonly fields: NonEmptyReadonlyArray<LawField> }
 	| {
 			readonly op: "precheck"
 			readonly entry: CheckedEntry
 			readonly names: CheckNames
-			readonly serial: SerialClass
 	  }
 
-/** A statement that reads its action's input as the action's own: every one but a sequence advance, which reads it
- * again after the statement that wrote it. */
-type StatementStep = Exclude<DraftStep, { readonly op: "advance" }>
+/** A statement that writes its relation: every one but a query entry's precheck, which reads its input. */
+type WriteStepDraft = Exclude<DraftStep, { readonly op: "precheck" }>
 
-/** A statement that writes its relation: every one but a sequence advance and a query entry's precheck, which read it or
- * its input. */
-type WriteStepDraft = Exclude<DraftStep, { readonly op: "advance" | "precheck" }>
-
-const isWriteStep = (step: DraftStep): step is WriteStepDraft =>
-	step.op !== "advance" && step.op !== "precheck"
+const isWriteStep = (step: DraftStep): step is WriteStepDraft => step.op !== "precheck"
 
 /** One action of a stratum before its input is placed: the action as its statements name it, its statements in order,
  * and, for an exact deletion, the positions of the additions to its relation it excepts, which read their inputs at the
@@ -221,20 +196,20 @@ interface ActionDraft {
 	readonly excepts: ReadonlyArray<number>
 }
 
-/** The statement of an action that reads its input once: its one statement when it has one; none when several do,
- * as a sequence advance reads it again after the addition. */
-const loneStep = (steps: ReadonlyArray<DraftStep>): StatementStep | undefined => {
+/** The statement of an action that reads its input once: its one statement when it has one; none when several do, as
+ * a query entry's precheck reads it before the addition. */
+const loneStep = (steps: ReadonlyArray<DraftStep>): DraftStep | undefined => {
 	const [only, ...rest] = steps
-	return only === undefined || rest.length > 0 || only.op === "advance" ? undefined : only
+	return only === undefined || rest.length > 0 ? undefined : only
 }
 
 /** An action with its input placed: a described member read inline by the one statement that reads it, or an input
- * every statement of the action reads, a relation parameter or a carrier, which a sequence advance reads again. */
+ * every statement of the action reads, a relation parameter or a carrier. */
 type PlacedAction =
 	| {
 			readonly kind: "inline"
 			readonly draft: ActionDraft
-			readonly step: StatementStep
+			readonly step: DraftStep
 			readonly input: Extract<WriteInput, { readonly kind: "described" }>
 	  }
 	| { readonly kind: "reread"; readonly draft: ActionDraft; readonly input: RereadInput }
@@ -301,7 +276,7 @@ const plannedWrite = (
 /** A statement of action `draft` in a stratum realized one statement after another. */
 const statementStep = (
 	draft: ActionDraft,
-	step: StatementStep,
+	step: DraftStep,
 	input: WriteInput,
 	except: ReadonlyArray<WriteInput>
 ): PlanStep => {
@@ -316,7 +291,6 @@ const statementStep = (
 					kind: "membership",
 					entry: step.entry,
 					names: step.names,
-					serial: step.serial,
 					action: draft.at,
 					relation
 				}
@@ -342,68 +316,39 @@ const placedSteps = (
 	switch (placed.kind) {
 		case "inline":
 			return [statementStep(draft, placed.step, placed.input, except)]
-		case "reread": {
-			const { input } = placed
-			return draft.steps.map((step): PlanStep =>
-				step.op === "advance"
-					? {
-							kind: "advance",
-							action: draft.at,
-							relation: draft.action.info.relation,
-							input,
-							fields: step.fields
-						}
-					: statementStep(draft, step, input, except)
-			)
-		}
+		case "reread":
+			return draft.steps.map((step) => statementStep(draft, step, placed.input, except))
 	}
 }
 
-/** The statements of one action, in order; a put's by the target its choice chose for it, then the sequence advance
- * every addition's explicit serial values oblige (see `planWrite`). */
+/** The statements of one action, in order; a put's by the target its choice chose for it (see `planWrite`). */
 const opsOf = (action: ChosenAction, level: Isolation): ReadonlyArray<DraftStep> => {
 	switch (action.op) {
 		case "delete":
 			return [{ op: "exactDelete" }]
 		case "insert":
-			formedAt(action.info.relation, action.serial, level)
-			return [
-				...precheckOf(action, action.serial),
-				{ op: "insert", serial: action.serial },
-				...advanceOf(action.info.relation, action.serial)
-			]
+			formedAt(action.info.relation, level)
+			return [...precheckOf(action), { op: "insert" }]
 		case "put":
-			return [...putOps(action, level), ...advanceOf(action.info.relation, completeClass)]
+			return putOps(action, level)
 	}
 }
 
 /** The precheck of an addition into a query entry, right before its insert statement. */
-const precheckOf = (action: ChosenAction, serial: SerialClass): ReadonlyArray<DraftStep> => {
+const precheckOf = (action: ChosenAction): ReadonlyArray<DraftStep> => {
 	const entry = action.info.entry
-	return entry.kind === "entry"
-		? [{ op: "precheck", entry: entry.entry, names: entry.names, serial }]
-		: []
-}
-
-/** The sequence advance after an addition whose facts carry explicit serial values, of each of them. */
-const advanceOf = (relation: RelationInfo, serial: SerialClass): ReadonlyArray<DraftStep> => {
-	const [first, ...rest] = explicitSerials(relation, serial)
-	return first === undefined ? [] : [{ op: "advance", fields: [first, ...rest] }]
+	return entry.kind === "entry" ? [{ op: "precheck", entry: entry.entry, names: entry.names }] : []
 }
 
 /**
- * Refuses an insert of `serial` facts into `relation` with no form at `level`: complete facts into a span primary key at
- * READ COMMITTED (NoReadCommittedForm). An exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so no
+ * Refuses an insert into `relation` with no form at `level`: an insert into a span primary key at READ COMMITTED
+ * (NoReadCommittedForm). An exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so no
  * statement of the insert tells a requested fact it met from one it made; at SERIALIZABLE the insert arbitrates every
  * object and classifies what it met itself (protocol.ts Arbitration `every`). Certification reads the refusal as the
  * condition `form` of the role it compiles, which then runs SERIALIZABLE (program/workload/change.ts readCommittedChanges).
  */
-const formedAt = (relation: RelationInfo, serial: SerialClass, level: Isolation): void => {
-	if (
-		level === "readCommitted" &&
-		serial.kind === "complete" &&
-		primaryKeyShape(relation).kind === "span"
-	) {
+const formedAt = (relation: RelationInfo, level: Isolation): void => {
+	if (level === "readCommitted" && primaryKeyShape(relation).kind === "span") {
 		throw new Refusal(
 			CompileError.make({
 				_tag: "NoReadCommittedForm",
@@ -423,13 +368,13 @@ const putOps = (
 	const relation = put.info.relation
 	switch (choice.target) {
 		case "deleteThenInsert": {
-			formedAt(relation, completeClass, level)
+			formedAt(relation, level)
 			const payload = payloadOf(relation)
 			return [
 				...(payload.kind === "pureSet"
 					? []
 					: [{ op: "displace", payload: payload.fields } as const]),
-				...precheckOf(put, completeClass),
+				...precheckOf(put),
 				{ op: "putInsert" }
 			]
 		}
@@ -445,9 +390,9 @@ const putOps = (
 		case "updateFrom":
 			return [{ op: "updateFrom", inPlace: choice.inPlace }]
 		case "ownerPut":
-			formedAt(relation, completeClass, level)
+			formedAt(relation, level)
 			return [
-				...precheckOf(put, completeClass),
+				...precheckOf(put),
 				...(choice.inPlace === undefined
 					? []
 					: [{ op: "updateFrom", inPlace: choice.inPlace } as const]),
@@ -499,8 +444,8 @@ const directReads = (root: RelNode, carried: ReadonlySet<RelNode>): ReadonlyArra
 	return [...reads]
 }
 
-/** The positions of the additions to an exact deletion's relation that it excepts: every complete addition to it, or,
- * for a deletion of a relation parameter's facts, only the described ones. None for any other action. */
+/** The positions of the additions to an exact deletion's relation that it excepts: every addition to it, or, for a
+ * deletion of a relation parameter's facts, only the described ones. None for any other action. */
 const exceptsOf = (
 	actions: ReadonlyArray<ChosenAction>,
 	action: ChosenAction
@@ -509,7 +454,7 @@ const exceptsOf = (
 		return []
 	}
 	const additions = actions.flatMap((b, index) =>
-		b.relation === action.relation && completeAddition(b) ? [{ index, action: b }] : []
+		b.relation === action.relation && b.op !== "delete" ? [{ index, action: b }] : []
 	)
 	return (
 		action.info.reads.kind === "described"
@@ -619,7 +564,7 @@ const sequentialSteps = (
 }
 
 /** The stored relations a step's statements change: a write's relation, a single statement's writes', a family
- * statement's, a retirement's unit's; a carrier's, a check's, a sequence advance's and a hold's change none. */
+ * statement's, a retirement's unit's; a carrier's, a check's and a hold's change none. */
 const stepWrites = (step: PlanStep): ReadonlyArray<string> => {
 	switch (step.kind) {
 		case "write":
@@ -633,7 +578,6 @@ const stepWrites = (step: PlanStep): ReadonlyArray<string> => {
 		case "createCarrier":
 		case "fillMember":
 		case "fillShare":
-		case "advance":
 		case "check":
 		case "readBack":
 		case "hold":
@@ -698,7 +642,7 @@ interface ReadBackPlacement {
 const opSides = (write: PlannedWrite): ReadonlyArray<DeltaSide> => {
 	switch (write.op) {
 		case "insert":
-			return writesMet(write.relation, write.serial, "insert") ? ["added", "met"] : ["added"]
+			return writesMet(write.relation, "insert") ? ["added", "met"] : ["added"]
 		case "putInsert":
 		case "upsert":
 			return ["added"]
@@ -729,8 +673,8 @@ type SideWrite = {
 } & ({ readonly kind: "write"; readonly write: PlannedWrite } | { readonly kind: "family" })
 
 /** The sides of the relations' deltas a step's statements make: a write's by its op, a single statement's by its
- * parts', a family statement's both sides of each relation it writes; a carrier's, a check's, a sequence advance's, a
- * classification's and a hold's none. */
+ * parts', a family statement's both sides of each relation it writes; a carrier's, a check's, a classification's and a
+ * hold's none. */
 const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
 	const ofWrite = (write: PlannedWrite): ReadonlyArray<SideWrite> =>
 		opSides(write).map((side): SideWrite => ({
@@ -757,7 +701,6 @@ const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
 		case "createCarrier":
 		case "fillMember":
 		case "fillShare":
-		case "advance":
 		case "check":
 		case "readBack":
 		case "hold":
@@ -766,18 +709,12 @@ const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
 	}
 }
 
-/** Whether `write` is a generated addition, whose drawn serial values a sequence lagging behind the stored ones (a
- * direct writer's explicit values) may repeat, so the fact it adds may be one its own stratum removes. */
-const drawsSerials = (write: SideWrite): boolean =>
-	write.kind === "write" && write.write.op === "insert" && write.write.serial.kind === "generated"
-
 /**
  * Whether the rows of `other`, which makes the side `side` nets against (`nettedAgainst`), may cancel rows of `side` that
  * `maker` makes (runtime/write/net.ts). A met fact is no met one where any addition of the write made it, one of its own
- * stratum too: an insertion's generated class meets a fact its complete class added. An addition and a removal cancel
- * across strata, and in one stratum only where a family statement makes either or either is a generated addition
- * (`drawsSerials`), whose drawn fact may be one the stratum deletes, which the stratum's change nets (net.ts
- * stratumChange). No other write of a stratum removes a fact another of its writes adds (README "A row one stratum both
+ * stratum too. An addition and a removal cancel across strata, and in one stratum only where a family statement makes
+ * either, whose fact may be one the stratum deletes, which the stratum's change nets (net.ts stratumChange). No other
+ * write of a stratum removes a fact another of its writes adds (README "A row one stratum both
  * adds and deletes stays"): an exact deletion excepts the stratum's complete additions (`exceptsOf`, the host netting
  * two enumerated sides) and removes only a stored fact, a put's displacing deletion removes only an occupant other than
  * the fact the put names at its key (write/delete/exact.ts buildDisplacingDelete), and a complete addition makes present
@@ -787,9 +724,7 @@ const cancels = (side: DeltaSide, maker: SideWrite, other: SideWrite): boolean =
 	side === "met" ||
 	maker.kind === "family" ||
 	other.kind === "family" ||
-	maker.stratum !== other.stratum ||
-	drawsSerials(maker) ||
-	drawsSerials(other)
+	maker.stratum !== other.stratum
 
 /** Where a read-back's named side is made whole: the position of the one statement that makes it, or the crossing
  * that leaves it made by no one statement. */
@@ -977,7 +912,6 @@ const touchesUnit = (frontend: WriteFrontend, step: PlanStep, held: HeldUnit): b
 		case "family":
 			return familyNodeRelations(step.node).some(body)
 		case "createCarrier":
-		case "advance":
 		case "hold":
 		case "retire":
 			return false
@@ -1013,16 +947,10 @@ const placeHolds = (
  * - a deletion: the exact deletion of its member, reading D EXCEPT A when the stratum also adds to the relation and
  *   either side is described; two enumerated sides the host already netted;
  * - an insertion: the insert protocol for its relation and member shape, followed, into a span primary key, by the
- *   statement that classifies each requested fact it did not insert, then one sequence advance per serial field when
- *   it carries explicit serial values; a generated class of no field reads the unit input like any other;
+ *   statement that classifies each requested fact it did not insert;
  * - a put: its target's statements: the displacing deletion and the insert protocol as its insert half for the
  *   DELETE-then-insert pair (a pure set displaces nothing), or the one ON CONFLICT DO UPDATE, UPDATE ... FROM or MERGE
- *   statement, which absorbs the deletion it was proved with; then the sequence advances when its facts carry explicit
- *   serial values.
- *
- * The sequence advance is the addition's, not its statement's: an insertion or a put whose facts carry explicit serial
- * values advances each sequence past them whatever statement realizes it, UPDATE ... FROM included, which inserts
- * nothing but names complete facts, so the sequence ends past the keys the action names on every realization.
+ *   statement, which absorbs the deletion it was proved with.
  *
  * Where each described member is evaluated. Every member of a stratum is evaluated against the state before the
  * stratum's writes, once. A member is a leading CTE of the statement that consumes it when that statement is its only
@@ -1030,7 +958,7 @@ const placeHolds = (
  * stratum's starting state for everything the member reads; this is the one-statement, no-carrier realization.
  * Otherwise it is evaluated into a transaction-scoped carrier at the start of the stratum, before any of the stratum's
  * writes, and every consumer reads the carrier: the two statements of an immutable put, an insertion followed by its
- * sequence advance or by its classification into a span primary key, an addition a deletion reads as D EXCEPT A, or a
+ * classification into a span primary key, an addition a deletion reads as D EXCEPT A, or a
  * member that would otherwise read a relation an earlier statement of its stratum changed. An insertion's or a put's
  * carrier is typed as the relation's columns, so it holds the facts as written; a deletion's as each field's base type
  * with its typmod, as the deletion compares.
@@ -1057,8 +985,8 @@ const placeHolds = (
  * stratum that writes the header of one is realized sequentially, so its hold can stand after the header's statement
  * and before its bodies'.
  *
- * A stratum is realized sequentially, one statement per write action plus the member carriers, sequence advances and
- * classifications the rules above require, or as a single statement where one snapshot suffices: its statements are at
+ * A stratum is realized sequentially, one statement per write action plus the member carriers and classifications the
+ * rules above require, or as a single statement where one snapshot suffices: its statements are at
  * least two writes of distinct relations and nothing else, so no statement reads what another writes, a deletion
  * excepts no addition (that takes an addition to its own relation), and no member needs a carrier, because every
  * member reads the stratum's starting state, which is the single statement's own snapshot. Its actions are then

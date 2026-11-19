@@ -111,7 +111,6 @@ const constructors: {
 	EncodingFailure,
 	ExecutionFailure: Execution.ExecutionFailure,
 	ExpiryRefused: Public.ExpiryRefused,
-	GeneratedSerialUnique: Failures.GeneratedSerialUnique,
 	InputRejected: Failures.InputRejected,
 	InputTooLarge: Failures.InputTooLarge,
 	LawRejected: Failures.LawRejected,
@@ -237,7 +236,6 @@ const reportOf = (code: Gen<string>): Gen<Report> =>
 type AbortReason = UniqueAbort["reason"]
 
 const abortReasons: readonly [AbortReason, ...Array<AbortReason>] = [
-	"GeneratedSerialUnique",
 	"PutTargetConflict",
 	"UnseenOccupant"
 ]
@@ -246,7 +244,7 @@ const abortReasons: readonly [AbortReason, ...Array<AbortReason>] = [
 export type DrawnReason =
 	| Exclude<EngineReason, { readonly constraint: unknown }>
 	| {
-			readonly _tag: "GeneratedSerialUnique" | "UnseenOccupant"
+			readonly _tag: "UnseenOccupant"
 			readonly relation: string
 			readonly constraint: string
 	  }
@@ -366,7 +364,6 @@ const transientGen: Gen<DrawnReason> = (source) => {
 			{ _tag: "SerializationFailure" },
 			{ _tag: "Deadlock" },
 			{ _tag: "PutTargetConflict", relation },
-			{ _tag: "GeneratedSerialUnique", relation, constraint },
 			{ _tag: "SpanKeyChange", relation },
 			{ _tag: "UnseenOccupant", relation, constraint },
 			{ _tag: "ConcurrentRefresh", relation }
@@ -535,12 +532,6 @@ export const publicReason = (reason: DrawnReason): Failures.TransientReason => {
 			return new Failures.Deadlock()
 		case "PutTargetConflict":
 			return new Failures.PutTargetConflict({ relation: reason.relation })
-		case "GeneratedSerialUnique": {
-			const built = new Failures.GeneratedSerialUnique(reason)
-			assert.equal<string>(built.constraint, reason.constraint)
-			assert.equal(built.relation, reason.relation)
-			return built
-		}
 		case "SpanKeyChange":
 			return new Failures.SpanKeyChange({ relation: reason.relation })
 		case "UnseenOccupant": {
@@ -557,7 +548,6 @@ export const publicReason = (reason: DrawnReason): Failures.TransientReason => {
 /** The engine's reason as the engine holds it, its constraint the installed name it is. */
 export const engineReason = (reason: DrawnReason): EngineReason => {
 	switch (reason._tag) {
-		case "GeneratedSerialUnique":
 		case "UnseenOccupant":
 			return {
 				_tag: reason._tag,
@@ -626,13 +616,11 @@ export const allFeatures: Arr.NonEmptyReadonlyArray<Feature> = [
 	"report stale",
 	"abort matched",
 	"abort unmatched",
-	"abort GeneratedSerialUnique",
 	"abort PutTargetConflict",
 	"abort UnseenOccupant",
 	"transient SerializationFailure",
 	"transient Deadlock",
 	"transient PutTargetConflict",
-	"transient GeneratedSerialUnique",
 	"transient SpanKeyChange",
 	"transient UnseenOccupant",
 	"transient ConcurrentRefresh",

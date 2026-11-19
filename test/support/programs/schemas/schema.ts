@@ -33,7 +33,6 @@ export type {
 	LevelsOf,
 	RefreshListOf,
 	Relation,
-	SerialFieldsOf,
 	StatementsOf,
 	WriteListOf
 } from "#compiler/public/schema.ts"

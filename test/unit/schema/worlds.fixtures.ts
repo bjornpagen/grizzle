@@ -34,12 +34,7 @@ import { admitRole } from "#compiler/schema/world.ts"
 import { buildSchema } from "#test/pg/derived/oracle/gen.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
-import {
-	fieldSketchGen,
-	pgField,
-	serialMember,
-	type SketchedField
-} from "#test/unit/schema/field-sketch.ts"
+import { fieldSketchGen, pgField, type SketchedField } from "#test/unit/schema/field-sketch.ts"
 import { rawClosedId, regex } from "#test/unit/schema/support.ts"
 
 const Kind = closed.ordered("Kind", ["Draft", "Live"])
@@ -614,7 +609,7 @@ const claimTypes: ReadonlySet<string> = new Set([
 	"uuid"
 ])
 
-/** Whether a field type's description is a claim's: the claim rule over the type, whoever writes the field. */
+/** Whether a field type is a claim's: the claim rule over the type. */
 export const claimDescribed = (t: SketchedField): boolean => {
 	switch (t.kind) {
 		case "pg":
@@ -633,14 +628,9 @@ export const claimDescribed = (t: SketchedField): boolean => {
 	}
 }
 
-/** Whether a field is a claim: its description is a claim's and no sequence writes it. */
-export const claimable = (t: SketchedField): boolean =>
-	claimDescribed(t) && !(t.kind === "pg" && serialMember(t.member))
-
 export type ContextFeature =
 	| "admitted"
 	| "refused"
-	| "a serial form, whose description is admitted"
 	| "a contract over a claim"
 	| "a later field refused"
 

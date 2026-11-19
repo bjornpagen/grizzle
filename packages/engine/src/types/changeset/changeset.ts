@@ -49,8 +49,7 @@ import type {
 	Fact,
 	NameOf,
 	ConflictsAtKey,
-	KeyLawRefusal,
-	SerialFieldsOf
+	KeyLawRefusal
 } from "#compiler/types/schema/relation.ts"
 import type {
 	AllFragmentsOf,
@@ -81,7 +80,6 @@ import type {
 import type {
 	AnyRole,
 	AnyWorld,
-	WorldSerialFields,
 	WorldUnwrittenFields,
 	WritableNameOf,
 	WriteListOf
@@ -89,10 +87,9 @@ import type {
 
 /**
  * A member is an array of facts, a Stream of facts, or a query whose head is the relation's heading, or for an insert
- * the heading minus its serial fields. An array or a Stream is the query over a relation parameter the input binds.
+ * the fields its caller writes. An array or a Stream is the query over a relation parameter the input binds.
  * Query is invariant in its head, so a query member is admitted at any head and MemberCheck compares the head by
- * assignability: a head literal such as `kind: "Manual"` is a value of its field, and a head that
- * supplies every serial field is an addition like an array that does. M is a const type
+ * assignability: a head literal such as `kind: "Manual"` is a value of its field. M is a const type
  * parameter: an array literal whose facts carry a literal-typed field (a closed relation's handle) would otherwise widen
  * that field, miss the constraint, and infer M as the constraint itself, whose query arm types the parameters `any`.
  * insert, delete and put constrain M to members of any facts, `Member<S, unknown>`, so M is always inferred as written
@@ -103,14 +100,13 @@ import type {
 export type Member<S, F> = ReadonlyArray<F> | Stream.Stream<F> | QueryAt<LevelsOf<S>>
 
 /**
- * Each arm of a member's facts must be one arm of F exactly: assignable to it and with no field beyond it, so an
- * insert's facts either omit every serial field or supply them all, and no fact carries a field its
- * relation lacks. An array or Stream member is an inferred type argument, so TypeScript runs no excess-property check
+ * Each arm of a member's facts must be one arm of F exactly: assignable to it and with no field beyond it, so no fact
+ * carries a field its relation lacks. An array or Stream member is an inferred type argument, so TypeScript runs no excess-property check
  * on its elements; the check is this one, as for a query member's head. A query member's head also writes each field
  * of R at the field's own type (MistypedFields), as the checker requires (check/member.ts checkMemberHeading): an exact
  * integer or exact money binds at a plain integer or money column (Meets), but is stored into one only through
- * Compute.cast. This is the one place a member's membership is decided, for insert, delete and put, an addition that
- * omits its serial fields and a world relation's entry alike (MemberFit). An insert's or a put's literal facts are then
+ * Compute.cast. This is the one place a member's membership is decided, for insert, delete and put, and a world
+ * relation's entry alike (MemberFit). An insert's or a put's literal facts are then
  * judged at R's primary key: two of them at one key that differ elsewhere are refused (MemberCheck).
  */
 type MemberCheck<M, F, R> = MemberFit<M, F, R, true>
@@ -299,20 +295,8 @@ export type UnwrittenFieldsOf<R> =
 			: never)
 	| WorldUnwrittenFields<R>
 
-/** A fact of R as its caller writes it: every field but those it never writes (UnwrittenFieldsOf). */
-export type Written<R> = Omit<Fact<R>, UnwrittenFieldsOf<R>>
-
-/**
- * An Addition omits every field its caller does not write (UnwrittenFieldsOf), and either all of its relation's serial
- * fields or none, and no other field: a world relation's serial fields are the head fields its definition takes from a
- * serial field of the base (WorldSerialFields).
- */
-export type Addition<R> =
-	| Written<R>
-	| Omit<Fact<R>, UnwrittenFieldsOf<R> | SerialFieldsOf<R> | WorldSerialFields<R>>
-
-/** Omit over each arm of a union, so an addition's two arms keep their own fields. */
-type OmitEach<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
+/** A fact of R as its caller writes it, an addition: every field but those it never writes (UnwrittenFieldsOf). */
+export type Addition<R> = Omit<Fact<R>, UnwrittenFieldsOf<R>>
 
 /**
  * S's sequences, its ordered families and trees, which a nesting reads: the families whose order is the caller's data.
@@ -388,7 +372,7 @@ type AdditionThrough<R, Fas> = [DrawnFieldOf<R>] extends [never]
 	? Addition<R>
 	: Addition<R> & {
 			readonly [Fa in OwnedAmong<Fas, NameOf<R>> as CountOf<Fa>]: ReadonlyArray<
-				OmitEach<AdditionThrough<MemberRelationOf<Fa>, Fas>, NestedOf<Fa>>
+				Omit<AdditionThrough<MemberRelationOf<Fa>, Fas>, NestedOf<Fa>>
 			>
 		}
 
@@ -467,39 +451,6 @@ export type InsertableNameOf<S extends AnySchema> = {
 export type InsertAllRowsOf<S extends AnySchema> = {
 	readonly [K in InsertableNameOf<S>]: ReadonlyArray<AdditionIn<S, InsertedRelation<S, K>>>
 }
-
-/**
- * The record an insertion preview reads (insertPreview): InsertAllRowsOf's, each addition stating every serial field
- * of its relation, so PostgreSQL draws nothing of a row it previews. A schema none of whose top-level relations holds a
- * serial field reads InsertAllRowsOf<S> itself, so a record typed by it is the preview's with no comparison of its
- * relations' additions; any other reads StatedRowsOf<S>.
- */
-export type PreviewInputOf<S extends AnySchema> = [
-	Extract<FieldTypesOf<RelationOf<S>>, { readonly writing: "serial" }>
-] extends [never]
-	? InsertAllRowsOf<S>
-	: StatedRowsOf<S>
-
-/**
- * The field descriptors of R, over the union of a schema's relations each distinct descriptor once, which
- * PreviewInputOf tells a serial one among by its writing alone (types/fields SerialField `writing`).
- */
-type FieldTypesOf<R> = R extends { readonly fields: object }
-	? R["fields"][keyof R["fields"]]
-	: never
-
-/** InsertAllRowsOf<S> with every serial field of each relation stated (StatedAddition). */
-type StatedRowsOf<S extends AnySchema> = {
-	readonly [K in InsertableNameOf<S>]: ReadonlyArray<StatedAddition<S, InsertedRelation<S, K>>>
-}
-
-/**
- * R's addition in S with every serial field of R stated: AdditionIn<S, R> itself where R has none, else with each serial
- * field required, which closes the addition's arm that leaves them to PostgreSQL's draw (Addition).
- */
-type StatedAddition<S, R> = [SerialFieldsOf<R>] extends [never]
-	? AdditionIn<S, R>
-	: AdditionIn<S, R> & { readonly [F in SerialFieldsOf<R> & keyof Fact<R>]-?: Fact<R>[F] }
 
 /** What insert requires of the relation it writes, as one type: unknown where it writes R. */
 type InsertChecks<S, R, Done extends Strata, Last extends Stratum> = WritableCheck<S, R> &
@@ -617,11 +568,13 @@ type MemberOwningSequence<S, R> =
 
 /**
  * The facts a delete of R in S takes: a tree's root value, which names one tree, removed whole with every row nested
- * under its nodes; any other relation's row as its caller writes it (Written), an owner's removed with every row nested
+ * under its nodes; any other relation's row as its caller writes it (Addition), an owner's removed with every row nested
  * under it (UnitWrites).
  */
 type DeletedRow<S, R> =
-	IsTreeRow<S, R> extends true ? Pick<Written<R>, TreeRootOf<S, R> & keyof Written<R>> : Written<R>
+	IsTreeRow<S, R> extends true
+		? Pick<Addition<R>, TreeRootOf<S, R> & keyof Addition<R>>
+		: Addition<R>
 
 /** The root fields of R's tree in S: a tree is a family of its relation over itself, so it is among R's sequences. */
 type TreeRootOf<S, R> =
@@ -816,7 +769,7 @@ export interface ChangeSetOf<
 	 */
 	readonly insertAll: ChangeSetInsertAll
 	/**
-	 * Removes each member fact, stated as its caller writes it (Written<R>): the fields PostgreSQL and grizzle write are
+	 * Removes each member fact, stated as its caller writes it (Addition<R>): the fields PostgreSQL and grizzle write are
 	 * no part of a fact's identity a caller states, so an insert and a delete of one fact state one row. A tree's delete
 	 * states its root value, each one tree (DeletedRow). A tree, and an owner of a family that is no family's member,
 	 * go with every row nested under them, through every family (UnitWrites), so a group goes whole. A row whose primary
@@ -837,7 +790,7 @@ export interface ChangeSetOf<
 	readonly deleteWhere: ChangeSetDeleteWhere
 	/**
 	 * After the change, R's fact at each member's key is that member, with the fields its caller does not write as
-	 * PostgreSQL and grizzle write them. For every relation it is the row its caller writes (Written<R>): an owner's put
+	 * PostgreSQL and grizzle write them. For every relation it is the row its caller writes (Addition<R>): an owner's put
 	 * leaves its families as they are, and a member's put is an edit of its family, in place, a refill from its slot or
 	 * a move between groups, which grizzle plans. A tree's row, a row a declared key of which holds a field grizzle
 	 * writes, and an immutable family owner are no put's (EditCheck), nor a row its stratum deletes whole
@@ -1018,7 +971,7 @@ type RetirementFieldIn<Fields> = {
 }[keyof Fields]
 
 /** A group of the retirable unit R heads: its key's fields, as a retirement's facts state each one. */
-type GroupOf<R> = Pick<Written<R>, Extract<PrimaryKeyOf<R>[number], keyof Written<R>>>
+type GroupOf<R> = Pick<Addition<R>, Extract<PrimaryKeyOf<R>[number], keyof Addition<R>>>
 
 /** ChangeSet.deleteWhere over the ChangeSet it is called on (ChangeSet). */
 type ChangeSetDeleteWhere = <
@@ -1163,7 +1116,7 @@ type ChangeSetPut = <
 		EditCheck<S, R, "put"> &
 		EditsOnce<Done, EditsWith<Last, S, R>> &
 		PutBesideDoomed<NameOf<R>, Last["doomed"]>,
-	facts: M & MemberCheck<M, Written<R>, R>
+	facts: M & MemberCheck<M, Addition<R>, R>
 ) => ChangeSetOf<
 	S,
 	JointParams<Params, ParamsOf<M>>,
@@ -1193,7 +1146,7 @@ type ArrayOp = "insert" | "put" | "delete" | "retire"
 
 /**
  * An array member of a ChangeSet: the relation R it writes, the type of each of its facts, Row, the facts insert,
- * delete or put takes for R (AdditionIn for an insert, its sequences' members nested at its count fields, and Written
+ * delete or put takes for R (AdditionIn for an insert, its sequences' members nested at its count fields, and Addition
  * for a delete or a put), and its stratum's position, At, one element for each stratum before it. A served workload's
  * member takes an array member's facts with each call, in place of the array the ChangeSet was built with.
  */
@@ -1343,7 +1296,7 @@ type RowOfOp<Op, L, R> = Op extends "insert"
 		? DeletedRow<L, R>
 		: Op extends "retire"
 			? GroupOf<R>
-			: Written<R>
+			: Addition<R>
 
 /** The name of a spelled relation: the name it is spelled by, or the name of the relation spelled as itself. */
 type NameOfSpelled<Spelled> = Spelled extends string ? Spelled : NameOf<Spelled>

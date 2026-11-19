@@ -23,7 +23,7 @@ import {
 	numericMaxScale,
 	numericMinScale
 } from "#compiler/scalar/values/fault.ts"
-import { admittedClosedId, writingOf, closedBuilder } from "#compiler/schema/relation.ts"
+import { admittedClosedId, closedBuilder } from "#compiler/schema/relation.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import { contractDescriptor, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 
@@ -90,19 +90,13 @@ export const descriptorOf = (sketch: DescriptorSketch): unknown => {
 	}
 }
 
-/** Whether a spelling is a serial: a way of writing its integer, by its sequence. */
-export const isSerial = (name: Spelling): boolean => writingOf(spelled(name)).kind === "serial"
-
 /**
  * The span carrier a sketch is an endpoint of, by the rule the README states: integer or bigint, or a contract over
- * one, as int4range or int8range; a serial is a writing and no endpoint, and nothing else is one.
+ * one, as int4range or int8range, and nothing else is one.
  */
 export const spanCarrierOf = (sketch: DescriptorSketch): "range4" | "range8" | undefined => {
 	switch (sketch.kind) {
 		case "spelling": {
-			if (isSerial(sketch.name)) {
-				return undefined
-			}
 			const sql = spelled(sketch.name).sql
 			return sql === "integer" ? "range4" : sql === "bigint" ? "range8" : undefined
 		}
@@ -177,12 +171,6 @@ const widthGen = (carrier: "range4" | "range8"): Gen<Option.Option<number | bigi
 const endpointSpellings = nonEmpty(
 	Arr.filter(spellings, (name) => spanCarrierOf({ kind: "spelling", name }) !== undefined),
 	"the spellings a span is over"
-)
-
-/** The spellings a contract may brand: every one but a serial, which is a way of writing a field and no type. */
-const typeSpellings = nonEmpty(
-	Arr.filter(spellings, (name) => !isSerial(name)),
-	"the spellings of a type"
 )
 
 const spellingOf = (names: Arr.NonEmptyReadonlyArray<Spelling>): Gen<DescriptorSketch> =>
@@ -263,13 +251,10 @@ const descriptorOver = (
 		[2, spanGen(depth)]
 	]
 	return depth > 0
-		? weighted<DescriptorSketch>([
-				...leaves,
-				[2, contractOf(descriptorOver(typeSpellings, depth - 1))]
-			])
+		? weighted<DescriptorSketch>([...leaves, [2, contractOf(descriptorOver(spellings, depth - 1))]])
 		: weighted<DescriptorSketch>(leaves)
 }
 
-/** A descriptor the namespace admits, every spelling a serial among them, contracts nested `depth` deep at most. */
+/** A descriptor the namespace admits, contracts nested `depth` deep at most. */
 export const descriptorGen = (depth: number): Gen<DescriptorSketch> =>
 	descriptorOver(spellings, depth)

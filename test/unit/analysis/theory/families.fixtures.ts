@@ -920,7 +920,10 @@ export const refusals: Arr.NonEmptyReadonlyArray<Corruption<FamilyCase, Refused,
 		"a group key no caller writes",
 		(c) =>
 			c.kind === "family" && c.keyType === "bigint"
-				? withFields(partsOf(c), "F", { ga: f.bigserial })
+				? withFields(partsOf(c), "F", {
+						gz: f.bigint,
+						ga: f.generated(f.bigint, { kind: "field", field: "gz" })
+					})
 				: undefined,
 		atStatement
 	),

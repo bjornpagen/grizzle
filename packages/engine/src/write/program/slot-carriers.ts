@@ -237,7 +237,6 @@ const fillOf = (staged: StagedSlot): WriteStatement<CarrierResult> => {
 		with: undefined,
 		table: carrier.name,
 		alias: undefined,
-		overriding: undefined,
 		onConflict: undefined,
 		returning: [],
 		columns: carrier.heading.map((c) => c.column),

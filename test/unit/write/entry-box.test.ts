@@ -1,26 +1,24 @@
 /**
  * The write front end over its small box, every point of it (README "Writes", "Writing through a role"): a relation of
- * one to three fields, each serial or not and in the key or not (the key never empty); written whole, or through a
- * query entry of one rule over it, each field carried in the head, carried and read by a comparison of the filter (a
- * serial field), fixed by a literal, or unnamed, the head never empty. Every point is built as an application builds
- * it and compiled as db.apply compiles an insert through it, then bound with every list of up to two facts drawn from
- * the entry's fact kinds: complete, generated (every classed serial field left out), partial (some and not all) and
- * filtered (a serial field the filter reads left out).
+ * one to three fields, each in the key or not (the key never empty); written whole, or through a query entry of one
+ * rule over it, each field carried in the head, carried and read by a comparison of the filter, fixed by a literal, or
+ * unnamed, the head never empty. Every point is built as an application builds it and compiled as db.apply compiles an
+ * insert through it, then bound with every list of up to two facts drawn from the entry's fact kinds: complete, and
+ * partial (its first carried field left out).
  *
  * The worlds model is the oracle, each verdict its own: grizzle refuses to build the role exactly where refusedAtBuild
  * does; a built role's insert compiles exactly where compileRefused admits it, so a compile refusal over a write the
  * model admits fails here, whatever its kind; and an input is refused at its encoder exactly where the model's opFault
- * is an encoding fault. Inside the box these are theorems: an entry whose every carried field is serial, with its
- * generated facts of no field, is a point of it, written whole or through an entry.
+ * is an encoding fault.
  *
- * Features: refused at build; compiled whole and through an entry; every carried field serial, whole and through an
- * entry; a serial field the filter reads; facts refused at their shape; generated facts bound.
+ * Features: refused at build; compiled whole and through an entry; a field the filter reads; facts refused at their
+ * shape.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"
+import { Effect, Formatter, Result } from "effect"
 import { assert, defined } from "#test/support/assert.ts"
 import { messageOf } from "#test/support/message.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
@@ -31,12 +29,7 @@ import {
 } from "#test/support/worlds/execute/offline.ts"
 import { plannedWrite, type WritingRole } from "#test/support/worlds/execute/session.ts"
 import { compileRefused, opFault } from "#test/support/worlds/model/session/apply.ts"
-import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
-import {
-	refusedAtBuild,
-	serialHead,
-	writtenNamed
-} from "#test/support/worlds/model/session/writes.ts"
+import { refusedAtBuild, writtenNamed } from "#test/support/worlds/model/session/writes.ts"
 import type { EntryOp, HostFact } from "#test/support/worlds/model/types.ts"
 import {
 	atEncoder,
@@ -55,11 +48,8 @@ export const theWriteFrontEndOverItsSmallBoxBuildsCompilesAndBindsEveryInsertOfT
 			"refused at build",
 			"compiled whole",
 			"compiled entry",
-			"every carried field serial, whole",
-			"every carried field serial, entry",
-			"a serial field the filter reads",
-			"facts refused at their shape",
-			"generated facts bound"
+			"a field the filter reads",
+			"facts refused at their shape"
 		] satisfies ReadonlyArray<Reached<BoxFeature>>,
 		check: (_, c: Case<BoxFeature>) => (point) =>
 			Effect.gen(function* () {
@@ -109,24 +99,9 @@ export const theWriteFrontEndOverItsSmallBoxBuildsCompilesAndBindsEveryInsertOfT
 						`the model admits the insert, and grizzle refuses it when it compiles: ${messageOf(compiled.error)}`
 					)
 				}
-				const { classed, filtered } = serialHead(base, written)
-				const carried =
-					written.kind === "whole"
-						? Arr.map(
-								defined(relationSpecOf(base, written.target), "the written relation").fields,
-								(f) => f.name
-							)
-						: Rec.keys(written.head)
 				c.note(written.kind === "whole" ? "compiled whole" : "compiled entry")
-				if (Arr.every(carried, (f) => classed.includes(f))) {
-					c.note(
-						written.kind === "whole"
-							? "every carried field serial, whole"
-							: "every carried field serial, entry"
-					)
-				}
-				if (filtered.length > 0) {
-					c.note("a serial field the filter reads")
+				if (point.entry.kind === "query" && point.entry.uses.includes("read")) {
+					c.note("a field the filter reads")
 				}
 				for (const facts of factLists(factKinds(base, written))) {
 					const predicted = opFault(base, written, insert(facts))?.kind === "encoding"
@@ -146,8 +121,6 @@ export const theWriteFrontEndOverItsSmallBoxBuildsCompilesAndBindsEveryInsertOfT
 					)
 					if (encoding) {
 						c.note("facts refused at their shape")
-					} else if (Arr.some(facts, (f) => Arr.some(classed, (s) => f[s] === undefined))) {
-						c.note("generated facts bound")
 					}
 				}
 			}),
@@ -155,15 +128,15 @@ export const theWriteFrontEndOverItsSmallBoxBuildsCompilesAndBindsEveryInsertOfT
 			kind: "second-implementation",
 			name: "the worlds model's refusedAtBuild, compileRefused and opFault"
 		},
-		box: "a relation of one to three fields, each serial or not and keyed or not, written whole or through a query entry of one rule carrying, reading, fixing or leaving out each field, each insert bound with every list of up to two of its fact kinds",
+		box: "a relation of one to three fields, each keyed or not, written whole or through a query entry of one rule carrying, reading, fixing or leaving out each field, each insert bound with every list of up to two of its fact kinds",
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/runtime/write/normalize.ts",
+				file: "packages/engine/src/schema/entry.ts",
 				original:
-					"\t\tif (n === 0) {\n\t\t\tgenerated.push(fact)\n\t\t} else if (n === serial.length) {",
-				replacement: "\t\tif (n === serial.length) {",
-				why: "A generated fact, every classed serial field left out, is refused at its encoder as a fact of no heading, where the model admits it."
+					'\t\tif (binding === undefined) {\n\t\t\tif (family(target, field)) {\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\treturn refused(name, { kind: "fieldNotFixed", field })\n\t\t}',
+				replacement: "\t\tif (binding === undefined) {\n\t\t\tcontinue\n\t\t}",
+				why: "A field the entry's head leaves unnamed is no longer refused at build, where the model refuses the role (fieldNotFixed)."
 			}
 		]
 	})

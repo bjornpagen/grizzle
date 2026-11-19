@@ -519,8 +519,7 @@ const inputOfSlot = (change: ServedChange, slot: string): InputData | undefined 
 		.find((input) => input.members.includes(slot))
 
 /**
- * The fact of a member's input, as its levels: a single input's admitted heading; a classed input's complete and
- * generated headings, a fact of either; or a nested input's levels, the fact's own first, wherever its own rows stand,
+ * The fact of a member's input, as its levels: a single input's admitted heading; or a nested input's levels, the fact's own first, wherever its own rows stand,
  * then each sequence its nesting reaches, at its place among them plus one (runtime/write/nesting.ts NestingData): each
  * level with the families its relation owns, a family's count field holding its members, facts of that family's level.
  */
@@ -528,13 +527,6 @@ const factOf = (input: InputData): NonEmptyReadonlyArray<WireLevel<ServedLeaf>> 
 	switch (input.kind) {
 		case "single":
 			return [{ headings: [scalarHeading(input.admitted)], families: [] }]
-		case "classed":
-			return [
-				{
-					headings: [scalarHeading(input.complete.heading), scalarHeading(input.generated.heading)],
-					families: []
-				}
-			]
 		case "nested": {
 			const nesting = input.nesting
 			const familiesOf = (relation: StoredRelationName): WireLevel<ServedLeaf>["families"] =>

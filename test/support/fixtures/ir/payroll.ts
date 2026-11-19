@@ -204,13 +204,12 @@ const LevyLine = relation(
 const Posting = relation(
 	"Posting",
 	{
-		entry: f.bigserial,
 		line: f.uuid,
 		account: f.closedId("LedgerAccount"),
 		side: f.closedId("Side"),
 		amount: Cents
 	},
-	["entry"]
+	["line", "account"]
 )
 const Request = relation("Request", { id: f.uuid, digest: Digest, result: Memo }, ["id"])
 
@@ -270,7 +269,6 @@ const payrollStatements: ReadonlyArray<AuthoredStatementDesc> = [
 	key(on("Employer", ["ein"])),
 	key(on("Employee", ["employer", "code"])),
 	key(on("PayLine", ["run", "employee"])),
-	key(on("Posting", ["line", "account"])),
 	mutable("PayRun"),
 	mutable("Shift"),
 	mutable("Timesheet"),

@@ -1,19 +1,16 @@
-/** Pair(k, v, c): primary key k, candidate key c. Gen(id serial, k, w): primary key id, candidate key k. Unit(id
- * serial): a relation whose every field is serial, whose generated additions carry no field, the unit relation. Two(a
- * serial, b serial, n): two serial fields, which an addition carries both or neither of.
+/** Pair(k, v, c): primary key k, candidate key c.
  *
  * Host normalization of enumerated members, arrays and Streams alike, over one to three strata, checked against the
  * brute-force add-wins calculator: a refusal before SQL is a ChangeSet the add-wins meaning rejects, by a key law some
  * stratum's own additions violate whatever the state; a stratum that deletes two facts at one value of a key is no
  * refusal, since (S minus D) union A is lawful whichever of them is stored; and a normalized ChangeSet means exactly
- * what the one it came from means. A fact no relation admits (a NULL, a field its relation lacks, a deletion without its serial field, an
- * addition with some serial fields and not all) is a planted fault, refused by its own fault before anything else.
+ * what the one it came from means. A fact no relation admits (a NULL, a field its relation lacks, a field its fact
+ * lacks) is a planted fault, refused by its own fault before anything else.
  *
  * Oracles: the brute-force add-wins calculator (oracle/addwins.ts, a second implementation) and the fact shape each
  * relation admits (a specification). The initial state is lawful by construction, its k and c each drawn once.
  *
- * Features: two and three strata, a Stream member, a refusal by a key and by a key two generated additions share, two
- * deletions at one key normalized, a later stratum restating an earlier one's key, a fact a stratum both deletes and adds
+ * Features: two and three strata, a Stream member, a refusal by a key, two deletions at one key normalized, a later stratum restating an earlier one's key, a fact a stratum both deletes and adds
  * netted; each planted fault.
  */
 
@@ -60,7 +57,6 @@ export const normalizationAgainstTheAddWinsMeaningRefusesOnlyWhatAddWinsRejectsW
 				"a Stream member",
 				"refused by a key",
 				"two deletions at one key, normalized",
-				"refused by a key two generated additions share",
 				"a later stratum restates an earlier stratum's key",
 				"a fact a stratum both deletes and adds, netted"
 			] satisfies ReadonlyArray<Reached<NormalizeFeature>>,
@@ -82,14 +78,14 @@ export const normalizationAgainstTheAddWinsMeaningRefusesOnlyWhatAddWinsRejectsW
 					file: "packages/engine/src/runtime/write/normalize.ts",
 					original: "\t\tfor (const id of [...sets.insert.keys(), ...sets.put.keys()]) {",
 					replacement:
-						"\t\tconst deletedAtOneKey = sameKey(\n\t\t\tfacts,\n\t\t\tcompareFactIdentities,\n\t\t\tserial,\n\t\t\tstated,\n\t\t\tsorted(compareFactIdentities, sets.delete.values()),\n\t\t\t[]\n\t\t)\n\t\tif (deletedAtOneKey !== undefined) {\n\t\t\treturn Result.ok(deletedAtOneKey)\n\t\t}\n\t\tfor (const id of [...sets.insert.keys(), ...sets.put.keys()]) {",
+						"\t\tconst deletedAtOneKey = sameKey(facts, compareFactIdentities, sets.delete.values())\n\t\tif (deletedAtOneKey !== undefined) {\n\t\t\treturn Result.ok(deletedAtOneKey)\n\t\t}\n\t\tfor (const id of [...sets.insert.keys(), ...sets.put.keys()]) {",
 					why: "The engine's same-key check over a stratum's deletes restored, so two deletions at one key are refused by that key."
 				},
 				{
 					file: "packages/engine/src/write/frontend/compile.ts",
 					original: "\t\t\t\t\tObject.freeze({\n\t\t\t\t\t\tstratum,",
 					replacement: "\t\t\t\t\tObject.freeze({\n\t\t\t\t\t\tstratum: s,",
-					why: "60cd1c28's bug: a slot group numbered by its stratum's index among the ChangeSet's strata, empty ones included, not by its position among the occupied ones, caught on the floor stream by a ChangeSet whose empty first stratum precedes an insert of Gen."
+					why: "60cd1c28's bug: a slot group numbered by its stratum's index among the ChangeSet's strata, empty ones included, not by its position among the occupied ones, caught on the floor stream by a ChangeSet whose empty first stratum precedes an insert of Gen, a relation of this fixture's then."
 				}
 			]
 		}

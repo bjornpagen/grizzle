@@ -2,7 +2,6 @@
 
 import {
 	array,
-	boolean,
 	element,
 	type Gen,
 	int,
@@ -15,13 +14,11 @@ import {
 import { Array as Arr, Formatter, Option, Record } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { assert, defined } from "#test/support/assert.ts"
-import { wild } from "#test/support/kernel/naming.ts"
 import {
 	type AddWinsOutcome,
 	type AppliedOutcome,
 	type Fact,
-	factsOf,
-	type OracleSchema
+	factsOf
 } from "#test/support/oracle/addwins.ts"
 import { kinds, schema, sequenceOf, task } from "#test/unit/oracle/fixtures.ts"
 
@@ -271,55 +268,6 @@ const denseStrata = array(
 	),
 	{ min: 2, max: 4 }
 )
-
-export const entry = (code: number, n: number) => ({ code, n })
-
-/** Entry(code, n), keyed by code, n an identity column outside the key. */
-export const entries: OracleSchema = {
-	relations: [
-		{
-			name: "Entry",
-			heading: [
-				{ name: "code", spec: { carrier: "int4" } },
-				{ name: "n", spec: { carrier: "int4" } }
-			],
-			primaryKey: { law: wild.lawId("entry_pk"), fields: ["code"] },
-			keys: [],
-			projectedKeys: [],
-			serial: ["n"]
-		}
-	]
-}
-/** One stored entry: its code and the value of its identity column. */
-type Stored = { readonly code: number; readonly n: number }
-
-/**
- * Stored entries with small values, one per code, the sequence standing at one of them and possibly never called
- * (behind the stored values, where a direct writer leaves it), a deletion of some of them and generated additions of
- * small codes.
- */
-export const generatedGen: Gen<{
-	readonly stored: ReadonlyArray<Stored>
-	readonly at: number
-	readonly called: boolean
-	readonly deleted: ReadonlyArray<number>
-	readonly codes: ReadonlyArray<number>
-}> = (source) => ({
-	stored: Arr.map(source.draw(subset(indices(3), { min: 0, max: 3 })), (code): Stored => ({
-		code,
-		n: source.draw(int(1, 3))
-	})),
-	at: source.draw(int(1, 3)),
-	called: source.draw(boolean),
-	deleted: source.draw(array(int(0, 2 ** 31 - 1), { min: 0, max: 2 })),
-	codes: source.draw(shuffled(indices(4), { min: 1, max: 2 }))
-})
-
-/** What a generated addition reaches. */
-export type GeneratedFeature =
-	| "a kept fact holding the next draw at a generated code"
-	| "a generated addition at a kept key"
-	| "given draws"
 
 /** The law the fixture names Task's primary key by. */
 export const taskKey = Option.getOrThrowWith(

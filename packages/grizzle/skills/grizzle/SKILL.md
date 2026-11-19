@@ -163,8 +163,8 @@ export default defineConfig({
      there, and the last value may be followed by the `FROM` and `WHERE` it joins). Write the value, or an UPDATE right
      after the file's `SET CONSTRAINTS ALL IMMEDIATE`, where every data step goes, then delete the marker line.
    - **Confirm** (`-- grizzle: confirm:` and the instruction line below it): a holder set aside, a relation or roster
-     whose name a declared rename takes or that moves to another kind, renamed aside with every index, identity
-     sequence and statistics object it owns, so a declared rename takes it from there or the end of the migration
+     whose name a declared rename takes or that moves to another kind, renamed aside with every index and statistics
+     object it owns, so a declared rename takes it from there or the end of the migration
      drops it, as declared. Keep every statement as drafted and delete the two marker lines; `check` refuses a group
      kept in part.
    - **Data loss** (`-- grizzle: data loss:` above a commented `CREATE SCHEMA`): a schema's first migration beside a
@@ -361,8 +361,8 @@ What a declaration drafts:
 - **A relation or field dropped** is dropped with its rows or values, a live statement in Publish: the declaration is
   the decision.
 - **A name moving to an object of another kind** (a relation taking a removed roster's name, or two of them swapping
-  names) sets the old holder aside first, in Setup, under its aside name, with every index, identity sequence and
-  statistics object it owns, under one confirm marker. A declared rename takes it from there; otherwise the end of the
+  names) sets the old holder aside first, in Setup, under its aside name, with every index and statistics object it
+  owns, under one confirm marker. A declared rename takes it from there; otherwise the end of the
   migration drops it there, as declared.
 - **The schema's name names its PostgreSQL schema.** A schema renamed in code is a new, empty schema. When the
   migrations directory holds a schema the config no longer lists, the new schema's first migration drafts its `CREATE
@@ -797,11 +797,8 @@ The command line's own refusals, by stage:
   the role's views in `schemaNameOf(role)`, and, for a role whose relations read a context, sets the claims in the
   transaction:
   `SELECT set_config('grizzle.claims', '{"Session":{"sub":"user_123"}}', true)`. A login holder can set any claims:
-  the login is the boundary, so give each trust domain its own. A world role holds no privilege on a sequence: an
-  identity default needs none, and a writer inserting explicit serial values (`OVERRIDING SYSTEM VALUE`) calls the
-  field's advance function, `SELECT <schema>.<advance function>(<largest value inserted>)`, `<schema>` being
-  `schemaNameOf(schema)`, in the same transaction. A `pg.uuidv7` field has no sequence: leave it out for its
-  `uuidv7()` default, or write a uuid as it is.
+  the login is the boundary, so give each trust domain its own. A writer states every field of every row it inserts:
+  grizzle mints no ids, and no column has a default that draws one.
 - Every installed object is named from what it is. Declared names are snake_case: the schema, tables, derived
   relations, rosters, contracts, columns, row checks and a role's views keep their converted names, a contract's CHECK
   is `check`, and a login's or role's role and a role's schema join the schema's name and their own (roleNameOf,
@@ -820,8 +817,7 @@ The command line's own refusals, by stage:
   relation's alike, and whether the source keeps the row, each item a `Result` whose error is
   `Unevaluated`. Never restate a check, a selection or a generated expression in your own code to predict it. To know
   on the host the rows an insertion stores, bind `const preview = insertPreview(schema)` once, which compiles (a
-  `Result` over `CompileError`), then call `preview(rows)`, insertAll's record over every top-level relation with
-  every serial field stated (`PreviewInputOf`): every writable relation's rows as `ChangeSet.empty(schema).insertAll(rows)`
+  `Result` over `CompileError`), then call `preview(rows)`, insertAll's record over every top-level relation: every writable relation's rows as `ChangeSet.empty(schema).insertAll(rows)`
   stores them in an installation holding no row, an empty array where it stores none, each row every field but the
   generated ones as host values, a closed id its handle, which `evaluate.admit(R, row)` reads as it is; or a tagged
   refusal, the write's before any SQL: `InputRefused`, `KeyConflict`, `GeneratedNull` or `OwnerAbsent`, a counted

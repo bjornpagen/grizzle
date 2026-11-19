@@ -538,7 +538,7 @@ const importGen =
 
 /** A parameter case over a drawn schema of one or two relations. */
 export const paramCaseGen: Gen<ParamCase> = (source) => {
-	const schema = source.draw(drawnSchemaGen(2, false))
+	const schema = source.draw(drawnSchemaGen(2))
 	const plan = source.draw(planGen)
 	const relation = source.draw(element(Arr.map(schema.relations, (_, i) => i)))
 	const r = relationAt(schema, relation)

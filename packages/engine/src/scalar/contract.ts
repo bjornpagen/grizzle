@@ -1,4 +1,4 @@
-import { malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
+import { malformedDescription } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
@@ -15,8 +15,7 @@ import {
 	type Described,
 	describeFieldOrThrow,
 	type ScalarEnv,
-	type SqlTag,
-	serialNameOf
+	type SqlTag
 } from "#compiler/scalar/registry.ts"
 
 interface ScalarTerm extends Built, TermCarrier {
@@ -147,9 +146,7 @@ interface ContractParts {
  * The admission core of contract: a JavaScript caller can pass anything in every position. `rest` is what follows the
  * base: none or an undefined predicate is contract(name, base), one predicate, which buildPredicate checks is a
  * callback, contract(name, base, predicate), the facts it proves after it contract(name, base, predicate, { proves }),
- * and more are refused. A serial base is refused UnsupportedOperation before the predicate runs, by its writing
- * (registry.ts serialNameOf), since its type is its value type's: it is a generation declaration, not a value domain.
- * The predicate is read once, here.
+ * and more are refused. The predicate is read once, here.
  */
 export const contractParts = (
 	name: unknown,
@@ -174,13 +171,6 @@ export const contractParts = (
 	}
 	const described = describeFieldOrThrow(base, SourceLoc(`contract ${contract} base`, []))
 	const loc = captureLoc(`contract ${contract}`, [])
-	const serial = serialNameOf(described)
-	if (serial !== undefined) {
-		throw ruleRefused(
-			loc,
-			"a contract is a value domain; a serial is a generation declaration, so use its value type"
-		)
-	}
 	const domain = contractType(contract, described.scalar, loc, undefined, [])
 	if (!domain.ok) {
 		throw domain.error

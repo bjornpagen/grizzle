@@ -79,7 +79,7 @@ export interface CarrierColumn extends HeadingColumn {
  *
  * A described member is a leading CTE of the statement that consumes it, or a carrier with the same ON COMMIT DROP
  * and NOT NULL shape, filled by INSERT ... SELECT, when sequential statements consume it: a same-key deletion and
- * addition on an immutable relation, or the sequence advance after explicit serial values (serial/). No carrier holds a
+ * addition on an immutable relation. No carrier holds a
  * delta: a read-back is evaluated inside the statement that makes its delta (write/readback/deltas.ts). A carrier is a
  * temporary relation, so it lives in pg_temp and is never schema-qualified, it drops at COMMIT, and every column is NOT
  * NULL; a carrier of a relation's facts, the write oracle's state snapshot, is keyed by the relation's primary key
@@ -383,7 +383,6 @@ export const buildFillCarrier = (
 			source: { kind: "query", query: fillQuery(w, carrier, source, at) },
 			with: undefined,
 			alias: undefined,
-			overriding: undefined,
 			onConflict: undefined,
 			returning: []
 		}

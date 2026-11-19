@@ -1,6 +1,6 @@
 import { type NonEmptyReadonlyArray, isNonEmpty } from "#compiler/core/nonempty.ts"
 import type { LawField, RelationInfo, SpanField } from "#compiler/ir/law.ts"
-import { isCarried, isSerialField } from "#compiler/write/insert/statement.ts"
+import { isCarried } from "#compiler/write/insert/statement.ts"
 
 /** A relation's fields its facts carry outside its primary key, in heading order (insert/statement.ts isCarried): none
  * for a pure set, whose primary key is every field its facts carry. A generated field is no payload: PostgreSQL writes
@@ -19,11 +19,6 @@ export const payloadOf = (relation: RelationInfo): Payload => {
 	const fields = relation.heading.filter((f) => !primaryOf(relation).includes(f) && isCarried(f))
 	return isNonEmpty(fields) ? { kind: "keyed", fields } : { kind: "pureSet" }
 }
-
-/** Whether a serial field lies outside the primary key. Such a field may change with a put's payload, and no UPDATE
- * assigns a serial field, so such a relation's put is the DELETE-then-insert pair. */
-export const serialOutsideKey = (relation: RelationInfo): boolean =>
-	relation.heading.some((f) => isSerialField(f) && !primaryOf(relation).includes(f))
 
 /** A relation's primary key: scalar, or holding a span field, which makes the key an exclusion constraint, PRIMARY KEY
  * (<scalars>, <span> WITHOUT OVERLAPS), which no inferred ON CONFLICT arbiter and no ON CONFLICT DO UPDATE accepts: its

@@ -13,8 +13,8 @@
  * codes it binds under name nothing it gives, and a roster's declared order is its codes' order for every comparison
  * the fill makes (codes.ts declaredOrder). In an installation holding no row, a group a fresh fill draws holds no stored
  * member, so every family value the host draws is the one the write stores; what PostgreSQL alone would give a row is
- * none of a preview's: a generated field is the row's evaluation's (rowEvaluator), a serial field the caller states
- * (types/changeset PreviewInputOf), and a counted member whose owner the call does not insert is refused (OwnerAbsent),
+ * none of a preview's: a generated field is the row's evaluation's (rowEvaluator), and a counted member whose owner the
+ * call does not insert is refused (OwnerAbsent),
  * since its family's statement would draw it past a stored owner no such installation holds.
  */
 import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
@@ -102,7 +102,7 @@ const memberFactsOf = (
  * The value an inserted row holds at a stored field PostgreSQL does not generate, as the write stores it: a
  * retirement field's is false, every insert writing its header open, which only its group's retirement sets true; every
  * other field's is the host's, as its statements send it (BoundWrite `inserted`), which fill every one of them where no
- * family draws a row past a stored group and the caller states every serial field.
+ * family draws a row past a stored group.
  */
 const storedValue = (
 	relation: StoredRelationName,
@@ -114,7 +114,6 @@ const storedValue = (
 			return false
 		case "caller":
 		case "drawn":
-		case "serial":
 		case "accumulated": {
 			const value = row.values[field.at]
 			if (value === undefined) {
@@ -126,13 +125,6 @@ const storedValue = (
 		}
 	}
 }
-
-/** The member slot an insert of `relation` takes its facts in, one per relation insertAll names. */
-const memberSlotOf = (members: ReadonlyArray<MemberAt>, relation: StoredRelationName): string =>
-	defined(
-		members.find((m) => m.relation === relation),
-		`the member slot of ${relation}, a relation the write inserts at its top level`
-	).slot
 
 /**
  * The one site of the fact "the rows a preview built are PreviewRows<S>": its keys are S's writable relations, which
@@ -244,17 +236,6 @@ export const previewOver = (
 				break
 		}
 		const inserted = write.inserted().flatMap((stratum) => [...stratum.rows])
-		for (const [relation, of] of inserted) {
-			if (of.some((row) => row.serial.length > 0)) {
-				return Result.err({
-					_tag: "InputRefused",
-					failure: encodeFailure(
-						"factShape",
-						slotPlace(memberSlotOf(flight.binding.members, relation))
-					)
-				})
-			}
-		}
 		for (const [, of] of inserted) {
 			const orphan = of.find((row) => row.scanned.length > 0)
 			if (orphan !== undefined) {
@@ -289,7 +270,7 @@ export const previewOver = (
 
 /**
  * insertPreview over `transport` (see the header), the shell's (packages/grizzle adapter/public/host.ts): `previewOver`
- * under S's types, its rows read as PreviewInputOf<S> and its rows by name given as PreviewRows<S> (`isPreviewRowsOf`),
+ * under S's types, its rows read as InsertAllRowsOf<S> and its rows by name given as PreviewRows<S> (`isPreviewRowsOf`),
  * each preview answered as `answer`, the shell's spelling of a caller's Result, makes it.
  */
 export const insertPreviewOver = <S extends AnySchema>(

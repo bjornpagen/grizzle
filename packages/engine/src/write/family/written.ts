@@ -19,7 +19,6 @@ import {
 	columnKeyOf
 } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { completeClass } from "#compiler/ir/write.ts"
 import {
 	arraysSource,
 	relationColumns,
@@ -207,7 +206,6 @@ export const insertedResult = (relation: RelationInfo): InsertResult => ({
 	kind: "insert",
 	relation: relation.name,
 	variant: "family",
-	serial: completeClass,
 	of: "insert",
 	proposes: "every",
 	columns: factColumns(relation),

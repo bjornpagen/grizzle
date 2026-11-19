@@ -11,8 +11,7 @@
  * name converts to, each taken by each of the four objects once, the four of a case each named after a different type,
  * under the owner's ordinary path and under the installation's schemas first (test/support/ambient.ts), the second
  * migrate as the installation's own owner login, under the same path. A case's schema holds the named objects and the
- * types they shadow: a holder relation of text, uuid, money, numeric, real, double precision, a span, a serial and a
- * handle of the closed relation, mutable, with a contract field; a relation contained in it; and, a level up in a
+ * types they shadow: a holder relation of text, uuid, money, numeric, real, double precision, a span and a handle of the closed relation, mutable, with a contract field; a relation contained in it; and, a level up in a
  * schema of its own, the derived relation counting the holder's entries, each entry matched by its key, so the count
  * folds over keyed rows. Its login's writer and reader hold every relation whole. Properties, for every case:
  *

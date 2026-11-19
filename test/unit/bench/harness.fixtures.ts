@@ -46,7 +46,7 @@ const constraintNames = ["item_pkey", "seat_key", "slot_key", "item_name_key"] a
 type Named = (typeof constraintNames)[number]
 
 const listable: Arr.NonEmptyReadonlyArray<readonly [Named, UniqueAbort["reason"]]> = [
-	["item_pkey", "GeneratedSerialUnique"],
+	["item_pkey", "UnseenOccupant"],
 	["seat_key", "PutTargetConflict"],
 	["slot_key", "UnseenOccupant"]
 ]

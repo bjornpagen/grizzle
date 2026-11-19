@@ -105,8 +105,7 @@ export const schemaOf = (names: Names): SchemaDesc => {
 					exact: f.pg("double precision"),
 					flag: f.boolean,
 					kind: f.closedId(kind),
-					during: f.span(f.integer, undefined),
-					sq: f.bigserial
+					during: f.span(f.integer, undefined)
 				},
 				["id"]
 			),

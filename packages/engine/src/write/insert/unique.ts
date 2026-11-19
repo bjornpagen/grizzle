@@ -1,5 +1,3 @@
-import { Refusal } from "#compiler/core/canonical.ts"
-import { CompileError, prose } from "#compiler/core/errors.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import {
 	appendNonEmpty,
@@ -9,9 +7,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import * as Order from "#compiler/core/order.ts"
-import { fieldReads } from "#compiler/ir/expr.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
-import type { SerialClass } from "#compiler/ir/write.ts"
 import {
 	keyWitness,
 	type PrimaryKeyObject,
@@ -62,7 +58,6 @@ import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import { requestedValue, rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
 import { atObject, atRow, storedAt, withinRow } from "#compiler/write/probe.ts"
-import type { KeyArbiter } from "#compiler/write/put/choose.ts"
 import {
 	type ArmRefusal,
 	type RefusalArm,
@@ -135,8 +130,7 @@ export const probeIdentity = (
  * the host, before any SQL (normalize.ts), which compares the values of every declared key whose fields it holds
  * (`hostHeld`), so of every such key object, and the spans of every span object of such fields an insert of complete
  * facts probes; or the statement, at a unique index, whose predicate and fields are no declared key's, at a span
- * primary key, which only a generated addition probes, and at an object reading a generated field, which PostgreSQL
- * computes and the host never does. A carrier's or a described member's pairs are always the statement's: nobody
+ * primary key, and at an object reading a generated field, which PostgreSQL computes and the host never does. A carrier's or a described member's pairs are always the statement's: nobody
  * normalized them. */
 export interface Probed {
 	readonly object: UniqueObject
@@ -196,16 +190,6 @@ const probeOrder = (
 	return kept
 }
 
-/** Whether an object reads a field a generated addition draws (`drawn`), whose value it meets only at its insert: a
- * field it reads, or one a generated field it reads is generated from. */
-export const readsDrawn = (u: UniqueObject, drawn: ReadonlyArray<string>): boolean =>
-	readFields(u).some(
-		(f) =>
-			drawn.includes(f.name) ||
-			(f.writing.kind === "generated" &&
-				fieldReads([f.writing.expr]).some((name) => drawn.includes(name)))
-	)
-
 /** The unique objects of `relation` no declared key subsumes, as a statement probes them (`probeOrder`): those whose
  * conflicts are no key's, a key over a selected side among them.
  *
@@ -242,84 +226,9 @@ const probedAt = (
 		)
 	)
 
-/**
- * The declared key a generated addition drawing `drawn` into `relation` meets stored facts at, its ON CONFLICT arbiter,
- * decided by what the schema declares and never by a key's name: a key that holds no field the addition draws and no
- * span identifies a requested fact by the fields it states, and the arbiter is
- *
- * - the primary key, which the schema declares a fact's identity, where it is such a key, as it is for complete facts;
- * - else the one declared key that is, where exactly one is;
- * - else none, where none is: the addition is then a plain INSERT, every requested fact a new one.
- *
- * Where the primary key holds a drawn field or a span and several declared keys are such keys, nothing the schema
- * declares ranks one of them first, and only their names would: the arbiter decides which key's law a request that
- * conflicts at two of them reports, which of several refused requests is witnessed (Requested `stated`), and whether an
- * occupant the snapshot does not see is met there or aborts at another key, so the addition is refused
- * (MalformedDescription at the relation): the key that identifies a fact is the one to declare its primary key.
- *
- * A request names no value of a field the database draws, so it is the fact its stated fields are: an exact repeat of
- * a stored fact agrees with it at every stated field, so at every such key, and the arbiter meets every exact repeat.
- */
-export const generatedArbiter = (
-	relation: RelationInfo & { readonly uniques: RelationUniques },
-	drawn: ReadonlyArray<string>
-): KeyArbiter | undefined => {
-	/** The key, where it holds no drawn field and no span, so it identifies a requested fact by its stated fields. */
-	const identifying = (key: PrimaryKeyObject): ReadonlyArray<KeyArbiter> =>
-		key.kind === "key" && !key.equal.some((f) => drawn.includes(f.name)) ? [key] : []
-	const [primary, ...declared] = relation.uniques.keys
-	const [atPrimary] = identifying(primary)
-	if (atPrimary !== undefined) {
-		return atPrimary
-	}
-	const [only, ...more] = declared.flatMap(identifying)
-	if (only !== undefined && isNonEmpty(more)) {
-		const keys = [only, ...more].map((k) => `(${fieldNames(k.equal).join(", ")})`).join(", ")
-		throw new Refusal(
-			CompileError.make(
-				prose(
-					"MalformedDescription",
-					relation.loc,
-					`one key a generated addition into ${relation.name} meets stored facts at, its primary key or the one declared key that holds no field it draws and no span; its primary key (${fieldNames(keyWitness(primary)).join(", ")}) holds a drawn field or a span, and the keys ${keys} each identify a fact by the fields it states, which only their names would rank: declare the key that identifies a fact of ${relation.name} its primary key`
-				)
-			)
-		)
-	}
-	return only
-}
-
-/** Whether an insert of class `serial` into `relation` meets stored facts at an arbiter: complete facts at the primary
- * key, a generated addition where it has one (`generatedArbiter`). */
-export const insertArbitered = (
-	relation: RelationInfo & { readonly uniques: RelationUniques },
-	serial: SerialClass
-): boolean => serial.kind === "complete" || generatedArbiter(relation, serial.drawn) !== undefined
-
-/**
- * The objects a generated addition drawing `drawn` probes (see `buildProbe`): every unique object of the relation that
- * reads none of them but its arbiter (`generatedArbiter`), which settles its own conflicts, and the objects it
- * subsumes; the primary key among them when it reads no drawn field and is not the arbiter, since the addition carries
- * every value they compare. An object that reads a drawn field it meets only at its insert, through a stored value its
- * sequence had not passed.
- */
-export const generatedChecks = (
-	uniques: RelationUniques,
-	drawn: ReadonlyArray<string>,
-	arbiter: KeyArbiter | undefined
-): ReadonlyArray<Probed> =>
-	probedAt(
-		probeOrder(
-			[uniques.arbiter, ...uniques.others].filter((u) => !readsDrawn(u, drawn) && u !== arbiter),
-			arbiter === undefined ? [] : [arbiter]
-		),
-		uniques.checks.map((c) => c.object)
-	)
-
 /** The unique objects an insert into `relation` meets (see `buildProbe`), which the write front end resolves once for each
- * relation a ChangeSet writes (`WrittenRelation`). A complete insert's arbiter settles its own conflicts, so it probes
- * the objects besides it; a generated addition's insert has no arbiter, its draws making every object that reads a field
- * it draws one it meets only through a stored value the sequence has not passed, so it probes every other object
- * (`generatedChecks`). */
+ * relation a ChangeSet writes (`WrittenRelation`). An insert's arbiter settles its own conflicts, so it probes the
+ * objects besides it. */
 export const relationUniques = (laws: RelationLaws): RelationUniques => {
 	const { primary, keys } = laws.uniques
 	const others = laws.beyond
@@ -364,15 +273,11 @@ export const entryUniques = (u: RelationUniques): RelationUniques =>
 
 /** The facts a probed statement requests: complete facts, every field key first, each probed only where its arbiter key
  * is free in the snapshot (an occupied one is the arbiter's to settle, a repeat or its conflict witness, and is never
- * inserted into another index), told apart by their primary key; a generated addition's with an arbiter
- * (`generatedArbiter`), its fields the ones it states, probed the same way, told apart by its arbiter key; or the facts
- * of an INSERT with no arbiter, each probed at every object it checks and told apart by every field it holds (`none`):
- * a generated addition's with none, its `fields` the relation's fields but the ones it draws, key first, since the
- * identity may draw its arbiter key at the insert, equal generated additions being one; or a family member's plain
- * insert's, every field its row layout writes, rows no stored row repeats (write/family/additions.ts insertOf). */
+ * inserted into another index), told apart by their primary key; or the facts of an INSERT with no arbiter, each probed
+ * at every object it checks and told apart by every field it holds (`none`): a family member's plain insert's, every
+ * field its row layout writes, rows no stored row repeats (write/family/additions.ts insertOf). */
 export type Requested =
 	| { readonly kind: "complete"; readonly arbiter: UniqueObject }
-	| { readonly kind: "stated"; readonly arbiter: KeyArbiter }
 	| { readonly kind: "none"; readonly fields: ReadonlyArray<LawField> }
 
 /** What the probe needs of the statement it extends. */
@@ -695,17 +600,6 @@ const pairedFacts = (
  * those first, at every key and every object no key subsumes (`OutsideProbe`), so there too only a concurrent commit
  * remains.
  *
- * A generated addition meets stored facts at its arbiter, the primary key where it holds no field the addition draws
- * and no span, else the one declared key that holds neither (`generatedArbiter`), as complete facts do at the primary
- * key: an exact repeat of a stored fact at every field
- * it states changes nothing there, and every other object that reads no drawn field is probed for a requested fact
- * whose arbiter key is free. Where every key holds a drawn field it is a plain INSERT with no arbiter, whose identity or
- * default draws the serial fields at the insert, so it is never an exact repeat, and every requested fact is probed
- * (`Requested`), at every object that reads no serial field, the primary key among them when it reads none: the same
- * visible occupants and pairs are its refusals, and any other 23505 or 23P01 it meets aborts the apply, UnseenOccupant
- * there, and GeneratedSerialUnique at an object that reads a serial field, which a drawn value meets only as a stored
- * value the sequence has not passed.
- *
  * The objects are a relation's unique objects other than its arbiter: a declared
  * candidate key (Unique), a key over a selected side (Unique over its law columns, with its selection), the generated
  * uniques of foreign keys, a constant selection's among them (Unique over a superkey), a span candidate key (WithoutOverlaps, an exclusion that raises 23P01) and the temporal unique of a PERIOD
@@ -724,11 +618,7 @@ export const buildProbe = (
 	const fields: ReadonlyArray<LawField> =
 		requested.kind === "none" ? requested.fields : inputs.pairs.map((p) => p.field)
 	const apart: ReadonlyArray<LawField> =
-		requested.kind === "complete"
-			? relation.primaryFields
-			: requested.kind === "stated"
-				? requested.arbiter.equal
-				: requested.fields
+		requested.kind === "complete" ? relation.primaryFields : requested.fields
 	if (!isNonEmpty(checks) || !isNonEmpty(fields)) {
 		return undefined
 	}

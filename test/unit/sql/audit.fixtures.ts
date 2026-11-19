@@ -295,7 +295,6 @@ export type AuditLiveFeature =
 	| `statement ${SqlStatement["kind"]}`
 	| "float literal special"
 	| "float literal negative zero"
-	| "overriding system value"
 	| "old under IS TRUE in an INSERT's RETURNING"
 
 /** What the audit-live suite notes of a draw: its own features, and each statement's kind, shape and float literals. */
@@ -317,10 +316,6 @@ export const auditLiveFeatures = (live: Live): ReadonlyArray<AuditLiveFeature> =
 		return [`statement ${statement.kind}`, ...shapeFeatures(shapeOf(statement)), ...floats]
 	})
 ]
-
-/** Whether a write writes an explicit serial: an INSERT with OVERRIDING SYSTEM VALUE. */
-export const explicit = (w: SqlStatement | CteBody): boolean =>
-	w.kind === "insert" && w.overriding !== undefined
 
 /** Whether an expression names a row's old image. */
 const namesOld = (e: Expr): boolean => {
@@ -445,7 +440,6 @@ export const writtenSituations: Situations<AuditLiveFeature> = [
 	"cte insert",
 	"cte delete",
 	"from arrays",
-	"overriding system value",
 	"old under IS TRUE in an INSERT's RETURNING"
 ]
 

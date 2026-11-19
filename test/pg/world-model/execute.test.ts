@@ -98,19 +98,17 @@ const situations: Arr.NonEmptyReadonlyArray<Reported> = [
 	"witness:apply"
 ]
 
-/** The relations of the base none of whose fields is serial, so a direct insert names every field it stores. */
+/** The relations of the base, each of whose facts a direct insert names every field of. */
 const plain: Arr.NonEmptyReadonlyArray<RelationSpec> = knownNonEmpty(
-	Arr.filter(docsInstall.base.relations, (r) =>
-		Arr.every(r.fields, (f) => f.domain.kind !== "serial")
-	),
-	"the documents base's relations without a serial field"
+	docsInstall.base.relations,
+	"the documents base's relations"
 )
 
 /** The role the admin's direct writer takes on and its Db opens as: it holds every relation of the base whole. */
 const admin = "admin"
 
 /**
- * The relations without a serial field whose key PostgreSQL shows the admin in a DETAIL: those under no row security,
+ * The relations whose key PostgreSQL shows the admin in a DETAIL: those under no row security,
  * since the admin holds SELECT on every table.
  */
 const spelling: ReadonlyArray<RelationSpec> = Arr.filter(plain, (r) =>
@@ -175,7 +173,7 @@ const statementOf = (
 
 /**
  * Where a case plants its value over a reality, one arm per situation the scan reports it in, each fact a stored one
- * where the reality holds one: a message's, one arm per statement, of any relation without a serial field (from the
+ * where the reality holds one: a message's, one arm per statement, of any relation (from the
  * pools where it holds none); a DETAIL's of a relation the reality holds facts of whose key PostgreSQL shows the admin
  * (heldIn), an arm only where there is one; a witness's of a document, inserted with another owner and a word count no
  * document of its organization holds.

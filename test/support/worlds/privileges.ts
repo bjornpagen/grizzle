@@ -215,7 +215,7 @@ const columnOf = (names: InstalledNames, relation: string, field: string): strin
 
 /**
  * The installation type a value of a domain is stored at, by a key that names it: a text field's structural domain by
- * its pattern and flags, a handle's roster domain by its roster; a base type (uuid, the integers, serial, boolean, a span's
+ * its pattern and flags, a handle's roster domain by its roster; a base type (uuid, the integers, boolean, a span's
  * range) is no installation type. Two patterns of one language share one domain, which these keys would split: the
  * bases spell each language once.
  */
@@ -229,7 +229,6 @@ const typeKeyOf = (domain: FieldDomain): Option.Option<string> => {
 			return Option.some(`contract ${domain.name}`)
 		case "uuid":
 		case "integer":
-		case "serial":
 		case "boolean":
 		case "span":
 			return Option.none()
@@ -356,47 +355,31 @@ const theoryRoleOf = (names: InstalledNames, role: string) =>
 const roleSchemaOf = (names: InstalledNames, role: string): string =>
 	identifierOf(identity.roleSchema(theoryRoleOf(names, role)))
 
-const serialFields = (base: BaseSpec, relation: string): ReadonlyArray<string> =>
-	Arr.flatMap(base.relations, (r) =>
-		r.name === relation
-			? Arr.flatMap(r.fields, (f) => (f.domain.kind === "serial" ? [f.name] : []))
-			: []
-	)
-
 /**
  * The functions an installation defines for its worlds and writers, which a perturbation may redefine (a law's are the
  * laws' own): for each query entry a role writes, a key probe of each key of its target (the model's keysOf order, the
  * index a WorldFunction names), and its filter function when its membership reads a stored relation besides its
- * target's row (filterReadsStored); and the advance function of each serial field.
+ * target's row (filterReadsStored).
  */
 export const definedWorldFunctions = (install: InstallSpec): ReadonlyArray<WorldFunction> => {
 	const base = install.base
-	return [
-		...Arr.flatMap(install.roles, (role) =>
-			Arr.flatMap(writtenOf(base, role), (w): ReadonlyArray<WorldFunction> =>
-				w.kind === "whole"
-					? []
-					: [
-							...Arr.map(indices(keysOf(base, w.target).length), (key): WorldFunction => ({
-								kind: "key-probe",
-								role: role.name,
-								entry: w.entry,
-								key
-							})),
-							...(filterReadsStored(w.rules)
-								? [{ kind: "filter" as const, role: role.name, entry: w.entry }]
-								: [])
-						]
-			)
-		),
-		...Arr.flatMap(base.relations, (r) =>
-			Arr.map(serialFields(base, r.name), (field): WorldFunction => ({
-				kind: "advance",
-				relation: r.name,
-				field
-			}))
+	return Arr.flatMap(install.roles, (role) =>
+		Arr.flatMap(writtenOf(base, role), (w): ReadonlyArray<WorldFunction> =>
+			w.kind === "whole"
+				? []
+				: [
+						...Arr.map(indices(keysOf(base, w.target).length), (key): WorldFunction => ({
+							kind: "key-probe",
+							role: role.name,
+							entry: w.entry,
+							key
+						})),
+						...(filterReadsStored(w.rules)
+							? [{ kind: "filter" as const, role: role.name, entry: w.entry }]
+							: [])
+					]
 		)
-	]
+	)
 }
 
 const isMutable = (base: BaseSpec, relation: string): boolean =>
@@ -424,9 +407,7 @@ const privilege = (
  *   SELECT, INSERT and DELETE on T, and UPDATE when T is mutable (immutable relations: no role holds UPDATE on them);
  *   a writable query entry SELECT and INSERT on every column of T, UPDATE on each column of a mutable T a free head
  *   field writes (HeadField: outside every key, and not bound by a positive context match, whose claim fixes its value
- *   in every fact of the world), and DELETE on T; and EXECUTE on the advance function of each serial field of T (a
- *   serial column draws its identity default with no sequence privilege, and the advance function is the one way past
- *   an explicit value). TRUNCATE is granted to no one;
+ *   in every fact of the world), and DELETE on T. TRUNCATE is granted to no one;
  * - for each writable query entry, EXECUTE on its key probes, one per key of T, and on its filter function when its
  *   membership reads a stored relation besides T's row; and EXECUTE on the refusal function, whatever it writes (a write,
  *   a context source and a read-back each refuse through it, and any role serves a read-back);
@@ -465,27 +446,13 @@ const roleFacts = (
 			relation: table.name,
 			column: columnOf(names, relation, field)
 		})
-		const advances = Arr.map(serialFields(base, relation), (field) =>
-			privilege(
-				grantee,
-				{
-					kind: "function",
-					schema: table.schema,
-					name: identifierOf(identity.advance(relation, field))
-				},
-				"EXECUTE"
-			)
-		)
 		if (w.kind === "whole") {
-			return [
-				...Arr.map(
-					isMutable(base, relation)
-						? (["SELECT", "INSERT", "UPDATE", "DELETE"] as const)
-						: (["SELECT", "INSERT", "DELETE"] as const),
-					(p) => privilege(grantee, at, p)
-				),
-				...advances
-			]
+			return Arr.map(
+				isMutable(base, relation)
+					? (["SELECT", "INSERT", "UPDATE", "DELETE"] as const)
+					: (["SELECT", "INSERT", "DELETE"] as const),
+				(p) => privilege(grantee, at, p)
+			)
 		}
 		const updatable = isMutable(base, relation)
 			? Arr.flatMap(Record.values(w.head), (h) => (h.kind === "free" ? [h.field] : []))
@@ -499,7 +466,6 @@ const roleFacts = (
 			]),
 			...Arr.map(updatable, (field) => privilege(grantee, column(field), "UPDATE")),
 			privilege(grantee, at, "DELETE"),
-			...advances,
 			...Arr.map(keysOf(base, relation), (key) =>
 				fn(identifierOf(identity.keyProbe(theoryRoleOf(names, role.name), w.entry, key)))
 			),

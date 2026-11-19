@@ -7,7 +7,7 @@
 import type { Result } from "effect"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
-import type { OwnLaw, PreviewInputOf, Witness } from "#compiler/types/changeset/changeset.ts"
+import type { InsertAllRowsOf, OwnLaw, Witness } from "#compiler/types/changeset/changeset.ts"
 import type { EvaluatedRow } from "#compiler/types/schema/evaluation.ts"
 import type { AnySchema, RelationsOf, UnderName } from "#compiler/types/schema/schema.ts"
 import type { WritableNameOf } from "#compiler/types/schema/world.ts"
@@ -24,8 +24,7 @@ export type PreviewRows<S extends AnySchema> = {
 
 /**
  * The call's input refused as the write's own binding refuses it: a value outside its field's type, a fact of another
- * shape than its relation's addition (`factShape`), a serial field among them, which a preview states, or an input past
- * a bound of the transport (MessageBound, LiteralBound), which the write meets as InputTooLarge.
+ * shape than its relation's addition (`factShape`), or an input past a bound of the transport (MessageBound, LiteralBound), which the write meets as InputTooLarge.
  */
 interface InputRefused {
 	readonly _tag: "InputRefused"
@@ -70,5 +69,5 @@ export type PreviewRefusal = InputRefused | KeyConflict | GeneratedNull | OwnerA
  * as Effect's Result.
  */
 export type InsertPreview<S extends AnySchema> = (
-	rows: PreviewInputOf<S>
+	rows: InsertAllRowsOf<S>
 ) => Result.Result<PreviewRows<S>, PreviewRefusal>

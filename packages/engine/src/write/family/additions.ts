@@ -1794,7 +1794,6 @@ const insertOf = (
 					with: undefined,
 					table: w.names.relation(name),
 					alias: into,
-					overriding: undefined,
 					onConflict: undefined,
 					columns: inserted,
 					source: { kind: "query", query: passed(candidates) },
@@ -1816,7 +1815,6 @@ const insertOf = (
 					with: undefined,
 					table: w.names.relation(name),
 					alias: into,
-					overriding: undefined,
 					onConflict:
 						primaryKeyShape(relation).kind === "span"
 							? {

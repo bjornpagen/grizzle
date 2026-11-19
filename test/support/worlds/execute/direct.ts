@@ -32,7 +32,7 @@ import { printExpr, printObjectName } from "#compiler/sql/print.ts"
 import { valueText } from "#test/support/laws/model.ts"
 import { literalFor } from "#test/support/oracle/install/literal.ts"
 import type { OracleTable } from "#test/support/oracle/install/model.ts"
-import { carrierOf, sendable } from "#test/support/worlds/execute/host.ts"
+import { carrierOf } from "#test/support/worlds/execute/host.ts"
 import { rosterCodesOf } from "#test/support/worlds/execute/names.ts"
 import { claimsText } from "#test/support/worlds/model/session/claims.ts"
 import type {
@@ -144,7 +144,7 @@ const matching = (names: DirectNames, t: OracleTable, fact: HostFact): Effect.Ef
  * roster's names (ir/codes.ts); every other value is its own text.
  */
 const columnText = (codes: Codebook, domain: FieldDomain, value: HostValue): string => {
-	const text = valueText(sendable(value))
+	const text = valueText(value)
 	if (domain.kind !== "handle") {
 		return text
 	}
@@ -235,29 +235,14 @@ const tableSql = (
 		return { sql, reads: { kind: "rows", fields } }
 	})
 
-/**
- * Whether a fact names a serial field's value: a direct writer inserting one writes OVERRIDING SYSTEM VALUE, as the
- * README's writer does (the identity column is GENERATED ALWAYS), whether or not its INSERT resolves a conflict, and
- * then calls the field's advance function (advancesOf).
- */
-const namesSerial = (
-	names: DirectNames,
-	relation: string,
-	fields: ReadonlyArray<string>
-): Effect.Effect<boolean> =>
-	Effect.map(
-		Effect.forEach(fields, (f) => names.domain(relation, f)),
-		(domains) => Arr.some(domains, (d) => d.kind === "serial")
-	)
-
-/**
- * What a direct writer's INSERT of one fact writes: a VALUES row of the fact's columns, or, for a fact of no field
- * (every field of its relation a serial one the identity draws), one row of no column, `INSERT INTO t SELECT`.
- */
-const factTarget = (columns: ReadonlyArray<string>, values: ReadonlyArray<Expr>): InsertTarget =>
+/** What a direct writer's INSERT of one fact writes: a VALUES row of the fact's columns, its key's among them. */
+const factTarget = (
+	columns: ReadonlyArray<string>,
+	values: ReadonlyArray<Expr>
+): Effect.Effect<InsertTarget> =>
 	Arr.isReadonlyArrayNonEmpty(columns)
-		? { columns, source: { kind: "values", rows: [values] } }
-		: { columns: [], source: { kind: "query", query: provedSelect("oneRow", [], [], undefined) } }
+		? Effect.succeed({ columns, source: { kind: "values", rows: [values] } })
+		: Effect.die(new Error("a fact of no field, where every fact holds its relation's key"))
 
 /**
  * An INSERT that meets a conflicting primary key, resolved by ON CONFLICT: nothing, the existing row, or an update. Its
@@ -333,8 +318,7 @@ const onConflictSql = (
 			with: undefined,
 			table: t.name,
 			alias: "r",
-			...factTarget(columns, values),
-			overriding: (yield* namesSerial(names, relation, fields)) ? "SYSTEM VALUE" : undefined,
+			...(yield* factTarget(columns, values)),
 			onConflict:
 				t.primaryKey.span.kind === "span" && action.kind === "doNothing"
 					? { kind: "constraint", constraint: t.primaryKey.name, action }
@@ -397,77 +381,12 @@ const insertSql = (
 			with: undefined,
 			table: t.name,
 			alias: undefined,
-			...factTarget(columns, values),
-			overriding: (yield* namesSerial(names, relation, fields)) ? "SYSTEM VALUE" : undefined,
+			...(yield* factTarget(columns, values)),
 			onConflict: undefined,
 			returning: []
 		})
 		return { sql, reads: none }
 	})
-
-/**
- * The advance calls of the serial fields a fact of `relation` names, key fields first and the rest in the table's
- * order, as grizzle's own write path orders its advances (packages/engine/src/write/serial/advance.ts serialOrder): each
- * a call of the field's advance function with the value the fact names there.
- */
-const advancesAfter = (
-	names: DirectNames,
-	relation: string,
-	fact: HostFact
-): Effect.Effect<ReadonlyArray<DirectStatement>> =>
-	Effect.gen(function* () {
-		const t = yield* names.table(relation)
-		const key = t.primaryKey.fields
-		const order = [
-			...key,
-			...Arr.filter(
-				Arr.map(t.columns, (c) => c.field),
-				(f) => !key.includes(f)
-			)
-		]
-		const calls: Array<DirectStatement> = []
-		for (const field of order) {
-			const value = fact[field]
-			if (value !== undefined && (yield* names.domain(relation, field)).kind === "serial") {
-				calls.push({ kind: "call", fn: { kind: "advance", relation, field }, args: [value] })
-			}
-		}
-		return calls
-	})
-
-/**
- * What the README's direct writer sends after a statement that succeeded, in the same transaction: after an INSERT
- * naming serial values (with or without ON CONFLICT), `SELECT <schema>.<advance function>(<value inserted>)` for each
- * serial field it names (advancesAfter), as grizzle's own writes advance past the values they insert, so a later
- * generated value never repeats a written one (README "Direct SQL access"); after any other statement, nothing. A role that
- * inserts into a table writes it, and so holds EXECUTE on its advance functions, which never move a sequence back: the
- * statement's outcome is its INSERT's.
- */
-export const advancesOf = (
-	names: DirectNames,
-	statement: DirectStatement
-): Effect.Effect<ReadonlyArray<DirectStatement>> => {
-	switch (statement.kind) {
-		case "insert":
-		case "insert-on-conflict":
-			return advancesAfter(names, statement.relation, statement.fact)
-		case "set-role":
-		case "reset-role":
-		case "set-session-authorization":
-		case "set-claims":
-		case "select-view":
-		case "select-table":
-		case "delete":
-		case "update":
-		case "truncate":
-		case "call":
-		case "setval":
-		case "merge-delete":
-		case "prepare":
-		case "execute-prepared":
-			return Effect.succeed([])
-	}
-}
 
 const isolationText = (isolation: Isolation): string => Str.toUpperCase(isolation)
 
@@ -597,19 +516,10 @@ export const directSql = (
 			case "call": {
 				const fn = yield* names.function(statement.fn)
 				const args = Arr.join(
-					Arr.map(statement.args, (a) => quoteString(valueText(sendable(a)))),
+					Arr.map(statement.args, (a) => quoteString(valueText(a))),
 					", "
 				)
 				return { sql: `SELECT ${fn}(${args})`, reads: none }
-			}
-			case "setval": {
-				const t = yield* names.table(statement.relation)
-				const c = yield* columnOf(t, statement.field)
-				const sequence = `pg_catalog.pg_get_serial_sequence(${quoteString(printObjectName(t.name))}, ${quoteString(c.column)})`
-				return {
-					sql: `SELECT pg_catalog.setval(${sequence}, ${String(statement.value)})`,
-					reads: none
-				}
 			}
 		}
 	})

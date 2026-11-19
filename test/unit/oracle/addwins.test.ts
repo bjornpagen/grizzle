@@ -13,21 +13,18 @@
  *   insertion: one state, one delta, its counts all put. Oracle: the specification.
  * - Counts: each relation's changes netted across strata are the per-stratum netting reference's, on every sequence
  *   the calculator applies, over the general strata and a dense family of two ids. Oracle: a second implementation.
- * - Generated additions: one at a kept fact's key stands for it and draws nothing; any other draws past every fact of
- *   the state before or after; given draws take the values given. Oracle: the specification.
  *
  * Features: applied and rejected outcomes, a rejection before the last stratum; a stratum of several members and a
  * member of several facts; a put displacing an occupant and one into an empty key; multi-stratum counts and counts
- * that differ from the pooled reading; and each generated addition's case.
+ * that differ from the pooled reading.
  */
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { assert, defined } from "#test/support/assert.ts"
+import { Array as Arr, Effect, Option } from "effect"
+import { assert } from "#test/support/assert.ts"
 import {
 	applyAddWins,
 	factsOf,
-	loadedSequences,
 	OracleChangeSet,
 	type OracleState,
 	oracleState
@@ -38,10 +35,6 @@ import {
 	buildOrderGen,
 	countsGen,
 	countsOf,
-	entries,
-	entry,
-	generatedGen,
-	type GeneratedFeature,
 	type OrderFeature,
 	pooledCounts,
 	type PutFeature,
@@ -75,9 +68,8 @@ export const theAddWinsTransitionIsSSDAPerStratumWithKeysCheckedAfterEachStratum
 				Effect.sync(() => {
 					const outcome = applyAddWins(
 						schema,
-						oracleState(schema, { Task: initial }, loadedSequences),
-						build(layers),
-						{ kind: "sequences" }
+						oracleState(schema, { Task: initial }),
+						build(layers)
 					)
 					const expected = reference(initial, layers)
 					if (expected.kind === "rejected") {
@@ -129,8 +121,8 @@ export const buildOrderIndependenceDoesNotDependOnMemberOrderMemberSplittingOrHo
 			(_, c: Case<OrderFeature>) =>
 			([initial, layers, permuted]) =>
 				Effect.sync(() => {
-					const s = oracleState(schema, { Task: initial }, loadedSequences)
-					const base = applyAddWins(schema, s, build(layers), { kind: "sequences" })
+					const s = oracleState(schema, { Task: initial })
+					const base = applyAddWins(schema, s, build(layers))
 					c.note(base.kind === "invariant-rejected" ? "rejected" : "applied")
 					if (Arr.some(layers, (members) => members.length > 1)) {
 						c.note("a stratum of several members")
@@ -138,7 +130,7 @@ export const buildOrderIndependenceDoesNotDependOnMemberOrderMemberSplittingOrHo
 					if (Arr.some(layers, (members) => Arr.some(members, (m) => m.facts.length > 1))) {
 						c.note("a member of several facts")
 					}
-					sameOutcome(applyAddWins(schema, s, build(permuted), { kind: "sequences" }), base)
+					sameOutcome(applyAddWins(schema, s, build(permuted)), base)
 					/**
 					 * Every member split into one member per fact, and equal facts repeated. A member with no facts still
 					 * names its relation, so it stays.
@@ -150,21 +142,15 @@ export const buildOrderIndependenceDoesNotDependOnMemberOrderMemberSplittingOrHo
 								: Arr.map([...m.facts, ...m.facts.slice(0, 1)], (f) => ({ op: m.op, facts: [f] }))
 						)
 					)
-					sameOutcome(applyAddWins(schema, s, build(split), { kind: "sequences" }), base)
+					sameOutcome(applyAddWins(schema, s, build(split)), base)
 					/** The same strata built as the union of two sequences, position by position, in either order. */
 					const halves = [
 						Arr.map(layers, (members) => Arr.flatMap(members, (m, i) => (i % 2 === 0 ? [m] : []))),
 						Arr.map(layers, (members) => Arr.flatMap(members, (m, i) => (i % 2 === 1 ? [m] : [])))
 					] as const
 					const [left, right] = [build(halves[0]), build(halves[1])]
-					sameOutcome(
-						applyAddWins(schema, s, OracleChangeSet.union(left, right), { kind: "sequences" }),
-						base
-					)
-					sameOutcome(
-						applyAddWins(schema, s, OracleChangeSet.union(right, left), { kind: "sequences" }),
-						base
-					)
+					sameOutcome(applyAddWins(schema, s, OracleChangeSet.union(left, right)), base)
+					sameOutcome(applyAddWins(schema, s, OracleChangeSet.union(right, left)), base)
 				}),
 		oracle: {
 			kind: "universal",
@@ -202,11 +188,9 @@ export const putIsSugarForADescribedDeletionOfTheOccupantsAtItsKeysPlusAnInserti
 					for (const f of facts) {
 						c.note(held.has(f.id) ? "a put displacing an occupant" : "a put into an empty key")
 					}
-					const s = oracleState(schema, { Task: initial }, loadedSequences)
+					const s = oracleState(schema, { Task: initial })
 					const viaPut = applied(
-						applyAddWins(schema, s, OracleChangeSet.empty().put("Task", facts), {
-							kind: "sequences"
-						})
+						applyAddWins(schema, s, OracleChangeSet.empty().put("Task", facts))
 					)
 					const keys = new Set(Arr.map(facts, (f) => f.id))
 					const occupants = (state: OracleState) =>
@@ -218,10 +202,7 @@ export const putIsSugarForADescribedDeletionOfTheOccupantsAtItsKeysPlusAnInserti
 						applyAddWins(
 							schema,
 							s,
-							OracleChangeSet.empty().delete("Task", occupants).insert("Task", facts),
-							{
-								kind: "sequences"
-							}
+							OracleChangeSet.empty().delete("Task", occupants).insert("Task", facts)
 						)
 					)
 					sameFacts(factsOf(viaPut.state, "Task"), factsOf(viaSugar.state, "Task"))
@@ -267,9 +248,8 @@ export const countsAcrossStrataNettedOverThePerStratumChangesAgreesWithThePerStr
 				Effect.sync(() => {
 					const outcome = applyAddWins(
 						schema,
-						oracleState(schema, { Task: initial }, loadedSequences),
-						build(layers),
-						{ kind: "sequences" }
+						oracleState(schema, { Task: initial }),
+						build(layers)
 					)
 					if (outcome.kind === "invariant-rejected") {
 						return
@@ -298,109 +278,6 @@ export const countsAcrossStrataNettedOverThePerStratumChangesAgreesWithThePerStr
 			name: "the per-stratum netting reference, written out apart"
 		},
 		budget: { runs: 4000, steered: 0 },
-		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/core/array.ts",
-				original: "\treturn i < 0 ? undefined : i",
-				replacement: "\treturn i >= 0 ? undefined : i",
-				why: "Operator mutant (comparison) at packages/engine/src/core/array.ts:11 in firstIndex: `<` becomes `>=`; the property fails (lane CATCH, grizzle 0baff5d6)."
-			}
-		]
-	})
-
-/**
- * Generated additions stand for a kept fact at the key they state, draw past every fact of the state they join, or
- * take the values given.
- *
- * Budget: its suite's count before the conversion (unit/oracle/addwins-generated: 1000 independent cases and 0
- * steered, Vitest at grizzle 4ca3036a).
- */
-export const generatedAdditionsStandForAKeptFactAtTheKeyTheyStateDrawPastEveryFactOfTheStateTheyJoinOrTakeTheValuesGiven =
-	property.explore(generatedGen, {
-		needs: {},
-		situations: [
-			"a kept fact holding the next draw at a generated code",
-			"a generated addition at a kept key",
-			"given draws"
-		] satisfies ReadonlyArray<Reached<GeneratedFeature>>,
-		check:
-			(_, c: Case<GeneratedFeature>) =>
-			({ stored, at, called, deleted, codes }) =>
-				Effect.sync(() => {
-					const initial = oracleState(
-						entries,
-						{ Entry: Arr.map(stored, (e) => entry(e.code, e.n)) },
-						{ "Entry.n": { lastValue: BigInt(at), isCalled: called } }
-					)
-					const removed = Arr.flatMap(deleted, (i) =>
-						stored.length === 0 ? [] : [defined(stored[i % stored.length])]
-					)
-					const changes = OracleChangeSet.empty()
-						.delete("Entry", removed)
-						.insert(
-							"Entry",
-							Arr.map(codes, (code) => ({ code }))
-						)
-					const kept = Arr.filter(stored, (e) => !removed.includes(e))
-					/** The first value the sequence would draw, which a kept fact of that code may hold. */
-					const first = called ? at + 1 : at
-					if (Arr.some(kept, (e) => codes.includes(e.code) && e.n === first)) {
-						c.note("a kept fact holding the next draw at a generated code")
-					}
-					/**
-					 * Drawn from the sequences: a generated addition at a kept fact's code agrees with it at every field it
-					 * states, its code, so the kept fact stands for it and it draws nothing (insert/unique.ts
-					 * generatedArbiter); any other adds a fact under a value no fact holds, before the stratum or after, and
-					 * re-creates no stored fact.
-					 */
-					const drawnOutcome = applyAddWins(entries, initial, changes, { kind: "sequences" })
-					if (drawnOutcome.kind !== "invariant-rejected") {
-						for (const id of defined(drawnOutcome.generated.get("Entry"))) {
-							assert.ok(
-								initial.relations.get("Entry")?.has(id) !== true,
-								"a drawn generated fact re-creates a stored one"
-							)
-						}
-					}
-					if (Arr.some(kept, (e) => codes.includes(e.code))) {
-						c.note("a generated addition at a kept key")
-						const state = applied(drawnOutcome).state
-						for (const e of kept) {
-							assert.ok(
-								Arr.some(factsOf(state, "Entry"), (f) => f["code"] === e.code && f["n"] === e.n),
-								`the kept entry ${Formatter.format(e)} stands for its code's generated addition, unchanged`
-							)
-						}
-						assert.equal(
-							factsOf(state, "Entry").length,
-							kept.length +
-								Arr.filter(codes, (code) => !Arr.some(kept, (e) => e.code === code)).length,
-							"a generated addition adds a fact only at a code no kept entry holds"
-						)
-						return
-					}
-					c.note("given draws")
-					const given = Arr.map(codes, (code, i) => entry(code, 100 + i))
-					const outcome = applied(
-						applyAddWins(entries, initial, changes, {
-							kind: "given",
-							facts: new Map([["Entry", given]])
-						})
-					)
-					const made = Arr.map([...defined(outcome.generated.get("Entry"))], (id) =>
-						defined(
-							outcome.state.relations.get("Entry")?.get(id),
-							"a generated fact of the final state"
-						)
-					)
-					sameFacts(made, given)
-				}),
-		oracle: {
-			kind: "specification",
-			name: "a generated addition stands for a kept fact at its key, draws past every fact, or takes the given values"
-		},
-		budget: { runs: 1000, steered: 0 },
 		kept: [],
 		kills: [
 			{

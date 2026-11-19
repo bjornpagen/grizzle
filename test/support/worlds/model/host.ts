@@ -12,7 +12,6 @@ import {
 	type HostSelection,
 	isSpan,
 	type HostSide,
-	isDrawn,
 	selected
 } from "#test/support/laws/model.ts"
 import { textDomain } from "#test/support/worlds/model/text.ts"
@@ -76,19 +75,9 @@ const required = <A>(value: A | undefined, what: string): A => {
 const own = <A>(record: Readonly<Record<string, A>>, key: string): A | undefined =>
 	Rec.has(record, key) ? record[key] : undefined
 
-/**
- * Whether two values are one value: of one kind and equal, spans by their endpoints, drawn values by their draw (an
- * identity's draw equals no other value until the real system shows it).
- */
-export const equalValues = (a: HostValue, b: HostValue): boolean => {
-	if (isSpan(a)) {
-		return isSpan(b) && a.start === b.start && a.end === b.end
-	}
-	if (isDrawn(a)) {
-		return isDrawn(b) && a.draw === b.draw
-	}
-	return a === b
-}
+/** Whether two values are one value: of one kind and equal, spans by their endpoints. */
+export const equalValues = (a: HostValue, b: HostValue): boolean =>
+	isSpan(a) ? isSpan(b) && a.start === b.start && a.end === b.end : a === b
 
 type Ordering = -1 | 0 | 1
 
@@ -109,40 +98,12 @@ const byCodePoint = (a: string, b: string): Ordering => {
 	)
 }
 
-/**
- * How a draw orders against another value (model/draws.ts): past every integer at or below its range's top, which the
- * case holds only as earlier draws of its identity or values below every range, and below every integer past it; a draw
- * of another identity by their ranges. Two draws of one identity have no order the model knows, and no rule or row check
- * the worlds generate orders a term against another, only against a literal, so meeting them is a defect of the case.
- */
-const drawnOrder = (a: HostValue, b: HostValue): Ordering | "unordered" => {
-	if (isDrawn(a) && isDrawn(b)) {
-		if (a.ceiling === b.ceiling) {
-			throw new Error(`the worlds model orders draws #${a.draw} and #${b.draw} of one identity`)
-		}
-		return sign(a.ceiling - b.ceiling)
-	}
-	if (isDrawn(a)) {
-		return typeof b === "number" ? (b > a.ceiling ? -1 : 1) : "unordered"
-	}
-	if (isDrawn(b)) {
-		return typeof a === "number" ? (a > b.ceiling ? 1 : -1) : "unordered"
-	}
-	return "unordered"
-}
-
-/**
- * How two values order in a domain; spans, values of two kinds and a handle outside its roster are unordered, and a
- * draw orders by its range (drawnOrder).
- */
+/** How two values order in a domain; spans, values of two kinds and a handle outside its roster are unordered. */
 const valueOrder = (
 	domain: FieldDomain | undefined,
 	a: HostValue,
 	b: HostValue
 ): Ordering | "unordered" => {
-	if (isDrawn(a) || isDrawn(b)) {
-		return drawnOrder(a, b)
-	}
 	if (domain?.kind === "handle" && typeof a === "string" && typeof b === "string") {
 		const ra = Arr.findFirstIndex(domain.members, (m) => m === a)
 		const rb = Arr.findFirstIndex(domain.members, (m) => m === b)
@@ -193,9 +154,6 @@ const comparisonHolds = (
 const valueAtoms = (v: HostValue): ValueIdentity => {
 	if (isSpan(v)) {
 		return ["r", v.start, v.end]
-	}
-	if (isDrawn(v)) {
-		return ["d", v.draw]
 	}
 	if (typeof v === "string") {
 		return ["s", v]
@@ -593,13 +551,12 @@ export type RuleFault =
 	| { readonly kind: "heads-differ" }
 
 /**
- * The type a domain's column has: a variable's columns share one, as grizzle requires. An integer and a serial of one
- * width are one type, a contract is its own, a text pattern its own, a handle its roster's.
+ * The type a domain's column has: a variable's columns share one, as grizzle requires. An integer of one width is one
+ * type, a contract is its own, a text pattern its own, a handle its roster's.
  */
 const domainClass = (domain: FieldDomain): string => {
 	switch (domain.kind) {
 		case "integer":
-		case "serial":
 			return `integer ${domain.bits}`
 		case "contract":
 			return `contract ${domain.name}`
@@ -625,7 +582,6 @@ const inDomain = (value: HostValue, domain: FieldDomain): boolean => {
 		case "text":
 			return typeof value === "string"
 		case "integer":
-		case "serial":
 			return typeof value === "number" && Number.isSafeInteger(value)
 		case "contract":
 			return (
@@ -1136,58 +1092,11 @@ export const entryRows = (
 	}
 }
 
-/** The variables a term is, none for a constant term. */
-const termVars = (term: Term): ReadonlyArray<string> => (term.kind === "var" ? [term.name] : [])
-
-/**
- * The rule a fact that leaves fields of its target out is checked against (README "Writing through a role": an insert
- * may leave out the entry's serial columns, and a row is checked against the query before its identity is drawn): the
- * rule with the supplier's match and the head without those fields, where each is a variable the rule reads nowhere
- * else; none where the rule reads one anywhere else, a constant there or a filter, join or comparison over it, since a
- * serial column the query filters on is one every inserted row carries.
- */
-const leftOutRule = (rule: Rule, supplier: number, fact: HostFact): Rule | undefined => {
-	const occurrence = rule.matches[supplier]
-	if (occurrence === undefined) {
-		return undefined
-	}
-	const leftOut = Arr.filter(Rec.keys(occurrence.fields), (field) => own(fact, field) === undefined)
-	if (leftOut.length === 0) {
-		return rule
-	}
-	const read = [
-		...Arr.flatMap(rule.matches, (m, i) =>
-			Arr.flatMap(Rec.toEntries(m.fields), ([field, term]) =>
-				i === supplier && Arr.contains(leftOut, field) ? [] : termVars(term)
-			)
-		),
-		...Arr.flatMap(rule.negations, (n) =>
-			Arr.flatMap(n, (m) => Arr.flatMap(Rec.values(m.fields), termVars))
-		),
-		...Arr.flatMap(rule.comparisons, (c) => [...termVars(c.left), ...termVars(c.right)])
-	]
-	const dropped = Arr.map(leftOut, (field) => own(occurrence.fields, field))
-	if (!Arr.every(dropped, (term) => term?.kind === "var" && !Arr.contains(read, term.name))) {
-		return undefined
-	}
-	const names = new Set(Arr.flatMap(dropped, (term) => (term === undefined ? [] : termVars(term))))
-	const supplied: Occurrence = {
-		...occurrence,
-		fields: Rec.filter(occurrence.fields, (_, field) => !Arr.contains(leftOut, field))
-	}
-	return {
-		...rule,
-		matches: Arr.map(rule.matches, (m, i) => (i === supplier ? supplied : m)),
-		head: Rec.filter(rule.head, (term) => !Arr.some(termVars(term), (v) => names.has(v)))
-	}
-}
-
 /**
  * Whether a fact of a writable entry's target T is in the entry under a session's facts: a whole entry over an
  * ordinary relation holds every fact of it; a writable query entry holds the fact when its rule holds with T's
- * supplying occurrence reading that fact alone, every other match reading reality, the fields the fact leaves out
- * unread where the rule reads them nowhere else (leftOutRule). A read-only entry has no target, and holds no fact of
- * one.
+ * supplying occurrence reading that fact alone, every other match reading reality. A read-only entry has no target, and
+ * holds no fact of one.
  */
 export const isMember = (
 	state: ModelState,
@@ -1214,14 +1123,10 @@ export const isMember = (
 			if (w === undefined) {
 				return false
 			}
-			const rule = leftOutRule(w.rule, w.supplier, fact)
-			if (rule === undefined) {
-				return false
-			}
 			const reading = readingOf(state, facts)
 			const factsAt: FactsAt = (occurrence, index) =>
 				index === w.supplier ? [fact] : sourceFacts(reading, occurrence.source)
-			return ruleRows(reading, rule, factsAt).length > 0
+			return ruleRows(reading, w.rule, factsAt).length > 0
 		}
 	}
 }
@@ -1249,10 +1154,6 @@ const isSelected = (side: SideSpec): boolean => Rec.keys(side.where).length > 0
 export const selectionOf = (side: SideSpec): HostSelection =>
 	isSelected(side) ? fieldsEqual(side.where) : everyFact
 
-/** The fields of a relation its identity draws: those of the serial domain. */
-const serialFields = (relation: RelationSpec): ReadonlyArray<string> =>
-	Arr.flatMap(relation.fields, (f) => (f.domain.kind === "serial" ? [f.name] : []))
-
 const hostRelation = (names: InstalledNames, relation: RelationSpec): HostRelation => {
 	const columns = required(own(names.columns, relation.name), `the columns of ${relation.name}`)
 	return {
@@ -1263,7 +1164,6 @@ const hostRelation = (names: InstalledNames, relation: RelationSpec): HostRelati
 			column: required(own(columns, f.name), `the column of ${relation.name}.${f.name}`)
 		})),
 		key: relation.key,
-		serial: serialFields(relation),
 		mutable: relation.mutability === "mutable"
 	}
 }
@@ -1297,8 +1197,7 @@ const primaryKeyLawAs = (law: LawId, relation: RelationSpec): HostLaw => {
 }
 
 /**
- * Whether a row check holds on a fact: each comparison of an integer field with its literal holds, a draw's by its
- * range (drawnOrder).
+ * Whether a row check holds on a fact: each comparison of an integer field with its literal holds.
  */
 const predicateHolds = (predicate: RowPredicate, fact: HostFact): boolean => {
 	switch (predicate.kind) {
@@ -1308,7 +1207,7 @@ const predicateHolds = (predicate: RowPredicate, fact: HostFact): boolean => {
 			const value = factOf(fact, predicate.field)
 			return (
 				value !== undefined &&
-				(typeof value === "number" || isDrawn(value)) &&
+				typeof value === "number" &&
 				comparisonHolds(predicate.op, undefined, value, predicate.value)
 			)
 		}
@@ -1547,7 +1446,6 @@ export const judgedSchemaOf = (base: BaseSpec): HostSchema => ({
 		table: r.name,
 		fields: Arr.map(r.fields, (f) => ({ name: f.name, column: f.name })),
 		key: r.key,
-		serial: serialFields(r),
 		mutable: r.mutability === "mutable"
 	})),
 	laws: [

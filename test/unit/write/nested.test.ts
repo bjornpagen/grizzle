@@ -30,7 +30,6 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { columnKeyOf } from "#compiler/ir/law.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
-import { inputSlotsOf } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
@@ -116,8 +115,7 @@ export const aNestedWriteThroughTheProgramWritesOwnersWithTheirFoldedFamiliesAnd
 				)
 				const group = defined(program.binding.groups[0], "the owner's slot group")
 				const [input] = group.inputs
-				const [slot] = inputSlotsOf(input)
-				const tops = bound.stated.slot(group, input, slot)
+				const tops = bound.stated.slot(group, input, input.slot)
 				for (const doc of docs) {
 					const top = defined(
 						Option.getOrUndefined(Arr.findFirst(tops, (t) => t.stated["id"] === doc.id)),

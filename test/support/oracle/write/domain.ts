@@ -16,9 +16,6 @@ import { toastLengths, toastPair, toastText } from "#test/support/oracle/gen/toa
 /** The exact decimals, one kind per typmod. */
 export type NumericKind = "numeric(5, 2)" | "numeric(12, 4)" | "numeric(3, 0)"
 
-/** The identity columns: bigserial (int8) and serial (int4). */
-export type SerialKind = "bigserial" | "serial"
-
 /**
  * The value domain of the write oracle.
  *
@@ -31,7 +28,7 @@ export type SerialKind = "bigserial" | "serial"
  * 1.5 and 1.50 one Decimal, and NaN equal to NaN.
  *
  * The palette:
- * - integer, bigint, and identity columns of either (GENERATED ALWAYS AS IDENTITY, serial and bigserial);
+ * - integer and bigint;
  * - bounded text, `str.regex("^.{0,3}$", "su")`, whose values reach the supplementary plane and whose three-code-point
  *   bound keeps every key representable;
  * - bounded wide text, `^.{0,6}$`, which a described member may read into a three-code-point text field;
@@ -49,7 +46,6 @@ export type SerialKind = "bigserial" | "serial"
 export type TypeKind =
 	| "int4"
 	| "int8"
-	| SerialKind
 	| "text"
 	| "text6"
 	| "uuid"
@@ -120,9 +116,6 @@ export const typmodRange = (kind: NumericKind): readonly [Decimal, Decimal] => {
 	return [decimal(`-${greatest}`), decimal(greatest)]
 }
 
-export const isSerialKind = (kind: TypeKind): kind is SerialKind =>
-	kind === "bigserial" || kind === "serial"
-
 interface TypeInfo {
 	readonly kind: TypeKind
 	/** The carrier the host values and the oracle's identity use. */
@@ -176,20 +169,6 @@ export const typeInfo: Readonly<Record<TypeKind, TypeInfo>> = {
 		values: [0n, 1n, 2n, 3n],
 		keyable: true,
 		parse: bigintParse
-	},
-	bigserial: {
-		kind: "bigserial",
-		spec: { carrier: "int8" },
-		values: [1n, 2n, 3n, 4n],
-		keyable: true,
-		parse: bigintParse
-	},
-	serial: {
-		kind: "serial",
-		spec: { carrier: "int4" },
-		values: [1, 2, 3, 4],
-		keyable: true,
-		parse: integerParse
 	},
 	text: {
 		kind: "text",
@@ -266,7 +245,7 @@ export const typeInfo: Readonly<Record<TypeKind, TypeInfo>> = {
 export const isToastSized = (value: unknown): boolean =>
 	typeof value === "string" && value.length >= 2_000
 
-/** The kinds a generated column draws, besides the identity columns a relation places itself. */
+/** The kinds a generated column draws. */
 export const typeKinds: ReadonlyArray<TypeKind> = [
 	"int4",
 	"int8",
@@ -289,10 +268,6 @@ export const fieldOf = (kind: TypeKind, roster: AnyRoster): FieldBase => {
 			return pg.integer
 		case "int8":
 			return pg.bigint
-		case "bigserial":
-			return pg.bigserial
-		case "serial":
-			return pg.serial
 		case "text":
 			return str.regex("^.{0,3}$", "su")
 		case "text6":
@@ -318,8 +293,8 @@ export const fieldOf = (kind: TypeKind, roster: AnyRoster): FieldBase => {
 
 /**
  * The identity of one value of a column of `kind`: equal exactly under PostgreSQL's equality. A value of the kind's
- * host type has its canonical text (scalar/values canonicalText). A case also holds values outside it, a generated
- * addition's omitted serial field among them, and compares their keys as that text spells them: an integer or
+ * host type has its canonical text (scalar/values canonicalText). A case also holds values outside it, and compares
+ * their keys as that text spells them: an integer or
  * boolean carrier as String does, a float carrier likewise, a text carrier as the value itself (as String spells
  * another value, an omitted field's undefined among them).
  */
@@ -327,8 +302,6 @@ export const valueIdentity = (kind: TypeKind, value: unknown): string => {
 	switch (kind) {
 		case "int4":
 		case "int8":
-		case "bigserial":
-		case "serial":
 		case "bool":
 			return String(value)
 		case "float8":
@@ -370,12 +343,10 @@ export const literalOfKind = (kind: TypeKind, value: unknown): TypedLiteral => {
 	}
 	switch (kind) {
 		case "int4":
-		case "serial":
 			return typeof value === "number" && Number.isSafeInteger(value)
 				? { kind: "int", value: BigInt(value) }
 				: wrong()
 		case "int8":
-		case "bigserial":
 			return typeof value === "bigint" ? { kind: "int", value } : wrong()
 		case "text":
 		case "text6":
@@ -396,23 +367,12 @@ export const literalOfKind = (kind: TypeKind, value: unknown): TypedLiteral => {
 	}
 }
 
-/**
- * The base a column's values compare in: an identity column's integer, every typmod's numeric, both bounded texts' text.
- */
+/** The base a column's values compare in: every typmod's numeric, both bounded texts' text. */
 const baseOf = (kind: TypeKind): string =>
-	kind === "bigserial"
-		? "int8"
-		: kind === "serial"
-			? "int4"
-			: isNumericKind(kind)
-				? "numeric"
-				: kind === "text6"
-					? "text"
-					: kind
+	isNumericKind(kind) ? "numeric" : kind === "text6" ? "text" : kind
 
 /**
- * Two types whose columns a described member may connect: the same base carrier. A bigserial column holds bigint
- * values, a numeric of one typmod is read into another's by Compute.cast, rounding (changeset.ts HeadTerm cast), and a
+ * Two types whose columns a described member may connect: the same base carrier. A numeric of one typmod is read into another's by Compute.cast, rounding (changeset.ts HeadTerm cast), and a
  * wide text is cast into the narrow text's domain, which refuses a value outside it.
  */
 export const sameBase = (a: TypeKind, b: TypeKind): boolean => baseOf(a) === baseOf(b)

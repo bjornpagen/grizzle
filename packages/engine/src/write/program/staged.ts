@@ -197,7 +197,6 @@ const fillOf = (source: StagedSource): Insert => {
 		with: undefined,
 		table: source.carrier,
 		alias: undefined,
-		overriding: undefined,
 		onConflict: undefined,
 		returning: [],
 		columns: source.columns.map((c) => c.definition.name),

@@ -1,11 +1,10 @@
 import { Array as Arr, Effect, Option, Order, Record as Rec, String as Str } from "effect"
-import { identifierOf, identity, roleIdentity } from "#compiler/core/identity.ts"
+import { identifierOf, roleIdentity } from "#compiler/core/identity.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { RecordedStatement } from "#compiler/deploy/snapshot/recorded.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import { serialDraw } from "#compiler/ir/desc.ts"
 import type { PhysicalKind } from "#compiler/ir/products.ts"
 import { roleView } from "#compiler/physical/ddl/names.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
@@ -62,20 +61,6 @@ const created = (
 			o.kind === kind ? Arr.flatMap(o.ddl, (s) => Option.toArray(name(s))) : []
 		)
 	)
-
-/**
- * Whether a stored relation's serial field draws by an identity, which its advance function moves, as its declared type
- * says (ir/desc.ts serialDraw): an integer's, where a pg.uuidv7 field's `uuidv7()` default has no sequence.
- */
-const drawsIdentity = (installation: Installation, relation: string, field: string): boolean => {
-	const f = Option.getOrThrowWith(
-		Option.flatMap(Rec.get(installation.laws.theory.relations, relation), (r) =>
-			Arr.findFirst(r.heading, (c) => c.name === field)
-		),
-		() => new Error(`the theory holds no field ${relation}.${field}, which the snapshot records`)
-	)
-	return serialDraw(f.desc) === "identity"
-}
 
 const tableOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createTable" ? Option.some(s.table.name) : Option.none()
@@ -387,20 +372,6 @@ export const installedScope = (
 												s.header.name.name,
 												{ kind: "declared", volatility: provolatile[s.header.volatility] }
 											]
-										]
-									: []
-							)
-						: []
-				),
-				...Arr.flatMap(Rec.toEntries(snapshot.theory.relations), ([name, r]) =>
-					r.kind === "relation"
-						? Arr.flatMap(r.fields, (f) =>
-								f.writing === "serial" && drawsIdentity(installation, name, f.name)
-									? [
-											[
-												identifierOf(identity.advance(name, f.name)),
-												{ kind: "advance", table: r.ident }
-											] as const
 										]
 									: []
 							)
@@ -800,7 +771,7 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
  *
  * - the erasure ledger's shape rules (verify.ts): only the authored tables, the derived relations' materialized views,
  *   the refusal function, the isolation guard and each table's guard trigger, the snapshot guard every login executes,
- *   the law functions and law triggers, the serial fields' advance functions, the worlds' functions, and PostgreSQL's
+ *   the law functions and law triggers, the worlds' functions, and PostgreSQL's
  *   internal foreign-key triggers; the worlds' schemas of views, security_barrier exactly where a query entry's; row
  *   security and policies exactly where a world writes through a query entry; no UPDATE on an immutable relation, no
  *   TRUNCATE, no privilege on a sequence, MAINTAIN only to a refresher or a login fencing the table, no PUBLIC grant,
@@ -826,8 +797,7 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
  *
  * The derivation reads the catalog's own grants and types; the declaration supplies only what the catalog cannot show:
  * which closed relations a world holds and which derived relations it refreshes, from the installation's owned logins
- * and closed templates, and which serial fields a stored relation has, from the snapshot's theory. Which object is
- * which is read from the manifest's object kinds.
+ * and closed templates. Which object is which is read from the manifest's object kinds.
  *
  * Every way the installed catalog departs from its scope; none for a sound installation. An index that is not valid, as
  * a failed concurrent build leaves one, serves no query and supplies no constraint, so no installation holds one.

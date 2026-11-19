@@ -53,7 +53,6 @@ import {
 	type Planted,
 	plantedOf,
 	relationIn,
-	serialColumns,
 	type WContainment,
 	type WGroup,
 	type WRelation,
@@ -82,10 +81,7 @@ type WSource =
 			readonly kind: "project"
 			readonly from: string
 			readonly filter: { readonly column: string; readonly param: string } | undefined
-			/**
-			 * One term per field of the member's relation; an insert's head may leave out the serial field, a generated
-			 * addition.
-			 */
+			/** One term per field of the member's relation. */
 			readonly head: Readonly<Record<string, HeadTerm>>
 	  }
 	| { readonly kind: "param"; readonly param: string }
@@ -175,13 +171,6 @@ export type WBinding = "passed" | "bound" | "bound as streams"
  *   values, the delete of the query it is (write/frontend/equal.ts), a literal only of a kind whose value is a
  *   JavaScript literal deleteWhere takes (literalKind) and within its field's domain.
  *
- * An insert into a relation with identity columns may be a generated addition, which omits every serial field and
- * takes fresh values from the identity sequences: an enumerated fact without them (the empty fact, when every field is
- * an identity column), a copy of an earlier one, which equals it and so is one requested addition, or a projection
- * whose head leaves the serial fields out. Generated additions are drawn only in the last stratum, after any explicit
- * values earlier strata advance the sequences past, so no member reads a generated value and the values appear only in
- * the relation's own serial fields, where the harness compares them up to renaming (harness.ts).
- *
  * Every choice among a list is a pick (test/support/pick.ts), an integer in 0..0xffff that selects without modulo
  * skew and shrinks toward the list's first element.
  *
@@ -221,31 +210,11 @@ export const castsTypmod = (c: WChangeSet): boolean =>
 		)
 	)
 
-/** Whether a fact of `relation` omits its serial fields: a generated addition. */
-export const isGenerated = (relation: WRelation, fact: Fact): boolean => {
-	const serial = serialColumns(relation)
-	return serial.length > 0 && Arr.every(serial, (c) => !Rec.has(fact, c.name))
-}
-
-/** Whether a member makes generated additions: an enumerated fact or a head without the serial fields. */
-export const generates = (relation: WRelation, m: WMember): boolean => {
-	const serial = serialColumns(relation)
-	if (m.op !== "insert" || serial.length === 0) {
-		return false
-	}
-	if (m.source.kind === "array") {
-		return Arr.some(m.source.facts, (f) => isGenerated(relation, f))
-	}
-	const head = m.source.kind === "project" ? m.source.head : undefined
-	return head !== undefined && Arr.every(serial, (c) => !Rec.has(head, c.name))
-}
-
 interface FactPick {
 	/**
 	 * 0, 1 fresh, or in a relation with a candidate key a fresh fact holding a stored fact's candidate key (an earlier
 	 * member's when nothing is stored); 2, 3 a stored fact; 4 a stored key with a fresh payload; 5 an earlier member's
-	 * fact; 6 its key with a fresh payload; 7 fresh. On an insert into a relation with identity columns in the last
-	 * stratum, 0, 1 and 7 are a generated addition instead (see the header).
+	 * fact; 6 its key with a fresh payload; 7 fresh.
 	 */
 	readonly mode: number
 	readonly pick: number
@@ -263,8 +232,7 @@ interface MemberSketch {
 	readonly filter: { readonly on: boolean; readonly column: number; readonly value: number }
 	/**
 	 * Per target field: 0-3 a variable (preferring the same field), 4 a parameter; the variable's or the parameter's
-	 * pick. On the first serial field of an insert's head in the last stratum, 2-4 leave
-	 * every serial field out: a generated addition.
+	 * pick.
 	 */
 	readonly head: ReadonlyArray<{
 		readonly term: number
@@ -316,31 +284,6 @@ interface ReadSketch {
  * - "candidate repeated": the change adds a keyed fact at a stored fact's candidate key, refused by that key;
  * - "immediate violated": the change adds a member naming no fact of the pure set, refused at its statement by the
  *   immediate containment;
- * - "serial collision": a generated addition to the serialized relation, whose identity sequence starts behind a
- *   stored fact holding its first value, so the realization draws that value, collides, and draws again;
- * - "lagging identical": the same lagging sequence, setval(seq, k, false) at the stored key k, and one stratum that
- *   deletes the stored fact at k beside a generated addition of its other fields, which draws k after the deletion:
- *   the fact the stratum removes and adds back is identical, so the change's counts hold neither (runtime/write/net.ts
- *   stratumChange, a set difference, whose weights for it sum to 0); its read-backs of delta.added and delta.removed
- *   are refused when it compiles, since a generated addition and a deletion of its stratum may cancel
- *   (write/schedule/plan.ts drawsSerials), and the harness leaves them out (harness.ts settledReads);
- * - "lagging differing": the same, the generated addition's other field differing, so the counts hold one removal and
- *   one addition;
- * - "lagging repeat": a generated addition into the numbered relation, whose identity column lies outside its key, of a
- *   stored fact's key, its sequence lagging at that fact's identity value: equal to the stored fact at every field it
- *   states, met at its arbiter, its primary key, which holds no field it draws (write/insert/unique.ts
- *   generatedArbiter), it is that fact and draws nothing: the change is no change and the sequence stays behind,
- *   never called, where a draw would take the stored fact's identity value again;
- * - "lagging retried": the lagging identical deletion beside a second generated addition, a stored fact at the
- *   sequence's second value: the realization's draws meet that fact, the attempt fails with GeneratedSerialUnique and
- *   the next draws past both stored values, so neither addition repeats the deleted fact, which the calculator's own
- *   draws may; the outcome is judged under the realization's draws (expect.ts Expected's pin);
- * - "lagging put": a described put of the tallied relation's own facts, an UPDATE ... FROM that changes nothing, its
- *   sequence lagging behind the stored keys: a put names complete facts, so it advances the sequence past their
- *   serial values whatever statement realizes it;
- * - "lagging referenced": a deletion of an issued fact a holding references beside a generated addition into issued,
- *   whose lagging sequence could draw the deleted fact's value: the deletion meets the immediate containment at its
- *   own statement, so the change is refused, as with any fresh value; no draw re-creates the referenced fact first;
  * - "relation parameters": an insert and a deletion of the keyed relation, each a relation parameter's facts;
  * - "typmod cast": an insert into the rounded relation of a precise fact, its numeric(12, 4) read into numeric(5, 2)
  *   by Compute.cast under Compute.within of numeric(5, 2)'s range (HeadTerm cast) and rounded by the cast;
@@ -355,11 +298,11 @@ interface ReadSketch {
  *   relation parameter names, a take bound to the parameter's rows, sent in its LATERAL form, since the parameter's
  *   distinct facts are fewer than lateralParentMax (its whole-relation form is test/pg/write/take-form's);
  * - "take per one parent": the same insert for the first parent alone;
- * - "unorderable stratum": one stratum inserting into the issued relation, putting a holding and deleting an issued
- *   fact. The insertion drafts its generated class, which follows the deletion, since a deletion excepts only the
- *   complete additions of its stratum; the holding's put adds after the issued relation's additions and removes before
- *   its removals, by the immediate containment, so no order keeps every key at every statement and the ChangeSet is
- *   refused as it compiles (expect.ts unorderableStrata, write/frontend/schedule.ts);
+ * - "unorderable stratum": one stratum inserting a marked fact, putting a marker and deleting another marked fact. The
+ *   marked facts meet at their projected key, so the deletion runs before the insertion; the marker's put adds after
+ *   the marked relation's additions and removes before its removals, by the immediate containment, so no order keeps
+ *   every key at every statement and the ChangeSet is refused as it compiles (expect.ts unorderableStrata,
+ *   write/frontend/schedule.ts);
  * - "deletion meeting nowhere": the stored member naming a stored pure fact put to name a fresh pure fact, which the
  *   stratum inserts, beside the stored pure fact's deletion. The pure set's facts meet nowhere, so its deletion is
  *   unordered beside its insertion of complete facts, and the keys run the insertion, the put, then the deletion; were
@@ -383,13 +326,6 @@ export const plantedArms = [
 	"refused at bind",
 	"candidate repeated",
 	"immediate violated",
-	"serial collision",
-	"lagging identical",
-	"lagging differing",
-	"lagging repeat",
-	"lagging retried",
-	"lagging put",
-	"lagging referenced",
 	"relation parameters",
 	"typmod cast",
 	"anchored deletion",
@@ -403,19 +339,6 @@ export const plantedArms = [
 ] as const
 export type PlantedArm = (typeof plantedArms)[number]
 
-/**
- * Whether a planted arm's identity sequences start behind the stored values, at 1 and never called (harness.ts
- * ResolvedCase): the arms whose generated addition draws a stored key.
- */
-export const plantedBehind = (arm: PlantedArm): boolean =>
-	arm === "serial collision" ||
-	arm === "lagging identical" ||
-	arm === "lagging differing" ||
-	arm === "lagging repeat" ||
-	arm === "lagging retried" ||
-	arm === "lagging put" ||
-	arm === "lagging referenced"
-
 export interface ChangeSetSketch {
 	readonly strata: Arr.NonEmptyReadonlyArray<ReadonlyArray<MemberSketch>>
 	readonly reads: ReadonlyArray<ReadSketch>
@@ -427,8 +350,7 @@ export interface ChangeSetSketch {
  * The features a ChangeSet's swarm turns on, off or thins: each kind of member source beyond an enumerated array, more
  * than one stratum, read-backs, the MERGE near misses of the reread pair, a projection's parameter
  * spelling a text longer than its field's domain admits, Stream members and parameters, ChangeSet.bind, db.compile,
- * and unit additions: into a relation whose every field is an identity, a described generated addition of no field,
- * whose query holds several rows, beside the enumerated `[{}]` in the same stratum, one new fact in all.
+ * and field-equality deletions.
  */
 const writeFeatures = [
 	"projections",
@@ -441,7 +363,6 @@ const writeFeatures = [
 	"streams",
 	"bind",
 	"compiled",
-	"unitAdditions",
 	"equalities"
 ] as const
 type WriteFeature = (typeof writeFeatures)[number]
@@ -516,8 +437,6 @@ const literalKind = (kind: TypeKind): boolean => {
 	switch (kind) {
 		case "int4":
 		case "int8":
-		case "bigserial":
-		case "serial":
 		case "text":
 		case "text6":
 		case "memo":
@@ -545,8 +464,7 @@ const thirdKey = -3
 /**
  * A planted fact's values: the wide text's value within the narrow domain and one past it; the unbounded text's first
  * TOAST-sized value and the two TOAST-sized ones that differ in their last code point alone; a numeric(12, 4) value
- * numeric(5, 2) rounds; a numeric(5, 2) value and a decimal that rounds to it at that typmod, half away from zero; and
- * the first value a serial sequence draws.
+ * numeric(5, 2) rounds; and a numeric(5, 2) value and a decimal that rounds to it at that typmod, half away from zero.
  */
 const planted = {
 	narrowText: elementAt(typeInfo.text6.values, 1, "the wide text's values"),
@@ -554,22 +472,13 @@ const planted = {
 	toastSized: elementAt(typeInfo.memo.values, 2, "the unbounded text's values"),
 	toastBefore: elementAt(typeInfo.memo.values, 3, "the unbounded text's values"),
 	toastAfter: elementAt(typeInfo.memo.values, 4, "the unbounded text's values"),
-	preciseValue: elementAt(typeInfo["numeric(12, 4)"].values, 2, "the numeric(12, 4) values"),
-	firstSerial: elementAt(typeInfo.serial.values, 0, "the serial values"),
-	secondSerial: elementAt(typeInfo.serial.values, 1, "the serial values")
+	preciseValue: elementAt(typeInfo["numeric(12, 4)"].values, 2, "the numeric(12, 4) values")
 } as const
 
-/**
- * The facts each planted arm plants beside the drawn ones `stored`, by relation.
- *
- * A fact at the sequence's first value, where no drawn fact holds it already.
- *
- * A fact at the sequence's first value, where no drawn fact holds it already.
- */
+/** The facts each planted arm plants beside the drawn ones `stored`, by relation. */
 const plantedFactsOf = (
 	p: Planted,
-	arm: PlantedArm,
-	stored: WFacts
+	arm: PlantedArm
 ): ReadonlyArray<readonly [WRelation, ReadonlyArray<Fact>]> => {
 	const wide: readonly [WRelation, ReadonlyArray<Fact>] = [
 		p.wide,
@@ -621,49 +530,6 @@ const plantedFactsOf = (
 		case "candidate repeated":
 		case "relation parameters":
 			return [[p.keyed, [{ a: armKey, b: armKey }]]]
-		case "serial collision":
-		case "lagging identical":
-		case "lagging differing":
-			return Arr.some(
-				recordEntryOf(stored, p.serialized.name, "the stored facts"),
-				(f) => f["a"] === planted.firstSerial
-			)
-				? []
-				: [[p.serialized, [{ a: planted.firstSerial, b: armKey }]]]
-		case "lagging repeat":
-			return [[p.numbered, [{ a: armKey, b: planted.firstSerial }]]]
-		case "lagging retried": {
-			/** A fact at each of the sequence's first two values, where no drawn fact holds it already. */
-			const held = recordEntryOf(stored, p.serialized.name, "the stored facts")
-			const position = (a: unknown, b: number): ReadonlyArray<Fact> =>
-				Arr.some(held, (f) => f["a"] === a) ? [] : [{ a, b }]
-			return [
-				[
-					p.serialized,
-					[...position(planted.firstSerial, armKey), ...position(planted.secondSerial, otherKey)]
-				]
-			]
-		}
-		case "lagging put":
-			return Arr.some(
-				recordEntryOf(stored, p.tallied.name, "the stored facts"),
-				(f) => f["a"] === planted.firstSerial
-			)
-				? []
-				: [[p.tallied, [{ a: planted.firstSerial, b: armKey }]]]
-		case "lagging referenced": {
-			/**
-			 * Issued facts at the sequence's first two values, where no drawn fact holds them already, and a holding of the
-			 * second.
-			 */
-			const held = recordEntryOf(stored, p.issued.name, "the stored facts")
-			const position = (a: unknown): ReadonlyArray<Fact> =>
-				Arr.some(held, (f) => f["a"] === a) ? [] : [{ a }]
-			return [
-				[p.issued, [...position(planted.firstSerial), ...position(planted.secondSerial)]],
-				[p.holding, [{ a: armKey, b: planted.secondSerial }]]
-			]
-		}
 		case "typmod cast":
 			return [[p.precise, [{ a: armKey, b: planted.preciseValue }]]]
 		case "anchored deletion":
@@ -700,14 +566,11 @@ const plantedFactsOf = (
 /** The stored facts a planted case writes from: the drawn ones and those its arm plants. */
 export const plantedFacts = (group: WGroup, stored: WFacts, arm: PlantedArm): WFacts => {
 	const out: Record<string, ReadonlyArray<Fact>> = { ...stored }
-	for (const [relation, facts] of plantedFactsOf(plantedOf(group), arm, stored)) {
+	for (const [relation, facts] of plantedFactsOf(plantedOf(group), arm)) {
 		out[relation.name] = [...recordEntryOf(stored, relation.name, "the stored facts"), ...facts]
 	}
 	return out
 }
-
-/** A value of b other than `x`. */
-const otherThan = (x: unknown): number => (x === armKey ? otherKey : armKey)
 
 /** A described member of `relation` reading `from`, filtered where `filter` says, its head `head`. */
 const described = (
@@ -785,11 +648,8 @@ const printHead = (t: HeadTerm): string => {
 	}
 }
 
-/**
- * The ChangeSet a planted arm realizes on the planted group (PlantedArm), over `stored`, the facts the case writes from
- * (plantedFacts).
- */
-export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts): WChangeSet => {
+/** The ChangeSet a planted arm realizes on the planted group (PlantedArm). */
+export const plantedChangeSet = (group: WGroup, arm: PlantedArm): WChangeSet => {
 	const p = plantedOf(group)
 	const attached = (from: ReadSource): ReadonlyArray<WRead> => [
 		{
@@ -833,37 +693,6 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
 			[],
 			{ rp0: put, p1: scope }
 		)
-	/**
-	 * The lagging arms: the stored serialized fact at the sequence's first value deleted beside a generated addition of
-	 * its other field, `b` as given, read back through delta.added and delta.removed.
-	 */
-	const lagging = (b: (stored: unknown) => ReadonlyArray<unknown>): WChangeSet => {
-		const position = Arr.findFirst(
-			recordEntryOf(stored, p.serialized.name, "the stored facts"),
-			(f) => f["a"] === planted.firstSerial
-		)
-		if (Option.isNone(position)) {
-			throw new Error("the planted group holds no serialized fact at its sequence's first value")
-		}
-		const read = (name: string, source: ReadSource): WRead => ({
-			name,
-			relation: p.serialized.name,
-			source,
-			parent: { kind: "none" }
-		})
-		return changeSet(
-			[
-				enumerated("delete", p.serialized, [position.value]),
-				enumerated(
-					"insert",
-					p.serialized,
-					Arr.map(b(position.value["b"]), (x) => ({ b: x }))
-				)
-			],
-			[read("read0", "added"), read("read1", "removed")],
-			{}
-		)
-	}
 	const widened = (op: MemberOp): WMember =>
 		described(op, p.narrow, p.wide, undefined, { a: own("a"), b: own("b"), c: own("b") })
 	/** The deletion of the keyed facts whose b is p0, described over the keyed relation itself. */
@@ -961,31 +790,6 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
 			return changeSet([enumerated("insert", p.keyed, [{ a: otherKey, b: armKey }])], [], {})
 		case "immediate violated":
 			return changeSet([enumerated("insert", p.member, [{ a: armKey, b: otherKey }])], [], {})
-		case "serial collision":
-			return changeSet([enumerated("insert", p.serialized, [{ b: armKey }])], [], {})
-		case "lagging identical":
-			return lagging((b) => [b])
-		case "lagging differing":
-			return lagging((b) => [otherThan(b)])
-		case "lagging repeat":
-			return changeSet([enumerated("insert", p.numbered, [{ a: armKey }])], [], {})
-		case "lagging retried":
-			return lagging((b) => [b, otherThan(b)])
-		case "lagging referenced":
-			return changeSet(
-				[
-					enumerated("delete", p.issued, [{ a: planted.secondSerial }]),
-					enumerated("insert", p.issued, [{}])
-				],
-				[],
-				{}
-			)
-		case "lagging put":
-			return changeSet(
-				[described("put", p.tallied, p.tallied, undefined, { a: own("a"), b: own("b") })],
-				[],
-				{}
-			)
 		case "relation parameters":
 			return changeSet(
 				[fromParam("insert", p.keyed, "rp0"), fromParam("delete", p.keyed, "rp1")],
@@ -1062,9 +866,9 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
 		case "unorderable stratum":
 			return changeSet(
 				[
-					enumerated("insert", p.issued, [{}]),
-					enumerated("put", p.holding, [{ a: armKey, b: planted.firstSerial }]),
-					enumerated("delete", p.issued, [{ a: planted.secondSerial }])
+					enumerated("insert", p.marked, [{ a: armKey, c: false }]),
+					enumerated("put", p.marker, [{ a: armKey, b: otherKey, c: false }]),
+					enumerated("delete", p.marked, [{ a: otherKey, c: false }])
 				],
 				[],
 				{}
@@ -1113,30 +917,12 @@ export const resolveChangeSet =
 			params[name] = facts
 			return name
 		}
-		/** Facts named by earlier members, by relation, and the generated additions earlier members named. */
+		/** Facts named by earlier members, by relation. */
 		const named = new Map<string, Array<Fact>>()
-		const namedGenerated = new Map<string, Array<Fact>>()
 		const drawn: Arr.NonEmptyReadonlyArray<ReadonlyArray<MemberSketch>> =
 			weightOf(swarm, "strata") > 0 ? sketch.strata : [Arr.headNonEmpty(sketch.strata)]
-		/** Generated additions are drawn in the last stratum only (see the header). */
-		const last = drawn.length - 1
-		const factOf = (relation: WRelation, p: FactPick, generated: boolean): Fact =>
-			drawnFact(relation, p, generated)
-		/** Half the picks copy an earlier generated addition, which equals it: one requested addition. */
-		const drawnFact = (relation: WRelation, p: FactPick, generated: boolean): Fact => {
+		const factOf = (relation: WRelation, p: FactPick): Fact => {
 			const fresh = resolveRow(relation, p.row)
-			const serial = new Set(Arr.map(serialColumns(relation), (c) => c.name))
-			if (generated && (p.mode <= 1 || p.mode === 7) && serial.size > 0) {
-				const earlier = namedGenerated.get(relation.name) ?? []
-				if (pickIndex(p.pick, 2) === 1 && earlier.length > 0) {
-					return at(earlier, p.row.target)
-				}
-				const partial = Rec.fromEntries(
-					Arr.filter(Rec.toEntries(fresh), ([field]) => !serial.has(field))
-				)
-				namedGenerated.set(relation.name, [...earlier, partial])
-				return partial
-			}
 			const storedFacts = stored[relation.name] ?? []
 			const earlier = named.get(relation.name) ?? []
 			const withKeyOf = (keyed: Fact, key: ReadonlyArray<string>): Fact => {
@@ -1200,18 +986,15 @@ export const resolveChangeSet =
 					return fresh
 			}
 		}
-		/** Remembers the complete facts a member names; a generated addition is no fact a later member could name. */
+		/** Remembers the facts a member names. */
 		const remember = (relation: WRelation, facts: ReadonlyArray<Fact>) => {
 			const list = named.get(relation.name) ?? []
-			appendAll(
-				list,
-				Arr.filter(facts, (f) => !isGenerated(relation, f))
-			)
+			appendAll(list, facts)
 			named.set(relation.name, list)
 		}
 		/** A near miss's further fact of `relation` beside the put, as an enumerated insert. */
 		const nearMissInsert = (relation: WRelation, m: MemberSketch): ReadonlyArray<WMember> => {
-			const extra = Arr.map(m.facts, (p) => factOf(relation, { ...p, mode: 7 }, false))
+			const extra = Arr.map(m.facts, (p) => factOf(relation, { ...p, mode: 7 }))
 			remember(relation, extra)
 			return [
 				{
@@ -1229,7 +1012,7 @@ export const resolveChangeSet =
 			const out: Array<Fact> = []
 			const keys = new Set<string>()
 			for (const p of picks) {
-				const f = factOf(relation, p, false)
+				const f = factOf(relation, p)
 				const k = factKey(relation, f)
 				if (keys.has(k)) {
 					continue
@@ -1250,7 +1033,6 @@ export const resolveChangeSet =
 			target: WRelation,
 			m: MemberSketch,
 			op: MemberOp,
-			generated: boolean,
 			outside: boolean
 		): WSource => {
 			const held = Arr.filter(
@@ -1276,19 +1058,8 @@ export const resolveChangeSet =
 					}
 				: undefined
 			const head: Record<string, HeadTerm> = {}
-			/** A generated addition's head leaves every serial field out, as its first serial field's term says. */
-			const serial = serialColumns(target)
-			const [serialFirst] = serial
-			const firstSerialAt = Arr.findFirstIndex(target.columns, (c) => c.name === serialFirst?.name)
-			const omitsSerial =
-				generated &&
-				op === "insert" &&
-				Option.exists(firstSerialAt, (at) => elementAt(m.head, at, "a member's head").term >= 2)
 			for (const [i, c] of target.columns.entries()) {
 				const h = elementAt(m.head, i, "a member's head")
-				if (omitsSerial && Arr.some(serial, (x) => x.name === c.name)) {
-					continue
-				}
 				const candidates = Arr.filter(from.columns, (s) => sameBase(s.kind, c.kind))
 				const same =
 					from === target ? Arr.findFirst(candidates, (s) => s.name === c.name) : Option.none()
@@ -1329,18 +1100,12 @@ export const resolveChangeSet =
 			}
 			return { kind: "project", from: from.name, filter, head }
 		}
-		const strata: Arr.NonEmptyArray<Array<WMember>> = Arr.map(drawn, (members, index) => {
+		const strata: Arr.NonEmptyArray<Array<WMember>> = Arr.map(drawn, (members) => {
 			const out: Array<WMember> = []
 			for (const m of members) {
 				const relation = at(group.relations, m.relation)
 				const op = elementAt(ops, m.op, "the member ops")
-				const generated = op === "insert" && index === last
-				/**
-				 * A relation parameter of a heading with an identity field is not generated: an explicit serial value
-				 * travels in an enumerated or described complete fact.
-				 */
-				const plain = serialColumns(relation).length === 0
-				if (m.source >= 9 && plain && kept("reread")) {
+				if (m.source >= 9 && kept("reread")) {
 					const facts = paramFacts(relation, m.facts)
 					remember(relation, facts)
 					const input = relationParam(facts)
@@ -1369,44 +1134,13 @@ export const resolveChangeSet =
 					appendAll(out, miss === 2 ? nearMissInsert(relation, m) : [])
 					continue
 				}
-				if (m.source === 8 && plain && kept("paramMembers")) {
+				if (m.source === 8 && kept("paramMembers")) {
 					const facts = paramFacts(relation, m.facts)
 					remember(relation, facts)
 					out.push({
 						op,
 						relation: relation.name,
 						source: { kind: "param", param: relationParam(facts) }
-					})
-					continue
-				}
-				/**
-				 * A unit addition (see `writeFeatures`): the described one reads the first relation holding several stored
-				 * facts, else the target itself, its head of no field the unit relation's one fact per row it reads.
-				 */
-				const unitAddition =
-					generated &&
-					serialColumns(relation).length === relation.columns.length &&
-					kept("unitAdditions")
-				if (unitAddition) {
-					const several = Arr.filter(
-						group.relations,
-						(r) => recordEntryOf(stored, r.name, "the stored facts").length > 1
-					)
-					const [from] = several
-					out.push({
-						op,
-						relation: relation.name,
-						source: {
-							kind: "project",
-							from: from === undefined ? relation.name : from.name,
-							filter: undefined,
-							head: {}
-						}
-					})
-					out.push({
-						op,
-						relation: relation.name,
-						source: { kind: "array", facts: [{}], stream: kept("streams") }
 					})
 					continue
 				}
@@ -1441,11 +1175,11 @@ export const resolveChangeSet =
 					out.push({
 						op,
 						relation: relation.name,
-						source: project(relation, m, op, generated, outside)
+						source: project(relation, m, op, outside)
 					})
 					continue
 				}
-				const facts = Arr.map(m.facts, (p) => factOf(relation, p, generated))
+				const facts = Arr.map(m.facts, (p) => factOf(relation, p))
 				remember(relation, facts)
 				out.push({
 					op,

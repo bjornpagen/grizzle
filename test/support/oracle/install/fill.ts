@@ -1,6 +1,6 @@
 /**
  * The stored rows of a fact set's family relations, filled as grizzle's own host fill fills a nested insert
- * (runtime/write/fill.ts filler). A fact is a written row (rows-first): its caller's fields and its serial ones, never a
+ * (runtime/write/fill.ts filler). A fact is a written row (rows-first): its caller's fields, never a
  * value a family draws. The fill draws the rest from the facts alone: each owner's count and ends, each member's group
  * fields from its owner, its index, its copy of its owner's count, and each fold's running values, in the row layout
  * every family statement writes (write/family/statements.ts rowLayout). So the loader states no drawn value, and the
@@ -67,9 +67,9 @@ interface Admitted {
 const refuse = (location: string, capability: string): Result.Result<never, CompileError> =>
 	Result.err(malformedDescription(SourceLoc(location, []), capability))
 
-/** The fields a fact of `relation` states: its caller's and its serial ones. */
+/** The fields a fact of `relation` states: its caller's. */
 const writtenFields = (relation: LawRelation): ReadonlyArray<LawField> =>
-	Arr.filter(relation.fields, (f) => f.writing.kind === "caller" || f.writing.kind === "serial")
+	Arr.filter(relation.fields, (f) => f.writing.kind === "caller")
 
 /**
  * A drawn law column's type as the loader spells its values: an integer, numeric, float, money or boolean carrier, each

@@ -606,7 +606,6 @@ const readsOf = (seen: SeenAction, earlier: ReadonlyArray<SeenAction>): Readonly
 			case "update":
 			case "truncate":
 			case "call":
-			case "setval":
 			case "merge-delete":
 			case "prepare":
 				return Option.none()

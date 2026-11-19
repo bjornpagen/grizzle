@@ -102,12 +102,12 @@ export const theWriteOraclesJudgementPassesAFaithfulRealizationAndRefusesEveryPl
 							return { group: aimed.group, facts: aimed.facts, c: aimed.changes }
 						}
 					})
-					const expected = expectChangeSet({ group, laws }, facts, c, {}, { kind: "sequences" })
+					const expected = expectChangeSet({ group, laws }, facts, c)
 					/** The state a side commits: the initial one, or none where the compile refuses the ChangeSet. */
 					const state: GroupState =
 						expected.kind === "unorderable"
-							? { relations: new Map(), sequences: new Map() }
-							: { relations: expected.initial.relations, sequences: expected.initial.sequences }
+							? { relations: new Map() }
+							: { relations: expected.initial.relations }
 					const verdict = (outcome: Result.Result<WriteOutcome, unknown>) =>
 						judgeWrite(group, c, expected, outcome, state)
 					const mutant = (

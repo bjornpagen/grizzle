@@ -1303,7 +1303,6 @@ const rollbackClass: { readonly [T in TransientTag]: boolean } = {
 	PutTargetConflict: true,
 	SpanKeyChange: true,
 	ConcurrentRefresh: true,
-	GeneratedSerialUnique: false,
 	UnseenOccupant: false
 }
 

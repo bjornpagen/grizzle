@@ -7,7 +7,7 @@ import type { UnservedMember } from "#compiler/served/unserved.ts"
 import { defined } from "#test/support/assert.ts"
 import { knownNonEmpty, pooled } from "#test/support/worlds/generate/domain.ts"
 import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
-import { serialHead, type Written } from "#test/support/worlds/model/session/writes.ts"
+import type { Written } from "#test/support/worlds/model/session/writes.ts"
 import type {
 	BaseSpec,
 	Comparison,
@@ -24,7 +24,6 @@ import type {
 type Use = "carried" | "read" | "fixed" | "unnamed"
 
 interface BoxField {
-	readonly serial: boolean
 	readonly key: boolean
 }
 
@@ -41,11 +40,8 @@ export type BoxFeature =
 	| "refused at build"
 	| "compiled whole"
 	| "compiled entry"
-	| "every carried field serial, whole"
-	| "every carried field serial, entry"
-	| "a serial field the filter reads"
+	| "a field the filter reads"
 	| "facts refused at their shape"
-	| "generated facts bound"
 
 /** The uses of a field that leave it out of the head. */
 const uncarried: ReadonlyArray<Use> = ["fixed", "unnamed"]
@@ -56,10 +52,6 @@ const uncarried: ReadonlyArray<Use> = ["fixed", "unnamed"]
  */
 export const pointGen: Gen<BoxPoint> = (source) => {
 	const count = source.draw(int(1, 3))
-	const serials: Array<boolean> = []
-	for (let i = 0; i < count; i += 1) {
-		serials.push(source.draw(boolean))
-	}
 	const restKeys: Array<boolean> = []
 	for (let i = 1; i < count; i += 1) {
 		restKeys.push(source.draw(boolean))
@@ -67,15 +59,15 @@ export const pointGen: Gen<BoxPoint> = (source) => {
 	const firstKey = Arr.some(restKeys, (k) => k) ? source.draw(boolean) : true
 	const keys = [firstKey, ...restKeys]
 	const fields = knownNonEmpty(
-		Arr.zipWith(serials, keys, (serial, key): BoxField => ({ serial, key })),
+		Arr.map(keys, (key): BoxField => ({ key })),
 		"the box's fields"
 	)
 	if (source.draw(boolean)) {
 		return { fields, entry: { kind: "whole" } }
 	}
 	const uses: Array<Use> = []
-	for (const [i, f] of fields.entries()) {
-		const carrying: Arr.NonEmptyReadonlyArray<Use> = f.serial ? ["carried", "read"] : ["carried"]
+	const carrying: Arr.NonEmptyReadonlyArray<Use> = ["carried", "read"]
+	for (const i of fields.keys()) {
 		const carried = Arr.some(uses, (u) => u === "carried" || u === "read")
 		uses.push(
 			source.draw(
@@ -87,9 +79,9 @@ export const pointGen: Gen<BoxPoint> = (source) => {
 }
 
 const relationOf = (point: BoxPoint): RelationSpec => {
-	const fields = Arr.map(point.fields, (f, i): FieldSpec => ({
+	const fields = Arr.map(point.fields, (_, i): FieldSpec => ({
 		name: `f${i}`,
-		domain: f.serial ? { kind: "serial", bits: 64 } : { kind: "integer", bits: 32 }
+		domain: { kind: "integer", bits: 32 }
 	}))
 	return {
 		name: "Cell",
@@ -169,9 +161,8 @@ const without = (fact: HostFact, fields: ReadonlyArray<string>): HostFact =>
 	Rec.filter(fact, (_, field) => !fields.includes(field))
 
 /**
- * The facts an insert through a written relation tries: complete, each carried field at the first value of its pool;
- * generated, leaving out every classed serial field; partial, leaving out the first of two or more classed ones; and
- * filtered, leaving out the first serial field the filter reads. A kind the relation's fields do not offer is not tried.
+ * The facts an insert through a written relation tries: complete, each carried field at the first value of its pool,
+ * and partial, leaving out its first carried field, which no insert states: a fact is the whole fact.
  */
 export const factKinds = (base: BaseSpec, w: Written): Arr.NonEmptyReadonlyArray<HostFact> => {
 	const fields = defined(relationSpecOf(base, w.target), `the relation ${w.target}`).fields
@@ -187,17 +178,8 @@ export const factKinds = (base: BaseSpec, w: Written): Arr.NonEmptyReadonlyArray
 	const complete: HostFact = Rec.fromEntries(
 		Arr.map(carried, ([head, field]) => [head, pooled(domainOf(field), 0)] as const)
 	)
-	const { classed, filtered } = serialHead(base, w)
-	const [firstClassed, ...moreClassed] = classed
-	const [firstFiltered] = filtered
-	return [
-		complete,
-		...(firstClassed === undefined ? [] : [without(complete, classed)]),
-		...(firstClassed === undefined || moreClassed.length === 0
-			? []
-			: [without(complete, [firstClassed])]),
-		...(firstFiltered === undefined ? [] : [without(complete, [firstFiltered])])
-	]
+	const [first] = carried
+	return first === undefined ? [complete] : [complete, without(complete, [first[0]])]
 }
 
 /** Whether a refusal of a write's inputs before any SQL is an encoder's. */

@@ -181,7 +181,6 @@ type OriginKind =
 	| "a carrier's create"
 	| "a member's carrier fill"
 	| "an ANALYZE"
-	| "a serial advance"
 	| "a read-back step"
 	| "an entry's precheck"
 	| "a read-back past the statements"
@@ -286,7 +285,6 @@ const originGen: Gen<OriginSketch> = (source) => ({
 			"a carrier's create",
 			"a member's carrier fill",
 			"an ANALYZE",
-			"a serial advance",
 			"a read-back step",
 			"an entry's precheck",
 			"a read-back past the statements",
@@ -298,13 +296,7 @@ const originGen: Gen<OriginSketch> = (source) => ({
 		array(
 			(inner): AbortSketch => ({
 				reported: inner.draw(boolean),
-				reason: inner.draw(
-					element<UniqueAbort["reason"]>([
-						"GeneratedSerialUnique",
-						"UnseenOccupant",
-						"PutTargetConflict"
-					])
-				),
+				reason: inner.draw(element<UniqueAbort["reason"]>(["UnseenOccupant", "PutTargetConflict"])),
 				relation: inner.draw(pick)
 			}),
 			{ min: 0, max: 2 }
@@ -475,11 +467,7 @@ const reportGen: Gen<ReportSketch> = weighted<ReportSketch>([
 					{
 						reported: true,
 						reason: source.draw(
-							element<UniqueAbort["reason"]>([
-								"GeneratedSerialUnique",
-								"UnseenOccupant",
-								"PutTargetConflict"
-							])
+							element<UniqueAbort["reason"]>(["UnseenOccupant", "PutTargetConflict"])
 						),
 						relation: source.draw(pick)
 					}
@@ -585,18 +573,6 @@ export const originOf = (
 			)
 		case "an ANALYZE":
 			return statement({ kind: "analyze", carriers: ["Carrier"], stratum: firstStratum }, [])
-		case "a serial advance":
-			return statement(
-				{
-					kind: "advance",
-					stratum: firstStratum,
-					action: 0,
-					relation: first,
-					field: "id",
-					needs: always
-				},
-				[]
-			)
 		case "a read-back step":
 			return statement({ kind: "readBack", name: "read" }, [])
 		case "an entry's precheck":
@@ -658,7 +634,6 @@ export type WitnessFeature =
 	| "execution: a precheck naming no entry the role writes through"
 	| "SerializationFailure"
 	| "Deadlock"
-	| "GeneratedSerialUnique"
 	| "UnseenOccupant"
 	| "PutTargetConflict"
 	| "defect on a code domain"

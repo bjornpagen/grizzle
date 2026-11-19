@@ -164,11 +164,6 @@ export const f = {
 		type,
 		writing: { kind: "generated", expr }
 	}),
-	/** A bigint field its sequence draws, GENERATED ALWAYS AS IDENTITY. */
-	bigserial: {
-		type: { kind: "pg", type: "bigint" },
-		writing: { kind: "serial" }
-	} satisfies FieldDecl<object>,
 	uuid: fieldDesc({ kind: "uuid" }),
 	regex: (source: string, flags: "u" | "su"): FieldDesc => textDesc(source, flags),
 	/** str.regex("^.*$", "su"): the explicit wildcard. */

@@ -250,7 +250,6 @@ const unitKey = (object: string, privilege: string, grantee: Grantee): string =>
 const objectsOf = (on: GrantObjects): ReadonlyArray<string> => {
 	switch (on.kind) {
 		case "TABLE":
-		case "SEQUENCE":
 		case "DOMAIN":
 		case "TYPE":
 			return Arr.map(on.names, (n) => `${on.kind} ${n.schema}.${n.name}`)

@@ -182,9 +182,6 @@ export const theCheckersParameterMemberAndBoundRulesHoldAMembersHeadToItsRelatio
 			"an extra column",
 			"a column of another type",
 			"incompatible arms",
-			"an insert leaving its serial field to its sequence",
-			"an insert writing its serial field",
-			"a put or delete without its serial field",
 			"a parameter written as its field",
 			"a sum written into a field",
 			"two arms of one heading",
@@ -236,7 +233,7 @@ export const theCheckersParameterMemberAndBoundRulesHoldAMembersHeadToItsRelatio
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/check/semantics.test.ts#theCheckersParameterMemberAndBoundRulesHoldAMembersHeadToItsRelationsHeadingForItsOpEveryColumnEnteringItsFieldAtTheFieldsOwnTypeOneHeadingAndNoAttachmentRefusedAtTheMemberOrTheAttachment:-:0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.5.1.0.0.0.0.0.5.8.1.1.0.0.1"
+					"test/unit/check/semantics.test.ts#theCheckersParameterMemberAndBoundRulesHoldAMembersHeadToItsRelationsHeadingForItsOpEveryColumnEnteringItsFieldAtTheFieldsOwnTypeOneHeadingAndNoAttachmentRefusedAtTheMemberOrTheAttachment:-:0.0.0.0.0.0.0.0.1.0.0.0.0.0.5.1.0.0.0.0.5.8.1.1.0.0.1"
 				),
 				reason:
 					"a sum over a bigint, a computed numeric, written into a numeric(10, 2) field: compatible typed the head by its carrier alone and admitted it, where PostgreSQL's length coercion raises 22003 past the field's precision",

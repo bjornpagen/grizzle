@@ -44,7 +44,7 @@ export const changeSet = agreement(changeSetAimed, {
 	kept: [
 		{
 			token: ReplayToken(
-				"test/types/changeset/changeset.test.ts#changeSet:-:0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.8.0.0.0.0.0.d.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.1.1.0.1.2.4.2.0.0.0.0.0.4.0.0.0"
+				"test/types/changeset/changeset.test.ts#changeSet:-:0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.8.0.0.0.0.0.d.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.1.1.0.1.2.4.2.0.0.0.0.0.4.0.0.0"
 			),
 			reason:
 				"a put whose query reads a parameter, applied with none, beside a tree's node inserted at one key twice with different rows: bind judged the key before it read the parameters, so the engine answered invariant-rejected where the types refuse the call (TEST_SEED=3)",
@@ -52,7 +52,7 @@ export const changeSet = agreement(changeSetAimed, {
 		},
 		{
 			token: ReplayToken(
-				"test/types/changeset/changeset.test.ts#changeSet:-:c.0.0.0.0.0.g.0.0.0.g.g.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.6.2.3.4.1.0.4.0.1.0.0.1.1.0.0"
+				"test/types/changeset/changeset.test.ts#changeSet:-:c.0.0.0.0.g.0.0.0.g.g.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.6.2.3.4.1.0.4.0.1.0.0.1.1.0.0"
 			),
 			reason:
 				"a Ledger fact whose money field holds a bare bigint, beside two Budget facts at one key with different cents: normalization judged Budget's key before it admitted Ledger's facts, so the engine answered invariant-rejected where the types refuse the fact (TEST_SEED=34)",
@@ -60,7 +60,7 @@ export const changeSet = agreement(changeSetAimed, {
 		},
 		{
 			token: ReplayToken(
-				"test/types/changeset/changeset.test.ts#changeSet:-:0.2.0.d.d.8.8.d.0.8.3.3.8.8.3.d.8.8.3.0.8.3.8.0.3.3.8.d.d.8.8.d.3.0.8.8.8.8.8.3.3.3.0.0.0.0.0.3.0.0.0.0.0.0.0.d.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.1.1u.0.0.0.0.0.0.1"
+				"test/types/changeset/changeset.test.ts#changeSet:-:0.2.0.d.d.8.8.d.8.3.3.8.8.3.d.8.8.3.0.8.3.8.0.3.3.8.d.d.8.8.d.3.0.8.8.8.8.8.3.3.3.0.0.0.0.0.3.0.0.0.0.0.0.0.d.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.1.1u.0.0.0.0.0.0.1"
 			),
 			reason:
 				"a delete of Order, a family's owner, applied by the clerk, whose write list names Order and not Line: the delete removes Order's lines whole, which the engine refuses as outside the role, as the types do, where the generator read the clerk's write list as one that holds the delete, so a delete of Bin and one of Cart applied by the clerk were expected admitted (TEST_SEED=133331041)",
@@ -108,9 +108,9 @@ export const changeSet = agreement(changeSetAimed, {
 		{
 			file: "packages/engine/src/types/changeset/changeset.ts",
 			original:
-				"\tIsTreeRow<S, R> extends true ? Pick<Written<R>, TreeRootOf<S, R> & keyof Written<R>> : Written<R>",
+				"\tIsTreeRow<S, R> extends true\n\t\t? Pick<Addition<R>, TreeRootOf<S, R> & keyof Addition<R>>\n\t\t: Addition<R>",
 			replacement:
-				"\tIsTreeRow<S, R> extends true ? Written<R> & Pick<Written<R>, TreeRootOf<S, R> & keyof Written<R>> : Written<R>",
+				"\tIsTreeRow<S, R> extends true\n\t\t? Addition<R> & Pick<Addition<R>, TreeRootOf<S, R> & keyof Addition<R>>\n\t\t: Addition<R>",
 			why: "A tree's delete takes the whole written row (DeletedRow), not its root fields alone, so a tree deleted by its root is refused; the agreement's program fails."
 		}
 	]

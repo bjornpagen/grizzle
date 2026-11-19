@@ -37,7 +37,6 @@ import { oneShotStatement, sentAnswer } from "#adapter/wire/batch.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { MigrationFolder } from "#compiler/deploy/render/folder.ts"
@@ -47,7 +46,6 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
-import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	aliasRenames,
 	bothRenames,
@@ -60,10 +58,6 @@ import {
 	planOf,
 	type Renames,
 	rowsSql,
-	type SqType,
-	serialField,
-	serialRelations,
-	sqBeforeOf,
 	typedValue,
 	type Version,
 	versionLogins
@@ -636,39 +630,6 @@ const installationOf = (
 	)
 }
 
-/** (d) Every identity of a migrated schema is past its column's stored values: no value its sequence generates repeats
- * one the column holds, whether the migration kept the serial, converted it in place (its target identity advanced
- * past the converted values) or declared it over a column holding rows. A sequence's position is the pair PostgreSQL
- * keeps, (last_value, is_called), and it is past a value v when the pair is at least (v, true), the row comparison the
- * advance function makes (physical/ddl/advance.ts); a sequence advanced to its type's greatest value is past every
- * value and generates none. The position is never turned into a next value by arithmetic: at that end last_value + 1
- * is past bigint's range (22003). PostgreSQL answers the position and the largest stored value it has not passed, and
- * the property is that it answers no row. Read as the substrate's admin from the sequence and the table, never through
- * grizzle. */
-export const identitiesPast = (
-	plan: RealInstallPlan,
-	what: string
-): Effect.Effect<void, PropertyFailed | SqlError, Substrate> =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		for (const t of Rec.values(plan.tables)) {
-			for (const c of t.columns) {
-				if (c.drawn.kind !== "identity") {
-					continue
-				}
-				const short = yield* substrate.admin.query(
-					`SELECT s.last_value::text AS at, s.is_called AS called, max(r.${quoteIdent(c.column)})::text AS reached FROM ${printObjectName(c.drawn.name)} AS s JOIN ${printObjectName(t.name)} AS r ON (s.last_value, s.is_called) < (r.${quoteIdent(c.column)}, true) GROUP BY s.last_value, s.is_called`,
-					[]
-				)
-				if (Arr.isReadonlyArrayNonEmpty(short.rows)) {
-					return yield* new PropertyFailed({
-						report: `${what}: the identity of ${t.relation}.${c.field} stands short of a stored value: ${Formatter.format(short.rows)}`
-					})
-				}
-			}
-		}
-	})
-
 /**
  * The steps of `versions` into `schema`, each drafted from the snapshot before under the renames and drops it declares
  * (`--rename`, `--drop`: declarationsAlong), the path's renames declared when `choose` and every removal declared
@@ -703,10 +664,7 @@ export const drafted = (
 		const after = planOf(step.version, schema)
 		const reviewed = review(g.value, {
 			losses: "written",
-			value: typedValue(
-				{ plan: after, version: step.version },
-				sqBeforeOf(prior.version, carried(prior, step, choose && i > 0))
-			)
+			value: typedValue({ plan: after, version: step.version })
 		})
 		steps.push({ generated: g.value, files: reviewed.files })
 	}
@@ -732,28 +690,12 @@ export const directory = (steps: ReadonlyArray<Step>, i: number): TextTarget => 
 	}
 }
 
-/** The value of the field `sq` in a version's `n`th row of a relation, by its type: `n`, or a version 7 uuid numbered
- * `n`, distinct from every uuid the fact generator draws. */
-const sqValue = (type: SqType, n: number): bigint | string => {
-	switch (type) {
-		case "serial":
-		case "bigserial":
-			return BigInt(n)
-		case "uuidv7":
-		case "uuid":
-			return `01800000-0000-7000-8000-${Str.padStart(12, "0")(n.toString(16))}`
-	}
-}
-
-/** A version's facts as the loader's records, with the coded pair's fixed rows when the path draws it; a relation with a
- * field `sq` numbers its rows from one in it (sqValue), the values the row comparison leaves out. */
+/** A version's facts as the loader's records, with the coded pair's fixed rows when the path draws it. */
 export const factSetOf = (v: Version, facts: ValueFacts): FactSet => {
-	const sq = serialRelations(v.schema, v.extras)
 	const out: Record<string, ReadonlyArray<Readonly<Record<string, unknown>>>> = {}
 	for (const r of v.schema.relations) {
-		const type = sq.get(r.name)
-		out[r.name] = Arr.map(facts[r.name] ?? [], (row, i) => ({
-			...Rec.fromEntries(
+		out[r.name] = Arr.map(facts[r.name] ?? [], (row) =>
+			Rec.fromEntries(
 				Arr.map(r.columns, (c, k) => {
 					const value = row[k]
 					if (value === undefined) {
@@ -761,28 +703,26 @@ export const factSetOf = (v: Version, facts: ValueFacts): FactSet => {
 					}
 					return [c.name, typedLiteralDesc(value, c.type)]
 				})
-			),
-			...(type === undefined ? {} : { [serialField]: sqValue(type, i + 1) })
-		}))
+			)
+		)
 	}
 	return v.extras.coded.kind === "present" ? { ...out, ...codedFacts } : out
 }
 
-/** The rows of a version's relations, by relation, each a multiset in a canonical order, a numbered field's values
- * apart from them, by field (`rowsSql`), as PostgreSQL reads them. */
+/** The rows of a version's relations, by relation, each a multiset in a canonical order (`rowsSql`), as PostgreSQL reads
+ * them. */
 export const storedRowsOf = (
 	session: MigrationSession,
 	plan: RealInstallPlan,
 	v: Version,
-	schema: string,
-	numbered: ReadonlySet<string>
+	schema: string
 ): Effect.Effect<
 	Readonly<Record<string, ReadonlyArray<ReadonlyArray<string>>>>,
 	StatementFailure
 > =>
 	Effect.gen(function* () {
 		const out: Record<string, ReadonlyArray<ReadonlyArray<string>>> = {}
-		for (const [key, sql] of rowsSql(plan, v, schema, numbered)) {
+		for (const [key, sql] of rowsSql(plan, v, schema)) {
 			const rows = yield* statementRows(session, sql, [])
 			out[key] = Arr.sort(rows, Arr.makeOrder(Order.String))
 		}

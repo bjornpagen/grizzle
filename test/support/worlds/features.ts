@@ -17,11 +17,7 @@ import {
 	sameFact
 } from "#test/support/worlds/model/host.ts"
 import { reachedPairs, steppedPairs } from "#test/support/worlds/model/reads.ts"
-import {
-	ambiguousArbiter,
-	compileRefused,
-	readBackClasses
-} from "#test/support/worlds/model/session/apply.ts"
+import { compileRefused, readBackClasses } from "#test/support/worlds/model/session/apply.ts"
 import { handSetFaults, onConflictSets } from "#test/support/worlds/model/session/direct.ts"
 import { entryKeyed } from "#test/support/worlds/model/session/keys.ts"
 import { reorderedRoster } from "#test/support/worlds/model/session/migrate.ts"
@@ -42,7 +38,6 @@ import {
 	installedRole,
 	installedWrite,
 	keysOf,
-	serialHead,
 	updatableFields,
 	writtenNamed
 } from "#test/support/worlds/model/session/writes.ts"
@@ -439,7 +434,6 @@ const statementTouch = (actor: RoleActor, statement: DirectStatement): Touch => 
 		case "set-session-authorization":
 		case "set-claims":
 		case "call":
-		case "setval":
 		case "prepare":
 		case "execute-prepared":
 			return untouched
@@ -795,7 +789,6 @@ const holdsFor = (state: ModelState, role: RoleSpec, statement: DirectStatement)
 			)
 		}
 		case "truncate":
-		case "setval":
 		case "set-role":
 		case "reset-role":
 		case "set-session-authorization":
@@ -889,8 +882,6 @@ const functionKind = (
 			return "filter-function"
 		case "key-probe":
 			return "key-probe"
-		case "advance":
-			return "advance-function"
 	}
 }
 
@@ -952,8 +943,7 @@ const statementObjects = (
 		case "delete":
 		case "merge-delete":
 		case "update":
-		case "truncate":
-		case "setval": {
+		case "truncate": {
 			if (actor.kind === "login") {
 				return refusedPrivilege(observation) ? [objectFeature("revoke", "attempt-refused")] : []
 			}
@@ -1028,7 +1018,6 @@ const statementObjects = (
 							]
 						}
 						case "truncate":
-						case "setval":
 							return []
 					}
 				}
@@ -1182,7 +1171,6 @@ const statementInvariants = (
 		case "insert-on-conflict":
 		case "update":
 		case "call":
-		case "setval":
 		case "prepare":
 		case "execute-prepared":
 			return hidden
@@ -1299,7 +1287,6 @@ const readOf = (state: ModelState, action: Action, actor: RoleActor): ReadonlyAr
 		case "update":
 		case "truncate":
 		case "call":
-		case "setval":
 		case "prepare":
 		case "execute-prepared":
 			return []
@@ -1612,7 +1599,6 @@ const claimRefusalFeature = (
 		case "handle":
 		case "contract":
 			return [`claim-refused:${domain.kind}:${refusal}`]
-		case "serial":
 		case "span":
 			return []
 	}
@@ -1628,7 +1614,6 @@ const claimFeature = (domain: FieldDomain): Option.Option<WorldFeature> => {
 		case "handle":
 		case "contract":
 			return Option.some<WorldFeature>(`claim:${domain.kind}`)
-		case "serial":
 		case "span":
 			return Option.none()
 	}
@@ -1726,12 +1711,7 @@ const pathsOf = (
 						: action.strata[0].length > 1
 							? "strata:union"
 							: "strata:one"
-			return [
-				strata,
-				...readBacksOf(state, action, observation),
-				...additionsOf(state, action),
-				...(observation.kind === "applied" ? suppliedSerialsOf(state, action) : [])
-			]
+			return [strata, ...readBacksOf(state, action, observation), ...additionsOf(state, action)]
 		}
 		case "open-db":
 		case "refresh":
@@ -1748,11 +1728,7 @@ const pathsOf = (
 	}
 }
 
-/**
- * The insertions a ChangeSet applies through a Db's role relations, each fact by its serial class and its relation's
- * generated class (AdditionFeature): generated when it leaves out every classed serial field of a classed relation,
- * complete otherwise; unit when the relation's every carried field is classed serial, so a generated fact carries none.
- */
+/** The insertions a ChangeSet applies through a Db's role relations, each fact by the role relation it goes through. */
 export const additionsOf = (
 	state: ModelState,
 	action: Extract<Action, { readonly kind: "apply" }>
@@ -1769,62 +1745,8 @@ export const additionsOf = (
 				if (op.kind !== "insert" || written === undefined) {
 					return []
 				}
-				const { classed } = serialHead(base, written)
-				const carried =
-					written.kind === "whole"
-						? Arr.map(relationSpecOf(base, written.target)?.fields ?? [], (f) => f.name)
-						: Record.keys(written.head)
 				const target = written.kind === "whole" ? "whole" : "entry"
-				const unit = Arr.every(carried, (f) => classed.includes(f)) ? "unit" : "carried"
-				return Arr.map(op.facts, (fact): AdditionFeature => {
-					const generated = classed.length > 0 && Arr.every(classed, (f) => fact[f] === undefined)
-					return `addition:${generated ? "generated" : "complete"}:${target}:${unit}`
-				})
-			})
-	})
-}
-
-/**
- * The generated additions through a Db's query entries that supply a serial value, one the entry's filter reads or its
- * fill fixes, a stored value the driver holds to the model's (README "Writing through a role"): a fact leaving out every classed serial head field (writes.ts serialHead) of an
- * entry whose target holds a serial field no classed head field writes. Noted of an applied ChangeSet alone, whose
- * committed state the driver then holds to the model's, the supplied value stored.
- */
-const suppliedSerialsOf = (
-	state: ModelState,
-	action: Extract<Action, { readonly kind: "apply" }>
-): ReadonlyArray<WorldFeature> => {
-	const base = state.install.base
-	const role = Option.flatMap(Option.fromUndefinedOr(sessionAt(state, action.session)), (session) =>
-		session.kind === "db" ? roleIn(state.install, session.role) : Option.none()
-	)
-	return Option.match(role, {
-		onNone: () => [],
-		onSome: (r) =>
-			Arr.flatMap(action.strata.flat(), (op): ReadonlyArray<WorldFeature> => {
-				const written = writtenNamed(base, r, op.relation)
-				if (op.kind !== "insert" || written?.kind !== "query") {
-					return []
-				}
-				const { classed } = serialHead(base, written)
-				const drawn = new Set(
-					Arr.flatMap(classed, (h) =>
-						Option.toArray(
-							Option.map(Option.fromUndefinedOr(written.head[h]), (head) => head.field)
-						)
-					)
-				)
-				const supplied = Arr.some(
-					relationSpecOf(base, written.target)?.fields ?? [],
-					(f) => f.domain.kind === "serial" && !drawn.has(f.name)
-				)
-				return supplied
-					? Arr.flatMap(op.facts, (fact): ReadonlyArray<WorldFeature> =>
-							Arr.every(classed, (h) => fact[h] === undefined)
-								? ["addition:generated:entry:supplied-serial"]
-								: []
-						)
-					: []
+				return Arr.map(op.facts, (): AdditionFeature => `addition:${target}`)
 			})
 	})
 }
@@ -2049,65 +1971,6 @@ const lawsOf = (
 }
 
 /**
- * A row check refused with a shown witness where a fact the ChangeSet states through a whole entry leaves out a field of
- * the check's relation's primary key, an identity the database draws: the witness names that fact by another declared
- * key (README "Errors and outcomes").
- */
-const declaredKeysOf = (
-	state: ModelState,
-	action: Action,
-	actor: Actor,
-	observation: Observation
-): ReadonlyArray<WorldFeature> => {
-	if (
-		action.kind !== "apply" ||
-		actor.kind !== "role" ||
-		observation.kind !== "invariant-rejected" ||
-		observation.witness.kind !== "shown"
-	) {
-		return []
-	}
-	const base = state.install.base
-	const law = Option.getOrUndefined(
-		Arr.findFirst(state.host.laws, (l) => l.law === observation.law)
-	)
-	if (law?.kind !== "check") {
-		return []
-	}
-	const primary = Option.match(Option.fromUndefinedOr(relationSpecOf(base, law.relation)), {
-		onNone: (): ReadonlyArray<string> => [],
-		onSome: (spec) => spec.key
-	})
-	const leavesOut = Arr.some(
-		opsOf(action),
-		(op) =>
-			op.kind !== "delete" &&
-			writtenNamed(base, actor.role, op.relation)?.kind === "whole" &&
-			writtenNamed(base, actor.role, op.relation)?.target === law.relation &&
-			Arr.some(op.facts, (fact) => Arr.some(primary, (field) => fact[field] === undefined))
-	)
-	return leavesOut ? ["law:check:declared-key"] : []
-}
-
-/**
- * A ChangeSet through a Db refused when it compiled because an insertion's generated class meets an ambiguous arbiter
- * (session/apply.ts ambiguousArbiter): its relation's primary key holds a field the class draws and several declared
- * keys hold none, as a migration declaring a second such key leaves it (README "Writes", Serial columns).
- */
-const ambiguousArbitersOf = (
-	state: ModelState,
-	action: Action,
-	actor: Actor,
-	observation: Observation
-): ReadonlyArray<WorldFeature> =>
-	action.kind === "apply" &&
-	actor.kind === "role" &&
-	observation.kind === "compile-refused" &&
-	ambiguousArbiter(state.install.base, actor.role, action.strata)
-		? ["addition:generated:arbiter-ambiguous"]
-		: []
-
-/**
  * The shapes of relation an accepted ChangeSet through a Db wrote (WriteShape), each op by its relation's mutability,
  * the path it took (a query entry or a whole one) and its kind: a relation keyed WITHOUT OVERLAPS, and a pure set.
  */
@@ -2200,8 +2063,6 @@ export const featuresOf = (
 			...connectionsOf(state, action, observation),
 			...pathsOf(state, action, observation),
 			...lawsOf(state, action, actor, observation),
-			...declaredKeysOf(state, action, actor, observation),
-			...ambiguousArbitersOf(state, action, actor, observation),
 			...writesOf(state, action, actor, observation),
 			...claimRefusalsOf(state, action, observation),
 			...(action.kind === "migrate"
@@ -2298,7 +2159,6 @@ const loginTouch = (state: ModelState, action: Action): Touch => {
 		case "set-session-authorization":
 		case "set-claims":
 		case "call":
-		case "setval":
 		case "prepare":
 		case "execute-prepared":
 			return untouched
@@ -2441,8 +2301,6 @@ const objectOutcomes: ReadonlyArray<WorldFeature> = [
 	objectFeature("key-probe", "refused-outside"),
 	objectFeature("key-probe", "witness-shown"),
 	objectFeature("key-probe", "attempt-refused"),
-	objectFeature("advance-function", "accepted-inside"),
-	objectFeature("advance-function", "attempt-refused"),
 	objectFeature("grant", "accepted-inside"),
 	objectFeature("grant", "attempt-refused"),
 	objectFeature("revoke", "attempt-refused"),
@@ -2478,15 +2336,8 @@ const situations: ReadonlyArray<WorldFeature> = [
 	"readback:written",
 	"readback:beside",
 	"readback:undetermined",
-	"addition:complete:whole:carried",
-	"addition:complete:whole:unit",
-	"addition:complete:entry:carried",
-	"addition:complete:entry:unit",
-	"addition:generated:whole:carried",
-	"addition:generated:whole:unit",
-	"addition:generated:entry:supplied-serial",
-	"addition:generated:entry:carried",
-	"addition:generated:entry:unit",
+	"addition:whole",
+	"addition:entry",
 	"deletion:base-gone",
 	"deletion:world-gone",
 	"deletion:derived-kept",

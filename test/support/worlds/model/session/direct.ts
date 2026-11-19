@@ -1,7 +1,6 @@
 import { Array as Arr, Option, Record, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { type HostLaw, isSpan, sameValue, selected, valueText } from "#test/support/laws/model.ts"
-import { nextDraw, withSerial } from "#test/support/worlds/model/draws.ts"
 import {
 	entryRows,
 	evaluateRules,
@@ -50,7 +49,6 @@ import {
 	probeOf,
 	updatableFields,
 	type Written,
-	writtenAt,
 	writtenNamed
 } from "#test/support/worlds/model/session/writes.ts"
 
@@ -315,7 +313,6 @@ const claimCast = (domain: FieldDomain, names: InstalledNames, text: string): Cl
 				? refused("23514")
 				: { kind: "value", value: handle }
 		}
-		case "serial":
 		case "span":
 			throw new Error(`a context field of a ${domain.kind}, which no context declares`)
 	}
@@ -795,16 +792,6 @@ export const directBranches = (
 			: { written: w, policy: policyOf(state, role.name, relation) }
 	}
 	const belowSerializable = session.isolation !== "serializable"
-	/**
-	 * Whether an UPDATE sets a serial field: its identity column is GENERATED ALWAYS, so PostgreSQL's rewriter refuses the
-	 * value (428C9) before the executor checks any privilege. An INSERT naming one writes OVERRIDING SYSTEM VALUE, as
-	 * README's writer does, so the value meets privileges, row security and the laws like any other.
-	 */
-	const namesSerial = (relation: string, fields: ReadonlyArray<string>): boolean =>
-		Arr.some(
-			relationSpecOf(base, relation)?.fields ?? [],
-			(f) => f.domain.kind === "serial" && fields.includes(f.name)
-		)
 	/** The rows a delete or update targets at a key: only those row security admits. */
 	const targeted = (relation: string, key: HostFact, policy: Policy): ReadonlyArray<HostFact> =>
 		Arr.filter(factsIn(session.view, relation), (f) => atKey(f, key) && member(policy, f))
@@ -832,7 +819,7 @@ export const directBranches = (
 	]
 	/**
 	 * A literal's base-type fault in the values a statement names: PostgreSQL's parser runs each literal's input function
-	 * (22P02, 22003), before its rewriter refuses an UPDATE of a serial field (428C9), before the executor checks privileges
+	 * (22P02, 22003), before the executor checks privileges
 	 * (42501) and before any trigger (25000).
 	 */
 	const parseFault = (relation: string, fact: HostFact): Branch | undefined => {
@@ -849,12 +836,9 @@ export const directBranches = (
 		}
 		return undefined
 	}
-	/** The plain fields an INSERT leaves out: neither serial (the identity default's to draw) nor named. */
+	/** The fields an INSERT leaves out: those it does not name. */
 	const leftOut = (relation: string, fact: HostFact): ReadonlyArray<FieldSpec> =>
-		Arr.filter(
-			relationSpecOf(base, relation)?.fields ?? [],
-			(f) => f.domain.kind !== "serial" && !Record.has(fact, f.name)
-		)
+		Arr.filter(relationSpecOf(base, relation)?.fields ?? [], (f) => !Record.has(fact, f.name))
 	/**
 	 * What an INSERT's row meets as PostgreSQL projects it, past its literals: the CHECK of each law domain a value breaks
 	 * and of each law domain a field it leaves out has (the NULL that stands for the field is cast to its domain, and
@@ -1035,15 +1019,12 @@ export const directBranches = (
 	 * judges a row, in the membership's order (claimsOrder, planned wherever a filter function exists, since it joins a
 	 * stored relation); a key probe judges the membership of each row of its target at the key in the transaction's view
 	 * (physical/ddl/roles.ts: equal at each field, overlapping at a span field), so it reads no claim where no row is at
-	 * the key. A plan that reads none answers. An advance function reads no claims, and no role executes a law's.
+	 * the key. A plan that reads none answers. No role executes a law's function.
 	 */
 	const executed = (
 		fn: WorldFunction,
 		args: ReadonlyArray<HostValue>
 	): Arr.NonEmptyReadonlyArray<Branch> => {
-		if (fn.kind !== "filter" && fn.kind !== "key-probe") {
-			return [go(session)]
-		}
 		const owner = roleOf(state.install, fn.role)
 		const w = owner === undefined ? undefined : writtenNamed(base, owner, fn.entry)
 		const supplied = w?.kind === "query" ? writableSupplier(base, w.rules) : undefined
@@ -1117,7 +1098,7 @@ export const directBranches = (
 				return cast
 			}
 			return underClaims(policyJudgment(at.policy), true, () => {
-				const { fact } = withSerial(base, statement.relation, statement.fact, nextDraw(state))
+				const fact = statement.fact
 				if (!member(at.policy, fact)) {
 					return [refused("42501")]
 				}
@@ -1162,9 +1143,6 @@ export const directBranches = (
 			if (parsed !== undefined) {
 				return [parsed]
 			}
-			if (namesSerial(statement.relation, fields)) {
-				return [refused("428C9")]
-			}
 			if (at === undefined) {
 				return [refused("42501")]
 			}
@@ -1202,7 +1180,6 @@ export const directBranches = (
 			}
 			const at = write(statement.relation)
 			const key = relationSpecOf(base, statement.relation)?.key ?? []
-			/** An identity's drawn value sets a serial key field where the fact leaves it to the default. */
 			const sets = onConflictSets(base, statement.relation, statement.fact)
 			const resolution = statement.onConflict
 			/** The writer's predicate over the stored row, which DO NOTHING states none of. */
@@ -1216,9 +1193,6 @@ export const directBranches = (
 				)
 			if (unknownField) {
 				return [refused("other")]
-			}
-			if (resolution.kind === "update" && namesSerial(statement.relation, sets)) {
-				return [refused("428C9")]
 			}
 			/**
 			 * The primary key's span fields: a span key, WITHOUT OVERLAPS, which PostgreSQL arbitrates only as its constraint
@@ -1249,7 +1223,7 @@ export const directBranches = (
 				return cast
 			}
 			return underClaims(policyJudgment(at.policy), true, () => {
-				const { fact } = withSerial(base, statement.relation, statement.fact, nextDraw(state))
+				const fact = statement.fact
 				if (!member(at.policy, fact)) {
 					return [refused("42501")]
 				}
@@ -1385,7 +1359,6 @@ export const directBranches = (
 				: tableRead(read.relation, { kind: "none" })
 		}
 		case "truncate":
-		case "setval":
 			return [refused("42501")]
 		case "call":
 			return callAnswer(
@@ -1517,7 +1490,6 @@ const literalFault = (domain: FieldDomain, text: string): "22P02" | "22003" | un
 				: "22P02"
 		case "integer":
 		case "contract":
-		case "serial":
 			return integer(domain.bits)
 		case "boolean":
 			return Arr.contains(BOOLEAN_SPELLINGS, caseFolded(trimmed)) ? undefined : "22P02"
@@ -1543,7 +1515,7 @@ const literalFault = (domain: FieldDomain, text: string): "22P02" | "22003" | un
 
 /**
  * A call of a function the installation defines (README "Direct SQL access", "Security model"): a role executes exactly its own
- * filter functions and key probes, and the advance function of each serial field of a relation it writes. A function
+ * filter functions and key probes. A function
  * the installation does not define, or called with another number of arguments, is an error of its
  * own, before any privilege is checked.
  */
@@ -1566,13 +1538,17 @@ const callAnswer = (
 			return [refused(fault)]
 		}
 	}
-	return executes(state, role, fn) ? called() : [refused("42501")]
+	return executes(role, fn) ? called() : [refused("42501")]
 }
 
-/** The parameters of an entry's filter function or key probe, by their domains (parametersOf). */
-const entryFunctionParameters = (
+/**
+ * The parameters of a function the installation defines, by their domains: a filter function's, its entry's membership
+ * fields (defined only where the entry's rule reads a stored relation besides its target's row); a key probe's, its
+ * key's fields. Undefined for one the installation does not define.
+ */
+export const parametersOf = (
 	state: ModelState,
-	fn: Extract<WorldFunction, { readonly kind: "filter" | "key-probe" }>
+	fn: WorldFunction
 ): ReadonlyArray<FieldDomain> | undefined => {
 	const base = state.install.base
 	const owner = roleOf(state.install, fn.role)
@@ -1599,41 +1575,10 @@ const entryFunctionParameters = (
 }
 
 /**
- * The parameters of a function the installation defines, by their domains: a filter function's, its entry's membership
- * fields (defined only where the entry's rule reads a stored relation besides its target's row); a key probe's, its
- * key's fields; an advance function's, one bigint. Undefined for one the installation does not define.
+ * Whether a role holds EXECUTE on a function the installation defines: its own filter functions and key probes;
+ * nothing while the writer is still its login.
  */
-export const parametersOf = (
-	state: ModelState,
-	fn: WorldFunction
-): ReadonlyArray<FieldDomain> | undefined => {
-	const base = state.install.base
-	switch (fn.kind) {
-		case "filter":
-		case "key-probe":
-			return entryFunctionParameters(state, fn)
-		case "advance": {
-			const field = Option.getOrUndefined(
-				Arr.findFirst(relationSpecOf(base, fn.relation)?.fields ?? [], (f) => f.name === fn.field)
-			)
-			return field?.domain.kind === "serial" ? [{ kind: "integer", bits: 64 }] : undefined
-		}
-	}
-}
-
-/**
- * Whether a role holds EXECUTE on a function the installation defines: its own filter functions and key probes, and
- * the advance function of each serial field of a relation it writes; nothing while the writer is still its login.
- */
-const executes = (state: ModelState, role: RoleSpec | undefined, fn: WorldFunction): boolean => {
-	switch (fn.kind) {
-		case "filter":
-		case "key-probe":
-			return role?.name === fn.role
-		case "advance":
-			return role !== undefined && writtenAt(state.install.base, role, fn.relation) !== undefined
-	}
-}
+const executes = (role: RoleSpec | undefined, fn: WorldFunction): boolean => role?.name === fn.role
 
 /**
  * The end of a direct writer's transaction: ROLLBACK discards its view; COMMIT judges the laws PostgreSQL defers to it

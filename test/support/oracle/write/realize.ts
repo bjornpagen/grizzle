@@ -7,12 +7,7 @@ import type * as Result from "#compiler/core/result.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
-import {
-	completeAddition,
-	completeClass,
-	type ReadBack,
-	type SerialClass
-} from "#compiler/ir/write.ts"
+import { type ReadBack } from "#compiler/ir/write.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { generations, reality } from "#compiler/laws/model/generation.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
@@ -31,7 +26,7 @@ import {
 	relationCarrier
 } from "#compiler/write/carriers/carriers.ts"
 import { buildDisplacingDelete, buildExactDelete } from "#compiler/write/delete/exact.ts"
-import { buildEntryCheck, type EntryCheck, outsideProbes } from "#compiler/write/entry/precheck.ts"
+import { buildEntryCheck, type EntryCheck } from "#compiler/write/entry/precheck.ts"
 import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
 import { payloadOf } from "#compiler/write/frontend/targets.ts"
@@ -51,7 +46,6 @@ import {
 	type InsertOf,
 	type InsertResult,
 	keyFirst,
-	type SequenceAdvanceResult,
 	type StatementShare,
 	type WriteContext,
 	type WriteNames,
@@ -62,13 +56,12 @@ import { castsNothing } from "#compiler/write/program/artifact.ts"
 import { inPlaceOf } from "#compiler/write/put/choose.ts"
 import { buildUpdateFrom, type PutStatement } from "#compiler/write/put/statement.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
-import { buildSequenceAdvances, explicitSerials } from "#compiler/write/serial/advance.ts"
 
 /** One step of the conservative realization:
  * - `carrier`, a carrier's creation or fill: a member's, at the start of its stratum, or, with no stratum, a snapshot
  *   or a delta around the strata;
  * - `action`, a statement of an action of a stratum, `action` its index there (ir.strata[stratum].actions): its insert
- *   or deletion, whose rows are its changes (`changeTags`), or a sequence advance after explicit serial values;
+ *   or deletion, whose rows are its changes (`changeTags`);
  * - `readBack`, a read-back's conservative lowering;
  * - `check`, a query entry's check of an addition's facts;
  * - `family`, a family statement of a stratum, where its schedule runs it among the stratum's actions. */
@@ -82,9 +75,7 @@ type ConservativeStep =
 	  }
 	| {
 			readonly kind: "action"
-			readonly statement:
-				| WriteStatement<InsertResult | DeleteResult | SequenceAdvanceResult>
-				| PutStatement
+			readonly statement: WriteStatement<InsertResult | DeleteResult> | PutStatement
 			readonly relation: WrittenRelation
 			readonly stratum: StratumAt
 			readonly action: number
@@ -243,56 +234,46 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		for (const [i, { action, input }] of placed.entries()) {
 			familyBefore(i)
 			const relation = action.info.relation
-			const statement = (
-				built: WriteStatement<InsertResult | DeleteResult | SequenceAdvanceResult> | PutStatement
-			) =>
+			const statement = (built: WriteStatement<InsertResult | DeleteResult> | PutStatement) =>
 				steps.push(
 					Object.freeze({ kind: "action", statement: built, relation, stratum: s, action: i })
 				)
 			/** An addition's precheck through a query entry: its facts inside the entry, and none at a unique object of a
 			 * fact outside it (entry/precheck.ts). */
-			const precheck = (serial: SerialClass) => {
+			const precheck = () => {
 				const entry = action.info.entry
 				if (entry.kind === "entry") {
 					check(input, {
 						kind: "membership",
 						entry: entry.entry,
 						relation,
-						probes: outsideProbes(relation, serial),
+						probes: relation.uniques.probes,
 						base: frontend.schema.definitions(),
 						catalog: evidenceCatalog(frontend),
 						world: entry.names
 					})
 				}
 			}
-			/** The insert protocol for an insertion or a put's insert half, then the sequence advance after explicit serial
-			 * values. */
-			const insert = (serial: SerialClass, of: InsertOf) => {
-				statement(buildInsert(w, { relation, serial, input, of }))
-				for (const advance of buildSequenceAdvances(
-					w,
-					{ relation, input },
-					explicitSerials(relation, serial)
-				)) {
-					statement(advance)
-				}
+			/** The insert protocol for an insertion or a put's insert half. */
+			const insert = (of: InsertOf) => {
+				statement(buildInsert(w, { relation, input, of }))
 			}
 			switch (action.op) {
 				case "delete": {
 					const additions = Arr.flatMap(placed, (b) =>
-						b.action.relation === action.relation && completeAddition(b.action) ? [b.input] : []
+						b.action.relation === action.relation && b.action.op !== "delete" ? [b.input] : []
 					)
 					statement(buildExactDelete(w, { relation, input, except: additions }))
 					break
 				}
 				case "insert":
-					precheck(action.serial)
-					insert(action.serial, "insert")
+					precheck()
+					insert("insert")
 					break
 				case "put": {
 					const payload = payloadOf(relation)
 					if (ownsFamily(relation.name)) {
-						precheck(completeClass)
+						precheck()
 						const set = inPlaceOf(action.info, payload)
 						if (isNonEmpty(set)) {
 							statement(buildUpdateFrom(w, { relation, input, inPlace: { payload: set } }))
@@ -301,9 +282,9 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 						if (payload.kind === "keyed") {
 							statement(buildDisplacingDelete(w, { relation, input, payload: payload.fields }))
 						}
-						precheck(completeClass)
+						precheck()
 					}
-					insert(completeClass, "put")
+					insert("put")
 					break
 				}
 			}
@@ -417,15 +398,13 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
  *    carrier has the relation's column types, so it holds the member's facts as they are written, and a deletion's has
  *    each field's base type with its typmod, so it holds the member as the deletion compares it; an enumerated member
  *    is its relation parameter, which never changes. Then each action in the front end's dependency order:
- *    - a deletion is the exact deletion of its member, D EXCEPT A over the stratum's complete additions to the
+ *    - a deletion is the exact deletion of its member, D EXCEPT A over the stratum's additions to the
  *      relation, so additions win whatever the host normalized;
  *    - an insertion is the insert protocol for its relation and member shape, SELECT DISTINCT and the same-key check
  *      included for every carrier, since the baseline relies on no evidence, followed, into a span primary key, by the
- *      classification of every requested fact it did not insert, and by the sequence advances when it carries
- *      explicit serial values; a generated class of no field reads the unit input and assigns no column, so every
- *      column takes its identity;
+ *      classification of every requested fact it did not insert;
  *    - a put is its definition whatever its relation's mutability: the deletion of the occupants at its members' keys
- *      whose payload differs, then the insert protocol as its insert half, then the sequence advances. An occupant
+ *      whose payload differs, then the insert protocol as its insert half. An occupant
  *      equal to its member is not displaced, so an identical put deletes nothing and inserts an exact repeat and is
  *      no-change; a pure set's put displaces nothing.
  *    A role's query entry adds its checks: an addition the Db's claims leave outside the world is a check of its

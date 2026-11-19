@@ -20,7 +20,6 @@ import { driftOf } from "#test/support/worlds/model/session/catalog.ts"
 import { begunSession } from "#test/support/worlds/model/session/direct.ts"
 import { loginGone, sessionAt, withSession } from "#test/support/worlds/model/session/state.ts"
 import {
-	adoptStored,
 	expectedProbe,
 	hiddenTokens,
 	observedNext,
@@ -273,8 +272,6 @@ const statementTexts = (statement: DirectStatement): ReadonlyArray<string> => {
 			return [...factTexts(statement.key), ...factTexts(statement.set)]
 		case "call":
 			return Arr.map(statement.args, valueText)
-		case "setval":
-			return [String(statement.value)]
 	}
 }
 
@@ -424,9 +421,8 @@ const storedDivergences = (
 	})
 
 /**
- * Checks that the real system is in the state the model claims (Turso's step 5), and returns the model's state with
- * the serial values PostgreSQL drew adopted (the model predicts no identity draw): the model's state keeps every
- * invariant; every base relation and every derived relation, read as the owner, holds exactly the model's facts; and
+ * Checks that the real system is in the state the model claims (Turso's step 5), and returns the model's state: the
+ * model's state keeps every invariant; every base relation and every derived relation, read as the owner, holds exactly the model's facts; and
  * every session the model holds open probes exactly as the model expects of it.
  */
 const checkState = (
@@ -440,16 +436,15 @@ const checkState = (
 			return yield* new ModelMismatch({ where, divergence: { _tag: "invariant", violations } })
 		}
 		const stored = yield* Effect.orDie(world.stored)
-		const adopted = adoptStored(state, stored)
 		const differing = [
 			...storedDivergences(
 				Arr.map(state.install.base.relations, (r) => r.name),
-				(relation) => adopted.reality.get(relation) ?? [],
+				(relation) => state.reality.get(relation) ?? [],
 				(relation) => stored.reality.get(relation) ?? []
 			),
 			...storedDivergences(
 				Arr.map(state.install.base.derived, (d) => d.name),
-				(relation) => adopted.derived[relation] ?? [],
+				(relation) => state.derived[relation] ?? [],
 				(relation) => stored.derived[relation] ?? []
 			)
 		]
@@ -459,11 +454,11 @@ const checkState = (
 				divergence: { _tag: "stored", relations: differing }
 			})
 		}
-		for (const [session, held] of adopted.sessions.entries()) {
-			if (held.kind === "closed" || (held.kind === "db" && loginGone(adopted, held))) {
+		for (const [session, held] of state.sessions.entries()) {
+			if (held.kind === "closed" || (held.kind === "db" && loginGone(state, held))) {
 				continue
 			}
-			const expected = expectedProbe(adopted, session)
+			const expected = expectedProbe(state, session)
 			const observed = yield* world.probe(session)
 			if (!sameProbe(expected, observed)) {
 				return yield* new ModelMismatch({
@@ -472,12 +467,11 @@ const checkState = (
 				})
 			}
 		}
-		return adopted
+		return state
 	})
 
 /**
- * Checks that the real system is in the state a program starts from (checkState), and returns that state with the
- * stored serial values adopted.
+ * Checks that the real system is in the state a program starts from (checkState), and returns that state.
  */
 export const checkStart = (
 	world: RealWorld,
@@ -511,7 +505,7 @@ export interface Stepped {
 
 /**
  * The branch nature chose among `branches` for an answer, and the state it leads to: the first of the answer's kind
- * whose outcome it is (step.ts observedNext), each identity draw the answer showed bound as shown. A landing completes
+ * whose outcome it is (step.ts observedNext). A landing completes
  * under the executor's names for its current installation, the one it landed; a branch of another kind is never the one
  * nature chose.
  */
@@ -555,8 +549,7 @@ const unallowed = (
  * Performs one action on the real world and returns the model's branch nature chose: the model allows the action's
  * branches; the real system performs it, judged for leaks against the tokens hidden from whoever acts; a defect (a
  * leak, two artifacts of one read disagreeing) is a mismatch, since no branch can allow one, and of every other answer
- * the first branch whose outcome it is (step.ts observedNext) is the one nature chose, its state holding each identity
- * draw the answer showed as the value shown, none matching being a mismatch. The real system's state is runStep's to
+ * the first branch whose outcome it is (step.ts observedNext) is the one nature chose, none matching being a mismatch. The real system's state is runStep's to
  * check: a schedule judging an action while another session holds locks the owner's read would wait behind checks it
  * once they are released.
  */
@@ -671,8 +664,8 @@ const answered = (
 /**
  * The state with a direct writer's transaction as it was begun again (RealWorld.rebegin): the session begun anew over
  * the state's reality, which no other session's write changed while the transaction was open (`serial`), and each
- * statement it had sent judged by the model with what it answered this time, each identity draw an insert made bound
- * as the answer showed it, never as the refused transaction's answers did. An answer no branch allows is the
+ * statement it had sent judged by the model with what it answered this time, never as the refused transaction's answers
+ * did. An answer no branch allows is the
  * transaction's divergence, at the action that was refused.
  */
 const rebegun = (

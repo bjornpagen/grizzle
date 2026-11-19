@@ -31,11 +31,11 @@ type Holding = "table" | "materializedView" | "domain"
 
 /** What a relation holder owns under a name of its own, read off its parts (objectParts), and the name it is renamed
  * to: a key, whose index takes the constraint's name and is renamed through it; a constraint with no index, a CHECK or
- * a foreign key, whose name lies in its relation's namespace alone; another index over it; an identity sequence of one
- * of its columns; an extended statistics object over it. Setting a relation aside takes the names it owns in its
+ * a foreign key, whose name lies in its relation's namespace alone; another index over it; an extended statistics
+ * object over it. Setting a relation aside takes the names it owns in its
  * schema's pg_class and statistics objects (ownedBy), never a constraint's with no index, which stays its own. */
 export interface Owned {
-	readonly kind: "key" | "constraint" | "index" | "sequence" | "statistics"
+	readonly kind: "key" | "constraint" | "index" | "statistics"
 	readonly name: string
 	readonly to: string
 }
@@ -101,7 +101,7 @@ const isKey = (c: TableConstraint): boolean =>
 	c.kind === "primaryKey" || c.kind === "unique" || c.kind === "exclude"
 
 /** What a holder owns under a name of its schema's pg_class or statistics objects, read off its parts, each name once:
- * its keys, its identity sequences, the indexes and the statistics objects over it. */
+ * its keys, the indexes and the statistics objects over it. */
 const ownedBy = (
 	holder: ObjectName,
 	parts: Parts,
@@ -110,9 +110,6 @@ const ownedBy = (
 	[
 		...[...parts.constraint.values()].flatMap((c) =>
 			isKey(c.constraint) ? [{ kind: "key" as const, name: c.name }] : []
-		),
-		...[...parts.sequence.values()].flatMap((q) =>
-			q.sequence.schema === holder.schema ? [{ kind: "sequence" as const, name: q.name }] : []
 		),
 		...[...parts.index.keys()].map((name) => ({ kind: "index" as const, name })),
 		...[...parts.statistics.values()].flatMap((x) =>
@@ -221,8 +218,6 @@ const ownedRename = (at: (name: string) => ObjectName, to: string, o: Owned): Sq
 			return { kind: "renameConstraint", table: at(to), from: o.name, to: o.to }
 		case "index":
 			return { kind: "rename", object: "INDEX", name: at(o.name), to: o.to }
-		case "sequence":
-			return { kind: "rename", object: "SEQUENCE", name: at(o.name), to: o.to }
 		case "statistics":
 			return { kind: "rename", object: "STATISTICS", name: at(o.name), to: o.to }
 	}
@@ -241,8 +236,8 @@ const asideObject = (kind: Holding): Exclude<RenameObject["object"], "ROLE" | "S
 }
 
 /** The statements that set a holder aside, one group the reviewer confirms: its rename, then, for a relation, each key
- * renamed on it under its new name, which renames the key's index, and each other index, identity sequence and
- * statistics object it owns renamed. */
+ * renamed on it under its new name, which renames the key's index, and each other index and statistics object it owns
+ * renamed. */
 export const asideStatements = (a: Aside): NonEmptyReadonlyArray<SqlStatement> => {
 	const holder: SqlStatement = {
 		kind: "rename",
@@ -282,7 +277,7 @@ export const setAside = (
 	return withNames(previous, {
 		relations: new Map([
 			...relationAsides.map((a) => [a.name.name, a.to] as const),
-			...owned(["key", "index", "sequence"])
+			...owned(["key", "index"])
 		]),
 		types: new Map(
 			asides.flatMap((a) => (a.kind === "domain" ? [[a.name.name, a.to] as const] : []))
@@ -301,7 +296,7 @@ export const setAside = (
 }
 
 /** Renames of the names a snapshot's schema holds, each namespace's by the name it renames: its relations' in pg_class
- * (tables, materialized views, indexes, a key's index and identity sequences), its types', its statistics objects', and
+ * (tables, materialized views, indexes and a key's index), its types', its statistics objects', and
  * each relation's own constraints', by the relation's name before the renames. */
 export interface Renamed {
 	readonly relations: ReadonlyMap<string, string>

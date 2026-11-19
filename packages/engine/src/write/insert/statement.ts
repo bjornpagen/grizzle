@@ -2,7 +2,6 @@ import type { ConstraintName, EntryName, StoredRelationName } from "#compiler/co
 import { defined } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { serialDraw } from "#compiler/ir/desc.ts"
 import { columnReads } from "#compiler/ir/expr.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { Needs } from "#compiler/ir/needs.ts"
@@ -10,7 +9,6 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl, StatementRole } from "#compiler/ir/products.ts"
 import type { Heading, KeySet, ValidDag } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { SerialClass } from "#compiler/ir/write.ts"
 import {
 	type ColumnMap,
 	type Env,
@@ -44,13 +42,10 @@ import { NameSupply, type NameSupplyStart } from "#compiler/sql/naming.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
 
 /** The installed names a write statement addresses: the query lowering's names plus the installed schema, whose
- * refusal function a refusing statement calls, each serial field's identity sequence,
- * `<schema>.<table>_<col>_seq`, and each relation's primary key constraint, `<table>__pk`, the named arbiter of an
- * insert into a span primary key. `InstallNames` satisfies it. */
+ * refusal function a refusing statement calls, and each relation's primary key constraint, `<table>__pk`, the named
+ * arbiter of an insert into a span primary key. `InstallNames` satisfies it. */
 export interface WriteNames extends PhysicalNames {
 	readonly schema: string
-	/** A serial field's advance function. */
-	readonly advance: (relation: string, field: string) => ObjectName
 	/** A retirable header's hold function (physical/ddl/retire.ts), which a write that touches its unit calls. */
 	readonly hold: (header: string) => ObjectName
 	/** A retirable header's retirement function (physical/ddl/retire.ts), which a write that retires its groups calls. */
@@ -64,7 +59,7 @@ export interface ResultColumn {
 	readonly type: ScalarType
 }
 
-export type InsertVariant = "protocol" | "pureSet" | "generated" | "spanKey" | "family"
+export type InsertVariant = "protocol" | "pureSet" | "spanKey" | "family"
 
 /** The action an insert statement realizes: an insertion, or a put's insert half. Its rows are facts made present
  * under that tag (`AddedTag`). */
@@ -83,23 +78,11 @@ export type InsertOf = "insert" | "put"
  */
 export type Proposal = "every" | "unstored"
 
-/** Which requested facts an insert that meets stored facts at an arbiter (`arbitered`, unique.ts insertArbitered)
- * proposes (Proposal): only those at no stored arbiter key into a family owner, whose rows carry counts and ends, and
- * for a generated addition that draws an identity field, whose proposed row would take the identity's next value
- * whether it is inserted or not, so a stored repeat or conflict draws none; every one into any other relation, whose
- * proposed row is its requested fact, a uuidv7 default drawing nothing a repeat would waste; and every one of a plain
- * INSERT, a generated addition with no arbiter, whose drawn key no row stores. */
-export const proposalOf = (
-	relation: RelationInfo,
-	serial: SerialClass,
-	arbitered: boolean
-): Proposal =>
-	arbitered &&
-	(relation.heading.some((f) => f.writing.kind === "drawn" || f.writing.kind === "accumulated") ||
-		(serial.kind === "generated" &&
-			relation.fields.some(
-				(f) => serial.drawn.includes(f.name) && serialDraw(f.desc) === "identity"
-			)))
+/** Which requested facts an insert, which meets stored facts at its arbiter, proposes (Proposal): only those at no
+ * stored arbiter key into a family owner, whose rows carry counts and ends; every one into any other relation, whose
+ * proposed row is its requested fact. */
+export const proposalOf = (relation: RelationInfo): Proposal =>
+	relation.heading.some((f) => f.writing.kind === "drawn" || f.writing.kind === "accumulated")
 		? "unstored"
 		: "every"
 
@@ -109,8 +92,6 @@ export interface InsertResult {
 	readonly kind: "insert"
 	readonly relation: StoredRelationName
 	readonly variant: InsertVariant
-	/** The serial class of the facts it inserts, the one its action's front end decided. */
-	readonly serial: SerialClass
 	readonly of: InsertOf
 	readonly proposes: Proposal
 	/** The outer SELECT's columns, position by position: the fact fields. */
@@ -130,13 +111,6 @@ export interface DeleteResult {
 	/** The complete fact's fields, key first. */
 	readonly fields: ReadonlyArray<string>
 	readonly key: KeySet
-}
-
-/** The sequence advance after explicit serial values; its rows carry nothing to decode. */
-export interface SequenceAdvanceResult {
-	readonly kind: "sequenceAdvance"
-	readonly relation: StoredRelationName
-	readonly field: string
 }
 
 /** A retirable unit's hold of the groups a write states (write/hold/statement.ts), by its header; its row carries
@@ -184,7 +158,6 @@ export interface EntryCheckResult {
 export type WriteResult =
 	| InsertResult
 	| DeleteResult
-	| SequenceAdvanceResult
 	| HoldResult
 	| RetireResult
 	| AdmissionResult
@@ -198,7 +171,7 @@ export type WriteResult =
  * share.
  *
  * A write statement is one SQL statement of a ChangeSet's realization: the insert protocol, an exact or a
- * displacing deletion (delete/), a sequence advance (serial/), or a carrier's creation or fill (carriers/). Each keeps
+ * displacing deletion (delete/), or a carrier's creation or fill (carriers/). Each keeps
  * its AST beside the emitted text, so a later stage can explain it, and its placeholder slots in placeholder order, so
  * the caller encodes each relation input as the arrays the statement reads, one placeholder per column.
  *
@@ -447,10 +420,10 @@ export const writtenFields = (relation: RelationInfo): NonEmptyReadonlyArray<Law
 	return [...key, ...relation.heading.filter((f) => !key.includes(f) && isWritten(f))]
 }
 
-/** Whether a fact carries a field: a caller's or a serial one. A drawn or accumulated field is grizzle's
- * and a generated one PostgreSQL's, so no fact carries either. */
+/** Whether a fact carries a field: a caller's. A drawn or accumulated field is grizzle's and a generated one
+ * PostgreSQL's, so no fact carries either. */
 export const isCarried = (field: Pick<LawField, "writing">): boolean =>
-	field.writing.kind === "caller" || field.writing.kind === "serial"
+	field.writing.kind === "caller"
 
 /**
  * The value an insert writes a field at when its input does not carry it: a drawn field, which
@@ -467,7 +440,6 @@ export const startOf = (names: PhysicalNames, field: LawField): Expr | undefined
 		case "retirement":
 			return lowerLiteral(names, { kind: "bool", value: false }, field.type)
 		case "caller":
-		case "serial":
 		case "generated":
 			return undefined
 	}
@@ -511,10 +483,6 @@ export const requestedValue = (
 	}
 	return value
 }
-
-/** Whether a field is written by its sequence: its writing says so (ir/law.ts FieldWriting). */
-export const isSerialField = (field: Pick<LawField, "writing">): boolean =>
-	field.writing.kind === "serial"
 
 /** The value type of a stored field as rows carry it: its type. */
 export const rowType = (field: LawField): ScalarType => field.type

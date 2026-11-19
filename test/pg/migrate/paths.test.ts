@@ -6,7 +6,7 @@
  * adversarial rename intents over the hazard base (`legalIntentSketchGen`: swaps, chains, renames of a
  * referenced relation and of its key, keys over retyped fields, a field renamed with its type changed, a relation and
  * its field renamed together, a roster renamed, its handle removed or renamed, its field retyped, a name hopping across
- * the relation and type namespaces, a serial field widened, and a name B dropped taken in C). Each step is drafted by
+ * the relation and type namespaces, and a name B dropped taken in C). Each step is drafted by
  * generateMigration from the snapshot before under the renames and drops it declares (`--rename`, `--drop`): the
  * path's own renames when the path declares them, and every removal a drop otherwise, so the draft guesses nothing. It
  * is reviewed by the one reviewer, each placeholder given the typed value the carry model gives, and applied by the
@@ -23,11 +23,7 @@
  *     exactly as the model's rows, loaded into a fresh installation of B and read back by PostgreSQL, compare;
  * (c) A to C directly, from A's snapshot, applies and passes (a) too, so the catalog of C is the same whichever path
  *     led to it, but for its rosters' codes, which are each path's history (a handle B added and C no longer holds is
- *     a hole after B, and no code at all on the direct path);
- * (d) after every migration, each identity's position is past its column's stored values (`identitiesPast`), compared
- *     as PostgreSQL keeps it, (last_value, is_called), so an identity advanced to its type's end, which generates no
- *     value, is past them too: the reviewer converts a serial field to bigint by its cast, so a widened serial keeps
- *     its values and its advance is judged against them.
+ *     a hole after B, and no code at all on the direct path).
  *
  * Every path runs under a drawn ambient session (test/support/ambient.ts): the defaults of the path's own owner login,
  * which every migration session starts under, its search path PostgreSQL's own or the installation's schemas first. A
@@ -38,9 +34,7 @@
  *
  * Every verdict is PostgreSQL's: its refusal of a statement, its catalog of both installations, and its reading of the
  * rows. The features are the rename kinds a path made by successor, the intents it made, what the draft declared, the
- * ambient session, whether a version names a relation or a closed roster as PostgreSQL names a type or function, and
- * each conversion of R1's `sq` between an integer serial, a pg.uuidv7 and a uuid, which a kept path of intents makes
- * each of.
+ * ambient session, and whether a version names a relation or a closed roster as PostgreSQL names a type or function.
  *
  * Oracle: PostgreSQL, through its refusal of a statement, its catalog of a fresh install of each version, and its
  * reading of the rows the carry model loads; and the path's own commutation, A to C directly as A to B to C.
@@ -131,12 +125,6 @@ export const renamedPaths = property.explore(steered(renamedCaseSteered), {
 			since: "2026-11-07"
 		},
 		{
-			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.8.0.0.0.0.0.0"),
-			reason:
-				"a field holding bigint's greatest value declared serial: its identity advanced to its end, past the row, (d) read with no next value to compute",
-			since: "2026-11-15"
-		},
-		{
 			token: ReplayToken(
 				"test/pg/migrate/paths.test.ts#renamedPaths:-:6.u.0.g.h.g.h.h.h.f.h.h.0.g.0.0.g.0.h.0.g.0.g.h.f.g.0.f.h.g.h.f.h.0.g.f.g.g.f.g.h.g.h.3.1.4.1.2.3.9.1.6.1.3.e.3.b.2.1.3.3.d.0.2.4.0.6.0.6.h.1.0.1.0.1.1.2.l.1.1.7.1.1.0.1.9.2.2.5.1.8.1.0.8.2.a.1.3.9.2.b.2.3.f.3.c.2.b.1.6.6.0.f.0.a.0.0.2.1.2.4.3.q.1.2.a.s.0.0.1.3.0.1ado.j9g.5w.1.1.1.1.a.z2v.1b2k.fwn.g.0.0.0.hlh.pav.6a1.f.1.k.1.1.p.txw.snt.zue.c.1.1.1.0.0.1.rfp.105z.1ej6.1.1.o.1.0.1.1efj.1.7.1e4d.1ce8.v21.5.0.0.2.5.eut.2f4.a9f.m.2.p.m.1.e.zpe.3.s.p.2.9.2.1.1.a.2.e.3.a.0.5.2.7.3.3.0.a.3.d.0.7.0.0.1.n.ady.284.zxe.6.0.0.1.d.xl1.e.1ei0.q.0.1.0.1.0.5ce.5y6.fhv.v.0.0.0.0.0.4.2.0"
 			),
@@ -194,32 +182,7 @@ export const intentPaths = property.explore(steered(intentsCaseSteered), {
 		kind: "postgresql",
 		name: "PostgreSQL's refusals, a fresh install's catalog of each version and the carried rows read back; A to C as A to B to C"
 	},
-	kept: [
-		{
-			token: ReplayToken("test/pg/migrate/paths.test.ts#intentPaths:-:0.0.1.d.0.1.0.0.0.0.0.0.0"),
-			reason:
-				"the referenced relation renamed while its serial field widens: the rename converts the serial in place, so its referrer's rows still find their keys",
-			since: "2026-10-29"
-		},
-		{
-			token: ReplayToken("test/pg/migrate/paths.test.ts#intentPaths:-:0.e.0.1.f.1.0.0.0.0.0.0.0"),
-			reason:
-				"R1's serial converted to a uuidv7 in B and back to a serial in C: each conversion gives its draw up first and takes the target's once converted",
-			since: "2026-11-10"
-		},
-		{
-			token: ReplayToken("test/pg/migrate/paths.test.ts#intentPaths:-:0.g.0.1.e.1.0.0.0.0.0.0.0"),
-			reason:
-				"R1's serial converted to a uuid in B, then a uuidv7 in C: the uuid takes its uuidv7() default in place",
-			since: "2026-11-10"
-		},
-		{
-			token: ReplayToken("test/pg/migrate/paths.test.ts#intentPaths:-:0.e.0.1.g.1.0.0.0.0.0.0.0"),
-			reason:
-				"R1's serial converted to a uuidv7 in B, then a plain uuid in C: the uuidv7 gives its default up in place",
-			since: "2026-11-10"
-		}
-	],
+	kept: [],
 	kills: [
 		{
 			file: "packages/engine/src/deploy/diff/declared.ts",

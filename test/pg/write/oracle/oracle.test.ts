@@ -103,7 +103,7 @@ export const writeOracle = property.explore(perturbedRunGen, {
 		{
 			file: "packages/engine/src/write/frontend/schedule.ts",
 			original:
-				'\tphaseOf(a.action) < phaseOf(b.action) &&\n\t!(a.meeting === "nowhere" && a.action.op === "delete" && !isGenerated(b.action))',
+				'\tphaseOf(a.action) < phaseOf(b.action) && !(a.meeting === "nowhere" && a.action.op === "delete")',
 			replacement: "\tphaseOf(a.action) < phaseOf(b.action)",
 			why: 'The scheduler runs a deletion where facts meet nowhere before every addition of its relation, so it refuses the planted arm "deletion meeting nowhere", which only that exception orders.'
 		},

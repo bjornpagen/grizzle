@@ -2,7 +2,7 @@
  * The scalar registry (scalar/registry.ts): capabilities, the ScalarType of a FieldDesc under every environment, a
  * reading's content, literal operands and describeField's admission.
  *
- * - Capabilities: every descriptor's are its carrier's, a serial's and a contract's their base's. Oracle: the carrier's
+ * - Capabilities: every descriptor's are its carrier's, a contract's its base's. Oracle: the carrier's
  *   capability set, which the catalog suite holds to PostgreSQL's.
  * - Fixtures: every ScalarType another suite's fixture exports is the registry's own build of its FieldDesc. Oracle: the
  *   registry's build, a second implementation of each hand-built fixture type.
@@ -83,12 +83,7 @@ import {
 	scalarOf,
 	someFault
 } from "#test/unit/scalar/registry.fixtures.ts"
-import {
-	type DescriptorSketch,
-	descriptorGen,
-	descriptorOf,
-	isSerial
-} from "#test/unit/scalar/support.ts"
+import { type DescriptorSketch, descriptorGen, descriptorOf } from "#test/unit/scalar/support.ts"
 
 /**
  * The capabilities a sketch's type has by the rule the registry states: its carrier's, a contract's its base's, and a
@@ -113,19 +108,19 @@ const rosterSketchOf = (
 			: undefined
 
 /**
- * The capability registry gives every descriptor its carrier's capabilities, a serial and a contract their base's, and
+ * The capability registry gives every descriptor its carrier's capabilities, a contract its base's, and
  * a closed id of an unordered roster its carrier's but ordering and minMax.
  *
  * Budget: its suite's count before the conversion (unit/scalar/capabilities: 1000 independent cases and 0 steered,
  * Vitest at grizzle 4ca3036a).
  */
-export const theCapabilityRegistryGivesEveryDescriptorItsCarriersCapabilitiesASerialAndAContractTheirBases =
+export const theCapabilityRegistryGivesEveryDescriptorItsCarriersCapabilitiesAndAContractItsBases =
 	property.explore(descriptorGen(2), {
 		needs: {},
-		situations: ["a serial", "a contract", "a vector"] satisfies ReadonlyArray<
-			Reached<"a serial" | "a contract" | "a vector">
+		situations: ["a contract", "a vector"] satisfies ReadonlyArray<
+			Reached<"a contract" | "a vector">
 		>,
-		check: (_, c: Case<"a serial" | "a contract" | "a vector">) => (sketch) =>
+		check: (_, c: Case<"a contract" | "a vector">) => (sketch) =>
 			Effect.sync(() => {
 				const field = descriptorOf(sketch)
 				const scalar = succeeded(describeField(field, SourceLoc("test", []))).scalar
@@ -133,9 +128,6 @@ export const theCapabilityRegistryGivesEveryDescriptorItsCarriersCapabilitiesASe
 				if (sketch.kind === "contract") {
 					c.note("a contract")
 					unorderedEqual(caps(field), caps(descriptorOf(sketch.base)))
-				}
-				if (sketch.kind === "spelling" && isSerial(sketch.name)) {
-					c.note("a serial")
 				}
 				if (scalar.carrier === "vector") {
 					c.note("a vector")
@@ -246,16 +238,7 @@ export const scalarTypeOfAFieldDescToItsScalarTypeReadsEveryDescriptorKindAndAgr
 		},
 		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/schema/relation.ts",
-				original:
-					'\treturn hasProperties(value) && value["writing"] === "serial" ? { kind: "serial" } : callerWriting',
-				replacement:
-					'\treturn hasProperties(value) && value["writing"] !== "serial" ? { kind: "serial" } : callerWriting',
-				why: "Operator mutant (comparison) at packages/engine/src/schema/relation.ts:183 in writingOf: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
-			}
-		]
+		kills: []
 	})
 
 /**

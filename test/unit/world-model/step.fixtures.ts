@@ -1,10 +1,9 @@
 /** What the properties of step.test.ts read: its spaces, models and helpers. */
 
 import { element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, Record as Rec } from "effect"
-import { maxOf } from "#compiler/core/array.ts"
+import { Array as Arr, Effect, Option } from "effect"
 import { assert } from "#test/support/assert.ts"
-import { isDrawn, sameValues } from "#test/support/laws/model.ts"
+import { sameValues } from "#test/support/laws/model.ts"
 import { asDrafted, compile } from "#test/support/migrate/kit.ts"
 import { baseBuild } from "#test/support/worlds/execute/build.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
@@ -14,7 +13,6 @@ import { realityGen } from "#test/support/worlds/generate/reality.ts"
 import { actionKinds, type Weights, weightsGen } from "#test/support/worlds/generate/weights.ts"
 import { takenIdentity } from "#test/support/worlds/invalid/migrations.ts"
 import { docsBase, docsInstall } from "#test/support/worlds/model/bases/docs.ts"
-import { identitySpan } from "#test/support/worlds/model/draws.ts"
 import { hostSchemaOf } from "#test/support/worlds/model/host.ts"
 import { type FolderFile } from "#test/support/worlds/model/session/migrate.ts"
 import { observedNext } from "#test/support/worlds/model/step.ts"
@@ -27,7 +25,6 @@ import type {
 	HostState,
 	InstallSpec,
 	LawSpec,
-	ModelState,
 	RelationSpec
 } from "#test/support/worlds/model/types.ts"
 
@@ -49,75 +46,12 @@ export const names = installedNames(docsInstall)
 
 const host = hostSchemaOf(docsBase, names)
 
-/** An outcome's facts, each through `f`: its rows, its read-backs' rows and deltas, the keys its witness shows. */
-const mapFacts = (o: ActionOutcome, f: (fact: HostFact) => HostFact): ActionOutcome => {
-	if (o.kind === "rows") {
-		return { ...o, rows: Arr.map(o.rows, f) }
-	}
-	if (o.kind === "applied") {
-		return {
-			...o,
-			reads: Arr.map(o.reads, (r) => ({
-				...r,
-				rows: Arr.map(r.rows, f),
-				delta: { inserted: Arr.map(r.delta.inserted, f), deleted: Arr.map(r.delta.deleted, f) }
-			}))
-		}
-	}
-	return (o.kind === "invariant-rejected" || o.kind === "law-refused") && o.witness.kind === "shown"
-		? { ...o, witness: { kind: "shown", keys: Arr.map(o.witness.keys, f) } }
-		: o
-}
-
-/** Every fact of a state the real system can show: reality's and each direct writer's view's. */
-export const stateFacts = (state: ModelState): ReadonlyArray<HostFact> =>
-	Arr.flatMap(
-		[state.reality, ...Arr.flatMap(state.sessions, (s) => (s.kind === "direct" ? [s.view] : []))],
-		(place) => [...place.values()].flat()
-	)
-
-/**
- * A branch's outcome as the real system shows it: each draw it holds an integer of its identity's range past every
- * integer of that range the branch's state holds, a distinct one per draw, as an identity draws a value no stored fact
- * repeats.
- */
-export const shownOf = (b: Branch): ActionOutcome => {
-	const held = Arr.flatMap(stateFacts(b.next), (f) =>
-		Arr.filter(Rec.values(f), (v): v is number => typeof v === "number")
-	)
-	const past = (ceiling: number): number =>
-		maxOf(
-			Arr.filter(held, (n) => n > ceiling - identitySpan && n <= ceiling),
-			ceiling - identitySpan
-		)
-	return mapFacts(b.observation, (fact) =>
-		Rec.map(fact, (v) => (isDrawn(v) ? past(v.ceiling) + v.draw : v))
-	)
-}
-
-/** An outcome's facts: its rows, its read-backs' rows and deltas, the keys its witness shows. */
-export const outcomeFacts = (o: ActionOutcome): ReadonlyArray<HostFact> => {
-	if (o.kind === "rows") {
-		return o.rows
-	}
-	if (o.kind === "applied") {
-		return Arr.flatMap(o.reads, (r) => [...r.rows, ...r.delta.inserted, ...r.delta.deleted])
-	}
-	return (o.kind === "invariant-rejected" || o.kind === "law-refused") && o.witness.kind === "shown"
-		? o.witness.keys
-		: []
-}
-
-/** The draws a list of facts holds. */
-export const drawsIn = (facts: ReadonlyArray<HostFact>): ReadonlyArray<number> =>
-	Arr.flatMap(facts, (f) => Arr.flatMap(Rec.values(f), (v) => (isDrawn(v) ? [v.draw] : [])))
-
 /** Facts with their first fact repeated after them: what a delivery that repeats a row shows. */
 const repeatingFirst = (facts: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> =>
 	facts.concat(facts.slice(0, 1))
 
 /**
- * Rows as keyed sets, as the real system shows them (shownOf): the branch agrees with its rows reordered, and not with a
+ * Rows as keyed sets, as the real system shows them: the branch agrees with its rows reordered, and not with a
  * row repeated or a row gone.
  */
 export const checkRowsAsKeyedSets = (
@@ -146,7 +80,7 @@ export const checkRowsAsKeyedSets = (
 }
 
 /**
- * Read-backs as keyed sets, as the real system shows them (shownOf): the branch agrees with no read-back that repeats a
+ * Read-backs as keyed sets, as the real system shows them: the branch agrees with no read-back that repeats a
  * row of its rows, of its inserted delta or of its deleted delta. Whether any was checked.
  */
 export const checkReadBacksAsKeyedSets = (

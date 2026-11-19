@@ -3,17 +3,14 @@
  * actions are over a relation C and a relation P that C references immediately at every field of P, the foreign key
  * grizzle makes immediate only into a relation it references whole: at most one action of each operation on P, and one
  * on C or none. Its shape is which actions it holds, with C named first or second, and each of C and P with a payload,
- * every fact of it at its one key, or a pure set, each fact its own key, whose id is serial and which also takes a
- * generated insertion, drawing its id; its instances are every lawful state of a small box, with every position of P's
- * sequence at or past its stored ids, and every lawful write of that shape.
+ * every fact of it at its one key, or a pure set, each fact its own key; its instances are every lawful state of a
+ * small box, and every lawful write of that shape.
  *
  * The oracle is a model of the statements each action sends, not of the schedule's rule: a deletion removes its facts;
  * an insertion adds them; a put of a relation with a payload displaces the occupant of its key, then inserts; a pure
- * set's put inserts alone, since its fact at a key is the key; an explicit P id advances P's sequence past it, and a
- * generated insertion adds the next id the sequence draws; and, as the host's normalization does, a fact both deleted
- * and added explicitly is only added, and one both put and inserted only put, while a drawn fact, whose id no write is
- * given, nets nothing. A stratum's one final state is its writes' in phase order: its deletions on the state before,
- * then its additions, the draw past every explicit id, so a fact it both deletes and draws stays. The schedule decides
+ * set's put inserts alone, since its fact at a key is the key; and, as the host's normalization does, a fact both
+ * deleted and added is only added, and one both put and inserted only put. A stratum's one final state is its writes'
+ * in phase order: its deletions on the state before, then its additions. The schedule decides
  * the states between its statements, after each of which every C fact references a P fact and a relation with a payload
  * holds one fact at its key, and must reach that final state.
  *
@@ -22,11 +19,10 @@
  *   relation with a payload's deletion before its put and its put before its insertion, as immediate keys whose
  *   occupants the schedule cannot see require, fails some instance: no order keeps the stratum, and the front end
  *   refuses it (UnorderableStratum) where it used to drop an edge and fail at the server. A pure set's actions are
- *   tried in every order: no fact one adds meets a fact another removes but itself, save a drawn fact, which a deletion
- *   run after the draw removes at an id it names.
+ *   tried in every order: no fact one adds meets a fact another removes but itself.
  *
- * Features: the schedule orders a stratum, no order keeps one, a pure set's deletion after its addition, both put
- * under either name order, a generated insertion beside a deletion; each stratum shape of the generated strata.
+ * Features: the schedule orders a stratum, no order keeps one, a pure set's deletion after its addition, and both put
+ * under either name order; each stratum shape of the generated strata.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
@@ -55,8 +51,7 @@ export const aStratumsScheduleKeepsAnImmediateForeignKeyIntoARelationItReference
 			"no order keeps a stratum",
 			"a pure set's deletion after its addition",
 			"both put, the source named first",
-			"both put, the target named first",
-			"a generated insertion beside its relation's deletion"
+			"both put, the target named first"
 		] satisfies ReadonlyArray<Reached<Situation>>,
 		check: (_, c: Case<Situation>) => (shape) =>
 			Effect.sync(() => {
@@ -145,34 +140,25 @@ export const aStratumsScheduleKeepsAnImmediateForeignKeyIntoARelationItReference
 							: "both put, the target named first"
 					)
 				}
-				if (shape.onP.includes("delete") && shape.onP.includes("generated")) {
-					c.note("a generated insertion beside its relation's deletion")
-				}
 			}),
 		oracle: {
 			kind: "second-implementation",
 			name: "the statements each action sends, over every lawful instance and every order"
 		},
-		box: "C named first or second; C and P each with a payload or a pure set; any set of P's deletion, put and insertion, and of a pure set's generated insertion; one action of C or none; every lawful state over two ids, at every position of P's sequence",
+		box: "C named first or second; C and P each with a payload or a pure set; any set of P's deletion, put and insertion; one action of C or none; every lawful state over two ids",
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/write/frontend/schedule.ts",
-				original: '\ta.op === "delete" ? 0 : a.op === "put" ? 1 : isGenerated(a) ? 3 : 2',
-				replacement: '\tisGenerated(a) ? 0 : a.op === "delete" ? 1 : a.op === "put" ? 2 : 3',
-				why: "A generated insertion's phase is before a deletion's (write/frontend/schedule.ts phaseOf), so a deletion run after the draw removes a drawn fact."
-			},
-			{
-				file: "packages/engine/src/write/frontend/schedule.ts",
 				original:
-					'\tphaseOf(a.action) < phaseOf(b.action) &&\n\t!(a.meeting === "nowhere" && a.action.op === "delete" && !isGenerated(b.action))',
+					'\tphaseOf(a.action) < phaseOf(b.action) && !(a.meeting === "nowhere" && a.action.op === "delete")',
 				replacement: "\tphaseOf(a.action) < phaseOf(b.action)",
 				why: "a30d00af's bug: a deletion of a relation whose facts meet nowhere held before its stratum's puts and inserts, so a put referencing it between them leaves no order."
 			},
 			{
 				file: "packages/engine/src/write/frontend/schedule.ts",
 				original:
-					'const followsOnRelation = (a: Scheduled, b: Scheduled): boolean =>\n\tphaseOf(a.action) < phaseOf(b.action) &&\n\t!(a.meeting === "nowhere" && a.action.op === "delete" && !isGenerated(b.action))',
+					'const followsOnRelation = (a: Scheduled, b: Scheduled): boolean =>\n\tphaseOf(a.action) < phaseOf(b.action) && !(a.meeting === "nowhere" && a.action.op === "delete")',
 				replacement: "const followsOnRelation = (a: Scheduled, b: Scheduled): boolean => false",
 				why: "Two actions of one relation are left unordered by their phases (write/frontend/schedule.ts followsOnRelation)."
 			},

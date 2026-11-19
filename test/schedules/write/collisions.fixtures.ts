@@ -10,14 +10,12 @@ import { query, v } from "#compiler/public/query.ts"
 import { key, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import type { DeltaSource, Witness } from "#compiler/types/changeset/changeset.ts"
-import { defined } from "#test/support/assert.ts"
 import type { WriteAnswer } from "#test/support/calls.ts"
 import { rigTemplate } from "#test/support/schedules/rig.ts"
 
 export const Sitting = relation(
 	"Sitting",
 	{
-		id: pg.uuidv7,
 		child: pg.integer,
 		test: pg.integer,
 		attempt: pg.integer,
@@ -28,9 +26,9 @@ export const Sitting = relation(
 )
 
 /** The relation a held call inserts last, which the owner's SHARE lock holds it at. */
-export const Gate = relation("Gate", { id: pg.uuidv7, n: pg.integer }, ["id"])
+export const Gate = relation("Gate", { n: pg.integer }, ["n"])
 
-/** The fields a sitting's request states: every field but its drawn id. */
+/** The fields a sitting's request states: every field. */
 export const statedFields = ["child", "test", "attempt", "note", "slot"] as const
 
 export const slotKey = key(on(Sitting, "slot"))
@@ -41,7 +39,7 @@ export const collisions = (name: string) => {
 	const base = schema(name, [Sitting, Gate], [slotKey])
 	const learner = role(base, "learner", { Sitting, Gate }, { insert: ["Sitting", "Gate"] })
 	const direct = role(base, "direct", { Sitting, Gate })
-	/** The sittings a call states as its relation parameter `sittings`, every field but the drawn id. */
+	/** The sittings a call states as its relation parameter `sittings`, every field. */
 	const given = query(base).rule((r) => {
 		const rows = r.relation("sittings", {
 			child: Sitting.fields.child,
@@ -57,10 +55,10 @@ export const collisions = (name: string) => {
 	})
 	const sittingsOf = (side: DeltaSource<typeof Sitting>) =>
 		query(base).rule((r) => {
-			const { id, child, test, attempt, note, slot } = v(side, "sitting")
+			const { child, test, attempt, note, slot } = v(side, "sitting")
 			return r
-				.match(side, { id, child, test, attempt, note, slot })
-				.find({ id, child, test, attempt, note, slot })
+				.match(side, { child, test, attempt, note, slot })
+				.find({ child, test, attempt, note, slot })
 		})
 	return {
 		schema: base,
@@ -91,7 +89,7 @@ export const collisions = (name: string) => {
 	}
 }
 
-/** One requested sitting: every field but the drawn id. */
+/** One requested sitting: every field. */
 export interface Request {
 	readonly child: number
 	readonly test: number
@@ -370,12 +368,11 @@ export const judge = (
 	}
 }
 
-/** One learner's start of the sitting (child 1, test 7, attempt 1), its id the database's uuidv7(). */
+/** One learner's start of the sitting (child 1, test 7, attempt 1). */
 const startOf = (note: number): Request => ({ child: 1, test: 7, attempt: 1, note, slot: 1 })
 
-/** A sitting as a call reads it back: every field, its id the database's. */
+/** A sitting as a call reads it back: every field. */
 interface SittingRow {
-	readonly id: string
 	readonly child: number
 	readonly test: number
 	readonly attempt: number
@@ -414,7 +411,6 @@ const readingAs =
 export const plainSittings = (rows: ReadonlyArray<SittingRow>): ReadonlyArray<SittingRow> =>
 	Arr.sort(
 		Arr.map(rows, (r) => ({
-			id: r.id,
 			child: r.child,
 			test: r.test,
 			attempt: r.attempt,
@@ -424,14 +420,13 @@ export const plainSittings = (rows: ReadonlyArray<SittingRow>): ReadonlyArray<Si
 		byKey
 	)
 
-/** A row of the table's state, its stated fields then its id as text, as a sitting. */
+/** A row of the table's state, its fields as text, as a sitting. */
 export const storedSitting = (row: ReadonlyArray<string>): SittingRow => ({
 	child: Number(row[0]),
 	test: Number(row[1]),
 	attempt: Number(row[2]),
 	note: Number(row[3]),
-	slot: Number(row[4]),
-	id: defined(row[5], "a stored sitting's id")
+	slot: Number(row[4])
 })
 
 /** A relation's added count in an accepted outcome, none where it adds none. */

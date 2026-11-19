@@ -109,7 +109,7 @@ const buildUnitCall = <R extends HoldResult | RetireResult>(
 				[groups],
 				undefined
 			),
-			role: "setval",
+			role: "call",
 			result: unitCall.result,
 			needs: always
 		}

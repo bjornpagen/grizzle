@@ -173,11 +173,7 @@ export const resolveFacts = (group: WGroup, sketch: FactsSketch): WFacts => {
 type Relabeling = "int" | "uuid"
 
 const relabelingOf = (kind: WRelation["columns"][number]["kind"]): Relabeling | undefined =>
-	kind === "int4" || kind === "int8" || kind === "bigserial" || kind === "serial"
-		? "int"
-		: kind === "uuid"
-			? "uuid"
-			: undefined
+	kind === "int4" || kind === "int8" ? "int" : kind === "uuid" ? "uuid" : undefined
 
 /**
  * How a copy of `relation` relabels each column: the key columns no containment or projected key of the relation
@@ -270,7 +266,7 @@ export const multiplyWriteFacts = (group: WGroup, facts: WFacts, multiplier: num
 				next[c.name] =
 					how === "uuid"
 						? `f0000000-0000-4000-8000-${pipe((4096 * copy + rank).toString(16), Str.padStart(12, "0"))}`
-						: c.kind === "int4" || c.kind === "serial"
+						: c.kind === "int4"
 							? 1000 * copy + rank
 							: BigInt(1000 * copy + rank)
 			}

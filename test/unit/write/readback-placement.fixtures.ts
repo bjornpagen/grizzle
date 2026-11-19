@@ -34,17 +34,6 @@ const schemaName = "readback_placement"
 
 const S = schema(schemaName, [M, A, Z], [])
 
-/** M with an id its sequence draws, in a schema of its own beside copies of A and Z. */
-const MD = relation("M", { id: pg.serial, v: pg.integer }, ["id"])
-
-const AD = relation("A", { id: pg.integer, v: pg.integer }, ["id"])
-
-const ZD = relation("Z", { id: pg.integer, v: pg.integer }, ["id"])
-
-const drawnName = "readback_placement_drawn"
-
-const SD = schema(drawnName, [MD, AD, ZD], [])
-
 type Op = "insert" | "delete" | "put"
 
 type Side = NamedSide["side"]
@@ -52,7 +41,6 @@ type Side = NamedSide["side"]
 /** A case: M's first-stratum action, the opposite action beside it, a second stratum's insert of M; W, where it is
  * written; and what the read-back reads beside M's sides. */
 interface Sketch {
-	readonly drawn: boolean
 	readonly op: Op
 	readonly beside: boolean
 	readonly again: boolean
@@ -63,7 +51,6 @@ interface Sketch {
 }
 
 export const sketchGen: Gen<Sketch> = (source) => ({
-	drawn: source.draw(boolean),
 	op: source.draw(element(["insert", "delete", "put"] as const)),
 	beside: source.draw(boolean),
 	again: source.draw(boolean),
@@ -77,15 +64,14 @@ export const sketchGen: Gen<Sketch> = (source) => ({
  * a deletion's or a put's displacing deletion's. */
 type Maker = "insert" | "put" | "delete" | "displaced"
 
-/** A write the construction implies: the relation and side it makes, its stratum, the statement it is part of, its
- * kind, and whether it is a generated addition. */
+/** A write the construction implies: the relation and side it makes, its stratum, the statement it is part of, and its
+ * kind. */
 interface Write {
 	readonly relation: string
 	readonly side: Side
 	readonly stratum: 1 | 2
 	readonly statement: string
 	readonly maker: Maker
-	readonly drawn: boolean
 }
 
 /** The writes a case implies, each in the statement the realization puts it in. */
@@ -101,8 +87,7 @@ const writesOf = (s: Sketch): ReadonlyArray<Write> => {
 		side,
 		stratum,
 		statement: at(stratum, own),
-		maker,
-		drawn: s.drawn && relation === "M" && maker === "insert"
+		maker
 	})
 	const first: ReadonlyArray<Write> =
 		s.op === "insert"
@@ -153,7 +138,7 @@ export const verdictOf = (s: Sketch): Verdict => {
 		}
 		const netting = Arr.filter(
 			makers(n.relation, n.side === "added" ? "removed" : "added"),
-			(w) => w.stratum !== maker.stratum || w.drawn || maker.drawn
+			(w) => w.stratum !== maker.stratum
 		)
 		return Arr.isReadonlyArrayEmpty(netting) ? maker : undefined
 	}
@@ -224,17 +209,8 @@ const subjectOf = (value: FixtureSchema, name: string, m: unknown, a: unknown, z
 
 type Subject = ReturnType<typeof subjectOf>
 
-/** The box's two subjects, by whether M's id is drawn. */
-interface Subjects {
-	readonly plain: Subject
-	readonly drawn: Subject
-}
-
-/** The subjects, built once when a worker loads the module and read by every case. */
-export const subjects: Subjects = {
-	plain: subjectOf(S, schemaName, M, A, Z),
-	drawn: subjectOf(SD, drawnName, MD, AD, ZD)
-}
+/** The box's subject, built once when a worker loads the module and read by every case. */
+export const subject: Subject = subjectOf(S, schemaName, M, A, Z)
 
 /** The read-back's rule: each source it reads matched by id, its payload under a name of its own. */
 const readBackOf = (s: Sketch, at: Subject, other: unknown) => (d: DeltaValue) =>
@@ -257,24 +233,15 @@ const readBackOf = (s: Sketch, at: Subject, other: unknown) => (d: DeltaValue) =
 		return matched.find({ id, ...Rec.fromEntries(Arr.map(sources, (x) => [x.name, x.payload])) })
 	})
 
-/** A generated addition of the drawn M: a query over the relation parameter `name` of payloads alone. */
-const generatedOf = (at: Subject, name: string) =>
-	queryOver(at.schema).rule((r: RuleValue): FinishedValue => {
-		const v = defined(varsOver(at.m, name)["v"], "the payload")
-		return r.match(r.relation(name, { v: MD.fields.v }), { v }).find({ v })
-	})
-
 /** A case's ChangeSet, built through the untyped core since its members are drawn: M's insertions arrays and a query of
- * whole facts, or, M's id drawn, each a generated addition. */
+ * whole facts. */
 const changeOf = (s: Sketch, at: Subject): ChangeSetValue => {
 	const other = s.other === "A" ? at.a : at.z
-	const insertM = (value: ChangeSetValue, name: string): ChangeSetValue =>
-		s.drawn ? value.insert(at.m, generatedOf(at, name)) : value.insert(at.m, [])
 	const firstOf = (value: ChangeSetValue): ChangeSetValue => {
-		const own = s.op === "insert" ? insertM(value, "given") : value[s.op](at.m, [])
+		const own = value[s.op](at.m, [])
 		const beside = s.beside
 			? s.op === "delete"
-				? insertM(own, "beside")
+				? own.insert(at.m, [])
 				: own.delete(at.m, [])
 			: own
 		return s.written === "first" ? beside.insert(other, []) : beside
@@ -283,19 +250,17 @@ const changeOf = (s: Sketch, at: Subject): ChangeSetValue => {
 	const againOf = (value: ChangeSetValue): ChangeSetValue =>
 		!s.again
 			? value
-			: s.drawn
-				? value.insert(at.m, generatedOf(at, "more"))
-				: value.insert(
-						at.m,
-						queryOver(at.schema).rule((r: RuleValue): FinishedValue => {
-							const vars = varsOver(at.m, "more")
-							const all = {
-								id: defined(vars["id"], "the id variable"),
-								v: defined(vars["v"], "the payload")
-							}
-							return r.match(r.relation("more", at.m), all).find(all)
-						})
-					)
+			: value.insert(
+					at.m,
+					queryOver(at.schema).rule((r: RuleValue): FinishedValue => {
+						const vars = varsOver(at.m, "more")
+						const all = {
+							id: defined(vars["id"], "the id variable"),
+							v: defined(vars["v"], "the payload")
+						}
+						return r.match(r.relation("more", at.m), all).find(all)
+					})
+				)
 	const second = againOf(changeSetOver.empty(at.schema))
 	const both =
 		s.again || s.written === "second"
@@ -305,9 +270,8 @@ const changeOf = (s: Sketch, at: Subject): ChangeSetValue => {
 }
 
 /** A case's ChangeSet, compiled over reality at SERIALIZABLE. */
-export const compiledSketch = (s: Sketch, subjects: Subjects) => {
-	const at = s.drawn ? subjects.drawn : subjects.plain
-	return compileWrite(at.checked, defined(changeSetDesc(changeOf(s, at)), "a ChangeSet"), {
+export const compiledSketch = (s: Sketch, at: Subject) =>
+	compileWrite(at.checked, defined(changeSetDesc(changeOf(s, at)), "a ChangeSet"), {
 		names: at.names,
 		reads: at.names,
 		claims: { kind: "every" },
@@ -317,7 +281,6 @@ export const compiledSketch = (s: Sketch, subjects: Subjects) => {
 		level: "serializable",
 		clock: noClock
 	})
-}
 
 /** The kind of write a statement's result says made its delta. */
 const makerOf = (result: WriteStepResult): Maker | undefined => {
@@ -383,8 +346,6 @@ export type Feature =
 	| "rides a put's displacing deletion"
 	| "rides one statement of two writes"
 	| "rides beside the opposite action of M in its stratum"
-	| "rides a generated addition"
-	| "refused: a generated addition beside the opposite action of M"
 	| "rides after state written beside it, named before it"
 	| "rides after state written beside it, named after it"
 	| "runs after the writes"

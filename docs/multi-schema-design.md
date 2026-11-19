@@ -119,8 +119,7 @@ name is where it lives.
 **Options:**
 
 - **A.** Each object goes in the schema of the level whose declaration needs it:
-  - a level's tables, materialized views, rosters' domains and names constants, and the identity sequences of its
-    tables, in its own schema;
+  - a level's tables, materialized views, rosters' domains and names constants, in its own schema;
   - a law's objects with the law's level: its trigger function and its constants. Its foreign key, CHECK, unique index
     and stored generated columns sit on the table they constrain, wherever PostgreSQL puts them;
   - a role's views, filter functions and probes in its role schema, `<level>__<role>`, and its policies on the tables it

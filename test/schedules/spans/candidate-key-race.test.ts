@@ -1,7 +1,6 @@
 /**
  * Races at a span candidate key: an apply of a Booking racing direct writers of Booking, at its span key, its other
- * candidate key and its primary key; and a generated addition of a Stay racing a direct writer of Stay at each key its
- * arbiter does not meet, the span key and a plain one.
+ * candidate key and its primary key.
  *
  * Booking(id, room, during, ref) is keyed by id, with the span candidate key (room, during), a UNIQUE ... WITHOUT
  * OVERLAPS that PostgreSQL enforces as an exclusion constraint, and the candidate key ref. The insert protocol probes
@@ -10,17 +9,6 @@
  * that key's law. An insert of complete facts at SERIALIZABLE arbitrates every object (ON CONFLICT DO NOTHING, no
  * target: write/insert/protocol.ts arbitrationOf), so PostgreSQL 19rc2 refuses an occupant its snapshot cannot see with
  * 40001 (nodeModifyTable.c ExecCheckTIDVisible), a SerializationFailure, and never with a 23P01 or 23505.
- *
- * Stay(id, room, during, ref, ticket) is keyed by ref and draws `id` by its `uuidv7()` default, with the span candidate
- * key (room, during) and the candidate key ticket. A generated addition of a Stay leaves the id out, so it arbitrates at
- * its primary key ref, the key the schema declares a stay's identity, which holds no drawn field and no span
- * (write/insert/unique.ts generatedArbiter: the primary key where it holds neither, never the key whose name sorts
- * first), and the span key and ticket's are objects beside its arbiter, which PostgreSQL checks as it inserts. A stay its snapshot cannot see, committed while the apply waits at one of them, fails
- * the statement there: overlapping the requested one, with 23P01 (execIndexing.c check_exclusion_or_unique_constraint,
- * which asks SSI nothing first); at its ticket, with 23505 (nbtinsert.c _bt_check_unique, whose SSI check finds no read
- * of the direct writer's, which reads nothing, to conflict with). The insert lists both as UnseenOccupant aborts
- * (write/program/compile.ts uniqueAbortsOf), so the attempt fails as a TransientFailure, and the retry's probe finds
- * the occupant, that key's law, as the serial order with the direct writer first says.
  *
  * An exclusion constraint inserts the row's entry before it checks, so a second writer of an overlapping fact waits on
  * the apply's entry while the apply waits on its own, a deadlock: the window one writer opens at a plain candidate key
@@ -35,19 +23,13 @@
  * real time, show what they showed in the run (the apply's outcome, each statement's SQLSTATE on its constraint) and
  * leave its state. The races draw the requested fact, an insert or a put of it, an initial fact, the direct writer's
  * fact and the blocker's, each standing to the requested one as a dictionary of what the keys branch on says (the same
- * fact, overlapping it in its room, at its ref, at its id, or apart), and how the blocker ends. Every case then runs a
- * stay race at each key beside the arbiter on its installation: a requested Stay and the direct writer's Stay
- * overlapping it in its room, or at its ticket in another room, at another ref either way, each race's state read
- * without the ids the database drew.
+ * fact, overlapping it in its room, at its ref, at its id, or apart), and how the blocker ends.
  *
  * The kept races are the windows the races were first planted for: an identical insert, and an identical put,
  * committed by the direct writer while the apply waits at the span key, each a repeat, unchanged; and an overlapping
- * fact committed while the apply waits at the span key, the span key's law, beside an overlapping Stay, and a Stay at
- * the requested ticket, each committed while the generated addition waits at that key, the UnseenOccupant it is retried
- * after.
+ * fact committed while the apply waits at the span key, the span key's law.
  *
- * Features: the apply waited, the apply refused, and the generated addition retried after an UnseenOccupant at the span
- * key and at ticket.
+ * Features: the apply waited, and the apply refused.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"
@@ -56,7 +38,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	type BookingFeature,
-	racesGen,
+	bookingRaceGen,
 	runRaces,
 	runs,
 	raceAims
@@ -69,14 +51,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Its pre-conversion budget: runs runs, coverage cases runs (test/schedules/spans/candidate-key-race.test.ts at d8eed1786).
  */
 export const racesAtASpanCandidateKeyAnApplyBesideDirectWritersEveryRaceOfAnApplyAndDirectWritersAtASpanCandidateKeyIsSerializable =
-	property.explore(aimed(racesGen, raceAims), {
+	property.explore(aimed(bookingRaceGen, raceAims), {
 		needs: { substrate: Substrate.installing },
-		situations: [
-			"the apply waited",
-			"the apply refused",
-			"the generated apply retried after an UnseenOccupant at the span key",
-			"the generated apply retried after an UnseenOccupant at ticket"
-		] satisfies ReadonlyArray<Reached<BookingFeature>>,
+		situations: ["the apply waited", "the apply refused"] satisfies ReadonlyArray<
+			Reached<BookingFeature>
+		>,
 		check:
 			({ substrate }, c: Case<BookingFeature>) =>
 			(races) =>

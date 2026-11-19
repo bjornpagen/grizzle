@@ -144,7 +144,6 @@ const servedStep = (step: OwnStep, isolation: Isolation): OwnStep => {
 			}
 		case "carrier":
 		case "analyze":
-		case "advance":
 		case "check":
 		case "familyWrite":
 		case "hold":

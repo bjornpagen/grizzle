@@ -19,7 +19,7 @@ import { defined } from "#test/support/assert.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
 import { type Fact, type FactSet, factSetOf, identityOrder } from "#test/support/oracle/delta.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { codesOf, compiled, cs, LedgerSchema } from "#test/unit/write/changeset/fixtures.ts"
+import { codesOf, compiled, cs } from "#test/unit/write/changeset/fixtures.ts"
 
 /** The fact of a model id. */
 const fact = (id: string): Fact => ({ id })
@@ -154,62 +154,6 @@ export type NettingFeature =
 /** Every item, in a drawn order. */
 export const shuffledAll = <A>(items: ReadonlyArray<A>): Gen<ReadonlyArray<A>> =>
 	shuffled(items, { min: items.length, max: items.length })
-
-/** A bigserial relation's statements over stored facts whose identity sequence lags them. Ticket { id: bigserial key,
- * note }: the stored facts hold ids 1 to k, the last stored by a direct writer with an explicit value, so the sequence
- * sits at k, not yet called, unless it was advanced past them. The first stratum holds `delete Ticket [{id: k}]` beside
- * `insert Ticket [{note}]`, a generated addition: from a lagging sequence it draws the key the delete freed, and the
- * fact is then removed and added back, identical when its note is the stored one. Later strata delete present facts
- * and add generated ones, whose keys the sequence draws past every stored one. Each stratum's rows are those its
- * statements return: a DELETE's for the requested facts present, a generated INSERT's for every fact it made present. */
-export type TicketFact = { readonly id: bigint; readonly note: string }
-
-const notes = ["x", "y"] as const
-
-const laterStratum: Gen<{
-	readonly deletes: ReadonlyArray<number>
-	readonly generated: ReadonlyArray<string>
-}> = (source) => ({
-	deletes: source.draw(array(int(0, 5), { min: 0, max: 2 })),
-	generated: source.draw(array(element(notes), { min: 0, max: 2 }))
-})
-
-/** Up to four stored facts and two later strata: enough for the planted pair beside other stored facts and for a later
- * stratum that deletes the fact the planted one added, or adds another. */
-export const laggingGen: Gen<{
-	readonly stored: ReadonlyArray<string>
-	readonly lagging: boolean
-	readonly generatedNote: string
-	readonly alsoDeleted: ReadonlyArray<number>
-	readonly later: ReadonlyArray<{
-		readonly deletes: ReadonlyArray<number>
-		readonly generated: ReadonlyArray<string>
-	}>
-}> = (source) => ({
-	stored: source.draw(array(element(notes), { min: 1, max: 4 })),
-	lagging: source.draw(boolean),
-	generatedNote: source.draw(element(notes)),
-	alsoDeleted: source.draw(array(int(0, 3), { min: 0, max: 2 })),
-	later: source.draw(array(laterStratum, { min: 0, max: 2 }))
-})
-
-export type LaggingFeature =
-	| "a fact removed and added back identical"
-	| "a generated fact differing in its key"
-	| "a generated fact differing in its note"
-
-/** Ledger's Ticket relation, as its compiled schema holds it: a bigserial key and a note. */
-export const ticket = defined(
-	compiled(LedgerSchema, cs(LedgerSchema)).schema.relations.get("Ticket"),
-	"Ticket"
-)
-
-/** A Ticket fact's identity, as the runtime keys it. */
-export const identity = relationIdentity(ticket.heading, codesOf(LedgerSchema))
-
-/** Ticket facts as a fact set, keyed by their identities. */
-export const factSet = (facts: Iterable<Fact>): FactSet =>
-	factSetOf(Arr.map([...facts], (f) => [identity(f), f] as const))
 
 /** Work's TaskNote relation, as its compiled schema holds it. */
 const note = defined(compiled(Work, cs(Work)).schema.relations.get("TaskNote"), "TaskNote")

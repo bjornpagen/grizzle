@@ -1,8 +1,9 @@
-import { writes, installs, required, besideTheModel } from "#test/pg/world-model/laws.fixtures.ts"
+import { besideTheModel, required, writes } from "#test/pg/world-model/laws.fixtures.ts"
 import {
 	breakingAtCommit,
 	dbSession,
 	directTransaction,
+	docsInstalls,
 	docsTenantRealities,
 	leadsOf,
 	programProperty
@@ -10,7 +11,7 @@ import {
 
 /** The worlds model: laws: every law holds on every committed state whoever writes, and its refusals show only what the README allows. */
 export const laws = programProperty({
-	installs,
+	installs: docsInstalls,
 	focus: writes,
 	steps: 10,
 	cases: 24,

@@ -47,7 +47,6 @@ const Store = relation(
 		id: uuid,
 		region: word,
 		label: word,
-		seq: pg.bigserial,
 		items: drawnField(natural),
 		stock: accumulated(pg.bigint, 0n)
 	},
@@ -62,13 +61,11 @@ const Shelf = relation("Shelf", { id: uuid, tag: word, slots: drawnField(natural
 
 const Slot = relation("Slot", { shelf: uuid, at: drawnField(natural), what: word }, ["shelf", "at"])
 
-const Ticket = relation("Ticket", { no: pg.bigserial, note: word }, ["no"])
-
 const items = counted(on(Item, "store"), fin(Store, "items"))
 
 const slots = ordered(on(Slot, "shelf", "at"), fin(Shelf, "slots"))
 
-const relations = Object.freeze({ Store, Item, Open, Shelf, Slot, Ticket })
+const relations = Object.freeze({ Store, Item, Open, Shelf, Slot })
 
 /** The world's schema: the counted family of Items with a sum into Store's stock and Store's region copied into each
  * Item, the ordered family of Slots, and each owner mutable when `mutability` says so. */
@@ -86,7 +83,7 @@ type Owner = "Store" | "Shelf"
 
 type Member = "Item" | "Slot"
 
-type Written = Owner | Member | "Ticket"
+type Written = Owner | Member
 
 export const owners: readonly [Owner, Owner] = ["Store", "Shelf"]
 
@@ -96,8 +93,7 @@ const familyOf: { readonly [O in Owner]: string } = { Store: "Store.items", Shel
 
 /**
  * The rule restated per owner, by field: what a member's writer selects (the key, the count, the ends and the copies)
- * and what its recount sets (the count and the ends). Store's label and seq are written fields no member writer
- * reaches.
+ * and what its recount sets (the count and the ends). Store's label is a written field no member writer reaches.
  */
 export const readFlight: { readonly [O in Owner]: ReadonlyArray<string> } = {
 	Store: ["id", "region", "items", "stock"],
@@ -115,8 +111,7 @@ const writesOf = {
 	Store: ["none", "whole", "all", "copy"],
 	Item: ["none", "whole", "all", "group", "copy", "joined", "other"],
 	Shelf: ["none", "whole", "all", "other"],
-	Slot: ["none", "whole", "all", "group", "other"],
-	Ticket: ["none", "whole", "all"]
+	Slot: ["none", "whole", "all", "group", "other"]
 } as const
 
 type WriteOf<T extends Written> = (typeof writesOf)[T][number]
@@ -145,8 +140,7 @@ const writesGen: Gen<Writes> = (source) => ({
 	Store: source.draw(element(writesOf.Store)),
 	Item: source.draw(element(writesOf.Item)),
 	Shelf: source.draw(element(writesOf.Shelf)),
-	Slot: source.draw(element(writesOf.Slot)),
-	Ticket: source.draw(element(writesOf.Ticket))
+	Slot: source.draw(element(writesOf.Slot))
 })
 
 export const worldGen: Gen<World> = (source) => ({
@@ -166,20 +160,20 @@ const queryEntry = (
 			return [
 				"AllStores",
 				q.rule((r) => {
-					const { id, region, label, seq, items: n, stock } = v(Store, "store")
+					const { id, region, label, items: n, stock } = v(Store, "store")
 					return r
-						.match(Store, { id, region, label, seq, items: n, stock })
-						.find({ id, region, label, seq, items: n, stock })
+						.match(Store, { id, region, label, items: n, stock })
+						.find({ id, region, label, items: n, stock })
 				})
 			]
 		case "Store:copy":
 			return [
 				"NorthStores",
 				q.rule((r) => {
-					const { id, label, seq, items: n, stock } = v(Store, "store")
+					const { id, label, items: n, stock } = v(Store, "store")
 					return r
-						.match(Store, { id, region: "north", label, seq, items: n, stock })
-						.find({ id, label, seq, items: n, stock })
+						.match(Store, { id, region: "north", label, items: n, stock })
+						.find({ id, label, items: n, stock })
 				})
 			]
 		case "Item:all":
@@ -265,19 +259,11 @@ const queryEntry = (
 					return r.match(Slot, { shelf, at, what: "x" }).find({ shelf, at })
 				})
 			]
-		case "Ticket:all":
-			return [
-				"AllTickets",
-				q.rule((r) => {
-					const { no, note } = v(Ticket, "ticket")
-					return r.match(Ticket, { no, note }).find({ no, note })
-				})
-			]
 	}
 	return assert.fail(`no query entry for ${t}:${w}`)
 }
 
-const written: ReadonlyArray<Written> = ["Store", "Item", "Shelf", "Slot", "Ticket"]
+const written: ReadonlyArray<Written> = ["Store", "Item", "Shelf", "Slot"]
 
 /** A role: Open read whole, and each relation it writes by the entry its write names. */
 export const roleOf = (s: ReturnType<typeof schemaOf>, name: RoleName, w: Writes) => {
@@ -611,7 +597,6 @@ export const ownerRows = (
 						[oc("id"), text(id)],
 						[oc("region"), text(region)],
 						[oc("label"), text("l")],
-						[oc("seq"), int(1n)],
 						[oc("items"), int(1n)],
 						[oc("stock"), int(7n)]
 					]),
@@ -646,8 +631,6 @@ type GrantsFeature =
 	| "an untranslatable member filter refused"
 	| "a narrowed owner entry refused"
 	| "a narrowed owner entry the members' filter agrees with"
-	| "a serial written through a query entry"
-	| "a serial written whole"
 	| "a writable entry whose key holds a drawn index refused when declared"
 
 export const features: Arr.NonEmptyReadonlyArray<GrantsFeature> = [
@@ -659,8 +642,6 @@ export const features: Arr.NonEmptyReadonlyArray<GrantsFeature> = [
 	"an untranslatable member filter refused",
 	"a narrowed owner entry refused",
 	"a narrowed owner entry the members' filter agrees with",
-	"a serial written through a query entry",
-	"a serial written whole",
 	"a writable entry whose key holds a drawn index refused when declared"
 ]
 
@@ -695,14 +676,6 @@ export const noteWriters = (
 			} else if (narrows(member)) {
 				c.note("a member writer whose filter is translated")
 			}
-		}
-		const store: string = ws.Store
-		const ticket: string = ws.Ticket
-		if (ticket === "all" || store === "all" || store === "copy") {
-			c.note("a serial written through a query entry")
-		}
-		if (ticket === "whole" || store === "whole") {
-			c.note("a serial written whole")
 		}
 	}
 }

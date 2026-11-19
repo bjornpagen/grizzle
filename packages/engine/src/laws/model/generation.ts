@@ -6,7 +6,6 @@
  * updater may assign.
  */
 import { defect } from "#compiler/core/invariant.ts"
-import { serialDraw } from "#compiler/ir/desc.ts"
 import { fieldReads, predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
@@ -81,11 +80,8 @@ const storedGenerated = (laws: LawModel, relation: string): ReadonlyArray<Stored
 	]
 }
 
-/** Whether an UPDATE can assign a field's column at all: every column but a generated one, which PostgreSQL computes,
- * and an identity, GENERATED ALWAYS, which takes only DEFAULT (428C9 otherwise). */
-const assignable = (f: LawField): boolean =>
-	f.writing.kind !== "generated" &&
-	!(f.writing.kind === "serial" && serialDraw(f.desc) === "identity")
+/** Whether an UPDATE can assign a field's column at all: every column but a generated one, which PostgreSQL computes. */
+const assignable = (f: LawField): boolean => f.writing.kind !== "generated"
 
 /**
  * Who runs a compilation's UPDATEs, and what each may assign: reality, the tables' owner, any assignable column (a

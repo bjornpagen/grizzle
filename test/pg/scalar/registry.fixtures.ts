@@ -3,7 +3,6 @@
 import { type Gen, int, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Result } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { serialDraw } from "#compiler/ir/desc.ts"
 import type { Capability, Carrier } from "#compiler/ir/scalar.ts"
 import { nativeCapabilities } from "#compiler/scalar/native.ts"
 import {
@@ -11,9 +10,7 @@ import {
 	numericMaxScale,
 	numericMinScale
 } from "#compiler/scalar/values/fault.ts"
-import { fieldDescOf } from "#compiler/schema/protocol.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
-import { isSerial, spelled, type Spelling } from "#test/unit/scalar/support.ts"
 
 /**
  * The catalog type of each carrier; a closed id is probed through smallint, the type of its code under its roster's
@@ -208,18 +205,6 @@ export const probe = (db: CaseSession, spellings: ReadonlyArray<string>) =>
 	)
 
 export const accepts = (f: () => unknown): boolean => Result.isSuccess(Result.try(f))
-
-/**
- * How PostgreSQL spells a column of the pg namespace's member `name`: the name itself, PostgreSQL's own spelling of the
- * type or the serial, for every member but a serial PostgreSQL draws by its column's `uuidv7()` default (ir/desc.ts
- * serialDraw), a name no type has, spelled as its type with that default, the column the installer writes for it.
- */
-export const columnSpelling = (name: Spelling): string => {
-	const descriptor = spelled(name)
-	return isSerial(name) && serialDraw(fieldDescOf(descriptor, `pg.${name}`)) === "uuidv7"
-		? `${descriptor.sql} DEFAULT pg_catalog.uuidv7()`
-		: name
-}
 
 /** A precision or a scale near numerictypmodin's bounds, or anywhere past them on either side. */
 const nearBounds = (bounds: ReadonlyArray<number>, far: number): Gen<number> =>

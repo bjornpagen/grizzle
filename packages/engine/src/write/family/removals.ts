@@ -1841,7 +1841,6 @@ const writesOf = (
 				with: undefined,
 				table: w.names.relation(name),
 				alias: into,
-				overriding: undefined,
 				onConflict: undefined,
 				columns: columns.map((c) => installed(w, name, c.column)),
 				source: {

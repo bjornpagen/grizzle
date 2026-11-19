@@ -2,6 +2,7 @@ import { boolean, clone, element, type Gen, int, map, weighted } from "@bjornpag
 import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	type Action,
@@ -36,7 +37,7 @@ import {
 	staffing,
 	tree
 } from "#test/pg/laws/projections/schemas.ts"
-import { succeeded } from "#test/support/assert.ts"
+import { nonEmpty, succeeded } from "#test/support/assert.ts"
 import {
 	admitGenerated,
 	type FixtureSchema,
@@ -578,8 +579,7 @@ const writingOpsOf = (
 
 /**
  * The shop relations a written draw acts on, each with its fact: an immutable and a mutable relation, a candidate key,
- * a pure set, a serial key written explicitly (OVERRIDING SYSTEM VALUE), a residual law's member and a serial field
- * outside the key.
+ * a pure set, a numbered key, a residual law's member and a field outside the key.
  */
 const writeTargets: ReadonlyArray<readonly [unknown, ReadonlyArray<unknown>]> = [
 	[Item, [{ id: uuidOf(1), label: "a", qty: 1n }]],
@@ -588,36 +588,55 @@ const writeTargets: ReadonlyArray<readonly [unknown, ReadonlyArray<unknown>]> = 
 	[Pair, [{ a: uuidOf(4), b: "d" }]],
 	[Seat, [{ no: 5n, label: "e" }]],
 	[Hand, [{ id: uuidOf(6), crew: uuidOf(7), label: "f" }]],
-	[Counter, [{ name: "g", n: 8n, seq: 9 }]]
+	[Counter, [{ name: "g", n: 8n }]]
 ]
 
 /**
  * A write program before it is compiled: whether its shop's Crew is mutable, the action on each write target, by
- * position, and whether a described put of Stock comes on top, which only the shop with an immutable Crew states, since
- * the described put's query is over that shop.
+ * position, whether a described put of Stock comes on top, which only the shop with an immutable Crew states, since
+ * the described put's query is over that shop, and the isolation it is compiled for: READ COMMITTED only for a program
+ * that inserts and writes no family, the one a READ COMMITTED role serves, whose inserts return the rows their arbiter
+ * met (write/insert/protocol.ts arbitrationOf `returned`), and SERIALIZABLE otherwise.
  */
 interface WriteSketch {
 	readonly crew: CrewMutability
 	readonly ops: ReadonlyArray<WriteOp>
 	readonly described: boolean
+	readonly level: Isolation
 }
 
 /**
  * A write sketch that writes something, by construction: where no described put comes on top, one target drawn among
- * them acts, its action drawn from those that write, and every other target's action is drawn from all of them.
+ * them acts, its action drawn from those that write, and every other target's action is drawn from all of them. A
+ * READ COMMITTED sketch inserts alone, into targets of no family (every one but the Hand), and states no described put.
  */
 const writeSketchGen: Gen<WriteSketch> = (source) => {
+	const level = source.draw(element<Isolation>(["serializable", "readCommitted"]))
 	const crew = source.draw(element(["immutable", "mutable"] as const))
-	const described = crew === "immutable" && source.draw(boolean)
-	const acting = described ? undefined : source.draw(int(0, writeTargets.length - 1))
-	return {
-		crew,
-		ops: Arr.map(writeTargets, ([relation], i) => {
-			const writing = writingOpsOf(relation, crew)
-			return source.draw(element<WriteOp>(i === acting ? writing : ["none", ...writing]))
-		}),
-		described
-	}
+	const described = level === "serializable" && crew === "immutable" && source.draw(boolean)
+	const actors = Arr.filter(
+		Arr.map(writeTargets, ([relation], i) => [relation, i] as const),
+		([relation]) => level === "serializable" || relation !== Hand
+	)
+	const acting = described
+		? undefined
+		: source.draw(
+				element(
+					nonEmpty(
+						Arr.map(actors, ([, i]) => i),
+						"the write targets hold one outside every family"
+					)
+				)
+			)
+	const ops = Arr.map(writeTargets, ([relation], i): WriteOp => {
+		const writing: ReadonlyArray<WritingOp> =
+			level === "serializable" ? writingOpsOf(relation, crew) : relation === Hand ? [] : ["insert"]
+		return Arr.match(writing, {
+			onEmpty: () => "none",
+			onNonEmpty: (some) => source.draw(element<WriteOp>(i === acting ? some : ["none", ...some]))
+		})
+	})
+	return { crew, ops, described, level }
 }
 
 /** Whether a write sketch deletes the Hand: a member of Crew's family. */
@@ -648,7 +667,10 @@ const changeSetOf = (w: WriteSketch) => {
  */
 const writtenStatements = (w: WriteSketch) => {
 	const mutable = w.crew === "mutable"
-	const compiled = (mutable ? mutableCrewCompiled : shopCompiled)(changeSetOf(w), shopCompile)
+	const compiled = (mutable ? mutableCrewCompiled : shopCompiled)(changeSetOf(w), {
+		...shopCompile,
+		level: w.level
+	})
 	const conservative = (mutable ? mutableCrewConservative : shopConservative)(compiled)
 	return [...compiled.artifact.statements, ...conservative.artifact.statements]
 }

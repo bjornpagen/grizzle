@@ -36,7 +36,7 @@ import { checking, owning } from "#test/support/policy.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** Shared fixtures for the put, read-back, scheduling and WriteProgram tests: a small schema whose
- * relations cover every put target (immutable and mutable relations, a serial key, a serial field outside the key, a
+ * relations cover every put target (immutable and mutable relations, a numbered key, a field outside the key, a
  * candidate key, a key over a field outside the primary key, a counted family with a check on its count, a pure set),
  * its installed names, and ChangeSet builders over it. */
 const label = str.regex("^[a-z]{1,8}$")
@@ -44,14 +44,14 @@ const label = str.regex("^[a-z]{1,8}$")
 /** Item is immutable, the pinned default; Stock is its mutable twin. */
 export const Item = relation("Item", { id: uuid, label, qty: pg.bigint }, ["id"])
 export const Stock = relation("Stock", { id: uuid, label, qty: pg.bigint }, ["id"])
-/** A mutable relation keyed by a serial field: an explicit key value is written with OVERRIDING SYSTEM VALUE. */
-export const Seat = relation("Seat", { no: pg.bigserial, label }, ["no"])
+/** A mutable relation keyed by its number. */
+export const Seat = relation("Seat", { no: pg.bigint, label }, ["no"])
 /** A mutable relation with a candidate key outside its primary key. */
 export const Code = relation("Code", { id: uuid, code: label }, ["id"])
 /** A mutable pure set. */
 export const Pair = relation("Pair", { a: uuid, b: label }, ["a", "b"])
-/** A mutable relation with a serial field outside its key. */
-export const Counter = relation("Counter", { name: label, n: pg.bigint, seq: pg.serial }, ["name"])
+/** A mutable relation with a field outside its key. */
+export const Counter = relation("Counter", { name: label, n: pg.bigint }, ["name"])
 /** An immutable relation referencing Stock: a put on Stock can replace a referenced row, so the reference is deferred
  * and its check is a deferred event of each Line fact. */
 const Line = relation("Line", { id: uuid, stock: uuid }, ["id"])
@@ -106,10 +106,11 @@ const MutableCrewShop = schema("Shop", Rec.values(shopRelations), [...shopLaws, 
 export const shopChangeSet = (): ChangeSetValue => ChangeSet.empty(Shop)
 export const mutableCrewChangeSet = (): ChangeSetValue => ChangeSet.empty(MutableCrewShop)
 
-/** How a test compiles a put of the Shop: which contexts the Db holds a fact of, every one for reality. shopCompile
- * states that, and a test spreads it with what it changes. */
-type ShopCompile = Pick<CompileWriteOptions, "claims">
-export const shopCompile: ShopCompile = { claims: { kind: "every" } }
+/** How a test compiles a write of the Shop: which contexts the Db holds a fact of, every one for reality, and the
+ * isolation its statements are built for, SERIALIZABLE. shopCompile states that, and a test spreads it with what it
+ * changes. */
+type ShopCompile = Pick<CompileWriteOptions, "claims" | "level">
+export const shopCompile: ShopCompile = { claims: { kind: "every" }, level: "serializable" }
 
 /** A Shop's write compiler, and its write oracle's baseline of a write it compiled. */
 interface ShopWriter {
@@ -160,7 +161,7 @@ const shopWriter = (s: typeof Shop | typeof MutableCrewShop): ShopWriter => {
 							...over,
 							names: installed,
 							reads: installed,
-							level: "serializable",
+							level: options.level,
 							clock: noClock
 						})
 					)

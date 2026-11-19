@@ -88,13 +88,10 @@ export const resolveRun =
 
 /**
  * The features every write suite's population must reach: each member kind under every op, one to three strata, each
- * read-back source, every put target, refusals by every kind of law, each schema shape, TOAST-sized payloads, numeric casts between typmods, generated additions that collide with
- * stored serial values, a run that reads back, on one Db, relations sharing field names with other types, references
+ * read-back source, every put target, refusals by every kind of law, each schema shape, TOAST-sized payloads, numeric
+ * casts between typmods, a run that reads back, on one Db, relations sharing field names with other types, references
  * into candidate keys, Stream members, bound parameters, db.compile, a described member reading a wider text
- * into a narrower field (a deletion among them) refused by the domain, a put on an immutable relation, a generated
- * addition drawing the key of a fact its stratum deletes, read back through both deltas, identical and differing, one
- * whose lagging draw repeats a fact the stratum keeps, refused at its key, draws of the realization's other than the
- * calculator's that change the counts, a put realized as UPDATE ... FROM advancing a lagging sequence past its keys,
+ * into a narrower field (a deletion among them) refused by the domain, a put on an immutable relation,
  * second readings over facts stored in another order and with a value respelled, a stratum whose writes the keys order
  * in a cycle refused as it compiles, a deletion where facts meet nowhere left unordered beside an addition, which
  * orders a stratum that would otherwise hold such a cycle, and an addition a later stratum removes, which the change's
@@ -132,13 +129,6 @@ export const writeSituations = [
 	"refused by an immediate foreign key",
 	"refused by a projected key",
 	"mutable relation",
-	"identity column",
-	"every field an identity column",
-	"two identity columns",
-	"insert generated",
-	"a unit addition described and enumerated",
-	"generated accepted",
-	"generated after a collision",
 	"deferred containment",
 	"immediate containment",
 	"projected key",
@@ -164,11 +154,6 @@ export const writeSituations = [
 	"a stated-one read-back with its parent present",
 	"a stated-one read-back with its parent absent",
 	"a stated-one read-back over a deferred containment that the write violates",
-	"lagging identical netted",
-	"lagging differing",
-	"a generated repeat of a kept fact, drawing nothing",
-	"counts under the realization's draws",
-	"an UPDATE ... FROM put advancing its sequence",
 	"anchored deletion",
 	"a member slot staged",
 	"a staged slot an exact deletion excepts",

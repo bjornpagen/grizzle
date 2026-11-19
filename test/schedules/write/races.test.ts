@@ -4,8 +4,8 @@
  *
  * Property: every run is serializable as the model means it. Some order of the committed operations, with every
  * refusal at a place among them, respecting real time, explains each outcome, each row count, each refusal's law or
- * SQLSTATE and the committed state; every abort is 40001, 40P01 or a TransientFailure reason the write's shape allows,
- * beside a concurrent operation; and every generated serial value lies past the explicit values earlier writes stored.
+ * SQLSTATE and the committed state; and every abort is 40001, 40P01 or a TransientFailure reason the write's shape
+ * allows, beside a concurrent operation.
  *
  * A case installs the schedule schema, opens two grizzle writers on the served login and two direct sessions, and
  * runs one race: a lawful initial state and two or three sessions, each a grizzle writer's one or two ChangeSets (each
@@ -15,15 +15,12 @@
  * writer's Db. A race of few moves runs in every order (partial-order reduced); a larger one under a drawn PCT
  * schedule. Which deadlock victim PostgreSQL picks is nature's branch, judged like any run.
  *
- * The races are drawn over small domains, so keys, candidate keys, serial values and spans meet, or planted from the
+ * The races are drawn over small domains, so keys, candidate keys and spans meet, or planted from the
  * dictionary of shapes (PlantedRace): an insert in flight at the key, a deletion before a put of the
  * fact, an anchor replaced by DELETE and INSERT beside a reference to it, a candidate key raced beside the arbiter
  * (UnseenOccupant), a direct writer's deletion and insert beside a concurrent occupant of the key it inserts (a 23505
- * its snapshot cannot explain), two puts of one key, an exact repeat beside a deletion of it, generated serial values
- * beside explicit ones (GeneratedSerialUnique), a generated addition beside a deletion of its label's concurrent
- * occupant (a serialization failure where its arbiter, label, meets that occupant unseen), a span put overlapping
- * another key, and an update beside a put in place (each in-place
- * target).
+ * its snapshot cannot explain), two puts of one key, an exact repeat beside a deletion of it, a span put overlapping
+ * another key, and an update beside a put in place (each in-place target).
  *
  * The claimer race: two calls of the certified READ COMMITTED `claimer`, each racing Claim and then Seat, both raced
  * (race), each in a statement of its own, under holders apart, the owner holding Gate beside them, in every order. The
@@ -33,8 +30,7 @@
  *
  * Features: each put target the served write runs (its statements' steps) and each pair reason the compile that
  * served it chose (PutChoice), each answer, each TransientFailure reason met, each direct SQLSTATE, waits, deadlocks,
- * nature's branches, a write held between its strata by a blocker, generated and explicit serials, and each planted
- * shape.
+ * nature's branches, a write held between its strata by a blocker, and each planted shape.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"

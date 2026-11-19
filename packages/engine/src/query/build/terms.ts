@@ -180,8 +180,8 @@ export const literalTerm = <const X extends HeadValue>(
 }
 
 /**
- * A scalar parameter, r.param(name, descriptor): a term over the parameter of the descriptor's type, a serial's being
- * its integer's, carried by the descriptor. The Description records it by name and descriptor, and it stands wherever a
+ * A scalar parameter, r.param(name, descriptor): a term over the parameter of the descriptor's type, carried by the
+ * descriptor. The Description records it by name and descriptor, and it stands wherever a
  * term of that type stands, first included.
  */
 export const paramTerm = <H, S extends SqlTag>(

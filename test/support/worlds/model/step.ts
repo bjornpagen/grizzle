@@ -1,24 +1,12 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { sameValue, valueText } from "#test/support/laws/model.ts"
 import {
-	type Binding,
-	bindFacts,
-	bound,
-	distinctFacts,
-	everyMeets,
-	factMeets,
-	fresh,
-	holdsDraw,
-	type Meet,
-	type Rest,
-	unbound
-} from "#test/support/worlds/model/draws.ts"
-import {
 	entryRows,
 	evaluateRules,
 	hostSchemaOf,
 	isMember
 } from "#test/support/worlds/model/host.ts"
+import { everyMeets, factMeets, sameFacts } from "#test/support/worlds/model/match.ts"
 import {
 	attachedField,
 	attachedRows,
@@ -124,59 +112,6 @@ export const settle = (s: Allowed, namesOf: (install: InstallSpec) => InstalledN
 		? s
 		: { observation: s.observation, next: s.landing.complete(namesOf(s.landing.install)) }
 
-/** A fact tagged with the relation that holds it. */
-interface Tagged {
-	readonly relation: string
-	readonly fact: HostFact
-}
-
-/** A tagged model fact meeting a tagged stored fact: one relation, one fact (draws.ts factMeets). */
-const taggedMeets: Meet<Tagged, Tagged> = (e, o, binding, rest) =>
-	e.relation === o.relation ? factMeets(e.fact, o.fact, binding, rest) : undefined
-
-/**
- * The state with the values the identity defaults drew, read from the stored relations: the model predicts every value
- * but a draw (draws.ts), which the stored facts show. The base and derived relations holding a draw bind their draws
- * together, one binding under which each model fact meets a stored fact of its own relation and its own, every stored
- * fact is met, and every value is fresh, and the state holds the values bound. When no binding does, a stored relation
- * repeating a fact among them, the state is left as it is, and the caller's comparison finds the relations differing.
- */
-export const adoptStored = (
-	state: ModelState,
-	stored: {
-		readonly reality: HostState
-		readonly derived: Readonly<Record<string, ReadonlyArray<HostFact>>>
-	}
-): ModelState => {
-	/** A relation's facts, tagged with its name, on both sides, of each relation whose model facts hold a draw. */
-	const drawing = Arr.filter(
-		[
-			...Arr.map(state.install.base.relations, (r) => ({
-				model: factsIn(state.reality, r.name),
-				stored: factsIn(stored.reality, r.name),
-				relation: `relation ${r.name}`
-			})),
-			...Arr.map(Rec.toEntries(state.derived), ([name, facts]) => ({
-				model: facts,
-				stored: stored.derived[name] ?? [],
-				relation: `derived ${name}`
-			}))
-		],
-		(r) => Arr.some(r.model, holdsDraw)
-	)
-	const tagged = (side: "model" | "stored"): ReadonlyArray<Tagged> =>
-		Arr.flatMap(drawing, (r) => Arr.map(r[side], (fact) => ({ relation: r.relation, fact })))
-	const model = tagged("model")
-	const real = tagged("stored")
-	const binding =
-		model.length === real.length && Arr.every(drawing, (r) => distinctFacts(r.stored))
-			? everyMeets(model, real, taggedMeets, unbound, (met) =>
-					fresh(state, met) ? met : undefined
-				)
-			: undefined
-	return binding === undefined ? state : bound(state, binding)
-}
-
 const handleRefused = (state: ModelState): Arr.NonEmptyReadonlyArray<Branch> => [
 	{ observation: { kind: "handle-refused" }, next: state }
 ]
@@ -238,10 +173,10 @@ const dbCall = (
 }
 
 /**
- * Whether a direct writer's statement reads or writes a relation, a table, a view or a sequence, so its transaction meets
+ * Whether a direct writer's statement reads or writes a relation, a table or a view, so its transaction meets
  * SSI's checks: a read, a write, a call of an installed function and the execution of a prepared read. A statement that
  * sets the role, the session identity or the claims, or prepares a read without running it, reads none, and neither does
- * one PostgreSQL refuses before it runs (TRUNCATE and setval by privilege).
+ * one PostgreSQL refuses before it runs (TRUNCATE by privilege).
  */
 const meetsRelations = (statement: DirectStatement): boolean => {
 	switch (statement.kind) {
@@ -261,7 +196,6 @@ const meetsRelations = (statement: DirectStatement): boolean => {
 		case "set-claims":
 		case "prepare":
 		case "truncate":
-		case "setval":
 			return false
 	}
 }
@@ -501,21 +435,13 @@ export const step = (state: ModelState, action: Action): Arr.NonEmptyReadonlyArr
 /** The keys a witness shows: none when it is withheld. */
 const shownKeys = (w: Witness): ReadonlyArray<HostFact> => (w.kind === "shown" ? w.keys : [])
 
-/**
- * The binding, which `rest` accepts, under which an observed witness shows only keys the expected one allows: a shown
- * witness at least one, withheld none.
- */
-const within = (expected: Witness, observed: Witness, rest: Rest): Binding | undefined => {
+/** Whether an observed witness shows only keys the expected one allows: a shown witness at least one, withheld none. */
+const within = (expected: Witness, observed: Witness): boolean => {
 	const shown = shownKeys(observed)
-	return observed.kind === "withheld" || shown.length > 0
-		? everyMeets(
-				shown,
-				shownKeys(expected),
-				(key, allowed, binding, next) => factMeets(allowed, key, binding, next),
-				unbound,
-				rest
-			)
-		: undefined
+	return (
+		(observed.kind === "withheld" || shown.length > 0) &&
+		everyMeets(shown, shownKeys(expected), (key, allowed) => factMeets(allowed, key))
+	)
 }
 
 /**
@@ -533,20 +459,15 @@ const refusedByMeets = (expected: RefusedBy, observed: RefusedBy): boolean => {
 	}
 }
 
-/** An expected read-back meeting an observed one: one relation, its rows and delta as keyed sets (draws.ts bindFacts). */
-const readBackMeets: Meet<ReadBack, ReadBack> = (e, o, binding, rest) =>
-	o.relation === e.relation
-		? bindFacts(e.rows, o.rows, binding, (rows) =>
-				bindFacts(e.delta.inserted, o.delta.inserted, rows, (inserted) =>
-					bindFacts(e.delta.deleted, o.delta.deleted, inserted, rest)
-				)
-			)
-		: undefined
+/** An expected read-back meeting an observed one: one relation, its rows and delta as keyed sets (match.ts sameFacts). */
+const readBackMeets = (e: ReadBack, o: ReadBack): boolean =>
+	o.relation === e.relation &&
+	sameFacts(e.rows, o.rows) &&
+	sameFacts(e.delta.inserted, o.delta.inserted) &&
+	sameFacts(e.delta.deleted, o.delta.deleted)
 
 /**
- * The binding, which `rest` accepts, under which an observed outcome is the expected one, none when it is not; a draw
- * the expected outcome holds is any value of its type, one value wherever the outcome shows it (draws.ts), and the
- * binding says which. Rows compare as keyed sets: a delivery that repeats a row agrees with nothing. A witness agrees
+ * Whether an observed outcome is the expected one. Rows compare as keyed sets: a delivery that repeats a row agrees with nothing. A witness agrees
  * when every key it shows is one the expected witness allows, each a key of its own: the model predicts the most README
  * "Errors and outcomes" lets a refusal show, and a refusal may name fewer of the violating facts, never another; a
  * withheld witness shows none; a refusal's object agrees where it is the one the model names (refusedByMeets).
@@ -554,66 +475,62 @@ const readBackMeets: Meet<ReadBack, ReadBack> = (e, o, binding, rest) =>
  * mismatches are catalog facts as PostgreSQL deparses them, which the model does not spell: drift agrees when both find
  * something or both find nothing.
  */
-const matched = (
-	expected: ActionOutcome,
-	observed: ActionOutcome,
-	rest: Rest
-): Binding | undefined => {
-	const agreed = (same: boolean): Binding | undefined => (same ? rest(unbound) : undefined)
+const matched = (expected: ActionOutcome, observed: ActionOutcome): boolean => {
 	switch (expected.kind) {
 		case "opened":
-			return agreed(
+			return (
 				observed.kind === "opened" &&
-					observed.session === expected.session &&
-					observed.verifyCalls === expected.verifyCalls
+				observed.session === expected.session &&
+				observed.verifyCalls === expected.verifyCalls
 			)
 		case "open-refused":
-			return agreed(
+			return (
 				observed.kind === "open-refused" &&
-					observed.stage === expected.stage &&
-					observed.verifyCalls === expected.verifyCalls
+				observed.stage === expected.stage &&
+				observed.verifyCalls === expected.verifyCalls
 			)
 		case "rows":
-			return observed.kind === "rows"
-				? bindFacts(expected.rows, observed.rows, unbound, rest)
-				: undefined
+			return observed.kind === "rows" && sameFacts(expected.rows, observed.rows)
 		case "applied":
-			return observed.kind === "applied" &&
+			return (
+				observed.kind === "applied" &&
 				observed.outcome === expected.outcome &&
-				observed.reads.length === expected.reads.length
-				? everyMeets(expected.reads, observed.reads, readBackMeets, unbound, rest)
-				: undefined
+				observed.reads.length === expected.reads.length &&
+				everyMeets(expected.reads, observed.reads, readBackMeets)
+			)
 		case "invariant-rejected":
-			return observed.kind === "invariant-rejected" &&
+			return (
+				observed.kind === "invariant-rejected" &&
 				observed.law === expected.law &&
-				refusedByMeets(expected.by, observed.by)
-				? within(expected.witness, observed.witness, rest)
-				: undefined
+				refusedByMeets(expected.by, observed.by) &&
+				within(expected.witness, observed.witness)
+			)
 		case "law-refused":
-			return observed.kind === "law-refused" &&
+			return (
+				observed.kind === "law-refused" &&
 				observed.sqlstate === expected.sqlstate &&
-				observed.law === expected.law
-				? within(expected.witness, observed.witness, rest)
-				: undefined
+				observed.law === expected.law &&
+				within(expected.witness, observed.witness)
+			)
 		case "outside-world":
-			return agreed(observed.kind === "outside-world" && observed.relation === expected.relation)
+			return observed.kind === "outside-world" && observed.relation === expected.relation
 		case "transient":
-			return agreed(observed.kind === "transient" && observed.reason === expected.reason)
+			return observed.kind === "transient" && observed.reason === expected.reason
 		case "refused":
-			return agreed(observed.kind === "refused" && observed.sqlstate === expected.sqlstate)
+			return observed.kind === "refused" && observed.sqlstate === expected.sqlstate
 		case "migration-refused":
-			return agreed(observed.kind === "migration-refused" && observed.stage === expected.stage)
+			return observed.kind === "migration-refused" && observed.stage === expected.stage
 		case "migration-law-refused":
-			return agreed(
+			return (
 				observed.kind === "migration-law-refused" &&
-					Arr.every(observed.laws, (law) => expected.laws.includes(law))
+				Arr.every(observed.laws, (law) => expected.laws.includes(law))
 			)
 		case "stale-snapshot":
-			return agreed(observed.kind === "stale-snapshot" && observed.reason === expected.reason)
+			return observed.kind === "stale-snapshot" && observed.reason === expected.reason
 		case "drift":
-			return agreed(
+			return (
 				observed.kind === "drift" &&
-					(observed.objects.length === 0) === (expected.objects.length === 0)
+				(observed.objects.length === 0) === (expected.objects.length === 0)
 			)
 		case "compile-refused":
 		case "encoding-refused":
@@ -622,21 +539,13 @@ const matched = (
 		case "interrupted":
 		case "handle-refused":
 		case "ok":
-			return agreed(observed.kind === expected.kind)
+			return observed.kind === expected.kind
 	}
 }
 
-/**
- * The state a branch leads to once its outcome is the observed one (matched): the branch's state with each draw the
- * observation showed held as its value, every such value one its column holds nowhere else in that state (fresh);
- * none when the observation is not the branch's.
- */
-export const observedNext = (branch: Branch, observed: ActionOutcome): ModelState | undefined => {
-	const binding = matched(branch.observation, observed, (met) =>
-		fresh(branch.next, met) ? met : undefined
-	)
-	return binding === undefined ? undefined : bound(branch.next, binding)
-}
+/** The state a branch leads to once its outcome is the observed one (matched); none when it is not the branch's. */
+export const observedNext = (branch: Branch, observed: ActionOutcome): ModelState | undefined =>
+	matched(branch.observation, observed) ? branch.next : undefined
 
 /** The PostgreSQL role the installation gave a grizzle role or login; every one has one. */
 const installedRole = (names: Readonly<Record<string, string>>, name: string): string => {

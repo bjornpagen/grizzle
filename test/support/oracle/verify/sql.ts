@@ -1972,10 +1972,6 @@ class StatementAuditor {
 			return
 		}
 		switch (generated.kind) {
-			case "identity":
-				this.objectName(generated.sequence, "sequence", "generated")
-				return
-			case "uuidv7":
 			case "retirement":
 				return
 			case "stored":
@@ -2472,7 +2468,6 @@ class StatementAuditor {
 			case "MATERIALIZED VIEW":
 			case "DOMAIN":
 			case "TYPE":
-			case "SEQUENCE":
 			case "INDEX":
 			case "STATISTICS":
 			case "FUNCTION":
@@ -2540,10 +2535,6 @@ class StatementAuditor {
 										this.constraint(action.constraint, undefined)
 									})
 									return
-								case "addIdentity":
-									this.ident(action.column, "column", "column")
-									this.objectName(action.sequence, "sequence", "sequence")
-									return
 								case "alterColumnType":
 									this.ident(action.column, "column", "column")
 									this.at("type", () => {
@@ -2567,9 +2558,7 @@ class StatementAuditor {
 								case "dropColumn":
 								case "dropDefault":
 								case "setNotNull":
-								case "setUuidv7Default":
 								case "setRetirementDefault":
-								case "dropIdentity":
 									this.ident(action.column, "column", "column")
 									return
 								case "validateConstraint":

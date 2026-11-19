@@ -68,7 +68,6 @@ const domainFault = (domain: FieldDomain, value: HostValue): DomainFault | undef
 			}
 			return domain.matcher.test(value) ? undefined : { kind: "check", domain }
 		case "integer":
-		case "serial":
 			if (typeof value !== "number") {
 				return typeFault
 			}
@@ -132,19 +131,11 @@ export type RowFault =
 	| { readonly kind: "encoding"; readonly fault: EncodingFault }
 	| { readonly kind: "checks"; readonly fields: Arr.NonEmptyReadonlyArray<CheckedField> }
 
-/**
- * The fault of the cells a statement writes; a cell the statement leaves out is a value of no type unless its field is
- * serial, which the identity default draws.
- */
+/** The fault of the cells a statement writes; a cell the statement leaves out is a value of no type. */
 export const rowFault = (cells: ReadonlyArray<Cell>): RowFault | undefined => {
 	const checks = new Map<string, CheckedField>()
 	for (const cell of cells) {
-		const fault =
-			cell.value === undefined
-				? cell.domain.kind === "serial"
-					? undefined
-					: typeFault
-				: domainFault(cell.domain, cell.value)
+		const fault = cell.value === undefined ? typeFault : domainFault(cell.domain, cell.value)
 		if (fault?.kind === "encoding") {
 			return fault
 		}

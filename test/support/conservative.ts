@@ -33,7 +33,6 @@ import {
 	type CompileWriteOptions,
 	type FamilyPlacement,
 	finish,
-	insertAborts,
 	newBuilder,
 	placeAdmission,
 	place,
@@ -223,32 +222,22 @@ const conservativeArtifact = (
 			}
 			case "action": {
 				const { statement, stratum, action, relation } = step
-				const needs = { needs: statement.needs }
 				const result = statement.result
 				place(
 					b,
 					statement,
-					result.kind === "sequenceAdvance"
-						? {
-								kind: "advance",
-								stratum,
-								action,
-								relation: relation.name,
-								field: result.field,
-								...needs
-							}
-						: {
-								kind: "write",
-								stratum,
-								action,
-								relation: relation.name,
-								result,
-								...needs,
-								uniqueAborts: uniqueAbortsOf(
-									relation,
-									result.kind !== "insert" ? { kind: "other" } : insertAborts(result.serial)
-								)
-							},
+					{
+						kind: "write",
+						stratum,
+						action,
+						relation: relation.name,
+						result,
+						needs: statement.needs,
+						uniqueAborts: uniqueAbortsOf(
+							relation,
+							result.kind !== "insert" ? { kind: "other" } : { kind: "probed" }
+						)
+					},
 					previous
 				)
 				break

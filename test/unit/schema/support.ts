@@ -42,8 +42,6 @@ export const rawPg = {
 	money: pgDescriptors.money,
 	boolean: pgDescriptors.boolean,
 	numericOf: (precision: number, scale: number) => pgDescriptors.numeric(precision, scale),
-	bigserial: pgDescriptors.bigserial,
-	serial: pgDescriptors.serial,
 	vector: (dimensions: number) => pgDescriptors.vector(dimensions)
 } as const
 

@@ -81,7 +81,6 @@ const refusedTexts = (domain: FieldDomain, codes: HandleCodes): ReadonlyArray<st
 			}
 			return [domain.members[0], String(handles.length), pastRange[16]]
 		}
-		case "serial":
 		case "span":
 			return []
 	}

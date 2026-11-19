@@ -210,8 +210,7 @@ export const withoutSpanWidth = (t: PlainType): PlainType => {
  * conditional or a LEAST/GREATEST exactly when they have one carrier, one contract identity at every level, one closed
  * roster, one vector dimension count, and one span endpoint. Numeric typmods and text refinements do not
  * enter: numeric(7, 6) meets numeric(18, 2) through numeric's own operators, and two compatible text fields can admit
- * different value subsets. A serial declaration is a column generation request, not a value domain, so
- * it does not enter either.
+ * different value subsets.
  */
 export const compatible = (a: ScalarType, b: ScalarType): boolean => {
 	const ca = a.contract

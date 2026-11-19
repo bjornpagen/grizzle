@@ -103,15 +103,11 @@ export interface DrawnField {
 	readonly kind: ColumnKind
 }
 
-/**
- * A relation of a drawn schema: its first field `id` and its key, `id` alone or with one more key field. `serial`
- * declares a bigint field `seq` its sequence writes.
- */
+/** A relation of a drawn schema: its first field `id` and its key, `id` alone or with one more key field. */
 export interface DrawnRelation {
 	readonly name: string
 	readonly fields: Arr.NonEmptyReadonlyArray<DrawnField>
 	readonly key: Arr.NonEmptyReadonlyArray<string>
-	readonly serial: boolean
 }
 
 export interface DrawnSchema {
@@ -120,9 +116,6 @@ export interface DrawnSchema {
 
 /** The names a relation's fields after `id` are drawn from. */
 const fieldNames = ["a", "b", "c"] as const
-
-/** The name of a relation's serial field. */
-export const serialField = "seq"
 
 const isKeyKind = (kind: ColumnKind): boolean => Arr.some(keyColumnKinds, (k) => k === kind)
 
@@ -163,9 +156,9 @@ const plannedKind = (
 			])
 }
 
-/** The relation named `name`, with a serial field where `serial` allows one and the draw keeps it. */
+/** The relation named `name`. */
 const relationGen =
-	(name: string, plan: FamilyPlan, serial: boolean): Gen<DrawnRelation> =>
+	(name: string, plan: FamilyPlan): Gen<DrawnRelation> =>
 	(source) => {
 		const kindFor = (field: string, among: Arr.NonEmptyReadonlyArray<ColumnKind>): ColumnKind =>
 			source.draw(plannedKind(plan.get(field) ?? "uuid", among))
@@ -183,23 +176,22 @@ const relationGen =
 		return {
 			name,
 			fields: [id, ...more],
-			key: second === undefined ? ["id"] : ["id", second.name],
-			serial: serial && source.draw(boolean)
+			key: second === undefined ? ["id"] : ["id", second.name]
 		}
 	}
 
-/** A drawn schema of between one and `most` relations, a serial field allowed where `serial`. */
+/** A drawn schema of between one and `most` relations. */
 export const drawnSchemaGen =
-	(most: number, serial: boolean): Gen<DrawnSchema> =>
+	(most: number): Gen<DrawnSchema> =>
 	(source) => {
 		const plan: FamilyPlan = new Map(
 			Arr.map(["id", ...fieldNames], (n) => [n, source.draw(familyGen)] as const)
 		)
 		const count = source.draw(int(1, most))
-		const first = source.draw(relationGen("R0", plan, serial))
+		const first = source.draw(relationGen("R0", plan))
 		const rest = Arr.map(
 			upTo(count - 1, (i) => i + 1),
-			(i) => source.draw(relationGen(`R${i}`, plan, serial))
+			(i) => source.draw(relationGen(`R${i}`, plan))
 		)
 		return { relations: [first, ...(count > 1 ? rest : [])] }
 	}
@@ -227,9 +219,6 @@ export const schemaDescOf = (s: DrawnSchema): SchemaDesc => ({
 			const fields: Record<string, FixtureField> = {}
 			for (const x of r.fields) {
 				fields[x.name] = descriptorOf(x.kind)
-			}
-			if (r.serial) {
-				fields[serialField] = f.bigserial
 			}
 			return relation(r.name, fields, r.key)
 		})

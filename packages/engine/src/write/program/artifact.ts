@@ -75,7 +75,6 @@ const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
 			return step.parts
 		case "carrier":
 		case "analyze":
-		case "advance":
 		case "readBack":
 		case "check":
 		case "hold":
@@ -199,8 +198,7 @@ export interface ArtifactStatement {
  *   (`WriteResult`, `PutResult`), the change its rows are for the netting of deltas and
  *   counts, what its rows need of the call's inputs, where they hold no such fact the runtime sending none of it,
  *   and the unique violations (23505, 23P01) at this statement that are aborts rather than key laws;
- * - a carrier statement creates, fills or analyzes transaction-scoped carriers; a sequence advance moves an identity
- *   sequence; neither returns rows the outcome reads;
+ * - a carrier statement creates, fills or analyzes transaction-scoped carriers, and returns no rows the outcome reads;
  * - a read-back statement belongs to one read-back, delivered as a query's statements are.
  *
  * Every write statement's text already casts its outer columns to text; a read-back statement's text is
@@ -390,7 +388,7 @@ export const settledArtifact = (
 }
 
 /** The columns a write statement's rows hold: a write's returned facts, which the outcome converts by the statement's
- * result; none for a carrier's creation, fill or analysis, a sequence advance, a hold, a retirement, whose one text the
+ * result; none for a carrier's creation, fill or analysis, a hold, a retirement, whose one text the
  * outcome reads as its counts (runtime/write/outcome.ts retiredCounts), or a query entry's check. */
 export const resultHeading = (result: (WriteStatement | PutStatement)["result"]): Heading => {
 	switch (result.kind) {
@@ -400,7 +398,6 @@ export const resultHeading = (result: (WriteStatement | PutStatement)["result"])
 		case "update":
 		case "merge":
 			return result.columns
-		case "sequenceAdvance":
 		case "hold":
 		case "retire":
 		case "admission":
@@ -411,7 +408,7 @@ export const resultHeading = (result: (WriteStatement | PutStatement)["result"])
 	}
 }
 
-/** The StatementSpec of a write, carrier or sequence-advance statement. */
+/** The StatementSpec of a write or carrier statement. */
 export const writeStatementSpec = (
 	statement: WriteStatement | PutStatement,
 	dependsOn: ReadonlyArray<number>

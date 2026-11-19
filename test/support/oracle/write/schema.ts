@@ -33,11 +33,9 @@ import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 import {
 	fieldOf,
-	isSerialKind,
 	referable,
 	rosterHandles,
 	rosterName,
-	type SerialKind,
 	type TypeKind,
 	typeInfo,
 	typeKinds
@@ -104,9 +102,6 @@ export interface WGroup {
  *   keep their result types apart);
  * - its declared primary key, which a pure set makes its whole heading, and at most one candidate key beyond it,
  *   every key over keyable columns (domain.ts) and so representable;
- * - identity columns: one, in the key or in the payload, beside other fields, or every field an identity column (one
- *   or two of them), whose generated addition supplies no field at all. ChangeSets write explicit values through
- *   OVERRIDING SYSTEM VALUE and the sequence advance, or omit them as generated additions;
  * - `mutable(R)` or the pinned immutable default;
  * - at most one containment of some of its fields into the primary key, or a candidate key, of an earlier relation of
  *   its group. Into a pure set it is a foreign key immediate by the compiler's deferral rule, judged at every
@@ -135,10 +130,6 @@ export const columnOf = (relation: WRelation, name: string): WColumn => {
 	return c.value
 }
 
-/** A relation's identity columns, in field order. */
-export const serialColumns = (relation: WRelation): ReadonlyArray<WColumn> =>
-	Arr.filter(relation.columns, (c) => isSerialKind(c.kind))
-
 export const relationIn = (group: WGroup, name: string): WRelation => {
 	const r = Arr.findFirst(group.relations, (x) => x.name === name)
 	if (Option.isNone(r)) {
@@ -166,8 +157,6 @@ export const intoCandidateKey = (group: WGroup, c: WContainment): boolean =>
 const schemaFeatures = [
 	"pureSets",
 	"candidateKeys",
-	"identities",
-	"allIdentities",
 	"mutable",
 	"references",
 	"immediateReferences",
@@ -181,16 +170,6 @@ interface RelationSketch {
 	readonly kinds: ReadonlyArray<number>
 	readonly key: ReadonlyArray<number>
 	readonly candidate: ReadonlyArray<number>
-	/**
-	 * Where the identity column goes and its kind; for a relation of identity columns alone, how many and the second's
-	 * kind.
-	 */
-	readonly serial: {
-		readonly at: number
-		readonly kind: number
-		readonly count: number
-		readonly second: number
-	}
 	readonly target: number
 }
 
@@ -212,12 +191,6 @@ const relationSketchGen: Gen<RelationSketch> = (source) => ({
 	kinds: source.draw(fourPicks),
 	key: source.draw(fourPicks),
 	candidate: source.draw(fourPicks),
-	serial: {
-		at: source.draw(pickGen),
-		kind: source.draw(pickGen),
-		count: source.draw(pickGen),
-		second: source.draw(pickGen)
-	},
 	target: source.draw(pickGen)
 })
 
@@ -233,7 +206,6 @@ export const schemaSketchGen: Gen<SchemaSketch> = (source) => ({
 })
 
 const columnNames: Arr.NonEmptyReadonlyArray<string> = ["a", "b", "c", "d"]
-const serialKinds: Arr.NonEmptyReadonlyArray<SerialKind> = ["bigserial", "serial"]
 const drawnKinds: Arr.NonEmptyReadonlyArray<TypeKind> =
 	((): Arr.NonEmptyReadonlyArray<TypeKind> => {
 		const [first, ...rest] = typeKinds
@@ -279,35 +251,10 @@ const columnsOf = (
 		return { name, kind }
 	})
 
-/** A relation every field of which is an identity column: one or two of them, the first the key. */
-const allIdentities = (name: string, sketch: RelationSketch, isMutable: boolean): WRelation => {
-	const names = columnNames.slice(0, 1 + pickIndex(sketch.serial.count, 2))
-	return {
-		name,
-		columns: Arr.map(names, (n, i) => ({
-			name: n,
-			kind: pickFrom(serialKinds, i === 0 ? sketch.serial.kind : sketch.serial.second)
-		})),
-		primaryKey: [nonEmptyNames(names)[0]],
-		keys: [],
-		mutable: isMutable
-	}
-}
-
-/**
- * A referencing field's kind for a referenced key field of `kind`: an identity column's base integer, which references
- * it exactly (domain.ts referable), and any other kind itself.
- */
-const referencingKind = (kind: TypeKind): TypeKind =>
-	kind === "serial" ? "int4" : kind === "bigserial" ? "int8" : kind
-
 /**
  * The relation a sketch draws, its first fields of the kinds `leading` states: a referencing source's partners for the
- * key it references, so `referencing` always finds them. A relation with leading fields is never one of identity
- * columns alone, and its identity column goes after them. The swarm's thinned features each take a decision of the
+ * key it references, so `referencing` always finds them. The swarm's thinned features each take a decision of the
  * case, in the order the resolution meets them.
- *
- * One identity column beside the other fields, in the key or in the payload, after the leading fields.
  */
 const resolveRelation =
 	(
@@ -319,9 +266,6 @@ const resolveRelation =
 	(source) => {
 		const kept = (feature: SchemaFeature): boolean => source.draw(keep(swarm, feature))
 		const isMutable = kept("mutable")
-		if (leading.length === 0 && kept("allIdentities")) {
-			return allIdentities(name, sketch, isMutable)
-		}
 		const width = Math.max(1 + pickIndex(sketch.width, 4), leading.length)
 		const names = columnNames.slice(0, width)
 		const pure = width === 1 || kept("pureSets")
@@ -343,18 +287,12 @@ const resolveRelation =
 					: pickFrom(drawnKinds, sketch.kinds[i] ?? 0)
 			return keyed.has(n) && !typeInfo[kind].keyable ? "int4" : kind
 		})
-		if (width > Math.max(1, leading.length) && kept("identities")) {
-			kinds[leading.length + pickIndex(sketch.serial.at, width - leading.length)] = pickFrom(
-				serialKinds,
-				sketch.serial.kind
-			)
-		}
 		return { name, columns: columnsOf(names, kinds), primaryKey, keys, mutable: isMutable }
 	}
 
 /**
  * The fields of `source` that reference `key`, a key of `target`, position by position, each a field of a referable
- * type used once and no identity column, or undefined when some key field has no such partner.
+ * type used once, or undefined when some key field has no such partner.
  */
 const referencing = (
 	source: WRelation,
@@ -366,10 +304,7 @@ const referencing = (
 	const fields: Array<string> = []
 	for (const pk of key) {
 		const want = columnOf(target, pk).kind
-		const match = Arr.findFirst(
-			source.columns,
-			(c) => !used.has(c.name) && !isSerialKind(c.kind) && referable(c.kind, want)
-		)
+		const match = Arr.findFirst(source.columns, (c) => !used.has(c.name) && referable(c.kind, want))
 		if (Option.isNone(match)) {
 			return undefined
 		}
@@ -424,7 +359,7 @@ const resolveGroup =
 					name,
 					rs,
 					swarm,
-					references ? Arr.map(referenced, (f) => referencingKind(columnOf(target, f).kind)) : []
+					references ? Arr.map(referenced, (f) => columnOf(target, f).kind) : []
 				)
 			)
 			relations.push(r)
@@ -473,14 +408,11 @@ const resolveGroup =
  *   narrow fields, which the narrow text's one domain types;
  * - `keyed(a int4, b int4)` with the candidate key b, which `referrer(a int4, b int4)` references by its b;
  * - the pure set `pure(a int4)`, which `member(a int4, b int4)` references by its b, an immediate containment;
- * - `serialized(a serial, b int4)`, keyed by its identity column;
  * - `precise(a int4, b numeric(12, 4))` and `rounded(a int4, b numeric(5, 2))`, a described member reading one typmod
  *   into the other;
- * - `numbered(a int4, b serial)`, whose identity column lies outside its key;
- * - the mutable `tallied(a serial, b int4)`, keyed by its identity column, so a described put of its own facts is an
- *   UPDATE ... FROM;
- * - the pure set `issued(a serial)`, every field an identity column, which `holding(a int4, b int4)` references by its
- *   b, an immediate containment.
+ * - the pure set `marked(a int4, c bool)`, of which at most one fact whose c is true per value of a, a projected key, so
+ *   its facts meet at a unique object besides its key, which `marker(a int4, b int4, c bool)` references by its b and
+ *   c, an immediate containment.
  */
 export interface Planted {
 	readonly parent: WRelation
@@ -495,13 +427,10 @@ export interface Planted {
 	readonly referrer: WRelation
 	readonly pure: WRelation
 	readonly member: WRelation
-	readonly serialized: WRelation
 	readonly precise: WRelation
 	readonly rounded: WRelation
-	readonly numbered: WRelation
-	readonly tallied: WRelation
-	readonly issued: WRelation
-	readonly holding: WRelation
+	readonly marked: WRelation
+	readonly marker: WRelation
 }
 
 const plantedNames = [
@@ -515,13 +444,10 @@ const plantedNames = [
 	"referrer",
 	"pure",
 	"member",
-	"serialized",
 	"precise",
 	"rounded",
-	"numbered",
-	"tallied",
-	"issued",
-	"holding"
+	"marked",
+	"marker"
 ] as const
 type PlantedName = (typeof plantedNames)[number]
 
@@ -557,8 +483,17 @@ const plantedGroup = (index: number): WGroup => {
 	const pure = relationOf("pure", "int4", [], [], false)
 	const member = relationOf("member", "int4", [b("int4")], [], false)
 	const referrer = relationOf("referrer", "int4", [b("int4")], [], false)
-	const issued = relationOf("issued", "serial", [], [], false)
-	const holding = relationOf("holding", "int4", [b("int4")], [], false)
+	const marked: WRelation = {
+		name: nameOf("marked"),
+		columns: [
+			{ name: "a", kind: "int4" },
+			{ name: "c", kind: "bool" }
+		],
+		primaryKey: ["a", "c"],
+		keys: [],
+		mutable: false
+	}
+	const marker = relationOf("marker", "int4", [b("int4"), { name: "c", kind: "bool" }], [], false)
 	return {
 		index,
 		role: "planted",
@@ -573,21 +508,24 @@ const plantedGroup = (index: number): WGroup => {
 			referrer,
 			pure,
 			member,
-			relationOf("serialized", "serial", [b("int4")], [], false),
 			relationOf("precise", "int4", [b("numeric(12, 4)")], [], false),
 			relationOf("rounded", "int4", [b("numeric(5, 2)")], [], false),
-			relationOf("numbered", "int4", [b("serial")], [], false),
-			relationOf("tallied", "serial", [b("int4")], [], true),
-			issued,
-			holding
+			marked,
+			marker
 		],
 		containments: [
 			contained(child, parent, "a"),
 			contained(referrer, keyed, "b"),
 			contained(member, pure, "a"),
-			contained(holding, issued, "a")
+			{
+				from: { relation: marker.name, fields: ["b", "c"] },
+				to: { relation: marked.name, fields: ["a", "c"] }
+			}
 		],
-		projectedKeys: [{ relation: flagged.name, fields: ["b"], selector: "c" }]
+		projectedKeys: [
+			{ relation: flagged.name, fields: ["b"], selector: "c" },
+			{ relation: marked.name, fields: ["a"], selector: "c" }
+		]
 	}
 }
 
@@ -611,13 +549,10 @@ export const plantedOf = (group: WGroup): Planted => {
 		referrer: relationAt("referrer"),
 		pure: relationAt("pure"),
 		member: relationAt("member"),
-		serialized: relationAt("serialized"),
 		precise: relationAt("precise"),
 		rounded: relationAt("rounded"),
-		numbered: relationAt("numbered"),
-		tallied: relationAt("tallied"),
-		issued: relationAt("issued"),
-		holding: relationAt("holding")
+		marked: relationAt("marked"),
+		marker: relationAt("marker")
 	}
 }
 
@@ -781,8 +716,6 @@ export interface WriteLawNames {
 	readonly patternLaw: (relation: string, field: string) => LawId
 	/** The installed table of a relation, as schema-qualified quoted SQL. */
 	readonly table: (relation: string) => string
-	/** The identity sequence of a serial column, as schema-qualified quoted SQL. */
-	readonly sequence: (relation: string, field: string) => string
 	readonly column: (relation: string, field: string) => string
 }
 
@@ -907,13 +840,6 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 			const n = tableOf(relation).name
 			return qualified(n)
 		},
-		sequence: (relation, field) => {
-			const c = Arr.findFirst(tableOf(relation).columns, (x) => x.field === field)
-			if (Option.isNone(c) || c.value.drawn.kind !== "identity") {
-				throw new Error(`${relation}.${field} has no identity sequence`)
-			}
-			return qualified(c.value.drawn.name)
-		},
 		column: (relation, field) => {
 			const c = Arr.findFirst(tableOf(relation).columns, (x) => x.field === field)
 			if (Option.isNone(c)) {
@@ -926,7 +852,7 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 
 /**
  * A group as the add-wins calculator reads it (test/support/oracle/addwins.ts): each relation's heading as carrier
- * specs, its keys and its projected keys under their laws' names, and its serial fields.
+ * specs, its keys and its projected keys under their laws' names.
  */
 export const oracleSchemaOf = (group: WGroup, laws: WriteLawNames): OracleSchema => ({
 	relations: Arr.map(group.relations, (r): OracleRelation => ({
@@ -941,8 +867,7 @@ export const oracleSchemaOf = (group: WGroup, laws: WriteLawNames): OracleSchema
 				fields: [...k.fields],
 				where: { field: k.selector, value: true }
 			})
-		),
-		serial: Arr.map(serialColumns(r), (c) => c.name)
+		)
 	}))
 })
 

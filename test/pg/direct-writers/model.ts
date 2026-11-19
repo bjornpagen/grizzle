@@ -18,12 +18,12 @@ import { emit } from "#compiler/sql/emit.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { ALIAS_CODE } from "#test/support/closed/generate.ts"
-import { type OracleState, oracleState, type SequenceState } from "#test/support/oracle/addwins.ts"
+import { type OracleState, oracleState } from "#test/support/oracle/addwins.ts"
 import { factSetOf } from "#test/support/oracle/delta.ts"
 import { literalFor } from "#test/support/oracle/install/literal.ts"
 import type { OracleTable } from "#test/support/oracle/install/model.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
-import { isSerialKind, typeInfo, type TypeKind } from "#test/support/oracle/write/domain.ts"
+import { typeInfo, type TypeKind } from "#test/support/oracle/write/domain.ts"
 import {
 	type Fact,
 	type FactsSketch,
@@ -42,7 +42,6 @@ import {
 	isImmediate,
 	oracleSchemaOf,
 	relationIn,
-	serialColumns,
 	type WGroup,
 	type WRelation
 } from "#test/support/oracle/write/schema.ts"
@@ -53,12 +52,9 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
 
 const statementKinds = [
 	"insert",
-	"insert without overriding",
-	"insert generated",
 	"insert missing a field",
 	"delete",
 	"update payload",
-	"update identity",
 	"truncate"
 ] as const
 type StatementKind = (typeof statementKinds)[number]
@@ -102,7 +98,6 @@ export const levelGen: Gen<Level> = weighted<Level>([
 export interface DirectCase {
 	readonly group: number
 	readonly facts: FactsSketch
-	readonly behind: boolean
 	readonly level: Level
 	readonly immediate: boolean
 	/**
@@ -148,7 +143,6 @@ export const directCaseGen: Gen<DirectCase> = (source) => ({
 	group: source.draw(pickGen),
 	/** Up to five stored facts per relation slot, the write oracle's own bound (oracle/write/harness.ts). */
 	facts: source.draw(factsSketchGen(5)),
-	behind: source.draw(boolean),
 	level: source.draw(levelGen),
 	immediate: source.draw(boolean),
 	breaks: source.draw(breaksGen),
@@ -158,13 +152,7 @@ export const directCaseGen: Gen<DirectCase> = (source) => ({
 
 /** One statement as the model and the writer see it. */
 type Statement =
-	| {
-			readonly kind: "insert"
-			readonly relation: WRelation
-			readonly fact: Fact
-			readonly overriding: boolean
-	  }
-	| { readonly kind: "insert generated"; readonly relation: WRelation; readonly fact: Fact }
+	| { readonly kind: "insert"; readonly relation: WRelation; readonly fact: Fact }
 	| { readonly kind: "delete"; readonly relation: WRelation; readonly fact: Fact }
 	| {
 			readonly kind: "update"
@@ -272,19 +260,11 @@ const resolveStatement = (
 		}
 		return out
 	}
-	const serial = serialColumns(relation)
 	switch (kind) {
 		case "insert":
-			return { kind: "insert", relation, fact: wilded(drawnFact()), overriding: true }
-		case "insert without overriding":
-			return {
-				kind: "insert",
-				relation,
-				fact: wilded(drawnFact()),
-				overriding: serial.length === 0
-			}
+			return { kind: "insert", relation, fact: wilded(drawnFact()) }
 		case "insert missing a field": {
-			const [left, ...others] = Arr.filter(relation.columns, (c) => !isSerialKind(c.kind))
+			const [left, ...others] = relation.columns
 			if (left === undefined) {
 				return undefined
 			}
@@ -292,24 +272,12 @@ const resolveStatement = (
 			const fact = Rec.fromEntries(
 				Arr.filter(Rec.toEntries(wilded(drawnFact())), ([f]) => f !== out.name)
 			)
-			return { kind: "insert", relation, fact, overriding: true }
-		}
-		case "insert generated": {
-			if (serial.length === 0) {
-				return { kind: "insert", relation, fact: wilded(drawnFact()), overriding: true }
-			}
-			const generated = Rec.fromEntries(
-				Arr.filter(Rec.toEntries(drawnFact()), ([f]) => !Arr.some(serial, (c) => c.name === f))
-			)
-			return { kind: "insert generated", relation, fact: wilded(generated) }
+			return { kind: "insert", relation, fact }
 		}
 		case "delete":
 			return { kind: "delete", relation, fact: storedFact ?? drawnFact() }
 		case "update payload": {
-			const payload = Arr.filter(
-				relation.columns,
-				(c) => !relation.primaryKey.includes(c.name) && !serial.includes(c)
-			)
+			const payload = Arr.filter(relation.columns, (c) => !relation.primaryKey.includes(c.name))
 			if (!Arr.isReadonlyArrayNonEmpty(payload) || storedFact === undefined) {
 				return undefined
 			}
@@ -321,14 +289,6 @@ const resolveStatement = (
 				key,
 				set: Arr.map(payload, (c): readonly [string, unknown] => [c.name, set[c.name]])
 			}
-		}
-		case "update identity": {
-			const [identity] = serial
-			if (identity === undefined || storedFact === undefined) {
-				return undefined
-			}
-			const key = Rec.fromEntries(Arr.map(relation.primaryKey, (k) => [k, storedFact[k]]))
-			return { kind: "update", relation, key, set: [[identity.name, fresh[identity.name]]] }
 		}
 		case "truncate":
 			return { kind: "truncate", relation }
@@ -380,7 +340,7 @@ const breakingStatement = (
 		{
 			onNone: () => [],
 			onSome: (dangling): ReadonlyArray<Statement> => [
-				{ kind: "insert", relation: source, fact: dangling, overriding: true }
+				{ kind: "insert", relation: source, fact: dangling }
 			]
 		}
 	)
@@ -439,14 +399,12 @@ const firstFault = (stages: ReadonlyArray<Answer>): Answer => {
 }
 
 /**
- * Whether an inserted row leaves a field NULL: a field the INSERT does not list, an identity column apart. PostgreSQL
+ * Whether an inserted row leaves a field NULL: a field the INSERT does not list. PostgreSQL
  * coerces each such NULL to its column's type as it builds the row, which every domain admits, a refined text's and a
  * closed id's included (`VALUE IS NULL OR (...) IS TRUE`), so its column's NOT NULL refuses it, 23502.
  */
 const nullField = (relation: WRelation, fact: Fact): Answer =>
-	Arr.some(relation.columns, (c) => !isSerialKind(c.kind) && !Rec.has(fact, c.name))
-		? error("23502", nothing)
-		: ok
+	Arr.some(relation.columns, (c) => !Rec.has(fact, c.name)) ? error("23502", nothing) : ok
 
 const identityOf = (relation: WRelation, fact: Fact): string =>
 	keyOf(
@@ -517,10 +475,9 @@ const brokenReferences = (
 	})
 }
 
-/** What a transaction holds between its statements: each relation's facts and each identity sequence's state. */
+/** What a transaction holds between its statements: each relation's facts. */
 interface Held {
 	readonly facts: ReadonlyMap<string, ReadonlyArray<Fact>>
-	readonly sequences: ReadonlyMap<string, SequenceState>
 }
 
 /** The failure of statement `at`, or what the transaction holds after it. */
@@ -538,11 +495,10 @@ const predictStep = (
 	s: Statement
 ): Step => {
 	const r = s.relation
-	const serial = serialColumns(r)
 	const current = held.facts.get(r.name) ?? []
 	const withFacts = (facts: ReadonlyArray<Fact>): Step => ({
 		kind: "held",
-		held: { facts: new Map(held.facts).set(r.name, facts), sequences: held.sequences }
+		held: { facts: new Map(held.facts).set(r.name, facts) }
 	})
 	switch (s.kind) {
 		case "truncate":
@@ -560,7 +516,6 @@ const predictStep = (
 			 * whatever it matches.
 			 */
 			const fault = firstFault([
-				Arr.some(serial, (c) => Rec.has(set, c.name)) ? error("428C9", nothing) : ok,
 				wildFault(r, set, "plan"),
 				r.mutable ? ok : error("42501", nothing),
 				belowSerializable(r, level),
@@ -582,7 +537,6 @@ const predictStep = (
 		}
 		case "insert": {
 			const fault = firstFault([
-				serial.length > 0 && !s.overriding ? error("428C9", nothing) : ok,
 				wildFault(r, s.fact, "plan"),
 				belowSerializable(r, level),
 				wildFault(r, s.fact, "row"),
@@ -595,33 +549,6 @@ const predictStep = (
 			return laws.length > 0
 				? { kind: "fails", at, answer: violating("23505", laws) }
 				: withFacts([...current, s.fact])
-		}
-		case "insert generated": {
-			const fault = firstFault([
-				wildFault(r, s.fact, "plan"),
-				belowSerializable(r, level),
-				wildFault(r, s.fact, "row"),
-				nullField(r, s.fact)
-			])
-			if (fault.kind === "error") {
-				return { kind: "fails", at, answer: fault }
-			}
-			const sequences = new Map(held.sequences)
-			const fact: Record<string, unknown> = { ...s.fact }
-			for (const c of serial) {
-				const key = `${r.name}.${c.name}`
-				const seq = sequences.get(key) ?? { lastValue: 1n, isCalled: false }
-				const value = seq.isCalled ? seq.lastValue + 1n : seq.lastValue
-				sequences.set(key, { lastValue: value, isCalled: true })
-				fact[c.name] = typeInfo[c.kind].spec.carrier === "int8" ? value : Number(value)
-			}
-			const laws = uniqueLaws(t, group, r, current, fact)
-			return laws.length > 0
-				? { kind: "fails", at, answer: violating("23505", laws) }
-				: {
-						kind: "held",
-						held: { facts: new Map(held.facts).set(r.name, [...current, fact]), sequences }
-					}
 		}
 		case "delete": {
 			/** A DELETE matching no row still fires the guard, a statement trigger. */
@@ -649,8 +576,7 @@ const predict = (
 				r.name,
 				[...(initial.relations.get(r.name)?.values() ?? [])]
 			])
-		),
-		sequences: new Map(initial.sequences)
+		)
 	}
 	for (const [at, s] of statements.entries()) {
 		const step = predictStep(t, group, level, held, at, s)
@@ -675,7 +601,7 @@ const predict = (
 				[r.name, factSetOf(Arr.map(factsOf(r), (f) => [[identityOf(r, f)], f] as const))] as const
 		)
 	)
-	return { kind: "commits", state: { relations, sequences: held.sequences } }
+	return { kind: "commits", state: { relations } }
 }
 
 /**
@@ -723,8 +649,7 @@ const matching = (table: OracleTable, fact: Fact): Expr => {
  * A statement's SQL, built as a typed AST and emitted.
  *
  * An INSERT of no field lists no column, so every column takes its default: the one row of no column of a SELECT of
- * no target. An INSERT that leaves out a relation's one field so stores NULL there; one into a relation whose every
- * field is an identity column stores each column's next value.
+ * no target. An INSERT that leaves out a relation's one field so stores NULL there.
  */
 const sqlOf = (t: WriteInstallation, s: Statement): string => {
 	if (s.kind === "truncate") {
@@ -734,8 +659,8 @@ const sqlOf = (t: WriteInstallation, s: Statement): string => {
 	if (table === undefined) {
 		throw new Error(`no table for ${s.relation.name}`)
 	}
-	/** The INSERT of a fact's fields, SYSTEM VALUE overriding its identity columns where `overriding`. */
-	const inserted = (fact: Fact, overriding: boolean): Insert => {
+	/** The INSERT of a fact's fields. */
+	const inserted = (fact: Fact): Insert => {
 		const fields = Rec.keys(fact)
 		return Arr.isReadonlyArrayNonEmpty(fields)
 			? {
@@ -744,7 +669,6 @@ const sqlOf = (t: WriteInstallation, s: Statement): string => {
 					table: table.name,
 					alias: undefined,
 					columns: Arr.map(fields, (f) => columnOf(table, f)),
-					overriding: overriding ? "SYSTEM VALUE" : undefined,
 					source: { kind: "values", rows: [Arr.map(fields, (f) => literalOf(table, f, fact[f]))] },
 					onConflict: undefined,
 					returning: []
@@ -755,7 +679,6 @@ const sqlOf = (t: WriteInstallation, s: Statement): string => {
 					table: table.name,
 					alias: undefined,
 					columns: [],
-					overriding: undefined,
 					source: { kind: "query", query: provedSelect("oneRow", [], [], undefined) },
 					onConflict: undefined,
 					returning: []
@@ -764,9 +687,7 @@ const sqlOf = (t: WriteInstallation, s: Statement): string => {
 	const ast = ((): SqlStatement => {
 		switch (s.kind) {
 			case "insert":
-				return inserted(s.fact, s.overriding && serialColumns(s.relation).length > 0)
-			case "insert generated":
-				return inserted(s.fact, false)
+				return inserted(s.fact)
 			case "delete":
 				return {
 					kind: "delete",
@@ -900,11 +821,10 @@ const firstChanged = (
  *
  * A psql child logs in over verify-full TLS as the login of a generated write schema, takes on its role `writer`
  * (test/support/oracle/write/schema.ts: keys, candidate keys, deferred and immediate foreign keys, projected keys,
- * identity columns, refined text, typmod numerics, mutable and immutable relations) and runs one
- * transaction of one to three statements, each built as a typed SQL AST (packages/engine/src/sql/ast.ts) over typed literals
- * and emitted: an INSERT of a complete fact (with OVERRIDING SYSTEM VALUE on an identity column, or without it), a
- * generated INSERT that leaves the identity columns to their sequences, an INSERT that leaves out a field, an exact
- * DELETE, an UPDATE of a fact's payload, an UPDATE of an identity column, and a TRUNCATE; an inserted or updated value
+ * refined text, typmod numerics, mutable and immutable relations) and runs one transaction of one to three statements,
+ * each built as a typed SQL AST (packages/engine/src/sql/ast.ts) over typed literals and emitted: an INSERT of a
+ * complete fact, an INSERT that leaves out a field, an exact DELETE, an UPDATE of a fact's payload, and a TRUNCATE; an
+ * inserted or updated value
  * may be wild (a text past its refinement's bound, a numeric past its precision, a code outside the roster). A case
  * on a group with a foreign key may open with a statement that breaks it, or be that statement alone: the deletion of
  * a target fact a stored source fact references, or, with no source fact stored, an insert of a source fact that
@@ -914,23 +834,21 @@ const firstChanged = (
  *
  * The model predicts every statement's outcome and when the transaction fails, from the host state alone:
  *
- * - each statement's refusals in the order PostgreSQL meets them: an explicit value into an identity column without
- *   OVERRIDING SYSTEM VALUE, and any UPDATE of one, 428C9, in the rewriter; a numeric past its precision, 22003, as the planner folds its typmod coercion; an
+ * - each statement's refusals in the order PostgreSQL meets them: a numeric past its precision, 22003, as the planner
+ *   folds its typmod coercion; an
  *   UPDATE of an immutable relation, and any TRUNCATE, by privilege at executor start, 42501 (immutability is
  *   privilege, and TRUNCATE is granted to no one); then, below SERIALIZABLE, the table's guard trigger, a BEFORE
  *   statement trigger that fires whatever rows the statement matches, 25000 naming the table; then a refined text past
  *   its bound or a code outside its roster's live codes, 23514, by its domain's CHECK as the row is built, so never by
  *   an UPDATE that matches no row;
- * - a field left out of an INSERT, an identity column apart, is NULL, at the statement, which every domain admits, so
+ * - a field left out of an INSERT is NULL, at the statement, which every domain admits, so
  *   its column's NOT NULL refuses it, 23502: no field is nullable. An INSERT that leaves out a relation's one field is
  *   DEFAULT VALUES;
  * - a fact at an occupied primary key, candidate key or projected key is 23505 at the statement, an exact repeat
  *   included, under the constraint of one of the violated laws, as the installation names them;
  * - an immediate foreign key (into a pure set) is 23503 at its statement, a deferred one at COMMIT, or at the SET
  *   CONSTRAINTS that makes it immediate, judged on the transaction's state there;
- * - a generated INSERT draws the next value of each identity sequence, so a sequence behind a stored value collides
- *   on the key at once (no retry: a direct writer is not grizzle);
- * - otherwise the transaction commits, and the committed state and sequences are the model's.
+ * - otherwise the transaction commits, and the committed state is the model's.
  *
  * A failed statement rolls the transaction back, and the state stays the initial one.
  *
@@ -951,17 +869,7 @@ export const runDirectCase = (
 		}
 		const group = pickFrom([first, ...rest], c.group)
 		const stored = resolveFacts(group, c.facts)
-		const sequences: Readonly<Record<string, SequenceState>> = c.behind
-			? Rec.fromEntries(
-					Arr.flatMap(group.relations, (r) =>
-						Arr.map(serialColumns(r), (column): readonly [string, SequenceState] => [
-							`${r.name}.${column.name}`,
-							{ lastValue: 1n, isCalled: false }
-						])
-					)
-				)
-			: {}
-		const initial = oracleState(oracleSchemaOf(group, t.laws), stored, sequences)
+		const initial = oracleState(oracleSchemaOf(group, t.laws), stored)
 		const drawnStatements = Arr.flatMap(c.statements, (s) => {
 			const resolved = resolveStatement(group, stored, s)
 			return resolved === undefined ? [] : [resolved]
@@ -987,13 +895,13 @@ export const runDirectCase = (
 			...(c.immediate ? ["SET CONSTRAINTS ALL IMMEDIATE"] : [])
 		]
 		const predicted = predict(t, group, initial, statements, c.level)
-		yield* Effect.orDie(resetGroup(t, group, stored, initial))
+		yield* Effect.orDie(resetGroup(t, group, stored))
 		const met = yield* runDirect(writer, c.level, sqls)
 		note(`level ${c.level}`)
 		const state = yield* Effect.orDie(readGroup(t, group))
 		for (const s of statements) {
 			note(
-				`statement ${s.kind}${s.kind === "insert" && !s.overriding ? " without overriding" : ""}${s.kind === "insert" && nullField(s.relation, s.fact).kind === "error" ? " missing a field" : ""}`
+				`statement ${s.kind}${s.kind === "insert" && nullField(s.relation, s.fact).kind === "error" ? " missing a field" : ""}`
 			)
 		}
 		const report = (why: string) =>
@@ -1021,13 +929,6 @@ export const runDirectCase = (
 			)
 			if (Option.isSome(changed)) {
 				return yield* report(`the committed ${changed.value.name} is not the model's`)
-			}
-			const drifted = Arr.findFirst([...committed.sequences], ([key, seq]) => {
-				const got = state.sequences.get(key)
-				return got === undefined || got.lastValue !== seq.lastValue || got.isCalled !== seq.isCalled
-			})
-			if (Option.isSome(drifted)) {
-				return yield* report(`the sequence ${drifted.value[0]} is not the model's`)
 			}
 			return
 		}

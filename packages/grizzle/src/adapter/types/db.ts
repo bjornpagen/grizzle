@@ -176,8 +176,7 @@ export interface ReadExplain<X> {
 /**
  * A served change member's plans for a call's input, as its once takes it: the estimates of every statement its once
  * sends, in one transaction of the Db's role at SERIALIZABLE that is rolled back, so it writes nothing. A ChangeSet's
- * statements are never run under EXPLAIN ANALYZE: a write rolled back still advances its serial fields' sequences,
- * which no rollback undoes. It fails with the CallError a read of its statements would end in.
+ * statements are never run under EXPLAIN ANALYZE, which would run them. It fails with the CallError a read of its statements would end in.
  */
 export interface ChangeExplain<X> {
 	explain<const I>(

@@ -14,7 +14,7 @@ const Subject = str.regex("^u_[a-z]{1,8}$")
 export const Seat = relation("Seat", { id: pg.integer, team: pg.integer, holder: Subject }, ["id"])
 
 /** The relation a held call inserts last, which the owner's SHARE lock holds it at. */
-export const Gate = relation("Gate", { id: pg.uuidv7, n: pg.integer }, ["id"])
+export const Gate = relation("Gate", { n: pg.integer }, ["n"])
 
 /** The schema, the role `holder`, which inserts its subject's seats and Gate, and its two logins. */
 export const seats = (name: string) => {

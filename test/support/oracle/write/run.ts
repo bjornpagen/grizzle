@@ -1,7 +1,6 @@
 import {
 	Array as Arr,
 	Effect,
-	Option,
 	pipe,
 	Record as Rec,
 	Result,
@@ -28,20 +27,18 @@ import type { AmbientSession } from "#test/support/ambient.ts"
 import { paramsOver } from "#test/support/compile.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf, reportedLawId } from "#test/support/kernel/naming.ts"
-import type { Fact, FactSet, OracleState } from "#test/support/oracle/addwins.ts"
+import type { Fact, FactSet } from "#test/support/oracle/addwins.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { type Perturbation, perturbedContext } from "#test/support/oracle/perturb.ts"
 import { batchProblems, type Flight } from "#test/support/oracle/write/batch.ts"
 import { buildChangeSet, isFact, type WChangeSet } from "#test/support/oracle/write/changeset.ts"
 import { typeInfo } from "#test/support/oracle/write/domain.ts"
-import type { Collisions } from "#test/support/oracle/write/expect.ts"
 import type { WFacts } from "#test/support/oracle/write/facts.ts"
 import {
 	type WBuiltSchema,
 	buildWSchema,
 	lawNames,
-	serialColumns,
 	type WGroup,
 	type WRelation,
 	type WriteLawNames,
@@ -139,7 +136,7 @@ type TargetError = OpenError | ServedRefusal | CompileError | RoleSetupError
  *
  * 1. resets its group to the case's initial state as the owner, in one transaction: the installation's tables that
  *    hold a row emptied (test/support/substrate/replace.ts rowsGroup), the case's facts loaded as typed
- *    literals (oracle/install/load.ts), every identity sequence set where the case's expectation starts it, and, when
+ *    literals (oracle/install/load.ts), and, when
  *    the run keeps planner statistics, every relation of the group analyzed. A statement's plan follows the planner statistics, and a MERGE runs its actions
  *    in its plan's row order, so a realization can be right under one plan and wrong under another; a run draws
  *    whether its tables are analyzed at all, so the plans of tables never analyzed are reached too. The tables are
@@ -274,20 +271,19 @@ export const privilegeProblems = (
 	})
 
 /**
- * Resets the installation to `facts`, the group's, its identity sequences to `state`'s (step 1 of the header): every
- * stored relation's rows deleted in a READ COMMITTED transaction of their own, then one transaction that loads the
- * facts, which reads no version a serializable transaction wrote: never an SSI pivot, whatever the cluster's load
- * (test/support/substrate/replace.ts rowsGroup). A deletion swaps no relation file, so a reset costs the rows the cases
- * before it wrote, not every table and index of the schema. The deleted versions it leaves until a vacuum change what a
- * plan reads and never what a statement answers, and the oracle's verdicts are plan-independent by construction: the
- * run draws its statistics and perturbs its plans (perturb.ts). Every other group is left empty until its own reset: a
- * group's laws reach only its own relations, and a case reads its group alone.
+ * Resets the installation to `facts`, the group's (step 1 of the header): every stored relation's rows deleted in a
+ * READ COMMITTED transaction of their own, then one transaction that loads the facts, which reads no version a
+ * serializable transaction wrote: never an SSI pivot, whatever the cluster's load (test/support/substrate/replace.ts
+ * rowsGroup). A deletion swaps no relation file, so a reset costs the rows the cases before it wrote, not every table
+ * and index of the schema. The deleted versions it leaves until a vacuum change what a plan reads and never what a
+ * statement answers, and the oracle's verdicts are plan-independent by construction: the run draws its statistics and
+ * perturbs its plans (perturb.ts). Every other group is left empty until its own reset: a group's laws reach only its
+ * own relations, and a case reads its group alone.
  */
 export const resetGroup = (
 	t: WriteInstallation,
 	group: WGroup,
-	facts: WFacts,
-	state: OracleState
+	facts: WFacts
 ): Effect.Effect<void, CompileError | SqlError | TransactionRolledBack, Substrate> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
@@ -296,18 +292,6 @@ export const resetGroup = (
 			return yield* Effect.fail(loads.error)
 		}
 		const statements: Array<string> = [...loads.value]
-		for (const r of group.relations) {
-			for (const serial of serialColumns(r)) {
-				const seq = Option.getOrThrowWith(
-					Option.fromUndefinedOr(state.sequences.get(`${r.name}.${serial.name}`)),
-					() => new Error(`no sequence state for ${r.name}.${serial.name}`)
-				)
-				const name = pipe(t.laws.sequence(r.name, serial.name), Str.replaceAll("'", "''"))
-				statements.push(
-					`SELECT pg_catalog.setval('${name}'::regclass, ${seq.lastValue}::bigint, ${seq.isCalled})`
-				)
-			}
-		}
 		if (t.statistics === "analyzed") {
 			for (const r of group.relations) {
 				statements.push(`ANALYZE ${t.laws.table(r.name)}`)
@@ -323,11 +307,6 @@ export const resetGroup = (
 export interface GroupState {
 	/** Relation to its facts, identity to fact. */
 	readonly relations: ReadonlyMap<string, FactSet>
-	/** `<relation>.<field>` to the identity sequence's last_value and is_called. */
-	readonly sequences: ReadonlyMap<
-		string,
-		{ readonly lastValue: bigint; readonly isCalled: boolean }
-	>
 }
 
 /** A relation's stored rows as facts by identity; a row that is no admissible fact, or a repeated fact, is a defect. */
@@ -358,7 +337,6 @@ export const readGroup = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const relations = new Map<string, FactSet>()
-		const sequences = new Map<string, { readonly lastValue: bigint; readonly isCalled: boolean }>()
 		for (const r of group.relations) {
 			const columns = Arr.join(
 				Arr.map(r.columns, (c) => `${t.laws.column(r.name, c.name)}::text`),
@@ -366,18 +344,8 @@ export const readGroup = (
 			)
 			const rows = yield* s.admin.queryValues(`SELECT ${columns} FROM ${t.laws.table(r.name)}`, [])
 			relations.set(r.name, storedFacts(r, rows))
-			for (const serial of serialColumns(r)) {
-				const seq = yield* s.admin.queryValues(
-					`SELECT last_value::text, is_called::text FROM ${t.laws.sequence(r.name, serial.name)}`,
-					[]
-				)
-				sequences.set(`${r.name}.${serial.name}`, {
-					lastValue: BigInt(String(seq[0]?.[0])),
-					isCalled: seq[0]?.[1] === "true"
-				})
-			}
 		}
-		return { relations, sequences }
+		return { relations }
 	})
 
 /** The compiled program of a ChangeSet value, as the target's Db compiles it for the contexts its claims hold. */
@@ -420,18 +388,11 @@ const loggedContext = (ctx: OracleContext, log: Array<Flight>): OracleContext =>
 	pool: { ...ctx.pool, lease: Effect.map(ctx.pool.lease, (session) => loggedSession(session, log)) }
 })
 
-/**
- * One application: its outcome, or its operational failure as a value, how many attempts the model's collisions
- * failed before it, each called again (see applyWith), and the identity sequences its last attempt drew from: the
- * case's own, or as the attempts before it left them, since every value an aborted attempt drew stays drawn (nextval
- * is never rolled back), in every relation it drew into before its collision, not only the colliding one.
- */
+/** One application: its outcome, or its operational failure as a value. */
 export interface Applied {
 	readonly outcome: Result.Result<WriteOutcome, ApplyError>
-	readonly collided: number
-	/** The flights the attempts sent, which the single-flight property judged. */
+	/** The flights the attempt sent, which the single-flight property judged. */
 	readonly flights: number
-	readonly start: GroupState["sequences"]
 }
 
 /**
@@ -440,33 +401,23 @@ export interface Applied {
  * entry (served-role.ts runEntry), under a perturbation's planner settings (../perturb.ts) on a context whose every
  * transaction sets them first.
  *
- * grizzle makes one attempt per call. The oracle calls again after a TransientFailure, as an application does, only
- * where the case's model allows one (expect.ts Collisions): a generated addition that drew a serial value a stored fact
- * holds, at most once per such value. Any other TransientFailure has no concurrent transaction to explain it, a stale
- * statement or a serialization failure of a lone writer among them, and is returned as the case's outcome, which the
- * judge refuses. The first attempt draws from `positions`, where the case set the sequences; before calling again it
- * reads `group`'s sequences, where the next attempt draws from (Applied's start).
+ * grizzle makes one attempt per call, and so does the oracle: a TransientFailure has no concurrent transaction to
+ * explain it, a stale statement or a serialization failure of a lone writer among them, and is returned as the case's
+ * outcome, which the judge refuses.
  */
 export const applyWith = (
 	t: WriteTarget,
-	group: WGroup,
-	positions: GroupState["sequences"],
 	entry: CompiledEntry,
 	changes: ChangeSetValue,
 	params: unknown,
-	collisions: ReadonlyMap<string, Collisions>,
 	perturbation: Perturbation
 ): Effect.Effect<Applied, SqlError, Substrate> => {
 	const perturbed = perturbedContext(t.ctx, perturbation)
-	let flights = 0
-	let start = positions
-	/** Each attempt logs its own flights and is held to the single-flight property (see the header). */
-	const once = Effect.suspend(() => {
-		const log: Array<Flight> = []
-		const attempt = runEntry(loggedContext(perturbed, log), entry, params, changes.reads)
-		return Effect.result(attempt).pipe(
+	const log: Array<Flight> = []
+	/** The attempt logs its own flights and is held to the single-flight property (see the header). */
+	const once = Effect.suspend(() =>
+		Effect.result(runEntry(loggedContext(perturbed, log), entry, params, changes.reads)).pipe(
 			Effect.flatMap((result) => {
-				flights += log.length
 				const problems = batchProblems(log, result)
 				if (problems.length > 0) {
 					return Effect.die(new Error(`the single-flight property: ${Arr.join(problems, "; ")}`))
@@ -474,64 +425,21 @@ export const applyWith = (
 				return Effect.fromResult(result)
 			})
 		)
-	})
-	/**
-	 * Calls again after an allowed TransientFailure, `spent` counting the attempts each relation's collisions failed.
-	 */
-	const attempt = (
-		spent: ReadonlyMap<string, number>
-	): Effect.Effect<
-		{ readonly value: ApplyOutcome<unknown>; readonly collided: number },
-		ApplyError | SqlError,
-		Substrate
-	> =>
-		Effect.catch(
-			Effect.map(once, (value) => ({
-				value,
-				collided: Arr.reduce([...spent.values()], 0, (a, b) => a + b)
-			})),
-			(error) => {
-				if (error._tag !== "TransientFailure" || error.reason._tag !== "GeneratedSerialUnique") {
-					return Effect.fail(error)
-				}
-				const { relation, constraint } = error.reason
-				const allowed = collisions.get(relation)
-				const used = spent.get(relation) ?? 0
-				if (
-					allowed === undefined ||
-					!allowed.constraints.has(constraint) ||
-					used >= allowed.values
-				) {
-					return Effect.fail(error)
-				}
-				return Effect.flatMap(readGroup(t, group), (left) => {
-					start = left.sequences
-					return attempt(new Map([...spent, [relation, used + 1]]))
-				})
-			}
-		)
-	return Effect.flatMap(
-		Effect.result(attempt(new Map())),
-		(result): Effect.Effect<Applied, SqlError> => {
-			if (Result.isSuccess(result)) {
-				return Effect.map(
-					Effect.orDie(
-						fromEngine(t.ctx.programArtifacts({ kind: "changeSet", changeSet: entry.change.desc }))
-					),
-					({ artifacts }): Applied => ({
-						outcome: Result.succeed(outcomeOf(artifacts.described, result.success.value)),
-						collided: result.success.collided,
-						flights,
-						start
-					})
-				)
-			}
-			const failure = result.failure
-			return failure._tag === "SqlError"
-				? Effect.fail(failure)
-				: Effect.succeed({ outcome: Result.fail(failure), collided: 0, flights, start })
-		}
 	)
+	return Effect.flatMap(Effect.result(once), (result): Effect.Effect<Applied, SqlError> => {
+		if (Result.isSuccess(result)) {
+			return Effect.map(
+				Effect.orDie(
+					fromEngine(t.ctx.programArtifacts({ kind: "changeSet", changeSet: entry.change.desc }))
+				),
+				({ artifacts }): Applied => ({
+					outcome: Result.succeed(outcomeOf(artifacts.described, result.success)),
+					flights: log.length
+				})
+			)
+		}
+		return Effect.succeed({ outcome: Result.fail(result.failure), flights: log.length })
+	})
 }
 
 const isRows = (value: unknown): value is ReadonlyArray<unknown> => Arr.isArray(value)

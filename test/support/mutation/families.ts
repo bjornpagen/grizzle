@@ -21,7 +21,6 @@ import * as ts from "typescript/ast"
  * - world-claims-session: the ledger's `set_config` of a Db transaction's role and claims made for the session instead
  *   of the transaction;
  * - world-context-field: a context source's claims read at the wrong key, each field read at its context's name;
- * - world-advance-max: an advance function's setval made unconditional, so it can move the sequence back;
  * - world-isolation-guard: the below-SERIALIZABLE refusal dropped from the isolation guard's body;
  * - world-reads-flip: a catalogue overload that reads its operands' display scale declared to read values only, so its
  *   operands reach PostgreSQL without trim_scale, or a float or money aggregate's exact lowering declared native, so
@@ -42,7 +41,6 @@ const worldOperators = [
 	"world-membership",
 	"world-claims-session",
 	"world-context-field",
-	"world-advance-max",
 	"world-isolation-guard",
 	"world-reads-flip",
 	"world-precondition-drop"
@@ -59,8 +57,8 @@ const aggregatePath = "packages/engine/src/scalar/aggregate.ts"
 const ledgerPath = "packages/engine/src/deploy/ledger/ledger.ts"
 
 /**
- * The files whose code builds the emitted world SQL: the role, view, policy, function and grant DDL, the advance
- * function and the isolation guard, the membership rendering, the claims lowering, the printer, and the ledger's
+ * The files whose code builds the emitted world SQL: the role, view, policy, function and grant DDL, the isolation
+ * guard, the membership rendering, the claims lowering, the printer, and the ledger's
  * statements, whose entry takes on a Db's role and claims for each transaction; and the declarations every emitted
  * reading and aggregate is rendered by, the Compute catalogue and the aggregate overloads. Only their code takes a
  * `sql-world` mutant.
@@ -69,7 +67,6 @@ const worldPaths: ReadonlyArray<string> = [
 	registryPath,
 	aggregatePath,
 	"packages/engine/src/physical/ddl/roles.ts",
-	"packages/engine/src/physical/ddl/advance.ts",
 	"packages/engine/src/physical/ddl/isolation.ts",
 	"packages/engine/src/write/entry/",
 	"packages/engine/src/lower/conservative/claims/",
@@ -234,7 +231,7 @@ const conjunctLists = (
 		: Option.none()
 }
 
-/** world-conjunct, world-grant and world-advance-max on one call. */
+/** world-conjunct and world-grant on one call. */
 const worldCall = (site: WorldSite, call: ts.CallExpression): void => {
 	const name = calleeName(call)
 	const args = call.arguments
@@ -258,17 +255,6 @@ const worldCall = (site: WorldSite, call: ts.CallExpression): void => {
 		for (const list of privilegeLists(first)) {
 			privilegeList(site, list)
 		}
-	}
-	const where = args[2]
-	const advance = site.file === "packages/engine/src/physical/ddl/advance.ts"
-	if (
-		advance &&
-		(name === "simpleSelect" || name === "core") &&
-		where !== undefined &&
-		ts.isCallExpression(where) &&
-		calleeName(where) === "gt"
-	) {
-		site.add("world-advance-max", where.getStart(site.source), where.end, "undefined")
 	}
 }
 

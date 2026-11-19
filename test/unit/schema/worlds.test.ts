@@ -3,8 +3,7 @@
  * ownLogin), against the rules of roles restated as the oracle:
  *
  * - a context's fields are claims of scalar types: text, uuid, boolean, the integer types, a contract over one of them,
- *   or a closed handle; and a field its sequence writes is none, though its description, its integer's, is admitted.
- *   Each case draws a context of one to three fields of any drawn type (field-sketch.ts), serial forms included: the
+ *   or a closed handle. Each case draws a context of one to three fields of any drawn type (field-sketch.ts): the
  *   builder refuses it at the first field no claim is, a description at any field whose type no claim's is;
  * - a role relation is a whole relation of the base under its own name, or a query built over the base or one of its
  *   levels that reads only the base's relations, reads no parameter, attaches nothing, searches nothing approximately
@@ -56,7 +55,6 @@ import { type DrawnRoster, fieldOf } from "#test/unit/schema/field-sketch.ts"
 import { descOf } from "#test/unit/schema/support.ts"
 import {
 	admitted,
-	claimable,
 	claimDescribed,
 	contextCaseGen,
 	type ContextFeature,
@@ -87,7 +85,6 @@ export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefus
 		situations: [
 			"admitted",
 			"refused",
-			"a serial form, whose description is admitted",
 			"a contract over a claim",
 			"a later field refused"
 		] satisfies ReadonlyArray<Reached<ContextFeature>>,
@@ -111,9 +108,9 @@ export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefus
 					Arr.map(c.fields, (f) => [f.name, fieldOf(f.type, rosters)] as const)
 				)
 				const options = c.claim ? { claim: "o" } : undefined
-				const refusedAt = Arr.findFirstIndex(c.fields, (f) => !claimable(f.type))
+				const refusedAt = Arr.findFirstIndex(c.fields, (f) => !claimDescribed(f.type))
 				for (const f of c.fields) {
-					if (f.type.kind === "contract" && claimable(f.type)) {
+					if (f.type.kind === "contract" && claimDescribed(f.type)) {
 						k.note("a contract over a claim")
 					}
 				}
@@ -141,9 +138,6 @@ export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefus
 				})
 				if (Arr.every(c.fields, (f) => claimDescribed(f.type))) {
 					succeeded(described, "a description of claim types")
-					if (Arr.some(c.fields, (f) => !claimable(f.type))) {
-						k.note("a serial form, whose description is admitted")
-					}
 				} else {
 					refused(described, "MalformedDescription")
 				}

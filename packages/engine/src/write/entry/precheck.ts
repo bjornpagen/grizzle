@@ -6,7 +6,6 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
-import type { SerialClass } from "#compiler/ir/write.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
 import type { Cte, Expr, FunctionName, TypeRef } from "#compiler/sql/ast.ts"
 import {
@@ -35,7 +34,7 @@ import {
 	type WriteStatement,
 	writeValue
 } from "#compiler/write/insert/statement.ts"
-import { type OutsideProbe, probeParams, readsDrawn } from "#compiler/write/insert/unique.ts"
+import { type OutsideProbe, probeParams } from "#compiler/write/insert/unique.ts"
 import {
 	outsideDetail,
 	type RefusalArm,
@@ -95,7 +94,8 @@ export type EntryCheck =
 			readonly kind: "membership"
 			readonly entry: CheckedEntry
 			readonly relation: WrittenRelation
-			/** The unique objects of the relation the check probes (`outsideProbes`). */
+			/** The unique objects of the relation the check probes: every probe the role installs (insert/unique.ts
+			 * RelationUniques.probes), at every declared key and every object no declared key subsumes. */
 			readonly probes: ReadonlyArray<OutsideProbe>
 			/** The base the entry's filter reads, checked, with the catalog its membership is lowered against, and the
 			 * role's names, whose filter function the check calls when the filter reads another relation, and whose key
@@ -108,18 +108,6 @@ export type EntryCheck =
 
 const entryOf = (check: EntryCheck): EntryName =>
 	check.kind === "membership" ? check.entry.entry : check.entry
-
-/** The probes of a query entry over `relation` an addition of serial class `serial` calls for a fact outside the entry:
- * every probe the role installs (insert/unique.ts RelationUniques.probes), at every declared key and every object no
- * declared key subsumes, so every object the addition's statement meets; but for a generated addition none reading a
- * field it draws, whose value the identity default draws only at the insert. */
-export const outsideProbes = (
-	relation: WrittenRelation,
-	serial: SerialClass
-): ReadonlyArray<OutsideProbe> =>
-	serial.kind === "generated"
-		? relation.uniques.probes.filter((probe) => !readsDrawn(probe.object, serial.drawn))
-		: relation.uniques.probes
 
 /** The membership of the row whose fields `value` gives, in the entry (see `buildEntryCheck`): the row policy's own
  * predicate, or the role's filter function where the filter reads another relation. */
@@ -167,12 +155,11 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
  * - its membership in the entry: the policy's own predicate (`renderMembership`), or, when that reads another
  *   relation, the role's filter function over the row's filter fields, which runs as the owner, since the role reads
  *   no base relation but T;
- * - for every unique object of T the row's statement meets (`outsideProbes`), whether a fact of T outside the entry
- *   conflicts with the row there: for each key, the primary key and each candidate key, whether such a fact holds the
+ * - for every unique object of T the row's statement meets (insert/unique.ts RelationUniques.probes), whether a fact
+ *   of T outside the entry conflicts with the row there: for each key, the primary key and each candidate key, whether such a fact holds the
  *   row's key, through the role's key probe of that key; for each object no key subsumes, such as a key over a
  *   selected side, whether such a fact occupies it at the row's values, through the role's unique probe of
- *   it. Each probe runs as the owner and answers that alone. An object reading a serial field an addition leaves to
- *   the identity default is not probed: the value is drawn at the insert. A generated field an object reads is the
+ *   it. Each probe runs as the owner and answers that alone. A generated field an object reads is the
  *   field's generation expression over the row's fields, cast into their domains as the addition writes them, the
  *   value PostgreSQL stores; a row whose fields its domains refuse is refused there, on their law, before its
  *   membership is judged, which the README leaves unpromised for a row both outside the entry and breaking a rule.

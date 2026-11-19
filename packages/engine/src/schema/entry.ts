@@ -88,10 +88,7 @@ export type EntryFilter<F> =
  *   could not judge an owner at its insert, before its family's count is written (`filterReadsFamily`).
  *
  * T's primary key is then in the head or fixed, since every field of T in a key is one or the other. Anything else listed in
- * `write` is refused, with the reason named (WritabilityRefused). A filter may read a serial field of T: an addition
- * into E is checked against the filter before it writes (write/entry/precheck.ts), so its facts carry every serial
- * field the filter reads (write/frontend/entry.ts entryRelation), and an addition whose serial value grizzle would
- * generate there is refused as any fact missing a field is.
+ * `write` is refused, with the reason named (WritabilityRefused).
  *
  * A writable entry is read three ways. A write into E is DML on T: the head fields map to T's fields, and the fixed
  * fields are filled from their literals and claim reads. Its filter, `fixed ∧ w`, is the definition with T's occurrence

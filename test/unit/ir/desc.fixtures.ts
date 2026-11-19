@@ -100,7 +100,6 @@ const fields: Readonly<Record<string, FieldDecl<object>>> = {
 	budget: caller(budget),
 	title: caller(textDesc("^[A-Za-z ]{1,80}$", "u")),
 	priority: caller({ kind: "pg", type: "integer" }),
-	seq: { type: { kind: "pg", type: "bigint" }, writing: { kind: "serial" } },
 	twice: {
 		type: { kind: "pg", type: "bigint" },
 		writing: {

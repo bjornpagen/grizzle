@@ -16,16 +16,13 @@ import type { FamilyPart } from "#compiler/write/family/written.ts"
 import type { DeleteResult, InsertResult } from "#compiler/write/insert/statement.ts"
 import type { PutResult } from "#compiler/write/put/statement.ts"
 
-/** A unique violation at a statement into `relation` that aborts the apply with a TransientFailure of `reason`: a
- * generated addition's own insert on a key holding its serial field, a MERGE insert at a key its put targets, or a
- * probed insert's 23505 or 23P01 on a unique object besides its arbiter, raised by an occupant its snapshot did not see. */
+/** A unique violation at a statement into `relation` that aborts the apply with a TransientFailure of `reason`: a MERGE
+ * insert at a key its put targets, or a probed insert's 23505 or 23P01 on a unique object besides its arbiter, raised by
+ * an occupant its snapshot did not see. */
 export interface UniqueAbort {
 	readonly constraint: ConstraintName
 	readonly relation: StoredRelationName
-	readonly reason: Extract<
-		TransientReason["_tag"],
-		"GeneratedSerialUnique" | "PutTargetConflict" | "UnseenOccupant"
-	>
+	readonly reason: Extract<TransientReason["_tag"], "PutTargetConflict" | "UnseenOccupant">
 }
 
 /** The result of a write statement: rows of facts it made present or absent. */
@@ -70,15 +67,6 @@ export type WriteStep =
 			readonly kind: "analyze"
 			readonly carriers: ReadonlyArray<string>
 			readonly stratum: StratumAt | undefined
-	  }
-	| {
-			readonly kind: "advance"
-			readonly stratum: StratumAt
-			readonly action: number
-			readonly relation: StoredRelationName
-			readonly field: string
-			/** What the facts it advances past need of the call's inputs: where they hold none, it is not sent. */
-			readonly needs: Needs
 	  }
 	| { readonly kind: "readBack"; readonly name: string }
 	| HoldStep
@@ -195,7 +183,6 @@ export const writeRows = (
 			})
 		case "carrier":
 		case "analyze":
-		case "advance":
 		case "readBack":
 		case "check":
 		case "hold":
@@ -220,7 +207,6 @@ export const stratumOf = (step: WriteStep): StratumAt | undefined => {
 		case "analyze":
 			return step.stratum
 		case "write":
-		case "advance":
 		case "check":
 		case "single":
 		case "familyWrite":
@@ -249,7 +235,6 @@ export const reachOf = (step: WriteStep): StepReach => {
 		case "carrier":
 		case "analyze":
 		case "write":
-		case "advance":
 		case "check":
 		case "single":
 		case "familyWrite":

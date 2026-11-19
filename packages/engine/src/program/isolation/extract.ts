@@ -51,7 +51,7 @@ import { printObjectName } from "#compiler/sql/print.ts"
  *   relation's table, whose reads no statement shows;
  * - `fieldOf`: the field a column of a relation's table is, none for a column of no field (a law column);
  * - `readsNoTable`: whether a schema function a statement calls reads no relation's table, as a refusal, a constant, a
- *   vector or a serial's advance function reads none; a world's filter function reads the relations of its membership;
+ *   vector reads none; a world's filter function reads the relations of its membership;
  * - `retirementOf`: the tables a retirable unit's retirement function writes, its header's and its bodies', none for any
  *   other function: a call of it is the unit's retirement (analysis/isolation/facts.ts WriteFact `retire`), which reads
  *   no row besides the groups it locks;

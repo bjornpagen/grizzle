@@ -14,7 +14,6 @@ import {
 import { compareStrings } from "#compiler/core/order.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { codecOf } from "#compiler/ir/codes.ts"
-import { serialDraw } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	type KeyOrder,
@@ -94,8 +93,7 @@ const primaryKeyOf = (b: InstallBuilder, pk: NamedPrimaryKey): PrimaryKey => {
 }
 
 /**
- * A field's column's generation: a serial field's identity, or its `uuidv7()` default for a uuid (ir/desc.ts
- * serialDraw), a retirement field's `DEFAULT false`, a generated field's `GENERATED ALWAYS AS (e) STORED`, its
+ * A field's column's generation: a retirement field's `DEFAULT false`, a generated field's `GENERATED ALWAYS AS (e) STORED`, its
  * expression lowered over the row's own columns, or none for a field the caller writes and for one the host writes, a
  * family's drawn field or a fold's accumulated one.
  */
@@ -105,13 +103,6 @@ const fieldGeneration = (
 	field: LawField
 ): ColumnGeneration | undefined => {
 	switch (field.writing.kind) {
-		case "serial":
-			switch (serialDraw(field.desc)) {
-				case "identity":
-					return { kind: "identity", sequence: b.names.sequence(relation.name, field.name) }
-				case "uuidv7":
-					return { kind: "uuidv7" }
-			}
 		case "generated":
 			return {
 				kind: "stored",
@@ -406,8 +397,6 @@ interface PlacedNatives {
 	readonly keyIndexes: ReadonlyArray<KeyIndex>
 	/** The tables, in relation name order. */
 	readonly tables: ReadonlyArray<ObjectName>
-	/** The identity sequences of the tables' serial columns, in table then column order. */
-	readonly sequences: ReadonlyArray<ObjectName>
 }
 
 /** A key's index, which holds every row: one whose column is null holds it too, under NULLS DISTINCT. */
@@ -426,9 +415,7 @@ export interface KeyIndex {
  *
  * - A stored relation is `CREATE TABLE <schema>.<table> (...)` with its fields in declared order, every column NOT
  *   NULL. A wildcard text column names pg_catalog.pg_c_utf8; a refined
- *   column is typed by its domain, which carries that collation; a closed id by its roster's domain. A serial field is
- *   `GENERATED ALWAYS AS IDENTITY (SEQUENCE NAME <schema>.<table>_<col>_seq)`, its sequence owned by the column. A
- *   generated field is `GENERATED ALWAYS AS (<e>) STORED`, its expression over the row's written fields, a closed read
+ *   column is typed by its domain, which carries that collation; a closed id by its roster's domain. A generated field is `GENERATED ALWAYS AS (<e>) STORED`, its expression over the row's written fields, a closed read
  *   among them reading the closed relation's constants, which the table is created after.
  * - A drawn law column, a family's count copy, index, parent start or fold accumulator, is a plain NOT NULL column of
  *   its type's base that the host writes, its own `ALTER TABLE ... ADD COLUMN` after its table, as a generated
@@ -502,10 +489,7 @@ export const addTables = (b: InstallBuilder): PlacedNatives => {
 	addDateRanges(b, ranges)
 	return {
 		keyIndexes: addNatives(b, plans),
-		tables: planned.map((t) => b.names.relation(t.relation)),
-		sequences: planned.flatMap((t) =>
-			t.columns.flatMap((c) => (c.generated?.kind === "identity" ? [c.generated.sequence] : []))
-		)
+		tables: planned.map((t) => b.names.relation(t.relation))
 	}
 }
 

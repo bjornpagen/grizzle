@@ -2,8 +2,8 @@
  * The scalar registry against the PostgreSQL 19 catalog: every descriptor names what PostgreSQL stores, and every
  * capability the registry claims is one PostgreSQL offers.
  *
- * - Spellings: every spelling of the pg namespace, the serials among them, declares a column PostgreSQL stores as the
- *   type the descriptor names.
+ * - Spellings: every spelling of the pg namespace declares a column PostgreSQL stores as the type the descriptor
+ *   names.
  * - numeric(p, s): for drawn typmods near and past numerictypmodin's bounds, the registry admits exactly what
  *   PostgreSQL admits, and names the typmod it stores.
  * - vector(n): for every dimension count within two of 1 and of the storage limit, the registry admits exactly what
@@ -15,7 +15,7 @@
  *
  * Oracle: PostgreSQL itself, its catalog and the type a column's declaration stores.
  *
- * Features: "a serial" and "a type"; numeric's "admitted" and "refused"; vector's "refused below", "admitted" and "refused above"; and the carriers' "a
+ * Features: "a type"; numeric's "admitted" and "refused"; vector's "refused below", "admitted" and "refused above"; and the carriers' "a
  * native capability excluded", "a spannable carrier", "a discrete range named as a limit" and "no discrete range".
  */
 
@@ -35,7 +35,6 @@ import {
 	carrierTypes,
 	catalogNames,
 	claimedBy,
-	columnSpelling,
 	type DimensionsFeature,
 	exclusions,
 	installProbe,
@@ -48,21 +47,21 @@ import {
 } from "#test/pg/scalar/registry.fixtures.ts"
 import { assert, contains, defined, unorderedEqual } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { isSerial, spelled } from "#test/unit/scalar/support.ts"
+import { spelled } from "#test/unit/scalar/support.ts"
 
 /** Descriptors against the PostgreSQL 19 catalog names the type PostgreSQL stores with every spelling of the pg namespace. */
 export const descriptorsAgainstThePostgreSQL19CatalogNamesTheTypePostgreSQLStoresWithEverySpellingOfThePgNamespace =
 	property.exhaust(finite(word(spellingWords)), {
 		needs: { tx: Substrate.transaction },
-		situations: ["a serial", "a type"] satisfies ReadonlyArray<Reached<"a serial" | "a type">>,
+		situations: ["a type"] satisfies ReadonlyArray<Reached<"a type">>,
 		check:
-			({ tx }, c: Case<"a serial" | "a type">) =>
+			({ tx }, c: Case<"a type">) =>
 			(spelling) =>
 				Effect.gen(function* () {
 					const { session: db } = yield* tx
 					yield* installProbe(db)
-					return yield* Effect.map(probe(db, [columnSpelling(spelling)]), (stored) => {
-						c.note(isSerial(spelling) ? "a serial" : "a type")
+					return yield* Effect.map(probe(db, [spelling]), (stored) => {
+						c.note("a type")
 						assert.deepEqual(stored, [spelled(spelling).sql], spelling)
 					})
 				}),
@@ -70,7 +69,7 @@ export const descriptorsAgainstThePostgreSQL19CatalogNamesTheTypePostgreSQLStore
 			kind: "postgresql",
 			name: "the type PostgreSQL stores a column of the spelling as"
 		},
-		box: "every spelling of the pg namespace that is a descriptor, the serials among them",
+		box: "every spelling of the pg namespace that is a descriptor",
 		kept: [],
 		kills: [
 			{

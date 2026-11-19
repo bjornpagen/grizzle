@@ -9,6 +9,5 @@ export type {
 	AdditionIn,
 	InsertableNameOf,
 	InsertAllRowsOf,
-	WritableOf,
-	Written
+	WritableOf
 } from "#compiler/types/changeset/changeset.ts"

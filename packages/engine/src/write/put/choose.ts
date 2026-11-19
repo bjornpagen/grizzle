@@ -18,7 +18,7 @@ import {
 	type WrittenRelation
 } from "#compiler/write/frontend/compile.ts"
 import type { FamilyAt } from "#compiler/write/frontend/schedule.ts"
-import { type Payload, payloadOf, serialOutsideKey } from "#compiler/write/frontend/targets.ts"
+import { type Payload, payloadOf } from "#compiler/write/frontend/targets.ts"
 import { existingKeysProof, type MergeScope, mergeScopeProof } from "#compiler/write/put/proof.ts"
 
 /** Why a put is the DELETE-then-insert pair (see `choosePutTargets`). */
@@ -26,7 +26,6 @@ type PairReason =
 	| "entry"
 	| "immutable"
 	| "pureSet"
-	| "serialOutsideKey"
 	| "removedRead"
 	| "netting"
 	| "candidateKey"
@@ -35,8 +34,7 @@ type PairReason =
 	| "unproved"
 
 /** What an update in place may assume of its relation, proved where its choice is made: the payload its UPDATE sets,
- * every field outside the primary key, none of them serial (no serial field lies outside the key), at least one (the
- * relation is no pure set). */
+ * every field outside the primary key, at least one (the relation is no pure set). */
 export interface InPlace {
 	readonly payload: NonEmptyReadonlyArray<LawField>
 }
@@ -168,7 +166,6 @@ const describedNode = (action: Action<ActionInfo>): RelNode | undefined =>
  *   sets a head field the role holds no UPDATE on: a key field or a claim-fixed one (schema/entry.ts HeadStanding);
  * - its relation is immutable, the pinned default: no role holds UPDATE there;
  * - its relation is a mutable pure set, which has no payload for an update to set;
- * - its relation has a serial field outside the primary key, which no UPDATE may assign;
  * - a read-back names delta.removed of its relation and the put would be an ON CONFLICT DO UPDATE or a MERGE, whose
  *   inserted rows have no old version;
  * - another stratum of the ChangeSet also writes its relation and the put would be an ON CONFLICT DO UPDATE or a
@@ -256,9 +253,6 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 					}
 					if (payload.kind === "pureSet") {
 						return pair("pureSet")
-					}
-					if (serialOutsideKey(relation)) {
-						return pair("serialOutsideKey")
 					}
 					if (uniqueOutsideKey(relation)) {
 						return pair("candidateKey")

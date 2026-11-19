@@ -69,11 +69,10 @@ const identitiesOf = (ids: LawIds): ReadonlyArray<LawId> => {
 }
 
 /**
- * Every function a direct writer may try to call: the installation's own, none when it holds no query entry and no
- * serial field. No law has a function (fin.md §7).
+ * Every function a direct writer may try to call: the installation's own, none when it holds no query entry. No law
+ * has a function (fin.md §7).
  */
 export const worldFunctionsOf = (state: ModelState): ReadonlyArray<WorldFunction> => {
-	const base = state.install.base
 	const queries = Arr.flatMap(state.install.roles, (role) =>
 		Arr.flatMap(Record.toEntries(role.entries), ([entry, spec]) =>
 			spec.kind === "query" ? [{ role: role.name, entry }] : []
@@ -86,12 +85,7 @@ export const worldFunctionsOf = (state: ModelState): ReadonlyArray<WorldFunction
 			role: q.role,
 			entry: q.entry,
 			key: 0
-		})),
-		...Arr.flatMap(base.relations, (r) =>
-			Arr.flatMap(r.fields, (f): ReadonlyArray<WorldFunction> =>
-				f.domain.kind === "serial" ? [{ kind: "advance", relation: r.name, field: f.name }] : []
-			)
-		)
+		}))
 	]
 }
 
@@ -138,15 +132,12 @@ const viewed = (
 		)
 	)
 
-/** The fields a column default may be set on: every one but a serial, an identity column that takes no default. */
+/** The fields a column default may be set on: every one. */
 const defaultable = (
 	state: ModelState
 ): ReadonlyArray<{ readonly relation: string; readonly field: string }> =>
 	Arr.flatMap(state.install.base.relations, (r: RelationSpec) =>
-		Arr.map(
-			Arr.filter(r.fields, (f: FieldSpec) => f.domain.kind !== "serial"),
-			(f: FieldSpec) => ({ relation: r.name, field: f.name })
-		)
+		Arr.map(r.fields, (f: FieldSpec) => ({ relation: r.name, field: f.name }))
 	)
 
 /**
@@ -382,17 +373,14 @@ export const catalogVariants = (state: ModelState): ReadonlyArray<Variant<Catalo
 
 /**
  * The fields whose NOT NULL a person may drop: those outside their relation's primary key, whose NOT NULL PostgreSQL
- * keeps while the key stands (42P16), and other than a serial, an identity column whose NOT NULL PostgreSQL keeps while
- * it is one (42601). A relation that is all key and serial offers none.
+ * keeps while the key stands (42P16). A relation that is all key offers none.
  */
 const nullableFields = (
 	base: BaseSpec
 ): ReadonlyArray<{ readonly relation: string; readonly field: string }> =>
 	Arr.flatMap(base.relations, (r) =>
 		Arr.flatMap(r.fields, (f) =>
-			r.key.includes(f.name) || f.domain.kind === "serial"
-				? []
-				: [{ relation: r.name, field: f.name }]
+			r.key.includes(f.name) ? [] : [{ relation: r.name, field: f.name }]
 		)
 	)
 

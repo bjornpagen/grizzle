@@ -150,7 +150,6 @@ const baseTypeOf = (domain: FieldDomain): string => {
 			return domain.kind
 		case "integer":
 		case "contract":
-		case "serial":
 			return `int${domain.bits}`
 		case "handle":
 			return `enum ${domain.closed}`
@@ -354,6 +353,25 @@ export const changesWorlds = (from: InstallSpec, to: InstallSpec): boolean =>
 		}
 	)
 
+/**
+ * Whether a folder creates a world function, a role's filter or key probe, anew or again under a new definition: a
+ * function is named by a digest (core/identity.ts), whose COMMENT the diff writes in Publish, where a view a held role's
+ * world creates again, of a readable name, is written whole in Structure (worldObjects).
+ */
+export const createsWorldFunction = (from: InstallSpec, to: InstallSpec): boolean =>
+	Arr.some(
+		[...new Set([...Arr.map(from.roles, (r) => r.name), ...Arr.map(to.roles, (r) => r.name)])],
+		(role) => {
+			const before = worldObjects(from, role)
+			return Arr.some([...worldObjects(to, role)], ([identity, o]) => {
+				const was = before.get(identity)
+				return (
+					o.kind === "function" && (was === undefined || !samePlain(was.definition, o.definition))
+				)
+			})
+		}
+	)
+
 /** Whether a migration drops a role's world object, or creates it again under a definition of its new installation. */
 const rewritten = (from: InstallSpec, to: InstallSpec, role: string, identity: string): boolean => {
 	const before = worldObjects(from, role).get(identity)
@@ -364,7 +382,7 @@ const rewritten = (from: InstallSpec, to: InstallSpec, role: string, identity: s
 }
 
 /**
- * The world object of a function a perturbation changed: a role's filter or key probe; an advance function is none.
+ * The world object of a function a perturbation changed: a role's filter or key probe.
  */
 const functionObject = (
 	install: InstallSpec,
@@ -396,8 +414,6 @@ const functionObject = (
 						)
 			return identity === undefined ? undefined : { role: fn.role, identity }
 		}
-		case "advance":
-			return undefined
 	}
 }
 
@@ -504,7 +520,7 @@ const revokedWith = (
 
 /**
  * What an installation revokes from PUBLIC (packages/engine/src/physical/ddl/roles.ts publicRevokes), as far as it varies: its
- * schemas (one per role), tables and views, identity sequences, enums and domains. A migration whose revokes differ
+ * schemas (one per role), tables and views, enums and domains. A migration whose revokes differ
  * issues every one of them again in Publish.
  */
 const publicRevoked = (install: InstallSpec): unknown => {
@@ -524,12 +540,6 @@ const publicRevoked = (install: InstallSpec): unknown => {
 		),
 		relations: Arr.sort(
 			Arr.map(base.relations, (r) => r.name),
-			Order.String
-		),
-		serials: Arr.sort(
-			Arr.flatMap(base.relations, (r) =>
-				Arr.flatMap(r.fields, (f) => (f.domain.kind === "serial" ? [`${r.name}.${f.name}`] : []))
-			),
 			Order.String
 		),
 		closed: Arr.sort(

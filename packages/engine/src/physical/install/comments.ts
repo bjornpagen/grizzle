@@ -39,15 +39,7 @@ interface Created {
 }
 
 const column = (relation: ObjectName, c: ColumnDef): ReadonlyArray<Created> => [
-	{ on: { kind: "COLUMN", relation, column: c.name }, identifier: c.name },
-	...(c.generated?.kind === "identity"
-		? [
-				{
-					on: { kind: "SEQUENCE", name: c.generated.sequence } as const,
-					identifier: c.generated.sequence.name
-				}
-			]
-		: [])
+	{ on: { kind: "COLUMN", relation, column: c.name }, identifier: c.name }
 ]
 
 /** The objects one action of an ALTER TABLE on `table` creates: none for an action that creates none. */
@@ -67,16 +59,12 @@ const actionCreated = (table: ObjectName, a: AlterTableAction): ReadonlyArray<Cr
 			]
 		case "addConstraintUsingIndex":
 			return [{ on: { kind: "CONSTRAINT", name: a.name, on: table }, identifier: a.name }]
-		case "addIdentity":
-			return [{ on: { kind: "SEQUENCE", name: a.sequence }, identifier: a.sequence.name }]
 		case "dropColumn":
 		case "dropDefault":
 		case "setNotNull":
-		case "setUuidv7Default":
 		case "setRetirementDefault":
 		case "alterColumnType":
 		case "setExpression":
-		case "dropIdentity":
 		case "validateConstraint":
 		case "alterConstraintDeferral":
 		case "dropConstraint":
@@ -231,7 +219,6 @@ export const targetKey = (on: CommentTarget): string => {
 		case "MATERIALIZED VIEW":
 		case "DOMAIN":
 		case "TYPE":
-		case "SEQUENCE":
 		case "INDEX":
 		case "STATISTICS":
 			return `${on.kind}\u0001${nameKey(on.name)}`
@@ -263,7 +250,6 @@ const targetName = (on: CommentTarget): string => {
 		case "MATERIALIZED VIEW":
 		case "DOMAIN":
 		case "TYPE":
-		case "SEQUENCE":
 		case "INDEX":
 		case "STATISTICS":
 		case "FUNCTION":

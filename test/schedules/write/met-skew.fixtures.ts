@@ -5,27 +5,25 @@ import { Array as Arr, Order } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { key, login, on, relation, role, schema } from "#compiler/public/schema.ts"
+import { login, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import type { DeltaSource } from "#compiler/types/changeset/changeset.ts"
 import { rigTemplate } from "#test/support/schedules/rig.ts"
 import type { ScheduleOutcome } from "#test/support/schedules/types.ts"
 
-export const Held = relation("Held", { id: pg.uuidv7, k: pg.integer, a: pg.integer }, ["id"])
+export const Held = relation("Held", { k: pg.integer, a: pg.integer }, ["k"])
 
 export const Mark = relation("Mark", { k: pg.integer }, ["k"])
 
-const heldKey = key(on(Held, "k"))
-
 /** The schema, the role `writer`, which inserts Held and Mark, and `direct`, which writes both, and their logins. */
 export const skew = (name: string) => {
-	const base = schema(name, [Held, Mark], [heldKey])
+	const base = schema(name, [Held, Mark], [])
 	const writer = role(base, "writer", { Held, Mark }, { insert: ["Held", "Mark"] })
 	const direct = role(base, "direct", { Held, Mark }, { write: ["Held", "Mark"] })
 	const heldOf = (side: DeltaSource<typeof Held>) =>
 		query(base).rule((r) => {
-			const { id, k, a } = v(side, "held")
-			return r.match(side, { id, k, a }).find({ id, k, a })
+			const { k, a } = v(side, "held")
+			return r.match(side, { k, a }).find({ k, a })
 		})
 	return {
 		schema: base,
@@ -83,19 +81,17 @@ export const otherMark = 6
 
 /** A Held row as L reads it back. */
 interface HeldRow {
-	readonly id: string
 	readonly k: number
 	readonly a: number
 }
 
-/** A Held row as the table's state reads it: k, a and id, each as text. */
+/** A Held row as the table's state reads it: k and a, each as text. */
 export interface HeldText {
 	readonly k: string
 	readonly a: string
-	readonly id: string
 }
 
-export const heldText = (r: HeldRow): HeldText => ({ k: String(r.k), a: String(r.a), id: r.id })
+export const heldText = (r: HeldRow): HeldText => ({ k: String(r.k), a: String(r.a) })
 
 export const byKey = (rows: ReadonlyArray<HeldText>): ReadonlyArray<HeldText> =>
 	Arr.sort(

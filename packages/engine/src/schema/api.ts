@@ -150,7 +150,6 @@ import type {
 import type {
 	Context,
 	ContextField,
-	ContextFieldBases,
 	ContextOptions,
 	DistinctWrites,
 	EntriesCheck,
@@ -244,7 +243,10 @@ const generated = <
 export const relation: typeof ordinaryRelation & { readonly generated: typeof generated } =
 	Object.freeze(Object.assign(ordinaryRelation, { generated }))
 
-/** A closed relation's fields are closed ids, and open-typed values that are no serial, span, set, vector or bytes. */
+/**
+ * A closed relation's fields are closed ids, and open-typed values that are no span, set, vector or bytes, and no field
+ * grizzle or PostgreSQL writes.
+ */
 type ClosedFieldsCheck<Fields> = [
 	{
 		[K in keyof Fields]-?: Fields[K] extends
@@ -255,7 +257,7 @@ type ClosedFieldsCheck<Fields> = [
 	}[keyof Fields]
 ] extends [never]
 	? unknown
-	: Refusal<"a closed relation's field is a closed id, or a value of a type that is no serial, span, set, vector or bytes">
+	: Refusal<"a closed relation's field is a closed id, or a value of a type that is no span, set, vector or bytes, and no field grizzle or PostgreSQL writes">
 
 /**
  * closed.ordered(name, handles): a roster whose order means something, the handles it introduces, each once, in
@@ -732,7 +734,7 @@ export const context = <
 	const Fields extends Readonly<Record<string, ContextField>>
 >(
 	name: Name,
-	fields: Fields & ContextFieldBases<Fields>,
+	fields: Fields,
 	...options: ContextOptions
 ): Context<Name, Fields> => contextBuilder<Name, Fields>(name, fields, ...options)
 

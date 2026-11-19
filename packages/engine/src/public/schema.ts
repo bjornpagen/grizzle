@@ -103,8 +103,7 @@ export type {
 	NameOf,
 	Relation,
 	RelationName,
-	Roster,
-	SerialFieldsOf
+	Roster
 } from "#compiler/types/schema/relation.ts"
 
 export type {

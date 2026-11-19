@@ -398,7 +398,6 @@ export const resolvePayroll = (sketch: PayrollSketch): PayrollFacts => {
 	const voided = Arr.flatMap(runIds, (runId, j) => (stageOf[j] === "voided" ? [runId] : []))
 	const replaced = new Set<string>()
 	let lineCount = 0
-	let entry = 0n
 	for (const [j, r] of sketch.runs.entries()) {
 		const run = at(runIds, j)
 		const stage = at(stageOf, j)
@@ -471,9 +470,7 @@ export const resolvePayroll = (sketch: PayrollSketch): PayrollFacts => {
 				if (((l.postings >> k) & 1) === 0) {
 					continue
 				}
-				entry++
 				Posting.push({
-					entry,
 					line,
 					account,
 					side: at(sides, l.side >> k),

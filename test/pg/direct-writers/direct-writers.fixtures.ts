@@ -1,6 +1,6 @@
 /** What the properties of direct-writers.test.ts read: its spaces, models and helpers. */
 
-import { array, boolean, type Gen } from "@bjornpagen/testing/gen"
+import { array, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import {
 	type DirectCase,
@@ -37,7 +37,7 @@ const plantKinds = [
 type PlantKind = (typeof plantKinds)[number]
 
 /**
- * A planted case as drawn: its kind, the stored facts, the row it writes, its level and sequences, and its position
+ * A planted case as drawn: its kind, the stored facts, the row it writes, its level, and its position
  * among the run's drawn cases.
  */
 interface Plant {
@@ -45,7 +45,6 @@ interface Plant {
 	readonly facts: FactsSketch
 	readonly row: RowSketch
 	readonly level: Level
-	readonly behind: boolean
 	readonly at: number
 }
 
@@ -56,7 +55,6 @@ const plantGen =
 		facts: source.draw(factsSketchGen(5)),
 		row: source.draw(rowSketchGen),
 		level: source.draw(levelGen),
-		behind: source.draw(boolean),
 		at: source.draw(pickGen)
 	})
 
@@ -140,7 +138,6 @@ const plantedCase = (p: Plant): DirectCase => {
 	const base = {
 		group: lastPick,
 		facts: p.facts,
-		behind: p.behind,
 		level: p.level,
 		immediate: false,
 		breaks: { kind: "none" },
@@ -171,8 +168,6 @@ export const casesOf = (run: DirectRun): ReadonlyArray<DirectCase> =>
 
 export const situations: Arr.NonEmptyReadonlyArray<DirectFeature> = [
 	"statement insert",
-	"statement insert without overriding",
-	"statement insert generated",
 	"statement insert missing a field",
 	"statement delete",
 	"statement update",
@@ -182,7 +177,6 @@ export const situations: Arr.NonEmptyReadonlyArray<DirectFeature> = [
 	"23503 at COMMIT",
 	"23503 at SET CONSTRAINTS",
 	"42501 at a statement",
-	"428C9 at a statement",
 	"23514 at a statement",
 	"23514 by a refined text domain at a statement",
 	"23514 by a roster domain at a statement",

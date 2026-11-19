@@ -48,7 +48,7 @@ import { outcomeKind, sqlstates } from "#compiler/plan/runtime.ts"
  *   way, on that key's law at the submitted key (write/entry/precheck.ts), so an insert through an entry meets no fact
  *   its role cannot see: a 42501 there is a privilege refusal, an ExecutionFailure like any other.
  * - SQLSTATEs (`transientFailureOf`): 40001 and 40P01 are a TransientFailure; so is a 23505 or 23P01 on a constraint the
- *   failing statement lists as an abort (a generated addition's serial key, a MERGE insert at its put target, a unique
+ *   failing statement lists as an abort (a MERGE insert at its put target, a unique
  *   object besides the arbiter, which after the probe only an unseen occupant raises). Every other server error goes
  *   to the installation's violation classifier (packages/grizzle/src/adapter/witness), the one reader of integrity
  *   violations: a violation of class 23 (23505 on a non-arbiter UNIQUE, 23503 on a foreign key, 23514 on a CHECK, a
@@ -138,7 +138,7 @@ const unstated: StatementAt = Object.freeze({ kind: "unstated" })
  * What the statement at `origin` states, as the host reads it: a write statement's action, a single statement's parts'
  * actions, at its stratum; a family statement's relations; the fill of an action's member's carrier, which casts the
  * facts the action writes into its relation's types (CarrierCasts); a query entry's precheck, which casts the entry's
- * facts into its target's types; nothing for another carrier's statement, an ANALYZE, a serial advance or a hold, whose
+ * facts into its target's types; nothing for another carrier's statement, an ANALYZE or a hold, whose
  * refusal names its law and key in its DETAIL, a retirement, which states its groups and no fact of a relation it
  * writes, the admission, whose refusal names a parameter's domain, a read-back, or the COMMIT.
  */
@@ -169,7 +169,6 @@ const statementAt = (origin: FailureOrigin): StatementAt => {
 				? { kind: "write", stratum: step.casts.stratum, relations: [step.casts.relation] }
 				: unstated
 		case "analyze":
-		case "advance":
 		case "readBack":
 		case "hold":
 		case "retire":
@@ -196,8 +195,6 @@ const stepText = (step: WriteStep): string => {
 			return `the ${step.step} of carrier ${step.carrier}`
 		case "analyze":
 			return `the ANALYZE of ${Arr.join(step.carriers, ", ")}`
-		case "advance":
-			return `the serial advance of ${step.relation}.${step.field}`
 		case "readBack":
 			return `read-back ${step.name}`
 		case "check":

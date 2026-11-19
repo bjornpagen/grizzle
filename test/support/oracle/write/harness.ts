@@ -1,16 +1,6 @@
 import type { Case } from "@bjornpagen/testing/explore"
-import { boolean, type Gen } from "@bjornpagen/testing/gen"
-import {
-	Array as Arr,
-	Data,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Record as Rec,
-	Result,
-	String as Str
-} from "effect"
+import type { Gen } from "@bjornpagen/testing/gen"
+import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { changeCall } from "#adapter/apply/collect.ts"
 import type { CompiledChange } from "#adapter/apply/compile.ts"
 import { type InputFailure, hostInputs } from "#adapter/apply/run.ts"
@@ -19,7 +9,7 @@ import { ParamRejected } from "#adapter/errors/failures.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { type ReadonlyTupleSet, TupleMap } from "#compiler/core/tuple-map.ts"
+import type { ReadonlyTupleSet } from "#compiler/core/tuple-map.ts"
 import type { WriteStepResult } from "#compiler/runtime/write/steps.ts"
 import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
@@ -28,13 +18,7 @@ import type { PutChoice } from "#compiler/write/put/choose.ts"
 import type { AmbientFeature } from "#test/support/ambient.ts"
 import { conservativeChange } from "#test/support/conservative.ts"
 import { messageOf } from "#test/support/message.ts"
-import {
-	type AppliedOutcome,
-	type Fact,
-	integerOf,
-	type OracleState,
-	type SequenceState
-} from "#test/support/oracle/addwins.ts"
+import { type AppliedOutcome, type Fact, type OracleState } from "#test/support/oracle/addwins.ts"
 import { type FactSet, factSetOf, identitySetOf } from "#test/support/oracle/delta.ts"
 import { CurrentRestorage } from "#test/support/oracle/gen/restorage.ts"
 import {
@@ -42,19 +26,17 @@ import {
 	CurrentPerturbation,
 	printPerturbation
 } from "#test/support/oracle/perturb.ts"
-import { elementAt, entryOf } from "#test/support/oracle/pick.ts"
+import { entryOf } from "#test/support/oracle/pick.ts"
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import {
 	type WBinding,
 	buildChangeSet,
 	type ChangeSetSketch,
 	changeSetSketchGen,
-	generates,
 	isFact,
 	type MemberOp,
 	type PlantedArm,
 	parentSlot,
-	plantedBehind,
 	plantedChangeSet,
 	plantedFacts,
 	printChangeSet,
@@ -80,7 +62,6 @@ import {
 	type DomainRefusal,
 	type Expected,
 	expectChangeSet,
-	type GeneratedDraws,
 	type Violations
 } from "#test/support/oracle/write/expect.ts"
 
@@ -95,7 +76,6 @@ import {
 } from "#test/support/oracle/write/facts.ts"
 
 import {
-	type Applied,
 	applyWith,
 	type GroupState,
 	type OutcomeWitness,
@@ -112,10 +92,8 @@ import {
 	isImmediate,
 	printGroup,
 	relationIn,
-	serialColumns,
 	type WContainment,
 	type WGroup,
-	type WRelation,
 	type WSchema
 } from "#test/support/oracle/write/schema.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -134,19 +112,12 @@ export interface WriteCase {
 	/** The group the case writes, a pick among the run's drawn groups. */
 	readonly group: number
 	readonly facts: FactsSketch
-	/**
-	 * Where the group's identity sequences start: past the stored values, where a migration that loaded them leaves
-	 * them, or behind them, fresh at their start, where a direct writer's explicit values leave them (it writes them
-	 * with OVERRIDING SYSTEM VALUE and advances nothing), so a generated addition may draw a value a stored fact holds.
-	 */
-	readonly behind: boolean
 	readonly changes: ChangeSetSketch
 }
 
 export const writeCaseGen: Gen<WriteCase> = (source) => ({
 	group: source.draw(pickGen),
 	facts: source.draw(factsSketchGen(5)),
-	behind: source.draw(boolean),
 	changes: source.draw(changeSetSketchGen)
 })
 
@@ -163,8 +134,8 @@ export const plantedCasesGen: Gen<PlantedCases> = (source) => ({
 })
 
 /**
- * A case resolved: whether it was drawn or is a planted arm, the group it writes, the facts it starts from, whether the
- * group's identity sequences start behind them (WriteCase), and its ChangeSet.
+ * A case resolved: whether it was drawn or is a planted arm, the group it writes, the facts it starts from, and its
+ * ChangeSet.
  */
 export interface ResolvedCase {
 	readonly origin:
@@ -172,7 +143,6 @@ export interface ResolvedCase {
 		| { readonly kind: "planted"; readonly arm: PlantedArm }
 	readonly group: WGroup
 	readonly facts: WFacts
-	readonly behind: boolean
 	readonly changes: WChangeSet
 }
 
@@ -194,24 +164,18 @@ export const drawnCase =
 			origin: { kind: "drawn" },
 			group,
 			facts,
-			behind: wc.behind,
 			changes: source.draw(resolveChangeSet(group, facts, wc.changes))
 		}
 	}
 
-/**
- * A planted case of `arm` on the planted group, from the drawn facts `facts`: its identity sequences start behind the
- * stored values where the arm's generated addition draws a stored key (changeset.ts plantedBehind), past them
- * otherwise.
- */
+/** A planted case of `arm` on the planted group, from the drawn facts `facts`. */
 export const plantedCase = (group: WGroup, arm: PlantedArm, facts: FactsSketch): ResolvedCase => {
 	const stored = plantedFacts(group, resolveFacts(group, facts), arm)
 	return {
 		origin: { kind: "planted", arm },
 		group,
 		facts: stored,
-		behind: plantedBehind(arm),
-		changes: plantedChangeSet(group, arm, stored)
+		changes: plantedChangeSet(group, arm)
 	}
 }
 
@@ -255,23 +219,15 @@ export type WriteOracleFeature =
 	| "a staged slot a put's halves read"
 	| "two members of one relation in one stratum"
 	| "a member reads a relation its stratum writes"
-	| "insert generated"
-	| "insert generated project"
-	| "a unit addition described and enumerated"
 	| "numeric cast between typmods"
 	| "mutable relation"
-	| "identity column"
-	| "every field an identity column"
-	| "two identity columns"
 	| "immediate containment"
 	| "deferred containment"
 	| "reference into a candidate key"
 	| "stream member"
 	| "projected key"
-	| "generated after a collision"
 	| "flight logged"
 	| "outcome invariant-rejected"
-	| "generated accepted"
 	| "toast-sized input"
 	| "toast-sized no-change"
 	| "toast-sized accepted"
@@ -284,12 +240,6 @@ export type WriteOracleFeature =
 	| "a stated-one read-back with its parent present"
 	| "a stated-one read-back with its parent absent"
 	| "a stated-one read-back over a deferred containment that the write violates"
-	| "lagging identical netted"
-	| "lagging differing"
-	| "a generated repeat of a kept fact, drawing nothing"
-	| "counts under the realization's draws"
-	| "a verdict under the realization's draws"
-	| "an UPDATE ... FROM put advancing its sequence"
 	| "facts reordered on a second reading"
 	| "a fact respelled on a second reading"
 	| "a read-back refused as crossing statements"
@@ -355,109 +305,6 @@ const printOutcome = (o: Result.Result<WriteOutcome, unknown>): string => {
 	}
 }
 
-/**
- * A pairing of the oracle's generated facts with the committed ones (see the header): for each relation the change
- * generates into, the oracle's generated fact identity to the committed fact it is renamed to.
- */
-type Renaming = ReadonlyMap<string, FactSet>
-
-/** The pairing where nothing is renamed: an outcome the change applied none of. */
-const noRenaming: Renaming = new Map()
-
-/**
- * The oracle's generated facts paired with the realization's on every field but the serial ones, and what cannot be
- * paired. The realization's generated facts are the committed facts the oracle expects as no other fact.
- */
-interface Paired {
-	readonly renaming: Renaming
-	readonly problems: ReadonlyArray<string>
-}
-
-/**
- * The committed facts paired to the expected generated ones `expected`, each to the first one left that agrees with it
- * on the fields `others`, and how many committed facts no expected one took.
- */
-const pairByFields = (
-	r: WRelation,
-	others: ReadonlyArray<string>,
-	expected: ReadonlyArray<readonly [FactIdentity, Fact]>,
-	committed: ReadonlyArray<Fact>
-): { readonly pairs: FactSet; readonly unpaired: number } => {
-	const pool = [...committed]
-	const pairs = new TupleMap<FactIdentity, Fact>()
-	for (const [id, fact] of expected) {
-		const i = Arr.findFirstIndex(pool, (f) => keyOf(r, others, f) === keyOf(r, others, fact))
-		if (Option.isSome(i)) {
-			pairs.set(id, elementAt(pool, i.value, "the committed facts"))
-			pool.splice(i.value, 1)
-		}
-	}
-	return { pairs, unpaired: pool.length }
-}
-
-const pairGenerated = (
-	group: WGroup,
-	draws: ReadonlyMap<string, GeneratedDraws>,
-	want: OracleState,
-	got: GroupState
-): Paired => {
-	const problems: Array<string> = []
-	const out = new Map<string, FactSet>()
-	for (const [relation, d] of draws) {
-		const r = relationIn(group, relation)
-		const serial = new Set(Arr.map(d.fields, (f) => f.field))
-		const others = Arr.map(
-			Arr.filter(r.columns, (c) => !serial.has(c.name)),
-			(c) => c.name
-		)
-		const wanted = [...(want.relations.get(relation) ?? factSetOf([]))]
-		const expected = Arr.filter(wanted, ([id]) => d.generated.has(id))
-		const plain = identitySetOf(
-			Arr.map(
-				Arr.filter(wanted, ([id]) => !d.generated.has(id)),
-				([id]) => id
-			)
-		)
-		const committed = Arr.map(
-			Arr.filter([...(got.relations.get(relation) ?? factSetOf([]))], ([id]) => !plain.has(id)),
-			([, f]) => f
-		)
-		appendAll(
-			problems,
-			Arr.flatMap([...serial], (field) => {
-				const values = Arr.map(committed, (f) => String(f[field]))
-				return new Set(values).size === values.length
-					? []
-					: [`${relation}: generated values of ${field} repeat: ${printSet(committed)}`]
-			})
-		)
-		const { pairs, unpaired } = pairByFields(r, others, expected, committed)
-		if (pairs.size !== expected.length || unpaired > 0) {
-			problems.push(
-				`${relation}: generated facts committed ${printSet(committed)}, expected ${printSet(Arr.map(expected, ([, f]) => f))} up to their ${Arr.join([...serial], ", ")}`
-			)
-		}
-		out.set(relation, pairs)
-	}
-	return { renaming: out, problems }
-}
-
-/** The identities of the facts `want` expects of `relation`, its generated facts renamed to the committed ones. */
-const renamedIdentities = (
-	group: WGroup,
-	renaming: Renaming,
-	relation: string,
-	facts: FactSet
-): ReadonlyTupleSet<FactIdentity> => {
-	const pairs = renaming.get(relation)
-	return identitySetOf(
-		Arr.map([...facts.keys()], (id) => {
-			const renamed = pairs?.get(id)
-			return renamed === undefined ? id : identityOf(group, relation, renamed)
-		})
-	)
-}
-
 /** The problems of a key witness of `law` against its violations: a key of its relation at its fields that violates it. */
 const keyProblems = (
 	group: WGroup,
@@ -502,27 +349,6 @@ const witnessProblems = (
 					]
 				: []
 	}
-}
-
-/**
- * The sequence a relation's serial field must end at: the largest value drawn into it when the change generated into
- * it, else where its explicit values left it.
- */
-const sequenceEnd = (
-	draws: GeneratedDraws | undefined,
-	field: string,
-	generated: ReadonlyArray<Fact>,
-	explicit: SequenceState
-): SequenceState => {
-	if (
-		draws === undefined ||
-		!Arr.some(draws.fields, (f) => f.field === field) ||
-		!Arr.isReadonlyArrayNonEmpty(generated)
-	) {
-		return explicit
-	}
-	const [first, ...rest] = Arr.map(generated, (f) => integerOf(f[field], field))
-	return { lastValue: Arr.reduce(rest, first, (a, b) => (b > a ? b : a)), isCalled: true }
 }
 
 /** A read-back row's own fact, its attached parent left out. */
@@ -606,32 +432,6 @@ const parentProblems = (
 			? [`${label} attaches a parent other than the committed ${printFact(held)}`]
 			: []
 	})
-}
-
-/**
- * The expectation an applied case's side is judged against: under the realization's own draws (Expected's pin), its
- * generated facts, paired with the calculator's on their other fields, giving each generated addition its serial
- * values, with that pairing; a pairing that fails is reported and judged as the calculator drew.
- */
-const judgedExpectation = (
-	group: WGroup,
-	expected: Extract<Expected, { readonly kind: "applied" }>,
-	state: GroupState
-): { readonly expected: Expected; readonly paired: Paired } => {
-	const drawn = pairGenerated(group, expected.draws, expected.outcome.state, state)
-	if (expected.draws.size === 0 || drawn.problems.length > 0) {
-		return { expected, paired: drawn }
-	}
-	const pinned = expected.pin(
-		new Map(Arr.map([...drawn.renaming], ([relation, pairs]) => [relation, [...pairs.values()]]))
-	)
-	return {
-		expected: pinned,
-		paired:
-			pinned.kind === "applied"
-				? pairGenerated(group, pinned.draws, pinned.outcome.state, state)
-				: drawn
-	}
 }
 
 /** The laws an expectation's refusals allow, for a failure report. */
@@ -786,15 +586,10 @@ export const judgeWrite = (
 	state: GroupState
 ): ReadonlyArray<string> => {
 	const problems: Array<string> = []
-	const stateIs = (want: OracleState, label: string, renaming: Renaming) => {
+	const stateIs = (want: OracleState, label: string) => {
 		for (const r of group.relations) {
 			const got = identitySetOf(state.relations.get(r.name)?.keys() ?? [])
-			const exp = renamedIdentities(
-				group,
-				renaming,
-				r.name,
-				want.relations.get(r.name) ?? factSetOf([])
-			)
+			const exp = identitySetOf((want.relations.get(r.name) ?? factSetOf([])).keys())
 			if (!sameIdentities(got, exp)) {
 				problems.push(
 					`${label} ${r.name}: committed ${printSet(state.relations.get(r.name)?.values() ?? [])}, expected ${printSet(want.relations.get(r.name)?.values() ?? [])}`
@@ -808,7 +603,7 @@ export const judgeWrite = (
 	}
 	if (expected.kind === "unbound") {
 		appendAll(problems, unboundProblems(expected, outcome))
-		stateIs(expected.initial, "after a parameter's refusal the initial state stays:", noRenaming)
+		stateIs(expected.initial, "after a parameter's refusal the initial state stays:")
 		return problems
 	}
 	if (expected.kind === "outsideDomain") {
@@ -824,7 +619,7 @@ export const judgeWrite = (
 				appendAll(problems, [...byDomain, ...byLaw])
 			}
 		}
-		stateIs(expected.initial, "after a domain's refusal the initial state stays:", noRenaming)
+		stateIs(expected.initial, "after a domain's refusal the initial state stays:")
 		return problems
 	}
 	if (Result.isFailure(outcome)) {
@@ -840,17 +635,10 @@ export const judgeWrite = (
 		} else {
 			appendAll(problems, refusalProblems(group, expected.refusals, o))
 		}
-		stateIs(expected.initial, "after a refusal the initial state stays:", noRenaming)
+		stateIs(expected.initial, "after a refusal the initial state stays:")
 		return problems
 	}
-	const { expected: pinned, paired } = judgedExpectation(group, expected, state)
-	appendAll(problems, paired.problems)
-	if (pinned.kind !== "applied") {
-		problems.push(`under the realization's draws, expected ${printExpected(pinned)}, got ${o.kind}`)
-		return problems
-	}
-	const want = pinned.outcome
-	const renaming = paired.renaming
+	const want = expected.outcome
 	if (o.kind !== want.kind) {
 		problems.push(`expected ${want.kind}, got ${o.kind}`)
 	}
@@ -872,12 +660,7 @@ export const judgeWrite = (
 			problems.push(`read-back ${read.name} repeats a row: ${printSet(rows)}`)
 		}
 		const expectedFacts = expectedReadFacts(want, read)
-		if (
-			!sameIdentities(
-				identitySetOf(ids),
-				renamedIdentities(group, renaming, read.relation, expectedFacts)
-			)
-		) {
+		if (!sameIdentities(identitySetOf(ids), identitySetOf(expectedFacts.keys()))) {
 			problems.push(
 				`read-back ${read.name} (${read.source} ${read.relation}): db ${printSet(rows)}, oracle ${printSet(expectedFacts.values())}`
 			)
@@ -889,24 +672,7 @@ export const judgeWrite = (
 			)
 		}
 	}
-	stateIs(want.state, "final state:", renaming)
-	for (const [key, explicit] of pinned.sequences) {
-		const got = state.sequences.get(key)
-		const dot = Option.getOrThrowWith(
-			Str.indexOf(".")(key),
-			() => new Error(`a sequence key ${key} with no dot`)
-		)
-		const relation = Str.slice(0, dot)(key)
-		const field = Str.slice(dot + 1)(key)
-		const draws = pinned.draws.get(relation)
-		const generated = [...(renaming.get(relation)?.values() ?? [])]
-		const seq = sequenceEnd(draws, field, generated, explicit)
-		if (got === undefined || got.lastValue !== seq.lastValue || got.isCalled !== seq.isCalled) {
-			problems.push(
-				`sequence ${key}: db ${got === undefined ? "?" : `${got.lastValue} ${got.isCalled}`}, oracle ${seq.lastValue} ${seq.isCalled}`
-			)
-		}
-	}
+	stateIs(want.state, "final state:")
 	return problems
 }
 
@@ -988,9 +754,6 @@ const refusalKind = (t: WriteTarget, group: WGroup, law: LawId): Option.Option<R
  * projection that reads a numeric of one typmod into another, so the value is rounded by the cast into the
  * relation's type before the write compares it; and one that reads the wide text into the narrow text, whose domain
  * refuses a value outside it, a deletion's comparison among them.
- *
- * A unit addition described and enumerated: into one relation in one stratum, a described generated addition of no
- * field beside an enumerated empty fact.
  */
 const noteShapes = (group: WGroup, c: WChangeSet, note: Case<WriteOracleFeature>["note"]): void => {
 	note(`strata:${c.strata.length}`)
@@ -1010,31 +773,6 @@ const noteShapes = (group: WGroup, c: WChangeSet, note: Case<WriteOracleFeature>
 		}
 		if (Arr.some(s, (m) => m.source.kind === "project" && relations.includes(m.source.from))) {
 			note("a member reads a relation its stratum writes")
-		}
-	}
-	const generating = Arr.flatMap(c.strata, (s) =>
-		Arr.filter(s, (m) => generates(relationIn(group, m.relation), m))
-	)
-	if (generating.length > 0) {
-		note("insert generated")
-	}
-	for (const m of generating) {
-		if (m.source.kind === "project") {
-			note("insert generated project")
-		}
-	}
-	for (const s of c.strata) {
-		const unit = (m: (typeof s)[number]): boolean =>
-			m.source.kind === "project"
-				? Rec.size(m.source.head) === 0
-				: m.source.kind === "array" && Arr.some(m.source.facts, (f) => Rec.size(f) === 0)
-		const described = Arr.filter(s, (m) => m.source.kind === "project" && unit(m))
-		if (
-			Arr.some(described, (d) =>
-				Arr.some(s, (m) => m.relation === d.relation && m.source.kind === "array" && unit(m))
-			)
-		) {
-			note("a unit addition described and enumerated")
 		}
 	}
 	for (const r of c.reads) {
@@ -1084,16 +822,6 @@ const noteShapes = (group: WGroup, c: WChangeSet, note: Case<WriteOracleFeature>
 	for (const r of group.relations) {
 		if (r.mutable) {
 			note("mutable relation")
-		}
-		const serial = serialColumns(r)
-		if (serial.length > 0) {
-			note("identity column")
-		}
-		if (serial.length === r.columns.length) {
-			note("every field an identity column")
-		}
-		if (serial.length > 1) {
-			note("two identity columns")
 		}
 	}
 	for (const x of group.containments) {
@@ -1260,8 +988,7 @@ export interface Ran {
 /**
  * The three-way write harness: writes compare three ways (db.apply, brute-force add-wins, conservative realization).
  *
- * A write case is a drawn group of the run's schema, the group's initial facts, where its identity sequences start, and
- * one ChangeSet, each a sketch of plain numbers resolved against it (schema.ts, facts.ts, changeset.ts), the schema's
+ * A write case is a drawn group of the run's schema, the group's initial facts, and one ChangeSet, each a sketch of plain numbers resolved against it (schema.ts, facts.ts, changeset.ts), the schema's
  * and the ChangeSet's swarm thinning drawn from the case's tape as the resolution meets each place, so a shrink of the
  * tape shrinks every part of a failing case at once and the shrunk case stays valid. A planted case writes the
  * planted group instead, one of the fixed ChangeSets of changeset.ts PlantedArm over its drawn facts and those the arm
@@ -1285,7 +1012,7 @@ export interface Ran {
  *
  * Each database side starts from the same reset state and must give the oracle's outcome: `accepted` with the netted
  * counts per written relation or `no-change`, each with every read-back equal as a set to its definition over the final
- * state and the netted deltas, and the committed state the oracle's final state, identity sequences included; or
+ * state and the netted deltas, and the committed state the oracle's final state; or
  * `invariant-rejected` with a law the realization may meet first and a key-only witness of that law, leaving the
  * initial state committed; or, when a stratum adds a value its field's domain refuses, `invariant-rejected` with the
  * domain's laws, keyless, as the adapter classifies the violation by the domain PostgreSQL names: every law the domain
@@ -1303,20 +1030,6 @@ export interface Ran {
  * outcome again and agree exactly with its first reading. The conservative realization is the oracle's baseline, not
  * an answer an application receives, so only db.apply's side is read again.
  *
- * Each side is judged under its own draws, whatever its outcome or the calculator's: nextval is never rolled back, so
- * the sequences a side leaves record the values its last attempt drew, after its stratum's deletions, a lagging one's
- * repeating a fact the stratum deletes among them, and the expectation takes them, then the calculator's own past them
- * (addwins.ts Draws `realized`). A refused side is judged under the values it drew, as an applied one is.
- *
- * Generated additions are compared up to renaming of their serial values. Within one attempt the realization draws
- * values from the identity sequences as the add-wins calculator does, but which generated fact takes which value is
- * the order the statement inserts them in, which nothing fixes, and an attempt that runs again draws fresh values,
- * since nextval is never rolled back. So for a relation the change generates into, the committed facts the oracle does
- * not expect as stored or explicitly written facts are the realization's generated facts; they must pair one to one
- * with the oracle's generated facts on their other fields, with distinct values, and that pairing renames the oracle's
- * generated facts in its expected final state and read-backs, which no other field holds (changeset.ts draws them in
- * the last stratum only). Each identity sequence must end at the largest value drawn into its field.
- *
  * Every case notes its features through its Case (@bjornpagen/testing/explore): the shapes it drew and what the compiler
  * and the database decided, so the suite fails when its population stops reaching one.
  *
@@ -1324,18 +1037,8 @@ export interface Ran {
  *
  * Every statement of each artifact, in the order it runs, passes the kernel's structural audit.
  *
- * The realization's draws repeated another stored or removed fact than the calculator's, which changes the
- * counts the definition gives.
- *
- * The realization's draws, as the sequences it left record them, committed or rolled back, give another verdict than
- * the calculator's own: a lagging draw re-creating a fact its stratum deletes, where the calculator draws past it.
- *
  * The single-flight property judged a logged flight: a logger that recorded nothing would leave it
  * vacuous.
- *
- * A put realized as UPDATE ... FROM, which inserts nothing, past whose serial values the sequence still advances.
- *
- * The calculator draws past a stored fact a lagging sequence repeats, and the fresh fact meets its key.
  */
 /**
  * `changes` with every read-back its compile refuses as crossing statements (ReadBackCrossesStatements) left out, and
@@ -1366,7 +1069,7 @@ export const runCase = (
 	note: Case<WriteOracleFeature>["note"]
 ): Effect.Effect<Ran, CaseFailed | CompileError | SqlError | TransactionRolledBack, Substrate> =>
 	Effect.gen(function* () {
-		const { origin, group, facts: drawn, behind } = rc
+		const { origin, group, facts: drawn } = rc
 		/** Notes `feature` when the case reaches it. */
 		const noteIf = (reached: boolean, feature: WriteOracleFeature): void => {
 			if (reached) {
@@ -1383,16 +1086,6 @@ export const runCase = (
 		const c = settled.changes
 		noteIf(settled.dropped, "a read-back refused as crossing statements")
 		const { changes, params } = buildChangeSet(t.value, t.built.relations, group, c)
-		const sequences: Record<string, SequenceState> = Rec.fromEntries(
-			behind
-				? Arr.flatMap(group.relations, (r) =>
-						Arr.map(
-							serialColumns(r),
-							(col) => [`${r.name}.${col.name}`, { lastValue: 1n, isCalled: false }] as const
-						)
-					)
-				: []
-		)
 		const header = () =>
 			Arr.join(
 				[
@@ -1400,15 +1093,12 @@ export const runCase = (
 					printGroup(group),
 					"facts:",
 					printFacts(drawn),
-					...(behind ? ["identity sequences behind the stored values"] : []),
 					"changes:",
 					printChangeSet(c)
 				],
 				"\n"
 			)
-		const expected = expectChangeSet({ group, laws: t.laws }, facts, c, sequences, {
-			kind: "sequences"
-		})
+		const expected = expectChangeSet({ group, laws: t.laws }, facts, c)
 		const entry = programOf(t, changes)
 		if (expected.kind === "unorderable") {
 			const refused = unorderableProblems(expected, entry)
@@ -1463,58 +1153,16 @@ export const runCase = (
 		for (const realization of realizationsOf(program)) {
 			note(realization)
 		}
-		/**
-		 * What a side is judged against: the expectation from the sequences its last attempt drew from (Applied's start),
-		 * under the draws that attempt made, as the sequences it left record them, committed or rolled back (addwins.ts
-		 * Draws `realized`), since which stored or deleted facts its values repeat can decide the outcome.
-		 */
-		const expectedOf = (applied: Applied, left: GroupState): Expected =>
-			expectChangeSet({ group, laws: t.laws }, facts, c, Rec.fromEntries([...applied.start]), {
-				kind: "realized",
-				ends: left.sequences
-			})
-		/** The expectation from the sequences a side's last attempt drew from, under the calculator's own draws. */
-		const ownOf = (applied: Applied): Expected =>
-			expectChangeSet({ group, laws: t.laws }, facts, c, Rec.fromEntries([...applied.start]), {
-				kind: "sequences"
-			})
 		const outcomes: Array<Result.Result<WriteOutcome, unknown>> = []
-		/** Each side's expectation under its own draws (judgedExpectation), where it committed an applied change. */
-		const realized: Array<Expected> = []
 		for (const artifact of ["optimized", "conservative"] as const) {
-			yield* resetGroup(t, group, facts, expected.initial)
-			const applied = yield* applyWith(
-				t,
-				group,
-				expected.initial.sequences,
-				entries[artifact],
-				changes,
-				params,
-				expected.collisions,
-				perturbation
-			)
+			yield* resetGroup(t, group, facts)
+			const applied = yield* applyWith(t, entries[artifact], changes, params, perturbation)
 			const state = yield* readGroup(t, group)
-			const sideExpected = expectedOf(applied, state)
-			const own = ownOf(applied)
-			noteIf(sideExpected.kind !== own.kind, "a verdict under the realization's draws")
 			outcomes.push(applied.outcome)
-			if (applied.collided > 0) {
-				note("generated after a collision")
-			}
-			if (sideExpected.kind === "applied" && Result.isSuccess(applied.outcome)) {
-				const judged = judgedExpectation(group, sideExpected, state).expected
-				realized.push(judged)
-				noteIf(
-					judged.kind === "applied" &&
-						own.kind === "applied" &&
-						!sameCounts(judged.outcome.counts, own.outcome.counts),
-					"counts under the realization's draws"
-				)
-			}
 			if (applied.flights > 0) {
 				note("flight logged")
 			}
-			for (const p of judgeWrite(group, c, sideExpected, applied.outcome, state)) {
+			for (const p of judgeWrite(group, c, expected, applied.outcome, state)) {
 				problems.push(`${artifact}: ${p}`)
 			}
 			if (problems.length > 0) {
@@ -1535,21 +1183,12 @@ export const runCase = (
 		noteIf(restored.reordered, "facts reordered on a second reading")
 		noteIf(restored.respelled, "a fact respelled on a second reading")
 		const secondPlan = complementOf(perturbation)
-		yield* resetGroup(t, group, restored.facts, expected.initial)
-		const again = yield* applyWith(
-			t,
-			group,
-			expected.initial.sequences,
-			entry.success,
-			changes,
-			params,
-			expected.collisions,
-			secondPlan
-		)
+		yield* resetGroup(t, group, restored.facts)
+		const again = yield* applyWith(t, entry.success, changes, params, secondPlan)
 		const againState = yield* readGroup(t, group)
 		const readAgain = `optimized, read again over its facts stored otherwise (${restored.reordered ? "reordered" : "in their order"}, ${restored.respelled ? "one value respelled" : "no value respelled"}), ${printPerturbation(secondPlan)}`
 		const againProblems = [
-			...judgeWrite(group, c, expectedOf(again, againState), again.outcome, againState),
+			...judgeWrite(group, c, expected, again.outcome, againState),
 			...(optimized === undefined
 				? []
 				: agreement(["optimized", optimized], ["optimized read again", again.outcome]))
@@ -1562,24 +1201,6 @@ export const runCase = (
 		}
 		for (const choice of program.choices) {
 			note(`put target ${choice.target}`)
-		}
-		if (expected.kind === "applied") {
-			const advances = (relation: string, column: string): boolean => {
-				const before = expected.initial.sequences.get(`${relation}.${column}`)
-				const after = expected.sequences.get(`${relation}.${column}`)
-				return before !== undefined && after !== undefined && after.lastValue !== before.lastValue
-			}
-			noteIf(
-				Arr.some(
-					program.choices,
-					(choice) =>
-						choice.target === "updateFrom" &&
-						Arr.some(serialColumns(relationIn(group, choice.relation)), (col) =>
-							advances(choice.relation, col.name)
-						)
-				),
-				"an UPDATE ... FROM put advancing its sequence"
-			)
 		}
 		/**
 		 * A stated-one read-back, each row it defines with its parent present or absent in the final state, and one over
@@ -1608,45 +1229,6 @@ export const runCase = (
 				)
 			}
 		}
-		/**
-		 * A generated addition drawing the key of a stored fact its stratum deletes, its sequence lagging behind the stored
-		 * values: the fact identical, which the change neither adds nor removes, or differing in a field, one removal and
-		 * one addition (runtime/write/net.ts stratumChange), as the counts the case judges show. Its delta read back is
-		 * refused when it compiles (write/schedule/plan.ts drawsSerials: a generated addition and a deletion of its stratum
-		 * may cancel) and left out (settledReads). Such a draw is the realization's (addwins.ts), so it is read from the
-		 * expectation under the realization's draws.
-		 */
-		const [first] = realized
-		if (first?.kind === "applied") {
-			for (const [relation, d] of first.draws) {
-				const r = relationIn(group, relation)
-				const initial = entryOf(first.initial.relations, relation, "the initial state's relations")
-				const final = entryOf(
-					first.outcome.state.relations,
-					relation,
-					"the final state's relations"
-				)
-				const storedKeys = new Set(Arr.map([...initial.values()], (f) => keyOf(r, r.primaryKey, f)))
-				const generated = [...d.generated]
-				noteIf(
-					Arr.some(generated, (id) => initial.has(id)),
-					"lagging identical netted"
-				)
-				noteIf(
-					Arr.some(generated, (id) => {
-						if (initial.has(id)) {
-							return false
-						}
-						const fact = final.get(id)
-						if (fact === undefined) {
-							throw new Error(`the generated facts hold no (${Arr.join(id, ", ")})`)
-						}
-						return storedKeys.has(keyOf(r, r.primaryKey, fact))
-					}),
-					"lagging differing"
-				)
-			}
-		}
 		if (expected.kind === "rejected" || expected.kind === "outsideDomain") {
 			if (
 				Arr.some(attached, ({ containment: x }) =>
@@ -1658,16 +1240,6 @@ export const runCase = (
 		}
 		if (expected.kind === "applied") {
 			note(`outcome ${expected.outcome.kind}`)
-			if (expected.draws.size > 0) {
-				note("generated accepted")
-			}
-			if (
-				origin.kind === "planted" &&
-				origin.arm === "lagging repeat" &&
-				expected.outcome.kind === "no-change"
-			) {
-				note("a generated repeat of a kept fact, drawing nothing")
-			}
 			if (origin.kind === "planted" && origin.arm === "deletion meeting nowhere") {
 				note("a deletion meeting nowhere unordered beside an addition")
 			}

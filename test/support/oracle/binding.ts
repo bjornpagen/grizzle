@@ -27,12 +27,10 @@ const proposalOf = (frontend: WriteFrontend, stratum: StratumAt, slot: ParamId):
 	if (Option.isNone(action) || action.value.op !== "insert") {
 		return "every"
 	}
-	const { info, serial } = action.value
-	return serial.kind !== "generated" &&
-		Arr.some(
-			info.relation.heading,
-			(f) => f.writing.kind === "drawn" || f.writing.kind === "accumulated"
-		)
+	return Arr.some(
+		action.value.info.relation.heading,
+		(f) => f.writing.kind === "drawn" || f.writing.kind === "accumulated"
+	)
 		? "unstored"
 		: "every"
 }
@@ -69,10 +67,7 @@ const judgedAgrees = (frontend: WriteFrontend, binding: Binding): void => {
 		assert.deepEqual(
 			judged.stated,
 			Arr.map(
-				Arr.filter(
-					relation.fields,
-					(f) => f.writing.kind === "caller" || f.writing.kind === "serial"
-				),
+				Arr.filter(relation.fields, (f) => f.writing.kind === "caller"),
 				(f) => f.name
 			),
 			`${name}'s stated fields`

@@ -59,7 +59,7 @@ class FieldNode {
  * dimensions, and span endpoint identity (scalar/compute/types.ts compatible). Two fields of different
  * identity never pair: the compiler never adds a cast to make incompatible fields join, so such a pairing
  * is refused. Refinements stay per member and are not merged: two compatible text fields can admit different value
- * subsets, and a numeric typmod or a serial declaration does not change identity. A key determines
+ * subsets, and a numeric typmod does not change identity. A key determines
  * values; it never merges classes by itself.
  */
 export class FieldClasses {

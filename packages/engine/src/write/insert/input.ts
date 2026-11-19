@@ -55,7 +55,6 @@ import type { FieldColumns } from "#compiler/write/defined.ts"
 import {
 	type InputColumnType,
 	isCarried,
-	isSerialField,
 	keyFirst,
 	type KeyPart,
 	type Made,
@@ -154,7 +153,7 @@ export interface RelationInput {
 	readonly kind: "relation"
 	readonly slot: ParamId
 	readonly relation: string
-	/** The fields its facts state, the ones a statement compares: its key and its caller's and serial fields, and a
+	/** The fields its facts state, the ones a statement compares: its key and its caller's fields, and a
 	 * nested insert's every field the walk fills from the members its facts nest, each sequence's count and ends
 	 * (write/family/nesting.ts Nesting `walked`), since an owner's insert states its sequences' members. */
 	readonly stated: Heading
@@ -304,11 +303,9 @@ const castInto = (
 }
 
 /** Where an input's columns are read from: under the statement's scan alias with a relation parameter's array columns
- * named after its input CTE's columns, under the statement's scan alias with fresh names, or under a fresh alias with
- * fresh names. */
+ * named after its input CTE's columns, or under a fresh alias with fresh names. */
 type Naming =
 	| { readonly kind: "named"; readonly alias: string; readonly keys: FieldColumns<string> }
-	| { readonly kind: "aliased"; readonly alias: string }
 	| { readonly kind: "fresh" }
 
 /** One field of an input as read, uncast. */
@@ -327,9 +324,8 @@ const inputColumns = (
 	naming: Naming,
 	at: string
 ): { readonly from: FromItem; readonly read: (field: string) => FieldRead } => {
-	/** A statement reads the fields of its relation the input carries: a slot's and a carrier's heading are the relation's
-	 * (less a generated addition's serial fields), and a described member's head is, which the checker holds it to
-	 * (`checkMemberHeading`). */
+	/** A statement reads the fields of its relation the input carries: a slot's and a carrier's heading are the
+	 * relation's, and a described member's head is, which the checker holds it to (`checkMemberHeading`). */
 	const heading = input.kind === "relation" ? slotColumns(input) : inputStated(input)
 	const typeOf = (field: string) => columnType(heading, field)
 	const aliasOf = (origin: Parameters<WriteContext["cx"]["relationAlias"]>[0]): string =>
@@ -440,8 +436,7 @@ const inputColumns = (
  * keyUniqueByEvidence reads one from the write DAG's immediate-evidence keys, and distinctByEvidence one from the
  * physical keys of the member as the optimized artifact lowers it.
  *
- * A read of no field, the generated class of a target whose every carried field is serial, is the unit relation: it
- * reads the unit marker, one row of no field for each fact the input holds, `SELECT DISTINCT true FROM
+ * A read of no field is the unit relation: it reads the unit marker, one row of no field for each fact the input holds, `SELECT DISTINCT true FROM
  * pg_catalog.generate_series(1::bigint, $n::bigint) AS r0` for a relation parameter, $n its count, so its input CTE
  * lists no column and an insert over it assigns none. */
 export const readInput = (
@@ -526,18 +521,6 @@ export const readInputFields = (
 ): { readonly from: FromItem; readonly read: (field: string) => FieldRead } =>
 	inputColumns(w, input, { kind: "fresh" }, at)
 
-/** Scans one field of an input under the statement's scan alias, uncast: the FROM item and the field's value as read. */
-export const scanInput = (
-	w: WriteContext,
-	input: WriteInput,
-	field: string,
-	alias: string,
-	at: string
-): { readonly from: FromItem; readonly read: FieldRead } => {
-	const { from, read } = inputColumns(w, input, { kind: "aliased", alias }, at)
-	return { from, read: read(field) }
-}
-
 /** The proof that a described member is unique on the primary key `key` by the write DAG's evidence: some logical key
  * of its node, its proof holding in the transaction context (`step` 6), is a subset of `key` by a column of each of its
  * classes (ir/keys.ts keyIn), so two distinct rows
@@ -578,9 +561,8 @@ const castKeeps = (heading: Heading, relation: RelationInfo, field: string): boo
 /** Whether a described member holds no repeated row, so its read needs no SELECT DISTINCT.
  * The proof is physical, not logical: the member is lowered under the write's duplicate-elimination
  * placement (`writeFacts`), and some physical key of its rows as realized there, such as the primary
- * key of a stored relation it projects, lies within its fields that every read keeps: the fields other than serial
- * ones, which a generated addition does not read, whose cast into the relation cannot change a value, so two rows
- * distinct before the cast stay distinct after it. Without such a key the read keeps its DISTINCT. */
+ * key of a stored relation it projects, lies within its fields whose cast into the relation cannot change a value, so
+ * two rows distinct before the cast stay distinct after it. Without such a key the read keeps its DISTINCT. */
 export const distinctByEvidence = (
 	facts: ShapeFacts,
 	node: RelNode,
@@ -589,12 +571,6 @@ export const distinctByEvidence = (
 	if (!contextAdmits("transaction", node.meta.context)) {
 		return false
 	}
-	const kept = node.heading
-		.map((c) => c.name)
-		.filter(
-			(f) =>
-				!relation.fields.some((r) => r.name === f && isSerialField(r)) &&
-				castKeeps(node.heading, relation, f)
-		)
+	const kept = node.heading.map((c) => c.name).filter((f) => castKeeps(node.heading, relation, f))
 	return facts.keyedBy(node, kept) !== undefined
 }

@@ -28,7 +28,6 @@ import type {
 	ClosedIdField,
 	FieldBase,
 	HandleOf,
-	SerialField,
 	StoredOnlySql
 } from "#compiler/types/fields/field.ts"
 
@@ -461,15 +460,6 @@ export type RelationFieldsOf<R> = R extends { readonly fields: infer Fields }
 
 /** The heading of anything `match` consumes: a source's own heading, or the fact type of a relation. */
 export type HeadingOf<R> = R extends Source<infer H> ? H : Fact<R>
-
-/**
- * The fields of R that are serial generation declarations, read from the declared fields.
- */
-export type SerialFieldsOf<R> = R extends { readonly fields: infer Fields }
-	? {
-			[K in keyof Fields]-?: Fields[K] extends SerialField<unknown, SqlTag> ? K : never
-		}[keyof Fields]
-	: never
 
 export type { HandleOf }
 

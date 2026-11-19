@@ -2029,9 +2029,9 @@ export class Checker {
 	}
 
 	/**
-	 * A relation parameter's or a row's declared heading: each field typed, a serial one as its integer, since how a field
-	 * is written is no part of its type. A heading of no field is the unit relation (ir/rel.ts Heading), as the fill of a
-	 * generated addition into a query entry whose every carried field is serial declares; a user's relation parameter has
+	 * A relation parameter's or a row's declared heading: each field typed, since how a field is written is no part of
+	 * its type. A heading of no field is the unit relation (ir/rel.ts Heading), as the fill of a query entry of no head
+	 * field declares; a user's relation parameter has
 	 * a field, which its builder, the Description's decoder and its type refuse otherwise.
 	 */
 	#declaredHeading(declared: Readonly<Record<string, FieldDesc>>, loc: SourceLoc): Heading {
@@ -3516,7 +3516,7 @@ class RuleCheck {
 	 * A negated column correlated with a region column of a compatible type, compared by `=` with no cast, as a stored
 	 * foreign key compares its columns: what compatible types may differ in refines their values and leaves PostgreSQL's
 	 * equality alone, a text's pattern and bounds (every text is of the deterministic collation pg_c_utf8), a numeric's
-	 * typmod, a span's width. A serial column is its integer, so it correlates with its integer's values.
+	 * typmod, a span's width.
 	 */
 	#correlatedBinding(
 		col: HeadingColumn,

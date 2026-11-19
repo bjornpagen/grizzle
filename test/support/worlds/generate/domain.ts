@@ -34,8 +34,6 @@ export const sameDomain = (a: FieldDomain, b: FieldDomain): boolean => {
 			return b.kind === "text" && b.pattern === a.pattern && b.flags === a.flags
 		case "integer":
 			return b.kind === "integer" && b.bits === a.bits
-		case "serial":
-			return b.kind === "serial" && b.bits === a.bits
 		case "handle":
 			return b.kind === "handle" && b.closed === a.closed
 		case "span":
@@ -45,9 +43,9 @@ export const sameDomain = (a: FieldDomain, b: FieldDomain): boolean => {
 	}
 }
 
-/** Whether a domain holds integers: an integer, a serial, or a contract over an integer type. */
+/** Whether a domain holds integers: an integer, or a contract over an integer type. */
 export const isIntegerDomain = (domain: FieldDomain): boolean =>
-	domain.kind === "integer" || domain.kind === "serial" || domain.kind === "contract"
+	domain.kind === "integer" || domain.kind === "contract"
 
 /** Whether a domain holds 64-bit integers, which a claim may spell as a string of digits. */
 export const isInt8Domain = (domain: FieldDomain): boolean =>
@@ -71,13 +69,6 @@ export const inDomain = (domain: FieldDomain, value: HostValue): boolean => {
 				typeof value === "number" &&
 				Number.isInteger(value) &&
 				Math.abs(value) <= greatestOf(domain.bits)
-			)
-		case "serial":
-			return (
-				typeof value === "number" &&
-				Number.isInteger(value) &&
-				value >= 1 &&
-				value <= greatestOf(domain.bits)
 			)
 		case "boolean":
 			return typeof value === "boolean"
@@ -112,9 +103,6 @@ export const uuidToken = (n: number): Uuid =>
 /** The small integers every integer pool holds, straddling the literals the installs compare with. */
 const smallIntegers: Arr.NonEmptyReadonlyArray<number> = [0, 1, 2, 3, 4, 5, 6, 7]
 
-/** The serial values a pool holds: facts take distinct ones of them, so stored serials keep gaps. */
-const serials: Arr.NonEmptyReadonlyArray<number> = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-
 /** Every span of small endpoints: a start in 0..4 and a width of 1..3. */
 const smallSpans: Arr.NonEmptyReadonlyArray<HostValue> = knownNonEmpty(
 	Arr.flatMap([0, 1, 2, 3, 4], (start) =>
@@ -132,7 +120,6 @@ export const domainKey = (domain: FieldDomain): string => {
 		case "text":
 			return `text/${domain.pattern}/${domain.flags}`
 		case "integer":
-		case "serial":
 		case "span":
 			return `${domain.kind}${domain.bits}`
 		case "handle":
@@ -155,8 +142,6 @@ export const pool = (domain: FieldDomain): Arr.NonEmptyReadonlyArray<HostValue> 
 			return domain.pool
 		case "integer":
 			return smallIntegers
-		case "serial":
-			return serials
 		case "boolean":
 			return [false, true]
 		case "handle":

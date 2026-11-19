@@ -344,7 +344,7 @@ const attachedRead = (
 /**
  * The field a value of a domain is carried by where a read states one, a recursive read's row for a domain it chains
  * (generate/reads.ts reachable) or a parameter a read fixes a field to: a uuid, a text of its pattern, or the integer
- * type of an integer or a serial; none for another, which no recursive read is drawn over.
+ * type of an integer; none for another, which no recursive read is drawn over.
  */
 export const rowField = (domain: FieldDomain): Option.Option<unknown> => {
 	const integer = (bits: 16 | 32 | 64): unknown =>
@@ -355,7 +355,6 @@ export const rowField = (domain: FieldDomain): Option.Option<unknown> => {
 		case "text":
 			return Option.some(regexField(domain.pattern, [domain.flags]))
 		case "integer":
-		case "serial":
 			return Option.some(integer(domain.bits))
 		case "boolean":
 		case "handle":

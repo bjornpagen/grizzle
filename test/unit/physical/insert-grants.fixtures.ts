@@ -69,7 +69,7 @@ const Shelf = relation("Shelf", { id: uuid, tag: word, slots: drawnField(natural
 
 const Slot = relation("Slot", { shelf: uuid, at: drawnField(natural), what: word }, ["shelf", "at"])
 
-const Ticket = relation("Ticket", { no: pg.bigserial, note: word }, ["no"])
+const Ticket = relation("Ticket", { no: pg.bigint, note: word }, ["no"])
 
 const items = counted(on(Item, "store"), fin(Store, "items"))
 

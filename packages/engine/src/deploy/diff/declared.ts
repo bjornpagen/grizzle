@@ -179,10 +179,10 @@ const heldAlike = (
 }
 
 /** Whether grizzle draws a field's values again, so its drop loses nothing its caller wrote: a generated, drawn or
- * accumulated field. A caller's field holds the caller's values, a serial one the identities its rows were given, and a
- * retirement field which of its header's groups are retired. */
+ * accumulated field. A caller's field holds the caller's values, and a retirement field which of its header's groups
+ * are retired. */
 const drawnAgain = (writing: SnapshotWriting): boolean =>
-	writing !== "caller" && writing !== "serial" && writing !== "retirement"
+	writing !== "caller" && writing !== "retirement"
 
 /** A login a snapshot records, under its record's name. */
 interface HeldLogin {
@@ -223,8 +223,8 @@ const loginIn = (
  * place, through its own aside name, on its relation under the target's name, and PostgreSQL carries the rename into
  * everything built over the column, so the previous snapshot names it under its new name there too (withColumns). A
  * law column, named by what it holds, its relations, fields, handles and laws among them, is renamed in place the same
- * way when a declaration only renames what it holds (lawColumnRenames). Then each key, index, statistics object and
- * identity sequence of a table a declaration touched is paired by definition with the target's, its columns read under
+ * way when a declaration only renames what it holds (lawColumnRenames). Then each key, index and statistics object of a
+ * table a declaration touched is paired by definition with the target's, its columns read under
  * their new names, and renamed to the target's name for it (pairedParts); the diff builds again only what the target
  * declares otherwise. A drawn or accumulated field's record of what fills it reads as the target's when a declaration
  * only renames its filler (restatedWritings). Law columns and fillers are restated under the previous snapshot's names
@@ -1108,7 +1108,7 @@ const pairBy = <P extends { readonly name: string }>(
 
 /** The names a part holds, each in the namespace PostgreSQL holds it in: a key its constraint's name in its relation's
  * own namespace and its index's in pg_class; another constraint its name in its relation's namespace alone; an index
- * and a sequence theirs in pg_class; a statistics object its own among the statistics objects. */
+ * its own in pg_class; a statistics object its own among the statistics objects. */
 const heldNames = (kind: Owned["kind"], name: string): ReadonlyArray<string> => {
 	switch (kind) {
 		case "key":
@@ -1116,7 +1116,6 @@ const heldNames = (kind: Owned["kind"], name: string): ReadonlyArray<string> => 
 		case "constraint":
 			return [`constraint ${name}`]
 		case "index":
-		case "sequence":
 			return [`relation ${name}`]
 		case "statistics":
 			return [`statistics ${name}`]
@@ -1129,8 +1128,8 @@ const isKey = (c: TableConstraint): boolean =>
 
 /**
  * The parts of each table `tables` carried to the names the target gives them, and the previous snapshot as it stands
- * after: each constraint, a key's renaming its index, each other index, each extended statistics object and each
- * identity sequence, paired with the target's part of the same definition once every declared rename of the relations,
+ * after: each constraint, a key's renaming its index, each other index and each extended statistics object, paired
+ * with the target's part of the same definition once every declared rename of the relations,
  * the fields and the law columns has run, so each definition reads its columns and the relations it references under
  * their new names (pairBy). A paired part the target names otherwise is renamed, so the migration neither builds nor
  * validates it again. A previous part holding a name a paired part takes, itself paired with none, is renamed aside
@@ -1179,12 +1178,6 @@ const pairedParts = (
 						{ ...a.create, name: { ...a.create.name, name: "" } },
 						{ ...b.create, name: { ...b.create.name, name: "" } }
 					)
-			),
-			...pairBy(
-				() => "sequence",
-				was.sequence,
-				now.sequence,
-				(a, b) => a.column === b.column
 			)
 		]
 		const moves = pairs.filter((p) => p.name !== p.to)
@@ -1197,7 +1190,6 @@ const pairedParts = (
 				to: c.name
 			})),
 			...[...was.index.keys()].map((name) => ({ kind: "index" as const, name, to: name })),
-			...[...was.sequence.keys()].map((name) => ({ kind: "sequence" as const, name, to: name })),
 			...[...was.statistics.keys()].map((name) => ({ kind: "statistics" as const, name, to: name }))
 		]
 		const holders = standing.filter((h) => {
@@ -1441,10 +1433,7 @@ const withColumns = (
 			case "dropColumn":
 			case "dropDefault":
 			case "setNotNull":
-			case "setUuidv7Default":
 			case "setRetirementDefault":
-			case "addIdentity":
-			case "dropIdentity":
 				return { ...a, column: nameIn(into)(a.column) }
 			case "addConstraintUsingIndex":
 			case "validateConstraint":

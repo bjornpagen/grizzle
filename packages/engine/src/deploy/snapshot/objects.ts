@@ -134,7 +134,6 @@ export type Installed<O extends AnyObject = ManifestObject> =
 	| {
 			readonly kind:
 				| "refusalFunction"
-				| "advanceFunction"
 				| "unitFunction"
 				| "isolationFunction"
 				| "snapshotGuard"
@@ -341,7 +340,6 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 						"a rule's trigger installed by its CREATE CONSTRAINT TRIGGER, or a rule capture by its CREATE TRIGGER"
 					)
 		case "refusalFunction":
-		case "advanceFunction":
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
@@ -528,7 +526,6 @@ export const objectTable = (o: AnyObject): ObjectName | undefined => {
 		case "constant":
 		case "domain":
 		case "refusalFunction":
-		case "advanceFunction":
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
@@ -660,7 +657,6 @@ export const builtOver = <O extends AnyObject>(
 		case "domain":
 		case "materializedView":
 		case "refusalFunction":
-		case "advanceFunction":
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
@@ -692,12 +688,11 @@ export const builtOver = <O extends AnyObject>(
 }
 
 /** The kinds of part a relation owns under a name of its own, in the order a relation's rename takes them: its
- * constraints, its indexes, its extended statistics objects, the columns it holds beside its declared fields (a law
- * column's), and the identity sequences of its serial fields. A constraint's and a column's name lies in its table's
- * namespace; an index's and a sequence's in its
- * schema's relations and a statistics object's in its schema's statistics objects, but each is built over one table and
- * stands or goes with it. */
-const partKinds = ["constraint", "index", "statistics", "column", "sequence"] as const
+ * constraints, its indexes, its extended statistics objects, and the columns it holds beside its declared fields (a law
+ * column's). A constraint's and a column's name lies in its table's namespace; an index's in its schema's relations and
+ * a statistics object's in its schema's statistics objects, but each is built over one table and stands or goes with
+ * it. */
+const partKinds = ["constraint", "index", "statistics", "column"] as const
 export type PartKind = (typeof partKinds)[number]
 
 /** A part of a relation: its kind, the table it belongs to, its name, and its definition. A constraint declared inside
@@ -728,22 +723,14 @@ export type Part =
 			readonly name: string
 			readonly definition: ColumnDef
 	  }
-	| {
-			readonly kind: "sequence"
-			readonly table: ObjectName
-			readonly name: string
-			readonly column: string
-			readonly sequence: ObjectName
-	  }
 
 export type PartOf<K extends PartKind> = Extract<Part, { readonly kind: K }>
 
 /** The parts of a relation an object is, read for every installed kind in this one place, so every rule that carries a
  * relation's parts across a rename, or takes away what one leaves behind, reads one list and no kind of part can be
  * left out of one of them: a key, check or foreign key, by its name, `constraint` giving the definition of one declared
- * inside its table's CREATE TABLE; an index; a statistics object; a law column; and a table's identity
- * sequences, one per serial field, in its field order. Nothing else is a part: the table itself is the relation, and
- * every other kind stands outside any table. */
+ * inside its table's CREATE TABLE; an index; a statistics object; and a law column. Nothing else is a part: the table
+ * itself is the relation, and every other kind stands outside any table. */
 const objectParts = <O extends AnyObject>(
 	v: Installed<O>,
 	constraint: (c: KeyOrCheckView<O>) => KeyOrCheck
@@ -787,29 +774,13 @@ const objectParts = <O extends AnyObject>(
 			]
 		case "lawColumn":
 			return [{ kind: "column", table: v.table, name: v.column, definition: v.definition }]
-		case "table": {
-			const table = v.create.table
-			return v.create.columns.flatMap((c): ReadonlyArray<Part> =>
-				c.generated?.kind === "identity"
-					? [
-							{
-								kind: "sequence",
-								table,
-								name: c.generated.sequence.name,
-								column: c.name,
-								sequence: c.generated.sequence
-							}
-						]
-					: []
-			)
-		}
+		case "table":
 		case "isolationTrigger":
 		case "lawTrigger":
 		case "constant":
 		case "domain":
 		case "materializedView":
 		case "refusalFunction":
-		case "advanceFunction":
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
@@ -847,8 +818,7 @@ const noParts: Parts = {
 	constraint: new Map(),
 	index: new Map(),
 	statistics: new Map(),
-	column: new Map(),
-	sequence: new Map()
+	column: new Map()
 }
 
 /** The parts of the relation `t` in `parts` (partsByTable), none where it holds none. */
@@ -869,7 +839,6 @@ export const partsByTable = (
 			readonly index: Map<string, PartOf<"index">>
 			readonly statistics: Map<string, PartOf<"statistics">>
 			readonly column: Map<string, PartOf<"column">>
-			readonly sequence: Map<string, PartOf<"sequence">>
 		}
 	>()
 	for (const o of among) {
@@ -880,8 +849,7 @@ export const partsByTable = (
 				constraint: new Map<string, PartOf<"constraint">>(),
 				index: new Map<string, PartOf<"index">>(),
 				statistics: new Map<string, PartOf<"statistics">>(),
-				column: new Map<string, PartOf<"column">>(),
-				sequence: new Map<string, PartOf<"sequence">>()
+				column: new Map<string, PartOf<"column">>()
 			}
 			if (known === undefined) {
 				byTable.set(key, parts)
@@ -899,17 +867,14 @@ export const partsByTable = (
 				case "column":
 					parts.column.set(part.name, part)
 					continue
-				case "sequence":
-					parts.sequence.set(part.name, part)
-					continue
 			}
 		}
 	}
 	return byTable
 }
 
-/** Renames of schema-qualified names of one catalog namespace (`NameSpace`): a relation's, with its indexes' and
- * identity sequences', all in pg_class, a type's, or an extended statistics object's. */
+/** Renames of schema-qualified names of one catalog namespace (`NameSpace`): a relation's, with its indexes', all in
+ * pg_class, a type's, or an extended statistics object's. */
 export interface QualifiedNames {
 	readonly namespace: "relation" | "type" | "statistics"
 	readonly names: ReadonlyMap<string, string>

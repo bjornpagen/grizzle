@@ -38,7 +38,6 @@ import type {
 	DrawnConstructor,
 	GeneratedConstructor,
 	GeneratedTermOf,
-	NotSerialBase,
 	OneContractName,
 	Pg,
 	SpanConstructor
@@ -60,8 +59,7 @@ import type {
 	Infer,
 	SpanEndpointLike,
 	NaturalField,
-	NotSerial,
-	NotSerialBases,
+	NoWriting,
 	RetirementField,
 	SpanField,
 	SpanWidthOf
@@ -100,7 +98,6 @@ export type {
 	NaturalField,
 	NumericTypmodField,
 	RetirementField,
-	SerialField,
 	SpanField,
 	SpanWidthOf,
 	SqlOf,
@@ -144,7 +141,7 @@ export const contract: ContractConstructor = <
 	const Proved extends ReadonlyArray<keyof Facts> = readonly []
 >(
 	name: Name,
-	base: B & NotSerialBase<B> & ContractBase<NoInfer<Name>, B> & OneContractName<NoInfer<Name>>,
+	base: B & NoWriting & ContractBase<NoInfer<Name>, B> & OneContractName<NoInfer<Name>>,
 	predicate:
 		| ((
 				v: Scalar<DomainOf<B>, unknown, ContractValueOrigin, B["sql"], Infer<B>>
@@ -166,7 +163,7 @@ export const contract: ContractConstructor = <
 
 /** A span over the endpoint the admission core admitted, its column converting endpoints with the endpoint's own. */
 export const span: SpanConstructor = <E extends SpanEndpointLike>(
-	endpoint: E & Columned<Infer<E>> & NotSerialBases<E>,
+	endpoint: E & Columned<Infer<E>> & NoWriting,
 	width: SpanWidthOf<Infer<E>> | undefined,
 	...extra: ReadonlyArray<never>
 ): SpanField<Infer<E>, DomainOf<E>> => {
@@ -236,7 +233,7 @@ export const Bits: {
  * record relation.generated's callback returns (schema/relation.ts generatedField).
  */
 export const generated: GeneratedConstructor = <F extends FieldBase>(
-	type: F & NotSerial & NotSerialBases<F>,
+	type: F & NoWriting,
 	term: GeneratedTermOf<F>,
 	...extra: ReadonlyArray<never>
 ): GeneratedField<F> => generatedField<F>(type, term, extra)

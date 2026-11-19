@@ -25,7 +25,7 @@ import { numericValue } from "#compiler/scalar/registry.ts"
  * Whether every value of type `a` is proved to be a value of type `b`: one carrier and nominal identity, the contract
  * chain included (compatible: within one checked schema a contract name names one domain), one numeric typmod, a
  * computed numeric's bound holding `a`'s values (types.ts exactNumericBound), and, for text, `b`'s pattern the
- * canonical wildcard or proved equal to `a`'s. The serial generation flag is not a value domain and does not enter.
+ * canonical wildcard or proved equal to `a`'s.
  * Containment between two different languages is never claimed.
  */
 export const guarantees = (a: ScalarType, b: ScalarType): boolean => {

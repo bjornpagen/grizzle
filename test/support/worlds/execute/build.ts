@@ -120,8 +120,6 @@ const fieldOf = (domain: FieldDomain, kit: Kit): Effect.Effect<FieldBase> => {
 			return Effect.succeed(
 				domain.bits === 16 ? pg.smallint : domain.bits === 32 ? pg.integer : pg.bigint
 			)
-		case "serial":
-			return Effect.succeed(domain.bits === 32 ? pg.serial : pg.bigserial)
 		case "boolean":
 			return Effect.succeed(pg.boolean)
 		case "handle":
@@ -195,7 +193,6 @@ const contextFieldOf = (domain: FieldDomain, kit: Kit): Effect.Effect<unknown> =
 		case "handle":
 		case "contract":
 			return fieldOf(domain, kit)
-		case "serial":
 		case "span":
 			return Effect.die(
 				new Error(`a context field of a ${domain.kind} domain, which no context admits`)

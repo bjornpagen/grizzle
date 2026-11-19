@@ -11,28 +11,19 @@ import {
 	type Weights,
 	zeroWeights
 } from "#test/support/worlds/generate/weights.ts"
-import { docsBase, docsVisitsInstall } from "#test/support/worlds/model/bases/docs.ts"
-import { serialHead, writtenOf } from "#test/support/worlds/model/session/writes.ts"
+import { docsBase, docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import type {
 	Action,
 	AdditionFeature,
 	Allowed,
 	InstallSpec,
-	ModelState,
-	RoleSpec
+	ModelState
 } from "#test/support/worlds/model/types.ts"
 
 export type CompileFeature = "compiled" | "compile-refused" | AdditionFeature
 
 /** The additions the suite requires. */
-const additions: Arr.NonEmptyReadonlyArray<AdditionFeature> = [
-	"addition:complete:entry:unit",
-	"addition:generated:entry:unit",
-	"addition:complete:whole:unit",
-	"addition:generated:whole:unit",
-	"addition:generated:entry:carried",
-	"addition:generated:whole:carried"
-]
+const additions: Arr.NonEmptyReadonlyArray<AdditionFeature> = ["addition:entry", "addition:whole"]
 
 export const situations: Arr.NonEmptyReadonlyArray<CompileFeature> = [
 	"compiled",
@@ -64,17 +55,15 @@ export const sketchSpace: Aimed<CompileSketch, CompileFeature> = aimed(
 )
 
 /**
- * The installation a case writes under: an aimed case's, the documents base's worlds whose roles write Visit whole (the
- * admin), through a query entry whose every carried field is serial, one filtering on a serial field and one fixing one
- * (docsVisitsInstall), beside the member's notes, whose number is serial; the drawn one otherwise, whose roles hold
- * those shapes too rarely to rely on.
+ * The installation a case writes under: an aimed case's, the documents base's README-shaped worlds (docsInstall), whose
+ * admin writes every relation whole and whose member writes its notes through a query entry; the drawn one otherwise.
  */
 export const installOf = (sketch: CompileSketch): InstallSpec => {
 	switch (sketch.kind) {
 		case "drawn":
 			return sketch.install
 		case "aimed":
-			return docsVisitsInstall
+			return docsInstall
 	}
 }
 
@@ -96,13 +85,6 @@ export const aimedWeights = (sketch: CompileSketch, weights: Weights): Weights =
 			}
 	}
 }
-
-/**
- * Whether a role writes a relation, whole or through a query entry, with a serial field a fact may leave out
- * (model/session/writes.ts serialHead): a role whose writes reach a generated addition of either target.
- */
-export const leavesOutSerials = (install: InstallSpec, role: RoleSpec): boolean =>
-	Arr.some(writtenOf(install.base, role), (w) => serialHead(install.base, w).classed.length > 0)
 
 /** What an apply notes where the model admits it past its compile: its additions (features.ts additionsOf). */
 const compiledAdditions =

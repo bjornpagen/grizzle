@@ -71,7 +71,6 @@ import type {
 	WrittenRelation
 } from "#compiler/write/frontend/compile.ts"
 import { type Proposal, proposalOf } from "#compiler/write/insert/statement.ts"
-import { insertArbitered } from "#compiler/write/insert/unique.ts"
 
 /** Whether a stratum writes its family members' rows, by its additions and removals (write/family/additions.ts,
  * removals.ts), beside a unit delete or with none. */
@@ -80,19 +79,13 @@ const familyWrittenInFlight = (frontend: WriteFrontend, stratum: StratumAt): boo
 		({ node }) => node.kind === "additions" || node.kind === "removals"
 	)
 
-/** Which facts of a slot of `stratum` the statement that writes them proposes: its action's INSERT's, by the
- * relation and serial class it inserts (insert/statement.ts proposalOf); every one for any other, a put's, a
- * deletion's, or a family member's, which its family's statements write. */
+/** Which facts of a slot of `stratum` the statement that writes them proposes: its action's INSERT's, by the relation it
+ * inserts (insert/statement.ts proposalOf); every one for any other, a put's, a deletion's, or a family member's, which
+ * its family's statements write. */
 const proposalAt = (frontend: WriteFrontend, stratum: StratumAt, slot: ParamId): Proposal => {
 	for (const action of frontend.ir.strata[stratum]?.actions ?? []) {
 		if (action.source.kind !== "described" && action.source.slot === slot) {
-			return action.op === "insert"
-				? proposalOf(
-						action.info.relation,
-						action.serial,
-						insertArbitered(action.info.relation, action.serial)
-					)
-				: "every"
+			return action.op === "insert" ? proposalOf(action.info.relation) : "every"
 		}
 	}
 	return "every"
@@ -224,9 +217,7 @@ const judgedRelations = (
 	for (const relation of [...frontend.written, ...frontend.slots.map((g) => g.relation)]) {
 		if (!judged.has(relation.name)) {
 			judged.set(relation.name, {
-				stated: relation.fields.flatMap((f) =>
-					f.writing.kind === "caller" || f.writing.kind === "serial" ? [f.name] : []
-				),
+				stated: relation.fields.flatMap((f) => (f.writing.kind === "caller" ? [f.name] : [])),
 				primary: mapNonEmpty(relation.primaryFields, (f) => f.name),
 				layout: laidLayout(rowLayout(relation, families)),
 				owned: ownedColumns(relation, families)
@@ -509,14 +500,6 @@ const inputData = (input: EnumeratedInput): InputData => {
 				members: input.members,
 				admitted: headingData(input.admitted),
 				starts: input.starts
-			}
-		case "classed":
-			return {
-				kind: "classed",
-				serial: input.serial,
-				complete: slotData(input.complete),
-				generated: slotData(input.generated),
-				members: input.members
 			}
 		case "nested":
 			return {

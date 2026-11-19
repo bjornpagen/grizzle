@@ -128,9 +128,7 @@ export const declaredDescOf = (
  *   type;
  * - a regex-refined text field keeps its patterns; a computed text value whose patterns are not preserved has the
  *   canonical wildcard, `^.*$` under `su` (ir/scalar.ts wildcardPattern);
- * - a closed id keeps its roster;
- * - a serial field read through a definition is a plain integer of its width: generation is a property of the stored
- *   column, not of the value, and a materialized view has no identity column.
+ * - a closed id keeps its roster.
  */
 export const inferredFields = <C extends HeadingColumn>(
 	relation: string,

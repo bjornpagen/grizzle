@@ -334,7 +334,6 @@ export const builtinFunctions = {
 	range_minus_multi: { reach: "row" },
 	unnest: { reach: "row" },
 	to_jsonb: { reach: "row" },
-	setval: { reach: "row" },
 	pg_advisory_xact_lock: { reach: "row" },
 	pg_drop_replication_slot: { reach: "row" },
 	current_setting: { reach: "row" },
@@ -1133,8 +1132,6 @@ export type Insert = {
 	readonly with: With | undefined
 	readonly table: TableName
 	readonly alias: string | undefined
-	/** SYSTEM VALUE: explicit serial values into GENERATED ALWAYS columns. */
-	readonly overriding: "SYSTEM VALUE" | undefined
 	readonly onConflict: OnConflict | undefined
 	readonly returning: ReadonlyArray<Target>
 } & InsertTarget
@@ -1167,13 +1164,12 @@ export interface MergeUpdate {
 }
 
 /**
- * INSERT (<columns>) [OVERRIDING SYSTEM VALUE] VALUES (<values>), each column with the value it takes, at least one;
+ * INSERT (<columns>) VALUES (<values>), each column with the value it takes, at least one;
  * or INSERT DEFAULT VALUES, PostgreSQL's spelling of an insert of no column, every column its default.
  */
 export type MergeInsert =
 	| {
 			readonly kind: "insert"
-			readonly overriding: "SYSTEM VALUE" | undefined
 			readonly row: NonEmptyReadonlyArray<Assignment>
 	  }
 	| { readonly kind: "insertDefault" }
@@ -1210,15 +1206,12 @@ export interface Merge {
 }
 
 /**
- * How a column is generated: an identity from its sequence; a uuid by its `DEFAULT pg_catalog.uuidv7()`; a retirement
- * field by its `DEFAULT false`, the state of a group not yet retired, which only the group's retirement changes; a STORED
+ * How a column is generated: a retirement field by its `DEFAULT false`, the state of a group not yet retired, which only the group's retirement changes; a STORED
  * expression of the row; or a partial projection,
  * `GENERATED ALWAYS AS (CASE WHEN <when> THEN <expr> END) STORED`, which holds `expr` where `when` is true and NULL
  * everywhere else. A partial projection is the one form that yields NULL, so it never reaches an expression.
  */
 export type ColumnGeneration =
-	| { readonly kind: "identity"; readonly sequence: ObjectName }
-	| { readonly kind: "uuidv7" }
 	| { readonly kind: "retirement" }
 	| { readonly kind: "stored"; readonly expr: Expr }
 	| { readonly kind: "partial"; readonly when: Expr; readonly expr: Expr }
@@ -1374,11 +1367,6 @@ export type AlterTableAction =
 	| { readonly kind: "dropColumn"; readonly column: string }
 	| { readonly kind: "dropDefault"; readonly column: string }
 	| {
-			/** ALTER COLUMN ... SET DEFAULT pg_catalog.uuidv7(): a pg.uuidv7 field's draw, taken in place. */
-			readonly kind: "setUuidv7Default"
-			readonly column: string
-	  }
-	| {
 			/** ALTER COLUMN ... SET DEFAULT false: a retirement field's open state, taken in place. */
 			readonly kind: "setRetirementDefault"
 			readonly column: string
@@ -1391,8 +1379,6 @@ export type AlterTableAction =
 			readonly collation: Collation | undefined
 			readonly using: Using
 	  }
-	| { readonly kind: "addIdentity"; readonly column: string; readonly sequence: ObjectName }
-	| { readonly kind: "dropIdentity"; readonly column: string }
 	| {
 			readonly kind: "addConstraint"
 			readonly constraint: TableConstraint
@@ -1448,11 +1434,8 @@ export const addedColumn = (a: AlterTableAction): ColumnDef | undefined => {
 		case "setNotNull":
 		case "dropColumn":
 		case "dropDefault":
-		case "setUuidv7Default":
 		case "setRetirementDefault":
 		case "alterColumnType":
-		case "addIdentity":
-		case "dropIdentity":
 		case "addConstraint":
 		case "addConstraintUsingIndex":
 		case "validateConstraint":
@@ -1480,13 +1463,7 @@ export interface AlterTable {
 	readonly actions: NonEmptyReadonlyArray<AlterTableAction>
 }
 
-type RenamableObject =
-	| "TABLE"
-	| "INDEX"
-	| "MATERIALIZED VIEW"
-	| "DOMAIN"
-	| "SEQUENCE"
-	| "STATISTICS"
+type RenamableObject = "TABLE" | "INDEX" | "MATERIALIZED VIEW" | "DOMAIN" | "STATISTICS"
 
 /**
  * ALTER <object> <name> RENAME TO <to>: a schema object by its qualified name, or a role or a schema, which live in
@@ -1648,14 +1625,7 @@ export interface DropPolicy {
 export type DropObject =
 	| {
 			readonly kind: "drop"
-			readonly object:
-				| "TABLE"
-				| "MATERIALIZED VIEW"
-				| "VIEW"
-				| "DOMAIN"
-				| "SEQUENCE"
-				| "STATISTICS"
-				| "TYPE"
+			readonly object: "TABLE" | "MATERIALIZED VIEW" | "VIEW" | "DOMAIN" | "STATISTICS" | "TYPE"
 			readonly name: ObjectName
 			readonly ifExists: boolean
 	  }
@@ -1902,7 +1872,6 @@ export type Privilege = (typeof privileges)[number]
  */
 export type GrantObjects =
 	| { readonly kind: "TABLE"; readonly names: NonEmptyReadonlyArray<ObjectName> }
-	| { readonly kind: "SEQUENCE"; readonly names: NonEmptyReadonlyArray<ObjectName> }
 	| { readonly kind: "SCHEMA"; readonly names: NonEmptyReadonlyArray<string> }
 	| { readonly kind: "DOMAIN"; readonly names: NonEmptyReadonlyArray<ObjectName> }
 	| { readonly kind: "TYPE"; readonly names: NonEmptyReadonlyArray<ObjectName> }
@@ -2136,7 +2105,7 @@ export interface FunctionParam {
  *   LANGUAGE plpgsql VOLATILE [PARALLEL SAFE] SECURITY DEFINER SET search_path = pg_catalog, pg_temp: the law
  *   functions, the isolation
  *   guard, and the refusal function `<schema>.__refuse(text, text, text) RETURNS boolean`, whose body raises its
- *   arguments, the serial advance functions, which return nothing (physical/ddl/advance.ts), and a retirable unit's
+ *   arguments, and a retirable unit's
  *   functions, its hold returning nothing and its retirement its counts (physical/ddl/retire.ts). A trigger function
  *   takes no argument;
  * - SQL: CREATE OR REPLACE FUNCTION <schema>.<name>(<params>) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
@@ -2323,7 +2292,6 @@ export type CommentTarget =
 				| "MATERIALIZED VIEW"
 				| "DOMAIN"
 				| "TYPE"
-				| "SEQUENCE"
 				| "INDEX"
 				| "STATISTICS"
 			readonly name: ObjectName

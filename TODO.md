@@ -11,27 +11,15 @@ post-beta swarm's fixes for the next release.
 - **A read-back over a delta no one statement makes is refused (CARRIER, 2026-11-11):** a read-back runs inside the
   one statement that makes its delta, whose rows exist nowhere else, and no delta carrier is left, so
   ReadBackCrossesStatements refuses three crossings: a side two statements make, or a statement of another stratum
-  nets (one relation in two strata, an ownerPut's UPDATE and insert half, an array or Stream inserted into a relation
-  with serial fields, whose complete and generated classes are a statement each; an insert of complete facts and a
-  delete of one relation in one stratum never net, READBACK 2026-11-14, so each read back compiles, the shape of
-  edullm's publish of PublishedTest, while a generated addition still nets with its stratum's removals, its drawn
-  values possibly a lagging sequence's repeat of a deleted fact's); two sides two statements make (a put's added and
+  nets (one relation in two strata, an ownerPut's UPDATE and insert half; an insert and a delete of one relation in
+  one stratum never net, READBACK 2026-11-14, so each read back compiles, the shape of edullm's publish of
+  PublishedTest); two sides two statements make (a put's added and
   removed read in one read-back); and a relation it reads as state written at or after the delta's statement (another
   part of a one-statement stratum, a write an immediate key holds after it, a later stratum). Follow-ups, each on a downstream's ask: (1) state written in the riding
   statement itself, read as that statement's snapshot less the keys it changed plus its added rows, which needs the
   isolation extractor to push key equalities into UNION ALL arms; (2) a mutable put read back on both sides as one ON
   CONFLICT DO UPDATE with RETURNING old; (3) an ownerPut's added side in one statement, its UPDATE and insert half
-  touching disjoint keys; (4) an array of a relation with serial fields read back on added or met: both serial classes
-  in one statement, which needs the generated class to meet the complete class's rows of the same call at its arbiter
-  and at every other key without seeing them in its snapshot (a query member leaving the serial fields out compiles
-  now), or a crossing of its own naming the two classes.
-- **No worlds race reads back an entry insert of a relation with serial fields (READBACK, 2026-11-14):** an array of
-  such a relation is two insertions, so its delta read-back is refused (ReadBackCrossesStatements), and the worlds
-  executor (test/support/worlds/execute/session.ts stratumOf) states every op as an array member. The query form, an
-  insert from a query over a relation parameter that leaves the serial fields out, is one statement, but through a
-  query entry its insert is prechecked, so its member is carried in a temporary table, and a race's ad hoc served
-  program runs under an installation that granted the role no TEMPORARY. filter-write's ann therefore reads nothing
-  back (42d4e5b4). Not built.
+  touching disjoint keys.
 - **Member and shared sub-query carriers stay per call (CARRIER, 2026-11-11):** a stratum realized statement by
   statement still carries, in a temporary table created on every call, a described member two of its statements read
   (an immutable put's displacing deletion and insert half, an insert and its sequence advance, a deletion's D EXCEPT A)
@@ -163,8 +151,8 @@ post-beta swarm's fixes for the next release.
   as UnrepresentableKey.
 - **One statement per write stratum (waste):** the write executor keeps member and shared sub-query carriers (a
   TEMPORARY table per write) and the sequential realization, with UnorderableStratum refusing what it cannot order. Making every stratum one statement
-  (sibling data-modifying CTEs reading the stratum's state) deletes both, but rewrites the insert, put, delete, serial
-  and entry protocols (4-5k lines). Deferred 2026-11-08 behind ONERTT-WRITE's one-flight family writer (F2).
+  (sibling data-modifying CTEs reading the stratum's state) deletes both, but rewrites the insert, put, delete and
+  entry protocols (4-5k lines). Deferred 2026-11-08 behind ONERTT-WRITE's one-flight family writer (F2).
 - **Patterns held as data (G3, punted by the owner 2026-11-08):** a check that a value matches every pattern a closed
   relation lists for its key, e.g. one row per (domain, pattern), compiled into the CHECK as each key's patterns ANDed.
   It would delete qti-pie's product regex (~1.2 MB of install SQL for NCName). Until then qti-pie keeps it.
@@ -636,13 +624,6 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **KEYLAW's remainder:** the positive path, a 42Z01 classified as outside-world for an entry the role writes through
   (adapter/witness/classify.ts ReportedNames), has no unit-level oracle, since no test installation writes through a
   query entry; the MemberAt and ArrayMember relation stays the caller's string spelling at the input boundary.
-- **A stratum that deletes a serial relation's facts, inserts into it and adds facts that reference it is refused as
-  UnorderableStratum whatever its rows (KEYLAW, 2026-11-11):** laws/the-law-family-box/immutable at
-  TEST_SEED=1113653230, write/oracle-3 at TEST_SEED=1069369552. An insert drafts a generated class beside the complete
-  one; the deletion excepts only complete additions, so it must precede the generated class, which precedes the
-  referencing additions, which precede the deletion. Fix: the deletion excepts the stratum's drawn facts too (the
-  generated insert's RETURNING into the stratum's carrier), so a deletion of a relation whose facts meet nowhere orders
-  nothing against any addition. Unreachable today: no served file holds a delete or a put.
 - **The type tier's stall guard reads whole seconds of CPU on Linux (PGLINUX, 2026-11-12):**
   test/types/batch/compiler.ts:165 reads a tree's CPU time with `ps -A -o pid=,ppid=,time=`, which procps-ng 4.0.4
   prints as hh:mm:ss with no fraction, where macOS printed hundredths. The guard's own property draws windows of 1000

@@ -68,7 +68,7 @@ export type Feature =
 
 /**
  * An installation of the documents base's worlds, drawn, or its README-shaped one (whose roles hold whole entries beside
- * claim-filled writable ones, a serial field's writer, deferred laws a writer meets at COMMIT) over the base or its
+ * claim-filled writable ones, deferred laws a writer meets at COMMIT) over the base or its
  * one-share variant (whose one share per document is a key on Share's `doc`, met at its statement), that variant
  * with an editor beside (whose every fact outside an entry it writes it sees through a relation it holds whole, or not
  * at all), or the education fixture's.
@@ -520,7 +520,6 @@ export const directFeature = (f: WorldFeature): boolean =>
 		"object:revoke:",
 		"object:policy:",
 		"object:membership:",
-		"object:advance-function:",
 		"object:filter-function:",
 		"object:key-probe:attempt-refused",
 		"object:key-probe:accepted-inside",

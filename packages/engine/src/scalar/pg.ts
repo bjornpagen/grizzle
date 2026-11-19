@@ -2,8 +2,8 @@ import type { Column } from "#compiler/core/decoder.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import type { PgScalarName } from "#compiler/ir/desc.ts"
+import { minted } from "#compiler/scalar/minted.ts"
 import { bareEnv, type Descriptor, defineField, type SqlTag } from "#compiler/scalar/registry.ts"
-import { serialDescriptors } from "#compiler/scalar/serial.ts"
 import { carrierColumn } from "#compiler/scalar/values/convert.ts"
 import { checkNumericTypmod, type Decimal } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
@@ -73,8 +73,8 @@ const numeric = (...args: ReadonlyArray<unknown>): NumericTypmodDescriptor => {
 /**
  * The pg namespace: PostgreSQL's numeric, money and boolean descriptors, each under the one name PostgreSQL's
  * format_type prints for its type, which is its SQL tag: smallint, integer, bigint, numeric, real, "double precision",
- * money and boolean, and the serial family's smallserial, serial and bigserial. A type has one spelling, so no
- * declaration names one type two ways.
+ * money and boolean. A type has one spelling, so no declaration names one type two ways. smallserial, serial, bigserial
+ * and uuidv7 are no descriptors but the refusal of one (scalar/minted.ts): grizzle mints no ids.
  *
  * - `pg.numeric(p, s)` is numeric with its typmod, precision and scale both declared: there is no numeric field
  *   without one, so every numeric value a field holds has the digits its typmod states. PostgreSQL's numerictypmodin
@@ -96,6 +96,9 @@ export const pgDescriptors = Object.freeze({
 	"double precision": doublePrecision,
 	money,
 	boolean,
-	...serialDescriptors,
+	smallserial: minted,
+	serial: minted,
+	bigserial: minted,
+	uuidv7: minted,
 	vector
 })

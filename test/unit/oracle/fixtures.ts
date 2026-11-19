@@ -13,7 +13,7 @@ const kindCodec = rosterCodec(
 )
 
 /**
- * A small schema for the add-wins and delta oracle tests: keyed, pure-set, candidate-keyed and serial relations. The
+ * A small schema for the add-wins and delta oracle tests: keyed, pure-set and candidate-keyed relations. The
  * add-wins oracle reports a law as an opaque label, so each is a name no production rule produces.
  */
 export const schema: OracleSchema = {
@@ -27,8 +27,7 @@ export const schema: OracleSchema = {
 			],
 			primaryKey: { law: wild.lawId("task_pk"), fields: ["id"] },
 			keys: [],
-			projectedKeys: [],
-			serial: []
+			projectedKeys: []
 		},
 		{
 			name: "Account",
@@ -38,8 +37,7 @@ export const schema: OracleSchema = {
 			],
 			primaryKey: { law: wild.lawId("account_pk"), fields: ["id"] },
 			keys: [{ law: wild.lawId("account_key_name"), fields: ["name"] }],
-			projectedKeys: [],
-			serial: []
+			projectedKeys: []
 		},
 		{
 			name: "Label",
@@ -49,18 +47,6 @@ export const schema: OracleSchema = {
 			],
 			primaryKey: { law: wild.lawId("label_pk"), fields: ["account", "label"] },
 			keys: [],
-			projectedKeys: [],
-			serial: []
-		},
-		{
-			name: "Ticket",
-			heading: [
-				{ name: "id", spec: { carrier: "int8" } },
-				{ name: "title", spec: { carrier: "text" } }
-			],
-			primaryKey: { law: wild.lawId("ticket_pk"), fields: ["id"] },
-			keys: [{ law: wild.lawId("ticket_key_title"), fields: ["title"] }],
-			serial: ["id"],
 			projectedKeys: []
 		}
 	]

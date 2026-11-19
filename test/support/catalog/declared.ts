@@ -2,7 +2,7 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { type RelationDesc, type SchemaDesc, serialDraw } from "#compiler/ir/desc.ts"
+import type { RelationDesc, SchemaDesc } from "#compiler/ir/desc.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import {
@@ -76,7 +76,6 @@ const levels = (desc: SchemaDesc): Declared => {
  * The rules applied to the declared values:
  * - every declared relation of kind "relation" is one authored table, and every derived relation one materialized view,
  *   each named by the production identifier of its declared name (`AutomaticTask` is `automatic_task`);
- * - a serial field's identity sequence moves through its advance function (identity.advance);
  * - every installation holds the naming door's per-schema singletons: the refusal function, the isolation guard and
  *   its trigger on every table, the snapshot guard and the migrations ledger;
  * - a relation is immutable unless a `mutable(R)` statement names it, and only a mutable relation's table may be
@@ -88,7 +87,7 @@ const levels = (desc: SchemaDesc): Declared => {
  * - a closed relation installs constants named by their content's digest (`closedConstants`);
  * - a retirable unit installs its hold and its retirement, named by their identities for its header.
  *
- * The authored tables, the mutable ones among them, the derived relations' views, the serial fields' advance functions,
+ * The authored tables, the mutable ones among them, the derived relations' views,
  * the rosters' constants and the retirable units' functions a schema declares, beside the singletons; no law function, law trigger, world or
  * membership: the schema's declaration alone, installed with no login, as a first installation.
  */
@@ -144,21 +143,7 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 							]
 						: [])
 				]
-			}),
-			...Arr.flatMap(relations, (r) =>
-				r.kind === "relation"
-					? Arr.flatMap(Rec.toEntries(r.fields), ([field, decl]) =>
-							decl.writing.kind === "serial" && serialDraw(decl.type) === "identity"
-								? [
-										[
-											identifierOf(identity.advance(r.name, field)),
-											{ kind: "advance", table: identifierOf(identity.table(parsedName(r.name))) }
-										] as const
-									]
-								: []
-						)
-					: []
-			)
+			})
 		]),
 		triggers: new Map<string, InstalledTrigger>([
 			[identifierOf(identity.isolationTrigger()), "isolation"]

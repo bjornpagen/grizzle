@@ -63,9 +63,9 @@ export const maxIdentifierBytes = namedatalen - 1
  *   login's or role's name is refused when it does not fit with its schema's (physical/ddl/names.ts).
  * - Hashed: `__`, a readable stem cut to `stemBudget` bytes at a segment boundary, `_` and a digest of the identity's
  *   canonical encoding, the first `5 * digestChars` bits of its SHA-256 as `digestChars` characters of lowercase RFC
- *   4648 base32: keys, foreign keys, span, norm and law checks, indexes and statistics, sequences, contract and
- *   text-pattern domains, named by their definitions, constants, sets' domains, law and arm tag columns, laws and their functions and triggers, filter functions, key and unique probes
- *   and advance functions, a migration's temporaries, and a write program's carriers, named by their declarations too.
+ *   4648 base32: keys, foreign keys, span, norm and law checks, indexes and statistics, contract and
+ *   text-pattern domains, named by their definitions, constants, sets' domains, law and arm tag columns, laws and their functions and triggers, filter functions, key and unique probes,
+ *   a migration's temporaries, and a write program's carriers, named by their declarations too.
  *   Every name grizzle derives starts with `__`, so no declared name meets
  *   one; two distinct hashed identities meet only where their stems and their digests do, which the installation's
  *   census refuses as DigestCollision (`censusOf`), and a migration's census (`TemporaryCensus`) where a temporary
@@ -1181,22 +1181,6 @@ export const identity = Object.freeze({
 				? ["param", ...nameSegments(place.name)]
 				: ["param", ...nameSegments(place.name), ...nameSegments(place.field)],
 			`pattern domain of parameter ${paramPlaceText(place)} of definition ${definition}`,
-			hashed
-		),
-	sequence: (relation: string, field: string): Identity<"sequence"> =>
-		mint(
-			"sequence",
-			[relation, field],
-			[...nameSegments(relation), ...nameSegments(field), "seq"],
-			`identity sequence of ${relation}.${field}`,
-			hashed
-		),
-	advance: (relation: string, field: string): Identity<"advance"> =>
-		mint(
-			"advance",
-			[relation, field],
-			["advance", ...nameSegments(relation), ...nameSegments(field)],
-			`advance function of ${relation}.${field}`,
 			hashed
 		),
 	/** The hold function of a retirable header's groups, by the header relation: a unit has one header. */

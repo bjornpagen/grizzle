@@ -321,10 +321,6 @@ export interface Names extends LawNames {
 	/** The bare identifiers, for comparison with catalog facts and DETAIL keys. */
 	readonly tableIdent: (relation: NamedRelation) => RelationIdent
 	readonly columnIdent: (relation: NamedRelation, field: string) => ColumnIdent
-	/** A serial field's advance function, schema-qualified and quoted, without an argument list. */
-	readonly advance: (relation: NamedRelation, field: string) => string
-	/** A serial field's identity sequence, schema-qualified and quoted. */
-	readonly sequence: (relation: NamedRelation, field: string) => string
 	/**
 	 * The text refinement domain that types a column: a stored field, a closed relation's payload, or a derived view
 	 * column (R12's "undeclared" view column included).
@@ -1010,14 +1006,6 @@ const namesOver = (installation: Installation, schema: string): Names => {
 		},
 		tableIdent,
 		columnIdent,
-		advance: (relation, field) => {
-			const f = installation.names.advance(relation.name, field)
-			return `${quoteIdent(f.schema)}.${quoteIdent(f.name)}`
-		},
-		sequence: (relation, field) => {
-			const s = installation.names.sequence(relation.name, field)
-			return `${quoteIdent(s.schema)}.${quoteIdent(s.name)}`
-		},
 		textDomain: (relation, field) => {
 			const assigned = assignedDomain(
 				installation,

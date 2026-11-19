@@ -310,18 +310,14 @@ export const projectCatalog = (catalog: Catalog): ProjectedCatalog => {
 }
 
 /**
- * A column's generation as grizzle declares it: GENERATED ALWAYS AS IDENTITY, the uuidv7() default or a retirement
- * field's false, as pg_get_expr spells each, or GENERATED ALWAYS AS (expr) STORED, a partial projection's expr its CASE.
+ * A column's generation as grizzle declares it: a retirement field's false, as pg_get_expr spells it, or GENERATED
+ * ALWAYS AS (expr) STORED, a partial projection's expr its CASE.
  */
 const expectedGeneration = (g: ColumnDef["generated"]): ProjectedGeneration => {
 	if (g === undefined) {
 		return { kind: "given" }
 	}
 	switch (g.kind) {
-		case "identity":
-			return { kind: "identity", always: true, sequence: `${g.sequence.schema}.${g.sequence.name}` }
-		case "uuidv7":
-			return { kind: "default", expression: "uuidv7()" }
 		case "retirement":
 			return { kind: "default", expression: "false" }
 		case "stored":
@@ -332,13 +328,13 @@ const expectedGeneration = (g: ColumnDef["generated"]): ProjectedGeneration => {
 
 /**
  * The catalog a manifest promises, and the same projection of an installed catalog, so a test compares the two with one
- * deep equality over columns, typmods and non-nullability; every serial column's GENERATED ALWAYS identity and its
- * named sequence; native constraint validation and timing; unique and index opclass and predicate identity; and the
+ * deep equality over columns, typmods and non-nullability; the sequences, of which a manifest promises none; native
+ * constraint validation and timing; unique and index opclass and predicate identity; and the
  * worlds: every login and world role with its defaults and memberships, every world's views, the tables with row
  * security and their policies, and every grant, column grants and the worlds' own included.
  *
  * The expectation is derived from the installation's structured SQL AST, never from its text, and the projection keeps
- * what the manifest decides: names, column order and types, NOT NULL, collation, identities and generated columns,
+ * what the manifest decides: names, column order and types, NOT NULL, collation, generated columns,
  * constraint kinds, columns, references, deferral and validation, index methods, columns, uniqueness and validity, no
  * pg_enum row, domain bases and constraint names, sequence ownership, role defaults, and every non-owner grant.
  * Expression texts (CHECK bodies, predicates, generation expressions) are PostgreSQL's deparse and are checked by the
@@ -395,7 +391,6 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 		}
 	>()
 	const indexes: Array<ProjectedCatalog["indexes"][number]> = []
-	const sequences: Array<ProjectedCatalog["sequences"][number]> = []
 	const grants: Array<ProjectedGrant> = []
 	const roles = new Map<
 		string,
@@ -441,8 +436,6 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 				)
 			case "TABLE":
 				return Arr.map(g.on.names, (n) => ["table", objectKey(n)] as const)
-			case "SEQUENCE":
-				return Arr.map(g.on.names, (n) => ["sequence", n.name] as const)
 			case "DOMAIN":
 			case "TYPE":
 				return Arr.map(g.on.names, (n) => ["type", n.name] as const)
@@ -473,14 +466,6 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 						validated: true
 					}))
 				})
-				for (const c of t.columns) {
-					if (c.generated?.kind === "identity") {
-						sequences.push({
-							name: c.generated.sequence.name,
-							ownedBy: `${t.table.name}.${c.name}`
-						})
-					}
-				}
 				for (const c of tableConstraints(t)) {
 					keyIndex(t.table.name, c)
 				}
@@ -661,7 +646,7 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 				)
 			}))
 		),
-		sequences: byName(sequences),
+		sequences: [],
 		roles: byName(
 			Arr.map([...roles.entries()], ([name, r]) => ({
 				name,

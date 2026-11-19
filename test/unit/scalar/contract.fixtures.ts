@@ -65,7 +65,7 @@ export const predicateFor = (
 
 export type IdentityFeature =
 	| `${BaseName} ${"with" | "without"} a predicate`
-	| "serial refused"
+	| "a minted base refused"
 	| "no predicate built"
 
 /**

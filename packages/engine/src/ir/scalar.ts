@@ -105,13 +105,6 @@ export const routable: Readonly<Record<Carrier, boolean>> = {
 	exactMoney: false
 }
 
-/** The serial generation names and the carrier each declares. */
-export const serialCarriers = {
-	smallserial: "int2",
-	serial: "int4",
-	bigserial: "int8"
-} as const satisfies Readonly<Record<string, Carrier>>
-
 /** The span carriers over integer endpoints, range4 over int4 and range8 over int8. */
 export const integerSpanCarriers = ["range4", "range8"] as const satisfies ReadonlyArray<Carrier>
 
@@ -506,7 +499,7 @@ export interface RosterHandles {
 	readonly handles: NonEmptyReadonlyArray<string>
 }
 
-/** The integer carriers, a serial field's among them. */
+/** The integer carriers. */
 export type IntegerCarrier = "int2" | "int4" | "int8"
 export type SpanCarrier = (typeof spanCarriers)[number]
 /** The carriers whose descriptor holds nothing beside its carrier, its capabilities and its contract. */
@@ -614,7 +607,7 @@ interface VectorType {
  * of a money sum. Delivered as bigint and as Money, so no such operation overflows: `digits` bounds every value,
  * |x| < 10^digits (of the amount, for money), as its operands' bounds give it (scalar/compute/typing.ts), the way a
  * typmod bounds numeric(p, 0). In SQL an exact integer of at most 18 digits is bigint, and any other exact value
- * numeric (exactMoney at scale 2). Neither is a field's carrier, so neither has a contract or a serial form;
+ * numeric (exactMoney at scale 2). Neither is a field's carrier, so neither has a contract;
  * Compute.cast narrows one into a storage carrier where the value is proved to fit.
  */
 interface ExactType {

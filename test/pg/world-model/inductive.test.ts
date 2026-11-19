@@ -1,7 +1,7 @@
 /**
  * The worlds invariants, checked inductively: rather than reaching states by walks of actions, a case draws a state
- * directly (an installation, the documents base's own, one with an editor beside, one writing Visit through its
- * serial shapes or one whose visits hold a roster's handles (installsGen), a lawful reality the owner loads,
+ * directly (an installation, the documents base's own, one with an editor beside, or one whose visits hold a roster's
+ * handles (installsGen), a lawful reality the owner loads,
  * half the time with a document at its bound of shares, Db sessions of any roles of any logins with any claims their tokens
  * carry, those Dbs' reads spread over the logins' pooled connections, a pool of one connection per login half the
  * time, so its Dbs of every role share it, and then a direct writer with any current role of its login and any claims,

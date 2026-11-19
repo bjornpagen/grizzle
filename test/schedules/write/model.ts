@@ -7,7 +7,6 @@ export const relationNames = [
 	"Item",
 	"Note",
 	"Code",
-	"Ticket",
 	"Room",
 	"Ref",
 	"Zed",
@@ -25,7 +24,6 @@ export const columnsOf: Readonly<Record<Rel, ReadonlyArray<string>>> = {
 	Item: ["id", "label"],
 	Note: ["id", "label"],
 	Code: ["id", "code"],
-	Ticket: ["no", "label"],
 	Room: ["room", "start", "end", "label"],
 	Ref: ["id", "item"],
 	Zed: ["id"],
@@ -40,7 +38,6 @@ const primaryKeyOf: Readonly<Record<Rel, ReadonlyArray<number>>> = {
 	Item: [0],
 	Note: [0],
 	Code: [0],
-	Ticket: [0],
 	Room: [0, 1, 2],
 	Ref: [0],
 	Zed: [0],
@@ -56,7 +53,6 @@ export const emptyState: State = {
 	Item: [],
 	Note: [],
 	Code: [],
-	Ticket: [],
 	Room: [],
 	Ref: [],
 	Zed: [],
@@ -176,7 +172,6 @@ const violated = (laws: ReadonlyArray<LawSpec>, state: State): ReadonlyArray<Law
 /**
  * A member of a grizzle ChangeSet, as the race draws it:
  * - enumerated: facts given as values, inserted, deleted or put;
- * - generated: Ticket additions of these labels, their serial values the sequence's;
  * - move: a put of Note's fact at `id` with `label`, described over Note itself (UPDATE ... FROM);
  * - scoped: a put of Note's facts given as a relation parameter beside the deletion of every Note fact labelled `scope`
  *   whose key the parameter does not hold (MERGE);
@@ -189,7 +184,6 @@ export type Member =
 			readonly relation: Rel
 			readonly facts: ReadonlyArray<Fact>
 	  }
-	| { readonly kind: "generated"; readonly labels: ReadonlyArray<string> }
 	| { readonly kind: "move"; readonly id: string; readonly label: string }
 	| { readonly kind: "scoped"; readonly facts: ReadonlyArray<Fact>; readonly scope: string }
 	| { readonly kind: "copied"; readonly id: string }
@@ -209,9 +203,6 @@ export type Statement =
 	| { readonly kind: "delete"; readonly relation: Rel; readonly key: Fact }
 	| { readonly kind: "update"; readonly id: string; readonly label: string }
 	| { readonly kind: "updateImmutable"; readonly id: string; readonly label: string }
-
-/** The serial value each generated label took, read from the committed state. */
-type Pins = ReadonlyMap<string, string>
 
 const at = (relation: Rel, facts: ReadonlyArray<Fact>, key: Fact): ReadonlyArray<Fact> =>
 	Arr.filter(facts, (f) => project(f, primaryKeyOf[relation]) === identity(key))
@@ -247,8 +238,7 @@ const enumeratedEffect = (
 /** What a member deletes from `state` and adds to it, by relation. */
 const effectOf = (
 	state: State,
-	member: Member,
-	pins: Pins
+	member: Member
 ): {
 	readonly relation: Rel
 	readonly deleted: ReadonlyArray<Fact>
@@ -257,12 +247,6 @@ const effectOf = (
 	switch (member.kind) {
 		case "enumerated":
 			return enumeratedEffect(state, member)
-		case "generated":
-			return {
-				relation: "Ticket",
-				deleted: [],
-				added: Arr.map(member.labels, (l) => [pins.get(l) ?? `?${l}`, l])
-			}
 		case "move": {
 			const held = at("Note", state.Note, [member.id])
 			return {
@@ -291,8 +275,8 @@ const effectOf = (
 }
 
 /** One stratum: S' = (S \ D) ∪ A, relation by relation, a raced relation's A less the facts at keys S \ D holds. */
-const applyStratum = (state: State, members: ReadonlyArray<Member>, pins: Pins): State => {
-	const effects = Arr.map(members, (m) => effectOf(state, m, pins))
+const applyStratum = (state: State, members: ReadonlyArray<Member>): State => {
+	const effects = Arr.map(members, (m) => effectOf(state, m))
 	let next = state
 	for (const relation of relationNames) {
 		const atRelation = Arr.filter(effects, (e) => e.relation === relation)
@@ -331,12 +315,11 @@ type GrizzleMeaning =
 const grizzleMeaning = (
 	laws: ReadonlyArray<LawSpec>,
 	state: State,
-	op: GrizzleOp,
-	pins: Pins
+	op: GrizzleOp
 ): GrizzleMeaning => {
 	let next = state
 	for (const stratum of op.strata) {
-		next = applyStratum(next, stratum, pins)
+		next = applyStratum(next, stratum)
 		const broken = Arr.filter(violated(laws, next), (l) => l.kind !== "contained")
 		if (broken.length > 0) {
 			return { kind: "refused", laws: Arr.map(broken, (l) => l.law) }
@@ -497,13 +480,11 @@ export type Observed =
 			readonly answer: DirectAnswer
 	  }
 
-/** Whether a member adds facts to `relation`: an insertion or a put into it, a generated Ticket fact. */
+/** Whether a member adds facts to `relation`: an insertion or a put into it. */
 const adds = (m: Member, relation: Rel): boolean => {
 	switch (m.kind) {
 		case "enumerated":
 			return m.relation === relation && m.op !== "delete"
-		case "generated":
-			return relation === "Ticket"
 		case "move":
 		case "scoped":
 		case "copied":
@@ -521,11 +502,10 @@ const besideArbiter = (laws: ReadonlyArray<LawSpec>): ReadonlyArray<Rel> =>
 	)
 
 /**
- * The TransientFailure reasons a grizzle write's shape allows, each but GeneratedSerialUnique from a concurrent
- * transaction: a serialization failure and a deadlock for any write; a conflict at a key a put deleted for a put; an
- * unseen occupant of a unique object beside the arbiter for a write that adds to a relation with one (Code, and Ticket,
- * whose generated additions have no arbiter and are probed at its label); a changed occupant of a span key for a write
- * into Room; and a stored serial value the sequence had not passed for a generated addition.
+ * The TransientFailure reasons a grizzle write's shape allows, each from a concurrent transaction: a serialization
+ * failure and a deadlock for any write; a conflict at a key a put deleted for a put; an unseen occupant of a unique
+ * object beside the arbiter for a write that adds to a relation with one (Code); and a changed occupant of a span key
+ * for a write into Room.
  */
 const allowedReasons = (laws: ReadonlyArray<LawSpec>, op: GrizzleOp): ReadonlySet<TransientTag> => {
 	const members = op.strata.flat()
@@ -543,9 +523,6 @@ const allowedReasons = (laws: ReadonlyArray<LawSpec>, op: GrizzleOp): ReadonlySe
 	}
 	if (Arr.some(members, (m) => adds(m, "Room"))) {
 		reasons.add("SpanKeyChange")
-	}
-	if (Arr.some(members, (m) => m.kind === "generated")) {
-		reasons.add("GeneratedSerialUnique")
 	}
 	return reasons
 }
@@ -582,16 +559,6 @@ const withMadePresent = (unseen: State, snapshot: State, before: State, after: S
 	return next
 }
 
-const explicitTickets = (op: GrizzleOp): ReadonlyArray<bigint> =>
-	Arr.flatMap(op.strata.flat(), (m) =>
-		m.kind === "enumerated" && m.relation === "Ticket" && m.op !== "delete"
-			? Arr.map(m.facts, (f) => BigInt(f[0] ?? "0"))
-			: []
-	)
-
-const generatedLabels = (op: GrizzleOp): ReadonlyArray<string> =>
-	Arr.flatMap(op.strata.flat(), (m) => (m.kind === "generated" ? m.labels : []))
-
 const describeObserved = (o: Observed): string =>
 	`${o.label} on ${o.session} [${o.span.start}, ${o.span.end}]`
 
@@ -599,15 +566,14 @@ const describeObserved = (o: Observed): string =>
 const grizzleCauseProblem = (
 	laws: ReadonlyArray<LawSpec>,
 	o: Extract<Observed, { readonly kind: "grizzle" }>,
-	concurrent: boolean,
-	explicitSerials: boolean
+	concurrent: boolean
 ): string | undefined => {
 	const allowed = allowedReasons(laws, o.op)
 	for (const reason of o.refused) {
 		if (!allowed.has(reason)) {
 			return `${describeObserved(o)} was refused with ${reason}, which its shape never meets`
 		}
-		if (reason === "GeneratedSerialUnique" ? !explicitSerials : !concurrent) {
+		if (!concurrent) {
 			return `${describeObserved(o)} was refused with ${reason}, which nothing in the run explains`
 		}
 	}
@@ -661,15 +627,9 @@ export type RunProblem = { readonly tag: "Refused" | "NoSerialOrder"; readonly w
  * deleted a key on its snapshot and inserts at it meets a concurrent commit there (README, "Direct SQL access":
  * retryable, so run the transaction again). A grizzle writer meets one as a TransientFailure, never a refusal. An operation that
  * aborted takes no place: its abort needs a cause the run shows, a concurrent operation overlapping it in real time for
- * 40001, 40P01 and every TransientFailure reason the operation's shape allows, or, for GeneratedSerialUnique, an
- * explicit serial value the sequence never passed. The model never reads a src rule: its laws are the declarations'
+ * 40001, 40P01 and every TransientFailure reason the operation's shape allows. The model never reads a src rule: its laws are the declarations'
  * meaning (a key's columns unique, a span key's spans disjoint per scalar, a containment's values present), and its
  * ChangeSet meaning is add-wins, S' = (S \ D) ∪ A per stratum, with a put deleting the facts at its keys.
- *
- * Generated serial values are the realization's own: a generated fact's value is read from the committed state by its
- * label, which no other fact holds, and the judge checks only what the contract fixes, that it collides with no fact at
- * its place and that it lies past every explicit value a grizzle write that finished before it began stored, since a
- * write advances its sequence past the explicit values it stores.
  *
  * A fact is its columns' text, in the relation's column order; a state holds each relation's facts as a set.
  *
@@ -687,14 +647,6 @@ export const judgeRun = (
 			`the schedule model states no law for the primary key of ${Arr.join(unkeyed, ", ")}: without it a direct INSERT of a stored fact would hold that fact twice`
 		)
 	}
-	const pins: Pins = new Map(Arr.map(final.Ticket, (f) => [f[1] ?? "", f[0] ?? ""]))
-	const explicitSerials =
-		initial.Ticket.length > 0 ||
-		Arr.some(observed, (o) =>
-			o.kind === "direct"
-				? Arr.some(o.statements, (s) => s.kind === "insert" && s.relation === "Ticket")
-				: explicitTickets(o.op).length > 0
-		)
 	for (const o of observed) {
 		const concurrent = Arr.some(
 			observed,
@@ -702,33 +654,10 @@ export const judgeRun = (
 		)
 		const problem =
 			o.kind === "grizzle"
-				? grizzleCauseProblem(laws, o, concurrent, explicitSerials)
+				? grizzleCauseProblem(laws, o, concurrent)
 				: directCauseProblem(o, concurrent)
 		if (problem !== undefined) {
 			return { tag: "Refused", why: problem }
-		}
-	}
-	/** Each generated value lies past the explicit values every grizzle write that finished before it began stored. */
-	const generated = Arr.flatMap(observed, (g) =>
-		g.kind === "grizzle" && (g.answer.kind === "accepted" || g.answer.kind === "unchanged")
-			? Arr.flatMap(generatedLabels(g.op), (l) => {
-					const value = pins.get(l)
-					return value === undefined
-						? []
-						: Arr.flatMap(observed, (e) =>
-								e.kind === "grizzle" && e.span.end < g.span.start && e.answer.kind === "accepted"
-									? Arr.map(explicitTickets(e.op), (explicit) => ({ g, e, value, explicit }))
-									: []
-							)
-				})
-			: []
-	)
-	const behind = Arr.findFirst(generated, ({ value, explicit }) => BigInt(value) <= explicit)
-	if (Option.isSome(behind)) {
-		const { g, e, value, explicit } = behind.value
-		return {
-			tag: "Refused",
-			why: `${describeObserved(g)} generated ${value}, not past ${explicit}, which ${describeObserved(e)} stored before it began: its sequence was not advanced`
 		}
 	}
 	/** The operations that take a place: committed or refused by a law. */
@@ -741,7 +670,7 @@ export const judgeRun = (
 	/** The state after `o` at `state`, or undefined when the model does not do there what `o` did. */
 	const step = (o: Observed, state: State): State | undefined => {
 		if (o.kind === "grizzle") {
-			const meant = grizzleMeaning(laws, state, o.op, pins)
+			const meant = grizzleMeaning(laws, state, o.op)
 			switch (o.answer.kind) {
 				case "accepted":
 				case "unchanged":

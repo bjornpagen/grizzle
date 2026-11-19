@@ -31,9 +31,6 @@ import {
 	rowsDifference,
 	type HostSide,
 	selected,
-	type Sendable,
-	type SendableFact,
-	sendableFact,
 	stateRows,
 	type HostValue,
 	type Violation,
@@ -867,7 +864,7 @@ const expected = (
 }
 
 /** A value as a literal at its column: a closed id as its handle's code, which its column stores. */
-const literal = (closed: ClosedField | undefined, x: Sendable): string => {
+const literal = (closed: ClosedField | undefined, x: HostValue): string => {
 	if (isSpan(x)) {
 		return `int4range(${x.start}, ${x.end})`
 	}
@@ -888,15 +885,7 @@ const sqlOf = (host: HostSchema, owner: OwnerView, st: Statement): string => {
 		}
 		return quoteIdent(f.value.column)
 	}
-	/** A fact as the writer sends it (sendableFact): a families case draws no identity value, so none holds a draw. */
-	const sent = (fact: HostFact): SendableFact => {
-		const named = sendableFact(fact)
-		if (named === undefined) {
-			throw new Error(`a ${relation.name} fact holding a draw, which no families case draws`)
-		}
-		return named
-	}
-	const spelled = (fact: SendableFact, field: string): string => {
+	const spelled = (fact: HostFact, field: string): string => {
 		const x = fact[field]
 		if (x === undefined) {
 			throw new Error(`${relation.name} fact without ${field}`)
@@ -904,29 +893,25 @@ const sqlOf = (host: HostSchema, owner: OwnerView, st: Statement): string => {
 		return literal(owner.closed(relation.name, field), x)
 	}
 	/** The row of `fact` at `fields`, as a WHERE matches it. */
-	const row = (fact: SendableFact, fields: ReadonlyArray<string>) =>
+	const row = (fact: HostFact, fields: ReadonlyArray<string>) =>
 		`(${Arr.join(Arr.map(fields, column), ", ")}) = (${Arr.join(
 			Arr.map(fields, (f) => spelled(fact, f)),
 			", "
 		)})`
 	const all = Arr.map(relation.fields, (f) => f.name)
 	switch (st.kind) {
-		case "insert": {
-			const fact = sent(st.fact)
+		case "insert":
 			return `INSERT INTO ${table(st.relation)} (${Arr.join(Arr.map(all, column), ", ")}) VALUES (${Arr.join(
-				Arr.map(all, (f) => spelled(fact, f)),
+				Arr.map(all, (f) => spelled(st.fact, f)),
 				", "
 			)})`
-		}
 		case "delete":
-			return `DELETE FROM ${table(st.relation)} WHERE ${row(sent(st.fact), all)}`
-		case "update": {
-			const to = sent(st.to)
+			return `DELETE FROM ${table(st.relation)} WHERE ${row(st.fact, all)}`
+		case "update":
 			return `UPDATE ${table(st.relation)} SET ${Arr.join(
-				Arr.map(st.set, (f) => `${column(f)} = ${spelled(to, f)}`),
+				Arr.map(st.set, (f) => `${column(f)} = ${spelled(st.to, f)}`),
 				", "
-			)} WHERE ${row(sent(st.from), relation.key)}`
-		}
+			)} WHERE ${row(st.from, relation.key)}`
 	}
 }
 

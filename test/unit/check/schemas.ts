@@ -16,8 +16,8 @@ export const Qty = f.contract("Qty", f.integer, ge(value, literal(0)))
 
 /**
  * Schemas for the checker's tests: the worked example's Work and a small Lab schema that has
- * what Work lacks: regex text of different patterns, numeric typmods, a span, a serial field, and a roster with a
- * closed relation over it.
+ * what Work lacks: regex text of different patterns, numeric typmods, a span, and a roster with a closed relation
+ * over it.
  */
 export const Lab: SchemaDesc = {
 	name: "Lab",
@@ -46,7 +46,7 @@ export const Lab: SchemaDesc = {
 			["id"]
 		),
 		relation("Tag", { item: f.uuid, label: Code, note: f.wildcard }, ["item", "label"]),
-		relation("Entry", { entry: f.bigserial, item: f.uuid, amount: f.bigint }, ["entry"]),
+		relation("Entry", { entry: f.bigint, item: f.uuid, amount: f.bigint }, ["entry"]),
 		relation("Wide", { id: f.uuid, price: f.numeric(12, 4) }, ["id"])
 	],
 	statements: [],

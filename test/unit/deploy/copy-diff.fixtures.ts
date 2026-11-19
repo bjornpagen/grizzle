@@ -591,10 +591,7 @@ const alterationTouches = (
 				break
 			case "setNotNull":
 			case "dropDefault":
-			case "setUuidv7Default":
 			case "setRetirementDefault":
-			case "addIdentity":
-			case "dropIdentity":
 			case "validateConstraint":
 			case "alterConstraintDeferral":
 			case "enableRowSecurity":

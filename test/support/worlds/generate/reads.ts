@@ -96,14 +96,11 @@ const poolOffset = int(0, 0xffff)
 const attachable = (domain: FieldDomain): boolean => domain.kind !== "span"
 
 /**
- * Whether a recursive read may chain two fields of a domain: a uuid, a text, an integer or a serial, whose type the
- * recursive query's row states by its base type alone.
+ * Whether a recursive read may chain two fields of a domain: a uuid, a text or an integer, whose type the recursive
+ * query's row states by its base type alone.
  */
 const reachable = (domain: FieldDomain): boolean =>
-	domain.kind === "uuid" ||
-	domain.kind === "text" ||
-	domain.kind === "integer" ||
-	domain.kind === "serial"
+	domain.kind === "uuid" || domain.kind === "text" || domain.kind === "integer"
 
 /** A page's order: one to every field of the heading, in a drawn order, each ascending or descending. */
 const orderGen =

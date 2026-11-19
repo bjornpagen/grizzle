@@ -5,7 +5,6 @@ import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/c
 import { rowEq, typedEq } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import type { SerialClass } from "#compiler/ir/write.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
 import type {
 	Cte,
@@ -59,7 +58,6 @@ import {
 import {
 	buildStatement,
 	type InsertOf,
-	isCarried,
 	type InsertResult,
 	type InsertVariant,
 	keyFirst,
@@ -79,12 +77,8 @@ import {
 import {
 	buildProbe,
 	type EveryObject,
-	generatedArbiter,
-	generatedChecks,
-	insertArbitered,
 	type Probed,
 	probeArms,
-	probeGuard,
 	type ProbeSql,
 	type Requested
 } from "#compiler/write/insert/unique.ts"
@@ -100,25 +94,20 @@ import {
 	probeKey,
 	storedAt
 } from "#compiler/write/probe.ts"
-import type { KeyArbiter } from "#compiler/write/put/choose.ts"
 
 import type { ConcurrentChangeTag } from "#compiler/runtime/write/refusal.ts"
 import {
 	type ArmRefusal,
 	type RefusedValue,
-	refusalGuard,
 	refusalRank,
 	type SourcedArm,
 	sourcedRefusalGuard
 } from "#compiler/write/refusal.ts"
-import { explicitSerials } from "#compiler/write/serial/advance.ts"
 
-/** An insert's spec. The statement meets its relation's unique objects (`relationUniques`): an insert of complete facts
- * probes those besides the arbiter, a generated addition every one that reads no field it draws (`generatedChecks`). A
- * conflict witness and a same-key pair raise the law of the relation's primary key, the arbiter's. */
+/** An insert's spec. The statement meets its relation's unique objects (`relationUniques`): it probes those besides the
+ * arbiter. A conflict witness and a same-key pair raise the law of the relation's primary key, the arbiter's. */
 interface InsertSpec {
 	readonly relation: WrittenRelation
-	readonly serial: SerialClass
 	readonly input: WriteInput
 	/** The action the insert realizes. On a put's insert half a conflict witness is a concurrent commit at the key after
 	 * the put's first statement, its deletion or a family owner's UPDATE, which raises PutTargetConflict; a same-key pair
@@ -126,17 +115,15 @@ interface InsertSpec {
 	readonly of: InsertOf
 }
 
-/** Where an insert raises its probe's refusal (see `buildInsert`): nowhere, when it probes nothing; at the INSERT's gate,
- * the refusal guard over the probe's refusal; or as one of its verdict rows, marked by its object's signed ordinal. */
+/** Where an insert raises its probe's refusal (see `buildInsert`): nowhere, when it probes nothing; or as one of its
+ * verdict rows, marked by its object's signed ordinal. */
 type ProbeRaise =
 	| { readonly kind: "none" }
-	| { readonly kind: "gate"; readonly guarded: { readonly cte: Cte; readonly guard: Expr } }
 	| { readonly kind: "verdict"; readonly probe: ProbeSql; readonly marker: string }
 
-/** An insert's variant, by its serial class, the relation's shape and what its facts state, with what it reads of the
- * shape: a protocol insert's payload, which its verdict rows compare. */
+/** An insert's variant, by the relation's shape and what its facts state, with what it reads of the shape: a protocol
+ * insert's payload, which its verdict rows compare. */
 type InsertShape =
-	| { readonly variant: "generated" }
 	| { readonly variant: "pureSet" }
 	| { readonly variant: "spanKey" }
 	| { readonly variant: "protocol"; readonly payload: NonEmptyReadonlyArray<LawField> }
@@ -156,75 +143,15 @@ const insertShape = (relation: RelationInfo, stated: Heading): InsertShape => {
 }
 
 /**
- * Where an insert meets the stored facts it may repeat or conflict with: its ON CONFLICT arbiter's key and the law a
- * conflict there raises. Complete facts meet at the primary key; a generated addition there too where it holds no field
- * the addition draws and no span, else at the one declared key that holds neither (unique.ts generatedArbiter), or
- * nowhere, a plain INSERT, where every key holds one.
+ * Whether an insert realizing `of` into `relation` writes a met side, the stored facts its insertion met and did not
+ * refuse (`delta.met`): an insertion that arbitrates at its scalar primary key, the protocol or a pure set whatever its
+ * facts state. A put's insert half meets only its own no-change or a concurrent change, and a span primary key's
+ * exclusion constraint takes only ON CONFLICT DO NOTHING ON CONSTRAINT, so no statement tells a fact it met from one it
+ * made. The insert statement's Returning is read from it, and so is every plan that asks which statement writes a met
+ * side.
  */
-interface InsertArbiter {
-	readonly key: NonEmptyReadonlyArray<LawField>
-	readonly law: LawId
-}
-
-/** The arbiter of an insert of class `serial` into `relation` (InsertArbiter). */
-const arbiterOf = (
-	relation: WrittenRelation,
-	serial: SerialClass
-): { readonly arbiter: InsertArbiter | undefined; readonly stated: KeyArbiter | undefined } => {
-	if (serial.kind === "complete") {
-		return {
-			arbiter: { key: relation.primaryFields, law: arbiterLaw(relation) },
-			stated: undefined
-		}
-	}
-	const stated = generatedArbiter(relation, serial.drawn)
-	return {
-		arbiter: stated === undefined ? undefined : { key: stated.equal, law: stated.law },
-		stated
-	}
-}
-
-/**
- * The shape of a generated addition that meets stored facts at `arbiter` (`generatedArbiter`): the insert protocol at
- * that key, its payload the fields the addition writes beside the key, which its verdict rows compare, or a pure set
- * there where it writes no other; the identity or the default fills each field it draws.
- */
-const statedShape = (
-	relation: RelationInfo,
-	serial: Extract<SerialClass, { readonly kind: "generated" }>,
-	arbiter: KeyArbiter
-): InsertShape => {
-	const payload = insertedFields(relation, serial).filter(
-		(f) => isCarried(f) && !arbiter.equal.includes(f)
-	)
-	return isNonEmpty(payload) ? { variant: "protocol", payload } : { variant: "pureSet" }
-}
-
-/** The shape of an insert of class `serial` into `relation` whose facts state `stated` (input.ts inputStated): a
- * generated addition's at its stated arbiter (`statedShape`), a plain INSERT where it has none, and complete facts' by
- * the relation and what they state (`insertShape`). */
-const shapeOf = (relation: WrittenRelation, serial: SerialClass, stated: Heading): InsertShape => {
-	if (serial.kind === "complete") {
-		return insertShape(relation, stated)
-	}
-	const arbiter = generatedArbiter(relation, serial.drawn)
-	return arbiter === undefined ? { variant: "generated" } : statedShape(relation, serial, arbiter)
-}
-
-/**
- * Whether an insert of class `serial` realizing `of` into `relation` writes a met side, the stored facts its insertion
- * met and did not refuse (`delta.met`): an insertion that arbitrates at a scalar key, the protocol or a pure set
- * whatever its facts state, complete facts at a scalar primary key and a generated addition at its stated arbiter. A
- * put's insert half meets only its own no-change or a concurrent change, a plain INSERT meets nothing, and a span
- * primary key's exclusion constraint takes only ON CONFLICT DO NOTHING ON CONSTRAINT, so no statement tells a fact it
- * met from one it made. The insert statement's Returning is read from it, and so is every plan that asks which
- * statement writes a met side.
- */
-export const writesMet = (relation: WrittenRelation, serial: SerialClass, of: InsertOf): boolean =>
-	of === "insert" &&
-	(serial.kind === "complete"
-		? primaryKeyShape(relation).kind !== "span"
-		: generatedArbiter(relation, serial.drawn) !== undefined)
+export const writesMet = (relation: WrittenRelation, of: InsertOf): boolean =>
+	of === "insert" && primaryKeyShape(relation).kind !== "span"
 
 /**
  * The verdict of a stored fact an insert meets at its arbiter key that differs from the requested fact at a field it
@@ -238,13 +165,6 @@ const occupantVerdict = (insert: {
 	readonly of: InsertOf
 }): "conflict" | "met" =>
 	insert.of === "insert" && insert.relation.inserts === "race" ? "met" : "conflict"
-
-/** The fields an insert writes: every written field (`writtenFields`), or every one but those a generated addition
- * draws. */
-const insertedFields = (relation: RelationInfo, serial: SerialClass): ReadonlyArray<LawField> =>
-	serial.kind === "generated"
-		? writtenFields(relation).filter((f) => !serial.drawn.includes(f.name))
-		: writtenFields(relation)
 
 const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
 
@@ -298,8 +218,7 @@ const verdictClass = {
  *   own, every gate in it, and each row of it the INSERT did not return, a met row (sql/ast.ts FromSource `metRows`), is
  *   classified by the stored rows its arbitration met (`met`) at the arbiter and then at each other object, read under
  *   the snapshot: a complete proposal reads no stored row for a fact it inserts; a placeholder's gate is a probe at its
- *   key;
- * - `none`: a plain INSERT, a generated addition every declared key of which holds a field it draws.
+ *   key.
  *
  * Complete facts into a primary key holding a span take `every` alone: an exclusion constraint arbitrates an INSERT by
  * ON CONFLICT ON CONSTRAINT DO NOTHING only, so no form at a scalar key tells a requested fact it met from one it made.
@@ -308,24 +227,16 @@ const verdictClass = {
 type Arbitration =
 	| { readonly kind: "returned"; readonly payload: ReadonlyArray<LawField> }
 	| { readonly kind: "every"; readonly objects: Extract<EveryObject, { readonly kind: "named" }> }
-	| { readonly kind: "none" }
 
 const arbitrationOf = (
 	w: WriteContext,
 	relation: WrittenRelation,
-	serial: SerialClass,
 	shape: InsertShape
 ): Arbitration => {
-	if (
-		w.level === "serializable" &&
-		serial.kind === "complete" &&
-		relation.uniques.every.kind === "named"
-	) {
+	if (w.level === "serializable" && relation.uniques.every.kind === "named") {
 		return { kind: "every", objects: relation.uniques.every }
 	}
 	switch (shape.variant) {
-		case "generated":
-			return { kind: "none" }
 		case "spanKey":
 			throw defect(
 				`an insert of complete facts into ${relation.name}, whose primary key holds a span, that arbitrates no object but every one: write/schedule/plan.ts formedAt refuses it at READ COMMITTED`
@@ -373,7 +284,7 @@ const arbitrationOf = (
  * outcome and counts read, and its Returning reads them as the added side and an insertion's met rows as the met side
  * (`writesMet`), so no reader of its rows takes a fact it met for one it made: the verdict CTE is the one reader of
  * RETURNING. The outermost SELECT casts its columns to text. Into a role's query entry an insert runs only at
- * SERIALIZABLE: every arbiter key it meets has a key probe in the entry's precheck (entry/precheck.ts outsideProbes),
+ * SERIALIZABLE: every arbiter key it meets has a key probe in the entry's precheck (insert/unique.ts RelationUniques.probes),
  * and the isolation certifier reads a call of such a probe as a read it states no fact of
  * (program/isolation/extract.ts, a schema function no names clear), so no role that inserts through a query entry is
  * certified READ COMMITTED. The precheck refuses, on its key's
@@ -398,22 +309,6 @@ const arbitrationOf = (
  *   UPDATE wrote. The arbiter stays for a concurrent commit at the key.
  * - Pure sets, whose facts state their key alone: ON CONFLICT (every key column) DO SELECT, every row it met an exact
  *   repeat.
- * - Generated additions, which omit the serial fields their class draws, each taking its identity or its `uuidv7()`
- *   default: where a declared key holds none of those fields and no span, the protocol above at its arbiter, the
- *   primary key where it is such a key, else the one such key (unique.ts generatedArbiter, which refuses a relation
- *   declaring several and no primary key among them), ON CONFLICT (that key) DO SELECT, its payload the fields it
- *   writes beside the key, so
- *   an exact repeat of a stored fact at every field the addition states changes nothing and is met whole, its drawn
- *   fields the stored fact's, and any other occupant of that key is its law's conflict witness; its own refusals, a
- *   same-key pair and the probe's, are raised at the INSERT's gate, since a request it refuses never takes the values
- *   its relation draws. Where every key holds one, a plain INSERT ... RETURNING of the complete row with no arbiter,
- *   every requested fact a new one, probed at every unique object that reads no drawn field (see the probe below). A
- *   serial field the addition carries, one its entry's filter reads or its fill fixes, is an explicit serial value,
- *   written as it is. Equal generated additions are one: a carried or described one is read through SELECT DISTINCT
- *   over its head. A generated class of no field reads the unit input and assigns no column, so every column takes its
- *   identity: `INSERT INTO ... AS "r3" SELECT FROM "r1"`.
- * - Explicit serial values, complete facts' and those a generated addition carries: OVERRIDING SYSTEM VALUE, because
- *   the column is GENERATED ALWAYS; the sequence advance that follows is serial/.
  * - Carriers and described members, which nobody normalized on the host, read SELECT DISTINCT over the input and gate
  *   the INSERT with a same-key check in the same statement:
  *
@@ -431,12 +326,6 @@ const arbitrationOf = (
  *   way and is one more UNION ALL arm of the verdict rows, the requested fact with the object's signed ordinal c11 (0 on
  *   every other row), which raises that object's law; a 23505 or 23P01 the INSERT still raises there is an unseen
  *   occupant, a TransientFailure. A probed statement returns complete facts, which the witness reads from.
- * - A generated addition is probed the same way at every unique object that reads no field it draws but its arbiter,
- *   its primary key among them when that reads none and is not the arbiter. A refused addition never becomes a fact, so
- *   its refusal is no verdict row: the refusal guard over the probe's refusal is the INSERT's own gate, which raises
- *   before anything is inserted, r1 being nonempty whenever a refusal is found in it. Every 23505 or 23P01 the INSERT
- *   still raises aborts the apply: an unseen occupant (UnseenOccupant), or at an object that reads a drawn field a
- *   stored value its sequence had not passed (GeneratedSerialUnique).
  *
  * ORDER BY the primary key under the fixed collation makes concurrent inserters take new-key locks in one order.
  * Every input value is cast to its column's type where it is not already of that type
@@ -453,8 +342,7 @@ const arbitrationOf = (
  * of complete facts into it arbitrates every object at SERIALIZABLE (Arbitration `every`), the span key among them,
  * probed for the requested pairs overlapping within the input, and its met rows are classified: one at the key's own
  * span, an exact repeat or the key law, or on a put's insert half a concurrent change, SpanKeyChange; one at another
- * overlapping span, the key law. At READ COMMITTED it has no form (write/schedule/plan.ts formedAt). A generated addition
- * there stays a plain INSERT, probed at the span key when it reads no field the addition draws.
+ * overlapping span, the key law. At READ COMMITTED it has no form (write/schedule/plan.ts formedAt).
  *
  * Under a transaction snapshot every stored row an insert meets is read under that snapshot, so SSI sees an exact
  * repeat, which inserts nothing, as a read of the stored fact: `every`'s met rows by their met read, and `returned`'s by
@@ -470,20 +358,16 @@ export const buildInsert = (
 	w: WriteContext,
 	spec: InsertSpec
 ): ModifyingStatement<InsertResult> => {
-	const { relation, serial, input } = spec
+	const { relation, input } = spec
 	const at = `insert ${relation.name}`
-	const { arbiter, stated } = arbiterOf(relation, serial)
-	const shape = shapeOf(relation, serial, inputStated(input))
+	const shape = insertShape(relation, inputStated(input))
 	const variant: InsertVariant = shape.variant
-	/** A generated addition's verdict rows are the facts its INSERT made: a request it refuses never takes the values its
-	 * relation draws, so its own refusals, a same-key pair and the probe's, are raised at the INSERT's gate. */
-	const atGate = serial.kind === "generated"
 	const guarantees = inputGuarantees(input)
 	const sameKeyCheck = variant === "protocol" && !keyUniqueBy(guarantees.keyUnique)
-	const written = insertedFields(relation, serial)
-	const proposes = proposalOf(relation, serial, insertArbitered(relation, serial))
-	const arbitration = arbitrationOf(w, relation, serial, shape)
-	const meets = writesMet(relation, serial, spec.of)
+	const written = writtenFields(relation)
+	const proposes = proposalOf(relation)
+	const arbitration = arbitrationOf(w, relation, shape)
+	const meets = writesMet(relation, spec.of)
 	/** The class of a stored fact the insert meets at its arbiter key that differs from the request at a stated field
 	 * (`occupantVerdict`). */
 	const differing =
@@ -508,32 +392,23 @@ export const buildInsert = (
 			)
 		}))
 	const all = keyFirst(relation)
-	/** The key the insert meets stored facts at and the law a conflict there raises, its arbiter's; a plain INSERT's,
-	 * which meets none, is the primary key's, which it orders and compares nothing by. */
-	const pk = arbiter === undefined ? relation.primaryFields : arbiter.key
-	const pkLaw = arbiter === undefined ? arbiterLaw(relation) : arbiter.law
+	/** The key the insert meets stored facts at and the law a conflict there raises, its arbiter's: the primary key's. */
+	const pk = relation.primaryFields
+	const pkLaw = arbiterLaw(relation)
 	/** Every comparison is at its field's type: a vector, in the payload or in a small key, compares through the
 	 * extension's qualified operator, which a bare or row comparison would resolve through the search_path. */
 	const typeOf = rowType
 	const same = (f: LawField, a: Expr, b: Expr): Expr => typedEq(rowType(f), a, b, w.names)
 	const integer = (n: number): Expr => lit.int(n, types.integer)
-	/** The requested facts the probe reads and the objects it probes (`buildProbe`): a generated addition is probed at every
-	 * object that reads no field it draws, complete facts at every object besides the arbiter. */
-	const probed: { readonly requested: Requested; readonly checks: ReadonlyArray<Probed> } =
-		serial.kind === "generated"
-			? {
-					requested:
-						stated === undefined ? { kind: "none", fields } : { kind: "stated", arbiter: stated },
-					checks: generatedChecks(relation.uniques, serial.drawn, stated)
-				}
-			: {
-					requested: { kind: "complete", arbiter: relation.uniques.arbiter },
-					checks: relation.uniques.checks
-				}
+	/** The requested facts the probe reads and the objects it probes (`buildProbe`): every object besides the arbiter. */
+	const probed: { readonly requested: Requested; readonly checks: ReadonlyArray<Probed> } = {
+		requested: { kind: "complete", arbiter: relation.uniques.arbiter },
+		checks: relation.uniques.checks
+	}
 	/** The outer SELECT returns complete facts: a read-back and the netting across strata read them, and a unique
 	 * refusal's witness is the requested fact at the object's fields. */
 	const outFields = all
-	const sharing = inputSharing(w.share.inserts, [input], [relation, serial, input, spec.of])
+	const sharing = inputSharing(w.share.inserts, [input], [relation, input, spec.of])
 	return buildStatement(w, sharing, (supply) => {
 		const scan = supply.relation(internal("input scan"))
 		const r1 = supply.relation(internal("input"))
@@ -542,19 +417,15 @@ export const buildInsert = (
 		const r4 = sameKeyCheck ? supply.relation(internal("same-key check")) : undefined
 		const inputs = fieldColumns(fields, () => supply.column(internal("input column")))
 		const returned = fieldColumns(all, () => supply.column(internal("returned column")))
-		/** The verdict column (`verdictClass`), each verdict row's class, of an insert that meets stored facts at a scalar key or
-		 * at every object; none for a plain INSERT or a span key's, every row of which is a fact it inserted. */
-		const cV =
-			arbitration.kind === "returned" || arbitration.kind === "every"
-				? supply.column(internal("verdict"))
-				: undefined
+		/** The verdict column (`verdictClass`), each verdict row's class. */
+		const cV = supply.column(internal("verdict"))
 		/** The met marker of a `returned` insert's RETURNING: whether OLD is a stored row, so the row is one the arbiter met. */
 		const metMark =
 			arbitration.kind === "returned" ? supply.column(internal("met marker")) : undefined
 		const keys = fieldColumns(r4 === undefined ? [] : pk, () =>
 			supply.column(internal("same-key column"))
 		)
-		const c9 = r4 === undefined || atGate ? undefined : supply.column(internal("same-key marker"))
+		const c9 = r4 === undefined ? undefined : supply.column(internal("same-key marker"))
 		const read = readInput(
 			w,
 			input,
@@ -601,55 +472,18 @@ export const buildInsert = (
 		if (probe !== undefined) {
 			appendAll(ctes, probe.ctes)
 		}
-		/** Where the probe's refusal is raised (see `buildInsert`): at the INSERT's own gate for a generated addition,
-		 * whose verdict rows are the complete facts the INSERT made, which a refused addition never becomes; else as a
-		 * verdict row marked by its object's signed ordinal, beside the rows of the arms that read what the INSERT
-		 * returned. */
+		/** Where the probe's refusal is raised (see `buildInsert`): as a verdict row marked by its object's signed ordinal,
+		 * beside the rows of the arms that read what the INSERT returned. */
 		const unique: ProbeRaise =
 			probe === undefined
 				? { kind: "none" }
-				: atGate
-					? { kind: "gate", guarded: probeGuard(w, supply, relation.name, probe) }
-					: { kind: "verdict", probe, marker: supply.column(internal("unique marker")) }
-		if (unique.kind === "gate") {
-			ctes.push(unique.guarded.cte)
-		}
+				: { kind: "verdict", probe, marker: supply.column(internal("unique marker")) }
 		const cU = unique.kind === "verdict" ? unique.marker : undefined
 		/** Into a family owner, only the requested facts no row stores (`proposalOf`). */
 		const unstored = proposes === "unstored" ? [storedAbsent(w, supply, relation, pk, inCol)] : []
-		/** A generated addition's same-key pair raises its arbiter key's law at the gate, its key read from r4. */
-		const sharedKey =
-			r4 === undefined || !atGate
-				? undefined
-				: refusalGuard({
-						supply,
-						schema: w.names.schema,
-						verdicts: r4,
-						arms: [
-							{
-								rank: refusalRank.sameKey,
-								when: lit.bool(true),
-								refusal: {
-									kind: "law",
-									law: pkLaw,
-									relation: relation.name,
-									key: pk.map((f) => ({
-										field: f.name,
-										expr: col(r4, keys.of(f)),
-										type: rowType(f)
-									}))
-								}
-							}
-						]
-					})
-		if (sharedKey !== undefined) {
-			ctes.push(sharedKey.cte)
-		}
 		const gates = [
-			...(r4 === undefined ? [] : [sharedKey === undefined ? noSharedKey(r4) : sharedKey.guard]),
-			...(unique.kind === "none"
-				? []
-				: [unique.kind === "gate" ? unique.guarded.guard : unique.probe.gate]),
+			...(r4 === undefined ? [] : [noSharedKey(r4)]),
+			...(unique.kind === "none" ? [] : [unique.probe.gate]),
 			...unstored
 		]
 		/**
@@ -688,7 +522,7 @@ export const buildInsert = (
 							[cteRef(r1)],
 							conjunction(gates)
 						),
-						orderBy: variant === "generated" ? [] : pk.map((f) => asc(inCol(f)))
+						orderBy: pk.map((f) => asc(inCol(f)))
 					}
 				: {
 						...provedSelect(
@@ -706,8 +540,6 @@ export const buildInsert = (
 			switch (arbitration.kind) {
 				case "every":
 					return { kind: "every", action: { kind: "doNothing" } }
-				case "none":
-					return undefined
 				case "returned":
 					return {
 						kind: "columns",
@@ -733,7 +565,6 @@ export const buildInsert = (
 			table: w.names.relation(relation.name),
 			alias: r3,
 			columns: [...fields.map(column), ...starts.map((s) => column(s.field))],
-			overriding: explicitSerials(relation, serial).length > 0 ? "SYSTEM VALUE" : undefined,
 			source: { kind: "query", query: source },
 			onConflict: conflictOf(),
 			returning: [
@@ -1067,16 +898,14 @@ export const buildInsert = (
 					return everyBody(
 						arbitration.objects,
 						defined(proposed, "the CTE an insert arbitrating every object proposes"),
-						defined(cV, "the verdict column of an insert arbitrating every object")
+						cV
 					)
 				case "returned":
 					return returnedBody(
 						arbitration.payload,
-						defined(cV, "the verdict column of an insert its arbiter returns"),
+						cV,
 						defined(metMark, "the met marker of an insert its arbiter returns")
 					)
-				case "none":
-					return provedCore("keyed", [...factOf(r2, retCol), ...zero], [cteRef(r2)], undefined)
 			}
 		}
 		const verdicts = verdictRows()
@@ -1091,7 +920,7 @@ export const buildInsert = (
 							"keyed",
 							[
 								...outFields.map((f) => target(unique.probe.refusalValue(f))),
-								...(cV === undefined ? [] : [target(integer(verdictClass.raised))]),
+								target(integer(verdictClass.raised)),
 								...(c9 === undefined ? [] : [target(lit.bool(false))]),
 								target(unique.probe.ordinal)
 							],
@@ -1102,7 +931,7 @@ export const buildInsert = (
 		const rv = supply.relation(internal("verdicts"))
 		const verdictColumns = [
 			...outFields.map(retCol),
-			...(cV === undefined ? [] : [cV]),
+			cV,
 			...(c9 === undefined ? [] : [c9]),
 			...(cU === undefined ? [] : [cU])
 		]
@@ -1159,52 +988,49 @@ export const buildInsert = (
 				)
 			)
 		}
-		if (cV !== undefined) {
-			const classIs = (n: number): Expr => eq(verdict(cV), integer(n))
-			const changeReason: ConcurrentChangeTag =
-				arbitration.kind === "every" && arbitration.objects.arbiter.kind === "span"
-					? "SpanKeyChange"
-					: "PutTargetConflict"
+		const classIs = (n: number): Expr => eq(verdict(cV), integer(n))
+		const changeReason: ConcurrentChangeTag =
+			arbitration.kind === "every" && arbitration.objects.arbiter.kind === "span"
+				? "SpanKeyChange"
+				: "PutTargetConflict"
+		arms.push({
+			from: fromVerdicts,
+			rank: refusalRank.conflict,
+			when: classIs(verdictClass.conflict),
+			refusal: keyLaw(pk, pkLaw, verdictAt)
+		})
+		if (spec.of === "put") {
 			arms.push({
 				from: fromVerdicts,
-				rank: refusalRank.conflict,
-				when: classIs(verdictClass.conflict),
-				refusal: keyLaw(pk, pkLaw, verdictAt)
+				rank: refusalRank.change,
+				when: classIs(verdictClass.change),
+				refusal: change(changeReason, verdictAt)
 			})
-			if (spec.of === "put") {
+		}
+		if (arbitration.kind === "every") {
+			for (const [i, u] of arbitration.objects.others.entries()) {
 				arms.push({
 					from: fromVerdicts,
-					rank: refusalRank.change,
-					when: classIs(verdictClass.change),
-					refusal: change(changeReason, verdictAt)
-				})
-			}
-			if (arbitration.kind === "every") {
-				for (const [i, u] of arbitration.objects.others.entries()) {
-					arms.push({
-						from: fromVerdicts,
-						rank: refusalRank.uniqueStored,
-						when: classIs(verdictClass.other + i),
-						refusal: keyLaw(witnessFields(u), u.law, verdictAt)
-					})
-				}
-			}
-			if (arbitration.kind === "every") {
-				arms.push({
-					from: fromVerdicts,
-					rank: refusalRank.defect,
-					when: classIs(verdictClass.defect),
-					refusal: {
-						kind: "defect",
-						relation: relation.name,
-						constraint: w.names.primaryKey(relation.name),
-						key: keyOf(pk, verdictAt)
-					}
+					rank: refusalRank.uniqueStored,
+					when: classIs(verdictClass.other + i),
+					refusal: keyLaw(witnessFields(u), u.law, verdictAt)
 				})
 			}
 		}
-		/** A statement with no arm here refuses nothing after its INSERT: a generated addition, whose probe raises at its
-		 * gate, or a pure set or a span key insert with no unique object besides its arbiter. */
+		if (arbitration.kind === "every") {
+			arms.push({
+				from: fromVerdicts,
+				rank: refusalRank.defect,
+				when: classIs(verdictClass.defect),
+				refusal: {
+					kind: "defect",
+					relation: relation.name,
+					constraint: w.names.primaryKey(relation.name),
+					key: keyOf(pk, verdictAt)
+				}
+			})
+		}
+		/** The arms the statement refuses by after its INSERT, its arbiter key's conflict among them. */
 		const guarded = isNonEmpty(arms) ? sourcedRefusalGuard(supply, w.names.schema, arms) : undefined
 		if (guarded !== undefined) {
 			ctes.push(guarded.cte)
@@ -1213,27 +1039,22 @@ export const buildInsert = (
 			kind: "insert",
 			relation: relation.name,
 			variant,
-			serial,
 			of: spec.of,
 			proposes,
 			columns,
 			fields: fieldNames(outFields),
 			key: fieldNames(relation.primaryFields)
 		}
-		const inserted = cV === undefined ? [] : [eq(verdict(cV), integer(verdictClass.inserted))]
-		/** Each side of the rows the statement returns (statement.ts Returning): the verdict rows of each class, where
-		 * they carry one; else every row its INSERT returned, a fact it inserted. */
-		const returning: Returning =
-			cV === undefined
-				? { cte: r2, kind: "added", added: { columns: returned, conditions: [] } }
-				: meets
-					? {
-							cte: rv,
-							kind: "insertion",
-							added: { columns: returned, conditions: inserted },
-							met: { columns: returned, conditions: [eq(verdict(cV), integer(verdictClass.met))] }
-						}
-					: { cte: rv, kind: "added", added: { columns: returned, conditions: inserted } }
+		const inserted = [eq(verdict(cV), integer(verdictClass.inserted))]
+		/** Each side of the rows the statement returns (statement.ts Returning): the verdict rows of each class. */
+		const returning: Returning = meets
+			? {
+					cte: rv,
+					kind: "insertion",
+					added: { columns: returned, conditions: inserted },
+					met: { columns: returned, conditions: [eq(verdict(cV), integer(verdictClass.met))] }
+				}
+			: { cte: rv, kind: "added", added: { columns: returned, conditions: inserted } }
 		return {
 			ast: {
 				...returnedRows(

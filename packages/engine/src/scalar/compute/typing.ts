@@ -1970,7 +1970,7 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * A parameter, of its declared type: a term like any other, its serial its integer. Its placeholder is typed by its
+	 * A parameter, of its declared type: a term like any other. Its placeholder is typed by its
 	 * refinement's domain where its declared type is a contract or a pattern (lower/conservative/context.ts
 	 * paramTypeRef), which PostgreSQL checks the value against as it binds it, so the parameter has its type's bounds and
 	 * facts, a contract's declared ones among them.

@@ -43,7 +43,7 @@ export interface RowColumn {
 
 /**
  * A member relation's rows as every family statement writes them (draw.ts Row): its key fields, in key order; then
- * every other column the host writes, its caller's, serial, drawn and accumulated fields in its field order, and then,
+ * every other column the host writes, its caller's, drawn and accumulated fields in its field order, and then,
  * for each family it is a member of, in the law model's order, its drawn law columns: a counted index ‹i›, ‹n›, a
  * tree's ‹ps›, and each fold's hidden accumulators, by fold and plane, the before then the after. A generated field is
  * PostgreSQL's, so none is listed.

@@ -1,18 +1,13 @@
 /**
- * Two writers of one certified READ COMMITTED role collide on a generated addition's keys, and each call answers as
- * some serial order does.
+ * Two writers of one certified READ COMMITTED role collide on an addition's keys, and each call answers as some serial
+ * order does.
  *
- * Sitting(id, child, test, attempt, note, slot) draws `id` by its `uuidv7()` default and is keyed by (child, test,
- * attempt), its primary key, and by slot. A generated addition leaves `id` out, so its arbiter is (child, test,
- * attempt), the primary key, which holds no drawn field (write/insert/unique.ts generatedArbiter), and slot is a unique
- * object besides it. The role `learner` holds Sitting and
- * Gate by its insert list alone, and its workload is `start`, an insertion of sittings, and `held`, an insertion of
- * sittings and then, in a later stratum, of a Gate row, each in two forms, drawn per case: the sittings an array of the
- * call's facts, or a query over the call's relation parameter `sittings`, whose head leaves the id out, as edullm's
- * Start inserts its sitting, reading back the sittings it added and the stored sittings it met (`startRead`,
- * `heldRead`). An array's read-back would be refused: an array of Sitting is two insertions, of the rows that state the
- * id and of those that leave it out, so its added and met sides are two statements' (README "Where a read-back runs").
- * The schema and its logins are installed and served as `grizzle generate` drafts them (schedules/rig.ts openRig):
+ * Sitting(child, test, attempt, note, slot) is keyed by (child, test, attempt), its natural identity and its primary
+ * key, the insert's arbiter, and by slot, a unique object besides it. The role `learner` holds Sitting and Gate by its
+ * insert list alone, and its workload is `start`, an insertion of sittings, and `held`, an insertion of sittings and
+ * then, in a later stratum, of a Gate row, each in two forms, drawn per case: the sittings an array of the call's
+ * facts, or a query over the call's relation parameter `sittings`, as edullm's Start inserts its sitting, reading back
+ * the sittings it added and the stored sittings it met (`startRead`, `heldRead`). The schema and its logins are installed and served as `grizzle generate` drafts them (schedules/rig.ts openRig):
  * `learner` runs at the level generate certifies, which the case requires to be READ COMMITTED, read off each
  * writer's served Db.
  *
@@ -28,9 +23,8 @@
  *   pg_locks until B's call ends, so a wait the model does not predict, and one it predicts that never comes, fails
  *   the case where it happens.
  * - Each call answers what the serial order A, then B, answers:
- *   - an exact repeat at the arbiter key, a row equal at every field the addition states, is no change, and a query
- *     member's call reads that stored row back whole through delta.met, its id the one the database drew for it, a row
- *     in flight it waited for included, on the first try;
+ *   - an exact repeat at the arbiter key, a row equal at every field, is no change, and a query member's call reads
+ *     that stored row back whole through delta.met, a row in flight it waited for included, on the first try;
  *   - a differing row at the arbiter key refuses the key (child, test, attempt), its witness that key;
  *   - a row at slot with the arbiter key free refuses slot: by the probe, its witness the requested slot, where the
  *     statement's snapshot sees the occupant; otherwise by PostgreSQL's 23505 after the wait, a typed refusal on slot's
@@ -38,8 +32,7 @@
  *     `unreported` where it states several or the rows are a query's, which the host does not hold;
  *   - every other request is inserted, and a call that inserts any row is accepted with that count, a query member's
  *     reading back through delta.added exactly the rows it made.
- * - The table ends as the serial order leaves it: one row per key, each stored row with its id, every id a version 7
- *   uuid.
+ * - The table ends as the serial order leaves it: one row per key.
  *
  * Oracle: the serial model below, over the stated rows alone. The probe's refusal, both arbiter waits, every 23505
  * witness and both met rows read back are required features, among every other kind of answer; a witness whose turn
@@ -91,11 +84,11 @@ import { lockWaitOf } from "#test/support/substrate/barrier.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Colliding generated additions of a certified READ COMMITTED role answer as the serial order does.
+ * Colliding additions of a certified READ COMMITTED role answer as the serial order does.
  *
  * Its pre-conversion budget: runs 400, coverage cases 400 (test/schedules/write/collisions.test.ts at d8eed1786).
  */
-export const collidingGeneratedAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsTheSerialOrderDoes =
+export const collidingAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsTheSerialOrderDoes =
 	property.explore(aimed(collisionGen, [...aims, ...doubleStartAims]), {
 		needs: { rigged: Substrate.seat(collisionsRig) },
 		situations: [
@@ -137,7 +130,7 @@ export const collidingGeneratedAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsThe
 								}
 								const sittings = names.table(Sitting)
 								const gate = names.table(Gate)
-								const column = (field: "id" | "child" | "test" | "attempt" | "note" | "slot") =>
+								const column = (field: (typeof statedFields)[number]) =>
 									names.column(Sitting, field)
 								const open = (context: Parameters<Parameters<typeof rig.servedWriter>[1]>[0]) =>
 									openServed(rig.served.roles.learner, {}).pipe(Effect.provideContext(context))
@@ -168,14 +161,14 @@ export const collidingGeneratedAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsThe
 								const stateQuery = `SELECT ${Arr.join(
 									Arr.map(statedFields, (f) => `${column(f)}::text`),
 									", "
-								)}, ${column("id")}::text, pg_catalog.uuid_extract_version(${column("id")})::text FROM ${sittings} ORDER BY 1, 2, 3`
+								)} FROM ${sittings} ORDER BY 1, 2, 3`
 								const state = Effect.map(s.admin.queryValues(stateQuery, []), (rows) =>
 									Arr.map(rows, (row) => Arr.map(row, textOf))
 								)
 								/**
 								 * Where a call's answer departs from its expectation, why; none where it is the expected one. An answer that
 								 * inserts reads back as added exactly the stored rows at the keys it inserted at, and as met exactly the stored
-								 * rows at the keys it repeats, each whole, its drawn id the stored row's (`final`, the table's last state, every
+								 * rows at the keys it repeats, each whole (`final`, the table's last state, every
 								 * stored row of which is fixed once committed).
 								 */
 								const departure = (
@@ -314,7 +307,6 @@ export const collidingGeneratedAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsThe
 												)}`
 											]
 								)
-								const before = yield* state
 								const first = judge(c.form, c.a, c.stored, [])
 								/** The sittings A's call makes, as the model has it. */
 								const madeByA = first.expected.kind === "inserted" ? first.expected.rows : []
@@ -368,22 +360,12 @@ export const collidingGeneratedAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsThe
 									second.expected.kind === "inserted" ? second.expected.rows : []
 								)
 								assert.deepEqual(
-									Arr.map(final, (row) => Arr.take(row, 5)),
+									final,
 									Arr.map(Arr.sort(after, byKey), (r) =>
 										Arr.map([r.child, r.test, r.attempt, r.note, r.slot], String)
 									),
 									"the table holds what the serial order leaves"
 								)
-								assert.ok(
-									Arr.every(final, (row) => row[6] === "7"),
-									"every id is a version 7 uuid"
-								)
-								for (const row of before) {
-									assert.ok(
-										Arr.some(final, (f) => deepEquals(f, row)),
-										`stored row ${Formatter.format(row)} keeps its id`
-									)
-								}
 							}),
 							Substrate,
 							taken.substrate

@@ -50,10 +50,7 @@ const F = {
 /** A field its caller writes. */
 const c = (type: FieldDesc): FieldDecl<object> => ({ type, writing: { kind: "caller" } })
 
-/** An integer field its sequence draws, GENERATED ALWAYS AS IDENTITY. */
-const serial = (type: FieldDesc): FieldDecl<object> => ({ type, writing: { kind: "serial" } })
-
-/** Contracts over numeric types, a contract over a contract, serial identities. */
+/** Contracts over numeric types and a contract over a contract. */
 const Cents: FieldDesc = {
 	kind: "contract",
 	name: "Cents",
@@ -88,9 +85,9 @@ const EpochDay: FieldDesc = {
 const Code: FieldDesc = textDesc("^[A-Z]{3}$", "u")
 
 /** Every native object kind the fresh-install compiler installs outside spans: two rosters' domains and a closed
- * relation over both, with a text and contract payload, structural and contract domains, serial identities, a
- * candidate key, a mutable relation, a row CHECK, a key over a selected source, a containment into the closed relation
- * (a closed CHECK), a selected target (a constant law column, a generated composite unique and a deferred foreign key
+ * relation over both, with a text and contract payload, structural and contract domains, a candidate key, a mutable
+ * relation, a row CHECK, a key over a selected source, a containment into the closed relation (a closed CHECK), a
+ * selected target (a constant law column, a generated composite unique and a deferred foreign key
  * ending in that column), money, floats, numeric(p, s), booleans and a vector. */
 export const Ledger: SchemaDesc = {
 	name: "Ledger",
@@ -117,7 +114,7 @@ export const Ledger: SchemaDesc = {
 			kind: "relation",
 			name: "Account",
 			fields: {
-				id: serial(F.bigint),
+				id: c(F.bigint),
 				code: c(Code),
 				currency: c({ kind: "closedId", roster: "Currency" }),
 				opened: c(EpochDay)
@@ -128,7 +125,7 @@ export const Ledger: SchemaDesc = {
 			kind: "relation",
 			name: "Entry",
 			fields: {
-				id: serial(F.integer),
+				id: c(F.integer),
 				account: c(F.bigint),
 				purpose: c({ kind: "closedId", roster: "Purpose" }),
 				amount: c(Cents),

@@ -1002,27 +1002,30 @@ export const skewShape = (name: string) => {
 
 const ClaimSitting = relation(
 	"Sitting",
-	{ id: pg.uuidv7, child: pg.integer, test: pg.integer, attempt: pg.integer, opener: pg.integer },
-	["id"]
+	{ child: pg.integer, test: pg.integer, attempt: pg.integer, opener: pg.integer },
+	["child", "test", "attempt"]
 )
-const Claim = relation("Claim", { sitting: uuid, by: pg.integer }, ["sitting", "by"])
+const Claim = relation(
+	"Claim",
+	{ child: pg.integer, test: pg.integer, attempt: pg.integer, by: pg.integer },
+	["child", "test", "attempt", "by"]
+)
 const Pt = relation("Pt", { test: pg.integer }, ["test"])
 
 /**
- * NEGATION's arbitrated-read history under the name `name`: a Sitting whose id the database draws (pg.uuidv7), keyed
- * also by (child, test, attempt), with the call that opened it; the `claimer`'s `claimStart(child, test, attempt, by)`
- * inserts a Sitting opened by `by` and then a Claim of the Sitting at (child, test, attempt), and the `publisher`'s
- * `publish(test)` inserts Pt(test). The opener makes a call's Sitting its own: two calls' Sittings at one key differ,
- * so a call that comes after another's is refused, where an exact repeat would be a no-change that shows nothing. Where
- * `gated`, the Sitting's insert reads the published Pt(test), so a call that misses it inserts none and its second
- * statement claims another call's Sitting: two snapshots of rows another call writes. Where not, the Sitting comes from
- * the parameters alone, CHUNK's startSitting, the positive twin.
+ * NEGATION's arbitrated-read history under the name `name`: a Sitting keyed by (child, test, attempt), with the call
+ * that opened it; the `claimer`'s `claimStart(child, test, attempt, by)` inserts a Sitting opened by `by` and then a
+ * Claim by `by` of the Sitting it reads at (child, test, attempt), and the `publisher`'s `publish(test)` inserts
+ * Pt(test). The opener makes a call's Sitting its own: two calls' Sittings at one key differ, so a call that comes
+ * after another's is refused, where an exact repeat would be a no-change that shows nothing. Where `gated`, the
+ * Sitting's insert reads the published Pt(test), so a call that misses it inserts none and its second statement claims
+ * another call's Sitting: two snapshots of rows another call writes. Where not, the Sitting comes from the parameters
+ * alone, CHUNK's startSitting, the positive twin.
  */
 export const claimShape = (name: string, gated: boolean) => {
 	const relations = { Sitting: ClaimSitting, Claim, Pt } as const
 	const base = schema(name, Rec.values(relations), [
-		key(on(ClaimSitting, "child", "test", "attempt")),
-		contained(on(Claim, "sitting"), on(ClaimSitting, "id"))
+		contained(on(Claim, "child", "test", "attempt"), on(ClaimSitting, "child", "test", "attempt"))
 	])
 	const claimer = role(base, "claimer", relations, { insert: ["Sitting", "Claim"] })
 	const publisher = role(base, "publisher", relations, { insert: ["Pt"] })
@@ -1049,15 +1052,15 @@ export const claimShape = (name: string, gated: boolean) => {
 		ChangeSet.empty(claimer).insert(
 			mine.Claim,
 			query(claimer).rule((r) => {
-				const { id } = v(mine.Sitting, "sitting")
+				const { child, test, attempt } = v(mine.Sitting, "sitting")
 				return r
-					.match(mine.Sitting, {
-						id,
-						child: r.param("child", pg.integer),
-						test: r.param("test", pg.integer),
-						attempt: r.param("attempt", pg.integer)
-					})
-					.find({ sitting: id, by: r.param("by", pg.integer) })
+					.match(mine.Sitting, { child, test, attempt })
+					.where(
+						r.eq(child, r.param("child", pg.integer)),
+						r.eq(test, r.param("test", pg.integer)),
+						r.eq(attempt, r.param("attempt", pg.integer))
+					)
+					.find({ child, test, attempt, by: r.param("by", pg.integer) })
 			})
 		)
 	)

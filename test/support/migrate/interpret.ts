@@ -37,9 +37,9 @@ import { upTo } from "#test/support/up-to.ts"
  * and its preconditions, which PostgreSQL's dependency facts state, and fails where PostgreSQL would, with the SQLSTATE
  * it would raise:
  *
- * - Namespaces. Tables, materialized views, sequences and indexes share one relation namespace (pg_class); domains
- *   and the row type of every table and view share the type namespace (pg_type), a sequence and an index
- *   taking none (heap.c heap_create_with_catalog); extended
+ * - Namespaces. Tables, materialized views and indexes share one relation namespace (pg_class); domains and the row
+ *   type of every table and view share the type namespace (pg_type), an index taking none (heap.c
+ *   heap_create_with_catalog); extended
  *   statistics have their own; a table's constraints share one per table, and its triggers another. A name taken in
  *   its namespace is refused (42P07 for a relation, 42710 otherwise); a key's or an exclusion's index takes its
  *   constraint's name in the relation namespace.
@@ -53,15 +53,15 @@ import { upTo } from "#test/support/up-to.ts"
  *   drop, 0A000 on a type change); a trigger's UPDATE OF and WHEN pin their columns the same way, and a trigger its function
  *   (2BP01). A world's view, in its own schema, pins what it reads of this schema the same way, and so does a row
  *   security policy the columns its predicate names; a world's schema holding a view cannot be dropped (2BP01). A
- *   domain cannot be dropped while a column or a domain is of it (2BP01), nor a sequence an identity column owns. A
+ *   domain cannot be dropped while a column or a domain is of it (2BP01). A
  *   function is dropped RESTRICT, as every grizzle DROP FUNCTION is: while a domain's CHECK, a table's CHECK, a
  *   generated column, a view, another function's body or a trigger calls it, it is refused naming that dependent
  *   (2BP01), as PostgreSQL's pg_depend records each (recordDependencyOnExpr). Every foreign key's columns compare (42804, see comparable) at the end of each statement, as PostgreSQL adds
  *   every key over a converted column again.
- * - What goes along. A dropped column takes the constraints, indexes and statistics objects over it, and its identity
- *   sequence; a dropped table its constraints, indexes, triggers, statistics and sequences; a dropped view its indexes.
- *   A rename is followed by everything that names the object: a table's constraints, indexes, triggers, statistics,
- *   sequences and the foreign keys and views that reference it; a column's every constraint, index, statistics
+ * - What goes along. A dropped column takes the constraints, indexes and statistics objects over it; a dropped table
+ *   its constraints, indexes, triggers and statistics; a dropped view its indexes. A rename is followed by everything
+ *   that names the object: a table's constraints, indexes, triggers, statistics and the foreign keys and views that
+ *   reference it; a column's every constraint, index, statistics
  *   object, trigger column and view column; an index's constraint and a constraint's index, which PostgreSQL renames
  *   together; a type's columns and domains.
  * - Rows. A NOT NULL column added to a table with rows needs a value (23502); a column converted by its cast to a type
@@ -117,14 +117,11 @@ type Conversion =
 const unknownExpression: Conversion = { kind: "given", value: () => undefined }
 
 /**
- * What generates a column's values: nothing, its identity sequence, its `uuidv7()` default, which fills it only where
- * an INSERT leaves it out, its stored expression, or a partial projection's stored CASE, which is NULL outside its
- * selection.
+ * What generates a column's values: nothing, its retirement default, its stored expression, or a partial projection's
+ * stored CASE, which is NULL outside its selection.
  */
 export type Generation =
 	| { readonly kind: "none" }
-	| { readonly kind: "identity"; readonly sequence: string }
-	| { readonly kind: "uuidv7" }
 	| { readonly kind: "retirement" }
 	| { readonly kind: "stored"; readonly calls: ReadonlyArray<string> }
 	| { readonly kind: "partial"; readonly calls: ReadonlyArray<string> }
@@ -189,11 +186,6 @@ export interface Index {
 	readonly order: number
 }
 
-/** A sequence: free, or the identity of a table's column, which owns it. */
-export type Sequence =
-	| { readonly kind: "free" }
-	| { readonly kind: "identity"; readonly table: string; readonly column: string }
-
 export interface Statistics {
 	readonly table: string
 	readonly columns: ReadonlyArray<string>
@@ -249,7 +241,6 @@ export interface State {
 	/** Each table's constraints, by table, then by constraint name. */
 	readonly constraints: ReadonlyMap<string, ReadonlyMap<string, Constraint>>
 	readonly indexes: ReadonlyMap<string, Index>
-	readonly sequences: ReadonlyMap<string, Sequence>
 	readonly statistics: ReadonlyMap<string, Statistics>
 	/** Each table's triggers, by table, then by trigger name. */
 	readonly triggers: ReadonlyMap<string, ReadonlyMap<string, Trigger>>
@@ -270,7 +261,6 @@ export const emptyState: State = {
 	domains: new Map(),
 	constraints: new Map(),
 	indexes: new Map(),
-	sequences: new Map(),
 	statistics: new Map(),
 	triggers: new Map(),
 	views: new Map(),
@@ -484,10 +474,6 @@ const generationOf = (c: ColumnDef, schema: string): Generation => {
 		return { kind: "none" }
 	}
 	switch (c.generated.kind) {
-		case "identity":
-			return { kind: "identity", sequence: c.generated.sequence.name }
-		case "uuidv7":
-			return { kind: "uuidv7" }
 		case "retirement":
 			return { kind: "retirement" }
 		case "stored":
@@ -1448,7 +1434,6 @@ class Model {
 	readonly #tables = new Map<string, Live>()
 	readonly #constraints = new Map<string, Map<string, Constraint>>()
 	readonly #indexes = new Map<string, Index>()
-	readonly #sequences = new Map<string, Sequence>()
 	readonly #statistics = new Map<string, Statistics>()
 	readonly #triggers = new Map<string, Map<string, Trigger>>()
 	readonly #views = new Map<string, View>()
@@ -1489,9 +1474,6 @@ class Model {
 		for (const [name, x] of state.indexes) {
 			this.#indexes.set(name, x)
 		}
-		for (const [name, x] of state.sequences) {
-			this.#sequences.set(name, x)
-		}
 		for (const [name, x] of state.statistics) {
 			this.#statistics.set(name, x)
 		}
@@ -1518,18 +1500,12 @@ class Model {
 		return name.schema === this.#schema
 	}
 
-	/** The relation namespace (pg_class): tables, views, sequences and indexes. */
+	/** The relation namespace (pg_class): tables, views and indexes. */
 	#relationTaken(name: string): boolean {
-		return (
-			this.#tables.has(name) ||
-			this.#views.has(name) ||
-			this.#sequences.has(name) ||
-			this.#indexes.has(name)
-		)
+		return this.#tables.has(name) || this.#views.has(name) || this.#indexes.has(name)
 	}
 
-	/** The type namespace (pg_type): domains, declared functions' row types, and the row types of tables and views; a
-	 * sequence has none. */
+	/** The type namespace (pg_type): domains, declared functions' row types, and the row types of tables and views. */
 	#typeTaken(name: string): boolean {
 		return (
 			this.#domains.has(name) ||
@@ -1678,26 +1654,12 @@ class Model {
 				`the NOT NULL column ${column.name} is added to ${printObjectName(table)}, which holds rows, without a value`
 			)
 		}
-		if (column.generation.kind === "identity") {
-			this.#claimSequence(column.generation.sequence, table.name, column.name)
-		}
 		t.columns.push(column)
 		if (cell !== undefined) {
 			for (const row of t.rows) {
 				row.set(column.name, cell)
 			}
 		}
-	}
-
-	/** A sequence takes its name in the relation namespace alone: it has no row type. */
-	#claimSequence(name: string, table: string, column: string): void {
-		if (this.#relationTaken(name)) {
-			refuse(
-				"42P07",
-				`the relation ${name} already exists, so the identity sequence of ${table}.${column} cannot take it`
-			)
-		}
-		this.#sequences.set(name, { kind: "identity", table, column })
 	}
 
 	#dropColumn(table: ObjectName, column: string): void {
@@ -1740,9 +1702,6 @@ class Model {
 				this.#statistics.delete(name)
 			}
 		}
-		if (c.generation.kind === "identity") {
-			this.#sequences.delete(c.generation.sequence)
-		}
 		t.columns.splice(at, 1)
 		for (const row of t.rows) {
 			row.delete(column)
@@ -1763,16 +1722,16 @@ class Model {
 
 	/**
 	 * A column converted to `type`, each row's cell as `conversion` makes it. PostgreSQL converts a column's default with
-	 * it, by an assignment cast: a `uuidv7()` default casts to text, which keeps it, and to no other type the model
-	 * holds (42804); a retirement field's `false` casts to boolean and text alone.
+	 * it, by an assignment cast: a retirement field's `false` casts to boolean and text alone (42804).
 	 */
 	#retype(table: ObjectName, column: string, type: TypeRef, conversion: Conversion): void {
 		const t = this.#table(table)
 		const at = this.#columnAt(t, table, column, "retyped")
 		const generation = t.columns[at]?.generation.kind
 		if (
-			(generation === "uuidv7" && !this.#ofBase(type, "text")) ||
-			(generation === "retirement" && !this.#ofBase(type, "text") && !this.#ofBase(type, "boolean"))
+			generation === "retirement" &&
+			!this.#ofBase(type, "text") &&
+			!this.#ofBase(type, "boolean")
 		) {
 			refuse(
 				"42804",
@@ -2041,11 +2000,6 @@ class Model {
 			reads.set(table, new Set(swap([...read])))
 			this.#dependents.set(key, { ...v, reads })
 		}
-		for (const [name, s] of this.#sequences) {
-			if (s.kind === "identity" && s.table === table && s.column === from) {
-				this.#sequences.set(name, { ...s, column: to })
-			}
-		}
 		if (this.#converted.delete(`${table}.${from}`)) {
 			this.#converted.add(`${table}.${to}`)
 		}
@@ -2074,11 +2028,6 @@ class Model {
 		for (const [name, s] of this.#statistics) {
 			if (s.table === from) {
 				this.#statistics.set(name, { ...s, table: to })
-			}
-		}
-		for (const [name, s] of this.#sequences) {
-			if (s.kind === "identity" && s.table === from) {
-				this.#sequences.set(name, { ...s, table: to })
 			}
 		}
 		for (const [name, v] of this.#views) {
@@ -2848,11 +2797,7 @@ class Model {
 			if (c === undefined) {
 				refuse("42703", `column "${a.column}" of relation "${s.table.name}" does not exist`)
 			}
-			if (
-				c.generation.kind !== "none" &&
-				c.generation.kind !== "uuidv7" &&
-				c.generation.kind !== "retirement"
-			) {
+			if (c.generation.kind !== "none" && c.generation.kind !== "retirement") {
 				refuse("428C9", `column "${a.column}" can only be updated to DEFAULT`)
 			}
 		}
@@ -3092,32 +3037,8 @@ class Model {
 					const t = this.#table(s.table)
 					const at = this.#columnAt(t, s.table, a.column, "defaulted")
 					const c = t.columns[at]
-					if (c?.generation.kind === "uuidv7" || c?.generation.kind === "retirement") {
+					if (c?.generation.kind === "retirement") {
 						t.columns[at] = { ...c, generation: { kind: "none" } }
-					}
-					break
-				}
-				case "setUuidv7Default": {
-					const t = this.#table(s.table)
-					const at = this.#columnAt(t, s.table, a.column, "defaulted")
-					const c = t.columns[at]
-					if (c?.generation.kind === "identity") {
-						refuse(
-							"42601",
-							`column "${a.column}" of relation "${s.table.name}" is an identity column`
-						)
-					} else if (c?.generation.kind === "stored" || c?.generation.kind === "partial") {
-						refuse(
-							"42601",
-							`column "${a.column}" of relation "${s.table.name}" is a generated column`
-						)
-					} else if (c !== undefined && !this.#ofBase(c.type, "uuid")) {
-						refuse(
-							"42804",
-							`column "${a.column}" is of type ${printType(c.type)} but default expression is of type uuid`
-						)
-					} else if (c !== undefined) {
-						t.columns[at] = { ...c, generation: { kind: "uuidv7" } }
 					}
 					break
 				}
@@ -3125,12 +3046,7 @@ class Model {
 					const t = this.#table(s.table)
 					const at = this.#columnAt(t, s.table, a.column, "defaulted")
 					const c = t.columns[at]
-					if (c?.generation.kind === "identity") {
-						refuse(
-							"42601",
-							`column "${a.column}" of relation "${s.table.name}" is an identity column`
-						)
-					} else if (c?.generation.kind === "stored" || c?.generation.kind === "partial") {
+					if (c?.generation.kind === "stored" || c?.generation.kind === "partial") {
 						refuse(
 							"42601",
 							`column "${a.column}" of relation "${s.table.name}" is a generated column`
@@ -3142,36 +3058,6 @@ class Model {
 						)
 					} else if (c !== undefined) {
 						t.columns[at] = { ...c, generation: { kind: "retirement" } }
-					}
-					break
-				}
-				case "addIdentity": {
-					const t = this.#table(s.table)
-					const at = this.#columnAt(t, s.table, a.column, "identity")
-					const c = t.columns[at]
-					if (c?.generation.kind !== "none") {
-						refuse(
-							"42611",
-							`the column ${a.column} of ${printObjectName(s.table)} is already generated`
-						)
-					} else {
-						this.#claimSequence(a.sequence.name, s.table.name, a.column)
-						t.columns[at] = { ...c, generation: { kind: "identity", sequence: a.sequence.name } }
-					}
-					break
-				}
-				case "dropIdentity": {
-					const t = this.#table(s.table)
-					const at = this.#columnAt(t, s.table, a.column, "identity")
-					const c = t.columns[at]
-					if (c?.generation.kind !== "identity") {
-						refuse(
-							"55000",
-							`the column ${a.column} of ${printObjectName(s.table)} is not an identity column`
-						)
-					} else {
-						this.#sequences.delete(c.generation.sequence)
-						t.columns[at] = { ...c, generation: { kind: "none" } }
 					}
 					break
 				}
@@ -3343,29 +3229,6 @@ class Model {
 			case "INDEX":
 				this.#renameIndex(s.name.name, s.to)
 				return
-			case "SEQUENCE": {
-				const q = this.#sequences.get(s.name.name)
-				if (q === undefined) {
-					refuse("42P01", `the sequence ${printObjectName(s.name)} does not exist`)
-				}
-				if (this.#relationTaken(s.to)) {
-					refuse(
-						"42P07",
-						`the relation ${s.to} already exists, so the sequence ${printObjectName(s.name)} cannot take it`
-					)
-				}
-				this.#sequences.delete(s.name.name)
-				this.#sequences.set(s.to, q)
-				if (q.kind === "identity") {
-					const t = this.#tables.get(q.table)
-					if (t !== undefined) {
-						t.columns = Arr.map(t.columns, (c) =>
-							c.name === q.column ? { ...c, generation: { kind: "identity", sequence: s.to } } : c
-						)
-					}
-				}
-				return
-			}
 			case "STATISTICS": {
 				const x = this.#statistics.get(s.name.name)
 				if (x === undefined) {
@@ -3463,23 +3326,6 @@ class Model {
 					refuse("42704", `the dropped type ${printObjectName(s.name)} does not exist`)
 				}
 				return
-			case "SEQUENCE": {
-				const q = this.#sequences.get(name)
-				if (q === undefined) {
-					if (!s.ifExists) {
-						refuse("42P01", `the dropped sequence ${printObjectName(s.name)} does not exist`)
-					}
-					return
-				}
-				if (q.kind === "identity") {
-					refuse(
-						"2BP01",
-						`the sequence ${name} is dropped while the column ${q.table}.${q.column} owns it`
-					)
-				}
-				this.#sequences.delete(name)
-				return
-			}
 			case "STATISTICS":
 				if (!this.#statistics.delete(name) && !s.ifExists) {
 					refuse("42704", `the statistics object ${printObjectName(s.name)} does not exist`)
@@ -3502,7 +3348,7 @@ class Model {
 		}
 	}
 
-	/** What goes with a dropped relation: its indexes, statistics and identity sequences. */
+	/** What goes with a dropped relation: its indexes and statistics. */
 	#dropOwned(relation: string): void {
 		for (const [name, x] of Arr.fromIterable(this.#indexes)) {
 			if (x.on === relation) {
@@ -3512,11 +3358,6 @@ class Model {
 		for (const [name, s] of Arr.fromIterable(this.#statistics)) {
 			if (s.table === relation) {
 				this.#statistics.delete(name)
-			}
-		}
-		for (const [name, q] of Arr.fromIterable(this.#sequences)) {
-			if (q.kind === "identity" && q.table === relation) {
-				this.#sequences.delete(name)
 			}
 		}
 	}
@@ -3557,13 +3398,6 @@ class Model {
 			case "TABLE":
 				for (const n of on.names) {
 					this.#relation(n)
-				}
-				return
-			case "SEQUENCE":
-				for (const n of on.names) {
-					if (this.#ours(n) && !this.#sequences.has(n.name)) {
-						refuse("42P01", `the sequence ${printObjectName(n)} does not exist`)
-					}
 				}
 				return
 			case "DOMAIN":
@@ -3627,11 +3461,6 @@ class Model {
 					}
 				}
 				this.#tables.set(s.table.name, { columns, rows: [] })
-				for (const c of columns) {
-					if (c.generation.kind === "identity") {
-						this.#claimSequence(c.generation.sequence, s.table.name, c.name)
-					}
-				}
 				for (const c of tableConstraints(s)) {
 					this.#constraint(s.table, c, true)
 				}
@@ -4136,7 +3965,6 @@ class Model {
 			domains: new Map(this.#domains),
 			constraints: new Map(Arr.map([...this.#constraints], ([table, of]) => [table, new Map(of)])),
 			indexes: new Map(this.#indexes),
-			sequences: new Map(this.#sequences),
 			statistics: new Map(this.#statistics),
 			triggers: new Map(Arr.map([...this.#triggers], ([table, of]) => [table, new Map(of)])),
 			views: new Map(this.#views),
@@ -4253,10 +4081,6 @@ const generationText = (g: Generation): string => {
 	switch (g.kind) {
 		case "none":
 			return ""
-		case "identity":
-			return ` identity ${g.sequence}`
-		case "uuidv7":
-			return " default uuidv7()"
 		case "retirement":
 			return " default false"
 		case "stored":
@@ -4282,7 +4106,7 @@ const constraintText = (c: Constraint): string => {
 
 /** The catalog a state holds, as the facts admission would compare, one line each, sorted: every table's columns by
  * name with their types and what generates them; every constraint with its columns and
- * validity; every index with what it is over; every sequence with its owner; every statistics object, trigger, view,
+ * validity; every index with what it is over; every statistics object, trigger, view,
  * domain with its base and constraints, and function. Column order, the rows, and
  * which index a foreign key bound are no facts: a fresh installation and a migrated one may differ in them, and
  * PostgreSQL's own description does not show them. */
@@ -4303,11 +4127,6 @@ export const catalogOf = (state: State): ReadonlyArray<string> =>
 				[...state.indexes],
 				([name, x]) =>
 					`index ${name} on ${x.on} ${x.method}${x.unique ? " unique" : ""} (${list(x.keys)}) reading (${sortedList(new Set(x.reads))})${x.owner.kind === "constraint" ? ` of ${x.owner.name}` : ""}`
-			),
-			...Arr.map(
-				[...state.sequences],
-				([name, q]) =>
-					`sequence ${name}${q.kind === "identity" ? ` of ${q.table}.${q.column}` : ""}`
 			),
 			...Arr.map(
 				[...state.statistics],

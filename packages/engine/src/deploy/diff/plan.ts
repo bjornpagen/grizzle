@@ -214,7 +214,7 @@ export type RetypeReason = "values" | "roster"
  * placeholder column of the same migration may only now be filling. So its table's one alteration adds the column
  * `aside`, of `column`'s type with no NOT NULL and no default (catalog only), its table's fill (Action fill) sets it
  * once every placeholder column holds its value, then drops the field's column, renames `aside` into the field's name
- * and sets its NOT NULL, its identity or its uuidv7() default. `column` is the field as the target declares it.
+ * and sets its NOT NULL and its retirement default. `column` is the field as the target declares it.
  */
 export interface SetAside {
 	readonly column: ColumnDef
@@ -253,7 +253,6 @@ export const alterationPass = (a: AlterTableAction): AlterTablePass => {
 	switch (a.kind) {
 		case "dropColumn":
 		case "dropConstraint":
-		case "dropIdentity":
 		case "dropDefault":
 			return "drop"
 		case "alterColumnType":
@@ -273,8 +272,6 @@ export const alterationPass = (a: AlterTableAction): AlterTablePass => {
 				: "addIndexConstraint"
 		case "addConstraintUsingIndex":
 			return "addIndexConstraint"
-		case "addIdentity":
-		case "setUuidv7Default":
 		case "setRetirementDefault":
 			return "addOtherConstraint"
 		case "validateConstraint":
@@ -306,8 +303,7 @@ export const alterationStatement = (
  *   comes first, so PostgreSQL builds the table's generation expressions once, not for every row (sql/generation.ts).
  *   Its settling, in structure.settle after every table's fill, is statements (diff.ts fillSteps): the
  *   fields' old columns dropped, each set-aside column renamed into its field's name, one ALTER TABLE setting each
- *   field's NOT NULL, identity or uuidv7() default and the NOT NULL of every generated column over one, and an
- *   identity's advance;
+ *   field's NOT NULL and retirement default and the NOT NULL of every generated column over one;
  * - `violation`: the full violation query of a law the migration discharges once, which raises with the law's identity
  *   when it has a row;
  */

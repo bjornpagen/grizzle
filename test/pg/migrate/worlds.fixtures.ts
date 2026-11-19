@@ -55,7 +55,7 @@ export const versionOf = (name: string, k: Knobs) => {
 		["id"]
 	)
 	const Share = relation("Share", { doc: uuid, user: Sub }, ["doc", "user"])
-	const Note = relation("Note", { no: pg.bigserial, doc: uuid, author: Sub }, ["no"])
+	const Note = relation("Note", { doc: uuid, no: pg.integer, author: Sub }, ["doc", "no"])
 	const base = schema(name, [Tier, Org, Doc, Share, Note], [mutable(Doc)])
 	const Busy = derived.materialized(
 		"Busy",

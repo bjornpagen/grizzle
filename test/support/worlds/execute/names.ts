@@ -181,7 +181,6 @@ export const namesOfBuiltAt = (
 				}
 				case "uuid":
 				case "integer":
-				case "serial":
 				case "boolean":
 				case "handle":
 				case "span":
@@ -252,7 +251,6 @@ export const namesOfBuiltAt = (
 				}
 				case "uuid":
 				case "integer":
-				case "serial":
 				case "boolean":
 				case "handle":
 				case "span":

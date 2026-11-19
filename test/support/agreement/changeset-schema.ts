@@ -32,7 +32,7 @@ import { str } from "#compiler/public/text.ts"
 
 /**
  * The schemas the ChangeSet type/engine agreement draws its cases over (test/support/agreement/changesets.ts): Work,
- * whose relations a ChangeSet writes (a closed roster's id, a set, texts of two patterns, a contract, serial fields, plain bigint and money
+ * whose relations a ChangeSet writes (a closed roster's id, a set, texts of two patterns, a contract, plain bigint and money
  * for exact arithmetic, and families: ordered families whose members sum into their owners, counted families whose counts fold
  * into their owners and whose members have a generated field, each over an immutable and a mutable owner, a counted
  * member that owns an ordered family, and a tree),
@@ -43,8 +43,8 @@ export const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n))
 export const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
 export const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"])
 export const Budget = relation("Budget", { task: uuid, cents: Cents }, ["task"])
-export const Ticket = relation("Ticket", { id: pg.bigserial, account: uuid, amount: Cents }, ["id"])
-export const Pair = relation("Pair", { a: pg.bigserial, b: pg.serial, note: uuid }, ["a"])
+export const Ticket = relation("Ticket", { id: pg.bigint, account: uuid, amount: Cents }, ["id"])
+export const Pair = relation("Pair", { a: pg.bigint, b: pg.integer, note: uuid }, ["a"])
 export const Ledger = relation("Ledger", { id: pg.bigint, balance: pg.bigint, fee: pg.money }, [
 	"id"
 ])

@@ -1,8 +1,12 @@
 import type { Columned } from "#compiler/core/decoder.ts"
-import { type CompileError, malformedDescription, unsupported } from "#compiler/core/errors.ts"
+import {
+	type CompileError,
+	malformedDescription,
+	ruleRefused,
+	unsupported
+} from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
 	type Built,
@@ -40,6 +44,7 @@ import {
 	textInfoOf,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
+import { minted, mintedRefusal } from "#compiler/scalar/minted.ts"
 import { nativeCapabilities, unorderedCodeCapabilities } from "#compiler/scalar/native.ts"
 
 /** The capability set of a carrier. */
@@ -125,7 +130,7 @@ type DescriptorMembers = Readonly<Record<string, unknown>> & Columned<unknown>
 /**
  * The capability registry and the runtime descriptor protocol.
  *
- * Every field descriptor (pg.*, uuid, contract, span, closedId, pg.vector, the serial family, and str.regex) is an
+ * Every field descriptor (pg.*, uuid, contract, span, closedId, pg.vector and str.regex) is an
  * owned, frozen value that carries, beside its public members (its SQL name and its column, core/decoder.ts, whose
  * values are its host type), two internal ones:
  *
@@ -135,7 +140,8 @@ type DescriptorMembers = Readonly<Record<string, unknown>> & Columned<unknown>
  * `describeField` reads them from any descriptor a caller hands in, and admits a descriptor only by identity: one this
  * package defined, or a str.regex descriptor its builder registered, which is read from its pattern. Anything else, a
  * JavaScript caller's look-alike or a copy of a descriptor, is CompileError MalformedDescription: a value no builder
- * made has no column a builder made, so nothing could deliver its values.
+ * made has no column a builder made, so nothing could deliver its values. A spelling of the serial family, pg.serial
+ * and its kin, is Refused by the model's own message: grizzle mints no ids (scalar/minted.ts).
  *
  * The capability registry states, per native carrier, which operations grizzle admits on it: storage, equality,
  * ordering, hashing, the aggregate families, span endpoints, expression-index and GiST eligibility, and the vector
@@ -373,8 +379,9 @@ export const registeredField = (
 }
 
 /**
- * The FieldDesc, ScalarType and column of a field descriptor a builder made, or MalformedDescription. `loc` names
- * the position the descriptor was passed in, for the diagnostic.
+ * The FieldDesc, ScalarType and column of a field descriptor a builder made, or MalformedDescription, Refused for a
+ * spelling of the serial family (scalar/minted.ts). `loc` names the position the descriptor was passed in, for the
+ * diagnostic.
  */
 export const describeField = (
 	value: unknown,
@@ -386,6 +393,9 @@ export const refusedField = (
 	value: unknown,
 	loc: SourceLoc
 ): Result.Result<never, CompileError> => {
+	if (value === minted) {
+		return Result.err(ruleRefused(loc, mintedRefusal))
+	}
 	if (!hasProperties(value)) {
 		return Result.err(malformedDescription(loc, "a field descriptor"))
 	}
@@ -420,37 +430,6 @@ export const describeFieldOrThrow = (value: unknown, loc: SourceLoc): Described 
 		throw described.error
 	}
 	return described.value
-}
-
-/** A serial by its name, and the value type it is written over, which a contract's base or a span's endpoint takes. */
-export interface SerialName {
-	readonly serial: string
-	readonly value: string
-}
-
-/** Each serial by the carrier of the value type it is written over: an integer's, or the uuid pg.uuidv7 draws. */
-const serialNames = {
-	int2: { serial: "pg.smallserial", value: "pg.smallint" },
-	int4: { serial: "pg.serial", value: "pg.integer" },
-	int8: { serial: "pg.bigserial", value: "pg.bigint" },
-	uuid: { serial: "pg.uuidv7", value: "uuid" }
-} as const
-
-/**
- * The serial a descriptor `describeField` read is (pg.serial, over pg.integer), or undefined for a field its caller
- * writes. A serial's type and Description are its value type's (scalar/serial.ts), so only its writing tells it apart:
- * the descriptor's `writing` member, the one a relation reads a field's writing from (schema/relation.ts writingOf). It
- * is a generation declaration, not a value type, so a contract's base and a span's endpoint are never one.
- */
-export const serialNameOf = (described: Described): SerialName | undefined => {
-	if (!("writing" in described) || described.writing !== "serial") {
-		return undefined
-	}
-	const { carrier } = described.scalar
-	if (carrier !== "int2" && carrier !== "int4" && carrier !== "int8" && carrier !== "uuid") {
-		throw defect(`a serial descriptor of ${carrier}, which no serial is written over`)
-	}
-	return serialNames[carrier]
 }
 
 /**

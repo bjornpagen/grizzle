@@ -354,7 +354,6 @@ const insertRow = (schema: string, row: "folder" | "file"): Insert => {
 		table: ledgerName(schema),
 		alias: undefined,
 		columns: [...ledgerColumns],
-		overriding: undefined,
 		source: { kind: "values", rows: [values] },
 		onConflict:
 			row === "folder"
@@ -479,7 +478,6 @@ const recordProofs = (schema: string): Insert => {
 		table: proofsName(schema),
 		alias: undefined,
 		columns: [...proofColumns],
-		overriding: undefined,
 		source: {
 			kind: "query",
 			query: provedSelect(

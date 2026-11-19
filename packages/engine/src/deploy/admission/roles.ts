@@ -138,8 +138,6 @@ const familyOf = (on: GrantObjects): PrivilegeFamily => {
 			return "schema"
 		case "TABLE":
 			return "table"
-		case "SEQUENCE":
-			return "sequence"
 		case "DOMAIN":
 		case "TYPE":
 			return "type"
@@ -159,7 +157,6 @@ const objectsOf = (on: GrantObjects): ReadonlyArray<GrantedObject> => {
 		case "SCHEMA":
 			return on.names.map((n) => ({ object: quoteIdent(n), schema: n, name: n }))
 		case "TABLE":
-		case "SEQUENCE":
 		case "DOMAIN":
 		case "TYPE":
 			return on.names.map((n) => ({ object: printObjectName(n), schema: n.schema, name: n.name }))

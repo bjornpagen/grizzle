@@ -146,7 +146,7 @@ const memberQuery = (
 		kind: "member",
 		target: { relation, op }
 	})
-	checkMemberHeading(query, relation, op, loc)
+	checkMemberHeading(query, relation, loc)
 	return query
 }
 
@@ -168,7 +168,7 @@ export const checkMember = (
 /**
  * A query entry's fill (write/frontend/entry.ts fillQuery), checked as a member of the entry's target: the front end
  * builds it from the role's checked entry, so it is no Description to decode, and its relation parameter is the unit
- * relation, of no field, where every head field it carries writes a serial field, which no author declares.
+ * relation, of no field, for an entry of no head field, which no author declares.
  */
 export const checkFill = (
 	checked: SchemaReading,

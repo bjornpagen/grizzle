@@ -65,7 +65,6 @@ import type {
 	AnyRole,
 	Context,
 	ContextField,
-	ContextFieldBases,
 	ContextOptions,
 	EntryValue,
 	KeptStatements,
@@ -190,7 +189,7 @@ export const contextBuilder = <
 	const Fields extends Readonly<Record<string, ContextField>>
 >(
 	name: Name,
-	fields: Fields & ContextFieldBases<Fields>,
+	fields: Fields,
 	...rest: ContextOptions | readonly [unknown, ...ReadonlyArray<unknown>]
 ): Context<Name, Fields> => {
 	const [options, ...extra] = rest

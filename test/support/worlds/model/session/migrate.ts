@@ -4,6 +4,7 @@ import { violations } from "#test/support/laws/model.ts"
 import { evaluateRules, hostSchemaOf, judgedSchemaOf } from "#test/support/worlds/model/host.ts"
 import {
 	changesWorlds,
+	createsWorldFunction,
 	driftOf,
 	healedBy,
 	sameNames,
@@ -22,7 +23,6 @@ import {
 import { installedRoles, refusedAtBuild } from "#test/support/worlds/model/session/writes.ts"
 import type {
 	BaseSpec,
-	FieldSpec,
 	HostFact,
 	HostState,
 	InstalledNames,
@@ -244,15 +244,6 @@ const builtOn = (base: BaseSpec, law: LawSpec): ReadonlyArray<string> => {
 /** Whether a native law is built as a unique index: a key's or a span key's. */
 const uniqueIndexed = (law: LawSpec): boolean => law.kind === "key" || law.kind === "spanKey"
 
-/** Whether a relation both bases hold gains a serial field, whose identity sequence the folder creates. */
-const gainsSerial = (was: BaseSpec, now: BaseSpec): boolean =>
-	Arr.some(now.relations, (r) => {
-		const before = Option.getOrUndefined(Arr.findFirst(was.relations, (x) => x.name === r.name))
-		const gained = (f: FieldSpec): boolean =>
-			before !== undefined && !Arr.some(before.fields, (g) => g.name === f.name)
-		return Arr.some(r.fields, (f) => f.domain.kind === "serial" && gained(f))
-	})
-
 /** The files of a folder drafted from one installation to another, in the order the runner runs them (FolderFile). */
 export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<FolderFile> => {
 	const was = from.base
@@ -325,12 +316,10 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 	/**
 	 * Whether the folder creates an object under a hashed name (core/identity.ts), whose COMMENT the diff's final step
 	 * writes in Publish: every added law but a declared check, which keeps its readable name (a key's unique constraint,
-	 * a foreign key); a held relation's new serial field's identity sequence; a
-	 * new refined text's domain. A new relation's primary key is one too, and a new relation publishes regardless.
+	 * a foreign key); a new refined text's domain. A new relation's primary key is one too, and a new relation publishes regardless.
 	 */
 	const hashed =
 		Arr.some(added, (law) => law.kind !== "check") ||
-		gainsSerial(was, now) ||
 		Arr.some(lawDomainsOf(now), (d) => d.kind === "text" && !fromDomains.has(domainLawKey(d)))
 	/**
 	 * Publish holds what is left to grant or create once Structure has run: a world object of a role the installation
@@ -339,6 +328,7 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 	 * of the held roles alone, a recreated view over a relation that gains a check among them, publishes nothing.
 	 */
 	const publish =
+		createsWorldFunction(from, to) ||
 		removes ||
 		hashed ||
 		rosterChanged ||

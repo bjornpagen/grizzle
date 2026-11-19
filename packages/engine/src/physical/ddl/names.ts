@@ -61,16 +61,11 @@ export interface InstallNames extends PhysicalNames {
 	readonly types: TypeSchema
 	/**
 	 * The identity of each level's PostgreSQL schema, root first, as Owned.levels lists the levels: a level's schema
-	 * holds its relations' tables, materialized views, identity sequences and advance functions, and its rosters'
-	 * domains. A role's or a login's PostgreSQL role embeds its own level's.
+	 * holds its relations' tables and materialized views, and its rosters' domains. A role's or a login's PostgreSQL role embeds its own level's.
 	 */
 	readonly levels: NonEmptyReadonlyArray<Identity<"schema">>
 	/** The identity of the PostgreSQL schema of the level that declares a relation, a roster among them. */
 	readonly levelOf: (relation: string) => Identity<"schema">
-	/** The identity sequence of a serial field. */
-	readonly sequence: (relation: string, field: string) => ObjectName
-	/** A serial field's advance function, which takes the bigint to advance past. */
-	readonly advance: (relation: string, field: string) => ObjectName
 	/** A retirable header's hold function, in the header's level's schema, which takes its groups' key arrays. */
 	readonly hold: (header: string) => ObjectName
 	/** A retirable header's retire function, in the header's level's schema, which takes its groups' key arrays. */
@@ -427,7 +422,7 @@ const rosterOf = (owned: Owned, roster: string) => {
 /** The installed names of one schema, gathered under the PostgreSQL schema the installation targets, so the installer,
  * the grants and the query lowerings (`PhysicalNames`) address one set of objects. Every name is minted at the naming
  * door (core/identity.ts) from the identity of what it names: ownership mints the relations', fields', contracts',
- * keys', checks' and sequences', the law model those of the objects it specializes, and the installer every other
+ * keys' and checks', the law model those of the objects it specializes, and the installer every other
  * one, a structural text domain by its pattern key's digest.
  *
  * The worlds' names (`worldNames`) are minted from declared names under the installation's identity: a login's
@@ -579,22 +574,6 @@ export const installNames = (input: NamesInput): InstallNames => {
 		}),
 		rosterNamed,
 		bitsNamed,
-		sequence: (relation, field) => {
-			const sequence = relationOf(owned, relation).fields[field]?.sequence
-			if (sequence === undefined) {
-				missing(`physical: ${relation}.${field} has no identity sequence`)
-			}
-			return { schema: identifierOf(levelOf(relation)), name: identifierOf(sequence) }
-		},
-		advance: (relation, field) => {
-			if (relationOf(owned, relation).fields[field]?.sequence === undefined) {
-				missing(`physical: ${relation}.${field} has no identity sequence`)
-			}
-			return {
-				schema: identifierOf(levelOf(relation)),
-				name: identifierOf(identity.advance(relation, field))
-			}
-		},
 		hold: (header) => ({
 			schema: identifierOf(levelOf(header)),
 			name: identifierOf(identity.hold(header))

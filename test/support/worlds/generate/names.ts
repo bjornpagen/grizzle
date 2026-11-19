@@ -54,7 +54,6 @@ const domainOf = (n: Renaming, domain: FieldDomain): FieldDomain => {
 		case "uuid":
 		case "text":
 		case "integer":
-		case "serial":
 		case "boolean":
 		case "span":
 			return domain

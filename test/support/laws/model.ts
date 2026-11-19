@@ -17,60 +17,17 @@ export interface Span {
 	readonly end: number
 }
 
-/**
- * A value an identity default drew, which the worlds model cannot predict: the real system shows it when a statement
- * returns or reads the fact, and the model takes it then (worlds model/draws.ts). Its draw tells it apart from every
- * other draw of the case, so it equals itself alone until it is shown. It lies in its identity's range, which ends at
- * `ceiling`: past every value at or below the ceiling the case holds, and below every value past it.
- */
-export interface Drawn {
-	readonly kind: "drawn"
-	readonly draw: number
-	readonly ceiling: number
-}
-
-export type HostValue = number | boolean | string | Span | Drawn
+export type HostValue = number | boolean | string | Span
 export type HostFact = Readonly<Record<string, HostValue>>
-
-/** A value a writer can name and send: any host value but a draw, whose value no writer has seen. */
-export type Sendable = Exclude<HostValue, Drawn>
-
-/** A fact a writer can name and send: one holding no draw. */
-export type SendableFact = Readonly<Record<string, Sendable>>
 
 export const hostSpan = (start: number, end: number): Span => ({ start, end })
 
 /** Whether a value is a span. */
 export const isSpan = (x: HostValue): x is Span => typeof x === "object" && "start" in x
 
-/** Whether a value is one an identity default drew and the real system has not shown yet. */
-export const isDrawn = (x: HostValue): x is Drawn => typeof x === "object" && "draw" in x
-
-/**
- * A fact as a writer names it, the one way a model fact becomes one a writer sends: every value but a draw, or none for
- * a fact holding a draw the real system has not shown, which no writer can name.
- */
-export const sendableFact = (fact: HostFact): SendableFact | undefined => {
-	const sent: Record<string, Sendable> = {}
-	for (const [field, value] of Rec.toEntries(fact)) {
-		if (isDrawn(value)) {
-			return undefined
-		}
-		sent[field] = value
-	}
-	return sent
-}
-
-/**
- * A value as PostgreSQL's output function spells it: a span as int4range's canonical text. A drawn value has no
- * spelling yet; it is told apart by its draw, `#n`, which no integer's output text is.
- */
-export const valueText = (x: HostValue): string => {
-	if (typeof x !== "object") {
-		return String(x)
-	}
-	return "draw" in x ? `#${x.draw}` : `[${x.start},${x.end})`
-}
+/** A value as PostgreSQL's output function spells it: a span as int4range's canonical text. */
+export const valueText = (x: HostValue): string =>
+	typeof x !== "object" ? String(x) : `[${x.start},${x.end})`
 
 const overlaps = (a: Span, b: Span): boolean => a.start < b.end && b.start < a.end
 
@@ -80,19 +37,16 @@ export const sameValue = (a: HostValue | undefined, b: HostValue | undefined): b
 
 /**
  * A value as PostgreSQL spells it, whether a host value or one grizzle decoded into a witness, whose span endpoints may
- * be bigints. An object that is neither a draw nor a span is no value of either, a defect of whoever handed it over.
+ * be bigints. An object that is no span is no value, a defect of whoever handed it over.
  */
 const anyText = (x: unknown): string => {
 	if (typeof x !== "object" || x === null) {
 		return String(x)
 	}
-	if ("draw" in x) {
-		return `#${String(x.draw)}`
-	}
 	if ("start" in x && "end" in x) {
 		return `[${String(x.start)},${String(x.end)})`
 	}
-	throw new Error("a value that is neither a draw nor a span, which PostgreSQL spells no way")
+	throw new Error("a value that is no span, which PostgreSQL spells no way")
 }
 
 /** Whether two records of key values hold the same fields at the same values, as PostgreSQL spells them. */
@@ -114,12 +68,6 @@ export interface HostRelation {
 	/** The fields in heading order, each with its column. */
 	readonly fields: ReadonlyArray<{ readonly name: string; readonly column: string }>
 	readonly key: ReadonlyArray<string>
-	/**
-	 * The fields its identity draws, which an insertion may leave out: none where it has no identity column. An
-	 * insertion into a relation with some is compiled to insert generated facts too, whatever facts it is applied with
-	 * (`orderOf`).
-	 */
-	readonly serial: ReadonlyArray<string>
 	/**
 	 * Whether the relation is declared `mutable`: its writers hold UPDATE on it, and grizzle's put replaces a fact in
 	 * place; an immutable relation's UPDATE is refused by privilege, and a put is its DELETE-then-insert pair.
@@ -474,114 +422,12 @@ interface Identified {
 }
 
 /**
- * The fields of a relation an addition states: every field it holds a value at but one holding a draw, which its
- * identity draws for it. A complete fact states every field; a generated addition every field but the serial ones.
- */
-const statedFields = (relation: HostRelation, fact: HostFact): ReadonlyArray<string> =>
-	Arr.flatMap(relation.fields, ({ name }) => {
-		const value = fact[name]
-		return value === undefined || isDrawn(value) ? [] : [name]
-	})
-
-/**
- * Where a generated addition into a relation, a fact leaving the fields `drawn` for its identity to draw, meets the facts
- * its statement finds, decided by what the schema declares (README "Writes", Serial columns;
- * packages/engine/src/write/insert/unique.ts generatedArbiter), among the relation's keys over every fact that hold no
- * drawn field (a span key is none of them):
- * - `key`, its arbiter: the primary key where it is such a key, else the one declared key that is;
- * - `none`: no key is, so the addition is a plain INSERT and every such addition a fact of its own;
- * - `ambiguous`: the primary key is not, and several declared keys are, which only their names would rank, so grizzle
- *   refuses the addition when it compiles (MalformedDescription), before any statement.
- */
-export type Arbiter =
-	| { readonly kind: "key"; readonly fields: ReadonlyArray<string> }
-	| { readonly kind: "none" }
-	| { readonly kind: "ambiguous" }
-
-/** The arbiter of a generated addition into `relation` drawing `drawn` (Arbiter). */
-export const generatedArbiter = (
-	schema: HostSchema,
-	relation: string,
-	drawn: Arr.NonEmptyReadonlyArray<string>
-): Arbiter => {
-	const primary = relationOf(schema, relation).key
-	const keys = Arr.flatMap(schema.laws, (law) =>
-		law.kind === "key" &&
-		law.relation === relation &&
-		law.selection.kind === "every" &&
-		!Arr.some(law.fields, (f) => Arr.contains(drawn, f))
-			? [law.fields]
-			: []
-	)
-	const isPrimary = (key: ReadonlyArray<string>): boolean =>
-		key.length === primary.length && Arr.every(key, (f) => Arr.contains(primary, f))
-	return Option.match(Arr.findFirst(keys, isPrimary), {
-		onSome: (fields): Arbiter => ({ kind: "key", fields }),
-		onNone: (): Arbiter => {
-			const [only, ...more] = keys
-			return only === undefined
-				? { kind: "none" }
-				: Arr.isReadonlyArrayNonEmpty(more)
-					? { kind: "ambiguous" }
-					: { kind: "key", fields: only }
-		}
-	})
-}
-
-/**
- * The fact an addition to `relation` is among `present`, the facts its statement finds (README "Writes", Serial columns
- * and Rows an insertion met). A complete fact meets them at the primary key and states every field, so the fact it is
- * is itself. A generated addition meets them at its arbiter (generatedArbiter): a present fact there that is equal to it
- * at every field it states is the fact it is, which it draws nothing for, and one that differs there stays beside it for
- * the key's law to refuse. With no arbiter, or an ambiguous one, it meets no key, a fact of its own: a reading of the
- * laws alone (lawsRefuse) judges it so, and grizzle refuses an addition at an ambiguous arbiter when it compiles, before
- * any law is read (the worlds model's session/apply.ts compileRefused).
- */
-export const addedAs = (
-	schema: HostSchema,
-	relation: string,
-	present: ReadonlyArray<HostFact>,
-	addition: HostFact
-): HostFact =>
-	Arr.match(
-		Arr.filter(Rec.keys(addition), (f) => isDrawn(fieldValue(addition, f))),
-		{
-			onEmpty: () => addition,
-			onNonEmpty: (drawn) => {
-				const arbiter = generatedArbiter(schema, relation, drawn)
-				switch (arbiter.kind) {
-					case "none":
-					case "ambiguous":
-						return addition
-					case "key": {
-						const stated = statedFields(relationOf(schema, relation), addition)
-						const at = projection(addition, stated)
-						return Option.getOrElse(
-							Arr.findFirst(
-								present,
-								(p) =>
-									projection(p, arbiter.fields) === projection(addition, arbiter.fields) &&
-									projection(p, stated) === at
-							),
-							() => addition
-						)
-					}
-				}
-			}
-		}
-	)
-
-/**
  * One relation's facts after a stratum's members of it, `mine`, over its facts before, `current`, each fact identified
  * once: a ChangeSet's facts are a set by identity, so identical facts stated twice, in one member or across members, are
  * one fact, and two facts that share a key with different identities both stay, for the relation's key law to refuse.
- * The additions join the state its removals leave in the order their statements run (write/frontend/schedule.ts
- * phaseOf): the facts that state every field, then the generated additions, each the fact it is among the facts its
- * statement finds (`addedAs`), so a generated addition equal at every field it states to a fact the stratum keeps or
- * adds whole is that fact.
+ * The additions join the state its removals leave.
  */
 const relationAfter = (
-	schema: HostSchema,
 	relation: HostRelation,
 	current: ReadonlyArray<HostFact>,
 	mine: ReadonlyArray<HostOp>
@@ -592,11 +438,6 @@ const relationAfter = (
 	const puts = Arr.filter(mine, (o) => o.kind === "put")
 	const deletes = Arr.filter(mine, (o) => o.kind === "delete")
 	const added = Arr.flatMap(writes, (o) => o.facts)
-	/** Whether an addition is a generated one: it states fewer fields than the heading holds. */
-	const drawing = (fact: HostFact): boolean =>
-		statedFields(relation, fact).length < relation.fields.length
-	const complete = Arr.filter(added, (fact) => !drawing(fact))
-	const generated = Arr.filter(added, drawing)
 	/** A put deletes the current occupants at its facts' keys. */
 	const putKeys = new Set(
 		Arr.flatMap(puts, (o) => Arr.map(o.facts, (f) => projection(f, relation.key)))
@@ -614,11 +455,7 @@ const relationAfter = (
 			(b) => [b.id, b.fact] as const
 		)
 	)
-	for (const fact of complete) {
-		out.set(identity(relation, fact), fact)
-	}
-	for (const addition of generated) {
-		const fact = addedAs(schema, relation.name, [...out.values()], addition)
+	for (const fact of added) {
 		out.set(identity(relation, fact), fact)
 	}
 	return [...out.values()]
@@ -639,7 +476,6 @@ export const transition = (
 			relation.name,
 			named.has(relation.name)
 				? relationAfter(
-						schema,
 						relation,
 						factsIn(state, relation.name),
 						Arr.filter(ops, (o) => o.relation === relation.name)
@@ -963,8 +799,8 @@ export const overlapsUnequally = (state: HostState, law: HostLaw): boolean => {
 
 /**
  * A schema as a stratum's order reads it (stratum-order.ts): where each relation's facts meet, at its key where a field
- * lies outside it, else, a pure set's, at another key or a span key of it, else nowhere; whether its identity draws a
- * field; and the containments whose foreign key is immediate (isImmediate).
+ * lies outside it, else, a pure set's, at another key or a span key of it, else nowhere; and the containments whose
+ * foreign key is immediate (isImmediate).
  */
 const orderSchemaOf = (schema: HostSchema): OrderSchema => ({
 	relations: Arr.map(schema.relations, (r) => {
@@ -983,8 +819,7 @@ const orderSchemaOf = (schema: HostSchema): OrderSchema => ({
 								(l.kind === "spanKey" && l.relation === r.name)
 					  )
 					? "unique"
-					: "nowhere",
-			serial: r.serial.length > 0
+					: "nowhere"
 		}
 	}),
 	references: Arr.flatMap(schema.laws, (l) =>
@@ -998,11 +833,7 @@ const orderSchemaOf = (schema: HostSchema): OrderSchema => ({
 const orderOf = (schema: HostSchema, ops: ReadonlyArray<HostOp>): StratumOrder =>
 	stratumOrder(
 		orderSchemaOf(schema),
-		Arr.map(ops, (o): OrderMember =>
-			o.kind === "insert"
-				? { relation: o.relation, op: "insert", source: "enumerated" }
-				: { relation: o.relation, op: o.kind }
-		)
+		Arr.map(ops, (o): OrderMember => ({ relation: o.relation, op: o.kind }))
 	)
 
 /**

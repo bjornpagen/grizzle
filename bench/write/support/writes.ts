@@ -299,7 +299,6 @@ export type StatementLabel =
 	| WriteLabel
 	| { readonly kind: "carrier"; readonly position: number; readonly step: "create" | "fill" }
 	| { readonly kind: "analyze"; readonly position: number }
-	| { readonly kind: "advance"; readonly position: number; readonly relation: string }
 	| { readonly kind: "readBack"; readonly position: number; readonly name: string }
 	| { readonly kind: "check"; readonly position: number; readonly entry: string }
 	| { readonly kind: "hold"; readonly position: number; readonly header: string }
@@ -329,8 +328,6 @@ const statementLabel = (statement: ArtifactStatement): StatementLabel => {
 			return { kind: "carrier", position, step: step.step }
 		case "analyze":
 			return { kind: "analyze", position }
-		case "advance":
-			return { kind: "advance", position, relation: step.relation }
 		case "readBack":
 			return { kind: "readBack", position, name: step.name }
 		case "check":
@@ -391,8 +388,6 @@ export const labelText = (label: StatementLabel): string => {
 			return `carrier ${label.step}`
 		case "analyze":
 			return "carrier analyze"
-		case "advance":
-			return `advance ${label.relation}`
 		case "readBack":
 			return `read ${label.name}`
 		case "check":

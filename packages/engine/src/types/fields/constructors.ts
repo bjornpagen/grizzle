@@ -1,9 +1,8 @@
 import type { Brand } from "effect"
 import type { Columned } from "#compiler/core/decoder.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { SqlTag } from "#compiler/scalar/registry.ts"
+import type { mintedRefusal } from "#compiler/scalar/minted.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
-import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
 	DomainOf,
@@ -28,11 +27,9 @@ import type {
 	GeneratedField,
 	Infer,
 	NaturalField,
-	NotSerial,
-	NotSerialBases,
+	NoWriting,
 	NotStoredOnly,
 	NumericTypmodField,
-	SerialField,
 	SpanEndpointLike,
 	SpanField,
 	SpanWidthOf,
@@ -73,11 +70,11 @@ export interface Pg {
 	readonly "double precision": Field<number, "double precision">
 	readonly money: Field<Money, "money">
 	readonly boolean: Field<boolean, "boolean">
-	readonly smallserial: SerialField<number, "smallint">
-	readonly serial: SerialField<number, "integer">
-	readonly bigserial: SerialField<bigint, "bigint">
-	/** pg.uuidv7: a uuid PostgreSQL draws for a new row, its column's `uuidv7()` default; an insert may leave it out. */
-	readonly uuidv7: SerialField<Uuid, "uuid">
+	/** pg.smallserial, pg.serial, pg.bigserial and pg.uuidv7 are refusals, no field (scalar/minted.ts). */
+	readonly smallserial: Refusal<typeof mintedRefusal>
+	readonly serial: Refusal<typeof mintedRefusal>
+	readonly bigserial: Refusal<typeof mintedRefusal>
+	readonly uuidv7: Refusal<typeof mintedRefusal>
 	/** pg.vector(1536): a model-agnostic vector field; the dimension count is an equality-only tag. */
 	readonly vector: <const N extends number>(dimensions: N) => VectorField<N>
 }
@@ -86,9 +83,8 @@ export interface Pg {
  * A nominal contract over a base descriptor, with an optional total predicate over one value. The predicate receives
  * the base's scalar, of the base's domain and SQL type, whose language is the base's host type, which Compute's
  * comparisons read: `contract("Cents", pg.bigint, (v) => Compute.ge(v, 0n))`.
- * A contract is a value domain and lowers to a PostgreSQL domain; a serial is a column generation declaration, not a
- * value domain, and PostgreSQL admits an identity column only over smallint, integer or bigint, never
- * over a domain. So the base is never a serial; a contract over the underlying integer type is the value domain.
+ * A contract is a value domain and lowers to a PostgreSQL domain, so its base is a value type: never a field of a
+ * writing of its own (NoWriting), which grizzle or PostgreSQL writes.
  * The contract's column is the base's, branded by the contract's own constructor, which takes the unbranded host value:
  * the base's column delivers it (ContractBase). The name is one literal, the one brand its values carry.
  *
@@ -104,7 +100,7 @@ export type ContractConstructor = <
 >(
 	name: Name,
 	base: B &
-		NotSerialBase<B> &
+		NoWriting &
 		NotStoredOnly<B["sql"]> &
 		ContractBase<NoInfer<Name>, B> &
 		OneContractName<NoInfer<Name>>,
@@ -128,21 +124,14 @@ export type ContractBase<Name extends string, B> = Columned<
 	Brand.Brand.Unbranded<Infer<B> & Brand.Brand<Name>>
 >
 
-export type NotSerialBase<B> =
-	B extends SerialField<unknown, SqlTag>
-		? Refusal<"a contract is a value domain; a serial is a generation declaration, so use its value type">
-		: [NotSerialBases<B>] extends [never]
-			? Refusal<"a contract is a value domain; a serial is a generation declaration, so use its value type">
-			: unknown
-
 /**
- * A bounded half-open span over an integer or a date endpoint; never over a serial. The width is upper - lower, a
+ * A bounded half-open span over an integer or a date endpoint. The width is upper - lower, a
  * positive value of the endpoint's base type, or a count of days over a date, checked at runtime. The span's column
  * converts each endpoint with the endpoint's own column, so span(Cents) delivers Span<Cents> and span(date)
  * Span<CalendarDate>.
  */
 export type SpanConstructor = <E extends SpanEndpointLike>(
-	endpoint: E & Columned<Infer<E>> & NotSerialBases<E>,
+	endpoint: E & Columned<Infer<E>> & NoWriting,
 	width?: SpanWidthOf<Infer<E>>
 ) => SpanField<Infer<E>, DomainOf<E>>
 
@@ -193,6 +182,6 @@ export type GeneratedTermOf<F extends FieldBase> = InputTerm<DomainOf<F>, never,
  * written fields and closed reads are all a generation expression may read.
  */
 export type GeneratedConstructor = <F extends FieldBase, T extends GeneratedTermOf<F>>(
-	type: F & NotSerial & NotSerialBases<F> & NotStoredOnly<F["sql"]>,
+	type: F & NoWriting & NotStoredOnly<F["sql"]>,
 	term: T & Parameterless<T> & Hosted<T>
 ) => GeneratedField<F>

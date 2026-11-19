@@ -2,7 +2,7 @@ import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { type ReadonlyTupleSet, TupleMap } from "#compiler/core/tuple-map.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	admittedText,
 	type CarrierSpec,
@@ -51,25 +51,15 @@ export interface OracleRelation {
 	readonly keys: ReadonlyArray<OracleKey>
 	/** Projected keys, immediate like the others. */
 	readonly projectedKeys: ReadonlyArray<OracleProjectedKey>
-	/** Serial fields, each of carrier int2, int4 or int8. */
-	readonly serial: ReadonlyArray<string>
 }
 
 export interface OracleSchema {
 	readonly relations: ReadonlyArray<OracleRelation>
 }
 
-/** An identity sequence, as PostgreSQL keeps it: last_value and is_called. */
-export interface SequenceState {
-	readonly lastValue: bigint
-	readonly isCalled: boolean
-}
-
 export interface OracleState {
 	/** Relation name to its facts, identity to admitted fact. */
 	readonly relations: ReadonlyMap<string, FactSet>
-	/** `<relation>.<field>` to the field's identity sequence. */
-	readonly sequences: ReadonlyMap<string, SequenceState>
 }
 
 const relationOf = (schema: OracleSchema, name: string): OracleRelation => {
@@ -84,17 +74,6 @@ const allKeys = (relation: OracleRelation): ReadonlyArray<OracleKey> => [
 	relation.primaryKey,
 	...relation.keys
 ]
-
-/** A serial field's value in an admitted fact: an integer carrier's host value. */
-export const integerOf = (value: unknown, field: string): bigint => {
-	if (typeof value === "bigint") {
-		return value
-	}
-	if (typeof value === "number") {
-		return BigInt(value)
-	}
-	throw new Error(`the serial field ${field} holds ${typeof value}, not an integer`)
-}
 
 const specOf = (relation: OracleRelation, field: string): CarrierSpec => {
 	const f = Arr.findFirst(relation.heading, (h) => h.name === field)
@@ -127,8 +106,6 @@ const admit = (relation: OracleRelation, heading: ReadonlyArray<HeadingField>, f
 	return admitted.value
 }
 
-const sequenceKey = (relation: string, field: string): string => `${relation}.${field}`
-
 /** The identities of a relation's facts in their canonical order, for deterministic iteration. */
 const sortedEntries = (facts: FactSet): ReadonlyArray<readonly [FactIdentity, Fact]> =>
 	Arr.sort(
@@ -145,23 +122,6 @@ interface KeyViolation {
 	readonly law: LawId
 	/** The key field values of the violating facts, never a payload column. */
 	readonly values: Readonly<Record<string, unknown>>
-}
-
-/** A generated addition: an insert omitting all of its relation's `serial` fields, admitted against the others. */
-const admitGenerated = (
-	relation: OracleRelation,
-	partialHeading: ReadonlyArray<HeadingField>,
-	op: OracleMember["op"],
-	omitted: number,
-	fact: Fact
-): ReturnType<typeof admit> => {
-	if (op !== "insert") {
-		throw new Error(`${relation.name}: a ${op} names complete facts, serial fields included`)
-	}
-	if (omitted !== relation.serial.length) {
-		throw new Error(`${relation.name}: an addition omits all serial fields or none`)
-	}
-	return admit(relation, partialHeading, fact)
 }
 
 /** Whether a fact is among those a projected key holds over. */
@@ -226,31 +186,16 @@ const duplicateKeys = (
 	)
 }
 
-/** Where a migration that loaded `facts` leaves the sequence of `field`: past its largest value, or fresh at 1. */
-const loadedSequence = (facts: FactSet, field: string): SequenceState => {
-	const values = Arr.map([...facts.values()], (fact) => integerOf(fact[field], field))
-	return Arr.isReadonlyArrayNonEmpty(values)
-		? { lastValue: Arr.max(values, Order.BigInt), isCalled: true }
-		: { lastValue: 1n, isCalled: false }
-}
-
-/** The sequences an initial state states none of: each starts where a migration that loaded the facts leaves it. */
-export const loadedSequences: Readonly<Record<string, SequenceState>> = {}
-
 /**
  * An initial state. Facts are admitted against their headings; the state must satisfy every key, and states each fact
  * once: a stored relation holds a fact once, its primary key refusing a second row at one key, so an initial state that
- * lists a fact twice is no state PostgreSQL holds, a defect of its caller, never one fact. Each identity sequence starts
- * where a migration that loaded these facts leaves it: past the largest stored value, or fresh at 1 when none is
- * stored, unless `sequences` states it.
+ * lists a fact twice is no state PostgreSQL holds, a defect of its caller, never one fact.
  */
 export const oracleState = (
 	schema: OracleSchema,
-	facts: Readonly<Record<string, ReadonlyArray<Fact>>>,
-	sequences: Readonly<Record<string, SequenceState>>
+	facts: Readonly<Record<string, ReadonlyArray<Fact>>>
 ): OracleState => {
 	const relations = new Map<string, FactSet>()
-	const seqs = new Map<string, SequenceState>()
 	for (const relation of schema.relations) {
 		const set = new TupleMap<FactIdentity, Fact>()
 		for (const fact of facts[relation.name] ?? []) {
@@ -261,16 +206,11 @@ export const oracleState = (
 			set.set(admitted.identity, admitted.fact)
 		}
 		relations.set(relation.name, set)
-		for (const field of relation.serial) {
-			const key = sequenceKey(relation.name, field)
-			const stated = sequences[key]
-			seqs.set(key, stated ?? loadedSequence(set, field))
-		}
 	}
 	for (const name of Rec.keys(facts)) {
 		relationOf(schema, name)
 	}
-	const state = { relations, sequences: seqs }
+	const state = { relations }
 	const violations = keyViolations(schema, state)
 	if (violations.length > 0) {
 		throw new Error(`initial state violates ${violations[0]?.law}`)
@@ -358,11 +298,6 @@ export interface AppliedOutcome {
 	readonly delta: ReadonlyMap<string, RelationDelta>
 	/** The actual change of each stratum, per written relation, for netting (delta.ts). */
 	readonly strata: ReadonlyArray<ReadonlyMap<string, RelationDelta>>
-	/**
-	 * Per relation, the identities of the final state's facts that generated additions made: their serial values are
-	 * this calculator's draws, which a realization may draw otherwise.
-	 */
-	readonly generated: ReadonlyMap<string, ReadonlyTupleSet<FactIdentity>>
 }
 
 interface RejectedOutcome {
@@ -377,116 +312,12 @@ interface RejectedOutcome {
 
 export type AddWinsOutcome = AppliedOutcome | RejectedOutcome
 
-/**
- * Where a ChangeSet's generated additions take their serial values (see the header), each in identity order:
- * - `sequences`: this calculator's own draws from the identity sequences, nextval, drawn again past a fact it would
- *   repeat;
- * - `realized`: a realization's draws as its identity sequences record them, which no rollback undoes: `ends` holds
- *   each sequence, by `<relation>.<field>`, where the realization's last attempt left it, so every value nextval
- *   reaches at or before it is one that attempt drew, taken whatever fact it repeats, and every value past it is this
- *   calculator's own;
- * - `given`: by relation, the facts a realization committed for them, each generated addition taking the serial values
- *   of the given fact whose other fields it holds.
- */
-export type Draws =
-	| { readonly kind: "sequences" }
-	| { readonly kind: "realized"; readonly ends: ReadonlyMap<string, SequenceState> }
-	| { readonly kind: "given"; readonly facts: ReadonlyMap<string, ReadonlyArray<Fact>> }
-
-/**
- * A serial value a generated addition takes, the sequence past it, and whose draw it is: the realization's, which the
- * addition takes whatever fact it repeats, or this calculator's own, drawn again past a fact it would repeat.
- */
-interface Drawn {
-	readonly whose: "realization" | "calculator"
-	readonly value: bigint
-	readonly next: SequenceState
-}
-
-const serialCarrier = (relation: OracleRelation, field: string): "int2" | "int4" | "int8" => {
-	const carrier = specOf(relation, field).carrier
-	if (carrier !== "int2" && carrier !== "int4" && carrier !== "int8") {
-		throw new Error(`${relation.name}.${field}: a serial field is int2, int4 or int8`)
-	}
-	return carrier
-}
-
-const serialHost = (carrier: "int2" | "int4" | "int8", value: bigint): number | bigint =>
-	carrier === "int8" ? value : Number(value)
-
-/** nextval on an identity sequence. */
-const nextval = (s: SequenceState): { readonly value: bigint; readonly next: SequenceState } =>
-	s.isCalled
-		? { value: s.lastValue + 1n, next: { lastValue: s.lastValue + 1n, isCalled: true } }
-		: { value: s.lastValue, next: { lastValue: s.lastValue, isCalled: true } }
-
-/**
- * Whether a sequence a realization left at `end` handed out `value`: nextval reaches it at or before `end`, so it is
- * not one nextval can still return from there.
- */
-const handedOut = (end: SequenceState, value: bigint): boolean =>
-	value < end.lastValue || (value === end.lastValue && end.isCalled)
-
-/**
- * How one relation's generated additions take each serial field's value from that field's sequence: nextval, the
- * calculator's own or, where the realization's sequence handed it out, the realization's; or the value given for the
- * addition, past which the sequence then stands, `id` the addition's identity over the heading without its serial
- * fields.
- */
-const drawer = (
-	relation: OracleRelation,
-	partialHeading: ReadonlyArray<HeadingField>,
-	draws: Draws
-): ((s: SequenceState, id: FactIdentity, field: string) => Drawn) => {
-	switch (draws.kind) {
-		case "sequences":
-			return (s) => ({ ...nextval(s), whose: "calculator" })
-		case "realized":
-			return (s, _id, field) => {
-				const drawn = nextval(s)
-				const end = entryOf(draws.ends, sequenceKey(relation.name, field), "the realized sequences")
-				return { ...drawn, whose: handedOut(end, drawn.value) ? "realization" : "calculator" }
-			}
-		case "given": {
-			const byPartial = factSetOf(
-				Arr.map(draws.facts.get(relation.name) ?? [], (fact) => {
-					const partial = Rec.fromEntries(
-						Arr.filter(Rec.toEntries(fact), ([f]) => !relation.serial.includes(f))
-					)
-					return [admit(relation, partialHeading, partial).identity, fact] as const
-				})
-			)
-			return (s, id, field) => {
-				const fact = byPartial.get(id)
-				if (fact === undefined) {
-					throw new Error(
-						`${relation.name}: no fact given for the generated addition (${Arr.join(id, ", ")})`
-					)
-				}
-				const value = integerOf(fact[field], field)
-				return { value, next: advancePast(s, value), whose: "realization" }
-			}
-		}
-	}
-}
-
-/**
- * The realization's setval, by the row comparison `(value, true) > (last_value, is_called)`: the sequence advances
- * when the value is at least the next one it would generate, which for a sequence never called is its start value.
- */
-const advancePast = (s: SequenceState, value: bigint): SequenceState =>
-	value > s.lastValue || (value === s.lastValue && !s.isCalled)
-		? { lastValue: value, isCalled: true }
-		: s
-
 /** One stratum's transition of one relation, before key checking. */
 interface RelationStep {
 	readonly after: TupleMap<FactIdentity, Fact>
 	readonly insert: ReadonlyArray<FactIdentity>
 	readonly put: ReadonlyArray<FactIdentity>
 	readonly delete: ReadonlyArray<FactIdentity>
-	/** The facts its generated additions made, a subset of `insert`. */
-	readonly generated: ReadonlyArray<FactIdentity>
 }
 
 /**
@@ -510,38 +341,19 @@ interface RelationStep {
  *   covers an insert at an occupied key with a different payload, two inserts, two puts, or a put and
  *   an insert of one key with different payloads, and a candidate-key collision. The witness carries
  *   the law and the key values only.
- * - An addition omits either all of its relation's serial fields or none. One that omits them is a
- *   generated addition: equal ones within a stratum are one requested addition. Where a declared key holds no serial
- *   field, one equal at every field it states to a fact of the state its statement meets, after the stratum's
- *   deletions and complete additions, is that fact and draws nothing; every other takes fresh values from the
- *   relation's identity sequences. Explicit serial values first advance the sequence past them, as
- *   the realization's setval statement does. A drawn value that would collide on a key containing the serial
- *   field is drawn again: in the realization that collision is a 23505, a TransientFailure whose retry draws fresh
- *   values, so the committed outcome never contains it. So is a drawn value whose fact repeats a fact of the state
- *   before its stratum or of the state it joins, which a sequence lagging behind the stored values can draw: a
- *   generated addition adds a fact under an identity no fact holds, so this calculator's draws never let a stored fact
- *   stand in for it, nor re-create a fact its stratum deletes, which an immediate law meets at the deletion's own
- *   statement. A realization may still draw the key of a fact its stratum has deleted, adding that fact back, and the
- *   stratum's change nets: that is a draw of the realization's. Generated values therefore depend on draw order,
- *   which nothing fixes, and an attempt that runs again draws fresh values: the outcome is the definition's under
- *   some draws. This calculator draws in identity order (`sequences`), or takes the realization's draws: the values
- *   its identity sequences record handing out, in identity order, whatever fact they repeat, then its own past them
- *   (`realized`), or the serial values given for each generated addition (`given`), so a comparison against a
- *   database computes the outcome under the realization's own draws, whether it committed them or not.
  * - The outcome's deltas compare the initial and final states. Its counts attribute each stratum's actual change to
  *   the members of that stratum and net them across the strata in order, as the realization does over its per-stratum
  *   RETURNING carriers (delta.ts).
  *
- * Misuse that the public types forbid (an unknown relation, an inadmissible fact, a partly omitted serial set, a
- * deletion without its serial values) throws: the oracle's inputs are generated to be well-formed.
+ * Misuse that the public types forbid (an unknown relation, an inadmissible fact) throws: the oracle's inputs are
+ * generated to be well-formed.
  *
  * Applies a ChangeSet to a state: one add-wins transition per stratum, keys checked after each.
  */
 export const applyAddWins = (
 	schema: OracleSchema,
 	initial: OracleState,
-	changes: OracleChangeSet,
-	draws: Draws
+	changes: OracleChangeSet
 ): AddWinsOutcome => {
 	const writes = changes.writes()
 	for (const name of writes) {
@@ -549,24 +361,20 @@ export const applyAddWins = (
 	}
 	const attributed = new Map<string, Array<AttributedChange>>(Arr.map(writes, (name) => [name, []]))
 	const traces: Array<ReadonlyMap<string, RelationDelta>> = []
-	/** Every fact a generated addition made, by relation; those still present in the final state are reported. */
-	const drawn = new Map<string, ReadonlyTupleSet<FactIdentity>>()
 	let state = initial
 	for (let index = 0; index < changes.strata.length; index++) {
 		const stratum = elementAt(changes.strata, index, "the ChangeSet's strata")
 		const before = state
-		const sequences = new Map(before.sequences)
 		const relations = new Map(before.relations)
 		const steps = new Map<string, RelationStep>()
 		for (const name of new Set(Arr.map(stratum, (m) => m.relation))) {
 			const relation = relationOf(schema, name)
-			steps.set(name, transition(relation, before, stratum, sequences, draws))
+			steps.set(name, transition(relation, before, stratum))
 		}
 		for (const [name, step] of steps) {
 			relations.set(name, step.after)
-			drawn.set(name, identitySetOf([...(drawn.get(name) ?? []), ...step.generated]))
 		}
-		state = { relations, sequences }
+		state = { relations }
 		const violations = keyViolations(schema, state)
 		if (violations.length > 0) {
 			return {
@@ -611,33 +419,16 @@ export const applyAddWins = (
 				] as const
 		)
 	)
-	const generated = new Map(
-		Arr.map([...drawn], ([name, ids]) => {
-			const present = state.relations.get(name) ?? factSetOf([])
-			return [name, identitySetOf(Arr.filter([...ids], (id) => present.has(id)))] as const
-		})
-	)
-	return { kind: outcomeKind(counts), state, counts, delta, strata: traces, generated }
+	return { kind: outcomeKind(counts), state, counts, delta, strata: traces }
 }
 
-/**
- * S' = (S \ D) ∪ A for one relation in one stratum. Generated additions draw from `sequences`, which the caller
- * threads through the stratum, or take the values `draws` gives.
- *
- * Explicit serial values advance their sequences before any value is drawn.
- */
+/** S' = (S \ D) ∪ A for one relation in one stratum. */
 const transition = (
 	relation: OracleRelation,
 	before: OracleState,
-	stratum: ReadonlyArray<OracleMember>,
-	sequences: Map<string, SequenceState>,
-	draws: Draws
+	stratum: ReadonlyArray<OracleMember>
 ): RelationStep => {
-	const serial = relation.serial
-	const serialSet = new Set(serial)
-	const partialHeading = Arr.filter(relation.heading, (h) => !serialSet.has(h.name))
 	const inserts = new TupleMap<FactIdentity, Fact>()
-	const generated = new TupleMap<FactIdentity, Fact>()
 	const puts = new TupleMap<FactIdentity, Fact>()
 	const deletes = new TupleMap<FactIdentity, Fact>()
 	for (const member of stratum) {
@@ -646,19 +437,8 @@ const transition = (
 		}
 		const facts = typeof member.facts === "function" ? member.facts(before) : member.facts
 		for (const fact of facts) {
-			const omitted = Arr.filter(serial, (field) => !Rec.has(fact, field))
-			const admitted =
-				omitted.length > 0
-					? admitGenerated(relation, partialHeading, member.op, omitted.length, fact)
-					: admit(relation, relation.heading, fact)
-			const target =
-				omitted.length > 0
-					? generated
-					: member.op === "insert"
-						? inserts
-						: member.op === "put"
-							? puts
-							: deletes
+			const admitted = admit(relation, relation.heading, fact)
+			const target = member.op === "insert" ? inserts : member.op === "put" ? puts : deletes
 			target.set(admitted.identity, admitted.fact)
 		}
 	}
@@ -680,128 +460,9 @@ const transition = (
 	for (const [id, fact] of [...inserts, ...puts]) {
 		after.set(id, fact)
 	}
-
-	for (const field of serial) {
-		const key = sequenceKey(relation.name, field)
-		let seq = entryOf(sequences, key, "the sequences")
-		for (const fact of [...inserts.values(), ...puts.values()]) {
-			seq = advancePast(seq, integerOf(fact[field], field))
-		}
-		sequences.set(key, seq)
-	}
-
-	/**
-	 * Generated additions, in identity order, each with the calculator's own values that collide with no key containing a
-	 * serial field and repeat no fact of the state before the stratum or of the state they join; or with the values a
-	 * realization's sequences handed out (`realized`), whatever fact of the state before the stratum they repeat, a fact
-	 * the stratum deleted among them, but never one that meets a fact of the state they join at a key containing a
-	 * serial field: the realization's statement would have met that fact there, refused with 23505 and drawn again, so
-	 * another of its additions holds that value, in an order no statement fixes, and the value waits for the next
-	 * addition that can take it; or with the values given for each (`given`), the facts a realization committed.
-	 */
-	const generatedIds: Array<FactIdentity> = []
-	const serialKeys = Arr.filter(allKeys(relation), (k) =>
-		Arr.some(k.fields, (f) => serialSet.has(f))
-	)
-	const draw = drawer(relation, partialHeading, draws)
-	/** The realization's values, by serial field, an earlier addition met a fact of the state it joins with. */
-	const waiting = new Map<string, ReadonlyArray<bigint>>(
-		Arr.map(serial, (field) => [field, []] as const)
-	)
-	/** Whether a fact meets a fact of the state its addition joins: the same fact, or one at a key holding a serial field. */
-	const meetsAfter = (identity: FactIdentity, fact: Fact): boolean =>
-		after.has(identity) ||
-		Arr.some(serialKeys, (key) => {
-			const k = keyIdentity(relation, key.fields, fact)
-			return Arr.some(
-				[...after.values()],
-				(other) => keyIdentity(relation, key.fields, other) === k
-			)
-		})
-	/**
-	 * The generated addition `id` with its serial values: the realization's an earlier addition left waiting, then each
-	 * drawn, again while they collide and are the calculator's own, or while the realization's meet a fact of the state
-	 * the addition joins, which then wait for the next addition.
-	 */
-	const drawGenerated = (id: FactIdentity, partial: Fact): ReturnType<typeof admit> => {
-		const passed = new Map<string, ReadonlyArray<bigint>>(
-			Arr.map(serial, (field) => [field, []] as const)
-		)
-		for (;;) {
-			const fact: Record<string, unknown> = { ...partial }
-			const taken = Arr.map(serial, (field) => {
-				const queue = entryOf(waiting, field, "the waiting values")
-				const passedHere = entryOf(passed, field, "the passed values")
-				const held = Arr.findFirst(queue, (v) => !Arr.contains(passedHere, v))
-				if (Option.isSome(held)) {
-					waiting.set(
-						field,
-						Arr.filter(queue, (v) => v !== held.value)
-					)
-					fact[field] = serialHost(serialCarrier(relation, field), held.value)
-					return { field, value: held.value, whose: "realization" as const }
-				}
-				const key = sequenceKey(relation.name, field)
-				const drawn = draw(entryOf(sequences, key, "the sequences"), id, field)
-				sequences.set(key, drawn.next)
-				fact[field] = serialHost(serialCarrier(relation, field), drawn.value)
-				return { field, value: drawn.value, whose: drawn.whose }
-			})
-			const admitted = admit(relation, relation.heading, fact)
-			const realized = Arr.some(taken, (t) => t.whose === "realization")
-			const meets = meetsAfter(admitted.identity, fact)
-			if (
-				!realized ? !meets && !current.has(admitted.identity) : !meets || draws.kind === "given"
-			) {
-				return admitted
-			}
-			if (realized) {
-				for (const t of taken) {
-					if (t.whose === "realization") {
-						waiting.set(t.field, [...entryOf(waiting, t.field, "the waiting values"), t.value])
-						passed.set(t.field, [...entryOf(passed, t.field, "the passed values"), t.value])
-					}
-				}
-			}
-		}
-	}
-	/**
-	 * Whether a generated addition repeats a fact its statement meets, the state after the stratum's deletions and
-	 * complete additions: one equal at every field it states, found at its arbiter, the primary key where it holds no
-	 * serial field and no span, else the one declared key that holds neither (insert/unique.ts generatedArbiter, which
-	 * refuses several such keys beside a primary key holding a serial field). It is that fact, and draws nothing; with no
-	 * such key every generated addition is a new fact.
-	 */
-	const stated = Arr.map(partialHeading, (h) => h.name)
-	const spans: ReadonlySet<string> = new Set(
-		Arr.flatMap(relation.heading, (h) =>
-			h.spec.carrier === "range4" || h.spec.carrier === "range8" || h.spec.carrier === "rangeDate"
-				? [h.name]
-				: []
-		)
-	)
-	const arbitered = Arr.some(
-		allKeys(relation),
-		(k) => !Arr.some(k.fields, (f) => serialSet.has(f) || spans.has(f))
-	)
-	const repeats = (partial: Fact): boolean =>
-		arbitered &&
-		Arr.some(
-			[...after.values()],
-			(fact) => keyIdentity(relation, stated, fact) === keyIdentity(relation, stated, partial)
-		)
-	for (const [id, partial] of sortedEntries(generated)) {
-		if (repeats(partial)) {
-			continue
-		}
-		const admitted = drawGenerated(id, partial)
-		after.set(admitted.identity, admitted.fact)
-		generatedIds.push(admitted.identity)
-	}
 	return {
 		after,
-		generated: generatedIds,
-		insert: [...inserts.keys(), ...generatedIds],
+		insert: [...inserts.keys()],
 		put: [...puts.keys()],
 		delete: [...deletes.keys()]
 	}

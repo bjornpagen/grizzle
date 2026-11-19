@@ -136,16 +136,14 @@ export interface Nesting {
 	readonly walked: ReadonlySet<ColumnKey>
 }
 
-/** The fields of a level a fact supplies: its caller's and its serial ones, but those its nesting supplies: a member's
+/** The fields of a level a fact supplies: its caller's, but those its nesting supplies: a member's
  * group, a tree node's root fields among them. A tree's root states its root fields; its parent is drawn. */
 const ownHeading = (relation: LawRelation, at: FillPosition): Heading => {
 	const supplied = new Set<string>(
 		at.kind === "member" ? at.family.group.map((g) => g.member.name) : []
 	)
 	return relation.fields
-		.filter(
-			(f) => (f.writing.kind === "caller" || f.writing.kind === "serial") && !supplied.has(f.name)
-		)
+		.filter((f) => f.writing.kind === "caller" && !supplied.has(f.name))
 		.map((f) => ({ name: f.name, type: f.type }))
 }
 

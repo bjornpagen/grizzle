@@ -9,7 +9,7 @@
  *
  * The oracle installs no role (plan.ts); the real installer installs the schema with the fixture's worlds
  * (test/pg/physical/support.ts fixtureWorlds: a full writer and a full reader in one login). They agree on every table,
- * column order and base type, NOT NULL, collation, identity and sequence; on every primary key, candidate key and
+ * column order and base type, NOT NULL and collation; on every primary key, candidate key and
  * foreign key, by name, columns and referenced columns; and on enum labels in order. The real installer's grants are
  * judged against the worlds' grants derived from the declaration and the installed types alone (support.ts
  * worldsGrants), independent of the installer. The differences are exactly what the oracle records it leaves out or

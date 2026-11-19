@@ -75,8 +75,7 @@ const claimOf = (domain: FieldDomain, value: unknown): ClaimVerdict => {
 			return regex.as(domain.pattern, domain.flags).test(value)
 				? { kind: "admitted", value }
 				: { kind: "refined-refused", value }
-		case "integer":
-		case "serial": {
+		case "integer": {
 			if (typeof value === "number" && Number.isSafeInteger(value)) {
 				return fitsBits(BigInt(value), domain.bits)
 					? { kind: "admitted", value: value === 0 ? 0 : value }

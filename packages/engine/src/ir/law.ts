@@ -56,12 +56,11 @@ export interface LawField extends HeadingColumn {
  * How a stored field is written, resolved: by the caller; generated, STORED by PostgreSQL from its row by `expr`, an
  * expression over the row's caller-written fields of the field's type; drawn by grizzle from the nested arrays it is a
  * family's index, count, start or end of; accumulated by grizzle on the host, the copy the one axis that carries it
- * gives it, `start` at the axis's base, and proved by PostgreSQL; serial, by its sequence; or retirement, a header's
- * boolean PostgreSQL defaults to false and its group's retirement alone sets true. Only a caller field is in an insert's
- * head, and a serial one by all-or-none.
+ * gives it, `start` at the axis's base, and proved by PostgreSQL; or retirement, a header's boolean PostgreSQL defaults
+ * to false and its group's retirement alone sets true. Only a caller field is in an insert's head.
  */
 export type FieldWriting =
-	| { readonly kind: "caller" | "drawn" | "serial" | "retirement" }
+	| { readonly kind: "caller" | "drawn" | "retirement" }
 	| { readonly kind: "generated"; readonly expr: ScalarExpr }
 	| { readonly kind: "accumulated"; readonly start: TypedLiteral }
 

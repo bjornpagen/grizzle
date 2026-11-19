@@ -20,7 +20,7 @@ import type {
 
 /** One object a GRANT names: of a kind and one name, or the current database, the one object of its kind. */
 export type GrantObject =
-	| { readonly kind: "TABLE" | "SEQUENCE" | "DOMAIN" | "TYPE"; readonly name: ObjectName }
+	| { readonly kind: "TABLE" | "DOMAIN" | "TYPE"; readonly name: ObjectName }
 	| { readonly kind: "FUNCTION"; readonly name: FunctionName }
 	| { readonly kind: "SCHEMA"; readonly name: string }
 	| { readonly kind: "DATABASE" }
@@ -47,7 +47,6 @@ const heldKey = (object: GrantObject, privilege: Privilege, grantee: Grantee): s
 const objectsOf = (on: GrantObjects): NonEmptyReadonlyArray<GrantObject> => {
 	switch (on.kind) {
 		case "TABLE":
-		case "SEQUENCE":
 		case "DOMAIN":
 		case "TYPE": {
 			const kind = on.kind
@@ -80,7 +79,6 @@ const namedAs = (
 ): GrantObjects | undefined => {
 	switch (on.kind) {
 		case "TABLE":
-		case "SEQUENCE":
 		case "DOMAIN":
 		case "TYPE": {
 			const kind = on.kind

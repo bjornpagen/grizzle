@@ -150,8 +150,6 @@ const absentValue = (state: ModelState, domain: FieldDomain): Gen<HostValue> => 
 			return map(int(0, 15), (n) => uuidToken(16 + n))
 		case "integer":
 			return map(int(0, 99), (n) => 100 + n)
-		case "serial":
-			return map(int(0, 99), (n) => 1000 + n)
 		case "contract":
 		case "text":
 		case "boolean":
@@ -573,7 +571,6 @@ const refinementEdges = (domain: FieldDomain): ReadonlyArray<Json> => {
 			}))
 		case "uuid":
 		case "integer":
-		case "serial":
 		case "boolean":
 		case "handle":
 		case "span":

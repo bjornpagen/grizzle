@@ -223,8 +223,8 @@ export const aChangeSetRetiresAUnitsGroupsInOneStatementForEachStratumThatRetire
 			},
 			{
 				file: "packages/engine/src/write/frontend/compile.ts",
-				original: '\t\t\tconst id = ParamId(slotSpelling("slot", s, "retire", "none", header))',
-				replacement: '\t\t\tconst id = ParamId(slotSpelling("slot", 0, "retire", "none", header))',
+				original: '\t\t\tconst id = ParamId(reservedSlot(s, "retire", header))',
+				replacement: '\t\t\tconst id = ParamId(reservedSlot(0, "retire", header))',
 				why: "Every stratum's retirement reads the first stratum's slot, so a later stratum retires the first one's groups."
 			}
 		]

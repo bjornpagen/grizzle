@@ -6,7 +6,7 @@ import type { WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { key, login, on, relation, role, schema } from "#compiler/public/schema.ts"
+import { login, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import type { Witness } from "#compiler/types/changeset/changeset.ts"
 import { deepEquals } from "#test/support/assert.ts"
@@ -20,14 +20,10 @@ const Kser = relation("Kser", { k: pg.integer, a: pg.integer, b: pg.integer }, [
 const Prc = relation("Prc", { k: pg.integer, a: pg.integer }, ["k", "a"])
 
 const Pser = relation("Pser", { k: pg.integer, a: pg.integer }, ["k", "a"])
-
-const Drc = relation("Drc", { id: pg.uuidv7, k: pg.integer, a: pg.integer }, ["id"])
-
-const Dser = relation("Dser", { id: pg.uuidv7, k: pg.integer, a: pg.integer }, ["id"])
-
-const Erc = relation("Erc", { id: pg.uuidv7, k: pg.integer }, ["id"])
-
-const Eser = relation("Eser", { id: pg.uuidv7, k: pg.integer }, ["id"])
+const Qrc = relation("Qrc", { k: pg.integer, a: pg.integer }, ["k"])
+const Qser = relation("Qser", { k: pg.integer, a: pg.integer }, ["k"])
+const Orc = relation("Orc", { k: pg.integer }, ["k"])
+const Oser = relation("Oser", { k: pg.integer }, ["k"])
 
 /** The relations by name, each with its shape and the level its inserting role runs at. */
 export const shapes = {
@@ -35,10 +31,10 @@ export const shapes = {
 	Kser: { shape: "keyed", level: "serializable" },
 	Prc: { shape: "set", level: "readCommitted" },
 	Pser: { shape: "set", level: "serializable" },
-	Drc: { shape: "drawn", level: "readCommitted" },
-	Dser: { shape: "drawn", level: "serializable" },
-	Erc: { shape: "drawnSet", level: "readCommitted" },
-	Eser: { shape: "drawnSet", level: "serializable" }
+	Qrc: { shape: "queried", level: "readCommitted" },
+	Qser: { shape: "queried", level: "serializable" },
+	Orc: { shape: "queriedOne", level: "readCommitted" },
+	Oser: { shape: "queriedOne", level: "serializable" }
 } as const
 
 export type Name = keyof typeof shapes
@@ -50,31 +46,27 @@ const names: Arr.NonEmptyReadonlyArray<Name> = [
 	"Kser",
 	"Prc",
 	"Pser",
-	"Drc",
-	"Dser",
-	"Erc",
-	"Eser"
+	"Qrc",
+	"Qser",
+	"Orc",
+	"Oser"
 ]
 
 /** The schema, its roles and logins, and one member per relation inserting its rows and reading back both sides. */
 export const metSchema = (name: string) => {
-	const base = schema(
-		name,
-		[Krc, Kser, Prc, Pser, Drc, Dser, Erc, Eser],
-		[key(on(Drc, "k")), key(on(Dser, "k")), key(on(Erc, "k")), key(on(Eser, "k"))]
-	)
-	const rc = role(base, "rc", { Krc, Prc, Drc, Erc }, { insert: ["Krc", "Prc", "Drc", "Erc"] })
+	const base = schema(name, [Krc, Kser, Prc, Pser, Qrc, Qser, Orc, Oser], [])
+	const rc = role(base, "rc", { Krc, Prc, Qrc, Orc }, { insert: ["Krc", "Prc", "Qrc", "Orc"] })
 	const ser = role(
 		base,
 		"ser",
-		{ Kser, Pser, Dser, Eser },
-		{ insert: ["Kser", "Pser", "Dser", "Eser"] }
+		{ Kser, Pser, Qser, Oser },
+		{ insert: ["Kser", "Pser", "Qser", "Oser"] }
 	)
 	const direct = role(
 		base,
 		"direct",
-		{ Kser, Pser, Dser, Eser },
-		{ write: ["Kser", "Pser", "Dser", "Eser"] }
+		{ Kser, Pser, Qser, Oser },
+		{ write: ["Kser", "Pser", "Qser", "Oser"] }
 	)
 	return {
 		schema: base,
@@ -112,46 +104,46 @@ export const metSchema = (name: string) => {
 								return r.match(d.met(rc.relations.Prc), { k, a }).find({ k, a })
 							})
 						),
-					Drc: ChangeSet.empty(rc)
+					Qrc: ChangeSet.empty(rc)
 						.insert(
-							rc.relations.Drc,
+							rc.relations.Qrc,
 							query(rc).rule((r) => {
-								const rows = r.relation("rows", { k: Drc.fields.k, a: Drc.fields.a })
+								const rows = r.relation("rows", { k: Qrc.fields.k, a: Qrc.fields.a })
 								const { k, a } = v(rows, "row")
 								return r.match(rows, { k, a }).find({ k, a })
 							})
 						)
 						.read("added", (d) =>
 							query(rc).rule((r) => {
-								const { id, k, a } = v(d.added(rc.relations.Drc), "row")
-								return r.match(d.added(rc.relations.Drc), { id, k, a }).find({ id, k, a })
+								const { k, a } = v(d.added(rc.relations.Qrc), "row")
+								return r.match(d.added(rc.relations.Qrc), { k, a }).find({ k, a })
 							})
 						)
 						.read("met", (d) =>
 							query(rc).rule((r) => {
-								const { id, k, a } = v(d.met(rc.relations.Drc), "row")
-								return r.match(d.met(rc.relations.Drc), { id, k, a }).find({ id, k, a })
+								const { k, a } = v(d.met(rc.relations.Qrc), "row")
+								return r.match(d.met(rc.relations.Qrc), { k, a }).find({ k, a })
 							})
 						),
-					Erc: ChangeSet.empty(rc)
+					Orc: ChangeSet.empty(rc)
 						.insert(
-							rc.relations.Erc,
+							rc.relations.Orc,
 							query(rc).rule((r) => {
-								const rows = r.relation("rows", { k: Erc.fields.k })
+								const rows = r.relation("rows", { k: Orc.fields.k })
 								const { k } = v(rows, "row")
 								return r.match(rows, { k }).find({ k })
 							})
 						)
 						.read("added", (d) =>
 							query(rc).rule((r) => {
-								const { id, k } = v(d.added(rc.relations.Erc), "row")
-								return r.match(d.added(rc.relations.Erc), { id, k }).find({ id, k })
+								const { k } = v(d.added(rc.relations.Orc), "row")
+								return r.match(d.added(rc.relations.Orc), { k }).find({ k })
 							})
 						)
 						.read("met", (d) =>
 							query(rc).rule((r) => {
-								const { id, k } = v(d.met(rc.relations.Erc), "row")
-								return r.match(d.met(rc.relations.Erc), { id, k }).find({ id, k })
+								const { k } = v(d.met(rc.relations.Orc), "row")
+								return r.match(d.met(rc.relations.Orc), { k }).find({ k })
 							})
 						)
 				}),
@@ -184,46 +176,46 @@ export const metSchema = (name: string) => {
 								return r.match(d.met(ser.relations.Pser), { k, a }).find({ k, a })
 							})
 						),
-					Dser: ChangeSet.empty(ser)
+					Qser: ChangeSet.empty(ser)
 						.insert(
-							ser.relations.Dser,
+							ser.relations.Qser,
 							query(ser).rule((r) => {
-								const rows = r.relation("rows", { k: Dser.fields.k, a: Dser.fields.a })
+								const rows = r.relation("rows", { k: Qser.fields.k, a: Qser.fields.a })
 								const { k, a } = v(rows, "row")
 								return r.match(rows, { k, a }).find({ k, a })
 							})
 						)
 						.read("added", (d) =>
 							query(ser).rule((r) => {
-								const { id, k, a } = v(d.added(ser.relations.Dser), "row")
-								return r.match(d.added(ser.relations.Dser), { id, k, a }).find({ id, k, a })
+								const { k, a } = v(d.added(ser.relations.Qser), "row")
+								return r.match(d.added(ser.relations.Qser), { k, a }).find({ k, a })
 							})
 						)
 						.read("met", (d) =>
 							query(ser).rule((r) => {
-								const { id, k, a } = v(d.met(ser.relations.Dser), "row")
-								return r.match(d.met(ser.relations.Dser), { id, k, a }).find({ id, k, a })
+								const { k, a } = v(d.met(ser.relations.Qser), "row")
+								return r.match(d.met(ser.relations.Qser), { k, a }).find({ k, a })
 							})
 						),
-					Eser: ChangeSet.empty(ser)
+					Oser: ChangeSet.empty(ser)
 						.insert(
-							ser.relations.Eser,
+							ser.relations.Oser,
 							query(ser).rule((r) => {
-								const rows = r.relation("rows", { k: Eser.fields.k })
+								const rows = r.relation("rows", { k: Oser.fields.k })
 								const { k } = v(rows, "row")
 								return r.match(rows, { k }).find({ k })
 							})
 						)
 						.read("added", (d) =>
 							query(ser).rule((r) => {
-								const { id, k } = v(d.added(ser.relations.Eser), "row")
-								return r.match(d.added(ser.relations.Eser), { id, k }).find({ id, k })
+								const { k } = v(d.added(ser.relations.Oser), "row")
+								return r.match(d.added(ser.relations.Oser), { k }).find({ k })
 							})
 						)
 						.read("met", (d) =>
 							query(ser).rule((r) => {
-								const { id, k } = v(d.met(ser.relations.Eser), "row")
-								return r.match(d.met(ser.relations.Eser), { id, k }).find({ id, k })
+								const { k } = v(d.met(ser.relations.Oser), "row")
+								return r.match(d.met(ser.relations.Oser), { k }).find({ k })
 							})
 						)
 				})
@@ -238,11 +230,6 @@ export interface Fact {
 	readonly k: number
 	readonly a: number
 	readonly b: number
-}
-
-/** A stored or read-back row of any shape: its fact, and its id where the shape draws one. */
-export interface Row extends Fact {
-	readonly id: Option.Option<string>
 }
 
 /** What a request is to the stored state: a copy of a stored fact, one at a stored key with another payload, or one at
@@ -260,12 +247,9 @@ interface Met {
 	readonly requests: ReadonlyArray<Request>
 }
 
-/** Whether a shape states a, whether it states b, and whether it draws an id. */
-const statesA = (shape: Shape): boolean => shape !== "drawnSet"
-
+/** Whether a shape states a, and whether it states b. */
+const statesA = (shape: Shape): boolean => shape !== "queriedOne"
 const statesB = (shape: Shape): boolean => shape === "keyed"
-
-export const drawsId = (shape: Shape): boolean => shape === "drawn" || shape === "drawnSet"
 
 /** A fact as `shape` states it: the fields it lacks at 0. */
 const asStated = (shape: Shape, f: Fact): Fact => ({
@@ -280,7 +264,7 @@ export const sameKey = (shape: Shape, x: Fact, y: Fact): boolean =>
 
 /** The kinds of request a shape draws: a set's facts never differ at their key. */
 const kindsOf = (shape: Shape): Arr.NonEmptyReadonlyArray<RequestKind> =>
-	shape === "set" || shape === "drawnSet" ? ["repeat", "free"] : ["repeat", "differing", "free"]
+	shape === "set" || shape === "queriedOne" ? ["repeat", "free"] : ["repeat", "differing", "free"]
 
 export const metGen: Gen<Met> = (source) => {
 	const relation = source.draw(element(names))
@@ -334,7 +318,7 @@ const situationsOf = (shape: Shape): Arr.NonEmptyReadonlyArray<MetSituation> => 
 	"met",
 	"added beside met",
 	"unchanged, met only",
-	...(shape === "keyed" || shape === "drawn" ? (["refused at a differing key"] as const) : [])
+	...(shape === "keyed" || shape === "queried" ? (["refused at a differing key"] as const) : [])
 ]
 
 export const metFeatures: Arr.NonEmptyReadonlyArray<MetFeature> = Arr.flatMap(
@@ -389,9 +373,9 @@ export const aims: ReadonlyArray<readonly [MetFeature, Gen<Met>]> = Arr.flatMap(
 )
 
 /** Rows in one order: by k, then a. */
-export const byKey: Order.Order<Row> = Order.combine(
-	Order.mapInput(Order.Number, (r: Row) => r.k),
-	Order.mapInput(Order.Number, (r: Row) => r.a)
+export const byKey: Order.Order<Fact> = Order.combine(
+	Order.mapInput(Order.Number, (r: Fact) => r.k),
+	Order.mapInput(Order.Number, (r: Fact) => r.a)
 )
 
 /** What a call answered, the same for every relation's member: committed, with its added count and both sides it read
@@ -401,8 +385,8 @@ export type Answer =
 			readonly kind: "committed"
 			readonly outcome: "accepted" | "unchanged"
 			readonly added: bigint
-			readonly addedRows: ReadonlyArray<Row>
-			readonly metRows: ReadonlyArray<Row>
+			readonly addedRows: ReadonlyArray<Fact>
+			readonly metRows: ReadonlyArray<Fact>
 	  }
 	| { readonly kind: "refused"; readonly witness: Witness }
 	| { readonly kind: "other"; readonly shown: string }
@@ -415,7 +399,7 @@ export const answerOf = <R, E, Q>(
 		E,
 		Q
 	>,
-	toRow: (r: R) => Row
+	toRow: (r: R) => Fact
 ): Effect.Effect<Answer, never, Q> =>
 	Effect.map(Effect.result(call), (ran): Answer => {
 		if (Result.isFailure(ran)) {
@@ -448,53 +432,28 @@ export const answerOf = <R, E, Q>(
 		}
 	})
 
-/** Row readers of each shape's read-back row. */
+/** Fact readers of each shape's read-back row. */
 export const keyedRow = (r: {
 	readonly k: number
 	readonly a: number
 	readonly b: number
-}): Row => ({
+}): Fact => ({
 	k: r.k,
 	a: r.a,
-	b: r.b,
-	id: Option.none()
+	b: r.b
 })
-
-export const setRow = (r: { readonly k: number; readonly a: number }): Row => ({
+export const pairRow = (r: { readonly k: number; readonly a: number }): Fact => ({
 	k: r.k,
 	a: r.a,
-	b: 0,
-	id: Option.none()
+	b: 0
 })
+export const oneRow = (r: { readonly k: number }): Fact => ({ k: r.k, a: 0, b: 0 })
 
-export const drawnRow = (r: {
-	readonly id: string
-	readonly k: number
-	readonly a: number
-}): Row => ({
-	k: r.k,
-	a: r.a,
-	b: 0,
-	id: Option.some(r.id)
-})
-
-export const drawnSetRow = (r: { readonly id: string; readonly k: number }): Row => ({
-	k: r.k,
-	a: 0,
-	b: 0,
-	id: Option.some(r.id)
-})
-
-export const relations = { Krc, Kser, Prc, Pser, Drc, Dser, Erc, Eser } as const
+export const relations = { Krc, Kser, Prc, Pser, Qrc, Qser, Orc, Oser } as const
 
 export const columnsOf = (n: Name): ReadonlyArray<string> => {
 	const { shape } = shapes[n]
-	return [
-		"k",
-		...(statesA(shape) ? ["a"] : []),
-		...(statesB(shape) ? ["b"] : []),
-		...(drawsId(shape) ? ["id"] : [])
-	]
+	return ["k", ...(statesA(shape) ? ["a"] : []), ...(statesB(shape) ? ["b"] : [])]
 }
 
 /** The schedule's installation made once per member (support/schedules/rig.ts rigTemplate), which each case's seat holds. */

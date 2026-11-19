@@ -4,7 +4,7 @@
  * model predicts (model.ts).
  *
  * The population must reach every statement kind, each native error at the time PostgreSQL raises it (a unique
- * violation, an immediate foreign key, a privilege refusal, an identity column's refusal, a refined text's domain's
+ * violation, an immediate foreign key, a privilege refusal, a refined text's domain's
  * and a closed id's roster domain's, each by its CHECK, a precision's and a missing field's at the statement; a
  * deferred foreign key at COMMIT and at SET CONSTRAINTS), and commits; and every level below SERIALIZABLE a writer may
  * begin at, each refused by grizzle's guard (25000 naming the table, nothing committed).
@@ -15,7 +15,7 @@
  * (23503). Each run plants them: its schema holds one more group of its own (plantedGroup, a parent with a closed id, a
  * numeric(3, 0) and a refined text column, a pure set, and a child of each, the one into the parent deferred, the one
  * into the pure set immediate), and among its drawn cases, at drawn positions, one planted case of each, its stored
- * facts, row, level and sequences drawn: the wild value inserted alone, or the breaking statement alone. So every
+ * facts, row and level drawn: the wild value inserted alone, or the breaking statement alone. So every
  * required feature is reached in every run that holds the planted cases, and the drawn cases still reach them
  * organically.
  */

@@ -1,17 +1,12 @@
 import { int4Max } from "#compiler/core/canonical.ts"
 import { type Column, convertColumn } from "#compiler/core/decoder.ts"
-import { malformedDescription, unsupported } from "#compiler/core/errors.ts"
+import { malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { int8Max } from "#compiler/ir/carriers.ts"
 import { dayNumber, lastCalendarDate } from "#compiler/ir/date.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
-import {
-	type Described,
-	describeFieldOrThrow,
-	serialNameOf,
-	spanType
-} from "#compiler/scalar/registry.ts"
+import { type Described, describeFieldOrThrow, spanType } from "#compiler/scalar/registry.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 
 /**
@@ -77,9 +72,8 @@ interface SpanParts {
  * Span support is a separately admitted capability: an endpoint is a descriptor whose type has the
  * registry's spanEndpoint capability, which is exactly pg.integer, pg.bigint, date and contracts over them, aliases
  * included. Every other endpoint is refused with a capability diagnostic naming the endpoint type, the operation and
- * the missing capability: smallint (int4range plus endpoint bounds would be required), numeric, the
- * floats, money, and the serial family, a generation declaration and no value type, which is refused by its writing
- * (registry.ts serialNameOf) because its type is its value type's. There is no slow mode and no custom range type.
+ * the missing capability: smallint (int4range plus endpoint bounds would be required), numeric, the floats and money.
+ * There is no slow mode and no custom range type.
  *
  * The span lowers to int4range over an integer endpoint, int8range over a bigint one and daterange over a date; a
  * contract endpoint keeps the base range, and its endpoints are branded. The optional width fixes the extent's
@@ -103,17 +97,7 @@ export const spanParts = (endpoint: unknown, rest: ReadonlyArray<unknown>): Span
 	const described = describeFieldOrThrow(endpoint, SourceLoc("span endpoint", []))
 	const loc = captureLoc(`span(${described.sql})`, [])
 	const base = baseOf(described.scalar).carrier
-	/**
-	 * The endpoint decides first, whatever width accompanies it: a serial by its writing, since its type is its value
-	 * type's, and a smallint or money endpoint by its capability.
-	 */
-	const serial = serialNameOf(described)
-	if (serial !== undefined) {
-		throw unsupported(
-			loc,
-			`spanEndpoint: ${serial.serial} is a serial generation declaration, not a value type; spans are over integer, bigint and contracts over them`
-		)
-	}
+	/** The endpoint decides first, whatever width accompanies it: a smallint or money endpoint by its capability. */
 	const unchecked = spanType(described.scalar, undefined, loc)
 	if (!unchecked.ok) {
 		throw unchecked.error

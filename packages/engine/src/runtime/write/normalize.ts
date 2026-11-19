@@ -184,8 +184,7 @@ export interface StartData {
 
 /**
  * An enumerated input as a binding holds it (frontend/compile.ts EnumeratedInput): its members by name, and what admits
- * their facts: a single input's `admitted`, a classed input's each of its slots' headings, and a nested input's its
- * nesting's own row, its slot's heading.
+ * their facts: a single input's `admitted`, and a nested input's its nesting's own row, its slot's heading.
  */
 export type InputData =
 	| {
@@ -195,13 +194,6 @@ export type InputData =
 			readonly members: NonEmptyReadonlyArray<string>
 			readonly admitted: Heading
 			readonly starts: ReadonlyArray<StartData>
-	  }
-	| {
-			readonly kind: "classed"
-			readonly serial: NonEmptyReadonlyArray<string>
-			readonly complete: SlotData
-			readonly generated: SlotData
-			readonly members: NonEmptyReadonlyArray<string>
 	  }
 	| {
 			readonly kind: "nested"
@@ -237,21 +229,6 @@ export type BindInput =
 			readonly starts: ReadonlyArray<{ readonly name: string; readonly value: unknown }>
 	  }
 	| {
-			readonly kind: "classed"
-			readonly serial: NonEmptyReadonlyArray<string>
-			/** The fields a generated addition states, each by its carrier's spec: where a complete addition of its stratum
-			 * agrees with it at every one, the two are one fact (`sameKey`). */
-			readonly stated: ReadonlyArray<KeySpec>
-			readonly complete: SlotData
-			readonly generated: SlotData
-			readonly members: NonEmptyReadonlyArray<
-				InputMember<{
-					readonly complete: RelationNormalizer
-					readonly generated: RelationNormalizer
-				}>
-			>
-	  }
-	| {
 			readonly kind: "nested"
 			readonly act: Extract<SingleAct, { readonly op: "insert" }>
 			readonly slot: SlotData
@@ -267,11 +244,6 @@ export interface BindGroup {
 	readonly facts: CheckedFacts
 	readonly inputs: NonEmptyReadonlyArray<BindInput>
 }
-
-/** The member slots an enumerated input fills, in the order the front end drafts them (frontend/compile.ts
- * inputSlots): its one slot, or the complete slot and then the generated one. */
-export const inputSlotsOf = (input: InputData): NonEmptyReadonlyArray<SlotData> =>
-	input.kind === "classed" ? [input.complete, input.generated] : [input.slot]
 
 /** The member slots a compiled ChangeSet reads, each once, in the order its slot groups name them: the slots whose
  * facts `MemberFacts` must hold. */
@@ -322,23 +294,6 @@ const rowReading = (columns: Columns): EntryReading<NestedRow> => ({
 	}
 })
 
-/** A non-null object, whose fields a string key reads as unknown values. */
-const isObject = (value: unknown): value is Fact => typeof value === "object" && value !== null
-
-/** A fact's own non-undefined fields among `fields`. */
-const supplied = (fact: unknown, fields: ReadonlyArray<string>): number => {
-	if (!isObject(fact)) {
-		return fields.length
-	}
-	let n = 0
-	for (const f of fields) {
-		if (Object.hasOwn(fact, f) && fact[f] !== undefined) {
-			n++
-		}
-	}
-	return n
-}
-
 /**
  * The admitted facts of `facts`, member `member`'s, against a slot's heading, by its member's normalizer, refused with
  * the codec's fault at the member slot. The codec checks no key: normalization refuses a same-key pair itself (step 3).
@@ -374,32 +329,6 @@ const admit = (
 		return normalized
 	}
 	return Result.ok(normalized.value.entries)
-}
-
-/** A classed insertion's facts of one member, each routed by its supplied serial fields: none to the generated slot,
- * every one to the complete slot; a fact supplying some and not all is no fact of either heading. Each fact is
- * classified once. */
-const routed = (
-	serial: NonEmptyReadonlyArray<string>,
-	member: string,
-	facts: Iterable<unknown>
-): Result.Result<
-	{ readonly complete: ReadonlyArray<unknown>; readonly generated: ReadonlyArray<unknown> },
-	EncodingFailure
-> => {
-	const complete: Array<unknown> = []
-	const generated: Array<unknown> = []
-	for (const fact of facts) {
-		const n = supplied(fact, serial)
-		if (n === 0) {
-			generated.push(fact)
-		} else if (n === serial.length) {
-			complete.push(fact)
-		} else {
-			return Result.err(encodeFailure("factShape", slotPlace(member)))
-		}
-	}
-	return Result.ok({ complete, generated })
 }
 
 /** Each admitted entry of `entries` into `set`, the first of each identity kept. */
@@ -567,24 +496,6 @@ export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
 					starts: input.starts.map((st) => ({ name: st.name, value: startOf(st) }))
 				}
 			}
-			case "classed": {
-				const complete = normalizer(input.complete.heading)
-				const generated = normalizer(input.generated.heading)
-				return {
-					kind: "classed",
-					serial: input.serial,
-					stated: input.generated.heading.map((h) => ({
-						field: h.name,
-						spec: carrierSpecOf(h.type, codes)
-					})),
-					complete: input.complete,
-					generated: input.generated,
-					members: mapNonEmpty(input.members, (name) => ({
-						name,
-						normalize: { complete: complete(name), generated: generated(name) }
-					}))
-				}
-			}
 			case "nested": {
 				const admitBy = normalizer(input.slot.heading)
 				return {
@@ -691,23 +602,21 @@ const primaryConflict = <E>(
 
 /**
  * The first of one relation's facts, in canonical order, sharing a declared key's value with an earlier one of another
- * identity under `order`, the keys tried primary key first, each over the facts `onKey` takes part on it, and two
- * entries there one fact where `oneFact` holds of them at that key.
+ * identity under `order`, the keys tried primary key first.
  */
 const keyConflictIn = <E>(
 	facts: CheckedFacts,
 	reading: EntryReading<E>,
-	onKey: (key: CheckedKey) => ReadonlyArray<E>,
-	oneFact: (key: CheckedKey, a: E, b: E) => boolean
+	entries: ReadonlyArray<E>
 ): KeyRefusal | undefined => {
 	for (const key of facts.host.keys) {
 		const { fields } = key
 		const keyTexts = reading.texts(fields)
 		const seen = new TupleMap<ReadonlyArray<string>, E>()
-		for (const e of onKey(key)) {
+		for (const e of entries) {
 			const k = keyTexts(e)
 			const prior = seen.get(k)
-			if (prior !== undefined && reading.order(prior, e) !== 0 && !oneFact(key, prior, e)) {
+			if (prior !== undefined && reading.order(prior, e) !== 0) {
 				return conflictOf(facts, reading.value, e, fields, key)
 			}
 			seen.set(k, e)
@@ -716,43 +625,20 @@ const keyConflictIn = <E>(
 	return undefined
 }
 
-/** Whether a span field is among a key's fields: such a key is no generated addition's arbiter. */
-const holdsSpan = (key: CheckedKey): boolean =>
-	key.fields.some(
-		({ spec }) =>
-			spec.carrier === "range4" || spec.carrier === "range8" || spec.carrier === "rangeDate"
-	)
-
 /**
  * Same-key refusal over one stratum's additions of one relation (`normalizeChangeSet`, step 3): the first addition, in
  * canonical order, sharing a declared key's value with an earlier one of another identity, the keys tried primary key
- * first; then the first whose span overlaps an earlier one's at equal scalar fields. A generated addition takes part
- * only on the keys and spans that hold no serial field. At such a key with no span, which makes one its arbiter
- * (insert/unique.ts generatedArbiter), a generated addition and a complete one that agrees with it at every field it
- * states, `stated`, are one fact: its statement, after the complete one's, meets that row there and is no change.
+ * first; then the first whose span overlaps an earlier one's at equal scalar fields.
  */
 const sameKey = <E>(
 	facts: CheckedFacts,
 	reading: EntryReading<E>,
-	serial: ReadonlyArray<string>,
-	stated: ReadonlyArray<KeySpec>,
-	complete: Iterable<E>,
-	generated: Iterable<E>
+	entries: Iterable<E>
 ): KeyRefusal | undefined => {
-	const additions = [...complete]
-	const drawnAdditions = [...generated]
-	return drawnAdditions.length === 0 &&
-		facts.host.spans.length === 0 &&
-		!keyShared(facts, reading, additions)
+	const additions = [...entries]
+	return facts.host.spans.length === 0 && !keyShared(facts, reading, additions)
 		? undefined
-		: firstConflict(
-				facts,
-				reading,
-				serial,
-				stated,
-				sorted(reading, additions),
-				sorted(reading, drawnAdditions)
-			)
+		: firstConflict(facts, reading, sorted(reading, additions))
 }
 
 /**
@@ -783,32 +669,13 @@ const keyShared = <E>(
 	return false
 }
 
-/** `sameKey`'s refusal over additions in canonical order, `complete` and `generated` each sorted. */
+/** `sameKey`'s refusal over additions in canonical order, `additions` sorted. */
 const firstConflict = <E>(
 	facts: CheckedFacts,
 	reading: EntryReading<E>,
-	serial: ReadonlyArray<string>,
-	stated: ReadonlyArray<KeySpec>,
-	complete: ReadonlyArray<E>,
-	generated: ReadonlyArray<E>
+	additions: ReadonlyArray<E>
 ): KeyRefusal | undefined => {
-	const drawn: ReadonlySet<E> = new Set(generated)
-	const statedTexts = reading.texts(stated)
-	const oneFact = (key: CheckedKey, a: E, b: E): boolean => {
-		const bTexts = statedTexts(b)
-		return (
-			drawn.has(a) !== drawn.has(b) &&
-			!holdsSpan(key) &&
-			statedTexts(a).every((text, i) => text === bTexts[i])
-		)
-	}
-	const keyed = keyConflictIn(
-		facts,
-		reading,
-		({ fields }) =>
-			fields.some((f) => serial.includes(f.field)) ? complete : [...complete, ...generated],
-		oneFact
-	)
+	const keyed = keyConflictIn(facts, reading, additions)
 	if (keyed !== undefined) {
 		return keyed
 	}
@@ -816,14 +683,11 @@ const firstConflict = <E>(
 		const { span, witness } = check
 		const keyTexts = reading.texts(check.equal)
 		const spanValue = reading.value(span.field)
-		const onKey = witness.some((f) => serial.includes(f.field))
-			? complete
-			: [...complete, ...generated]
 		const groups = new TupleMap<
 			ReadonlyArray<string>,
 			Array<{ readonly entry: E; readonly span: HostSpan }>
 		>()
-		for (const e of onKey) {
+		for (const e of additions) {
 			const value = admitted(span.spec, spanValue(e))
 			const k = keyTexts(e)
 			const group = groups.get(k) ?? []
@@ -854,10 +718,7 @@ const firstConflict = <E>(
 /** One slot group's admitted facts, by how its inputs write them: a deletion's of rows (`delete`) apart from a unit
  * delete's, whose facts name units (`units`), and a retirement's, whose facts name groups (`retire`). */
 type GroupSets = Readonly<
-	Record<
-		"insert" | "generated" | "put" | "delete" | "units" | "retire",
-		TupleMap<FactIdentity, FactEntry>
-	>
+	Record<"insert" | "put" | "delete" | "units" | "retire", TupleMap<FactIdentity, FactEntry>>
 >
 
 /** The set a single input's facts join: its operation's, a unit delete's its own (frontend/compile.ts SingleAct). */
@@ -881,8 +742,6 @@ type AdmittedGroup =
 	| {
 			readonly kind: "admitted"
 			readonly facts: CheckedFacts
-			readonly serial: ReadonlyArray<string>
-			readonly stated: ReadonlyArray<KeySpec>
 			readonly sets: GroupSets
 			readonly slotOf: ReadonlyMap<keyof GroupSets, SlotData>
 	  }
@@ -894,8 +753,8 @@ type AdmittedGroup =
  *
  * Overlapping additions under a span candidate key, which exact key values do not show: the
  * statement treats a violation of one as an occupant its snapshot did not see, so a pair within the input must
- * be refused here. A unique index's pairs are the statement's, which evaluates its predicate and compares its fields,
- * and so are a span primary key's among generated additions (insert/unique.ts `Probed`).
+ * be refused here. A unique index's pairs are the statement's, which evaluates its predicate and compares its fields
+ * (insert/unique.ts `Probed`).
  *
  * Additions win: a fact both added and deleted is neither deleted nor counted. A unit delete's facts name units, not
  * rows, so no addition nets them: the unit statement keeps each row of a unit the stratum adds again unchanged
@@ -910,20 +769,15 @@ type AdmittedGroup =
  * application only once every input admits.
  *
  * 1. Admits every fact through its heading's exact carriers: the null ban, the field set, and each value's exact parse
- *    (values/identity.ts parseValue), before fact identity is taken. An addition into a classed target
- *    (`EnumeratedInput` "classed") is routed once by the serial fields it supplies: one that omits all is a generated
- *    addition, admitted against its class's heading, the unit relation's when that holds no field; one that supplies
- *    all is complete; one that omits some is no fact of either heading (factShape).
+ *    (values/identity.ts parseValue), before fact identity is taken.
  * 2. Collapses equal facts: a ChangeSet's facts of one relation are a set by identity (rule 0), so a fact stated twice,
- *    in one array, across arrays or across inserts, is one fact, and equal generated additions are one requested
- *    addition that yields one new fact. A nested insert's facts are one set across its stratum (nesting.ts NestedSet):
+ *    in one array, across arrays or across inserts, is one fact. A nested insert's facts are one set across its stratum (nesting.ts NestedSet):
  *    a fact stated twice with every row it nests is one, and so is each member row it nests.
  * 3. Refuses conflicting additions before any SQL is sent: two facts that one stratum adds, by insert or by put, or
  *    nests under an insert, with one value of a declared key and different identities, are a key conflict, which is
  *    invariant-rejected with that key's law; two nested facts at one key that nest different rows are one too, on
  *    their relation's primary key. Additions win the transition S' = (S \ D) ∪ A, so both facts
- *    would be in the final state and break the key whatever was stored. A generated addition takes part on every key
- *    that holds no serial field; its identity does not exist yet on the others. Keys are tried primary
+ *    would be in the final state and break the key whatever was stored. Keys are tried primary
  *    key first, then in declaration order, and facts in canonical order, so the refusal is deterministic. A declared
  *    key over a generated field is no host key: PostgreSQL computes the field, so the statement that writes the facts
  *    compares them there (insert/unique.ts `hostHeld`, `Probed`), and a family's member rows meet it at its index. A span
@@ -972,7 +826,6 @@ export const normalizeChangeSet = (
 	for (const { stratum, facts, inputs: enumerated } of groups) {
 		const sets: GroupSets = {
 			insert: new TupleMap(),
-			generated: new TupleMap(),
 			put: new TupleMap(),
 			delete: new TupleMap(),
 			units: new TupleMap(),
@@ -982,11 +835,6 @@ export const normalizeChangeSet = (
 		/** The first of the group's nested writes whose generated field has no value: the group's refusal, once every
 		 * input after it is admitted. */
 		let stopped: GeneratedRefusal | undefined
-		/** The serial fields of the group's classed input, which exclude its generated facts from the keys that read
-		 * them; a group with no classed input has no generated fact. */
-		const serial = enumerated.flatMap((input) => (input.kind === "classed" ? input.serial : []))
-		/** The fields the group's generated facts state, its classed input's; a group with no classed input has none. */
-		const stated = enumerated.flatMap((input) => (input.kind === "classed" ? input.stated : []))
 		for (const input of enumerated) {
 			switch (input.kind) {
 				case "nested": {
@@ -1051,63 +899,19 @@ export const normalizeChangeSet = (
 					}
 					break
 				}
-				case "classed": {
-					slotOf.set("insert", input.complete)
-					slotOf.set("generated", input.generated)
-					for (const member of input.members) {
-						const given = inputs.get(member.name)
-						if (given === undefined) {
-							return Result.err(encodeFailure("factShape", slotPlace(member.name)))
-						}
-						const byClass = routed(input.serial, member.name, given)
-						if (!byClass.ok) {
-							return byClass
-						}
-						const complete = admit(
-							member.normalize.complete,
-							member.name,
-							byClass.value.complete,
-							book,
-							transport
-						)
-						if (!complete.ok) {
-							return complete
-						}
-						const generated = admit(
-							member.normalize.generated,
-							member.name,
-							byClass.value.generated,
-							book,
-							transport
-						)
-						if (!generated.ok) {
-							return generated
-						}
-						collect(sets.insert, complete.value)
-						collect(sets.generated, generated.value)
-					}
-					break
-				}
 			}
 		}
-		admittedGroups.push(stopped ?? { kind: "admitted", facts, serial, stated, sets, slotOf })
+		admittedGroups.push(stopped ?? { kind: "admitted", facts, sets, slotOf })
 	}
 	for (const group of admittedGroups) {
 		if (group.kind === "generatedNull") {
 			return Result.ok(group)
 		}
-		const { facts, serial, stated, sets, slotOf } = group
+		const { facts, sets, slotOf } = group
 		for (const id of sets.put.keys()) {
 			sets.insert.delete(id)
 		}
-		const refused = sameKey(
-			facts,
-			factReading,
-			serial,
-			stated,
-			[...sets.put.values(), ...sets.insert.values()],
-			sets.generated.values()
-		)
+		const refused = sameKey(facts, factReading, [...sets.put.values(), ...sets.insert.values()])
 		if (refused !== undefined) {
 			return Result.ok(refused)
 		}
@@ -1141,14 +945,7 @@ export const normalizeChangeSet = (
 		}
 		const held = nestedRowsOf(set)
 		for (const [name, byKey] of held) {
-			const refused = sameKey(
-				factsOf(name),
-				rowReading(walk.columns(name)),
-				[],
-				[],
-				byKey.values(),
-				[]
-			)
+			const refused = sameKey(factsOf(name), rowReading(walk.columns(name)), byKey.values())
 			if (refused !== undefined) {
 				return Result.ok(refused)
 			}

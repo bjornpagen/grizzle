@@ -86,7 +86,7 @@ import {
  *   batch disarms;
  * - the Refusal a refused case's directive names is the engine's reason (claimOf);
  * - an admitted ChangeSet's parameters, writes, read-backs and schema are the engine's, and so are the rows of each
- *   relation it writes, the fields its caller writes (Written) and those its addition holds (AdditionIn); its
+ *   relation it writes, the fields its caller writes (Addition) and those its addition holds (AdditionIn); its
  *   call's error, success and service channels are CallError, the WriteOutcome of its read-backs, and none, each
  *   asserted exactly.
  *
@@ -96,8 +96,8 @@ import {
  * A case is a valid ChangeSet by construction with at most one planted fault, so the one line the case is written on
  * raises at most the one diagnostic its directive names: a read-back name repeated by read, union or sequence, a
  * closed or derived relation written, a read-back of a derived relation's delta, a described member's head that is no
- * fact of its relation or writes an exact value into a plain field, a member fact with a field its relation lacks or
- * some of its serials, missing a field or holding a value outside one, two facts an addition, a deletion or a put lists
+ * fact of its relation or writes an exact value into a plain field, a member fact with a field its relation lacks,
+ * missing a field or holding a value outside one, two facts an addition, a deletion or a put lists
  * sharing a key with literal payloads that differ, a family's member fact that is no fact of its relation as the
  * nesting takes it (a root field below a tree's root, a field its relation lacks or a drawn one in a nested member, a
  * nested member missing a field, a counted member nested, an accumulated field or a count in a put, a generated field
@@ -153,10 +153,9 @@ interface Outside {
 	readonly lit: Lit
 }
 
-/** A field of a written relation: its name, whether it is a serial, its key, values of its type and ones outside it. */
+/** A field of a written relation: its name, its key, values of its type and ones outside it. */
 interface FieldInfo {
 	readonly name: string
-	readonly serial: boolean
 	readonly key: boolean
 	readonly values: Arr.NonEmptyReadonlyArray<Lit>
 	readonly outside: Arr.NonEmptyReadonlyArray<Outside>
@@ -210,65 +209,59 @@ const otherPattern = (lit: Lit): Arr.NonEmptyReadonlyArray<Outside> => [
 
 const fieldsOf: { readonly [R in RelName]: Arr.NonEmptyReadonlyArray<FieldInfo> } = {
 	Task: [
-		{ name: "id", serial: false, key: true, values: uuids, outside: uuidOutside },
-		{ name: "account", serial: false, key: false, values: uuids, outside: uuidOutside },
-		{ name: "kind", serial: false, key: false, values: kinds, outside: kindOutside }
+		{ name: "id", key: true, values: uuids, outside: uuidOutside },
+		{ name: "account", key: false, values: uuids, outside: uuidOutside },
+		{ name: "kind", key: false, values: kinds, outside: kindOutside }
 	],
 	Budget: [
-		{ name: "task", serial: false, key: true, values: uuids, outside: uuidOutside },
+		{ name: "task", key: true, values: uuids, outside: uuidOutside },
 		{
 			name: "cents",
-			serial: false,
 			key: false,
 			values: cents,
 			outside: [anotherType(plainNumber)]
 		}
 	],
 	Ticket: [
-		{ name: "id", serial: true, key: true, values: bigints, outside: [anotherType(plainNumber)] },
-		{ name: "account", serial: false, key: false, values: uuids, outside: uuidOutside },
+		{ name: "id", key: true, values: bigints, outside: [anotherType(plainNumber)] },
+		{ name: "account", key: false, values: uuids, outside: uuidOutside },
 		{
 			name: "amount",
-			serial: false,
 			key: false,
 			values: cents,
 			outside: [anotherType(plainNumber)]
 		}
 	],
 	Pair: [
-		{ name: "a", serial: true, key: true, values: bigints, outside: [anotherType(plainNumber)] },
+		{ name: "a", key: true, values: bigints, outside: [anotherType(plainNumber)] },
 		{
 			name: "b",
-			serial: true,
 			key: false,
 			values: [{ text: "1", value: 1 }],
 			outside: [anotherType({ text: "1n", value: 1n })]
 		},
-		{ name: "note", serial: false, key: false, values: uuids, outside: uuidOutside }
+		{ name: "note", key: false, values: uuids, outside: uuidOutside }
 	],
 	Ledger: [
-		{ name: "id", serial: false, key: true, values: bigints, outside: [anotherType(plainNumber)] },
+		{ name: "id", key: true, values: bigints, outside: [anotherType(plainNumber)] },
 		{
 			name: "balance",
-			serial: false,
 			key: false,
 			values: [{ text: "5n", value: 5n }],
 			outside: [anotherType(plainNumber)]
 		},
 		{
 			name: "fee",
-			serial: false,
 			key: false,
 			values: [{ text: "Money.of(5n)", value: Money.of(5n) }],
 			outside: [anotherType({ text: "5n", value: 5n })]
 		}
 	],
 	Tag: [
-		{ name: "id", serial: false, key: true, values: uuids, outside: uuidOutside },
-		{ name: "kind", serial: false, key: false, values: kinds, outside: kindOutside },
+		{ name: "id", key: true, values: uuids, outside: uuidOutside },
+		{ name: "kind", key: false, values: kinds, outside: kindOutside },
 		{
 			name: "flags",
-			serial: false,
 			key: false,
 			values: [
 				{ text: 'Bits.of(Flag, ["on"])', value: Bits.of(Flag, ["on"]) },
@@ -278,14 +271,12 @@ const fieldsOf: { readonly [R in RelName]: Arr.NonEmptyReadonlyArray<FieldInfo> 
 		},
 		{
 			name: "answer",
-			serial: false,
 			key: false,
 			values: answers,
 			outside: otherPattern(Arr.headNonEmpty(grades))
 		},
 		{
 			name: "grade",
-			serial: false,
 			key: false,
 			values: grades,
 			outside: otherPattern(Arr.headNonEmpty(answers))
@@ -343,7 +334,6 @@ const changeSetFaults = [
 	"a fact with a field its relation lacks",
 	"a fact missing a field",
 	"a fact value outside its field",
-	"an addition with some of its serials",
 	"two facts sharing a key",
 	"a value missing its brand",
 	"a nested root field",
@@ -402,7 +392,6 @@ const swarmedFeatures = [
 	"a narrowed exact value",
 	"a head parameter",
 	"a head literal",
-	"a generated addition",
 	"read-back of added facts",
 	"read-back of removed facts",
 	"read-back of the state",
@@ -731,21 +720,14 @@ const fieldInfo = (relation: RelName, name: string): FieldInfo =>
 		() => new Error(`${relation} has no field ${name}`)
 	)
 
-/** A fact of `relation` as `op` writes it: every field, but an addition may leave out all of its serial fields. */
+/** A fact of `relation` as `op` writes it: every field. */
 const factOf = (
 	d: Drawing,
-	op: Op,
 	relation: RelName,
 	fault: ChangeSetFault | undefined,
 	index: number
 ): ReadonlyArray<readonly [string, Lit]> => {
-	const fields = fieldsOf[relation]
-	const generated =
-		op === "insert" &&
-		fault !== "an addition with some of its serials" &&
-		Arr.some(fields, (f) => f.serial) &&
-		d.keep("a generated addition")
-	const written = Arr.filter(fields, (f) => !(generated && f.serial))
+	const written = fieldsOf[relation]
 	const base: ReadonlyArray<readonly [string, Lit]> = Arr.map(
 		written,
 		(f) =>
@@ -754,10 +736,7 @@ const factOf = (
 	if (fault === "a fact with a field its relation lacks") {
 		return [...base, ["bogus", plainNumber]]
 	}
-	if (fault === "an addition with some of its serials") {
-		return Arr.filter(base, ([name]) => name !== "b")
-	}
-	const payload = Arr.findFirst(written, (f) => !f.key && !f.serial)
+	const payload = Arr.findFirst(written, (f) => !f.key)
 	if (fault === "a fact missing a field" && Option.isSome(payload)) {
 		return Arr.filter(base, ([name]) => name !== payload.value.name)
 	}
@@ -795,18 +774,18 @@ const offering = (shapes: ReadonlyArray<OutsideShape>): Arr.NonEmptyReadonlyArra
 		}
 	)
 
-/** The values outside its field a fact's field may be written, each at its field: no key's and no serial's. */
+/** The values outside its field a fact's field may be written, each at its field: no key's. */
 const outsideTargets = (
 	fields: ReadonlyArray<FieldInfo>
 ): ReadonlyArray<{ readonly field: string; readonly outside: Outside }> =>
 	Arr.flatMap(fields, (f) =>
-		f.key || f.serial ? [] : Arr.map(f.outside, (outside) => ({ field: f.name, outside }))
+		f.key ? [] : Arr.map(f.outside, (outside) => ({ field: f.name, outside }))
 	)
 
 /**
  * A described member of `relation`: a copy of its facts, each field bound in the match and written in the head as its
- * variable, a key field through a parameter, Ledger's balance raised by a parameter amount under its narrowing guard;
- * an addition into a relation with serial fields may leave all of them to be generated. A planted fault adds a field,
+ * variable, a key field through a parameter, Ledger's balance raised by a parameter amount under its narrowing guard. A
+ * planted fault adds a field,
  * drops one, writes a literal outside its field or the raised balance unguarded.
  */
 const describedOf = (
@@ -817,8 +796,6 @@ const describedOf = (
 ): MemberSpec => {
 	d.note("described member")
 	const fields = fieldsOf[relation]
-	const generated =
-		op === "insert" && Arr.some(fields, (f) => f.serial) && d.keep("a generated addition")
 	const keyParam = d.keep("a parameter") ? d.param(Arr.headNonEmpty(fields).name) : undefined
 	const amount =
 		relation === "Ledger" &&
@@ -831,7 +808,7 @@ const describedOf = (
 			? { kind: "param", name: keyParam.name }
 			: { kind: "var", field: f.name }
 	const match = Arr.map(fields, (f) => [f.name, bound(f)] as const)
-	const written = Arr.filter(fields, (f) => !(generated && f.serial))
+	const written = fields
 	const headOf = (f: FieldInfo): HeadTerm =>
 		f.name === "balance" && amount !== undefined
 			? fault === "an exact value into a plain field"
@@ -842,7 +819,7 @@ const describedOf = (
 	const headLiteral = d.keep("a head literal")
 	const extraParams: Array<ParamSpec> = []
 	const plain = (f: FieldInfo): HeadTerm => {
-		if (f.key || f.serial || f.name === "balance" || f.name === "flags") {
+		if (f.key || f.name === "balance" || f.name === "flags") {
 			return headOf(f)
 		}
 		if (headParam && extraParams.length === 0) {
@@ -856,7 +833,7 @@ const describedOf = (
 	const planted = ((): ReadonlyArray<readonly [string, HeadTerm]> => {
 		if (fault === "a head with a field its relation lacks") {
 			const [first] = head
-			return first === undefined ? head : [...head, ["extra", first[1]]]
+			return [...head, ["extra", first[1]]]
 		}
 		if (fault === "a head without a field") {
 			const dropped = Arr.findFirst(written, (f) => !f.key)
@@ -875,7 +852,7 @@ const describedOf = (
 					)
 		}
 		if (fault === "a head literal outside its field") {
-			const target = Arr.findFirst(written, (f) => !f.key && !f.serial)
+			const target = Arr.findFirst(written, (f) => !f.key)
 			return Option.isNone(target)
 				? head
 				: Arr.map(head, ([name, term]) =>
@@ -916,8 +893,7 @@ const factFaults: ReadonlyArray<ChangeSetFault> = [
 	"two facts sharing a key",
 	"a fact with a field its relation lacks",
 	"a fact missing a field",
-	"a fact value outside its field",
-	"an addition with some of its serials"
+	"a fact value outside its field"
 ]
 const headFaults: ReadonlyArray<ChangeSetFault> = [
 	"a value missing its brand",
@@ -940,10 +916,7 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 	if (fault === "a derived relation written") {
 		return { kind: "derived", op: d.choose(["insert", "delete", "put"] as const) }
 	}
-	const plain =
-		d.aimed("described member") ||
-		d.aimed("a partial write list") ||
-		d.aimed("a generated addition")
+	const plain = d.aimed("described member") || d.aimed("a partial write list")
 	if (fault !== undefined && isFamilyFault(fault)) {
 		return plantedFamilyMember(d, fault)
 	}
@@ -951,28 +924,21 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 		return familyMemberOf(d, clean)
 	}
 	const narrowed = d.aimed("a narrowed exact value")
-	const op =
-		fault === "an addition with some of its serials"
-			? "insert"
-			: narrowed
-				? d.choose(["insert", "put"] as const)
-				: d.choose(["insert", "delete", "put"] as const)
+	const op = narrowed
+		? d.choose(["insert", "put"] as const)
+		: d.choose(["insert", "delete", "put"] as const)
 	const relation: RelName =
-		fault === "an addition with some of its serials"
-			? "Pair"
-			: fault === "two facts sharing a key"
-				? "Task"
-				: fault === "a value missing its brand"
-					? d.from(["Budget", "Ticket"] as const)
-					: fault === "an exact value into a plain field" || narrowed
-						? "Ledger"
-						: fault === "a fact value outside its field"
-							? d.from(offering(Arr.filter(outsideShapes, (shape) => d.aimed(shape))))
-							: d.aimed("a partial write list")
-								? d.from(["Task", "Budget"] as const)
-								: d.aimed("a generated addition")
-									? d.from(["Ticket", "Pair"] as const)
-									: d.from(relNames)
+		fault === "two facts sharing a key"
+			? "Task"
+			: fault === "a value missing its brand"
+				? d.from(["Budget", "Ticket"] as const)
+				: fault === "an exact value into a plain field" || narrowed
+					? "Ledger"
+					: fault === "a fact value outside its field"
+						? d.from(offering(Arr.filter(outsideShapes, (shape) => d.aimed(shape))))
+						: d.aimed("a partial write list")
+							? d.from(["Task", "Budget"] as const)
+							: d.from(relNames)
 	const described =
 		fault !== undefined && Arr.contains(headFaults, fault)
 			? true
@@ -989,11 +955,8 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 	}
 	if (fault === "two facts sharing a key") {
 		d.note("array member")
-		const first = factOf(d, op, relation, undefined, 0)
-		const payload = Arr.findFirst(
-			fieldsOf[relation],
-			(f) => !f.key && !f.serial && f.values.length > 1
-		)
+		const first = factOf(d, relation, undefined, 0)
+		const payload = Arr.findFirst(fieldsOf[relation], (f) => !f.key && f.values.length > 1)
 		const second = Arr.map(first, ([n, l]) =>
 			Option.isSome(payload) && n === payload.value.name
 				? ([n, Arr.getUnsafe(payload.value.values, 1)] as const)
@@ -1016,9 +979,7 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 	}
 	const planted = fault !== undefined && Arr.contains(factFaults, fault) ? fault : undefined
 	const kind =
-		planted === undefined &&
-		Arr.every(fieldsOf[relation], (f) => !f.serial) &&
-		d.keep("a widened member")
+		planted === undefined && d.keep("a widened member")
 			? "widened"
 			: d.keep("stream member")
 				? "stream"
@@ -1026,12 +987,12 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 	if (kind !== "widened") {
 		d.note(kind === "stream" ? "stream member" : "array member")
 	}
-	const first = factOf(d, op, relation, planted, 0)
+	const first = factOf(d, relation, planted, 0)
 	const extra =
 		planted === undefined && d.keep("a fact stated twice")
 			? [first]
 			: d.from([0, 1]) === 1
-				? [factOf(d, op, relation, undefined, 1)]
+				? [factOf(d, relation, undefined, 1)]
 				: []
 	return { kind, op, relation, facts: [first, ...extra] }
 }
@@ -1629,7 +1590,7 @@ const unionConflict = (d: Drawing): ChangeSpec => {
 	d.note("union")
 	d.note("array member")
 	const op = d.choose(["insert", "put"] as const)
-	const first = factOf(d, op, "Task", undefined, 0)
+	const first = factOf(d, "Task", undefined, 0)
 	const second = Arr.map(first, ([name, lit]) =>
 		name === "account"
 			? ([name, lit.text === uuidLit(1).text ? uuidLit(2) : uuidLit(1)] as const)
@@ -2335,7 +2296,7 @@ interface Admitted {
 	readonly arrays: ReadonlyArray<{ readonly relation: string; readonly op: Op }>
 }
 
-/** A written relation's caller-written fields (Written) and the fields its addition in the schema holds (AdditionIn). */
+/** A written relation's caller-written fields (Addition) and the fields its addition in the schema holds (AdditionIn). */
 interface RowShape {
 	readonly relation: string
 	readonly written: ReadonlyArray<string>
@@ -2344,8 +2305,7 @@ interface RowShape {
 
 /**
  * The row shape of `name`, read off the engine's law model: its fields a caller states (isCarried), and of those, an
- * addition's: less its serial fields, which one arm of an addition leaves out, and with the count field of each
- * sequence it owns, at which its members nest. A tree's root states its root fields; its nesting supplies them, and
+ * addition's: with the count field of each sequence it owns, at which its members nest. A tree's root states its root fields; its nesting supplies them, and
  * the drawn parent, to the nodes below it only.
  */
 const rowShapeOf = (laws: ReturnType<typeof realityWrite>["laws"], name: string): RowShape => {
@@ -2355,14 +2315,11 @@ const rowShapeOf = (laws: ReturnType<typeof realityWrite>["laws"], name: string)
 	}
 	const heading = relation.relation.heading
 	const written = Arr.map(Arr.filter(heading, isCarried), (f) => f.name)
-	const omitted = new Set(
-		Arr.flatMap(heading, (f) => (f.writing.kind === "serial" ? [f.name] : []))
-	)
 	return {
 		relation: name,
 		written,
 		addition: [
-			...Arr.filter(written, (f) => !omitted.has(f)),
+			...written,
 			...Arr.flatMap(laws.families, (f) =>
 				f.owner.name === name && isSequence(f) ? [f.count.name] : []
 			)
@@ -2496,8 +2453,8 @@ const deletedRowText = (relation: string): string => {
 		f.shape.kind === "tree" && f.member.name === relation ? [f.shape.root] : []
 	)
 	return root === undefined
-		? `Written<typeof ${relation}>`
-		: `Pick<Written<typeof ${relation}>, ${unionOf(Arr.map(root, (r) => r.name))}>`
+		? `Addition<typeof ${relation}>`
+		: `Pick<Addition<typeof ${relation}>, ${unionOf(Arr.map(root, (r) => r.name))}>`
 }
 
 /** The world a role's Db compiles a ChangeSet in: its checked world and its compile options. */
@@ -3246,7 +3203,6 @@ const insertAllFaults = [
 	"a fact with a field its relation lacks",
 	"a fact missing a field",
 	"a fact value outside its field",
-	"an addition with some of its serials",
 	"two facts sharing a key",
 	"a value missing its brand",
 	"a head with a field its relation lacks",
@@ -3350,7 +3306,6 @@ const prerequisites: { readonly [F in ChangeSetFeature]?: ReadonlyArray<ChangeSe
 	"an append beside its owner": ["family member", "a counted member", "insert"],
 	"a partial write list": ["applied"],
 	"a key conflict at the application's call": ["applied"],
-	"a generated addition": ["insert"],
 	insertAll: ["insert"],
 	bind: ["described member", "a parameter"],
 	"a key conflict beside a fact no literal keys": ["two facts sharing a key"]
@@ -3427,7 +3382,7 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 									Arr.map(
 										v.admitted.rows,
 										(row) =>
-											`Expect<Equals<keyof Written<typeof ${row.relation}>, ${unionOf(row.written)}>>, Expect<Equals<keyof AdditionIn<typeof ${levelOf(c.spec.change)}, typeof ${row.relation}>, ${unionOf(row.addition)}>>`
+											`Expect<Equals<keyof Addition<typeof ${row.relation}>, ${unionOf(row.written)}>>, Expect<Equals<keyof AdditionIn<typeof ${levelOf(c.spec.change)}, typeof ${row.relation}>, ${unionOf(row.addition)}>>`
 									),
 									", "
 								)}]`
@@ -3450,7 +3405,7 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 											? `AdditionIn<typeof ${p.level}, typeof ${relation}>`
 											: g.op === "delete"
 												? deletedRowText(relation)
-												: `Written<typeof ${relation}>`
+												: `Addition<typeof ${relation}>`
 									)
 								)
 								const { position } = Arr.headNonEmpty(parts)
@@ -3546,7 +3501,7 @@ const pantryShape = (): ReadonlyArray<string> => {
  */
 const mappedShapes: ReadonlyArray<string> = [
 	'declare const orderRows: ReadonlyArray<{ readonly id: AdditionIn<typeof Work, typeof Order>["id"]; readonly quantities: ReadonlyArray<bigint> }>',
-	"declare const ledgerRows: ReadonlyArray<Written<typeof Ledger>>",
+	"declare const ledgerRows: ReadonlyArray<Addition<typeof Ledger>>",
 	"export const mappedOrders = ChangeSet.empty(Writer).insert(Order, [])",
 	'export const mappedOrdersServed = (h: WorkloadHandles<typeof Writer, { readonly m: typeof mappedOrders }>["m"]) =>',
 	"\th.once({ params: {}, facts: { insert: { Order: orderRows.map((o) => ({ id: o.id, n: o.quantities.map((qty) => ({ qty })) })) } } })",
@@ -3577,7 +3532,7 @@ export const changeSetProgram = (
 						"export type Expect<T extends true> = T",
 						...(uses.has("plain") ? ["declare const plain: string"] : []),
 						...(uses.has("uuidOf") ? ["declare const uuidOf: (n: number) => Uuid"] : []),
-						"export const widen = <R>(_relation: R, facts: ReadonlyArray<Written<R>>): ReadonlyArray<Written<R>> => facts",
+						"export const widen = <R>(_relation: R, facts: ReadonlyArray<Addition<R>>): ReadonlyArray<Addition<R>> => facts",
 						"export type SchemaOf<C> = C extends Phantom<{ readonly schema: Invariant<infer S> }> ? S : never",
 						'export type Hosts = [CalendarDate, Decimal, Money, Uuid, Infer<typeof Cents>, typeof pg, BitsOf<typeof Flag>, Rostered<"Kind">, RegexInfer<"", "u">]',
 						""

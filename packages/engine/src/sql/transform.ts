@@ -94,7 +94,6 @@ const objectSpace = (
 		case "INDEX":
 		case "MATERIALIZED VIEW":
 		case "VIEW":
-		case "SEQUENCE":
 			return "relation"
 		case "DOMAIN":
 		case "TYPE":
@@ -756,7 +755,6 @@ export class Transform {
 			with: w,
 			table,
 			alias: i.alias,
-			overriding: i.overriding,
 			onConflict,
 			returning
 		}
@@ -864,11 +862,6 @@ export class Transform {
 
 	generation(g: ColumnGeneration): ColumnGeneration {
 		switch (g.kind) {
-			case "identity": {
-				const sequence = this.name(g.sequence, "relation")
-				return sequence === g.sequence ? g : { ...g, sequence }
-			}
-			case "uuidv7":
 			case "retirement":
 				return g
 			case "stored": {
@@ -948,10 +941,6 @@ export class Transform {
 				const value = this.expr(a.default)
 				return column === a.column && value === a.default ? a : { ...a, column, default: value }
 			}
-			case "addIdentity": {
-				const sequence = this.name(a.sequence, "relation")
-				return sequence === a.sequence ? a : { ...a, sequence }
-			}
 			case "addConstraint": {
 				const constraint = this.constraint(a.constraint, table)
 				return constraint === a.constraint ? a : { ...a, constraint }
@@ -979,9 +968,7 @@ export class Transform {
 			case "dropColumn":
 			case "dropDefault":
 			case "setNotNull":
-			case "setUuidv7Default":
 			case "setRetirementDefault":
-			case "dropIdentity":
 			case "enableRowSecurity":
 			case "disableRowSecurity":
 			case "replicaIdentity":
@@ -1060,13 +1047,9 @@ export class Transform {
 			case "DATABASE":
 				return o
 			case "TABLE":
-			case "SEQUENCE":
 			case "DOMAIN":
 			case "TYPE": {
-				const names = this.names(
-					o.names,
-					o.kind === "TABLE" || o.kind === "SEQUENCE" ? "relation" : "type"
-				)
+				const names = this.names(o.names, o.kind === "TABLE" ? "relation" : "type")
 				return names === o.names ? o : { ...o, names }
 			}
 			case "FUNCTION": {
@@ -1395,7 +1378,6 @@ export class Transform {
 			case "TABLE":
 			case "VIEW":
 			case "MATERIALIZED VIEW":
-			case "SEQUENCE":
 			case "INDEX": {
 				const name = this.name(on.name, "relation")
 				return name === on.name ? on : { ...on, name }
@@ -1538,15 +1520,13 @@ export const ownColumns = (e: Expr): ReadonlyArray<string> => {
 }
 
 /** The columns of its own row a column's generation reads: a stored one's expression's, a partial one's selection's
- * and expression's; none of a column its caller writes, its sequence or its default draws. */
+ * and expression's; none of a column its caller writes or its default draws. */
 export const generationColumns = (g: ColumnGeneration | undefined): ReadonlyArray<string> => {
 	switch (g?.kind) {
 		case "stored":
 			return ownColumns(g.expr)
 		case "partial":
 			return [...new Set([...ownColumns(g.when), ...ownColumns(g.expr)])]
-		case "identity":
-		case "uuidv7":
 		case "retirement":
 		case undefined:
 			return []

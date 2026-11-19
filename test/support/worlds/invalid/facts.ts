@@ -11,7 +11,6 @@ import {
 } from "#test/support/worlds/generate/domain.ts"
 import { headingOf } from "#test/support/worlds/generate/entries.ts"
 import type { Strata, Variant } from "#test/support/worlds/invalid/kinds.ts"
-import { nextDraw, withSerial, withSerials } from "#test/support/worlds/model/draws.ts"
 import {
 	classifyEntry,
 	uniqueFacts,
@@ -21,15 +20,9 @@ import {
 	sameFact,
 	selectionOf
 } from "#test/support/worlds/model/host.ts"
-import {
-	installedRole,
-	keysOf,
-	serialHead,
-	type Written
-} from "#test/support/worlds/model/session/writes.ts"
+import { installedRole, keysOf, type Written } from "#test/support/worlds/model/session/writes.ts"
 
 import type {
-	BaseSpec,
 	ContextFacts,
 	EntryOp,
 	EntrySpec,
@@ -267,15 +260,7 @@ export const opKinds = (
 			kinds.add("fact:duplicate-in-input")
 		}
 	}
-	const base = state.install.base
 	const written = installedRole(state, writer.role.name).written
-	for (const op of ops) {
-		for (const w of Arr.filter(written, (x) => x.entry === op.relation)) {
-			for (const k of serialKinds(base, w, op)) {
-				kinds.add(k)
-			}
-		}
-	}
 	const judged = Arr.flatMap(ops, (op) =>
 		Option.match(
 			Arr.findFirst(written, (x) => x.entry === op.relation),
@@ -290,41 +275,15 @@ export const opKinds = (
 	for (const k of Arr.flatMap(judged, (j) => writeKinds(state, writer, j, inserted))) {
 		kinds.add(k)
 	}
-	let draws = nextDraw(state)
-	const baseOps = Arr.map(judged, (j) => {
-		const drew = withSerials(base, j.written.target, insideFacts(j.filled), draws)
-		draws = drew.next
-		return { relation: j.written.target, kind: j.op.kind, facts: drew.facts }
-	})
+	const baseOps = Arr.map(judged, (j) => ({
+		relation: j.written.target,
+		kind: j.op.kind,
+		facts: insideFacts(j.filled)
+	}))
 	if (baseOps.length > 0 && lawsRefuse(state.host, state.reality, baseOps)) {
 		kinds.add("fact:law-broken")
 	}
 	return [...kinds]
-}
-
-/** A fact without the fields `fields`. */
-const without = (fact: HostFact, fields: ReadonlyArray<string>): HostFact =>
-	Rec.filter(fact, (_, field) => !fields.includes(field))
-
-/**
- * The serial kinds of an insertion through its written relation (writes.ts serialHead): a fact leaving out some of the
- * classed serial fields and not all, and a fact leaving out a serial field the entry's filter reads.
- */
-const serialKinds = (base: BaseSpec, w: Written, op: EntryOp): ReadonlyArray<InvalidKind> => {
-	if (op.kind !== "insert") {
-		return []
-	}
-	const { classed, filtered } = serialHead(base, w)
-	const carried = (fact: HostFact, fields: ReadonlyArray<string>): number =>
-		Arr.filter(fields, (f) => fact[f] !== undefined).length
-	return [
-		...(Arr.some(op.facts, (f) => carried(f, classed) > 0 && carried(f, classed) < classed.length)
-			? (["fact:partial-serial"] as const)
-			: []),
-		...(Arr.some(op.facts, (f) => carried(f, filtered) < filtered.length)
-			? (["fact:filtered-serial-omitted"] as const)
-			: [])
-	]
 }
 
 /** The invalid kinds of one fact a direct writer inserts into a base relation: a reference deleted or hidden, a law broken. */
@@ -339,8 +298,7 @@ export const directFactKinds = (
 	if (domainRefused(state, relation, fact)) {
 		kinds.add("fact:domain-refused")
 	}
-	const facts = [withSerial(state.install.base, relation, fact, nextDraw(state)).fact]
-	if (lawsRefuse(state.host, view, [{ relation, kind: "insert", facts }])) {
+	if (lawsRefuse(state.host, view, [{ relation, kind: "insert", facts: [fact] }])) {
 		kinds.add("fact:law-broken")
 	}
 	return [...kinds]
@@ -578,9 +536,7 @@ const freshFields = (
  * entry's rows; a delete's from the facts it meets, the entry's rows or, half the time where both are there, its
  * target's facts outside it (each in another of the role's entries or in none, so a delete meets facts outside its
  * world and the hidden ones, which it leaves as they are); an op with no fact to meet takes the pools', pointed
- * likewise. A reference to a hidden fact or to none is the stale strata's. Half the time an insert's facts are
- * generated additions: each leaves out every `classed` serial head field (writes.ts serialHead), the identity's to
- * draw, its other fields from the same pools, so facts that differed only there become equal.
+ * likewise. A reference to a hidden fact or to none is the stale strata's.
  */
 const liveFacts =
 	(
@@ -588,7 +544,6 @@ const liveFacts =
 		met: { readonly rows: ReadonlyArray<HostFact>; readonly hidden: ReadonlyArray<HostFact> },
 		pointings: ReadonlyArray<Pointing>,
 		fresh: ReadonlyArray<string>,
-		classed: ReadonlyArray<string>,
 		draw: OpDraw
 	): Gen<Arr.NonEmptyReadonlyArray<HostFact>> =>
 	(source) => {
@@ -607,14 +562,11 @@ const liveFacts =
 						)
 					}
 		if (firstSource === undefined) {
-			const facts = Arr.map(
+			return Arr.map(
 				draw.picks,
 				(p, i) =>
 					rekeyed(p) ?? source.draw(pointed(pooledFact(heading, [p, p + i + 1, p + 3]), pointings))
 			)
-			const generated =
-				draw.kind === "insert" && Arr.isReadonlyArrayNonEmpty(classed) && source.draw(boolean)
-			return generated ? Arr.map(facts, (f) => without(f, classed)) : facts
 		}
 		const meeting = draw.met && secondSource !== undefined ? secondSource : firstSource
 		return Arr.map(draw.picks, () => source.draw(element(meeting)))
@@ -630,30 +582,15 @@ export const liveOpGen = (
 	const met = metFacts(state, writer, entry.name)
 	const pointings = pointingsOf(state, writer, entry.name)
 	const fresh = freshFields(state, writer, entry.name, pointings)
-	const { classed } = serialOf(state, writer, entry.name)
 	return (source) => {
 		const draw = source.draw(opDrawGen)
 		return {
 			relation: entry.name,
 			kind: draw.kind,
-			facts: dedupe(source.draw(liveFacts(heading, met, pointings, fresh, classed, draw)))
+			facts: dedupe(source.draw(liveFacts(heading, met, pointings, fresh, draw)))
 		}
 	}
 }
-
-/** The serial head fields of the relation a writer's role writes as `entry` (writes.ts serialHead); none for another. */
-const serialOf = (
-	state: ModelState,
-	writer: FactWriter,
-	entry: string
-): { readonly classed: ReadonlyArray<string>; readonly filtered: ReadonlyArray<string> } =>
-	Option.match(
-		Arr.findFirst(installedRole(state, writer.role.name).written, (w) => w.entry === entry),
-		{
-			onNone: () => ({ classed: [], filtered: [] }),
-			onSome: (w) => serialHead(state.install.base, w)
-		}
-	)
 
 /**
  * The ops through an entry of a writer's role, stratified. Live: liveFacts' (a delete's from the facts it meets, inside
@@ -673,9 +610,8 @@ export const opStrata = (
 	const met = metFacts(state, writer, entry.name)
 	const pointings = pointingsOf(state, writer, entry.name)
 	const fresh = freshFields(state, writer, entry.name, pointings)
-	const { classed, filtered } = serialOf(state, writer, entry.name)
 	const factsOf = (draw: OpDraw): Gen<Arr.NonEmptyReadonlyArray<HostFact>> =>
-		liveFacts(heading, met, pointings, fresh, classed, draw)
+		liveFacts(heading, met, pointings, fresh, draw)
 	const op = (kind: EntryOp["kind"], facts: ReadonlyArray<HostFact>): EntryOp => ({
 		relation: entry.name,
 		kind,
@@ -702,28 +638,6 @@ export const opStrata = (
 	)
 	const ofClass = (cls: "stale" | "wild"): ReadonlyArray<Variant<EntryOp>> =>
 		Arr.flatMap(searchedKinds, ([kind, c]) => (c === cls ? found(kind) : []))
-	/**
-	 * An insert of a pool fact leaving out serial fields as grizzle refuses: the first classed field alone, so some are
-	 * left out and not all; or a serial field the filter reads. Each is offered where the classifier confirms it.
-	 */
-	const serialVariant = (
-		invalid: "fact:partial-serial" | "fact:filtered-serial-omitted",
-		omitted: ReadonlyArray<string>
-	): ReadonlyArray<Variant<EntryOp>> => {
-		const left = (p: number): EntryOp =>
-			op("insert", [without(pooledFact(heading, [p, p + 1, p + 3]), omitted)])
-		return kindsOf(left(0)).includes(invalid)
-			? [{ invalid, gen: (source) => left(source.draw(int(0, 63))) }]
-			: []
-	}
-	const [firstClassed] = classed
-	const [firstFiltered] = filtered
-	const serialVariants: ReadonlyArray<Variant<EntryOp>> = [
-		...(firstClassed === undefined ? [] : serialVariant("fact:partial-serial", [firstClassed])),
-		...(firstFiltered === undefined
-			? []
-			: serialVariant("fact:filtered-serial-omitted", [firstFiltered]))
-	]
 	return {
 		live: [liveOpGen(state, writer, entry)],
 		stale: ofClass("stale"),
@@ -750,7 +664,6 @@ export const opStrata = (
 					}
 				]
 			}),
-			...serialVariants,
 			...ofClass("wild")
 		]
 	}

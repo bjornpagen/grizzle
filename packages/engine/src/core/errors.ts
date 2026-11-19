@@ -769,11 +769,7 @@ export interface NamedSide {
  * Why no one statement of a write holds what a read-back reads (ReadBackCrossesStatements):
  *
  * - `sideWrittenTwice`: the side is made by two statements, or netted against facts a statement of another stratum makes
- *   the other side of, so no statement's rows are the whole delta: one relation written in two strata, or an array or
- *   Stream inserted into a relation with serial fields, whose rows that state them and rows that leave them out are
- *   inserted by a statement each; an addition and a removal made in one stratum net only where the addition leaves
- *   serial fields out, whose drawn values may repeat a removed fact's, since a row one stratum both adds and deletes
- *   stays;
+ *   the other side of, so no statement's rows are the whole delta: one relation written in two strata;
  * - `sidesApart`: `first` and `second` are made whole by two different statements;
  * - `stateAfter`: the read-back reads `state`, which a statement at or after the one making `delta` writes, so that
  *   statement still sees `state` as it was before the change.
@@ -794,7 +790,7 @@ const readBackCrossingText = (read: string, crossing: ReadBackCrossing): string 
 	const evaluated = `read-back ${read} is evaluated inside the one statement that makes the delta it reads, whose rows exist nowhere else`
 	switch (crossing.kind) {
 		case "sideWrittenTwice":
-			return `${evaluated}, and ${namedSideText(crossing)} is made by more than one statement of the write, or netted against a statement's of another stratum: write ${crossing.relation} in one action of one stratum, inserting it from a query whose rows leave out its serial fields where it has any (an array or a Stream inserts the rows that state them and the rows that leave them out by a statement each), or read ${crossing.relation} back by its key after the change`
+			return `${evaluated}, and ${namedSideText(crossing)} is made by more than one statement of the write, or netted against a statement's of another stratum: write ${crossing.relation} in one action of one stratum, or read ${crossing.relation} back by its key after the change`
 		case "sidesApart":
 			return `${evaluated}, and ${namedSideText(crossing.first)} and ${namedSideText(crossing.second)} are made by two statements: read each in a read-back of its own`
 		case "stateAfter":
@@ -1158,9 +1154,6 @@ export type CodecFault = ValueFault | "nullValue"
  * - `Deadlock`: SQLSTATE 40P01: this transaction and a concurrent one each waited for a lock the other held.
  * - `PutTargetConflict`: a put into `relation` deleted the fact at its key, and a concurrent transaction then committed
  *   a fact at that key: met as a conflict on the put's insert, or as the unique violation a MERGE raised there.
- * - `GeneratedSerialUnique`: a generated addition's own insert into `relation` raised a unique violation on
- *   `constraint`, a key holding the serial field it generates: a concurrent writer stored a value the sequence had not
- *   yet passed.
  * - `SpanKeyChange`: a put's insert into a span primary key of `relation` met an occupant at the key a concurrent
  *   transaction committed after the put deleted the fact at the key.
  * - `UnseenOccupant`: an insert into `relation` raised a unique violation on `constraint`, a unique object besides its
@@ -1173,11 +1166,6 @@ export type TransientReason =
 	| { readonly _tag: "SerializationFailure" }
 	| { readonly _tag: "Deadlock" }
 	| { readonly _tag: "PutTargetConflict"; readonly relation: string }
-	| {
-			readonly _tag: "GeneratedSerialUnique"
-			readonly relation: string
-			readonly constraint: ConstraintName
-	  }
 	| { readonly _tag: "SpanKeyChange"; readonly relation: string }
 	| {
 			readonly _tag: "UnseenOccupant"
@@ -1192,7 +1180,6 @@ const transientTagRoster: { readonly [T in TransientTag]: T } = {
 	SerializationFailure: "SerializationFailure",
 	Deadlock: "Deadlock",
 	PutTargetConflict: "PutTargetConflict",
-	GeneratedSerialUnique: "GeneratedSerialUnique",
 	SpanKeyChange: "SpanKeyChange",
 	UnseenOccupant: "UnseenOccupant",
 	ConcurrentRefresh: "ConcurrentRefresh"

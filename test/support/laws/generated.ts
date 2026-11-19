@@ -56,7 +56,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * units; any other value as itself. An identity column is given as itself, and a direct writer's plain INSERT cannot
  * list it.
  */
-type Encoding = "plain" | "identity" | "bigint" | "decimal" | "money"
+type Encoding = "plain" | "bigint" | "decimal" | "money"
 
 /** A relation as the host sees it, with each field's encoding; its mutability is its schema's (BoxParams). */
 interface Rel {
@@ -76,8 +76,7 @@ const rel = (
 			name: field,
 			column: identity.column(parsedName(field)).identifier
 		})),
-		key: keyFields,
-		serial: Arr.flatMap(fields, ([field, encoding]) => (encoding === "identity" ? [field] : []))
+		key: keyFields
 	},
 	encodings: Rec.fromEntries(fields)
 })
@@ -88,7 +87,6 @@ const encode = (encoding: Encoding, x: HostValue): unknown => {
 	}
 	switch (encoding) {
 		case "plain":
-		case "identity":
 			return x
 		case "bigint":
 			return BigInt(x)
@@ -144,8 +142,6 @@ const ParentI8 = relation("Parent", { id: pg.bigint, ...parentFields }, ["id"])
 const ChildI8 = relation("Child", { ...childFields, parent: pg.bigint }, ["id"])
 const ParentI4 = relation("Parent", { id: pg.integer, ...parentFields }, ["id"])
 const ChildI4 = relation("Child", { ...childFields, parent: pg.integer }, ["id"])
-const ParentSerial = relation("Parent", { id: pg.serial }, ["id"])
-const ChildSerial = relation("Child", { ...childFields, parent: pg.integer }, ["id"])
 const ParentLong = relation("Parent", { id: pg.integer, [longSelector]: pg.boolean, note: label }, [
 	"id"
 ])
@@ -241,13 +237,6 @@ const containmentI8 = contained(
 	on(ParentI8, "id")
 )
 
-const containmentSerial = contained(
-	on(
-		select(ChildSerial, (c) => c.eq(c.flag, false)),
-		"parent"
-	),
-	on(ParentSerial, "id")
-)
 const containmentI4 = contained(
 	on(
 		select(ChildI4, (c) => c.eq(c.lang, "en")),
@@ -314,22 +303,6 @@ const containmentPoints: Arr.NonEmptyReadonlyArray<Point> = [
 				kind: "selected",
 				field: "stage",
 				value: "paid"
-			})(laws)
-		]
-	},
-	{
-		name: "a containment into an anchor whose every column is serial",
-		traits: ["family containment", "key serial", "selector boolean", "an all-serial anchor"],
-		statements: [containmentSerial],
-		values: { Parent: ParentSerial, Child: ChildSerial },
-		relations: [rel("Parent", [["id", "identity"]], ["id"]), childHost("plain")],
-		laws: (laws) => [
-			keyLaw(laws, ParentSerial, ["id"]),
-			keyLaw(laws, ChildSerial, ["id"]),
-			...selectedContainment((l) => l.lawOf(containmentSerial), {
-				kind: "selected",
-				field: "flag",
-				value: false
 			})(laws)
 		]
 	},
@@ -752,8 +725,7 @@ const boxOf = (
  *
  * - selected-source containment `contained(on(select(Child, φ), "parent"), on(Parent, "id"))`, a native foreign key
  *   from the selected side's STORED generated column, over a key of int2, int8 or text, φ the equality of a boolean,
- *   int2, text or a closed handle; one point whose anchor's every column is serial (`Parent(id: serial)`), which
- *   installs and enforces its law; one whose paired field is a candidate key of the source;
+ *   int2, text or a closed handle; one whose paired field is a candidate key of the source;
  * - a containment into a selected target, a native foreign key, selected by a field whose converted name fills the 63
  *   bytes a declared name may take, so the law column and the foreign key derived from it are hashed with their stems
  *   cut to fit, and its law's identity must name its constraint;
@@ -777,16 +749,13 @@ export const lawBox: Family<BoxParams> = boxOf("the law-family box", points)
 
 /**
  * The points a direct SQL writer's statements reach as the family's direct suite writes them (direct.ts): an integer
- * literal for every number and each column read back as text, so no money column and no identity column a plain
- * INSERT lists.
+ * literal for every number and each column read back as text, so no money column.
  */
 export const directLawBox: Family<BoxParams> = boxOf(
 	"the law-family box, direct",
 	nonEmptyList(
 		Arr.filter(points, (point) =>
-			Arr.every(point.relations, (r) =>
-				Arr.every(Rec.values(r.encodings), (e) => e !== "money" && e !== "identity")
-			)
+			Arr.every(point.relations, (r) => Arr.every(Rec.values(r.encodings), (e) => e !== "money"))
 		),
 		"the direct law-family box"
 	)

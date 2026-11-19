@@ -3,7 +3,6 @@ import {
 	type HostLaw,
 	type HostSchema,
 	type HostState,
-	isDrawn,
 	relationOf,
 	type Violation,
 	violations,
@@ -140,8 +139,8 @@ const pick = (fact: HostFact, fields: ReadonlyArray<string>): HostFact =>
 
 /**
  * The key a stated fact names itself by (README "Errors and outcomes"): the first of its relation's declared keys, in
- * the engine's order (InstalledNames keys: the primary key first), whose every field it states, a serial field the
- * database draws stating none; none where it states no key whole.
+ * the engine's order (InstalledNames keys: the primary key first), whose every field it states; none where it states
+ * no key whole.
  */
 export const statedKey = (
 	keys: InstalledNames["keys"],
@@ -153,12 +152,7 @@ export const statedKey = (
 		() => new Error(`the installation declares no keys of ${relation}`)
 	)
 	return Option.getOrUndefined(
-		Arr.findFirst(declared, (key) =>
-			Arr.every(key, (field) => {
-				const value = fact[field]
-				return value !== undefined && !isDrawn(value)
-			})
-		)
+		Arr.findFirst(declared, (key) => Arr.every(key, (field) => fact[field] !== undefined))
 	)
 }
 

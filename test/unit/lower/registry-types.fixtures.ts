@@ -21,7 +21,6 @@ export const registryTyped = (column: HeadingColumn): void => {
 	if (
 		isPlainCarrier(type.carrier) &&
 		type.contract === undefined &&
-		!("serial" in type) &&
 		numericTypmodOf(type) === undefined
 	) {
 		assert.ok(

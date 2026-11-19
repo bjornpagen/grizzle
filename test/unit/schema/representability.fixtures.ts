@@ -673,8 +673,6 @@ type FixedType =
 	| "money"
 	| "boolean"
 	| "uuid"
-	| "bigserial"
-	| "serial"
 	| "closedId"
 
 type KeyFieldSketch =
@@ -693,7 +691,7 @@ interface Datum {
 	readonly fixed: boolean
 }
 
-/** pg_type's typlen and typalign of each fixed key type: a closed id is its code, a smallint, a serial its integer type. */
+/** pg_type's typlen and typalign of each fixed key type: a closed id is its code, a smallint. */
 const fixedDatum: Readonly<Record<FixedType, Datum>> = {
 	smallint: { bytes: 2, align: 2, fixed: true },
 	integer: { bytes: 4, align: 4, fixed: true },
@@ -703,8 +701,6 @@ const fixedDatum: Readonly<Record<FixedType, Datum>> = {
 	money: { bytes: 8, align: 8, fixed: true },
 	boolean: { bytes: 1, align: 1, fixed: true },
 	uuid: { bytes: 16, align: 1, fixed: true },
-	bigserial: { bytes: 8, align: 8, fixed: true },
-	serial: { bytes: 4, align: 4, fixed: true },
 	closedId: { bytes: 2, align: 2, fixed: true }
 }
 
@@ -793,10 +789,6 @@ const fixedDescriptor = (type: FixedType): FieldBase => {
 			return rawPg.boolean
 		case "uuid":
 			return uuid
-		case "bigserial":
-			return rawPg.bigserial
-		case "serial":
-			return rawPg.serial
 		case "closedId":
 			return rawClosedId(Kind)
 	}
@@ -830,8 +822,6 @@ const fixedTypes: Arr.NonEmptyReadonlyArray<FixedType> = [
 	"money",
 	"boolean",
 	"uuid",
-	"bigserial",
-	"serial",
 	"closedId"
 ]
 
@@ -1005,10 +995,8 @@ export const spanScalarFamily = (
 		case "smallint":
 			return "int2"
 		case "integer":
-		case "serial":
 			return "int4"
 		case "bigint":
-		case "bigserial":
 			return "int8"
 		case "real":
 			return "float4"

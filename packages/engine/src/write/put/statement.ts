@@ -12,7 +12,6 @@ import { fieldNames, type LawField } from "#compiler/ir/law.ts"
 import type { Needs } from "#compiler/ir/needs.ts"
 import type { StatementRole } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
-import { completeClass } from "#compiler/ir/write.ts"
 import {
 	type ColumnMap,
 	emptyEnv,
@@ -89,7 +88,6 @@ import { buildProbe, probeArms } from "#compiler/write/insert/unique.ts"
 import type { InPlace, KeyArbiter } from "#compiler/write/put/choose.ts"
 import type { MergeScope } from "#compiler/write/put/proof.ts"
 import { type RefusalArm, refusalGuard, refusalRank } from "#compiler/write/refusal.ts"
-import { explicitSerials } from "#compiler/write/serial/advance.ts"
 
 /** What the rows of a put statement that updates in place mean. A refusal is never a row: a same-key pair within the
  * input and a unique object's refusal raise. */
@@ -135,7 +133,7 @@ export type PutResult =
  *   21000 for DO UPDATE):
  *
  *     WITH "r1"(...) AS (SELECT ... FROM (SELECT pg_catalog.unnest($1::...[]) ...) AS "r0"),
- *     "r2" AS (INSERT INTO "s"."t" AS "r3" (k..., p...) [OVERRIDING SYSTEM VALUE] SELECT ... FROM "r1" ORDER BY k...
+ *     "r2" AS (INSERT INTO "s"."t" AS "r3" (k..., p...) SELECT ... FROM "r1" ORDER BY k...
  *              ON CONFLICT (k...) DO UPDATE SET "p" = EXCLUDED."p", ...
  *                WHERE ("r3"."p", ...) <> (EXCLUDED."p", ...)
  *              RETURNING "r3"."k" AS ..., "r3"."p" AS ...)
@@ -158,7 +156,7 @@ export type PutResult =
  *
  *     r2 AS (MERGE INTO "s"."t" AS "r3" USING "r1" ON "r3"."k" = "r1"."c1"
  *            WHEN MATCHED AND (payload differs) [AND NOT EXISTS r4] THEN UPDATE SET "p" = "r1"."c2", ...
- *            WHEN NOT MATCHED [AND NOT EXISTS r4] THEN INSERT (k..., p...) [OVERRIDING SYSTEM VALUE] VALUES (...)
+ *            WHEN NOT MATCHED [AND NOT EXISTS r4] THEN INSERT (k..., p...) VALUES (...)
  *            WHEN NOT MATCHED BY SOURCE AND <scope over r3> [AND NOT EXISTS r4] THEN DELETE
  *            RETURNING merge_action() AS ..., "r3"."k" AS ..., "r3"."p" AS ...)
  *
@@ -166,10 +164,7 @@ export type PutResult =
  *   DELETE, never a source column, which a NOT MATCHED BY SOURCE row lacks. An INSERT or UPDATE row is a
  *   fact the put made present; a DELETE row is a fact the deletion member requested, counted as deleted.
  *
- * No UPDATE assigns a key or a serial field: the key is the arbiter and the match, and a relation with a serial field
- * outside its key never reaches these targets. An insert that supplies a serial key value, the insert
- * arm of ON CONFLICT DO UPDATE and of MERGE included, carries OVERRIDING SYSTEM VALUE. Each of these puts is followed
- * by the sequence advance past its facts' serial keys, the UPDATE ... FROM's too.
+ * No UPDATE assigns a key: the key is the arbiter and the match.
  *
  * The UPDATE and the MERGE report a same-key pair within their input as the insert protocol does: the statement changes
  * nothing, and the outer SELECT's second arm returns the input's facts at that key with the marker c9 true, the key
@@ -239,7 +234,7 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 	const payload = spec.inPlace.payload
 	const guarantees = inputGuarantees(input)
 	const all = keyFirst(relation)
-	/** The written fields its input carries: a put's facts state the caller's and serial fields, and an enumerated put
+	/** The written fields its input carries: a put's facts state the caller's fields, and an enumerated put
 	 * of an owner carries its counts and ends beside them (input.ts RelationInput family), at their starts or as its
 	 * stratum's appends drew them for an owner it inserts (frontend/compile.ts), which no UPDATE sets: a stored owner's
 	 * families keep them. */
@@ -406,8 +401,6 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 			table: w.names.relation(relation.name),
 			alias: r3,
 			columns: written.map(column),
-			overriding:
-				explicitSerials(spec.relation, completeClass).length > 0 ? "SYSTEM VALUE" : undefined,
 			source: {
 				kind: "query",
 				query: {
@@ -694,8 +687,6 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 					condition: notMatched,
 					action: {
 						kind: "insert",
-						overriding:
-							explicitSerials(spec.relation, completeClass).length > 0 ? "SYSTEM VALUE" : undefined,
 						row: mapNonEmpty(written, (f) => ({ column: column(f), value: inCol(f) }))
 					}
 				},

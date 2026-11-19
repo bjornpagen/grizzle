@@ -30,7 +30,6 @@ import {
 	type Feature,
 	grantsTemplate,
 	holdsOwner,
-	insertedOf,
 	inserts,
 	isOwner,
 	keyOf,
@@ -92,7 +91,7 @@ export const aDirectWriterThroughAnInsertRoleIsRefusedEveryUPDATEAndDELETEWhereT
 									case "select":
 										return `SELECT ${key} FROM ${table} WHERE false`
 									case "insert": {
-										const inserted = column(p.table, insertedOf[p.table])
+										const inserted = column(p.table, keyOf[p.table])
 										return `INSERT INTO ${table} (${inserted}) SELECT ${inserted} FROM ${table} WHERE false`
 									}
 									case "update": {

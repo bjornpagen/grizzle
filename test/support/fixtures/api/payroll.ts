@@ -200,13 +200,12 @@ export const LevyLine = relation(
 export const Posting = relation(
 	"Posting",
 	{
-		entry: pg.bigserial,
 		line: uuid,
 		account: closedId(LedgerAccount),
 		side: closedId(Side),
 		amount: Cents
 	},
-	["entry"]
+	["line", "account"]
 )
 export const Request = relation("Request", { id: uuid, digest: Digest, result: Memo }, ["id"])
 
@@ -277,7 +276,6 @@ export const Payroll = schema(
 		key(on(Employer, "ein")),
 		key(on(Employee, "employer", "code")),
 		key(on(PayLine, "run", "employee")),
-		key(on(Posting, "line", "account")),
 		mutable(PayRun),
 		mutable(Shift),
 		mutable(Timesheet),
@@ -591,21 +589,21 @@ export const runStages = query(Payroll)
 
 export const ledger = query(Payroll)
 	.rule((r) => {
-		const { entry, line, account, side, amount } = v(Posting, "posting")
+		const { line, account, side, amount } = v(Posting, "posting")
 		const { run } = v(PayLine, "payLine")
 		return r
-			.match(Posting, { entry, line, account, side, amount })
+			.match(Posting, { line, account, side, amount })
 			.match(PayLine, { id: line, run })
 			.where(r.eq(run, r.param("run", uuid)))
-			.find({ entry, line, account, side, amount })
+			.find({ line, account, side, amount })
 	})
-	.orderBy(["entry", "asc"])
+	.orderBy(["line", "asc"], ["account", "asc"])
 
 export const ledgerBalance = query(Payroll).rule((r) => {
-	const { entry, line, side, amount } = v(Posting, "posting")
+	const { line, account, side, amount } = v(Posting, "posting")
 	const { run } = v(PayLine, "payLine")
 	return r
-		.match(Posting, { entry, line, side, amount })
+		.match(Posting, { line, account, side, amount })
 		.match(PayLine, { id: line, run })
 		.where(r.eq(run, r.param("run", uuid)))
 		.find({

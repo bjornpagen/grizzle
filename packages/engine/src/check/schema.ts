@@ -10,8 +10,7 @@ import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import type { Owned, OwnedRole } from "#compiler/schema/own.ts"
 
 /**
- * A column of a relation a ChangeSet member writes: its name, its type, and how its field is written. A serial column
- * is one an addition may leave out for its sequence to fill.
+ * A column of a relation a ChangeSet member writes: its name, its type, and how its field is written.
  */
 export interface MemberColumn extends HeadingColumn {
 	readonly writing: { readonly kind: FieldWriting["kind"] }
@@ -20,8 +19,7 @@ export interface MemberColumn extends HeadingColumn {
 /**
  * What a ChangeSet member written into a relation is checked against: the relation's name and its heading, each column
  * with how its field is written. An ordinary relation's RelationInfo is one; so is a role's writable query entry,
- * whose heading is its head typed and written as the fields of the relation it writes, a head field serial exactly
- * where an addition may leave it out.
+ * whose heading is its head typed and written as the fields of the relation it writes.
  */
 export interface MemberRelation {
 	readonly name: string

@@ -92,17 +92,11 @@ const indexNames = (s: SqlStatement): ReadonlyArray<string> => {
 }
 
 /** The names an installation registers in the relation namespace: tables, every constraint (a key's index takes its
- * name), indexes and identity sequences. */
+ * name) and indexes. */
 const registered = (statements: ReadonlyArray<SqlStatement>): ReadonlyArray<string> =>
 	Arr.flatMap(statements, (s): ReadonlyArray<string> => {
 		if (s.kind === "createTable") {
-			return [
-				s.table.name,
-				...Arr.map(tableConstraints(s), (k) => k.name),
-				...Arr.flatMap(s.columns, (c) =>
-					c.generated?.kind === "identity" ? [c.generated.sequence.name] : []
-				)
-			]
+			return [s.table.name, ...Arr.map(tableConstraints(s), (k) => k.name)]
 		}
 		if (s.kind === "createIndex") {
 			return [s.name]

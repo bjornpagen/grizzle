@@ -609,7 +609,7 @@ const redefinedView = (view: CreateView, database: string): Effect.Effect<string
 		: Effect.die(new Error("a view prints as no CREATE VIEW"))
 }
 
-/** A default the column's domain admits, as SQL: an identity column takes none, so a serial field has none. */
+/** A default the column's domain admits, as SQL. */
 const defaultOf = (domain: FieldDomain): Effect.Effect<string> => {
 	switch (domain.kind) {
 		case "uuid":
@@ -625,8 +625,6 @@ const defaultOf = (domain: FieldDomain): Effect.Effect<string> => {
 			return Effect.succeed(quoteString(domain.members[0]))
 		case "span":
 			return Effect.succeed(quoteString("empty"))
-		case "serial":
-			return Effect.die(new Error("a serial field is an identity column, which takes no default"))
 	}
 }
 

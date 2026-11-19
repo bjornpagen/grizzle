@@ -52,9 +52,8 @@ export interface ChangeRow {
 /** A stratum's change to one relation from its statements' returned rows: the facts they made present less the facts
  * they made absent, S' - S, with S' = (S \ D) ∪ A. A and D are sets, so a fact several rows of one side return stands on
  * that side once, under its tag of highest rank (`tags`). A fact the rows both remove and add, identical in every field,
- * is in S and S' alike (or in neither), so its weights sum to 0 and it is in neither side: a generated addition whose
- * identity sequence lags the stored values (a direct writer's explicit values) can draw the very key the stratum's
- * delete freed, and the fact set is then unchanged for it, as psql leaves it after the DELETE and the INSERT. */
+ * is in S and S' alike (or in neither), so its weights sum to 0 and it is in neither side: the fact set is unchanged
+ * for it, as psql leaves it after the DELETE and the INSERT. */
 export const stratumChange = (rows: Iterable<ChangeRow>): TupleMap<FactIdentity, Weighted<Tag>> => {
 	const sides = {
 		added: new TupleMap<FactIdentity, Weighted<Tag>>(),

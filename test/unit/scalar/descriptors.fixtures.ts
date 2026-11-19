@@ -76,9 +76,6 @@ export const plainPairGen = (source: Source) => {
 	return [defined(x, "a descriptor"), defined(y, "a descriptor")] as const
 }
 
-/** What two descriptors of the namespace came to. */
-export type SpellingFeature = "one type, two writings" | "two types"
-
 /** Two descriptors: one drawn twice, one time in three, or two drawn apart. */
 export const typePairGen = (source: Source) => {
 	const x = source.draw(descriptorGen(2))
@@ -319,8 +316,8 @@ export const spanWidthSpace = aimed<
 	wildAims(spanWidthCaseOf)
 )
 
-/** What an endpoint came to: a span of either carrier, a refusal, or a serial's refusal. */
-export type EndpointFeature = "range4" | "range8" | "refused" | "a serial"
+/** What an endpoint came to: a span of either carrier, or a refusal. */
+export type EndpointFeature = "range4" | "range8" | "refused"
 
 const at = (value: unknown, site: string): ReadonlyArray<Broken<"MalformedDescription">> => [
 	{ value, refusal: "MalformedDescription", at: site }

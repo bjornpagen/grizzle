@@ -1,26 +1,18 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
-import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
-import type { ReadonlyTupleSet } from "#compiler/core/tuple-map.ts"
-import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import {
 	type AddWinsOutcome,
 	type AppliedOutcome,
 	applyAddWins,
-	type Draws,
 	type Fact,
-	integerOf,
 	type OracleState,
-	oracleState,
-	type SequenceState
+	oracleState
 } from "#test/support/oracle/addwins.ts"
-import { identitySetOf } from "#test/support/oracle/delta.ts"
-import { elementAt, entryOf } from "#test/support/oracle/pick.ts"
+import { entryOf } from "#test/support/oracle/pick.ts"
 import {
 	evaluateSource,
-	generates,
 	isFact,
-	isGenerated,
 	oracleChangeSet,
 	type WChangeSet
 } from "#test/support/oracle/write/changeset.ts"
@@ -31,7 +23,6 @@ import {
 	isImmediate,
 	oracleSchemaOf,
 	relationIn,
-	serialColumns,
 	type WContainment,
 	type WGroup,
 	type WRelation,
@@ -84,20 +75,6 @@ export interface DomainRefusal {
 	readonly refusing: ReadonlySet<string>
 }
 
-/**
- * The TransientFailures a lone writer of a case may meet: a generated addition into a relation draws a serial value a
- * stored fact already holds, so its insert raises a unique violation on a key holding the serial field, the attempt
- * fails with GeneratedSerialUnique, and the next attempt draws past the value. Each such stored value can fail at most
- * one attempt, since every attempt's draws advance the sequence for good. Every other TransientFailure needs a
- * concurrent transaction, which a write case has none of.
- */
-export interface Collisions {
-	/** The installed constraints of the keys holding a serial field, which a GeneratedSerialUnique names. */
-	readonly constraints: ReadonlySet<ConstraintName>
-	/** The stored serial values the sequences have not passed: how many attempts may fail. */
-	readonly values: number
-}
-
 export type Expected =
 	| {
 			/**
@@ -112,30 +89,11 @@ export type Expected =
 			readonly kind: "applied"
 			readonly outcome: AppliedOutcome
 			readonly initial: OracleState
-			/**
-			 * `<relation>.<field>` to the identity sequence's position after the change's explicit values, which is
-			 * its position after the change for a relation without generated additions.
-			 */
-			readonly sequences: ReadonlyMap<string, SequenceState>
-			/** The relations the change makes generated additions to (see GeneratedDraws). */
-			readonly draws: ReadonlyMap<string, GeneratedDraws>
-			/** Per relation the change generates into, the TransientFailures its draws may meet. */
-			readonly collisions: ReadonlyMap<string, Collisions>
-			/**
-			 * The expectation under the facts a realization committed for its generated additions: each taking the
-			 * serial values of the fact of `committed`, by relation, whose other fields it holds, which of its draws
-			 * went to which addition, the order its statement inserted them in, which only a commit shows (its
-			 * sequences record the values alone, addwins.ts Draws). Which stored or removed facts the draws repeat, and
-			 * with them the outcome and its counts, are the draws'.
-			 */
-			readonly pin: (committed: ReadonlyMap<string, ReadonlyArray<Fact>>) => Expected
 	  }
 	| {
 			readonly kind: "rejected"
 			readonly refusals: AcceptableRefusals
 			readonly initial: OracleState
-			/** The draws a rejected change makes before its refusal may meet them too. */
-			readonly collisions: ReadonlyMap<string, Collisions>
 	  }
 	| {
 			/** A stratum that adds a value outside its domain: refused by the domain or by a law it meets first. */
@@ -143,7 +101,6 @@ export type Expected =
 			readonly domain: DomainRefusal
 			readonly refusals: AcceptableRefusals
 			readonly initial: OracleState
-			readonly collisions: ReadonlyMap<string, Collisions>
 	  }
 	| {
 			/**
@@ -157,25 +114,7 @@ export type Expected =
 			/** The names of the parameters passed outside their fields, one of which the refusal names. */
 			readonly params: ReadonlySet<string>
 			readonly initial: OracleState
-			readonly collisions: ReadonlyMap<string, Collisions>
 	  }
-
-/**
- * A relation's generated additions: its serial fields with each sequence's position before the first value drawn, and
- * the identities of the expected final state's facts the additions made. Their serial values are the calculator's
- * draws, which the realization may make otherwise (harness.ts compares them up to renaming).
- */
-export interface GeneratedDraws {
-	readonly fields: ReadonlyArray<{ readonly field: string; readonly before: SequenceState }>
-	readonly generated: ReadonlyTupleSet<FactIdentity>
-}
-
-/**
- * Whether `value` is one nextval can return from `s` onward: past last_value, or last_value itself on a sequence
- * never called.
- */
-const freshPast = (s: SequenceState, value: bigint): boolean =>
-	value > s.lastValue || (value === s.lastValue && !s.isCalled)
 
 export interface ExpectContext {
 	readonly group: WGroup
@@ -209,12 +148,9 @@ const keyFields = (
 
 /**
  * Same-key pairs among the enumerated additions of each stratum, which host normalization refuses before any SQL, so
- * before the admission refuses a parameter outside its field (unboundParams), with the key's law and a violating key, a
- * generated addition on the keys holding no serial field. Deletions are judged at no key: of two deleted facts at one
- * key at most one is stored, and the other's deletion changes nothing. At a key holding no serial field, a generated addition and a complete one that agrees
- * with it at every field it states are one fact (README: a row that leaves its serial fields out is the fact its other
- * fields state, and one a stratum both inserts and puts is the put's), as the insert's statement, after the complete
- * one's, meets that row at its arbiter and changes nothing. Each law once, its violations every stratum's.
+ * before the admission refuses a parameter outside its field (unboundParams), with the key's law and a violating key.
+ * Deletions are judged at no key: of two deleted facts at one key at most one is stored, and the other's deletion
+ * changes nothing. Each law once, its violations every stratum's.
  */
 const hostRefusals = (ctx: ExpectContext, c: WChangeSet): AcceptableRefusals => {
 	const clashes = Arr.flatMap(c.strata, (stratum) =>
@@ -224,17 +160,7 @@ const hostRefusals = (ctx: ExpectContext, c: WChangeSet): AcceptableRefusals => 
 					? m.source.facts
 					: []
 			)
-			const serial = new Set(Arr.map(serialColumns(relation), (col) => col.name))
-			return Arr.flatMap(keysOf(relation), (key) =>
-				sameKeyViolations(
-					ctx,
-					relation,
-					key,
-					Arr.some(key.fields, (f) => serial.has(f))
-						? Arr.filter(listed, (f) => !isGenerated(relation, f))
-						: listed
-				)
-			)
+			return Arr.flatMap(keysOf(relation), (key) => sameKeyViolations(ctx, relation, key, listed))
 		})
 	)
 	const byLaw = new Map<LawId, Violations>()
@@ -268,10 +194,7 @@ const keysOf = (relation: WRelation): ReadonlyArray<RelationKey> => [
 	...Arr.map(relation.keys, (fields): RelationKey => ({ kind: "candidate", fields }))
 ]
 
-/**
- * The key's law and its violations by the distinct facts among `added` that share a value of it, if any do: a generated
- * fact and a complete one agreeing at every field the generated one states are one fact (`hostRefusals`).
- */
+/** The key's law and its violations by the distinct facts among `added` that share a value of it, if any do. */
 const sameKeyViolations = (
 	ctx: ExpectContext,
 	relation: WRelation,
@@ -279,8 +202,6 @@ const sameKeyViolations = (
 	added: ReadonlyArray<Fact>
 ): ReadonlyArray<readonly [LawId, Violations]> => {
 	const { fields } = key
-	const serial = new Set(Arr.map(serialColumns(relation), (col) => col.name))
-	const stated = Arr.flatMap(relation.columns, (col) => (serial.has(col.name) ? [] : [col.name]))
 	const byKey = new Map<string, Map<string, Fact>>()
 	for (const f of added) {
 		const k = keyOf(relation, fields, f)
@@ -295,23 +216,7 @@ const sameKeyViolations = (
 		)
 		byKey.set(k, set)
 	}
-	/** The distinct facts of one key's value: each complete one, and each generated one no complete one agrees with at
-	 * every field it states. */
-	const distinct = (facts: ReadonlyMap<string, Fact>): ReadonlyMap<string, Fact> => {
-		const complete = Arr.filter([...facts.values()], (f) => !isGenerated(relation, f))
-		return new Map(
-			Arr.filter(
-				[...facts],
-				([, f]) =>
-					!isGenerated(relation, f) ||
-					!Arr.some(complete, (c) => keyOf(relation, stated, c) === keyOf(relation, stated, f))
-			)
-		)
-	}
-	const clashing = Arr.filter(
-		Arr.map([...byKey], ([k, facts]) => [k, distinct(facts)] as const),
-		([, facts]) => facts.size > 1
-	)
+	const clashing = Arr.filter([...byKey], ([, facts]) => facts.size > 1)
 	const violators = Arr.flatMap(clashing, ([, facts]) => [...facts.values()])
 	if (!Arr.isReadonlyArrayNonEmpty(violators)) {
 		return []
@@ -465,57 +370,6 @@ const brokenForeignKeys = (
 			: []
 	})
 
-/**
- * Per relation `c` generates into, the stored serial values its draws may meet (see Collisions): the initial facts'
- * values on a key's serial field that the field's sequence has not passed. Explicit values the change writes advance
- * the sequence past themselves before any value is drawn, so only stored ones can collide.
- */
-const collisionsOf = (
-	ctx: ExpectContext,
-	c: WChangeSet,
-	initial: OracleState
-): ReadonlyMap<string, Collisions> => {
-	const out = new Map<string, Collisions>()
-	for (const relation of ctx.group.relations) {
-		if (
-			!Arr.some(c.strata, (s) =>
-				Arr.some(s, (m) => m.relation === relation.name && generates(relation, m))
-			)
-		) {
-			continue
-		}
-		const keys = keysOf(relation)
-		const keyed = Arr.filter(serialColumns(relation), (col) =>
-			Arr.some(keys, (k) => k.fields.includes(col.name))
-		)
-		const values = Arr.reduce(keyed, 0, (n, col) => {
-			const position = entryOf(initial.sequences, `${relation.name}.${col.name}`, "the sequences")
-			const stored = entryOf(
-				initial.relations,
-				relation.name,
-				"the initial state's relations"
-			).values()
-			const reached = Arr.filter(
-				Arr.map([...stored], (fact) => integerOf(fact[col.name], col.name)),
-				(v) => freshPast(position, v)
-			)
-			return n + new Set(reached).size
-		})
-		const holding = Arr.filter(keys, (k) => Arr.some(keyed, (col) => k.fields.includes(col.name)))
-		out.set(relation.name, {
-			constraints: new Set(
-				Arr.map(holding, (k) =>
-					k.kind === "primary"
-						? ctx.laws.primaryKeyConstraint(relation.name)
-						: ctx.laws.keyConstraint(relation.name, k.fields)
-				)
-			),
-			values
-		})
-	}
-	return out
-}
-
 /** A stratum of a ChangeSet whose writes the keys order in a cycle: its place among the strata, and its order. */
 export interface CyclicStratum {
 	readonly stratum: number
@@ -525,8 +379,8 @@ export interface CyclicStratum {
 /**
  * A group as a stratum's order reads it (stratum-order.ts): where each relation's facts meet, at the primary key where
  * a field lies outside it, else, a pure set's, at a candidate or projected key of it, else nowhere, no key the oracle
- * draws being implied by the primary key (schema.ts resolveRelation, resolveGroup); whether it has serial fields; and
- * the immediate containments (schema.ts isImmediate).
+ * draws being implied by the primary key (schema.ts resolveRelation, resolveGroup); and the immediate containments
+ * (schema.ts isImmediate).
  */
 const orderSchemaOf = (group: WGroup): OrderSchema => ({
 	relations: Arr.map(group.relations, (r) => ({
@@ -535,44 +389,12 @@ const orderSchemaOf = (group: WGroup): OrderSchema => ({
 			? "key"
 			: r.keys.length > 0 || Arr.some(group.projectedKeys, (k) => k.relation === r.name)
 				? "unique"
-				: "nowhere",
-		serial: serialColumns(r).length > 0
+				: "nowhere"
 	})),
 	references: Arr.flatMap(group.containments, (c) =>
 		isImmediate(group, c) ? [{ from: c.from.relation, to: c.to.relation }] : []
 	)
 })
-
-/**
- * A member as a stratum's order reads it: an array's insertion enumerated; a projection's described, generated where
- * its head leaves out every serial field of its relation; a parameter's or a take's described, of complete facts.
- */
-const orderMemberOf = (group: WGroup, m: WChangeSet["strata"][number][number]): OrderMember => {
-	if (m.op !== "insert") {
-		return { relation: m.relation, op: m.op }
-	}
-	switch (m.source.kind) {
-		case "array":
-			return { relation: m.relation, op: "insert", source: "enumerated" }
-		case "project": {
-			const head = m.source.head
-			const serial = serialColumns(relationIn(group, m.relation))
-			return {
-				relation: m.relation,
-				op: "insert",
-				source:
-					serial.length > 0 && Arr.every(serial, (col) => !Rec.has(head, col.name))
-						? "generated"
-						: "complete"
-			}
-		}
-		case "param":
-		case "scoped":
-		case "top":
-		case "equal":
-			return { relation: m.relation, op: "insert", source: "complete" }
-	}
-}
 
 /** The strata of `c` whose writes the keys order in a cycle (`CyclicStratum`), none where every stratum orders. */
 export const unorderableStrata = (group: WGroup, c: WChangeSet): ReadonlyArray<CyclicStratum> => {
@@ -580,7 +402,7 @@ export const unorderableStrata = (group: WGroup, c: WChangeSet): ReadonlyArray<C
 	return Arr.flatMap(c.strata, (members, stratum) => {
 		const order = stratumOrder(
 			schema,
-			Arr.map(members, (m) => orderMemberOf(group, m))
+			Arr.map(members, (m): OrderMember => ({ relation: m.relation, op: m.op }))
 		)
 		return unorderable(order) ? [{ stratum, order }] : []
 	})
@@ -619,57 +441,40 @@ export const unorderableStrata = (group: WGroup, c: WChangeSet): ReadonlyArray<C
  * in the tables its statement writes (DomainRefusal), or meets a law of the stratum first. A refused change leaves the
  * initial state.
  *
- * The expected result of applying `c` to `facts`, each identity sequence where `sequences` states it, and every other
- * past the stored values, where a migration that loaded them leaves it: its generated additions taking their serial
- * values as `draws` says, the add-wins calculator's own draws or a realization's as its identity sequences record
- * them, refused or not (addwins.ts Draws), and, applied, the same expectation under the facts a realization committed
- * for them (Expected's `pin`); or its refusal as it compiles, where a stratum's writes the keys order in a cycle.
+ * The expected result of applying `c` to `facts`, or its refusal as it compiles, where a stratum's writes the keys order
+ * in a cycle.
  */
-export const expectChangeSet = (
-	ctx: ExpectContext,
-	facts: WFacts,
-	c: WChangeSet,
-	sequences: Readonly<Record<string, SequenceState>>,
-	draws: Draws
-): Expected => {
+export const expectChangeSet = (ctx: ExpectContext, facts: WFacts, c: WChangeSet): Expected => {
 	const unorderable = unorderableStrata(ctx.group, c)
 	return Arr.isReadonlyArrayNonEmpty(unorderable)
 		? { kind: "unorderable", strata: unorderable }
-		: expectUnder(ctx, facts, c, sequences, draws)
+		: expectUnder(ctx, facts, c)
 }
 
 /**
- * expectChangeSet with the generated additions taking their serial values as `draws` says (addwins.ts Draws).
+ * expectChangeSet's expectation of an orderable ChangeSet.
  *
  * The host's normalization, before any SQL; then the flight's statements by what they reach (StepReach): its
  * admission, which reaches the parameters alone, first (write/program/compile.ts placeAdmission); then each stratum's
  * end, in order, the first one that adds outside a domain, or breaks a key or an immediate foreign key, refusing the
  * change.
  */
-const expectUnder = (
-	ctx: ExpectContext,
-	facts: WFacts,
-	c: WChangeSet,
-	sequences: Readonly<Record<string, SequenceState>>,
-	draws: Draws
-): Expected => {
+const expectUnder = (ctx: ExpectContext, facts: WFacts, c: WChangeSet): Expected => {
 	const schema = oracleSchemaOf(ctx.group, ctx.laws)
-	const initial = oracleState(schema, facts, sequences)
-	const collisions = collisionsOf(ctx, c, initial)
+	const initial = oracleState(schema, facts)
 	const host = hostRefusals(ctx, c)
 	if (host.size > 0) {
-		return { kind: "rejected", refusals: host, initial, collisions }
+		return { kind: "rejected", refusals: host, initial }
 	}
 	const unbound = unboundParams(ctx, Arr.flatten(c.strata), c.params)
 	if (unbound.size > 0) {
-		return { kind: "unbound", params: unbound, initial, collisions }
+		return { kind: "unbound", params: unbound, initial }
 	}
 	const immediate = Arr.filter(ctx.group.containments, (x) => isImmediate(ctx.group, x))
 	const rejected = (refusals: ReadonlyArray<readonly [LawId, AcceptableRefusal]>): Expected => ({
 		kind: "rejected",
 		refusals: new Map(refusals),
-		initial,
-		collisions
+		initial
 	})
 	/** The domain's refusal, or one by a law of the stratum. */
 	const outsideDomain = (
@@ -679,8 +484,7 @@ const expectUnder = (
 		kind: "outsideDomain",
 		domain,
 		refusals: new Map(refusals),
-		initial,
-		collisions
+		initial
 	})
 	/**
 	 * The key laws a refused stratum's transition breaks, each with its violations: a primary key's witness carries a
@@ -732,7 +536,7 @@ const expectUnder = (
 			...c,
 			strata: [Arr.headNonEmpty(c.strata), ...c.strata.slice(1, index + 1)]
 		}
-		const outcome = applyAddWins(schema, initial, oracleChangeSet(ctx.group, prefix), draws)
+		const outcome = applyAddWins(schema, initial, oracleChangeSet(ctx.group, prefix))
 		const outside = domainRefusal(ctx, members, c.params, state)
 		if (outcome.kind === "invariant-rejected") {
 			const refusals = [
@@ -767,105 +571,10 @@ const expectUnder = (
 	if (deferred.length > 0) {
 		return rejected(unreportedBy(deferred))
 	}
-	const advanced = advancedSequences(ctx.group, c, initial, applied)
-	return {
-		kind: "applied",
-		outcome: applied,
-		initial,
-		sequences: advanced,
-		draws: generatedDraws(ctx.group, c, advanced, applied),
-		collisions,
-		pin: (committed) => expectUnder(ctx, facts, c, sequences, { kind: "given", facts: committed })
-	}
+	return { kind: "applied", outcome: applied, initial }
 }
 
 /** A walk over a ChangeSet's strata: settled on the first refusing stratum's expectation, or applied through the last. */
 type Walk =
 	| { readonly kind: "settled"; readonly expected: Expected }
 	| { readonly kind: "applied"; readonly outcome: AppliedOutcome }
-
-/**
- * The identity sequences after an applied ChangeSet. Every explicit serial value an insert or a put of any stratum
- * requests advances its sequence when it is at least the next value the sequence would generate: (v, true) >
- * (last_value, is_called), so a sequence never called, whose next value is last_value itself, advances past an equal
- * explicit value (packages/engine/src/write/serial/advance.ts). The add-wins calculator advances by the same
- * comparison; the advance is computed again here on the sequence as PostgreSQL keeps it, which the harness compares. A
- * generated addition supplies no value and advances nothing; its draws follow.
- */
-const advancedSequences = (
-	group: WGroup,
-	c: WChangeSet,
-	initial: OracleState,
-	outcome: AppliedOutcome
-): ReadonlyMap<string, SequenceState> => {
-	const out = new Map<string, SequenceState>(initial.sequences)
-	/** The state before each stratum, rebuilt from the calculator's per-stratum changes. */
-	let relations = new Map(initial.relations)
-	for (const [i, members] of c.strata.entries()) {
-		const before: OracleState = { relations, sequences: initial.sequences }
-		for (const m of members) {
-			if (m.op === "delete") {
-				continue
-			}
-			const target = relationIn(group, m.relation)
-			for (const fact of Arr.filter(
-				evaluateSource(group, target, m.source, c.params, before),
-				(f) => !isGenerated(target, f)
-			)) {
-				advanceExplicit(out, target, fact)
-			}
-		}
-		const next = new Map(relations)
-		for (const [name, change] of elementAt(outcome.strata, i, "the per-stratum changes")) {
-			const facts = new Map(next.get(name) ?? new Map())
-			for (const id of change.removed.keys()) {
-				facts.delete(id)
-			}
-			for (const [id, fact] of change.added) {
-				facts.set(id, fact)
-			}
-			next.set(name, facts)
-		}
-		relations = next
-	}
-	return out
-}
-
-/** Advances each identity sequence of `target` that an explicit serial value of `fact` reaches past. */
-const advanceExplicit = (out: Map<string, SequenceState>, target: WRelation, fact: Fact): void => {
-	for (const col of serialColumns(target)) {
-		const key = `${target.name}.${col.name}`
-		const v = integerOf(fact[col.name], col.name)
-		if (freshPast(entryOf(out, key, "the sequences"), v)) {
-			out.set(key, { lastValue: v, isCalled: true })
-		}
-	}
-}
-
-/**
- * The relations `c` makes generated additions to, with the sequence positions their draws start from: the positions
- * after every explicit value, since generated additions are drawn in the last stratum only (changeset.ts) and the
- * stratum's explicit values advance the sequences before any value is drawn.
- */
-const generatedDraws = (
-	group: WGroup,
-	c: WChangeSet,
-	sequences: ReadonlyMap<string, SequenceState>,
-	outcome: AppliedOutcome
-): ReadonlyMap<string, GeneratedDraws> => {
-	const out = new Map<string, GeneratedDraws>()
-	for (const m of Arr.flatten(c.strata)) {
-		const target = relationIn(group, m.relation)
-		if (!generates(target, m)) {
-			continue
-		}
-		out.set(target.name, {
-			fields: Arr.map(serialColumns(target), (col) => ({
-				field: col.name,
-				before: entryOf(sequences, `${target.name}.${col.name}`, "the sequences")
-			})),
-			generated: outcome.generated.get(target.name) ?? identitySetOf([])
-		})
-	}
-	return out
-}

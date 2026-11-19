@@ -11,7 +11,6 @@ import {
 	type HostFact,
 	type HostSchema,
 	type HostState,
-	isDrawn,
 	isSpan,
 	needs,
 	type HostOp,
@@ -559,11 +558,6 @@ const closedOf = (env: HistoryEnv, relation: string, field: string): ClosedField
 
 /** A value as a literal at its column: a closed id as its handle's code, which its column stores. */
 const literal = (closed: ClosedField | undefined, x: HostValue): string => {
-	if (isDrawn(x)) {
-		throw new Error(
-			`draw ${String(x.draw)} has no SQL literal: a writer sends only values it has seen`
-		)
-	}
 	if (isSpan(x)) {
 		return `int4range(${x.start}, ${x.end})`
 	}

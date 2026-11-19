@@ -1,9 +1,8 @@
 /** What the properties of normalize.test.ts read: its spaces, models and helpers. */
 
-import { array, element, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
+import { array, element, int, shuffled } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
 import type { Source } from "@bjornpagen/testing/source"
-import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Option, Order, Stream } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
@@ -33,7 +32,6 @@ import { argumentsOf } from "#test/support/list.ts"
 import {
 	type AddWinsOutcome,
 	applyAddWins,
-	loadedSequences,
 	OracleChangeSet,
 	type OracleRelation,
 	type OracleSchema,
@@ -45,23 +43,12 @@ import { codesOf, compiled, cs, parsedOf } from "#test/unit/write/changeset/fixt
 /** Pair(k, v, c): primary key k, candidate key c. */
 const Pair = relation("Pair", { k: pg.integer, v: pg.integer, c: pg.integer }, ["k"])
 
-/** Gen(id serial, k, w): primary key id, candidate key k. */
-const Gen = relation("Gen", { id: pg.bigserial, k: pg.integer, w: pg.integer }, ["id"])
-
 const pairC = key(on(Pair, "c"))
 
-const genK = key(on(Gen, "k"))
+/** The schema of Pair, with its candidate key on c. */
+const Small = schema("Small", [Pair], [pairC])
 
-/** Unit(id serial): a relation whose every field is serial, whose generated additions carry no field, the unit relation. */
-const Unit = relation("Unit", { id: pg.bigserial }, ["id"])
-
-/** Two(a serial, b serial, n): two serial fields, which an addition carries both or neither of. */
-const Two = relation("Two", { a: pg.bigserial, b: pg.serial, n: pg.integer }, ["a"])
-
-/** The schema of Pair, Gen, Unit and Two, with Pair's candidate key on c and Gen's on k. */
-const Small = schema("Small", [Pair, Gen, Unit, Two], [pairC, genK])
-
-type Category = "put" | "delete" | "insert" | "generated"
+type Category = "put" | "delete" | "insert"
 
 /** An enumerated input's member slots by the category of the facts each carries, and the operation that writes them. */
 const categorized = (
@@ -78,11 +65,6 @@ const categorized = (
 		}
 		case "nested":
 			return [{ category: "insert", op: "insert", slot: input.slot }]
-		case "classed":
-			return [
-				{ category: "insert", op: "insert", slot: input.complete },
-				{ category: "generated", op: "insert", slot: input.generated }
-			]
 	}
 }
 
@@ -91,8 +73,7 @@ const categorized = (
 const occupiedOf = (strata: ReadonlyArray<ReadonlyArray<Member>>) =>
 	strataAt(Arr.filter(strata, (members) => members.length > 0))
 
-/** The facts of the slot of a category on a relation in a stratum: a put's, a deletion's, an insertion's of complete
- * facts, or a generated addition's.
+/** The facts of the slot of a category on a relation in a stratum: a put's, a deletion's or an insertion's.
  *
  * No slot of `op` on the relation holds no fact; normalization sets every slot there is. */
 const slotFacts = (
@@ -130,28 +111,11 @@ const specOf = (relationValue: { readonly name: string }, field: string) => {
 const oracleSchema: OracleSchema = {
 	relations: [
 		{
-			name: "Gen",
-			heading: Arr.map(["id", "k", "w"], (f) => ({ name: f, spec: specOf(Gen, f) })),
-			primaryKey: { law: lawNamesOf(Small).primaryKeyLaw(Gen), fields: ["id"] },
-			keys: [{ law: lawIdOf(Small, genK), fields: ["k"] }],
-			serial: ["id"],
-			projectedKeys: []
-		} satisfies OracleRelation,
-		{
 			name: "Pair",
 			heading: Arr.map(["k", "v", "c"], (f) => ({ name: f, spec: specOf(Pair, f) })),
 			primaryKey: { law: lawNamesOf(Small).primaryKeyLaw(Pair), fields: ["k"] },
 			keys: [{ law: lawIdOf(Small, pairC), fields: ["c"] }],
-			projectedKeys: [],
-			serial: []
-		} satisfies OracleRelation,
-		{
-			name: "Unit",
-			heading: [{ name: "id", spec: specOf(Unit, "id") }],
-			primaryKey: { law: lawNamesOf(Small).primaryKeyLaw(Unit), fields: ["id"] },
-			keys: [],
-			projectedKeys: [],
-			serial: ["id"]
+			projectedKeys: []
 		} satisfies OracleRelation
 	]
 }
@@ -160,36 +124,15 @@ const small = int(1, 3)
 
 type PairFact = { readonly k: number; readonly v: number; readonly c: number }
 
-type GenFact =
-	| { readonly k: number; readonly w: number }
-	| { readonly id: bigint; readonly k: number; readonly w: number }
-
-/** A fact of Unit: the one empty fact, a generated addition of no field, or a complete one. */
-type UnitFact = Readonly<Record<string, never>> | { readonly id: bigint }
-
 /** How a member's facts travel: an array, or a Stream the runtime collects whole. */
 type Transport = "array" | "stream"
 
-/** A drawn member: an operation of the change set on one relation, its facts, and how they travel. */
-type Member =
-	| {
-			readonly op: "insert" | "put" | "delete"
-			readonly relation: "Pair"
-			readonly facts: ReadonlyArray<PairFact>
-			readonly transport: Transport
-	  }
-	| {
-			readonly op: "insert"
-			readonly relation: "Gen"
-			readonly facts: ReadonlyArray<GenFact>
-			readonly transport: Transport
-	  }
-	| {
-			readonly op: "insert"
-			readonly relation: "Unit"
-			readonly facts: ReadonlyArray<UnitFact>
-			readonly transport: Transport
-	  }
+/** A drawn member: an operation of the change set on Pair, its facts, and how they travel. */
+interface Member {
+	readonly op: "insert" | "put" | "delete"
+	readonly facts: ReadonlyArray<PairFact>
+	readonly transport: Transport
+}
 
 const pairFact = (source: Source): PairFact => ({
 	k: source.draw(small),
@@ -197,39 +140,13 @@ const pairFact = (source: Source): PairFact => ({
 	c: source.draw(small)
 })
 
-const genFact = oneOf<GenFact>([
-	(source) => ({ k: source.draw(small), w: source.draw(int(1, 2)) }),
-	(source) => ({
-		id: source.draw(bigint(1n, 3n)),
-		k: source.draw(small),
-		w: source.draw(int(1, 2))
-	})
-])
-
-const unitFact = oneOf<UnitFact>([() => ({}), (source) => ({ id: source.draw(bigint(1n, 3n)) })])
-
 const transport = element(["array", "stream"] as const)
 
-export const memberGen = oneOf<Member>([
-	(source) => ({
-		op: source.draw(element(["insert", "put", "delete"] as const)),
-		relation: "Pair",
-		facts: source.draw(array(pairFact, { min: 0, max: 3 })),
-		transport: source.draw(transport)
-	}),
-	(source) => ({
-		op: "insert",
-		relation: "Gen",
-		facts: source.draw(array(genFact, { min: 0, max: 3 })),
-		transport: source.draw(transport)
-	}),
-	(source) => ({
-		op: "insert",
-		relation: "Unit",
-		facts: source.draw(array(unitFact, { min: 0, max: 3 })),
-		transport: source.draw(transport)
-	})
-])
+export const memberGen = (source: Source): Member => ({
+	op: source.draw(element(["insert", "put", "delete"] as const)),
+	facts: source.draw(array(pairFact, { min: 0, max: 3 })),
+	transport: source.draw(transport)
+})
 
 const membersGen = array(memberGen, { min: 0, max: 4 })
 
@@ -258,7 +175,6 @@ export const restatingGen = (source: Source) => {
 	const second: PairFact = { k: first.k, v: 3 - first.v, c: source.draw(small) }
 	const adding = (fact: PairFact): Member => ({
 		op: source.draw(element(["insert", "put"] as const)),
-		relation: "Pair",
 		facts: [fact],
 		transport: source.draw(transport)
 	})
@@ -273,7 +189,6 @@ export const nettingGen = (source: Source) => {
 	const fact = source.draw(pairFact)
 	const member = (op: "insert" | "put" | "delete"): Member => ({
 		op,
-		relation: "Pair",
 		facts: [fact],
 		transport: source.draw(transport)
 	})
@@ -282,8 +197,6 @@ export const nettingGen = (source: Source) => {
 		[[member("delete"), member(source.draw(element(["insert", "put"] as const)))]]
 	] as const
 }
-
-const relationValues = { Pair, Gen, Unit, Two } as const
 
 /** Facts as a member carries them: the array itself, or a Stream of it. */
 const sent = (
@@ -294,9 +207,7 @@ const sent = (
 
 /** A stratum's members added to a ChangeSet in turn, each an array or a Stream of its facts. */
 export const stratumOf = (members: ReadonlyArray<Member>): ChangeSetValue =>
-	Arr.reduce(members, cs(Small), (changes, m) =>
-		changes[m.op](relationValues[m.relation], sent(m.facts, m.transport))
-	)
+	Arr.reduce(members, cs(Small), (changes, m) => changes[m.op](Pair, sent(m.facts, m.transport)))
 
 /**
  * The longest prefix of `members` whose ChangeSet normalizes, the empty one at least: the ChangeSet a fault is planted
@@ -323,7 +234,7 @@ const changeSetOf = (strata: ReadonlyArray<ReadonlyArray<Member>>): ChangeSetVal
 /** The strata as the oracle's ChangeSet. */
 const oracleOf = (strata: ReadonlyArray<ReadonlyArray<Member>>): OracleChangeSet => {
 	const [first, ...rest] = Arr.map(strata, (members) =>
-		Arr.reduce(members, OracleChangeSet.empty(), (raw, m) => raw[m.op](m.relation, m.facts))
+		Arr.reduce(members, OracleChangeSet.empty(), (raw, m) => raw[m.op]("Pair", m.facts))
 	)
 	return OracleChangeSet.sequence(defined(first, "a first stratum"), ...argumentsOf(rest))
 }
@@ -407,11 +318,7 @@ const slotInvariants = (
 ): void => {
 	for (const [s, ms] of occupiedOf(strata)) {
 		const raw = (op: string): ReadonlySet<string> =>
-			new Set(
-				Arr.flatMap(ms, (m: Member) =>
-					m.op === op && m.relation === "Pair" ? Arr.map(m.facts, pairText) : []
-				)
-			)
+			new Set(Arr.flatMap(ms, (m: Member) => (m.op === op ? Arr.map(m.facts, pairText) : [])))
 		const [rawInsert, rawPut, rawDelete] = [raw("insert"), raw("put"), raw("delete")]
 		const slot = (category: "put" | "delete" | "insert") =>
 			Arr.map(slotFacts(result, frontend, s, category, "Pair"), pairText)
@@ -453,7 +360,6 @@ export type NormalizeFeature =
 	| "a Stream member"
 	| "refused by a key"
 	| "two deletions at one key, normalized"
-	| "refused by a key two generated additions share"
 	| "a later stratum restates an earlier stratum's key"
 	| "a fact a stratum both deletes and adds, netted"
 
@@ -468,7 +374,7 @@ const deletedAtOneKey = (strata: ReadonlyArray<ReadonlyArray<Member>>) =>
 	Arr.dedupe(
 		Arr.flatMap(strata, (ms) => {
 			const deleted = Arr.dedupeWith(
-				Arr.flatMap(ms, (m) => (m.relation === "Pair" && m.op === "delete" ? m.facts : [])),
+				Arr.flatMap(ms, (m) => (m.op === "delete" ? m.facts : [])),
 				(f, g) => pairText(f) === pairText(g)
 			)
 			return Arr.flatMap(["k", "c"] as const, (field) =>
@@ -479,25 +385,9 @@ const deletedAtOneKey = (strata: ReadonlyArray<ReadonlyArray<Member>>) =>
 		})
 	)
 
-/**
- * Whether a stratum adds two generated facts of Gen, different in w, at one k: a pair Gen's key on k holds apart, a key
- * no sequence draws a field of, at which the host compares generated additions too (write/normalize sameKey).
- */
-const generatedAtOneK = (strata: ReadonlyArray<ReadonlyArray<Member>>): boolean =>
-	Arr.some(strata, (ms) => {
-		const generated = Arr.flatMap(ms, (m) =>
-			m.relation === "Gen" ? Arr.filter(m.facts, (f) => !("id" in f)) : []
-		)
-		return Arr.some(generated, (f, i) =>
-			Arr.some(generated, (g, j) => i !== j && f.k === g.k && f.w !== g.w)
-		)
-	})
-
 /** Whether a later stratum adds a Pair fact at the key of a different one an earlier stratum adds. */
 const restated = (strata: ReadonlyArray<ReadonlyArray<Member>>): boolean => {
-	const added = Arr.map(strata, (ms) =>
-		Arr.flatMap(ms, (m) => (m.relation === "Pair" && m.op !== "delete" ? m.facts : []))
-	)
+	const added = Arr.map(strata, (ms) => Arr.flatMap(ms, (m) => (m.op !== "delete" ? m.facts : [])))
 	return Arr.some(added, (early, s) =>
 		Arr.some(added.slice(s + 1), (late) =>
 			Arr.some(early, (f) => Arr.some(late, (g) => g.k === f.k && pairText(g) !== pairText(f)))
@@ -510,9 +400,7 @@ const netted = (strata: ReadonlyArray<ReadonlyArray<Member>>): boolean =>
 	Arr.some(strata, (ms) => {
 		const pairs = (added: boolean) =>
 			new Set(
-				Arr.flatMap(ms, (m) =>
-					m.relation === "Pair" && (m.op !== "delete") === added ? Arr.map(m.facts, pairText) : []
-				)
+				Arr.flatMap(ms, (m) => ((m.op !== "delete") === added ? Arr.map(m.facts, pairText) : []))
 			)
 		const added = pairs(true)
 		return Arr.some([...pairs(false)], (f) => added.has(f))
@@ -531,20 +419,17 @@ export const normalizes = (
 		if (Arr.some(Arr.flatten(strata), (m) => m.transport === "stream")) {
 			c.note("a Stream member")
 		}
-		const state = oracleState(oracleSchema, { Pair: start }, loadedSequences)
-		const expected = applyAddWins(oracleSchema, state, oracleOf(strata), { kind: "sequences" })
+		const state = oracleState(oracleSchema, { Pair: start })
+		const expected = applyAddWins(oracleSchema, state, oracleOf(strata))
 		const { frontend, result } = yield* normalizedOf(changeSetOf(strata))
 		const normalization = succeeded(result, "a ChangeSet of admitted facts normalizes")
 		if (normalization.kind === "keyConflict") {
 			c.note("refused by a key")
-			if (normalization.law === lawIdOf(Small, genK) && generatedAtOneK(strata)) {
-				c.note("refused by a key two generated additions share")
-			}
 			assert.equal(expected.kind, "invariant-rejected", "the add-wins meaning rejects it too")
-			const empty = oracleState(oracleSchema, {}, loadedSequences)
+			const empty = oracleState(oracleSchema, {})
 			assert.ok(
 				Arr.some(strata, (ms) => {
-					const alone = applyAddWins(oracleSchema, empty, oracleOf([ms]), { kind: "sequences" })
+					const alone = applyAddWins(oracleSchema, empty, oracleOf([ms]))
 					return (
 						alone.kind === "invariant-rejected" &&
 						Arr.some(alone.violations, (v) => v.law === normalization.law)
@@ -558,11 +443,6 @@ export const normalizes = (
 		if (deletedAtOneKey(strata).length > 0) {
 			c.note("two deletions at one key, normalized")
 		}
-		assert.equal(
-			generatedAtOneK(strata),
-			false,
-			"a stratum that adds two generated facts of Gen at one k is refused by Gen's key"
-		)
 		if (strata.length >= 2 && restated(strata)) {
 			c.note("a later stratum restates an earlier stratum's key")
 		}
@@ -584,25 +464,19 @@ export const normalizes = (
 			applyAddWins(
 				oracleSchema,
 				state,
-				OracleChangeSet.sequence(OracleChangeSet.empty(), ...argumentsOf(rebuilt)),
-				{ kind: "sequences" }
+				OracleChangeSet.sequence(OracleChangeSet.empty(), ...argumentsOf(rebuilt))
 			),
 			expected
 		)
 	})
 
 /** A fact no relation admits, planted among valid members (see the header). */
-export type Fault =
-	| "a NULL field"
-	| "a field its relation lacks"
-	| "a deletion without its serial field"
-	| "some serial fields and not all"
+export type Fault = "a NULL field" | "a field its relation lacks" | "a field its fact lacks"
 
 export const faults: Arr.NonEmptyReadonlyArray<Fault> = [
 	"a NULL field",
 	"a field its relation lacks",
-	"a deletion without its serial field",
-	"some serial fields and not all"
+	"a field its fact lacks"
 ]
 
 /** The fault a planted fact is refused with: a NULL by the null ban, any other shape by factShape. */
@@ -621,9 +495,7 @@ export const plantedGen =
 				return (changes) => changes[op](Pair, [{ k, v: null, c }])
 			case "a field its relation lacks":
 				return (changes) => changes[op](Pair, [{ k, v: 1, c, x: 1 }])
-			case "a deletion without its serial field":
-				return (changes) => changes.delete(Gen, [bareRecord({ k, w: 1 })])
-			case "some serial fields and not all":
-				return (changes) => changes.insert(Two, [{ a: BigInt(k), n: c }])
+			case "a field its fact lacks":
+				return (changes) => changes[op](Pair, [bareRecord({ k, c })])
 		}
 	}

@@ -79,7 +79,7 @@ const plainR = (key: KeyShape) => {
 		case "span":
 			return relation("R", { k: uuid, during: span(pg.bigint), holder: uuid }, ["k", "during"])
 		case "drawn":
-			return relation("R", { k: pg.uuidv7, holder: uuid }, ["k"])
+			return relation("R", { k: uuid, n: drawn(natural), holder: uuid }, ["k", "n"])
 	}
 }
 

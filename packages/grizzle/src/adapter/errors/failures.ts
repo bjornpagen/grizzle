@@ -875,24 +875,6 @@ export class PutTargetConflict extends Data.TaggedError("PutTargetConflict")<{
 }
 
 /**
- * A generated addition's own insert into `relation` raised a unique violation on `constraint`, a key holding the serial
- * field it generates: a concurrent writer stored a value the sequence had not yet passed.
- */
-export class GeneratedSerialUnique extends Data.TaggedError("GeneratedSerialUnique")<{
-	readonly relation: string
-	readonly constraint: ConstraintName
-}> {
-	constructor(met: { readonly relation: string; readonly constraint: string }) {
-		super({ relation: met.relation, constraint: admittedIdentifier(met.constraint) })
-	}
-
-	override get message(): string {
-		const stored = "one a concurrent writer stored"
-		return `a serial value generated for ${this.relation} met ${stored}, on ${this.constraint}`
-	}
-}
-
-/**
  * A put's insert into a span primary key of `relation` met an occupant at the key a concurrent transaction committed
  * after the put deleted the fact at the key.
  */
@@ -939,7 +921,6 @@ export type TransientReason =
 	| SerializationFailure
 	| Deadlock
 	| PutTargetConflict
-	| GeneratedSerialUnique
 	| SpanKeyChange
 	| UnseenOccupant
 	| ConcurrentRefresh

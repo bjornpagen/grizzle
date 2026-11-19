@@ -1,7 +1,6 @@
 import { fail } from "#compiler/check/fail.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import type { WriteOp } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import {
@@ -12,19 +11,13 @@ import {
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 
-/** The serial fields of a member's relation, in heading order: those an addition may leave to their sequence. */
-const serialOf = (relation: MemberRelation): ReadonlyArray<string> =>
-	relation.heading.flatMap((c) => (c.writing.kind === "serial" ? [c.name] : []))
-
 /**
- * Whether a member that adds facts writes a field written so: a caller's field, and a serial one, which an insert may
- * leave to its sequence; never one PostgreSQL generates or grizzle draws or accumulates (types/changeset
- * UnwrittenFieldsOf).
+ * Whether a member that adds facts writes a field written so: a caller's field; never one PostgreSQL generates or
+ * grizzle draws or accumulates (types/changeset UnwrittenFieldsOf).
  */
 const memberWrites = (writing: MemberColumn["writing"]["kind"]): boolean => {
 	switch (writing) {
 		case "caller":
-		case "serial":
 			return true
 		case "generated":
 		case "drawn":
@@ -34,43 +27,22 @@ const memberWrites = (writing: MemberColumn["writing"]["kind"]): boolean => {
 	}
 }
 
-/** The fields of a member's relation a member writes (memberWrites), in heading order: the relation's one fact heading,
- * every op's, and a field-equality member's head (write/frontend/equal.ts). */
+/**
+ * The fields of a member's relation a member writes (memberWrites), in heading order: the relation's one fact heading
+ * (rule 0), every op's, so a fact deleted and added is one fact, and a field-equality member's head
+ * (write/frontend/equal.ts). A generated, drawn or accumulated field is a function of the written ones or grizzle's, so
+ * no delete matches on it.
+ */
 export const writtenHeading = (relation: MemberRelation): Heading =>
 	relation.heading.filter((c) => memberWrites(c.writing.kind))
-
-/**
- * The fields a described member's head must deliver: the fields a member writes (memberWrites), the relation's one
- * fact heading (rule 0), for a delete as for an insert and a put, so a fact deleted and added is one fact; and for an
- * insert that supplies none of its relation's serial fields (`supplied`), those without them. A generated, drawn or
- * accumulated field is a function of the written ones or grizzle's, so no delete matches on it.
- */
-const memberHeading = (
-	relation: MemberRelation,
-	op: WriteOp,
-	serial: ReadonlyArray<string>,
-	supplied: ReadonlyArray<string>
-): Heading => {
-	const written = writtenHeading(relation)
-	return op === "insert" && serial.length > 0 && supplied.length === 0
-		? written.filter((c) => !serial.includes(c.name))
-		: written
-}
 
 const names = (h: Heading): string => h.map((c) => c.name).join(", ")
 
 /** What a member's expected heading leaves out of its relation's, as its refusal names it. */
-const omitted = (
-	relation: MemberRelation,
-	op: WriteOp,
-	serial: ReadonlyArray<string>,
-	expected: Heading
-): string => {
-	const unwritten = relation.heading.some((c) => !memberWrites(c.writing.kind))
-	const serialOmitted =
-		op === "insert" && serial.length > 0 && !expected.some((c) => serial.includes(c.name))
-	return `${unwritten ? ", the fields grizzle or PostgreSQL writes omitted" : ""}${serialOmitted ? ", its serial fields omitted" : ""}`
-}
+const omitted = (relation: MemberRelation): string =>
+	relation.heading.some((c) => !memberWrites(c.writing.kind))
+		? ", the fields grizzle or PostgreSQL writes omitted"
+		: ""
 
 /**
  * The one way a member column of type `value` is written into a field of another type `field`: an exact value or a
@@ -94,8 +66,7 @@ const writtenOnly = (value: ScalarType, field: ScalarType): string => {
  * A member is a set of facts of one ordinary relation. An array or a Stream member is the query over a relation
  * parameter its input binds, whose shape the codec checks; a query member is checked here. A delete's head is the
  * relation's heading; an insert's and a put's is the fields a member writes, no field PostgreSQL generates or grizzle
- * draws or accumulates, and for an insert those minus all of its serial fields, which the identity default fills:
- * an addition omits either all of its relation's serial fields or none. Each head column enters the field it is
+ * draws or accumulates. Each head column enters the field it is
  * written into at the field's own type (ir/scalar.ts sameEnteredType), as a generated field's term and a fold's
  * accumulator do: the same carrier, contract, roster, numeric typmod, span endpoint and width, and vector dimensions,
  * never an exact value or a computed numeric, which no field stores; a text's pattern and byte bound alone are the
@@ -114,7 +85,6 @@ const writtenOnly = (value: ScalarType, field: ScalarType): string => {
 export const checkMemberHeading = (
 	query: LogicalQuery,
 	relation: MemberRelation,
-	op: WriteOp,
 	loc: SourceLoc
 ): void => {
 	const root = query.dag.roots[0]
@@ -126,23 +96,14 @@ export const checkMemberHeading = (
 		)
 	}
 	const delivered = root.heading
-	const serial = serialOf(relation)
-	const supplied = serial.filter((f) => delivered.some((c) => c.name === f))
-	const expected = memberHeading(relation, op, serial, supplied)
+	const expected = writtenHeading(relation)
 	const missing = expected.filter((c) => !delivered.some((d) => d.name === c.name))
 	const extra = delivered.filter((c) => !expected.some((d) => d.name === c.name))
-	if (op === "insert" && supplied.length > 0 && supplied.length < serial.length) {
-		fail(
-			"DescribedHeadingMismatch",
-			loc,
-			`an insert into ${relation.name} that omits all of its serial fields (${serial.join(", ")}) or none; it supplies ${supplied.join(", ")}`
-		)
-	}
 	if (missing.length > 0 || extra.length > 0) {
 		fail(
 			"DescribedHeadingMismatch",
 			loc,
-			`a member head of ${relation.name}'s heading (${names(expected)}${omitted(relation, op, serial, expected)}), not (${names(delivered)})`
+			`a member head of ${relation.name}'s heading (${names(expected)}${omitted(relation)}), not (${names(delivered)})`
 		)
 	}
 	for (const c of expected) {

@@ -54,8 +54,6 @@ const boundaryOf: { readonly [K in InvalidKind]: Boundary } = {
 	"fact:hidden-reference": "fact",
 	"fact:deleted-reference": "fact",
 	"fact:duplicate-in-input": "fact",
-	"fact:partial-serial": "fact",
-	"fact:filtered-serial-omitted": "fact",
 	"fact:domain-refused": "fact",
 	"handle:closed-db": "handle",
 	"handle:closed-direct": "handle",

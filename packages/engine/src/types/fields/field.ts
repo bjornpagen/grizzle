@@ -123,17 +123,9 @@ export interface NaturalField extends Field<
 /**
  * How a field is written, as its descriptor's type states it under `writing`; a caller's field carries none.
  * generated: by PostgreSQL from its row; drawn: by grizzle from the nested arrays its caller writes; accumulated: by
- * grizzle on the host, proved by PostgreSQL; serial: by its sequence; retirement: by its group's retirement.
+ * grizzle on the host, proved by PostgreSQL; retirement: by its group's retirement.
  */
-export type WritingTag = "generated" | "drawn" | "accumulated" | "serial" | "retirement"
-
-/**
- * Lowers to GENERATED ALWAYS AS IDENTITY, with the sequence owned by the column. It is a column
- * generation declaration over an integer type, not a value domain, so it is not a span endpoint.
- */
-export interface SerialField<out Host, out Sql extends SqlTag> extends Field<Host, Sql> {
-	readonly writing: "serial"
-}
+export type WritingTag = "generated" | "drawn" | "accumulated" | "retirement"
 
 /**
  * A span's width is upper - lower, a value of the endpoint's base type: over a contract
@@ -197,24 +189,14 @@ export interface Contract<
 }
 
 /**
- * Not a field of a writing of its own, a serial generation declaration among them. A caller's descriptor carries no
- * `writing` member, so an absent optional `never` admits it and refuses a serial's, a drawn field's and an accumulated
- * field's. A contract's bases are NotSerialBases'.
+ * Not a field of a writing of its own. A caller's descriptor carries no `writing` member, so an absent optional `never`
+ * admits it and refuses a drawn field's, an accumulated field's, a generated field's and a retirement field's. A
+ * contract's base is one (types/fields ContractConstructor), so no contract's chain holds a field of a writing of its
+ * own.
  */
-export interface NotSerial {
+export interface NoWriting {
 	readonly writing?: never
 }
-
-/**
- * A contract's base chain read down to its end: unknown where no base is a field of a writing of its own, never where
- * one is, at any depth, so a contract over a serial, or over a contract over one, is refused wherever a descriptor is
- * admitted as NotSerial.
- */
-export type NotSerialBases<F> = F extends { readonly base: infer B }
-	? B extends { readonly writing: WritingTag }
-		? never
-		: NotSerialBases<B>
-	: unknown
 
 /**
  * Not a roster's descriptor: closedId(X) carries its roster under `roster`, which an absent optional `never` refuses,
@@ -224,13 +206,11 @@ export interface NotRoster {
 	readonly roster?: never
 }
 
-/**
- * A plain integer descriptor: an integer field that is not a serial generation declaration, nor a contract over one.
- */
-type PlainIntegerField<Host, Sql extends SqlTag> = Field<Host, Sql> & NotSerial
+/** A plain integer descriptor: an integer field of no writing of its own. */
+type PlainIntegerField<Host, Sql extends SqlTag> = Field<Host, Sql> & NoWriting
 
 /**
- * Span endpoints: pg.integer, pg.bigint and contracts over them; never a serial. A contract over
+ * Span endpoints: pg.integer, pg.bigint and contracts over them. A contract over
  * pg.bigint is a Field<bigint & Brand, "bigint">, and Field is covariant in its host type, so the two plain arms admit
  * every contract over an admitted base. pg.smallint is no endpoint.
  */
@@ -272,13 +252,9 @@ export interface BitsField<out C> extends Field<Bits<C>, "bits", Bits<C>> {
 /** A set of a roster's handles, branded by the roster: a set over one roster is never one over another. */
 export type Bits<C> = ReadonlySet<HandleOf<C>> & Rostered<RosterName<C>>
 
-/**
- * A field no insert's head holds: one that states under `writing` that PostgreSQL or grizzle writes it. A serial is
- * written by its sequence, and an addition supplies all of its relation's serials or none (SerialFieldsOf), so it is
- * none of these.
- */
+/** A field no insert's head holds: one that states under `writing` that PostgreSQL or grizzle writes it. */
 export interface UnwrittenField {
-	readonly writing: Exclude<WritingTag, "serial">
+	readonly writing: WritingTag
 }
 
 /** A natural grizzle draws: a family's index or count, or a tree's start or end. In a Fact, never in an Addition. */

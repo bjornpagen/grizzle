@@ -36,7 +36,6 @@ export type {
 	LiteralOf,
 	NaturalField,
 	NumericTypmodField,
-	SerialField,
 	Span,
 	SpanEndpointLike,
 	SpanField,

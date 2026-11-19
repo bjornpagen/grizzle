@@ -135,7 +135,6 @@ const statementKinds = (
 		case "update":
 		case "truncate":
 		case "call":
-		case "setval":
 			return []
 	}
 }

@@ -920,7 +920,6 @@ const descriptors: Arr.NonEmptyReadonlyArray<object> = [
 	pgDescriptors["double precision"],
 	pgDescriptors.money,
 	pgDescriptors.boolean,
-	pgDescriptors.serial,
 	uuidDescriptor,
 	pgDescriptors.vector(3),
 	spanDescriptor(pgDescriptors.bigint),

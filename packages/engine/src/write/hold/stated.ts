@@ -582,19 +582,16 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 			if (group.facts.stated.kind === "entry") {
 				refuse(memberAt(relation), place, { kind: "entry", entry: relation })
 			}
-			for (const slot of input.kind === "classed"
-				? [input.complete, input.generated]
-				: [input.slot]) {
-				const lacking = place.group.find((g) => !slot.input.stated.some((c) => c.name === g.field))
-				if (lacking !== undefined) {
-					refuse(memberAt(relation), place, { kind: "drawn", field: lacking.field })
-				}
-				gathered.state(place.unit, relation, {
-					kind: "slot",
-					input: slot.input,
-					group: place.group
-				})
+			const { input: slotInput } = input.slot
+			const lacking = place.group.find((g) => !slotInput.stated.some((c) => c.name === g.field))
+			if (lacking !== undefined) {
+				refuse(memberAt(relation), place, { kind: "drawn", field: lacking.field })
 			}
+			gathered.state(place.unit, relation, {
+				kind: "slot",
+				input: slotInput,
+				group: place.group
+			})
 		}
 	}
 	for (const stratum of frontend.ir.strata) {

@@ -10,17 +10,15 @@
  * beside a delete), and with or without a second stratum inserting M's facts again from a query over a relation
  * parameter; another relation W, A or Z, written by an insert in the first stratum, in the second, or not at all; and
  * one read-back of one rule joining by id M's added facts, its removed facts, or both, with W's added facts, W's
- * state, or neither. M's id is a plain integer, or a serial its sequence draws: then every insertion of M is a
- * generated addition, a query over a relation parameter of payloads alone, and M's deletions and puts are arrays of
- * whole facts. Every other member is an array a call gives, so no member is carried. Exhausted.
+ * state, or neither. Every member but the second stratum's is an array a call gives, so no member is carried.
+ * Exhausted.
  *
  * Oracle: the rule as a model over the statements the construction implies. M's first-stratum action is one statement,
  * an insert's or a delete's, or a put's two, its displacing deletion making removed facts and its insert half added
  * ones; an action beside it is one more; a second stratum's insert is one more. A stratum of one-statement writes of
  * two relations is one statement. A side is made whole by a statement exactly where that statement is its only maker
- * and no maker of the opposite side is of another stratum or a generated addition, nor is the maker one: no fact is
- * both added and removed by the writes of one stratum (README, "A row one stratum both adds and deletes stays") but a
- * generated addition's, whose drawn id a lagging sequence may repeat; a read-back rides where every side it names, of a
+ * and no maker of the opposite side is of another stratum: no fact is both added and removed by the writes of one
+ * stratum (README, "A row one stratum both adds and deletes stays"); a read-back rides where every side it names, of a
  * side some statement makes, is made whole by one statement and W, which the read-back reads as state, is written
  * before it: W written at that statement (one statement of both writes) or in a later stratum is state after it, and W
  * written beside M in a stratum of several statements is ordered first. The model's crossings are every side not made
@@ -28,8 +26,8 @@
  * exactly where there is one. A read-back naming no side any statement makes runs after the writes.
  *
  * Features: riding an insert, a delete, a put's insert half, a put's displacing deletion and one statement of two
- * writes; riding beside the opposite action of M in its stratum; riding a generated addition; a generated addition
- * beside the opposite action of M refused; riding after W's state written beside M, by name before M and after it;
+ * writes; riding beside the opposite action of M in its stratum; riding after W's state written beside M, by name
+ * before M and after it;
  * running after the writes; and each crossing refused.
  */
 
@@ -47,7 +45,7 @@ import {
 	ridden,
 	ridingNotes,
 	sketchGen,
-	subjects,
+	subject,
 	verdictOf
 } from "#test/unit/write/readback-placement.fixtures.ts"
 
@@ -62,8 +60,6 @@ export const aChangeSetsReadBackRidesTheOneStatementThatMakesItsDeltaAfterTheSta
 			"rides a put's displacing deletion",
 			"rides one statement of two writes",
 			"rides beside the opposite action of M in its stratum",
-			"rides a generated addition",
-			"refused: a generated addition beside the opposite action of M",
 			"rides after state written beside it, named before it",
 			"rides after state written beside it, named after it",
 			"runs after the writes",
@@ -73,7 +69,7 @@ export const aChangeSetsReadBackRidesTheOneStatementThatMakesItsDeltaAfterTheSta
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, c: Case<Feature>) => (sketch) =>
 			Effect.sync(() => {
-				const program = compiledSketch(sketch, subjects)
+				const program = compiledSketch(sketch, subject)
 				const verdict = verdictOf(sketch)
 				if (verdict.kind === "refused") {
 					if (program.ok) {
@@ -89,14 +85,6 @@ export const aChangeSetsReadBackRidesTheOneStatementThatMakesItsDeltaAfterTheSta
 						`the crossing ${Formatter.format(reason.crossing)} is one of ${Formatter.format(verdict.crossings)}`
 					)
 					c.note(crossingNotes[reason.crossing.kind])
-					if (
-						sketch.drawn &&
-						sketch.beside &&
-						sketch.op !== "put" &&
-						reason.crossing.kind === "sideWrittenTwice"
-					) {
-						c.note("refused: a generated addition beside the opposite action of M")
-					}
 					return
 				}
 				const artifact = succeeded(program, "the ChangeSet compiles").artifact
@@ -133,9 +121,6 @@ export const aChangeSetsReadBackRidesTheOneStatementThatMakesItsDeltaAfterTheSta
 				if (sketch.beside) {
 					c.note("rides beside the opposite action of M in its stratum")
 				}
-				if (sketch.drawn && verdict.maker === "insert" && verdict.relation === "M") {
-					c.note("rides a generated addition")
-				}
 				if (sketch.reads === "state" && sketch.written === "first") {
 					c.note(
 						sketch.other === "A"
@@ -148,7 +133,7 @@ export const aChangeSetsReadBackRidesTheOneStatementThatMakesItsDeltaAfterTheSta
 			kind: "specification",
 			name: "the placement rule as a model over the statements the construction implies"
 		},
-		box: "M's id plain or drawn, every first-stratum action of M, the opposite action beside it or not, M again in a second stratum or not, W written in either stratum or not, and a read-back of M's added, removed or both sides with W's added facts, its state or neither",
+		box: "every first-stratum action of M, the opposite action beside it or not, M again in a second stratum or not, W written in either stratum or not, and a read-back of M's added, removed or both sides with W's added facts, its state or neither",
 		kept: [],
 		kills: [
 			{
@@ -197,13 +182,6 @@ export const aChangeSetsReadBackRidesTheOneStatementThatMakesItsDeltaAfterTheSta
 				original: '\tother.kind === "family" ||',
 				replacement: '\tother.kind === "family" ||\n\tmaker.stratum === other.stratum ||',
 				why: "An addition and a removal of one stratum taken to cancel, so a read-back beside the opposite action of its relation is refused."
-			},
-			{
-				file: "packages/engine/src/write/schedule/plan.ts",
-				original: "\tdrawsSerials(maker) ||\n\tdrawsSerials(other)",
-				replacement:
-					"\t(drawsSerials(maker) && !drawsSerials(maker)) ||\n\t(drawsSerials(other) && !drawsSerials(other))",
-				why: "A generated addition taken never to cancel with its stratum's removals, so its read-back beside a deletion rides."
 			}
 		]
 	})

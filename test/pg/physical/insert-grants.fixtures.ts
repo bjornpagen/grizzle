@@ -34,7 +34,7 @@ export const versionOf = (name: string) => {
 	const Item = relation("Item", { id: uuid, store: uuid, qty: pg.bigint }, ["id"])
 	const Shelf = relation("Shelf", { id: uuid, tag: word, slots: drawn(natural) }, ["id"])
 	const Slot = relation("Slot", { shelf: uuid, at: drawn(natural), what: word }, ["shelf", "at"])
-	const Ticket = relation("Ticket", { no: pg.bigserial, note: word }, ["no"])
+	const Ticket = relation("Ticket", { no: pg.bigint, note: word }, ["no"])
 	const items = counted(on(Item, "store"), fin(Store, "items"))
 	const base = schema(
 		name,
@@ -112,16 +112,6 @@ export const keyOf: { readonly [T in Table]: string } = {
 	Shelf: "id",
 	Slot: "shelf",
 	Ticket: "no"
-}
-
-/** The column an INSERT of no row names: the key, but a serial key's, which PostgreSQL refuses an explicit value
- * (428C9) before any privilege, so Ticket's note. */
-export const insertedOf: { readonly [T in Table]: string } = {
-	Store: "id",
-	Item: "id",
-	Shelf: "id",
-	Slot: "shelf",
-	Ticket: "note"
 }
 
 export const payloadOf: { readonly [T in Table]: string } = {

@@ -26,7 +26,7 @@ import { served } from "#adapter/public/layer.ts"
 import type { DbLayerOf, DbLayerService, ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { quoteIdent, quoteString } from "#compiler/core/text.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { codebookOf, noWorkload, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { namedRole, roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
@@ -34,7 +34,6 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import { login as loginBuilder } from "#compiler/program/workload/login.ts"
 import { type OwnedRole, ownRole } from "#compiler/schema/own.ts"
 import { roleDescOf, roleBuilder } from "#compiler/schema/world.ts"
-import { printObjectName } from "#compiler/sql/print.ts"
 import type { LoginRole } from "#compiler/types/schema/world.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
@@ -114,7 +113,6 @@ import {
 	probeDirect,
 	runDirect
 } from "#test/support/worlds/execute/writer.ts"
-import { identityFloor } from "#test/support/worlds/model/draws.ts"
 import { fieldDomain, judgedLawOf } from "#test/support/worlds/model/host.ts"
 import { startStatements } from "#test/support/worlds/model/session/direct.ts"
 import { loginVerifies, roleOf } from "#test/support/worlds/model/session/state.ts"
@@ -148,9 +146,8 @@ export interface RealWorld {
 	/** The names of the current installation, read from its compilation: a migrate replaces them. */
 	readonly names: InstalledNames
 	/**
-	 * Begins a case in the caller's scope: closes every session left (rolling back open direct transactions), sets each
-	 * identity where its range starts (model/draws.ts identityFloor), replaces every base fact with `reality` as the
-	 * owner, refreshes every derived relation, and restarts session ids at 0. Every direct writer the case begins after
+	 * Begins a case in the caller's scope: closes every session left (rolling back open direct transactions), replaces
+	 * every base fact with `reality` as the owner, refreshes every derived relation, and restarts session ids at 0. Every direct writer the case begins after
 	 * it lives in that scope, so its transaction ends when the case does, however the case ends: never left open for a
 	 * later case's reset, which a shared world may not reach for minutes while each SERIALIZABLE snapshot it holds keeps
 	 * the cluster's SSI cleanup from advancing.
@@ -1639,33 +1636,11 @@ const worldOver = (
 					)
 				)
 				const statements = yield* Effect.orDie(fromEngine(factStatements(v.plan, facts)))
-				/**
-				 * Each serial field's identity set past the value its range starts at (draws.ts identityFloor), before the facts
-				 * load and their advances, which never move it back, so every case draws from the same values.
-				 */
-				const ranges = yield* Effect.forEach(
-					Arr.flatMap(v.spec.base.relations, (r) =>
-						Arr.flatMap(r.fields, (f) =>
-							f.domain.kind === "serial" ? [{ relation: r.name, field: f.name }] : []
-						)
-					),
-					({ relation, field }) =>
-						Effect.gen(function* () {
-							const t = yield* get(v.plan.tables, relation, "the installed table of")
-							const column = Option.getOrUndefined(
-								Arr.findFirst(t.columns, (c) => c.field === field)
-							)
-							if (column?.drawn.kind !== "identity") {
-								return yield* Effect.die(new Error(`${relation}.${field} has no identity sequence`))
-							}
-							return `SELECT pg_catalog.setval(${quoteString(printObjectName(column.drawn.name))}::regclass, ${String(identityFloor(v.spec.base, relation, field))})`
-						})
-				)
 				yield* Effect.catchTag(
 					replaceRows(
 						substrate.admin,
 						installationGroup(installationNamesOf(v.installation)),
-						Arr.map([...ranges, ...statements], (sql) => ({ sql, params: [] }))
+						Arr.map(statements, (sql) => ({ sql, params: [] }))
 					),
 					"TransactionRolledBack",
 					(e) => Effect.die(e)
@@ -1790,10 +1765,6 @@ const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 					probe === undefined
 						? world.keyProbe(fn.entry, [], [])
 						: world.keyProbe(fn.entry, probe.key, [])
-				return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
-			}
-			case "advance": {
-				const name = v.installation.names.advance(fn.relation, fn.field)
 				return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
 			}
 		}

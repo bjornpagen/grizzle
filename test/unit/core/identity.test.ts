@@ -208,7 +208,7 @@ export const theNamingDoorAdmitsDistinctHashedIdentitiesAndRefusesTwoDistinctIde
 			(_, c: Case<"admitted" | "a digest collision">) =>
 			({ fields, twin, at }) =>
 				Effect.sync(() => {
-					const minted = Arr.map(Arr.dedupe(fields), (field) => identity.sequence("Item", field))
+					const minted = Arr.map(Arr.dedupe(fields), (field) => identity.normCheck("Item", field))
 					const original = defined(minted[at % minted.length], "a minted identity")
 					if (!twin) {
 						c.note("admitted")

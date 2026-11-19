@@ -1716,8 +1716,6 @@ schema.
 | `pg.real`, `pg["double precision"]`                | real, double precision                                              | `number`                                                               |
 | `pg.money`                                         | money                                                               | `Money`                                                                |
 | `pg.boolean`                                       | boolean                                                             | `boolean`                                                              |
-| `pg.smallserial`, `pg.serial`, `pg.bigserial`      | an identity column                                                  | `number`, `number`, `bigint`                                           |
-| `pg.uuidv7`                                        | uuid, its column's default `uuidv7()`                               | `Uuid`                                                                 |
 | `str.regex(pattern, flags?)`                       | text, behind a domain that checks the pattern                       | the pattern's language: `string`, or `"yes" \| "no"` for `^(yes\|no)$` |
 | `str.bytes(n, str.regex(...))`                     | text, behind a domain that checks its UTF-8 bytes, then the pattern | the pattern's                                                          |
 | `str.and(str.regex(p), str.regex(q), ...)`         | text, behind a domain that checks every pattern                     | the patterns' languages intersected, `P & Q`                           |
@@ -1839,8 +1837,6 @@ Every field has one writer. An insert or a put takes exactly the fields its call
   ([Families](#families)).
 - **grizzle, accumulated:** `accumulated(type, start)`, a fold's end or accumulator, or a copy along a family's axis,
   `start` its value where the axis begins.
-- **PostgreSQL, drawn:** a serial field, by its identity or its `uuidv7()` default, which an insert may leave out
-  ([Writes](#writes)).
 - **Its group's retirement:** `retirement`, a retirable header's boolean, false when its row is inserted and true once
   its group is retired ([Retirable units](#retirable-units)).
 
@@ -1901,7 +1897,7 @@ the column that reads it.
 `closed.relation(name, fields, key, rows)` is a relation whose rows are fixed when the schema compiles, such as a
 grammar or a price list. Its key is required, a nonempty list of its closed-id fields; a key of every field makes it a
 set. A key field's roster may be `closed.ordered` or `closed.unordered`: its constant is indexed by codes, which are
-history, and reads no roster's order. Its other fields are closed ids or open-typed values, never a serial, span, set, vector or bytes. Its rows are a
+history, and reads no roster's order. Its other fields are closed ids or open-typed values, never a span, set, vector or bytes. Its rows are a
 set: a row written twice is one row, and two rows of one key with different payloads are refused, naming the key and
 both payloads.
 `closed.relation("Allowed", { kind: closedId(Kind), flag: closedId(Flag), weight: pg.integer }, ["kind", "flag"], rows)`
@@ -2642,10 +2638,8 @@ entry holds it among its columns, or leaves it out unfixed. `myPosts` qualifies:
 token fixes `author` and `org`. A `write` naming any other query entry is `RoleRefused` (`writeUnwritable`), with the
 reason.
 
-- **An insert fills the fixed columns.** It may leave out the entry's serial columns as an insert into a table may,
-  also when every column of the entry is serial: `[{}]` is one new row of the fixed columns. A serial column the query
-  filters on must be in every inserted row: the row is checked against the query before its identity is drawn. A row
-  the query could never return (a filter it fails, an absent claim) is the error `outsideWorld`.
+- **An insert fills the fixed columns.** A row the query could never return (a filter it fails, an absent claim) is
+  the error `outsideWorld`.
 - **A delete of a row outside the entry does nothing**: for this role, that row does not exist.
 - **An entry over a family's owner writes the owner as a write of the table does.** No row states its counts and ends,
   and a put updates the entry's own columns in place and leaves the family as it is. Its filter may read no field its
@@ -2888,7 +2882,7 @@ A Db runs its login's served workload and nothing else: every call is a member, 
 - **`watch(input)`** is a `Stream` of the member's events: `reset`, then an `upsert` of each row as PostgreSQL delivers it, then `ready` once the read's transaction has committed, then, live, an `upsert` or a `remove` of each row whose change alters the answer. An upsert before `ready` is provisional: an `error` before it voids the rows it delivered. `once` is `watch` folded until `ready`.
 - **Windows.** A member `paged(orderedQuery)` reads a window: `window: { anchor, size }`, its anchor `{ kind: "start" }`, `{ kind: "after", key }`, `{ kind: "end" }` or `{ kind: "before", key }`. A key is a row's `RowKey`, the values of the query's completed order, which the row's entry in a value carries. A window is one statement of at most `size` rows, and a window that holds no rows is past the end. A size is any safe integer of at least 1, with no default and no largest.
 - **`explain(input)`** returns PostgreSQL's plan of each statement the member sends for that input, in the order it sends them, as data: one `{ statement, plan }` per statement, `statement` the name it is prepared under on every session (`grizzle_…`, as `pg_prepared_statements` and `pg_stat_statements` show it). Each is planned by `EXPLAIN (FORMAT JSON, VERBOSE)` over the statement's served text with the call's values, which runs nothing, in one transaction of the Db's role that is rolled back, so explaining a ChangeSet member writes nothing: its carriers are created and analyzed empty, as its apply analyzes them, and every statement after them is planned against them. The plan is the one PostgreSQL makes for those values, which a session uses for a statement's first executions; a session that has run it many times may switch to a generic plan. A plan node holds its node type, its estimated startup and total cost, rows and width, its children, and `on`, what it reads, named by the login's served file and never parsed back from PostgreSQL's names: `{ kind: "relation", relation }` for a table, or a derived relation's materialized view, read whole or written; `{ kind: "index", relation, index: { name } }` for one read through an index; `{ kind: "carrier" }` for the ChangeSet's own temporary carrier, read whole, since it holds no index; and `{ kind: "none" }` for a join, a sort or any node that reads no relation. A key member takes its key's values as its params, and a paged member explains its window's statement. A refresh member has no explain: REFRESH has no plan. A plan that reads a table or index the served file does not name is refused as unreadable. A served file names each index alone, so no running process loads what an index is: `indexesOf(snapshot)`, from `@bjornpagen/grizzle/compile`, takes the JSON value of the snapshot.json the file was generated beside and returns a `Result` of a map that holds, under each relation and then each index name, `{ columns, reasons }`. `columns` are the index's key columns in key order, each `{ kind: "field", field }`, a field of the relation by its declared name, or `{ kind: "law", holds, laws }`, a column a law adds, by the field whose values it holds and the laws it is added for, and each with its `direction`, `"asc"` or `"desc"` in a B-tree and `"none"` in an index that orders nothing; so a test holds a plan's index to "leads with `document`, then `start`" in field names. `reasons` are why the installation holds it: each law it serves by its identity, the `id` a refusal names that law by; the workload's access; or a derived relation's key.
-- **`explainAnalyze(input)`**, on a read member, runs its statement under `EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE)` in the read's own transaction, rolled back, and returns each node's actual time to its first and last row, rows and loops, and the shared buffers it hit and read, beside its estimates, with the statement's planning and execution times. A ChangeSet member has none: a write that is rolled back still advances its serial fields' sequences.
+- **`explainAnalyze(input)`**, on a read member, runs its statement under `EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE)` in the read's own transaction, rolled back, and returns each node's actual time to its first and last row, rows and loops, and the shared buffers it hit and read, beside its estimates, with the statement's planning and execution times. A ChangeSet member has none.
 
 ```text
 yield* db.workload.postPage.explain({ params: { id }, facts: {} })   // abridged
@@ -2976,18 +2970,9 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   judged only once every row and parameter of the application encodes: a row or a parameter that does not, a missing
   parameter among them, is its `EncodingFailure`, whatever key the other rows share or generated field they leave
   without a value.
-- **Serial columns**, `pg.serial` and its kin and `pg.uuidv7`, may be left out of an insert's rows, all of a row's or
-  none: PostgreSQL draws them for a new row, an integer from its identity and a uuid by `uuidv7()`, and a value the row
-  states is written as it is. A row that leaves them out is the fact its other fields state, and it meets stored rows
-  at its arbiter key: the primary key where that holds no serial field and no span, as a complete row does, else the
-  one declared key that holds neither. There a stored row equal to it at every field it states is no change, and one
-  that differs there is `refused` on that key; two inserters racing at that key meet there, the later one
-  waiting for the earlier and then reading its row, which `delta.met` delivers with the values PostgreSQL drew for it.
-  With no such key, every such row is a new row, and equal such rows are one. An insert that may leave them out, into a
-  table whose primary key holds a serial field or a span and which declares several keys holding neither, is refused
-  when it compiles (`MalformedDescription`): nothing the table declares ranks those keys, and their names never do, so
-  declare the key that identifies a row its primary key. Leaving out only some is an `EncodingFailure`. A table whose
-  every column is serial takes `[{}]`, one new row.
+- **A row states its whole fact.** grizzle mints no ids and PostgreSQL draws none: every field a caller writes is in
+  every row, its key among them, and a row that leaves one out is an `EncodingFailure`
+  ([Identity: natural keys](#identity-natural-keys)).
 - **`read`** runs its query after the change, before COMMIT. `delta.added(T)` and `delta.removed(T)` are the rows the
   change added and removed, and `delta.met(T)` the stored rows its insertions met ([Rows an insertion
   met](#rows-an-insertion-met)). A read-back name used twice in one ChangeSet is a type error.
@@ -2997,11 +2982,9 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   read-back reads after its others where its foreign keys allow. A delta of a table no statement writes is empty,
   and a read-back that reads no other runs after the change. Any other read-back is refused when the ChangeSet
   compiles (`ReadBackCrossesStatements`), as its `crossing` says: a side two statements make, or one another statement
-  nets (one table written in two strata; an array or a `Stream` inserted into a table with serial columns, whose rows
-  that state them and rows that leave them out are inserted by a statement each; a delete and an insert of one table
-  in one stratum each make their side whole, since a row one stratum both adds and deletes stays, unless the insert
-  leaves serial columns out, whose drawn values may repeat a deleted row's): write the table in one action of one
-  stratum, from a query whose rows leave out its serial columns where it has any, or read it back by its key; two
+  nets (one table written in two strata; a delete and an insert of one table in one stratum each make their side
+  whole, since a row one stratum both adds and deletes stays): write the table in one action of one stratum, or read
+  it back by its key; two
   sides two statements make: read each in a read-back of its own; a table the read-back reads, written at or after
   the statement making its delta: read `delta.added` of that table in its place, or write it in an earlier
   stratum with `ChangeSet.sequence`.
@@ -3060,10 +3043,8 @@ export const purge = ChangeSet.empty(Blog)
 ### Rows an insertion met
 
 `delta.met(T)` holds each stored row of `T` an insertion of the ChangeSet met at its arbiter key and did not refuse:
-the row as stored, every field of it, a field PostgreSQL drew for it included. Without it, an insertion that repeats a
-stored row learns nothing about that row in the same call. The arbiter key is the primary key for complete rows, and
-for an insertion that leaves out its serial fields the primary key where it holds none of them and no span, else the
-one declared key that holds neither ([Writes](#writes)). A row equal at every
+the row as stored, every field of it. Without it, an insertion that repeats a stored row learns nothing about that row
+in the same call. The arbiter key is the primary key. A row equal at every
 field the insertion states is an exact repeat: no change, and met. One that differs at a field it states is `refused`
 on the key, as always, and the ChangeSet commits nothing. A put meets nothing: an equal row at its key is its own no
 change.
@@ -3099,9 +3080,7 @@ transaction's snapshot fails the call with 40001, whose retry's precheck refuses
 `delta.met` of a relation whose primary key holds a span is refused when the ChangeSet compiles: its exclusion
 constraint arbitrates only by `ON CONFLICT DO NOTHING`, so no statement can tell a row it met from one it made. A
 family's members are a type error, since their family statement writes them. A read-back over `delta.met(T)` rides
-the one statement that inserts into `T`, and one that cannot is refused: an array or a `Stream` of a table with serial
-columns is two insertions, one of the rows that state them and one of the rows that leave them out, so insert such
-rows from a query whose rows leave the serial columns out, such as one over a relation parameter of the call.
+the one statement that inserts into `T`.
 
 ## Derived tables
 
@@ -3280,7 +3259,7 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
 ```
 
 - **Each level is a PostgreSQL schema.** `schemaNameOf(Qti)` is `qti` and `schemaNameOf(Ledger)` is `ledger`: a level's
-  tables, materialized views, identity sequences and rosters' domains live in its own schema. A login or role is named
+  tables, materialized views and rosters' domains live in its own schema. A login or role is named
   by the level it is over, `roleNameOf(LedgerApp, {})` is `ledger__app` and `roleNameOf(AuthorApp, {})` is `qti__author_app`.
   The root's schema also holds what belongs to the whole installation: the migrations ledger, the contract and text
   domains, the constants and grizzle's functions. Every reference across schemas is qualified.
@@ -3848,8 +3827,8 @@ Key a set or a map of rows by these texts, and never by `String()` of a host val
 `insertPreview(schema)` compiles the schema once and gives the rows `ChangeSet.empty(schema).insertAll(rows)` stores
 as the first write of an installation holding no row, closed relations aside, with nothing sent: bind
 `const preview = insertPreview(BoxOffice)`, a `Result` whose failure is the schema's `CompileError`, then call
-`preview(rows)`. `rows` is insertAll's record over every top-level relation with every serial field stated
-(`PreviewInputOf<S>`): a preview states every value, and PostgreSQL draws nothing in it. Each call is the write's own
+`preview(rows)`. `rows` is insertAll's record over every top-level relation: a preview states every value, and
+PostgreSQL draws nothing in it. Each call is the write's own
 binding of its rows, the one every application of it runs before any SQL, so every count, index, interval, fold end
 and copy the write draws, a fresh counted group's whole among them, is the preview's. It is a `Result` of
 `PreviewRows<S>`: every writable relation by name, an empty array where the write stores none of it, each row every
@@ -3858,8 +3837,7 @@ field the relation stores but those PostgreSQL generates, each its codec's host 
 are a set, each once, in no order that means anything. Or it is the refusal the write meets before any SQL, a tagged
 value, never thrown:
 
-- `InputRefused`: `failure`, the `EncodingFailure` of a value outside its type or a fact of another shape, a serial
-  field left out among them, or the `MessageBound` or `LiteralBound` of an input past what one statement carries, which
+- `InputRefused`: `failure`, the `EncodingFailure` of a value outside its type or a fact of another shape, or the `MessageBound` or `LiteralBound` of an input past what one statement carries, which
   the write meets as `input`;
 - `KeyConflict`: two rows of one relation at one key that differ, `law` the key's and `witness` its values, as the
   write's `refused` names them;
@@ -3900,14 +3878,13 @@ fails with its `CallError`, by kind:
   an open fails with, never a cast. Your `password` Effect fails with `CredentialError`, and your `verify` with
   `TokenError`.
 - **`transient`**: its `reason` is `SerializationFailure` (40001), `Deadlock` (40P01), or a concurrent transaction's
-  work the statement met (`PutTargetConflict`, `GeneratedSerialUnique`, `SpanKeyChange`, `UnseenOccupant`,
-  `ConcurrentRefresh`). grizzle never retries by itself: `settled(call)` runs a call again at once past each
-  `transient` refusal, with no bound, and ends with its value or its first failure of another kind, typed `Settled`
-  over every kind. Each refusal changed nothing and came of another transaction's committed work, and PostgreSQL's
-  serializable implementation cancels an attempt only once a transaction it conflicts with has committed, "such that an
-  immediate retry will not fail again on conflicts with the same transactions" (src/backend/storage/lmgr/README-SSI), so
-  every attempt starts past work that committed and no count of attempts is a defensible bound. A deadline is yours to
-  put on the call, `Effect.timeout`.
+  work the statement met (`PutTargetConflict`, `SpanKeyChange`, `UnseenOccupant`, `ConcurrentRefresh`). grizzle never
+  retries by itself: `settled(call)` runs a call again at once past each `transient` refusal, with no bound, and ends
+  with its value or its first failure of another kind, typed `Settled` over every kind. Each refusal changed nothing and
+  came of another transaction's committed work, and PostgreSQL's serializable implementation cancels an attempt only
+  once a transaction it conflicts with has committed, "such that an immediate retry will not fail again on conflicts
+  with the same transactions" (src/backend/storage/lmgr/README-SSI), so every attempt starts past work that committed
+  and no count of attempts is a defensible bound. A deadline is yours to put on the call, `Effect.timeout`.
 - **`commitUnknown`**: COMMIT was sent whole and no answer came, so the change may have committed. Read back before
   running it again. A write the socket failed before COMMIT's last byte left the process is `transport` instead: COMMIT
   never reached the server.
@@ -4502,11 +4479,10 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 42501               | a table outside the role; a row its filter refuses; an UPDATE of an immutable table, or through a query entry of a column outside it, in a key or fixed by a claim |
 | 42501               | an UPDATE or a DELETE through a role that states `insert`                                                                                                     |
-| 42501               | `SET ROLE` to another login's role or the owner; `SET SESSION AUTHORIZATION` to anyone but the login; a call of another role's filter or probe function, or of the advance function of a table the role does not write |
+| 42501               | `SET ROLE` to another login's role or the owner; `SET SESSION AUTHORIZATION` to anyone but the login; a call of another role's filter or probe function |
 | 22023               | `SET ROLE` or `SET SESSION AUTHORIZATION` to a role that does not exist                                                                                      |
-| 428C9               | an UPDATE of a serial column, before any privilege check                                                                                                     |
 | 25000               | a write below SERIALIZABLE, on a table some writer of which is not certified READ COMMITTED                                                                    |
-| 23502               | a NULL in a column, such as one an INSERT leaves out that is neither serial nor generated (every column a writer supplies is NOT NULL, a family's hidden ones included); a generated field whose term has no value at the row, a closed read at a key its relation holds no row at; each reported by its table and column alone |
+| 23502               | a NULL in a column, such as one an INSERT leaves out that is not generated (every column a writer supplies is NOT NULL, a family's hidden ones included); a generated field whose term has no value at the row, a closed read at a key its relation holds no row at; each reported by its table and column alone |
 | 22P02, 22003, 23514 | a `grizzle.claims` setting PostgreSQL cannot read, where a statement reads it (below)                                                                         |
 | 23514               | a row check, a family's CHECK or a rule over a closed relation, each named by its rule; a value its contract or pattern refuses, or a code or set its roster's domain refuses, as the statement casts it, before row-level security and the row's constraints |
 | 23505               | at the statement: a duplicate key, over a table or over a side of one, an exact repeat included; or a key a concurrent transaction committed after this one's snapshot, which is retryable |
@@ -4537,10 +4513,6 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 - **Spellings are not values.** A writer may store `-0` in a float or vector field; grizzle reads it as `0`, and no
   query result depends on the spelling stored. A key holds one fact per value: `[-0,1]` and `[0,1]` in a vector key
   field collide (23505).
-- **Serial columns** draw their identity default with no sequence privilege. A writer that inserts explicit serial
-  values (`OVERRIDING SYSTEM VALUE`) calls the field's advance function in the same transaction, as grizzle does, so a
-  later generated value never repeats a stored one: `SELECT <schema>.<advance function>(<largest value inserted>)`,
-  `<schema>` being `schemaNameOf(schema)`.
 - **A login without `SET ROLE`** holds only USAGE on its schema, SELECT on the ledger, and EXECUTE on the snapshot
   guard, the lock and the check that every `Db` transaction takes.
 - **The owner and superusers bypass** every rule and role, and the owner is reserved for migrations.
@@ -4594,7 +4566,6 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
     probe per key over a selected side or a `pred` term whose collisions no other probe finds, for each writable query
     entry;
   - the entry's filter function, exactly when its filter reads a table besides the written row;
-  - the advance function of each serial column of a table it writes;
   - the refusal function, whatever it writes, which only raises, in the caller's own statement: a write's refusals,
     a context's unreadable claims and a read-back's check of the bare children and options it delivers call it, and
     any role serves a read-back, one that writes nothing among them;
@@ -4675,7 +4646,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 - **A relation is a member of at most one ordered family or tree**, which orders it, and of any number of counted families ([Families](#families)). A tree is written whole, its root inserted with the tree nested and deleted by its root value. A put or a delete of a member that owns an ordered family or a tree is refused, since it would not reach the rows nested under it; a delete of a member that owns only counted families leaves their groups, which their owner axes refuse at commit where they hold members.
 - **A whole delete runs first in its stratum**, after only the removals of rows that reference its rows by an immediate foreign key from outside them. A whole delete from a query that reads a relation such a removal writes is `UnsupportedOperation`: state its rows as an array, or write it in a stratum of its own with `ChangeSet.sequence`.
 - **An owner inserted or put from a query cannot share a ChangeSet with appends to its counted family** (`QueriedOwnerAppend` when the ChangeSet compiles): grizzle computes the owner's final count and folds' ends from the facts the ChangeSet states, and a query's facts exist only in its statement. State the owner's facts as an array or a `Stream`, or write the owner in a ChangeSet that `ChangeSet.sequence` runs first. A write whose every fact carries a stored owner's key inserts no owner, and compiles.
-- **A put names its rows by their primary key, and a delete names its rows exactly**: a delete removes a stored row only where that row equals one it states at every field a fact carries, its caller's and its serial ones, the primary key's among them, so a row unlike the stored one at its key changes nothing ([Writes](#writes)); a tree's delete names trees by their root value instead ([Families](#families)). So no ChangeSet puts or deletes a relation whose primary key holds a field grizzle writes, such as a sequence member keyed by its owner and drawn index. A put also compares its facts at every declared key, so a declared key over such a field refuses puts but not deletes. Such a write is a type error, and from JavaScript `UnstatedKey` when the ChangeSet compiles, naming the key. Key such a member by a field its caller writes, such as an id, declare no key over a field grizzle writes, and insert a sequence nested under its owner.
+- **A put names its rows by their primary key, and a delete names its rows exactly**: a delete removes a stored row only where that row equals one it states at every field a fact carries, the primary key's among them, so a row unlike the stored one at its key changes nothing ([Writes](#writes)); a tree's delete names trees by their root value instead ([Families](#families)). So no ChangeSet puts or deletes a relation whose primary key holds a field grizzle writes, such as a sequence member keyed by its owner and drawn index. A put also compares its facts at every declared key, so a declared key over such a field refuses puts but not deletes. Such a write is a type error, and from JavaScript `UnstatedKey` when the ChangeSet compiles, naming the key. Key such a member by a field its caller writes, such as an id, declare no key over a field grizzle writes, and insert a sequence nested under its owner.
 
 ### Sizes
 

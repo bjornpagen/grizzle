@@ -10,11 +10,9 @@
  * branch or on none.
  *
  * Every refusal over a write the model admits fails here, whatever its kind, so a description the compiler builds for
- * itself and then refuses (the class of a generated addition through an entry whose every carried field is serial)
- * is caught on every seed of the unit tier. Required: both verdicts, and the additions the model admits whose every
- * carried field is serial (through a query entry, and into the base's every-serial relation written whole), complete
- * and generated, and generated ones beside carried fields. A witness whose turn aims at an addition no witness reached
- * yet writes under the installation that holds it, its action aimed at it (sketchSpace).
+ * itself and then refuses is caught on every seed of the unit tier. Required: both verdicts, and the additions the
+ * model admits, through a query entry and written whole. A witness whose turn aims at an addition no witness reached
+ * yet writes under the documents base's README-shaped worlds, its action aimed at it (sketchSpace).
  *
  * The oracle is a second implementation: the worlds model's compile rules against grizzle's compile of the write the
  * executor serves.
@@ -45,7 +43,6 @@ import {
 	appliesOnly,
 	type CompileFeature,
 	installOf,
-	leavesOutSerials,
 	refusalOf,
 	situations,
 	sketchSpace
@@ -69,16 +66,7 @@ export const theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsI
 				const host = hostSchemaOf(install.base, names)
 				const loaded = initialState(install, names, c.draw(realityGen(install.base, host)))
 				const writers = Arr.filter(install.roles, (r) => r.write.length > 0)
-				const leaving = Arr.filter(writers, (r) => leavesOutSerials(install, r))
-				const role = c.draw(
-					element(
-						sketch.kind === "aimed" && Arr.isReadonlyArrayNonEmpty(leaving)
-							? leaving
-							: Arr.isReadonlyArrayNonEmpty(writers)
-								? writers
-								: install.roles
-					)
-				)
+				const role = c.draw(element(Arr.isReadonlyArrayNonEmpty(writers) ? writers : install.roles))
 				const login = defined(
 					Option.getOrUndefined(Arr.findFirst(install.logins, (l) => l.roles.includes(role.name))),
 					`a login holding ${role.name}`

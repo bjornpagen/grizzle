@@ -16,14 +16,13 @@ import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
-import { candidateKeyFields, descText, type FieldDesc, serialDraw } from "#compiler/ir/desc.ts"
+import { candidateKeyFields, descText, type FieldDesc } from "#compiler/ir/desc.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 
 import type {
 	ColumnDef,
-	ColumnGeneration,
 	Ddl,
 	Expr,
 	GrantObjects,
@@ -324,18 +323,6 @@ const rosterCheck = (names: ObjectName): Expr =>
 		lit.text("", types.name(false))
 	)
 
-/** The generation of a column PostgreSQL draws: an identity over its sequence, or its `uuidv7()` default. */
-const generationOf = (drawn: OracleColumn["drawn"]): ColumnGeneration | undefined => {
-	switch (drawn.kind) {
-		case "none":
-			return undefined
-		case "identity":
-			return { kind: "identity", sequence: drawn.name }
-		case "uuidv7":
-			return { kind: "uuidv7" }
-	}
-}
-
 /**
  * A contract that only a closed relation's field uses still gets its domain, as the real installer gives it one: a
  * lowering casts a refined delivered value to its domain, so the domain must exist even though the closed rows live
@@ -565,7 +552,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 					return refuse(
 						"UnsupportedOperation",
 						location,
-						"a span endpoint is integer, bigint or a contract over them, never serial"
+						"a span endpoint is integer, bigint or a contract over them"
 					)
 				}
 				const range = carrier === "range4" ? "int4range" : "int8range"
@@ -721,7 +708,6 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 				)
 			}
 			const type = resolve(fieldDesc, fieldLocation)
-			const serial = decl.writing.kind === "serial"
 			/**
 			 * The column's storage CHECKs, in the real installer's order: a span's shape and its width; a vector's norm; a
 			 * bytes column's length. A
@@ -750,18 +736,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 					fieldLocation
 				)
 			}
-			const drawn: OracleColumn["drawn"] = !serial
-				? { kind: "none" }
-				: serialDraw(fieldDesc) === "uuidv7"
-					? { kind: "uuidv7" }
-					: {
-							kind: "identity",
-							name: objectName(
-								schema,
-								unwrap(schemaScope.claim(door.sequence(r.name, field).identifier, fieldLocation))
-							)
-						}
-			columns.push({ field, column, type, drawn, location: fieldLocation })
+			columns.push({ field, column, type, location: fieldLocation })
 		}
 		checks.set(r.name, tableChecks)
 		const pk = door.primaryKey(r.name).identifier
@@ -1170,7 +1145,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			name: c.column,
 			type: c.type.sql,
 			collation: takesCollation(c.type.sql) ? cUtf8Collation : undefined,
-			generated: generationOf(c.drawn)
+			generated: undefined
 		}))
 		if (!Arr.isReadonlyArrayNonEmpty(columns)) {
 			throw new Error(`${table.relation} has no column`)
@@ -1231,9 +1206,6 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 
 	/** PUBLIC holds nothing on any schema object. */
 	const tableNames = Arr.map(Rec.values(finalTables), (t) => t.name)
-	const sequenceNames = Arr.flatMap(Rec.values(finalTables), (t) =>
-		Arr.flatMap(t.columns, (c) => (c.drawn.kind === "identity" ? [c.drawn.name] : []))
-	)
 	const constantNames = Arr.map([...rosters.values()], (r) => ({ ...r.names, args: [] }))
 	const domainNames = [
 		...Arr.map([...rosters.values()], (r) => r.domain),
@@ -1250,9 +1222,6 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 	})
 	if (Arr.isReadonlyArrayNonEmpty(tableNames)) {
 		ddl.push(revokeFromPublic({ kind: "TABLE", names: tableNames }))
-	}
-	if (Arr.isReadonlyArrayNonEmpty(sequenceNames)) {
-		ddl.push(revokeFromPublic({ kind: "SEQUENCE", names: sequenceNames }))
 	}
 	if (Arr.isReadonlyArrayNonEmpty(constantNames)) {
 		ddl.push(revokeFromPublic({ kind: "FUNCTION", names: constantNames }))
@@ -1291,8 +1260,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
  * minimal catalog test/pg/physical holds the real one against:
  *
  * - one PostgreSQL schema;
- * - one table per stored relation, every column NOT NULL, text columns COLLATE pg_catalog.pg_c_utf8, integer serial
- *   fields GENERATED ALWAYS AS IDENTITY with a named sequence, and pg.uuidv7 fields DEFAULT pg_catalog.uuidv7();
+ * - one table per stored relation, every column NOT NULL, text columns COLLATE pg_catalog.pg_c_utf8;
  * - PRIMARY KEY from the relation's third argument and UNIQUE from each key(R, fields), with no implicit full-row
  *   UNIQUE;
  * - per roster, its names constant, a zero-argument IMMUTABLE SQL function returning each code's handle in code order

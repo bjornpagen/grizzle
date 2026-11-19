@@ -6,7 +6,6 @@ import type { Checked, SeenAction, StepCheck } from "#test/support/worlds/drive/
 import { loginOf, roleOf, sessionAt } from "#test/support/worlds/model/session/state.ts"
 import type {
 	Action,
-	BaseSpec,
 	DirectStatement,
 	HostFact,
 	ModelState,
@@ -118,17 +117,8 @@ const submittedBy = ({ seen, earlier }: Checked): ReadonlySet<string> => {
 }
 
 /**
- * Whether a field is a serial field of the base: its value in a witness is an identity the database drew for the
- * writer's own fact, which is the writer's key whether or not it spelled it.
- */
-const drawnIdentity = (base: BaseSpec, field: string): boolean =>
-	Arr.some(base.relations, (r) =>
-		Arr.some(r.fields, (f) => f.name === field && f.domain.kind === "serial")
-	)
-
-/**
- * A refusal's shown witness carries only keys the writer submitted (in its transaction, or through its claims; an
- * identity the database drew for its own fact included) and keys of relations its role holds whole (README "Errors and outcomes").
+ * A refusal's shown witness carries only keys the writer submitted (in its transaction, or through its claims) and keys
+ * of relations its role holds whole (README "Errors and outcomes").
  */
 export const witnessesShowTheirOwn: StepCheck = (checked) => {
 	const { seen } = checked
@@ -148,7 +138,7 @@ export const witnessesShowTheirOwn: StepCheck = (checked) => {
 		for (const [field, value] of Rec.toEntries(key)) {
 			const text = valueText(value)
 			assert.ok(
-				submitted.has(text) || held.has(text) || drawnIdentity(seen.before.install.base, field),
+				submitted.has(text) || held.has(text),
 				`action ${seen.index}: the witness of ${o.law} shows ${field} = ${text}, which the writer neither submitted nor holds whole`
 			)
 		}
@@ -177,10 +167,7 @@ const reachesPast = (state: ModelState, session: number, statement: DirectStatem
 		case "prepare":
 			return statement.read.kind === "view" && !ownLogin(statement.read.role)
 		case "call":
-			return (
-				(statement.fn.kind === "filter" || statement.fn.kind === "key-probe") &&
-				!(held.current.kind === "role" && held.current.role === statement.fn.role)
-			)
+			return !(held.current.kind === "role" && held.current.role === statement.fn.role)
 		case "reset-role":
 		case "set-claims":
 		case "select-table":
@@ -188,7 +175,6 @@ const reachesPast = (state: ModelState, session: number, statement: DirectStatem
 		case "delete":
 		case "update":
 		case "truncate":
-		case "setval":
 		case "insert-on-conflict":
 		case "merge-delete":
 		case "execute-prepared":

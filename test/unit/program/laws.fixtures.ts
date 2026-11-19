@@ -654,11 +654,8 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 						case "dropColumn":
 						case "dropDefault":
 						case "setNotNull":
-						case "setUuidv7Default":
 						case "setRetirementDefault":
 						case "alterColumnType":
-						case "addIdentity":
-						case "dropIdentity":
 						case "validateConstraint":
 						case "alterConstraintDeferral":
 						case "dropConstraint":

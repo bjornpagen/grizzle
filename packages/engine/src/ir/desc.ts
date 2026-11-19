@@ -55,7 +55,7 @@ import {
 	languageOctets
 } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
-import { reservedSlots } from "#compiler/ir/slots.ts"
+import { reservedSlot } from "#compiler/ir/slots.ts"
 import {
 	numericMaxPrecision,
 	numericMaxScale,
@@ -1369,7 +1369,6 @@ export const expandAlternatives = (a: AlternativesDesc): NonEmptyReadonlyArray<C
  *   which exactly one family or tree statement names.
  * - accumulated: by grizzle on the host, and proved by PostgreSQL: a fold's accumulator or a copy along a family axis,
  *   `start` at the axis's base, which exactly one fold or axis containment carries.
- * - serial: by its sequence, GENERATED ALWAYS AS IDENTITY, its field's type its integer.
  * - retirement: by its group's retirement, a boolean false when its row is inserted and true once the group it heads is
  *   retired, which exactly one retirable statement names (`RetirableDesc`).
  */
@@ -1386,7 +1385,6 @@ export type Writing<L = Located> =
 			/** The field's value at its axis's base: slot 0, the empty family, or a tree's root. */
 			readonly start: LiteralDesc
 	  }
-	| { readonly kind: "serial" }
 	| { readonly kind: "retirement" }
 
 /** A stored relation's field as declared: its type, and how it is written. */
@@ -2565,54 +2563,28 @@ const writingShape: S.Shape<Writing> = S.tagged("kind", {
 	generated: S.struct({ expr: exprDescShape }),
 	drawn: S.struct({}),
 	accumulated: S.struct({ start: literalDescShape }),
-	serial: S.struct({}),
 	retirement: S.struct({})
 })
-
-/** The integer types a sequence draws: smallint, integer and bigint. */
-const serialTypes: ReadonlyArray<PgScalarName> = ["smallint", "integer", "bigint"]
-
-/**
- * How PostgreSQL draws a serial field of type `desc` for a new row: a uuid by its column's `uuidv7()` default, an
- * integer from its identity sequence. A serial field is of one of those types (`serialDrawn`).
- */
-export const serialDraw = (desc: FieldDesc): "identity" | "uuidv7" =>
-	desc.kind === "uuid" ? "uuidv7" : "identity"
-
-/** Whether a field's declaration is no serial, or a serial of uuid or of an integer type, which PostgreSQL draws
- * (`serialDraw`). */
-const serialDrawn = (d: FieldDecl): boolean =>
-	d.writing.kind !== "serial" ||
-	d.type.kind === "uuid" ||
-	(d.type.kind === "pg" && serialTypes.includes(d.type.type))
-
-const serialCapability =
-	"a serial field of smallint, integer or bigint, which its sequence draws, or of uuid, which uuidv7() draws"
 
 /** Whether a field's declaration is no retirement field, or one of boolean, the one type a group's state is of. */
 const retirementBoolean = (d: FieldDecl): boolean =>
 	d.writing.kind !== "retirement" || (d.type.kind === "pg" && d.type.type === "boolean")
 
-/** A serial field is of an integer type, which its sequence draws, and a retirement field a boolean. */
+/** A retirement field is a boolean. */
 const fieldDeclShape: S.Shape<FieldDecl> = S.refine(
-	S.refine(
-		S.struct({ type: fieldDescShape, writing: writingShape }),
-		serialDrawn,
-		serialCapability
-	),
+	S.struct({ type: fieldDescShape, writing: writingShape }),
 	retirementBoolean,
 	"a retirement field of boolean, false until its group is retired"
 )
 
 /**
- * Whether a field may be in a primary key: one whose value a fact holds when it is written, its caller's, its
- * sequence's or its family's. A generated or accumulated field is computed from the row it would identify, and a
+ * Whether a field may be in a primary key: one whose value a fact holds when it is written, its caller's or its
+ * family's. A generated or accumulated field is computed from the row it would identify, and a
  * retirement field changes when its group is retired.
  */
 const keyWriting = (decl: FieldDecl | undefined): boolean => {
 	switch (decl?.writing.kind) {
 		case "caller":
-		case "serial":
 		case "drawn":
 			return true
 		case "generated":
@@ -2707,7 +2679,7 @@ export const recordAdmitted = (desc: WrittenClosedRelation): AdmittedClosedRelat
 
 /** What a closed relation's fields must be: at least one, each one a closed relation admits (closedFieldAdmits). */
 const closedFieldsCapability =
-	"a closed relation of at least one field, each a closed id or an open type that is no serial, span, set, vector or bytes"
+	"a closed relation of at least one field, each a closed id or an open type that is no span, set, vector or bytes, and no field grizzle or PostgreSQL writes"
 
 /** What a closed relation must be beside its fields' own rules: its key, its slots and its rows as one. */
 const closedRelationCapability =
@@ -2740,7 +2712,7 @@ const atLeastOneField = "a relation with at least one field"
 const primaryKeyShape = S.nonEmptyUniqueStrings("primary key fields")
 
 const keyOverOwnFields =
-	"a primary key over the relation's own fields, each one its caller writes, its sequence draws or its family draws"
+	"a primary key over the relation's own fields, each one its caller writes or its family draws"
 
 const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
 	relation: S.located(
@@ -3071,7 +3043,7 @@ export const enumeratedMember = (member: MemberDesc["member"]): boolean => {
 /**
  * A ChangeSet's parameters are one namespace, the parameters its members and read-backs use
  * (memberParamNames): every name ChangeSet.bind closed is one of them, and none is named like a member slot its
- * enumerated members' facts are bound through (slots.ts reservedSlots).
+ * enumerated members' facts are bound through (slots.ts reservedSlot).
  */
 const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 	S.struct({
@@ -3098,9 +3070,7 @@ const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 		}
 		const reserved = changeSet.strata.flatMap((stratum, s) =>
 			stratum.members.flatMap((m, i) =>
-				enumeratedMember(m.member)
-					? reservedSlots(s, m.op, m.relation).map((slot) => ({ s, i, slot }))
-					: []
+				enumeratedMember(m.member) ? [{ s, i, slot: reservedSlot(s, m.op, m.relation) }] : []
 			)
 		)
 		const taken = reserved.find(({ slot }) => used.has(slot))
@@ -3197,9 +3167,8 @@ export const builtNode = <N extends Located>(node: N): N =>
 /**
  * An ordinary relation's Description over its declared name and its fields' declarations, each a registered
  * descriptor's decoded type and its writing: the relation's own parts, its fields' names and its caller's primary key,
- * held as a decode of the whole relation holds them, with its refusals at its paths (each field name a declared name,
- * a serial field of an integer type, a field at least, a primary key of distinct names of its own key-writing fields),
- * and the declarations as they are.
+ * held as a decode of the whole relation holds them, with its refusals at its paths (each field name a declared name, a
+ * field at least, a primary key of distinct names of its own key-writing fields), and the declarations as they are.
  */
 export const relationOver = (
 	relationName: string,
@@ -3212,10 +3181,7 @@ export const relationOver = (
 			S.refine(
 				S.struct({
 					fields: S.refine(
-						S.recordShape(
-							S.refine(S.boolean, (drawn) => drawn, serialCapability),
-							name
-						),
+						S.recordShape(S.boolean, name),
 						(f) => Object.keys(f).length > 0,
 						atLeastOneField
 					),
@@ -3225,9 +3191,7 @@ export const relationOver = (
 				keyOverOwnFields
 			),
 			{
-				fields: Object.fromEntries(
-					Object.entries(fields).map(([field, decl]) => [field, serialDrawn(decl)] as const)
-				),
+				fields: Object.fromEntries(Object.keys(fields).map((field) => [field, true] as const)),
 				primaryKey
 			},
 			subjects.relation

@@ -30,16 +30,16 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 
 /**
  * What a role's change and read members are: a read-back of a ChangeSet that writes nothing, delivering an option; a
- * query over a roster's codes; an insert of R; an insert of S, whose id is serial; and a put of R from a query over a
- * relation parameter, which reads its rows from a carrier. A reader serves the first two alone.
+ * query over a roster's codes; an insert of R; and a put of R from a query over a relation parameter, which reads its
+ * rows from a carrier. A reader serves the first two alone.
  */
-const memberKinds = ["readBack", "query", "insert", "serial", "put"] as const
+const memberKinds = ["readBack", "query", "insert", "put"] as const
 
 type MemberKind = (typeof memberKinds)[number]
 
 const readerKinds = ["readBack", "query"] as const satisfies ReadonlyArray<MemberKind>
 
-/** A role of the box: whether it writes R, Tag and S, and the members it serves. */
+/** A role of the box: whether it writes R and Tag, and the members it serves. */
 interface RoleCase {
 	readonly writes: boolean
 	readonly members: ReadonlyArray<MemberKind>
@@ -64,20 +64,18 @@ export const caseGen: Gen<Case> = (source) => {
 export type Feature =
 	| "a role that writes nothing whose served file calls the refusal function"
 	| "a writer whose served file calls the refusal function"
-	| "a served file calling another of the installation's functions"
 	| "a served file calling none of the installation's functions"
 	| "two roles"
 
 const Kind = closed.ordered("Kind", ["Low", "High"])
 const R = relation("R", { k: pg.integer, v: pg.integer, kind: closedId(Kind) }, ["k"])
 const Tag = relation("Tag", { r: pg.integer, label: pg.integer }, ["r"])
-const S = relation("S", { id: pg.serial, note: pg.integer }, ["id"])
 
-const Base = schema("served_executes", [Kind, R, Tag, S], [mutable(R)])
+const Base = schema("served_executes", [Kind, R, Tag], [mutable(R)])
 
-/** A role of the box: every relation whole, R, Tag and S written where it writes. */
+/** A role of the box: every relation whole, R and Tag written where it writes. */
 const roleOf = (name: string, writes: boolean) =>
-	role(Base, name, wholeEntriesOf(Base), { write: writes ? ["R", "Tag", "S"] : [] })
+	role(Base, name, wholeEntriesOf(Base), { write: writes ? ["R", "Tag"] : [] })
 
 type BoxRole = ReturnType<typeof roleOf>
 
@@ -110,8 +108,6 @@ const memberOf = (r: BoxRole, kind: MemberKind) => {
 			})
 		case "insert":
 			return ChangeSet.empty(r).insert(R, [])
-		case "serial":
-			return ChangeSet.empty(r).insert(S, [])
 		case "put":
 			return ChangeSet.empty(r).put(
 				R,

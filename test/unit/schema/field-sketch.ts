@@ -1,5 +1,5 @@
 import { boolean, type Gen, int, map, oneOf, option, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option, Predicate, Record as Rec } from "effect"
+import { Array as Arr, Option, Record as Rec } from "effect"
 import { bits, pg, uuid } from "#compiler/public/fields.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRoster } from "#compiler/types/schema/relation.ts"
@@ -20,10 +20,21 @@ export type DrawnRoster = AnyRoster & { readonly handles: Arr.NonEmptyReadonlyAr
 /** The constructors of `pg` that take a typmod, which are no descriptor until called. */
 type PgConstructor = "numeric" | "vector"
 
-/** A member of `pg` that is a field descriptor by itself, every serial form included. */
-export type PgMember = Exclude<keyof typeof pg, PgConstructor>
+/** The members of `pg` that spell the serial family: no descriptor, but grizzle's refusal of one (scalar/minted.ts). */
+type MintedMember = "smallserial" | "serial" | "bigserial" | "uuidv7"
 
-const isPgMember = (key: keyof typeof pg): key is PgMember => key !== "numeric" && key !== "vector"
+const mintedMembers: ReadonlySet<string> = new Set<MintedMember>([
+	"smallserial",
+	"serial",
+	"bigserial",
+	"uuidv7"
+])
+
+/** A member of `pg` that is a field descriptor by itself. */
+export type PgMember = Exclude<keyof typeof pg, PgConstructor | MintedMember>
+
+const isPgMember = (key: keyof typeof pg): key is PgMember =>
+	key !== "numeric" && key !== "vector" && !mintedMembers.has(key)
 
 /** Every member of `pg` that is a field descriptor by itself, in the namespace's order. */
 const pgMembers: Arr.NonEmptyReadonlyArray<PgMember> = nonEmpty(
@@ -33,10 +44,6 @@ const pgMembers: Arr.NonEmptyReadonlyArray<PgMember> = nonEmpty(
 
 /** A member's descriptor. */
 export const pgField = (member: PgMember): FieldBase => pg[member]
-
-/** Whether a member is a serial form, a field its sequence writes: its descriptor's own writing. */
-export const serialMember = (member: PgMember): boolean =>
-	Predicate.hasProperty(pg[member], "writing")
 
 /**
  * A refined text's pattern: the wildcard, or one character class of `width` letters from the `first`-th letter, between
@@ -52,7 +59,7 @@ export type PatternSketch =
 			readonly more: number
 	  }
 
-/** A contract's base: any field type but a contract, a set, a span and a serial form, which no contract is over. */
+/** A contract's base: any field type but a contract, a set and a span, which no contract is over. */
 export type BaseSketch =
 	| { readonly kind: "pg"; readonly member: PgMember }
 	| { readonly kind: "numeric"; readonly precision: number; readonly scale: number }
@@ -114,12 +121,6 @@ const numericSketchGen: Gen<Extract<BaseSketch, { readonly kind: "numeric" }>> =
 const memberGen: Gen<PgMember> = (source) =>
 	Arr.getUnsafe(pgMembers, source.draw(int(0, pgMembers.length - 1)))
 
-/** A contract base's member: any but a serial form. */
-const plainMembers: Arr.NonEmptyReadonlyArray<PgMember> = nonEmpty(
-	Arr.filter(pgMembers, (m) => !serialMember(m)),
-	"pg's members no sequence writes"
-)
-
 /** The base arms over `rosters` rosters, `member` drawing a `pg` member: one per kind a contract may be over. */
 const baseArms = (
 	rosters: number,
@@ -140,13 +141,7 @@ export const fieldSketchGen = (rosters: number, contractName: Gen<string>): Gen<
 		(source) => ({
 			kind: "contract",
 			name: source.draw(contractName),
-			base: source.draw(
-				oneOf(
-					baseArms(rosters, (s) =>
-						Arr.getUnsafe(plainMembers, s.draw(int(0, plainMembers.length - 1)))
-					)
-				)
-			)
+			base: source.draw(oneOf(baseArms(rosters, memberGen)))
 		}),
 		(source) => ({
 			kind: "span",

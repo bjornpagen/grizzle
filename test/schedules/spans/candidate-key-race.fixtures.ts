@@ -39,39 +39,19 @@ const Booking = relation(
 const bookingSpan = key(on(Booking, "room", "during"))
 
 const bookingRef = key(on(Booking, "ref"))
-
-/** A booking keyed by its ref, whose id the database draws: a generated addition of it arbitrates at its primary key
- * ref (see the header). */
-const Stay = relation(
-	"Stay",
-	{
-		id: pg.uuidv7,
-		room: pg.integer,
-		during: span(pg.integer),
-		ref: pg.integer,
-		ticket: pg.integer
-	},
-	["ref"]
-)
-
-const staySpan = key(on(Stay, "room", "during"))
-
-const stayTicket = key(on(Stay, "ticket"))
-
-const relations = Object.freeze({ Booking, Stay })
-
-const statements = Object.freeze([bookingSpan, bookingRef, staySpan, stayTicket])
+const relations = Object.freeze({ Booking })
+const statements = Object.freeze([bookingSpan, bookingRef])
 
 /**
  * The schema under its installed name with its worlds: the full role `app` the grizzle writer opens, in the login
- * `server`, whose workload holds the empty ChangeSet a writer's first call applies, the insert and the put of a
- * booking, and the insert of a stay, each of the facts its call gives; and the full role `direct` the direct actors
+ * `server`, whose workload holds the empty ChangeSet a writer's first call applies, and the insert and the put of a
+ * booking, each of the facts its call gives; and the full role `direct` the direct actors
  * take on, in the login `psql`.
  */
 const renamed = (name: string) => {
 	const base = schema(name, Rec.values(relations), statements)
-	const app = role(base, "app", relations, { write: ["Booking", "Stay"] })
-	const direct = role(base, "direct", relations, { write: ["Booking", "Stay"] })
+	const app = role(base, "app", relations, { write: ["Booking"] })
+	const direct = role(base, "direct", relations, { write: ["Booking"] })
 	return {
 		schema: base,
 		app,
@@ -81,8 +61,7 @@ const renamed = (name: string) => {
 				workload(app, {
 					noop: ChangeSet.empty(base),
 					insertBooking: ChangeSet.empty(base).insert(Booking, []),
-					putBooking: ChangeSet.empty(base).put(Booking, []),
-					insertStay: ChangeSet.empty(base).insert(Stay, [])
+					putBooking: ChangeSet.empty(base).put(Booking, [])
 				})
 			]
 		}),
@@ -109,37 +88,8 @@ interface BookingRace {
 		| { readonly kind: "inserts"; readonly fact: Booked; readonly end: "commit" | "rollback" }
 }
 
-/** A stay as a call states it: every field but the id the database draws. */
-interface Stayed {
-	readonly room: number
-	readonly during: { readonly start: number; readonly end: number }
-	readonly ref: number
-	readonly ticket: number
-}
-
-/** The keys beside a generated addition's arbiter that a stay race's direct writer meets it at: the span key, an
- * exclusion constraint PostgreSQL raises 23P01 at, and ticket's, a UNIQUE it raises 23505 at. */
-const besides = ["the span key", "ticket"] as const
-
-type Beside = (typeof besides)[number]
-
-/** A stay race: the requested stay the apply's generated addition writes, and the direct writer's stay, which meets it
- * at one key beside its arbiter and at no other key, from no stored stay. */
-interface StayRace {
-	readonly requested: Stayed
-	readonly direct: Stayed
-}
-
-/** A case: a booking race and a stay race at each key beside the arbiter, run one after the other on one installation. */
-interface Races {
-	readonly booking: BookingRace
-	readonly stays: { readonly [B in Beside]: StayRace }
-}
-
-/** What a race reached: the apply waited, met a refusal and each reason, its answer, how each direct writer ended, and
- * each stay race's UnseenOccupant. */
+/** What a race reached: the apply waited, met a refusal and each reason, its answer, and how each direct writer ended. */
 export type BookingFeature =
-	| `the generated apply retried after an UnseenOccupant at ${Beside}`
 	| "the apply waited"
 	| "the apply refused"
 	| `refused: ${TransientTag}`
@@ -213,7 +163,7 @@ const relatedGen =
 		}
 	}
 
-const bookingRaceGen: Gen<BookingRace> = (source) => {
+export const bookingRaceGen: Gen<BookingRace> = (source) => {
 	const x = source.draw(valuesGen)
 	return {
 		requested: x.requested,
@@ -229,42 +179,6 @@ const bookingRaceGen: Gen<BookingRace> = (source) => {
 			: { kind: "none" }
 	}
 }
-
-/** A stay race whose direct writer's stay meets the requested one at `beside` alone: overlapping it in its room, or at
- * its ticket in another room; at another ref either way, so the apply's arbiter never meets it. */
-const stayRaceGen =
-	(beside: Beside): Gen<StayRace> =>
-	(source) => {
-		const [room, otherRoom] = source.draw(twoKeys)
-		const [ref, otherRef] = source.draw(twoKeys)
-		const [ticket, otherTicket] = source.draw(twoKeys)
-		const requested: Stayed = { room, during: source.draw(spanGen), ref, ticket }
-		switch (beside) {
-			case "the span key":
-				return {
-					requested,
-					direct: {
-						room,
-						during: source.draw(overlappingGen(requested.during)),
-						ref: otherRef,
-						ticket: otherTicket
-					}
-				}
-			case "ticket":
-				return {
-					requested,
-					direct: { room: otherRoom, during: source.draw(spanGen), ref: otherRef, ticket }
-				}
-		}
-	}
-
-export const racesGen: Gen<Races> = (source) => ({
-	booking: source.draw(bookingRaceGen),
-	stays: {
-		"the span key": source.draw(stayRaceGen("the span key")),
-		ticket: source.draw(stayRaceGen("ticket"))
-	}
-})
 
 const spanText = (b: { readonly during: Booked["during"] }) => `[${b.during.start},${b.during.end})`
 
@@ -295,23 +209,6 @@ const featuresOf = (
 	]
 }
 
-/** The features one explained run of a stay race at `beside` reached: a run's, and the generated addition's retry after
- * an UnseenOccupant, which its direct writer's stay, meeting the requested one at `beside` alone, raised there. */
-const stayFeaturesOf =
-	(beside: Beside) =>
-	(e: Explained<WriteAnswer<WriteOutcome<unknown>>>): ReadonlyArray<BookingFeature> => [
-		...featuresOf(e),
-		...(Arr.some(
-			[...e.ends],
-			([session, end]) =>
-				session === "app" &&
-				end.kind === "answered" &&
-				end.retried.refused.includes("UnseenOccupant")
-		)
-			? [`the generated apply retried after an UnseenOccupant at ${beside}` as const]
-			: [])
-	]
-
 /** A race as the serial race runs it: its name, its transactions, the statements that store its initial state, the
  * rows of its relation, every column the run and its reference both decide read as text, and what one explained run of
  * it reached. */
@@ -328,10 +225,10 @@ interface Staged {
 
 /**
  * Installs Booking with the owner's rebuilt key order (see the header), opens the apply's writer and the two direct
- * writers, and runs the booking race and then the stay race, every run judged by its serial reference.
+ * writers, and runs the booking race, every run judged by its serial reference.
  */
 export const runRaces = (
-	races: Races,
+	race: BookingRace,
 	c: Case<BookingFeature>
 ): Effect.Effect<
 	void,
@@ -413,40 +310,7 @@ export const runRaces = (
 				features: featuresOf
 			}
 		}
-		const stayStaged = (beside: Beside, race: StayRace): Staged => {
-			const stays = names.table(Stay)
-			const listed = Arr.map(["room", "during", "ref", "ticket"] as const, (f) =>
-				names.column(Stay, f)
-			)
-			const insert = (b: Stayed) =>
-				`INSERT INTO ${stays} (${Arr.join(listed, ", ")}) VALUES (${b.room}, '${spanText(b)}', ${b.ref}, ${b.ticket})`
-			return {
-				name: `a generated addition of a stay beside one at ${beside}`,
-				txns: [
-					{
-						kind: "grizzle",
-						session: "app",
-						label: "apply generated",
-						call: answered(
-							app.db.workload.insertStay.once({
-								params: {},
-								facts: { insert: { Stay: [race.requested] } }
-							})
-						),
-						footprint: everyRelation
-					},
-					directTxn("direct", insert(race.direct), "commit")
-				],
-				initial: [],
-				table: stays,
-				columns: listed,
-				features: stayFeaturesOf(beside)
-			}
-		}
-		for (const staged of [
-			bookingStaged(races.booking),
-			...Arr.map(besides, (beside) => stayStaged(beside, races.stays[beside]))
-		]) {
+		for (const staged of [bookingStaged(race)]) {
 			yield* runSerialRace(
 				rig.env,
 				{ direct, grizzle: { app: app.actor } },
@@ -475,91 +339,60 @@ export const runRaces = (
 export const runs = 8
 
 const requested: Booked = { id: 1, room: 1, during: { start: 0, end: 10 }, ref: 1 }
-
-const requestedStay: Stayed = { room: 1, during: { start: 0, end: 10 }, ref: 1, ticket: 1 }
-
-/** The stay races of every kept case: the direct writer's stay overlapping the requested one at another ref and
- * ticket, and at its ticket in another room at another ref. */
-const keptStays: Races["stays"] = {
-	"the span key": {
-		requested: requestedStay,
-		direct: { room: 1, during: { start: 5, end: 15 }, ref: 2, ticket: 2 }
-	},
-	ticket: {
-		requested: requestedStay,
-		direct: { room: 2, during: { start: 0, end: 10 }, ref: 2, ticket: 1 }
-	}
-}
-
 /**
  * The cases the search kept by value, which reached their situations on every run: each is the aim of the situations
  * it reaches (aimed), so a case whose turn aims at one draws it. None ever caught a bug (git log -S on the module).
  */
 const raceCases: ReadonlyArray<{
 	readonly why: string
-	readonly value: Races
+	readonly value: BookingRace
 	readonly reaches: ReadonlyArray<BookingFeature>
 }> = [
 	{
 		why: "an identical insert committed while the apply waits at the span key: the blocker holds the requested ref in another room, the direct writer's span entry waits there, and the apply's waits on it, so its exclusion check meets the committed repeat",
 		value: {
-			booking: {
-				requested,
-				how: "insert",
-				initial: [],
-				direct: requested,
-				blocker: {
-					kind: "inserts",
-					fact: { id: 2, room: 2, during: { start: 0, end: 10 }, ref: 1 },
-					end: "rollback"
-				}
-			},
-			stays: keptStays
+			requested,
+			how: "insert",
+			initial: [],
+			direct: requested,
+			blocker: {
+				kind: "inserts",
+				fact: { id: 2, room: 2, during: { start: 0, end: 10 }, ref: 1 },
+				end: "rollback"
+			}
 		},
 		reaches: ["the apply waited", "the apply refused", "the apply answered unchanged"]
 	},
 	{
 		why: "an identical put committed while the apply waits at the span key, the same window",
 		value: {
-			booking: {
-				requested,
-				how: "put",
-				initial: [],
-				direct: requested,
-				blocker: {
-					kind: "inserts",
-					fact: { id: 2, room: 2, during: { start: 0, end: 10 }, ref: 1 },
-					end: "rollback"
-				}
-			},
-			stays: keptStays
+			requested,
+			how: "put",
+			initial: [],
+			direct: requested,
+			blocker: {
+				kind: "inserts",
+				fact: { id: 2, room: 2, during: { start: 0, end: 10 }, ref: 1 },
+				end: "rollback"
+			}
 		},
 		reaches: ["the apply waited", "the apply refused", "the apply answered unchanged"]
 	},
 	{
-		why: "an overlapping fact committed while the apply waits at the span key: the retry's probe finds it, the span key's law; and a stay overlapping the requested one, and a stay at its ticket in another room, each at another ref and committed while the generated addition waits at that key, which its arbiter ref never meets: 23P01 at the span key or 23505 at ticket, the UnseenOccupant it is retried after, then that key's law",
+		why: "an overlapping fact committed while the apply waits at the span key: the retry's probe finds it, the span key's law",
 		value: {
-			booking: {
-				requested,
-				how: "insert",
-				initial: [],
-				direct: { id: 3, room: 1, during: { start: 5, end: 15 }, ref: 2 },
-				blocker: { kind: "none" }
-			},
-			stays: keptStays
+			requested,
+			how: "insert",
+			initial: [],
+			direct: { id: 3, room: 1, during: { start: 5, end: 15 }, ref: 2 },
+			blocker: { kind: "none" }
 		},
-		reaches: [
-			"the apply waited",
-			"the apply refused",
-			"the apply answered refused",
-			"the generated apply retried after an UnseenOccupant at the span key",
-			"the generated apply retried after an UnseenOccupant at ticket"
-		]
+		reaches: ["the apply waited", "the apply refused", "the apply answered refused"]
 	}
 ]
 
 /** The property's aims (race): each kept case's value at every situation it reaches. */
-export const raceAims: ReadonlyArray<readonly [Reached<BookingFeature>, Gen<Races>]> = Arr.flatMap(
-	raceCases,
-	(c) => Arr.map(c.reaches, (situation) => [situation, constant(c.value)] as const)
-)
+export const raceAims: ReadonlyArray<readonly [Reached<BookingFeature>, Gen<BookingRace>]> =
+	Arr.flatMap(raceCases, (c) =>
+		Arr.map(c.reaches, (situation) => [situation, constant(c.value)] as const)
+	)

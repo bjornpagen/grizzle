@@ -29,7 +29,7 @@ import { Array as Arr, Effect, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
-import { inputSlotsOf, type MemberFacts } from "#compiler/runtime/write/normalize.ts"
+import type { MemberFacts } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
@@ -153,9 +153,8 @@ export const aNestedWritesIdentitiesDedupeItsFactsAndRowsByTheirWholeContentRefu
 				assertVariant(bound, "kind", "bound", "a set with one fact at each id binds")
 				const group = defined(program.binding.groups[0], "the owners' slot group")
 				const [input] = group.inputs
-				const [slot] = inputSlotsOf(input)
 				assert.equal(
-					bound.stated.slot(group, input, slot).length,
+					bound.stated.slot(group, input, input.slot).length,
 					distinct.length,
 					"each distinct Owner is written once"
 				)

@@ -215,7 +215,6 @@ const recordedWriting = (
 	const w = field.writing
 	switch (w.kind) {
 		case "caller":
-		case "serial":
 		case "retirement":
 			return w.kind
 		case "generated":
@@ -849,7 +848,6 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			case "isolationTrigger":
 			case "lawTrigger":
 			case "refusalFunction":
-			case "advanceFunction":
 			case "unitFunction":
 			case "isolationFunction":
 			case "snapshotGuard":

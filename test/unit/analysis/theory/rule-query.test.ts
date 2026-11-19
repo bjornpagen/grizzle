@@ -132,18 +132,18 @@ export const aRuleOverAQueryCompilesWheneverTheBuildersAdmitItALiteralBoundAnywh
 			{
 				file: "packages/engine/src/schema/own.ts",
 				original:
-					'\t...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [\n\t\t...installedIdentity(r),\n\t\t...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.sequence === undefined ? [f.named] : [f.named, f.sequence]\n\t\t),\n\t\t...r.keys.map((k) => k.named),\n\t\t...(r.kind === "relation" ? r.checks.map((c) => c.named) : [])\n\t])',
+					'\t...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [\n\t\t...installedIdentity(r),\n\t\t...Object.values(r.fields).map((f) => f.named),\n\t\t...r.keys.map((k) => k.named),\n\t\t...(r.kind === "relation" ? r.checks.map((c) => c.named) : [])\n\t])',
 				replacement:
-					'\t...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.sequence === undefined ? [f.named] : [f.named, f.sequence]\n\t\t), ...r.keys.map((k) => k.named), ...(r.kind === "relation" ? r.checks.map((c) => c.named) : [])])',
-				why: "Operator mutant (element) at packages/engine/src/schema/own.ts:349 in ownedIdentities: `[\n\t\t...installedIdentity(r),\n\t\t...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.se` becomes `[...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.sequence === undefined ? [f.name`; the property fails (lane CATCH, grizzle 0baff5d6)."
+					'\t...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [...Object.values(r.fields).map((f) => f.named), ...r.keys.map((k) => k.named), ...(r.kind === "relation" ? r.checks.map((c) => c.named) : [])])',
+				why: "Operator mutant (element) at packages/engine/src/schema/own.ts:349 in ownedIdentities: `[\n\t\t...installedIdentity(r),\n\t\t...Object.values(r.fields).map((f) => f.named)` becomes `[...Object.values(r.fields).map((f) => f.named)`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			},
 			{
 				file: "packages/engine/src/schema/own.ts",
 				original:
-					'\t...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [\n\t\t...installedIdentity(r),\n\t\t...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.sequence === undefined ? [f.named] : [f.named, f.sequence]\n\t\t),\n\t\t...r.keys.map((k) => k.named),\n\t\t...(r.kind === "relation" ? r.checks.map((c) => c.named) : [])\n\t])',
+					'\t...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [\n\t\t...installedIdentity(r),\n\t\t...Object.values(r.fields).map((f) => f.named),\n\t\t...r.keys.map((k) => k.named),\n\t\t...(r.kind === "relation" ? r.checks.map((c) => c.named) : [])\n\t])',
 				replacement:
-					'\t...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.sequence === undefined ? [f.named] : [f.named, f.sequence]\n\t\t), ...r.keys.map((k) => k.named), ...(r.kind === "relation" ? r.checks.map((c) => c.named) : [])])',
-				why: "Operator mutant (element) at packages/engine/src/schema/own.ts:349 in ownedIdentities: `[\n\t\t...installedIdentity(r),\n\t\t...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.se` becomes `[...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.sequence === undefined ? [f.name`; the property fails (lane CATCH, grizzle 0baff5d6)."
+					'\t...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [...Object.values(r.fields).map((f) => f.named), ...r.keys.map((k) => k.named), ...(r.kind === "relation" ? r.checks.map((c) => c.named) : [])])',
+				why: "Operator mutant (element) at packages/engine/src/schema/own.ts:349 in ownedIdentities: `[\n\t\t...installedIdentity(r),\n\t\t...Object.values(r.fields).map((f) => f.named)` becomes `[...Object.values(r.fields).map((f) => f.named)`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})

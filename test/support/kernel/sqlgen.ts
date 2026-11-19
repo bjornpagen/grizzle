@@ -1762,7 +1762,6 @@ const insertOf = (
 			...withOf(scoped),
 			table: { schema: t.schema, name: t.name },
 			alias: rel.alias,
-			overriding: undefined,
 			...target,
 			...onConflict,
 			returning: returned === undefined ? [] : returned.returning
@@ -1912,8 +1911,7 @@ const mergeOf = (
 							row: Arr.map(t.columns, (c): Assignment => ({
 								column: c.name,
 								value: exprOf(d, sees, c.type, 0)
-							})),
-							overriding: undefined
+							}))
 						}
 					}
 		}

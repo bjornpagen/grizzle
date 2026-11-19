@@ -687,11 +687,6 @@ export const setClosedSearchPath: SetClosedSearchPath = { kind: "setClosedSearch
  * database's one bigint key space, which the application's own locks share, so its key is grizzle's by derivation from
  * its name (advisoryKey), never a chosen number, and is known on the host before any statement is sent: every statement
  * that takes or releases one prints its key as a literal.
- *
- * The advance function of a serial field (physical/ddl/advance.ts) takes the one advisory lock not here: it is keyed by
- * its sequence itself, the sequence's class and OID, which only the server knows, in the two-integer key space, which
- * no bigint key meets; a key derived from the sequence's name would join the same-named sequences of two schemas, or,
- * qualified by its schema, differ in the drift check's scratch replay, which moves the function into another schema.
  */
 export type AdvisoryLock =
 	| { readonly kind: "database" }

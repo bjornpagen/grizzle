@@ -61,8 +61,7 @@ const installFeatures = [
 	"head-alias",
 	"refresh",
 	"two-logins",
-	"read-beside-write",
-	"serial-head"
+	"read-beside-write"
 ] as const
 
 type InstallFeature = (typeof installFeatures)[number]
@@ -412,22 +411,7 @@ const resolveEntry =
 				: kind === "derived-source"
 					? Arr.map(base.derived, (d) => d.name)
 					: Arr.map(base.relations, (r) => r.name)
-		/**
-		 * The serial-head arm, over an ordinary relation holding serial fields: a head of exactly its serial fields, every
-		 * other field fixed or omitted, so the entry's every carried field is serial and a generated addition through it
-		 * carries none, the unit relation.
-		 */
-		const serialSources = Arr.filter(
-			base.relations,
-			(r) => kind === "ordinary-source" && Arr.some(r.fields, (f) => f.domain.kind === "serial")
-		)
-		const serialHead =
-			Arr.isReadonlyArrayNonEmpty(serialSources) && source.draw(keep(drawn, "serial-head"))
-				? Arr.map(serialSources, (r) => r.name)
-				: undefined
-		const sourceName = source.draw(
-			element(serialHead ?? knownNonEmpty(names, "the sources of a kind"))
-		)
+		const sourceName = source.draw(element(knownNonEmpty(names, "the sources of a kind")))
 		const fields = fieldsOfSource(base, sourceName)
 		const ordinary = kind === "ordinary-source"
 		const links = ordinary
@@ -446,14 +430,7 @@ const resolveEntry =
 			firstForeign !== undefined && source.draw(keep(drawn, "foreign-head"))
 				? source.draw(element([firstForeign, ...moreForeign]))
 				: undefined
-		const chosen = new Set(
-			Arr.map(
-				serialHead === undefined
-					? byBits(fields, source.draw(int(0, 0xff)))
-					: Arr.filter(fields, (f) => f.domain.kind === "serial"),
-				(f) => f.name
-			)
-		)
+		const chosen = new Set(Arr.map(byBits(fields, source.draw(int(0, 0xff))), (f) => f.name))
 		const [first] = fields
 		if (chosen.size === 0 && foreign === undefined && first !== undefined) {
 			chosen.add(first.name)

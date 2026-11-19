@@ -67,8 +67,8 @@ export const aMigrationOfRoleWorldsGrantsAndRevokesExactlyThePrivilegesTheTwoVer
 			},
 			{
 				file: "packages/engine/src/deploy/diff/diff.ts",
-				original: "\t\t\t!wasRevoked.has(h.key) ||\n",
-				replacement: "\t\t\twasRevoked.size >= 0 ||\n",
+				original: "\t\tconst again = (h: HeldPrivilege): boolean => !wasRevoked.has(h.key)",
+				replacement: "\t\tconst again = (h: HeldPrivilege): boolean => wasRevoked.size >= 0",
 				why: "The PUBLIC revokes run again whole whenever one changes (diff.ts defaults): a login added revokes from PUBLIC every table and schema again; the property fails."
 			}
 		]

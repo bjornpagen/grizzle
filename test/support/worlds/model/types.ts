@@ -32,7 +32,6 @@ export type FieldDomain =
 			readonly pool: Arr.NonEmptyReadonlyArray<string>
 	  }
 	| { readonly kind: "integer"; readonly bits: 16 | 32 | 64 }
-	| { readonly kind: "serial"; readonly bits: 32 | 64 }
 	| { readonly kind: "boolean" }
 	| {
 			readonly kind: "handle"
@@ -439,7 +438,6 @@ export type WorldFunction =
 			readonly entry: string
 			readonly key: number
 	  }
-	| { readonly kind: "advance"; readonly relation: string; readonly field: string }
 
 export type Isolation = "serializable" | "repeatable read" | "read committed" | "read uncommitted"
 
@@ -489,12 +487,6 @@ export type DirectStatement =
 	  }
 	| { readonly kind: "truncate"; readonly relation: string }
 	| { readonly kind: "call"; readonly fn: WorldFunction; readonly args: ReadonlyArray<HostValue> }
-	| {
-			readonly kind: "setval"
-			readonly relation: string
-			readonly field: string
-			readonly value: number
-	  }
 	| {
 			readonly kind: "insert-on-conflict"
 			readonly relation: string
@@ -750,7 +742,6 @@ type TransientReason =
 	| "SerializationFailure"
 	| "Deadlock"
 	| "PutTargetConflict"
-	| "GeneratedSerialUnique"
 	| "SpanKeyChange"
 	| "UnseenOccupant"
 	| "ConcurrentRefresh"
@@ -1075,8 +1066,6 @@ export type InvalidKind =
 	| "fact:hidden-reference"
 	| "fact:deleted-reference"
 	| "fact:duplicate-in-input"
-	| "fact:partial-serial"
-	| "fact:filtered-serial-omitted"
 	| "fact:domain-refused"
 	| "handle:closed-db"
 	| "handle:closed-direct"
@@ -1112,7 +1101,6 @@ export type ObjectKind =
 	| "policy"
 	| "filter-function"
 	| "key-probe"
-	| "advance-function"
 	| "grant"
 	| "revoke"
 	| "membership"
@@ -1120,9 +1108,8 @@ export type ObjectKind =
 /**
  * The closed feature vocabulary of the worlds suites: an operation in a situation with its outcome, a world object and
  * what was shown of it, an invalid input drawn, an invariant checked, the ambient session the case's owner sessions
- * started under, a feature of a name the installation drew from the kernel dictionary, a base object or a role
- * entry named after a PostgreSQL type, and a generated addition through a query entry that stores a serial value it
- * supplies, one its filter reads or its fill fixes, which the driver holds to the model's committed state; how a read
+ * started under, a feature of a name the installation drew from the kernel dictionary, and a base object or a role
+ * entry named after a PostgreSQL type; how a read
  * went (its path, the key a page's order is completed by and where it starts, an attachment that nested rows, a
  * recursive read that chained past one step, a span read through a world, a context field of a domain decoded from
  * the token and read); the SQLSTATE a direct writer's read met for a hand-set claim its field's type refuses, by the
@@ -1150,13 +1137,10 @@ export type WorldFeature =
 	| `claim-refused-read:${RefinedClaim}:${ClaimReadAt}`
 	| `readback:${ReadBackClass}`
 	| `law:${LawFamily}:${LawPath}:${Witness["kind"]}`
-	| "law:check:declared-key"
 	| `write:${WriteShape}:${RelationSpec["mutability"]}:${"entry" | "whole"}:${EntryOp["kind"]}`
 	| `strata:${"one" | "union" | "sequence" | "refused-order"}`
 	| AdditionFeature
 	| `migration:${MigrationKind}:${ActionOutcome["kind"]}`
-	| "addition:generated:entry:supplied-serial"
-	| "addition:generated:arbiter-ambiguous"
 	| `connection:${"shared-by-roles" | "after-commit" | "after-no-change" | "after-invariant-rejected" | "after-outside-world" | "after-compile-refused" | "after-stale-snapshot"}`
 
 /**
@@ -1201,8 +1185,8 @@ export type LawPath = "entry" | "whole" | "direct"
  */
 export type WriteShape = "span-key" | "pure-set"
 
-/** The domain kinds a context field takes (README "Permissions"): never a serial or a span. */
-type ClaimDomain = Exclude<FieldDomain["kind"], "serial" | "span">
+/** The domain kinds a context field takes (README "Permissions"): never a span. */
+type ClaimDomain = Exclude<FieldDomain["kind"], "span">
 
 /**
  * The SQLSTATEs a hand-set claim its field refuses meets where a statement reads it (README "Direct SQL access"): no
@@ -1216,13 +1200,8 @@ export type RefinedClaim = Extract<ClaimDomain, "contract" | "text" | "handle">
 /** Where a statement reads a claim: delivered into an output column, or only in a filter. */
 export type ClaimReadAt = "output" | "filter"
 
-/**
- * An applied insertion, by its facts' serial class (complete, or generated: leaving out every classed serial field),
- * the role relation it goes through (a whole entry or a query entry), and what its relation's generated class carries:
- * some field, or none, the unit relation (README "Writes", "Writing through a role").
- */
-export type AdditionFeature =
-	`addition:${"complete" | "generated"}:${"whole" | "entry"}:${"carried" | "unit"}`
+/** An applied insertion, by the role relation it goes through: a whole entry or a query entry (README "Writes"). */
+export type AdditionFeature = `addition:${"whole" | "entry"}`
 
 /**
  * What a migration changes, as its (migration kind, verdict) feature reads it: a roster grown by a handle, a roster

@@ -1361,7 +1361,7 @@ const mergeWhen = (w: WhenSpec): MergeWhen => {
 				condition,
 				action:
 					w.action === "insert"
-						? { kind: "insert", overriding: undefined, row: [{ column: "c_id", value: one }] }
+						? { kind: "insert", row: [{ column: "c_id", value: one }] }
 						: w.action === "insertDefault"
 							? { kind: "insertDefault" }
 							: { kind: "doNothing" }
@@ -1386,7 +1386,6 @@ const buildDml = (
 				with: outer,
 				table: tableOf(d.target),
 				alias: undefined,
-				overriding: undefined,
 				onConflict:
 					conflict.kind === "none"
 						? undefined

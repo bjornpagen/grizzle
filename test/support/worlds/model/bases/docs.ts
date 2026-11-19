@@ -21,13 +21,12 @@ const planContract: FieldDomain = { kind: "contract", name: "Plan", bits: 32, mi
 
 /**
  * The documents base: organizations, their documents, the shares of a document with a user, the notes on a document,
- * and visits, each nothing but its two identity numbers, a bigserial key and a serial, a relation whose every field is
- * serial, so an addition written whole may carry no field (the unit relation), and one carrying one of its serial
- * fields and not the other is refused; with laws of each kind a refusal under a world reaches. A note's document
+ * and visits, each nothing but its two numbers, its own and its sequence; with laws of each kind a refusal under a
+ * world reaches. A note's document
  * exists (a foreign key); an organization's documents differ in their word counts (a candidate key, a unique index); a
  * plan is at most five (a row check), and lies in 0..9 by its contract Plan (a domain
  * CHECK), so a plan of six to nine breaks the check and one past nine the domain. Doc and Note are mutable, so a put of
- * a document or a note replaces it in place; a note's `no` is a bigserial key.
+ * a document or a note replaces it in place; a note is keyed by its number `no`.
  *
  * Two contexts read the verified token: Session { sub } from the payload's top level, and Tenant { org, seats } from
  * its `t` claim object, seats an int8 a token carries as a JSON number or a string of digits, so a token's wild forms
@@ -71,7 +70,7 @@ export const docsBase: BaseSpec = {
 		{
 			name: "Note",
 			fields: [
-				{ name: "no", domain: { kind: "serial", bits: 64 } },
+				{ name: "no", domain: { kind: "integer", bits: 64 } },
 				{ name: "doc", domain: uuid },
 				{ name: "author", domain: subject }
 			],
@@ -81,8 +80,8 @@ export const docsBase: BaseSpec = {
 		{
 			name: "Visit",
 			fields: [
-				{ name: "no", domain: { kind: "serial", bits: 64 } },
-				{ name: "seq", domain: { kind: "serial", bits: 32 } }
+				{ name: "no", domain: { kind: "integer", bits: 64 } },
+				{ name: "seq", domain: integer }
 			],
 			key: ["no"],
 			mutability: "immutable"
@@ -520,55 +519,6 @@ export const docsOneShareEditorInstall: InstallSpec = {
 }
 
 /**
- * The documents base's README-shaped worlds with three roles beside them in the login `ops`, each writing Visit through
- * one of the query entries the README names for serial columns ("Writing through a role"), since a role writes a
- * relation through one entry at most: the `visitor`'s Visits, both of its serials, an entry whose every carried field
- * is serial, so an insert through it may leave both out and carry no field (the unit relation); the `counter`'s
- * LateVisit, the visits whose `seq` is at least one, a filter reading a serial field, so every fact inserted through it
- * carries `seq` and may leave out `no`; and the `pinner`'s PinnedVisit, the visits whose `seq` is seven, a serial field
- * its fill fixes, so an insert leaving out `no` stores seven there. A generated addition through LateVisit or
- * PinnedVisit stores the serial value it supplies beside the one its identity draws.
- */
-export const docsVisitsInstall: InstallSpec = {
-	base: docsBase,
-	roles: [
-		...docsInstall.roles,
-		{
-			name: "visitor",
-			entries: { Visits: query(rule([of("Visit", { no, seq })], { no, seq }, none)) },
-			write: ["Visits"],
-			refresh: []
-		},
-		{
-			name: "counter",
-			entries: {
-				LateVisit: query(
-					rule(
-						[of("Visit", { no, seq })],
-						{ no, seq },
-						{ negations: [], comparisons: [{ left: seq, op: ">=", right: literal(1) }] }
-					)
-				)
-			},
-			write: ["LateVisit"],
-			refresh: []
-		},
-		{
-			name: "pinner",
-			entries: {
-				PinnedVisit: query(rule([of("Visit", { no, seq: literal(7) })], { no }, none))
-			},
-			write: ["PinnedVisit"],
-			refresh: []
-		}
-	],
-	logins: [
-		{ name: "web", roles: ["reader", "member"] },
-		{ name: "ops", roles: ["job", "admin", "visitor", "counter", "pinner"] }
-	]
-}
-
-/**
  * The documents base with every visit on a tier (Visit.tier, an id of the roster Tier), the one roster handle a stored
  * fact holds: a migration dropping a handle some visit holds is the removal VALIDATE refuses
  * (invalid/migrations.ts, migration:roster-removal-held).
@@ -590,10 +540,9 @@ const docsTieredVisitsBase: BaseSpec = {
 }
 
 /**
- * The worlds a held roster handle and a filtered serial's omission are one action from (pg/world-model/inductive): over
- * the tiered visits (docsTieredVisitsBase), the `counter` writes LateVisit, the visits whose `seq` is at least one, a
- * filter reading a serial field, so an insert through it leaving `seq` out is refused (fact:filtered-serial-omitted);
- * the `keeper` holds Visit and Tier whole. No role names a handle of Tier, so either may be dropped, and dropping one a
+ * The worlds a held roster handle is one action from (pg/world-model/inductive): over the tiered visits
+ * (docsTieredVisitsBase), the `counter` writes LateVisit, the visits whose `seq` is at least one; the `keeper` holds
+ * Visit and Tier whole. No role names a handle of Tier, so either may be dropped, and dropping one a
  * stored visit holds is migration:roster-removal-held. Both roles are in the login `ops`.
  */
 export const docsHeldRosterInstall: InstallSpec = {

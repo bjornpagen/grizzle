@@ -43,16 +43,13 @@ import { jsonObject, treeText } from "#test/support/worlds/invalid/json.ts"
 import { rosterMigrations, violatingLaws } from "#test/support/worlds/invalid/migrations.ts"
 import { patternEdges } from "#test/support/worlds/invalid/patterns.ts"
 import { droppedNames, nonexistentNames } from "#test/support/worlds/invalid/roles.ts"
-import { nameableFacts } from "#test/support/worlds/model/draws.ts"
 import { classifyEntry, uniqueFacts, entryRows, factKey } from "#test/support/worlds/model/host.ts"
 import { parametersOf } from "#test/support/worlds/model/session/direct.ts"
 import { draftedFrom, factsIn, samePlain } from "#test/support/worlds/model/session/state.ts"
 import {
 	claimFixedFields,
-	serialHead,
 	type Written,
 	writtenAt,
-	writtenNamed,
 	writtenOf
 } from "#test/support/worlds/model/session/writes.ts"
 import { settle, step } from "#test/support/worlds/model/step.ts"
@@ -106,17 +103,15 @@ export const defaultScope: SmallScope = {
 /** Whether a domain's values are interchangeable: a uuid or a text, whose values no comparison orders. */
 const symmetric = (domain: FieldDomain): boolean => domain.kind === "uuid" || domain.kind === "text"
 
-/** A domain's values in the box: its pool cut to `subjects` values (integers to one more, serials to `facts` more). */
+/** A domain's values in the box: its pool cut to `subjects` values (integers to one more). */
 const boxPool = (domain: FieldDomain, scope: SmallScope): Arr.NonEmptyReadonlyArray<HostValue> => {
 	const values = pool(domain)
 	const cut =
 		domain.kind === "integer" || domain.kind === "contract"
 			? scope.subjects + 1
-			: domain.kind === "serial"
-				? scope.facts + 1
-				: domain.kind === "boolean" || domain.kind === "handle"
-					? values.length
-					: Math.max(1, scope.subjects)
+			: domain.kind === "boolean" || domain.kind === "handle"
+				? values.length
+				: Math.max(1, scope.subjects)
 	return knownNonEmpty(values.slice(0, cut), "a box pool")
 }
 
@@ -662,46 +657,6 @@ const entryFacts = (
 	])
 }
 
-/**
- * The generated facts an insert through an entry tries in the box: each of its facts leaving out every classed serial
- * field of the entry (serialHead), each once, so a fact of no field is one where the entry carries serial fields only;
- * none for an entry with no classed serial field.
- */
-const generatedFacts = (
-	base: BaseSpec,
-	role: RoleSpec,
-	entry: string,
-	facts: ReadonlyArray<HostFact>
-): ReadonlyArray<HostFact> => {
-	const written = writtenNamed(base, role, entry)
-	const classed = written === undefined ? [] : serialHead(base, written).classed
-	return classed.length === 0
-		? []
-		: uniqueFacts(Arr.map(facts, (f) => Rec.filter(f, (_, field) => !classed.includes(field))))
-}
-
-/**
- * The facts of an insert through an entry leaving out serial fields as grizzle refuses, which the box tries for its
- * aims: each of its facts without the entry's first classed serial field where it classes two or more, so some are left
- * out and not all, and without the first serial field its filter reads (serialHead).
- */
-const omittingFacts = (
-	base: BaseSpec,
-	role: RoleSpec,
-	entry: string,
-	facts: ReadonlyArray<HostFact>
-): ReadonlyArray<HostFact> => {
-	const written = writtenNamed(base, role, entry)
-	const { classed, filtered } =
-		written === undefined ? { classed: [], filtered: [] } : serialHead(base, written)
-	const omitted = [...(classed.length > 1 ? classed.slice(0, 1) : []), ...filtered.slice(0, 1)]
-	return uniqueFacts(
-		Arr.flatMap(omitted, (field) =>
-			Arr.map(facts, (f) => Rec.filter(f, (_, name) => name !== field))
-		)
-	)
-}
-
 /** A contract field of a heading and the value just past its bounds; none for a heading without a contract. */
 const refusedField = (
 	heading: ReadonlyArray<FieldSpec>
@@ -728,9 +683,7 @@ const factAims = [
 	"fact:outside-world",
 	"fact:hidden-key-collision",
 	"fact:hidden-reference",
-	"fact:deleted-reference",
-	"fact:partial-serial",
-	"fact:filtered-serial-omitted"
+	"fact:deleted-reference"
 ] as const
 
 /** A fact kind an op can aim at (factAims). */
@@ -805,9 +758,8 @@ const directStarts = (
 
 /**
  * The apply actions of a session in the box: each written entry's op kinds over its facts, one fact per op, one op per
- * fact kind (of its facts and of those leaving out serial fields as grizzle refuses, omittingFacts), inserts of its
- * generated facts, and inserts of a fact past a contract's bounds and past an integer type's range; and the role's
- * union and ordered writes.
+ * fact kind, and inserts of a fact past a contract's bounds and past an integer type's range; and the role's union and
+ * ordered writes.
  */
 const applyActions = (
 	state: ModelState,
@@ -835,25 +787,14 @@ const applyActions = (
 			return []
 		}
 		const facts = entryFacts(state, writer, entry, spec, scoped)
-		const live = [
-			...Arr.flatMap(facts, (f) =>
-				Arr.map(["insert", "delete", "put"] as const, (kind): EntryOp => ({
-					relation: entry,
-					kind,
-					facts: [f]
-				}))
-			),
-			...Arr.map(generatedFacts(state.install.base, role, entry, facts), (f): EntryOp => ({
+		const live = Arr.flatMap(facts, (f) =>
+			Arr.map(["insert", "delete", "put"] as const, (kind): EntryOp => ({
 				relation: entry,
-				kind: "insert",
+				kind,
 				facts: [f]
 			}))
-		]
-		const omitting = Arr.map(
-			omittingFacts(state.install.base, role, entry, facts),
-			(f): EntryOp => ({ relation: entry, kind: "insert", facts: [f] })
 		)
-		const aimed = firstOfEachAim(state, writer, [...live, ...omitting])
+		const aimed = firstOfEachAim(state, writer, live)
 		const [first] = facts
 		const heading = headingOf(state.install.base, spec)
 		const refused = refusedField(heading)
@@ -1174,7 +1115,7 @@ const boxReads = (
 			? Arr.findFirst(state.install.roles, (r) => r.name === current.role)
 			: Option.none()
 	const relations = base.relations
-	const viewOf = (relation: string): ReadonlyArray<HostFact> => nameableFacts(s.view, relation)
+	const viewOf = (relation: string): ReadonlyArray<HostFact> => factsIn(s.view, relation)
 	return {
 		listed: [
 			...Arr.flatMap(state.install.roles, (r) =>
@@ -1309,7 +1250,7 @@ const directStatements = (
 			: Option.none()
 	const refs = directRoleRefs(state, s.login)
 	const relations = base.relations
-	const viewOf = (relation: string): ReadonlyArray<HostFact> => nameableFacts(s.view, relation)
+	const viewOf = (relation: string): ReadonlyArray<HostFact> => factsIn(s.view, relation)
 	const reads = boxReads(state, s, scoped)
 	const listed: ReadonlyArray<DirectStatement> = [
 		...Arr.map(refs, (r): DirectStatement => ({ kind: "set-role", role: r })),
@@ -1458,17 +1399,7 @@ const directStatements = (
 			kind: "call",
 			fn,
 			args: Arr.map(parametersOf(state, fn) ?? [], (domain) => valuesFor(domain, scoped)[0])
-		})),
-		...Arr.flatMap(relations, (r) =>
-			Arr.flatMap(r.fields, (f): ReadonlyArray<DirectStatement> =>
-				f.domain.kind === "serial"
-					? [
-							{ kind: "setval", relation: r.name, field: f.name, value: 1 },
-							{ kind: "setval", relation: r.name, field: f.name, value: scoped.scope.facts + 2 }
-						]
-					: []
-			)
-		)
+		}))
 	]
 	/**
 	 * Reads that raise on a value the transaction's view holds, of each relation's first field and of the first heading

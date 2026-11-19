@@ -1,25 +1,16 @@
 import { Array as Arr, Option, Record as Rec, Result } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import {
-	addedAs,
 	collide,
-	generatedArbiter,
 	type HostLaw,
 	type HostOp,
-	isDrawn,
 	projection,
 	sameState,
 	sameValues,
 	transition,
 	valueText
 } from "#test/support/laws/model.ts"
-import { holdsDraw, nextDraw, withSerial, withSerials } from "#test/support/worlds/model/draws.ts"
-import {
-	uniqueFacts,
-	entryRows,
-	isMember,
-	judgedSchemaOf
-} from "#test/support/worlds/model/host.ts"
+import { uniqueFacts, entryRows, isMember } from "#test/support/worlds/model/host.ts"
 import {
 	type Cell,
 	factCells,
@@ -41,13 +32,7 @@ import {
 	roleOf
 } from "#test/support/worlds/model/session/state.ts"
 
-import {
-	drawnBy,
-	keysOf,
-	serialHead,
-	type Written,
-	writtenNamed
-} from "#test/support/worlds/model/session/writes.ts"
+import { keysOf, type Written, writtenNamed } from "#test/support/worlds/model/session/writes.ts"
 
 import type {
 	BaseSpec,
@@ -103,7 +88,7 @@ interface Carried {
 
 /**
  * The fields a role relation carries (a whole entry's every field, a query entry's head fields), each at its target
- * field's domain. A serial field a fact leaves out is the identity default's to draw.
+ * field's domain.
  */
 const carriedOf = (base: BaseSpec, w: Written): ReadonlyArray<Carried> => {
 	const fields = relationSpecOf(base, w.target)?.fields ?? []
@@ -122,10 +107,7 @@ const carriedOf = (base: BaseSpec, w: Written): ReadonlyArray<Carried> => {
 	})
 }
 
-/**
- * Values told apart as the model tells them (equalValues): a span by its endpoints, a draw by its draw, any other value
- * itself.
- */
+/** Values told apart as the model tells them (equalValues): a span by its endpoints, any other value itself. */
 class Values {
 	readonly #plain = new Set<number | boolean | string | undefined>()
 	readonly #texts = new Set<string>()
@@ -173,33 +155,11 @@ const cellsOf = (
 }
 
 /**
- * Whether an op's facts leave out serial fields as grizzle refuses at the encoder (README "Writes", "Writing through a
- * role"): an inserted fact leaving out some of its relation's classed serial fields and not all, or one its filter
- * reads (serialHead); a deleted or put fact, which names a complete fact, leaving out any.
- */
-const misshapen = (base: BaseSpec, w: Written, op: EntryOp): boolean => {
-	const { classed, filtered } = serialHead(base, w)
-	const carries = (fact: HostFact, field: string): boolean => fact[field] !== undefined
-	return Arr.some(op.facts, (fact) => {
-		if (op.kind !== "insert") {
-			return !Arr.every([...classed, ...filtered], (f) => carries(fact, f))
-		}
-		const supplied = Arr.filter(classed, (f) => carries(fact, f)).length
-		return (
-			(supplied > 0 && supplied < classed.length) || !Arr.every(filtered, (f) => carries(fact, f))
-		)
-	})
-}
-
-/**
- * The fault of an op's facts that grizzle refuses before any SQL, judged once per op: a misshapen fact's (a base type's
- * fault, which the encoder refuses), else its cells' fault (rowFault), a base type's or a law domain's CHECK; none for
- * facts every encoder and CHECK admits.
+ * The fault of an op's facts that grizzle refuses before any SQL, judged once per op: its cells' fault (rowFault), a
+ * base type's or a law domain's CHECK; none for facts every encoder and CHECK admits.
  */
 export const opFault = (base: BaseSpec, w: Written, op: EntryOp): RowFault | undefined =>
-	misshapen(base, w, op)
-		? { kind: "encoding", fault: "type" }
-		: rowFault(cellsOf(base, w, op.facts))
+	rowFault(cellsOf(base, w, op.facts))
 
 /** Adds a column's cell of a value to the cells, unless the column met the value before. */
 const newCell = (
@@ -240,77 +200,25 @@ interface Judged {
 const defined = (xs: ReadonlyArray<HostFact | undefined>): ReadonlyArray<HostFact> =>
 	Arr.flatMap(xs, (f) => (f === undefined ? [] : [f]))
 
-/** A fill and its fact with each serial field the caller left out holding a draw (draws.ts withSerial). */
-interface Named {
-	readonly fill: HostFact
-	readonly drawn: HostFact
-}
-
-/** An op of a stratum with its facts named: each distinct fact's, where every context it is filled from holds a fact. */
-interface NamedOp {
-	readonly checked: Checked
-	readonly named: ReadonlyArray<Named | undefined>
-}
-
 /**
- * A stratum's ops with their facts named, each fact's fill (a whole entry's fact itself) holding draws numbered from
- * `first` in op and fact order, and the first draw after them. Equal facts are one, and so are equal fills of a
- * target's ops of one kind: the frontend makes those ops one action over the union of their sources
- * (packages/engine/src/write/frontend/compile.ts draftsByStratum), so equal generated additions are one requested
- * addition, drawn once (README "Serial columns": equal such rows are one new row).
+ * An op judged over its distinct facts, each fact's fill (a whole entry's fact itself) where every context it is filled
+ * from holds a fact: a query entry's fill inside the entry when it is a member.
  */
-const nameStratum = (
-	base: BaseSpec,
-	facts: ContextFacts,
-	ops: ReadonlyArray<Checked>,
-	first: number
-): { readonly ops: ReadonlyArray<NamedOp>; readonly next: number } => {
-	let next = first
-	const rows: Array<{
-		readonly target: string
-		readonly kind: EntryOp["kind"]
-		readonly named: Named
-	}> = []
-	const named = Arr.map(ops, (checked): NamedOp => {
-		const { op, written } = checked
-		return {
-			checked,
-			named: Arr.map(Arr.dedupeWith(op.facts, sameValues), (f): Named | undefined => {
-				const fill = written.kind === "whole" ? f : fillOf(written, f, facts)
-				if (fill === undefined) {
-					return undefined
-				}
-				const row = Arr.findFirst(
-					rows,
-					(r) => r.target === written.target && r.kind === op.kind && sameValues(r.named.fill, fill)
-				)
-				if (Option.isSome(row)) {
-					return row.value.named
-				}
-				const drew = withSerial(base, written.target, fill, next)
-				next = drew.next
-				const n = { fill, drawn: drew.fact }
-				rows.push({ target: written.target, kind: op.kind, named: n })
-				return n
-			})
-		}
-	})
-	return { ops: named, next }
-}
-
-/** An op judged over its named facts (nameStratum): a query entry's fill inside the entry when it is a member. */
 const judge = (
 	state: ModelState,
 	role: string,
 	facts: ContextFacts,
-	{ checked: { op, written, checks }, named }: NamedOp
+	{ op, written, checks }: Checked
 ): Judged => {
-	const submitted = defined(Arr.map(named, (n) => n?.drawn))
+	const filled = Arr.map(Arr.dedupeWith(op.facts, sameValues), (f) =>
+		written.kind === "whole" ? f : fillOf(written, f, facts)
+	)
+	const submitted = defined(filled)
 	if (written.kind === "whole") {
 		return { op, written, inside: submitted, outside: false, submitted, checks }
 	}
-	const members = Arr.map(named, (n) =>
-		n !== undefined && isMember(state, role, written.entry, facts, n.fill) ? n.drawn : undefined
+	const members = Arr.map(filled, (fill) =>
+		fill !== undefined && isMember(state, role, written.entry, facts, fill) ? fill : undefined
 	)
 	return {
 		op,
@@ -404,10 +312,6 @@ const collisionsOf = (
 	})
 }
 
-/** A fact's stated values: every field but a serial one the identity draws. */
-const statedOf = (fact: HostFact): HostFact =>
-	Rec.fromEntries(Arr.filter(Rec.toEntries(fact), ([, value]) => !isDrawn(value)))
-
 /**
  * The witness of a law domain's CHECK refusing a judged op's statement (README "Errors and outcomes"): grizzle judges
  * the facts the op states, each a target fact with its fills, on the host, and names the first that breaks a law
@@ -420,13 +324,13 @@ const domainWitness = (state: ModelState, j: Judged): Witness => {
 	}
 	const base = state.install.base
 	const target = j.written.target
-	const violating = Arr.filter(j.submitted, (fact) => {
-		const stated = statedOf(fact)
-		return rowFault(factCells(base, target, stated, Rec.keys(stated)))?.kind === "checks"
-	})
+	const violating = Arr.filter(
+		j.submitted,
+		(fact) => rowFault(factCells(base, target, fact, Rec.keys(fact)))?.kind === "checks"
+	)
 	const keys = Arr.flatMap(violating, (fact) => {
 		const key = statedKey(state.names.keys, target, fact)
-		return key === undefined ? [] : [keyIn(j.written, statedOf(fact), key)]
+		return key === undefined ? [] : [keyIn(j.written, fact, key)]
 	})
 	return keys.length === 0 ? { kind: "withheld" } : { kind: "shown", keys }
 }
@@ -500,37 +404,24 @@ const carriedFields = (base: BaseSpec, w: Written): ReadonlySet<string> =>
  * same write would name it (adapter/witness/keylaw.ts hostRefused), through a query entry as through a whole one. A
  * key is compared on the fields the relation it is written through carries
  * (write/frontend/entry.ts entryFacts): a query entry's fixed fields are one value for the whole stratum, so they take
- * no part, and a span key whose span the entry does not carry is not checked here. A generated addition takes part on
- * no key holding its serial field. Equal facts are one, as normalize.ts collapses them before it compares keys, so
- * equal generated additions are one addition, drawn once; and each addition is the fact it is among the stratum's
- * complete additions, whose statement runs before the generated additions' (laws/model.ts addedAs), so a generated
- * addition equal at every field it states to a complete one at its arbiter is that fact (normalize.ts sameKey).
+ * no part, and a span key whose span the entry does not carry is not checked here. Equal facts are one, as normalize.ts
+ * collapses them before it compares keys (normalize.ts sameKey).
  */
 const keyConflictOf = (
 	state: ModelState,
 	ops: ReadonlyArray<Checked>,
 	target: string
 ): ActionOutcome | undefined => {
-	const base = state.install.base
 	const listed = Arr.flatMap(ops, ({ op, written }) =>
 		written.target === target && op.kind !== "delete"
 			? Arr.map(op.facts, (f) => ({ fact: targetTermsOf(written, f), w: written }))
 			: []
 	)
-	const submitted = Arr.dedupeWith(listed, (a, b) => sameValues(a.fact, b.fact))
-	const drawn = withSerials(
-		base,
+	return conflictAmong(
+		state,
 		target,
-		Arr.map(submitted, (x) => x.fact),
-		nextDraw(state)
-	).facts
-	const complete = Arr.filter(drawn, (fact) => !holdsDraw(fact))
-	const met = Arr.map(Arr.zip(submitted, drawn), ([x, fact]) => ({
-		fact: addedAs(state.host, target, complete, fact),
-		w: x.w
-	}))
-	const additions = Arr.dedupeWith(met, (a, b) => sameValues(a.fact, b.fact))
-	return conflictAmong(state, target, additions)
+		Arr.dedupeWith(listed, (a, b) => sameValues(a.fact, b.fact))
+	)
 }
 
 /**
@@ -712,19 +603,16 @@ export const readBackClasses = (
 const without = (a: ReadonlyArray<HostFact>, b: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> =>
 	Arr.filter(a, (f) => !Arr.some(b, (g) => sameValues(f, g)))
 
-/** A statement of a ChangeSet that makes one side of its target's delta: its stratum, and whether it is the generated
- * class's insertion, whose drawn serial values a lagging sequence may repeat. */
+/** A statement of a ChangeSet that makes one side of its target's delta, and its stratum. */
 interface SideMaker {
 	readonly side: "added" | "removed"
 	readonly stratum: number
-	readonly generated: boolean
 }
 
 /**
  * The statements of a ChangeSet's array members that make a side of `target`'s delta, as grizzle realizes them where
- * both sides of the delta are read back (write/schedule/plan.ts opsOf, write/put/choose.ts): an insertion one statement,
- * or two where its head carries a serial field a fact may leave out (serialHead), the complete class's and the
- * generated class's; a deletion one; a put the DELETE-then-insert pair, since a read-back of its removed side rules out
+ * both sides of the delta are read back (write/schedule/plan.ts opsOf, write/put/choose.ts): an insertion one statement;
+ * a deletion one; a put the DELETE-then-insert pair, since a read-back of its removed side rules out
  * the forms that return no old version, its displacing deletion none where every field of the target is a key field
  * (a pure set). One op of one entry in one stratum is one action, whatever facts it is applied with.
  */
@@ -745,20 +633,14 @@ const sideMakers = (
 				if (w === undefined || w.target !== target) {
 					return []
 				}
-				const of = (side: SideMaker["side"], generated: boolean): SideMaker => ({
-					side,
-					stratum,
-					generated
-				})
+				const of = (side: SideMaker["side"]): SideMaker => ({ side, stratum })
 				switch (op.kind) {
 					case "insert":
-						return serialHead(base, w).classed.length > 0
-							? [of("added", false), of("added", true)]
-							: [of("added", false)]
+						return [of("added")]
 					case "delete":
-						return [of("removed", false)]
+						return [of("removed")]
 					case "put":
-						return pureSet ? [of("added", false)] : [of("removed", false), of("added", false)]
+						return pureSet ? [of("added")] : [of("removed"), of("added")]
 				}
 			}
 		)
@@ -768,42 +650,16 @@ const sideMakers = (
 /**
  * Whether a read-back of one side of `target`'s delta crosses statements (README "Where a read-back runs",
  * ReadBackCrossesStatements): the side is made by more than one statement, or its one maker's rows may be cancelled by
- * a statement making the other side, one of another stratum, or of its own where either is a generated addition.
+ * a statement making the other side in another stratum.
  */
 const sideCrosses = (makers: ReadonlyArray<SideMaker>, side: SideMaker["side"]): boolean => {
 	const own = Arr.filter(makers, (m) => m.side === side)
 	const [maker, ...others] = own
 	return (
 		maker !== undefined &&
-		(others.length > 0 ||
-			Arr.some(
-				makers,
-				(o) => o.side !== side && (o.stratum !== maker.stratum || o.generated || maker.generated)
-			))
+		(others.length > 0 || Arr.some(makers, (o) => o.side !== side && o.stratum !== maker.stratum))
 	)
 }
-
-/**
- * Whether an insertion of these strata through a role has a generated class (writes.ts drawnBy) whose target's arbiter
- * is ambiguous (laws/model.ts generatedArbiter): its primary key holds a field the class draws, and several declared
- * keys hold none, so grizzle refuses the insertion when it compiles (MalformedDescription), whatever facts it is
- * applied with.
- */
-export const ambiguousArbiter = (
-	base: BaseSpec,
-	role: RoleSpec,
-	strata: ReadonlyArray<ReadonlyArray<EntryOp>>
-): boolean =>
-	Arr.some(strata.flat(), (op) => {
-		const w = op.kind === "insert" ? writtenNamed(base, role, op.relation) : undefined
-		return w === undefined
-			? false
-			: Arr.match(drawnBy(base, w), {
-					onEmpty: () => false,
-					onNonEmpty: (drawn) =>
-						generatedArbiter(judgedSchemaOf(base), w.target, drawn).kind === "ambiguous"
-				})
-	})
 
 /**
  * Whether grizzle refuses a ChangeSet of these strata and read-backs through a role when it compiles into a served
@@ -811,11 +667,8 @@ export const ambiguousArbiter = (
  * that writes a query entry and also a relation its filter reads, two strata that write one relation by one op, whose
  * array members a call's facts cannot tell apart, a read-back of a relation the role does not hold or whose delta the
  * change does not determine, or one of the added or removed side of a written target's delta that no one statement
- * makes whole (sideCrosses): the executor reads both sides of every read relation's delta; or an insertion whose
- * generated class meets an ambiguous arbiter (laws/model.ts generatedArbiter, MalformedDescription), as a migration
- * declaring a second key that holds no serial field beside a primary key that holds one leaves it. A ChangeSet's facts
- * are a call's values outside its Description, so no fact, generated or complete, is a reason to refuse it there; a
- * relation's serial fields make its insertion two statements whatever facts it is applied with.
+ * makes whole (sideCrosses): the executor reads both sides of every read relation's delta. A ChangeSet's facts are a
+ * call's values outside its Description, so no fact is a reason to refuse it there.
  */
 export const compileRefused = (
 	base: BaseSpec,
@@ -852,7 +705,6 @@ export const compileRefused = (
 		Arr.some(layers, (ops) => Arr.some(ops, (w) => w.written === undefined)) ||
 		!disjoint ||
 		!once ||
-		ambiguousArbiter(base, role, strata) ||
 		Arr.some(reads, (r) => roleEntryOf(role, r) === undefined) ||
 		Arr.some(reads, (relation) => {
 			const delta = deltaOf(base, role, relation, written)
@@ -895,9 +747,7 @@ const onHost = (refusal: ActionOutcome): Called => ({ kind: "host", refusals: [r
  *   key's law. Which of these refusals, and a law another op of the stratum breaks meanwhile, on the same target or another,
  *   comes first is the order of the stratum's statements, which the model leaves open, as README "Writing through a
  *   role" leaves which refusal a ChangeSet meets first: an op's own refusal stops its statement before it writes;
- * - each stratum's S' = (S \ D) ∪ A, each generated addition of A the fact it is among those its statement finds
- *   (laws/model.ts addedAs: a fact equal to it at every field it states, met at its arbiter, draws nothing), meets the
- *   laws PostgreSQL checks at a statement, and the final state the laws it
+ * - each stratum's S' = (S \ D) ∪ A meets the laws PostgreSQL checks at a statement, and the final state the laws it
  *   checks at COMMIT, each refusal's witness the most README "Errors and outcomes" allows; else `accepted`, or `no-change` when the
  *   final state is the first. Nothing is written on any refusal, and a derived relation keeps its facts until a refresh.
  */
@@ -977,12 +827,9 @@ export const applyCall = (
 				by: { kind: "open" }
 			}))
 		let now = state.reality
-		let draws = nextDraw(state)
 		for (const ops of checked) {
 			const at: ModelState = { ...state, reality: now }
-			const stratum = nameStratum(base, session.facts, ops, draws)
-			draws = stratum.next
-			const judged = Arr.map(stratum.ops, (named) => judge(at, role.name, session.facts, named))
+			const judged = Arr.map(ops, (c) => judge(at, role.name, session.facts, c))
 			for (const j of judged) {
 				for (const fact of j.inside) {
 					submitted.push({ relation: j.written.target, fact, terms: termsOf(base, j.written) })

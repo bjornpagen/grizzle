@@ -10,6 +10,7 @@ import type {
 } from "#test/support/fixtures/ir/desc.ts"
 import {
 	descriptorOf,
+	type DrawnField,
 	type DrawnRelation,
 	type DrawnSchema,
 	drawnSchemaGen,
@@ -21,7 +22,6 @@ import {
 	kindOf,
 	relationAt,
 	rosterName,
-	serialField,
 	valueOf
 } from "#test/unit/check/drawn.ts"
 import {
@@ -41,8 +41,7 @@ import {
 
 /**
  * ChangeSet members described by queries over a drawn schema, and the member rule restated as a model: an insert's and
- * a put's head delivers the fields a member writes, an insert's without the serial field it leaves to its sequence,
- * a delete's the relation's whole heading; each column of its field's own type, a text's pattern the field's domain's
+ * a put's and a delete's head delivers the relation's whole heading; each column of its field's own type, a text's pattern the field's domain's
  * alone; one heading; and no attachment, which adds a field (DescribedHeadingMismatch, at the member, or at the
  * attachment).
  */
@@ -99,28 +98,12 @@ export type MemberVerdict =
 			readonly at: At
 	  }
 
-/** A field of the target relation: its name and kind, the serial field a bigint. */
-interface Written {
-	readonly name: string
-	readonly kind: ColumnKind
-	readonly serial: boolean
-}
+/** The fields a member of the relation writes: each of its fields. */
+const writtenOf = (r: DrawnRelation): ReadonlyArray<DrawnField> => r.fields
 
-/** The fields a member of the relation writes: each of its fields, and its serial field. */
-const writtenOf = (r: DrawnRelation): ReadonlyArray<Written> => [
-	...Arr.map(r.fields, (x) => ({ name: x.name, kind: x.kind, serial: false })),
-	...(r.serial ? [{ name: serialField, kind: "int8" as const, serial: true }] : [])
-]
-
-/** The kind a source relation's field is, its serial field a bigint, or none where it declares no such field. */
+/** The kind a source relation's field is, or none where it declares no such field. */
 const sourceKind = (r: DrawnRelation, field: string): ColumnKind | undefined =>
-	field === serialField
-		? r.serial
-			? "int8"
-			: undefined
-		: Arr.some(r.fields, (x) => x.name === field)
-			? kindOf(r, field)
-			: undefined
+	Arr.some(r.fields, (x) => x.name === field) ? kindOf(r, field) : undefined
 
 /** The type a head term delivers a field at: a kind a field declares, or a computed numeric, which none declares. */
 type Delivered = ColumnKind | "computed"
@@ -140,7 +123,7 @@ const sumDelivered: Delivered = "computed"
  * The type a head term delivers a field at: the source variable's kind, the field's own for a literal or a parameter,
  * and a sum's sumDelivered.
  */
-const deliveredType = (r: DrawnRelation, w: Written, term: Term): Delivered => {
+const deliveredType = (r: DrawnRelation, w: DrawnField, term: Term): Delivered => {
 	const own = sourceKind(r, w.name) ?? w.kind
 	switch (term) {
 		case "var":
@@ -178,7 +161,7 @@ const enteredAt = (d: Delivered): Delivered | "text" =>
 	d !== "computed" && familyOf(d) === "text" ? "text" : d
 
 /** The type each arm of the case that writes the target's field `w` delivers it at, in arm order. */
-const typesAt = (c: MemberCase, w: Written): ReadonlyArray<Delivered> =>
+const typesAt = (c: MemberCase, w: DrawnField): ReadonlyArray<Delivered> =>
 	Arr.flatMap(c.arms, (arm) =>
 		Arr.map(
 			Arr.filter(arm.writes, (x) => x.field === w.name),
@@ -250,26 +233,20 @@ export const memberVerdict = (c: MemberCase): MemberVerdict => {
 		return refused("DescribedHeadingMismatch", "an attach stage", "stage attachment")
 	}
 	const delivered = headKeys(first)
-	const serial = Arr.filter(written, (w) => w.serial)
-	const supplied = Arr.some(serial, (w) => Arr.contains(delivered, w.name))
-	const expected =
-		c.op === "insert" && serial.length > 0 && !supplied
-			? Arr.filter(written, (w) => !w.serial)
-			: written
-	if (Arr.some(expected, (w) => !Arr.contains(delivered, w.name))) {
+	if (Arr.some(written, (w) => !Arr.contains(delivered, w.name))) {
 		return refused("DescribedHeadingMismatch", "a missing field", "member")
 	}
-	if (Arr.some(delivered, (d) => !Arr.some(expected, (w) => w.name === d))) {
+	if (Arr.some(delivered, (d) => !Arr.some(written, (w) => w.name === d))) {
 		return refused("DescribedHeadingMismatch", "an extra column", "member")
 	}
-	const enters = (w: Written): boolean =>
+	const enters = (w: DrawnField): boolean =>
 		Arr.match(typesAt(c, w), {
 			onEmpty: () => {
 				throw new Error(`the arms of one heading each write ${w.name}, which it expects`)
 			},
 			onNonEmpty: (types) => enteredAt(unionType(types)) === enteredAt(w.kind)
 		})
-	if (Arr.some(expected, (w) => !enters(w))) {
+	if (Arr.some(written, (w) => !enters(w))) {
 		return refused("DescribedHeadingMismatch", "a column of another type", "member")
 	}
 	return {
@@ -366,7 +343,7 @@ export const memberDesc = (c: MemberCase): MemberDesc => ({
 
 /**
  * How a head writes a field of the target from a source: mostly the source's variable of the field's name where it
- * declares one, else a literal or a parameter, sometimes a sum, and sometimes nothing, the serial field often.
+ * declares one, else a literal or a parameter, sometimes a sum, and sometimes nothing.
  */
 const writesGen =
 	(s: DrawnSchema, target: number, source: number): Gen<MemberArm["writes"]> =>
@@ -381,7 +358,7 @@ const writesGen =
 					[own === undefined ? 1 : 6, element([own === undefined ? "literal" : "var"] as const)],
 					[2, element(["literal", "param"] as const)],
 					[1, element([summable ? "sum" : "param"] as const)],
-					[w.serial ? 6 : 1, element(["none"] as const)]
+					[1, element(["none"] as const)]
 				])
 			)
 			return term === "none" ? [] : [{ field: w.name, term }]
@@ -425,11 +402,11 @@ const armGen =
 	}
 
 /**
- * A member case: a schema whose relations may have a serial field, a target, an op, one arm or two of one heading or
+ * A member case: a schema, a target, an op, one arm or two of one heading or
  * of two, told apart by their tags or not, and an attach stage or none.
  */
 export const memberCaseGen: Gen<MemberCase> = (source) => {
-	const schema = source.draw(drawnSchemaGen(2, true))
+	const schema = source.draw(drawnSchemaGen(2))
 	const target = source.draw(element(Arr.map(schema.relations, (_, i) => i)))
 	const first = source.draw(armGen(schema, target))
 	const shape = source.draw(
@@ -501,8 +478,7 @@ export const otherKindCaseGen =
 				{ name: "id", kind: "int4" },
 				{ name: "a", kind }
 			],
-			key: ["id"],
-			serial: false
+			key: ["id"]
 		})
 		return {
 			schema: {
@@ -534,9 +510,6 @@ export type MemberFeature =
 	| MemberRule
 	| Op
 	| "admitted"
-	| "an insert leaving its serial field to its sequence"
-	| "an insert writing its serial field"
-	| "a put or delete without its serial field"
 	| "a parameter written as its field"
 	| "a sum written into a field"
 	| "two arms of one heading"
@@ -544,9 +517,6 @@ export type MemberFeature =
 	| "a text of another pattern"
 
 export const memberFeatures = (c: MemberCase, v: MemberVerdict): ReadonlyArray<MemberFeature> => {
-	const target = relationAt(c.schema, c.target)
-	const [first] = c.arms
-	const writesSerial = Arr.some(first.writes, (w) => w.field === serialField)
 	const sums = Arr.some(c.arms, (a) => Arr.some(a.writes, (w) => w.term === "sum"))
 	const others = otherKindsOf(c)
 	switch (v.kind) {
@@ -554,9 +524,6 @@ export const memberFeatures = (c: MemberCase, v: MemberVerdict): ReadonlyArray<M
 			return [
 				v.rule,
 				c.op,
-				...(target.serial && c.op !== "insert" && !writesSerial && v.rule === "a missing field"
-					? ["a put or delete without its serial field" as const]
-					: []),
 				...(sums && v.rule === "a column of another type"
 					? ["a sum written into a field" as const]
 					: []),
@@ -568,13 +535,6 @@ export const memberFeatures = (c: MemberCase, v: MemberVerdict): ReadonlyArray<M
 			return [
 				"admitted",
 				c.op,
-				...(target.serial && c.op === "insert"
-					? [
-							writesSerial
-								? ("an insert writing its serial field" as const)
-								: ("an insert leaving its serial field to its sequence" as const)
-						]
-					: []),
 				...(v.params.size > 0 ? ["a parameter written as its field" as const] : []),
 				...(sums ? ["a sum written into a field" as const] : []),
 				...(c.arms.length > 1 ? ["two arms of one heading" as const] : []),

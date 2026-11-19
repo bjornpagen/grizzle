@@ -4,14 +4,11 @@
  * netting walk the outcome ran before the Z-set) over every sequence of per-stratum changes of up to three relations,
  * each fact's change returned by every member that requested it, in any order, a fact a stratum holds before and after
  * it returned removed and added back where the step says so; over the outcome's counts, one entry per written relation
- * in code point order; and over the rows a bigserial relation's statements return when its identity sequence lags the
- * stored values, against S' = (S \ D) ∪ A. A converted fact's identity is the boundary's fact identity of the same
- * values.
+ * in code point order. A converted fact's identity is the boundary's fact identity of the same values.
  *
  * Features: a fact two members of a stratum made present, or absent; a fact a stratum removed and added back
  * identical, and one so restored while an earlier stratum's change of it stands; a fact a later stratum's change
- * cancels; a written relation no stratum changed; a repeated written relation; names out of code unit order; a fact
- * removed and added back identical by a lagging sequence; a generated fact differing in its key, or in its note.
+ * cancels; a written relation no stratum changed; a repeated written relation; names out of code unit order.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
@@ -30,18 +27,11 @@ import {
 	stratumChange,
 	type Tag
 } from "#compiler/runtime/write/net.ts"
-import {
-	compareFactIdentities,
-	type FactIdentity,
-	factIdentity
-} from "#compiler/scalar/values/identity.ts"
+import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import {
 	type AttributedChange,
 	attributeStratum,
-	type Fact,
-	type FactSet,
-	factSetOf,
 	identitySetOf,
 	netCounts as oracleNetCounts,
 	netStrata as oracleNetStrata,
@@ -52,21 +42,15 @@ import { upTo } from "#test/support/up-to.ts"
 import {
 	byCodePoints,
 	entriesOf,
-	factSet,
 	fields,
 	id,
 	identitiesOf,
-	identity,
-	type LaggingFeature,
-	laggingGen,
 	type NettingFeature,
 	restoredOf,
 	sequences,
 	setOf,
 	shuffledAll,
-	tagsOf,
-	ticket,
-	type TicketFact
+	tagsOf
 } from "#test/unit/write/changeset/delta.fixtures.ts"
 
 /** A Z-set's entries on `side`, each fact with the tag it stands by. */
@@ -234,152 +218,15 @@ export const aWritesChangeSummedAsAZSetEqualsTheOraclesNettingOfDeltasAndCountsF
 			...zsetKills,
 			{
 				file: "packages/engine/src/runtime/write/net.ts",
+				original: '\t\t\tcase "insert":\n\t\t\t\tadded += 1n',
+				replacement: '\t\t\tcase "insert":\n\t\t\t\tput += 1n',
+				why: "An insert's fact counts under put, not added (runtime/write/net.ts countOf), the case lane CATCH's operator mutant of the old count's tag test caught (grizzle 0baff5d6)."
+			},
+			{
+				file: "packages/engine/src/runtime/write/net.ts",
 				original: "\t\tif (seen === undefined || tags[seen.value].rank < rank) {",
 				replacement: "\t\tif (seen === undefined || tags[seen.value].rank > rank) {",
 				why: "A fact several members of one stratum changed on one side stands under its lowest-ranked tag (runtime/write/net.ts stratumChange), so a fact an insert and a put both returned counts under added, and a removal a delete member requested and a put displaced goes uncounted."
-			}
-		]
-	})
-
-/**
- * A stratum's change is a set difference nets a fact a delete freed and a lagging sequence's generated addition drew
- * back identical, and reports one differing as a removal and an addition.
- *
- * Budget: 500 runs and 500 steered cases, what its suite stated before it became a property
- * (test/unit/write/changeset/delta.test.ts:376 at 8cad5bce, its runs and its coverage's cases).
- */
-export const aStratumsChangeIsASetDifferenceNetsAFactADeleteFreedAndALaggingSequencesGeneratedAdditionDrewBackIdenticalAndReportsOneDifferingAsARemovalAndAnAddition =
-	property.explore(laggingGen, {
-		needs: {},
-		budget: { runs: 500, steered: 500 },
-		situations: [
-			"a fact removed and added back identical",
-			"a generated fact differing in its key",
-			"a generated fact differing in its note"
-		] satisfies ReadonlyArray<Reached<LaggingFeature>>,
-		check:
-			(_, c: Case<LaggingFeature>) =>
-			({ stored, lagging, generatedNote, alsoDeleted, later }) =>
-				Effect.sync(() => {
-					const k = BigInt(stored.length)
-					const start = Arr.map(stored, (note, i): TicketFact => ({
-						id: BigInt(i + 1),
-						note
-					}))
-					/** The value the sequence's next call returns. */
-					let next = lagging ? k : k + 1n
-					const planted = defined(start.at(-1), "a stored fact")
-					/** Each stratum's delete member, over the state before it, and its generated additions' notes. A later
-					 * stratum's delete takes present facts, by drawn index. */
-					const strata: ReadonlyArray<{
-						readonly deletes: (before: FactSet) => ReadonlyArray<Fact>
-						readonly generated: ReadonlyArray<string>
-					}> = [
-						{
-							deletes: () => [planted, ...Arr.flatMap(alsoDeleted, (i) => start.slice(i, i + 1))],
-							generated: [generatedNote]
-						},
-						...Arr.map(later, (l) => ({
-							deletes: (before: FactSet) => {
-								const present = [...before.values()]
-								return present.length === 0
-									? []
-									: Arr.map(l.deletes, (i) =>
-											defined(present[i % present.length], "a present fact")
-										)
-							},
-							generated: l.generated
-						}))
-					]
-					let state = factSet(start)
-					const mine: Array<ReadonlyArray<ChangeRow>> = []
-					const theirs: Array<AttributedChange> = []
-					const deltas = []
-					for (const [s, stratum] of strata.entries()) {
-						const deleted = factSet(
-							Arr.filter(stratum.deletes(state), (f) => state.has(identity(f)))
-						)
-						const added = factSet(
-							Arr.map(stratum.generated, (note): TicketFact => {
-								const id = next
-								next += 1n
-								return { id, note }
-							})
-						)
-						const rows: ReadonlyArray<ChangeRow> = [
-							...Arr.map([...deleted.keys()], (id): ChangeRow => ({ identity: id, tag: "delete" })),
-							...Arr.map([...added.keys()], (id): ChangeRow => ({ identity: id, tag: "insert" }))
-						]
-						const change = stratumChange(rows)
-						/** The oracle: S' = (S \ D) ∪ A, and the stratum's change is its set difference with S. */
-						const after = factSetOf(
-							Arr.filter([...state], ([id]) => !deleted.has(id)).concat([...added])
-						)
-						const delta = stateDelta(state, after)
-						for (const side of ["added", "removed"] as const) {
-							assert.deepEqual(
-								sideKeys(change, side),
-								identitiesOf(delta[side].keys()),
-								`stratum ${s} ${side}`
-							)
-						}
-						if (s === 0) {
-							const old = identity(planted)
-							const drawnBack = identity({ id: lagging ? k : k + 1n, note: generatedNote })
-							const identical = compareFactIdentities(old, drawnBack) === 0
-							assert.deepEqual(
-								[sideOf(change.get(old)?.weight ?? 0), sideOf(change.get(drawnBack)?.weight ?? 0)],
-								identical ? [undefined, undefined] : ["removed", "added"],
-								identical ? "the identical fact is no change" : "a removal and an addition"
-							)
-							c.note(
-								identical
-									? "a fact removed and added back identical"
-									: lagging
-										? "a generated fact differing in its note"
-										: "a generated fact differing in its key"
-							)
-						}
-						mine.push(rows)
-						theirs.push(
-							attributeStratum(state, after, {
-								insert: identitySetOf(added.keys()),
-								put: identitySetOf([]),
-								delete: identitySetOf(deleted.keys())
-							})
-						)
-						deltas.push(delta)
-						state = after
-					}
-					const netted = relationChange(mine)
-					const whole = stateDelta(factSet(start), state)
-					for (const side of ["added", "removed"] as const) {
-						assert.deepEqual(sideKeys(netted, side), identitiesOf(whole[side].keys()))
-					}
-					assert.deepEqual(
-						sideKeys(netted, "added"),
-						identitiesOf(oracleNetStrata(deltas).added.keys())
-					)
-					assert.deepEqual(
-						outcomeCounts(
-							[ticket.name],
-							Arr.map(mine, (rows) => new Map([[ticket.name, rows]]))
-						),
-						[{ relation: ticket.name, ...oracleNetCounts(theirs) }]
-					)
-				}),
-		oracle: {
-			kind: "specification",
-			name: "S' = (S \\ D) ∪ A, each stratum's change its set difference with S, netted and counted as the delta oracle does (oracle/delta.ts)"
-		},
-		kept: [],
-		kills: [
-			...zsetKills,
-			{
-				file: "packages/engine/src/runtime/write/net.ts",
-				original: '\t\t\tcase "insert":\n\t\t\t\tadded += 1n',
-				replacement: '\t\t\tcase "insert":\n\t\t\t\tput += 1n',
-				why: "A generated addition counts under put, not added (runtime/write/net.ts countOf), the case lane CATCH's operator mutant of the old count's tag test caught (grizzle 0baff5d6)."
 			}
 		]
 	})

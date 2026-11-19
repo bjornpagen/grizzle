@@ -104,7 +104,7 @@ export const switchToManual = (): ChangeSetValue =>
 
 const label = str.regex("^[a-z]{1,8}$")
 
-/** A ledger with a serial key, a serial outside the key, a candidate key, a mutable relation, a pure set and a foreign
+/** A ledger with a numbered key, a field outside the key, a candidate key, a mutable relation, a pure set and a foreign
  * key: Entry references Book. */
 const Book = relation("Book", { id: uuid, title: label }, ["id"])
 export const BookEntry = relation(
@@ -112,8 +112,8 @@ export const BookEntry = relation(
 	{ id: uuid, book: uuid, code: label, amount: pg.bigint },
 	["id"]
 )
-const Ticket = relation("Ticket", { id: pg.bigserial, note: label }, ["id"])
-const Counter = relation("Counter", { name: label, value: pg.bigint, seq: pg.serial }, ["name"])
+const Ticket = relation("Ticket", { id: pg.bigint, note: label }, ["id"])
+const Counter = relation("Counter", { name: label, value: pg.bigint }, ["name"])
 const Status = relation("Status", { id: uuid, state: label }, ["id"])
 const Tag = relation("Tag", { owner: uuid, tag: label }, ["owner", "tag"])
 export const LedgerSchema = schema(

@@ -70,7 +70,7 @@ export type OwnedColumn =
 
 /**
  * A relation the ChangeSet writes as its stated rows are judged (runtime/write/witness.ts JudgedRow): the fields a fact
- * of it states, its caller's and serial ones, by name; its primary key's fields, by name; its row layout
+ * of it states, its caller's, by name; its primary key's fields, by name; its row layout
  * (write/family/statements.ts rowLayout); and each column of it a counted family it owns draws, by column key, the first
  * family in the law model's order that draws it.
  */

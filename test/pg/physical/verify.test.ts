@@ -71,11 +71,12 @@ import { Ledger } from "#test/unit/physical/fixtures.ts"
 
 const Sub = str.regex("^u_[a-z]{1,8}$")
 const Doc = relation("Doc", { id: uuid, org: uuid, owner: Sub, words: pg.integer }, ["id"])
-const Note = relation("Note", { no: pg.bigserial, doc: uuid, author: Sub }, ["no"])
+const Note = relation("Note", { doc: uuid, no: pg.integer, author: Sub }, ["doc", "no"])
 const Session = context("Session", { sub: Sub })
 
 /**
- * The drift base under `name`: documents (mutable) and the bigserial-keyed notes on them, a note's document existing,
+ * The drift base under `name`: documents (mutable) and the notes on them, each keyed by its document and its number
+ * there, a note's document existing,
  * a session's subject, and the derived DocCount, each organization's documents.
  */
 const driftBase = (name: string) => {
@@ -104,14 +105,14 @@ const driftBase = (name: string) => {
  *   again (nothing); an elevated attribute; a trigger that is not a law trigger; row security enabled or forced; a
  *   world role's setting or the login's for one database; an unexpected table; a PUBLIC default privilege; a
  *   membership between a declared role and a stranger, either way, with drawn options (nothing when it lets no one SET
- *   ROLE, administer or inherit through it); an advance function's volatility. Every foreign key re-added NOT VALID
+ *   ROLE, administer or inherit through it); the refusal function's volatility. Every foreign key re-added NOT VALID
  *   keeps the verifier's shape rules and is caught by the manifest comparison alone (an exhaustion of the catalog's
  *   foreign keys).
  * - The drift worlds, whose role writes a query entry under row security: a world function's search_path reset, its
  *   volatility, its EXECUTE to PUBLIC or to a second role; a view's security barrier flipped (nothing when set as it
  *   stands); a world schema's USAGE beyond its role; a policy's predicate or roles; row security disabled or forced;
- *   MAINTAIN beyond the refreshers or a refresher's revoked; a sequence privilege to a world role; and an advance
- *   function's EXECUTE revoked from a role that inserts.
+ *   MAINTAIN beyond the refreshers or a refresher's revoked; and a privilege to a world role on a sequence the drift
+ *   creates, which grizzle never does.
  *
  * The drift worlds over the drift base declared under `name`: `editor` holds Doc and DocCount
  * whole, refreshes DocCount, and writes Mine, the notes of the documents its session's subject owns, whose filter reads
@@ -263,8 +264,8 @@ type ErasureFeature =
 	| "a PUBLIC default privilege"
 	| "a stranger's membership that confers"
 	| "a stranger's inert membership"
-	| "an advance function's volatility changed"
-	| "an advance function left volatile"
+	| "the refusal function's volatility changed"
+	| "the refusal function left volatile"
 
 const erasureFeatures: Arr.NonEmptyReadonlyArray<ErasureFeature> = [
 	"PUBLIC granted a privilege",
@@ -282,8 +283,8 @@ const erasureFeatures: Arr.NonEmptyReadonlyArray<ErasureFeature> = [
 	"a PUBLIC default privilege",
 	"a stranger's membership that confers",
 	"a stranger's inert membership",
-	"an advance function's volatility changed",
-	"an advance function left volatile"
+	"the refusal function's volatility changed",
+	"the refusal function left volatile"
 ]
 
 type WorldFeature =
@@ -303,7 +304,6 @@ type WorldFeature =
 	| "MAINTAIN beyond the refreshers"
 	| "MAINTAIN revoked from a refresher"
 	| "a sequence privilege to a world role"
-	| "an advance function's EXECUTE revoked from an inserter"
 
 const worldFeatures: Arr.NonEmptyReadonlyArray<WorldFeature> = [
 	"a world function's search_path reset",
@@ -321,8 +321,7 @@ const worldFeatures: Arr.NonEmptyReadonlyArray<WorldFeature> = [
 	"row security forced",
 	"MAINTAIN beyond the refreshers",
 	"MAINTAIN revoked from a refresher",
-	"a sequence privilege to a world role",
-	"an advance function's EXECUTE revoked from an inserter"
+	"a sequence privilege to a world role"
 ]
 
 /** A foreign key of the catalog, by its table. */
@@ -373,12 +372,12 @@ layer(Substrate.layer)("catalog drift", (it) => {
 						),
 						"an authored table without row security"
 					)
-					const advances = nonEmpty(
+					const refusals = nonEmpty(
 						Arr.filter(
 							catalog.functions,
-							(f) => expectation.functions.get(f.name)?.kind === "advance"
+							(f) => expectation.functions.get(f.name)?.kind === "refusal"
 						),
-						"an advance function"
+						"the refusal function"
 					)
 					const worldRoles = [writer, reader] as const
 					type Erasure = Drift<ErasureProblem, ErasureFeature>
@@ -570,7 +569,7 @@ layer(Substrate.layer)("catalog drift", (it) => {
 							}
 						},
 						(source) => {
-							const f = source.draw(element(advances))
+							const f = source.draw(element(refusals))
 							const volatility = source.draw(volatilityGen)
 							return {
 								statements: [`ALTER FUNCTION ${signature(catalog, f)} ${volatility}`],
@@ -580,8 +579,8 @@ layer(Substrate.layer)("catalog drift", (it) => {
 										: [{ kind: "volatility", function: f.name, required: "VOLATILE" }],
 								feature:
 									volatility === "VOLATILE"
-										? "an advance function left volatile"
-										: "an advance function's volatility changed"
+										? "the refusal function left volatile"
+										: "the refusal function's volatility changed"
 							}
 						}
 					])
@@ -766,16 +765,6 @@ layer(Substrate.layer)("catalog drift", (it) => {
 							),
 							"a role and a materialized view"
 						)
-						const inserters = nonEmpty(
-							Arr.flatMap(baseline.functions, (f) => {
-								const expected = expect.functions.get(f.name)
-								return expected?.kind === "advance"
-									? Arr.map(executorsOf(f.grants), (role) => ({ f, role, table: expected.table }))
-									: []
-							}),
-							"a role that executes an advance function"
-						)
-						const sequences = nonEmpty(baseline.sequences, "a sequence")
 						type World = Drift<InstalledProblem, WorldFeature>
 						const driftGen: Gen<World> = oneOf<World>([
 							(source) => {
@@ -925,32 +914,23 @@ layer(Substrate.layer)("catalog drift", (it) => {
 										}
 							},
 							(source) => {
-								const q = source.draw(element(sequences))
+								const sequence = "drift_sequence"
 								const r = source.draw(element(roles))
 								const privilege = source.draw(privilegeOf("sequence"))
 								return {
 									statements: [
-										`GRANT ${privilege} ON SEQUENCE ${qualified(baseline, q.name)} TO ${quoteIdent(r)}`
+										`CREATE SEQUENCE ${qualified(baseline, sequence)}`,
+										`GRANT ${privilege} ON SEQUENCE ${qualified(baseline, sequence)} TO ${quoteIdent(r)}`
 									],
 									raises: [
 										{
 											kind: "roleHolds",
-											object: { kind: "sequence", name: q.name },
+											object: { kind: "sequence", name: sequence },
 											role: r,
 											privilege
 										}
 									],
 									feature: "a sequence privilege to a world role"
-								}
-							},
-							(source) => {
-								const { f, role: r, table } = source.draw(element(inserters))
-								return {
-									statements: [
-										`REVOKE EXECUTE ON FUNCTION ${signature(baseline, f)} FROM ${quoteIdent(r)}`
-									],
-									raises: [{ kind: "insertWithoutAdvance", function: f.name, role: r, table }],
-									feature: "an advance function's EXECUTE revoked from an inserter"
 								}
 							}
 						])
