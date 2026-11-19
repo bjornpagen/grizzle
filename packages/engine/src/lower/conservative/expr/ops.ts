@@ -4,6 +4,7 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { parseDoubleForm } from "#compiler/lower/conservative/expr/parse-double.ts"
 import { exactForm, ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
+import { canonicalNanBits, type FloatWidth } from "#compiler/scalar/compute/float.ts"
 import {
 	admitsArity,
 	type NativeOp,
@@ -187,6 +188,35 @@ const textInfix = (args: ReadonlyArray<Expr>): Expr | undefined => {
 		: undefined
 }
 
+/**
+ * A float's identity image (scalar/compute/registry.ts floatBitsOf): NaN's one form (canonicalNanBits) where the float
+ * is NaN, which `=` holds equal to every NaN, else its IEEE 754 bits, `('x' || encode(float8send(x), 'hex'))::bit(64)`
+ * read as a signed bigint, float4send, bit(32) and integer for a real. NULL reaches the ELSE, so the image is NULL there.
+ */
+const floatBitsForm = (bits: FloatWidth, args: ReadonlyArray<Expr>): Expr | undefined => {
+	const [x] = args
+	if (args.length !== 1 || x === undefined) {
+		return undefined
+	}
+	const float = bits === 64 ? types.double : types.real
+	const integer = bits === 64 ? types.bigint : types.integer
+	const encoded = call("encode", [
+		call(bits === 64 ? "float8send" : "float4send", [x]),
+		lit.text("hex", types.text)
+	])
+	return {
+		kind: "case",
+		operand: undefined,
+		whens: [
+			{
+				when: binary("=", x, lit.float(Number.NaN, float)),
+				result: lit.int(canonicalNanBits[bits], integer)
+			}
+		],
+		else: cast(cast(binary("||", lit.text("x", types.text), encoded), types.bit(bits)), integer)
+	}
+}
+
 /** U+10000 to U+10FFFF, the supplementary planes, as an ARE's bracket expression: UTF-16's pairs. */
 const supplementaryClass = "[\\U00010000-\\U0010FFFF]"
 
@@ -329,6 +359,8 @@ const registryForm = (
 			return textSuffix(args)
 		case "infixAt":
 			return textInfix(args)
+		case "floatBits":
+			return floatBitsForm(sql.bits, args)
 		case "collapse":
 			return collapseText(args)
 		case "lowerAscii":

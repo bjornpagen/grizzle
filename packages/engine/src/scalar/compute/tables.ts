@@ -88,6 +88,23 @@ export const spanWidthSql: SpanWidthSql = Object.freeze({
 	bigint: "exact integer",
 	date: "integer"
 })
+/**
+ * The result of Compute.floatBits over each float type, a float's identity image (registry.ts floatBitsOf): its IEEE
+ * 754 bits as a signed integer of their width, a double's 64 bits a bigint and a real's 32 an integer.
+ */
+export interface FloatBitsSql {
+	readonly real: "integer"
+	readonly "double precision": "bigint"
+}
+
+export const floatBitsSql: FloatBitsSql = Object.freeze({
+	real: "integer",
+	"double precision": "bigint"
+})
+
+/** The float SQL types, which Compute.floatBits reads. */
+export type FloatSql = keyof FloatBitsSql
+
 /** The SQL types whose values a narrowing cast into an integer or money needs proved finite: numeric and the floats. */
 export type InexactSql = "numeric" | "real" | "double precision"
 

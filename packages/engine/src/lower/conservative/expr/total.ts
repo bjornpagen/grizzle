@@ -238,6 +238,7 @@ const exactIn = (
 		case "parseDouble":
 		case "parseDecimal":
 		case "sha256":
+		case "floatBits":
 		case "lower":
 		case "upper":
 		case "cosineDistance":

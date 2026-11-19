@@ -30,6 +30,8 @@ import {
 	arithmeticSql,
 	divisorSql,
 	type EndpointSql,
+	floatBitsSql,
+	type FloatSql,
 	type IntegralSql,
 	type NumericSql,
 	type PlainHost,
@@ -1113,6 +1115,7 @@ const checks = Object.freeze({
 	parseDouble: unary("parseDouble"),
 	parseDecimal: unary("parseDecimal"),
 	sha256: unary("sha256"),
+	floatBits: unary("floatBits"),
 	cosineDistance: binary("cosineDistance", "literal"),
 	union: setOperation("union"),
 	intersection: setOperation("intersection"),
@@ -1264,6 +1267,8 @@ export const compute = Object.freeze({
 	parseDouble: (x: unknown) => plain(checks.parseDouble(x, []), "double precision"),
 	parseDecimal: (x: unknown) => plain(checks.parseDecimal(x, []), "numeric"),
 	sha256: (x: unknown) => plain(checks.sha256(x, []), "text"),
+	floatBits: <S extends FloatSql>(x: OfSql<S>) =>
+		plain(checks.floatBits(x, []), floatBitsSql[x.sql]),
 	pattern: admittedPattern,
 	xsdPattern: xsdAdmittedPattern,
 	matches: <T, S extends SqlTag>(subject: TermCarrier<T, S>, pattern: unknown) =>
@@ -1407,6 +1412,7 @@ export const computeCore = Object.freeze({
 	parseDecimal: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.parseDecimal(x, extra)),
 	sha256: (x: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.sha256(x, extra)),
+	floatBits: (x: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.floatBits(x, extra)),
 	pattern: (source: unknown): Pattern =>
 		typeof source === "string"
 			? admittedPattern(source)

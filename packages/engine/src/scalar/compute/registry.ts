@@ -144,6 +144,7 @@ type SqlForm =
 				| "lowerAscii"
 				| "utf16Length"
 	  }
+	| { readonly kind: "floatBits"; readonly bits: 32 | 64 }
 	| { readonly kind: "library"; readonly fn: LibraryFn }
 
 /**
@@ -232,6 +233,7 @@ export type NativeFn =
 	| "parseDouble"
 	| "parseDecimal"
 	| "sha256"
+	| "floatBits"
 	| "cosineDistance"
 	| "eq"
 	| "ne"
@@ -310,6 +312,7 @@ export const computeSpecs: { readonly [F in ComputeFn]: ComputeSpec } = deepFree
 	parseDouble: { arity: 1, check: true, nodes: ["parseDouble"] },
 	parseDecimal: { arity: 1, check: true, nodes: ["parseDecimal"] },
 	sha256: { arity: 1, check: true, nodes: ["sha256"] },
+	floatBits: { arity: 1, check: true, nodes: ["floatBits"] },
 	cosineDistance: { arity: 2, check: false, nodes: ["cosineDistance"] },
 	union: { arity: 2, check: true, nodes: ["union"] },
 	intersection: { arity: 2, check: true, nodes: ["intersection"] },
@@ -935,6 +938,29 @@ const bytesDigest: FixedOverload = frozen({
 	reads: "value"
 })
 
+/**
+ * A float's identity image: the bits of its IEEE 754 encoding, most significant first, read as a signed integer of
+ * their width, a double's as bigint and a real's as integer, NaN's in one form, the quiet NaN of no payload
+ * (canonicalNanBits), as Java's doubleToLongBits and floatToIntBits read them: `CASE WHEN x = 'NaN' THEN <NaN's bits>
+ * ELSE ('x' || encode(float8send(x), 'hex'))::bit(64)::bigint END`, float4send and bit(32) for a real
+ * (lower/conservative/expr/ops.ts floatBitsForm). Two floats have one image exactly when they are one value: -0 and 0
+ * differ, every NaN is one, and each infinity is its own, where `=` holds -0 equal to 0; so a key over the image holds
+ * both zeros, and a read by `=` on the float finds either. Every function it reads is IMMUTABLE and defined on every
+ * float, and the text-to-bit(n) input reads exactly the hex digits float8send's bytes write, so the image stands in a
+ * generated column, a check and a query.
+ */
+const floatBitsOf = (carrier: "float4" | "float8"): FixedOverload =>
+	frozen({
+		fn: "floatBits",
+		operands: positional([carrier]),
+		result: carrier === "float8" ? "int8" : "int4",
+		sql: { kind: "floatBits", bits: carrier === "float8" ? 64 : 32 },
+		catalog: { kind: "construct", uses: [] },
+		volatility: "immutable",
+		totality: total,
+		reads: "value"
+	})
+
 /** A boolean connective over any number of boolean operands. */
 const connective = (fn: "and" | "or"): FixedOverload =>
 	frozen({
@@ -999,7 +1025,8 @@ const endpoint = (
  * - a closed id's operator: smallint's, its code's, prefixed "code:", as "code:int2eq";
  * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not", a set's
  *   "difference:bits", "subset:bits" and "disjoint:bits", a text's "endsWith:text", "infixAt:text" and its ASCII case fold's
- *   "lowerAscii:text", a reference's resolution "resolveReference:text", and a bytes value's "sha256:bytea";
+ *   "lowerAscii:text", a reference's resolution "resolveReference:text", a bytes value's "sha256:bytea", and a
+ *   float's identity image "floatBits:float8" and "floatBits:float4";
  * - a range-polymorphic operator or function, one catalog object for both range carriers: its code and the carrier
  *   (ir/expr.ts rangeOp), listed by both in spanOverloads;
  * - a cast: "cast:<source>-><target>" over its carriers, as castOverloads lists it.
@@ -1225,6 +1252,8 @@ const catalogOverloads = {
 	"parseDouble:text": textParseDouble,
 	"parseDecimal:text": textParseDecimal,
 	"sha256:bytea": bytesDigest,
+	"floatBits:float8": floatBitsOf("float8"),
+	"floatBits:float4": floatBitsOf("float4"),
 	"translate(text,text,text)": fnCall(
 		"translate",
 		"translate",

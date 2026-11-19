@@ -4,6 +4,8 @@ import type {
 	ArithmeticSql,
 	DivisorSql,
 	EndpointSql,
+	FloatBitsSql,
+	FloatSql,
 	InexactSql,
 	IntegralSql,
 	NumericSql,
@@ -1225,6 +1227,20 @@ export interface ComputeApi {
 	sha256<A extends TermBase | FirstValue, X, PA, OA>(
 		x: A & WholeTerm<A> & InputTerm<X, PA, OA, "bytea">
 	): Admitted<TakesFirst<A, "bytea">, Term<string, PA, ComputedOrigin<OA>, "text">>
+	/**
+	 * A float's identity image: the bits of its IEEE 754 encoding, most significant first, as a signed integer of their
+	 * width, a double's a bigint and a real's an integer, every NaN in one form (0x7ff8000000000000 and 0x7fc00000), as
+	 * Java's doubleToLongBits and floatToIntBits read them. Two floats have one image exactly when they are one value:
+	 * -0 and 0 differ, where Compute.eq holds them equal. IMMUTABLE and defined on every float, it stands in row checks,
+	 * selections, generated fields and queries, so a key over a float by identity is a key over its image:
+	 * `generated(pg.bigint, Compute.floatBits(row.value))` in the key, the float kept beside it for reads by `=`.
+	 */
+	floatBits<A extends TermBase | FirstValue, X, PA, OA, S extends FloatSql>(
+		x: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
+	): Admitted<
+		TakesFirst<A, FloatSql>,
+		Term<PlainHost[FloatBitsSql[S]], PA, ComputedOrigin<OA>, FloatBitsSql[S]>
+	>
 	/**
 	 * A pattern for Compute.matches: `source` in grizzle's grammar under the flags "u", which the grammar check reads at
 	 * the type level as str.regex's does, admitted once, here, inside PostgreSQL's regex compile space and matched by

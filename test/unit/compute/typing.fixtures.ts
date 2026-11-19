@@ -201,6 +201,7 @@ const signatures: { readonly [F in ComputeFn]: Signature } = {
 	parseDouble: { result: "float", args: ["text"] },
 	parseDecimal: { result: "numeric", args: ["text"] },
 	sha256: { result: "text", args: ["bytes"] },
+	floatBits: { result: "integer", args: ["float"] },
 	cosineDistance: { result: "float", args: ["other", "other"] },
 	union: { result: "bits", args: ["bits", "bits"] },
 	intersection: { result: "bits", args: ["bits", "bits"] },

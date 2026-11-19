@@ -27,7 +27,7 @@ import {
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import type { CastValue, HostCast } from "#compiler/scalar/compute/cast.ts"
-import { totalFloat } from "#compiler/scalar/compute/float.ts"
+import { floatBits, totalFloat } from "#compiler/scalar/compute/float.ts"
 import { hostOfLiteral, irLiteral } from "#compiler/scalar/compute/literal.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
 import {
@@ -664,6 +664,15 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 			return (args) => Result.ok(resolveReference(hostOf("text", a(args)), hostOf("text", b(args))))
 		case "sha256":
 			return (args) => Result.ok(hostOf("bytes", a(args)).digest)
+		case "floatBits": {
+			const carrier = baseOf(defined(argTypes[0], "floatBits's operand")).carrier
+			const width = carrier === "float4" ? 32 : 64
+			const host = integerHost(type)
+			return (args) =>
+				Result.ok(
+					host(floatBits(hostOf(carrier === "float4" ? "float4" : "float8", a(args)), width))
+				)
+		}
 		case "replace":
 		case "btrim":
 			return refused(`${fn} alone, which only collapse's SQL reads`)
@@ -902,6 +911,7 @@ const operation = (
 		case "startsWith":
 		case "sub":
 		case "subset":
+		case "floatBits":
 		case "substring":
 		case "infixAt":
 		case "translate":

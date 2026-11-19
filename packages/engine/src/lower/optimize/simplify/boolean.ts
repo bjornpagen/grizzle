@@ -231,6 +231,7 @@ const foldAs = <E>(expr: ScalarExpr, column: ColumnValue, rebuild: Rebuild<E>): 
 		case "parseDouble":
 		case "parseDecimal":
 		case "sha256":
+		case "floatBits":
 		case "cosineDistance":
 		case "union":
 		case "intersection":

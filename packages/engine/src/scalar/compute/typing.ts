@@ -2787,6 +2787,32 @@ class Typing<R extends Refs> {
 	}
 
 	/**
+	 * Compute.floatBits(x): a float's identity image (registry.ts floatBitsOf), the bits of its IEEE 754 encoding as a
+	 * signed integer of their width, a double's a bigint and a real's an integer, NaN's in one form: a total node, of
+	 * every value of its integer type, which a key, a reference and an arbiter read natively.
+	 */
+	floatBits(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
+		const x = this.term(subjectDesc, at)
+		const carrier = baseOf(x.actual).carrier
+		if (carrier !== "float4" && carrier !== "float8") {
+			return stop(
+				"MalformedDescription",
+				at,
+				`a real or double precision term for floatBits, not ${typeLabel(x.nominal)}`
+			)
+		}
+		const type = plainType(carrier === "float8" ? "int8" : "int4")
+		return this.native(
+			this.overload("floatBits", [x.actual], at),
+			[x],
+			type,
+			boundsOfType(type),
+			at,
+			"Compute.floatBits"
+		)
+	}
+
+	/**
 	 * Compute.sha256(x): the SHA-256 digest of a bytes value as 64 lowercase hex digits, `encode(sha256(x), 'hex')`, the
 	 * one operation that reads a bytes value, which it reads whole, as a head does (whole): no operation yields bytes, so
 	 * its operand is a bytes reference, a row's field or a variable. The node computes text; the term is text of
@@ -3929,6 +3955,8 @@ class Typing<R extends Refs> {
 				return this.parseDecimal(arg(0), here)
 			case "sha256":
 				return this.sha256(arg(0), here)
+			case "floatBits":
+				return this.floatBits(arg(0), here)
 			case "cosineDistance": {
 				const a = this.term(arg(0), here)
 				const b = this.operand(arg(1), a, "compare", here)

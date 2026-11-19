@@ -159,6 +159,7 @@ export const lowerVectorOp = (
 		case "parseDouble":
 		case "parseDecimal":
 		case "sha256":
+		case "floatBits":
 		case "utf16Length":
 		case "library":
 			return refuseAt("UnsupportedOperation", at, `the vector operation ${describeOp(expr.op)}`)

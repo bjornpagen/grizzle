@@ -2,6 +2,7 @@ import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { codePoints, compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Result, String as Str } from "effect"
 import { floatSpecials } from "#compiler/core/canonical.ts"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
@@ -133,6 +134,7 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "right":
 		case "substring":
 		case "infixAt":
+		case "floatBits":
 		case "matches":
 		case "translate":
 		case "lowerAscii":
@@ -364,6 +366,26 @@ const substring = (text: string, start: bigint, count: bigint): CatalogResult =>
 		return position >= start && position < start + count
 	})
 	return Result.succeed(Arr.join(kept, ""))
+}
+
+/**
+ * A float's identity image as IEEE 754 defines its encoding, read another way than the engine's DataView: the value's
+ * own bits in memory, a Float64Array (Float32Array) viewed as a BigInt64Array (Int32Array), which holds the same
+ * encoding whatever the platform's byte order; every NaN the quiet NaN of sign 0 and no payload, its exponent all ones
+ * and the fraction's top bit alone set.
+ */
+const identityBits = (value: number, width: 32 | 64): bigint => {
+	const fractionBits = width === 64 ? 52n : 23n
+	const exponentOnes = width === 64 ? 0x7ffn : 0xffn
+	if (Number.isNaN(value)) {
+		return (exponentOnes << fractionBits) | (1n << (fractionBits - 1n))
+	}
+	if (width === 64) {
+		const memory = new Float64Array([value])
+		return defined(new BigInt64Array(memory.buffer)[0], "a double's bits")
+	}
+	const memory = new Float32Array([value])
+	return BigInt(defined(new Int32Array(memory.buffer)[0], "a real's bits"))
 }
 
 const lastCharacters = (text: string, n: bigint): string => {
@@ -776,6 +798,10 @@ const catalogApply = (
 				: mismatch(op)
 		case "right":
 			return isString(a) && isBigint(b) ? Result.succeed(lastCharacters(a, b)) : mismatch(op)
+		case "floatBits":
+			return typeof a === "number"
+				? Result.succeed(identityBits(a, firstOperand(op.operands) === "float4" ? 32 : 64))
+				: mismatch(op)
 		case "substring": {
 			const count = args[2]
 			return isString(a) && isBigint(b) && isBigint(count) ? substring(a, b, count) : mismatch(op)
