@@ -15,6 +15,7 @@ import type { ColumnKey, FamilyId } from "#compiler/ir/law.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
+import { type ColumnIndex, columnIndex } from "#compiler/runtime/write/cells.ts"
 import {
 	closedLeaf,
 	closedNamed,
@@ -165,11 +166,14 @@ export interface Binding {
 	readonly witness: WitnessData
 }
 
-/** A binding's closures, built once from its data under the installation's codes: the host's evaluator, and the filler
- * the write's nested walks and fresh fills fill by. */
+/** A binding's closures, built once from its data under the installation's codes: the host's evaluator, the filler the
+ * write's nested walks and fresh fills fill by, and the column index every row of the write is laid out by. */
 export interface PreparedBinding {
 	readonly evaluate: HostEvaluator
 	readonly fill: Filler
+	/** Each relation's columns, at the positions a row of it holds them (cells.ts ColumnIndex), which its filler, its
+	 * binds and its preview share. */
+	readonly columns: ColumnIndex
 	/** The slot groups as normalization runs them (normalize.ts bindGroup). */
 	readonly groups: ReadonlyArray<BindGroup>
 	/** The witness of a refused statement (witness.ts prepareWitness). */
@@ -191,9 +195,11 @@ export const prepareBinding = (
 		closedLeaf(closedNamed(binding.evaluation.closed, closed)),
 		patterns
 	)
+	const columns = columnIndex()
 	return Object.freeze({
 		evaluate,
-		fill: filler(binding.fill, codes, evaluate),
+		fill: filler(binding.fill, codes, evaluate, columns),
+		columns,
 		groups: binding.groups.map((g) => bindGroup(g, codes)),
 		witness: prepareWitness(binding.witness, binding.groups, codes, closed, patterns)
 	})

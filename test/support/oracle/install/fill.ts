@@ -24,10 +24,10 @@ import {
 	type LawRelation,
 	type RelationInfo,
 	type TableRelation,
-	type ColumnKey,
 	columnKeyOf
 } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { type Cells, columnIndex } from "#compiler/runtime/write/cells.ts"
 import {
 	closedLeaf,
 	type FilledNode,
@@ -39,6 +39,7 @@ import { admittedText, parseValue } from "#compiler/scalar/values/identity.ts"
 import { builtinType } from "#compiler/sql/build.ts"
 import { rowLayout } from "#compiler/write/family/statements.ts"
 import { hostFillOf } from "#compiler/write/program/decide.ts"
+import { cellsOf } from "#test/support/cells.ts"
 import { Identities, type Interned } from "#test/support/kernel/identity.ts"
 import {
 	type ColumnType,
@@ -222,6 +223,8 @@ export const familyRows = (
 		groups.set(f, byOwner)
 	}
 	const placed = new Set<Admitted>()
+	/** The fill's column index, which every node it fills is laid out by. */
+	const index = columnIndex()
 	/** A fact's nesting: its own written fields, but the group its family supplies, and every family it owns. */
 	const nodeOf = (
 		relation: TableRelation,
@@ -233,7 +236,9 @@ export const familyRows = (
 		)
 		return {
 			relation: relation.name,
-			values: new Map(
+			values: cellsOf(
+				index,
+				relation.name,
 				Arr.flatMap(writtenFields(relation), (f) =>
 					supplied.has(f.name) ? [] : [[columnKeyOf(f.name), fact.values.get(f.name)] as const]
 				)
@@ -257,9 +262,10 @@ export const familyRows = (
 			)
 		),
 		codes,
-		hostEvaluator(closedLeaf(closed), patterns)
+		hostEvaluator(closedLeaf(closed), patterns),
+		index
 	)
-	const rows = new Map<string, Array<ReadonlyMap<ColumnKey, unknown>>>()
+	const rows = new Map<string, Array<Cells>>()
 	const collect = (node: FilledNode): void => {
 		rows.set(node.relation, [...(rows.get(node.relation) ?? []), node.values])
 		for (const g of node.families) {
@@ -315,7 +321,7 @@ export const familyRows = (
 			columns,
 			rows: Arr.map(rows.get(name) ?? [], (values) =>
 				Arr.map(laid, (c) => {
-					const value = values.get(c.key)
+					const value = values[index(name).at(c.key)]
 					if (value === undefined) {
 						throw new Error(`the fill leaves ${name}'s ${c.key} without a value`)
 					}

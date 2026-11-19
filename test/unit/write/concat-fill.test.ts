@@ -19,6 +19,7 @@ import { StoredRelationName } from "#compiler/core/ids.ts"
 import { columnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { HostNode } from "#compiler/runtime/write/fill.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { cellAt, cellsOf } from "#test/support/cells.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import { caseGen, type FillFeature, fills } from "#test/unit/write/concat-fill.fixtures.ts"
 
@@ -34,16 +35,16 @@ export const theHostFillOfAConcatFoldDrawsTheNaiveLeftFoldOfItsSlotsTexts = prop
 		] satisfies ReadonlyArray<Reached<FillFeature>>,
 		check: (_, k: Case<FillFeature>) => (c) =>
 			Effect.sync(() => {
-				const { family, fill } = defined(fills[c.selected ? 1 : 0])
+				const { family, columns, fill } = defined(fills[c.selected ? 1 : 0])
 				const nesting: HostNode = {
 					relation: StoredRelationName("Owner"),
-					values: new Map([[columnKeyOf("id"), uuidOf(0)]]),
+					values: cellsOf(columns, "Owner", [[columnKeyOf("id"), uuidOf(0)]]),
 					families: [
 						{
 							family: { owner: "Owner", count: "n" },
 							members: Arr.map(c.members, (m, i) => ({
 								relation: StoredRelationName("Member"),
-								values: new Map<ReturnType<typeof columnKeyOf>, unknown>([
+								values: cellsOf(columns, "Member", [
 									[columnKeyOf("id"), uuidOf(i + 1)],
 									[columnKeyOf("piece"), m.piece],
 									[columnKeyOf("flag"), m.flag]
@@ -61,8 +62,12 @@ export const theHostFillOfAConcatFoldDrawsTheNaiveLeftFoldOfItsSlotsTexts = prop
 					const row = defined(rows[slot], `slot ${slot}`)
 					const stepped = !c.selected || m.flag
 					const after = stepped ? `${running}${m.piece}` : running
-					assert.equal(row.values.get(columnKey(plane.before)), running, `slot ${slot}'s before`)
-					assert.equal(row.values.get(columnKey(plane.after)), after, `slot ${slot}'s after`)
+					assert.equal(
+						cellAt(columns, row, columnKey(plane.before)),
+						running,
+						`slot ${slot}'s before`
+					)
+					assert.equal(cellAt(columns, row, columnKey(plane.after)), after, `slot ${slot}'s after`)
 					if (!stepped) {
 						k.note("a member stepped over")
 					}
@@ -74,7 +79,7 @@ export const theHostFillOfAConcatFoldDrawsTheNaiveLeftFoldOfItsSlotsTexts = prop
 				if (c.members.length === 0) {
 					k.note("an empty family")
 				}
-				assert.equal(filled.values.get(columnKeyOf("joined")), running, "the owner's end")
+				assert.equal(cellAt(columns, filled, columnKeyOf("joined")), running, "the owner's end")
 			}),
 		oracle: { kind: "second-implementation", name: "a naive left fold of the slots' texts" },
 		box: "families of up to three members, pieces '', 'a' and U+1F600, each selected or not, under a selecting fold and one that does not select",

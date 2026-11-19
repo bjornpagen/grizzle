@@ -26,6 +26,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { columnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { cellAt } from "#test/support/cells.ts"
 import { folded, identityOf } from "#test/support/families/fold.ts"
 import {
 	caseGen,
@@ -62,7 +63,7 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 				}
 				note.note(`monoid ${c.shape.monoid}`)
 				const filled = succeeded(
-					fills.fill(nestingOf(c), { kind: "top" }),
+					fills.fill(nestingOf(c, fills.columns), { kind: "top" }),
 					"a family of admitted values fills"
 				)
 				const m = foldMonoid(c.shape)
@@ -79,29 +80,29 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 				const members = defined(filled.families[0], "the owner's family").members
 				assert.equal(members.length, c.members.length, "every member is filled")
 				assert.equal(
-					filled.values.get(columnKeyOf("n")),
+					cellAt(fills.columns, filled, columnKeyOf("n")),
 					BigInt(c.members.length),
 					"the count is drawn"
 				)
 				for (const [slot, row] of members.entries()) {
 					const reference = defined(expected.slots[slot], "a reference slot")
 					assert.deepEqual(
-						planesAt(row, befores),
+						planesAt(fills.columns, row, befores),
 						expectedAt(c.shape.carrier, reference.before),
 						`slot ${slot}'s before`
 					)
 					assert.deepEqual(
-						planesAt(row, afters),
+						planesAt(fills.columns, row, afters),
 						expectedAt(c.shape.carrier, reference.after),
 						`slot ${slot}'s after`
 					)
 					assert.equal(
-						row.values.get(columnKey(fills.family.shape.index)),
+						cellAt(fills.columns, row, columnKey(fills.family.shape.index)),
 						BigInt(slot),
 						"the index is the slot"
 					)
 					assert.equal(
-						row.values.get(columnKeyOf(fills.family.copy)),
+						cellAt(fills.columns, row, columnKeyOf(fills.family.copy)),
 						BigInt(c.members.length),
 						"every member copies its owner's count"
 					)
@@ -113,7 +114,7 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 					}
 				}
 				assert.deepEqual(
-					planesAt(filled, ends),
+					planesAt(fills.columns, filled, ends),
 					expectedAt(c.shape.carrier, expected.end),
 					"the end is the last after"
 				)
@@ -122,13 +123,13 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 				if (first === undefined) {
 					note.note("an empty family")
 					assert.deepEqual(
-						planesAt(filled, ends),
+						planesAt(fills.columns, filled, ends),
 						expectedAt(c.shape.carrier, identity),
 						"an empty family ends at the identity"
 					)
 				} else {
 					assert.deepEqual(
-						planesAt(first, befores),
+						planesAt(fills.columns, first, befores),
 						expectedAt(c.shape.carrier, identity),
 						"the first before is the identity"
 					)
@@ -158,7 +159,7 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 				original:
 					'\t\tcase "predecessor":\n\t\t\treturn row.predecessor === undefined\n\t\t\t\t? Result.ok(rule.base)\n\t\t\t\t: filledBefore(row.predecessor, rule.to, row, evaluate)',
 				replacement:
-					'\t\tcase "predecessor": {\n\t\t\tconst after = row.layout.columns.get(rule.to)?.rule\n\t\t\tif (row.predecessor === undefined && after?.kind === "after" && after.fold.monoid === "max" && after.x !== undefined) {\n\t\t\t\treturn valueOf(row, after.x, evaluate)\n\t\t\t}\n\t\t\treturn row.predecessor === undefined\n\t\t\t\t? Result.ok(rule.base)\n\t\t\t\t: filledBefore(row.predecessor, rule.to, row, evaluate)\n\t\t}',
+					'\t\tcase "predecessor": {\n\t\t\tconst after = row.layout.byPosition.get(rule.to)?.rule\n\t\t\tif (row.predecessor === undefined && after?.kind === "after" && after.fold.monoid === "max" && after.x !== undefined) {\n\t\t\t\treturn valueOf(row, after.x, evaluate)\n\t\t\t}\n\t\t\treturn row.predecessor === undefined\n\t\t\t\t? Result.ok(rule.base)\n\t\t\t\t: filledBefore(row.predecessor, rule.to, row, evaluate)\n\t\t}',
 				why: "A max fold's first before is seeded from the first member's value, not the identity; the fills disagree with the reference fold at slot 0's before."
 			},
 			{

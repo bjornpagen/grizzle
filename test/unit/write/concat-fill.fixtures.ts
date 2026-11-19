@@ -4,6 +4,7 @@ import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
+import { columnIndex } from "#compiler/runtime/write/cells.ts"
 import { closedLeaf, filler, hostEvaluator } from "#compiler/runtime/write/fill.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { hostFillOf } from "#compiler/write/program/decide.ts"
@@ -75,14 +76,17 @@ export const fills = Object.freeze(
 		const desc = schemaOf(selected)
 		const model = succeeded(compiledModel(desc), "a concat fold compiles")
 		const codes = firstCodebook(rostersOf(succeeded(own(decodedSchema(desc)))))
+		const columns = columnIndex()
 		return {
 			family: defined(model.families[0], "the fold's family"),
+			columns,
 			fill: filler(
 				hostFillOf(model.theory.fill, [
 					{ relation: StoredRelationName("Owner"), position: { kind: "top" } }
 				]),
 				codes,
-				hostEvaluator(closedLeaf(new Map()), model.patterns)
+				hostEvaluator(closedLeaf(new Map()), model.patterns),
+				columns
 			)
 		}
 	})

@@ -119,9 +119,9 @@ export const thePreviewsRowsAreTheRowsTheSameInsertAllStoresFreshAndMigratedAndI
 			},
 			{
 				file: "packages/engine/src/runtime/write/bind.ts",
-				original: "\t\t\t\t\t\tof.set(key, { values: new Map(filled), scanned: [] })",
+				original: "\t\t\t\t\t\tof.set(key, { values: filled, scanned: [] })",
 				replacement:
-					'\t\t\t\t\t\tof.set(key, { values: new Map([...filled, ...judgedOf(relation).layout.key.flatMap((c, i) => (c.type.carrier === "code" ? [[c.key, key[i]] as const] : []))]), scanned: [] })',
+					'\t\t\t\t\t\tof.set(key, { values: filled.map((v, at) => { const i = judgedOf(relation).layout.key.findIndex((c) => c.type.carrier === "code" && prepared.columns(relation).at(c.key) === at); return i < 0 ? v : key[i] }), scanned: [] })',
 				why: "The read-out holds a row's closed-id key field at its key's text, the code its statement sends, in place of its handle: Swatch's hue is a code the installation's codes read as another handle, or none."
 			},
 			{
@@ -133,9 +133,9 @@ export const thePreviewsRowsAreTheRowsTheSameInsertAllStoresFreshAndMigratedAndI
 			{
 				file: "packages/engine/src/runtime/write/bind.ts",
 				original:
-					"\t\t\t\t\t\t\tfor (const column of columns) {\n\t\t\t\t\t\t\t\trow.values.set(column.key, member.get(column.key))\n\t\t\t\t\t\t\t}",
+					"\t\t\t\t\t\t\tfor (const at of taken) {\n\t\t\t\t\t\t\t\tmerged[at] = member[at]\n\t\t\t\t\t\t\t}",
 				replacement:
-					"\t\t\t\t\t\t\tfor (const [column, value] of member) {\n\t\t\t\t\t\t\t\trow.values.set(column, value)\n\t\t\t\t\t\t\t}",
+					"\t\t\t\t\t\t\tfor (const [at, value] of member.entries()) {\n\t\t\t\t\t\t\t\tmerged[at] = value\n\t\t\t\t\t\t\t}",
 				why: "The read-out takes every value a fresh fill holds of a counted member, its own fields as the call stated them among them, not only the columns its family draws: a member that owns a counted family has its drawn count clobbered back to 0 (the kept case's R1)."
 			}
 		]

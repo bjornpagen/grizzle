@@ -160,8 +160,8 @@ export const aNestedWriteThroughTheProgramWritesOwnersWithTheirFoldedFamiliesAnd
 		kills: [
 			{
 				file: "packages/engine/src/runtime/write/bind.ts",
-				original: "\t\t\t\tprimary.every((name) => columns.has(columnKeyOf(name))),",
-				replacement: "\t\t\t\t!primary.every((name) => columns.has(columnKeyOf(name))),",
+				original: "\t\t\t\tprimary.every((name) => Object.hasOwn(fact, name)),",
+				replacement: "\t\t\t\t!primary.every((name) => Object.hasOwn(fact, name)),",
 				why: "Operator mutant (negation) at packages/engine/src/runtime/write/bind.ts in ownRows, the arm-swap of its keyed check before LEGACYFLIGHTS: a row that states its whole key is judged unkeyed and one that states part of it keyed; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]

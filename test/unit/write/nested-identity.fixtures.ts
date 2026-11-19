@@ -149,18 +149,16 @@ export const keyedAt = (
 ) => {
 	const { nesting, member } = nestedInput(program)
 	const set = nestedSet()
+	const prepared = prepareBinding(
+		program.binding,
+		program.frontend.codes,
+		closedTableOf(program.frontend),
+		new CompilePatterns()
+	)
 	succeeded(
 		nestedRows(
 			nesting,
-			{
-				fill: prepareBinding(
-					program.binding,
-					program.frontend.codes,
-					closedTableOf(program.frontend),
-					new CompilePatterns()
-				).fill,
-				codes: program.frontend.codes
-			},
+			{ fill: prepared.fill, codes: program.frontend.codes, columns: prepared.columns },
 			member,
 			factsOf(facts, length),
 			set,

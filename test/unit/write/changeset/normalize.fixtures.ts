@@ -362,7 +362,7 @@ export const normalizedOf = (changes: ChangeSetValue) =>
 			result: withinBounds(
 				normalizeChangeSet(
 					prepared.groups,
-					{ fill: prepared.fill, codes: frontend.codes },
+					{ fill: prepared.fill, codes: frontend.codes, columns: prepared.columns },
 					facts,
 					inForce(bindFrame)
 				)

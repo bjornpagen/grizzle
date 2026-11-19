@@ -51,6 +51,7 @@ import {
 	select
 } from "#compiler/public/schema.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
+import { columnIndex } from "#compiler/runtime/write/cells.ts"
 import {
 	closedLeaf,
 	type FilledNode,
@@ -68,6 +69,7 @@ import {
 	seatOf
 } from "#test/pg/fin/installed.ts"
 import { deepEquals } from "#test/support/assert.ts"
+import { cellAt, cellsOf } from "#test/support/cells.ts"
 import { hexOfText, setText } from "#test/support/closed/bit-text.ts"
 import {
 	type FoldFamily,
@@ -1039,16 +1041,18 @@ export const judgedFold = (
 export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldStored, string> => {
 	const { spec } = f
 	const codes = f.seat.installed.names.codes
+	const columns = columnIndex()
 	const built = filler(
 		hostFillOf(f.seat.model.theory.fill, [
 			{ relation: StoredRelationName("Owner"), position: { kind: "top" } }
 		]),
 		codes,
-		hostEvaluator(closedLeaf(new Map()), f.seat.model.patterns)
+		hostEvaluator(closedLeaf(new Map()), f.seat.model.patterns),
+		columns
 	)
 	const node: HostNode = {
 		relation: StoredRelationName("Owner"),
-		values: new Map<ColumnKey, unknown>([
+		values: cellsOf(columns, "Owner", [
 			[columnKeyOf("id"), family.owner],
 			...Option.match(spec.check, {
 				onNone: (): ReadonlyArray<readonly [ColumnKey, unknown]> => [],
@@ -1060,7 +1064,7 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 				family: { owner: "Owner", count: "n" },
 				members: Arr.map(family.members, (m) => ({
 					relation: StoredRelationName("Member"),
-					values: new Map<ColumnKey, unknown>([
+					values: cellsOf(columns, "Member", [
 						[columnKeyOf("member"), m.member],
 						...Option.match(spec.x, {
 							onNone: (): ReadonlyArray<readonly [ColumnKey, unknown]> => [],
@@ -1093,7 +1097,7 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 		return Result.fail("the filled owner holds no folded family")
 	}
 	const host = (row: FilledNode, column: ColumnKey): bigint =>
-		spec.carrier.fromHost(row.values.get(column))
+		spec.carrier.fromHost(cellAt(columns, row, column))
 	const foldPlanes: ReadonlyArray<FoldPlane> = fold.planes
 	const planes = (row: FilledNode, pick: (p: FoldPlane) => ColumnKey): Planes =>
 		nonEmptyPlanes(Arr.map(foldPlanes, (p) => host(row, pick(p))))

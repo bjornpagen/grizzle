@@ -3,14 +3,16 @@
  * (runtime/write/bind.ts freshOwners): the walk drew the owner's counts and ends at its empty families' values, which no
  * member changes, so an owner its stratum appends nothing to keeps its walked row, and the fresh fill runs the filler
  * once for each owner a member names. A bind's fill calls are its nestings' walks and those owners' fills alone, never
- * one per stored or nested row.
+ * one per stored or nested row. And a row is its fill's cells (runtime/write/cells.ts Cells) to the end: a nested row,
+ * a refilled owner's and the row the write inserts of it are the cells a fill call returned, never a copy.
  *
  * The schema: Doc(id) with an ordered family of Node(doc, at), each Node the owner of a counted family of Attr(doc, at,
  * name), its count `attrs`. A case draws one to three docs, each nesting one to four nodes, and each node zero to three
  * attributes, inserted beside the docs in one ChangeSet, so every node is a nested owner whose group is fresh. The
- * filler the bind runs is the write's own, each call counted. The oracle is the rule: the calls are one per doc's walk
- * and one per node that holds an attribute, no call fills a row whose every family is empty, and every node's `attrs`
- * is its attributes' count, 0 where it holds none.
+ * filler the bind runs is the write's own, each call counted and each row it returns kept. The oracle is the rule: the
+ * calls are one per doc's walk and one per node that holds an attribute, no call fills a row whose every family is
+ * empty, every node's `attrs` is its attributes' count, 0 where it holds none, and every node's inserted row holds the
+ * very cells a fill call returned for it.
  *
  * Features: a node holding no attribute beside one holding some, every node holding some, none holding any.
  */
@@ -26,7 +28,8 @@ import { columnKeyOf } from "#compiler/ir/law.ts"
 import { drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { counted, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
-import type { Filler } from "#compiler/runtime/write/fill.ts"
+import type { Cells } from "#compiler/runtime/write/cells.ts"
+import type { FilledNode, Filler } from "#compiler/runtime/write/fill.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -98,9 +101,23 @@ export const aBindFillsANestedOwnerAgainOnlyWhereItsStratumAppendsAMemberToOneOf
 				const flight = flightOf(program, program.frontend.codes)
 				/** Each fill call's families' member counts. */
 				const calls: Array<ReadonlyArray<number>> = []
+				/** The cells of every row a fill call returned, its root's and each member's. */
+				const returned = new Set<Cells>()
+				const keep = (row: FilledNode): void => {
+					returned.add(row.values)
+					for (const g of row.families) {
+						for (const m of g.members) {
+							keep(m)
+						}
+					}
+				}
 				const fill: Filler = (root, position) => {
 					calls.push(Arr.map(root.families, (g) => g.members.length))
-					return flight.prepared.fill(root, position)
+					const filled = flight.prepared.fill(root, position)
+					if (filled.ok) {
+						keep(filled.value)
+					}
+					return filled
 				}
 				const bound = succeeded(
 					withinMessage(
@@ -135,7 +152,9 @@ export const aBindFillsANestedOwnerAgainOnlyWhereItsStratumAppendsAMemberToOneOf
 				)
 				assert.deepEqual(
 					Arr.sort(
-						Arr.map(stored, (row) => String(row.values.get(columnKeyOf("attrs")))),
+						Arr.map(stored, (row) =>
+							String(row.values[flight.prepared.columns("Node").at(columnKeyOf("attrs"))])
+						),
 						Order.String
 					),
 					Arr.sort(
@@ -143,6 +162,10 @@ export const aBindFillsANestedOwnerAgainOnlyWhereItsStratumAppendsAMemberToOneOf
 						Order.String
 					),
 					"every node's attrs is its attributes' count"
+				)
+				assert.ok(
+					Arr.every(stored, (row) => returned.has(row.values)),
+					"every node's inserted row is the cells a fill call returned, never a copy"
 				)
 			}),
 		oracle: {
@@ -156,6 +179,24 @@ export const aBindFillsANestedOwnerAgainOnlyWhereItsStratumAppendsAMemberToOneOf
 				original: "\t\t\t\t\tif (inputs.every((i) => i.members.length === 0)) {",
 				replacement: "\t\t\t\t\tif (inputs.length < 0) {",
 				why: "Every nested owner is filled again, its counted families empty or not, one fill of each of its columns for each row of the nesting."
+			},
+			{
+				file: "packages/engine/src/runtime/write/nesting.ts",
+				original: "\tconst values = row.values\n",
+				replacement: "\tconst values = row.values.slice()\n",
+				why: "A nested row copies its walk's cells, one copy of every row a nesting fills, where the row is the walk's own."
+			},
+			{
+				file: "packages/engine/src/runtime/write/bind.ts",
+				original: "\t\t\t\t\t\tvalues: drawn,\n",
+				replacement: "\t\t\t\t\t\tvalues: drawn.slice(),\n",
+				why: "A refilled nested owner copies its refill's cells, one copy of every owner a member names, where the row is the refill's own."
+			},
+			{
+				file: "packages/engine/src/runtime/write/bind.ts",
+				original: "\t\t\t\t\t\tof.set(key, { values: filled, scanned: [] })",
+				replacement: "\t\t\t\t\t\tof.set(key, { values: filled.slice(), scanned: [] })",
+				why: "The rows the write inserts copy each row's cells from its one source, one copy of every inserted row, where only a row two sources give is built anew."
 			}
 		]
 	})

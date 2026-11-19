@@ -8,6 +8,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { FieldDesc, LiteralDesc, MonoidName } from "#compiler/ir/desc.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import { columnKey, columnKeyOf } from "#compiler/ir/law.ts"
+import { type ColumnIndex, columnIndex } from "#compiler/runtime/write/cells.ts"
 import {
 	closedLeaf,
 	type FilledNode,
@@ -22,6 +23,7 @@ import { Vector } from "#compiler/scalar/values/vector.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { hostFillOf } from "#compiler/write/program/decide.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { cellAt, cellsOf } from "#test/support/cells.ts"
 import { type FoldMonoid, identityOf, type Planes } from "#test/support/families/fold.ts"
 import {
 	closed,
@@ -278,10 +280,12 @@ const schemaOf = (s: Shape): SchemaDesc => {
 	}
 }
 
-/** A shape's compiled fill: its family and its filler, built once; none for a fold its typing refuses. */
+/** A shape's compiled fill: its family, its filler, and the column index its filler lays rows out by, built once; none
+ * for a fold its typing refuses. */
 export interface Compiled {
 	readonly family: Family
 	readonly fill: Filler
+	readonly columns: ColumnIndex
 }
 
 /** A shape's key: its monoid, carrier, order, accumulators and selection, which decide its fill. */
@@ -297,14 +301,16 @@ const fillOf = (s: Shape): Compiled | undefined => {
 	}
 	const codes = firstCodebook(rostersOf(succeeded(own(decodedSchema(desc)))))
 	const family = defined(model.value.families[0], "the fold's family")
+	const columns = columnIndex()
 	const fill = filler(
 		hostFillOf(model.value.theory.fill, [
 			{ relation: StoredRelationName("Owner"), position: { kind: "top" } }
 		]),
 		codes,
-		hostEvaluator(closedLeaf(new Map()), model.value.patterns)
+		hostEvaluator(closedLeaf(new Map()), model.value.patterns),
+		columns
 	)
-	return { family, fill }
+	return { family, fill, columns }
 }
 
 /**
@@ -349,15 +355,15 @@ const unitY = succeeded(Vector.from(Float32Array.from([0, 1, 0]), 3), "a unit ve
  * The owner's nesting: its id, and its members, each its id, its value and its flag, and under the vector selection its
  * two vectors, which differ exactly where its flag is true.
  */
-export const nestingOf = (c: FoldCase): HostNode => ({
+export const nestingOf = (c: FoldCase, columns: ColumnIndex): HostNode => ({
 	relation: StoredRelationName("Owner"),
-	values: new Map([[columnKeyOf("id"), uuidOf(0)]]),
+	values: cellsOf(columns, "Owner", [[columnKeyOf("id"), uuidOf(0)]]),
 	families: [
 		{
 			family: { owner: "Owner", count: "n" },
 			members: Arr.map(c.members, (m, i) => ({
 				relation: StoredRelationName("Member"),
-				values: new Map<ReturnType<typeof columnKeyOf>, unknown>([
+				values: cellsOf(columns, "Member", [
 					[columnKeyOf("id"), uuidOf(i + 1)],
 					[columnKeyOf("flag"), m.flag],
 					...(c.shape.selection === "vectors"
@@ -384,11 +390,12 @@ export type FoldFeature =
 	| "hidden accumulators"
 	| "a counted family"
 
-/** A row's planes at a fold's columns, each its host value's text. */
+/** A row's planes at a fold's columns, each its host value's text, under the fill's column index. */
 export const planesAt = (
+	index: ColumnIndex,
 	row: FilledNode,
 	columns: ReadonlyArray<ReturnType<typeof columnKey>>
-): ReadonlyArray<string> => Arr.map(columns, (k) => textOf(row.values.get(k)))
+): ReadonlyArray<string> => Arr.map(columns, (k) => textOf(cellAt(index, row, k)))
 
 /** The reference's planes, exact integers, each as its carrier's host value's text. */
 export const expectedAt = (carrier: Carrier, planes: Planes): ReadonlyArray<string> =>

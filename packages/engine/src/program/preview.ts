@@ -46,11 +46,13 @@ import { changeSetOver, parseChangeSet } from "#compiler/write/changeset/value.t
 import { flightOf } from "#compiler/write/program/served.ts"
 
 /**
- * A field of a written relation as a preview reads it: its name, and how the write fills it (ir/law.ts FieldWriting),
- * one PostgreSQL does not generate from the row, whose value is the row's evaluation's (rowEvaluator).
+ * A field of a written relation as a preview reads it: its name, its position among its relation's columns, at which an
+ * inserted row's cells hold its value (runtime/write/cells.ts Cells), and how the write fills it (ir/law.ts
+ * FieldWriting), one PostgreSQL does not generate from the row, whose value is the row's evaluation's (rowEvaluator).
  */
 interface PreviewField {
 	readonly name: string
+	readonly at: number
 	readonly writing: Exclude<FieldWriting, { readonly kind: "generated" }>
 }
 
@@ -114,13 +116,13 @@ const storedValue = (
 		case "drawn":
 		case "serial":
 		case "accumulated": {
-			const key = columnKeyOf(field.name)
-			if (!row.values.has(key)) {
+			const value = row.values[field.at]
+			if (value === undefined) {
 				throw defect(
 					`the field ${relation}.${field.name} the write's binding fills on a row it inserts`
 				)
 			}
-			return row.values.get(key)
+			return value
 		}
 	}
 }
@@ -188,14 +190,19 @@ export const previewOver = (
 	const { compiled } = entry.value
 	const flight = flightOf(compiled, codes)
 	const names: ReadonlyArray<string> = writableNamesOf(schema)
-	/** Each written relation's fields PostgreSQL does not generate, in declared order. */
+	/** Each written relation's fields PostgreSQL does not generate, in declared order, each at its position. */
 	const fields = new Map(
-		compiled.frontend.written.map((relation) => [
-			relation.name,
-			relation.fields.flatMap((f): ReadonlyArray<PreviewField> =>
-				f.writing.kind === "generated" ? [] : [{ name: f.name, writing: f.writing }]
-			)
-		])
+		compiled.frontend.written.map((relation) => {
+			const columns = flight.prepared.columns(relation.name)
+			return [
+				relation.name,
+				relation.fields.flatMap((f): ReadonlyArray<PreviewField> =>
+					f.writing.kind === "generated"
+						? []
+						: [{ name: f.name, at: columns.at(columnKeyOf(f.name)), writing: f.writing }]
+				)
+			] as const
+		})
 	)
 	/** Each counted family's law as lawsOf lists it, by the family's key (ir/law.ts familyKey). */
 	const familyLaws = new Map(
@@ -265,11 +272,11 @@ export const previewOver = (
 				`${relation}, a writable relation of the schema`
 			)
 			for (const row of of) {
-				out.push(
-					Object.freeze(
-						Object.fromEntries(stored.map((f) => [f.name, storedValue(relation, row, f)] as const))
-					)
-				)
+				const values: Record<string, unknown> = {}
+				for (const f of stored) {
+					values[f.name] = storedValue(relation, row, f)
+				}
+				out.push(Object.freeze(values))
 			}
 		}
 		return Result.ok(
