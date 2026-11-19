@@ -3,8 +3,9 @@
  * value the family holds over the stored rows, after every column's ADD COLUMN under its placeholder default and before
  * any constraint reads them, and VALIDATE then proves it.
  *
- * - **The cases:** a counted family, an ordered one keyed by its member key or by its owner and index, a concat fold
- *   over an ordered family, and a family whose members the migration creates; over one to three owners and the members
+ * - **The cases:** a counted family, an ordered one keyed by its member key or by its owner and index, one whose fold
+ *   steps by each member's copy of the step of the member before it, a concat fold over an ordered family, and a family
+ *   whose members the migration creates; over one to three owners and the members
  *   drawn for them, keyed apart, stored in a drawn order, their steps across negatives, zero and positives, so the
  *   backfill meets empty families, families of one and longer predecessor chains; pieces of text beyond ASCII and empty
  *   ones. A tree is keyed by its drawn start, so its stored rows are a tree already: the folds and copies a migration
@@ -49,6 +50,7 @@ import {
 	type BackfillFeature,
 	backfillGen,
 	endMoves,
+	foldFamilies,
 	judgeBackfill,
 	judgeReversal,
 	kindChanges,
@@ -66,9 +68,7 @@ export const backfillingAFamilyAddedToStoredRowsGeneratedDrawsEveryValueItsRefer
 		needs: {},
 		budget: { runs: 200, steered: 300 },
 		situations: [
-			"counted",
-			"ordered by line",
-			"ordered by order and index",
+			...foldFamilies,
 			"concat",
 			"new members",
 			"an owner with no member",
@@ -101,6 +101,12 @@ export const backfillingAFamilyAddedToStoredRowsGeneratedDrawsEveryValueItsRefer
 				replacement:
 					'\t\t\t\t\t\tlit.int(0n, types.bigint)\n\t\t\t\t\t)\n\t\t\t\t: col("m", index),',
 				why: "A counted family's indices are drawn from one, not zero (row_number() unshifted); the generated backfill's drawn values disagree with the references."
+			},
+			{
+				file: "packages/engine/src/deploy/diff/backfill.ts",
+				original: "\t\t...[...copies].filter((c) => added.has(c))\n",
+				replacement: "\t\t...[...copies].filter(() => false)\n",
+				why: "No family's scan draws a predecessor copy, and no stream does either: an ordered line's copy of the quantity before it keeps its placeholder, which the references state only at the first slot."
 			},
 			{
 				file: "packages/engine/src/deploy/diff/diff.ts",

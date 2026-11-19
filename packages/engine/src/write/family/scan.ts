@@ -750,7 +750,7 @@ interface ScanRead {
  * its own befores, which its running aggregate needs none of. Every other cycle of a row's reads the fill order refuses
  * (analysis/theory/fill.ts), so a set that reads itself reads itself across a member.
  */
-const chainsOf = (spec: Pick<ScanSpec, "member" | "drawn">): ReadonlyArray<Chain> => {
+const chainsOf = (spec: ScanSpec): ReadonlyArray<Chain> => {
 	const byKey = new Map(spec.drawn.map((c) => [columnKey(c.column), c] as const))
 	/** The drawn columns a value of `key` on a member's row reads: itself where drawn, else a generated field's reads'. */
 	const drawnReads = (key: ColumnKey): ReadonlyArray<ColumnKey> => {
@@ -1087,15 +1087,3 @@ const chainLayer = (
 		columns
 	}
 }
-
-/**
- * The drawn columns of `member` among `drawn`, a family's, that its scan draws by recursion (`chainsOf`): what a
- * migration's backfill draws by the family's scan rather than by a copy's stream (deploy/diff/backfill.ts).
- */
-export const chainedColumns = (
-	member: LawRelation,
-	drawn: ReadonlyArray<FillColumn>
-): ReadonlySet<ColumnKey> =>
-	new Set(
-		chainsOf({ member, drawn }).flatMap((chain) => chain.columns.map((c) => columnKey(c.column)))
-	)

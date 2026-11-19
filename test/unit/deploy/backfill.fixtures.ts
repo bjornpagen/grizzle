@@ -312,28 +312,43 @@ const copiesObserved = (c: FoldCase, state: State): ReadonlyArray<string> => {
 	)
 }
 
-/** What the reference fold says a fold family leaves: each owner's members in key order, folded from the identity. */
-const foldExpected = (owners: ReadonlyArray<number>, stored: ReadonlyArray<Stored>) =>
-	foldExpectedBy(owners, stored, (m) => m.key)
+/**
+ * What a fold steps each member by, of the stored members in key order: its own stored step, or its copy of the step of
+ * the member before it, the copy's start, -1, at the first (orderedCase's prevQty).
+ */
+type Stepped = "its own" | "the one before's"
+
+/** What the reference fold says a fold family leaves: each owner's members in key order, folded from the identity by
+ * what `stepped` says each steps by. */
+const foldExpected = (
+	owners: ReadonlyArray<number>,
+	stored: ReadonlyArray<Stored>,
+	stepped: Stepped
+) => foldExpectedBy(owners, stored, (m) => m.key, stepped)
 
 /** foldExpected, each member read by what `readBy` says the field it is read by holds of it. */
 const foldExpectedBy = (
 	owners: ReadonlyArray<number>,
 	stored: ReadonlyArray<Stored>,
-	readBy: (m: Stored) => number
+	readBy: (m: Stored) => number,
+	stepped: Stepped
 ) => {
 	const reference = foldStoredOf(
 		SUM,
-		Arr.map(owners, (owner) => ({
-			owner,
-			members: Arr.map(
-				Arr.sort(
-					Arr.filter(stored, (m) => m.owner === owner),
-					Order.mapInput(Order.Number, (m: Stored) => m.key)
-				),
-				(m) => ({ member: m.key, x: BigInt(m.x), selected: true })
+		Arr.map(owners, (owner) => {
+			const members = Arr.sort(
+				Arr.filter(stored, (m) => m.owner === owner),
+				Order.mapInput(Order.Number, (m: Stored) => m.key)
 			)
-		}))
+			return {
+				owner,
+				members: Arr.map(members, (m, i) => {
+					const before = members[i - 1]
+					const x = stepped === "its own" ? m.x : before === undefined ? -1 : before.x
+					return { member: m.key, x: BigInt(x), selected: true }
+				})
+			}
+		})
 	)
 	const byKey = new Map(Arr.map(stored, (m) => [m.key, m] as const))
 	return {
@@ -357,7 +372,7 @@ const foldExpectedBy = (
 }
 
 /** A fold family's schemas and how its rows are named: the owner relation and its key, the member relation, its
- * key, its group and its step. */
+ * key, its group and its step, the caller's field its stored rows hold, and what its fold steps each member by. */
 interface FoldCase {
 	readonly migration: Migration
 	readonly owner: string
@@ -365,6 +380,7 @@ interface FoldCase {
 	readonly key: string
 	readonly group: string
 	readonly step: string
+	readonly stepped: Stepped
 	readonly copies: ReadonlyArray<CopyCheck>
 }
 
@@ -447,6 +463,7 @@ const countedNames: Omit<FoldCase, "migration"> = {
 	key: "member",
 	group: "g",
 	step: "x",
+	stepped: "its own",
 	copies: [
 		{ on: "member", field: "ownerTag", value: (stored, key) => tagOf(memberOf(stored, key).owner) }
 	]
@@ -496,9 +513,10 @@ const newMembers: Migration = (() => {
 	)
 })()
 
-/** An ordered family of Line per Order, its qty summed into the order's total; keyed as `key` says after the
- * migration, the stored lines keyed by line before it. */
-const orderedCase = (key: LineKey): FoldCase => {
+/** An ordered family of Line per Order, its qty, or each line's copy of the qty of the line before it (prevQty), as
+ * `stepped` says, summed into the order's total; keyed as `key` says after the migration, the stored lines keyed by
+ * line before it. */
+const orderedCase = (key: LineKey, stepped: Stepped): FoldCase => {
 	const name = "Ordering"
 	const Order_ = relation(
 		"Order",
@@ -537,7 +555,12 @@ const orderedCase = (key: LineKey): FoldCase => {
 				[Order_, Line],
 				[
 					family,
-					fold(family, Monoid.sum, on(Line, "order", "qty"), on(Order_, "id", "total")),
+					fold(
+						family,
+						Monoid.sum,
+						on(Line, "order", stepped === "its own" ? "qty" : "prevQty"),
+						on(Order_, "id", "total")
+					),
 					contained(on(Line, "order", "orderTag"), on(Order_, "id", "tag")),
 					contained(on(Line, "order", pred("at"), "prevQty"), on(Line, "order", "at", "qty")),
 					contained(on(Order_, "id", pred("n"), "lastQty"), on(Line, "order", "at", "qty"))
@@ -549,6 +572,7 @@ const orderedCase = (key: LineKey): FoldCase => {
 		key: "line",
 		group: "order",
 		step: "qty",
+		stepped,
 		copies: [
 			{
 				on: "member",
@@ -709,9 +733,11 @@ const assertBackfillOrder = (m: Migration, columns: ReadonlyArray<string>): void
 }
 
 /** The ordered families, by how their lines are keyed after the migration. */
-const orderedByLine = orderedCase("line")
+const orderedByLine = orderedCase("line", "its own")
 
-const orderedByIndex = orderedCase("order and index")
+const orderedByIndex = orderedCase("order and index", "its own")
+
+const orderedOverCopies = orderedCase("line", "the one before's")
 
 /**
  * What a migration that keys the lines by their order and a new drawn index does to the key the lines were stored by,
@@ -769,6 +795,7 @@ const storedNames = (migration: Migration): FoldCase => ({
 	key: "line",
 	group: "order",
 	step: "qty",
+	stepped: "its own",
 	copies: []
 })
 
@@ -887,7 +914,10 @@ const judgeStoredKey = (
 	const k = storedKeyCases[fate]
 	const ids = ownersOf(owners)
 	const state = migrated(k.stored.migration, foldRows(k.stored, ids, stored))
-	assert.deepEqual(foldObserved(k.after, state), foldExpectedBy(ids, stored, k.readBy))
+	assert.deepEqual(
+		foldObserved(k.after, state),
+		foldExpectedBy(ids, stored, k.readBy, k.after.stepped)
+	)
 	assertFresh(k.after.migration, state)
 	assertBackfillOrder(k.after.migration, foldColumns(k.after))
 }
@@ -945,6 +975,7 @@ const concatCase: FoldCase = (() => {
 		key: "token",
 		group: "attr",
 		step: "piece",
+		stepped: "its own",
 		copies: []
 	}
 })()
@@ -1186,6 +1217,7 @@ const reshapedCase = (migration: Migration, owner: string): FoldCase => ({
 	key: "member",
 	group: "g",
 	step: "x",
+	stepped: "its own",
 	copies: []
 })
 
@@ -1424,10 +1456,18 @@ const keyedTree = (() => {
 	})
 })()
 
+/** The fold families a fold case draws over stored rows (foldCaseOf). */
+export const foldFamilies = [
+	"counted",
+	"ordered by line",
+	"ordered by order and index",
+	"ordered by line, folding a predecessor copy"
+] as const
+
 type Backfill =
 	| {
 			readonly kind: "fold"
-			readonly family: "counted" | "ordered by line" | "ordered by order and index"
+			readonly family: (typeof foldFamilies)[number]
 			readonly owners: number
 			readonly stored: ReadonlyArray<Stored>
 	  }
@@ -1501,9 +1541,7 @@ export const backfillGen: Gen<Backfill> = weighted<Backfill>([
 			const owners = source.draw(between(1, 3))
 			return {
 				kind: "fold",
-				family: source.draw(
-					element(["counted", "ordered by line", "ordered by order and index"] as const)
-				),
+				family: source.draw(element(foldFamilies)),
 				owners,
 				stored: source.draw(membersGen(owners))
 			}
@@ -1578,9 +1616,7 @@ export const backfillGen: Gen<Backfill> = weighted<Backfill>([
 ])
 
 export type BackfillFeature =
-	| "counted"
-	| "ordered by line"
-	| "ordered by order and index"
+	| (typeof foldFamilies)[number]
 	| "concat"
 	| "new members"
 	| "an owner with no member"
@@ -1662,6 +1698,8 @@ const foldCaseOf = (family: Extract<Backfill, { readonly kind: "fold" }>["family
 			return orderedByLine
 		case "ordered by order and index":
 			return orderedByIndex
+		case "ordered by line, folding a predecessor copy":
+			return orderedOverCopies
 	}
 }
 
@@ -1721,7 +1759,7 @@ const judgeReshapedFold = (r: Reshaped, owners: number, stored: ReadonlyArray<St
 		r.reshaped.migration,
 		migrated(r.drawn.migration, foldRows(r.drawn, ids, stored))
 	)
-	assert.deepEqual(foldObserved(r.reshaped, state), foldExpected(ids, stored))
+	assert.deepEqual(foldObserved(r.reshaped, state), foldExpected(ids, stored, r.reshaped.stepped))
 	assertFresh(r.reshaped.migration, state)
 }
 
@@ -1732,7 +1770,7 @@ export const judgeBackfill = (b: Backfill): void => {
 			const c = foldCaseOf(b.family)
 			const owners = ownersOf(b.owners)
 			const state = migrated(c.migration, foldRows(c, owners, b.stored))
-			assert.deepEqual(foldObserved(c, state), foldExpected(owners, b.stored))
+			assert.deepEqual(foldObserved(c, state), foldExpected(owners, b.stored, c.stepped))
 			assert.deepEqual(copiesObserved(c, state), copiesExpected(c, owners, b.stored))
 			assertFresh(c.migration, state)
 			assertBackfillOrder(c.migration, foldColumns(c))
@@ -1971,7 +2009,10 @@ export const judgeReversal = (r: Reversal): void => {
 				}
 			])
 			const drawnCase: FoldCase = { migration: toDrawn, ...countedNames }
-			assert.deepEqual(foldObserved(drawnCase, state), foldExpected(owners, r.stored))
+			assert.deepEqual(
+				foldObserved(drawnCase, state),
+				foldExpected(owners, r.stored, drawnCase.stepped)
+			)
 			assert.deepEqual(
 				copiesObserved(drawnCase, state),
 				copiesExpected(drawnCase, owners, r.stored)

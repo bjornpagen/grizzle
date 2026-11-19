@@ -42,12 +42,14 @@ import {
  * - **Tree folds:** the tree's scan over each row's siblings in slot order, their order by start, and over its roots,
  *   each alone at slot 0, its before the identity; each row's end its last child's after. A fold added to a tree that
  *   holds rows, or changed on one, is drawn over its stored slots alone.
- * - **Copies:** each copy an axis carries is its target's value, joined to the row its axis names; a row its axis names
- *   no row for keeps the copy's base, a tree's root among them.
- * - **Chains:** a copy of a column that reads the copy back through its row has its source's value over the row its
- *   axis names as its own copies leave that row: a predecessor copy so is drawn by its family's scan, with the members'
- *   other columns, as a write draws it (write/family/scan.ts chainLayer); a tree's copy of its parent's by a recursion
- *   down the tree from its roots, which hold its base (treeChainDerivation).
+ * - **Copies:** each copy the owner or last axis carries is its target's value, joined to the row its axis names; a row
+ *   its axis names no row for keeps the copy's base, a tree's root among them. Each predecessor copy is drawn by its
+ *   family's scan, with the members' other columns, as a write draws it: its target on the member before, the base at
+ *   slot 0, and a chain's, a copy of a column that reads the copy back through its row, by the scan's recursion
+ *   (write/family/scan.ts chainLayer).
+ * - **Tree chains:** a tree's copy of its parent's column that reads the copy back through its row has its source's
+ *   value over the parent's row as its own copies leave that row, drawn by a recursion down the tree from its roots,
+ *   which hold its base (treeChainDerivation).
  *
  * Each of these is a derivation (Derivation): rows computed apart from the table it draws on, each meeting a row of the
  * table at a key the table stores. A derivation reads every column another draws as that one draws it, and is placed
@@ -75,16 +77,8 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { SnapshotTheory } from "#compiler/deploy/snapshot/types.ts"
 import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import { fieldReads, type TypedLiteral } from "#compiler/ir/expr.ts"
+import type { AxisKind, Family, FamilyFold, FoldPlane, TreeShape } from "#compiler/ir/family.ts"
 import {
-	type AxisKind,
-	type Family,
-	type FamilyFold,
-	type FoldPlane,
-	isSequence,
-	type TreeShape
-} from "#compiler/ir/family.ts"
-import {
-	familyDrawn,
 	type FillAt,
 	type FillColumn,
 	type FillLayout,
@@ -92,12 +86,7 @@ import {
 	filledFrom,
 	layoutKey
 } from "#compiler/ir/fill.ts"
-import {
-	columnKey,
-	type NativeColumn,
-	type RelationInfo,
-	type TableRelation
-} from "#compiler/ir/law.ts"
+import type { NativeColumn, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
@@ -152,7 +141,6 @@ import { assignments, type TableGeneration } from "#compiler/sql/generation.ts"
 import { freshNames, NameSupply } from "#compiler/sql/naming.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 import {
-	chainedColumns,
 	rowColumns,
 	type Scan,
 	scannedColumn,
@@ -489,40 +477,22 @@ const drawnName = (n: number): string => `__drawn_${n}`
 
 /**
  * The columns of a family's member the backfill draws by its scan, by their installed names: its index where the
- * migration draws it anew, its copy of the count where it adds it, and both columns of every plane of each fold it adds
- * a column of, whose before is its predecessor's after.
+ * migration draws it anew, its copy of the count where it adds it, both columns of every plane of each fold it adds a
+ * column of, whose before is its predecessor's after, and each of the family's predecessor copies it adds (`copies`,
+ * backfillOf's `scanned`).
  */
 const drawnNamesOf = (
-	installation: Installation,
 	family: Family,
 	added: ReadonlySet<string>,
-	folds: ReadonlyArray<FamilyFold>
+	folds: ReadonlyArray<FamilyFold>,
+	copies: ReadonlySet<string>
 ): ReadonlySet<string> =>
 	new Set([
 		...(holds(added, family.shape.index) ? [columnOf(family.shape.index)] : []),
 		...(added.has(family.copy) ? [family.copy] : []),
 		...folds.flatMap((fold) => fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after)])),
-		...[...chainedCopies(installation, family)].filter((c) => added.has(c))
+		...[...copies].filter((c) => added.has(c))
 	])
-
-/**
- * The predecessor copies of a sequence's members that its scan draws by recursion (write/family/scan.ts
- * chainedColumns): each copy of a column that reads the copy back through the member's row, the scan's chain, which no
- * stream of a copy's target draws (copyDerivation), since each member's value is its source's on the member before,
- * drawn first. The backfill draws them by the family's scan, with its members' other columns, as a write does.
- */
-const chainedCopies = (installation: Installation, family: Family): ReadonlySet<string> => {
-	if (!isSequence(family)) {
-		return new Set()
-	}
-	const drawn = familyDrawn(installation.laws.theory.fill, family.member.name, family)
-	const chained = chainedColumns(family.member, drawn)
-	return new Set(
-		drawn.flatMap((c) =>
-			c.rule.kind === "predecessor" && chained.has(columnKey(c.column)) ? [columnOf(c.column)] : []
-		)
-	)
-}
 
 /**
  * The columns `names` names a family's member holds at `position`, a member's or a tree's root's, each with the rule its
@@ -666,7 +636,8 @@ const memberDerivation = (
 	input: BackfillInput,
 	family: Family,
 	table: ObjectName,
-	added: ReadonlySet<string>
+	added: ReadonlySet<string>,
+	copies: ReadonlySet<string>
 ): Derivation | undefined => {
 	const { installation } = input
 	const member = relationOf(installation, family.member.name)
@@ -683,7 +654,7 @@ const memberDerivation = (
 		installation,
 		family,
 		{ kind: "member", family },
-		drawnNamesOf(installation, family, added, folds)
+		drawnNamesOf(family, added, folds, copies)
 	)
 	const assigned = drawn.filter((c) => holds(added, c.column))
 	if (!isNonEmpty(assigned)) {
@@ -973,7 +944,7 @@ const rootName = "__root"
  * A tree's derivation: each row's drawn columns over its rows, each a window over them, never a closure of the parent
  * relation. A tree's intervals are never drawn over stored rows (a migration that draws them is refused, backfillOf), so
  * nothing a tree's backfill draws reads a row's ancestors past its parent: its count reads its children, its index and
- * its copy of the count its siblings, and each fold its siblings in slot order.
+ * its copy of the count its siblings, and each fold and predecessor copy its siblings in slot order.
  *
  * - `w`: each row twice, as itself (`__child` 0) at its own key and, but a root, as a child (`__child` 1) at its
  *   parent's, and over each key `__children`, the children met there.
@@ -983,7 +954,7 @@ const rootName = "__root"
  * - the tree's scan over its members, each parent's children a group in slot order, and over its roots, each alone at
  *   slot 0, outside its members as the fill order places it (scanOver): the root's before the identity, as its
  *   first-slot pin holds it, and its after its own step's, the one state NP's fold suite admits a root
- *   (test/pg/fin/fold.test.ts).
+ *   (test/pg/fin/fold.test.ts); a root's predecessor copy its base, as a first sibling's.
  *
  * A row under stored parents that make no tree is drawn anyway, and VALIDATE refuses it by the tree's laws. Each fold's
  * end is a row's last child's after (treeEndDerivation). It sets the columns `added` holds alone, none where it holds
@@ -993,7 +964,8 @@ const treeDerivation = (
 	input: BackfillInput,
 	family: Family,
 	table: ObjectName,
-	added: ReadonlySet<string>
+	added: ReadonlySet<string>,
+	copies: ReadonlySet<string>
 ): Derivation | undefined => {
 	const { installation } = input
 	const member = relationOf(installation, family.member.name)
@@ -1003,7 +975,7 @@ const treeDerivation = (
 	const folds = family.folds.filter((fold) => planesAdded(fold, added))
 	const drawIndex = holds(added, family.shape.index)
 	const index = columnOf(family.shape.index)
-	const keys = drawnNamesOf(installation, family, added, folds)
+	const keys = drawnNamesOf(family, added, folds, copies)
 	const members = drawnAt(installation, family, { kind: "member", family }, keys)
 	const roots = drawnAt(installation, family, { kind: "root", family }, keys)
 	const assigned = members.filter((c) => holds(added, c.column))
@@ -1479,6 +1451,10 @@ interface Copy {
 	readonly target: ObjectName
 }
 
+/** A copy a stream of its two tables draws (copyDerivation): one along the owner or the last axis. A predecessor copy is
+ * its family's scan's (backfillOf's `scanned`). */
+type Streamed = Copy & { readonly axis: Exclude<AxisKind, "predecessor"> }
+
 /** Whether the host fills a column: a law column, or a drawn or accumulated field. */
 const hostFilled = (c: NativeColumn): boolean =>
 	c.kind === "law" || c.field.writing.kind === "drawn" || c.field.writing.kind === "accumulated"
@@ -1519,7 +1495,7 @@ const baseOf = (installation: Installation, c: NativeColumn): DrawnColumn | unde
 		: undefined
 
 /** Whether every member of a tree but its root is the row a column reference names: a tree's family leaves the root
- * out, so the predecessor and last axes never name it. */
+ * out, so its last axis never names it, nor its owner axis a parent of it. */
 const nonRoot = (names: OperatorNames, family: Family, alias: string): ReadonlyArray<Expr> =>
 	family.shape.kind === "tree"
 		? [
@@ -1549,13 +1525,15 @@ const drawnOn = (input: BackfillInput, table: ObjectName): ReadonlySet<string> =
  * axis, reads itself as it stands before the backfill as it did (ordered). Copies that read each other round a cycle
  * fall in no layer and are each drawn alone, which `ordered` refuses, naming the cycle.
  */
-const copyLayers = (copies: ReadonlyArray<Copy>): ReadonlyArray<NonEmptyReadonlyArray<Copy>> => {
-	const axes = new Map<AxisKind, Array<Copy>>()
+const copyLayers = (
+	copies: ReadonlyArray<Streamed>
+): ReadonlyArray<NonEmptyReadonlyArray<Streamed>> => {
+	const axes = new Map<Streamed["axis"], Array<Streamed>>()
 	for (const c of copies) {
 		axes.set(c.axis, [...(axes.get(c.axis) ?? []), c])
 	}
 	return [...axes.values()].flatMap((along) => {
-		const layers: Array<NonEmptyReadonlyArray<Copy>> = []
+		const layers: Array<NonEmptyReadonlyArray<Streamed>> = []
 		for (let left = along; isNonEmpty(left);) {
 			const drawnHere = new Set(
 				left.map((c) => cellKey({ table: c.source, column: columnOf(c.from) }))
@@ -1567,7 +1545,7 @@ const copyLayers = (copies: ReadonlyArray<Copy>): ReadonlyArray<NonEmptyReadonly
 				)
 			})
 			if (!isNonEmpty(free)) {
-				return [...layers, ...left.map((c): NonEmptyReadonlyArray<Copy> => [c])]
+				return [...layers, ...left.map((c): NonEmptyReadonlyArray<Streamed> => [c])]
 			}
 			layers.push(free)
 			left = left.filter((c) => !free.includes(c))
@@ -1577,15 +1555,16 @@ const copyLayers = (copies: ReadonlyArray<Copy>): ReadonlyArray<NonEmptyReadonly
 }
 
 /**
- * A layer of copies' derivation (copyLayers), one family's along one axis: each copy's column on every source row, its
- * `to` on the row their axis names, every copy carried by the one stream of both tables; a source row whose axis names
- * none keeps its base. A member's copy meets its row at the member's key, its axis joined inside its rows, since the
- * columns an axis names a member's target by, a tree's parent and an ordered index, may be drawn in the same backfill:
- * along the owner axis its owner, at the owner's key its group names; along the predecessor axis the member of its group
- * at the slot before its own, a tree's root never one, whose slot is none's after (the root pin holds it at slot 0). An
- * owner's copy along the last axis meets its row at the owner's key, the last member of its family met at its group.
+ * A layer of copies' derivation (copyLayers), one family's along the owner or the last axis: each copy's column on every
+ * source row, its `to` on the row their axis names, every copy carried by the one stream of both tables; a source row
+ * whose axis names none keeps its base. A member's copy along the owner axis meets its owner at the owner's key its
+ * group names, a tree's parent among them, which may be drawn in the same backfill; an owner's copy along the last axis
+ * meets its row at the owner's key, the last member of its family met at its group.
  */
-const copyDerivation = (input: BackfillInput, layer: NonEmptyReadonlyArray<Copy>): Derivation => {
+const copyDerivation = (
+	input: BackfillInput,
+	layer: NonEmptyReadonlyArray<Streamed>
+): Derivation => {
 	const names = input.installation.names
 	const [copy] = layer
 	const { family } = copy
@@ -1626,20 +1605,6 @@ const copyDerivation = (input: BackfillInput, layer: NonEmptyReadonlyArray<Copy>
 					reads: [
 						...cellsOf(copy.source, [...members, ...rooted, ...copied]),
 						...cellsOf(copy.target, [...owners, ...values])
-					]
-				}
-			case "predecessor":
-				return {
-					targetKey: appendNonEmpty(groupAt(family, "member", "t"), col("t", index)),
-					targetWhere: undefined,
-					sourceKey: appendNonEmpty(
-						groupAt(family, "member", "s"),
-						binary("+", col("s", index), lit.int(1n, types.bigint))
-					),
-					sourceWhere: conjunction(nonRoot(names, family, "s")),
-					reads: [
-						...cellsOf(copy.source, [...members, index, ...copied]),
-						...cellsOf(copy.target, [...members, index, ...rooted, ...values])
 					]
 				}
 		}
@@ -1906,11 +1871,10 @@ interface Placing {
 /**
  * The backfill's derivations in an order that places each after every derivation drawing a column it reads, otherwise
  * as drafted: a depth-first walk that places, before each derivation, the derivations drawing what it reads. A
- * derivation reading a column it draws itself is a copy of itself along its axis (a tree's column copied from its
- * parent's, a member's from its predecessor's), which holds its base on every row, its placeholder: it reads itself as
- * it stands before the backfill (Presented). A derivation the walk reaches while placing what it reads closes a cycle, each derivation of which reads a
- * column the next draws: no order draws them, and the cycle is refused, each derivation named by the columns it draws
- * and the one it reads.
+ * derivation reading a column it draws itself is a copy of itself along its axis, which holds its base on every row, its
+ * placeholder: it reads itself as it stands before the backfill (Presented). A derivation the walk reaches while
+ * placing what it reads closes a cycle, each derivation of which reads a column the next draws: no order draws them,
+ * and the cycle is refused, each derivation named by the columns it draws and the one it reads.
  */
 const ordered = (planned: ReadonlyArray<Planned>): ReadonlyArray<Derivation> => {
 	const drawer = new Map<StoredColumnKey, Planned>()
@@ -2281,7 +2245,8 @@ const primaryKeyOf = (installation: Installation, name: string): Key => {
  * The keys a family's derivations rely on being unique over the stored rows, so that each meets a row of its table at
  * most once: its member's primary key, which its rows are met at (memberKey); its owner's primary key, which its group
  * names its owner at (an owner axis's copy joins its owner there, a tree's rows meet their parent there); and its slot
- * key, its group and its index, at which its last member and each member's predecessor are met.
+ * key, its group and its index, at which its last member is met and in whose order its scan reads each member after the
+ * one before it.
  */
 const familyKeys = (input: BackfillInput, family: Family): ReadonlyArray<Key> => {
 	const { installation } = input
@@ -2347,10 +2312,11 @@ const keyChecks = (
  * The backfill of every family of the target whose columns this migration adds to a table that may hold rows
  * (Backfill): each family's member part and its owner's derivation, which reads the member's drawn rows (a tree's parent
  * drawn anew, its tree, then its fold ends), and every copy this migration adds, each placed after every derivation
- * drawing a column it reads (ordered), and one UPDATE of each table they draw on (passes). A column two axes carry is
- * drawn by the first in the law model's order, the owner axis's before the predecessor's and the last's; the other's
- * foreign key, which VALIDATE proves, holds it to the same value. A family whose columns are all new to tables that hold
- * no row needs none: its placeholders are the values an empty family holds.
+ * drawing a column it reads (ordered), and one UPDATE of each table they draw on (passes). A column the predecessor axis
+ * carries is its family's scan's, as its fill rule is the predecessor's, whatever other axis carries it too; a column
+ * the owner and last axes carry, or two families' axes, is drawn by the first in the law model's order, the owner
+ * axis's before the last's; the other's foreign key, which VALIDATE proves, holds it to the same value. A family whose
+ * columns are all new to tables that hold no row needs none: its placeholders are the values an empty family holds.
  */
 export const backfillOf = (input: BackfillInput): Backfill => {
 	const { installation } = input
@@ -2360,19 +2326,35 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 			planned.push({ family, derivation })
 		}
 	}
+	const families = familyCells(installation)
+	/** The cells of the copies the backfill draws, each by one derivation: its family's scan, or its stream. */
+	const copied = new Set<StoredColumnKey>()
+	/** Each family's predecessor copies, by their columns on its member: its scan's, but one an earlier family's draws. */
+	const scanned = new Map<Family, ReadonlySet<string>>()
+	for (const family of installation.laws.families) {
+		const copies = new Set<string>()
+		for (const c of copiesOf(installation, family, families)) {
+			const cell = cellKey({ table: c.source, column: columnOf(c.from) })
+			if (c.axis === "predecessor" && !copied.has(cell)) {
+				copied.add(cell)
+				copies.add(columnOf(c.from))
+			}
+		}
+		scanned.set(family, copies)
+	}
 	for (const family of installation.laws.families) {
 		const memberTable = tableOf(installation, family.member.name)
 		const ownerTable = tableOf(installation, family.owner.name)
 		const onMember = drawnOn(input, memberTable)
 		const onOwner = drawnOn(input, ownerTable)
-		const chained = chainedCopies(installation, family)
+		const copies = defined(scanned.get(family), "a family's scanned copies")
 		const memberColumns = new Set<string>([
 			columnOf(family.shape.index),
 			family.copy,
 			...family.folds.flatMap((fold) =>
 				fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after)])
 			),
-			...chained
+			...copies
 		])
 		const ownerColumns = new Set<string>([
 			family.count.column,
@@ -2389,7 +2371,7 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 				...family.folds.flatMap((fold) =>
 					fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after), p.end.column])
 				),
-				...chained
+				...copies
 			]
 			const intervals = [shape.start.column, shape.end.column].filter((c) => onMember.has(c))
 			if (isNonEmpty(intervals)) {
@@ -2404,28 +2386,25 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 			if (!columns.some((c) => onMember.has(c))) {
 				continue
 			}
-			plan(family, treeDerivation(input, family, memberTable, onMember))
+			plan(family, treeDerivation(input, family, memberTable, onMember, copies))
 			plan(family, treeEndDerivation(input.installation.names, family, memberTable, onMember))
 			continue
 		}
-		plan(family, memberDerivation(input, family, memberTable, mine))
+		plan(family, memberDerivation(input, family, memberTable, mine, copies))
 		plan(family, ownerDerivation(input, family, ownerTable, memberTable, theirs))
 	}
-	const families = familyCells(installation)
-	const copied = new Set<StoredColumnKey>()
 	for (const family of installation.laws.families) {
-		const scanned = chainedCopies(installation, family)
-		const drawn = copiesOf(installation, family, families).filter((c) => {
+		const drawn = copiesOf(installation, family, families).flatMap((c): ReadonlyArray<Streamed> => {
 			const cell = cellKey({ table: c.source, column: columnOf(c.from) })
 			if (
-				scanned.has(columnOf(c.from)) ||
+				c.axis === "predecessor" ||
 				copied.has(cell) ||
 				!drawnOn(input, c.source).has(columnOf(c.from))
 			) {
-				return false
+				return []
 			}
 			copied.add(cell)
-			return true
+			return [{ ...c, axis: c.axis }]
 		})
 		const chain = treeChainOf(installation, family, drawn)
 		if (isNonEmpty(chain)) {
