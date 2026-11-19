@@ -467,13 +467,13 @@ const populated = <const P extends AnnPrograms>(opened: AnnOpened<P>) =>
 		for (const batch of chunks(facts, 500)) {
 			statements.push(
 				`INSERT INTO ${table("Document")} ("id", "account", "title") VALUES ${Arr.join(
-					Arr.map(batch, (d) => `('${d.id}'::Id, '${d.account}'::Id, 'doc ${d.id}'::text)`),
+					Arr.map(batch, (d) => `('${d.id}'::uuid, '${d.account}'::uuid, 'doc ${d.id}'::text)`),
 					", "
 				)}`
 			)
 			statements.push(
 				`INSERT INTO ${table("DocumentCurrent")} ("document", "revision") VALUES ${Arr.join(
-					Arr.map(batch, (d) => `('${d.id}'::Id, ${d.current}::bigint)`),
+					Arr.map(batch, (d) => `('${d.id}'::uuid, ${d.current}::bigint)`),
 					", "
 				)}`
 			)
@@ -491,7 +491,7 @@ const populated = <const P extends AnnPrograms>(opened: AnnOpened<P>) =>
 			}
 			statements.push(
 				`INSERT INTO ${table("DocumentTag")} ("document", "tag") VALUES ${Arr.join(
-					Arr.flatMap(batch, (d) => Arr.map(d.tags, (t) => `('${d.id}'::Id, '${t}'::text)`)),
+					Arr.flatMap(batch, (d) => Arr.map(d.tags, (t) => `('${d.id}'::uuid, '${t}'::text)`)),
 					", "
 				)}`
 			)

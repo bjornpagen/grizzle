@@ -141,7 +141,7 @@ export const openedIn = (taken: SubstrateCase<Generated>, vectors: number) =>
 			}
 			yield* s.admin.query(
 				`INSERT INTO ${table("Document")} ("id", "account") VALUES ${Arr.join(
-					Arr.map(documents, (d) => `('${d.id}'::Id, '${d.account}'::Id)`),
+					Arr.map(documents, (d) => `('${d.id}'::uuid, '${d.account}'::uuid)`),
 					", "
 				)}`,
 				[]
@@ -151,7 +151,7 @@ export const openedIn = (taken: SubstrateCase<Generated>, vectors: number) =>
 					Arr.flatMap(documents, (d) =>
 						d.value === undefined
 							? []
-							: [`('${d.id}'::Id, '${vectorText(d.value)}'::vector_ext.vector)`]
+							: [`('${d.id}'::uuid, '${vectorText(d.value)}'::vector_ext.vector)`]
 					),
 					", "
 				)}`,

@@ -454,7 +454,7 @@ export const articlesSql = (
 	rows: ReadonlyArray<{ id: string; slug: string; title: string }>
 ): string =>
 	`INSERT INTO ${quoteIdent(schemaName)}."article" ("id", "slug", "title") VALUES ${Arr.join(
-		Arr.map(rows, (a) => `('${a.id}'::Id, ${literal(a.slug)}, ${literal(a.title)})`),
+		Arr.map(rows, (a) => `('${a.id}'::uuid, ${literal(a.slug)}, ${literal(a.title)})`),
 		", "
 	)}`
 

@@ -181,15 +181,15 @@ const load = (schema: string) => {
 	return Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		yield* admin.query(
-			`INSERT INTO ${t("document")} ("id", "account", "title") VALUES ${values(Arr.map(f.documents, (d) => [`'${d.id}'::Id`, `'${d.account}'::Id`, `'title ${d.id}'`]))}`,
+			`INSERT INTO ${t("document")} ("id", "account", "title") VALUES ${values(Arr.map(f.documents, (d) => [`'${d.id}'::uuid`, `'${d.account}'::uuid`, `'title ${d.id}'`]))}`,
 			[]
 		)
 		yield* admin.query(
-			`INSERT INTO ${t("document_current")} ("document", "revision") VALUES ${values(Arr.map(f.current, (c) => [`'${c.document}'::Id`, `${c.revision}::bigint`]))}`,
+			`INSERT INTO ${t("document_current")} ("document", "revision") VALUES ${values(Arr.map(f.current, (c) => [`'${c.document}'::uuid`, `${c.revision}::bigint`]))}`,
 			[]
 		)
 		yield* admin.query(
-			`INSERT INTO ${t("document_embedding")} ("document", "revision", "value") VALUES ${values(Arr.map(f.embeddings, (e) => [`'${e.document}'::Id`, `${e.revision}::bigint`, `'${textOf(e.value)}'::"vector_ext"."vector"(4)`]))}`,
+			`INSERT INTO ${t("document_embedding")} ("document", "revision", "value") VALUES ${values(Arr.map(f.embeddings, (e) => [`'${e.document}'::uuid`, `${e.revision}::bigint`, `'${textOf(e.value)}'::"vector_ext"."vector"(4)`]))}`,
 			[]
 		)
 		yield* admin.query(
