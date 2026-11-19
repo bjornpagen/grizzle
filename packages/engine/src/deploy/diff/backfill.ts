@@ -254,8 +254,10 @@ const relationOf = (installation: Installation, name: string): RelationInfo => {
 }
 
 /** The table a stored relation is installed as. */
-const tableOf = (installation: Installation, name: string): ObjectName =>
-	objectName(installation.names.schema, relationOf(installation, name).ident)
+const tableOf = (installation: Installation, name: string): ObjectName => {
+	const table = installation.names.relation(name)
+	return objectName(table.schema, table.name)
+}
 
 /** The installed column of a family's native column: a field's, or a law column's own identifier. */
 const columnOf = (c: NativeColumn): string => (c.kind === "field" ? c.field.column : c.column)
