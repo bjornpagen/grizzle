@@ -44,6 +44,9 @@ import {
  *   holds rows, or changed on one, is drawn over its stored slots alone.
  * - **Copies:** each copy an axis carries is its target's value, joined to the row its axis names; a row its axis names
  *   no row for keeps the copy's base.
+ * - **Places:** a place a migration adds to stored rows (ir/instant.ts PlaceHead) numbers each group's rows from 0 in its
+ *   `by`'s order, ‹n› = row_number() OVER (PARTITION BY its group ORDER BY `by`) − 1, total by the key the classifier
+ *   demands within the group and `by`, and the inserts after it stamp on from the group's greatest.
  *
  * Each of these is a derivation (Derivation): rows computed apart from the table it draws on, each meeting a row of the
  * table at a key the table stores. A derivation reads every column another draws as that one draws it, and is placed
@@ -79,6 +82,7 @@ import {
 	filledFrom,
 	layoutKey
 } from "#compiler/ir/fill.ts"
+import type { PlaceHead } from "#compiler/ir/instant.ts"
 import type { NativeColumn, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -251,7 +255,8 @@ const identityOf = (installation: Installation, plane: FoldPlane): DrawnColumn =
  * The columns the target's families draw (DrawnColumns): on a member, the counted index ‹i› or the ordered index, the
  * copy ‹n›, each fold plane's before and after; on an owner, the count and each fold plane's end; a tree's parent and
  * interval among them; and every copy an axis carries (Copy) on its source. Each holds 0 where its family is
- * empty, but an accumulator or an end, which holds its plane's identity, and a copy, which holds its base.
+ * empty, but an accumulator or an end, which holds its plane's identity, and a copy, which holds its base. Each place
+ * (ir/instant.ts PlaceHead) is drawn too, at 0 before its derivation numbers its stored rows (placeDerivation).
  */
 export const drawnColumns = (installation: Installation): DrawnColumns => {
 	const out = new Map<NameKey, Map<string, DrawnColumn>>()
@@ -288,6 +293,9 @@ export const drawnColumns = (installation: Installation): DrawnColumns => {
 				put(copy.axis === "last" ? owner : member, columnOf(copy.from), base)
 			}
 		}
+	}
+	for (const place of installation.laws.theory.instants.places.values()) {
+		put(place.relation, place.field.column, drawnOf(installation, zero, place.field.type))
 	}
 	return out
 }
@@ -1615,6 +1623,46 @@ const copyDerivation = (input: BackfillInput, layer: NonEmptyReadonlyArray<Copy>
 	}
 }
 
+/**
+ * A place's derivation (ir/instant.ts PlaceHead): each stored row's place, `row_number() OVER (PARTITION BY <group> ORDER
+ * BY <by>) - 1`, every group's rows numbered from 0 in its `by`'s order, which a key of the relation within the group
+ * and `by` makes total (analysis/theory/instants.ts), and which each later insert stamps past, one place a call.
+ */
+const placeDerivation = (place: PlaceHead, table: ObjectName): Derivation => {
+	const value = drawnName(1)
+	const group = mapNonEmpty(place.child, (f) => f.column)
+	return {
+		table,
+		with: undefined,
+		core: provedCore(
+			"keyed",
+			[
+				targetAs(col("k", rowColumn), rowColumn),
+				targetAs(
+					binary(
+						"-",
+						over(
+							"row_number",
+							[],
+							window(
+								group.map((g) => col("k", g)),
+								[col("k", place.by.column)],
+								false
+							)
+						),
+						lit.int(1n, types.bigint)
+					),
+					value
+				)
+			],
+			[{ kind: "table", table, alias: "k" }],
+			undefined
+		),
+		set: [{ column: place.field.column, value }],
+		reads: cellsOf(table, [...group, place.by.column])
+	}
+}
+
 /** A column of a table the backfill draws or reads. */
 interface Cell {
 	readonly table: ObjectName
@@ -1638,10 +1686,30 @@ const drawsOf = (d: Derivation): ReadonlyArray<Cell> =>
 		d.set.map((x) => x.column)
 	)
 
-/** A derivation with the family whose columns it draws, which a refusal names. */
+/** What a derivation draws the columns of, which a refusal names: a family, or a place (ir/instant.ts PlaceHead). */
+type Drawer =
+	| { readonly kind: "family"; readonly family: Family }
+	| { readonly kind: "place"; readonly place: PlaceHead }
+
+/** A derivation with what it draws the columns of (Drawer). */
 interface Planned {
-	readonly family: Family
+	readonly drawer: Drawer
 	readonly derivation: Derivation
+}
+
+/** The refusal of a backfill of `drawer`'s columns, for `what`. */
+const refuseDrawer = (drawer: Drawer, what: string): never => {
+	switch (drawer.kind) {
+		case "family":
+			return refuseBackfill(drawer.family, what)
+		case "place":
+			throw new Refusal(
+				unsupported(
+					backfillLoc,
+					`backfilling the place ${drawer.place.relation}.${drawer.place.field.name} added to a relation that may hold rows: ${what}`
+				)
+			)
+	}
 }
 
 /** A derivation the walk of `ordered` is placing, and the column it reads that the derivation above it draws. */
@@ -1684,8 +1752,8 @@ const ordered = (planned: ReadonlyArray<Planned>): ReadonlyArray<Derivation> => 
 			const open = walk.findIndex((w) => w.at === by)
 			if (open !== -1) {
 				const cycle = [...walk.slice(open), { at: p, reading }]
-				return refuseBackfill(
-					by.family,
+				return refuseDrawer(
+					by.drawer,
 					`no order draws its columns, each derivation of a cycle reading a column the next draws: ${cycle
 						.map(
 							(w) =>
@@ -2062,7 +2130,10 @@ const keyChecks = (
 ): ReadonlyArray<KeyCheck> => {
 	const drawn = new Set(planned.flatMap((p) => drawsOf(p.derivation).map(cellKey)))
 	const checked = new Map<string, KeyCheck>()
-	for (const family of new Set(planned.map((p) => p.family))) {
+	const families = new Set(
+		planned.flatMap((p) => (p.drawer.kind === "family" ? [p.drawer.family] : []))
+	)
+	for (const family of families) {
 		for (const key of familyKeys(input, family)) {
 			if (
 				checked.has(key.law) ||
@@ -2104,7 +2175,7 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 	const planned: Array<Planned> = []
 	const plan = (family: Family, derivation: Derivation | undefined): void => {
 		if (derivation !== undefined) {
-			planned.push({ family, derivation })
+			planned.push({ drawer: { kind: "family", family }, derivation })
 		}
 	}
 	for (const family of installation.laws.families) {
@@ -2168,6 +2239,12 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 		})
 		for (const layer of copyLayers(drawn)) {
 			plan(family, copyDerivation(input, layer))
+		}
+	}
+	for (const place of installation.laws.theory.instants.places.values()) {
+		const table = tableOf(installation, place.relation)
+		if (drawnOn(input, table).has(place.field.column)) {
+			planned.push({ drawer: { kind: "place", place }, derivation: placeDerivation(place, table) })
 		}
 	}
 	const checks = keyChecks(input, planned)

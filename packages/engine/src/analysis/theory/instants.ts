@@ -1,4 +1,5 @@
 import {
+	appendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -22,8 +23,14 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
  * does not carry, or two clocks or two children, stamp it with none: such a reference holds a stored instant whenever a
  * write states one, and no write may leave it out (write/frontend/instants.ts). A cycle of references through whole
  * relations reaches no clock either.
+ *
+ * The classifier reads each place too (ir/instant.ts PlaceHead): a field written as one stands last in its relation's
+ * primary key after at least one field, its group, and its `by` is another field of the relation, a key of which holds
+ * no field but the group's and `by`'s; else it is refused as PlaceRefused, `outsideKey`, `groupless`, `notLast`,
+ * `byUnknown`, `byItself` or `byUnkeyed`, naming the key the place's group and `by` would be.
  */
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
+import type { PlaceRule } from "#compiler/core/causes.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { LawId, StoredRelationName } from "#compiler/core/ids.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -31,6 +38,7 @@ import {
 	type Clock,
 	type InstantRole,
 	type Instants,
+	type PlaceHead,
 	sameStamp,
 	type StampSource
 } from "#compiler/ir/instant.ts"
@@ -135,7 +143,7 @@ export const instantRoles = (
 					})
 				)
 			}
-			clocks.set(instantKey(r.name, field.name), { relation: r.name, field, child })
+			clocks.set(instantKey(r.name, field.name), { kind: "clock", relation: r.name, field, child })
 		}
 	}
 	/** Each reference's stamp once resolved, none where it has none. */
@@ -152,7 +160,7 @@ export const instantRoles = (
 		const key = instantKey(relation, field)
 		const clock = clocks.get(key)
 		if (clock !== undefined) {
-			return { clock, child: clock.child }
+			return { head: clock, child: clock.child }
 		}
 		if (stamps.has(key)) {
 			return stamps.get(key)
@@ -172,7 +180,7 @@ export const instantRoles = (
 				return paired === undefined ? [] : [paired]
 			})
 			return isNonEmpty(child) && child.length === target.child.length
-				? { clock: target.clock, child }
+				? { head: target.head, child }
 				: undefined
 		})
 		const [first, ...rest] = through
@@ -194,7 +202,7 @@ export const instantRoles = (
 			const clock = clocks.get(key)
 			const carried = carriers.get(key)
 			if (clock !== undefined) {
-				own.set(field.name, { kind: "clock", stamp: { clock, child: clock.child } })
+				own.set(field.name, { kind: "clock", stamp: { head: clock, child: clock.child } })
 			} else if (carried !== undefined) {
 				own.set(field.name, {
 					kind: "reference",
@@ -207,5 +215,74 @@ export const instantRoles = (
 			roles.set(r.name, own)
 		}
 	}
-	return Result.ok({ roles })
+	const places = new Map<StoredRelationName, PlaceHead>()
+	for (const r of ordinary) {
+		for (const field of r.fields) {
+			const placed = placeOf(r, field)
+			if (placed === undefined) {
+				continue
+			}
+			if (!placed.ok) {
+				return placed
+			}
+			places.set(r.name, placed.value)
+		}
+	}
+	return Result.ok({ roles, places })
+}
+
+/**
+ * The place `field` of `r` is (ir/instant.ts PlaceHead), none where it is no place: last in `r`'s primary key after at
+ * least one field, its group, and ordered for a migration by `by`, another field of `r`, where a key of `r` holds no
+ * field but the group's and `by`, so each group's rows are distinct by `by` and their order total. Refused as
+ * PlaceRefused otherwise, the key a missing one named by the group and `by`.
+ */
+const placeOf = (
+	r: RelationInfo,
+	field: LawField
+): Result.Result<PlaceHead, CompileError> | undefined => {
+	const w = field.writing
+	if (w.kind !== "place") {
+		return undefined
+	}
+	const refused = (rule: PlaceRule): Result.Result<PlaceHead, CompileError> =>
+		Result.err(
+			CompileError.make({
+				_tag: "PlaceRefused",
+				at: r.loc,
+				relation: r.name,
+				field: field.name,
+				rule
+			})
+		)
+	const at = r.primaryFields.findIndex((k) => k.name === field.name)
+	const child = r.primaryFields.slice(0, at)
+	if (at < 0) {
+		return refused({ kind: "outsideKey" })
+	}
+	if (!isNonEmpty(child)) {
+		return refused({ kind: "groupless" })
+	}
+	if (at !== r.primaryFields.length - 1) {
+		return refused({ kind: "notLast" })
+	}
+	const by = r.fields.find((f) => f.name === w.by)
+	if (by === undefined) {
+		return refused({ kind: "byUnknown", by: w.by })
+	}
+	if (by.name === field.name) {
+		return refused({ kind: "byItself" })
+	}
+	const within = new Set([...child.map((f) => f.name), by.name])
+	const keyed = [r.primaryFields, ...r.keyFields].some((k) => k.every((f) => within.has(f.name)))
+	if (!keyed) {
+		return refused({
+			kind: "byUnkeyed",
+			key: appendNonEmpty(
+				mapNonEmpty(child, (f) => f.name),
+				by.name
+			)
+		})
+	}
+	return Result.ok({ kind: "place", relation: r.name, field, child, by })
 }

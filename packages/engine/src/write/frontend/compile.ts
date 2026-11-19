@@ -524,12 +524,16 @@ const refuse = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
 
 /**
  * Whether a fact determines a field's value: one its caller or its sequence writes (isCarried), one PostgreSQL
- * generates from them, which the statement that writes the fact computes as PostgreSQL stores it, or an instant, which
+ * generates from them, which the statement that writes the fact computes as PostgreSQL stores it, an instant, which
  * a put's or a delete's facts state from a stored one, a query's term, and whose every other writing is refused
- * (write/frontend/instants.ts stampsOf). A field grizzle draws or accumulates is no fact's.
+ * (write/frontend/instants.ts stampsOf), or a place, whose relation no put or delete writes, which stampsOf refuses.
+ * A field grizzle draws or accumulates is no fact's.
  */
 const determined = (field: LawField): boolean =>
-	isCarried(field) || field.writing.kind === "generated" || field.writing.kind === "instant"
+	isCarried(field) ||
+	field.writing.kind === "generated" ||
+	field.writing.kind === "instant" ||
+	field.writing.kind === "place"
 
 /**
  * A put or a delete of `relation`, `member`, refused (UnstatedKey) where a key it reads off its facts holds a field no

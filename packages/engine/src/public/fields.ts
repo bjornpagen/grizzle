@@ -19,6 +19,7 @@ import {
 	closedIdOf,
 	drawnField,
 	generatedField,
+	placeField,
 	retirementField,
 	slotField
 } from "#compiler/schema/relation.ts"
@@ -42,6 +43,7 @@ import type {
 	NotInstantBase,
 	OneContractName,
 	Pg,
+	PlaceConstructor,
 	SpanConstructor
 } from "#compiler/types/fields/constructors.ts"
 
@@ -63,6 +65,7 @@ import type {
 	SpanEndpointLike,
 	NaturalField,
 	NoWriting,
+	PlaceField,
 	RetirementField,
 	SpanField,
 	SpanWidthOf
@@ -100,8 +103,10 @@ export type {
 	IntegerLike,
 	SpanEndpointLike,
 	LiteralOf,
+	NaturalDomain,
 	NaturalField,
 	NumericTypmodField,
+	PlaceField,
 	RetirementField,
 	SpanField,
 	SpanWidthOf,
@@ -265,6 +270,16 @@ export const drawn: DrawnConstructor = (
 	type: NaturalField,
 	...extra: ReadonlyArray<never>
 ): DrawnField => drawnField(type, extra)
+
+/**
+ * place({ by }): a row's place in its group, its primary key's fields before it, a natural the insert that adds the
+ * row stamps one past the group's greatest, 0 for its first; `by` orders the rows a migration that adds it finds stored
+ * (schema/relation.ts placeField, analysis/theory/instants.ts).
+ */
+export const place: PlaceConstructor = (
+	options: { readonly by: string },
+	...extra: ReadonlyArray<never>
+): PlaceField => placeField(options, extra)
 
 /**
  * slot(type, fin(O, n)): a closed relation's key field of `type`, a closed id, whose codes are fin(O, n)'s slots, O a

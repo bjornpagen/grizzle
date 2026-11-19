@@ -883,6 +883,7 @@ const reasonKey = (reason: CompileReason): string => {
 		case "UnfillableField":
 		case "UnwritableRelation":
 		case "InstantRefused":
+		case "PlaceRefused":
 		case "ForeignLevel":
 		case "LevelRefused":
 		case "FragmentRefused":
@@ -5422,6 +5423,8 @@ const descriptorType = (decl: FieldDecl, base: Base, ids: Ids): string => {
 			return "Fi.DrawnField"
 		case "retirement":
 			return "Fi.RetirementField"
+		case "place":
+			return "Fi.PlaceField"
 		case "accumulated":
 			return `Fi.AccumulatedField<${valueDescriptorType(decl.type, base, ids)}>`
 		case "caller":

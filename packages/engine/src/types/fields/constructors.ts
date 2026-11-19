@@ -31,6 +31,7 @@ import type {
 	NotInstant,
 	NotStoredOnly,
 	NumericTypmodField,
+	PlaceField,
 	SpanEndpointLike,
 	SpanField,
 	SpanWidthOf,
@@ -154,6 +155,12 @@ export type BitsConstructor = <C extends AnyRoster>(
 
 /** drawn(natural): a natural grizzle draws, a family's index or count or a tree's start or end. */
 export type DrawnConstructor = (type: NaturalField) => DrawnField
+
+/**
+ * place({ by }): a row's place in its group, stamped by the insert that adds it; `by` is the field of the relation that
+ * orders the rows a migration finds stored when it adds the place.
+ */
+export type PlaceConstructor = (options: { readonly by: string }) => PlaceField
 
 /**
  * An accumulated field is of a value type: no span, no vector, and no field of a writing of its own; and no bytes, which

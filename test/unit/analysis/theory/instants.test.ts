@@ -88,7 +88,7 @@ export const anInstantIsAClockOrAReferenceByTheContainmentsThatCarryItAClockOuts
 					const stampOf = (s: StampSource | undefined): ModelStamp | undefined =>
 						s === undefined
 							? undefined
-							: { clock: s.clock.relation, child: Arr.map(s.child, (f) => f.name) }
+							: { clock: s.head.relation, child: Arr.map(s.child, (f) => f.name) }
 					const got: ModelRole =
 						role.kind === "clock"
 							? { kind: role.kind, stamp: defined(stampOf(role.stamp), "a clock's stamp") }

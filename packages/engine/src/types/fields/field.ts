@@ -170,9 +170,10 @@ export interface InstantField extends Field<
 /**
  * How a field is written, as its descriptor's type states it under `writing`; a caller's field carries none.
  * generated: by PostgreSQL from its row; drawn: by grizzle from the nested arrays its caller writes; accumulated: by
- * grizzle on the host, proved by PostgreSQL; retirement: by its group's retirement.
+ * grizzle on the host, proved by PostgreSQL; retirement: by its group's retirement; place: by the insert that adds its
+ * row, one past its group's greatest place.
  */
-export type WritingTag = "generated" | "drawn" | "accumulated" | "retirement"
+export type WritingTag = "generated" | "drawn" | "accumulated" | "retirement" | "place"
 
 /**
  * A span's width is upper - lower, a value of the endpoint's base type: over a contract
@@ -312,6 +313,15 @@ export interface UnwrittenField {
 /** A natural grizzle draws: a family's index or count, or a tree's start or end. In a Fact, never in an Addition. */
 export interface DrawnField extends NaturalField, UnwrittenField {
 	readonly writing: "drawn"
+}
+
+/**
+ * A row's place in its group, a natural the database stamps when an insert adds the row: one past the greatest place
+ * its group holds, 0 for its first, so a group's places run gapless from 0 in the order its rows were inserted
+ * (schema/relation.ts placeField). In a Fact, never in an Addition.
+ */
+export interface PlaceField extends NaturalField, UnwrittenField {
+	readonly writing: "place"
 }
 
 /**

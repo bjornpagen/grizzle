@@ -63,7 +63,7 @@ import {
 } from "#compiler/scalar/compute/closed.ts"
 import { termExpr } from "#compiler/scalar/compute/term.ts"
 import { storedLiteral } from "#compiler/scalar/literal.ts"
-import { isNaturalDesc } from "#compiler/scalar/natural.ts"
+import { isNaturalDesc, naturalDescriptor } from "#compiler/scalar/natural.ts"
 import {
 	carrierSql,
 	type Described,
@@ -101,6 +101,7 @@ import type {
 	Bits,
 	ClosedIdField,
 	DrawnField,
+	PlaceField,
 	FieldBase,
 	GeneratedField,
 	Field,
@@ -166,7 +167,10 @@ type FieldEntry =
 	| {
 			readonly kind: "written"
 			readonly type: unknown
-			readonly writing: Extract<Writing, { readonly kind: "drawn" | "accumulated" | "retirement" }>
+			readonly writing: Extract<
+				Writing,
+				{ readonly kind: "drawn" | "accumulated" | "retirement" | "place" }
+			>
 	  }
 	| { readonly kind: "generated"; readonly type: Described; readonly term: unknown }
 
@@ -182,7 +186,8 @@ const fieldEntryOf = (value: unknown): FieldEntry | undefined =>
 /** Whether a field value is one slot(type, fin) made. */
 const isSlot = (value: unknown): boolean => fieldEntryOf(value)?.kind === "slot"
 
-/** How a field value is written: as drawn(…), accumulated(…) or retirement recorded it, and by its caller otherwise. */
+/** How a field value is written: as drawn(…), accumulated(…), place(…) or retirement recorded it, and by its caller
+ * otherwise. */
 export const writingOf = (value: unknown): Writing => {
 	const recorded = fieldEntryOf(value)
 	return recorded?.kind === "written" ? recorded.writing : callerWriting
@@ -212,6 +217,37 @@ export const drawnField = (type: NaturalField, extra: ReadonlyArray<unknown>): D
 		sql: type.sql
 	})
 	fieldEntries.set(value, { kind: "written", type, writing: { kind: "drawn" } })
+	return value
+}
+
+/**
+ * place({ by }): a natural the insert that adds its row stamps, one past the greatest place its group holds, 0 for its
+ * first (ir/instant.ts Head), `by` the relation's field that orders the rows a migration finds stored when it adds the
+ * place, which the schema checks once it reads the relation (analysis/theory/instants.ts). The value carries natural's
+ * column and SQL type, so it is read as every natural is.
+ */
+export const placeField = (options: unknown, extra: ReadonlyArray<unknown>): PlaceField => {
+	const by =
+		typeof options === "object" && options !== null && "by" in options ? options.by : undefined
+	if (extra.length > 0 || typeof by !== "string") {
+		throw malformed(
+			"place",
+			"place({ by }): one argument, `by` the name of the field that orders stored rows"
+		)
+	}
+	const value: PlaceField = Object.freeze({
+		...builtMark,
+		...fieldMark,
+		writing: "place",
+		natural: true,
+		column: naturalDescriptor.column,
+		sql: naturalDescriptor.sql
+	})
+	fieldEntries.set(value, {
+		kind: "written",
+		type: naturalDescriptor,
+		writing: { kind: "place", by }
+	})
 	return value
 }
 

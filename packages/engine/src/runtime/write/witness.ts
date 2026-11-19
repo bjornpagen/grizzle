@@ -105,7 +105,7 @@ export interface WitnessField {
 	readonly column: ColumnIdent
 	readonly type: ScalarType
 	readonly writing:
-		| { readonly kind: "caller" | "drawn" | "accumulated" | "retirement" | "instant" }
+		| { readonly kind: "caller" | "drawn" | "accumulated" | "retirement" | "instant" | "place" }
 		| { readonly kind: "generated"; readonly expr: ExprTable }
 }
 
@@ -210,7 +210,7 @@ export interface WitnessData {
 
 /** A stated row's field as the host holds it: a field the ChangeSet states, or one its write fills; a retirement field
  * false, the state every insert writes it at; none for a generated field, an instant, which its statement stamps or
- * reads, or a column the host does not hold. */
+ * reads, a place, which its insert stamps, or a column the host does not hold. */
 const hostField = (row: JudgedRow, field: Pick<WitnessField, "name" | "writing">): unknown => {
 	switch (field.writing.kind) {
 		case "caller":
@@ -224,6 +224,7 @@ const hostField = (row: JudgedRow, field: Pick<WitnessField, "name" | "writing">
 			return false
 		case "generated":
 		case "instant":
+		case "place":
 			return undefined
 	}
 }

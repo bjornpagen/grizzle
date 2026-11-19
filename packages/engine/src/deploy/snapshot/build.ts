@@ -222,6 +222,7 @@ const recordedWriting = (
 		case "caller":
 		case "retirement":
 		case "instant":
+		case "place":
 			return w.kind
 		case "generated":
 			if (declared.kind !== "generated") {

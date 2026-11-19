@@ -536,6 +536,50 @@ export type InstantRule =
 			readonly apart: "strata" | "statements"
 	  }
 
+/**
+ * Why a place is refused (ir/instant.ts PlaceHead): as the schema declares it, outside its relation's primary key
+ * (`outsideKey`), first in it, its group no field (`groupless`), or before another of its fields (`notLast`); its `by`
+ * no field of its relation (`byUnknown`) or the place itself (`byItself`); or no key of its relation within its group
+ * and `by`, `key` the one that would order each group's stored rows (`byUnkeyed`). As a write writes it: a put or a
+ * delete writes its relation's rows (`written`); its group holds a field the same insert stamps, `stamped`
+ * (`groupStamped`); or one call would stamp it in more than one statement, each reading its own head, in two strata or
+ * in a stratum of several statements (`stampedApart`).
+ */
+export type PlaceRule =
+	| { readonly kind: "outsideKey" }
+	| { readonly kind: "groupless" }
+	| { readonly kind: "notLast" }
+	| { readonly kind: "byUnknown"; readonly by: string }
+	| { readonly kind: "byItself" }
+	| { readonly kind: "byUnkeyed"; readonly key: NonEmptyReadonlyArray<string> }
+	| { readonly kind: "written"; readonly op: "put" | "delete" }
+	| { readonly kind: "groupStamped"; readonly stamped: string }
+	| { readonly kind: "stampedApart"; readonly apart: "strata" | "statements" }
+
+/** A place rule's sentence. */
+export const placeRuleText = (rule: PlaceRule): string => {
+	switch (rule.kind) {
+		case "outsideKey":
+			return "a place stands last in its relation's primary key, whose fields before it are the group it numbers"
+		case "groupless":
+			return "a place stands in its relation's primary key after its group, at least one field: a place first in its key would number every row of its relation as one group, which every writer meets"
+		case "notLast":
+			return "a place stands last in its relation's primary key, so the key is its group and its place, one row at each place"
+		case "byUnknown":
+			return `a place's \`by\` names a field of its relation, the one that orders the rows a migration that adds the place finds stored, and its relation has no field ${rule.by}`
+		case "byItself":
+			return "a place's `by` names another field of its relation, the one that orders the rows a migration that adds the place finds stored"
+		case "byUnkeyed":
+			return `a place's group and its \`by\` hold a key of its relation, so a migration that adds the place orders each group's stored rows totally, and none is within (${rule.key.join(", ")}): declare that key`
+		case "written":
+			return `a place's relation is written by inserts alone, which keep each group's places gapless from 0, and ${rule.op === "put" ? "a put would state a place" : "a delete would leave a gap"}: write the relation by insert`
+		case "groupStamped":
+			return `a place's group is stated, never stamped by the same insert, and ${rule.stamped} is: state it from a stored value, or stamp it in an earlier stratum`
+		case "stampedApart":
+			return `one call stamps a place in one statement, whose every row in a group shares one place, and this one would stamp it ${rule.apart === "strata" ? "in two strata" : "in a stratum of several statements"}: stamp it in one stratum`
+	}
+}
+
 /** An instant rule's sentence. */
 export const instantRuleText = (rule: InstantRule): string => {
 	switch (rule.kind) {
