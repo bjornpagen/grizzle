@@ -47,7 +47,8 @@ import {
 	Tag,
 	Tone,
 	Tones,
-	ToneWeight
+	ToneWeight,
+	ToneWeightTyped
 } from "#test/support/agreement/schema.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import {
@@ -293,6 +294,7 @@ export type AgreementNote =
 	| "a keyed get of a roster"
 	| "a union lookup pinned by one of several separators"
 	| "a union of three rules looked up and pinned"
+	| typeof closedDistinct
 
 /** What a faulted case reached: its fault, and whether its site's drawn value was refused or admitted. */
 export type FaultNote = `${Fault} refused` | `${Fault} admitted`
@@ -2788,9 +2790,23 @@ const sameInput = (x: Term, y: Term): boolean =>
 	(x.kind === "handle" && y.kind === "handle" && x.value === y.value) ||
 	(x.kind === "param" && y.kind === "param" && x.name === y.name)
 
-/** The rule a spec's arm states, built through the query builder's JavaScript view, as the engine compiles it. */
+/**
+ * How a built query reads Agree's closed relation: by its rows, as the engine reads ToneWeight, or by its declared key
+ * alone, through ToneWeightTyped, a relation of its heading keyed by its tone, as the types read every closed relation.
+ * A case whose rows' reading proves more than its declared key's is the declared class (verdictOf).
+ */
+type ClosedReading = "rows" | "declared"
+
+/** The value a match or a negation of `rel` reads, its closed relation read as `reading` says. */
+const relationRead = (rel: keyof typeof relations, reading: ClosedReading): unknown =>
+	rel === "ToneWeight" && reading === "declared" ? ToneWeightTyped : relations[rel]
+
+/**
+ * The rule a spec's arm states, built through the query builder's JavaScript view, as the engine compiles it, its closed
+ * relation read as `reading` says.
+ */
 const builtArm =
-	(arm: RuleSpec) =>
+	(arm: RuleSpec, reading: ClosedReading) =>
 	(r: RuleValue): unknown => {
 		const rows =
 			arm.rows === undefined
@@ -2833,7 +2849,7 @@ const builtArm =
 				case "OwnerCounts":
 				case "Stray":
 				case "Tones":
-					return relations[rel]
+					return relationRead(rel, reading)
 			}
 		}
 		const variable = (v: Var): unknown => {
@@ -2879,7 +2895,7 @@ const builtArm =
 		}
 		const pred = (p: Pred): unknown => {
 			if (p.kind === "not") {
-				return r.not(relations[p.rel], { [p.field]: term(p.t) })
+				return r.not(relationRead(p.rel, reading), { [p.field]: term(p.t) })
 			}
 			if (p.kind === "allen") {
 				return r.allen(term(p.left), maskValue(p.mask), term(p.right))
@@ -2995,20 +3011,26 @@ const rowsDescriptor = (f: Field): unknown => {
 const isDerived = (rel: MatchSource): rel is DerivedRel =>
 	rel === "ItemTones" || rel === "OwnerCounts"
 
-/** Whether a predicate negates a derived relation, at any depth of its connectives. */
-const negatesDerived = (p: Pred): boolean => {
+/** Whether a predicate negates a relation `of` holds of, at any depth of its connectives. */
+const negates = (p: Pred, of: (rel: MatchSource) => boolean): boolean => {
 	switch (p.kind) {
 		case "not":
-			return isDerived(p.rel)
+			return of(p.rel)
 		case "and":
 		case "or":
-			return negatesDerived(p.ps[0]) || negatesDerived(p.ps[1])
+			return negates(p.ps[0], of) || negates(p.ps[1], of)
 		case "cmp":
 		case "allen":
 		case "pointIn":
 			return false
 	}
 }
+
+/** Whether a predicate negates a derived relation, at any depth of its connectives. */
+const negatesDerived = (p: Pred): boolean => negates(p, isDerived)
+
+/** Whether a predicate negates Agree's closed relation, at any depth of its connectives. */
+const negatesClosed = (p: Pred): boolean => negates(p, (rel) => rel === "ToneWeight")
 
 /** The schema a query is over: Rollup where an arm matches or negates a derived relation, which only Rollup holds. */
 const schemaOf = (spec: QuerySpec): "Agree" | "Rollup" =>
@@ -3043,9 +3065,12 @@ const artifactsOf = (spec: QuerySpec) =>
 const templateOf = (spec: QuerySpec, q: unknown, read: TestCompileOptions["read"]) =>
 	compileTemplateOver(q, undefined, artifactsOf(spec), { ...testCompile, read })
 
-/** The query a spec states, built through the query builder's JavaScript view, as the engine compiles it. */
-const built = (spec: QuerySpec): QueryValue => {
-	const [first, ...rest] = Arr.map(spec.arms, builtArm)
+/**
+ * The query a spec states, built through the query builder's JavaScript view, as the engine compiles it, its closed
+ * relation read as `reading` says.
+ */
+const built = (spec: QuerySpec, reading: ClosedReading): QueryValue => {
+	const [first, ...rest] = Arr.map(spec.arms, (arm) => builtArm(arm, reading))
 	const union = Arr.reduce(rest, queryOver(schemaValue(spec)).rule(first), (q, arm) => q.rule(arm))
 	const searched =
 		spec.nearest === undefined
@@ -3073,6 +3098,11 @@ interface Proved {
 	 * than any one of them read alone, a proof over several flags at once, which the types do not make.
 	 */
 	readonly readings: Card
+	/**
+	 * Whether the case is of the declared class (closedDistinct): its card and readings are then its closed relation's
+	 * declared reading's, the types', and less than its rows' prove.
+	 */
+	readonly declared: boolean
 	/** The keys of each reading of the query, one where it states no flagged filter, two where it does. */
 	readonly keys: Arr.NonEmptyReadonlyArray<ReadonlyArray<ReadonlyArray<ReadonlyArray<string>>>>
 	readonly head: string
@@ -3268,7 +3298,7 @@ const widened: RefusedQuery = named("one literal name")
 const headOf = (spec: QuerySpec): string =>
 	Arr.join(
 		Arr.map(spec.arms, (arm) => {
-			const q: QueryValue = queryOver(schemaValue(spec)).rule(builtArm(arm))
+			const q: QueryValue = queryOver(schemaValue(spec)).rule(builtArm(arm, "rows"))
 			const template = templateOf(spec, q, testCompile.read)
 			if (!template.ok) {
 				throw new Error(
@@ -3288,7 +3318,7 @@ const headOf = (spec: QuerySpec): string =>
 const pageOf = (spec: QuerySpec): PageVerdict => {
 	const by = orderedBy(spec)
 	const paged = Result.flatMap(
-		catchCompileError(() => built(spec).orderBy([by, "asc"])),
+		catchCompileError(() => built(spec, "rows").orderBy([by, "asc"])),
 		(ordered) =>
 			Result.flatMap(templateOf(spec, ordered, "page"), (template) =>
 				Result.flatMap(queryInput(ordered), (input) =>
@@ -3307,7 +3337,7 @@ const pageOf = (spec: QuerySpec): PageVerdict => {
 		throw new Error(`the engine refuses a page of a drawn query: ${messageOf(paged.error)}`)
 	}
 	const unordered = Result.flatMap(
-		catchCompileError(() => built(spec)),
+		catchCompileError(() => built(spec, "rows")),
 		(q) =>
 			Result.flatMap(queryInput(q), (input) => statedOrderOf(input.desc, SourceLoc("query", [])))
 	)
@@ -3322,6 +3352,70 @@ const meetCard = (cards: Arr.NonEmptyReadonlyArray<Card>): Card =>
 			? "atMostOne"
 			: "many"
 
+/** What the engine proves of a query's rows: its card, whether a proof by cases pins it, and what every reading holds. */
+type Cardinality = Pick<Proved, "card" | "split" | "readings">
+
+/** How much a card proves: many rows, at most one, exactly one. */
+const cardRank: { readonly [C in Card]: number } = { many: 0, atMostOne: 1, one: 2 }
+
+/** Whether the cardinality `a` proves more than `b` does, by its card or by what every reading of its flags holds. */
+const provesMore = (a: Cardinality, b: Cardinality): boolean =>
+	cardRank[a.card] > cardRank[b.card] || cardRank[a.readings] > cardRank[b.readings]
+
+/**
+ * The declared class (README "Closed relations"): the engine keys a closed relation by every column whose constant
+ * values are distinct, a fact of its rows, where the types read its declared key alone, which cannot see a value no
+ * literal types (ToneWeight's weights are Cents, a branded bigint). A case whose query reads ToneWeight by its rows
+ * proves more than it does read by its declared key (ClosedReading) is of the class: the program states the declared
+ * reading's cardinality, the types', and the engine's keys, which the types' lie over. Agree's closed relation holds no
+ * column of one value and no two columns that agree row by row, so no other fact of its rows reaches a verdict.
+ */
+const closedDistinct = "a closed relation's column of distinct constant values"
+
+/** Whether a spec matches or negates Agree's closed relation, so its declared reading may prove less than its rows'. */
+const readsClosed = (spec: QuerySpec): boolean =>
+	Arr.some(
+		spec.arms,
+		(arm) =>
+			Arr.some(arm.matches, (m) => m.rel === "ToneWeight") ||
+			Arr.some([...arm.filters, ...flaggedPreds(arm.flagged)], negatesClosed)
+	)
+
+/**
+ * The cardinality the engine proves of a query whose every flag reading's root is `roots`, each spec compiled to its
+ * root by `rootOf`: its shared reading's card, at most one where a proof by cases over one flagged filter's readings
+ * pins it and what both state does not, and what every reading holds (meetCard).
+ */
+const cardinalityOf = (
+	spec: QuerySpec,
+	roots: Arr.NonEmptyReadonlyArray<RootOf>,
+	rootOf: (reading: QuerySpec, what: string) => RootOf
+): Cardinality => {
+	const read = Arr.some(spec.arms, (arm) => arm.flagged !== undefined)
+		? rootOf(sharedReading(spec), "what both readings of its flag state")
+		: roots[0]
+	const split = Arr.flatMap(spec.arms, (arm, i) =>
+		arm.flagged?.kind === "either"
+			? [
+					Arr.map(
+						splitReadings(spec, arm, i),
+						(reading) => rootOf(reading, "a reading of one flag").meta.card !== "many"
+					)
+				]
+			: []
+	)
+	const pinned =
+		read.meta.card === "many" && Arr.some(split, (readings) => Arr.every(readings, (p) => p))
+	return {
+		card: pinned ? "atMostOne" : read.meta.card,
+		split: pinned,
+		readings: meetCard(Arr.map(roots, (root) => root.meta.card))
+	}
+}
+
+/** The root of a compiled query, whose meta states what the engine proves of it. */
+type RootOf = QueryTemplate["analyzed"]["roots"][0]
+
 const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 	const failed = (what: string): never => {
 		throw new Error(
@@ -3331,7 +3425,7 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 	const variants = flagVariants(spec)
 	const compiled = Arr.map(variants, (variant) =>
 		Result.flatMap(
-			catchCompileError(() => built(variant)),
+			catchCompileError(() => built(variant, "rows")),
 			(q) => templateOf(variant, q, testCompile.read)
 		)
 	)
@@ -3357,31 +3451,26 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 	}
 	const all: Arr.NonEmptyReadonlyArray<QueryTemplate> = [first, ...rest]
 	const roots = Arr.map(all, (t) => t.analyzed.roots[0])
-	const shared = Arr.some(spec.arms, (arm) => arm.flagged !== undefined)
-		? Result.flatMap(
-				catchCompileError(() => built(sharedReading(spec))),
-				(q) => templateOf(sharedReading(spec), q, testCompile.read)
+	const rootOf =
+		(reading: ClosedReading) =>
+		(s: QuerySpec, what: string): RootOf => {
+			const template = Result.flatMap(
+				catchCompileError(() => built(s, reading)),
+				(q) => templateOf(s, q, testCompile.read)
 			)
-		: Result.ok(first)
-	if (!shared.ok) {
-		return failed(`what both readings of its flag state: ${messageOf(shared.error)}`)
-	}
-	const read = shared.value.analyzed.roots[0]
-	const readingOf = (reading: QuerySpec) => {
-		const compiled = Result.flatMap(
-			catchCompileError(() => built(reading)),
-			(q) => templateOf(reading, q, testCompile.read)
-		)
-		if (!compiled.ok) {
-			return failed(`a reading of one flag: ${messageOf(compiled.error)}`)
+			return template.ok
+				? template.value.analyzed.roots[0]
+				: failed(`${what}: ${messageOf(template.error)}`)
 		}
-		const root = compiled.value.analyzed.roots[0]
-		return root.meta.card !== "many"
-	}
-	const split = Arr.flatMap(spec.arms, (arm, i) =>
-		arm.flagged?.kind === "either" ? [Arr.map(splitReadings(spec, arm, i), readingOf)] : []
-	)
-	const splitPinned = Arr.some(split, (readings) => Arr.every(readings, (pinned) => pinned))
+	const rows = cardinalityOf(spec, roots, rootOf("rows"))
+	const declared = readsClosed(spec)
+		? cardinalityOf(
+				spec,
+				Arr.map(variants, (variant) => rootOf("declared")(variant, "a reading of its flags")),
+				rootOf("declared")
+			)
+		: rows
+	const ofClass = provesMore(rows, declared)
 	const params = Arr.reduce(
 		Arr.flatMap(all, (t) => t.params),
 		[],
@@ -3391,9 +3480,8 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 	return {
 		kind: "admitted",
 		proved: {
-			card: read.meta.card === "many" && splitPinned ? "atMostOne" : read.meta.card,
-			split: read.meta.card === "many" && splitPinned,
-			readings: meetCard(Arr.map(roots, (root) => root.meta.card)),
+			...(ofClass ? declared : rows),
+			declared: ofClass,
 			keys: Arr.map(roots, (root) => Arr.flatMap(root.meta.logicalKeys, keysInNameOrder)),
 			head: headOf(variants[0]),
 			facts: Arr.every(spec.arms, (arm) => sameHeadKeys(arm, spec.arms[0]))
@@ -3414,7 +3502,7 @@ const readsThrough = (spec: QuerySpec, failed: (what: string) => never): boolean
 	const [role, artifacts] =
 		spec.db === "Reader" ? [Reader, readerArtifacts] : [Reporter, reporterArtifacts]
 	const compiled = Result.flatMap(
-		catchCompileError(() => built(spec)),
+		catchCompileError(() => built(spec, "rows")),
 		(q) => compileTemplateOver(q, role, artifacts, testCompile)
 	)
 	if (compiled.ok) {
@@ -3581,7 +3669,10 @@ export interface AgreementCase {
 interface Lookup {
 	readonly field: string
 	readonly text: string
+	/** Its card: its closed relation's declared reading's where that proves less than its rows' (closedDistinct). */
 	readonly card: Card
+	/** Whether the lookup is of the declared class (closedDistinct). */
+	readonly declared: boolean
 }
 
 /** The value a literal, a typed constant or a handle term stands for, as the query builder reads it. */
@@ -3661,7 +3752,22 @@ const lookupsOf = (spec: QuerySpec, params: string): ReadonlyArray<Lookup> => {
 		return []
 	}
 	const rendering = new Rendering(spec.fault)
-	const union = built(spec)
+	/** The lookup's card with the union's closed relation read as `reading` says. */
+	const cardOf = (field: string, value: unknown, reading: ClosedReading): Card => {
+		const union = built(spec, reading)
+		const lookup = queryOver(schemaValue(spec)).rule((r: RuleValue) => {
+			const u = varsOver(union, "u")
+			const bound = Rec.fromEntries(Arr.map(names, (n) => [n, n === field ? value : u[n]] as const))
+			return r.match(union, bound).find(bound)
+		})
+		const compiled = templateOf(spec, lookup, testCompile.read)
+		if (!compiled.ok) {
+			throw new Error(
+				`the engine refuses a lookup of an admitted union by ${field}: ${messageOf(compiled.error)}`
+			)
+		}
+		return compiled.value.analyzed.roots[0].meta.card
+	}
 	return Arr.flatMap(first.head, ([field, h]) => {
 		const value = constantOf(h)
 		if (
@@ -3673,26 +3779,10 @@ const lookupsOf = (spec: QuerySpec, params: string): ReadonlyArray<Lookup> => {
 		) {
 			return []
 		}
-		const lookup = queryOver(schemaValue(spec)).rule((r: RuleValue) => {
-			const u = varsOver(union, "u")
-			const bound = Rec.fromEntries(
-				Arr.map(names, (n) => [n, n === field ? value.value : u[n]] as const)
-			)
-			return r.match(union, bound).find(bound)
-		})
-		const compiled = templateOf(spec, lookup, testCompile.read)
-		if (!compiled.ok) {
-			throw new Error(
-				`the engine refuses a lookup of an admitted union by ${field}: ${messageOf(compiled.error)}`
-			)
-		}
-		return [
-			{
-				field,
-				text: rendering.head(h),
-				card: compiled.value.analyzed.roots[0].meta.card
-			}
-		]
+		const rows = cardOf(field, value.value, "rows")
+		const declared = readsClosed(spec) ? cardOf(field, value.value, "declared") : rows
+		const ofClass = cardRank[rows] > cardRank[declared]
+		return [{ field, text: rendering.head(h), card: ofClass ? declared : rows, declared: ofClass }]
 	})
 }
 
@@ -3770,6 +3860,12 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 	}
 	if (spec.arms.length > 2 && Arr.some(lookups, (l) => l.card !== "many")) {
 		notes.add("a union of three rules looked up and pinned")
+	}
+	if (
+		(verdict.kind === "admitted" && verdict.proved.declared) ||
+		Arr.some(lookups, (l) => l.declared)
+	) {
+		notes.add(closedDistinct)
 	}
 	return { spec, lines, source, verdict, keyed, lookups, notes }
 }
@@ -3993,7 +4089,8 @@ export const agreementReached = (
  * construct over a span of dates, its parameter and its width in days beside an integer span's width, an extension's
  * Db reading a base query and a base Db refused an extension's, a keyed get admitted through each kind of key position
  * and with a name beside its key, and refused for a key field missing, alone or with a name in its place, and a union
- * looked up by each field its rules fix to a constant, pinned by one of them and not by another.
+ * looked up by each field its rules fix to a constant, pinned by one of them and not by another. A case of the declared
+ * class (closedDistinct) is no witness's: the evidence agreement's kept case holds one.
  */
 export const evidenceRequired: ReadonlyArray<Reached<AgreementNote>> = [
 	...agreementFeatures,
@@ -4119,11 +4216,11 @@ const blockOf = (c: AgreementCase, i: number, paged: boolean): ReadonlyArray<str
 			]
 		}
 		case "admitted": {
-			const { card, readings, keys, head, facts, params, page, reads } = c.verdict.proved
+			const { card, readings, declared, keys, head, facts, params, page, reads } = c.verdict.proved
 			const keyed = Arr.map(keys, keysType)
 			const handle = `(h: WorkloadHandles<typeof ${c.spec.db}, (typeof wl${i})["programs"]>["m"]) => (input: InputOf<typeof q${i}>) =>`
 			return [
-				`/** Its card: ${card}${readings === card ? "" : `, and ${readings} under each reading of its flag alone`}; its keys: ${Arr.join(keyed, "; under the other flag, ")}; ${c.spec.db}'s workload ${reads ? "holds" : "refuses"} it. */`,
+				`/** Its card: ${card}${readings === card ? "" : `, and ${readings} under each reading of its flag alone`}${declared ? `, its closed relation read by its declared key, the declared class ${closedDistinct}` : ""}; its keys: ${Arr.join(keyed, "; under the other flag, ")}; ${c.spec.db}'s workload ${reads ? "holds" : "refuses"} it. */`,
 				...Arr.map(lines, (l) => l.text),
 				...(reads ? [] : [levelDirective]),
 				`export const wl${i} = workload(${c.spec.db}, { m: q${i} })`,

@@ -1894,6 +1894,13 @@ both payloads.
 `closed.relation("Allowed", { kind: closedId(Kind), flag: closedId(Flag), weight: pg.integer }, ["kind", "flag"], rows)`
 says which flags each kind admits, and at what weight.
 
+A query reads a closed relation's rows as facts its declaration fixes. The engine keys the relation by every column
+whose constant values are distinct; it treats a column that holds one value as constant, and two columns of one type
+whose values agree row by row as equal. The types read only the declared key, and cannot see a value no literal types,
+such as a contract's bigint. So a query whose cardinality rests on one of these facts is typed as having many rows
+where the engine proves at most one: over `Allowed`, if no two rows share a weight, a match that fixes the weight by a
+parameter is at most one row to the engine and many to the types.
+
 It has no table. The migration installs it as content-addressed IMMUTABLE constants, a bit string indexed by its key's
 codes and an array of each open-typed field's values, which PostgreSQL folds into every statement that reads them. A
 rule that reads one from an open row is a CHECK on that row's table, named by its rule: a containment of a row's

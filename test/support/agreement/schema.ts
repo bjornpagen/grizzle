@@ -42,8 +42,12 @@ import { str } from "#compiler/public/text.ts"
  * search ranks by.
  *
  * ToneWeight is a closed relation, a weight of Cents for two of Tone's three members, keyed by its tone: a rule matches
- * it as any relation, and every role reads its rows, so it is no role's entry. Tone itself, a roster, is a source of its
- * one field, id. byOwner names Item's candidate key, which a keyed get reads through as it reads a primary key.
+ * it as any relation, and every role reads its rows, so it is no role's entry. Its weights are distinct, so the engine
+ * keys it by its weight too, a fact of its rows the types do not read (README "Closed relations"); ToneWeightTyped, a
+ * relation of its heading keyed by its tone alone, is ToneWeight as the types read it, which the evidence agreement
+ * reads a query over in its place to tell that class apart (queries.ts ClosedReading), and which no drawn rule names.
+ * Tone itself, a roster, is a source of its one field, id. byOwner names Item's candidate key, which a keyed get reads
+ * through as it reads a primary key.
  *
  * Rollup extends Agree with two derived relations, each keyed by what its definition proves: ItemTones, a projection of
  * Item keyed by its id, and OwnerCounts, the count of each owner's items, keyed by the owner. A query over Rollup reads
@@ -112,16 +116,32 @@ export const ToneWeight = closed.relation(
 	]
 )
 
+export const ToneWeightTyped = relation(
+	"ToneWeightTyped",
+	{ tone: closedId(Tone), weight: Cents },
+	["tone"]
+)
+
 export const byOwner = key(on(Item, "owner", "n"))
 
 export const Agree = schema(
 	"Agree",
-	[Tone, Shade, Item, Tag, Note, Batch, Cell, Slot, ToneWeight],
+	[Tone, Shade, Item, Tag, Note, Batch, Cell, Slot, ToneWeight, ToneWeightTyped],
 	[byOwner]
 )
 
 /** Agree's entries a full role holds whole: every relation and roster but the closed relation. */
-const agreeEntries = Object.freeze({ Tone, Shade, Item, Tag, Note, Batch, Cell, Slot })
+const agreeEntries = Object.freeze({
+	Tone,
+	Shade,
+	Item,
+	Tag,
+	Note,
+	Batch,
+	Cell,
+	Slot,
+	ToneWeightTyped
+})
 
 /** The full role over Agree every drawn read goes through, but where a case reads through Reporter. */
 export const Reader = role(Agree, "reader", agreeEntries)

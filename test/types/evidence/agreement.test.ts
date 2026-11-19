@@ -24,8 +24,14 @@ import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
  *    lie over the engine's, its cardinality is the engine's, and its records, parameters and reads the engine's decoded
  *    heading and parameters. A refused query raises exactly its directive's refusal, so a claimed key the engine does
  *    not prove, a cardinality the engine does not state, or a record or parameter the engine does not deliver, fails
- *    its assertion. Each query no take closes, of one heading, is paged: its page is of that very ordered query, and its
- *    unordered self is refused a page.
+ *    its assertion. One class is declared, the one the types cannot decide: a closed relation's column of distinct
+ *    constant values, which the engine keys the relation by (README "Closed relations") and the types cannot see, as
+ *    a value no literal types (ToneWeight's weight, a Cents bigint). A query over ToneWeight whose cardinality its
+ *    rows prove more of than its declared key does is of the class, and is stated under its declared key's reading,
+ *    the types' (test/support/agreement/queries.ts closedDistinct); a query its rows prove less of is no class, and
+ *    holds the types to the engine. The kept case holds one of the class; no witness reaches it. Each query no take
+ *    closes, of one heading, is paged: its page is of that very ordered query, and its unordered self is refused a
+ *    page.
  * 2. Order invariance, in the same program: the batch's queries again in the other order, as a second module, and
  *    every query's head and keys asserted equal across the two, so TypeScript's evidence never depends on unrelated
  *    statements' order.
@@ -87,6 +93,14 @@ export const evidence = agreement(agreementCases, {
 			reason:
 				"a union of three rules of constants, d z, y, x and b x, z, z: the engine keeps d alone, which tells all three apart, and drops b, the first separator of two pairs that d tells apart too, so the union is keyed by d, not by b and d",
 			since: "2026-11-16"
+		},
+		{
+			token: ReplayToken(
+				"test/types/evidence/agreement.test.ts#evidence:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.h.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.5.0.0.1.0.0.1.0.0"
+			),
+			reason:
+				"ToneWeight matched with a flag fixing its tone by p0 or its weight by p1, its tone in the head: the engine proves at most one row under both readings, its weights distinct, where the types, which read its declared key, the tone, prove many under the weight's; the declared class, a closed relation's column of distinct constant values (TEST_SEED=669114265)",
+			since: "2026-11-18"
 		}
 	],
 	kills: [
