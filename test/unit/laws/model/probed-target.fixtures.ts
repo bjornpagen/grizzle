@@ -17,8 +17,7 @@ import { sameIndexOpclass } from "#compiler/ir/products.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import type { PartRef } from "#compiler/laws/model/plan.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import type { IndexColumn } from "#compiler/physical/ddl/context.ts"
-import type { IndexKey, PlannedIndex } from "#compiler/physical/indexes/engine.ts"
+import { keyTermText, type IndexKey, type PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import {
 	compileInstallation,
 	type Installation,
@@ -413,12 +412,9 @@ export const placementsOf = (desc: SchemaDesc): Placements => {
 	}
 }
 
-/** An index's column as its relation's columns are told apart: a field by its name, a law column by its identifier. */
-const indexColumnText = (c: IndexColumn): string => (c.kind === "field" ? c.field : c.column)
-
 /** Whether two index keys are one: one column, one direction, one operator class. */
 const sameKey = (x: IndexKey, y: IndexKey): boolean =>
-	indexColumnText(x.column) === indexColumnText(y.column) &&
+	keyTermText(x.column) === keyTermText(y.column) &&
 	x.dir === y.dir &&
 	sameIndexOpclass(x.opclass, y.opclass)
 
@@ -433,8 +429,7 @@ const leadsIndex = (x: PlannedIndex, y: PlannedIndex): boolean =>
 	})
 
 /** A planned index's column set. */
-const indexSet = (i: PlannedIndex): string =>
-	setText(Arr.map(i.keys, (k) => indexColumnText(k.column)))
+const indexSet = (i: PlannedIndex): string => setText(Arr.map(i.keys, (k) => keyTermText(k.column)))
 
 /** A planned index as the implied key's comparison reads it: its relation, method, uniqueness and column set. */
 const indexShape = (i: PlannedIndex): string =>

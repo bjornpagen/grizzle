@@ -454,7 +454,9 @@ export const roleArtifacts = <S extends ParamSource>(
 	if (!installed.ok) {
 		return installed
 	}
-	const reads = catchCompileError(() => roleReadNames(installed.value, names, role))
+	const reads = catchCompileError(() =>
+		roleReadNames(installed.value, names, role, read.value.checked.entries)
+	)
 	if (!reads.ok) {
 		return reads
 	}

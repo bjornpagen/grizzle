@@ -94,6 +94,7 @@ const reach: { readonly [N in BuiltinFunctionName]: "row" | "rows" } = {
 	encode: "row",
 	generate_series: "row",
 	sha256: "row",
+	md5: "row",
 	to_regclass: "row",
 	to_regprocedure: "row",
 	pg_get_userbyid: "row",

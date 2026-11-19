@@ -20,7 +20,7 @@ import { Array as Arr, Equivalence, Option } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { defaultOpclass, type NativeColumn } from "#compiler/ir/law.ts"
 import type { AccessUse, IndexRequest } from "#compiler/ir/products.ts"
-import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
+import { keyTermText, type PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { contained, f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -315,8 +315,7 @@ export const expectedRefusal: Readonly<Record<Broken, CompileReasonTag>> = {
 export const sameColumns = Arr.makeEquivalence(Equivalence.String)
 
 /** A planned index key's field, or its law column's identifier. */
-export const keyField = (k: PlannedIndex["keys"][number]): string =>
-	k.column.kind === "field" ? k.column.field : k.column.column
+export const keyField = (k: PlannedIndex["keys"][number]): string => keyTermText(k.column)
 
 export const install = (requests: ReadonlyArray<IndexRequest>) => {
 	const owned = owning(Indexed)

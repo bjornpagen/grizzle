@@ -1,3 +1,4 @@
+import type { RoleEntry } from "#compiler/analysis/schema.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { catchCompileError, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type UninstalledType } from "#compiler/core/errors.ts"
@@ -22,8 +23,10 @@ import { missing, type PhysicalNames, type SelectionKey } from "#compiler/ir/phy
 import type { RegexRef, ScalarType } from "#compiler/ir/scalar.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
 import type { Owned, OwnedEntry, OwnedLogin, OwnedRole } from "#compiler/schema/own.ts"
+import { imagedText } from "#compiler/schema/representability.ts"
 import type { FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
 import type { ClosedConstant } from "#compiler/sql/constants.ts"
+import { type ImagedColumns, imagedColumns } from "#compiler/sql/image.ts"
 import { type OutsideProbe, probeIdentity } from "#compiler/write/insert/unique.ts"
 
 const typeSchema = nominal<string, TypeSchema>()
@@ -310,11 +313,13 @@ export const worldNames = (named: NamedRole, names: InstallNames): WorldNames =>
  * definition's head fields, each a field's column; domains, constants and the vector extension stay the base's. A view
  * holds its heading's columns and no law column (physical/ddl/roles.ts wholeView, worldView), so it holds no selection
  * key a read could probe. Each member is stated here, none carried from the installation's names, so none of what a
- * table holds is read off a view. */
+ * table holds is read off a view. Its imaged columns are its views' (`imagedViews`), its query entries' read off their
+ * checked `entries`. */
 export const roleReadNames = (
 	names: InstallNames,
 	world: WorldNames,
-	role: OwnedRole
+	role: OwnedRole,
+	entries: ReadonlyArray<RoleEntry>
 ): PhysicalNames => ({
 	relation: world.view,
 	column: (relation, field) => {
@@ -335,8 +340,43 @@ export const roleReadNames = (
 	vectorSchema: names.vectorSchema,
 	codes: names.codes,
 	closed: names.closed,
-	refusal: names.refusal
+	refusal: names.refusal,
+	imaged: imagedViews(names, world, role, entries)
 })
+
+/**
+ * The imaged columns of a role's views (sql/image.ts ImagedColumns). A whole entry's view holds its table's columns
+ * under their names, and PostgreSQL reads a plain view's lookups through its table's indexes, so its imaged columns are
+ * its table's. A query entry's view is a security barrier, into which a condition passes only where it is leakproof, as
+ * an image's equality is (md5): its imaged columns are its head's texts of no byte bound and no contract, each its
+ * definition's (`entries`), which read its base's column where the head names one.
+ */
+const imagedViews = (
+	names: InstallNames,
+	world: WorldNames,
+	role: OwnedRole,
+	entries: ReadonlyArray<RoleEntry>
+): ImagedColumns =>
+	imagedColumns([
+		...Object.entries(role.relations).flatMap(([relation, e]) =>
+			e.kind === "whole"
+				? names.imaged
+						.of(names.relation(e.relation.name))
+						.map((column) => ({ table: world.view(relation), column }))
+				: []
+		),
+		...entries.flatMap((e) =>
+			e.kind === "world"
+				? e.analysis.heading.flatMap((c) =>
+						c.type.carrier === "text" &&
+						c.type.text.byteBound === undefined &&
+						c.type.contract === undefined
+							? [{ table: world.view(e.name), column: identifierOf(viewColumn(c.name)) }]
+							: []
+					)
+				: []
+		)
+	])
 
 const relationOf = (owned: Owned, relation: string) => {
 	const r = owned.relations[relation]
@@ -478,6 +518,18 @@ export const installNames = (input: NamesInput): InstallNames => {
 		closed: (relation) =>
 			input.closed.get(relation) ?? missing(`physical: no closed relation ${relation}`),
 		selectionKeys: (relation) => input.selectionKeys.get(relation) ?? [],
+		imaged: imagedColumns(
+			Object.values(owned.relations).flatMap((r) =>
+				r.kind === "relation"
+					? Object.values(r.fields)
+							.filter((f) => imagedText(f.desc))
+							.map((f) => ({
+								table: { schema: identifierOf(levelOf(r.name)), name: r.ident },
+								column: f.column
+							}))
+					: []
+			)
+		),
 		/** A contract's domain by its name, whether the base declares it, a context field or a served parameter, named by
 		 * its definition. */
 		contractDomain: (contract) => ({ schema: types, name: identifierOf(contractNamed(contract)) }),

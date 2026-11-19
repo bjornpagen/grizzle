@@ -23,6 +23,7 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { cUtf8Collation, namedType, numericType, types } from "#compiler/sql/build.ts"
 import type { ClosedConstant } from "#compiler/sql/constants.ts"
+import type { ImagedColumns } from "#compiler/sql/image.ts"
 
 /** The greatest d with 10^d - 1 at most `bound`, a magnitude. */
 const exactDigits = (bound: bigint): number => {
@@ -126,6 +127,11 @@ export interface PhysicalNames {
 	 * setting through (sql/print.ts contextClaims).
 	 */
 	readonly refusal: QualifiedFunctionRef
+	/**
+	 * The columns its lookup indexes hold by their image (sql/image.ts ImagedColumns), whose every equality a statement
+	 * states of their images too (statingImages).
+	 */
+	readonly imaged: ImagedColumns
 }
 
 /** A name the owned schema cannot supply is a defect of the caller's input, refused as MalformedDescription.

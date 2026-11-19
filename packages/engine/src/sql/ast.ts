@@ -241,7 +241,8 @@ export type BinaryOperator = (typeof binaryOperators)[number]
  * functions of the compile-target catalog, the exact value of a double's bits (float8send and
  * get_byte, build.ts exactNumericOfDouble), the span functions, the attachment transport, a bytes value's chunks
  * (lower/delivery.ts), the runtime probes, the rule judge's reads of its session tables in the catalog
- * (physical/ddl/rules.ts judged) and the database default's statement; a relation input's arrays are a FROM
+ * (physical/ddl/rules.ts judged), a text's image an index holds (sql/image.ts) and the database default's
+ * statement; a relation input's arrays are a FROM
  * item of their own. Extension functions (pgvector) are qualified by their extension's schema instead.
  */
 export const builtinFunctionNames = [
@@ -323,6 +324,7 @@ export const builtinFunctionNames = [
 	"encode",
 	"generate_series",
 	"sha256",
+	"md5",
 	"to_regclass",
 	"to_regprocedure",
 	"pg_get_userbyid",

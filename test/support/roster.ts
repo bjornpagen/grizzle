@@ -19,6 +19,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/laws/rule-confined.test.ts",
 	"test/pg/laws/rule-disjoint.test.ts",
 	"test/pg/laws/rule-dispatch.test.ts",
+	"test/pg/laws/rule-image.test.ts",
 	"test/pg/laws/rule-net-write.test.ts",
 	"test/pg/laws/rule-region.test.ts",
 	"test/pg/laws/rule-whole.test.ts",

@@ -7,6 +7,7 @@ import { alterationStatement } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { compareOps } from "#compiler/ir/desc.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
+import { keyTermText } from "#compiler/physical/indexes/engine.ts"
 import { type Installation } from "#compiler/physical/install/compile.ts"
 import type { WorkloadPlan } from "#compiler/program/workload/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -146,7 +147,7 @@ export const keyIdent = (k: IndexKey): string =>
 
 /** The column an index key holds. */
 export const keyColumn = (k: Installation["indexes"][number]["keys"][number]): string =>
-	k.column.kind === "field" ? k.column.field : k.column.column
+	keyTermText(k.column)
 
 export interface IndexCase {
 	readonly programs: ReadonlyArray<Program>

@@ -117,11 +117,16 @@ export const indexesOfNamesEachIndexsReasonsAndKeyColumnsInOrderAndMappedThrough
 						Arr.map([...named], ([name, index]): Compared => ({
 							relation: relationName,
 							name,
-							columns: Arr.map(index.columns, (column): Projected =>
-								column.kind === "field"
-									? { kind: "field", field: column.field, direction: column.direction }
-									: { kind: "law", laws: column.laws, direction: column.direction }
-							),
+							columns: Arr.map(index.columns, (column): Projected => {
+								switch (column.kind) {
+									case "field":
+										return { kind: "field", field: column.field, direction: column.direction }
+									case "law":
+										return { kind: "law", laws: column.laws, direction: column.direction }
+									case "image":
+										return { kind: "image", direction: column.direction }
+								}
+							}),
 							reasons: index.reasons
 						}))
 					),

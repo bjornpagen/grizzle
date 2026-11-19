@@ -438,6 +438,14 @@ export const columnKey = (column: string): IndexKey => ({
 	direction: "ASC"
 })
 
+/** An index key over an expression, which prints parenthesized: its type's default class and collation, ascending. */
+export const exprKey = (expr: Expr): IndexKey => ({
+	key: { kind: "expr", expr },
+	collation: undefined,
+	opclass: undefined,
+	direction: "ASC"
+})
+
 /** An unaliased target. */
 export const target = (expr: Expr): Target => ({ expr, alias: undefined })
 

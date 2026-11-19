@@ -619,6 +619,33 @@ export const textByteBound = (desc: InferredFieldDesc): number => {
 const isTextDesc = (desc: InferredFieldDesc): boolean =>
 	desc.kind === "text" || (desc.kind === "contract" && isTextDesc(desc.base))
 
+/**
+ * Whether a lookup index holds a field by its image, never its datum (sql/image.ts): a text whose pattern
+ * and contracts prove no byte bound (textByteBound), which no B-tree entry holds for every value it admits.
+ */
+export const imagedText = (desc: InferredFieldDesc): boolean =>
+	isTextDesc(desc) && !Number.isFinite(textByteBound(desc))
+
+/**
+ * The digits of an MD5 digest in hexadecimal, md5(text)'s length.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit characters
+ * @scope the text md5(text) returns
+ * @constraint compile-time constant
+ * @source https://www.postgresql.org/docs/19/functions-string.html
+ * @quote Computes the MD5 hash of the argument, with the result written in hexadecimal.
+ * @verified 2026-11-18
+ */
+const md5Digits = 32
+
+/**
+ * The datum of a text's image in an index entry (sql/image.ts imageOf): md5's 32 hexadecimal digits, a text varlena of
+ * at most its four-byte header and 32 bytes.
+ */
+export const imageDatum: DatumBound = fixed(varlenaHeaderBytes + md5Digits, 4, "text")
+
 /** Whether a span's endpoint is a date, date itself or a contract over it: a daterange's, of 4-byte bounds. */
 const isDateEndpoint = (desc: FieldDesc): boolean =>
 	desc.kind === "contract" ? isDateEndpoint(desc.base) : desc.kind === "pg" && desc.type === "date"

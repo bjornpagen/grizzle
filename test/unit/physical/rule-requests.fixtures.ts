@@ -2,7 +2,7 @@
 
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
-import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
+import { keyTermText, type PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -99,7 +99,7 @@ const schemaOf = (shape: Shape) => {
 
 /** The fields an index's keys name, in index order. */
 const fieldsOf = (index: PlannedIndex): ReadonlyArray<string> =>
-	Arr.map(index.keys, (k) => (k.column.kind === "field" ? k.column.field : k.column.column))
+	Arr.map(index.keys, (k) => keyTermText(k.column))
 
 /**
  * Judges the indexes of `shape`'s installation. Each probe and each whole rule's statement reads the relation it joins

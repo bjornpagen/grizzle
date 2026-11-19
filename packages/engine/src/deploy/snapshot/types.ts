@@ -269,17 +269,25 @@ export type LawColumnHolds =
 	| { readonly kind: "predecessor"; readonly field: string }
 
 /**
- * One key column of an index, in the index's key order: a field of the relation, by its declared name, or a law column
- * the law model adds to the relation, by what it holds and the laws the manifest records it for; with its direction, a
- * B-tree's ascending or descending, or none for an index that orders nothing (GiST, HNSW, hash).
+ * A column an index key reads: a field of the relation, by its declared name, or a law column the law model adds to the
+ * relation, by what it holds and the laws the manifest records it for.
  */
-export type IndexKeyColumn = { readonly direction: "asc" | "desc" | "none" } & (
+export type IndexedColumn =
 	| { readonly kind: "field"; readonly field: string }
 	| {
 			readonly kind: "law"
 			readonly holds: LawColumnHolds
 			readonly laws: ReadonlyArray<LawId>
 	  }
+
+/**
+ * One key column of an index, in the index's key order: a column it holds (IndexedColumn), or the image of one, the
+ * md5 digest a lookup index holds in place of a text of no byte bound (sql/image.ts); with its direction, a
+ * B-tree's ascending or descending, or none for an index that orders nothing (GiST, HNSW, hash).
+ */
+export type IndexKeyColumn = { readonly direction: "asc" | "desc" | "none" } & (
+	| IndexedColumn
+	| { readonly kind: "image"; readonly of: IndexedColumn }
 )
 
 /**

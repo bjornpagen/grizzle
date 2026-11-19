@@ -68,6 +68,7 @@ import {
 	vectorTypes,
 	worldNames
 } from "#compiler/physical/ddl/names.ts"
+import { keyTermText } from "#compiler/physical/indexes/engine.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
@@ -82,6 +83,7 @@ import { everySlice } from "#compiler/schema/reach.ts"
 import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
+import { imagedColumns } from "#compiler/sql/image.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { IdentifiedLaw, Law } from "#compiler/types/changeset/changeset.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
@@ -152,8 +154,8 @@ export const localVectorSchema = "vector_ext"
  * vector extension in `vectorSchema` and the installation's codes `codes` (a fresh one's: ir/codes.ts firstCodebook):
  * each name minted at the naming door (core/identity.ts), a relation's as a stored relation's table. A structural text
  * domain exists only where an installation types a column by it, so these names name none; and they name no closed
- * relation's constant and no contract's domain, which only an installation holds, since a contract's domain is named
- * by its definition's digest.
+ * relation's constant, no contract's domain and no column a lookup index holds by its image, which only an installation
+ * holds, since a contract's domain is named by its definition's digest and an index is its installation's.
  */
 export const productionNames = (
 	declaredSchema: string,
@@ -190,6 +192,7 @@ export const productionNames = (
 			name: identifierOf(paramDomainIdentity(place, regex))
 		}),
 		selectionKeys: () => [],
+		imaged: imagedColumns([]),
 		vectorSchema: vectorTypes(vectorSchema),
 		codes,
 		closed: (relation) => {
@@ -1043,7 +1046,7 @@ const namesOver = (installation: Installation, schema: string): Names => {
 				i.index.kind === "created" &&
 				i.relation === relation.name &&
 				sameList(
-					Arr.map(i.keys, (k) => (k.column.kind === "field" ? k.column.field : k.column.column)),
+					Arr.map(i.keys, (k) => keyTermText(k.column)),
 					keys
 				)
 					? [i.index.name]
@@ -1115,7 +1118,7 @@ export const roleNamesOf = (installed: Installed, role: AnyRole): RoleNames => {
 		throw refused(named.error)
 	}
 	const world = worldNames(named.value, installed.installation.names)
-	const read = roleReadNames(installed.installation.names, world, owned)
+	const read = roleReadNames(installed.installation.names, world, owned, [])
 	return {
 		view: (relation) => qualified(read.relation(relation)),
 		column: (relation, field) => quoteIdent(read.column(relation, field)),

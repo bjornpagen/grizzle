@@ -127,6 +127,7 @@ import {
 	target
 } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
+import { statingImages } from "#compiler/sql/image.ts"
 import {
 	freshNames,
 	type NameMap,
@@ -990,7 +991,10 @@ export class OptimizedDelivery<
 			const printed = printedStatement(
 				withAdmission(
 					cx,
-					withEntries(refineDelivered(cx, only.query, output.heading), [...log.ctes])
+					statingImages(
+						withEntries(refineDelivered(cx, only.query, output.heading), [...log.ctes]),
+						cx.names.imaged
+					)
 				),
 				output.names,
 				supply
@@ -1050,16 +1054,22 @@ export class OptimizedDelivery<
 			0
 		)
 		const ast = bindLaterally(
-			withAdmission(cx, {
-				...select(body),
-				with: {
-					recursive: false,
-					ctes: concatNonEmpty(
-						entries,
-						mapNonEmpty(parts, (p) => p.cte)
-					)
-				}
-			}),
+			withAdmission(
+				cx,
+				statingImages(
+					{
+						...select(body),
+						with: {
+							recursive: false,
+							ctes: concatNonEmpty(
+								entries,
+								mapNonEmpty(parts, (p) => p.cte)
+							)
+						}
+					},
+					cx.names.imaged
+				)
+			),
 			supply
 		)
 		return {

@@ -48,6 +48,7 @@ import { extractLookups } from "#compiler/physical/access/extract.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { unaliased } from "#compiler/physical/derived/definition.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
+import { imagedText } from "#compiler/schema/representability.ts"
 import type {
 	ColumnDefinition,
 	CreateTransitionTrigger,
@@ -91,6 +92,7 @@ import {
 	types,
 	windowOf
 } from "#compiler/sql/build.ts"
+import { type ImagedColumns, imagedColumns } from "#compiler/sql/image.ts"
 import { printTableName } from "#compiler/sql/print.ts"
 
 /** A compiled probe: the statement whose rows break the rule, its outputs unaliased, and its index requests. */
@@ -167,40 +169,43 @@ const compileProbe = (
 	relation: RelationInfo,
 	probe: InferredQuery,
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
-): Compiled => {
-	const lowered = judgedStatement(
+): Compiled =>
+	judgedStatement(
 		b,
 		catalog,
+		rule,
 		navigateMember(probe, relation.loc),
 		`rule ${rule.law.named.display} on ${relation.name}`,
 		relation.loc,
 		deltas
 	)
-	return { statement: lowered.statement, requests: requestsOf(b, rule, lowered.root) }
-}
 
 /**
  * A query the judge reads, a probe over its region or a unit-scoped rule's violation over its units: checked as a
  * region read (check/checker.ts QueryRead `region`) and lowered by the optimized pipeline under the transaction's
  * evidence, each Delta node read from the session's delta table `deltas` names (RegionLowering), to one main statement
- * of no parameter, its outputs unaliased; with the root of its checked DAG, whose access paths are its index requests'
- * where it is its own.
+ * of no parameter, its outputs unaliased; with the index requests of `rule` its checked DAG's access paths are
+ * (`requestsOf`). It states the images' equality beside each equality of a text its requests' indexes hold by its image
+ * (sql/image.ts) and of no other: its lookups are those requests', and a text it compares that none of them
+ * holds is read through no image, so the judge of a schema whose indexes hold none is as it was.
  */
 const judgedStatement = (
 	b: InstallBuilder,
 	catalog: ReturnType<typeof evidenceCatalog>,
+	rule: RuleTrigger,
 	query: InferredQuery,
 	label: string,
 	loc: SourceLoc,
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
-): { readonly statement: OperandSelect; readonly root: RelNode } => {
+): Compiled => {
 	const checked = checkQuery(b.checked, query, { read: "region", label })
 	if (!checked.ok) {
 		throw new Refusal(checked.error)
 	}
+	const requests = requestsOf(b, rule, checked.value.dag.roots[0])
 	const lowered = Result.flatMap(optimizedInput(checked.value, queryEvidence), (annotated) =>
 		lowerOptimized(annotated, {
-			names: b.names,
+			names: { ...b.names, imaged: imagedBy(b, requests) },
 			subject: { kind: "ruleRegion", deltas },
 			context: "transaction",
 			catalog
@@ -225,11 +230,28 @@ const judgedStatement = (
 		throw new Refusal(unsupported(loc, `${label}: a judged query that reads a parameter`))
 	}
 	const statement = main.ast
-	return {
-		statement: { ...statement, body: unaliased(statement.body) },
-		root: checked.value.dag.roots[0]
-	}
+	return { statement: { ...statement, body: unaliased(statement.body) }, requests }
 }
+
+/**
+ * The columns the indexes of law `requests` hold by their image: each field a B-tree request's key holds that is a text
+ * of no byte bound (schema/representability.ts imagedText), every key of a law's request one its lookups bind by
+ * equality (physical/indexes/engine.ts imagedKey), by its table and column.
+ */
+const imagedBy = (b: InstallBuilder, requests: ReadonlyArray<IndexRequest>): ImagedColumns =>
+	imagedColumns(
+		requests.flatMap((r) =>
+			r.role === "lawMaintenance" && r.method === "btree"
+				? r.blocks
+						.flat()
+						.flatMap((k) =>
+							k.column.kind === "field" && imagedText(k.column.field.desc)
+								? [{ table: b.names.relation(r.relation), column: k.column.field.column }]
+								: []
+						)
+				: []
+		)
+	)
 
 /**
  * The index requests of a judged query's access paths (physical/access/extract.ts), read from the root of its checked
@@ -1099,8 +1121,8 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 			const t = tableOf(name)
 			return t === undefined ? undefined : sessionDelta(t, side)
 		}
-		const lowered = judgedStatement(b, catalog, unit.judged, label, rule.law.loc, deltas)
-		appendAll(requests, requestsOf(b, rule, lowered.root))
+		const lowered = judgedStatement(b, catalog, rule, unit.judged, label, rule.law.loc, deltas)
+		appendAll(requests, lowered.requests)
 		const holder = defined(
 			tableOf(headNonEmpty(unit.unit.holders).relation),
 			"a unit-scoped rule's holder, a table it reads"

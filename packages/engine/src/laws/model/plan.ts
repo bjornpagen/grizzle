@@ -330,7 +330,9 @@ const hashable = (c: PlannedColumn): boolean => {
 /**
  * The index a containment's reverse probe reads over its referencing columns `columns`, which binds every one of them by
  * equality: an index over a leading run of them serves it, PostgreSQL rechecking the rest on the rows it finds, so the
- * width of a referencing column never refuses a containment. A B-tree over the longest leading run of the columns
+ * width of a referencing column never refuses a containment. The probe is PostgreSQL's RI query (ri_triggers.c,
+ * RI_FKey_noaction_del), which states the referencing columns' equalities alone, so no image of a text, which a lookup
+ * index of a statement grizzle writes holds in its place (sql/image.ts), serves it: its run is of columns. A B-tree over the longest leading run of the columns
  * whose datum is bounded, in their order, whose entry btreeEntry proves within BTMaxItemSize; where that run is empty,
  * a hash index on one hashable column, a field before a law column, whose entry is a 4-byte hash code (a text with no
  * byte bound is hashable, texteq under pg_c_utf8 being deterministic). Only referencing columns none of which a B-tree

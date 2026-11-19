@@ -40,6 +40,7 @@ import {
 import {
 	type CompileFacts,
 	type DeploySnapshot,
+	type IndexedColumn,
 	type IndexKeyColumn,
 	type LawColumnHolds,
 	manifestFileName,
@@ -100,6 +101,7 @@ import {
 	type TableConstraint
 } from "#compiler/sql/ast.ts"
 import type { OwnerFunction } from "#compiler/sql/constants.ts"
+import { imagedColumnOf } from "#compiler/sql/image.ts"
 
 /** Entries in the code-unit order of their keys. */
 const byKey: Comparator<readonly [string, unknown]> = mapInput(
@@ -593,9 +595,13 @@ interface GatheredTable {
 	readonly indexes: Map<string, SnapshotIndex>
 }
 
-/** A key column of an index's statement: the column it names and its direction (IndexKeyColumn). */
+/**
+ * A key column of an index's statement: the column it names or whose image it holds (sql/image.ts), and its
+ * direction (IndexKeyColumn).
+ */
 interface KeyAt {
 	readonly column: string
+	readonly held: "column" | "image"
 	readonly direction: IndexKeyColumn["direction"]
 }
 
@@ -649,26 +655,41 @@ const constraintKeys = (constraint: TableConstraint): NonEmptyReadonlyArray<KeyA
 		case "primaryKey":
 		case "unique": {
 			const direction = constraint.columns.some((c) => c.withoutOverlaps) ? "none" : "asc"
-			return mapNonEmpty(constraint.columns, (c) => ({ column: c.column, direction }))
+			return mapNonEmpty(constraint.columns, (c) => ({
+				column: c.column,
+				held: "column" as const,
+				direction
+			}))
 		}
 		case "exclude":
-			return mapNonEmpty(constraint.elements, (e) => ({ column: e.column, direction: "none" }))
+			return mapNonEmpty(constraint.elements, (e) => ({
+				column: e.column,
+				held: "column" as const,
+				direction: "none" as const
+			}))
 		case "check":
 		case "foreignKey":
 			throw defect(`the constraint ${constraint.name}, which installs no index`)
 	}
 }
 
-/** The key columns of a CREATE INDEX, each a column it names, a B-tree's with its direction, any other's with none. */
+/**
+ * The key columns of a CREATE INDEX, each a column it names or the image of one, its one expression a key holds, a
+ * B-tree's with its direction, any other's with none.
+ */
 const createdKeys = (create: CreateIndex): NonEmptyReadonlyArray<KeyAt> =>
-	mapNonEmpty(create.keys, (k) => {
-		if (k.key.kind !== "column") {
-			throw defect(`the index ${create.name} over an expression, which no installation creates`)
+	mapNonEmpty(create.keys, (k): KeyAt => {
+		const direction = create.method !== "btree" ? "none" : k.direction === "ASC" ? "asc" : "desc"
+		if (k.key.kind === "column") {
+			return { column: k.key.column, held: "column", direction }
 		}
-		return {
-			column: k.key.column,
-			direction: create.method !== "btree" ? "none" : k.direction === "ASC" ? "asc" : "desc"
+		const imaged = imagedColumnOf(k.key.expr)
+		if (imaged === undefined) {
+			throw defect(
+				`the index ${create.name} over an expression no image is, which no installation creates`
+			)
 		}
+		return { column: imaged, held: "image", direction }
 	})
 
 /**
@@ -740,10 +761,10 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 				`the index ${name} is on a relation's table or materialized view, not ${table.name}`
 			)
 		}
-		const columns = mapNonEmpty(keys, (k): IndexKeyColumn => {
+		const columnOf = (k: KeyAt): IndexedColumn => {
 			const field = on.fields.get(k.column)
 			if (field !== undefined) {
-				return { kind: "field", field, direction: k.direction }
+				return { kind: "field", field }
 			}
 			const held = valueAt(holds, on.relation, k.column)
 			const laws = valueAt(lawColumns, `${table.schema}.${table.name}`, k.column)
@@ -752,7 +773,13 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 					`the column ${k.column} of index ${name}: a field or a law column of ${on.relation}`
 				)
 			}
-			return { kind: "law", holds: held, laws, direction: k.direction }
+			return { kind: "law", holds: held, laws }
+		}
+		const columns = mapNonEmpty(keys, (k): IndexKeyColumn => {
+			const column = columnOf(k)
+			return k.held === "image"
+				? { kind: "image", of: column, direction: k.direction }
+				: { ...column, direction: k.direction }
 		})
 		on.indexes.set(name, { columns, reasons })
 	}
@@ -1197,6 +1224,12 @@ const closedForm = (c: NamedClosed): SnapshotForm => ({
 	functions: c.functions
 })
 
+/** The JSON form of a column an index key reads (IndexedColumn), its members in their fixed order. */
+const indexedForm = (c: IndexedColumn): IndexedColumn =>
+	c.kind === "field"
+		? { kind: c.kind, field: c.field }
+		: { kind: c.kind, holds: c.holds, laws: c.laws }
+
 /** The JSON form of the installation's derived runtime facts (SnapshotDerived): each member's form by its owner. */
 const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
 	live: d.live,
@@ -1225,9 +1258,9 @@ const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
 								n,
 								{
 									columns: i.columns.map((c) =>
-										c.kind === "field"
-											? { kind: c.kind, field: c.field, direction: c.direction }
-											: { kind: c.kind, holds: c.holds, laws: c.laws, direction: c.direction }
+										c.kind === "image"
+											? { kind: c.kind, of: indexedForm(c.of), direction: c.direction }
+											: { ...indexedForm(c), direction: c.direction }
 									),
 									reasons: i.reasons
 								}

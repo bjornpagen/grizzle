@@ -20,6 +20,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record } from "effect"
 import { withWorkload } from "#compiler/physical/access/extension.ts"
+import { keyTermText } from "#compiler/physical/indexes/engine.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
@@ -99,9 +100,7 @@ export const accessIndexesOverOneColumnListInSeveralDirectionsInstallOneIndexPer
 					)
 					for (const index of created) {
 						assert.deepEqual(
-							Arr.map(orderKeys(index), (k) =>
-								k.column.kind === "field" ? k.column.field : k.column.column
-							),
+							Arr.map(orderKeys(index), (k) => keyTermText(k.column)),
 							["a", "b", "id"]
 						)
 					}

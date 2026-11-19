@@ -23,9 +23,14 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { defaultOpclass, type LawField } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest, AccessUse, IndexRequest } from "#compiler/ir/products.ts"
 import { noLive } from "#compiler/live/notify.ts"
-import type { IndexColumn } from "#compiler/physical/ddl/context.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
-import { type Holds, type PlannedIndex, requestLeads } from "#compiler/physical/indexes/engine.ts"
+import {
+	keyTermText,
+	type Holds,
+	type KeyTerm,
+	type PlannedIndex,
+	requestLeads
+} from "#compiler/physical/indexes/engine.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallExtension,
@@ -222,19 +227,23 @@ const requestKeys = (
 			}))
 		: Arr.map(request.keys, (k) => ({ field: String(k.expr), dir: k.dir, opclass: k.opclass }))
 
-/** An index key's column as text: a field's name, or a law column's identifier. */
-const keyText = (key: { readonly column: IndexColumn }): string =>
-	key.column.kind === "field" ? key.column.field : key.column.column
+/** An index key's column as text (the engine's keyTermText): a field's name, a law column's identifier, an image's. */
+const keyText = (key: { readonly column: KeyTerm }): string => keyTermText(key.column)
 
-/** The installed column an index key of `relation` holds: a field's, or a law column, its identifier its column's name. */
+/**
+ * The installed column an index key of `relation` holds or holds the image of: a field's, or a law column, its
+ * identifier its column's name.
+ */
 const keyColumn = (
 	installed: Judged,
 	relation: string,
-	key: { readonly column: IndexColumn }
-): string =>
-	key.column.kind === "field"
-		? installed.installation.names.column(relation, key.column.field)
-		: key.column.column
+	key: { readonly column: KeyTerm }
+): string => {
+	const column = key.column.kind === "image" ? key.column.of : key.column
+	return column.kind === "field"
+		? installed.installation.names.column(relation, column.field)
+		: column.column
+}
 
 /** A stored relation's field as the law model holds it, which a law's request names its key columns by. */
 type FieldOf = (relation: string, field: string) => LawField
@@ -1536,7 +1545,7 @@ export const judgeServing = (
 		/** What each column of `relation` holds, by its type as the catalog holds it (Table): the engine's Holds. */
 		const holdsIn =
 			(relation: string) =>
-			(column: IndexColumn): Holds => {
+			(column: KeyTerm): Holds => {
 				const table = tableFor(relation)
 				const name = keyColumn(installed, relation, { column })
 				return table.spans.has(name) ? "span" : table.closed.has(name) ? "few" : "many"
@@ -1550,8 +1559,8 @@ export const judgeServing = (
 		const keyOrdersConflict = (through: PlannedIndex, request: IndexRequest): boolean => {
 			const holds = holdsIn(through.relation)
 			const holding = (
-				keys: ReadonlyArray<{ readonly column: IndexColumn }>,
-				k: { readonly column: IndexColumn }
+				keys: ReadonlyArray<{ readonly column: KeyTerm }>,
+				k: { readonly column: KeyTerm }
 			): boolean => Arr.some(keys, (l) => keyText(l) === keyText(k))
 			const held = Arr.filter(requestLeads(request, holds), (k) => holding(through.keys, k))
 			if (!Arr.isReadonlyArrayNonEmpty(held)) {
