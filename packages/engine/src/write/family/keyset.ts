@@ -14,7 +14,13 @@
  * every row of one with every row of the other.
  */
 import { defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	appendNonEmpty,
+	extendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import { typedEq } from "#compiler/ir/compare.ts"
 import type { Family, TreeShape } from "#compiler/ir/family.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
@@ -162,6 +168,51 @@ export interface Keyset {
 }
 
 /**
+ * A keyset of stored rows of one relation at its primary key, each key with the tid of the row it was read from, in its
+ * column `row`. Every CTE of a statement reads under the statement's one snapshot, so the tid is the version of the row
+ * each read of the statement meets, and a write of the same statement meets the row at it: one heap fetch, by a TID
+ * scan, never a read of an index over the key, which PostgreSQL may take for a shallower index that binds only a prefix
+ * of the key and then filter the rest of the key over every row of that prefix. A tid never leaves its statement: none
+ * is stored, returned or handed to another statement, as deploy/diff/backfill.ts's rowColumn argues for the backfill.
+ */
+export interface RowKeyset extends Keyset {
+	readonly access: { readonly kind: "key"; readonly relation: RelationInfo }
+	readonly row: string
+}
+
+/** A key arm whose last hop reads the stored row its key is read from: `row`, that row's tid. */
+export interface RowArm extends KeyArm {
+	readonly row: Expr
+}
+
+/** The tid of the stored row under alias `alias`, PostgreSQL's system column. */
+export const rowOf = (alias: string): Expr => col(alias, "ctid")
+
+/** The union of `arms`, each projecting `targetsOf` it: SELECT DISTINCT for one arm, UNION for more. */
+const unionOf = <A extends KeyArm>(
+	w: WriteContext,
+	arms: NonEmptyReadonlyArray<A>,
+	targetsOf: (arm: A) => NonEmptyReadonlyArray<Expr>
+): Select => {
+	const [first, second, ...rest] = arms
+	const armCore = (arm: A) =>
+		core(
+			targetsOf(arm).map((e) => target(e)),
+			[reachFrom(w, arm)],
+			arm.where
+		)
+	return select(
+		second === undefined
+			? distinctCore(
+					mapNonEmpty(targetsOf(first), (e) => target(e)),
+					[reachFrom(w, first)],
+					first.where
+				)
+			: setOperation("UNION", [armCore(first), armCore(second), ...rest.map(armCore)])
+	)
+}
+
+/**
  * The keyset of `arms` at `access`, its CTE pushed onto `ctes` as `materialized` says: SELECT DISTINCT for one arm,
  * UNION for more.
  */
@@ -175,26 +226,11 @@ export const keysetOf = (
 ): Keyset => {
 	const name = supply.relation(internal("keyset"))
 	const columns = mapNonEmpty(accessFields(access), () => supply.column(internal("keyset key")))
-	const [first, second, ...rest] = arms
-	const armCore = (arm: KeyArm) =>
-		core(
-			arm.key.map((e) => target(e)),
-			[reachFrom(w, arm)],
-			arm.where
-		)
 	ctes.push({
 		...cte(
 			name,
 			[...columns],
-			select(
-				second === undefined
-					? distinctCore(
-							mapNonEmpty(first.key, (e) => target(e)),
-							[reachFrom(w, first)],
-							first.where
-						)
-					: setOperation("UNION", [armCore(first), armCore(second), ...rest.map(armCore)])
-			)
+			unionOf(w, arms, (arm) => arm.key)
 		),
 		materialized
 	})
@@ -202,16 +238,49 @@ export const keysetOf = (
 }
 
 /**
+ * The row keyset of `arms`, stored rows of `relation` at its primary key, each key with its row's tid (`RowKeyset`), its
+ * CTE pushed onto `ctes` as `materialized` says: SELECT DISTINCT for one arm, UNION for more.
+ */
+export const rowKeysetOf = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	relation: RelationInfo,
+	arms: NonEmptyReadonlyArray<RowArm>,
+	materialized: Cte["materialized"]
+): RowKeyset => {
+	const access = { kind: "key", relation } as const
+	const name = supply.relation(internal("keyset"))
+	const columns = mapNonEmpty(accessFields(access), () => supply.column(internal("keyset key")))
+	const row = supply.column(internal("keyset row"))
+	ctes.push({
+		...cte(
+			name,
+			[...columns, row],
+			unionOf(w, arms, (arm) => appendNonEmpty(arm.key, arm.row))
+		),
+		materialized
+	})
+	return { name, access, columns, row }
+}
+
+/** The columns a row keyset relates to others by: its key, then its row's tid. */
+const rowColumns = (keyset: RowKeyset): NonEmptyReadonlyArray<string> =>
+	appendNonEmpty(keyset.columns, keyset.row)
+
+/**
  * The rows of a GROUP BY over keysets at one access path, each key once with the keysets that hold it: `SELECT <key>,
  * <aggregates> FROM (SELECT <key>, 0 FROM <keyset 0> UNION ALL SELECT <key>, 1 FROM <keyset 1> ...) AS u(<key>, tag)
  * GROUP BY <key> [HAVING <having>]`, `holds(i)` the aggregate `bool_or(tag = i)`, whether keyset `i` holds the key.
  * PostgreSQL holds no statistics of a CTE and estimates a join of two at a row each, which it may run as a nested loop
  * pairing every row of one with every row of the other; a GROUP BY reads each row once, by one sort or hash, whatever
- * it estimates.
+ * it estimates. `columnsOf` gives the columns each keyset is grouped by, its key, or its key and its row's tid for row
+ * keysets, one tid to a key in the statement's one snapshot.
  */
-const tagged = (
+const tagged = <K extends Keyset>(
 	supply: NameSupply,
-	keysets: NonEmptyReadonlyArray<Keyset>,
+	keysets: NonEmptyReadonlyArray<K>,
+	columnsOf: (keyset: K) => NonEmptyReadonlyArray<string>,
 	project: (
 		holds: (i: number) => Expr,
 		key: NonEmptyReadonlyArray<Expr>
@@ -222,12 +291,12 @@ const tagged = (
 ): Select => {
 	const [first] = keysets
 	const u = supply.relation(internal("tagged keys"))
-	const key = mapNonEmpty(first.columns, () => supply.column(internal("tagged key")))
+	const key = mapNonEmpty(columnsOf(first), () => supply.column(internal("tagged key")))
 	const tag = supply.column(internal("tag"))
-	const arm = (keyset: Keyset, i: number) => {
+	const arm = (keyset: K, i: number) => {
 		const k = supply.relation(internal("tagged keyset"))
 		return core(
-			[...keyset.columns.map((c) => target(col(k, c))), target(lit.int(i, types.integer))],
+			[...columnsOf(keyset).map((c) => target(col(k, c))), target(lit.int(i, types.integer))],
 			[cteRefAs(keyset.name, k)],
 			undefined
 		)
@@ -247,6 +316,23 @@ const tagged = (
 	})
 }
 
+/** The keysets `all` and `none` of a keyset relation, in the order `tagged` tags them, with the HAVING that keeps a key
+ * every keyset of `all` holds and no keyset of `none` holds. */
+const allAndNone = <K extends Keyset>(sets: {
+	readonly all: NonEmptyReadonlyArray<K>
+	readonly none: ReadonlyArray<K>
+}): {
+	readonly keysets: NonEmptyReadonlyArray<K>
+	readonly having: (holds: (i: number) => Expr) => Expr
+} => ({
+	keysets: extendNonEmpty(sets.all, sets.none),
+	having: (holds) =>
+		and([
+			...mapNonEmpty(sets.all, (_, i) => holds(i)),
+			...sets.none.map((_, j) => not(holds(sets.all.length + j)))
+		])
+})
+
 /**
  * The keyset of the keys at one access path that every keyset of `all` holds and no keyset of `none` holds, by one
  * GROUP BY over them (`tagged`), its CTE pushed onto `ctes` as `materialized` says; `all`'s one keyset itself where
@@ -264,22 +350,54 @@ export const keysetWhere = (
 	}
 	const name = supply.relation(internal("keyset"))
 	const columns = mapNonEmpty(first.columns, () => supply.column(internal("keyset key")))
-	const keysets: NonEmptyReadonlyArray<Keyset> = [first, ...more, ...sets.none]
+	const { keysets, having } = allAndNone(sets)
 	ctes.push({
 		...cte(
 			name,
 			[...columns],
-			tagged(supply, keysets, (holds, key) => ({
-				targets: key.map((e) => target(e)),
-				having: and([
-					...mapNonEmpty(sets.all, (_, i) => holds(i)),
-					...sets.none.map((_, j) => not(holds(sets.all.length + j)))
-				])
-			}))
+			tagged(
+				supply,
+				keysets,
+				(k) => k.columns,
+				(holds, key) => ({ targets: key.map((e) => target(e)), having: having(holds) })
+			)
 		),
 		materialized
 	})
 	return { name, access: first.access, columns }
+}
+
+/**
+ * The row keyset of the stored rows that every row keyset of `all` holds and no row keyset of `none` holds, each with its
+ * row's tid, by one GROUP BY over their keys and tids (`tagged`), its CTE pushed onto `ctes` as `materialized` says;
+ * `all`'s one row keyset itself where there is nothing to judge.
+ */
+export const rowsWhere = (
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	sets: { readonly all: NonEmptyReadonlyArray<RowKeyset>; readonly none: ReadonlyArray<RowKeyset> },
+	materialized: Cte["materialized"]
+): RowKeyset => {
+	const [first, ...more] = sets.all
+	if (!isNonEmpty(more) && !isNonEmpty(sets.none)) {
+		return first
+	}
+	const name = supply.relation(internal("keyset"))
+	const columns = mapNonEmpty(first.columns, () => supply.column(internal("keyset key")))
+	const row = supply.column(internal("keyset row"))
+	const { keysets, having } = allAndNone(sets)
+	ctes.push({
+		...cte(
+			name,
+			[...columns, row],
+			tagged(supply, keysets, rowColumns, (holds, key) => ({
+				targets: key.map((e) => target(e)),
+				having: having(holds)
+			}))
+		),
+		materialized
+	})
+	return { name, access: first.access, columns, row }
 }
 
 /** A keyset whose every key carries whether another keyset holds it, in its column `flag`. */
@@ -304,10 +422,15 @@ export const flaggedKeys = (
 		...cte(
 			name,
 			[...columns, flag],
-			tagged(supply, [of, holds], (held, key) => ({
-				targets: [...key.map((e) => target(e)), target(held(1))],
-				having: undefined
-			}))
+			tagged(
+				supply,
+				[of, holds],
+				(k) => k.columns,
+				(held, key) => ({
+					targets: [...key.map((e) => target(e)), target(held(1))],
+					having: undefined
+				})
+			)
 		),
 		materialized: "MATERIALIZED"
 	})
@@ -334,6 +457,10 @@ export const atKeyset = (k: string, keyset: Keyset, s: string): Hop => ({
 /** Whether the stored row at alias `s` is at the key of the keyset's row at alias `k`, at every field it binds. */
 export const keyedAt = (w: WriteContext, k: string, keyset: Keyset, s: string): Expr =>
 	and(bindings(w, atKeyset(k, keyset, s)))
+
+/** Whether the stored row at alias `s` is the row of the row keyset's row at alias `k`: the one at its tid. */
+export const rowAt = (k: string, keyset: RowKeyset, s: string): Expr =>
+	eq(rowOf(s), col(k, keyset.row))
 
 /** The stored rows of `relation` under alias `s` at the keys its arms find (`Keyset`): the keyset joined to them. */
 export const storedAtKeys = (

@@ -4,10 +4,11 @@
  * every row nested under them through the families: each member of a removed row's group, transitively, a tree's node
  * taking its whole tree. A unit goes whole, so no count, index, fold end or tree interval describes a partial group.
  *
- * The statement reads every doomed key first, top-down over the families, each a materialized keyset of one snapshot
- * (write/family/keyset.ts): a unit root's from its stated rows at its primary key, or a tree's at its root; a member's
- * as one keyed join per family that reaches it, from that family's owner's doomed keys into the member's rows at their
- * group, then, for a tree's relation, into the whole tree of each node reached at its root, the joins one UNION:
+ * The statement reads every doomed row first, top-down over the families, each relation's a materialized row keyset of
+ * one snapshot, its primary keys with each row's tid (write/family/keyset.ts RowKeyset): a unit root's from its stated
+ * rows at its primary key, or a tree's at its root; a member's as one keyed join per family that reaches it, from that
+ * family's owner's doomed keys into the member's rows at their group, then, for a tree's relation, into the whole tree
+ * of each node reached at its root, the joins one UNION:
  *
  *   WITH "r1"("c1") AS (<the stated rows>),
  *   "r2"("c2") AS MATERIALIZED (SELECT DISTINCT "r4"."id" FROM "r1" AS "r3" JOIN "s"."doc" AS "r4"
@@ -21,11 +22,19 @@
  * root the statement binds.
  *
  * It then reads which of them the stratum keeps, and deletes each relation's doomed rows it does not keep, its removed
- * keys, by key, each DELETE a data-modifying CTE returning the facts it removed:
+ * rows, each at its tid, each DELETE a data-modifying CTE returning the facts it removed:
  *
- *   "r8" AS (DELETE FROM "s"."tag" AS "r9" USING <tag's removed keys> WHERE <the key> RETURNING ...),
- *   "r10" AS (DELETE FROM "s"."doc" AS "r11" USING <doc's removed keys> WHERE <the key> RETURNING ...)
+ *   "r8" AS (DELETE FROM "s"."tag" AS "r9" USING <tag's removed rows> AS "k" WHERE "r9"."ctid" = "k".<tid> RETURNING ...),
+ *   "r10" AS (DELETE FROM "s"."doc" AS "r11" USING <doc's removed rows> AS "k" WHERE "r11"."ctid" = "k".<tid> ...)
  *   SELECT <each deletion's facts behind its tag>
+ *
+ * A DELETE meets each row it removes in one heap fetch, by a TID scan, and reads no index over the row's key: PostgreSQL
+ * estimates a key's rows and those of a shallower index binding only a prefix of it alike, at a row, and may take the
+ * shallower one, filtering the rest of the key over every row of that prefix (edullm's node delete through (package,
+ * path, element_children), every node of a document read once for each node it deletes). The tid is sound: every CTE of
+ * the statement reads its one snapshot, so it is the version the DELETE meets, and every role that runs a unit delete
+ * states `write`, so it runs SERIALIZABLE, where a row another transaction changed since that snapshot fails the
+ * statement with 40001 rather than being met again.
  *
  * A doomed row is kept, its row never written, where the stratum adds it again unchanged and what it references stays:
  * - it is equal to a row the stratum adds of its relation at every column the addition states (`AddedRows`): a nested
@@ -96,13 +105,18 @@ import {
 	flaggedKeys,
 	type Hop,
 	type KeyArm,
-	keyedAt,
 	type Keyset,
 	keysetColumn,
 	keysetOf,
 	keysetWhere,
+	type RowArm,
+	type RowKeyset,
 	reachedRows,
 	reachFrom,
+	rowAt,
+	rowKeysetOf,
+	rowOf,
+	rowsWhere,
 	storedKey
 } from "#compiler/write/family/keyset.ts"
 import type { Shaped } from "#compiler/write/family/scan.ts"
@@ -171,11 +185,11 @@ export type AddedRows =
 const matchFields = (match: UnitMatch): NonEmptyReadonlyArray<LawField> =>
 	match.kind === "tree" ? match.shape.root : match.fields
 
-/** A relation's doomed keys, and the doomed keys the stratum removes, those it does not keep: each a keyset of its primary
- * key. */
+/** A relation's doomed rows, and the doomed rows the stratum removes, those it does not keep: each a row keyset, its
+ * primary keys with each row's tid, which the relation's DELETE meets each removed row at. */
 interface Doomed {
-	readonly doomed: Keyset
-	readonly removed: Keyset
+	readonly doomed: RowKeyset
+	readonly removed: RowKeyset
 }
 
 /** One source of the rows the stratum adds of a relation, read: its CTE and each column it states, by its key, with the
@@ -217,6 +231,10 @@ export const unitSql = (
 	/** The keyset of `arms` at `access`, materialized: each is one read of the snapshot the statement starts from. */
 	const keysetFrom = (access: Access, arms: NonEmptyReadonlyArray<KeyArm>): Keyset =>
 		keysetOf(w, supply, ctes, access, arms, "MATERIALIZED")
+	/** The row keyset of `arms`, stored rows of `relation`, materialized: each is one read of the snapshot the statement
+	 * starts from, so each row's tid is the version the statement's DELETE meets. */
+	const rowsFrom = (relation: RelationInfo, arms: NonEmptyReadonlyArray<RowArm>): RowKeyset =>
+		rowKeysetOf(w, supply, ctes, relation, arms, "MATERIALIZED")
 	/** Each relation's added rows, read once. */
 	const reads = new Map<string, ReadonlyArray<AddedRead>>()
 	const addedReads = (relation: RelationInfo): ReadonlyArray<AddedRead> => {
@@ -265,19 +283,20 @@ export const unitSql = (
 			.filter((c) => !key.has(c.key))
 			.map((c) => typedEq(c.type, col(m, c.column), col(n, columnAt(read.shape, c.key)), w.names))
 	}
-	/** The keys of `relation`'s stored rows the stratum adds again unchanged: each added row's stored row at its key, equal
-	 * to it at every column its read states. */
-	const againOf = (relation: RelationInfo, adds: NonEmptyReadonlyArray<AddedRead>): Keyset =>
-		keysetFrom(
-			{ kind: "key", relation },
-			mapNonEmpty(adds, (read): KeyArm => {
+	/** `relation`'s stored rows the stratum adds again unchanged: each added row's stored row at its key, equal to it at
+	 * every column its read states. */
+	const againOf = (relation: RelationInfo, adds: NonEmptyReadonlyArray<AddedRead>): RowKeyset =>
+		rowsFrom(
+			relation,
+			mapNonEmpty(adds, (read): RowArm => {
 				const n = supply.relation(internal(`added row of ${relation.name}`))
 				const m = supply.relation(internal(`stored again of ${relation.name}`))
 				return {
 					held: { cte: read.shape.name, alias: n },
 					hops: [atAdded(relation, read, n, m)],
 					where: conjunction(sameAsAdded(relation, read, n, m)),
-					key: storedKey(w, { kind: "key", relation }, m)
+					key: storedKey(w, { kind: "key", relation }, m),
+					row: rowOf(m)
 				}
 			})
 		)
@@ -304,14 +323,15 @@ export const unitSql = (
 		])
 	}
 	/** The arm of the stored members of `family`, rows of `relation`, in each group `groups` holds, at their key. */
-	const membersOf = (relation: RelationInfo, family: Family, groups: Keyset): KeyArm => {
+	const membersOf = (relation: RelationInfo, family: Family, groups: Keyset): RowArm => {
 		const k = supply.relation(internal(`member group of ${relation.name}`))
 		const m = supply.relation(internal(`group member of ${relation.name}`))
 		return {
 			held: { cte: groups.name, alias: k },
 			hops: [{ kind: "group", family, alias: m, at: (g) => col(k, keysetColumn(groups, g.owner)) }],
 			where: undefined,
-			key: storedKey(w, { kind: "key", relation }, m)
+			key: storedKey(w, { kind: "key", relation }, m),
+			row: rowOf(m)
 		}
 	}
 	/**
@@ -365,30 +385,33 @@ export const unitSql = (
 			})
 		])
 	}
-	/** A keyset of `relation`'s keys selected by `query`, whose targets are its primary fields in order, materialized. */
-	const keysetSelected = (
+	/** A row keyset of `relation`'s rows selected by `query`, whose targets are its primary fields in order, then the
+	 * row's tid, materialized. */
+	const rowsSelected = (
 		relation: RelationInfo,
 		columns: NonEmptyReadonlyArray<string>,
+		row: string,
 		query: Select
-	): Keyset => {
+	): RowKeyset => {
 		const name = supply.relation(internal(`kept ${relation.name}`))
-		ctes.push({ ...cte(name, [...columns], query), materialized: "MATERIALIZED" })
-		return { name, access: { kind: "key", relation }, columns }
+		ctes.push({ ...cte(name, [...columns, row], query), materialized: "MATERIALIZED" })
+		return { name, access: { kind: "key", relation }, columns, row }
 	}
 	/**
-	 * The keys of the rows of `flagged`, rows of `relation` each flagged where it is in the stratum's base of rows it
-	 * would keep, at which `broken`, a window over them read with their stored rows (`s`), is false: `SELECT <key> FROM
-	 * (SELECT <key>, <broken> FROM <flagged> AS f JOIN <relation> AS s ON <key>) AS o WHERE NOT o.<broken>`.
+	 * The rows of `flagged`, rows of `relation` each flagged where it is in the stratum's base of rows it would keep, at
+	 * which `broken`, a window over them read with their stored rows (`s`), is false: `SELECT <key>, <tid> FROM (SELECT
+	 * <key>, s.ctid, <broken> FROM <flagged> AS f JOIN <relation> AS s ON <key>) AS o WHERE NOT o.<broken>`.
 	 */
 	const unbroken = (
 		relation: RelationInfo,
 		flagged: Flagged,
 		broken: (inBase: Expr, s: string) => Expr
-	): Keyset => {
+	): RowKeyset => {
 		const f = supply.relation(internal(`flagged row of ${relation.name}`))
 		const s = supply.relation(internal(`judged row of ${relation.name}`))
 		const o = supply.relation(internal(`broken row of ${relation.name}`))
 		const keys = mapNonEmpty(relation.primaryFields, () => supply.column(internal("kept key")))
+		const tid = supply.column(internal("kept row"))
 		const at = supply.column(internal("broken"))
 		const inner = select(
 			provedCore(
@@ -397,20 +420,22 @@ export const unitSql = (
 					...mapNonEmpty(storedKey(w, { kind: "key", relation }, s), (e, i) =>
 						targetAs(e, defined(keys[i], "a kept key"))
 					),
+					targetAs(rowOf(s), tid),
 					targetAs(broken(col(f, flagged.flag), s), at)
 				],
 				[reachFrom(w, { held: { cte: flagged.name, alias: f }, hops: [atKeyset(f, flagged, s)] })],
 				undefined
 			)
 		)
-		return keysetSelected(
+		return rowsSelected(
 			relation,
 			mapNonEmpty(keys, () => supply.column(internal("kept key"))),
+			supply.column(internal("kept row")),
 			select(
 				provedCore(
 					"keyed",
-					keys.map((c) => target(col(o, c))),
-					[derived(inner, o, [...keys, at], false)],
+					[...keys.map((c) => target(col(o, c))), target(col(o, tid))],
+					[derived(inner, o, [...keys, tid, at], false)],
 					not(col(o, at))
 				)
 			)
@@ -432,8 +457,8 @@ export const unitSql = (
 		relation: RelationInfo,
 		family: Family,
 		index: LawField,
-		base: Keyset
-	): Keyset => {
+		base: RowKeyset
+	): RowKeyset => {
 		const touched = keysetFrom({ kind: "key", relation }, [
 			membersOf(relation, family, groupsOf(relation, family, base))
 		])
@@ -458,9 +483,9 @@ export const unitSql = (
 	const treeKept = (
 		relation: RelationInfo,
 		{ tree, shape }: TreeOf,
-		doomedKeys: Keyset,
-		base: Keyset
-	): Keyset => {
+		doomedKeys: RowKeyset,
+		base: RowKeyset
+	): RowKeyset => {
 		const index = tree.index.kind === "field" ? tree.index.field : undefined
 		const flagged = flaggedKeys(supply, ctes, doomedKeys, base)
 		const f = supply.relation(internal(`flagged node of ${relation.name}`))
@@ -471,6 +496,7 @@ export const unitSql = (
 		const roots = mapNonEmpty(shape.root, () => supply.column(internal("kept root")))
 		const start = supply.column(internal("kept start"))
 		const end = supply.column(internal("kept end"))
+		const tid = supply.column(internal("kept row"))
 		const local = supply.column(internal("locally broken"))
 		const reach = supply.column(internal("broken reach"))
 		const inBase = col(f, flagged.flag)
@@ -487,6 +513,7 @@ export const unitSql = (
 					),
 					targetAs(stored(x, relation, shape.start), start),
 					targetAs(stored(x, relation, shape.end), end),
+					targetAs(rowOf(x), tid),
 					targetAs(
 						index === undefined
 							? not(inBase)
@@ -509,6 +536,7 @@ export const unitSql = (
 				[
 					...keys.map((c) => targetAs(col(n, c), c)),
 					targetAs(col(n, start), start),
+					targetAs(col(n, tid), tid),
 					targetAs(
 						over(
 							"max",
@@ -524,37 +552,38 @@ export const unitSql = (
 						reach
 					)
 				],
-				[derived(locally, n, [...keys, ...roots, start, end, local], false)],
+				[derived(locally, n, [...keys, ...roots, start, end, tid, local], false)],
 				undefined
 			)
 		)
-		return keysetSelected(
+		return rowsSelected(
 			relation,
 			mapNonEmpty(keys, () => supply.column(internal("kept key"))),
+			supply.column(internal("kept row")),
 			select(
 				provedCore(
 					"keyed",
-					keys.map((c) => target(col(o, c))),
-					[derived(reached, o, [...keys, start, reach], false)],
+					[...keys.map((c) => target(col(o, c))), target(col(o, tid))],
+					[derived(reached, o, [...keys, start, tid, reach], false)],
 					le(col(o, reach), col(o, start))
 				)
 			)
 		)
 	}
 	/**
-	 * The doomed keys of `relation`, the rows its arms reach (`reached`); and of them the ones the stratum removes, those
-	 * it does not keep (see the header), each a materialized keyset. The kept rows are the doomed rows added again
+	 * The doomed rows of `relation`, the rows its arms reach (`reached`); and of them the ones the stratum removes, those
+	 * it does not keep (see the header), each a materialized row keyset. The kept rows are the doomed rows added again
 	 * unchanged outside every excluded group of a family whose member `relation` is (`excludedGroups`), less, for a tree's
 	 * relation or an ordered family's member, those behind a row not so kept (`treeKept`, `orderedKept`), each set relation
-	 * one GROUP BY over keysets and never a join of two (keyset.ts keysetWhere).
+	 * one GROUP BY over row keysets and never a join of two (keyset.ts rowsWhere).
 	 */
 	const doom = (
 		relation: RelationInfo,
 		tree: TreeOf | undefined,
 		families: ReadonlyArray<Family>,
-		reached: NonEmptyReadonlyArray<KeyArm>
+		reached: NonEmptyReadonlyArray<RowArm>
 	): void => {
-		const doomedKeys = keysetFrom({ kind: "key", relation }, reached)
+		const doomedKeys = rowsFrom(relation, reached)
 		const adds = addedReads(relation)
 		if (!isNonEmpty(adds)) {
 			doomed.set(relation.name, { doomed: doomedKeys, removed: doomedKeys })
@@ -564,12 +593,12 @@ export const unitSql = (
 		const excluded = families.map((family) =>
 			membersOf(relation, family, excludedGroups(relation, family, doomedKeys, again, adds))
 		)
-		const base = keysetWhere(
+		const base = rowsWhere(
 			supply,
 			ctes,
 			{
 				all: [doomedKeys, again],
-				none: isNonEmpty(excluded) ? [keysetFrom({ kind: "key", relation }, excluded)] : []
+				none: isNonEmpty(excluded) ? [rowsFrom(relation, excluded)] : []
 			},
 			"MATERIALIZED"
 		)
@@ -583,7 +612,7 @@ export const unitSql = (
 					: base
 		doomed.set(relation.name, {
 			doomed: doomedKeys,
-			removed: keysetWhere(supply, ctes, { all: [doomedKeys], none: [kept] }, "MATERIALIZED")
+			removed: rowsWhere(supply, ctes, { all: [doomedKeys], none: [kept] }, "MATERIALIZED")
 		})
 	}
 	for (const unit of units) {
@@ -617,7 +646,8 @@ export const unitSql = (
 							held,
 							hops: [{ kind: "root", relation: unit.relation, tree: match.shape, alias: t, at }],
 							where: undefined,
-							key
+							key,
+							row: rowOf(t)
 						}
 					]
 				)
@@ -643,7 +673,8 @@ export const unitSql = (
 										w.names
 									)
 								: undefined,
-							key
+							key,
+							row: rowOf(t)
 						}
 					]
 				)
@@ -653,7 +684,7 @@ export const unitSql = (
 	}
 	for (const member of below) {
 		const tree = treeOf(member.tree)
-		const reached = mapNonEmpty(member.families, (family): KeyArm => {
+		const reached = mapNonEmpty(member.families, (family): RowArm => {
 			const owner = doomedOf(doomed, family.owner.name).doomed
 			const k = supply.relation(internal(`doomed owner ${family.owner.name}`))
 			const m = supply.relation(internal(`doomed member of ${member.relation.name}`))
@@ -669,7 +700,8 @@ export const unitSql = (
 						? { kind: "key", relation: member.relation }
 						: { kind: "root", relation: member.relation, tree: tree.shape },
 					m
-				)
+				),
+				row: rowOf(m)
 			}
 		})
 		if (tree === undefined) {
@@ -686,7 +718,8 @@ export const unitSql = (
 					held: { cte: roots.name, alias: r },
 					hops: [atKeyset(r, roots, t)],
 					where: undefined,
-					key: storedKey(w, { kind: "key", relation: member.relation }, t)
+					key: storedKey(w, { kind: "key", relation: member.relation }, t),
+					row: rowOf(t)
 				}
 			])
 		}
@@ -707,7 +740,7 @@ export const unitSql = (
 				table: w.names.relation(relation.name),
 				alias: t,
 				using: [cteRefAs(found.removed.name, k)],
-				where: keyedAt(w, k, found.removed, t),
+				where: rowAt(k, found.removed, t),
 				returning: returned.map((x) => targetAs(stored(t, relation, x.field), x.alias))
 			})
 		)
