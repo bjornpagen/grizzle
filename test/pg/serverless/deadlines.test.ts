@@ -18,96 +18,53 @@
  *
  * Features: each opening in each surrounding.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element } from "@bjornpagen/testing/gen"
-import type { Source } from "@bjornpagen/testing/source"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
-import { Array as Arr, Clock, Effect, Formatter, Option } from "effect"
-import { oneShotStatement, runTransaction, type Transaction } from "#adapter/wire/batch.ts"
-import { defaultPool, poolFor, roleDefaults, substrateLogin } from "#test/pg/adapter/support.ts"
+import { Array as Arr, Effect, Option } from "effect"
+import { oneShotStatement, runTransaction } from "#adapter/wire/batch.ts"
+import { defaultPool, poolFor } from "#test/pg/adapter/support.ts"
+import {
+	type DeadlineFeature,
+	deadlineList,
+	deadlineSituations,
+	deadlinesLogin,
+	leasedAtOnce,
+	modes,
+	roleDeadlinesQuery,
+	settingsQuery,
+	transactions,
+	wallMillis
+} from "#test/pg/serverless/deadlines.fixtures.ts"
 import { backendPid, onVercel, vercelRuntime } from "#test/pg/serverless/support.ts"
 import { assert } from "#test/support/assert.ts"
-import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
+import { testIdleTimeout } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
-import { freshSchema, roleSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { roleSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows, paramText } from "#test/support/wire.ts"
 
-/** Every way a transaction grizzle opens begins: a read, immediate or deferrable, and a write. */
-const openings = ["read", "deferrable read", "write"] as const
-
-type Opening = (typeof openings)[number]
-
-/** The transaction each opening begins, committed. */
-const transactions: { readonly [O in Opening]: Transaction } = {
-	read: { access: "readOnly", deferrable: false, end: "COMMIT" },
-	"deferrable read": { access: "readOnly", deferrable: true, end: "COMMIT" },
-	write: { access: "readWrite", isolation: "serializable", end: "COMMIT" }
-}
-
-const deadlineSettings = [
-	"idle_in_transaction_session_timeout",
-	"lock_timeout",
-	"statement_timeout",
-	"transaction_timeout"
-] as const
-
-const settingsQuery = `SELECT name::text, setting::text, source::text FROM pg_catalog.pg_settings
-WHERE name = ANY ($1::text[]) ORDER BY name`
-
 /**
- * The wall clock's time in milliseconds, whatever the test's clock: a Vercel deadline is wall-clock time. It only
- * builds the deadline the request context carries; no verdict reads it.
+ * No session sets a statement, lock, idle or transaction timeout, read-only, deferrable or not, with or without a
+ * Vercel deadline, nor does any role default the login carries.
+ *
+ * Its pre-conversion budget: the box, 6 cases (test/pg/serverless/deadlines.test.ts at af1d5aac8).
  */
-const wallMillis = Clock.Clock.defaultValue().currentTimeMillis
-
-/** A session's surroundings: a plain process, or a Vercel function whose request carries a deadline. */
-const contexts = ["plain", "vercel deadline"] as const
-
-type Context = (typeof contexts)[number]
-
-type DeadlineFeature = `${Opening} ${Context}`
-
-/** Every opening with every surrounding, the opening outermost. */
-const modes = (source: Source): readonly [Opening, Context] =>
-	[source.draw(element(openings)), source.draw(element(contexts))] as const
-
-layer(Substrate.layer)("no server-side deadlines", (it) => {
-	it.effect(
-		"no session sets a statement, lock, idle or transaction timeout, read-only, deferrable or not, with or without a Vercel deadline",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const schema = yield* s.schema(freshSchema)
-					const writer = yield* substrateLogin(schema, "server", roleDefaults)
-					const deadlineList = `{${Arr.join(deadlineSettings, ",")}}`
-					/** The deadline settings a plain session of the login runs under, opened without grizzle. */
-					const plain = yield* s.session({ ...roleSession(writer), label: "plain" })
-					const plainRows = yield* plain.values(settingsQuery, [deadlineList])
-					const reference = Arr.map(plainRows, (row) => Arr.map(row, String))
-					/** Every session of the pool at once, so each one is asked, not only the floor. */
-					const max = 3
-					const exhausted = yield* exhaust(
-						{
-							box: "every way a transaction grizzle opens begins, in a plain process and under a Vercel request's deadline",
-							oracle: {
-								kind: "postgresql",
-								name: "the deadline settings, value and source, of a plain session of the same login"
-							},
-							suite: "serverless/deadlines",
-							generator: modes,
-							literal: Formatter.format,
-							coverage: requiredInSpace<DeadlineFeature>(
-								Arr.flatMap(openings, (i) => Arr.map(contexts, (c): DeadlineFeature => `${i} ${c}`))
-							),
-							caseHang
-						},
-						([opening, context], c) =>
+export const noSessionSetsAStatementLockIdleOrTransactionTimeoutWithOrWithoutAVercelDeadline =
+	property.exhaust(finite(modes), {
+		needs: { login: Substrate.seat(deadlinesLogin) },
+		situations: deadlineSituations,
+		check:
+			({ login }, c: Case<DeadlineFeature>) =>
+			([opening, context]) =>
+				Effect.scoped(
+					Effect.flatMap(login, ({ substrate: seat, value: writer }) =>
+						Effect.provideService(
 							Effect.gen(function* () {
+								const s = yield* Substrate
+								/** The deadline settings a plain session of the login runs under, opened without grizzle. */
+								const plain = yield* s.session({ ...roleSession(writer), label: "plain" })
+								const plainRows = yield* plain.values(settingsQuery, [deadlineList])
+								const reference = Arr.map(plainRows, (row) => Arr.map(row, String))
 								const vercel =
 									context === "vercel deadline"
 										? yield* Effect.asSome(
@@ -118,14 +75,14 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 										: Option.none()
 								const pool = yield* poolFor(writer, {
 									...defaultPool,
-									pool: { idleTimeoutMs: testIdleTimeout, min: 1, max },
+									pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: leasedAtOnce },
 									attachPool: Option.isSome(vercel) ? attachDatabasePool : defaultPool.attachPool
 								})
 								const backends = new Set<string>()
 								yield* Effect.scoped(
 									Effect.gen(function* () {
 										const sessions = yield* Effect.all(
-											Array.from({ length: max }, () => pool.lease),
+											Array.from({ length: leasedAtOnce }, () => pool.lease),
 											{ concurrency: "unbounded" }
 										)
 										for (const session of sessions) {
@@ -146,21 +103,25 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 										}
 									})
 								)
-								assert.equal(backends.size, max, "every session of the pool is asked")
+								assert.equal(backends.size, leasedAtOnce, "every session of the pool is asked")
+								/** Nor does any role default the login carries. */
+								const stored = yield* s.admin.queryValues(roleDeadlinesQuery, [
+									writer.role,
+									deadlineList
+								])
+								assert.deepEqual(stored, [[0]])
 								c.note(`${opening} ${context}`)
-							})
+							}),
+							Substrate,
+							seat
+						)
 					)
-					/** Nor does any role default the login carries. */
-					const settings = yield* s.admin.queryValues(
-						`SELECT count(*)::int4 FROM pg_catalog.pg_db_role_setting AS d
-					CROSS JOIN LATERAL pg_catalog.unnest(d.setconfig) AS c(setting)
-					WHERE d.setrole = (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $1::text)
-					AND pg_catalog.split_part(c.setting, '=', 1) = ANY ($2::text[])`,
-						[writer.role, deadlineList]
-					)
-					assert.deepEqual(settings, [[0]])
-					return exhausted
-				}).pipe(Effect.scoped)
-			)
-	)
-})
+				),
+		oracle: {
+			kind: "postgresql",
+			name: "the deadline settings, value and source, of a plain session of the same login"
+		},
+		box: "every way a transaction grizzle opens begins, in a plain process and under a Vercel request's deadline",
+		kept: [],
+		kills: []
+	})

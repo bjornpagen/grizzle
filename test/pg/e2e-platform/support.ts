@@ -12,7 +12,6 @@ import {
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { DbOf } from "#adapter/types/db.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -30,12 +29,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
-import {
-	type Generated,
-	generatedTemplate,
-	type Installed,
-	installGenerated
-} from "#test/support/install-migrate.ts"
+import { type Generated, generatedTemplate, type Installed } from "#test/support/install-migrate.ts"
 import { Identities } from "#test/support/kernel/identity.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
@@ -50,12 +44,7 @@ import type { SqlError } from "#test/support/pg.ts"
 import { loadOrder, type PlatformFacts } from "#test/support/platform/generate.ts"
 import { stateOf, withDrawn } from "#test/support/platform/laws.ts"
 import { type ServedFixture, servedGenerated } from "#test/support/served-db.ts"
-import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import {
-	Substrate,
-	type SubstrateCase,
-	type SubstrateTemplate
-} from "#test/support/substrate/substrate.ts"
+import { type SubstrateCase, type SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /** The platform rebuilt under an installed name, with its world. */
 type PlatformWorld = ReturnType<typeof P.platformAt>
@@ -151,84 +140,6 @@ export const openedPlatform = (taken: SubstrateCase<Generated>): OpenedPlatform 
 			)
 	}
 }
-
-/**
- * The platform installed per test (the suites not yet on the toolchain's runner).
- *
- * The platform (test/support/fixtures/api/platform.ts) installs as a deployment installs it, as `grizzle generate`
- * drafts and serves it (test/support/install-migrate.ts installGenerated): built under a name the substrate allocates
- * (platformAt), its first migration drafted with its logins' workloads, their access paths and the live source of their
- * reads, and applied by the real apply runner. Its login is served from the file generate wrote for it, and a Db is
- * opened through Db.open as the full role `billing` of the schema rebuilt under that name, whose levels hold the
- * declared schemas' types, so every workload read and write runs on it unchanged, as a member of billing's served
- * workload.
- *
- * Facts load through the public API only: the workload's `load`, one ChangeSet inserting every relation's facts given
- * with each call, within the input limit, each call of which the laws must accept. A generated platform is lawful by construction (test/support/platform/generate.ts), so a
- * refused load is a defect of the generator or of grizzle, reported with the law.
- *
- * The reference evaluator (test/support/oracle/reference) reads a workload read's checked IR, the compiler's own
- * translation, over the same facts as typed literals; what it delivers per statement (the root's rows, and each
- * attachment's parent keys with their children) is compared with what the public read decoded, flattened the same way,
- * each column by its type's own equality and each statement as a set.
- *
- * Installs the platform with its workload under a fresh name and opens it (see the header).
- */
-export const openPlatform = (
-	label: string
-): Effect.Effect<
-	OpenedPlatform,
-	CompileError | SqlError | TransactionRolledBack,
-	Substrate | Scope.Scope
-> => openPlatformWith(label, () => [])
-
-/**
- * openPlatform, installing `also`'s logins beside billing's: the logins a suite reads the platform through besides
- * billing, built by `also` over the platform under the allocated name to install and, by the suite, over the installed
- * one (OpenedPlatform's `schema`) to open.
- */
-export const openPlatformWith = (
-	label: string,
-	also: (world: PlatformWorld) => ReadonlyArray<AnyLogin>
-): Effect.Effect<
-	OpenedPlatform,
-	CompileError | SqlError | TransactionRolledBack,
-	Substrate | Scope.Scope
-> =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const generated = yield* installGenerated(
-			(name) => {
-				const world = P.platformAt(name)
-				return { schema: world.Billing, logins: [world.server, ...also(world)] }
-			},
-			{ label, ambient: ordinarySession }
-		)
-		const installed = generated.installed
-		const schema = P.platformAt(installed.declared)
-		const served = servedGenerated(generated, schema.server)
-		const table = (relation: string): string => {
-			const q = installed.names.relation(relation)
-			return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
-		}
-		const clear = s.admin.query(`TRUNCATE ${Arr.join(Arr.map(loadOrder, table), ", ")}`, [])
-		return {
-			installed,
-			schema,
-			served,
-			table,
-			clear: Effect.asVoid(clear),
-			withDb: (body) =>
-				Effect.scoped(
-					Effect.flatMap(Layer.build(served.layer), (context) =>
-						Effect.provideContext(
-							Effect.scoped(Effect.flatMap(Db.open(served.login.roles.billing, {}), body)),
-							context
-						)
-					)
-				)
-		}
-	})
 
 const factCount = (f: PlatformFacts): number => Arr.reduce(loadOrder, 0, (n, r) => n + f[r].length)
 
