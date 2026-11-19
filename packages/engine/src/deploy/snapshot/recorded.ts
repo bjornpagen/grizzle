@@ -17,7 +17,7 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { declaredBody } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
-import { functionSource, printType } from "#compiler/sql/print.ts"
+import { functionSource, printStatement, printType } from "#compiler/sql/print.ts"
 import { type AstHooks, Transform } from "#compiler/sql/transform.ts"
 
 /**
@@ -247,6 +247,36 @@ const recordedObject = (o: PhysicalObject<SqlStatement>): RecordedObject => {
  */
 export const sameRecord = (was: RecordedObject, now: PhysicalObject<SqlStatement>): boolean =>
 	canonicalEquals(was.ddl, recordedObject(now).ddl)
+
+/**
+ * What PostgreSQL holds of a recorded statement: a statement recorded whole as it prints, so the proof a select core
+ * carries in place of a DISTINCT (sql/ast.ts RowsProof), which prints nothing, is no part of it; a function and a
+ * constant by their records, a function's source by its digest.
+ */
+const heldOf = (s: RecordedStatement): RecordedStatement | string =>
+	s.kind === "recordedFunction" ||
+	s.kind === "recordedDeclaredFunction" ||
+	s.kind === "recordedConstant"
+		? s
+		: printStatement(s)
+
+/**
+ * Whether an object's record holds what PostgreSQL holds of the compiled object `now`, statement by statement
+ * (heldOf): the same record, or one whose statements print alike, a select core's proof aside. A role's world object
+ * whose compile proves its rows unique by a key it gained, and so states its proof where it stated none, prints the
+ * same statement and is the same object.
+ */
+export const samePrinted = (was: RecordedObject, now: PhysicalObject<SqlStatement>): boolean => {
+	const after = recordedObject(now).ddl
+	return (
+		canonicalEquals(was.ddl, after) ||
+		(was.ddl.length === after.length &&
+			was.ddl.every((s, i) => {
+				const t = after[i]
+				return t !== undefined && canonicalEquals(heldOf(s), heldOf(t))
+			}))
+	)
+}
 
 /** An installation's manifest as its snapshot records it. */
 export const recordedManifest = (m: InstallationManifest<SqlStatement>): RecordedManifest => ({

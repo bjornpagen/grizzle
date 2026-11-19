@@ -7,9 +7,10 @@ import {
 	createsWorldFunction,
 	driftOf,
 	healedBy,
-	sameNames,
-	sameRole
+	revokesAnew,
+	sameNames
 } from "#test/support/worlds/model/session/catalog.ts"
+import { standingGrants } from "#test/support/worlds/model/session/compiled.ts"
 
 import { domainLawKey, lawDomainsOf } from "#test/support/worlds/model/session/domains.ts"
 import {
@@ -322,10 +323,12 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 		Arr.some(added, (law) => law.kind !== "check") ||
 		Arr.some(lawDomainsOf(now), (d) => d.kind === "text" && !fromDomains.has(domainLawKey(d)))
 	/**
-	 * Publish holds what is left to grant or create once Structure has run: a world object of a role the installation
-	 * holds that Structure creates, again or anew, is granted right after it there (packages/engine/src/deploy/diff/diff.ts
-	 * regrantWorld), and Publish grants only the privileges that change (deploy/diff/privileges.ts), so a world change
-	 * of the held roles alone, a recreated view over a relation that gains a check among them, publishes nothing.
+	 * Publish holds what is left to grant or create once Structure has run: a role the folder creates or drops, the
+	 * privileges that change of one both hold (deploy/diff/privileges.ts) on what Structure does not create again
+	 * (compiled.ts standingGrants), and the revokes from PUBLIC on what the previous installation never revoked on
+	 * (catalog.ts revokesAnew), a new view's among them. A world object of a role the installation holds that Structure
+	 * creates, again or anew, is granted right after it there (packages/engine/src/deploy/diff/diff.ts regrantWorld), so
+	 * a world change of the held roles alone, a view whose entry reads otherwise among them, publishes nothing.
 	 */
 	const publish =
 		createsWorldFunction(from, to) ||
@@ -335,8 +338,12 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 		Arr.some(now.relations, (r) => !held(r.name)) ||
 		Arr.some(
 			[...Arr.map(from.roles, (r) => r.name), ...Arr.map(to.roles, (r) => r.name)],
-			(r) => !sameRole(roleOf(from, r), roleOf(to, r))
+			(r) =>
+				roleOf(from, r) === undefined ||
+				roleOf(to, r) === undefined ||
+				!samePlain(standingGrants(from, r), standingGrants(to, r))
 		) ||
+		revokesAnew(from, to) ||
 		Arr.some(
 			[...Arr.map(from.logins, (l) => l.name), ...Arr.map(to.logins, (l) => l.name)],
 			(l) => {

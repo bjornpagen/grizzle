@@ -1,5 +1,6 @@
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import { writableSupplier } from "#test/support/worlds/model/host.ts"
+import { heldStatement, type WorldLocus } from "#test/support/worlds/model/session/compiled.ts"
 import { domainLawKey, lawDomainsOf } from "#test/support/worlds/model/session/domains.ts"
 import {
 	loginHolding,
@@ -196,37 +197,30 @@ export const membershipOf = (
 	)
 }
 
-/** A role's world object: what kind it is, and the definition its statement is drafted from. */
+/**
+ * A role's world object: what kind it is, where it stands among the installation's statements, and the relations its
+ * statement reads, of which it waits for each.
+ */
 interface WorldObject {
 	readonly kind: "view" | "policy" | "function"
-	readonly definition: unknown
+	readonly locus: WorldLocus
+	readonly reads: ReadonlyArray<string>
 }
 
 /**
- * What a world object's statement reads of a relation, which it waits for, so a change to it drops and creates the
- * object again (packages/engine/src/deploy/diff/diff.ts worldChangesOf): an ordinary relation's table, its fields, primary key
- * and the laws its CREATE TABLE declares inline (keys, span keys, row checks, a closed tag's conditional facts); a
- * derived relation's definition; a roster's members. No foreign key is in it, and no key of a derived relation, its
- * materialized view's unique indexes: a world object is identified by its own statement, which neither changes
- * (DRIFTPROOF's 9b9fc2263, deploy/diff/diff.ts worldChangesOf), since every entry of the model reads its relations
- * whole or by the rules it states.
+ * What a world object waits for of a relation its statement reads, so a change to it drops and creates the object
+ * again (packages/engine/src/deploy/diff/diff.ts worldChangesOf): an ordinary relation's columns, its fields, each by
+ * its name and the type and collation its domain gives it (diff.ts sameRead); a derived relation's definition, whose
+ * materialized view a change takes away beneath it; a roster's members, whose constant a change replaces. No
+ * constraint of a table is in it, its primary key and the laws its CREATE TABLE declares inline, which PostgreSQL keeps
+ * every view, function and policy over (CLOSEDID2's 5bdae3758); no foreign key; and no key of a derived relation, its
+ * materialized view's unique indexes (DRIFTPROOF's 9b9fc2263). What the object's compile relies on of them is in its
+ * own statement (compiled.ts heldStatement).
  */
 const readOf = (base: BaseSpec, name: string): unknown => {
 	const relation = relationSpecOf(base, name)
 	if (relation !== undefined) {
-		const inline = Arr.filter(base.laws, (law) => {
-			switch (law.kind) {
-				case "key":
-				case "spanKey":
-				case "check":
-				case "alternatives":
-					return law.relation === name
-				case "contained":
-				case "covered":
-					return false
-			}
-		})
-		return { fields: relation.fields, key: relation.key, inline }
+		return { fields: relation.fields }
 	}
 	const derived = Option.getOrUndefined(Arr.findFirst(base.derived, (d) => d.name === name))
 	if (derived !== undefined) {
@@ -245,31 +239,41 @@ const entryReads = (entry: EntrySpec): ReadonlyArray<string> =>
 				)
 			)
 
-/**
- * A world object's definition: the entry its statement is drafted from, and what it reads of each relation the entry
- * reads and of its written target, by name.
- */
-const definedBy = (
-	base: BaseSpec,
+/** The relations a world object's statement reads: the entry's (entryReads), and its written target, by name. */
+const readsOf = (
 	entry: EntrySpec | undefined,
 	target: ReadonlyArray<string>
-): unknown => {
-	const reads = Arr.sort(
-		new Set([...(entry === undefined ? [] : entryReads(entry)), ...target]),
-		Order.String
-	)
-	return { entry, reads: Arr.map(reads, (name) => [name, readOf(base, name)]) }
-}
+): ReadonlyArray<string> =>
+	Arr.sort(new Set([...(entry === undefined ? [] : entryReads(entry)), ...target]), Order.String)
+
+/**
+ * A role's world object as an installation installs it, which a migration creates again exactly where it changes:
+ * the statement PostgreSQL holds of it (compiled.ts heldStatement), which says whatever its compile proves, and what it
+ * waits for of each relation it reads (readOf), by name.
+ */
+const definitionOf = (install: InstallSpec, role: string, o: WorldObject): unknown => ({
+	statement: heldStatement(install, role, o.locus),
+	reads: Arr.map(o.reads, (name) => [name, readOf(install.base, name)])
+})
+
+/** Whether a world object of a role an installation and its next both hold is installed alike in each (definitionOf). */
+const sameObject = (
+	from: InstallSpec,
+	to: InstallSpec,
+	role: string,
+	before: WorldObject,
+	after: WorldObject
+): boolean => samePlain(definitionOf(from, role, before), definitionOf(to, role, after))
 
 /**
  * The world objects of a role (packages/engine/src/physical/ddl/roles.ts, names.ts), each by an identity that differs exactly
- * when the object or its grant does, with the definition its statement is drafted from (definedBy): its view of each
- * role relation, named by a whole entry's table and a query entry's name (a closed roster held whole has none), defined
- * by the entry; its policy on each table it writes that has row security (rowSecured), named as the role, defined by the
- * entry it writes through; the key probe of a written query entry for each key of its target, named by the entry and
- * the key's fields and typed by their base types; and the filter function of a written query entry
+ * when the object or its grant does, where it stands and what it reads (WorldObject): its view of each role relation,
+ * named by a whole entry's table and a query entry's name (a closed roster held whole has none), reading what the entry
+ * reads; its policy on each table it writes that has row security (rowSecured), named as the role, reading what the
+ * entry it writes through reads and the table; the key probe of a written query entry for each key of its target, named
+ * by the entry and the key's fields and typed by their base types; and the filter function of a written query entry
  * whose membership reads a stored relation besides its target's row, typed by the target fields the membership reads;
- * each function defined by its entry. A role the installation lacks has none. A migration's Structure file drops the ones it changes or removes and creates the changed ones again
+ * each function reading what its entry reads and its target. A role the installation lacks has none. A migration's Structure file drops the ones it changes or removes and creates the changed ones again
  * with their grants, for each role the installation already holds, and creates every new world function (a new role's
  * views and policies wait for its schema and role, in Publish).
  */
@@ -283,17 +287,35 @@ const worldObjects = (install: InstallSpec, role: string): ReadonlyMap<string, W
 		Rec.toEntries(spec.entries),
 		([name, entry]): ReadonlyArray<readonly [string, WorldObject]> =>
 			entry.kind === "query"
-				? [[`view ${name}`, { kind: "view", definition: definedBy(base, entry, []) }]]
+				? [
+						[
+							`view ${name}`,
+							{ kind: "view", locus: { kind: "view", relation: name }, reads: readsOf(entry, []) }
+						]
+					]
 				: Arr.some(base.closed, (c) => c.name === entry.relation)
 					? []
-					: [[`view ${entry.relation}`, { kind: "view", definition: definedBy(base, entry, []) }]]
+					: [
+							[
+								`view ${entry.relation}`,
+								{
+									kind: "view",
+									locus: { kind: "view", relation: entry.relation },
+									reads: readsOf(entry, [])
+								}
+							]
+						]
 	)
 	const written = writtenOf(base, spec)
 	const policies = Arr.map(
 		Arr.filter(written, (w) => rowSecured(install, w.target)),
 		(w): readonly [string, WorldObject] => [
 			`policy ${w.target}`,
-			{ kind: "policy", definition: [w.entry, definedBy(base, spec.entries[w.entry], [w.target])] }
+			{
+				kind: "policy",
+				locus: { kind: "policy", target: w.target },
+				reads: readsOf(spec.entries[w.entry], [w.target])
+			}
 		]
 	)
 	const functions = Arr.flatMap(written, (w): ReadonlyArray<readonly [string, WorldObject]> => {
@@ -309,19 +331,21 @@ const worldObjects = (install: InstallSpec, role: string): ReadonlyMap<string, W
 				}),
 				","
 			)
-		const fn: WorldObject = {
-			kind: "function",
-			definition: definedBy(base, spec.entries[w.entry], [w.target])
-		}
+		const reads = readsOf(spec.entries[w.entry], [w.target])
 		const probes = Arr.map(keysOf(base, w.target), (key): readonly [string, WorldObject] => [
 			`probe ${w.entry} ${Arr.join(key, ",")} (${typed(key)})`,
-			fn
+			{ kind: "function", locus: { kind: "key-probe", entry: w.entry, key }, reads }
 		])
 		const membership = membershipOf(base, w.rules, target)
 		return [
 			...probes,
 			...(membership !== undefined && filterReadsStored(w.rules)
-				? [[`filter ${w.entry} (${typed(membership)})`, fn] as const]
+				? [
+						[
+							`filter ${w.entry} (${typed(membership)})`,
+							{ kind: "function", locus: { kind: "filter", entry: w.entry }, reads }
+						] as const
+					]
 				: [])
 		]
 	})
@@ -343,7 +367,7 @@ export const changesWorlds = (from: InstallSpec, to: InstallSpec): boolean =>
 			return (
 				Arr.some([...before], ([identity, o]) => {
 					const now = after.get(identity)
-					return now === undefined || !samePlain(o.definition, now.definition)
+					return now === undefined || !sameObject(from, to, role, o, now)
 				}) ||
 				Arr.some(
 					[...after],
@@ -365,9 +389,7 @@ export const createsWorldFunction = (from: InstallSpec, to: InstallSpec): boolea
 			const before = worldObjects(from, role)
 			return Arr.some([...worldObjects(to, role)], ([identity, o]) => {
 				const was = before.get(identity)
-				return (
-					o.kind === "function" && (was === undefined || !samePlain(was.definition, o.definition))
-				)
+				return o.kind === "function" && (was === undefined || !sameObject(from, to, role, was, o))
 			})
 		}
 	)
@@ -376,9 +398,7 @@ export const createsWorldFunction = (from: InstallSpec, to: InstallSpec): boolea
 const rewritten = (from: InstallSpec, to: InstallSpec, role: string, identity: string): boolean => {
 	const before = worldObjects(from, role).get(identity)
 	const after = worldObjects(to, role).get(identity)
-	return (
-		before !== undefined && (after === undefined || !samePlain(before.definition, after.definition))
-	)
+	return before !== undefined && (after === undefined || !sameObject(from, to, role, before, after))
 }
 
 /**
@@ -474,7 +494,7 @@ export const sameNames = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): b
 	a.length === b.length && Arr.every(a, (x) => b.includes(x))
 
 /** Whether a role installs the same grants and memberships in two installations: its entries, write and refresh lists. */
-export const sameRole = (a: RoleSpec | undefined, b: RoleSpec | undefined): boolean =>
+const sameRole = (a: RoleSpec | undefined, b: RoleSpec | undefined): boolean =>
 	a === undefined || b === undefined
 		? a === b
 		: samePlain(a.entries, b.entries) &&
@@ -519,35 +539,36 @@ const revokedWith = (
 		))
 
 /**
- * What an installation revokes from PUBLIC (packages/engine/src/physical/ddl/roles.ts publicRevokes), as far as it varies: its
- * schemas (one per role), tables and views, enums and domains. A migration whose revokes differ
- * issues every one of them again in Publish.
+ * What an installation revokes from PUBLIC (packages/engine/src/physical/ddl/roles.ts publicRevokes), as far as it
+ * varies, each object by its kind and name: its schemas (one per role), tables and views, enums and domains.
  */
-const publicRevoked = (install: InstallSpec): unknown => {
+const publicRevoked = (install: InstallSpec): ReadonlyArray<string> => {
 	const base = install.base
-	return {
-		roles: Arr.sort(
-			Arr.map(install.roles, (r) => r.name),
-			Order.String
-		),
-		views: Arr.sort(
-			Arr.flatMap(install.roles, (r) =>
+	return Arr.sort(
+		[
+			...Arr.map(install.roles, (r) => `schema ${r.name}`),
+			...Arr.flatMap(install.roles, (r) =>
 				Arr.flatMap([...worldObjects(install, r.name)], ([identity, o]) =>
-					o.kind === "view" ? [`${r.name} ${identity}`] : []
+					o.kind === "view" ? [`view ${r.name} ${identity}`] : []
 				)
 			),
-			Order.String
-		),
-		relations: Arr.sort(
-			Arr.map(base.relations, (r) => r.name),
-			Order.String
-		),
-		closed: Arr.sort(
-			Arr.map(base.closed, (c) => c.name),
-			Order.String
-		),
-		domains: Arr.sort(Arr.map(lawDomainsOf(base), domainLawKey), Order.String)
-	}
+			...Arr.map(base.relations, (r) => `table ${r.name}`),
+			...Arr.map(base.closed, (c) => `closed ${c.name}`),
+			...Arr.map(lawDomainsOf(base), (d) => `domain ${domainLawKey(d)}`)
+		],
+		Order.String
+	)
+}
+
+/**
+ * Whether a migration revokes from PUBLIC in Publish: on an object of the new installation whose revoke the previous
+ * installation never ran (deploy/diff/diff.ts, the PUBLIC revokes no previous revoke took), a new role's schema, a new
+ * view or table, roster or domain; an object the previous installation revoked on, kept or created again under its
+ * name, it revokes on no more.
+ */
+export const revokesAnew = (from: InstallSpec, to: InstallSpec): boolean => {
+	const before = new Set(publicRevoked(from))
+	return Arr.some(publicRevoked(to), (o) => !before.has(o))
 }
 
 /**
@@ -578,9 +599,10 @@ export const keyShown = (
  * changed, or creates it again under a new definition (a policy, a view, a filter function or key probe); enables row
  * security on a table the new installation is the first to narrow, which a disabled or enabled
  * state then no longer departs from (ENABLE leaves FORCE as it was); replaces the role's grants (grantsReplaced),
- * which revokes an extra grant its previous grants covered (revokedWith) and grants a revoked one again; moves a role
- * to another login, which revokes it from its old login, options and all; or changes what PUBLIC is revoked from
- * (publicRevoked), which revokes everything from PUBLIC again. Every other perturbation outlives the migration: grizzle
+ * which revokes an extra grant its previous grants covered (revokedWith) and grants a revoked one again; or moves a
+ * role to another login, which revokes it from its old login, options and all. Every other perturbation outlives the
+ * migration, a PUBLIC grant on a stored relation's table among them, since a migration revokes from PUBLIC only on what
+ * no previous revoke took (revokesAnew), so the drift check that ends the run refuses it: grizzle
  * creates a role's attributes and a login's settings once and stores a default only when its value changes, grants a
  * membership only with its role or its move, never touches a membership or member of the executor's roles, and
  * drops its own objects only (a dropped role's memberships go with it, which the new installation then never asks
@@ -601,7 +623,7 @@ export const healedBy = (from: InstallSpec, to: InstallSpec, p: CatalogPerturbat
 			return roleOf(from, p.role) !== undefined && moved !== undefined && moved.name !== p.login
 		}
 		case "public-grant":
-			return !samePlain(publicRevoked(from), publicRevoked(to))
+			return false
 		case "membership-revoked":
 		case "membership-extra":
 		case "member-extra":

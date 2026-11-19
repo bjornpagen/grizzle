@@ -92,6 +92,7 @@ import {
 	type RecordedManifest,
 	type RecordedObject,
 	type RecordedStatement,
+	samePrinted,
 	sameRecord
 } from "#compiler/deploy/snapshot/recorded.ts"
 import type {
@@ -4329,13 +4330,15 @@ const revokeRoleOf = (g: GrantRole): SqlStatement => ({
 const worldKinds: ReadonlySet<PhysicalKind> = new Set(["view", "worldFunction", "policy"])
 
 /**
- * Whether a role's object reads a previous object as it reads the target's: the same record, or a table whose columns
- * keep their names, types and collations, whose generations and constraints alone change. PostgreSQL keeps every view,
- * function and policy over a column a SET EXPRESSION re-expresses and a table whose CHECK is replaced, and a column a
- * migration converts or rebuilds takes the table beneath (worldChangesOf's `beneath`).
+ * Whether a role's object reads a previous object as it reads the target's: one whose statements print alike, what
+ * PostgreSQL holds of it (recorded.ts samePrinted), so a world object whose compile states a proof of its rows where it
+ * stated none is the same object; or a table whose columns keep their names, types and collations, whose generations
+ * and constraints alone change. PostgreSQL keeps every view, function and policy over a column a SET EXPRESSION
+ * re-expresses and a table whose CHECK is replaced, and a column a migration converts or rebuilds takes the table
+ * beneath (worldChangesOf's `beneath`).
  */
 const sameRead = (was: RecordedObject, now: ManifestObject): boolean => {
-	if (sameRecord(was, now)) {
+	if (samePrinted(was, now)) {
 		return true
 	}
 	const [before] = was.ddl
@@ -4366,9 +4369,10 @@ const sameRead = (was: RecordedObject, now: ManifestObject): boolean => {
  * rename what a view, a policy or a function body reads beneath it, so dropping them first leaves every structural
  * change free, and they hold nothing a drop could lose.
  *
- * A world object is identified by its own statement and what it waits for, nothing else. What its compile relies on of
- * what it reads, a key it proves uniqueness by or a containment it proves existence by, is in its statement, which
- * changes wherever the compile does; and PostgreSQL records no dependency of a view, policy or function on a foreign key
+ * A world object is identified by its own statement, as PostgreSQL holds it, and what it waits for, nothing else. What
+ * its compile relies on of what it reads, a key it proves uniqueness by or a containment it proves existence by, is in
+ * its statement where it changes what the statement says, a DISTINCT dropped or a join left out, and a proof that prints
+ * nothing changes nothing PostgreSQL holds (sameRead); and PostgreSQL records no dependency of a view, policy or function on a foreign key
  * or a unique index, so a foreign key added, changed or dropped, or a materialized view's key, takes nothing away
  * beneath it. A materialized view whose keys change means something else and is created again (viewDropsOf), which
  * `beneath` names. */

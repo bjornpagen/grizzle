@@ -915,37 +915,26 @@ const dropsOf = (
 }
 
 /**
- * The next migration of an installation under `schema`, drafted from the directory's snapshot as `grizzle generate`
- * drafts it, no rename declared, every drop declared (dropsOf) and every loss written in, at the CLI's timestamp. A
- * version that declares a roster out of its codes' order is refused as generate refuses it (D1), before anything is
- * drafted. A draft that needs a placeholder value is a defect of the drawn spec.
+ * A version's installation under `schema` as `grizzle generate` compiles it over the directory's snapshot `previous`,
+ * with the base it owns: its rosters numbered by the codes they continue, every handle the snapshot holds keeping its
+ * own (D1); a version that declares a roster out of its codes' order is refused as generate refuses it.
  */
-export const draftNext = (
+export const plannedVersion = (
 	declared: AnySchema,
 	logins: ReadonlyArray<LoginSource>,
 	schema: string,
-	previous: Continued
-): Effect.Effect<Drafted, RealizeRefused> =>
+	previous: DeploySnapshot
+): Effect.Effect<{ readonly plan: RealInstallPlan; readonly owned: Owned }, RealizeRefused> =>
 	Effect.gen(function* () {
-		const now = parseTimestamp(draftedAt(1))
-		if (Option.isNone(now)) {
-			return yield* Effect.die(new Error("the stand-in clock names no UTC second"))
-		}
-		/** The CLI's timestamp: its clock's second, or one after the newest folder applied, so the folder sorts last. */
-		const timestamp = nextTimestamp(
-			now.value,
-			Arr.map(previous.folders, (f) => Str.slice(0, 14)(f.name))
-		)
 		const desc = schemaDescOf(declared)
 		if (desc === undefined) {
 			return yield* Effect.die(new Error("the next version's base is no schema value"))
 		}
 		const owned = yield* Effect.orDie(fromEngine(own(desc)))
-		/** The codes the next version's rosters take, every handle the snapshot holds keeping its own (D1). */
 		const rosters = rostersOf(owned)
 		const drafted = draftCodebook(
 			rosterFates(
-				previous.snapshot,
+				previous,
 				noDeclarations,
 				Arr.map(rosters, (r) => r.closed)
 			),
@@ -969,6 +958,32 @@ export const draftNext = (
 				})
 			)
 		)
+		return { plan, owned }
+	})
+
+/**
+ * The next migration of an installation under `schema`, drafted from the directory's snapshot as `grizzle generate`
+ * drafts it over the version's plan (plannedVersion), no rename declared, every drop declared (dropsOf) and every loss
+ * written in, at the CLI's timestamp. A version whose plan is refused is refused before anything is drafted. A draft
+ * that needs a placeholder value is a defect of the drawn spec.
+ */
+export const draftNext = (
+	declared: AnySchema,
+	logins: ReadonlyArray<LoginSource>,
+	schema: string,
+	previous: Continued
+): Effect.Effect<Drafted, RealizeRefused> =>
+	Effect.gen(function* () {
+		const now = parseTimestamp(draftedAt(1))
+		if (Option.isNone(now)) {
+			return yield* Effect.die(new Error("the stand-in clock names no UTC second"))
+		}
+		/** The CLI's timestamp: its clock's second, or one after the newest folder applied, so the folder sorts last. */
+		const timestamp = nextTimestamp(
+			now.value,
+			Arr.map(previous.folders, (f) => Str.slice(0, 14)(f.name))
+		)
+		const { plan, owned } = yield* plannedVersion(declared, logins, schema, previous.snapshot)
 		const drops = dropsOf(
 			previous.snapshot,
 			owned,

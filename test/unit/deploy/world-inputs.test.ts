@@ -58,10 +58,10 @@ export const aForeignKeyAddedCreatesNoWorldObjectAgain = property.exhaust(finite
 	kills: [
 		{
 			file: "packages/engine/src/deploy/diff/diff.ts",
-			original: "\tif (sameRecord(was, now)) {\n\t\treturn true\n\t}\n\tconst [before] = was.ddl",
+			original: "\tif (samePrinted(was, now)) {\n\t\treturn true\n\t}\n\tconst [before] = was.ddl",
 			replacement:
-				"\tif (sameRecord(was, now) || was.ident !== now.ident) {\n\t\treturn sameRecord(was, now)\n\t}\n\treturn false\n\tconst [before] = was.ddl",
-			why: "A table whose generated field SET EXPRESSION re-expresses in place read as changed (diff.ts sameRead as sameRecord): the reader's views over it are dropped and created again, which PostgreSQL keeps over a re-expression."
+				"\tif (samePrinted(was, now) || was.ident !== now.ident) {\n\t\treturn samePrinted(was, now)\n\t}\n\treturn false\n\tconst [before] = was.ddl",
+			why: "A table whose generated field SET EXPRESSION re-expresses in place read as changed (diff.ts sameRead as samePrinted): the reader's views over it are dropped and created again, which PostgreSQL keeps over a re-expression."
 		},
 		{
 			file: "packages/engine/src/deploy/diff/diff.ts",
