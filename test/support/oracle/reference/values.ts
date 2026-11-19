@@ -33,12 +33,6 @@ import {
  */
 export type DeclineReason = "database" | "estimated" | "declinedRead"
 
-export const declineReasons: Arr.NonEmptyReadonlyArray<DeclineReason> = [
-	"database",
-	"estimated",
-	"declinedRead"
-]
-
 /**
  * A value the reference does not state: a declined term's (DeclineReason), which PostgreSQL alone computes, any value
  * of its type or a failure. It is identified by its term as PostgreSQL computes it, the declined operations over the

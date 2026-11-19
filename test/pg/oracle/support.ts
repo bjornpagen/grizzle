@@ -9,7 +9,7 @@ import type { SpelledValue } from "#test/support/oracle/gen/domain.ts"
 import { queryExprs, queryGenerators } from "#test/support/oracle/gen/query.ts"
 import { isPureSet } from "#test/support/oracle/gen/schema.ts"
 import { rootedCaseGen } from "#test/support/oracle/mutants/cases.ts"
-import { type DeclineReason, declineReasons } from "#test/support/oracle/reference/values.ts"
+import { type DeclineReason } from "#test/support/oracle/reference/values.ts"
 
 export const operatorKinds = [
 	"MatchRegion",
@@ -58,15 +58,6 @@ export type ConservativeFeature =
 	| "facts reordered"
 	| "a fact respelled"
 	| `declined ${DeclineReason}`
-
-/**
- * The feature a suite notes for each way its reference declines to judge a term (reference/values.ts DeclineReason):
- * the features whose rates every reference-judged suite reports beside its residual (features.ts rating).
- */
-export const declineFeatures: Arr.NonEmptyReadonlyArray<`declined ${DeclineReason}`> = Arr.map(
-	declineReasons,
-	(reason) => `declined ${reason}` as const
-)
 
 /** The relation count of a case, which the generator's limits keep within one to four. */
 const relationsFeature = (count: number): ConservativeFeature => {

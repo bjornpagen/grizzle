@@ -1,23 +1,11 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
-import {
-	aimed,
-	type Case,
-	type Explored,
-	explore,
-	type Kept,
-	type Run,
-	type SearchFailure
-} from "@bjornpagen/testing/explore"
-import { rating, required } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { Array as Arr, type Effect, Formatter, Option } from "effect"
+import { aimed, element, type Gen, recorded } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
+import { Array as Arr, Option } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { runCase } from "#test/pg/oracle/public/run.ts"
-import { declineFeatures } from "#test/pg/oracle/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
 import type { CompareOp } from "#test/support/oracle/gen/ops.ts"
 import { type PlannerSetting, unperturbed } from "#test/support/oracle/perturb.ts"
 import {
@@ -44,16 +32,9 @@ import {
 	type StoredFact
 } from "#test/support/oracle/public/program.ts"
 import type { DeclineReason } from "#test/support/oracle/reference/values.ts"
-import type { Substrate } from "#test/support/substrate/substrate.ts"
-
-/**
- * The cases of the rotating stream; every case installs a schema through its migration, so the population is small and
- * its cases rich.
- */
-export const cases = 80
 
 /** The suite's required features, and every program form the generator draws: each must be reached on every run. */
-const situations = [
+export const publicSituations = [
 	"attachment pipelined",
 	"attachment nested",
 	"stated option",
@@ -96,7 +77,7 @@ const situations = [
  * deliveries the runtime chose, and every program feature of its query reads.
  */
 export type PublicFeature =
-	| (typeof situations)[number]
+	| (typeof publicSituations)[number]
 	| `name ${NameKind}`
 	| `planner ${PlannerSetting}`
 	| `bind ${Operand<ParentColumn>["kind"]}`
@@ -177,48 +158,39 @@ const caseSketch = (
 })
 
 /**
- * Issue #3's two acceptance cases (generate.ts acceptanceCollapse and acceptanceMean): its shrunk case under its stated
- * perturbation, and the mean over one value in two spellings under every planner setting, each read again over its
- * facts in the other order (its restorage), both judged by the one exact check. An acceptance case resolves drawing
- * nothing.
+ * Issue #3's two acceptance cases (generate.ts acceptanceCollapse and acceptanceMean), a real bug each: its shrunk case
+ * under its stated perturbation, and the mean over one value in two spellings under every planner setting, each read
+ * again over its facts in the other order (its restorage), both judged by the one exact check. An acceptance case
+ * resolves drawing nothing; no drawn sketch is one, so they are recorded beside the suite's sketches (gen.ts recorded)
+ * and kept by their tokens.
  */
-const planted: ReadonlyArray<Kept<PublicSketch, PublicFeature>> = [
+const acceptanceSketches: Arr.NonEmptyReadonlyArray<PublicSketch> = [
 	{
-		note: "issue #3's shrunk case: Task's 0 in two spellings, collapsed under its plan",
-		sketch: {
-			...caseSketch("acceptance collapse", [relation([0], [])]),
-			perturbation: {
-				settings: [
-					"enable_hashjoin = off",
-					"enable_sort = off",
-					"plan_cache_mode = force_generic_plan"
-				],
-				multiplier: 1
-			}
-		},
-		draws: "",
-		reaches: ["facts by a direct writer", "attachment nested", "stated option"]
+		...caseSketch("acceptance collapse", [relation([0], [])]),
+		perturbation: {
+			settings: [
+				"enable_hashjoin = off",
+				"enable_sort = off",
+				"plan_cache_mode = force_generic_plan"
+			],
+			multiplier: 1
+		}
 	},
 	{
-		note: "issue #3's mean over 0 at display scale 24, 0, 1 and 3, under every setting",
-		sketch: {
-			...caseSketch("acceptance mean", [relation([0], [])]),
-			perturbation: {
-				settings: [
-					"enable_hashjoin = off",
-					"enable_mergejoin = off",
-					"enable_sort = off",
-					"debug_parallel_query = regress",
-					"plan_cache_mode = force_generic_plan",
-					"parallel_setup_cost = 0",
-					"parallel_tuple_cost = 0",
-					"min_parallel_table_scan_size = 0"
-				],
-				multiplier: 1
-			}
-		},
-		draws: "",
-		reaches: ["facts by a direct writer"]
+		...caseSketch("acceptance mean", [relation([0], [])]),
+		perturbation: {
+			settings: [
+				"enable_hashjoin = off",
+				"enable_mergejoin = off",
+				"enable_sort = off",
+				"debug_parallel_query = regress",
+				"plan_cache_mode = force_generic_plan",
+				"parallel_setup_cost = 0",
+				"parallel_tuple_cost = 0",
+				"min_parallel_table_scan_size = 0"
+			],
+			multiplier: 1
+		}
 	}
 ]
 
@@ -297,7 +269,7 @@ const caseOf = (sketch: PublicSketch, c: Case<PublicFeature>): ProgramCase => {
 }
 
 /**
- * The public-boundary differential as an exploration: generated programs through grizzle's public builders and
+ * The public-boundary differential's cases: generated programs through grizzle's public builders and
  * runtime, each read compared with the reference evaluator's per-parent delivery (run.ts).
  *
  * The suite's features are what its population must keep reaching, because each is a way the public boundary can be
@@ -339,28 +311,11 @@ const caseOf = (sketch: PublicSketch, c: Case<PublicFeature>): ProgramCase => {
  *
  * Explores the public-boundary differential: the adapter's delivery as delivered, its cell texts checked against the
  * library's conversion (cells.ts). A case draws its sketch, one reading a key left out where its turn aims at a get of
- * no row (aims), then resolves it on its own decisions. The Dbs connect to the substrate's target, so cases run one at
- * a time. Shrinking stops after 150 candidates: each candidate installs a schema, and a shrunk sketch past that is
- * already the size of one a person reads.
+ * no row (aims), then resolves it on its own decisions (caseOf), beside issue #3's acceptance cases
+ * (acceptanceSketches).
  */
-export const explorePublic: Effect.Effect<Explored, SearchFailure, Substrate | Run> = explore(
-	{
-		oracle: {
-			kind: "second-implementation",
-			name: "the reference evaluator's per-parent delivery, and the read itself under another storage"
-		},
-		suite: "public",
-		draw: aimed(publicSketchGen("sketched"), aims),
-		literal: Formatter.format,
-		coverage: rating(
-			required<PublicFeature>(situations, { cases: cases, sense: notesOnly }),
-			declineFeatures
-		),
-		kept: planted,
-		runs: cases,
-		shrink: { kind: "bounded", candidates: 150 },
-		steerEvery: 16,
-		caseHang
-	},
-	(sketch, c) => runCase(caseOf(sketch, c), c.note)
-)
+export const publicCases = aimed(recorded(publicSketchGen("sketched"), acceptanceSketches), aims)
+
+/** The case a sketch runs, resolved on the case's own decisions (caseOf), run through the public boundary (run.ts). */
+export const publicCase = (sketch: PublicSketch, c: Case<PublicFeature>) =>
+	runCase(caseOf(sketch, c), c.note)
