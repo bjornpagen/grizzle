@@ -603,6 +603,11 @@ const matched = (
 			return agreed(observed.kind === "refused" && observed.sqlstate === expected.sqlstate)
 		case "migration-refused":
 			return agreed(observed.kind === "migration-refused" && observed.stage === expected.stage)
+		case "migration-law-refused":
+			return agreed(
+				observed.kind === "migration-law-refused" &&
+					Arr.every(observed.laws, (law) => expected.laws.includes(law))
+			)
 		case "stale-snapshot":
 			return agreed(observed.kind === "stale-snapshot" && observed.reason === expected.reason)
 		case "drift":

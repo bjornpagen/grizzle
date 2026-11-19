@@ -1557,6 +1557,22 @@ export const judgedSchemaOf = (base: BaseSpec): HostSchema => ({
 })
 
 /**
+ * The judged label (judgedSchemaOf) of the law an installation of `base` under `names` holds by the identity `identity`:
+ * the two schemas hold the base's laws in one order, its primary keys and then each declared law's, an alternatives
+ * law's per arm, so the law at a place in one is the law at that place in the other. None for an identity no law of the
+ * base holds, such as a roster domain's CHECK.
+ */
+export const judgedLawOf = (
+	base: BaseSpec,
+	names: InstalledNames,
+	identity: string
+): Option.Option<LawId> =>
+	Option.flatMap(
+		Arr.findFirstIndex(hostSchemaOf(base, names).laws, (law) => law.law === identity),
+		(at) => Option.map(Arr.get(judgedSchemaOf(base).laws, at), (law) => law.law)
+	)
+
+/**
  * A foreign key an installation enforces a law with: the relation that references, the one it references, and whether
  * PostgreSQL checks it at COMMIT.
  */

@@ -55,6 +55,7 @@ import type {
 	ContextSpec,
 	ClaimsStart,
 	DirectSessionState,
+	DirectStatement,
 	FieldSpec,
 	HostFact,
 	HostState,
@@ -188,6 +189,9 @@ interface DirectPlan {
 	readonly login: string
 	readonly current: DirectSessionState["current"]
 	readonly claims: ClaimsStart
+	/** What its transaction sends past its role and claims, before its end: nothing in a drawn plan, the statement a
+	 * constructed one is past (constructedPlan). */
+	readonly sent: ReadonlyArray<DirectStatement>
 	readonly transaction: "open" | "aborted" | "ended"
 }
 
@@ -389,6 +393,7 @@ const directPlanGen =
 					})
 				])
 			),
+			sent: [],
 			transaction: source.draw(element(["open", "aborted", "ended"] as const))
 		}
 	}
@@ -501,7 +506,10 @@ export const poolSizeOf = (ic: InductiveCase): number =>
  * - `op:direct:outside-visible:absent:direct-role:rows` and `...:law-refused`: the editor as a direct writer under no
  *   claims, a read of Org or Doc showing the organization or the document, and an insert at the organization's key
  *   that Org's key refuses;
- * - `op:direct:outside-visible:matching:direct-role:law-refused`: the same writer under the tenant's claims.
+ * - `op:direct:outside-visible:matching:direct-role:law-refused`: the same writer under the tenant's claims;
+ * - `op:direct-end:inside:absent:direct-role:law-refused` and `...:matching:...`: the editor as a direct writer under
+ *   no claims or the tenant's, its transaction one insert in, a note of its own into a document no one holds
+ *   (strayNote), which only its COMMIT refuses.
  * A drawn state offers them only where the editor's installation, a reality holding a free organization and the
  * editor's transaction or Db meet, so a search whose other draws move (a feature added, the box offering a fact once)
  * can lose them on every label-fixed stream.
@@ -511,12 +519,16 @@ type Constructed =
 	| "op:direct:outside-visible:absent:direct-role:rows"
 	| "op:direct:outside-visible:absent:direct-role:law-refused"
 	| "op:direct:outside-visible:matching:direct-role:law-refused"
+	| "op:direct-end:inside:absent:direct-role:law-refused"
+	| "op:direct-end:inside:matching:direct-role:law-refused"
 
 const constructedFeatures: Arr.NonEmptyReadonlyArray<Constructed> = [
 	"readback:beside",
 	"op:direct:outside-visible:absent:direct-role:rows",
 	"op:direct:outside-visible:absent:direct-role:law-refused",
-	"op:direct:outside-visible:matching:direct-role:law-refused"
+	"op:direct:outside-visible:matching:direct-role:law-refused",
+	"op:direct-end:inside:absent:direct-role:law-refused",
+	"op:direct-end:inside:matching:direct-role:law-refused"
 ]
 
 /** The organization and the document of constructedReality: the uuid pool's first two tokens. */
@@ -534,12 +546,16 @@ const constructedReality: HostState = new Map([
 
 const constructedRealities: Realities = () => constant(constructedReality)
 
-/** The Tenant claim object of constructedReality's organization, and the claims holding it. */
+/** The Tenant claim object of constructedReality's organization, and the claims holding it, set for the transaction. */
 const tenantClaim: HostFact = { org: constructedOrg, seats: 0 }
 const tenantFacts: ContextFacts = { Tenant: tenantClaim }
+const tenantClaims: ClaimsStart = {
+	kind: "set",
+	setting: { kind: "facts", facts: tenantFacts, scope: "transaction" }
+}
 
-/** The editor as a direct writer of the login `ops`, its transaction open under `claims`. */
-const editorWriter = (claims: ClaimsStart): StatePlan => ({
+/** The editor as a direct writer of the login `ops`, its transaction open under `claims`, `sent` sent in it. */
+const editorWriter = (claims: ClaimsStart, sent: ReadonlyArray<DirectStatement>): StatePlan => ({
 	dbs: [],
 	after: {
 		kind: "direct",
@@ -547,10 +563,22 @@ const editorWriter = (claims: ClaimsStart): StatePlan => ({
 			login: "ops",
 			current: { kind: "role", role: "editor" },
 			claims,
+			sent,
 			transaction: "open"
 		}
 	}
 })
+
+/**
+ * An insert of a note of the editor's own (EdNote's author) into a document constructedReality does not hold, the pool's
+ * third token: row security admits it, and Note's containment into Doc, deferred since Doc has fields beyond its id,
+ * refuses it at COMMIT alone.
+ */
+const strayNote: DirectStatement = {
+	kind: "insert",
+	relation: "Note",
+	fact: { no: 1, doc: uuidToken(3), author: "u_ed" }
+}
 
 /** The planned state a constructed feature is one action past (Constructed). */
 const constructedPlan = (feature: Constructed): StatePlan => {
@@ -569,12 +597,13 @@ const constructedPlan = (feature: Constructed): StatePlan => {
 			}
 		case "op:direct:outside-visible:absent:direct-role:rows":
 		case "op:direct:outside-visible:absent:direct-role:law-refused":
-			return editorWriter({ kind: "none" })
+			return editorWriter({ kind: "none" }, [])
 		case "op:direct:outside-visible:matching:direct-role:law-refused":
-			return editorWriter({
-				kind: "set",
-				setting: { kind: "facts", facts: tenantFacts, scope: "transaction" }
-			})
+			return editorWriter(tenantClaims, [])
+		case "op:direct-end:inside:absent:direct-role:law-refused":
+			return editorWriter({ kind: "none" }, [strayNote])
+		case "op:direct-end:inside:matching:direct-role:law-refused":
+			return editorWriter(tenantClaims, [strayNote])
 	}
 }
 
@@ -781,6 +810,7 @@ const afterActions = (session: number, after: After): ReadonlyArray<Action> => {
 							} satisfies Action
 						]
 					: []),
+				...Arr.map(direct.sent, (statement): Action => ({ kind: "direct", session, statement })),
 				...transactionEnd(session, direct.transaction)
 			]
 		}

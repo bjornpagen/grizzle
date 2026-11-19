@@ -8,7 +8,9 @@ import { type BatchStatement, oneShotStatement } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import { nextTimestamp, parseTimestamp } from "#cli/clock.ts"
 import { identifierOf, identity, roleIdentity } from "#compiler/core/identity.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import { emptySnapshot, noWorkload, rosterFates } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -76,7 +78,8 @@ const isRefusal = (stage: string): stage is MigrationRefusal => refusals.has(sta
  */
 export const migrationRefused = (
 	error: MigrateError,
-	drifted: (objects: ReadonlyArray<string>) => Observation
+	drifted: (objects: ReadonlyArray<string>) => Observation,
+	lawOf: (identity: string) => Effect.Effect<Option.Option<LawId>>
 ): Effect.Effect<Seen> => {
 	const reason = error.reason
 	if (reason._tag === "Drifted") {
@@ -84,8 +87,22 @@ export const migrationRefused = (
 	}
 	const server = error.server
 	if (error.stage === "statement" && server.by === "server") {
-		return Effect.succeed(
-			refusedWith({ kind: "refused", sqlstate: sqlStateOf(server.error.sqlstate) }, error)
+		return Effect.map(
+			Option.match(refusedIdentity(error, server.error), {
+				onNone: () => Effect.succeedNone,
+				onSome: lawOf
+			}),
+			(law) =>
+				refusedWith(
+					Option.match(law, {
+						onSome: (refused): Observation => ({ kind: "migration-law-refused", laws: [refused] }),
+						onNone: (): Observation => ({
+							kind: "refused",
+							sqlstate: sqlStateOf(server.error.sqlstate)
+						})
+					}),
+					error
+				)
 		)
 	}
 	return isRefusal(error.stage)
@@ -95,6 +112,25 @@ export const migrationRefused = (
 					cause: error
 				})
 			)
+}
+
+/**
+ * The identity of the law a migration's failed statement refused, as migrate reports it: any code of class 23, under
+ * the law its folder's constraint map names for the refused constraint (adapter/migrate/apply.ts brokenLaw), or, for a
+ * check grizzle runs itself, the law's identity the statement raised under as its constraint; none for any other
+ * failure.
+ */
+const refusedIdentity = (
+	error: MigrateError,
+	server: Extract<MigrateError["server"], { readonly by: "server" }>["error"]
+): Option.Option<string> => {
+	const reason = error.reason
+	if (sqlstateClass(server.sqlstate) !== sqlstateClass(sqlstates.integrityConstraintViolation)) {
+		return Option.none()
+	}
+	return reason._tag === "StatementFailed" && reason.law !== undefined
+		? Option.some(reason.law)
+		: Option.fromUndefinedOr(server.constraint)
 }
 
 /** The folder a run stopped in when one of its files failed: a statement, its ledger record or its COMMIT. */
@@ -259,7 +295,11 @@ export const drift = (
 			case "applied":
 				return Effect.succeed(seen({ kind: "drift", objects: [] }))
 			case "refused":
-				return migrationRefused(outcome.error, (objects) => ({ kind: "drift", objects }))
+				return migrationRefused(
+					outcome.error,
+					(objects) => ({ kind: "drift", objects }),
+					() => Effect.succeedNone
+				)
 			case "killed":
 				return Effect.die(new Error("a drift run no one killed was killed"))
 		}

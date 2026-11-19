@@ -818,6 +818,18 @@ export type ActionOutcome =
 	| { readonly kind: "interrupted" }
 	| { readonly kind: "refused"; readonly sqlstate: SqlState }
 	| { readonly kind: "migration-refused"; readonly stage: MigrationRefusal }
+	| {
+			readonly kind: "migration-law-refused"
+			/**
+			 * A migration stopped at a statement that refused a law of the installation its folder lands: any code of class
+			 * 23, under the law's identity, as migrate names the law it reports (adapter/migrate/apply.ts brokenLaw, or the
+			 * identity a check grizzle runs itself raises under), each law by its place in the base (host.ts
+			 * judgedSchemaOf): the README names no SQLSTATE a migration's refusal raises, so the law refused is the whole of
+			 * it. Observed, the one law the run reported; allowed, every law the folder's data breaks, whichever statement
+			 * meets its data first.
+			 */
+			readonly laws: Arr.NonEmptyReadonlyArray<LawId>
+	  }
 	| { readonly kind: "handle-refused" }
 	| { readonly kind: "stale-snapshot"; readonly reason: ModelStaleReason }
 	| { readonly kind: "ok" }

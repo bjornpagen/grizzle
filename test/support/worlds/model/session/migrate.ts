@@ -1,4 +1,5 @@
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
+import type { LawId } from "#compiler/core/ids.ts"
 import { violations } from "#test/support/laws/model.ts"
 import { evaluateRules, hostSchemaOf, judgedSchemaOf } from "#test/support/worlds/model/host.ts"
 import {
@@ -10,7 +11,6 @@ import {
 } from "#test/support/worlds/model/session/catalog.ts"
 
 import { domainLawKey, lawDomainsOf } from "#test/support/worlds/model/session/domains.ts"
-import { meetingOf } from "#test/support/worlds/model/session/laws.ts"
 import {
 	draftedFrom,
 	factsIn,
@@ -32,7 +32,6 @@ import type {
 	MigrationHow,
 	ModelState,
 	ActionOutcome,
-	SqlState,
 	Allowed
 } from "#test/support/worlds/model/types.ts"
 
@@ -129,22 +128,30 @@ const allowedAt = (
 			}
 
 /**
- * The SQLSTATE of each law of an installation the state's data breaks once migrated onto it, each once, judged under
- * the base's host schema before an installation names it (host.ts judgedSchemaOf): only how PostgreSQL meets a law
- * matters here.
+ * How a migration onto an installation refuses the state's data: at a statement of a law the data breaks once migrated
+ * onto it, any of them, each judged under the base's host schema before an installation names it (host.ts
+ * judgedSchemaOf), by the law alone, whatever object discharges it (`migration-law-refused`); or at the re-pointed
+ * roster domain's CHECK, where a stored fact holds a handle the folder removes from a roster, a constraint no law of
+ * the base is, by its SQLSTATE. Either leaves the run where the other would.
  */
-const brokenOnto = (state: Pick<Unnamed, "reality">, to: InstallSpec): ReadonlyArray<SqlState> => {
+const brokenOnto = (
+	state: Pick<Unnamed, "reality">,
+	to: InstallSpec
+): ReadonlyArray<ActionOutcome> => {
 	const host = judgedSchemaOf(to.base)
 	const reality = migratedReality(state.reality, to.base)
+	const broken = Arr.dedupe(
+		Arr.flatMap(host.laws, (law): ReadonlyArray<LawId> =>
+			violations({ relations: host.relations, laws: [law] }, reality).length > 0 ? [law.law] : []
+		)
+	)
 	return [
-		...new Set([
-			...Arr.flatMap(host.laws, (law): ReadonlyArray<SqlState> =>
-				violations({ relations: host.relations, laws: [law] }, reality).length > 0
-					? [meetingOf(host, law).sqlstate]
-					: []
-			),
-			...(removedHandlesHeld(reality, to.base) ? ["23514" as const] : [])
-		])
+		...(Arr.isReadonlyArrayNonEmpty(broken)
+			? [{ kind: "migration-law-refused", laws: broken } as const]
+			: []),
+		...(removedHandlesHeld(reality, to.base)
+			? [{ kind: "refused", sqlstate: "23514" } as const]
+			: [])
 	]
 }
 
@@ -177,15 +184,15 @@ const landedOn = (state: Unnamed, to: InstallSpec): Unnamed => {
 }
 
 /**
- * A run stopped at a law statement: one outcome per SQLSTATE the broken laws meet, in the state it reached with `then`
- * applied.
+ * A run stopped at a law statement: one outcome per way the folder refuses its data (`brokenOnto`), in the state it
+ * reached with `then` applied.
  */
 const stopped = (
-	sqlstates: Arr.NonEmptyReadonlyArray<SqlState>,
+	refusals: Arr.NonEmptyReadonlyArray<ActionOutcome>,
 	reached: Reached,
 	then: <S extends Unnamed>(state: S) => S
 ): Arr.NonEmptyReadonlyArray<Allowed> =>
-	Arr.map(sqlstates, (sqlstate) => allowedAt({ kind: "refused", sqlstate }, reached, then))
+	Arr.map(refusals, (refusal) => allowedAt(refusal, reached, then))
 
 /** A state with folders pending, oldest first, over its installation, the ledger at `ledger` on the first. */
 const pendingOn =
@@ -395,7 +402,7 @@ type Resumed =
 	| {
 			readonly kind: "stopped"
 			readonly reached: Reached
-			readonly sqlstates: Arr.NonEmptyReadonlyArray<SqlState>
+			readonly refusals: Arr.NonEmptyReadonlyArray<ActionOutcome>
 			readonly pending: Arr.NonEmptyReadonlyArray<InstallSpec>
 	  }
 
@@ -408,7 +415,7 @@ const resume = (reached: Reached, folders: ReadonlyArray<InstallSpec>): Resumed 
 	const [first, ...rest] = brokenOnto(reached.state, folder)
 	return first === undefined
 		? resume({ kind: "landed", state: landedOn(reached.state, folder) }, later)
-		: { kind: "stopped", reached, sqlstates: [first, ...rest], pending: [folder, ...later] }
+		: { kind: "stopped", reached, refusals: [first, ...rest], pending: [folder, ...later] }
 }
 
 /** The folders a state's migrations hold pending, oldest first: none when every folder is applied. */
@@ -451,7 +458,7 @@ export const migrateBranches = (
 	}
 	const run = resume({ kind: "named", state }, pendingFolders(state))
 	if (run.kind === "stopped") {
-		return stopped(run.sqlstates, run.reached, pendingOn([...run.pending, to], stoppedStanding()))
+		return stopped(run.refusals, run.reached, pendingOn([...run.pending, to], stoppedStanding()))
 	}
 	const from = run.reached
 	const lawStopped = pendingOn([to], stoppedStanding())
@@ -494,7 +501,7 @@ export const driftBranches = (state: ModelState): Arr.NonEmptyReadonlyArray<Allo
 	const run = resume({ kind: "named", state }, pendingFolders(state))
 	switch (run.kind) {
 		case "stopped":
-			return stopped(run.sqlstates, run.reached, pendingOn(run.pending, stoppedStanding()))
+			return stopped(run.refusals, run.reached, pendingOn(run.pending, stoppedStanding()))
 		case "landed":
 			return [
 				allowedAt(

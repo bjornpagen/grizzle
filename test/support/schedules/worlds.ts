@@ -374,6 +374,7 @@ const isRefusal = (o: Observation): boolean => {
 		case "resource-bound":
 		case "open-refused":
 		case "migration-refused":
+		case "migration-law-refused":
 		case "handle-refused":
 		case "stale-snapshot":
 			return true

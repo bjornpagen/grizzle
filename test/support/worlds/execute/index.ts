@@ -25,6 +25,7 @@ import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
 import { served } from "#adapter/public/layer.ts"
 import type { DbLayerOf, DbLayerService, ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import { codebookOf, noWorkload, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { namedRole, roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
@@ -113,7 +114,7 @@ import {
 	runDirect
 } from "#test/support/worlds/execute/writer.ts"
 import { identityFloor } from "#test/support/worlds/model/draws.ts"
-import { fieldDomain } from "#test/support/worlds/model/host.ts"
+import { fieldDomain, judgedLawOf } from "#test/support/worlds/model/host.ts"
 import { startStatements } from "#test/support/worlds/model/session/direct.ts"
 import { loginVerifies, roleOf } from "#test/support/worlds/model/session/state.ts"
 import { probeOf } from "#test/support/worlds/model/session/writes.ts"
@@ -1393,7 +1394,7 @@ const worldOver = (
 			directory: Directory,
 			folders: ReadonlyArray<FolderSource>,
 			end: RunEnd
-		): Effect.Effect<RunOutcome> =>
+		): Effect.Effect<Ran> =>
 			Effect.gen(function* () {
 				const target = Option.match(Arr.last(directory.pending), {
 					onNone: () => state.current.snapshot,
@@ -1426,7 +1427,26 @@ const worldOver = (
 						pending: directory.pending.slice(landed.length)
 					}
 				}
-				return outcome
+				const lawOf = (identity: string): Effect.Effect<Option.Option<LawId>> =>
+					Option.match(stoppedAt, {
+						onNone: () => Effect.succeedNone,
+						onSome: (stop) =>
+							Effect.map(namesOfNext(stop.next), (names) =>
+								judgedLawOf(stop.next.spec.base, names, identity)
+							)
+					})
+				return { outcome, lawOf }
+			})
+
+		/** The names of a drafted version as the installation installs them, under the installation's declared name. */
+		const namesOfNext = (next: Next): Effect.Effect<InstalledNames> =>
+			Effect.gen(function* () {
+				const built = yield* Effect.orDie(buildInstall(next.spec, installed.declared))
+				const at: InstalledAt = {
+					kind: "installed",
+					installation: identity.schema(parsedSchemaName(installed.declared))
+				}
+				return yield* namesOfBuiltAt(next.spec, built, at, codebookOf(next.snapshot))
 			})
 
 		/**
@@ -1694,12 +1714,22 @@ const worldOver = (
 	})
 
 /**
+ * A run of the directory's folders, and the law of the folder it stopped in that each identity names (host.ts
+ * judgedLawOf), read of that folder's installation's names once a refusal names one: none where it stopped in no
+ * pending folder.
+ */
+interface Ran {
+	readonly outcome: RunOutcome
+	readonly lawOf: (identity: string) => Effect.Effect<Option.Option<LawId>>
+}
+
+/**
  * A run's observation: `whole` when its folders all applied, `drifted` of the mismatches when its drift check refused
  * the catalog (a migrate's refusal at stage drift, a drift run's report), another refusal's, or interrupted for a
  * killed deploy.
  */
 const ranSeen = (
-	outcome: RunOutcome,
+	{ outcome, lawOf }: Ran,
 	whole: Observation,
 	drifted: (objects: ReadonlyArray<string>) => Observation
 ): Effect.Effect<Seen> => {
@@ -1707,7 +1737,7 @@ const ranSeen = (
 		case "applied":
 			return Effect.succeed(seen(whole))
 		case "refused":
-			return migrationRefused(outcome.error, drifted)
+			return migrationRefused(outcome.error, drifted, lawOf)
 		case "killed":
 			return Effect.succeed(seen({ kind: "interrupted" }))
 	}

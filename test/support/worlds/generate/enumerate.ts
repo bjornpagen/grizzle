@@ -2179,6 +2179,8 @@ const outcomeClass = (o: ActionOutcome): string => {
 			return `${o.kind} ${o.sqlstate}`
 		case "migration-refused":
 			return `${o.kind} ${o.stage}`
+		case "migration-law-refused":
+			return o.kind
 		case "stale-snapshot":
 			return `${o.kind} ${o.reason}`
 		case "transient":

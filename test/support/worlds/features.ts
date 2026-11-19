@@ -1118,6 +1118,7 @@ const applyObjects = (
 			case "interrupted":
 			case "refused":
 			case "migration-refused":
+			case "migration-law-refused":
 			case "handle-refused":
 			case "stale-snapshot":
 			case "ok":
@@ -1906,6 +1907,7 @@ const endedWith = (observation: Observation): Option.Option<WorldFeature> => {
 		case "commit-unknown":
 		case "refused":
 		case "migration-refused":
+		case "migration-law-refused":
 		case "handle-refused":
 		case "drift":
 		case "leak":
