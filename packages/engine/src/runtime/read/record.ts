@@ -356,18 +356,6 @@ const groupsReader = (
 	return (row) => rowSlot(readers, row.group)(row)
 }
 
-/** A frozen null-prototype record holding, under each key of `entries`, its closure's value at `input`. */
-export const assembledRecord = <I>(
-	entries: ReadonlyArray<readonly [string, (input: I) => unknown]>,
-	input: I
-): Readonly<Record<string, unknown>> => {
-	const out: Record<string, unknown> = { __proto__: null }
-	for (const [key, valueAt] of entries) {
-		out[key] = valueAt(input)
-	}
-	return Object.freeze(out)
-}
-
 /**
  * A decoder form bound to every heading group's layout (groupsReader), once per program: each delivered Row read to its
  * record. A layout that does not hold a field the form reads, or an attachment the analysis did not prove in the stated

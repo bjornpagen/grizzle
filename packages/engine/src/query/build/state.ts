@@ -33,7 +33,7 @@ import {
 	queryDescOf,
 	registerQueryHeading
 } from "#compiler/schema/protocol.ts"
-import { describedHeading } from "#compiler/schema/record.ts"
+import { emptyHeading } from "#compiler/schema/record.ts"
 import { derivedDraftOf, namedRelation, relationDescOf } from "#compiler/schema/relation.ts"
 import { contextDescOf, worldDraftOf } from "#compiler/schema/world.ts"
 import type { Carrier, Carriers, Headed } from "#compiler/types/core/phantom.ts"
@@ -57,10 +57,10 @@ export type QueryCarriers<C extends Carriers = Carriers> =
 
 /**
  * The public heading of a query, ordered query or arm with carriers `c`: its typed record, or for a described one the
- * empty heading (schema/record.ts describedHeading), which every union heading reads as carrying no key.
+ * empty heading (schema/record.ts emptyHeading), which every union heading reads as carrying no key.
  */
 export const headingOf = <C extends Carriers>(c: QueryCarriers<C>): C =>
-	c.kind === "typed" ? c.carriers : describedHeading<C>()
+	c.kind === "typed" ? c.carriers : emptyHeading<C>()
 
 /** Whether a query is an Ordered (orderBy without take) rather than a Query: its last stage orders. */
 export const isOrdered = (state: QueryState): boolean => state.desc.stage.kind === "order"

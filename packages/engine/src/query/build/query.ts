@@ -82,7 +82,7 @@ import {
 	mint,
 	record,
 	sameHeadingRecord,
-	unitHeading,
+	emptyHeading,
 	carrierUnion as unionCarriers
 } from "#compiler/schema/record.ts"
 import type { Carrier, Carriers, Headed, Term } from "#compiler/types/core/phantom.ts"
@@ -738,7 +738,7 @@ const readsOf = <S, R extends ReadsChildren>(info: SchemaInfo, reads: R): ReadsQ
 	return queryOf(
 		makeState(info, state.desc.stage, state.pending, state.heading, {
 			kind: "typed",
-			carriers: unitHeading<ReadsCarriers<R>>()
+			carriers: emptyHeading<ReadsCarriers<R>>()
 		}),
 		grouped([
 			{

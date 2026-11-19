@@ -17,7 +17,7 @@ import { type CompileError, malformedDescription } from "#compiler/core/errors.t
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { assembledRecord, recordsReader } from "#compiler/runtime/read/record.ts"
+import { recordsReader } from "#compiler/runtime/read/record.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -89,13 +89,16 @@ const fieldForm = (field: RecordFieldOf<unknown>): FieldForm =>
 const claimed = <R>(record: Readonly<Record<string, unknown>>): R => record as R
 
 /**
- * A frozen null-prototype record holding, under each key of `entries`, its closure's value at `input`, at the type its
- * caller's construction gives it (see the header).
+ * A frozen null-prototype record holding each of `entries`' values under its key, at the type its caller's construction
+ * gives it (see the header).
  */
-const assembled = <R, I>(
-	entries: ReadonlyArray<readonly [string, (input: I) => unknown]>,
-	input: I
-): R => claimed<R>(assembledRecord(entries, input))
+const assembled = <R>(entries: ReadonlyArray<readonly [string, unknown]>): R => {
+	const out: Record<string, unknown> = { __proto__: null }
+	for (const [key, value] of entries) {
+		out[key] = value
+	}
+	return claimed<R>(Object.freeze(out))
+}
 
 /**
  * A decoder bound to every heading group's layout (groupsReader), once per compiled program: each delivered Row read to
@@ -172,9 +175,8 @@ export const mint = <Origins, const F extends Carriers>(
 	fields: F,
 	make: <A, S extends SqlTag>(carrier: Carrier<A, S>, key: string) => Term<A, unknown, unknown, S>
 ): Minted<F, Origins> =>
-	assembled<Minted<F, Origins>, undefined>(
-		Object.entries(fields).map(([key, carrier]) => [key, () => make(carrier, key)] as const),
-		undefined
+	assembled<Minted<F, Origins>>(
+		Object.entries(fields).map(([key, carrier]) => [key, make(carrier, key)] as const)
 	)
 
 /** Whether a head entry is a JavaScript value: a string, a number, a bigint, a boolean, a Decimal or a Money. */
@@ -191,11 +193,10 @@ export const headRecord = <const H extends HeadShape>(
 	head: H,
 	literal: <X extends HeadValue>(value: X, key: string) => HeadLiteral<X>
 ): HeadTerms<H> =>
-	assembled<HeadTerms<H>, undefined>(
+	assembled<HeadTerms<H>>(
 		Object.entries(head).map(
-			([key, entry]) => [key, () => (isHeadValue(entry) ? literal(entry, key) : entry)] as const
-		),
-		undefined
+			([key, entry]) => [key, isHeadValue(entry) ? literal(entry, key) : entry] as const
+		)
 	)
 
 /** A column as a refusal names it: a closed id's or a set's by its roster, any other by its SQL type. */
@@ -260,18 +261,13 @@ export const carrierUnion = <A extends Carriers, B extends Carriers>(
 	a: A,
 	b: B
 ): UnionHeading<A, B> =>
-	assembled<UnionHeading<A, B>, undefined>(
-		[
-			...Object.entries(a).map(([key, x]) => {
-				const y = b[key]
-				return [key, () => (y === undefined ? x : unionCarrier(key, x, y))] as const
-			}),
-			...Object.entries(b).flatMap(([key, y]) =>
-				a[key] === undefined ? [[key, () => y] as const] : []
-			)
-		],
-		undefined
-	)
+	assembled<UnionHeading<A, B>>([
+		...Object.entries(a).map(([key, x]) => {
+			const y = b[key]
+			return [key, y === undefined ? x : unionCarrier(key, x, y)] as const
+		}),
+		...Object.entries(b).flatMap(([key, y]) => (a[key] === undefined ? [[key, y] as const] : []))
+	])
 
 /**
  * The records of a union of two arms of records A and B, each decoded over its carriers, whose carriers are one key set
@@ -296,33 +292,27 @@ export const roleRelations = <const Rs extends Readonly<Record<string, EntryValu
 	relations: Rs,
 	make: (key: string, value: EntryValue) => AnyRelation | AnyClosed | AnyDerived | AnyWorld
 ): RoleRelations<Rs> =>
-	assembled<RoleRelations<Rs>, undefined>(
-		Object.entries(relations).map(([key, value]) => [key, () => make(key, value)] as const),
-		undefined
+	assembled<RoleRelations<Rs>>(
+		Object.entries(relations).map(([key, value]) => [key, make(key, value)] as const)
 	)
 
 /** A full role's entries over a schema's record of relations (see the header). */
 export const wholeEntries = <const Rs extends AnySchema["relations"]>(
 	relations: Rs
 ): WholeEntries<Rs> =>
-	assembled<WholeEntries<Rs>, undefined>(
+	assembled<WholeEntries<Rs>>(
 		Object.entries(relations).flatMap(([key, relation]) =>
 			relation.kind === "closedRelation" ||
 			(relation.kind === "derived" && relation.storage === "live")
 				? []
-				: [[key, () => relation] as const]
-		),
-		undefined
+				: [[key, relation] as const]
+		)
 	)
 
 /** A root level's record over its list (see the header): `names` each declaration's name and value, in list order. */
 export const levelRecord = <Rs extends ReadonlyArray<unknown>>(
 	names: ReadonlyArray<readonly [string, unknown]>
-): Declared<Rs> =>
-	assembled<Declared<Rs>, undefined>(
-		names.map(([name, value]) => [name, () => value] as const),
-		undefined
-	)
+): Declared<Rs> => assembled<Declared<Rs>>(names)
 
 /**
  * An extension's record (see the header): the base's relations, then each declaration `names` holds of a name the base
@@ -335,21 +325,14 @@ export const levelRecordOver = <
 	base: B,
 	names: ReadonlyArray<readonly [string, unknown]>
 ): DeclaredOver<B, Rs> =>
-	assembled<DeclaredOver<B, Rs>, undefined>(
-		[
-			...Object.entries(base).map(([name, value]) => [name, () => value] as const),
-			...names.flatMap(([name, value]) =>
-				Object.hasOwn(base, name) ? [] : [[name, () => value] as const]
-			)
-		],
-		undefined
-	)
+	assembled<DeclaredOver<B, Rs>>([
+		...Object.entries(base),
+		...names.flatMap(([name, value]) => (Object.hasOwn(base, name) ? [] : [[name, value] as const]))
+	])
 
 /**
- * The public heading of a described query or arm (query/build QueryCarriers): no key carries a column, so v over it
- * mints untyped terms. Only the JavaScript view, whose carriers type is the wide Carriers, makes one.
+ * The heading of no column, at the type its caller states: a described query's or arm's public heading
+ * (query/build/state.ts headingOf), over which v mints untyped terms, and the unit row a record of reads attaches its
+ * queries to (query/build/query.ts readsOf).
  */
-export const describedHeading = <C extends Carriers>(): C => assembled<C, undefined>([], undefined)
-
-/** The heading of the unit row a record of reads attaches its queries to (query/build/query.ts readsOf): no column. */
-export const unitHeading = <C extends Carriers>(): C => assembled<C, undefined>([], undefined)
+export const emptyHeading = <C extends Carriers>(): C => assembled<C>([])
