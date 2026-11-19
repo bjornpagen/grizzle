@@ -1,14 +1,19 @@
+import type { Built } from "#compiler/core/phantom.ts"
 import { isPlainRecord } from "#compiler/core/record.ts"
 import type { FunctionDesc, FunctionTypeDesc } from "#compiler/ir/desc.ts"
 import type { OpenCallArg, OpenExpr, OpenSource } from "#compiler/ir/open.ts"
+import { tokensHeading } from "#compiler/ir/rel.ts"
+import { tokenPattern } from "#compiler/ir/scalar.ts"
 import { fieldTyping, heading } from "#compiler/query/build/heading.ts"
 import { callSourceValue, type SourceInfo, sourceInfo } from "#compiler/query/build/state.ts"
 import { scalarTerm } from "#compiler/scalar/compute/builders.ts"
-import { predicateExpr, type ScalarTerm, termExpr } from "#compiler/scalar/compute/term.ts"
+import { predicateExpr, type ScalarTerm, termExpr, typed } from "#compiler/scalar/compute/term.ts"
+import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { bareEnv, type SqlTag } from "#compiler/scalar/registry.ts"
 import { functionDescOf } from "#compiler/schema/function.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
 import { describedField, malformed } from "#compiler/schema/protocol.ts"
+import { regexField } from "#compiler/text/field.ts"
 import type {
 	CallArgs,
 	CalledTerm,
@@ -19,7 +24,7 @@ import type {
 	RowsFunction,
 	ValueFunction
 } from "#compiler/types/compute/call.ts"
-import type { Carriers, Facts } from "#compiler/types/core/phantom.ts"
+import type { Carriers, Facts, Headed } from "#compiler/types/core/phantom.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { FunctionType } from "#compiler/types/schema/function.ts"
 import type { FactOfFields } from "#compiler/types/schema/relation.ts"
@@ -180,5 +185,38 @@ export const callRows = <
 		fields,
 		rows,
 		`function ${desc.name}`
+	)
+}
+
+/**
+ * A token's descriptor as the builder types a token split's `token` (tokensRows): a run of no XML whitespace, the
+ * token pattern's text. The checker types it within its text's byte bound where its text has one (check/checker.ts
+ * #tokenType).
+ */
+const tokenField = regexField<string>(tokenPattern.source, [])
+
+/** A token split's heading's descriptors: each token's place, a natural, and the token (tokenField). */
+const tokenCarriers = Object.freeze({ at: naturalDescriptor, token: tokenField })
+
+/**
+ * r.tokens(text): the tokens of a whitespace-separated list, a source a rule matches as it matches a call's rows, of
+ * `tokensHeading`: `at`, each token's place from 0, and `token`, its run of no XML whitespace, the text collapsed and
+ * split at its spaces (ir/rel.ts CallFunction `tokens`). `text` is a term, a parameter or a JavaScript value, as a
+ * call's value argument is (`valueArgument`), which the checker holds to a text.
+ */
+export const tokensRows = (text: unknown): Built & Headed<typeof tokenCarriers> => {
+	const label = "r.tokens"
+	return callSourceValue(
+		{ kind: "split", split: "tokens", text: valueArgument(text, `${label} text`) },
+		heading(
+			[
+				[tokensHeading.at, typed(describedField(naturalDescriptor, `${label} at`).scalar)],
+				[tokensHeading.token, typed(describedField(tokenField, `${label} token`).scalar)]
+			],
+			[]
+		),
+		tokenCarriers,
+		[],
+		"a text's tokens"
 	)
 }

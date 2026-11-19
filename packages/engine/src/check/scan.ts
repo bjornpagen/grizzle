@@ -112,6 +112,8 @@ const sourceLeaves = <P extends object, T, D extends InferredFieldDesc>(
 				exprLeaves(a, into)
 			}
 		}
+	} else if (s.kind === "split") {
+		exprLeaves(s.text, into)
 	}
 }
 

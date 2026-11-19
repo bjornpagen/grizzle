@@ -270,7 +270,7 @@ const printBody = (n: RelNode, printer: ExprPrinter): string => {
 		case "Step":
 			return `Step ${n.input.id}`
 		case "Call":
-			return `Call ${n.function.name}(${Arr.join(
+			return `Call ${n.function.kind === "declared" ? n.function.name : n.function.split}(${Arr.join(
 				Arr.map(n.args, (a) =>
 					a.kind === "value" ? `${a.name}=${e(a.expr)}` : `${a.name}=${a.rows.id}`
 				),

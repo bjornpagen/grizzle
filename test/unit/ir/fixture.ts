@@ -822,6 +822,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 	const called = b.node({
 		kind: "Call",
 		function: {
+			kind: "declared",
 			name: "graded",
 			volatility: "immutable",
 			definition: functionDigest("graded", withoutSourceLocs)

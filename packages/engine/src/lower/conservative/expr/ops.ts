@@ -186,16 +186,19 @@ const replaced = (x: Expr, from: string, to: string): Expr =>
 /**
  * whiteSpace collapse (scalar/compute/registry.ts textCollapse) by replace alone, `x` read once: tab, LF and CR each a
  * space; each pair of spaces a space and a tab, each tab before a space two tabs, and every tab deleted, so each run of
- * spaces is its first; then the spaces at either end trimmed by btrim.
+ * spaces is its first; then the spaces at either end trimmed by btrim. A token split (lower/conservative/call) splits
+ * it at its spaces.
  */
-const collapseText = (args: ReadonlyArray<Expr>): Expr | undefined => {
-	const [x] = args
-	if (args.length !== 1 || x === undefined) {
-		return undefined
-	}
+export const collapsedText = (x: Expr): Expr => {
 	const spaced = replaced(replaced(replaced(x, "\t", " "), "\n", " "), "\r", " ")
 	const marked = replaced(replaced(spaced, "  ", " \t"), "\t ", "\t\t")
 	return call("btrim", [replaced(marked, "\t", "")])
+}
+
+/** A collapse's operands (collapsedText): its one text. */
+const collapseText = (args: ReadonlyArray<Expr>): Expr | undefined => {
+	const [x] = args
+	return args.length === 1 && x !== undefined ? collapsedText(x) : undefined
 }
 
 /**

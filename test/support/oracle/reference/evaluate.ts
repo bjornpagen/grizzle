@@ -1,5 +1,6 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { Array as Arr, Option, Record as Rec, Result } from "effect"
+import { regex } from "arkregex"
+import { Array as Arr, Option, Record as Rec, Result, String as Str } from "effect"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import {
@@ -22,6 +23,8 @@ import {
 	type NodeOf,
 	type RelDag,
 	type RelNode,
+	type TextSplit,
+	tokensHeading,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { type RegexRef, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
@@ -62,6 +65,25 @@ import {
 	valueAt,
 	valueIdentity
 } from "#test/support/oracle/reference/values.ts"
+
+/** A run of XML whitespace (XML 1.0, S: tab, LF, CR and space), at which a whitespace-separated list splits. */
+const xmlSpaceRuns = regex("[\\t\\n\\r ]+", "u")
+
+/**
+ * Each split's rows over the text `value`, in `heading`'s order: a token split's by XML's own reading of a
+ * whitespace-separated list (XML Schema Part 2 §4.3.6 whiteSpace collapse, §3.3.10's lists), each maximal run of no XML
+ * whitespace (S: tab, LF, CR, space) a token, at its place among them from 0, none of a text of whitespace alone.
+ */
+const splits: {
+	readonly [K in TextSplit]: (value: string, heading: Heading) => ReadonlyArray<Row>
+} = {
+	tokens: (value, heading) =>
+		Arr.map(
+			Arr.filter(Str.split(value, xmlSpaceRuns), (token) => token !== ""),
+			(token, at) =>
+				Arr.map(heading, (c): Value => (c.name === tokensHeading.at ? BigInt(at) : token))
+		)
+}
 
 /** A value as the double precision an ordered-set aggregate interpolates it as: an integer or a numeric cast to float8. */
 const doubleOf = (v: Value): number =>
@@ -1056,6 +1078,28 @@ export class Reference {
 		return truthOf(this.expr(e, scope))
 	}
 
+	/** A call's rows: a split's (`split`); a declared function's PostgreSQL alone evaluates. */
+	call(node: NodeOf<"Call">, scope: Bindings): ReadonlyArray<Row> {
+		const called = node.function
+		switch (called.kind) {
+			case "declared":
+				throw referenceUnsupported(
+					`the call of declared function ${called.name}, which PostgreSQL alone evaluates`
+				)
+			case "split": {
+				const [text] = node.args
+				if (text?.kind !== "value" || node.args.length !== 1) {
+					throw referenceUnsupported("a split of other arguments than its one text")
+				}
+				const value = this.expr(text.expr, scope)
+				if (typeof value !== "string") {
+					throw referenceUnsupported("a split of a value that is no text")
+				}
+				return splits[called.split](value, node.heading)
+			}
+		}
+	}
+
 	/** An intersection's row is one of a left and a right row; a difference keeps only left rows. */
 	rows(node: RelNode, scope: Bindings): ReadonlyArray<Row> {
 		switch (node.kind) {
@@ -1162,9 +1206,7 @@ export class Reference {
 			case "OrderedResult":
 				return this.eval(node.input, scope).rows
 			case "Call":
-				throw referenceUnsupported(
-					`the call of declared function ${node.function.name}, which PostgreSQL alone evaluates`
-				)
+				return this.call(node, scope)
 			case "ApproximateNearest": {
 				const source = this.eval(node.source, scope)
 				this.input.observer.nearest(node, source)

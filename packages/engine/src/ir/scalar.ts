@@ -332,6 +332,12 @@ export const languageOctets = (language: TextLanguage): number | undefined =>
 /** The pattern of every text as grizzle spells it: what a byte bound over every text cuts, `str.regex("^.*$", "su")`. */
 export const wildcardPattern: PatternSource = Object.freeze({ source: "^.*$", flags: "su" })
 
+/**
+ * The pattern of a token of a whitespace-separated list (r.tokens, ir/rel.ts TextSplit `tokens`): one character or
+ * more, none of them XML whitespace (XML 1.0 S: tab, LF, CR and space), `str.regex("^[^\\t\\n\\r ]+$")`.
+ */
+export const tokenPattern: PatternSource = Object.freeze({ source: "^[^\\t\\n\\r ]+$", flags: "u" })
+
 /** The patterns a text type's language is stated by: its regex reference's, or the wildcard's alone. */
 export const textPatterns = (text: TextInfo): Patterns =>
 	regexOf(text)?.patterns ?? [wildcardPattern]

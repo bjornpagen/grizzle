@@ -45,7 +45,7 @@ import type { ClockBinding } from "#compiler/ir/clock.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
-import type { DeltaSide } from "#compiler/ir/rel.ts"
+import { type DeltaSide, splitArgument, type TextSplit, textSplits } from "#compiler/ir/rel.ts"
 import { calendarDateShape, patternsShape, textLanguageShape } from "#compiler/ir/scalar-shape.ts"
 import {
 	type NumericBound,
@@ -671,6 +671,8 @@ export const bindTerms = <L, R extends Refs>(
 			return Object.entries(s.args).flatMap(([arg, a]) =>
 				a.kind === "rows" ? scalar(a.bind, (param) => `${arg}.${param}`) : [[arg, a] as const]
 			)
+		case "split":
+			return [[splitArgument, s.text]]
 		case "relation":
 		case "param":
 		case "paramOf":
@@ -776,6 +778,8 @@ export const mapBindTerms = <L, R extends Refs>(
 					a.kind === "rows" ? { ...a, bind: mapped(a.bind) } : f(a)
 				)
 			}
+		case "split":
+			return { ...s, text: f(s.text) }
 		case "relation":
 		case "param":
 		case "paramOf":
@@ -884,6 +888,19 @@ export type SourceDesc<L = Located, R extends Refs = Spelled> =
 			readonly kind: "call"
 			readonly function: string
 			readonly args: Readonly<Record<string, CallArgDesc<L, R>>>
+	  }
+	| {
+			/**
+			 * One of grizzle's splits of a text into rows (ir/rel.ts TextSplit): r.tokens(text), the tokens of a
+			 * whitespace-separated list (XML Schema Part 2 §3.3.10, a list's lexical space), each a fact of
+			 * `tokensHeading`, `at` its place from 0 and `token` its run of no XML whitespace, the text collapsed and
+			 * split at its spaces, none of a text of whitespace alone. `text` is a term of the scope the match stands in,
+			 * a variable, a parent variable, a parameter or a typed constant, as a call's value argument is, so the facts
+			 * are a function of the binding the match stands at.
+			 */
+			readonly kind: "split"
+			readonly split: TextSplit
+			readonly text: ExprDesc<L, R>
 	  }
 	| { readonly kind: "interior"; readonly id: R["interior"] }
 	| { readonly kind: "self" }
@@ -1874,6 +1891,8 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 							: this.expr(a)
 					)
 				}
+			case "split":
+				return { kind: "split", split: s.split, text: this.expr(s.text) }
 			case "relation":
 			case "interior":
 			case "self":
@@ -2341,6 +2360,10 @@ const sourceDescBody: S.Shape<SourceDesc> = S.tagged("kind", {
 			S.ref("a call's argument", () => callArgDescShape),
 			S.nonEmptyString
 		)
+	}),
+	split: S.struct({
+		split: S.literalsShape(textSplits),
+		text: S.ref("an expression", () => exprDescShape)
 	}),
 	interior: S.struct({ id: name }),
 	self: S.struct({}),

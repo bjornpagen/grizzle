@@ -333,6 +333,7 @@ export const builtinFunctions = {
 	int8range: { reach: "row" },
 	range_minus_multi: { reach: "row" },
 	unnest: { reach: "row" },
+	string_to_array: { reach: "row" },
 	to_jsonb: { reach: "row" },
 	pg_advisory_xact_lock: { reach: "row" },
 	pg_drop_replication_slot: { reach: "row" },

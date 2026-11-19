@@ -632,6 +632,8 @@ class Flattener {
 				return this.#refuse(relation, `${verb} a context`)
 			case "call":
 				return this.#refuse(relation, `${verb} a declared function's rows`)
+			case "split":
+				return this.#refuse(relation, `${verb} a text's split, which only a unit-local rule reads`)
 			case "interior":
 			case "self":
 			case "delta":
@@ -1108,6 +1110,7 @@ const liveQuery = (query: InferredQuery, definition: LiveEnv["definition"]): Inf
 						a.kind === "rows" ? { ...a, query: liveQuery(a.query, definition) } : a
 					)
 				}
+			case "split":
 			case "param":
 			case "paramOf":
 			case "interior":

@@ -22,6 +22,7 @@ import {
 	runAttach
 } from "#compiler/query/build/attach.ts"
 
+import { tokensRows } from "#compiler/query/build/call.ts"
 import { type Heading, heading, withAttachment } from "#compiler/query/build/heading.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import {
@@ -114,6 +115,7 @@ export interface RuleRun<F> {
  * - `interior(rule)` describes a local stage of this rule and returns it as a source of this rule.
  * - `param(name, descriptor)` is a scalar parameter, a term of the descriptor's type; `relation(name, heading)` and
  *   `relation(name, Relation)` are relation-valued parameters.
+ * - `tokens(text)` is a source: the tokens of a whitespace-separated list (query/build/call.ts tokensRows).
  * - The comparisons, in, and, or, not, allen, pointIn, the producers and the aggregates are terms.ts's.
  *
  * At find the rule's references are spelled (scope.ts): its variables `<scope>.<field>`, one scope of each name, and
@@ -402,6 +404,7 @@ export interface RuleValue {
 	readonly interior: (callback: unknown) => Built
 	readonly param: (name: unknown, type: unknown, ...extra: ReadonlyArray<unknown>) => Built
 	readonly relation: (name: unknown, heading: unknown, ...extra: ReadonlyArray<unknown>) => Built
+	readonly tokens: (text: unknown) => Built
 	readonly eq: (a: unknown, b: unknown) => PredicateValue
 	readonly ne: (a: unknown, b: unknown) => PredicateValue
 	readonly lt: (a: unknown, b: unknown) => PredicateValue
@@ -538,6 +541,7 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 			const carriers = isRelationHeading(given) ? given.heading : given
 			return relationParam(n, given, carriers, ctx.schema.env, `r.relation(${n})`)
 		},
+		tokens: (text) => guarded("r.tokens", [text], () => tokensRows(text)),
 		eq: (a, b) => guarded("r.eq", [a, b], () => T.compare("eq")(a, b)),
 		ne: (a, b) => guarded("r.ne", [a, b], () => T.compare("ne")(a, b)),
 		lt: (a, b) => guarded("r.lt", [a, b], () => T.compare("lt")(a, b)),

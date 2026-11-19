@@ -15,6 +15,7 @@ import type {
 	Requires
 } from "#compiler/types/compute/scalar.ts"
 
+import type { CallArgs, CallParams, CallReads, CallSource } from "#compiler/types/compute/call.ts"
 import type {
 	Carriers,
 	ComputedOrigin,
@@ -77,9 +78,11 @@ import type {
 	InstantField,
 	LiteralOf,
 	NaturalDomain,
+	NaturalField,
 	NotInstant,
 	NotStoredOnly,
-	StoredOnlySql
+	StoredOnlySql,
+	TextField
 } from "#compiler/types/fields/field.ts"
 import type { BoundSource, ContextsOf, Finished } from "#compiler/types/query/query.ts"
 import type {
@@ -103,7 +106,13 @@ import type {
 	ShownHeadingOf,
 	SourceShows
 } from "#compiler/types/query/terms.ts"
-import type { AnyClosed, AnyRelation, NameOf, Relation } from "#compiler/types/schema/relation.ts"
+import type {
+	AnyClosed,
+	AnyRelation,
+	FactOfFields,
+	NameOf,
+	Relation
+} from "#compiler/types/schema/relation.ts"
 import type {
 	IsLevelOfInvariant,
 	IsRelationOf,
@@ -603,6 +612,26 @@ type RuleRelation = <
 	heading: ParamHeading<C, N> & ParamFields<C> & ParamRelationOf<S, N, C>
 ) => ParamSource<Name, C>
 
+/**
+ * Rule.tokens: the tokens of a text, a term of any text, a parameter or a JavaScript string, as a call's value argument
+ * of a text field is (types/compute/call.ts CallArgs): a source a rule matches as it matches a call's rows (CallSource),
+ * its facts each token's place and the token, needing what its text needs.
+ */
+type RuleTokens = <const X extends CallArgs<TokensArgs>["text"]>(
+	text: X
+) => CallSource<
+	FactOfFields<TokenFields>,
+	CallParams<{ readonly text: X }>,
+	TokenFields,
+	CallReads<{ readonly text: X }>
+>
+
+/** A token split's one argument (RuleTokens): its text, of any text. */
+type TokensArgs = { readonly text: TextField<string> }
+
+/** A token split's heading (RuleTokens): each token's place from 0, and the token, a record of carriers. */
+type TokenFields = { readonly at: NaturalField; readonly token: TextField<string> }
+
 /** Rule.not: a relational negation over a source of the schema of the rule it is called on (Rule). */
 type RuleNot = <
 	S,
@@ -680,6 +709,12 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * takes; the Description names the relation, which the schema resolves.
 	 */
 	readonly relation: RuleRelation
+	/**
+	 * The tokens of a whitespace-separated list (XML Schema Part 2 §3.3.10, a list's lexical space), a source the rule
+	 * matches: `at`, each token's place from 0, a natural, and `token`, its run of no XML whitespace, the text collapsed
+	 * and split at its spaces, none of a text of whitespace alone (RuleTokens).
+	 */
+	readonly tokens: RuleTokens
 
 	/**
 	 * An equality between a variable and a value fixed per binding fixes the variable, and one between two variables

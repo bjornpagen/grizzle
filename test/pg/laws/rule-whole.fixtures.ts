@@ -1182,7 +1182,7 @@ const plansOf = (installed: Installed, connection: PgConnection) =>
 	)
 
 /** The rows each whole rule's statement reads of the stored tables, as EXPLAIN ANALYZE counts them, on `connection`. */
-const readsOf = (installed: Installed, connection: PgConnection) =>
+export const readsOf = (installed: Installed, connection: PgConnection) =>
 	Effect.map(plansOf(installed, connection), Arr.map(rowsRead))
 
 /** A plan node that runs more than once, with the rows it handles a run: its output and what its filters removed. */
@@ -1207,7 +1207,7 @@ const heaviestRerun = (plan: PlanNode): Rerun | undefined =>
 		)
 
 /** Each whole rule's statement's heaviest rerun node (`heaviestRerun`), on `connection`. */
-const rerunsOf = (installed: Installed, connection: PgConnection) =>
+export const rerunsOf = (installed: Installed, connection: PgConnection) =>
 	Effect.map(plansOf(installed, connection), Arr.map(heaviestRerun))
 
 /** The statements writing lawful documents `from` to `to` through the captures, as a publish writes them whole. */

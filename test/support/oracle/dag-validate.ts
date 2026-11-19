@@ -81,6 +81,7 @@ import {
 	type TableRefs,
 	type TakeBound,
 	type TerminationCert,
+	textSplits,
 	type ValidDag,
 	type VarDecl,
 	type WindowFn,
@@ -2675,7 +2676,10 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 	Call: S.structStated(
 		{
 			...common,
-			function: calledFunctionShape,
+			function: S.tagged("kind", {
+				declared: calledFunctionShape,
+				split: S.struct({ split: S.literalsShape(textSplits) })
+			}),
 			args: S.array(
 				S.tagged("kind", {
 					value: S.struct({ name: S.nonEmptyString, expr: exprIdShape, type: scalarTypeShape }),

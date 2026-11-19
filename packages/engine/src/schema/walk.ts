@@ -157,6 +157,9 @@ class Collector {
 					}
 				}
 				return
+			case "split":
+				this.expr(s.text)
+				return
 			case "param":
 				this.inputs.add(`relation parameter ${s.name}`)
 				return

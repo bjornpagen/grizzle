@@ -312,7 +312,8 @@ interface SourceRead {
 /**
  * A source read where a rule matches or negates it with `bindings`, at `at` (`SourceRead`), the reading rule stating
  * `where` of it: a stored relation by its leading key fields; an imported query of no bind map walked, by the head
- * fields that deliver its unit; a closed relation by none; not unit-local for any other source. Every occurrence of a
+ * fields that deliver its unit; a closed relation by none, and a text's tokens by none, a function of the binding it
+ * stands at, which the rule's other sources give its unit; not unit-local for any other source. Every occurrence of a
  * stored or closed relation is read, and every occurrence of a holder with the conditions on its row (`RegionRead`).
  */
 const sourceUnit = (
@@ -371,6 +372,8 @@ const sourceUnit = (
 			const vars = varsAt(bindings, w.self)
 			return vars === notLocal ? notLocal : { unit: { kind: "vars", vars }, source }
 		}
+		case "split":
+			return { unit: { kind: "none" }, source }
 		case "step":
 		case "param":
 		case "paramOf":

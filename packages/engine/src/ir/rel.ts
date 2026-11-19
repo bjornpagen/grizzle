@@ -793,14 +793,37 @@ export type CallArg<R extends RefKinds> =
 	  }
 
 /**
- * A call of a declared function that returns rows (Compute.call): the rows it returns for its arguments, under its
- * result's heading, a set, every repeat of a row one row. Its value arguments and its rows arguments' nodes may read the
- * scope it stands in, as a correlated source of a region does (lower/conservative/match-region), so a region places it
- * after what its arguments read. PostgreSQL alone evaluates it: no host evaluator reads one.
+ * grizzle's splits of a text into rows, each a source a rule matches (CallFunction `split`), each by its name:
+ * `tokens`, a whitespace-separated list's tokens (r.tokens), the text collapsed and split at its spaces, each token at
+ * its place from 0, under `tokensHeading`.
+ */
+export const textSplits = ["tokens"] as const
+export type TextSplit = (typeof textSplits)[number]
+
+/**
+ * The function a Call reads the rows of: a declared function that returns rows (Compute.rowsOf), which PostgreSQL alone
+ * evaluates, so no host evaluator reads one; or one of grizzle's splits of its one value argument, `splitArgument`
+ * (TextSplit), which the host evaluates as PostgreSQL does.
+ */
+export type CallFunction =
+	| ({ readonly kind: "declared" } & CalledFunction)
+	| { readonly kind: "split"; readonly split: TextSplit }
+
+/** The one argument of a split (CallFunction `split`): the text it splits. */
+export const splitArgument = "text"
+
+/** A token split's heading (TextSplit `tokens`): each token's place among them, from 0, and the token. */
+export const tokensHeading = { at: "at", token: "token" } as const
+
+/**
+ * A call of a function that returns rows (CallFunction): the rows it returns for its arguments, under its result's
+ * heading, a set, every repeat of a row one row. Its value arguments and its rows arguments' nodes may read the scope it
+ * stands in, as a correlated source of a region does (lower/conservative/match-region), so a region places it after
+ * what its arguments read.
  */
 export interface Call<R extends RefKinds> extends NodeCommon<R> {
 	readonly kind: "Call"
-	readonly function: CalledFunction
+	readonly function: CallFunction
 	readonly args: ReadonlyArray<CallArg<R>>
 }
 

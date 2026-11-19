@@ -91,15 +91,22 @@ import {
 	type ProducerKind,
 	type RelNode,
 	semiJoinRight,
+	splitArgument,
 	type TakeBound,
+	type TextSplit,
+	tokensHeading,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
+	languageOctets,
+	languageWithin,
 	type PlainType,
 	sameScalarType,
 	type ScalarType,
 	type SpanCarrier,
+	textBoundsOf,
+	tokenPattern,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import {
@@ -1815,6 +1822,8 @@ export class Checker {
 				return this.#contextSource(src, loc)
 			case "call":
 				return this.#callSource(src, loc, bind)
+			case "split":
+				return this.#splitSource(src, loc, bind)
 		}
 	}
 
@@ -1877,7 +1886,12 @@ export class Checker {
 		return this.node(
 			{
 				kind: "Call",
-				function: { name: fn.name, volatility: fn.desc.volatility, definition: fn.definition },
+				function: {
+					kind: "declared",
+					name: fn.name,
+					volatility: fn.desc.volatility,
+					definition: fn.definition
+				},
 				args,
 				heading: returned.map((f) => ({
 					name: f.name,
@@ -1885,6 +1899,76 @@ export class Checker {
 				}))
 			},
 			loc
+		)
+	}
+
+	/**
+	 * A split of a text (ir/rel.ts TextSplit), a call of one of grizzle's splits (CallFunction `split`). Its one
+	 * argument is bound as a call's value argument is (`bind`), a text: a variable at its own type, a parameter or a
+	 * constant at any text's. Its heading is its split's (#splitHeading).
+	 */
+	#splitSource(
+		src: Extract<ResolvedSource, { readonly kind: "split" }>,
+		loc: SourceLoc,
+		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+	): RelNode {
+		const at = childLoc(loc, splitArgument)
+		const value = bind(src.text, splitArgument, at)
+		const type = value.kind === "column" ? value.type : wildcardText
+		if (baseOf(type).carrier !== "text") {
+			return fail(
+				"MalformedDescription",
+				at,
+				`a text for r.${src.split}; the variable bound to it is ${typeLabel(type)}`
+			)
+		}
+		return this.node(
+			{
+				kind: "Call",
+				function: { kind: "split", split: src.split },
+				args: [
+					{
+						kind: "value",
+						name: splitArgument,
+						expr: this.#boundArgument(value, type, splitArgument, at),
+						type
+					}
+				],
+				heading: this.#splitHeading(src.split, type, loc)
+			},
+			loc
+		)
+	}
+
+	/**
+	 * A split's heading over a text of type `text`: a token split's (`tokensHeading`), `at`, a token's place, the count
+	 * of the tokens before it, of a count's type, natural, and `token`, a run of no XML whitespace within the text's
+	 * byte bound, the one the text's type proves (#tokenType).
+	 */
+	#splitHeading(split: TextSplit, text: ScalarType, loc: SourceLoc): Heading {
+		const headings: { readonly [K in TextSplit]: () => Heading } = {
+			tokens: () => [
+				{ name: tokensHeading.at, type: countOverload().result },
+				{ name: tokensHeading.token, type: this.#tokenType(text, loc) }
+			]
+		}
+		return headings[split]()
+	}
+
+	/**
+	 * A token's type over a text of type `text`: the language of a run of no XML whitespace (`tokenPattern`), within the
+	 * text's byte bound where its type proves one, since a token is a stretch of it, typed as str.bytes declares it, so
+	 * a token is a text of a bound wherever its text is and a query's Compute.matches reads it there.
+	 */
+	#tokenType(text: ScalarType, loc: SourceLoc): ScalarType {
+		const pattern = unwrap(textLookup([tokenPattern]))
+		const bytes = textBoundsOf(text)?.bytes
+		const language = bytes === undefined ? pattern : languageWithin(pattern, bytes)
+		return this.schema.queryFieldType(
+			{ kind: "text", patterns: [tokenPattern], bytes: languageOctets(language), language },
+			loc,
+			this.#contracts,
+			this.patterns
 		)
 	}
 
@@ -2415,6 +2499,8 @@ const sourceLabel = (src: ResolvedSource): string => {
 			return "the asked row"
 		case "call":
 			return `the rows of function ${src.function}`
+		case "split":
+			return `the ${src.split} of a text`
 	}
 }
 
