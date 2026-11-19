@@ -46,6 +46,8 @@ import type {
 	MergeWhen,
 	ObjectName,
 	OnConflict,
+	OperandBody,
+	OperandSelect,
 	OrderItem,
 	PerformQuery,
 	PlBlock,
@@ -57,13 +59,12 @@ import type {
 	RaiseOption,
 	RenameObject,
 	Select,
-	OperandBody,
-	OperandSelect,
-	SetArm,
 	SelectCore,
+	SetArm,
 	SetOperand,
 	SetOperation,
 	SqlStatement,
+	StoredGeneration,
 	TableConstraint,
 	TableName,
 	Target,
@@ -307,8 +308,16 @@ export class Transform {
 			}
 			case "inList": {
 				const expr = this.expr(e.expr)
-				const list = this.nonEmptyExprs(e.list)
-				return expr === e.expr && list === e.list ? e : { ...e, expr, list }
+				const [first, second, ...rest] = e.list
+				const one = this.expr(first)
+				const two = this.expr(second)
+				const others = this.exprs(rest)
+				return expr === e.expr &&
+					one === first &&
+					two === second &&
+					others.every((x, i) => x === rest[i])
+					? e
+					: { ...e, expr, list: [one, two, ...others] }
 			}
 			case "inQuery": {
 				const expr = this.expr(e.expr)
@@ -864,6 +873,14 @@ export class Transform {
 		switch (g.kind) {
 			case "retirement":
 				return g
+			case "stored":
+			case "partial":
+				return this.storedGeneration(g)
+		}
+	}
+
+	storedGeneration(g: StoredGeneration): StoredGeneration {
+		switch (g.kind) {
 			case "stored": {
 				const expr = this.expr(g.expr)
 				return expr === g.expr ? g : { ...g, expr }
@@ -962,8 +979,8 @@ export class Transform {
 				return type === a.type && using === a.using ? a : { ...a, type, using }
 			}
 			case "setExpression": {
-				const expr = this.expr(a.expr)
-				return expr === a.expr ? a : { ...a, expr }
+				const generation = this.storedGeneration(a.generation)
+				return generation === a.generation ? a : { ...a, generation }
 			}
 			case "dropColumn":
 			case "dropDefault":

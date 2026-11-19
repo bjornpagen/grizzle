@@ -791,187 +791,234 @@ const madeOf = <T>(form: T, parts: ReadonlyMap<string, WellFormedText>): Canonic
 })
 
 /**
- * A comparison in the one orientation of the two that mean it: a bare literal stands second; of two operands that may
- * stand either way, eq and ne put them in canonical text order, and an ordering is stated as lt or le. Each of
- * PostgreSQL's comparison operators has its mirror as its commutator: both are NULL when either operand is, and both
- * read NaN as above every other float, so the two orientations mean the same.
+ * The canonicalizer's rules, each a rewrite of a predicate that keeps its meaning, so two spellings of one predicate are
+ * one form, of one text, law name and SQL. No operation of a row check raises (scalar/compute/registry.ts Totality), so
+ * no order the rules choose carries meaning:
+ * - `orientation`: a comparison in the one orientation of the two that mean it (`comparison`);
+ * - `connectives`: a conjunction's or a disjunction's operands in canonical text order;
+ * - `conjuncts`: a selection's conjuncts flattened (ir/desc.ts conjunctsOf), each once, in canonical text order, a
+ *   conjunction being the set of its conjuncts;
+ * - `inValues`: an IN list's values each once, in canonical text order;
+ * - `inOfOne`: an IN list of one value the equality with it, which it means (`x IN (v)` is `x = v`, NULL where either
+ *   is, and PostgreSQL stores it as `=`).
+ *
+ * The canonical form is every rule's (`everyRule`). A snapshot an earlier grizzle wrote holds its statements under the
+ * rules that grizzle had, a subset of these: a draft reads each of them under every rule again (laws/model/restate.ts
+ * PreviousNames.selections), so a law whose meaning a rule added since leaves unchanged keeps its identity.
  */
-const canonicalComparison = (
-	expr: Extract<ExprDesc, { readonly kind: "compare" }>
-): Canonical<ExprDesc> => {
-	const left = canonicalPredicate(expr.left)
-	const right = canonicalPredicate(expr.right)
-	const swapped =
-		isBare(left.form) !== isBare(right.form)
-			? isBare(left.form)
-			: expr.op === "eq" || expr.op === "ne"
-				? compareStrings(left.text, right.text) > 0
-				: expr.op === "gt" || expr.op === "ge"
-	const [first, second] = swapped ? [right, left] : [left, right]
-	return madeOf(
-		Object.freeze({
-			...expr,
-			op: swapped ? mirrorOf[expr.op] : expr.op,
-			left: first.form,
-			right: second.form
-		}),
-		new Map([
-			["left", first.text],
-			["right", second.text]
-		])
-	)
+export const canonicalRules = [
+	"orientation",
+	"connectives",
+	"conjuncts",
+	"inValues",
+	"inOfOne"
+] as const
+
+export type CanonicalRule = (typeof canonicalRules)[number]
+
+/** A canonicalizer: a predicate, a selection, a side and a statement put in canonical form under a set of the rules. */
+export interface Canonicalizer {
+	readonly selection: (selection: SelectionDesc) => SelectionDesc
+	readonly statement: (s: StatementDesc) => CanonicalStatement
 }
 
-/**
- * A predicate in canonical form, recursively: every conjunction's and disjunction's operands in canonical order, every
- * comparison in its canonical orientation (`canonicalComparison`), and every IN list's values each once, in canonical
- * order. No operation of a row check raises (scalar/compute/registry.ts Totality), so none of these orders carries
- * meaning. No other term reorders: a computation's operands keep their meaning by position.
- */
-const canonicalPredicate = (expr: ExprDesc): Canonical<ExprDesc> => {
-	switch (expr.kind) {
-		case "and":
-		case "or": {
-			const sorted = sortNonEmpty(mapNonEmpty(expr.args, canonicalPredicate), (a, b) =>
-				compareStrings(a.text, b.text)
-			)
-			const args = mapNonEmpty(sorted, (a) => a.form)
-			Object.freeze(args)
-			return madeOf(
-				Object.freeze({ ...expr, args }),
-				new Map([["args", arrayText(sorted.map((a) => a.text))]])
-			)
-		}
-		case "not": {
-			const arg = canonicalPredicate(expr.arg)
-			return madeOf(Object.freeze({ ...expr, arg: arg.form }), new Map([["arg", arg.text]]))
-		}
-		case "compare":
-			return canonicalComparison(expr)
-		case "in": {
-			const arg = canonicalPredicate(expr.arg)
-			const values = [...new Map(expr.values.map((v) => [textOf(v), v] as const))].toSorted(
-				([a], [b]) => compareStrings(a, b)
-			)
-			return madeOf(
-				Object.freeze({
-					...expr,
-					arg: arg.form,
-					values: Object.freeze(values.map(([, v]) => v))
-				}),
-				new Map([
-					["arg", arg.text],
-					["values", arrayText(values.map(([text]) => text))]
-				])
-			)
-		}
-		case "var":
-		case "field":
-		case "value":
-		case "parent":
-		case "param":
-		case "literal":
-		case "compute":
-		case "cast":
-		case "guarded":
-		case "base":
-		case "cond":
-		case "when":
-		case "between":
-		case "allen":
-		case "pointIn":
-		case "absent":
-		case "exists":
-		case "closedAt":
-		case "closedRow":
-		case "closedHas":
-		case "call":
-			return asIs(expr)
-	}
-}
-
-/**
- * A selection in canonical form with its text: its conjuncts' own conjuncts (ir/desc.ts conjunctsOf), each with its
- * operands ordered, each once, in the order of their canonical texts. A conjunction is the set of its conjuncts, so
- * two selections of one set of conjuncts are one selection, and one of none reads every fact.
- */
-const canonicalSelectionOf = (selection: SelectionDesc): Canonical<SelectionDesc> => {
-	const conjuncts = [
-		...new Map(
-			selection.conjuncts
-				.flatMap(conjunctsOf)
-				.map(canonicalPredicate)
-				.map((c) => [c.text, c.form] as const)
+/** The canonicalizer of `rules`: each rule it holds applied, recursively, every other part kept as written. */
+export const canonicalizerOf = (rules: ReadonlySet<CanonicalRule>): Canonicalizer => {
+	/**
+	 * A comparison in the one orientation of the two that mean it, under `orientation`: a bare literal stands second; of
+	 * two operands that may stand either way, eq and ne put them in canonical text order, and an ordering is stated as lt
+	 * or le. Each of PostgreSQL's comparison operators has its mirror as its commutator: both are NULL when either operand
+	 * is, and both read NaN as above every other float, so the two orientations mean the same.
+	 */
+	const comparison = (
+		expr: Extract<ExprDesc, { readonly kind: "compare" }>
+	): Canonical<ExprDesc> => {
+		const left = predicate(expr.left)
+		const right = predicate(expr.right)
+		const swapped =
+			rules.has("orientation") &&
+			(isBare(left.form) !== isBare(right.form)
+				? isBare(left.form)
+				: expr.op === "eq" || expr.op === "ne"
+					? compareStrings(left.text, right.text) > 0
+					: expr.op === "gt" || expr.op === "ge")
+		const [first, second] = swapped ? [right, left] : [left, right]
+		return madeOf(
+			Object.freeze({
+				...expr,
+				op: swapped ? mirrorOf[expr.op] : expr.op,
+				left: first.form,
+				right: second.form
+			}),
+			new Map([
+				["left", first.text],
+				["right", second.text]
+			])
 		)
-	].toSorted(([a], [b]) => compareStrings(a, b))
-	return madeOf(
-		Object.freeze({ conjuncts: Object.freeze(conjuncts.map(([, conjunct]) => conjunct)) }),
-		new Map([["conjuncts", arrayText(conjuncts.map(([text]) => text))]])
-	)
-}
+	}
 
-/** A selection in canonical form (`canonicalSelectionOf`). */
-export const canonicalSelection = (selection: SelectionDesc): SelectionDesc =>
-	canonicalSelectionOf(selection).form
-
-/** A side in canonical form: its selection's (`canonicalSelectionOf`). */
-const canonicalSide = (side: SideDesc): Canonical<SideDesc> => {
-	const selection = canonicalSelectionOf(side.selection)
-	return madeOf(
-		Object.freeze({ ...side, selection: selection.form }),
-		new Map([["selection", selection.text]])
-	)
-}
-
-/**
- * A statement in canonical form: a check's predicate and each side's selection with their operands ordered.
- * Equivalent declarations then have one canonical text, one fingerprint, and are one declaration.
- */
-const canonicalStatement = (s: StatementDesc): Canonical<StatementDesc> => {
-	switch (s.kind) {
-		case "check": {
-			const predicate = canonicalPredicate(s.predicate)
-			return madeOf(
-				Object.freeze({ ...s, predicate: predicate.form }),
-				new Map([["predicate", predicate.text]])
-			)
-		}
-		case "key": {
-			const side = canonicalSide(s.side)
-			return madeOf(Object.freeze({ ...s, side: side.form }), new Map([["side", side.text]]))
-		}
-		case "contained": {
-			const left = canonicalSide(s.left)
-			const right = canonicalSide(s.right)
-			return madeOf(
-				Object.freeze({ ...s, left: left.form, right: right.form }),
-				new Map([
-					["left", left.text],
-					["right", right.text]
-				])
-			)
-		}
-		case "fold": {
-			const step = canonicalSide(s.step)
-			return madeOf(Object.freeze({ ...s, step: step.form }), new Map([["step", step.text]]))
-		}
-		case "mutable":
-		case "race":
-		case "family":
-		case "tree":
-		case "alternatives":
-			return asIs(s)
-		case "retirable": {
-			const [first, ...rest] = s.bodies.toSorted((a, b) => compareStrings(a.relation, b.relation))
-			if (first === undefined) {
-				return asIs(s)
+	/** A predicate under the rules, recursively. No other term is rewritten: a computation's operands keep their meaning
+	 * by position. */
+	const predicate = (expr: ExprDesc): Canonical<ExprDesc> => {
+		switch (expr.kind) {
+			case "and":
+			case "or": {
+				const each = mapNonEmpty(expr.args, predicate)
+				const ordered = rules.has("connectives")
+					? sortNonEmpty(each, (a, b) => compareStrings(a.text, b.text))
+					: each
+				const args = mapNonEmpty(ordered, (a) => a.form)
+				Object.freeze(args)
+				return madeOf(
+					Object.freeze({ ...expr, args }),
+					new Map([["args", arrayText(ordered.map((a) => a.text))]])
+				)
 			}
-			const bodies: NonEmptyReadonlyArray<SideDesc> = [first, ...rest]
-			const form: StatementDesc = Object.freeze({ ...s, bodies })
-			return asIs(form)
+			case "not": {
+				const arg = predicate(expr.arg)
+				return madeOf(Object.freeze({ ...expr, arg: arg.form }), new Map([["arg", arg.text]]))
+			}
+			case "compare":
+				return comparison(expr)
+			case "in": {
+				const written = expr.values.map((v) => [textOf(v), v] as const)
+				const values = rules.has("inValues")
+					? [...new Map(written)].toSorted(([a], [b]) => compareStrings(a, b))
+					: written
+				const [only, ...others] = values
+				if (rules.has("inOfOne") && only !== undefined && others.length === 0) {
+					return comparison(
+						Object.freeze({
+							kind: "compare",
+							op: "eq",
+							left: expr.arg,
+							right: Object.freeze({ kind: "literal", value: only[1] })
+						})
+					)
+				}
+				const arg = predicate(expr.arg)
+				return madeOf(
+					Object.freeze({
+						...expr,
+						arg: arg.form,
+						values: Object.freeze(values.map(([, v]) => v))
+					}),
+					new Map([
+						["arg", arg.text],
+						["values", arrayText(values.map(([text]) => text))]
+					])
+				)
+			}
+			case "var":
+			case "field":
+			case "value":
+			case "parent":
+			case "param":
+			case "literal":
+			case "compute":
+			case "cast":
+			case "guarded":
+			case "base":
+			case "cond":
+			case "when":
+			case "between":
+			case "allen":
+			case "pointIn":
+			case "absent":
+			case "exists":
+			case "closedAt":
+			case "closedRow":
+			case "closedHas":
+			case "call":
+				return asIs(expr)
 		}
 	}
+
+	/** A selection under the rules with its text: each conjunct's predicate, and under `conjuncts` its conjuncts' own
+	 * conjuncts, each once, in the order of their canonical texts, so two selections of one set of conjuncts are one
+	 * selection, and one of none reads every fact. */
+	const selection = (s: SelectionDesc): Canonical<SelectionDesc> => {
+		const each = rules.has("conjuncts")
+			? [
+					...new Map(
+						s.conjuncts
+							.flatMap(conjunctsOf)
+							.map(predicate)
+							.map((c) => [c.text, c.form] as const)
+					)
+				].toSorted(([a], [b]) => compareStrings(a, b))
+			: s.conjuncts.map(predicate).map((c) => [c.text, c.form] as const)
+		return madeOf(
+			Object.freeze({ conjuncts: Object.freeze(each.map(([, conjunct]) => conjunct)) }),
+			new Map([["conjuncts", arrayText(each.map(([text]) => text))]])
+		)
+	}
+
+	/** A side under the rules: its selection's. */
+	const side = (s: SideDesc): Canonical<SideDesc> => {
+		const chosen = selection(s.selection)
+		return madeOf(
+			Object.freeze({ ...s, selection: chosen.form }),
+			new Map([["selection", chosen.text]])
+		)
+	}
+
+	/** A statement under the rules: a check's predicate and each side's selection. Equivalent declarations then have one
+	 * canonical text, one fingerprint, and are one declaration. */
+	const canonicalStatement = (s: StatementDesc): Canonical<StatementDesc> => {
+		switch (s.kind) {
+			case "check": {
+				const p = predicate(s.predicate)
+				return madeOf(Object.freeze({ ...s, predicate: p.form }), new Map([["predicate", p.text]]))
+			}
+			case "key": {
+				const one = side(s.side)
+				return madeOf(Object.freeze({ ...s, side: one.form }), new Map([["side", one.text]]))
+			}
+			case "contained": {
+				const left = side(s.left)
+				const right = side(s.right)
+				return madeOf(
+					Object.freeze({ ...s, left: left.form, right: right.form }),
+					new Map([
+						["left", left.text],
+						["right", right.text]
+					])
+				)
+			}
+			case "fold": {
+				const step = side(s.step)
+				return madeOf(Object.freeze({ ...s, step: step.form }), new Map([["step", step.text]]))
+			}
+			case "mutable":
+			case "race":
+			case "family":
+			case "tree":
+			case "alternatives":
+				return asIs(s)
+			case "retirable": {
+				const [first, ...rest] = s.bodies.toSorted((a, b) => compareStrings(a.relation, b.relation))
+				if (first === undefined) {
+					return asIs(s)
+				}
+				const bodies: NonEmptyReadonlyArray<SideDesc> = [first, ...rest]
+				const form: StatementDesc = Object.freeze({ ...s, bodies })
+				return asIs(form)
+			}
+		}
+	}
+
+	return Object.freeze({
+		selection: (s: SelectionDesc) => selection(s).form,
+		statement: (s: StatementDesc) => Object.freeze(canonicalStatement(s))
+	})
 }
+
+/** The canonical form: every rule's. */
+const everyRule = canonicalizerOf(new Set(canonicalRules))
+
+/** A selection in canonical form. */
+export const canonicalSelection = everyRule.selection
 
 /**
  * A statement in canonical form and that form's canonical text: equal statements, however written, have one, and a
@@ -983,8 +1030,7 @@ export interface CanonicalStatement {
 }
 
 /** A statement's canonical form and text (CanonicalStatement), read once where the statement is built or enters. */
-export const canonicalStatementOf = (s: StatementDesc): CanonicalStatement =>
-	Object.freeze(canonicalStatement(s))
+export const canonicalStatementOf = everyRule.statement
 
 /** The row's fields an expression references, added to `out`; a variable, value, parameter or literal holds none. */
 const fieldRefs = (expr: ExprDesc, out: Set<string>): Set<string> => {
@@ -2488,9 +2534,19 @@ export const ownedOf = (input: unknown): Owned | undefined =>
  * Owns a schema description: one decoded at a boundary, or an Owned's own, each statement put in canonical form here.
  */
 export const own = (desc: SchemaDesc): Result.Result<Owned, CompileError> =>
+	ownUnder(desc, everyRule)
+
+/**
+ * own() under `canonicalizer`: each statement put in canonical form by its rules alone, as an earlier grizzle whose
+ * canonical form had fewer of the rules (canonicalRules) owned it, the snapshot it wrote the one a draft restates.
+ */
+export const ownUnder = (
+	desc: SchemaDesc,
+	canonicalizer: Canonicalizer
+): Result.Result<Owned, CompileError> =>
 	ownWith(
 		desc,
-		mapNonEmpty(levelChain(desc), (level) => level.statements.map(canonicalStatementOf)),
+		mapNonEmpty(levelChain(desc), (level) => level.statements.map(canonicalizer.statement)),
 		hashedLevels
 	)
 

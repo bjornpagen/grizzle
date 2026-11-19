@@ -134,7 +134,8 @@ class CoreBinder {
 			}
 			case "inList": {
 				const expr = at(e.expr)
-				const list = mapNonEmpty(e.list, at)
+				const [first, second, ...rest] = e.list
+				const list: readonly [Expr, Expr, ...Array<Expr>] = [at(first), at(second), ...rest.map(at)]
 				return expr === e.expr && list.every((a, i) => a === e.list[i]) ? e : { ...e, expr, list }
 			}
 			case "inQuery": {

@@ -365,7 +365,7 @@ export const repointSql = (
 
 /** The re-derivation of a table's generated `column` as `expr`: SET EXPRESSION, which rewrites the table. */
 export const setExpressionSql = (table: ObjectName, name: string, expr: Expr): string =>
-	alterTable(table, { kind: "setExpression", column: name, expr })
+	alterTable(table, { kind: "setExpression", column: name, generation: { kind: "stored", expr } })
 
 /** A table of `codes`, each a NOT NULL int2, and nothing else, written by hand: the engine's table has a primary key. */
 export const tableOfCodes = (

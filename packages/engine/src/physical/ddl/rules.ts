@@ -82,6 +82,7 @@ import {
 	le,
 	lit,
 	not,
+	isIn,
 	notExists,
 	objectName,
 	or,
@@ -1221,12 +1222,10 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 			[catalogTable("pg_class", "r1")],
 			and([
 				eq(col("r1", "relnamespace"), call("pg_my_temp_schema", [])),
-				{
-					kind: "inList",
-					expr: cast(col("r1", "relname"), types.text),
-					list: mapNonEmpty(names, (name) => lit.text(name, types.text)),
-					not: false
-				},
+				isIn(
+					cast(col("r1", "relname"), types.text),
+					mapNonEmpty(names, (name) => lit.text(name, types.text))
+				),
 				ownedByDefiner ? and(owned("r1")) : not(and(owned("r1")))
 			])
 		)

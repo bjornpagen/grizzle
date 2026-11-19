@@ -2511,8 +2511,17 @@ class StatementAuditor {
 							switch (action.kind) {
 								case "setExpression":
 									this.ident(action.column, "column", "column")
-									this.at("expr", () => {
-										this.expr(action.expr, context("ddl", undefined, undefined, new Set()))
+									this.at("generation", () => {
+										const g = action.generation
+										const ddl = context("ddl", undefined, undefined, new Set())
+										if (g.kind === "partial") {
+											this.at("when", () => {
+												this.expr(g.when, ddl)
+											})
+										}
+										this.at("expr", () => {
+											this.expr(g.expr, ddl)
+										})
 									})
 									return
 								case "addColumn":

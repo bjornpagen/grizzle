@@ -6,7 +6,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { carriedOn, spelledAxis } from "#compiler/analysis/theory/families.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
-import { canonicalEquals, Refusal } from "#compiler/core/canonical.ts"
+import { canonicalEquals, ownedText, Refusal, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { type Dropped, undeclaredDrop, unsupported } from "#compiler/core/errors.ts"
 import {
 	conversionOf,
@@ -50,15 +50,17 @@ import type {
 	SnapshotRelation,
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
-import type { SideDesc } from "#compiler/ir/desc.ts"
+import type { ExprDesc, SideDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import { type CarriedFiller, type FillSpelling, fillersOf } from "#compiler/laws/model/fillers.ts"
 import {
+	canonicalTexts,
 	type PreviousNames,
-	PreviousSpelling,
-	restatedLawColumn
+	restatedBy,
+	restatedLawColumn,
+	type RestatingSpelling
 } from "#compiler/laws/model/restate.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
@@ -78,6 +80,7 @@ import {
 	type NameKey
 } from "#compiler/sql/ast.ts"
 import { ownColumnHooks, Transform, transformExpr } from "#compiler/sql/transform.ts"
+import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * A draft's declarations (`--rename`, `--drop`) applied to the previous snapshot: the statements that carry out its
@@ -521,7 +524,7 @@ export const applyDeclarations = (
 		}
 	}
 	const relations = renamedSnapshot(previous, target, renamed, fields, anew, temporaries)
-	const names = previousNames(before, after, renamed, fields, anew, handles, handlesAway)
+	const names = previousNames(previous, after, renamed, fields, anew, handles, handlesAway)
 	const columns = lawColumnRenames(relations.previous, installation, names, temporaries)
 	/** The tables a declaration touched: each renamed relation's, each one whose fields are renamed, and each whose law
 	 * columns move. */
@@ -569,15 +572,68 @@ export const applyDeclarations = (
 }
 
 /**
+ * Each side's selection the previous snapshot records, across its levels' described laws, by its relation and its
+ * conjuncts' texts under today's canonical form (laws/model/restate.ts canonicalTexts), each as recorded, once
+ * (laws/model/restate.ts PreviousNames.selections).
+ */
+const recordedSelections = (
+	previous: DeploySnapshot
+): ReadonlyMap<string, ReadonlyArray<ReadonlyArray<ExprDesc>>> => {
+	const out = new Map<string, Map<string, ReadonlyArray<ExprDesc>>>()
+	const record = (side: SideDesc): void => {
+		const today = canonicalTexts(side.selection)
+		const key = selectionKey(side.relation, today)
+		const spellings = out.get(key) ?? new Map<string, ReadonlyArray<ExprDesc>>()
+		spellings.set(ownedText(side.selection.conjuncts, withoutSourceLocs), side.selection.conjuncts)
+		out.set(key, spellings)
+	}
+	for (const level of previous.levels) {
+		for (const { described } of level.laws) {
+			for (const side of describedSides(described)) {
+				record(side)
+			}
+		}
+	}
+	return new Map([...out].map(([key, spellings]) => [key, [...spellings.values()]] as const))
+}
+
+/** The key a recorded selection is found by: its relation and its conjuncts' texts today. */
+const selectionKey = (relation: string, texts: ReadonlyArray<string>): string =>
+	JSON.stringify([relation, texts])
+
+/** The sides a described law states, each with its selection. */
+const describedSides = (law: OwnLaw): ReadonlyArray<SideDesc> => {
+	switch (law.kind) {
+		case "key":
+			return [law.side]
+		case "contained":
+		case "coverage":
+			return [law.from, law.to]
+		case "family":
+		case "tree":
+			return [law.member]
+		case "fold":
+			return [law.step, law.end]
+		case "primaryKey":
+		case "check":
+		case "contract":
+		case "pattern":
+		case "generated":
+			return []
+	}
+}
+
+/**
  * How the previous snapshot names each relation, field and handle of the target under the checked declarations
  * (laws/model/restate.ts PreviousNames): a relation or roster renamed by its old name; else by its own name, or
  * the alike spelling the previous snapshot holds it under, unless a rename took that name away; and a relation the
  * snapshots record no record of, a closed relation, which no declaration renames, by its own. A field the same way on
  * its relation's previous record; and a handle by its declared rename's old name, or its own where the previous roster
- * holds it live and no rename took it away. Anything else is new to the migration.
+ * holds it live and no rename took it away. Anything else is new to the migration. Its selections are the ones its
+ * levels' laws record (recordedSelections), and the laws it states its theory's.
  */
 const previousNames = (
-	before: Readonly<Record<string, SnapshotRelation>>,
+	previous: DeploySnapshot,
 	after: Readonly<Record<string, SnapshotRelation>>,
 	renamed: ReadonlyMap<string, string>,
 	fields: ReadonlyMap<string, ReadonlyMap<string, string>>,
@@ -585,6 +641,7 @@ const previousNames = (
 	handles: ReadonlyMap<string, ReadonlyMap<string, string>>,
 	handlesAway: ReadonlyMap<string, ReadonlySet<string>>
 ): PreviousNames => {
+	const before = previous.theory.relations
 	const renamedFrom = new Map([...renamed].map(([from, to]) => [to, from] as const))
 	const held = new AlikeNames(Object.keys(before))
 	/** The fields of each stored relation the previous snapshot holds, by the relation's name. */
@@ -630,7 +687,16 @@ const previousNames = (
 			? h
 			: undefined
 	}
-	return { relation, field, handle, handleRenames: new Set(handles.keys()) }
+	const selections = recordedSelections(previous)
+	const laws = new Set<string>(Object.keys(previous.theory.laws))
+	return {
+		relation,
+		field,
+		handle,
+		handleRenames: new Set(handles.keys()),
+		selections: (r, texts) => selections.get(selectionKey(r, texts)) ?? [],
+		stated: (law) => laws.has(law)
+	}
 }
 
 /** Whether a field is grizzle's to write, drawn or accumulated, by its filler (snapshot/types.ts SnapshotWriting). */
@@ -725,11 +791,11 @@ const ridingSide = (
  * is then incomplete, as it is for a name new to it.
  */
 class PreviousFill implements FillSpelling {
-	readonly #spell: PreviousSpelling
+	readonly #spell: RestatingSpelling
 	readonly #laws: ReadonlyArray<DescribedLaw>
 	#complete = true
 
-	constructor(spell: PreviousSpelling, laws: ReadonlyArray<DescribedLaw>) {
+	constructor(spell: RestatingSpelling, laws: ReadonlyArray<DescribedLaw>) {
 		this.#spell = spell
 		this.#laws = laws
 	}
@@ -817,12 +883,17 @@ const restatedWritings = (
 					if (into === undefined || field === undefined || !drawnBy(into.writing)) {
 						return f
 					}
-					const spell = new PreviousFill(
-						new PreviousSpelling(names, installation.laws.theory.relations),
-						laws
+					const restated = restatedBy(
+						names,
+						installation.laws.theory.relations,
+						(spell) => {
+							const fill = new PreviousFill(spell, laws)
+							const writing = fieldWriting(installation, fillers, now.name, field, fill)
+							return fill.complete ? writing : undefined
+						},
+						(writing) => canonicalEquals(writing, f.writing)
 					)
-					const restated = fieldWriting(installation, fillers, now.name, field, spell)
-					return (spell.complete && canonicalEquals(restated, f.writing)) ||
+					return (restated !== undefined && canonicalEquals(restated, f.writing)) ||
 						sameSequence(previous, installation, now.name, field.name, f.writing)
 						? { ...f, writing: into.writing }
 						: f
@@ -888,7 +959,13 @@ const lawColumnRenames = (
 		const of = targets.get(key) ?? { table, columns: [] }
 		of.columns.push({
 			column: n.object.column,
-			was: restatedLawColumn(n.plan, laws, names, installation.laws.theory.relations)
+			was: restatedLawColumn(
+				n.plan,
+				laws,
+				names,
+				installation.laws.theory.relations,
+				(c) => held.get(key)?.has(c) === true
+			)
 		})
 		targets.set(key, of)
 	}
@@ -1426,7 +1503,14 @@ const withColumns = (
 			case "addColumnDefault":
 				return { ...a, column: columnIn(into, a.column), default: exprIn(into, a.default) }
 			case "setExpression":
-				return { ...a, column: nameIn(into)(a.column), expr: exprIn(into, a.expr) }
+				return {
+					...a,
+					column: nameIn(into)(a.column),
+					generation:
+						into === undefined
+							? a.generation
+							: new Transform(ownColumnHooks(nameIn(into))).storedGeneration(a.generation)
+				}
 			case "alterColumnType":
 				return {
 					...a,

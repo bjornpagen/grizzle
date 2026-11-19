@@ -3144,15 +3144,21 @@ class Model {
 					const t = this.#table(s.table)
 					const at = this.#columnAt(t, s.table, a.column, "re-expressed")
 					const c = t.columns[at]
-					if (c?.generation.kind !== "stored") {
+					if (c?.generation.kind !== "stored" && c?.generation.kind !== "partial") {
 						refuse(
 							"42611",
 							`the column ${a.column} of ${printObjectName(s.table)} is not a stored generated column`
 						)
 					}
-					const calls = callsOf([a.expr], this.#schema)
-					this.#callable(calls, `the generated column ${a.column}`)
-					t.columns[at] = { ...c, generation: { kind: "stored", calls } }
+					const generation =
+						a.generation.kind === "stored"
+							? { kind: "stored" as const, calls: callsOf([a.generation.expr], this.#schema) }
+							: {
+									kind: "partial" as const,
+									calls: callsOf([a.generation.when, a.generation.expr], this.#schema)
+								}
+					this.#callable(generation.calls, `the generated column ${a.column}`)
+					t.columns[at] = { ...c, generation }
 					break
 				}
 				case "alterConstraintDeferral": {

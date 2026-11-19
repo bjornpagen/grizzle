@@ -277,6 +277,18 @@ export const binary = (op: BinaryOperator, left: Expr, right: Expr): Expr => ({
 	schema: undefined
 })
 export const eq = (left: Expr, right: Expr): Expr => binary("=", left, right)
+
+/**
+ * `expr IN (items)`: the equality with an item of one, as PostgreSQL parses and stores `expr IN (item)`
+ * (parse_expr.c transformAExprIn), so a membership has one spelling, of one text, deparse and identity, whichever
+ * spelling its source wrote, and an IN list of more.
+ */
+export const isIn = (expr: Expr, items: NonEmptyReadonlyArray<Expr>): Expr => {
+	const [first, second, ...rest] = items
+	return second === undefined
+		? eq(expr, first)
+		: { kind: "inList", expr, list: [first, second, ...rest], not: false }
+}
 export const ne = (left: Expr, right: Expr): Expr => binary("<>", left, right)
 export const lt = (left: Expr, right: Expr): Expr => binary("<", left, right)
 export const le = (left: Expr, right: Expr): Expr => binary("<=", left, right)

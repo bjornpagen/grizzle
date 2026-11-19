@@ -104,9 +104,8 @@ export const declaredRenames = property.explore(renameCaseGen, {
 	kills: [
 		{
 			file: "packages/engine/src/deploy/diff/declared.ts",
-			original:
-				"\t\t\twas: restatedLawColumn(n.plan, laws, names, installation.laws.theory.relations)",
-			replacement: "\t\t\twas: undefined",
+			original: "\t\t\twas: restatedLawColumn(\n\t\t\t\tn.plan,",
+			replacement: "\t\t\twas: undefined && restatedLawColumn(\n\t\t\t\tn.plan,",
 			why: "A declared rename restates no law column, so the family's law columns are dropped and drawn again; the rename's no-stored-byte oracle fails."
 		}
 	]
@@ -150,16 +149,17 @@ export const changedFills = property.explore(aimed(changeCaseGen, changeAims), {
 		{
 			file: "packages/engine/src/deploy/diff/declared.ts",
 			original:
-				"\t\t\t\t\treturn (spell.complete && canonicalEquals(restated, f.writing)) ||\n\t\t\t\t\t\tsameSequence(previous, installation, now.name, field.name, f.writing)",
+				"\t\t\t\t\treturn (restated !== undefined && canonicalEquals(restated, f.writing)) ||\n\t\t\t\t\t\tsameSequence(previous, installation, now.name, field.name, f.writing)",
 			replacement:
-				"\t\t\t\t\treturn spell.complete || sameSequence(previous, installation, now.name, field.name, f.writing)",
+				"\t\t\t\t\treturn restated !== undefined || sameSequence(previous, installation, now.name, field.name, f.writing)",
 			why: "A field whose filler changes keeps its stale values."
 		},
 		{
 			file: "packages/engine/src/deploy/diff/declared.ts",
 			original:
-				"\t\t\t\t\treturn (spell.complete && canonicalEquals(restated, f.writing)) ||\n\t\t\t\t\t\tsameSequence(previous, installation, now.name, field.name, f.writing)",
-			replacement: "\t\t\t\t\treturn spell.complete && canonicalEquals(restated, f.writing)",
+				"\t\t\t\t\treturn (restated !== undefined && canonicalEquals(restated, f.writing)) ||\n\t\t\t\t\t\tsameSequence(previous, installation, now.name, field.name, f.writing)",
+			replacement:
+				"\t\t\t\t\treturn restated !== undefined && canonicalEquals(restated, f.writing)",
 			why: "A re-pointed family's index is drawn again in member-key order."
 		},
 		{

@@ -31,6 +31,7 @@ import {
 	le,
 	lit,
 	lt,
+	isIn,
 	ne,
 	not,
 	operandSelect,
@@ -198,9 +199,7 @@ const exactIn = (
 				: { kind: "between", expr: x, low: y, high: z, not: false }
 		case "in": {
 			const [, ...listed] = operands
-			return isNonEmpty(listed)
-				? { kind: "inList", expr: x, list: listed, not: false }
-				: lit.bool(false)
+			return isNonEmpty(listed) ? isIn(x, listed) : lit.bool(false)
 		}
 		case "least":
 		case "greatest":

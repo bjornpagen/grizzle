@@ -129,6 +129,7 @@ import {
 	type ObjectName,
 	type Revoke,
 	type SqlStatement,
+	type StoredGeneration,
 	type TableConstraint,
 	type TypeRef,
 	type TypeSchema,
@@ -1054,10 +1055,27 @@ class Differ {
 			)
 			const lawColumns = (lawColumnsByTable.get(key) ?? []).map(({ object: p, column: w }) => {
 				const now = this.next.get(p.ident)
-				const fate =
-					now === undefined ? droppedColumn : sameRecord(p, now) ? keptColumn : redefinedColumn
+				const target = now === undefined ? undefined : installed(now)
+				/** What the migration does to the column: keeps it, re-expresses it in place (Differ.lawColumn), which keeps
+				 * what is built over it but gives it other values to every fill that reads it, drops it, or drops it and
+				 * adds it again. */
+				const change =
+					now === undefined
+						? "dropped"
+						: sameRecord(p, now)
+							? "kept"
+							: target?.kind === "lawColumn" &&
+								  reexpressedLawColumn(p, target.definition) !== undefined
+								? "reexpressed"
+								: "redefined"
+				const fate = {
+					kept: keptColumn,
+					reexpressed: keptColumn,
+					redefined: redefinedColumn,
+					dropped: droppedColumn
+				}[change]
 				const reads = builtOver(w, (c) => keyOrCheckDefinition(c, this.prev))?.columns ?? []
-				return { column: w.column, reads, fate }
+				return { column: w.column, reads, fate, change }
 			})
 			return [{ o, at, create, key, shared, own, lawColumns }]
 		})
@@ -1070,7 +1088,9 @@ class Differ {
 						: []
 				),
 				...lawColumns.flatMap((c) =>
-					c.fate.kind === "redefined" ? [storedColumnKey(key, c.column)] : []
+					c.change === "redefined" || c.change === "reexpressed"
+						? [storedColumnKey(key, c.column)]
+						: []
 				)
 			])
 		)
@@ -2422,8 +2442,9 @@ class Differ {
 		}
 	}
 
-	/** A column a law adds: added with its table's other objects, kept while its definition is the previous one's, and
-	 * dropped and added again when it changes. */
+	/** A column a law adds: added with its table's other objects, kept while its definition is the previous one's,
+	 * re-expressed in place where its STORED generation alone changes (reexpressedLawColumn), in its table's one ALTER
+	 * TABLE of Structure, and dropped and added again when anything else of it changes. */
 	lawColumn(
 		v: Installed & { readonly kind: "lawColumn" },
 		before: RecordedObject | undefined
@@ -2431,6 +2452,11 @@ class Differ {
 		const { object: o, table: t, column } = v
 		if (before !== undefined) {
 			if (sameRecord(before, o)) {
+				return
+			}
+			const generation = reexpressedLawColumn(before, v.definition)
+			if (generation !== undefined) {
+				this.alter("structure", t, [{ kind: "setExpression", column, generation }])
 				return
 			}
 			this.sql("structure", [alter(t, [{ kind: "dropColumn", column }])])
@@ -3524,11 +3550,37 @@ type DrawnBefore = { readonly kind: "none" } | { readonly kind: "retirement" }
 type FieldChange =
 	| { readonly kind: "kept" }
 	| { readonly kind: "converted"; readonly drawn: DrawnBefore }
-	| { readonly kind: "reexpressed"; readonly expr: Expr }
+	| { readonly kind: "reexpressed"; readonly generation: StoredGeneration }
 	| { readonly kind: "redrawn" }
 	| { readonly kind: "rewritten" }
 	| { readonly kind: "retirementDeclared" }
 	| { readonly kind: "retirementRemoved" }
+
+/**
+ * The STORED generation a law column takes in place of its previous one, where the two differ in it alone: the same
+ * column of the same type and collation, both STORED, one expression for another of the same meaning (its canonical
+ * text moved, so PostgreSQL's operand order did), or a generated field it reads re-expressed. SET EXPRESSION rewrites
+ * its table once with every other column the table's one ALTER TABLE re-expresses, and rebuilds the indexes and
+ * constraints over it in that statement (PostgreSQL's tablecmds.c, AT_SetExpression), where a drop and an addition
+ * would drop and build again everything over it. None for any other change.
+ */
+const reexpressedLawColumn = (
+	before: RecordedObject,
+	now: ColumnDef
+): StoredGeneration | undefined => {
+	const was = installed(before)
+	if (was.kind !== "lawColumn") {
+		return undefined
+	}
+	const old = was.definition.generated
+	const next = now.generated
+	return (old?.kind === "stored" || old?.kind === "partial") &&
+		(next?.kind === "stored" || next?.kind === "partial") &&
+		old.kind === next.kind &&
+		canonicalEquals({ ...was.definition, generated: undefined }, { ...now, generated: undefined })
+		? next
+		: undefined
+}
 
 /** A generated field's generation expression: its column's stored generation, none for a field its caller writes. */
 const generationOf = (c: ColumnDef): Expr | undefined =>
@@ -3549,7 +3601,9 @@ const fieldChange = (b: ColumnDef, c: ColumnDef, retyped: Retyped): FieldChange 
 		if (retyped(b, c)) {
 			return { kind: "rewritten" }
 		}
-		return canonicalEquals(before, after) ? { kind: "kept" } : { kind: "reexpressed", expr: after }
+		return canonicalEquals(before, after)
+			? { kind: "kept" }
+			: { kind: "reexpressed", generation: { kind: "stored", expr: after } }
 	}
 	const wasRetirement = b.generated?.kind === "retirement"
 	const nowRetirement = c.generated?.kind === "retirement"
@@ -3778,7 +3832,9 @@ const inPlace = (
 			)
 		}
 		case "reexpressed":
-			return steps([altering({ kind: "setExpression", column: c.name, expr: change.expr })])
+			return steps([
+				altering({ kind: "setExpression", column: c.name, generation: change.generation })
+			])
 		case "redrawn":
 			return steps([])
 		case "rewritten":
@@ -4045,9 +4101,37 @@ const revokeRoleOf = (g: GrantRole): SqlStatement => ({
 /** The roles' objects that hold no data and are created again whenever they change: views, world functions, policies. */
 const worldKinds: ReadonlySet<PhysicalKind> = new Set(["view", "worldFunction", "policy"])
 
+/**
+ * Whether a role's object reads a previous object as it reads the target's: the same record, or a table whose columns
+ * keep their names, types and collations, whose generations and constraints alone change. PostgreSQL keeps every view,
+ * function and policy over a column a SET EXPRESSION re-expresses and a table whose CHECK is replaced, and a column a
+ * migration converts or rebuilds takes the table beneath (worldChangesOf's `beneath`).
+ */
+const sameRead = (was: RecordedObject, now: ManifestObject): boolean => {
+	if (sameRecord(was, now)) {
+		return true
+	}
+	const [before] = was.ddl
+	const [after] = now.ddl
+	const columns = (s: RecordedStatement | SqlStatement | undefined) =>
+		s?.kind === "createTable"
+			? s.columns.map((c) => ({ name: c.name, type: c.type, collation: c.collation }))
+			: undefined
+	const read = columns(before)
+	return (
+		read !== undefined &&
+		was.ddl.length === 1 &&
+		now.ddl.length === 1 &&
+		before?.kind === "createTable" &&
+		after?.kind === "createTable" &&
+		canonicalEquals(before.table, after.table) &&
+		canonicalEquals(read, columns(after))
+	)
+}
+
 /** The roles' views, world functions and policies a migration drops at the start of Structure and creates again (in
  * Structure or in Publish, Differ.visit): each the target holds whose DDL changes, or that waits for an object the
- * migration changes (one whose DDL changes, one the previous manifest lacks, one the target lacks, or one `beneath`
+ * migration changes (one whose DDL changes what they read, sameRead, one the previous manifest lacks, one the target lacks, or one `beneath`
  * names, which the migration takes away and builds again without changing its DDL: a
  * materialized view it drops, an object it drops before replacing a column it is built over, a table it converts a
  * column of), read off the target's edges in install order, a world object waiting for every relation, type and
@@ -4071,7 +4155,7 @@ const worldChangesOf = (
 	const changed = new Set<string>(beneath)
 	for (const o of target.objects) {
 		const was = before.get(o.ident)
-		if (was === undefined || !sameRecord(was, o)) {
+		if (was === undefined || !sameRead(was, o)) {
 			changed.add(o.ident)
 		}
 	}

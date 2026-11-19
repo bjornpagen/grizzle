@@ -503,10 +503,11 @@ export type Expr =
 			readonly kind: "inList"
 			readonly expr: Expr
 			/**
-			 * At least one item: PostgreSQL has no empty IN list, so an empty membership is `false` (`true` NOT) at its
-			 * source.
+			 * At least two items (sql/build.ts isIn): PostgreSQL has no empty IN list, so an empty membership is
+			 * `false` (`true` NOT) at its source, and stores an IN list of one item as the equality with it (`<>` NOT,
+			 * parse_expr.c transformAExprIn), which is how a membership of one is written.
 			 */
-			readonly list: NonEmptyReadonlyArray<Expr>
+			readonly list: readonly [Expr, Expr, ...Array<Expr>]
 			readonly not: boolean
 	  }
 	| {
@@ -1219,8 +1220,10 @@ export interface Merge {
  * `GENERATED ALWAYS AS (CASE WHEN <when> THEN <expr> END) STORED`, which holds `expr` where `when` is true and NULL
  * everywhere else. A partial projection is the one form that yields NULL, so it never reaches an expression.
  */
-export type ColumnGeneration =
-	| { readonly kind: "retirement" }
+export type ColumnGeneration = { readonly kind: "retirement" } | StoredGeneration
+
+/** A generation PostgreSQL computes from its row, STORED: an expression of the row, or a partial projection of one. */
+export type StoredGeneration =
 	| { readonly kind: "stored"; readonly expr: Expr }
 	| { readonly kind: "partial"; readonly when: Expr; readonly expr: Expr }
 
@@ -1422,12 +1425,13 @@ export type AlterTableAction =
 	  }
 	| {
 			/**
-			 * ALTER COLUMN <column> SET EXPRESSION AS (<expr>): a generated column's expression replaced, which rewrites
-			 * the table once for every column the statement re-expresses.
+			 * ALTER COLUMN <column> SET EXPRESSION AS (...): a generated column's generation replaced by another STORED
+			 * one, which rewrites the table once for every column the statement re-expresses, and rebuilds the indexes and
+			 * constraints over the columns it re-expresses in that rewrite.
 			 */
 			readonly kind: "setExpression"
 			readonly column: string
-			readonly expr: Expr
+			readonly generation: StoredGeneration
 	  }
 
 /** The column an ALTER TABLE subcommand adds, under whatever value it adds it, each taking its table's next attribute

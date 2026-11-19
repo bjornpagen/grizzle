@@ -39,7 +39,7 @@ import { admitPattern } from "#compiler/scalar/regex/admit.ts"
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
 import type { Collation, Expr, TypeRef } from "#compiler/sql/ast.ts"
-import { and, binary, call, cUtf8Collation, le, lit, types } from "#compiler/sql/build.ts"
+import { and, binary, call, cUtf8Collation, isIn, le, lit, types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { structuralBounds } from "#compiler/text/bounds.ts"
 
@@ -390,14 +390,7 @@ const memberBytes = utf8Length(printExpr(memberLiteral("")))
 const patternTerms = (check: PatternCheck, value: Expr): NonEmptyReadonlyArray<Expr> => {
 	switch (check.kind) {
 		case "finite":
-			return [
-				{
-					kind: "inList",
-					expr: value,
-					list: mapNonEmpty(check.members, memberLiteral),
-					not: false
-				}
-			]
+			return [isIn(value, mapNonEmpty(check.members, memberLiteral))]
 		case "regex":
 			return mapNonEmpty(check.ares, (are) => binary("~", value, lit.text(are, types.text)))
 	}

@@ -858,12 +858,15 @@ const formOf = (d: Draw, env: Env, type: SqlColumnType, depth: number): Expr => 
 		}
 		case "in list": {
 			const t = d.from(statementTypes)
-			const extra = d.count(0, 2)
-			const list: Arr.NonEmptyReadonlyArray<Expr> = [
-				constant(d, t),
-				...Array.from({ length: extra }, () => constant(d, t))
-			]
-			return { kind: "inList", expr: sub(t), list, not: false }
+			const extra = d.count(0, 1)
+			const first = constant(d, t)
+			const second = constant(d, t)
+			return {
+				kind: "inList",
+				expr: sub(t),
+				list: [first, second, ...Array.from({ length: extra }, () => constant(d, t))],
+				not: false
+			}
 		}
 		case "exists":
 			return exists(nestedQuery(d, nested, undefined).select)

@@ -403,15 +403,22 @@ class Expressions {
 			case "in list": {
 				const negated = t.from([false, true])
 				const a = this.int(depth - 1)
-				const extra = t.count(0, 2)
-				const list: Arr.NonEmptyReadonlyArray<IntCase> = [
+				const extra = t.count(0, 1)
+				const [first, second, ...rest] = [
+					this.int(depth - 1),
 					this.int(depth - 1),
 					...Array.from({ length: extra }, () => this.int(depth - 1))
 				]
+				const list = [first, second, ...rest] as const
 				const member = Arr.some(list, (x) => x.value === a.value)
 				return {
 					type: "bool",
-					expr: { kind: "inList", expr: a.expr, list: Arr.map(list, (x) => x.expr), not: negated },
+					expr: {
+						kind: "inList",
+						expr: a.expr,
+						list: [first.expr, second.expr, ...Arr.map(rest, (x) => x.expr)],
+						not: negated
+					},
 					value: negated ? !member : member
 				}
 			}
@@ -419,16 +426,18 @@ class Expressions {
 				const a = [this.int(depth - 1), this.int(depth - 1)] as const
 				const row = () => [this.int(depth - 1), this.int(depth - 1)] as const
 				const extra = t.count(0, 1)
-				const rows: Arr.NonEmptyReadonlyArray<ReturnType<typeof row>> = [
-					row(),
-					...Array.from({ length: extra }, row)
-				]
+				const rows = [row(), row(), ...Array.from({ length: extra }, row)] as const
+				const rowOf = (r: ReturnType<typeof row>): Expr => ({
+					kind: "row",
+					items: Arr.map(r, (x) => x.expr)
+				})
+				const [first, second, ...rest] = rows
 				return {
 					type: "bool",
 					expr: {
 						kind: "inList",
 						expr: { kind: "row", items: Arr.map(a, (x) => x.expr) },
-						list: Arr.map(rows, (r): Expr => ({ kind: "row", items: Arr.map(r, (x) => x.expr) })),
+						list: [rowOf(first), rowOf(second), ...Arr.map(rest, rowOf)],
 						not: false
 					},
 					value: Arr.some(rows, ([x, y]) => x.value === a[0].value && y.value === a[1].value)

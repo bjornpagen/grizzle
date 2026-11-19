@@ -26,6 +26,7 @@ import {
 	type ColumnDef,
 	type ColumnDefinition,
 	type ColumnGeneration,
+	type StoredGeneration,
 	type CommentTarget,
 	type ContextSource,
 	type CreateDeclaredFunction,
@@ -1293,9 +1294,18 @@ const printGeneration = (g: ColumnGeneration): string => {
 		case "retirement":
 			return "DEFAULT false"
 		case "stored":
-			return `GENERATED ALWAYS AS (${printExpr(g.expr)}) STORED`
 		case "partial":
-			return `GENERATED ALWAYS AS (CASE WHEN ${printExpr(g.when)} THEN ${printExpr(g.expr)} END) STORED`
+			return `GENERATED ALWAYS AS (${printStoredGeneration(g)}) STORED`
+	}
+}
+
+/** A STORED generation's expression, as GENERATED ALWAYS AS and SET EXPRESSION AS write it. */
+const printStoredGeneration = (g: StoredGeneration): string => {
+	switch (g.kind) {
+		case "stored":
+			return printExpr(g.expr)
+		case "partial":
+			return `CASE WHEN ${printExpr(g.when)} THEN ${printExpr(g.expr)} END`
 	}
 }
 
@@ -1410,7 +1420,7 @@ const printAlterTableAction = (action: AlterTableAction): string => {
 		case "replicaIdentity":
 			return action.identity === "full" ? "REPLICA IDENTITY FULL" : "REPLICA IDENTITY DEFAULT"
 		case "setExpression":
-			return `ALTER COLUMN ${quoteIdent(action.column)} SET EXPRESSION AS (${printExpr(action.expr)})`
+			return `ALTER COLUMN ${quoteIdent(action.column)} SET EXPRESSION AS (${printStoredGeneration(action.generation)})`
 	}
 }
 

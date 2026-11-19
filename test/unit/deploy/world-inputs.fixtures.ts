@@ -9,7 +9,8 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noPreviousRosters } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { uuid } from "#compiler/public/fields.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import { generated, pg, uuid } from "#compiler/public/fields.ts"
 import { contained, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { installationsOf, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
@@ -22,20 +23,25 @@ import { owning } from "#test/support/policy.ts"
  * the law model discharges natively, a foreign key; each with the reader reading Item alone or Item and List.
  */
 export interface Turn {
-	readonly change: "none" | "a foreign key added"
+	readonly change: "none" | "a foreign key added" | "a generated field re-expressed"
 	readonly reads: "Item" | "Item and List"
 }
 
 export const turnGen: Gen<Turn> = (s) => ({
-	change: s.draw(element(["none", "a foreign key added"] as const)),
+	change: s.draw(
+		element(["none", "a foreign key added", "a generated field re-expressed"] as const)
+	),
 	reads: s.draw(element(["Item", "Item and List"] as const))
 })
 
 /** The schema at a version, with its one login: List and Item, each keyed by its id, Item's `list` contained in List's
- * id where the version holds the foreign key; the reader reads Item, or Item and List, whole. */
-const installationOf = (turn: Turn, keyed: boolean): Installation => {
+ * id where the version holds the foreign key, and its generated `g` its `n` where it exceeds `step`, 0 elsewhere; the reader reads Item, or
+ * Item and List, whole. */
+const installationOf = (turn: Turn, keyed: boolean, step: bigint): Installation => {
 	const List = relation("List", { id: uuid }, ["id"])
-	const Item = relation("Item", { id: uuid, list: uuid }, ["id"])
+	const Item = relation.generated("Item", { id: uuid, list: uuid, n: pg.bigint }, ["id"], (r) => ({
+		g: generated(pg.bigint, Compute.cond(Compute.gt(r.n, step), r.n, 0n))
+	}))
 	const base = schema(
 		"WorldInputs",
 		[List, Item],
@@ -86,12 +92,19 @@ export interface Drafted {
 
 /** The second version drafted over the first's snapshot, the first drafted from no installation. */
 export const secondDraft = (turn: Turn): Drafted => {
-	const first = installationOf(turn, false)
+	const first = installationOf(turn, false, 1n)
 	const one = drafted(
 		first,
 		emptySnapshot({ schemaName: first.owned.name, schema: first.names.schema })
 	)
-	const two = drafted(installationOf(turn, turn.change === "a foreign key added"), one.snapshot)
+	const two = drafted(
+		installationOf(
+			turn,
+			turn.change === "a foreign key added",
+			turn.change === "a generated field re-expressed" ? 2n : 1n
+		),
+		one.snapshot
+	)
 	return {
 		steps: two.plan.steps.length,
 		worldSteps: Arr.filter(two.plan.steps, (s) => worldSlots.has(s.slot)).length

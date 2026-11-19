@@ -1,5 +1,5 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	type LawIdentity,
 	mentions,
@@ -11,7 +11,13 @@ import { lawStatement } from "#compiler/analysis/theory/theory.ts"
 import { ownedText, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { identifierOf, identity, type LawColumnStatement } from "#compiler/core/identity.ts"
 import type { Identifier, LawId } from "#compiler/core/ids.ts"
-import type { ComputeFn, ExprDesc, FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
+import type {
+	ComputeFn,
+	ExprDesc,
+	FieldDesc,
+	LiteralDesc,
+	SelectionDesc
+} from "#compiler/ir/desc.ts"
 import { identityValueOf, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LawField, TheoryRelation } from "#compiler/ir/law.ts"
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -34,10 +40,81 @@ export interface PreviousNames {
 	readonly field: (relation: string, field: string) => string | undefined
 	readonly handle: (roster: string, handle: string) => string | undefined
 	readonly handleRenames: ReadonlySet<string>
+	/**
+	 * The selections the previous snapshot records over a relation, by its previous name, whose conjuncts' texts under
+	 * today's canonical form (schema/own.ts canonicalSelection) are `texts`, in order: each a side's conjuncts as the
+	 * snapshot records them, which an earlier grizzle put in canonical form under the rules it had (schema/own.ts
+	 * canonicalRules). None where it records none: a selection new to the migration, or one written as it is today.
+	 */
+	readonly selections: (
+		relation: string,
+		texts: ReadonlyArray<string>
+	) => ReadonlyArray<ReadonlyArray<ExprDesc>>
+	/** Whether the previous snapshot states the law of an identifier. */
+	readonly stated: (law: Identifier<"law">) => boolean
+}
+
+/**
+ * The choices a restating makes among the selections the previous snapshot records under one canonical form
+ * (PreviousNames.selections): the `at`th choice met takes the selection `at` of its candidates, in the order they are
+ * met, the first where `at` names none; and each choice of more than one candidate met is counted, so a probe
+ * (firstHeld) walks every choice the restating meets.
+ */
+class Choices {
+	readonly #at: ReadonlyArray<number>
+	readonly met: Array<number> = []
+
+	constructor(at: ReadonlyArray<number>) {
+		this.#at = at
+	}
+
+	/** The candidate this restating takes of `candidates`. */
+	pick<A>(candidates: NonEmptyReadonlyArray<A>): A {
+		if (candidates.length === 1) {
+			return candidates[0]
+		}
+		const at = this.#at[this.met.length] ?? 0
+		this.met.push(candidates.length)
+		return candidates[at] ?? candidates[0]
+	}
+}
+
+/** Every assignment of a choice to each of choices of `counts` candidates, in order, every first candidate first. */
+const assignments = (counts: ReadonlyArray<number>): ReadonlyArray<ReadonlyArray<number>> =>
+	counts.reduce<ReadonlyArray<ReadonlyArray<number>>>(
+		(partial, count) =>
+			partial.flatMap((at) => Array.from({ length: count }, (_, i) => [...at, i])),
+		[[]]
+	)
+
+/**
+ * The first restating the previous snapshot holds (`held`): two laws an earlier grizzle stated under one selection
+ * spelled two ways, `kind = v` in one and `kind IN (v)` in the other, are one selection today, so a restated selection
+ * may be either, and only the law's whole statement tells which the previous snapshot states. The restating with every
+ * first candidate first, then each other choice of what it met; the first where none is held.
+ */
+const firstHeld = <A>(restate: (choices: Choices) => A, held: (a: A) => boolean): A => {
+	const choices = new Choices([])
+	const first = restate(choices)
+	if (held(first)) {
+		return first
+	}
+	for (const at of assignments(choices.met).slice(1)) {
+		const other = restate(new Choices(at))
+		if (held(other)) {
+			return other
+		}
+	}
+	return first
 }
 
 /** The target theory's relations by name, whose closed relations type the reads a selection makes of them. */
 type Relations = Readonly<Record<string, TheoryRelation>>
+
+/** A selection's conjuncts' texts under today's canonical form (schema/own.ts canonicalSelection), in canonical order:
+ * what a restated selection and a recorded one are found by alike (PreviousNames.selections). */
+export const canonicalTexts = (selection: SelectionDesc): ReadonlyArray<string> =>
+	canonicalSelection(selection).conjuncts.map((p) => ownedText(p, withoutSourceLocs))
 
 /** Each of `xs` mapped by `f`, or none where `f` maps one to none. */
 const each = <A, B>(
@@ -433,7 +510,8 @@ const restatedConjuncts = (
 	relation: TheoryRelation,
 	selection: ResolvedSelection,
 	names: PreviousNames,
-	relations: Relations
+	relations: Relations,
+	choices: Choices
 ): ReadonlyArray<SpelledConjunct> | undefined => {
 	const rosters = new Map(relation.fields.map((f) => [f.name, fieldRoster(f)] as const))
 	const scope: Scope = {
@@ -455,25 +533,40 @@ const restatedConjuncts = (
 		const was = scope.field(f.name)
 		return was === undefined ? [] : [was]
 	})
-	return canonicalSelection({ conjuncts: predicates }).conjuncts.map((p) => ({
+	const today = canonicalSelection({ conjuncts: predicates }).conjuncts
+	const recorded = names.selections(
+		names.relation(relation.name) ?? relation.name,
+		canonicalTexts({ conjuncts: today })
+	)
+	return (isNonEmpty(recorded) ? choices.pick(recorded) : today).map((p) => ({
 		text: ownedText(p, withoutSourceLocs),
 		reads: previousFields.filter((f) => mentions(p, f))
 	}))
 }
 
+/** A spelling of a statement as the previous snapshot names what it reads (PreviousSpelling), as its readers take it:
+ * whether it spelled every name, and each law it names by the identifier the previous snapshot states it under. */
+export interface RestatingSpelling extends Spelling {
+	readonly complete: boolean
+	readonly law: (law: TheoryLaw) => Identifier<"law">
+}
+
 /**
  * The spelling of a statement as the previous snapshot names what it reads (PreviousNames). A name new to the migration
  * has no previous spelling, nor does a selection that does not restate (restatedConjuncts): the spelling then marks
- * itself incomplete, and a statement spelled by it is none the previous snapshot states, which its reader discards.
+ * itself incomplete, and a statement spelled by it is none the previous snapshot states, which its reader discards. A
+ * selection the previous snapshot records in more than one spelling is the one `choices` takes (firstHeld).
  */
-export class PreviousSpelling implements Spelling {
+class PreviousSpelling implements RestatingSpelling {
 	readonly #names: PreviousNames
 	readonly #relations: Relations
+	readonly #choices: Choices
 	#complete = true
 
-	constructor(names: PreviousNames, relations: Relations) {
+	constructor(names: PreviousNames, relations: Relations, choices: Choices) {
 		this.#names = names
 		this.#relations = relations
+		this.#choices = choices
 	}
 
 	/** Whether every name and selection the spelling was asked for has a previous spelling. */
@@ -503,7 +596,13 @@ export class PreviousSpelling implements Spelling {
 		relation: TheoryRelation,
 		selection: ResolvedSelection
 	): ReadonlyArray<SpelledConjunct> => {
-		const restated = restatedConjuncts(relation, selection, this.#names, this.#relations)
+		const restated = restatedConjuncts(
+			relation,
+			selection,
+			this.#names,
+			this.#relations,
+			this.#choices
+		)
 		if (restated === undefined) {
 			this.#complete = false
 			return []
@@ -522,19 +621,41 @@ export class PreviousSpelling implements Spelling {
 }
 
 /**
+ * What `restate` makes of the target's statements as the previous snapshot spells them (PreviousSpelling): the first of
+ * its restatings `held` takes for the previous snapshot's own, each selection that snapshot records in two spellings
+ * tried both ways (firstHeld), and the first where none is; none where the spelling meets a name new to the migration.
+ */
+export const restatedBy = <A>(
+	names: PreviousNames,
+	relations: Relations,
+	restate: (spell: RestatingSpelling) => A | undefined,
+	held: (a: A) => boolean
+): A | undefined =>
+	firstHeld(
+		(choices) => {
+			const spell = new PreviousSpelling(names, relations, choices)
+			const a = restate(spell)
+			return spell.complete ? a : undefined
+		},
+		(a) => a !== undefined && held(a)
+	)
+
+/**
  * A law's identifier as the previous snapshot would have named it (PreviousNames): its statement (theory.ts
- * lawStatement) spelled with every relation, field, handle and conjunct it names under its previous name. None where one
- * of them is new to the migration: such a law is new to it.
+ * lawStatement) spelled with every relation, field, handle and conjunct it names under its previous name, the one it
+ * states (PreviousNames.stated). None where one of them is new to the migration: such a law is new to it.
  */
 const restatedLaw = (
 	law: LawIdentity,
 	names: PreviousNames,
 	relations: Relations
-): Identifier<"law"> | undefined => {
-	const spelling = new PreviousSpelling(names, relations)
-	const statement = lawStatement(law, spelling)
-	return spelling.complete ? identifierOf(identity.law(statement)) : undefined
-}
+): Identifier<"law"> | undefined =>
+	restatedBy(
+		names,
+		relations,
+		(spell) => identifierOf(identity.law(lawStatement(law, spell))),
+		names.stated
+	)
 
 /**
  * A law column's statement (model.ts lawColumnIdentity) as `spell` spells it, its laws by `law`: a constant by its
@@ -543,7 +664,7 @@ const restatedLaw = (
  */
 const lawColumnStatement = (
 	plan: LawColumnPlan,
-	spell: PreviousSpelling,
+	spell: RestatingSpelling,
 	law: (id: LawId) => Identifier<"law">
 ): LawColumnStatement => {
 	switch (plan.kind) {
@@ -588,25 +709,31 @@ const lawColumnStatement = (
 
 /**
  * A law column's identifier as the previous snapshot would have named it (PreviousNames): its statement with every
- * relation, field, handle and law it names restated (restatedLaw). A column a declaration only renames is then the very
- * column the previous snapshot holds under that identifier, its values unchanged, so the migration renames it; none
- * where its statement names something new to the migration, a column new to it. `laws` holds every law of the target's
- * theory by its identifier, and `relations` its relations by name.
+ * relation, field, handle and law it names restated (restatedLaw), the column `held` takes for one its table holds. A
+ * column a declaration only renames, or whose selection an earlier grizzle spelled otherwise, is then the very column the
+ * previous snapshot holds under that identifier, its values unchanged, so the migration renames it; none where its
+ * statement names something new to the migration, a column new to it. `laws` holds every law of the target's theory by
+ * its identifier, and `relations` its relations by name.
  */
 export const restatedLawColumn = (
 	plan: LawColumnPlan,
 	laws: ReadonlyMap<LawId, TheoryLaw>,
 	names: PreviousNames,
-	relations: Relations
-): Identifier<"lawColumn"> | undefined => {
-	const spell = new PreviousSpelling(names, relations)
-	const law = (id: LawId): Identifier<"law"> => {
-		const stated = laws.get(id)
-		if (stated === undefined) {
-			throw defect(`the law ${id} a drawn column is named by is a law of the theory`)
-		}
-		return spell.law(stated)
-	}
-	const statement = lawColumnStatement(plan, spell, law)
-	return spell.complete ? identifierOf(identity.lawColumn(statement)) : undefined
-}
+	relations: Relations,
+	held: (column: Identifier<"lawColumn">) => boolean
+): Identifier<"lawColumn"> | undefined =>
+	restatedBy(
+		names,
+		relations,
+		(spell) => {
+			const law = (id: LawId): Identifier<"law"> => {
+				const stated = laws.get(id)
+				if (stated === undefined) {
+					throw defect(`the law ${id} a drawn column is named by is a law of the theory`)
+				}
+				return spell.law(stated)
+			}
+			return identifierOf(identity.lawColumn(lawColumnStatement(plan, spell, law)))
+		},
+		held
+	)

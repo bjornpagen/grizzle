@@ -18,7 +18,18 @@ import {
 	builtinFunctions,
 	type Expr
 } from "#compiler/sql/ast.ts"
-import { and, binary, call, cast, lit, not, or, qualifiedCall, types } from "#compiler/sql/build.ts"
+import {
+	and,
+	binary,
+	call,
+	cast,
+	isIn,
+	lit,
+	not,
+	or,
+	qualifiedCall,
+	types
+} from "#compiler/sql/build.ts"
 
 type OpForm = { readonly kind: "binary"; readonly op: BinaryOperator } | { readonly kind: "negate" }
 
@@ -265,7 +276,7 @@ const keyword = (name: Construct, args: ReadonlyArray<Expr>): Expr | undefined =
 			return first === undefined
 				? undefined
 				: isNonEmpty(listed)
-					? { kind: "inList", expr: first, list: listed, not: false }
+					? isIn(first, listed)
 					: lit.bool(false)
 	}
 }
