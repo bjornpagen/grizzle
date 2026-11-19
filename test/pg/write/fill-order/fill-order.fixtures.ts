@@ -2,7 +2,7 @@
 
 import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Steered } from "@bjornpagen/testing/explore"
-import { boolean, constant, type Gen, oneOf } from "@bjornpagen/testing/gen"
+import { boolean, constant, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, type Result } from "effect"
 import { onceCalls } from "#adapter/db/handles.ts"
 import { rowEvaluator } from "#adapter/public/host.ts"
@@ -828,6 +828,36 @@ const ownerPutGeneratedGen: Gen<ClusterCase> = caseOver(
 	(_, rows) => ownerPutGen(rows, 0)
 )
 
+/**
+ * A case aimed at a fold stepping a generated field that reads a column its family draws: R0 owning R1 in an ordered
+ * or a counted family whose sum fold steps R1's `g`, the greater of R1's `v` and R1's index in the family, which the
+ * family's own scan draws; R1 mutable or immutable as drawn. The reference admits and writes each (fill.ts verdictOf,
+ * writesVerdict), as generationDrawn steps a generated field only where it does.
+ */
+const generatedStepGen: Gen<ClusterCase> = caseOver(
+	(source) => ({
+		relations: [
+			{ generated: noGeneration, mutable: true },
+			{
+				generated: { kind: "row", source: { kind: "index", family: 0 } },
+				mutable: source.draw(boolean)
+			}
+		],
+		families: [
+			{
+				kind: source.draw(element(["ordered", "counted"] as const)),
+				owner: 0,
+				member: 1,
+				fold: "sum"
+			}
+		],
+		copies: [],
+		steps: [{ kind: "generated", family: 0 }]
+	}),
+	instanceGen,
+	followUpGen
+)
+
 /** What the generation suite must reach. */
 export const generationSituations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a generated field reading a field grizzle draws or accumulates",
@@ -840,6 +870,7 @@ export const generationSituations: Arr.NonEmptyReadonlyArray<ClusterSituation> =
 /** The situations the generation suite reaches only now and then, each with the cases a witness draws while it is
  * pending. */
 export const generationAims: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]> = [
+	["a fold stepping a generated field that reads a column its family draws", generatedStepGen],
 	[
 		"an owner's put refilling a value over a copy of its generated field that reads a field grizzle accumulates",
 		ownerPutGeneratedGen

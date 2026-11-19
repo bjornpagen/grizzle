@@ -20,13 +20,14 @@ import { spelledExpr, type TestField, testPg, v } from "#test/unit/compute/suppo
 /**
  * The field a literal base is typed by, as Compute.literal types one: a literal never stands first, so the base is a
  * literal of a numeric field, whose typmod holds its value exactly, (its digits, its least scale), or NaN, which every
- * typmod admits, at numeric(1, 0). None for an infinity, which no typmod admits, or a value whose digits or scale pass
+ * typmod of a scale admits, at numeric(1, 1), numeric(p, 0) being an integer type that holds no NaN (4da9792ba). None
+ * for an infinity, which no typmod admits, or a value whose digits or scale pass
  * numeric's declarable ones: no declared field holds it, so no literal base is it. The exponent stays a bare literal,
  * typed by the base it meets.
  */
 export const baseField = (base: Decimal): TestField | undefined => {
 	if (base.isNaN()) {
-		return testPg.numericOf(1, 0)
+		return testPg.numericOf(1, 1)
 	}
 	if (!base.isFinite()) {
 		return undefined

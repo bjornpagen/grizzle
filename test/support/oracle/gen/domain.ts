@@ -807,11 +807,6 @@ export const numericPaddings: Arr.NonEmptyReadonlyArray<number> = [1, 8, 24, 40]
 export const paddedText = (text: string, k: number): string =>
 	`${Str.includes(".")(text) ? text : `${text}.`}${Str.repeat(k)("0")}`
 
-const floatTwins: TwinSpellings = {
-	kind: "twins",
-	of: (literal) => (literal.kind === "float" && literal.value === 0 ? ["-0"] : [])
-}
-
 export const twinSpellings: { readonly [C in Carrier]: TwinSpellings } = {
 	int2: canonicalOnly,
 	int4: canonicalOnly,
@@ -827,8 +822,9 @@ export const twinSpellings: { readonly [C in Carrier]: TwinSpellings } = {
 				? Arr.map(numericPaddings, (k) => paddedText(decimalPayload(literal.value), k))
 				: []
 	},
-	float4: floatTwins,
-	float8: floatTwins,
+	/** A float's two zeros are two values (c067533e8), each stored and output as its own text: neither is the other's twin. */
+	float4: canonicalOnly,
+	float8: canonicalOnly,
 	money: canonicalOnly,
 	bool: canonicalOnly,
 	uuid: canonicalOnly,

@@ -280,8 +280,9 @@ const body = (statement: string): string =>
 /**
  * A statement a first migration runs beyond the fresh-install script that leaves no object but the migrations ledger
  * and the drift check's proofs beside it (kernel/naming.ts isLedgerObject): either table's own DDL, guard trigger and
- * grants, the LOCK opening a residual law's Validate file, and the DO block
- * running the law's full violation query there, which reads and raises only. The snapshot guard's function names the
+ * grants, the LOCK opening a residual law's Validate file, the DO block running the law's full violation query there,
+ * which reads and raises only, and the REFRESH that populates a materialized view the migration creates (7e449b6ef),
+ * which writes its rows and makes no object. The snapshot guard's function names the
  * ledger in its body and the live source's publication publishes it, but each is the installation's own object, in the
  * script too, so a CREATE ... FUNCTION or a CREATE PUBLICATION is never one. A DO block is its command whatever its
  * body's spelling: dollar-quoted, or the escape string a drafted file spells a body holding a control character as
@@ -296,6 +297,7 @@ const leavesNoObject = (statement: string, schema: string): boolean => {
 			!Str.startsWith("CREATE OR REPLACE FUNCTION ")(text) &&
 			!Str.startsWith("CREATE PUBLICATION ")(text)) ||
 		Str.startsWith("LOCK TABLE ")(text) ||
+		Str.startsWith("REFRESH MATERIALIZED VIEW ")(text) ||
 		(Str.startsWith("DO ")(text) && Str.includes("-- The full violation query of law ")(statement))
 	)
 }
