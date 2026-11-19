@@ -1,5 +1,6 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { naturals } from "@bjornpagen/grizzle-text/regex/words"
 /**
  * What one served program takes and answers on the wire, as data over its scalars (live/wire.ts), and the walks of it:
  * a program's input (its parameters, its facts and a page's window), its rows, its keys and its write's outcome, each
@@ -16,7 +17,7 @@ import type { Option } from "effect"
 import type { Json, Path } from "#compiler/core/canonical.ts"
 import type { Delivery } from "#compiler/core/decoder.ts"
 import { transientTags } from "#compiler/core/errors.ts"
-import { sqlstateBody } from "#compiler/core/sqlstate.ts"
+import { sqlstateSpelling } from "#compiler/core/sqlstate.ts"
 import { int8Max } from "#compiler/ir/carriers.ts"
 import {
 	type AnswerKind,
@@ -31,7 +32,7 @@ import {
 	unavailableCauses
 } from "#compiler/live/events.ts"
 import type { KeyFields } from "#compiler/live/key.ts"
-import { anchored, naturals } from "#compiler/live/pattern.ts"
+import { patternOf } from "#compiler/live/pattern.ts"
 import type { Anchor } from "#compiler/live/program.ts"
 import {
 	type WireFaultKind,
@@ -578,7 +579,7 @@ export const inputSchema = <L>(
 }
 
 /** The spelling of a count a write's outcome states: a natural bigint, in the wire's integer grammar. */
-const countSchema: WireSchema = { type: "string", pattern: anchored(naturals(0n, int8Max)) }
+const countSchema: WireSchema = { type: "string", pattern: patternOf(naturals(0n, int8Max)) }
 
 /** The JSON Schema of a write's outcome. */
 const outcomeSchema = <L>(outcome: WireOutcome<L>, leaf: (l: L) => WireSchema): WireSchema => {
@@ -723,7 +724,7 @@ const unavailableReasonSchema: WireSchema = {
 		closedObject([["kind", { type: "string", enum: [...unavailableCauses] }]]),
 		closedObject([
 			["kind", { const: "otherSqlstate" }],
-			["sqlstate", { type: "string", pattern: anchored(sqlstateBody) }]
+			["sqlstate", { type: "string", pattern: patternOf(sqlstateSpelling) }]
 		]),
 		closedObject([
 			["kind", { const: "otherSocketCode" }],

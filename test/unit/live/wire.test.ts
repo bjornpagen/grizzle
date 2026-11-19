@@ -187,6 +187,20 @@ export const theWiresOneTableParsesNothingItsSchemaRefusesAndRefusesWhatItsSchem
 		],
 		kills: [
 			{
+				file: "packages/text/src/regex/print.ts",
+				original: "\tintervals: (set) => set,",
+				replacement: "\tintervals: printableIntervals,",
+				why: "The ECMA dialect closes the surrogate gap as the ARE does: the text schema admits a lone surrogate, which the parse refuses as text and no gap names."
+			},
+			{
+				file: "packages/engine/src/live/pattern.ts",
+				original:
+					'\t\tintegerDigits >= 1 ? b.alt([literal("0"), leading(integerDigits - 1)]) : literal("0")',
+				replacement:
+					'\t\tintegerDigits >= 1 ? b.alt([literal("0"), leading(integerDigits)]) : literal("0")',
+				why: "A decimal's schema admits one integer digit more than its type holds, which the parse refuses as range and no gap names."
+			},
+			{
 				file: "packages/engine/src/ir/date.ts",
 				original: "\tif (days === undefined || day < 1 || day > days) {",
 				replacement: "\tif (days === undefined || day < 1 || day <= days) {",

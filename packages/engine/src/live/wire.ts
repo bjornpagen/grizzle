@@ -2,6 +2,8 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
+import { RegexBuilder, type RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
+import { literal } from "@bjornpagen/grizzle-text/regex/words"
 import { int4Max } from "#compiler/core/canonical.ts"
 /**
  * The JSON wire's spelling of every scalar grizzle serves, as one table over the carriers (`carrierWire`): for each, the
@@ -33,14 +35,13 @@ import { type CalendarDate, convertDate, dayNumber, toCalendarDate } from "#comp
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import {
 	admittedText,
-	alternation,
 	amounts,
-	anchored,
 	base64Texts,
 	calendarDates,
 	decimals,
 	integers,
 	integersBelow,
+	patternOf,
 	uuidSpelling
 } from "#compiler/live/pattern.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
@@ -210,8 +211,11 @@ type CarrierWires = { readonly [C in Carrier]: CarrierWire<C> }
 export const withGaps = (schema: WireSchema, gaps: ReadonlyArray<SchemaGap>): WireSchema =>
 	gaps.length === 0 ? schema : { ...schema, [gapsKeyword]: [...gaps] }
 
-/** A string of the spellings `body` matches whole. */
-const spelled = (body: string): WireSchema => ({ type: "string", pattern: anchored(body) })
+/** A string of the spellings `language` holds whole. */
+const spelled = (language: RegexNode): WireSchema => ({
+	type: "string",
+	pattern: patternOf(language)
+})
 
 /** The greatest magnitude of a binary32 number: a float4's, and a vector component's, JSON number. */
 const binary32Greatest = binary32Max
@@ -610,7 +614,9 @@ const carrierWire: CarrierWires = {
 		schema: (spec) => {
 			const { integerDigits, scale } = numericBounds(spec.numeric)
 			const finite = decimals(integerDigits, scale)
-			return spelled(spec.numeric.kind === "typmod" ? alternation(["NaN", finite]) : finite)
+			return spelled(
+				spec.numeric.kind === "typmod" ? new RegexBuilder().alt([literal("NaN"), finite]) : finite
+			)
 		},
 		encode: (value) => value.toString(),
 		parse: (json, spec) => numericOf(json, spec.numeric),

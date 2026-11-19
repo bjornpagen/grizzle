@@ -106,13 +106,16 @@ const areDialect: Dialect = {
 }
 
 /**
- * ECMA-262 read under the `u` flag, as a JSON Schema `pattern` is (JSON Schema 2020-12 §6.4): each class of code point
- * ranges, the surrogate gap closed, and `^` and `$`, which without the `m` flag hold only at the value's start and end.
+ * ECMA-262 read under the `u` flag, as a JSON Schema `pattern` is (JSON Schema 2020-12 §6.4): each class of the set's
+ * own code point ranges, and `^` and `$`, which without the `m` flag hold only at the value's start and end. The
+ * surrogate gap stays open: a JSON string may hold a lone surrogate (RFC 8259 §8.2 lets `\ud800` stand alone), which the
+ * `u` flag reads as a code point of its own, so a class that closed the gap would admit a string no admitted text is,
+ * and a schema the whole of whose language is a pattern (the wire's text, live/pattern.ts) would admit it.
  */
 const ecmaDialect: Dialect = {
 	char: bracedChar,
 	run: rangeOf(bracedChar),
-	intervals: printableIntervals,
+	intervals: (set) => set,
 	anchors: { start: "^", end: "$" }
 }
 

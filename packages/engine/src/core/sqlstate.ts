@@ -1,3 +1,5 @@
+import { RegexBuilder, set } from "@bjornpagen/grizzle-text/regex/ir"
+import { runsOf } from "@bjornpagen/grizzle-text/regex/words"
 import { nominal } from "#compiler/core/brand.ts"
 
 declare const sqlstateBrand: unique symbol
@@ -21,8 +23,12 @@ const sqlstateLength = 5
  */
 const sqlstateClassLength = 2
 
-/** A SQLSTATE's text as a regular expression's body: the characters `parse` admits, `sqlstateLength` of them. */
-export const sqlstateBody = `[0-9A-Z]{${sqlstateLength}}`
+/** A SQLSTATE's texts as a regular language: the characters `parse` admits, `sqlstateLength` of them. */
+export const sqlstateSpelling = new RegexBuilder().repeat(
+	set(runsOf("0-9A-Z")),
+	sqlstateLength,
+	sqlstateLength
+)
 
 /** The code a server reported, as a SQLSTATE, or undefined for any other text. */
 const parse = (code: string): Sqlstate | undefined => {
