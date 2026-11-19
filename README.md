@@ -2365,19 +2365,21 @@ definition too.
 - **Concurrent writers.** Every writer is SERIALIZABLE, so PostgreSQL orders the judge's reads against the writes
   it does not see: two transactions that each keep a rule and together break it never both commit, and one fails with
   40001.
-- **Migrations.** A migration that adds a rule over a query, or changes one, runs its violation query over the stored
-  rows, and fails where a row breaks it, as it validates a foreign key. The check's identity is the rule's meaning over
-  what it reads, never its SQL: the rule, the definitions it reads, of each table the columns it reads and the key, and
-  of each closed relation it reads by `C.at`, `C.has` or `C.row` the facts those read, its key set and each payload
-  field a `C.at` reads. A draft proves, as it is generated, whether a migration keeps that meaning: one that only
-  changes how grizzle lowers the rule, drops or renames a column the rule does not read, or changes a closed payload it
-  does not read, keeps it, so the proof the rule's earlier check made of the stored rows still stands, and one that
-  changes the rule, a definition, a column it reads or a closed fact it reads (a seat count lowered under the live
-  holds it bounds) states a new identity, which its check proves over the rows. The proof is of the values the rule
-  read, so a migration that writes again a column it reads checks it again too, whatever its identity: a generated
-  column re-expressed (SET EXPRESSION, a closed row its generation reads among the causes), converted, or dropped and
-  added again, and a column a family's backfill draws again, none of which the rule's triggers see. A materialized
-  view above such a column's table is created again and filled for the same reason.
+- **Migrations.** A migration that adds a rule over a query, or changes one, checks it over the stored rows, and fails
+  where a row breaks it, as it validates a foreign key. The check is the judge itself, over the transaction that would
+  write every stored row into an empty installation: the same chain of index lookups, from every row where the judge
+  starts from the rows a transaction wrote, so its work is linear in the rows it reads whatever PostgreSQL estimates of
+  them. The check's identity is the rule's meaning over what it reads, never its SQL: the rule, the definitions it
+  reads, of each table the columns it reads and the key, and of each closed relation it reads by `C.at`, `C.has` or
+  `C.row` the facts those read, its key set and each payload field a `C.at` reads. A draft proves, as it is generated,
+  whether a migration keeps that meaning: one that only changes how grizzle lowers the rule, drops or renames a column
+  the rule does not read, or changes a closed payload it does not read, keeps it, so the proof the rule's earlier check
+  made of the stored rows still stands, and one that changes the rule, a definition, a column it reads or a closed fact
+  it reads (a seat count lowered under the live holds it bounds) states a new identity, which its check proves over the
+  rows. The proof is of the values the rule read, so a migration that writes again a column it reads checks it again
+  too, whatever its identity: a generated column re-expressed (SET EXPRESSION, a closed row its generation reads among
+  the causes), converted, or dropped and added again, and a column a family's backfill draws again, none of which the
+  rule's triggers see. A materialized view above such a column's table is created again and filled for the same reason.
 - **TRUNCATE** fires no capture, so a rule over a query does not judge a TRUNCATE of a table it reads, and judges
   the rows a transaction added to it before a TRUNCATE as if they stood. grizzle never truncates and no role may; a
   direct writer who truncates such a table answers for the rule itself.

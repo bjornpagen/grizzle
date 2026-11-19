@@ -1598,7 +1598,8 @@ export const wholeRule = (
 				law,
 				reads: found.reads,
 				unit: found.unit,
-				...restrictToUnits(violation, found.unit, found.regions, facts, relations, loc)
+				...restrictToUnits(violation, found.unit, found.regions, facts, relations, loc),
+				everyRow: violation
 			})
 		}
 	}

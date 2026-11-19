@@ -10,6 +10,7 @@ import {
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import {
+	everyRowProbes,
 	type LawSide,
 	type ProbedRule,
 	type ProbeSide,
@@ -23,6 +24,7 @@ import { checkQuery } from "#compiler/check/index.ts"
 import { canonicalEquals, canonicalTextOf, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
@@ -85,6 +87,8 @@ import {
 	isIn,
 	notExists,
 	objectName,
+	operandSelect,
+	operandUnionAll,
 	or,
 	provedSelect,
 	qualifiedCall,
@@ -112,9 +116,12 @@ interface Compiled {
  * every probe would encode each whole. A probe's index requests are its statement's chain's, so two probes of one
  * statement request the same indexes.
  */
-const probeStatements = (compiled: ReadonlyArray<Compiled>): ReadonlyArray<OperandSelect> => {
-	const held: Array<OperandSelect> = []
-	for (const p of compiled) {
+const probeStatements = (
+	compiled: NonEmptyReadonlyArray<Compiled>
+): NonEmptyReadonlyArray<OperandSelect> => {
+	const [first, ...rest] = compiled
+	const held: [OperandSelect, ...Array<OperandSelect>] = [first.statement]
+	for (const p of rest) {
 		if (!held.some((s) => canonicalEquals(s, p.statement))) {
 			held.push(p.statement)
 		}
@@ -285,18 +292,19 @@ const requestsOf = (
 						: []
 				)
 			)
-			return isNonEmpty(keys)
-				? [
+			const lead = isNonEmpty(keys) ? unitLead(rule, target, keys, binds) : undefined
+			return lead === undefined
+				? []
+				: [
 						{
 							relation: target.name,
-							...unitLead(rule, target, keys, binds),
+							...lead,
 							method: path.method,
 							role: "lawMaintenance",
 							use: "rule probe",
 							justification: { kind: "law", law: rule.law.id }
 						}
 					]
-				: []
 		}
 	)
 
@@ -307,16 +315,18 @@ const requestsOf = (
  * holds its unit's key in (ir/unit.ts Unit holders) that the read's path binds, the longest run of them from the first in
  * the unit key's order, then the rest, so an index the request asks for never reads past the unit and none another
  * column leads serves it, and a lookup that binds every one of those fields reads one unit. Its judge reads the units a
- * transaction wrote, every holder leading with that key (analysis/theory/unit.ts), but a path need not bind them: a key
- * lookup by a declared key the unit does not lead reads one row by that key's own index, and a path binds no field of a
- * type it does not index, a vector's; such a read is one block of its keys too, and reads rows.
+ * transaction wrote, every holder leading with that key (analysis/theory/unit.ts), so every read inside its steps binds
+ * the unit; a whole rule's read whose path binds no field of it is its check over every row's first read, the
+ * violation query's own (WholeRule `everyRow`), a scan of its relation the check makes once, which asks for no index
+ * (undefined): an index led by the literals it is read at, a node's kind, would cost every write of the relation for a
+ * read one migration makes.
  */
 const unitLead = (
 	rule: RuleTrigger,
 	target: RelationInfo,
 	keys: NonEmptyReadonlyArray<LawIndexKey>,
 	binds: ReadonlyArray<ReadonlyArray<string>>
-): Pick<LawIndexRequest, "blocks" | "reads"> => {
+): Pick<LawIndexRequest, "blocks" | "reads"> | undefined => {
 	const r = rule.rule
 	const relation = target.name
 	switch (r.kind) {
@@ -351,7 +361,7 @@ const unitLead = (
 					: { kind: "rows" }
 			return isNonEmpty(bound)
 				? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }
-				: { blocks: [keys], reads }
+				: undefined
 		}
 	}
 }
@@ -1041,7 +1051,12 @@ const partBody = (
  * (physical/access/extract.ts) are law-maintenance index requests of the rule, so a probe reads by index wherever the
  * planner can, and its cost follows the write.
  */
-export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
+export const addRules = (
+	b: InstallBuilder
+): {
+	readonly requests: ReadonlyArray<IndexRequest>
+	readonly checks: ReadonlyMap<LawId, OperandSelect>
+} => {
 	const catalog = evidenceCatalog({ laws: b.model, views: [] })
 	const tables = judgedTables(b)
 	const judge = objectName(b.schema, b.name(identity.ruleJudge()))
@@ -1060,7 +1075,7 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 		return delta === undefined
 			? undefined
 			: {
-					kind: "session",
+					kind: "table",
 					table: sessionTable(delta.name),
 					columns: t.relation.heading.map((f) => ({ field: f.name, column: f.column }))
 				}
@@ -1094,15 +1109,16 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 				requests,
 				compiled.flatMap((p) => p.requests)
 			)
-			const statements = probeStatements(compiled)
-			return delta === undefined || !isNonEmpty(statements)
+			return delta === undefined || !isNonEmpty(compiled)
 				? []
 				: [
 						{
 							rule,
 							order: identifierOf(rule.named),
 							reads: [delta],
-							body: mapNonEmpty(statements, (statement) => whenFound(statement, [raise]))
+							body: mapNonEmpty(probeStatements(compiled), (statement) =>
+								whenFound(statement, [raise])
+							)
 						}
 					]
 		}
@@ -1142,6 +1158,62 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 			body: [whenFound(lowered.statement, [raiseOf(b, rule, holder.relation)])]
 		}
 	}
+	/**
+	 * A Delta node of a rule's check over every row (`everyRowCheck`), as the transaction that writes every row into an
+	 * installation that holds none leaves it: the added side of a table the rule reads, every row of its relation's own
+	 * table, each field of its heading in its column; the removed side, nothing.
+	 */
+	const everyRow =
+		(rule: RuleTrigger) =>
+		(name: string, side: DeltaSide): DeltaRelation | undefined => {
+			const rt = rule.tables.find((t) => t.relation.name === name)
+			if (rt === undefined || side === "met") {
+				return undefined
+			}
+			const table = b.names.relation(name)
+			return side === "removed"
+				? { kind: "empty" }
+				: {
+						kind: "table",
+						table: objectName(table.schema, table.name),
+						columns: rt.relation.heading.map((f) => ({ field: f.name, column: f.column }))
+					}
+		}
+	/**
+	 * The check of `rule` over every row, the one the migration that adds the rule, or changes it or a definition it
+	 * reads, runs once (deploy/snapshot/violation.ts lawChecks): the judge's own statements over the transaction that
+	 * writes every row into an installation that holds none (`everyRow`), a probed rule's the probes of the facts its
+	 * breaking side's arms add (analysis/theory/query.ts everyRowProbes), a whole rule's its violation query itself, every
+	 * unit being written (WholeRule `everyRow`), each lowered as the judge lowers its statements (`judgedStatement`): one
+	 * chain of lookups from the rows it starts at, every lookup one the judge's statements request an index for, so no
+	 * estimate PostgreSQL makes, with statistics or none, turns the check into a join of derived relations it plans apart
+	 * and joins by their estimates, a nested loop over one's rows for each of another's. The statements are one query,
+	 * their rows UNION ALL.
+	 */
+	const everyRowCheck = (rule: RuleTrigger): OperandSelect => {
+		const r = rule.rule
+		const label = `rule ${rule.law.named.display} over every row`
+		const lowered = (query: InferredQuery): Compiled =>
+			judgedStatement(b, catalog, rule, query, label, rule.law.loc, everyRow(rule))
+		const compiled: NonEmptyReadonlyArray<Compiled> =
+			r.kind === "whole"
+				? [lowered(r.everyRow)]
+				: mapNonEmpty(
+						everyRowProbes(
+							r,
+							(name) => rule.tables.some((t) => t.relation.name === name),
+							rule.law.loc
+						),
+						lowered
+					)
+		appendAll(
+			requests,
+			compiled.flatMap((c) => c.requests)
+		)
+		const [first, second, ...more] = probeStatements(compiled)
+		return second === undefined ? first : operandSelect(operandUnionAll([first, second, ...more]))
+	}
+	const checks = new Map(b.model.rules.map((rule) => [rule.law.id, everyRowCheck(rule)] as const))
 	/** The judge's blocks that hold `rule`, by the one strategy its kind states. */
 	const judgedBy = (rule: RuleTrigger): ReadonlyArray<Judged> => {
 		const r = rule.rule
@@ -1339,7 +1411,7 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 	for (const event of events) {
 		b.name(identity.captureTrigger(event))
 	}
-	return requests
+	return { requests, checks }
 }
 
 /** REVOKE EXECUTE ON FUNCTION <fn>(<args>) FROM PUBLIC. */

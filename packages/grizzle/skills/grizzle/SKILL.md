@@ -286,8 +286,8 @@ breaking change may briefly break older application instances that are still run
   for it. A roster domain's VALIDATE refuses every row that still holds a removed handle's code, naming the table and
   column, never the row: change or delete those rows in a data step before it. A rule over a query (a side over a
   derived relation) that is new, or whose rule or definition changed, is checked here once every row the migration
-  writes is written: a DO block running its violation query over the stored rows, raising 23000 with the rule's name
-  where a row breaks it. A check's identity is its rule's meaning over what it reads, never its SQL, and the query
+  writes is written: a DO block running the rule's judge over every stored row, one chain of index lookups from each,
+  raising 23000 with the rule's name where a row breaks it. A check's identity is its rule's meaning over what it reads, never its SQL, and the query
   reads only the columns its rule reads and each table's key: a draft whose grizzle upgrade only lowers a rule
   differently, or which drops or renames a column no rule reads, proves as it is generated that each rule means what
   it meant, so the proof its earlier check made of the rows still stands. A closed relation's facts a rule reads by

@@ -1,5 +1,10 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import {
+	flatMapNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import {
 	boundIn,
@@ -11,6 +16,7 @@ import {
 	varsOf
 } from "#compiler/analysis/theory/leaves.ts"
 import { leavesOf, ruleLeaves } from "#compiler/check/scan.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	type Channel,
@@ -21,6 +27,7 @@ import {
 	type InferredQuery,
 	type InferredRule,
 	type InferredSource,
+	queryParamNames,
 	type VarDesc
 } from "#compiler/ir/desc.ts"
 
@@ -125,6 +132,69 @@ interface Flat {
 	readonly where: ReadonlyArray<InferredExpr>
 	readonly head: InferredRule["head"]
 }
+
+/**
+ * `arms`, a union of rules, as a union of conjunctions: each arm that matches an imported query of several rules, or of
+ * one rule that matches such a query in turn, at any depth, in place of one arm for each conjunction of that query,
+ * matching it alone. A rule over a union is the
+ * union of the rule over each of its rules, so a filter of `arms`, a negation of each conjunction or an existence of
+ * any, keeps the rows it kept: qti's "Expression node in unknown operand base" negates UnknownOperandBase, a selection
+ * of a derived relation of two rules over the operands' join, each then a chain of lookups by the operator it is
+ * filtered at (`Navigator.#filtered`), where, read as written, PostgreSQL derived the union whole, every unit's
+ * operands joined by its estimates, and anti-joined each node to it.
+ */
+const conjunctions = (
+	arms: NonEmptyReadonlyArray<InferredRule>
+): NonEmptyReadonlyArray<InferredRule> =>
+	flatMapNonEmpty(arms, (arm): NonEmptyReadonlyArray<InferredRule> => {
+		for (const [at, m] of arm.matches.entries()) {
+			const source = m.source
+			if (source.kind !== "query") {
+				continue
+			}
+			const stage = source.query.stage
+			if (stage.kind !== "rules") {
+				continue
+			}
+			const inner = conjunctions(stage.arms)
+			if (inner.length === 1 && inner[0] === stage.arms[0]) {
+				continue
+			}
+			return conjunctions(
+				mapNonEmpty(inner, (rule) => ({
+					...arm,
+					matches: arm.matches.map((x, i) =>
+						i === at
+							? {
+									...m,
+									source: {
+										...source,
+										query: { ...source.query, stage: { ...stage, arms: [rule] } }
+									}
+								}
+							: x
+					)
+				}))
+			)
+		}
+		return [arm]
+	})
+
+/**
+ * A condition `#defined` leaves where it replaced a variable by a literal the variable was equated with, none where it
+ * became an equality of a bare literal with itself, which holds: a selection of a derived relation at the literal its
+ * rule fixes the field at leaves one, `select(ItemRefTarget, type = item)` over the rule whose type is item, and the
+ * checker, which types two bare literals by neither, refuses it. Two bare literals of other values stay, refused as
+ * before: whether they are equal is their field's type's to say, a fraction's scale, which navigation does not read.
+ */
+const decided = (e: InferredExpr): ReadonlyArray<InferredExpr> =>
+	e.kind === "compare" &&
+	e.op === "eq" &&
+	isBare(e.left) &&
+	isBare(e.right) &&
+	canonicalEquals(e.left.value, e.right.value)
+		? []
+		: [e]
 
 /** A relational filter of a rule, a negation or an existence, navigated apart (`Navigator.#filtered`). */
 type Filtered = Extract<InferredExpr, { readonly kind: "absent" | "exists" }>
@@ -344,7 +414,7 @@ class Navigator {
 				vars: flat.vars.filter((v) => v.id !== name),
 				region: flat.region.map((r) => ({ ...r, bindings: mapBindings(r.bindings, leaves) })),
 				reads: flat.reads.map((r) => ({ ...r, bindings: mapBindings(r.bindings, leaves) })),
-				where: flat.where.flatMap((x, i) => (i === at ? [] : [mapLeaves(x, leaves)])),
+				where: flat.where.flatMap((x, i) => (i === at ? [] : decided(mapLeaves(x, leaves)))),
 				head: Object.fromEntries(
 					Object.entries(flat.head).map(([k, h]) => [
 						k,
@@ -551,7 +621,7 @@ class Navigator {
 				if (Object.keys(source.bind).length > 0 || stage.kind !== "rules") {
 					return this.#refuse("a filter of an imported query of rules binding no parameter")
 				}
-				const navigated = mapNonEmpty(stage.arms, (arm) => {
+				const navigated = mapNonEmpty(conjunctions(stage.arms), (arm) => {
 					const at: Array<InferredExpr> = []
 					for (const [field, outer] of Object.entries(a.bindings)) {
 						const head = arm.head[field]
@@ -618,7 +688,8 @@ const literalAtLiteral = (
  * undefined where navigation reads no such rule: one with interiors, attachments or a folded or produced head, a match of
  * anything but a stored or closed relation, a delta or an imported query of one such rule binding no parameter, a
  * relational filter below a scalar expression, a filter of anything but a stored or closed relation or an imported
- * query of such rules, or a match or a filter of an imported query that binds a literal of its head at a literal
+ * query whose conjunctions (`conjunctions`) are such rules, or a match or a filter of an imported query that binds a
+ * literal of its head at a literal
  * (`literalAtLiteral`). A filter, a negation or an existence, is no read the count holds: it keeps or drops a row the
  * reads deliver, so a rule that reads one relation beside a filter is one lookup, and a filter of a delta, which no step
  * reads by an index, leaves the rule as written, where PostgreSQL hashes the delta once per statement.
@@ -667,7 +738,7 @@ const readsOfRule = (rule: InferredRule): number | undefined => {
 			source.kind !== "query" ||
 			Object.keys(source.bind).length > 0 ||
 			source.query.stage.kind !== "rules" ||
-			source.query.stage.arms.some(
+			conjunctions(source.query.stage.arms).some(
 				(arm) => readsOfRule(arm) === undefined || literalAtLiteral(arm, w.bindings)
 			)
 		) {
@@ -699,25 +770,136 @@ const filtersJoin = (w: InferredExpr): boolean =>
 	isFiltered(w) &&
 	w.source.kind === "query" &&
 	w.source.query.stage.kind === "rules" &&
-	w.source.query.stage.arms.some(joins)
+	conjunctions(w.source.query.stage.arms).some(joins)
 
 /**
- * `rule` navigated where it joins (`joins`); one that does not, with the query each of its steps reads navigated where it
- * joins (`navigateQuery`); itself where nothing in it joins.
+ * `rule` navigated where it joins (`joins`); one that does not, with the query each of its steps and imports reads
+ * navigated where it joins (`navigateQuery`); itself where nothing in it joins. An aggregate's rule, which navigation
+ * reads no part of (`readsOfRule`), counts or folds the facts of the query it imports, read per unit inside a whole
+ * rule's step: navigated, each relation that query joins is a lookup by every key column the steps before it bound,
+ * where read as written PostgreSQL plans the join by its estimates of one unit's rows, a nested loop over a range of
+ * the unit for each row of another, the unit's rows squared.
  */
 const navigatedRule = (rule: InferredRule, loc: SourceLoc): InferredRule => {
 	if (joins(rule)) {
 		return navigate(rule, loc)
 	}
+	const fixed = fixedTerms(rule)
 	const matches = rule.matches.map((m): InferredMatch => {
 		const source = m.source
-		if (source.kind !== "step") {
+		if (source.kind === "step") {
+			const query = navigateQuery(source.query, loc)
+			return query === source.query ? m : { ...m, source: { ...source, query } }
+		}
+		if (source.kind !== "query") {
 			return m
 		}
-		const query = navigateQuery(source.query, loc)
-		return query === source.query ? m : { ...m, source: { ...source, query } }
+		const inside = boundInside(source, m.bindings, fixed)
+		const query = navigateQuery(inside.query, loc)
+		return query === source.query ? m : { ...m, source: { ...inside, query } }
 	})
 	return matches.every((m, i) => m === rule.matches[i]) ? rule : { ...rule, matches }
+}
+
+/** An import a rule matches (ir/desc.ts SourceDesc `query`). */
+type Imported = Extract<InferredSource, { readonly kind: "query" }>
+
+/**
+ * An import a rule matches at `bindings`, which navigation reads apart from the rule (`navigatedRule`), with each
+ * binding the rule fixes (`fixedTerms`), to a parameter, a channel or a literal, equated inside each rule of the import
+ * with the head term it binds, every parameter it reads passed in under its own name, at every depth navigation reads
+ * apart in turn: navigated apart, the
+ * import's chain starts from those values. Outside it, beside steps PostgreSQL never pulls a condition into, the
+ * equality left the chain's first step a read of every row: a whole rule's aggregate over the operands' join, its
+ * groups bound to the unit's channels at its match, read every expression of every unit once per unit
+ * (known_operand_base_key). A binding stays the match's alone where the import cannot hold it: at a field a rule's head
+ * aggregates or produces, at a bare literal a bare literal binds (`literalAtLiteral`), or reading a parameter the import
+ * already reads as another term.
+ */
+/** Whether `e` reads no variable of its rule: a parameter, a channel, a literal or a term of them alone. */
+const isFixed = (e: InferredExpr): boolean => {
+	const leaves = leavesOf(e)
+	return leaves.vars.size === 0 && leaves.parents.size === 0
+}
+
+/**
+ * The term each binding of a rule's matches fixes, where it reads no variable of the rule (`isFixed`) or is a variable
+ * the rule's conditions equate with such a term: an aggregate's rule its import's group fields at the unit's channels a
+ * whole rule's step equates them with (`boundInside`).
+ */
+const fixedTerms = (rule: InferredRule): ((term: InferredExpr) => InferredExpr | undefined) => {
+	const vars = new Map<string, InferredExpr>()
+	for (const w of rule.where) {
+		if (w.kind !== "compare" || w.op !== "eq") {
+			continue
+		}
+		if (w.left.kind === "var" && isFixed(w.right)) {
+			vars.set(w.left.var, w.right)
+		} else if (w.right.kind === "var" && isFixed(w.left)) {
+			vars.set(w.right.var, w.left)
+		}
+	}
+	return (term) => (term.kind === "var" ? vars.get(term.var) : isFixed(term) ? term : undefined)
+}
+
+const boundInside = (
+	source: Imported,
+	bindings: InferredBindings,
+	fixed: (term: InferredExpr) => InferredExpr | undefined
+): Imported => {
+	const stage = source.query.stage
+	if (stage.kind !== "rules") {
+		return source
+	}
+	const own = queryParamNames(source.query)
+	const bind: Record<string, Imported["bind"][string]> = { ...source.bind }
+	/** Each binding held inside: its term, and the term each rule's head binds it at, rule by rule. */
+	const held: Array<{ readonly term: InferredExpr; readonly heads: ReadonlyArray<InferredExpr> }> =
+		[]
+	for (const [field, bound] of Object.entries(bindings)) {
+		const term = fixed(bound)
+		if (term === undefined) {
+			continue
+		}
+		const leaves = leavesOf(term)
+		const passed = leaves.params.flatMap((p) =>
+			p.kind === "param" ? [{ kind: "param", name: p.name, type: p.type } as const] : []
+		)
+		const heads = stage.arms.flatMap((arm) => {
+			const head = arm.head[field]
+			return head === undefined ||
+				head.kind === "aggregate" ||
+				head.kind === "producer" ||
+				literalAtLiteral(arm, { [field]: term })
+				? []
+				: [head]
+		})
+		if (
+			passed.length < leaves.params.length ||
+			heads.length < stage.arms.length ||
+			passed.some((p) => own.has(p.name) && !(p.name in bind && canonicalEquals(bind[p.name], p)))
+		) {
+			continue
+		}
+		for (const p of passed) {
+			bind[p.name] = p
+		}
+		held.push({ term, heads })
+	}
+	if (!isNonEmpty(held)) {
+		return source
+	}
+	const arms = mapNonEmpty(stage.arms, (arm, i) => ({
+		...arm,
+		where: [
+			...arm.where,
+			...held.flatMap(({ term, heads }) => {
+				const head = heads[i]
+				return head === undefined ? [] : [equal(head, term)]
+			})
+		]
+	}))
+	return { ...source, bind, query: { ...source.query, stage: { ...stage, arms } } }
 }
 
 /**
@@ -728,15 +910,24 @@ const navigatedRule = (rule: InferredRule, loc: SourceLoc): InferredRule => {
  * (physical/ddl/rules.ts judgedStatement) is navigated so too: a rule probe's, over its region, and a whole rule's
  * violation over its units, whose rule read per unit is a step (analysis/theory/unit.ts perUnit), navigated where it
  * joins within the unit or negates a join, as qti's "Dependency target" does, so no estimate PostgreSQL makes, with
- * statistics or none, reads a join the judge reads as a product it filters afterwards.
+ * statistics or none, reads a join the judge reads as a product it filters afterwards. A rule over an imported query of
+ * several rules is the union of its conjunctions (`conjunctions`), each navigated, where one of them joins: qti's
+ * "Choice not variable" reads ChoiceOrHottext, a union of choices and hottexts, beside a negation of UnclaimedName, which
+ * then is a chain of lookups from each choice or hottext, where read beside the union it was derived whole and
+ * anti-joined to it by PostgreSQL's estimates of one unit.
  */
 export const navigateQuery = (query: InferredQuery, loc: SourceLoc): InferredQuery => {
 	const stage = query.stage
 	if (stage.kind !== "rules") {
 		return query
 	}
-	const arms = mapNonEmpty(stage.arms, (rule) => navigatedRule(rule, loc))
-	return arms.every((rule, i) => rule === stage.arms[i])
+	const arms = flatMapNonEmpty(stage.arms, (rule): NonEmptyReadonlyArray<InferredRule> => {
+		const split = conjunctions([rule])
+		return split.length > 1 && split.some(joins)
+			? mapNonEmpty(split, (conjunction) => navigatedRule(conjunction, loc))
+			: [navigatedRule(rule, loc)]
+	})
+	return arms.length === stage.arms.length && arms.every((rule, i) => rule === stage.arms[i])
 		? query
 		: { ...query, stage: { ...stage, arms } }
 }

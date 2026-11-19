@@ -6,15 +6,23 @@ import type { Step } from "#compiler/deploy/diff/plan.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
+	check,
 	closed,
 	contained,
 	derived,
+	key,
 	on,
 	relation,
 	schema,
 	select
 } from "#compiler/public/schema.ts"
-import type { OperandBody, OperandSelect, SelectCore, TableName } from "#compiler/sql/ast.ts"
+import type {
+	FromSource,
+	OperandBody,
+	OperandSelect,
+	SelectCore,
+	TableName
+} from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import type { Relation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
@@ -132,32 +140,20 @@ export const schemaOf = (c: Case): AnySchema => {
 	}
 }
 
-/** A table a core reads, and how that core delivers its rows: plainly under its proof, or through DISTINCT. */
-interface TableRead {
-	readonly table: string
-	readonly read: "keyed" | "distinct" | "other"
-}
-
 /** A table's name as one text: a stored table's or a view's schema and name, or a carrier's name. */
 export const tableKey = (t: TableName): string =>
 	typeof t === "string" ? t : `${t.schema}.${t.name}`
 
-/** How a core delivers the rows of the tables it reads. */
-const readOf = (core: SelectCore): TableRead["read"] =>
-	core.distinct === true
-		? "distinct"
-		: core.distinct === false && core.rows === "keyed"
-			? "keyed"
-			: "other"
-
-/** The tables a core's FROM names, each with how the core reads it. */
-const coreReads = (core: SelectCore): ReadonlyArray<TableRead> =>
+/** The sources of a core's FROM, in order, a join chain's each in its place. */
+const sourcesOf = (core: SelectCore): ReadonlyArray<FromSource> =>
 	Arr.flatMap(core.from, (item) =>
-		Arr.flatMap(
-			item.kind === "joins" ? [item.first, ...Arr.map(item.steps, (s) => s.source)] : [item],
-			(source): ReadonlyArray<TableRead> =>
-				source.kind === "table" ? [{ table: tableKey(source.table), read: readOf(core) }] : []
-		)
+		item.kind === "joins" ? [item.first, ...Arr.map(item.steps, (s) => s.source)] : [item]
+	)
+
+/** The tables a core's FROM names. */
+const coreReads = (core: SelectCore): ReadonlyArray<string> =>
+	Arr.flatMap(sourcesOf(core), (source) =>
+		source.kind === "table" ? [tableKey(source.table)] : []
 	)
 
 /** Every core of a body: itself, a set operation's arms, a parenthesized query's body. */
@@ -199,13 +195,10 @@ const queriesOf = (query: OperandSelect): ReadonlyArray<OperandSelect> => {
 }
 
 /** Every table a query reads, wherever it stands: its body, a derived table, a sublink or a CTE. */
-export const tableReads = (query: OperandSelect): ReadonlyArray<TableRead> =>
+export const tableReads = (query: OperandSelect): ReadonlyArray<string> =>
 	Arr.flatMap(queriesOf(query), (q) => Arr.flatMap(bodyCores(q.body), coreReads))
 
-/**
- * The negations of a query: each EXCEPT, the containment's own set difference (lower/conservative/anti-join
- * exceptOf), and each NOT EXISTS sublink, one for each negated arm.
- */
+/** The negations of a query: each NOT EXISTS sublink, one for each negated arm it reads. */
 export const negations = (query: OperandSelect): number => {
 	let sublinks = 0
 	visitSelect(query, {
@@ -216,10 +209,7 @@ export const negations = (query: OperandSelect): number => {
 			}
 		}
 	})
-	return (
-		sublinks +
-		Arr.filter(queriesOf(query), (q) => q.body.kind === "setOp" && q.body.op === "EXCEPT").length
-	)
+	return sublinks
 }
 
 const keyChanges = ["kept", "widened", "moved"] as const
@@ -362,39 +352,103 @@ export const uniquelyIndexedBy = (step: Step): ReadonlyArray<string> => {
 		: []
 }
 
-/** The most FROM items one core of a query joins, a join chain's each counted, wherever the core stands. */
-export const widestJoin = (query: OperandSelect): number => {
-	const queries: Array<OperandSelect> = [query]
+/**
+ * The cores of a query, wherever they stand, that join a source to the ones before it uncorrelated: a FROM source after
+ * the first that is no LATERAL derived table or function, whose rows PostgreSQL joins to the others' by its estimates of
+ * both. A chain of steps (analysis/theory/navigate.ts) joins none: every step after the first reads LATERAL, a lookup
+ * by what the steps before it bound.
+ */
+export const looseJoins = (query: OperandSelect): number =>
+	Arr.filter(
+		Arr.flatMap(queriesOf(query), (q) => bodyCores(q.body)),
+		(core) =>
+			Arr.some(
+				sourcesOf(core).slice(1),
+				(source) => !((source.kind === "derived" || source.kind === "function") && source.lateral)
+			)
+	).length
+
+/** Every FROM alias a query defines, at any depth: its cores', its derived tables', its sublinks' and its CTEs'. */
+const aliasesOf = (query: OperandSelect): ReadonlySet<string> =>
+	new Set(
+		Arr.flatMap(queriesOf(query), (q) =>
+			Arr.flatMap(bodyCores(q.body), (core) =>
+				Arr.flatMap(sourcesOf(core), (source) =>
+					"alias" in source && typeof source.alias === "string" ? [source.alias] : []
+				)
+			)
+		)
+	)
+
+/** The tables of every column a query reads, at any depth. */
+const columnTables = (query: OperandSelect): ReadonlySet<string> => {
+	const tables = new Set<string>()
+	visitSelect(query, {
+		...inertVisitor,
+		expr: (e) => {
+			if (e.kind === "column" && e.table !== undefined) {
+				tables.add(e.table)
+			}
+		}
+	})
+	return tables
+}
+
+/** Whether a query is a step of a chain (analysis/theory/navigate.ts): a subquery fenced by OFFSET 0. */
+const isStep = (query: OperandSelect): boolean =>
+	query.offset?.kind === "literal" &&
+	query.offset.value.kind === "int" &&
+	query.offset.value.value === 0n
+
+/**
+ * The steps of a query read once for each row of a source outside them: every step inside a LATERAL derived table or a
+ * sublink, which PostgreSQL evaluates again for each row the query around it holds.
+ */
+const perRowSteps = (query: OperandSelect): ReadonlySet<OperandSelect> => {
+	const roots: Array<OperandSelect> = []
 	visitSelect(query, {
 		...inertVisitor,
 		fromItem: (item) => {
-			if (item.kind === "derived") {
-				queries.push(item.query)
+			if (item.kind === "derived" && item.lateral) {
+				roots.push(item.query)
 			}
 		},
 		expr: (e) => {
 			if (e.kind === "exists" || e.kind === "subquery") {
-				queries.push(e.query)
+				roots.push(e.query)
 			}
 		}
 	})
-	return Arr.reduce(
-		Arr.flatMap(queries, (q) =>
-			Arr.map(bodyCores(q.body), (core) =>
-				Arr.reduce(
-					core.from,
-					0,
-					(n, item) => n + (item.kind === "joins" ? 1 + item.steps.length : 1)
-				)
-			)
-		),
-		0,
-		(most, width) => (width > most ? width : most)
-	)
+	const steps = new Set<OperandSelect>()
+	for (const root of roots) {
+		if (isStep(root)) {
+			steps.add(root)
+		}
+		visitSelect(root, {
+			...inertVisitor,
+			fromItem: (item) => {
+				if (item.kind === "derived" && isStep(item.query)) {
+					steps.add(item.query)
+				}
+			}
+		})
+	}
+	return steps
 }
 
-/** The most matches one rule of the box's definitions joins: J's and V's A ⋈ B, JJ's and VV's J ⋈ T, M's B ⋈ T. */
-export const widestRule = 2
+/**
+ * The steps of a query read once per row of a source outside them (`perRowSteps`) that read a stored table of `stored`
+ * yet no column of a source outside them: a lookup no value before it bounds, which reads every row of its table once
+ * for each row around it, as known_operand_base_key's aggregate read every expression once per unit where its groups
+ * were bound to the unit outside the aggregate's chain.
+ */
+export const unboundSteps = (query: OperandSelect, stored: ReadonlySet<string>): number =>
+	Arr.filter(
+		Arr.fromIterable(perRowSteps(query)),
+		(step) =>
+			Arr.some(tableReads(step), (t) => stored.has(t)) &&
+			!Arr.some(Arr.fromIterable(columnTables(step)), (t) => !aliasesOf(step).has(t))
+	).length
 
 export type MigrationFeature =
 	| "a key kept"
@@ -403,8 +457,151 @@ export type MigrationFeature =
 	| "a negated arm"
 
 export type Feature =
-	| "a stored table read plainly"
+	| "a stored table read"
 	| "a negated arm"
 	| "a definition reading a definition"
 	| "a join"
 	| "a migration check"
+
+/**
+ * The unit-local box: Op(doc, at, base) and Item(doc, at, kind, parent), immutable and keyed by their document first,
+ * so every rule over them is whole, judged and checked per document; Known, each op beside its item's kind and its
+ * parent's, a join of three reads of the two; and over it, a key of its document, kind and base, a count of Known's
+ * facts per key, an aggregate whose import is that join, or a check of its base, a rule over the join itself.
+ */
+const Op = relation("Op", { doc: pg.integer, at: pg.integer, base: pg.integer }, ["doc", "at"])
+
+const Item = relation(
+	"Item",
+	{ doc: pg.integer, at: pg.integer, kind: pg.integer, parent: pg.integer },
+	["doc", "at"]
+)
+
+const unitLaws = ["key", "check", "contained", "union contained"] as const
+
+export interface UnitCase {
+	readonly law: (typeof unitLaws)[number]
+}
+
+export const unitCaseGen: Gen<UnitCase> = (s) => ({ law: s.draw(element(unitLaws)) })
+
+export type UnitFeature =
+	| "a key's count over a join"
+	| "a check over a join"
+	| "a join contained in a union of joins"
+	| "a union contained in a union of joins"
+	| "a judged statement"
+
+/** The situation a case of the unit-local box reaches by its law alone. */
+export const unitFeatureOf = (c: UnitCase): UnitFeature => {
+	switch (c.law) {
+		case "key":
+			return "a key's count over a join"
+		case "check":
+			return "a check over a join"
+		case "contained":
+			return "a join contained in a union of joins"
+		case "union contained":
+			return "a union contained in a union of joins"
+	}
+}
+
+/** The unit-local box's schema for `c`. */
+export const unitSchemaOf = (c: UnitCase): AnySchema => {
+	const Base = schema("UnitBox", [Op, Item], [])
+	const Known = derived(
+		"Known",
+		query(Base).rule((r) => {
+			const { doc, at, base } = v(Op, "o")
+			const { kind, parent } = v(Item, "i")
+			const { kind: parentKind } = v(Item, "p")
+			return r
+				.match(Op, { doc, at, base })
+				.match(Item, { doc, at, kind, parent })
+				.match(Item, { doc, at: parent, kind: parentKind })
+				.find({ doc, at, base, kind, parentKind })
+		})
+	)
+	switch (c.law) {
+		case "key":
+			return schema.extend(Base, "UnitBox_1", [Known], [key(on(Known, "doc", "kind", "base"))])
+		case "check":
+			return schema.extend(Base, "UnitBox_1", [Known], [check("C", Known, (k) => k.ne(k.base, 9))])
+		case "contained":
+		case "union contained": {
+			const ops = query(Base).rule((r) => {
+				const { doc, at, base } = v(Op, "o")
+				const { parent } = v(Item, "i")
+				const { kind } = v(Item, "p")
+				return r
+					.match(Op, { doc, at, base })
+					.match(Item, { doc, at, parent })
+					.match(Item, { doc, at: parent, kind })
+					.find({ doc, at, base, parent, kind })
+			})
+			const Two = derived(
+				"Two",
+				query(Base)
+					.rule((r) => {
+						const { doc, at, base, parent, kind } = v(ops, "first")
+						const { at: other, base: otherBase } = v(ops, "second")
+						return r
+							.match(ops, { doc, at, base, parent, kind })
+							.match(ops, { doc, at: other, base: otherBase, parent })
+							.where(r.ne(base, otherBase), r.eq(kind, 1))
+							.find({ doc, at: parent, kind })
+					})
+					.rule((r) => {
+						const { doc, parent, kind } = v(ops, "o")
+						return r
+							.match(ops, { doc, base: 0, parent, kind })
+							.where(r.in(kind, [1, 2]))
+							.find({ doc, at: parent, kind })
+					})
+			)
+			const either = query(Base)
+				.rule((r) => {
+					const { doc, at } = v(Op, "o")
+					return r.match(Op, { doc, at, base: 7 }).find({ doc, at })
+				})
+				.rule((r) => {
+					const { doc, at } = v(Item, "i")
+					return r.match(Item, { doc, at, kind: 3 }).find({ doc, at })
+				})
+			const Either = derived(
+				"Either",
+				query(Base).rule((r) => {
+					const { doc, at } = v(either, "e")
+					return r.match(either, { doc, at }).find({ doc, at })
+				})
+			)
+			const target = on(
+				select(Two, (t) => t.eq(t.kind, 1)),
+				"doc",
+				"at"
+			)
+			return c.law === "contained"
+				? schema.extend(
+						Base,
+						"UnitBox_1",
+						[Known, Two],
+						[
+							contained(
+								on(
+									select(Known, (k) => k.and(k.eq(k.base, 7), k.ne(k.kind, 3))),
+									"doc",
+									"at"
+								),
+								target
+							)
+						]
+					)
+				: schema.extend(
+						Base,
+						"UnitBox_1",
+						[Two, Either],
+						[contained(on(Either, "doc", "at"), target)]
+					)
+		}
+	}
+}

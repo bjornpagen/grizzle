@@ -1,6 +1,6 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { assert, defined } from "@bjornpagen/testing/assert"
-import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Formatter, Option, Order, Record as Rec, String as Str } from "effect"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import { buildTheory, type Theory } from "#compiler/analysis/theory/theory.ts"
@@ -13,6 +13,7 @@ import {
 	literalDescShape,
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
+import type { RelNode } from "#compiler/ir/rel.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { type TheoryViolations, theoryViolations } from "#compiler/laws/model/violations.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
@@ -141,6 +142,36 @@ const genFactsOf = (t: Theory, facts: HostFacts): GenFacts =>
 				: []
 		)
 	)
+
+/**
+ * The rows `node` of `dag` holds over `facts`, by the reference evaluator, every one by its heading's names: each row as
+ * one text of its cells by column name, the order its heading lists them in apart.
+ */
+export const referenceRows = (
+	t: Theory,
+	dag: Parameters<typeof Reference.of>[0],
+	node: RelNode,
+	facts: HostFacts
+): ReadonlySet<string> => {
+	const ref = Reference.of(dag, {
+		schema: genSchemaOf(t),
+		facts: genFactsOf(t, facts),
+		params: {},
+		observer: unobserved
+	})
+	const names = Arr.map(node.heading, (c) => c.name)
+	return new Set(
+		Arr.map(ref.eval(node, noBindings).rows, (row) =>
+			Arr.join(
+				Arr.sort(
+					Arr.map(names, (name, i) => `${name}=${Formatter.format(row[i])}`),
+					Order.String
+				),
+				"\u0000"
+			)
+		)
+	)
+}
 
 /**
  * The laws whose violation queries are nonempty over `facts`, each with its witness rows: the reference evaluator's

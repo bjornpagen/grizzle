@@ -30,8 +30,10 @@ import { aimed } from "@bjornpagen/testing/gen"
  *   each case draws a history of direct SQL transactions at SERIALIZABLE over keys 1 and 2
  *   and ids 1 to 3: chains of three links, marks, blocks, deletes of one row or of a link and its children at once,
  *   and updates of a link's parent or value. Each transaction, before its triggers run, runs the rule's whole violation
- *   query, the one the migration that adds the rule runs over every row (deploy/snapshot/violation.ts lawChecks), read
- *   whole and never seeded: that oracle judges the state the transaction leaves. Then SET CONSTRAINTS ALL IMMEDIATE runs
+ *   query lowered by the oracle baseline (deploy/snapshot/violation.ts baselineRuleChecks), read whole and never
+ *   seeded: that oracle judges the state the transaction leaves, and the rule's check over every row, the judge's
+ *   statements over the transaction that writes every row, which the migration that adds the rule runs (lawChecks),
+ *   finds a row exactly where it does. Then SET CONSTRAINTS ALL IMMEDIATE runs
  *   the judge, and the transaction commits exactly when the oracle finds no violation, refused otherwise at that moment
  *   by SQLSTATE 23503 for a containment and 23505 for a key, naming a rule the installation's constraint map maps to
  *   the rule.

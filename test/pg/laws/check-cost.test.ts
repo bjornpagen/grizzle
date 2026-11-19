@@ -1,44 +1,37 @@
 /**
  * A law's full check, as the migration that adds or changes a rule runs it over every row (deploy/render/sql.ts
- * violationCheck), reads each row of the tables it checks a bounded number of times, on PostgreSQL 19.
+ * violationCheck), reads each row of the tables it checks a bounded number of times, on PostgreSQL 19: a rule's check
+ * is its judge over the transaction that writes every row (deploy/snapshot/violation.ts lawChecks, physical/ddl/rules.ts
+ * addRules), one chain of lookups from its region, whatever PostgreSQL estimates.
  *
  * edullm's QTI cutover of 547 law checks ran 766.8 s on a production-scale copy, 284 s of it one check and 190 s
  * another, each asked as IF EXISTS (<violation query>): PostgreSQL plans an EXISTS sublink for its first row, like a
- * LIMIT 1 (src/backend/optimizer/plan/subselect.c make_subplan), and expects violations, since it estimates an anti
- * join's rows above zero, so it chose a nested loop over the target's materialized rows for each source row, cheapest to
- * the first row it expected. A law that holds returns none, so the loop ran to its end: __node_kind_in_declaration's
- * removed 1,806,876,555 pairs by its join filter, 366.8 s, where the query read whole by a merge anti join took 0.34 s.
- * Read whole, a containment's NOT EXISTS was still a nested loop wherever PostgreSQL underestimated its source:
- * __attribute_lexical_document_type_kind_name_in, its name, kind and document type estimated at one row of 15,035,
- * removed 113,018,095 pairs in 25.6 s. A containment's check is its source less its target, EXCEPT, which PostgreSQL
- * computes by hashing or sorting each side once (lower/conservative/anti-join exceptOf), under a whole plan and under a
- * first-row plan alike, so this box no longer tells the check's IF EXISTS from its PERFORM, and no box does: the
- * judge's statements, which ask the same (sql/build.ts whenFound), plan alike in both forms. A key's check over a
- * derived relation was a self-join of its side, each fact met by another that agrees with it on the key and differs
- * elsewhere, which derived the side twice: __choice_node_key_package_path_kind_identifier's, choice ⋈ node, took
- * 32.2 s of the series' 320.7 s on that copy. It is the side read once, grouped by the key, its facts counted
- * (analysis/theory/query.ts violationQuery), so it reads each table once.
- *
- * Every level of a check read its rows as a set by SELECT DISTINCT, the conservative lowering's set boundary, though
- * a filter of a set, a renaming of one and a region that binds every column of its sets are sets already
- * (lower/conservative/context.ts wholeSelect): __assessment_object_in_node's check hashed node's 1,829,374 rows twice
- * before its EXCEPT hashed them again, 9.6 s of its standalone run on PRODLAB's production template. Each such level
- * is the set its input is, proved by the input's shape, and reads it once with no deduplication.
+ * LIMIT 1 (src/backend/optimizer/plan/subselect.c make_subplan), and expects violations, so it chose a nested loop
+ * over the target's materialized rows for each source row: __node_kind_in_declaration's removed 1,806,876,555 pairs by
+ * its join filter, 366.8 s. A key's check over a derived relation was a self-join of its side, which derived the side
+ * twice: __choice_node_key_package_path_kind_identifier's took 32.2 s. It is the side read once, grouped by the key, its
+ * facts counted (analysis/theory/query.ts violationQuery). And follow-up 4's S5 spent 354 s of its 801.8 s window on the
+ * binding-fit checks, which read each derived relation of BindingBaseTypeNode as a query of its own, SELECT DISTINCT
+ * over a join that witnesses the declaration's place, joined to the next by PostgreSQL's estimate of each: 102 rows of
+ * 61,093, a nested loop that threw 1,165,329,900 pairs away over zero violations. With no ANALYZE and no planner setting
+ * of grizzle's own, a plan that rests on estimates is the bug; the judge's chain (analysis/theory/navigate.ts) reads
+ * each relation by a lookup of what the steps before it bound, which no estimate reorders.
  *
  * Property: for each case of the box, no SELECT DISTINCT of a check's query reads only sets whose every column its
  * targets keep (check-cost.fixtures.ts needlessDeduplications), and every statement the check's block plans, explained
- * with ANALYZE as PL/pgSQL plans it, reads each table by one plan node and touches at most its plan's nodes times the
- * rows of the two tables (runCheck), and the block raises nothing; then, with an element of a declaring kind no
- * declaration names and two declared elements of one document and kind that share a weight, it raises SQLSTATE 23000
- * under the law's identity. The oracle is the bound itself, rows counted over every loop and scans counted per table,
- * never a clock.
+ * with ANALYZE as PL/pgSQL plans it, reads each table by at most one plan node per occurrence its law reads it at and
+ * one more, its units' region, and touches at most its plan's nodes times the rows of the tables (runCheck), and the
+ * block raises nothing; then, with an element of a declaring kind no declaration names, two declared elements of one
+ * document and kind that share a weight, and a binding of attribute 1 to a variable of base type 2, it raises SQLSTATE
+ * 23000 under the law's identity. The oracle is the bound itself, rows counted over every loop and scans counted per
+ * table, never a clock.
  *
- * The box, exhausted: the rules of QTI's three shapes, Node's elements of a declaring kind contained in Decl on
- * (pkg, path, at), its elements of tag, group and band 5, three columns every element holds alike, and the key over
- * Node ⋈ Decl of document, kind and weight, over two layouts of the elements at six sizes from 500 to 16,000, each
- * twice the one before, the tables analyzed, as a migration's are by the runbook and autovacuum: the sizes at which a
- * first-row plan of the first rule's check, or a whole plan of the second's NOT EXISTS, is a nested loop differ by
- * layout, and the box holds some for each.
+ * The box, exhausted: the rules of QTI's four shapes, Node's elements of a declaring kind contained in Decl on
+ * (pkg, path, at), its elements of tag, group and band 5, three columns every element holds alike, the key over
+ * Node ⋈ Decl of document, kind and weight, and the check over Fit, each binding beside its declaration's cardinality
+ * and base type, of two derived relations that each witness the declaration's place, over two layouts of the elements
+ * at six sizes from 500 to 16,000, each twice the one before, the tables analyzed, as a migration's are by the runbook
+ * and autovacuum.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
@@ -52,8 +45,8 @@ import {
 } from "#test/pg/laws/check-cost.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** A law's full check reads each table it checks once and each row a bounded number of times, deduplicates no set, finds nothing where the law holds, and refuses a violation under the law's identity. */
-export const aLawsFullCheckReadsEachTableOnceAndEachRowABoundedNumberOfTimesDeduplicatesNoSetAndRefusesAViolationUnderTheLawsIdentity =
+/** A law's full check reads each table once per occurrence and each row a bounded number of times, deduplicates no set, finds nothing where the law holds, and refuses a violation under the law's identity. */
+export const aLawsFullCheckReadsEachTableOncePerOccurrenceAndEachRowABoundedNumberOfTimesDeduplicatesNoSetAndRefusesAViolationUnderTheLawsIdentity =
 	property.exhaust(finite(checkCaseGen), {
 		needs: { ledger: Substrate.rolledBack(checkCostTemplate) },
 		situations: ["a law that holds", "a violation found"] satisfies ReadonlyArray<
@@ -65,16 +58,17 @@ export const aLawsFullCheckReadsEachTableOnceAndEachRowABoundedNumberOfTimesDedu
 				Effect.flatMap(ledger, ({ connection, value }) => runCheck(value, connection, c, k)),
 		oracle: {
 			kind: "specification",
-			name: "the bound: no deduplication of a set, and every plan of the check reads each table by one node and touches at most its nodes times the rows of the tables it reads, counted over all loops; and SQLSTATE 23000 under the law's identity for an undeclared element and for two declared elements at one key"
+			name: "the bound: no deduplication of a set, and every plan of the check reads each table by one node per occurrence of its law and its units' one, and touches at most its nodes times the rows of the tables it reads, counted over all loops; and SQLSTATE 23000 under the law's identity for an undeclared element, two declared elements at one key and a binding of a type its attribute refuses"
 		},
-		box: "the rules Node's elements of a declaring kind, and of tag, group and band 5, contained in Decl on (pkg, path, at), and Node ⋈ Decl keyed by (pkg, path, kind, w), two layouts at 500, 1,000, 2,000, 4,000, 8,000 and 16,000 elements, analyzed",
+		box: "the rules Node's elements of a declaring kind, and of tag, group and band 5, contained in Decl on (pkg, path, at), Node ⋈ Decl keyed by (pkg, path, kind, w), and a check over Bind ⋈ CardName ⋈ TypedName, two layouts at 500, 1,000, 2,000, 4,000, 8,000 and 16,000 elements, analyzed",
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/lower/conservative/anti-join/index.ts",
-				original: "\treturn pairs !== undefined && isNonEmpty(pairs)",
-				replacement: "\treturn pairs === undefined && isNonEmpty([])",
-				why: "A containment's check is NOT EXISTS again, which PostgreSQL plans, for a source of three correlated columns it estimates at a row or two, as a nested loop over the target for each source row."
+				file: "packages/engine/src/deploy/snapshot/violation.ts",
+				original: "\t\t\t\tquery: defined(\n\t\t\t\t\tinstallation.ruleChecks.get(r.law.id),",
+				replacement:
+					"\t\t\t\tquery: checkOf(installation, violations, r.law.id).query ?? defined(\n\t\t\t\t\tinstallation.ruleChecks.get(r.law.id),",
+				why: "A rule's check is its violation query lowered by the oracle baseline again, each derived relation a query of its own joined to the next by PostgreSQL's estimates: Fit's two derived relations, each underestimated by its join's correlated columns, are joined by a nested loop over one's rows for each of the other's, as follow-up 4's binding-fit checks were."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",

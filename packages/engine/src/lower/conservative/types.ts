@@ -39,8 +39,10 @@ export interface DeltaColumn {
  * of the statement the read-back rides, over the rows that statement's RETURNING returns (write/readback/deltas.ts
  * deltaCte); a carrier, which only the write oracle's conservative realization fills, by comparing the states before
  * and after the change (test/support/oracle/write/realize.ts); or the empty relation, a side of a delta no statement
- * makes. In a rule probe over its region: the session's delta table of the relation's side (physical/ddl/rules.ts
- * judged), a table of pg_temp that the relation's rule captures fill.
+ * makes. In a rule probe over its region: a table that holds the side's rows, the session's delta table of the
+ * relation's side, a table of pg_temp that the relation's rule captures fill (physical/ddl/rules.ts judged), or, in a
+ * rule's check over every row, the relation's own table, every row of which the transaction that writes every row adds
+ * (physical/ddl/rules.ts everyRow), beside the empty relation it removes.
  */
 export type DeltaRelation =
 	| { readonly kind: "cte"; readonly cte: string; readonly columns: ReadonlyArray<DeltaColumn> }
@@ -50,7 +52,7 @@ export type DeltaRelation =
 			readonly columns: ReadonlyArray<DeltaColumn>
 	  }
 	| {
-			readonly kind: "session"
+			readonly kind: "table"
 			readonly table: ObjectName
 			readonly columns: ReadonlyArray<DeltaColumn>
 	  }

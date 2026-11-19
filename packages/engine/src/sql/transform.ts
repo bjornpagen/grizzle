@@ -1554,6 +1554,9 @@ export const generationColumns = (g: ColumnGeneration | undefined): ReadonlyArra
 }
 export const transformSelect = (s: Select, hooks: AstHooks): Select =>
 	new Transform(hooks).setQuery(s)
+/** A query whose rows may repeat, rebuilt by `hooks`: a law's check over every row, whose rows are the judge's. */
+export const transformQuery = (s: OperandSelect, hooks: AstHooks): OperandSelect =>
+	new Transform(hooks).select(s)
 export const transformCreateIndex = (s: CreateIndex, hooks: AstHooks): CreateIndex =>
 	new Transform(hooks).createIndex(s)
 

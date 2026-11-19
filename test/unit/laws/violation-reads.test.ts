@@ -1,39 +1,40 @@
 /**
- * What a law's full violation query reads, as deploy/snapshot/violation.ts lawChecks lowers it: each stored relation's
- * table plainly, under its primary key's proof (lower/conservative/base/index.ts readsKeyedTable), never through
- * SELECT DISTINCT over it, so PostgreSQL flattens the table into the join that reads it and probes it by its indexes;
- * each derived relation as its definition, live, a query of its own (analysis/theory/query.ts violationQuery), so each
- * join PostgreSQL plans is one definition's own; and a law over closed relations alone no table at all, so the
+ * What a law's check over every row reads, as deploy/snapshot/violation.ts lawChecks gives it: a rule's, the judge of
+ * the transaction that writes every row into an installation that holds none (physical/ddl/rules.ts addRules), one
+ * chain of steps from its region (analysis/theory/navigate.ts), each a lookup of one stored table by what the steps
+ * before it bound, read LATERAL; never a view, since a rule judges a derived relation on its definition, live, which
+ * the migration that checks it may not have filled; and a law over closed relations alone no table at all, so the
  * setup-phase checks of a migration (diff.ts migrationChecks), which only such laws hold, print the same whatever a
  * table read prints.
  *
  * edullm's QTI identity migration drafted its check of LomObjectTitle with every stored relation read through SELECT
- * DISTINCT over every column: PostgreSQL planned one HashAggregate per table, no index, every multi-column join
- * estimated at one row, and the check ran past twelve minutes over tables of thousands of rows.
+ * DISTINCT over every column, and follow-up 4's binding-fit checks read BindingBaseTypeNode's DeclarationName and
+ * TypedDeclarationName each as a query of its own, derived whole and joined to the bound variables by PostgreSQL's
+ * estimates: 102 rows estimated of 61,093, a nested loop that threw 1,165,329,900 pairs away, 193 s and 161 s of an
+ * 801.8 s window over zero violations. A chain's lookups are bound by the rows it reads, whatever PostgreSQL
+ * estimates.
  *
  * The box, exhausted: stored relations A(id, k, a), B(id, k, b) and T(a, b); a rule over a query whose source is A's
  * facts of a nonzero a, the join J = A ⋈ B on k, the facts of a materialized derived relation V = A ⋈ B, or JJ = J ⋈ T
  * or VV = V ⋈ T, a definition reading a definition, and whose target is M, B's (k, b) whose b is a T row's a, with or
- * without a second arm, B's (k, b) whose b is no T row's a, a negation read by NOT EXISTS; beside closed relations
- * TierRank and TierNext and a containment between them alone. The oracle is the installation's own names of the stored
- * tables (PhysicalNames.relation) and the box's own definitions: every table a violation query reads is a stored one,
- * read by a core with no DISTINCT under the proof `keyed`, and never V's view, since a rule judges a derived relation
- * on its definition, live, which the migration that checks it may not have filled; no core of it joins more sources
- * than the widest rule of a definition it reads, each definition a query of its own, so PostgreSQL plans no join of
- * every relation the definitions read together; and a migration check reads no table.
+ * without a second arm, B's (k, b) whose b is no T row's a, a negation; beside closed relations TierRank and TierNext
+ * and a containment between them alone. The oracle is the installation's own names of the stored tables
+ * (PhysicalNames.relation) and the shape of a chain: every table a rule's check reads is a stored one, never V's view,
+ * and no core of it joins a source to the ones before it uncorrelated (looseJoins); and a migration check reads no
+ * table.
  *
- * Features: a stored table read plainly; a negated arm; a definition reading a definition; a join; a migration check.
+ * Features: a stored table read; a negated arm; a definition reading a definition; a join; a migration check.
  *
- * Where a migration runs a rule's check, every table it reads holds its target primary key, which is why reading it
- * plainly is exact: the check is a Validate step (deploy/diff/diff.ts ruleChecks), after the unique index Indexes built
- * for a key over a table that may hold rows, which enforces the key from then, and before which every other key stands
- * (diff.ts ownConstraint); the key's constraint is attached to that index in Publish (deploy/diff/plan.ts slots,
- * slotFile), whose ACCESS EXCLUSIVE no long check runs under. The second box, exhausted, drafts a migration adding the
- * rule from a version without it, A's key kept, widened from (id) to (id, k), or moved to (k, a), with or without M's
- * negated arm. The oracle is the plan itself: each check is in Validate, every primary key a step attaches to a table
- * the check reads has its unique index built before the check, and no statement that takes ACCESS EXCLUSIVE, by
- * PostgreSQL's documented lock of each command (blocksReads), precedes a check in its transaction, so the app reads
- * every table while the checks read every row.
+ * Where a migration runs a rule's check, every table it reads holds its target primary key: the check is a Validate step
+ * (deploy/diff/diff.ts ruleChecks), after the unique index Indexes built for a key over a table that may hold rows,
+ * which enforces the key from then, and before which every other key stands (diff.ts ownConstraint); the key's
+ * constraint is attached to that index in Publish (deploy/diff/plan.ts slots, slotFile), whose ACCESS EXCLUSIVE no long
+ * check runs under. The second box, exhausted, drafts a migration adding the rule from a version without it, A's key
+ * kept, widened from (id) to (id, k), or moved to (k, a), with or without M's negated arm. The oracle is the plan
+ * itself: each check is in Validate, every primary key a step attaches to a table the check reads has its unique index
+ * built before the check, and no statement that takes ACCESS EXCLUSIVE, by PostgreSQL's documented lock of each
+ * command (blocksReads), precedes a check in its transaction, so the app reads every table while the checks read every
+ * row.
  */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
@@ -48,7 +49,9 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { installationsOf, own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
+import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { judgedStatementsOf } from "#test/support/judge.ts"
 import { asDrafted, draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import {
 	blocksReads,
@@ -60,19 +63,34 @@ import {
 	negations,
 	schemaOf,
 	tableKey,
+	looseJoins,
 	tableReads,
+	type UnitFeature,
+	unboundSteps,
 	uniquelyIndexedBy,
-	versionsOf,
-	widestJoin,
-	widestRule
+	unitCaseGen,
+	unitFeatureOf,
+	unitSchemaOf,
+	versionsOf
 } from "#test/unit/laws/violation-reads.fixtures.ts"
 
-/** A law's full violation query reads each stored table plainly under its key, never a view, each definition at a level of its own, and a law over closed relations no table. */
-export const aLawsFullViolationQueryReadsEachStoredTablePlainlyUnderItsKeyNeverAViewEachDefinitionAtALevelOfItsOwnAndALawOverClosedRelationsNoTable =
+/** The installation `schema` compiles to, every option at its default. */
+const installed = (schema: AnySchema) => {
+	const owned = succeeded(own(defined(schemaDescOf(schema), "the case's description")))
+	return succeeded(
+		compileInstallation(
+			owned,
+			completeInstallOptions(owned, installationsOf(owned), [], [], firstCodebook(rostersOf(owned)))
+		)
+	)
+}
+
+/** A rule's check over every row reads each stored table, never a view, in one chain of lookups, and a law over closed relations no table. */
+export const aRulesCheckOverEveryRowReadsEachStoredTableNeverAViewInOneChainOfLookupsAndALawOverClosedRelationsNoTable =
 	property.exhaust(finite(caseGen), {
 		needs: {},
 		situations: [
-			"a stored table read plainly",
+			"a stored table read",
 			"a negated arm",
 			"a definition reading a definition",
 			"a join",
@@ -80,19 +98,7 @@ export const aLawsFullViolationQueryReadsEachStoredTablePlainlyUnderItsKeyNeverA
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, k: CaseOf<Feature>) => (c) =>
 			Effect.sync(() => {
-				const owned = succeeded(own(defined(schemaDescOf(schemaOf(c)), "the case's description")))
-				const installation = succeeded(
-					compileInstallation(
-						owned,
-						completeInstallOptions(
-							owned,
-							installationsOf(owned),
-							[],
-							[],
-							firstCodebook(rostersOf(owned))
-						)
-					)
-				)
+				const installation = installed(schemaOf(c))
 				const stored = new Set(
 					Arr.map(["A", "B", "T"], (name) => tableKey(installation.names.relation(name)))
 				)
@@ -100,12 +106,11 @@ export const aLawsFullViolationQueryReadsEachStoredTablePlainlyUnderItsKeyNeverA
 				assert.equal(checks.rules.length, 1, "the case's one rule over a query")
 				for (const rule of checks.rules) {
 					const reads = tableReads(rule.query)
-					for (const r of reads) {
-						assert.ok(stored.has(r.table), `${r.table}, a stored table, and no view`)
-						assert.equal(r.read, "keyed", `${r.table}, a stored table, read plainly`)
-						k.note("a stored table read plainly")
+					for (const table of reads) {
+						assert.ok(stored.has(table), `${table}, a stored table, and no view`)
+						k.note("a stored table read")
 					}
-					const names = new Set(Arr.map(reads, (r) => r.table))
+					const names = new Set(reads)
 					if (
 						names.has(tableKey(installation.names.relation("A"))) &&
 						names.has(tableKey(installation.names.relation("B")))
@@ -116,9 +121,9 @@ export const aLawsFullViolationQueryReadsEachStoredTablePlainlyUnderItsKeyNeverA
 						k.note("a negated arm")
 					}
 					assert.equal(
-						widestJoin(rule.query),
-						widestRule,
-						"the widest join of the check, the widest rule of a definition it reads"
+						looseJoins(rule.query),
+						0,
+						"no core of the check joins a source to the ones before it uncorrelated"
 					)
 					if (c.source === "nested" || c.source === "nested view") {
 						k.note("a definition reading a definition")
@@ -136,30 +141,23 @@ export const aLawsFullViolationQueryReadsEachStoredTablePlainlyUnderItsKeyNeverA
 			}),
 		oracle: {
 			kind: "second-implementation",
-			name: "the installation's own names of the stored tables, and the widest rule of the box's definitions"
+			name: "the installation's own names of the stored tables, and the shape of a chain of steps: no source joined uncorrelated"
 		},
 		box: "a rule over a query from A's selected facts, J = A ⋈ B, the materialized V = A ⋈ B, JJ = J ⋈ T or VV = V ⋈ T, into M of one arm or of two, one negated, beside a law over closed relations alone",
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/lower/conservative/base/index.ts",
-				original: "\treturn readsKeyedTable(node, cx)",
-				replacement: "\treturn readsKeyedTable(node, cx) && false",
-				why: "The violation probe reads every stored table through SELECT DISTINCT again, as edullm's migration was drafted; it fails the first box."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/query.ts",
-				original:
-					"\t\tmatch: { source: liveSource(side.relation, definition), bindings: bound, loc },",
+				file: "packages/engine/src/deploy/snapshot/violation.ts",
+				original: "\t\t\t\tquery: defined(\n\t\t\t\t\tinstallation.ruleChecks.get(r.law.id),",
 				replacement:
-					"\t\tmatch: {\n\t\t\tsource: imported(\n\t\t\t\tmapNonEmpty(side.arms, (a) =>\n\t\t\t\t\truleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), a.head, loc)\n\t\t\t\t),\n\t\t\t\tloc\n\t\t\t),\n\t\t\tbindings: bound,\n\t\t\tloc\n\t\t},",
-				why: "A side is read as its arms, every definition inlined into one join; it fails the first box by its widest join."
+					"\t\t\t\tquery: checkOf(installation, violations, r.law.id).query ?? defined(\n\t\t\t\t\tinstallation.ruleChecks.get(r.law.id),",
+				why: "A rule's check is its violation query lowered by the oracle baseline again, each definition a query of its own joined to the level that reads it by PostgreSQL's estimates, as follow-up 4's binding-fit checks were; it fails the first box by its loose joins."
 			},
 			{
-				file: "packages/engine/src/analysis/theory/query.ts",
-				original: "\t\t\t\treturn liveSource(s.name, definition)",
-				replacement: "\t\t\t\treturn s",
-				why: "A materialized derived relation is read through its view; it fails the first box by the view it reads."
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original: '\t\tcheckQuery(b.checked, navigateQuery(query, loc), { read: "region", label })',
+				replacement: '\t\tcheckQuery(b.checked, query, { read: "region", label })',
+				why: "The judge reads its queries as written, a join of every relation a probe reads, which PostgreSQL may plan as a product it filters; it fails the first box by its loose joins."
 			}
 		]
 	})
@@ -211,7 +209,7 @@ export const aLawsFullViolationQueryRunsEachRulesCheckInValidateAfterEveryPrimar
 					assert.equal(step.slot, "validate", "a rule's check, in Validate")
 					const read =
 						step.draft.kind === "violation"
-							? new Set(Arr.map(tableReads(step.draft.query), (r) => r.table))
+							? new Set(tableReads(step.draft.query))
 							: new Set<string>()
 					const attaching = Arr.filter(
 						Arr.map(steps, (s, j) => ({ tables: keyedBy(s), j })),
@@ -260,6 +258,122 @@ export const aLawsFullViolationQueryRunsEachRulesCheckInValidateAfterEveryPrimar
 				replacement:
 					'\t\tthis.sql("validate", [\n\t\t\talter(\n\t\t\t\tt,\n\t\t\t\treplacingOld({\n\t\t\t\t\tkind: "addConstraintUsingIndex",',
 				why: "A key's attach USING INDEX, which takes ACCESS EXCLUSIVE, runs in Validate before its checks, so every read of the table waits out every check; it fails the second box."
+			}
+		]
+	})
+
+/**
+ * A unit-local rule's judge and its check over every row read each stored table by the columns the steps before it
+ * bound, an aggregate's import and a negated union as much as a rule's own matches: a key of Known's document, kind and
+ * base, whose violation counts Known's facts per key, an aggregate over the join of Op and two reads of Item, walks Op,
+ * then Item at the op's (doc, at), then Item at the item's (doc, parent), each a lookup of its full key, as a check over
+ * the join does; and Known's selection contained in Two's at kind 1, a derived relation of two rules over ops, a query
+ * of the same join, the first fixing kind at 1, negates each rule as a chain of lookups from the (doc, at) it is
+ * filtered at, as does Either, one rule over either, a query of Op's and Item's rows, contained in it, a rule over
+ * a union, at any depth of one-rule imports, read as its conjunctions. Never is a relation read whole for
+ * the document and joined to the others by PostgreSQL's estimates, which follow-up 4's known_operand_base_key, reading
+ * Expression twice inside its count, and expression_node_in_unknown_operand_base, negating UnknownOperandBase's two
+ * rules over the operands' join, were.
+ */
+export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBoundAnAggregatesImportAndANegatedUnionAsMuchAsItsOwnMatches =
+	property.exhaust(finite(unitCaseGen), {
+		needs: {},
+		situations: [
+			"a key's count over a join",
+			"a check over a join",
+			"a join contained in a union of joins",
+			"a union contained in a union of joins",
+			"a judged statement"
+		] satisfies ReadonlyArray<Reached<UnitFeature>>,
+		check: (_, k: CaseOf<UnitFeature>) => (c) =>
+			Effect.sync(() => {
+				const installation = installed(unitSchemaOf(c))
+				const stored = new Set(
+					Arr.map(["Op", "Item"], (name) => tableKey(installation.names.relation(name)))
+				)
+				const checks = lawChecks(installation)
+				assert.equal(checks.rules.length, 1, "the case's one rule over a query")
+				for (const rule of checks.rules) {
+					assert.equal(
+						looseJoins(rule.query),
+						0,
+						"no core of the check over every row joins a source to the ones before it uncorrelated"
+					)
+					assert.equal(
+						unboundSteps(rule.query, stored),
+						0,
+						"every step of the check over every row but its region's looks its table up by a value before it"
+					)
+					k.note(unitFeatureOf(c))
+				}
+				const judged = judgedStatementsOf(installation)
+				assert.ok(judged.length > 0, "the rule's judged statements")
+				for (const statement of judged) {
+					assert.equal(
+						looseJoins(statement.query),
+						0,
+						"no core of a judged statement joins a source to the ones before it uncorrelated"
+					)
+					assert.equal(
+						unboundSteps(statement.query, stored),
+						0,
+						"every step of a judged statement but its region's looks its table up by a value before it"
+					)
+					k.note("a judged statement")
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the shape of a chain of steps (analysis/theory/navigate.ts): every source after a core's first a LATERAL lookup by what the steps before it bound"
+		},
+		box: "a key of Known(doc, kind, base), a check of its base, or a selection of it or Either, one rule over a query of two over Op and Item, contained in Two's at kind 1, of two rules over ops = Op ⋈ Item ⋈ Item, the first fixing kind at 1, Known = Op ⋈ Item ⋈ Item, Op and Item immutable and keyed by their document first, so the rule is unit-local",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\tconst query = navigateQuery(inside.query, loc)",
+				replacement: "\t\tconst query = inside.query",
+				why: "An aggregate's import is read as written, Known's join of Op and Item a core of three sources, which PostgreSQL joins by its estimates; it fails the key's case."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\tconst inside = boundInside(source, m.bindings, fixed)",
+				replacement: "\t\tconst inside = source",
+				why: "An aggregate's import is navigated apart from the unit its groups are bound to, the binding left outside the aggregate, so its chain's first step reads every Op row once per unit, as follow-up 4's known_operand_base_key read every expression once per document; it fails the key's case."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original:
+					'\treturn (term) => (term.kind === "var" ? vars.get(term.var) : isFixed(term) ? term : undefined)',
+				replacement:
+					'\treturn (term) => (term.kind === "var" ? undefined : isFixed(term) ? term : undefined)',
+				why: "A variable the aggregate's rule equates with the unit's channel is no fixed term, so the unit stops at the aggregate's rule and its import's chain reads every Op row once per unit; it fails the key's case."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\t\tif (inner.length === 1 && inner[0] === stage.arms[0]) {",
+				replacement: "\t\t\tif (true) {",
+				why: "A filter of a rule over an import of several rules is read as written, Two's two rules over ops each a core of the three reads ops joins, derived whole and anti-joined to Known by PostgreSQL's estimates; it fails the containment's case."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original:
+					"\t\t\t\twhere: flat.where.flatMap((x, i) => (i === at ? [] : decided(mapLeaves(x, leaves)))),",
+				replacement:
+					"\t\t\t\twhere: flat.where.flatMap((x, i) => (i === at ? [] : [mapLeaves(x, leaves)])),",
+				why: "Navigation leaves 1 = 1 where it replaced the selection's kind by the literal Two's first rule fixes it at, an equality of two bare literals the checker refuses, so the schema does not compile, as qti's \"Item ref target\" over select(ItemRefTarget, type = item) did not; it fails the containment's case."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\treturn split.length > 1 && split.some(joins)",
+				replacement: "\t\treturn false && split.length > 1 && split.some(joins)",
+				why: "A rule over Either, a union of Op's and Item's rows, is read as written beside its negation of Two, which is derived whole and anti-joined to it; it fails the union's case."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\t\tconst inner = conjunctions(stage.arms)",
+				replacement: "\t\t\tconst inner = stage.arms",
+				why: "Conjunctions split an import of several rules matched directly alone, so Either, one rule over the query either of two, is no union to them, and its rule is read as written beside its negation of Two; it fails the union's case."
 			}
 		]
 	})

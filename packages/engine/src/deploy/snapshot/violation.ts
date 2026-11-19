@@ -1,4 +1,4 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { unwrap } from "#compiler/core/canonical.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { refuseLaw } from "#compiler/deploy/snapshot/objects.ts"
@@ -11,7 +11,13 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { type ConservativeInput, conservativeInput } from "#compiler/lower/conservative/types.ts"
 import { sourcePrunePass } from "#compiler/lower/optimize/prune/index.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { nameKey, type Select, type StoredColumnKey, storedColumnKey } from "#compiler/sql/ast.ts"
+import {
+	nameKey,
+	type OperandSelect,
+	type Select,
+	type StoredColumnKey,
+	storedColumnKey
+} from "#compiler/sql/ast.ts"
 
 /**
  * The violation query of one law, its Forbid node `violation`, as it reads its relations: its own DAG pruned by the prune
@@ -101,12 +107,19 @@ const storedColumnsRead = (
 		})
 	)
 
-/** The check of `law`: its violation DAG as it reads its relations, lowered, and the identity of what it asks. */
-const checkOf = (
+/**
+ * The violation DAG of `law` as it reads its relations (`readsOf`), the stored columns it reads (storedColumnsRead) and
+ * the identity of what it asks.
+ */
+const readsAndIdentity = (
 	installation: Installation,
 	violations: TheoryViolations,
 	law: LawId
-): MigrationCheck => {
+): {
+	readonly reads: ConservativeInput
+	readonly columns: ReadonlySet<StoredColumnKey>
+	readonly digest: string
+} => {
 	const violation = violations.forbids.get(law)
 	if (violation === undefined) {
 		throw defect(`the violation queries hold the law ${law} of the theory`)
@@ -115,12 +128,17 @@ const checkOf = (
 	const identity = unwrap(
 		meaningDigestWithin(reads.dag, [reads.root], "law-check", installation.checked.closed)
 	)
-	return {
-		law,
-		query: violationQuery(installation, law, reads),
-		digest: identity,
-		reads: storedColumnsRead(installation, reads)
-	}
+	return { reads, columns: storedColumnsRead(installation, reads), digest: identity }
+}
+
+/** The check of a law over closed relations alone: its violation DAG as it reads them, lowered, and its identity. */
+const checkOf = (
+	installation: Installation,
+	violations: TheoryViolations,
+	law: LawId
+): MigrationCheck => {
+	const { reads, columns, digest } = readsAndIdentity(installation, violations, law)
+	return { law, query: violationQuery(installation, law, reads), digest, reads: columns }
 }
 
 /**
@@ -130,7 +148,13 @@ const checkOf = (
  * natives that held it at every write held this very law; `defined`, for a rule over a query, whose identity names its
  * sides and not the definitions they read, so the natives that held it held the definitions of then.
  */
-export interface RuleCheck extends MigrationCheck {
+export interface RuleCheck {
+	readonly law: LawId
+	/** The judge's statements over the transaction that writes every row (Installation ruleChecks), rows that may repeat. */
+	readonly query: OperandSelect
+	readonly digest: string
+	/** The stored columns its violation query reads, as installed (MigrationCheck `reads`): the rows its proof was of. */
+	readonly reads: ReadonlySet<StoredColumnKey>
 	readonly meaning: "stated" | "defined"
 }
 
@@ -140,23 +164,48 @@ export interface LawChecks {
 	readonly rules: ReadonlyArray<RuleCheck>
 }
 
+/** The violation queries of an installation's theory, written once (laws/model/violations.ts). */
+const violationsOf = (installation: Installation): TheoryViolations =>
+	unwrap(theoryViolations(installation.laws.checked, installation.laws.theory))
+
 /**
  * An installation's checks, from its theory's violation queries written once (laws/model/violations.ts):
- * `migrations`, the laws that read closed relations alone, in the law model's order of its migration-discharged laws;
- * `rules`, each rule over a query in law order, its violation query over every row, which the migration that adds the
- * rule, or changes it or a definition it reads, runs once its rows are written, before its triggers hold it at every
- * COMMIT after (laws/model/model.ts RuleTrigger). `digest` is the law's identity (MigrationCheck), so a change of
- * the law, of the rows it reads or of a definition a rule reads is a new check, and a change of its lowering is none.
+ * `migrations`, the laws that read closed relations alone, in the law model's order of its migration-discharged laws,
+ * each its violation query lowered; `rules`, each rule over a query in law order, its check over every row
+ * (Installation ruleChecks): the judge's own statements over the transaction that writes every row
+ * (physical/ddl/rules.ts addRules), which the migration that adds the rule, or changes it or a definition it reads,
+ * runs once its rows are written, before its triggers hold it at every COMMIT after (laws/model/model.ts
+ * RuleTrigger). `digest` is the law's identity (MigrationCheck), its violation query's meaning, so a change of the law,
+ * of the rows it reads or of a definition a rule reads is a new check, and a change of how the check reads is none.
  */
 export const lawChecks = (installation: Installation): LawChecks => {
-	const violations = unwrap(theoryViolations(installation.laws.checked, installation.laws.theory))
+	const violations = violationsOf(installation)
 	return {
 		migrations: installation.laws.migrationLaws.map((law) =>
 			checkOf(installation, violations, law)
 		),
-		rules: installation.laws.rules.map((r): RuleCheck => ({
-			...checkOf(installation, violations, r.law.id),
-			meaning: r.law.detail.kind === "containment" ? "stated" : "defined"
-		}))
+		rules: installation.laws.rules.map((r): RuleCheck => {
+			const { columns, digest } = readsAndIdentity(installation, violations, r.law.id)
+			return {
+				law: r.law.id,
+				query: defined(
+					installation.ruleChecks.get(r.law.id),
+					`the installation's check over every row of the rule ${r.law.id}`
+				),
+				digest,
+				reads: columns,
+				meaning: r.law.detail.kind === "containment" ? "stated" : "defined"
+			}
+		})
 	}
+}
+
+/**
+ * Each rule over a query's violation query over every row, as it reads its relations, lowered by the oracle baseline
+ * (lower/conservative): the reading of each law apart from the judge, whose statements both the triggers and the
+ * migration's check over every row run (lawChecks). The judge's suites hold its verdicts to these.
+ */
+export const baselineRuleChecks = (installation: Installation): ReadonlyArray<MigrationCheck> => {
+	const violations = violationsOf(installation)
+	return installation.laws.rules.map((r) => checkOf(installation, violations, r.law.id))
 }

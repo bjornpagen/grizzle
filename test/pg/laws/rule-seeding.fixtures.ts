@@ -16,7 +16,7 @@ import { parsePlan, rowsRead } from "#bench/harness/explain.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { type LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
+import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/rules.ts"
 import { type Installation } from "#compiler/physical/install/compile.ts"
@@ -34,7 +34,12 @@ import {
 	seatTemplate
 } from "#test/pg/fin/installed.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { type JudgedStatement, judgedStatementsOf, plannedQueryOf } from "#test/support/judge.ts"
+import {
+	foundQueryOf,
+	type JudgedStatement,
+	judgedStatementsOf,
+	plannedQueryOf
+} from "#test/support/judge.ts"
 import { refusalOf } from "#test/support/substrate.ts"
 import { type RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -590,12 +595,17 @@ const statementsOf = (seat: Seat, op: Op): ReadonlyArray<string> => {
 	}
 }
 
-/** A shape installed: its seat, its rule's law, and that law's whole violation query, printed. */
+/**
+ * A shape installed: its seat, its rule's law, that law's whole violation query lowered by the oracle baseline, and its
+ * check over every row, the judge's statements over the transaction that writes every row (deploy/snapshot/violation.ts
+ * lawChecks), each a test of the state, printed.
+ */
 export interface Installed {
 	readonly shape: Shape
 	readonly seat: Seat
 	readonly law: LawId
 	readonly whole: string
+	readonly everyRow: string
 }
 
 /** Installs `shape` through its first migration, its rule's law the one rule over a query its triggers discharge. */
@@ -616,16 +626,23 @@ export const installedIn = (taken: SeatCase, shape: Shape) =>
 		const [rule, ...others] = installation.laws.rules
 		assert.ok(rule !== undefined && others.length === 0, `${shape}: one rule held by triggers`)
 		const check = defined(
-			Arr.findFirst(lawChecks(installation).rules, (c) => c.law === rule.law.id).pipe(
+			Arr.findFirst(baselineRuleChecks(installation), (c) => c.law === rule.law.id).pipe(
 				Option.getOrUndefined
 			),
 			`${shape}: the rule's whole check`
+		)
+		const everyRow = defined(
+			Arr.findFirst(lawChecks(installation).rules, (c) => c.law === rule.law.id).pipe(
+				Option.getOrUndefined
+			),
+			`${shape}: the rule's check over every row`
 		)
 		return {
 			shape,
 			seat,
 			law: rule.law.id,
-			whole: printStatement(check.query)
+			whole: `SELECT EXISTS (${printStatement(check.query)})`,
+			everyRow: foundQueryOf(everyRow.query)
 		} satisfies Installed
 	})
 /** The law a refusal's trigger reports, through the installation's constraint map. */
@@ -699,11 +716,19 @@ export const judgeHistory = (
 			for (const sql of statements) {
 				yield* Effect.onError(session.query(sql, []), () => Effect.ignore(session.rollback))
 			}
-			const judged = yield* Effect.onError(
-				session.values(`SELECT EXISTS (${installed.whole})`, []),
-				() => Effect.ignore(session.rollback)
+			const judged = yield* Effect.onError(session.values(installed.whole, []), () =>
+				Effect.ignore(session.rollback)
 			)
 			const broken = truth(judged)
+			const checked = yield* Effect.onError(session.values(installed.everyRow, []), () =>
+				Effect.ignore(session.rollback)
+			)
+			if (truth(checked) !== broken) {
+				yield* Effect.ignore(session.rollback)
+				return yield* new Disagreed({
+					message: `the check over every row finds ${truth(checked) ? "a row" : "none"} where the whole check finds ${broken ? "the rule broken" : "nothing"}, ${where}`
+				})
+			}
 			const refused = yield* refusalOf(session.query("SET CONSTRAINTS ALL IMMEDIATE", []))
 			if (Option.isNone(refused)) {
 				if (broken) {

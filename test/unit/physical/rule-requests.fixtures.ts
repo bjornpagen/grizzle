@@ -120,7 +120,7 @@ const byKeyOfG = (shape: Shape): boolean => shape.keyedByG && shape.join !== "h"
  * join's columns and `package`, U by its key over g alone where it declares one and the join binds g, each an index of
  * exactly its columns; T, read first where no literal binds U, is a range of its key's index at the unit. A whole rule's
  * read binds its unit but by a key the unit does not lead, so every index it creates for its requests leads with
- * `package`, and its read by U's key over g asks for that key's columns alone, which the key's own index serves.
+ * `package`, and its read by U's key over g asks for no index, the key's own serving it.
  */
 export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const owned = owning(schemaOf(shape))

@@ -5,16 +5,31 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { findNodes, parsePlan, planNodes, rowsTouched } from "#bench/harness/explain.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { violationCheck } from "#compiler/deploy/render/sql.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, key, on, relation, schema, select } from "#compiler/public/schema.ts"
-import { type FromSource, isSetQuery, type Select, type SelectCore } from "#compiler/sql/ast.ts"
+import {
+	check,
+	contained,
+	derived,
+	key,
+	on,
+	relation,
+	schema,
+	select
+} from "#compiler/public/schema.ts"
+import {
+	type FromSource,
+	isSetQuery,
+	type OperandSelect,
+	type SelectCore
+} from "#compiler/sql/ast.ts"
 import { sqlText, writeDoBlock } from "#compiler/sql/print.ts"
-import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
+import { identityHooks, transformQuery } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
@@ -45,6 +60,34 @@ const Decl = relation(
 	["pkg", "path", "at"]
 )
 
+/** A declared variable's identifier, at the element that declares it, as QTI's DeclarationIdentifier. */
+const Dcl = relation(
+	"Dcl",
+	{ pkg: pg.integer, path: pg.integer, at: pg.integer, ident: pg.integer },
+	["pkg", "path", "at"]
+)
+
+/** A declaration's cardinality, at its element, as QTI's DeclarationCardinality. */
+const Card = relation(
+	"Card",
+	{ pkg: pg.integer, path: pg.integer, at: pg.integer, card: pg.integer },
+	["pkg", "path", "at"]
+)
+
+/** A declaration's base type, at its element, as QTI's DeclarationBaseType. */
+const Typed = relation(
+	"Typed",
+	{ pkg: pg.integer, path: pg.integer, at: pg.integer, base: pg.integer },
+	["pkg", "path", "at"]
+)
+
+/** A binding at an element, of an attribute, naming a variable its document declares, as QTI's BoundVariable. */
+const Bind = relation(
+	"Bind",
+	{ pkg: pg.integer, path: pg.integer, at: pg.integer, attr: pg.integer, ident: pg.integer },
+	["pkg", "path", "at"]
+)
+
 /**
  * Every element of a declaring kind, 1 or 2, is a declaration's: the rule the judge holds, as QTI's
  * __node_kind_in_declaration, whose check a migration runs over every row once. And every element of tag, group and
@@ -54,7 +97,7 @@ const Decl = relation(
  */
 const Base = schema(
 	"CheckCost",
-	[Node, Decl],
+	[Node, Decl, Dcl, Card, Typed, Bind],
 	[
 		contained(
 			on(
@@ -90,16 +133,71 @@ const Declared = derived(
 	})
 )
 
+/** Each declared name beside its cardinality, by its document, its place witnessed: as QTI's DeclarationName. */
+const CardName = derived(
+	"CardName",
+	query(Base).rule((r) => {
+		const { pkg, path, at, ident } = v(Dcl, "d")
+		const { card } = v(Card, "c")
+		return r
+			.match(Dcl, { pkg, path, at, ident })
+			.match(Card, { pkg, path, at, card })
+			.find({ pkg, path, ident, card })
+	})
+)
+
+/** Each declared name beside its base type, by its document, its place witnessed: as QTI's TypedDeclarationName. */
+const TypedName = derived(
+	"TypedName",
+	query(Base).rule((r) => {
+		const { pkg, path, at, ident } = v(Dcl, "d")
+		const { base } = v(Typed, "t")
+		return r
+			.match(Dcl, { pkg, path, at, ident })
+			.match(Typed, { pkg, path, at, base })
+			.find({ pkg, path, ident, base })
+	})
+)
+
 /**
  * And no two declared elements of one document and kind share a weight: a key over a join of two stored relations
  * whose terms read both, as QTI's __choice_node_key_package_path_kind_identifier, whose check derived choice ⋈ node
  * twice when it was a self-join of the side.
  */
-const Checked = schema.extend(
+const Mid = schema.extend(
 	Base,
 	"CheckCost_1",
-	[Declared],
+	[Declared, CardName, TypedName],
 	[key(on(Declared, "pkg", "path", "kind", "w"))]
+)
+
+/** Each binding beside its variable's cardinality and base type, by its place: as QTI's BindingBaseTypeNode. */
+const Fit = derived(
+	"Fit",
+	query(Mid).rule((r) => {
+		const { pkg, path, at, attr, ident } = v(Bind, "b")
+		const { card } = v(CardName, "c")
+		const { base } = v(TypedName, "t")
+		return r
+			.match(Bind, { pkg, path, at, attr, ident })
+			.match(CardName, { pkg, path, ident, card })
+			.match(TypedName, { pkg, path, ident, base })
+			.find({ pkg, path, at, attr, card, base })
+	})
+)
+
+/**
+ * And a binding of attribute 1 names a variable of base type 1: a check over a join of two derived relations, each a
+ * projection of a join that witnesses the declaration's place, as QTI's BindingFit over BindingBaseTypeNode, whose
+ * check read DeclarationName and TypedDeclarationName each as a query of its own, joined by PostgreSQL's estimates of
+ * them, 102 rows of 61,093, by a nested loop over one's rows for each of the other's: 1,165,329,900 pairs thrown away,
+ * 193 s over zero violations.
+ */
+const Checked = schema.extend(
+	Mid,
+	"CheckCost_2",
+	[Fit],
+	[check("Fit", Fit, (f) => f.or(f.ne(f.attr, 1), f.eq(f.base, 1)))]
 )
 
 /** The schema installed through its first migration, its tables empty. */
@@ -153,6 +251,29 @@ const elementsOf = (c: CheckCase): string => {
 	}
 }
 
+/**
+ * The declarations and bindings of `c`, each one INSERT's SELECT over generate_series's i, of one table: documents of 50
+ * elements, size / 50 of them, each its own path, 20 documents to a package where `documents` lays them out one after
+ * the other and 7 packages where `spread` deals the elements round the documents; places 0 to 9 of a document declare
+ * variables 0 to 9, each of cardinality 1 and base type 1, and places 10 to 49 bind one, of attribute place mod 3. Each
+ * binding names one declaration of its document, and every one is lawful: base type 1.
+ */
+const declarationsOf = (
+	c: CheckCase
+): Readonly<Record<"dcl" | "card" | "typed" | "bind", string>> => {
+	const docs = c.size / 50
+	const place = c.layout === "documents" ? "i % 50" : `i / ${docs}`
+	const doc = c.layout === "documents" ? "i / 50" : `i % ${docs}`
+	const pkg = c.layout === "documents" ? `${doc} / 20` : `${doc} % 7`
+	const series = `FROM (SELECT ${pkg} AS pkg, ${doc} AS path, ${place} AS at FROM pg_catalog.generate_series(0, ${c.size - 1}) AS g(i)) AS e`
+	return {
+		dcl: `SELECT pkg, path, at, at ${series} WHERE at < 10`,
+		card: `SELECT pkg, path, at, 1 ${series} WHERE at < 10`,
+		typed: `SELECT pkg, path, at, 1 ${series} WHERE at < 10`,
+		bind: `SELECT pkg, path, at, at % 3, at % 10 ${series} WHERE at >= 10`
+	}
+}
+
 /** The columns of a derived table a core reads, as `<alias>.<column>`, where its query is a set; none for any other source. */
 const setColumns = (source: FromSource): ReadonlyArray<string> =>
 	source.kind === "derived" && isSetQuery(source.query)
@@ -163,9 +284,9 @@ const setColumns = (source: FromSource): ReadonlyArray<string> =>
  * The deduplications of `query` that a set makes needless: each SELECT DISTINCT whose every source is a derived table of
  * a set, and whose targets read every column of each as it is, so that no two rows it reads deliver one row.
  */
-const needlessDeduplications = (query: Select): ReadonlyArray<SelectCore> => {
+const needlessDeduplications = (query: OperandSelect): ReadonlyArray<SelectCore> => {
 	const needless: Array<SelectCore> = []
-	transformSelect(query, {
+	transformQuery(query, {
 		...identityHooks,
 		core: (c) => {
 			const sources = Arr.flatMap(c.from, (item) =>
@@ -240,23 +361,47 @@ export const runCheck = (
 		const names = namesOf(installed)
 		const nodeTable = names.table(Node)
 		const declTable = names.table(Decl)
+		const declared = declarationsOf(c)
+		const tables = {
+			dcl: names.table(Dcl),
+			card: names.table(Card),
+			typed: names.table(Typed),
+			bind: names.table(Bind)
+		}
+		const all = [nodeTable, declTable, tables.dcl, tables.card, tables.typed, tables.bind]
 		for (const sql of [
-			`ALTER TABLE ${nodeTable} DISABLE TRIGGER USER`,
-			`ALTER TABLE ${declTable} DISABLE TRIGGER USER`,
+			...Arr.map(all, (t) => `ALTER TABLE ${t} DISABLE TRIGGER USER`),
 			`INSERT INTO ${nodeTable} ${elementsOf(c)}`,
 			`INSERT INTO ${declTable} SELECT pkg, path, at, at FROM ${nodeTable} WHERE kind IN (1, 2) OR tag = 5`,
-			`ANALYZE ${nodeTable}`,
-			`ANALYZE ${declTable}`
+			`INSERT INTO ${tables.dcl} ${declared.dcl}`,
+			`INSERT INTO ${tables.card} ${declared.card}`,
+			`INSERT INTO ${tables.typed} ${declared.typed}`,
+			`INSERT INTO ${tables.bind} ${declared.bind}`,
+			...Arr.map(all, (t) => `ANALYZE ${t}`)
 		]) {
 			yield* connection.query(sql, [])
 		}
 		const counted = yield* connection.queryValues(
-			`SELECT (SELECT pg_catalog.count(*) FROM ${nodeTable}) + (SELECT pg_catalog.count(*) FROM ${declTable})`,
+			`SELECT ${Arr.join(
+				Arr.map(all, (t) => `(SELECT pg_catalog.count(*) FROM ${t})`),
+				" + "
+			)}`,
 			[]
 		)
-		const rows = Number(defined(counted[0]?.[0], "the two tables' count"))
-		const checks = lawChecks(installed.installation)
-		assert.equal(checks.rules.length, 3, "the schema's three rules")
+		const rows = Number(defined(counted[0]?.[0], "the tables' count"))
+		const installation = installed.installation
+		const checks = lawChecks(installation)
+		assert.equal(checks.rules.length, 4, "the schema's four rules")
+		/** The occurrences of each table a rule reads (WholeRule reads), each rule of the box a unit-local one. */
+		const occurrences = (law: LawId): ReadonlyArray<string> => {
+			const rule = defined(
+				Arr.findFirst(installation.laws.rules, (r) => r.law.id === law).pipe(Option.getOrUndefined),
+				`${law}, a rule of the box`
+			).rule
+			return rule.kind === "whole"
+				? Arr.map(rule.reads, (r) => installation.names.relation(r.relation).name)
+				: assert.fail(`${law}: a unit-local rule, judged whole`)
+		}
 		for (const rule of checks.rules) {
 			assert.equal(
 				needlessDeduplications(rule.query).length,
@@ -270,7 +415,7 @@ export const runCheck = (
 				writeDoBlock(out, violationCheck(rule.law, rule.query))
 			)
 		}))
-		for (const { text } of blocks) {
+		for (const { law, text } of blocks) {
 			const planned = plannedStatements(text)
 			assert.equal(planned.length, 1, "a check plans one statement over the tables")
 			for (const statement of planned) {
@@ -289,18 +434,26 @@ export const runCheck = (
 					findNodes(plan, (n) => Option.isSome(n.relation) && n.nodeType !== "Bitmap Index Scan"),
 					(n) => Option.toArray(n.relation)
 				)
-				assert.deepEqual(
-					scans,
-					Arr.dedupe(scans),
-					`${Formatter.format(c)}: the check reads each table once`
-				)
+				const reads = occurrences(law)
+				for (const table of Arr.dedupe(scans)) {
+					const read = Arr.filter(scans, (t) => t === table).length
+					const at = Arr.filter(reads, (t) => t === table).length
+					assert.ok(
+						read <= at + 1,
+						`${Formatter.format(c)}: ${law} reads ${table} by ${read} plan nodes, past the ${at} its law reads it at and its units' one`
+					)
+				}
 			}
 			yield* connection.query(text, [])
 		}
 		k.note("a law that holds")
 		for (const sql of [
 			`INSERT INTO ${nodeTable} VALUES (1000000, 0, 0, 1, 5, 5, 5), (1000000, 0, 1, 1, 0, 0, 0), (1000000, 0, 2, 1, 0, 0, 0)`,
-			`INSERT INTO ${declTable} VALUES (1000000, 0, 1, 7), (1000000, 0, 2, 7)`
+			`INSERT INTO ${declTable} VALUES (1000000, 0, 1, 7), (1000000, 0, 2, 7)`,
+			`INSERT INTO ${tables.dcl} VALUES (1000000, 0, 0, 0)`,
+			`INSERT INTO ${tables.card} VALUES (1000000, 0, 0, 1)`,
+			`INSERT INTO ${tables.typed} VALUES (1000000, 0, 0, 2)`,
+			`INSERT INTO ${tables.bind} VALUES (1000000, 0, 10, 1, 0)`
 		]) {
 			yield* connection.query(sql, [])
 		}

@@ -51,8 +51,8 @@ export const aRulesProbeOfTheRowsATransactionAddsReadsThemFromItsNetWriteNeverFr
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
-				original: "\t\t\t\tarm.matches.filter((_, j) => j !== i),",
-				replacement: "\t\t\t\tarm.matches,",
+				original: "\t\tarm.matches.filter((_, j) => j !== at),",
+				replacement: "\t\tarm.matches,",
 				why: "The probe keeps the touched occurrence among the matches it reads as they stand, held at the region's values, so it reads the row again from its table, by the columns it reads, as 12fa0a94 did, and an index of a strict subset of its key, which without statistics PostgreSQL may take, reads every row of that subset."
 			},
 			{

@@ -8,7 +8,7 @@ import type {
 	ColumnDef,
 	CreateMaterializedView,
 	ObjectName,
-	Select,
+	OperandSelect,
 	SqlStatement
 } from "#compiler/sql/ast.ts"
 import type { GenerationAnchor } from "#compiler/sql/generation.ts"
@@ -320,7 +320,7 @@ export type Action =
 			readonly fields: NonEmptyReadonlyArray<SetAside>
 			readonly anchor: GenerationAnchor | undefined
 	  }
-	| { readonly kind: "violation"; readonly law: LawId; readonly query: Select }
+	| { readonly kind: "violation"; readonly law: LawId; readonly query: OperandSelect }
 
 /** A column's conversion to a new type: in place by its cast, when the new type holds the old one's values (its domains
  * read through, the two are one base type under one collation, so the cast keeps every value and only the laws its

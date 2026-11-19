@@ -12,8 +12,10 @@
  * - **equivalence**: a schedule of direct SQL transactions at SERIALIZABLE over two documents, each a unit, run on both
  *   judges of a drawn shape in lockstep: inserts and deletes of single rows, a document written whole and one dropped whole, with the
  *   judge run inside a transaction that then writes on. At each judge and at each transaction's end each judge refuses
- *   exactly when its rules' whole checks, the violation queries a migration runs over every row, find the state
- *   broken, naming a rule they find broken; and the whole judge refuses exactly where the probed judge, the one rules
+ *   exactly when its rules' whole checks, their violation queries lowered by the oracle baseline, find the state
+ *   broken, naming a rule they find broken; each rule's check over every row, the judge of the transaction that
+ *   writes every row, which the migration that adds the rule runs (deploy/snapshot/violation.ts lawChecks), finds a
+ *   row exactly when its whole check does; and the whole judge refuses exactly where the probed judge, the one rules
  *   that are not unit-local keep, refuses, wherever the aggregate's rule holds.
  * - **narrowed region**: Marks joins Tag and Node at Node's key, Tag contained in Node there, so its region reads a
  *   node a transaction wrote only where it replaces one the transaction removed (analysis/theory/unit.ts proofsOf),
@@ -67,10 +69,17 @@ export const aUnitLocalRuleIsJudgedWholeOverTheUnitsATransactionWroteAsItsWholeC
 			}).pipe(Effect.scoped),
 		oracle: {
 			kind: "postgresql",
-			name: "every rule's whole violation query, the migration's check over every row, and the probed judge of the same rules: the whole judge refuses exactly the states one finds broken, naming a rule it finds broken, and where the probed judge refuses"
+			name: "every rule's whole violation query, lowered by the oracle baseline, and the probed judge of the same rules: the whole judge refuses exactly the states one finds broken, naming a rule it finds broken, and where the probed judge refuses, and each rule's check over every row finds a row exactly where its whole check does"
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original: '\t\t\treturn side === "removed"\n\t\t\t\t? { kind: "empty" }',
+				replacement:
+					'\t\t\treturn side === "removed" || side === "added"\n\t\t\t\t? { kind: "empty" }',
+				why: "A rule's check over every row reads none of the rows the transaction that writes every row adds, so it finds nothing in a state its whole check finds broken, and a migration installs a rule the stored rows break."
+			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original: '\t\t\treturn ["removed"]',

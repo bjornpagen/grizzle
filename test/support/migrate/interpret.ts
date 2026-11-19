@@ -22,7 +22,12 @@ import {
 } from "#compiler/sql/ast.ts"
 import { namedType, types } from "#compiler/sql/build.ts"
 import { printObjectName, printType } from "#compiler/sql/print.ts"
-import { identityHooks, transformExpr, transformSelect } from "#compiler/sql/transform.ts"
+import {
+	identityHooks,
+	transformExpr,
+	transformQuery,
+	transformSelect
+} from "#compiler/sql/transform.ts"
 import { textOfHex } from "#test/support/closed/bit-text.ts"
 import type { Placeholder } from "#test/support/migrate/review.ts"
 import { transformOperand, testTypeSchema } from "#test/support/sql.ts"
@@ -410,13 +415,13 @@ const columnsOf = (e: Expr): ReadonlyArray<string> => {
 /** The relations of the schema a query reads, each with the columns it names: every column a column reference of the
  * query names that the relation has, since the model resolves no alias. */
 const readsOf = (
-	query: Select,
+	query: OperandSelect,
 	schema: string,
 	columnsOfRelation: (name: string) => ReadonlyArray<string>
 ): ReadonlyMap<string, ReadonlySet<string>> => {
 	const relations: Array<string> = []
 	const named = new Set<string>()
-	transformSelect(query, {
+	transformQuery(query, {
 		...identityHooks,
 		fromSource: (item: FromSource) => {
 			if (item.kind === "table" && typeof item.table !== "string" && item.table.schema === schema) {

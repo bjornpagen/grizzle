@@ -10,9 +10,11 @@
  *   and two names (puts, removals, updates of the governor the rules read, of the note none reads and of the key,
  *   references, declarations, and deletes of a package that a direct writer's foreign key cascades into A), with the
  *   judge run inside a transaction that then writes on. At each judge and at each transaction's end every rule's whole
- *   check, the violation query a migration that adds the rule runs over every row (deploy/snapshot/violation.ts
- *   lawChecks), judges the state first: the judge refuses exactly when one finds the state broken, under 23503 naming
- *   a rule it finds broken, and the transaction commits otherwise. That is the verdict the judge gave when its probes
+ *   check, its violation query lowered by the oracle baseline (deploy/snapshot/violation.ts baselineRuleChecks),
+ *   judges the state first: the judge refuses exactly when one finds the state broken, under 23503 naming a rule it
+ *   finds broken, and the transaction commits otherwise; and each rule's check over every row, the judge of the
+ *   transaction that writes every row, which the migration that adds the rule runs (lawChecks), finds a row exactly
+ *   when its whole check does. That is the verdict the judge gave when its probes
  *   read every row they judged again from its table, so the two judges agree wherever either agrees with the whole
  *   check. Each situation of the net write is required, a constructed case aiming at each.
  * - **indexTie**: a database with no statistics, or analyzed, holding thousands of attributes of one package, name and
@@ -53,7 +55,7 @@ export const aRuleOverAQueryJudgesTheTransactionsNetWriteAsTheRulesWholeCheckJud
 				}).pipe(Effect.scoped),
 		oracle: {
 			kind: "postgresql",
-			name: "every rule's whole violation query, the migration's check over every row, unseeded: the judge refuses exactly the states one finds broken, naming a rule it finds broken"
+			name: "every rule's whole violation query, lowered by the oracle baseline, unseeded: the judge refuses exactly the states one finds broken, naming a rule it finds broken, and each rule's check over every row finds a row exactly where its whole check does"
 		},
 		kept: [],
 		kills: [
@@ -103,8 +105,8 @@ export const aProbeOfTheFactsARowAddsReadsTheSameRowsBesideAnIndexOfPartOfItsKey
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
-				original: "\t\t\t\tarm.matches.filter((_, j) => j !== i),",
-				replacement: "\t\t\t\tarm.matches,",
+				original: "\t\tarm.matches.filter((_, j) => j !== at),",
+				replacement: "\t\tarm.matches,",
 				why: "A probe of the added side reads the touched row again from its table, by every column it reads, as 12fa0a94 did: with no statistics PostgreSQL reads it through the index of (governor, name, package), every row of the touched row's prefix."
 			}
 		]

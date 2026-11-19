@@ -63,6 +63,13 @@ export const judgedStatementsOf = (installation: Installation): ReadonlyArray<Ju
 export const plannedQueryOf = (statement: JudgedStatement): string =>
 	`SELECT 1 FROM ${printExpr({ kind: "subquery", query: statement.query })} AS "found"`
 
+/**
+ * A query whose rows a rule breaks by, a judged statement's or a rule's check over every row (deploy/snapshot
+ * violation.ts lawChecks), as a test of the state: whether it returns a row.
+ */
+export const foundQueryOf = (query: OperandSelect): string =>
+	`SELECT EXISTS ${printExpr({ kind: "subquery", query })}`
+
 /** The rule a judged statement raises under: its raise's CONSTRAINT, the rule's trigger name. */
 export const raisedRule = (statement: JudgedStatement): Option.Option<string> =>
 	Arr.findFirst(statement.raise.using, (o) => o.option === "CONSTRAINT").pipe(

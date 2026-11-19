@@ -5,7 +5,8 @@
  * before it, and the access-path extraction reads as a fixed equality (physical/access/extract.ts regionFacts); and a
  * whole rule's requests lead with its unit's key (ir/law.ts LawIndexRequest), so no index another column leads serves
  * a read that never leaves the unit, but a read whose path binds no field of its unit, a lookup by a declared key the
- * unit does not lead, which asks for that key's columns alone.
+ * unit does not lead, which asks for no index: the key's own serves it, as the scan a whole rule's check over every row
+ * starts from needs none.
  *
  * Each case is a containment of D in S, D the x of each T row and U row of one package that agree on g, on h or on both,
  * U's w held to a literal or not, over relations each keyed by `package` and a column of its own, immutable, so the rule
@@ -49,9 +50,19 @@ export const aRuleOverAQueryAsksAnIndexOfEachReadItsJudgeMakesAWholeRulesLedByIt
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\t: { blocks: [keys], reads }",
-				replacement: '\t\t\t\t: (() => { throw new Error("a read binds no field of its unit") })()',
-				why: "A whole rule's read whose path binds no field of its unit, U's lookup by its key over g, is refused as a defect rather than asked for its keys alone: the installation of a whole rule beside U's key over g dies."
+				original:
+					"\t\t\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t\t\t: undefined",
+				replacement:
+					'\t\t\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t\t\t: (() => { throw new Error("a read binds no field of its unit") })()',
+				why: "A whole rule's read whose path binds no field of its unit, U's lookup by its key over g, is refused as a defect rather than left to the key's own index: the installation of a whole rule beside U's key over g dies."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original:
+					"\t\t\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t\t\t: undefined",
+				replacement:
+					"\t\t\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t\t\t: { blocks: [keys], reads }",
+				why: "A whole rule's check over every row asks an index of the scan it starts from, led by the literal it reads U at, w, not by the unit: an index every write of U pays for a read one migration makes."
 			},
 			{
 				file: "packages/engine/src/physical/access/extract.ts",

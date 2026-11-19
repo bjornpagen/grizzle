@@ -34,8 +34,8 @@ import type {
 	AlterTableAction,
 	ColumnDef,
 	ObjectName,
+	OperandSelect,
 	PlBlock,
-	Select,
 	SqlStatement
 } from "#compiler/sql/ast.ts"
 import { cast, lit, tableCol, types, whenFound } from "#compiler/sql/build.ts"
@@ -209,7 +209,7 @@ const spellAlteration = (
  * under the law's identity when it finds a row (sql/build.ts whenFound), as the law function itself raises, so a
  * violating file rolls back with the law's identity.
  */
-export const violationCheck = (law: LawId, query: Select): PlBlock => ({
+export const violationCheck = (law: LawId, query: OperandSelect): PlBlock => ({
 	declare: [],
 	body: [
 		whenFound(query, [

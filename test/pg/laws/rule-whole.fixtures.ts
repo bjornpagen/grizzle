@@ -7,7 +7,7 @@ import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec } from "ef
 import { type PlanNode, parsePlan, planNodes, rowsRead } from "#bench/harness/explain.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
+import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -29,6 +29,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import {
+	foundQueryOf,
 	type JudgedStatement,
 	judgedStatementsOf,
 	plannedQueryOf,
@@ -945,10 +946,20 @@ const judged = (
 	Effect.gen(function* () {
 		const installation = installed.installation
 		const broken = new Set<RuleName>(held)
-		for (const lawCheck of lawChecks(installation).rules) {
-			const found = yield* session.values(`SELECT EXISTS (${printStatement(lawCheck.query)})`, [])
-			if (found[0]?.[0] === true) {
+		const found = new Set<LawId>()
+		for (const lawCheck of baselineRuleChecks(installation)) {
+			const rows = yield* session.values(`SELECT EXISTS (${printStatement(lawCheck.query)})`, [])
+			if (rows[0]?.[0] === true) {
 				broken.add(ruleNameOf(installation, lawCheck.law))
+				found.add(lawCheck.law)
+			}
+		}
+		for (const check of lawChecks(installation).rules) {
+			const rows = yield* session.values(foundQueryOf(check.query), [])
+			if ((rows[0]?.[0] === true) !== found.has(check.law)) {
+				return yield* new Disagreed({
+					message: `${installation.names.schema}: the check over every row of ${check.law} finds ${rows[0]?.[0] === true ? "a row" : "none"} where its whole check finds ${found.has(check.law) ? "the rule broken" : "nothing"}, ${where}`
+				})
 			}
 		}
 		const refused = yield* refusalOf(session.query("SET CONSTRAINTS ALL IMMEDIATE", []))

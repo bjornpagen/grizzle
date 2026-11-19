@@ -11,7 +11,7 @@ import {
 	type Identity,
 	identifierOf
 } from "#compiler/core/identity.ts"
-import type { IdentityKind } from "#compiler/core/ids.ts"
+import type { IdentityKind, LawId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -62,7 +62,7 @@ import { addSpanStorage } from "#compiler/physical/span/storage.ts"
 import { planStatistics, type StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
 import { type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
+import type { OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
 
 /** The settings the installation runs under (`InstallSettings`: the PostgreSQL schema; the vector extension's and
  * btree_gist's schemas; the logins over the schema), the
@@ -116,6 +116,12 @@ export interface Installation extends InstallPlan {
 	readonly certification: ReadonlyArray<CertifiedRole>
 	/** The live plan its extensions state, one (liveOf), whose footprint tables its live source publishes. */
 	readonly live: LivePlan
+	/**
+	 * Each rule over a query's check over every row, by its law (physical/ddl/rules.ts addRules): the judge's statements
+	 * over the transaction that writes every row, which the migration that adds the rule runs once (deploy/snapshot
+	 * violation.ts lawChecks).
+	 */
+	readonly ruleChecks: ReadonlyMap<LawId, OperandSelect>
 }
 
 /** A role's certificate as an installation holds it: its login, its name, and its level, the one fact of a certificate
@@ -445,7 +451,7 @@ export const installationOver = (
 				const declared = addFunctions(b)
 				const { keyIndexes, tables } = addTables(b)
 				const units = addUnitFunctions(b)
-				const ruleRequests = addRules(b)
+				const rules = addRules(b)
 				addSpanStorage(b, plan.spans)
 
 				const claimedDerived = new Set<string>()
@@ -462,7 +468,7 @@ export const installationOver = (
 				}
 				const paramDomains = addParamDomains(b, plan.paramDomains)
 
-				const requests = [...reverseRequests(b), ...ruleRequests, ...extensionRequests]
+				const requests = [...reverseRequests(b), ...rules.requests, ...extensionRequests]
 				const indexes = unwrap(planIndexes(b, keyIndexes, requests))
 				planStatistics(b, statisticsRequests)
 
@@ -516,7 +522,8 @@ export const installationOver = (
 						derivedRelations: derived.filter((d) => !claimedDerived.has(d)).toSorted(compareStrings)
 					},
 					certification,
-					live
+					live,
+					ruleChecks: rules.checks
 				}
 			})
 		)

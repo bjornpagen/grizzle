@@ -31,7 +31,11 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
-import { printStatement } from "#compiler/sql/print.ts"
+import type { LawId } from "#compiler/core/ids.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { violationCheck } from "#compiler/deploy/render/sql.ts"
+import type { OperandSelect } from "#compiler/sql/ast.ts"
+import { sqlText, writeDoBlock } from "#compiler/sql/print.ts"
 import {
 	type Change,
 	changedBy,
@@ -41,6 +45,10 @@ import {
 	lawOf,
 	shapeGen
 } from "#test/unit/deploy/check-identity.fixtures.ts"
+
+/** A check as the migration spells it: its violation query's DO block (deploy/render/sql.ts violationCheck). */
+const checkText = (law: LawId, query: OperandSelect): string =>
+	sqlText(SourceLoc("check-identity", []), (out) => writeDoBlock(out, violationCheck(law, query)))
 
 /** One schema installed in two PostgreSQL schemas checks each law under one identity, though its SQL differs. */
 export const oneSchemaInstalledInTwoPostgreSQLSchemasChecksEachLawUnderOneIdentityThoughItsSQLDiffers =
@@ -71,8 +79,8 @@ export const oneSchemaInstalledInTwoPostgreSQLSchemasChecksEachLawUnderOneIdenti
 				}
 				for (const [l, r] of Arr.zip(left.rules, right.rules)) {
 					assert.notEqual(
-						printStatement(l.query),
-						printStatement(r.query),
+						checkText(l.law, l.query),
+						checkText(r.law, r.query),
 						`${lawOf(l.law)}: its SQL names the tables of its own installation`
 					)
 					c.note("a rule's SQL apart")

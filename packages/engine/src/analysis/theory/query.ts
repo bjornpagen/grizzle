@@ -165,6 +165,13 @@ export interface WholeRule {
 	 * lost, at those fields, which the judge captures for the region, beside the sides its occurrences read.
 	 */
 	readonly replaced: ReadonlyArray<ReplacedRead>
+	/**
+	 * The violation query itself: the rule's check over every row, which the migration that adds the rule runs, the judge
+	 * of the transaction that writes every row, whose units are every unit, so no region restricts it. Navigated as the
+	 * judge navigates its statements (physical/ddl/rules.ts), it reads each relation by a lookup from the rows its first
+	 * read delivers, once, where read per unit it ran a step for every unit of the installation.
+	 */
+	readonly everyRow: InferredQuery
 }
 
 /** A holder whose lost rows a whole rule's region reads, and the fields at which the witness that proves it fixes its
@@ -1350,7 +1357,8 @@ const probesOf = (
 	region: Region,
 	rules: NonEmptyReadonlyArray<InferredRule>,
 	loc: SourceLoc
-): ReadonlyArray<InferredQuery> => rules.map((rule) => queryOf([overRegion(region, rule)], loc))
+): NonEmptyReadonlyArray<InferredQuery> =>
+	mapNonEmpty(rules, (rule) => queryOf([overRegion(region, rule)], loc))
 
 /** The variables a match binds itself, never through an expression over them. */
 const boundVars = (matches: ReadonlyArray<ArmMatch>): ReadonlySet<string> =>
@@ -1513,6 +1521,62 @@ const negatedProbes = <A extends LiveArm>(
 	)
 
 /**
+ * The probe of the facts the `at`-th match of `arm`, an arm of the rule's breaking side, adds: the match held to its
+ * region, the rows a transaction's net write adds to its relation (`held`), the arm's other matches read as they stand,
+ * and the rule's violation read over it (`violating`).
+ */
+const factsAdded = (
+	rule: ProbedRule,
+	arm: SideArm,
+	touched: ArmMatch,
+	at: number,
+	loc: SourceLoc
+): NonEmptyReadonlyArray<InferredQuery> => {
+	const h = held(
+		touched,
+		"added",
+		new Set(),
+		arm.matches.filter((_, j) => j !== at),
+		[],
+		arm.where,
+		loc
+	)
+	const read: ProbeArm = {
+		vars: arm.vars.filter((v) => !h.replaced.has(v.id)),
+		matches: h.kept,
+		where: h.where,
+		negated: arm.negated.map((n) => ({ ...n, bindings: mapBindings(n.bindings, h.leaves) })),
+		head: mapBindings(arm.head, h.leaves),
+		terms: mapNonEmpty(arm.terms, (t) => mapLeaves(t, h.leaves))
+	}
+	return probesOf(h.region, violating(rule, read, loc), loc)
+}
+
+/**
+ * The check of a probed rule over every row, the one the migration that adds the rule runs: the judge of the
+ * transaction that writes every row into an installation that holds none, whose net write adds every row of each
+ * relation and removes none. Each fact of an arm of the breaking side reads a row of every relation the arm matches,
+ * so the probe of the facts one of its matches adds (`factsAdded`), its region every row of that match's relation,
+ * judges every fact of the arm: the arm's first match of a stored relation (`stored`), whose rows the probe reads
+ * once, each the start of a chain of lookups (analysis/theory/navigate.ts). An arm of closed relations alone, which
+ * no write adds a fact to, is read as it stands. The judge's other probes add nothing: that transaction removes no
+ * row, so it withdraws no target tuple, and the facts' probe reads the target as it stands, blocked wherever its rows
+ * block it.
+ */
+export const everyRowProbes = (
+	rule: ProbedRule,
+	stored: (relation: string) => boolean,
+	loc: SourceLoc
+): NonEmptyReadonlyArray<InferredQuery> =>
+	flatMapNonEmpty(breakingArms(rule), (arm) => {
+		const at = arm.matches.findIndex((m) => stored(m.relation))
+		const anchor = arm.matches[at]
+		return anchor === undefined
+			? mapNonEmpty(violating(rule, arm, loc), (r) => queryOf([r], loc))
+			: factsAdded(rule, arm, anchor, at, loc)
+	})
+
+/**
  * The probes of what a transaction's net write adds to `relation`, its region delta.added (ProbeSide `added`): the
  * images the relation holds at COMMIT that it did not hold before (physical/ddl/rules.ts addRules), so a probe reads
  * each row from the net write and never again from its table, where without statistics every equality is equally
@@ -1538,29 +1602,9 @@ const addedProbes = (
 	loc: SourceLoc
 ): ReadonlyArray<InferredQuery> => {
 	const added = breakingArms(rule).flatMap((arm) =>
-		arm.matches.flatMap((m, i): ReadonlyArray<InferredQuery> => {
-			if (m.relation !== relation) {
-				return []
-			}
-			const h = held(
-				m,
-				"added",
-				new Set(),
-				arm.matches.filter((_, j) => j !== i),
-				[],
-				arm.where,
-				loc
-			)
-			const read: ProbeArm = {
-				vars: arm.vars.filter((v) => !h.replaced.has(v.id)),
-				matches: h.kept,
-				where: h.where,
-				negated: arm.negated.map((n) => ({ ...n, bindings: mapBindings(n.bindings, h.leaves) })),
-				head: mapBindings(arm.head, h.leaves),
-				terms: mapNonEmpty(arm.terms, (t) => mapLeaves(t, h.leaves))
-			}
-			return probesOf(h.region, violating(rule, read, loc), loc)
-		})
+		arm.matches.flatMap((m, i): ReadonlyArray<InferredQuery> =>
+			m.relation === relation ? factsAdded(rule, arm, m, i, loc) : []
+		)
 	)
 	if (rule.kind !== "contained") {
 		return added
