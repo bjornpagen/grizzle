@@ -109,8 +109,11 @@ const closureFrom = (
  * The words of `node` the automaton accepts, as one node, exactly: each subtree read from every state of the
  * automaton into the states its words lead to, its children read first (ir.ts folded), so a node of any depth reads
  * without recursing. A set splits by the state's edges; an alternation reads arm by arm; a sequence part after part; a
- * repetition iteration after iteration, counted from its least count and closed by Kleene's construction where it is
- * unbounded; and a subtree every code point of which keeps the automaton where it is stays whole there.
+ * repetition iteration after iteration up to its least count, then its rest from each state those reach: the
+ * repetition of the rest whole where every code point keeps the automaton there, as pantry's tracked did, so a run of
+ * iterations stays one run that a later fold reads as one (preimage.ts mergeSafe), else closed by Kleene's construction
+ * where it is unbounded and counted up to its most where not; and a subtree every code point of which keeps the
+ * automaton where it is stays whole there.
  */
 const tracked = (node: RegexNode, dfa: CanonicalDfa): RegexNode => {
 	const builder = new RegexBuilder()
@@ -166,17 +169,27 @@ const tracked = (node: RegexNode, dfa: CanonicalDfa): RegexNode => {
 				for (let k = 0; k < n.min; k++) {
 					reached = composed(builder, reached, once)
 				}
-				if (n.max === "unbounded") {
-					return composed(builder, reached, (from) => closureFrom(builder, once, from))
-				}
-				const out = new Map(reached)
-				for (let k = n.min; k < n.max; k++) {
-					reached = composed(builder, reached, once)
-					for (const [to, piece] of reached) {
-						joinAt(builder, out, to, piece)
+				const more = n.max === "unbounded" ? n.max : n.max - n.min
+				/** The iterations past the least count from `from`: the repetition of them whole where every code
+				 * point keeps the automaton there, else Kleene's closure or each count up to the most. */
+				const rest = (from: number): Reads => {
+					if (keepsWhere(n, from)) {
+						return new Map([[from, builder.repeat(n.body, 0, more)]])
 					}
+					if (more === "unbounded") {
+						return closureFrom(builder, once, from)
+					}
+					let at: Reads = new Map([[from, empty]])
+					const out = new Map(at)
+					for (let k = 0; k < more; k++) {
+						at = composed(builder, at, once)
+						for (const [to, piece] of at) {
+							joinAt(builder, out, to, piece)
+						}
+					}
+					return out
 				}
-				return out
+				return composed(builder, reached, rest)
 			}
 			case "empty":
 			case "start":

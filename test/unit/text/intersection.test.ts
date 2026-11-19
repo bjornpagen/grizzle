@@ -13,7 +13,8 @@
  *
  * Every language's texts of an even length are its intersection with the texts of an even length, whose DFA of two
  * states moves on every code point, so one side is read through the other's and each repetition's closure is drawn
- * from both states, whichever side's DFA is the smaller.
+ * from both states, whichever side's DFA is the smaller; and its nonempty texts its intersection with the repetition of
+ * one or more, whose accepting state loops on every code point, so a repetition read there is kept whole.
  *
  * Features: a text both hold, one only the first holds, one only the second holds, one neither holds, an empty
  * intersection, and an included side.
@@ -137,19 +138,25 @@ export const theIntersectionOfTwoLanguagesOfWholeTextsHoldsATextExactlyWhenBothD
 				const any = set(charSet(Arr.map(alphabet, (cp): readonly [number, number] => [cp, cp])))
 				const builder = new RegexBuilder()
 				const even = builder.repeat(seq([any, any]), 0, "unbounded")
-				for (const [a, b] of [
-					[k.left, even],
-					[even, k.left]
+				const nonempty = builder.repeat(any, 1, "unbounded")
+				for (const [other, lengthHolds, what] of [
+					[even, (n: number) => n % 2 === 0, "of an even length"],
+					[nonempty, (n: number) => n > 0, "of one code point or more"]
 				] as const) {
-					const read = intersect(a, b, limits)
-					assert.ok(read.ok, "a small pair's intersection is within the DFA's bound")
-					const ofRead = holds(read.value)
-					for (const text of k.texts) {
-						assert.equal(
-							ofRead(text),
-							ofLeft(text) && codePoints(text).length % 2 === 0,
-							`${Formatter.format(text)}: the first language's texts of an even length`
-						)
+					for (const [a, b] of [
+						[k.left, other],
+						[other, k.left]
+					] as const) {
+						const read = intersect(a, b, limits)
+						assert.ok(read.ok, "a small pair's intersection is within the DFA's bound")
+						const ofRead = holds(read.value)
+						for (const text of k.texts) {
+							assert.equal(
+								ofRead(text),
+								ofLeft(text) && lengthHolds(codePoints(text).length),
+								`${Formatter.format(text)}: the first language's texts ${what}`
+							)
+						}
 					}
 				}
 				const within = alphabetOf(k.left)
@@ -181,6 +188,12 @@ export const theIntersectionOfTwoLanguagesOfWholeTextsHoldsATextExactlyWhenBothD
 		budget: { runs: 400, steered: 0 },
 		kept: [],
 		kills: [
+			{
+				file: "packages/text/src/regex/intersection.ts",
+				original: "new Map([[from, builder.repeat(n.body, 0, more)]])",
+				replacement: "new Map([[from, builder.repeat(n.body, 1, more)]])",
+				why: "A repetition's rest kept whole at a state it loops at must run at least once: the words that stop at its least count are dropped."
+			},
 			{
 				file: "packages/text/src/regex/intersection.ts",
 				original: "\tif (mineInTheirs || theirsInMine) {",
