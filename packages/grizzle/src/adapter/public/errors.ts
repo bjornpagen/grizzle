@@ -1,9 +1,5 @@
 export {
-	type ApplyError,
-	CommitUnknown,
 	type DeferrableReadError,
-	ExecutionFailure,
-	type ExecutionReason,
 	OpenError,
 	type OpenReason,
 	type OpenStage,
@@ -12,10 +8,7 @@ export {
 	type ReadReason,
 	type ReadStage,
 	StaleSnapshot,
-	TransientFailure,
-	TransportFailure,
-	type TransportReason,
-	type TransportStage
+	TransientFailure
 } from "#adapter/errors/execution.ts"
 
 export {

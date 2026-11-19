@@ -3815,7 +3815,7 @@ A call's `CallError` is read from the reason that failed it, each reason a class
 | `LawRejected`, the laws a contract's or a pattern's domain discharges, which refused a value a statement cast to it; `InputRejected`, below                                 | `refused`       |
 | `TransientFailure`, its reason the `CallError`'s `reason`                                                                                                                    | `transient`     |
 | `StaleSnapshot`: `Migrating` or `Migrated` ([Deploying](#deploying))                                                                                                         | `stale`         |
-| `CommitUnknown`                                                                                                                                                              | `commitUnknown` |
+| a COMMIT sent and never answered: the change may have committed                                                                                                              | `commitUnknown` |
 | an `OpenError` of a call that opened its own Db, over HTTP: its token reasons `tokenRefused`, a role no layer serves `route`, the rest `failed`                                 | as listed       |
 
 **`InputRejected`** is a ChangeSet member's `explain` of a call whose `once` would be `refused` before any SQL, by two

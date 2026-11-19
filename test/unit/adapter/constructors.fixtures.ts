@@ -33,8 +33,8 @@ import { assert, defined } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 
 /**
- * The failure values an application's test builds: every failure a Db call, Db.open, DbLayer.make, a page or
- * db.compile can fail with has a constructor in the public barrel, and it is the one the adapter builds that failure
+ * The failure values an application's test builds: every failure Db.open, DbLayer.make or a member's explain can
+ * fail with has a constructor in the public barrel, and it is the one the adapter builds that failure
  * with, so a test's value is exactly grizzle's, built with no cast and no object literal standing in for a class. The
  * outcome values are the adapter's own (adapter/outcomes applyOutcome), which a write call reads as its WriteOutcome or
  * its refusal; they are built here with those constructors.
@@ -58,8 +58,8 @@ import { wild } from "#test/support/kernel/naming.ts"
  * Features: each constructor, each SQLSTATE grizzle branches on and any other, each report field empty or present.
  */
 
-/** The errors the public channels name: Db.open's and DbLayer.make's, a read's, a write's, generate's compile's. */
-type Channel = Public.OpenError | Public.ReadError | Public.ApplyError | CompileError
+/** The errors the public channels name: Db.open's and DbLayer.make's, a member's explain's, generate's compile's. */
+type Channel = Public.OpenError | Public.ReadError | CompileError
 
 /** A field's value when it is a failure: an Error carrying its tag. */
 type FailureIn<V> = V extends Error & { readonly _tag: string } ? V : never
@@ -91,7 +91,6 @@ const constructors: {
 	CallInputRefused: Public.CallInputRefused,
 	ClaimRefused: Public.ClaimRefused,
 	CommitLost: Public.CommitLost,
-	CommitUnknown: Public.CommitUnknown,
 	CompileError,
 	ConcurrentRefresh: Public.ConcurrentRefresh,
 	ConnectionClosed: Public.ConnectionClosed,
@@ -104,7 +103,6 @@ const constructors: {
 	DriverFailure: Public.DriverFailure,
 	DriverRefused: Public.DriverRefused,
 	EncodingFailure,
-	ExecutionFailure: Public.ExecutionFailure,
 	ExpiryRefused: Public.ExpiryRefused,
 	GeneratedSerialUnique: Public.GeneratedSerialUnique,
 	InputRejected: Public.InputRejected,
@@ -132,7 +130,6 @@ const constructors: {
 	TokenError: Public.TokenError,
 	TokenMalformed: Public.TokenMalformed,
 	TransientFailure: Public.TransientFailure,
-	TransportFailure: Public.TransportFailure,
 	UnreadableAnswer: Public.UnreadableAnswer,
 	UnseenOccupant: Public.UnseenOccupant
 }
