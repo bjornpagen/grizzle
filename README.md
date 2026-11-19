@@ -3715,12 +3715,12 @@ deploy.
   size. It records no object's reasons, state or phase, which only the compile reads, and carries its own seal, the
   digest of both files, so a file edited, corrupted or merged, or one of another snapshot, is refused; `check` holds
   the record to the one the schemas compile to.
-- **A `manifest.json` an earlier grizzle wrote**, every installed statement whole and no seal, is converted once, by
-  `grizzle generate` alone: it reads it, holds its content to the fingerprint `snapshot.json` records, writes the
-  record in its place, and drafts no migration where nothing else changed; `snapshot.json`, every fingerprint, every
-  ledger and every served file stay as they are. `check` reports it (manifest.json is of the form an earlier grizzle
-  wrote) and `migrate`, `drift` and `names` refuse it, at stage `manifest`, until then. After upgrading grizzle, run
-  `grizzle generate grizzle.config.ts` once in each installation's package and commit its `manifest.json`.
+- **Every file grizzle reads back records its format**: `snapshot.json` and each served file as their `format`
+  member, and `manifest.json`'s seal digests both snapshot files under it. A pair of another format, or of none, as a
+  grizzle before formats wrote, reads as no snapshot: `check` reports it, and `generate`, `migrate`, `drift` and
+  `names` refuse it at stage `snapshot`, writing nothing. An installation's committed snapshot moves to a new format
+  once, by the converter its release ships beside grizzle; a served file is written again by `grizzle generate`, and
+  one of another format is refused where it loads.
 - **Plain SQL you may edit**, as long as the database ends where the snapshot says, and the drift check after the apply
   judges every edit by the catalog it reaches. Any text tool may read and write a drafted file back: every constant
   whose value holds a control character or a line or paragraph separator is written as an escape string (`E'\r'`, a

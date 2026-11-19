@@ -156,8 +156,8 @@ export default defineConfig({
    kind `placeholder` or `confirm`, then each loss to decide as `<file>: data loss: <what it loses>: <what to do>`,
    then `next: resolve the markers, then run grizzle check`. With no change it writes nothing and prints `no changes`,
    unless the derived facts snapshot.json records are out of date or missing, or `manifest.json` is not the record the
-   schemas compile to or is of an earlier grizzle's form: then it writes `snapshot.json` and `manifest.json` again,
-   drafts no folder, and prints `next: commit snapshot.json and manifest.json, then run grizzle check`. Beside the
+   schemas compile to: then it writes `snapshot.json` and `manifest.json` again, drafts no folder, and prints
+   `next: commit snapshot.json and manifest.json, then run grizzle check`. Beside the
    snapshot it writes `served/<login>.json` for every login of the configuration over the schema: the login's
    workload compiled under that snapshot, every program for every role it runs on, which is what the application
    serves, and `openapi/<login>.json`, the login's OpenAPI 3.2 document read off that served file. It writes a served
@@ -408,11 +408,11 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
   restore them from git. They list each installed statement compact on a line of its own, so a review of their diff
   reads each changed statement as one changed line. `manifest.json` records a PL/pgSQL function and a constant by its
   header alone, a function with the SHA-256 of its source: its whole text is in the migration file that installed it.
-  A `manifest.json` an earlier grizzle wrote, every statement whole, is converted once by `grizzle generate`, which
-  writes its record and drafts no migration where nothing else changed; `check`, `migrate`, `drift` and `names` refuse
-  it until then: manifest.json is of the form an earlier grizzle wrote, every installed statement whole (an
-  ungenerated change); run grizzle generate, which writes manifest.json again and drafts no migration where nothing
-  else changed.
+  `snapshot.json` and each served file record grizzle's format as their `format` member, and `manifest.json`'s seal
+  digests both snapshot files under it: a pair of another format, or of none, as a grizzle before formats wrote,
+  reads as no snapshot, which `check` reports and `generate`, `migrate`, `drift` and `names` refuse at stage
+  `snapshot`, writing nothing. Move a committed snapshot to a new format with the converter its release ships beside
+  grizzle, never by hand; `grizzle generate` writes a served file again.
 - `served/<login>.json`: a login's workload compiled under the snapshot beside it, which the application serves.
   `check` compiles every login again and holds each file to it byte for byte: the login's served file differs from
   what its workload compiles to under snapshot.json (an ungenerated change), naming the login and the first program
@@ -478,7 +478,6 @@ schema or workload that does not compile) are `check`'s alone.
 | unconfirmed group | keep every statement below the marker as drafted, then delete the two marker lines |
 | unresolved data loss: a schema's first migration starts it empty beside a schema the configuration no longer lists, and the statement that loses that schema's rows is still commented | to start the new schema empty, uncomment the statement below its -- grizzle: data loss line; to keep the rows, keep the old schema's name and delete the folder |
 | snapshot.json and manifest.json do not decode as a snapshot, or are the snapshot of another schema | restore them from git |
-| manifest.json is of the form an earlier grizzle wrote, every installed statement whole (an ungenerated change) | run grizzle generate, which writes manifest.json again and drafts no migration where nothing else changed |
 | meta.json does not decode as a migration's meta.json, or names another schema | restore it from git |
 | broken chain: this migration does not start where the previous one ends | regenerate; never hand-edit meta.json |
 | broken chain: the newest migration does not reach snapshot.json | regenerate; never hand-edit meta.json |

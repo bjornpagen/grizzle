@@ -144,10 +144,9 @@ type Written =
  *
  * - a schema whose target equals its previous snapshot drafts nothing and keeps its snapshot's files, unless the derived
  *   runtime facts snapshot.json records are not the ones the compile derives, or it records none (build.ts
- *   derivedHolds), or manifest.json's record is not the compile's (build.ts recordHolds) or is of the form an earlier
- *   grizzle wrote, every installed statement whole, which generate alone reads, converting it once (boundary/snapshot.ts
- *   readSnapshot): then both files are written again from the compile's snapshot, with no folder, since neither the
- *   facts nor the record's layout of the content is part of the fingerprinted content;
+ *   derivedHolds), or manifest.json's record is not the compile's (build.ts recordHolds): then both files are written
+ *   again from the compile's snapshot, with no folder, since neither the facts nor the record's layout of the content
+ *   is part of the fingerprinted content;
  * - otherwise the folder `<migrations>/<schema>/<timestamp>_<name>/` is written whole, then manifest.json and
  *   snapshot.json are replaced by the new snapshot's. A folder may hold no SQL file when only the snapshot changed, such as a workload program whose
  *   access moved onto an index that already exists. Its name is `--name`, else derived from the change (compiler/deploy/render/naming.ts).

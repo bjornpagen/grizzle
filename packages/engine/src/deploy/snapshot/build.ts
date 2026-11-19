@@ -126,16 +126,11 @@ const withoutFingerprint: EncodeOptions = {
 }
 
 /**
- * The fingerprint of a snapshot's JSON value: the digest of every property but its own fingerprint. It is the content
- * fingerprint a finished snapshot records (finishSnapshot), digested over its content whole (contentForm), and the
- * integrity check of a snapshot an earlier grizzle laid out with its content whole, computed over the value JSON gave
- * before anything reads it as a snapshot: the digest is total over any value, so an edited or corrupted pair of that
- * form is refused by its fingerprint and never reaches typed code (the shell's boundary/snapshot.ts). A committed record
- * is checked by its seal instead (snapshotSeal).
+ * The fingerprint of a snapshot's JSON value: the digest of every property but its own fingerprint, the content
+ * fingerprint a finished snapshot records (finishSnapshot), digested over its content whole (contentForm). A committed
+ * snapshot is trusted by its seal (snapshotSeal), never by its fingerprint.
  */
-export const snapshotFingerprint = (
-	value: unknown
-): Result.Result<SchemaFingerprint, CompileError> =>
+const snapshotFingerprint = (value: unknown): Result.Result<SchemaFingerprint, CompileError> =>
 	Result.map(digest("snapshot", value, withoutFingerprint), toSchemaFingerprint)
 
 /** The fingerprint of a schema's empty snapshot, which a database holds before its first migration: the source of that
@@ -1390,13 +1385,18 @@ const runtimeForm = <S>(
 	derived: derivedForm(derived)
 })
 
-/** The finished snapshot: the target state, fingerprinted over its whole content, its manifest recorded. */
+/**
+ * The finished snapshot: the target state, fingerprinted over its whole content, its manifest recorded
+ * (snapshot/recorded.ts recordedManifest).
+ */
 export const finishSnapshot = (
 	state: SnapshotContent
 ): Result.Result<DeploySnapshot, CompileError> =>
-	Result.map(snapshotFingerprint(contentForm(state, asValues)), (fingerprint) =>
-		recordedSnapshot({ ...state, fingerprint })
-	)
+	Result.map(snapshotFingerprint(contentForm(state, asValues)), (fingerprint) => ({
+		...state,
+		fingerprint,
+		manifest: recordedManifest(state.manifest)
+	}))
 
 /**
  * A JSON form's list or record written with tabs, `head` before its first line and `tail` after its last: one item or
@@ -1550,8 +1550,8 @@ const unjoined = (file: string, at: ReadonlyArray<string>, what: string): Compil
  * The JSON form of a whole snapshot from the JSON values of its two files, the layout writeSnapshot writes undone:
  * manifest.json's members and snapshot.json's, which share none, each roster's codes put back into the record of the
  * theory manifest.json holds for it, manifest.json's seal and snapshot.json's derived runtime facts set apart from the
- * snapshot. A pair that does not join so is none grizzle wrote, refused as MalformedArtifact; what joins is trusted only
- * once its seal holds over the whole, or, in the earlier form, its fingerprint (the shell's boundary/snapshot.ts).
+ * snapshot. A pair that does not join so, or of another format than this grizzle's, is refused as MalformedArtifact;
+ * what joins is trusted only once its seal holds over the whole (the shell's boundary/snapshot.ts).
  */
 export const joinedSnapshot = (
 	runtime: unknown,
@@ -1611,12 +1611,3 @@ export const joinedSnapshot = (
 		derived
 	})
 }
-
-/**
- * A snapshot whose content was read whole, its fingerprint holding, as its two files record it: its manifest recorded
- * (snapshot/recorded.ts recordedManifest). It is the one way from a snapshot an earlier grizzle laid out, every
- * installed statement whole in its manifest.json, to the record (the shell's boundary/snapshot.ts earlierSnapshot).
- */
-export const recordedSnapshot = (
-	whole: SnapshotContent & { readonly fingerprint: SchemaFingerprint }
-): DeploySnapshot => ({ ...whole, manifest: recordedManifest(whole.manifest) })

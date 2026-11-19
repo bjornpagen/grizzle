@@ -110,9 +110,8 @@ export type CheckFinding = FindingOf & {
  *   records none, which `grizzle generate` writes again with no migration; beside an ungenerated change they follow
  *   from it, and the folder generate drafts for it writes them, so they are no finding of their own;
  * - a manifest.json out of date: the schemas compile to snapshot.json's own snapshot, but manifest.json's record of it,
- *   which its seal alone trusts, is not the record the compile reaches (build.ts recordHolds); or manifest.json is of
- *   the form an earlier grizzle wrote, every installed statement whole, which only generate reads, converting it once
- *   (boundary/snapshot.ts readSnapshot); generate writes either again, with no migration where nothing else changed;
+ *   which its seal alone trusts, is not the record the compile reaches (build.ts recordHolds); generate writes it again,
+ *   with no migration where nothing else changed;
  * - a served workload out of date: each login of the configuration over the schema compiled under the snapshot the
  *   draft lays out, as generate compiles it (generate.ts servedFiles), whose committed `served/<login>.json` is not
  *   that text byte for byte, each named with the first member where they part (served/compile.ts servedDifference); a
@@ -151,8 +150,7 @@ interface CommittedCheck {
 	readonly committed: Option.Option<Committed>
 	/**
 	 * What `grizzle migrate` applies of the files, read here once: the committed snapshot with every folder as read, none
-	 * where the directory or the snapshot does not read, or the snapshot is of the form an earlier grizzle wrote, which a
-	 * finding names.
+	 * where the directory or the snapshot does not read, which a finding names.
 	 */
 	readonly target: Option.Option<MigrationTarget>
 	readonly folders: number
