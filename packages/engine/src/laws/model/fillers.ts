@@ -2,9 +2,9 @@ import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
 import type { Identifier, LawId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import type { AxisKind } from "#compiler/ir/family.ts"
+import type { AxisKind, Family } from "#compiler/ir/family.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 
 /**
@@ -18,25 +18,61 @@ export type FillRole =
 	| { readonly kind: "copy"; readonly axis: AxisKind }
 
 /**
- * What fills a field grizzle draws or accumulates: its role, and every law that says what the field holds, its family's
- * first, then its fold's, or the laws its axis pair states. A field's values are its filler's over the stored rows, so
- * two fillers that differ in a role or a law fill it differently, and one a declaration only renames fills it alike.
+ * What fills a field grizzle draws or accumulates, and every law that says what the field holds. A field's values are
+ * its filler's over the stored rows, so two fillers that differ in a role, a law or a carried pair fill it differently,
+ * and one a declaration only renames fills it alike.
+ *
+ * - `stated`: a family's or tree's own field, or a fold's: its role and its laws, its family's first, then its fold's.
+ * - `carried`: a copy a riding containment carries along an axis of `family`, whose law is `law`: the pair `from` ← `to`,
+ *   its field `from` of the axis's `source` relation and the target row's field `to` of its `target`, and `carriers`, the containments that state the pair,
+ *   in the theory's order. A copy holds its target's value along the axis whatever else those containments state, so
+ *   it is its pair's, never its carriers': a draft reads the pair's carriers off the previous snapshot (FillSpelling
+ *   `carriers`), and a sibling pair added to or taken from a carrier leaves every other copy it carries as it is.
  */
-export interface Filler {
-	readonly role: FillRole
-	readonly laws: NonEmptyReadonlyArray<TheoryLaw>
+export type Filler =
+	| {
+			readonly kind: "stated"
+			readonly role: Exclude<FillRole, { readonly kind: "copy" }>
+			readonly laws: NonEmptyReadonlyArray<TheoryLaw>
+	  }
+	| CarriedFiller
+
+/** A copy's filler (Filler `carried`). */
+export interface CarriedFiller {
+	readonly kind: "carried"
+	readonly role: Extract<FillRole, { readonly kind: "copy" }>
+	readonly family: Family
+	readonly law: TheoryLaw
+	readonly source: string
+	readonly from: LawField
+	readonly target: string
+	readonly to: LawField
+	readonly carriers: NonEmptyReadonlyArray<TheoryLaw>
 }
 
-/** How a writing record spells what fills a field (deploy/snapshot/build.ts fieldWriting): each law by its identifier
- * and a start by its literal, the schema's own (ownFill), or as the previous snapshot names them (restate.ts
- * PreviousSpelling). */
+/** How a writing record spells what fills a field (deploy/snapshot/build.ts fieldWriting): each law by its identifier,
+ * a copy's carriers by the identifiers of the laws that state its pair, and a start by its literal, the schema's own
+ * (ownFill), or as the previous snapshot names them (deploy/diff/declared.ts PreviousFill), none where it states no
+ * such law. */
 export interface FillSpelling {
 	readonly law: (law: TheoryLaw) => Identifier<"law">
+	readonly carriers: (copy: CarriedFiller) => NonEmptyReadonlyArray<LawId>
 	readonly literal: (value: TypedLiteral, at: LawField) => TypedLiteral
 }
 
 /** The schema's own spelling of what fills a field. */
-export const ownFill: FillSpelling = { law: (law) => law.id, literal: (value) => value }
+export const ownFill: FillSpelling = {
+	law: (law) => law.id,
+	carriers: (copy) => mapNonEmpty(copy.carriers, (law) => law.id),
+	literal: (value) => value
+}
+
+/** The laws a filler's record digests, as `spell` spells them: a stated filler's laws, a copy's family's law then its
+ * carriers. */
+export const fillerLaws = (filler: Filler, spell: FillSpelling): NonEmptyReadonlyArray<LawId> =>
+	filler.kind === "stated"
+		? mapNonEmpty(filler.laws, spell.law)
+		: [spell.law(filler.law), ...spell.carriers(filler)]
 
 /**
  * The filler of every field the theory's families draw or accumulate, by relation and field name: each family's count,
@@ -65,14 +101,18 @@ export const fillersOf = (theory: Theory): ReadonlyMap<string, ReadonlyMap<strin
 		const family = law(f.law)
 		const member = f.member.name
 		const owner = f.owner.name
-		put(owner, f.count.name, { role: { kind: "count" }, laws: [family] })
+		put(owner, f.count.name, { kind: "stated", role: { kind: "count" }, laws: [family] })
 		if (f.index.kind === "field") {
-			put(member, f.index.field.name, { role: { kind: "index" }, laws: [family] })
+			put(member, f.index.field.name, { kind: "stated", role: { kind: "index" }, laws: [family] })
 		}
 		if (f.members.kind === "tree") {
-			put(member, f.members.parent.name, { role: { kind: "parent" }, laws: [family] })
-			put(member, f.members.start.name, { role: { kind: "start" }, laws: [family] })
-			put(member, f.members.end.name, { role: { kind: "end" }, laws: [family] })
+			put(member, f.members.parent.name, {
+				kind: "stated",
+				role: { kind: "parent" },
+				laws: [family]
+			})
+			put(member, f.members.start.name, { kind: "stated", role: { kind: "start" }, laws: [family] })
+			put(member, f.members.end.name, { kind: "stated", role: { kind: "end" }, laws: [family] })
 		}
 		for (const fold of f.folds) {
 			const laws: NonEmptyReadonlyArray<TheoryLaw> = [family, law(fold.law)]
@@ -81,14 +121,15 @@ export const fillersOf = (theory: Theory): ReadonlyMap<string, ReadonlyMap<strin
 				for (const kind of ["before", "after"] as const) {
 					const c = plane[kind]
 					if (c.kind === "field") {
-						put(member, c.field.name, { role: { kind, plane: at }, laws })
+						put(member, c.field.name, { kind: "stated", role: { kind, plane: at }, laws })
 					}
 				}
-				put(owner, plane.end.name, { role: { kind: "foldEnd", plane: at }, laws })
+				put(owner, plane.end.name, { kind: "stated", role: { kind: "foldEnd", plane: at }, laws })
 			}
 		}
 		for (const axis of ["owner", "predecessor", "last"] as const) {
 			const source = axis === "last" ? owner : member
+			const target = axis === "owner" ? owner : member
 			for (const pair of f.axes[axis]) {
 				const from = pair.from
 				if (
@@ -96,9 +137,21 @@ export const fillersOf = (theory: Theory): ReadonlyMap<string, ReadonlyMap<strin
 					from.field.writing.kind === "accumulated" &&
 					!filled(source, from.field.name)
 				) {
+					if (pair.to.kind !== "field") {
+						throw defect(
+							`the axis pair that carries the accumulated field ${source}.${from.field.name} copies a field`
+						)
+					}
 					put(source, from.field.name, {
+						kind: "carried",
 						role: { kind: "copy", axis },
-						laws: [family, ...pair.laws.map(law)]
+						family: f,
+						law: family,
+						source,
+						from: from.field,
+						target,
+						to: pair.to.field,
+						carriers: mapNonEmpty(pair.laws, law)
 					})
 				}
 			}

@@ -154,8 +154,8 @@ export const aFamilysNativesAre21sThreeAxesARestatedLemmaRidesItsAxisWithNoPairI
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/families.ts",
-				original: "\t\t\t\tpairs.length >= width &&",
-				replacement: "\t\t\t\tpairs.length > width &&",
+				original: "\t\tpairs.length >= width &&",
+				replacement: "\t\tpairs.length > width &&",
 				why: "A containment rides an axis only beside a carried pair, so a restated lemma lowers to its own foreign key; the restated lemmas fail."
 			}
 		]

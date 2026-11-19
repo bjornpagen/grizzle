@@ -2,7 +2,8 @@ import { refuse, refuseBreach, refuseNamed } from "#compiler/analysis/theory/bui
 import {
 	type FamilyStated,
 	familyStatement,
-	ownSpelling
+	ownSpelling,
+	type Spelling
 } from "#compiler/analysis/theory/spelling.ts"
 import { foldRule } from "#compiler/check/fold.ts"
 import { identifierOf, identity, type LawColumnStatement } from "#compiler/core/identity.ts"
@@ -368,14 +369,26 @@ export const membersSelection = (f: FamilyShape): ReadonlyArray<ExprDesc> =>
 const isZero = (e: ExprDesc): boolean => e.kind === "literal" && (e.value === 0n || e.value === 0)
 
 /**
- * Whether a selection's conjuncts select exactly a family's members: none for a family of every fact; for a tree, one
+ * The rows of its relation an axis's end is: every fact, or a tree's every row but its roots, by the name of the tree's
+ * start, whose value is 0 exactly at a root.
+ */
+type EndRows = { readonly kind: "every" } | { readonly kind: "nonRoots"; readonly start: string }
+
+const everyRow: EndRows = { kind: "every" }
+
+/** The rows a family's members are (EndRows): every fact of its member, or a tree's every row but its roots. */
+const memberRows = (f: FamilyShape): EndRows =>
+	f.members.kind === "tree" ? { kind: "nonRoots", start: f.members.start.name } : everyRow
+
+/**
+ * Whether a selection's conjuncts select exactly an end's rows: none for every fact; for a tree's non-roots, one
  * conjunct that is start above zero, spelled `start > 0`, `0 < start` or, since start is natural, `start <> 0`.
  */
-const selectsMembers = (f: FamilyShape, conjuncts: ReadonlyArray<ExprDesc>): boolean => {
-	if (f.members.kind === "every") {
+const selectsRows = (rows: EndRows, conjuncts: ReadonlyArray<ExprDesc>): boolean => {
+	if (rows.kind === "every") {
 		return conjuncts.length === 0
 	}
-	const start = f.members.start.name
+	const start = rows.start
 	const [only, ...more] = conjuncts
 	if (only?.kind !== "compare" || more.length > 0) {
 		return false
@@ -397,11 +410,11 @@ const selectsMembers = (f: FamilyShape, conjuncts: ReadonlyArray<ExprDesc>): boo
 	}
 }
 
-/** One end of an axis as a containment's side matches it: its relation, whether it is the members, its key terms. */
+/** One end of an axis as a containment's side matches it: its relation, the rows of it the end is, its key terms. */
 interface AxisEnd {
 	readonly relation: string
-	/** The family's members (true), or every fact of the owner (false). */
-	readonly members: boolean
+	/** The family's members, or every fact of the owner. */
+	readonly rows: EndRows
 	readonly key: NonEmptyReadonlyArray<TermDesc>
 }
 
@@ -422,10 +435,11 @@ const fieldTermOf = (f: LawField): TermDesc => ({ kind: "field", field: f.name }
 const axisShapes = (f: FamilyShape): ReadonlyArray<AxisShape> => {
 	const group = mapNonEmpty(f.group, (p) => fieldTermOf(p.member))
 	const keys = mapNonEmpty(f.group, (p) => fieldTermOf(p.owner))
+	const members = memberRows(f)
 	const owner: AxisShape = {
 		axis: "owner",
-		source: { relation: f.member.name, members: true, key: group },
-		target: { relation: f.owner.name, members: false, key: keys }
+		source: { relation: f.member.name, rows: members, key: group },
+		target: { relation: f.owner.name, rows: everyRow, key: keys }
 	}
 	if (f.index.kind === "law") {
 		return [owner]
@@ -437,12 +451,12 @@ const axisShapes = (f: FamilyShape): ReadonlyArray<AxisShape> => {
 			axis: "predecessor",
 			source: {
 				relation: f.member.name,
-				members: true,
+				rows: members,
 				key: appendNonEmpty(group, { kind: "pred", field: i })
 			},
 			target: {
 				relation: f.member.name,
-				members: true,
+				rows: members,
 				key: appendNonEmpty(group, { kind: "field", field: i })
 			}
 		},
@@ -450,16 +464,42 @@ const axisShapes = (f: FamilyShape): ReadonlyArray<AxisShape> => {
 			axis: "last",
 			source: {
 				relation: f.owner.name,
-				members: false,
+				rows: everyRow,
 				key: appendNonEmpty(keys, { kind: "pred", field: f.count.name })
 			},
 			target: {
 				relation: f.member.name,
-				members: true,
+				rows: members,
 				key: appendNonEmpty(group, { kind: "field", field: i })
 			}
 		}
 	]
+}
+
+/** An end of an axis as `spell` names what it reads: its relation, its key terms' fields and a tree's start. */
+const spelledEnd = (end: AxisEnd, spell: Pick<Spelling, "relation" | "field">): AxisEnd => ({
+	relation: spell.relation(end.relation),
+	rows:
+		end.rows.kind === "every"
+			? everyRow
+			: { kind: "nonRoots", start: spell.field(end.relation, end.rows.start) },
+	key: mapNonEmpty(end.key, (t) => ({ kind: t.kind, field: spell.field(end.relation, t.field) }))
+})
+
+/**
+ * The axis `axis` of `f` as a containment rides it (`axisShapes`), every name it reads as `spell` spells it: as the
+ * previous snapshot names them, a draft reads which of the laws it records rode that axis (deploy/diff/declared.ts). None
+ * for an axis the family has not: a counted family's predecessor and last, which no statement rides.
+ */
+export const spelledAxis = (
+	f: FamilyShape,
+	axis: AxisKind,
+	spell: Pick<Spelling, "relation" | "field">
+): AxisShape | undefined => {
+	const a = axisShapes(f).find((s) => s.axis === axis)
+	return a === undefined
+		? undefined
+		: { axis, source: spelledEnd(a.source, spell), target: spelledEnd(a.target, spell) }
 }
 
 /** A side as a containment states it, for the riding rule: its relation and its selection's predicates. */
@@ -484,15 +524,48 @@ export interface Ride {
 
 const sameTerm = (a: TermDesc, b: TermDesc): boolean => a.kind === b.kind && a.field === b.field
 
-/** Whether a side is one end of an axis: its relation, and its selection the family's members or every fact. */
-const atEnd = (f: FamilyShape, end: AxisEnd, side: RidingSide): boolean =>
-	side.relation === end.relation &&
-	(end.members
-		? selectsMembers(
-				f,
-				side.selection.conjuncts.map((c) => c.predicate)
+/** Whether a side, its relation and its selection's predicates, is one end of an axis: its relation, and its selection
+ * the end's rows. */
+const atEnd = (
+	end: AxisEnd,
+	side: { readonly relation: string; readonly predicates: ReadonlyArray<ExprDesc> }
+): boolean => side.relation === end.relation && selectsRows(end.rows, side.predicates)
+
+/**
+ * The pairs a containment carries along the axis `a` when it rides it, and none when it does not: its source is the
+ * axis's source and its target the axis's target, each side by its relation and its selection's predicates, the axis's
+ * key terms begin its pairs in order, and every pair after them, each one it carries, is of two fields.
+ */
+export const carriedOn = <P extends { readonly from: TermDesc; readonly to: TermDesc }>(
+	a: AxisShape,
+	from: { readonly relation: string; readonly predicates: ReadonlyArray<ExprDesc> },
+	to: { readonly relation: string; readonly predicates: ReadonlyArray<ExprDesc> },
+	pairs: ReadonlyArray<P>
+): ReadonlyArray<P> | undefined => {
+	const width = a.source.key.length
+	const carried = pairs.slice(width)
+	return atEnd(a.source, from) &&
+		atEnd(a.target, to) &&
+		pairs.length >= width &&
+		a.source.key.every((t, j) => {
+			const p = pairs[j]
+			const target = a.target.key[j]
+			return (
+				p !== undefined && target !== undefined && sameTerm(p.from, t) && sameTerm(p.to, target)
 			)
-		: side.selection.conjuncts.length === 0)
+		}) &&
+		carried.every((p) => p.from.kind === "field" && p.to.kind === "field")
+		? carried
+		: undefined
+}
+
+/** A side as the riding rule reads it: its relation and its selection's predicates. */
+const ridingEnd = (
+	side: RidingSide
+): { readonly relation: string; readonly predicates: ReadonlyArray<ExprDesc> } => ({
+	relation: side.relation,
+	predicates: side.selection.conjuncts.map((c) => c.predicate)
+})
 
 /** A family as a containment tries to ride it (`ridesOf`): its shape, and its axes as a containment rides them
  * (`axisShapes`), made once for every containment that tries it. */
@@ -519,23 +592,12 @@ export const ridesOf = (
 	to: RidingSide,
 	pairs: NonEmptyReadonlyArray<RidingPair>
 ): Ride | undefined => {
+	const source = ridingEnd(from)
+	const target = ridingEnd(to)
 	for (const { shape: f, ridden } of families) {
 		for (const a of ridden) {
-			const width = a.source.key.length
-			const carried = pairs.slice(width)
-			if (
-				atEnd(f, a.source, from) &&
-				atEnd(f, a.target, to) &&
-				pairs.length >= width &&
-				a.source.key.every((t, j) => {
-					const p = pairs[j]
-					const target = a.target.key[j]
-					return (
-						p !== undefined && target !== undefined && sameTerm(p.from, t) && sameTerm(p.to, target)
-					)
-				}) &&
-				carried.every((p) => p.from.kind === "field" && p.to.kind === "field")
-			) {
+			const carried = carriedOn(a, source, target, pairs)
+			if (carried !== undefined) {
 				return { family: f.id, axis: a.axis, carried }
 			}
 		}

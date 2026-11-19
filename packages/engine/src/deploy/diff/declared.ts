@@ -1,3 +1,5 @@
+import { carriedOn, spelledAxis } from "#compiler/analysis/theory/families.ts"
+import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import { Refusal, sameText } from "#compiler/core/canonical.ts"
 import { type Dropped, undeclaredDrop, unsupported } from "#compiler/core/errors.ts"
 import {
@@ -7,10 +9,11 @@ import {
 	parseDeclaredName,
 	type TemporaryCensus
 } from "#compiler/core/identity.ts"
-import type { ColumnIdent } from "#compiler/core/ids.ts"
+import type { ColumnIdent, Identifier, LawId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import {
 	type Aside,
 	asideName,
@@ -45,14 +48,18 @@ import type {
 	SnapshotRelation,
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
+import type { SideDesc } from "#compiler/ir/desc.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
-import { fillersOf } from "#compiler/laws/model/fillers.ts"
+import type { LawField } from "#compiler/ir/law.ts"
+import { type CarriedFiller, type FillSpelling, fillersOf } from "#compiler/laws/model/fillers.ts"
 import {
 	type PreviousNames,
 	PreviousSpelling,
 	restatedLawColumn
 } from "#compiler/laws/model/restate.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import { innerIdent, namedIdent, parseIdent } from "#compiler/physical/obligations/graph.ts"
 import type {
 	AlterTableAction,
@@ -699,6 +706,79 @@ const sameSequence = (
 	)
 }
 
+/** A side of a law the previous snapshot records, as the riding rule reads it: its relation and its predicates. */
+const ridingSide = (
+	side: SideDesc
+): { readonly relation: string; readonly predicates: SideDesc["selection"]["conjuncts"] } => ({
+	relation: side.relation,
+	predicates: side.selection.conjuncts
+})
+
+/**
+ * What fills a field as the previous snapshot names it (FillSpelling): each law and literal as `spell` restates it
+ * (laws/model/restate.ts PreviousSpelling), and a copy's carriers as the laws the previous snapshot records (`laws`, its
+ * levels' described laws) that ride its family's axis, restated, and carry its pair, restated, read off their
+ * descriptions by the riding rule (analysis/theory/families.ts carriedOn), in identifier order. A copy is its pair's: its
+ * carriers' other pairs, a sibling copy added to or taken from one, leave what fills it as it was, so the migration
+ * keeps its column and its values, and only what reads the whole pair set, the axis's foreign key and the UNIQUE it
+ * references, is replaced. A pair no law the previous snapshot records carries is new to the migration: the spelling
+ * is then incomplete, as it is for a name new to it.
+ */
+class PreviousFill implements FillSpelling {
+	readonly #spell: PreviousSpelling
+	readonly #laws: ReadonlyArray<DescribedLaw>
+	#complete = true
+
+	constructor(spell: PreviousSpelling, laws: ReadonlyArray<DescribedLaw>) {
+		this.#spell = spell
+		this.#laws = laws
+	}
+
+	/** Whether every name, selection and carried pair the spelling was asked for has a previous spelling. */
+	get complete(): boolean {
+		return this.#complete && this.#spell.complete
+	}
+
+	readonly law = (law: TheoryLaw): Identifier<"law"> => this.#spell.law(law)
+
+	readonly literal = (value: TypedLiteral, at: LawField): TypedLiteral =>
+		this.#spell.literal(value, at)
+
+	readonly carriers = (copy: CarriedFiller): NonEmptyReadonlyArray<LawId> => {
+		const axis = spelledAxis(copy.family, copy.role.axis, this.#spell)
+		const from = this.#spell.field(copy.source, copy.from.name)
+		const to = this.#spell.field(copy.target, copy.to.name)
+		const carriers =
+			axis === undefined
+				? []
+				: this.#laws
+						.flatMap(({ law, described }) => {
+							if (described.kind !== "contained") {
+								return []
+							}
+							const pairs = described.from.terms.flatMap((t, j) => {
+								const target = described.to.terms[j]
+								return target === undefined ? [] : [{ from: t, to: target }]
+							})
+							const carried = carriedOn(
+								axis,
+								ridingSide(described.from),
+								ridingSide(described.to),
+								pairs
+							)
+							return carried?.some((p) => p.from.field === from && p.to.field === to) === true
+								? [law]
+								: []
+						})
+						.toSorted(compareStrings)
+		if (!isNonEmpty(carriers)) {
+			this.#complete = false
+			return mapNonEmpty(copy.carriers, (law) => law.id)
+		}
+		return carriers
+	}
+}
+
 /**
  * The previous snapshot with each drawn or accumulated field whose filler a declaration only renames recorded as the
  * target records it, and each index whose family orders the same sequence (sameSequence) too. A field's record digests
@@ -716,6 +796,7 @@ const restatedWritings = (
 	names: PreviousNames
 ): DeploySnapshot => {
 	const fillers = fillersOf(installation.laws.theory)
+	const laws = previous.levels.flatMap((l) => l.laws)
 	const targets = new Map(
 		Object.entries(target.theory.relations).flatMap(([name, r]) =>
 			r.kind === "relation" ? [[r.ident, { name, r }] as const] : []
@@ -736,7 +817,10 @@ const restatedWritings = (
 					if (into === undefined || field === undefined || !drawnBy(into.writing)) {
 						return f
 					}
-					const spell = new PreviousSpelling(names, installation.laws.theory.relations)
+					const spell = new PreviousFill(
+						new PreviousSpelling(names, installation.laws.theory.relations),
+						laws
+					)
 					const restated = fieldWriting(installation, fillers, now.name, field, spell)
 					return (spell.complete && sameText(restated, f.writing)) ||
 						sameSequence(previous, installation, now.name, field.name, f.writing)

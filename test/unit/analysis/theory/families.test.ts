@@ -114,8 +114,8 @@ export const ridingAFamilyAxis21AContainmentRidesAnAxisExactlyWhen21sRuleHoldsCa
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/families.ts",
-				original: "\t\t\t\tpairs.length >= width &&",
-				replacement: "\t\t\t\tpairs.length > width &&",
+				original: "\t\tpairs.length >= width &&",
+				replacement: "\t\tpairs.length > width &&",
 				why: "A containment rides only beside a carried pair, so its key alone rides nothing (families.ts ridesOf); the riding box and the theory's riding fail."
 			}
 		]
@@ -273,8 +273,8 @@ export const ridingAFamilyAxis21TheTheoryLowersEachContainmentOntoTheAxis21sRule
 			kills: [
 				{
 					file: "packages/engine/src/analysis/theory/families.ts",
-					original: "\t\t\t\tpairs.length >= width &&",
-					replacement: "\t\t\t\tpairs.length > width &&",
+					original: "\t\tpairs.length >= width &&",
+					replacement: "\t\tpairs.length > width &&",
 					why: "A containment rides only beside a carried pair, so its key alone rides nothing (families.ts ridesOf); the riding box and the theory's riding fail."
 				}
 			]
@@ -356,16 +356,9 @@ export const ridingAFamilyAxis21ATreesParentCopyRidesItsOwnerAxisExactlyWhenItsS
 			{
 				file: "packages/engine/src/analysis/theory/families.ts",
 				original:
-					'\t\t\tif (\n\t\t\t\tatEnd(f, a.source, from) &&\n\t\t\t\tatEnd(f, a.target, to) &&\n\t\t\t\tpairs.length >= width &&\n\t\t\t\ta.source.key.every((t, j) => {\n\t\t\t\t\tconst p = pairs[j]\n\t\t\t\t\tconst target = a.target.key[j]\n\t\t\t\t\treturn (\n\t\t\t\t\t\tp !== undefined && target !== undefined && sameTerm(p.from, t) && sameTerm(p.to, target)\n\t\t\t\t\t)\n\t\t\t\t}) &&\n\t\t\t\tcarried.every((p) => p.from.kind === "field" && p.to.kind === "field")\n\t\t\t) {\n\t\t\t\treturn { family: f.id, axis: a.axis, carried }\n\t\t\t}',
+					"\t\t\tif (carried !== undefined) {\n\t\t\t\treturn { family: f.id, axis: a.axis, carried }\n\t\t\t}",
 				replacement: "\t\t\t{}",
-				why: "Operator mutant (guard) at packages/engine/src/analysis/theory/families.ts:526 in ridesOf: `if (\n\t\t\t\tatEnd(f, a.source, from) &&\n\t\t\t\tatEnd(f, a.target, to) &&\n\t\t\t\tpairs.len` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/families.ts",
-				original:
-					'\t\t\tif (\n\t\t\t\tatEnd(f, a.source, from) &&\n\t\t\t\tatEnd(f, a.target, to) &&\n\t\t\t\tpairs.length >= width &&\n\t\t\t\ta.source.key.every((t, j) => {\n\t\t\t\t\tconst p = pairs[j]\n\t\t\t\t\tconst target = a.target.key[j]\n\t\t\t\t\treturn (\n\t\t\t\t\t\tp !== undefined && target !== undefined && sameTerm(p.from, t) && sameTerm(p.to, target)\n\t\t\t\t\t)\n\t\t\t\t}) &&\n\t\t\t\tcarried.every((p) => p.from.kind === "field" && p.to.kind === "field")\n\t\t\t) {\n\t\t\t\treturn { family: f.id, axis: a.axis, carried }\n\t\t\t}',
-				replacement: "\t\t\t{}",
-				why: "Operator mutant (guard) at packages/engine/src/analysis/theory/families.ts:526 in ridesOf: `if (\n\t\t\t\tatEnd(f, a.source, from) &&\n\t\t\t\tatEnd(f, a.target, to) &&\n\t\t\t\tpairs.len` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				why: "Operator mutant (guard) in ridesOf: no containment rides the axis that admits it (`if (carried !== undefined) { return ... }` becomes `{}`); the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})

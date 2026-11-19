@@ -33,8 +33,11 @@ import { type Aside, asideStatements } from "#compiler/deploy/diff/aside.ts"
 import {
 	type BackfilledTable,
 	backfillOf,
+	changedOver,
+	columnAt,
 	type DrawnColumns,
-	drawnColumns
+	drawnColumns,
+	fillReadsOf
 } from "#compiler/deploy/diff/backfill.ts"
 import {
 	type AbandonedSchema,
@@ -1021,7 +1024,10 @@ class Differ {
 
 	/** Each table both installations hold, by identity (KeptTable): the fate of each field of the previous table is its
 	 * field change's (fieldChangesOf), converted, redefined where it is rewritten, kept otherwise, dropped where the
-	 * target holds it no longer; of each law column, kept, redefined where its value changes, or dropped. */
+	 * target holds it no longer; of each law column, kept, redefined where its value changes, or dropped. A column a
+	 * family draws whose fill reads a column whose values the migration changes, through any chain of the target's fill
+	 * reads (backfill.ts fillReadsOf, changedOver), is drawn again too: a copy of a column drawn again, a fold over one,
+	 * over every table, so no drawn value is left stale by what it was drawn from. */
 	keptTablesOf(): ReadonlyMap<string, KeptTable> {
 		const previousObjects = this.input.previous.manifest.objects
 		const previousTables = new Map(
@@ -1052,22 +1058,63 @@ class Differ {
 				held.push({ object: p, column: w })
 			}
 		}
+		const tables = this.input.target.manifest.objects.flatMap((o) => {
+			const v = installed(o)
+			const at = previousTables.get(o.ident)
+			if (v.kind !== "table" || at === undefined) {
+				return []
+			}
+			const create = v.create
+			const key = nameKey(create.table)
+			const shared = sharedFields(at.old.columns, create.columns)
+			const own = redrawn(
+				fieldChangesOf(shared, (b, c) => this.retyped(b, c)),
+				previousWritings.get(create.table.name) ?? noWritings,
+				targetWritings.get(create.table.name) ?? noWritings
+			)
+			const lawColumns = (lawColumnsByTable.get(key) ?? []).map(({ object: p, column: w }) => {
+				const now = this.next.get(p.ident)
+				const fate =
+					now === undefined ? droppedColumn : sameRecord(p, now) ? keptColumn : redefinedColumn
+				const reads = builtOver(w, (c) => keyOrCheckDefinition(c, this.prev))?.columns ?? []
+				return { column: w.column, reads, fate }
+			})
+			return [{ o, at, create, key, shared, own, lawColumns }]
+		})
+		const changed = changedOver(
+			fillReadsOf(this.input.installation),
+			tables.flatMap(({ key, own, lawColumns }) => [
+				...[...own].flatMap(([column, change]) =>
+					change.kind === "rewritten" || change.kind === "reexpressed"
+						? [columnAt(key, column)]
+						: []
+				),
+				...lawColumns.flatMap((c) => (c.fate.kind === "redefined" ? [columnAt(key, c.column)] : []))
+			])
+		)
+		/** Whether the migration draws a column of the table `key` again: one the target's families draw whose values
+		 * change. */
+		const drawnAgain = (key: string, column: string): boolean =>
+			this.drawn.get(key)?.has(column) === true && changed.has(columnAt(key, column))
 		return new Map(
-			this.input.target.manifest.objects.flatMap(
-				(o): ReadonlyArray<readonly [string, KeptTable]> => {
-					const v = installed(o)
-					const at = previousTables.get(o.ident)
-					if (v.kind !== "table" || at === undefined) {
-						return []
-					}
-					const { old, order } = at
-					const create = v.create
-					const key = nameKey(create.table)
-					const shared = sharedFields(old.columns, create.columns)
-					const own = redrawn(
-						fieldChangesOf(shared, (b, c) => this.retyped(b, c)),
-						previousWritings.get(create.table.name) ?? noWritings,
-						targetWritings.get(create.table.name) ?? noWritings
+			tables.map(
+				({
+					o,
+					at,
+					create,
+					key,
+					shared,
+					own: recordedChanges,
+					lawColumns: recorded
+				}): readonly [string, KeptTable] => {
+					const { order } = at
+					const old = at.old
+					const own = new Map(
+						[...recordedChanges].map(([column, change]): readonly [string, FieldChange] =>
+							change.kind !== "rewritten" && drawnAgain(key, column)
+								? [column, { kind: "rewritten" }]
+								: [column, change]
+						)
 					)
 					const changes = rewrittenOver(
 						shared,
@@ -1100,25 +1147,21 @@ class Differ {
 							? []
 							: [{ column: b.name, reads: generationReads(b), fate: droppedColumn }]
 					)
-					const lawColumns = (lawColumnsByTable.get(key) ?? []).map(({ object: p, column: w }) => {
-						const now = this.next.get(p.ident)
-						const fate =
-							now === undefined ? droppedColumn : sameRecord(p, now) ? keptColumn : redefinedColumn
-						const reads = builtOver(w, (c) => keyOrCheckDefinition(c, this.prev))?.columns ?? []
-						return { column: w.column, reads, fate }
-					})
+					const lawColumns = recorded.map((c) =>
+						c.fate.kind === "kept" && drawnAgain(key, c.column)
+							? { ...c, fate: redefinedColumn }
+							: c
+					)
 					return [
-						[
-							o.ident,
-							{
-								object: o,
-								order,
-								old,
-								create,
-								fates: generatedOver(new Map(fields), [...removed, ...lawColumns]),
-								changes
-							}
-						]
+						o.ident,
+						{
+							object: o,
+							order,
+							old,
+							create,
+							fates: generatedOver(new Map(fields), [...removed, ...lawColumns]),
+							changes
+						}
 					]
 				}
 			)

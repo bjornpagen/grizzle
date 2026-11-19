@@ -415,7 +415,9 @@ const restatedExpr = (
  * A selection over `relation` as the previous snapshot spells it: each conjunct's predicate restated
  * (restatedExpr), the selection put in canonical form again (schema/own.ts canonicalSelection), since a renamed field
  * or handle may reorder it, and each conjunct with its canonical text and the fields it reads under their previous
- * names. None where a conjunct does not restate.
+ * names, in the relation's field order. None where a conjunct does not restate: one that reads a field new to the
+ * migration. A field new to the migration that no conjunct reads is no part of the selection, so a field added to the
+ * relation leaves every selection over it, and every law and law column it names, as the previous snapshot spelled it.
  */
 const restatedConjuncts = (
 	relation: TheoryRelation,
@@ -436,10 +438,13 @@ const restatedConjuncts = (
 	const predicates = each(selection.conjuncts, (c) =>
 		restatedExpr(c.predicate, undefined, scope, names)
 	)
-	const previousFields = each(relation.fields, (f) => scope.field(f.name))
-	if (predicates === undefined || previousFields === undefined) {
+	if (predicates === undefined) {
 		return undefined
 	}
+	const previousFields = relation.fields.flatMap((f) => {
+		const was = scope.field(f.name)
+		return was === undefined ? [] : [was]
+	})
 	return canonicalSelection({ conjuncts: predicates }).conjuncts.map((p) => ({
 		text: ownedText(p, withoutSourceLocs),
 		reads: previousFields.filter((f) => mentions(p, f))

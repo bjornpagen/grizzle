@@ -3388,8 +3388,12 @@ deploy.
 - **A family added to stored rows is backfilled** by SQL over those rows, in the migration that adds it: each member's
   index in its member key's order, each count, each fold's running values in index order, and a tree's intervals. So
   is every value whose filler changes: a fold that steps over another field, a copy that reads another field, a family
-  whose group or order changes. The snapshot records what fills each drawn or accumulated field, its family's, fold's
-  or copy's law, so a changed filler draws the field again, and one only renamed keeps it.
+  whose group or order changes; and every value drawn from one of those, through any chain of copies and folds, such as
+  a copy of a copy whose target moved. The snapshot records what fills each drawn or accumulated field, its family's,
+  fold's or copy's law, so a changed filler draws the field again, and one only renamed keeps it. A copy is its pair's:
+  the field it copies along its family's axis, whatever else the containment that carries it states. A copy added to
+  or taken from that containment, or a field added to the relation, keeps every other copy, its column and its values;
+  only the axis's foreign key and the UNIQUE it references, which read every copy the axis carries, are built again.
 - **A stored index is data.** An ordered family's or a tree's index holds the order its caller wrote, so a migration
   that re-points the family's group (its owner re-keyed, the group's fields dropped and added, a tree's parent field
   replaced) keeps every stored index, as it keeps one only renamed: the field stays the index of the same owner's

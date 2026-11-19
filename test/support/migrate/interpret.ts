@@ -2928,6 +2928,16 @@ class Model {
 		return [...domains, ...checks, ...generated, ...views, ...dependents, ...functions, ...triggers]
 	}
 
+	/** A function of the schema created or replaced, by its name, as CREATE OR REPLACE FUNCTION does: a PL/pgSQL or SQL
+	 * function grizzle prints (sql/print.ts), which a migration creates again in place, as a rule's judge is. */
+	#replaceFunction(name: ObjectName, f: Function): void {
+		if (!this.#ours(name)) {
+			return
+		}
+		this.#callable(f.calls, `the function ${printObjectName(name)}`)
+		this.#functions.set(name.name, f)
+	}
+
 	/** A function of the schema created, by its name: a second of one name and no argument is refused (42723). */
 	#addFunction(name: ObjectName, f: Function): void {
 		if (!this.#ours(name)) {
@@ -3861,7 +3871,7 @@ class Model {
 				return
 			}
 			case "createFunction":
-				this.#addFunction(s.name, { body: { kind: "opaque" }, calls: [] })
+				this.#replaceFunction(s.name, { body: { kind: "opaque" }, calls: [] })
 				return
 			case "createConstant":
 				this.#addFunction(s.name, {

@@ -76,6 +76,7 @@ import {
 import { Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type Filler,
+	fillerLaws,
 	type FillRole,
 	type FillSpelling,
 	fillersOf,
@@ -177,7 +178,7 @@ export interface FillerForm {
 	readonly laws: NonEmptyReadonlyArray<string>
 }
 
-/** What fills a field as `spell` spells its laws (FillerForm). */
+/** What fills a field as `spell` spells its laws (FillerForm): a copy's by its family's law and its pair's carriers. */
 const fillerForm = (
 	field: LawField,
 	filler: Filler | undefined,
@@ -186,7 +187,7 @@ const fillerForm = (
 	if (filler === undefined) {
 		throw defect(`the theory names what fills the field ${field.name}`)
 	}
-	return { role: filler.role, laws: mapNonEmpty(filler.laws, spell.law) }
+	return { role: filler.role, laws: fillerLaws(filler, spell) }
 }
 
 /** The record of a field drawn as `form` says (SnapshotWriting): a drawn field's, and a previous snapshot's record of a

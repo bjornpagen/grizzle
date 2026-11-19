@@ -69,8 +69,14 @@ import type { SnapshotTheory } from "#compiler/deploy/snapshot/types.ts"
 import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, Family, FamilyFold, FoldPlane, TreeShape } from "#compiler/ir/family.ts"
-import { type FillAt, type FillColumn, layoutKey } from "#compiler/ir/fill.ts"
-import type { NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
+import {
+	type FillAt,
+	type FillColumn,
+	type FillLayout,
+	type FillRule,
+	layoutKey
+} from "#compiler/ir/fill.ts"
+import type { NativeColumn, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { columnReads } from "#compiler/laws/model/uniques.ts"
@@ -253,6 +259,89 @@ export const drawnColumns = (installation: Installation): DrawnColumns => {
 		}
 	}
 	return out
+}
+
+/** A column of a table, by its table's key (nameKey) and its column's name: a node of the fill's read graph
+ * (FillReads). */
+export const columnAt = (table: string, column: string): string => `${table}\u0000${column}`
+
+/**
+ * The target's fill read graph (ir/fill.ts FillOrder): each column a write fills on a row a family reaches, by its node
+ * (columnAt), with every node it reads: the columns of its own row its rule reads (FillColumn reads), and the column its
+ * rule takes off another row, a copy's target along its axis and a member's group field's owner column. A column the
+ * fill draws holds its rule's value over what it reads, so a migration that changes the values of a column it reads
+ * draws it again (`changedOver`).
+ */
+export type FillReads = ReadonlyMap<string, ReadonlyArray<string>>
+
+export const fillReadsOf = (installation: Installation): FillReads => {
+	const schema = installation.names.schema
+	const at = (relation: RelationInfo | TableRelation, c: NativeColumn): string =>
+		columnAt(nameKey(objectName(schema, relation.ident)), columnOf(c))
+	/** The column a rule takes off another row, by its node: none for a rule that reads its own row alone. */
+	const across = (layout: FillLayout, rule: FillRule): ReadonlyArray<string> => {
+		switch (rule.kind) {
+			case "ownerCopy":
+				return [at(rule.family.owner, rule.to)]
+			case "predecessor":
+			case "last":
+				return [at(rule.family.member, rule.to)]
+			case "owner":
+				return layout.position.kind === "member" ? [at(layout.position.family.owner, rule.to)] : []
+			case "given":
+			case "self":
+			case "own":
+			case "index":
+			case "copy":
+			case "count":
+			case "start":
+			case "end":
+			case "after":
+			case "generated":
+				return []
+		}
+	}
+	const out = new Map<string, Array<string>>()
+	for (const layout of installation.laws.theory.fill.layouts.values()) {
+		for (const c of layout.columns) {
+			const node = at(layout.relation, c.column)
+			const reads = out.get(node) ?? []
+			for (const r of c.reads) {
+				reads.push(at(layout.relation, r))
+			}
+			for (const r of across(layout, c.rule)) {
+				reads.push(r)
+			}
+			out.set(node, reads)
+		}
+	}
+	return out
+}
+
+/**
+ * Every node whose values change with `seeds`' (FillReads): each seed, and each column that reads a changed one,
+ * transitively, each reached once along its readers.
+ */
+export const changedOver = (reads: FillReads, seeds: Iterable<string>): ReadonlySet<string> => {
+	const readers = new Map<string, Array<string>>()
+	for (const [node, of] of reads) {
+		for (const read of of) {
+			const by = readers.get(read) ?? []
+			by.push(node)
+			readers.set(read, by)
+		}
+	}
+	const changed = new Set<string>()
+	const pending = [...seeds]
+	for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+		if (!changed.has(node)) {
+			changed.add(node)
+			for (const reader of readers.get(node) ?? []) {
+				pending.push(reader)
+			}
+		}
+	}
+	return changed
 }
 
 /** A window over a partition in an order, ROWS from the partition's first row to the current one when `running`. */
