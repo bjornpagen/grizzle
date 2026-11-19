@@ -65,7 +65,7 @@ export const aRulesJudgeReadsEachRelationAJoinItReadsHoldsByALookupARowWrittenWi
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\treturn reads !== undefined && (reads > 1 || rule.where.some(negatesJoin))",
+				original: "\treturn reads !== undefined && (reads > 1 || rule.where.some(filtersJoin))",
 				replacement: "\treturn reads !== undefined && reads > 1",
 				why: "A rule that reads one relation and negates a join is read as written: a probe of Ref's rows, and the whole rule's read of a document's references, negate Resolved as Node and Named joined at (pkg, path) under each reference's (pkg, path, start), which PostgreSQL with no statistics nests once for each reference, 22,441 rows for 134 written."
 			},

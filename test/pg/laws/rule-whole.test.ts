@@ -15,6 +15,11 @@
  *   exactly when its rules' whole checks, the violation queries a migration runs over every row, find the state
  *   broken, naming a rule they find broken; and the whole judge refuses exactly where the probed judge, the one rules
  *   that are not unit-local keep, refuses, wherever the aggregate's rule holds.
+ * - **narrowed region**: Marks joins Tag and Node at Node's key, Tag contained in Node there, so its region reads a
+ *   node a transaction wrote only where it replaces one the transaction removed (analysis/theory/unit.ts replacedAt):
+ *   the equivalence holds the narrowed region to the whole checks, a node replaced under its tag and an expression
+ *   written at a node that stood before among its cases, and a transaction that writes documents whole beside a few tags
+ *   reads Tag once per tag, never once per node.
  * - **locality**: hundreds of documents stored, analyzed or not, beside one a transaction writes whole: each whole
  *   rule's statement reads the same rows when as many documents again are stored, the written document's alone; and
  *   with tens of documents written, then four times as many, each node it runs once per unit reads that unit alone,
@@ -26,8 +31,10 @@ import { Effect } from "effect"
 import {
 	judgeTemplates,
 	localityGen,
+	narrowedGen,
 	runEquivalence,
 	runLocality,
+	runNarrowed,
 	wholeFeatures,
 	wholeSpace
 } from "#test/pg/laws/rule-whole.fixtures.ts"
@@ -88,6 +95,18 @@ export const aUnitLocalRuleIsJudgedWholeOverTheUnitsATransactionWroteAsItsWholeC
 			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\t\t\ts.left.selection.conjuncts.length > 0",
+				replacement: "\t\t\tfalse",
+				why: "A containment from a selection of its source states a fact of every row of it, so Expressed, which holds the nodes of kind 1 or 2 in Expr, proves Typed's expressions read where they replace one alone: an expression written at a node of kind 0 that stood before, the node's parent no expression's, is never judged, and a transaction that breaks Rooted commits."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\t\tfor (const side of sidesAt(r.polarity)) {",
+				replacement: "\t\tfor (const side of at === undefined ? sidesAt(r.polarity) : []) {",
+				why: "A proved occurrence reads no row its relation gained, not even one that replaces a row it lost, so a node replaced under its tag by one of kind 1 is never judged, and a transaction that breaks Marked commits."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
 				original: `\t\t\t\tbind: Object.fromEntries(unit.map((v, j) => [\`unit\${j}\`, varRef(v.id)] as const))`,
 				replacement: `\t\t\t\tbind: Object.fromEntries(unit.map((v, j) => [\`unit\${j}\`, varRef(unit[(j + 1) % unit.length]?.id ?? v.id)] as const))`,
 				why: "A rule read per unit takes each field of its unit key at the next field's channel, so a unit of two or three place fields reads its doc at its sub, which no row of the document holds: the step reads nothing for the unit, and a transaction that breaks a rule over a key of several place fields commits."
@@ -135,6 +154,36 @@ export const aWholeRulesStatementReadsTheUnitsATransactionWroteAloneBesideAnyNum
 					'\t\t\t? ruleBody(r, at, aggregates, {\n\t\t\t\t\t...w,\n\t\t\t\t\trestrict: { kind: "bound", region: restriction.region }\n\t\t\t\t})',
 				replacement: "\t\t\t? ruleBody(r, at, aggregates, w)",
 				why: "A rule read per unit binds no unit for the rules its imports and negations read, so each matches the region again inside the step, once per written unit, or beside it, Rooted's two sides each over a region of its own: a node run once per unit reads every written unit's rows at each run, and the statement's work grows with the square of the units written."
+			}
+		]
+	})
+
+/**
+ * A whole rule over a join of a contained relation and the keyed relation it is contained in reads the contained
+ * relation once per row it gained, never once per row the keyed one gained.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const aWholeRuleOverAContainedRelationsJoinReadsItOncePerRowItGainedNeverOncePerRowItsContainerGained =
+	property.explore(narrowedGen, {
+		needs: Substrate.oneOf(judgeTemplates, Substrate.rolledBack),
+		situations: ["documents written whole beside a few tags"],
+		check: (judges, c) => (drawn) =>
+			Effect.gen(function* () {
+				const { connection, value } = yield* judges[`whole ${drawn.shape}`]
+				yield* runNarrowed(value, connection, drawn, c)
+			}),
+		oracle: {
+			kind: "universal",
+			name: "bound: each scan of Tag in a whole rule's statement runs at most once per tag the transaction wrote, beside three nodes a document"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\t\tconst at = replacedAt(r, regions, facts, relations)",
+				replacement: "\t\tconst at: NonEmptyReadonlyArray<string> | undefined = undefined",
+				why: "Marks's region reads every node a transaction wrote, so its statement reads Tag once per node, three a document, where it read it once per tag."
 			}
 		]
 	})

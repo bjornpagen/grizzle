@@ -91,17 +91,17 @@ const scopeNames = (
 	for (const m of rule.matches) {
 		source(m.source)
 	}
-	const absentSources = (e: ResolvedExpr): void => {
-		if (e.kind === "absent") {
+	const filteredSources = (e: ResolvedExpr): void => {
+		if (e.kind === "absent" || e.kind === "exists") {
 			source(e.source)
 		} else if (e.kind === "and" || e.kind === "or") {
 			for (const a of e.args) {
-				absentSources(a)
+				filteredSources(a)
 			}
 		}
 	}
 	for (const w of rule.where) {
-		absentSources(w)
+		filteredSources(w)
 	}
 	for (const interior of rule.interiors) {
 		for (const arm of interior.arms) {

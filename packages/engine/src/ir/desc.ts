@@ -436,6 +436,17 @@ export type ExprDesc<L = Located, R extends Refs = Spelled> =
 	  }
 	| {
 			/**
+			 * A relational existence, which grizzle writes and no author does: whether `source` holds a fact at `bindings`,
+			 * the positive twin of `absent`, a rule-level filter as it is. The checker reads it as a SemiJoin of the rule's
+			 * region (ir/rel.ts), whose right side reads nothing of the region but the columns `bindings` correlates, and
+			 * every lowering prints it EXISTS, which PostgreSQL plans as a semi-join.
+			 */
+			readonly kind: "exists"
+			readonly source: SourceDesc<L, R>
+			readonly bindings: BindingsDesc<L, R>
+	  }
+	| {
+			/**
 			 * C.at(field, t…): payload field `field` of the fact of closed relation `relation` whose key is `args`, one term
 			 * per key field in key order. A key no fact holds reads NULL, never a value, so a predicate's IS TRUE refuses it
 			 * and a generated column's NOT NULL does.
@@ -610,6 +621,7 @@ export const exprChildren = <L, R extends Refs>(
 				{ term: e.span, at: named.span }
 			]
 		case "absent":
+		case "exists":
 			return [
 				...bindTerms(e.source).map(([param, term]) => ({ term, at: ["bind", param] })),
 				...Object.entries(e.bindings).map(([column, term]) => ({ term, at: ["bindings", column] }))
@@ -689,6 +701,7 @@ export const mapExpr = <L, R extends Refs, S extends Refs>(
 		case "pointIn":
 			return { ...e, point: term(e.point), span: term(e.span) }
 		case "absent":
+		case "exists":
 			return { ...e, source: m.source(e.source), bindings: mapBindingTerms(e.bindings, term) }
 	}
 }

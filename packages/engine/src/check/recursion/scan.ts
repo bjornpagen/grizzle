@@ -56,25 +56,25 @@ const typedArm = (rule: ResolvedRule, row: ResolvedRecursive["row"]): Arm => {
 const where = (loc: SourceLoc, ...segments: ReadonlyArray<string | number>): SourceLoc =>
 	segments.reduce<SourceLoc>((l, s) => childLoc(l, s), loc)
 
-/** The relational negations anywhere in an expression, with their structural locations. */
-type Absent = {
-	readonly absent: Extract<ResolvedExpr, { readonly kind: "absent" }>
+/** The relational filters, negations and existences, anywhere in an expression, with their structural locations. */
+type Filtered = {
+	readonly filter: Extract<ResolvedExpr, { readonly kind: "absent" | "exists" }>
 	readonly loc: SourceLoc
 }
 
-const absents = (e: ResolvedExpr, loc: SourceLoc): ReadonlyArray<Absent> => [
-	...(e.kind === "absent" ? [{ absent: e, loc }] : []),
-	...exprChildren(e).flatMap((c) => absents(c.term, locBelow(loc, c.at)))
+const filters = (e: ResolvedExpr, loc: SourceLoc): ReadonlyArray<Filtered> => [
+	...(e.kind === "absent" || e.kind === "exists" ? [{ filter: e, loc }] : []),
+	...exprChildren(e).flatMap((c) => filters(c.term, locBelow(loc, c.at)))
 ]
 
-/** Every source a rule reads in its own scope, its matches' and its negations', with their locations. */
+/** Every source a rule reads in its own scope, its matches' and its relational filters', with their locations. */
 const ownSources = (
 	rule: ResolvedRule,
 	loc: SourceLoc
 ): ReadonlyArray<{ readonly source: ResolvedSource; readonly loc: SourceLoc }> => [
 	...rule.matches.map((m) => ({ source: m.source, loc: m.loc })),
 	...rule.where.flatMap((e, i) =>
-		absents(e, where(loc, "where", i)).map((f) => ({ source: f.absent.source, loc: f.loc }))
+		filters(e, where(loc, "where", i)).map((f) => ({ source: f.filter.source, loc: f.loc }))
 	)
 ]
 
@@ -255,7 +255,8 @@ const ruleWhole = (rule: ResolvedRule): WholeRead | undefined => {
  *   (PostgreSQL's recursive term admits one self-reference, and a nonlinear self-join needs a proved transformation
  *   the compiler does not have);
  * - `r.not(self, ...)`, UnsupportedOperation `selfNegation` (negation is
- *   monotone only over a fixed external relation or an earlier completed stratum);
+ *   monotone only over a fixed external relation or an earlier completed stratum), and an existence of self,
+ *   UnsupportedOperation `selfExistence` (a recursive arm reads self through its one match);
  * - an aggregate head on an arm that reads `self`, or an r.pack head, which groups by the head's other terms as an
  *   aggregate does, UnsupportedOperation `recursiveAggregation` (PostgreSQL has
  *   no ordinary recursive aggregate fixed point; a fold over one working-table batch is not one). intersection and
@@ -328,11 +329,14 @@ export const scanArms = (def: ResolvedRecursive): ScannedArms => {
 				selfReads: selves.length
 			})
 		}
-		const selfNegation = arm.rule.where
-			.flatMap((e, j) => absents(e, where(arm.loc, "where", j)))
-			.find((f) => isSelf(f.absent.source))
-		if (selfNegation !== undefined) {
-			failRecursion(selfNegation.loc, { kind: "selfNegation", recursion: name })
+		const selfFilter = arm.rule.where
+			.flatMap((e, j) => filters(e, where(arm.loc, "where", j)))
+			.find((f) => isSelf(f.filter.source))
+		if (selfFilter !== undefined) {
+			failRecursion(selfFilter.loc, {
+				kind: selfFilter.filter.kind === "absent" ? "selfNegation" : "selfExistence",
+				recursion: name
+			})
 		}
 		const [fold] = entries(arm.rule.head).flatMap(
 			([key, h]): ReadonlyArray<{

@@ -572,6 +572,7 @@ export const lengthBound = (measure: LengthMeasure, predicate: ExprDesc): number
 		case "allen":
 		case "pointIn":
 		case "absent":
+		case "exists":
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":

@@ -77,10 +77,18 @@ const conjunction = (terms: ReadonlyArray<AuthoredExprDesc>): AuthoredExprDesc =
 	return terms.length === 1 ? Arr.headNonEmpty(terms) : { kind: "and", args: terms }
 }
 
+/**
+ * A generated field's rule as the specification states it: an input beyond the row among those a description can state
+ * (`foreignInputs`), which the author's builders write; an existence is grizzle's own, which no description holds.
+ */
+type ExpectedRule =
+	| Exclude<GeneratedRule, { readonly kind: "notRowLocal" }>
+	| { readonly kind: "notRowLocal"; readonly input: ForeignInput }
+
 /** What the specification says of a case: admitted, with its generated fields, or refused at a field of R. */
 type Expected =
 	| { readonly kind: "admitted"; readonly generated: ReadonlyArray<string> }
-	| { readonly kind: "generated"; readonly field: string; readonly rule: GeneratedRule }
+	| { readonly kind: "generated"; readonly field: string; readonly rule: ExpectedRule }
 	| { readonly kind: "malformed"; readonly field: string }
 
 /** The path of R's description in `desc`, through the levels it extends. */

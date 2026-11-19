@@ -37,8 +37,9 @@ import {
  * Each match is its own step: an import of one rule over its relation, every column a variable the steps before it bound
  * read through a channel (ir/desc.ts Channel) its bind map binds to that variable, every parameter of the rule passed in
  * as itself, its other columns delivered under head names of its own. A condition is placed inside the first step after
- * which every variable it reads is bound. A negation is a chain of its own, correlated through its channels: a negated
- * relation one step, a negated query each rule of it navigated with its head equated with the terms it is negated at.
+ * which every variable it reads is bound. A relational filter, a negation or an existence, is a chain of its own,
+ * correlated through its channels: a filtered relation one step, a filtered query each rule of it navigated with its
+ * head equated with the terms it is filtered at.
  *
  * Each step is a Step node, which every lowering prints as a subquery PostgreSQL never pulls up (lower/conservative/step),
  * read LATERAL after the steps it reads: PostgreSQL plans each step alone, a lookup of one relation by the values the
@@ -84,8 +85,8 @@ interface Lookup {
 const narrower = (a: Lookup, b: Lookup): boolean =>
 	a.keyed > b.keyed || (a.keyed === b.keyed && a.bound > b.bound)
 
-/** Whether a negation reads no variable of its rule, by its bindings or by the bind map of the query it negates. */
-const readsNoVariable = (a: Absent): boolean => {
+/** Whether a relational filter reads no variable of its rule, by its bindings or by the bind map of the query it reads. */
+const readsNoVariable = (a: Filtered): boolean => {
 	const leaves = leavesOf(a)
 	return leaves.vars.size === 0 && leaves.parents.size === 0
 }
@@ -133,15 +134,18 @@ interface Flat {
 	readonly head: InferredRule["head"]
 }
 
-/** A negation of a rule, navigated apart (`Navigator.#absent`). */
-type Absent = Extract<InferredExpr, { readonly kind: "absent" }>
+/** A relational filter of a rule, a negation or an existence, navigated apart (`Navigator.#filtered`). */
+type Filtered = Extract<InferredExpr, { readonly kind: "absent" | "exists" }>
 
-/** A rule's reads as one chain of steps (`Navigator.#chain`): the rule's parts, its negations still to navigate. */
+/** Whether `e` is a relational filter (`Filtered`). */
+const isFiltered = (e: InferredExpr): e is Filtered => e.kind === "absent" || e.kind === "exists"
+
+/** A rule's reads as one chain of steps (`Navigator.#chain`): the rule's parts, its relational filters still to navigate. */
 interface Chain {
 	readonly vars: ReadonlyArray<VarDesc>
 	readonly matches: ReadonlyArray<InferredMatch>
 	readonly where: ReadonlyArray<InferredExpr>
-	readonly absents: ReadonlyArray<Absent>
+	readonly filters: ReadonlyArray<Filtered>
 	readonly head: InferredRule["head"]
 }
 
@@ -197,14 +201,14 @@ class Navigator {
 	}
 
 	/**
-	 * `rule` navigated at nesting `depth`: a chain of steps, then each of its negations, in declared order, over the rows
-	 * the chain and the negations before it leave, each a chain of its own. Every rule but the last is a step the next
-	 * reads whole, so PostgreSQL judges a negation only of a row every read and every earlier negation kept, and never
-	 * reads a negated relation for a row a read would have dropped.
+	 * `rule` navigated at nesting `depth`: a chain of steps, then each of its relational filters, negations and
+	 * existences, in declared order, over the rows the chain and the filters before it leave, each a chain of its own.
+	 * Every rule but the last is a step the next reads whole, so PostgreSQL judges a filter only of a row every read and
+	 * every earlier filter kept, and never reads a filtered relation for a row a read would have dropped.
 	 *
-	 * A negation that reads no variable, only the rule's parameters and literals, is a condition of the chain's own
+	 * A filter that reads no variable, only the rule's parameters and literals, is a condition of the chain's own
 	 * rule, as every condition that reads no variable is (`#chain`), all of them in declared order. PostgreSQL judges such
-	 * a negation once, as a gating qual of a Result over the plan of the rule that holds it, before that plan reads a row
+	 * a filter once, as a gating qual of a Result over the plan of the rule that holds it, before that plan reads a row
 	 * (createplan.c:804-809, nodeResult.c:81-85), and the gating quals of one rule in declared order where their costs
 	 * are equal (get_gating_quals, createplan.c:1007, through order_qual_clauses, a stable sort). Nested as a correlated
 	 * negation is, the last would gate the outermost Result and be judged first, reading a later arm's relations for a
@@ -213,17 +217,17 @@ class Navigator {
 	rule(rule: InferredRule, depth: number): InferredRule {
 		const chain = this.#chain(this.#defined(this.#inline(rule)), depth)
 		const kept = Object.fromEntries(chain.vars.map((v, i) => [`k${i}`, varRef(v.id)] as const))
-		const gates = chain.absents.filter(readsNoVariable)
+		const gates = chain.filters.filter(readsNoVariable)
 		let current: InferredRule = {
 			vars: chain.vars,
 			matches: chain.matches,
-			where: [...chain.where, ...gates.map((a) => this.#absent(a, depth))],
+			where: [...chain.where, ...gates.map((a) => this.#filtered(a, depth))],
 			head: kept,
 			interiors: [],
 			attach: [],
 			loc: rule.loc
 		}
-		for (const a of chain.absents.filter((x) => !readsNoVariable(x))) {
+		for (const a of chain.filters.filter((x) => !readsNoVariable(x))) {
 			const passed = new Map(
 				ruleLeaves(current, true).params.flatMap((p) =>
 					p.kind === "param" ? [[p.name, p] as const] : []
@@ -242,7 +246,7 @@ class Navigator {
 						loc: rule.loc
 					}
 				],
-				where: [this.#absent(a, depth)],
+				where: [this.#filtered(a, depth)],
 				head: kept,
 				interiors: [],
 				attach: [],
@@ -314,7 +318,7 @@ class Navigator {
 	/**
 	 * `flat` with every variable no read binds replaced by the term an equality equates it with, and that equality
 	 * dropped: what an inlined import's head equated with a term only the import's match bound. A variable a read binds
-	 * stays the read's own, so every negation and the head still read the row the chain delivers. Every variable left is
+	 * stays the read's own, so every relational filter and the head still read the row the chain delivers. Every variable left is
 	 * one a read binds.
 	 */
 	#defined(flat: Flat): Flat {
@@ -365,19 +369,19 @@ class Navigator {
 	 * The reads of `flat` as one chain of steps, at nesting `depth`: its region first, the rows a transaction wrote that a
 	 * rule probe over its region starts from (analysis/theory/query.ts probes), then its reads of relations in their
 	 * order (module doc). Each condition is placed inside the first step after which every variable it reads is bound; a
-	 * condition no variable of which a step binds stays the rule's own; the negations are left to `rule`.
+	 * condition no variable of which a step binds stays the rule's own; the relational filters are left to `rule`.
 	 */
 	#chain(flat: Flat, depth: number): Chain {
 		const declared = new Map(flat.vars.map((v) => [v.id, v] as const))
 		const known = new Set<string>()
 		let reads = [...flat.reads]
 		let pending: Array<InferredExpr> = []
-		const absents: Array<Absent> = []
+		const filters: Array<Filtered> = []
 		const head = flat.head
 		const where: Array<InferredExpr> = []
 		for (const c of flat.where) {
-			if (c.kind === "absent") {
-				absents.push(c)
+			if (isFiltered(c)) {
+				filters.push(c)
 			} else if (readsOf(c).size === 0) {
 				where.push(c)
 			} else {
@@ -511,15 +515,15 @@ class Navigator {
 		if (left.length > 0) {
 			return this.#refuse("a condition over variables no read binds")
 		}
-		return { vars, matches, where: [...where, ...pending], absents, head }
+		return { vars, matches, where: [...where, ...pending], filters, head }
 	}
 
 	/**
-	 * A negation as a chain of its own, at nesting `depth` of the rule that negates: a negated relation one step reading
-	 * it by the terms it is negated at, a negated arm its rule navigated with its head equated with those terms, each
-	 * passed in through the negation's channels.
+	 * A relational filter as a chain of its own, of its own kind, at nesting `depth` of the rule that filters: a filtered
+	 * relation one step reading it by the terms it is filtered at, a filtered arm its rule navigated with its head
+	 * equated with those terms, each passed in through the filter's channels.
 	 */
-	#absent(a: Absent, depth: number): InferredExpr {
+	#filtered(a: Filtered, depth: number): InferredExpr {
 		const passing = new Passing(depth)
 		const source = a.source
 		switch (source.kind) {
@@ -548,26 +552,26 @@ class Navigator {
 					},
 					bind: Object.fromEntries(passing.bind)
 				}
-				return { kind: "absent", source: step, bindings: {} }
+				return { kind: a.kind, source: step, bindings: {} }
 			}
 			case "query": {
 				const stage = source.query.stage
 				if (Object.keys(source.bind).length > 0 || stage.kind !== "rules") {
-					return this.#refuse("a negation of an imported query of rules binding no parameter")
+					return this.#refuse("a filter of an imported query of rules binding no parameter")
 				}
 				const navigated = mapNonEmpty(stage.arms, (arm) => {
 					const at: Array<InferredExpr> = []
 					for (const [field, outer] of Object.entries(a.bindings)) {
 						const head = arm.head[field]
 						if (head === undefined || head.kind === "aggregate" || head.kind === "producer") {
-							return this.#refuse(`a negated query whose head derives ${field}`)
+							return this.#refuse(`a filtered query whose head derives ${field}`)
 						}
 						at.push(equal(head, passing.expr(outer)))
 					}
 					return this.rule({ ...arm, where: [...arm.where, ...at] }, depth + 1)
 				})
 				return {
-					kind: "absent",
+					kind: a.kind,
 					source: {
 						kind: "query",
 						query: { stage: { kind: "rules", arms: navigated, loc: stage.loc } },
@@ -584,7 +588,7 @@ class Navigator {
 			case "delta":
 			case "context":
 			case "row":
-				return this.#refuse(`a negation of a ${source.kind} source`)
+				return this.#refuse(`a filter of a ${source.kind} source`)
 		}
 	}
 }
@@ -596,13 +600,13 @@ class Navigator {
 const navigate = (rule: InferredRule, loc: SourceLoc): InferredRule =>
 	new Navigator(loc).rule(rule, 0)
 
-/** Whether a scalar condition holds a negation anywhere below its top, where navigation reads none (`navigable`). */
-const negatesBelow = (e: InferredExpr): boolean =>
-	e.kind === "absent" || exprChildren(e).some((c) => negatesBelow(c.term))
+/** Whether a scalar condition holds a relational filter anywhere below its top, where navigation reads none (`navigable`). */
+const filtersBelow = (e: InferredExpr): boolean =>
+	isFiltered(e) || exprChildren(e).some((c) => filtersBelow(c.term))
 
 /**
  * Whether a rule of an imported query, matched or negated at `bindings`, delivers a field of its head as a bare literal
- * that a bare literal binds: the equality navigation states of the two (`Navigator.#inline`, `#absent`) types neither
+ * that a bare literal binds: the equality navigation states of the two (`Navigator.#inline`, `#filtered`) types neither
  * side, which the checker refuses, and whether the two are equal is the field's type's to say, a numeric's scale or a
  * domain's, which navigation does not read.
  */
@@ -618,9 +622,12 @@ const literalAtLiteral = (
 /**
  * The stored and closed relations and the deltas `rule` reads once its imports are inlined (`Navigator.#inline`), or
  * undefined where navigation reads no such rule: one with interiors, attachments or a folded or produced head, a match of
- * anything but a stored or closed relation, a delta or an imported query of one such rule binding no parameter, a negation below a scalar
- * expression, a negation of anything but a stored or closed relation or an imported query of such rules, or a match or a
- * negation of an imported query that binds a literal of its head at a literal (`literalAtLiteral`).
+ * anything but a stored or closed relation, a delta or an imported query of one such rule binding no parameter, a
+ * relational filter below a scalar expression, a filter of anything but a stored or closed relation or an imported
+ * query of such rules, or a match or a filter of an imported query that binds a literal of its head at a literal
+ * (`literalAtLiteral`). A filter, a negation or an existence, is no read the count holds: it keeps or drops a row the
+ * reads deliver, so a rule that reads one relation beside a filter is one lookup, and a filter of a delta, which no step
+ * reads by an index, leaves the rule as written, where PostgreSQL hashes the delta once per statement.
  */
 const readsOfRule = (rule: InferredRule): number | undefined => {
 	if (rule.interiors.length > 0 || rule.attach.length > 0) {
@@ -652,8 +659,8 @@ const readsOfRule = (rule: InferredRule): number | undefined => {
 		reads += inner
 	}
 	for (const w of rule.where) {
-		if (w.kind !== "absent") {
-			if (negatesBelow(w)) {
+		if (!isFiltered(w)) {
+			if (filtersBelow(w)) {
 				return undefined
 			}
 			continue
@@ -678,23 +685,24 @@ const readsOfRule = (rule: InferredRule): number | undefined => {
 
 /**
  * Whether navigation reads `rule` and it joins: it reads two stored or closed relations or more once its imports are
- * inlined (`readsOfRule`), or it negates a query a rule of which joins (`negatesJoin`). A rule that reads one relation
- * and negates no join is one lookup already; one navigation reads no part of is no join it reads.
+ * inlined (`readsOfRule`), or it filters by a query a rule of which joins (`filtersJoin`). A rule that reads one
+ * relation and filters by no join is one lookup already; one navigation reads no part of is no join it reads.
  */
 const joins = (rule: InferredRule): boolean => {
 	const reads = readsOfRule(rule)
-	return reads !== undefined && (reads > 1 || rule.where.some(negatesJoin))
+	return reads !== undefined && (reads > 1 || rule.where.some(filtersJoin))
 }
 
 /**
- * Whether a condition negates a query a rule of which joins (`joins`). Read as written, such a negation is the query's
- * join under the terms it is negated at, which bind only the relations whose columns the query's head delivers: qti's
+ * Whether a condition filters by a query, negated or existing, a rule of which joins (`joins`). Read as written, such
+ * a filter is the query's join under the terms it is filtered at, which bind only the relations whose columns the
+ * query's head delivers: qti's
  * "Dependency target" negates DependencyResolved at a dependency's (package, path, start), a join of Node and
  * ResourceId at (package, path) under it, ResourceId bound by the dependency's ref alone, which only the dependency's
  * row holds. Navigated, each relation the query reads is a step bound by the terms and the steps before it.
  */
-const negatesJoin = (w: InferredExpr): boolean =>
-	w.kind === "absent" &&
+const filtersJoin = (w: InferredExpr): boolean =>
+	isFiltered(w) &&
 	w.source.kind === "query" &&
 	w.source.query.stage.kind === "rules" &&
 	w.source.query.stage.arms.some(joins)

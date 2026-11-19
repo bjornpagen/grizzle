@@ -28,6 +28,7 @@ import {
 	freshColumnName,
 	type Leaves,
 	parentUse,
+	type RelationalFilter,
 	ruleLeaves,
 	splitWhere
 } from "#compiler/check/scan.ts"
@@ -413,10 +414,10 @@ interface NegatedCorrelation {
 /** The correlation of a negated binding, `column` bound to `e`, or undefined for a binding correlated with no slot. */
 type Correlate = (column: string, e: ResolvedExpr, at: SourceLoc) => NegatedCorrelation | undefined
 
-/** A negation the rule applies after its head: its place in the rule's where and each correlated binding's. */
-interface LateNegation {
+/** A relational filter the rule applies after its head: its place in the rule's where and each correlated binding's. */
+interface LateFilter {
 	readonly index: number
-	readonly absent: Extract<ResolvedExpr, { readonly kind: "absent" }>
+	readonly filter: RelationalFilter
 	readonly correlated: ReadonlyMap<string, NegatedCorrelation>
 }
 
@@ -2045,13 +2046,13 @@ export class Checker {
 
 	/**
 	 * r.allen and r.pointIn, lowered to the range operators of the shipped Allen table (check/allen.ts allenExpr, the
-	 * one IR spelling of a mask); r.not is a rule-level filter, never a scalar operand.
+	 * one IR spelling of a mask); r.not and an existence are rule-level filters, never scalar operands.
 	 *
 	 * A window literal takes its type from the point: a span over the point's type, as r.pointIn(t, window) writes a
 	 * time window. A parameter is a term of its declared type.
 	 */
 	#extension(
-		desc: Extract<ResolvedExpr, { readonly kind: "allen" | "pointIn" | "absent" }>,
+		desc: Extract<ResolvedExpr, { readonly kind: "allen" | "pointIn" | "absent" | "exists" }>,
 		lower: (child: ResolvedExpr) => Result.Result<Lowered, CompileError>,
 		loc: SourceLoc
 	): Lowered {
@@ -2108,6 +2109,12 @@ export class Checker {
 					"UnsupportedOperation",
 					loc,
 					"r.not inside a scalar expression: relational negation is a rule-level filter, alone or in a top-level conjunction"
+				)
+			case "exists":
+				return fail(
+					"UnsupportedOperation",
+					loc,
+					"an existence inside a scalar expression: a relational existence is a rule-level filter, alone or in a top-level conjunction"
 				)
 			case "allen": {
 				const left = spanTerm(desc.left, childLoc(loc, "allen", "left"))
@@ -2323,13 +2330,13 @@ class RuleCheck {
 		 * columns: projecting first and negating on the delivered columns keeps the same
 		 * set.
 		 */
-		const late = this.#lateNegations()
+		const late = this.#lateFilters()
 		if (late === undefined) {
-			node = this.#earlyNegations(node)
+			node = this.#earlyFilters(node)
 		}
 		node = this.#head(node)
 		for (const n of late ?? []) {
-			node = this.#negation(node, n.absent, this.at("where", n.index), (column) =>
+			node = this.#relational(node, n.filter, this.at("where", n.index), (column) =>
 				n.correlated.get(column)
 			)
 		}
@@ -2757,7 +2764,7 @@ class RuleCheck {
 	 * What an import's bind term binds a parameter to, read in this rule's scope: a scalar parameter is used at its
 	 * declared type there, and a relation parameter is resolved where the import reads it as a source. An outer value is
 	 * read through a column of `node`, the node the import is read over: a match's import over the rule's region, and a
-	 * negation's over the node it negates, which delivers the region's columns unchanged (`#negation`).
+	 * relational filter's over the node it filters, which delivers the region's columns unchanged (`#relational`).
 	 */
 	#bindValue(term: ResolvedBound, param: string, loc: SourceLoc, node: NodeId): BindValue {
 		if (term.kind === "relationParam") {
@@ -3080,17 +3087,18 @@ class RuleCheck {
 	}
 
 	/**
-	 * The rule's negations placed after its head, each correlated binding under the head key that delivers its slot's
-	 * column unchanged, when every binding the negations correlate is one and the head is a plain projection; otherwise
-	 * undefined, and every negation applies over the region.
+	 * The rule's relational filters, its negations and existences, placed after its head, each correlated binding under
+	 * the head key that delivers its slot's column unchanged, when every binding the filters correlate is one and the
+	 * head is a plain projection; otherwise undefined, and every filter applies over the region. Either filter keeps or
+	 * drops a row by the columns it correlates alone, so it keeps the same set over the projection that delivers them.
 	 *
-	 * A negated import whose bind map reads the rule's region (a rule or parent variable, or a parameter an
-	 * enclosing import binds to an outer value) is correlated with each binding of the region:
-	 * it applies over the region, where those values are still in scope.
+	 * A filtered import whose bind map reads the rule's region (a rule or parent variable, or a parameter an enclosing
+	 * import binds to an outer value) is correlated with each binding of the region: it applies over the region, where
+	 * those values are still in scope.
 	 */
-	#lateNegations(): ReadonlyArray<LateNegation> | undefined {
-		const { negations } = splitWhere(this.rule.where)
-		if (negations.length === 0) {
+	#lateFilters(): ReadonlyArray<LateFilter> | undefined {
+		const { relational } = splitWhere(this.rule.where)
+		if (relational.length === 0) {
 			return undefined
 		}
 		const heads = entries(this.rule.head)
@@ -3115,11 +3123,11 @@ class RuleCheck {
 				delivered.set(slot.name, key)
 			}
 		}
-		const late: Array<LateNegation> = []
-		for (const [index, absent] of negations) {
+		const late: Array<LateFilter> = []
+		for (const [index, filter] of relational) {
 			const readsRegion =
-				(absent.source.kind === "query" || absent.source.kind === "step") &&
-				entries(absent.source.bind).some(
+				(filter.source.kind === "query" || filter.source.kind === "step") &&
+				entries(filter.source.bind).some(
 					([, term]) =>
 						term.kind === "var" ||
 						term.kind === "parent" ||
@@ -3129,7 +3137,7 @@ class RuleCheck {
 				return undefined
 			}
 			const correlated = new Map<string, NegatedCorrelation>()
-			for (const [column, e] of entries(absent.bindings)) {
+			for (const [column, e] of entries(filter.bindings)) {
 				const slot = slotOf(e)
 				if (slot === undefined) {
 					if (e.kind === "var" || e.kind === "parent") {
@@ -3143,15 +3151,15 @@ class RuleCheck {
 				}
 				correlated.set(column, { region: this.#slotColumn(slot), on })
 			}
-			late.push({ index, absent, correlated })
+			late.push({ index, filter, correlated })
 		}
 		return late
 	}
 
-	/** Each r.not over the region `input`, in order, each correlated binding on its slot's own column. */
-	#earlyNegations(input: RelNode): RelNode {
+	/** Each relational filter over the region `input`, in order, each correlated binding on its slot's own column. */
+	#earlyFilters(input: RelNode): RelNode {
 		let node = input
-		const { negations } = splitWhere(this.rule.where)
+		const { relational } = splitWhere(this.rule.where)
 		const correlate: Correlate = (_, e, at) => {
 			const slot =
 				e.kind === "var"
@@ -3163,32 +3171,34 @@ class RuleCheck {
 							: undefined
 			return slot === undefined ? undefined : { region: this.#slotColumn(slot), on: slot.name }
 		}
-		for (const [i, absent] of negations) {
-			node = this.#negation(node, absent, this.at("where", i), correlate)
+		for (const [i, filter] of relational) {
+			node = this.#relational(node, filter, this.at("where", i), correlate)
 		}
 		return node
 	}
 
 	/**
-	 * One r.not over `left`: an AntiJoin against the negated source projected onto the columns this rule's values fix.
-	 * A constant of the negation reads no variable of the rule: those correlate through the columns above. The negated
-	 * source is narrowed to the arms its constants select, as a match's is (#narrow).
+	 * One relational filter over `left`: r.not an AntiJoin, and an existence a SemiJoin, against the filtered source
+	 * projected onto the columns this rule's values fix. A constant of the filter reads no variable of the rule: those
+	 * correlate through the columns above. The filtered source is narrowed to the arms its constants select, as a
+	 * match's is (#narrow). An existence's source reads nothing of `left` but the columns it correlates, as a semi-join's
+	 * right side does (ir/rel.ts SemiJoinRight): one whose import binds a parameter to the rule's region is refused.
 	 */
-	#negation(
+	#relational(
 		left: RelNode,
-		absent: Extract<ResolvedExpr, { readonly kind: "absent" }>,
+		filter: RelationalFilter,
 		loc: SourceLoc,
 		correlate: Correlate
 	): RelNode {
 		const source = this.#narrow(
-			this.cx.source(absent.source, this.scope, this.rule.interiors, loc, (term, param, at) =>
+			this.cx.source(filter.source, this.scope, this.rule.interiors, loc, (term, param, at) =>
 				this.#bindValue(term, param, at, left.id)
 			),
-			absent.bindings,
+			filter.bindings,
 			loc
 		)
 		const heading = source.heading
-		const placed = entries(absent.bindings).map(([column, e]) =>
+		const placed = entries(filter.bindings).map(([column, e]) =>
 			this.#negatedBinding(
 				source,
 				heading,
@@ -3274,7 +3284,24 @@ class RuleCheck {
 			},
 			loc
 		)
-		const node = this.cx.node({ kind: "AntiJoin", left, right, on, heading: left.heading }, loc)
+		const node = this.cx.node(
+			filter.kind === "absent"
+				? { kind: "AntiJoin", left, right, on, heading: left.heading }
+				: {
+						kind: "SemiJoin",
+						left,
+						right:
+							semiJoinRight(builtSides, left, right) ??
+							fail(
+								"UnsupportedOperation",
+								loc,
+								"an existence whose source reads the rule's region beyond the columns it binds"
+							),
+						on,
+						heading: left.heading
+					},
+			loc
+		)
 		this.cx.inherit(node, left)
 		return node
 	}
@@ -3465,6 +3492,13 @@ class RuleCheck {
 				"UnsupportedOperation",
 				loc,
 				"r.not as a head term: relational negation is a rule-level filter"
+			)
+		}
+		if (h.kind === "exists") {
+			return fail(
+				"UnsupportedOperation",
+				loc,
+				"an existence as a head term: a relational existence is a rule-level filter"
 			)
 		}
 		/**

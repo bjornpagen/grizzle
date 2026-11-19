@@ -48,7 +48,7 @@ import {
 	storedSideArm,
 	violationQuery
 } from "#compiler/analysis/theory/query.ts"
-import { wholeRule } from "#compiler/analysis/theory/unit.ts"
+import { type RegionFacts, wholeRule } from "#compiler/analysis/theory/unit.ts"
 import { unwrap } from "#compiler/check/fail.ts"
 import { combineRule, foldPlane } from "#compiler/check/fold.ts"
 import {
@@ -576,6 +576,8 @@ export interface NormalizeEnv {
 	readonly columnType: LiveEnv["columnType"]
 	/** A law's identity at the naming door (theory.ts lawIdentityOf). */
 	readonly named: (law: LawIdentity) => Identity<"law">
+	/** The containments of the schema's statements a whole rule's region reads (unit.ts RegionFacts). */
+	readonly regionFacts: RegionFacts
 	/** What lowering a law's predicate or term reads of the schema's types, and the closed relations it may apply. */
 	readonly lowerEnv: {
 		readonly fieldType: LowerEnv["fieldType"]
@@ -1625,7 +1627,7 @@ export class Normalizer {
 		const whole =
 			lowering.kind === "foreignKeys"
 				? undefined
-				: wholeRule(stated, violation, this.env.relations, loc)
+				: wholeRule(stated, violation, this.env.relations, this.env.regionFacts, loc)
 		const discharged: QueryRule =
 			whole ?? lawOver(law, (side) => unwrap(this.#ruleSide(side.declared, side.input, loc)))
 		this.#keep(

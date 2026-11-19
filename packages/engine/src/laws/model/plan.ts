@@ -18,7 +18,7 @@ import {
 	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
 import { type RefillDeferral, refillDeferral } from "#compiler/analysis/theory/refill.ts"
-import { wholeRule } from "#compiler/analysis/theory/unit.ts"
+import { type RegionFacts, wholeRule } from "#compiler/analysis/theory/unit.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
@@ -774,6 +774,7 @@ const readsAlike = (e: ExprDesc): boolean => {
 		case "allen":
 		case "pointIn":
 		case "absent":
+		case "exists":
 			return false
 	}
 }
@@ -819,7 +820,8 @@ const containmentDischarge = (
 	law: TheoryLaw,
 	d: ContainmentDetail,
 	projected: ReadonlyMap<string, ReadonlyArray<ResolvedSide>>,
-	relations: ReadonlyMap<string, TheoryRelation>
+	relations: ReadonlyMap<string, TheoryRelation>,
+	facts: RegionFacts
 ): ContainmentDischarge => {
 	if (
 		law.source.kind === "retirable" ||
@@ -833,7 +835,13 @@ const containmentDischarge = (
 		from: lawSideOf(d.from),
 		to: lawSideOf(d.to)
 	}
-	const whole = wholeRule(stated, violationQuery(stated, storedSides, law.loc), relations, law.loc)
+	const whole = wholeRule(
+		stated,
+		violationQuery(stated, storedSides, law.loc),
+		relations,
+		facts,
+		law.loc
+	)
 	return whole === undefined ? nativeDischarge : { kind: "whole", rule: whole }
 }
 
@@ -1051,7 +1059,8 @@ const scalarParts = (
 	relations: Readonly<Record<string, TheoryRelation>>,
 	relationMap: ReadonlyMap<string, TheoryRelation>,
 	projected: ReadonlyMap<string, ReadonlyArray<ResolvedSide>>,
-	discharge: RuleDischarge
+	discharge: RuleDischarge,
+	facts: RegionFacts
 ): ReadonlyArray<ScalarPart> => {
 	const d = law.detail
 	switch (d.kind) {
@@ -1064,7 +1073,7 @@ const scalarParts = (
 			) {
 				return []
 			}
-			switch (containmentDischarge(law, d, projected, relationMap).kind) {
+			switch (containmentDischarge(law, d, projected, relationMap, facts).kind) {
 				case "native":
 					return [d]
 				case "whole":
@@ -1479,7 +1488,8 @@ const projectedKeysOf = (
 export const referenceChoice = (
 	laws: ReadonlyArray<TheoryLaw>,
 	relations: Readonly<Record<string, TheoryRelation>>,
-	discharge: RuleDischarge
+	discharge: RuleDischarge,
+	facts: RegionFacts
 ): ReferenceChoice => {
 	const projected = projectedKeysOf(laws)
 	const planned = new Map<
@@ -1521,7 +1531,8 @@ export const referenceChoice = (
 			relations,
 			relationMap,
 			projected,
-			discharge
+			discharge,
+			facts
 		).entries()) {
 			const source = sideColumns(part.from)
 			appendAll(at(part.from.relation).columns, source)
@@ -1914,13 +1925,16 @@ export class Recognizer {
 	/** The whole schema's reference choice (`referenceChoice`), which the recognizer reads and never makes: what a law
 	 * model records for every model of its schema, a slice's among them. */
 	readonly references: ReferenceChoice
+	/** The containments a whole containment's region reads (analysis/theory/unit.ts RegionFacts). */
+	readonly #facts: RegionFacts
 
 	constructor(
 		laws: ReadonlyArray<TheoryLaw>,
 		families: ReadonlyArray<Family>,
 		relations: Readonly<Record<string, TheoryRelation>>,
 		discharge: RuleDischarge,
-		references: ReferenceChoice
+		references: ReferenceChoice,
+		facts: RegionFacts
 	) {
 		const familyLaws = new Map<string, TheoryLaw>()
 		const foldLaws = new Map<string, Map<number, FoldLaw>>()
@@ -1949,6 +1963,7 @@ export class Recognizer {
 		this.#projectedKeys = projectedKeysOf(laws)
 		this.#relations = relations
 		this.#relationMap = new Map(Object.entries(relations))
+		this.#facts = facts
 		this.#families = new Map(families.map((f) => [familyKey(f.id), f] as const))
 		this.#familyLaws = familyLaws
 		this.#foldLaws = foldLaws
@@ -2172,7 +2187,13 @@ export class Recognizer {
 			case "span":
 				return done(this.#coverage(d, d.pairing, loc))
 			case "scalar": {
-				const discharge = containmentDischarge(law, d, this.#projectedKeys, this.#relationMap)
+				const discharge = containmentDischarge(
+					law,
+					d,
+					this.#projectedKeys,
+					this.#relationMap,
+					this.#facts
+				)
 				switch (discharge.kind) {
 					case "native":
 						return done(

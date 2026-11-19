@@ -154,6 +154,20 @@ export interface WholeRule {
 	readonly unit: Unit
 	/** The violation query restricted to the units a transaction wrote (unit.ts restrictToUnits): what the judge runs. */
 	readonly judged: InferredQuery
+	/**
+	 * The holders whose gained rows its region reads only where they replace a row the transaction lost at the
+	 * containment's `fields`, proved by a containment at generate time to open a fact only there (unit.ts replacedAt):
+	 * the rows each lost, at those fields, which the judge captures for the region, beside the sides its occurrences
+	 * read.
+	 */
+	readonly replaced: ReadonlyArray<ReplacedRead>
+}
+
+/** A holder whose lost rows a whole rule's region reads, and the fields, a key of it among them, at which the
+ * containment that proves it pairs it (WholeRule `replaced`). */
+export interface ReplacedRead {
+	readonly relation: string
+	readonly fields: NonEmptyReadonlyArray<string>
 }
 
 /**
@@ -193,6 +207,7 @@ type ColumnTypes = (column: string) => InferredFieldDesc
  */
 const foreignReads: { readonly [K in InferredExpr["kind"]]: string | undefined } = {
 	absent: "negates a relation below a disjunction, a negation or a scalar expression",
+	exists: "reads a relation's existence below a disjunction, a negation or a scalar expression",
 	param: "reads a parameter",
 	parent: "reads a parent's column",
 	value: "reads a contract's VALUE",
@@ -1750,17 +1765,22 @@ export const touches = (rule: QueryRule, relation: string): Touches | undefined 
 
 /**
  * What writing `relation` can break of a whole rule (`touches`): the columns its positive occurrences bind, by INSERT,
- * and its negative ones', by DELETE, an occurrence of both polarities on each side.
+ * and its negative ones', by DELETE, an occurrence of both polarities on each side; and, by DELETE, the fields at which
+ * its region reads the rows a holder lost to find the gained rows that replace them (WholeRule `replaced`).
  */
 const wholeTouches = (rule: WholeRule, relation: string): Touches | undefined => {
 	const of = rule.reads.filter((r) => r.relation === relation)
-	const columns = (polarity: "positive" | "negative"): ReadonlyArray<string> | undefined => {
+	const replaced = rule.replaced.filter((r) => r.relation === relation).flatMap((r) => r.fields)
+	const columns = (
+		polarity: "positive" | "negative",
+		also: ReadonlyArray<string>
+	): ReadonlyArray<string> | undefined => {
 		const read = of.filter((r) => r.polarity === polarity || r.polarity === "both")
-		return read.length === 0
+		return read.length === 0 && also.length === 0
 			? undefined
-			: [...new Set(read.flatMap((r) => r.columns))].toSorted(compareText)
+			: [...new Set([...read.flatMap((r) => r.columns), ...also])].toSorted(compareText)
 	}
-	return touchesOf(columns("positive"), columns("negative"))
+	return touchesOf(columns("positive", []), columns("negative", replaced))
 }
 
 /** What writing `relation` can break of a probed rule (`touches`). */

@@ -869,6 +869,7 @@ const canonicalPredicate = (expr: ExprDesc): Canonical<ExprDesc> => {
 		case "allen":
 		case "pointIn":
 		case "absent":
+		case "exists":
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
@@ -1807,6 +1808,7 @@ class Owner {
 			case "allen":
 			case "pointIn":
 			case "absent":
+			case "exists":
 			case "closedAt":
 			case "closedRow":
 			case "closedHas":

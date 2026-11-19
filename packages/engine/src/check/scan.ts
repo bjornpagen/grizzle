@@ -43,8 +43,8 @@ const emptyLeaves = <P extends object, T>(): Leaves<P, T> => ({
 
 /**
  * The leaves an expression reads in its own scope: rule variables, parent variables and parameters. A relational
- * negation's bindings are read in the rule's scope too, and so is the bind map of the query it negates; the query
- * itself is its own scope.
+ * negation's or existence's bindings are read in the rule's scope too, and so is the bind map of the query it reads;
+ * the query itself is its own scope.
  */
 const exprLeaves = <P extends object, T, D extends InferredFieldDesc>(
 	e: ExprDesc<Located, ParamsAs<P, T, D>>,
@@ -56,7 +56,7 @@ const exprLeaves = <P extends object, T, D extends InferredFieldDesc>(
 		into.parents.add(e.column)
 	} else if (e.kind === "param") {
 		into.params.push(e)
-	} else if (e.kind === "absent") {
+	} else if (e.kind === "absent" || e.kind === "exists") {
 		bindingLeaves(e.bindings, into)
 		sourceLeaves(e.source, into)
 	} else {
@@ -246,24 +246,29 @@ export const parentUse = <P extends object, T, D extends InferredFieldDesc>(
 	return use
 }
 
+/** A relational filter of a rule: a negation (`absent`), or an existence (`exists`), its positive twin. */
+export type RelationalFilter = Extract<ResolvedExpr, { readonly kind: "absent" | "exists" }>
+
+/** Whether `e` is a relational filter (RelationalFilter). */
+const isRelational = (e: ResolvedExpr): e is RelationalFilter =>
+	e.kind === "absent" || e.kind === "exists"
+
 /**
- * Splits a rule's filters into its scalar predicates and its relational negations: a negation is a rule-level filter,
- * found at the top of a filter or inside a top-level conjunction.
+ * Splits a rule's filters into its scalar predicates and its relational filters, its negations and existences: each is
+ * a rule-level filter, found at the top of a filter or inside a top-level conjunction.
  */
 export const splitWhere = (
 	where: ReadonlyArray<ResolvedExpr>
 ): {
 	readonly scalar: ReadonlyArray<readonly [number, ResolvedExpr]>
-	readonly negations: ReadonlyArray<
-		readonly [number, Extract<ResolvedExpr, { readonly kind: "absent" }>]
-	>
+	readonly relational: ReadonlyArray<readonly [number, RelationalFilter]>
 } => {
 	const scalar: Array<readonly [number, ResolvedExpr]> = []
-	const negations: Array<readonly [number, Extract<ResolvedExpr, { readonly kind: "absent" }>]> = []
+	const relational: Array<readonly [number, RelationalFilter]> = []
 	const visit = (i: number, e: ResolvedExpr): void => {
-		if (e.kind === "absent") {
-			negations.push([i, e])
-		} else if (e.kind === "and" && e.args.some((a) => a.kind === "absent" || a.kind === "and")) {
+		if (isRelational(e)) {
+			relational.push([i, e])
+		} else if (e.kind === "and" && e.args.some((a) => isRelational(a) || a.kind === "and")) {
 			for (const a of e.args) {
 				visit(i, a)
 			}
@@ -274,5 +279,5 @@ export const splitWhere = (
 	for (const [i, e] of where.entries()) {
 		visit(i, e)
 	}
-	return { scalar, negations }
+	return { scalar, relational }
 }

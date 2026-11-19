@@ -381,6 +381,7 @@ const partsUnder = <R extends Refs>(
 		case "allen":
 		case "pointIn":
 		case "absent":
+		case "exists":
 			return [{ kind: "other", desc, branches }]
 	}
 }
@@ -622,7 +623,7 @@ export type RecordedNode = Exclude<TypedNode, ExtensionNode | BuiltNode>
 /** A predicate another package lowers. */
 export type ExtensionDesc<R extends Refs> = Extract<
 	ExprDesc<Located, R>,
-	{ readonly kind: "allen" | "pointIn" | "absent" }
+	{ readonly kind: "allen" | "pointIn" | "absent" | "exists" }
 >
 
 /**
@@ -2163,19 +2164,17 @@ class Typing<R extends Refs> {
 			case "allen":
 			case "pointIn":
 			case "absent":
+			case "exists":
 				return this.extension(desc, at)
 		}
 	}
 
 	/**
-	 * A predicate another package lowers, r.allen, r.pointIn or r.not: a boolean, whose children that package types and
-	 * lowers where the lowering reaches it, under the Compute.whens it stands in (the tape's extension entry). Only a
-	 * query lowers one; a check refuses it there.
+	 * A predicate another package lowers, r.allen, r.pointIn, r.not or an existence: a boolean, whose children that
+	 * package types and lowers where the lowering reaches it, under the Compute.whens it stands in (the tape's extension
+	 * entry). Only a query lowers one; a check refuses it there.
 	 */
-	extension(
-		desc: Extract<ExprDesc<Located, R>, { readonly kind: "allen" | "pointIn" | "absent" }>,
-		at: SourceLoc
-	): Typed {
+	extension(desc: ExtensionDesc<R>, at: SourceLoc): Typed {
 		const bool = plainType("bool")
 		const node: ExtensionNode = { kind: "extension", type: bool }
 		this.#tape.push({ kind: "extension", node, desc, at, scope: this.#scope })

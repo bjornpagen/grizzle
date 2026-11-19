@@ -217,7 +217,7 @@ class Structure {
 				`a rule variable, parameter or literal; a ${e.kind} reference belongs to a row check or a contract predicate`
 			)
 		}
-		if (e.kind === "absent") {
+		if (e.kind === "absent" || e.kind === "exists") {
 			this.source(e.source, vars, interiors, cx, loc)
 			for (const [column, b] of entries(e.bindings)) {
 				this.expr(b, vars, interiors, cx, childLoc(childLoc(loc, "bindings"), column))

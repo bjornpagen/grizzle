@@ -189,6 +189,7 @@ const rosterIn = (e: ExprDesc, scope: Scope): string | undefined => {
 		case "allen":
 		case "pointIn":
 		case "absent":
+		case "exists":
 		case "closedHas":
 			return undefined
 	}
@@ -407,6 +408,7 @@ const restatedExpr = (
 			return args === undefined || relation === undefined ? undefined : { ...e, relation, args }
 		}
 		case "absent":
+		case "exists":
 			return undefined
 	}
 }

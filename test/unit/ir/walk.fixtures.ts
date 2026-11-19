@@ -46,6 +46,7 @@ const kindRoster: { readonly [K in ExprDesc["kind"]]: K } = {
 	allen: "allen",
 	pointIn: "pointIn",
 	absent: "absent",
+	exists: "exists",
 	closedAt: "closedAt",
 	closedRow: "closedRow",
 	closedHas: "closedHas"
@@ -120,7 +121,8 @@ const bound = (inner: Gen<InferredExpr>): Gen<BindTermDesc<Located, Inferred>> =
 		map(name, (n) => ({ kind: "relationParam", name: n }))
 	])
 
-/** What an absent negates: every kind of source, an imported query and a step with a bind map and a scope of its own. */
+/** What an absent negates or an exists asks of: every kind of source, an imported query and a step with a bind map and
+ * a scope of its own. */
 const sourceOf = (inner: Gen<InferredExpr>): Gen<InferredSource> =>
 	oneOf<InferredSource>([
 		constant({ kind: "relation", name: "R" }),
@@ -192,6 +194,11 @@ const node = (inner: Gen<InferredExpr>): Gen<InferredExpr> => {
 		(source) => ({ kind: "pointIn", point: source.draw(inner), span: source.draw(inner) }),
 		(source) => ({
 			kind: "absent",
+			source: source.draw(sourceOf(inner)),
+			bindings: source.draw(record(inner))
+		}),
+		(source) => ({
+			kind: "exists",
 			source: source.draw(sourceOf(inner)),
 			bindings: source.draw(record(inner))
 		}),

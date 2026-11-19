@@ -387,6 +387,8 @@ const rowExpr = (expr: OpenExpr): ExprDesc | ForeignInput => {
 			return foreign("a contract's value")
 		case "absent":
 			return foreign("a relational negation")
+		case "exists":
+			return foreign("a relational existence")
 		case "compute": {
 			const args = rowExprs(expr.args)
 			return args instanceof ForeignInput ? args : Object.freeze({ ...expr, args })
@@ -510,6 +512,7 @@ const rowForeign: { readonly [K in ExprDesc["kind"]]: string | undefined } = {
 	parent: "a parent column",
 	value: "a contract's value",
 	absent: "a relational negation",
+	exists: "a relational existence",
 	field: undefined,
 	literal: undefined,
 	compute: undefined,

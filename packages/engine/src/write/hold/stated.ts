@@ -421,7 +421,7 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 					source(m.source, m.bindings)
 				}
 				for (const e of [...r.where, ...Object.values(r.head)]) {
-					absents(e, source)
+					filters(e, source)
 				}
 			})
 		}
@@ -500,7 +500,7 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 				matched(at, m.source, m.bindings, pinned)
 			}
 			for (const e of [...r.where, ...Object.values(r.head)]) {
-				absents(e, (source, bindings) => matched(at, source, bindings, pinned))
+				filters(e, (source, bindings) => matched(at, source, bindings, pinned))
 			}
 		})
 	}
@@ -676,13 +676,13 @@ const stageRules = (stage: QueryStageDesc, rule: (r: RuleDesc) => void): void =>
 	}
 }
 
-/** Each relational negation in `e`, at any depth, given to `source` with its bindings. */
-const absents = (
+/** Each relational filter in `e`, a negation or an existence, at any depth, given to `source` with its bindings. */
+const filters = (
 	e: ExprDesc | HeadTermDesc,
 	source: (s: SourceDesc, bindings: BindingsDesc) => void
 ): void => {
 	const walk = (x: ExprDesc): void => {
-		if (x.kind === "absent") {
+		if (x.kind === "absent" || x.kind === "exists") {
 			source(x.source, x.bindings)
 		}
 		for (const c of exprChildren(x)) {

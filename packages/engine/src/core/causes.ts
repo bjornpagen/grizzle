@@ -28,6 +28,7 @@ type Names = ReadonlyArray<string>
  * - `approximateSource`: an approximate stage below an arm (scan.ts).
  * - `nonlinearFeedback`: a recursive arm reading self `selfReads` times, at least two (scan.ts).
  * - `selfNegation`: r.not(self) in a recursive arm (scan.ts).
+ * - `selfExistence`: an existence of self, which grizzle writes and no author does, in a recursive arm (scan.ts).
  * - `recursiveAggregation`: an aggregate, or r.pack, over self in a recursive arm (scan.ts).
  * - `recursiveStep`: a recursive arm that reads self and, at any depth of a source it matches or negates, the
  *   recursion `inner` (scan.ts).
@@ -65,6 +66,7 @@ export type RecursionRefusal =
 			readonly selfReads: number
 	  }
 	| { readonly kind: "selfNegation"; readonly recursion: string }
+	| { readonly kind: "selfExistence"; readonly recursion: string }
 	| {
 			readonly kind: "recursiveAggregation"
 			readonly recursion: string
@@ -311,6 +313,8 @@ export const recursionRefusalText = (cause: RecursionRefusal): string => {
 			return `recursion: nonlinear feedback: a recursive arm of ${cause.recursion} reads self ${cause.selfReads} times; PostgreSQL's recursive term admits one self-reference, and a nonlinear self-join has no admitted transformation into one`
 		case "selfNegation":
 			return `recursion: negation of the current relation: r.not(self) in a recursive arm of ${cause.recursion} is not monotone in the feedback; negate a fixed external relation or an earlier completed recursion instead`
+		case "selfExistence":
+			return `recursion: an existence of the current relation in a recursive arm of ${cause.recursion}: a recursive arm reads self through its one match, and PostgreSQL admits no recursive reference inside a subquery expression`
 		case "recursiveAggregation":
 			return `recursion: recursive aggregation: ${cause.fold === "pack" ? "r.pack" : cause.fold} over self in a recursive arm of ${cause.recursion} would fold one working-table batch, not the fixed point; precompute independent aggregates before feedback or aggregate the completed recursion afterward`
 		case "recursiveStep":
@@ -477,7 +481,7 @@ export type GeneratedRule =
 	| { readonly kind: "readsGenerated"; readonly read: string }
 	| {
 			readonly kind: "notRowLocal"
-			readonly input: "var" | "param" | "parent" | "value" | "absent"
+			readonly input: "var" | "param" | "parent" | "value" | "absent" | "exists"
 	  }
 	| { readonly kind: "type"; readonly declared: string; readonly expression: string }
 
@@ -489,7 +493,8 @@ const rowInputWords: {
 	param: "a parameter",
 	parent: "a parent column",
 	value: "a contract's value",
-	absent: "a relational negation"
+	absent: "a relational negation",
+	exists: "a relational existence"
 }
 
 /** A generated field rule's sentence. */

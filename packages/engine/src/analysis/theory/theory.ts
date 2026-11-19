@@ -39,6 +39,7 @@ import {
 	type Part
 } from "#compiler/core/identity.ts"
 
+import { type RegionFacts, regionFactsOf } from "#compiler/analysis/theory/unit.ts"
 import { type ConstraintName, FieldId, type LawId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -245,6 +246,8 @@ export interface Theory extends CheckedTheory {
 	 * fills by.
 	 */
 	readonly fill: FillOrder
+	/** The containments a whole rule's region reads (unit.ts RegionFacts), which the law model's whole containments read too. */
+	readonly regionFacts: RegionFacts
 }
 
 /** A theory with the evidence its laws give queries (theoryEvidence), each containment's validity context the one law
@@ -476,6 +479,8 @@ class Builder {
 	readonly checked: CheckedSchema
 	/** Each derived relation's definition, by name. */
 	readonly definitions: ReadonlyMap<string, QueryDesc>
+	/** The containments of the closure's statements a whole rule's region reads (unit.ts RegionFacts). */
+	readonly regionFacts: RegionFacts
 
 	constructor(checked: CheckedSchema) {
 		this.checked = checked
@@ -490,6 +495,10 @@ class Builder {
 		this.patterns = typing.patterns
 		this.closed = checked.closedReads
 		this.relations = new Map(checked.stored.map((r) => [r.name, r] as const))
+		this.regionFacts = regionFactsOf(
+			checked.closure.statements.map((s) => s.statement),
+			(name) => this.relations.get(name)?.kind === "relation"
+		)
 	}
 
 	/**
@@ -533,6 +542,7 @@ class Builder {
 			definition: (relation) => this.definitions.get(relation),
 			columnType: (relation, query, loc) => this.#columnType(relation, query, loc),
 			named: lawIdentityOf,
+			regionFacts: this.regionFacts,
 			lowerEnv: {
 				fieldType: this.fieldType,
 				patterns: this.patterns,
@@ -596,7 +606,8 @@ class Builder {
 			dependencies: this.#dependencies(laws),
 			capabilities: this.#capabilities(laws),
 			families,
-			fill: fill.value
+			fill: fill.value,
+			regionFacts: this.regionFacts
 		})
 	}
 

@@ -1139,8 +1139,9 @@ class Specializer {
 			theory.relations,
 			discharge,
 			cycles.kind === "planned"
-				? referenceChoice(theory.laws, theory.relations, discharge)
-				: cycles.references
+				? referenceChoice(theory.laws, theory.relations, discharge, theory.regionFacts)
+				: cycles.references,
+			theory.regionFacts
 		)
 		this.#typing = typingEnv(checked.owned)
 		this.#laws = new Map([

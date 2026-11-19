@@ -205,7 +205,7 @@ class Collector {
 			this.inputs.add(`parameter ${e.name}`)
 			return
 		}
-		if (e.kind === "absent") {
+		if (e.kind === "absent" || e.kind === "exists") {
 			this.source(e.source)
 			for (const b of Object.values(e.bindings)) {
 				this.expr(b)

@@ -387,6 +387,7 @@ const withLiterals = (e: ExprDesc, vars: Readonly<Record<string, LeafBinding>>):
 		case "pointIn":
 			return { ...e, point: go(e.point), span: go(e.span) }
 		case "absent":
+		case "exists":
 			return { ...e, bindings: Rec.map(e.bindings, go) }
 	}
 }

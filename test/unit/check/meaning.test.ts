@@ -57,11 +57,10 @@ export const theBuilderAndTheCheckerGiveEveryGeneratedQueryReadTheMeaningItsProg
 		kills: [
 			{
 				file: "packages/engine/src/check/checker.ts",
-				original:
-					'\t\tconst node = this.cx.node({ kind: "AntiJoin", left, right, on, heading: left.heading }, loc)',
+				original: '\t\t\t\t? { kind: "AntiJoin", left, right, on, heading: left.heading }',
 				replacement:
-					'\t\tconst node = this.cx.node(\n\t\t\t{ kind: "AntiJoin", left, right, on: on.slice(1), heading: left.heading },\n\t\t\tloc\n\t\t)',
-				why: "A negation's join drops its first equated column (check/checker.ts negation); the property fails."
+					'\t\t\t\t? { kind: "AntiJoin", left, right, on: on.slice(1), heading: left.heading }',
+				why: "A negation's join drops its first equated column (check/checker.ts relational); the property fails."
 			},
 			{
 				file: "packages/engine/src/check/checker.ts",

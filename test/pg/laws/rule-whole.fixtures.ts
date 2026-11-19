@@ -117,8 +117,24 @@ const exprOf = (shape: UnitShape) =>
 		placedKey(shape[0])
 	)
 
-/** Each shape's two stored relations, which both of its judges state and its writes name. */
-const relationsOf = Rec.map(shapes, (shape) => ({ Node: nodeOf(shape), Expr: exprOf(shape) }))
+/** A tag at a node, keyed as its node is: its mark. */
+const tagOf = (shape: UnitShape) =>
+	relation(
+		"Tag",
+		{
+			...inOrder(shape[1])({ doc: pg.integer, sub: pg.integer, part: pg.integer }),
+			start: pg.integer,
+			mark: pg.integer
+		},
+		placedKey(shape[0])
+	)
+
+/** Each shape's three stored relations, which both of its judges state and its writes name. */
+const relationsOf = Rec.map(shapes, (shape) => ({
+	Node: nodeOf(shape),
+	Expr: exprOf(shape),
+	Tag: tagOf(shape)
+}))
 
 /**
  * The place every row of document `doc` holds, as an INSERT's values spell it: its doc, sub and part, its sub and part
@@ -154,16 +170,27 @@ type Judge = "whole" | "probed"
  *   the walk ends at a set.
  * - Leafed: a node of kind 2 has a child that is a leaf, a node no other is a child of: a check over a negation of a
  *   query that negates in turn, which a child's insert under the leaf and the leaf's delete both break.
+ * - Tagged: every tag stands at a node of a kind the cases write: a containment of every row of a relation into a
+ *   selection of a keyed one, which grizzle judges whole, where one into the keyed relation's every row would be its
+ *   foreign key (laws/model/plan.ts containmentDischarge), and which proves Marks's node as one into every row does,
+ *   a row in a selection of Node being a row of Node (analysis/theory/unit.ts regionFactsOf), which a tag's
+ *   insert breaks and its node's delete does.
+ * - Marked: a tag of mark 1 stands at a node of kind 0: a check over a join of Tag and Node, Tag contained in Node at
+ *   Node's key, so its region reads the nodes a transaction wrote only where they replace a node it removed
+ *   (analysis/theory/unit.ts replacedAt), which a tag's insert breaks and its node's replacement by one of another kind
+ *   does. Typed and Parents join Expr and Node as Marks joins Tag and Node, but no containment holds every Expr in
+ *   Node, nor every Node in Expr, Expressed's source a selection of Node, so theirs reads every node and every
+ *   expression written.
  */
 const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 	const [width, order] = shapes[shape]
 	const name = `${judge === "whole" ? "Whole" : "Probed"}Judge${width}${order === "key" ? "Keyed" : "Reversed"}`
-	const { Node, Expr } = relationsOf[shape]
+	const { Node, Expr, Tag } = relationsOf[shape]
 	const ordered = inOrder(order)
 	const probed = judge === "probed"
 	const Base = schema(
 		name,
-		[Node, Expr],
+		[Node, Expr, Tag],
 		[
 			contained(
 				on(
@@ -191,7 +218,17 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 					"start"
 				)
 			),
-			...(probed ? [mutable(Node), mutable(Expr)] : [])
+			contained(
+				on(Tag, "doc", "sub", "part", "start"),
+				on(
+					select(Node, (n) => n.in(n.kind, [0, 1, 2])),
+					"doc",
+					"sub",
+					"part",
+					"start"
+				)
+			),
+			...(probed ? [mutable(Node), mutable(Expr), mutable(Tag)] : [])
 		]
 	)
 	const Typed = derived(
@@ -218,13 +255,26 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 				.find({ ...at, parent, type })
 		})
 	)
+	const Marks = derived(
+		"Marks",
+		query(Base).rule((r) => {
+			const { doc, sub, part, start, mark } = v(Tag, "t")
+			const { kind } = v(Node, "n")
+			const at = ordered({ doc, sub, part })
+			return r
+				.match(Tag, { ...at, start, mark })
+				.match(Node, { ...at, start, kind })
+				.find({ ...at, start, mark, kind })
+		})
+	)
 	const spj = [
 		contained(on(Typed, "doc", "sub", "part", "parent"), on(Expr, "doc", "sub", "part", "start")),
 		check("Kinded", Typed, (t) => t.or(t.ne(t.kind, 1), t.eq(t.type, 1))),
-		key(on(Parents, "doc", "sub", "part", "parent"))
+		key(on(Parents, "doc", "sub", "part", "parent")),
+		check("Marked", Marks, (m) => m.or(m.ne(m.mark, 1), m.eq(m.kind, 0)))
 	] as const
 	if (probed) {
-		return schema.extend(Base, `${name}_1`, [Typed, Parents], spj)
+		return schema.extend(Base, `${name}_1`, [Typed, Parents, Marks], spj)
 	}
 	const Fanout = derived(
 		"Fanout",
@@ -296,7 +346,7 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 	return schema.extend(
 		Leaves,
 		`${name}_1`,
-		[Typed, Parents, Fanout, Reach, Barren],
+		[Typed, Parents, Fanout, Reach, Barren, Marks],
 		[
 			...spj,
 			check("Fanout", Fanout, (f) =>
@@ -346,12 +396,13 @@ export const judgeTemplates: Readonly<
 interface Tables {
 	readonly node: string
 	readonly expr: string
+	readonly tag: string
 }
 
 const tablesOf = (installed: Installed, shape: ShapeKey): Tables => {
 	const names = namesOf(installed)
-	const { Node, Expr } = relationsOf[shape]
-	return { node: names.table(Node), expr: names.table(Expr) }
+	const { Node, Expr, Tag } = relationsOf[shape]
+	return { node: names.table(Node), expr: names.table(Expr), tag: names.table(Tag) }
 }
 
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
@@ -364,6 +415,8 @@ const kinds = [0, 1, 2] as const
 type Kind = (typeof kinds)[number]
 const types = [0, 1] as const
 type Type = (typeof types)[number]
+const marks = [0, 1] as const
+type Mark = (typeof marks)[number]
 
 /** One write of a transaction over two documents, each a unit, by direct SQL. */
 export type Op =
@@ -375,7 +428,16 @@ export type Op =
 			readonly nodeKind: Kind
 	  }
 	| { readonly kind: "expr"; readonly doc: Doc; readonly start: Start; readonly type: Type }
-	| { readonly kind: "unnode" | "unexpr"; readonly doc: Doc; readonly start: Start }
+	| { readonly kind: "tag"; readonly doc: Doc; readonly start: Start; readonly mark: Mark }
+	| { readonly kind: "unnode" | "unexpr" | "untag"; readonly doc: Doc; readonly start: Start }
+	| {
+			/** A node removed and one written at its key, of its own parent and kind, in one transaction. */
+			readonly kind: "renode"
+			readonly doc: Doc
+			readonly start: Start
+			readonly parent: Start
+			readonly nodeKind: Kind
+	  }
 	| { readonly kind: "unit"; readonly doc: Doc; readonly type: Type }
 	| { readonly kind: "drop"; readonly doc: Doc }
 	| { readonly kind: "judge" }
@@ -417,6 +479,26 @@ const opGen: Gen<Op> = weighted<Op>([
 			start: s.draw(startGen)
 		})
 	],
+	[
+		3,
+		(s) => ({
+			kind: "tag",
+			doc: s.draw(docGen),
+			start: s.draw(startGen),
+			mark: s.draw(element(marks))
+		})
+	],
+	[1, (s) => ({ kind: "untag", doc: s.draw(docGen), start: s.draw(startGen) })],
+	[
+		2,
+		(s) => ({
+			kind: "renode",
+			doc: s.draw(docGen),
+			start: s.draw(startGen),
+			parent: s.draw(startGen),
+			nodeKind: s.draw(element(kinds))
+		})
+	],
 	[2, (s) => ({ kind: "unit", doc: s.draw(docGen), type: s.draw(element(types)) })],
 	[1, (s) => ({ kind: "drop", doc: s.draw(docGen) })],
 	[1, () => ({ kind: "judge" })]
@@ -442,6 +524,10 @@ export type WholeFeature =
 	| "refused by Leafed"
 	| "refused by Expressed"
 	| "refused by Parented"
+	| "refused by Tagged"
+	| "refused by Marked"
+	| "a node replaced under its tag"
+	| "an expression written at a node that stood before"
 	| "a whole unit inserted"
 	| "a unit dropped whole"
 	| "an expression removed under its member"
@@ -475,6 +561,10 @@ export const wholeFeatures: Arr.NonEmptyReadonlyArray<WholeFeature> = [
 	"refused by Leafed",
 	"refused by Expressed",
 	"refused by Parented",
+	"refused by Tagged",
+	"refused by Marked",
+	"a node replaced under its tag",
+	"an expression written at a node that stood before",
 	"a whole unit inserted",
 	"a unit dropped whole",
 	"an expression removed under its member",
@@ -608,6 +698,49 @@ const aims: ReadonlyArray<readonly [WholeFeature, Gen<Schedule>]> = [
 		})
 	],
 	[
+		"refused by Tagged",
+		shaped((s) => {
+			const doc = s.draw(docGen)
+			return [
+				lawful(doc, 1),
+				[
+					s.draw(boolean)
+						? { kind: "tag", doc, start: 3, mark: 0 }
+						: { kind: "unnode", doc, start: 2 }
+				],
+				...(s.draw(boolean) ? [] : [[{ kind: "tag", doc, start: 2, mark: 0 } as const]])
+			]
+		})
+	],
+	[
+		"refused by Marked",
+		shaped((s) => {
+			const doc = s.draw(docGen)
+			return [lawful(doc, 1), [{ kind: "tag", doc, start: 1, mark: 1 }]]
+		})
+	],
+	[
+		"a node replaced under its tag",
+		shaped((s) => {
+			const doc = s.draw(docGen)
+			return [
+				[...lawful(doc, 1), { kind: "tag", doc, start: 2, mark: 1 }],
+				[{ kind: "renode", doc, start: 2, parent: 0, nodeKind: s.draw(element(kinds)) }]
+			]
+		})
+	],
+	[
+		"an expression written at a node that stood before",
+		shaped((s) => {
+			const doc = s.draw(docGen)
+			return [
+				[...lawful(doc, 1), { kind: "node", doc, start: 3, parent: 2, nodeKind: 0 }],
+				[{ kind: "unexpr", doc, start: 2 }],
+				[{ kind: "expr", doc, start: 3, type: s.draw(element(types)) }]
+			]
+		})
+	],
+	[
 		"an expression removed under its member",
 		shaped((s) => {
 			const doc = s.draw(docGen)
@@ -636,7 +769,7 @@ export const wholeSpace = aimed(scheduleGen, aims)
 
 /** The statements of one write, on an installation's tables. */
 const statementsOf = (
-	{ node, expr }: Tables,
+	{ node, expr, tag }: Tables,
 	op: Exclude<Op, { readonly kind: "judge" }>
 ): ReadonlyArray<string> => {
 	switch (op.kind) {
@@ -644,6 +777,17 @@ const statementsOf = (
 			return [
 				`INSERT INTO ${node} (doc, sub, part, start, parent, kind) VALUES (${placed(op.doc)}, ${op.start}, ${op.parent}, ${op.nodeKind}) ON CONFLICT DO NOTHING`
 			]
+		case "renode":
+			return [
+				`DELETE FROM ${node} WHERE doc = ${op.doc} AND start = ${op.start}`,
+				`INSERT INTO ${node} (doc, sub, part, start, parent, kind) VALUES (${placed(op.doc)}, ${op.start}, ${op.parent}, ${op.nodeKind}) ON CONFLICT DO NOTHING`
+			]
+		case "tag":
+			return [
+				`INSERT INTO ${tag} (doc, sub, part, start, mark) VALUES (${placed(op.doc)}, ${op.start}, ${op.mark}) ON CONFLICT DO NOTHING`
+			]
+		case "untag":
+			return [`DELETE FROM ${tag} WHERE doc = ${op.doc} AND start = ${op.start}`]
 		case "expr":
 			return [
 				`INSERT INTO ${expr} (doc, sub, part, start, type) VALUES (${placed(op.doc)}, ${op.start}, ${op.type}) ON CONFLICT DO NOTHING`
@@ -659,6 +803,7 @@ const statementsOf = (
 			]
 		case "drop":
 			return [
+				`DELETE FROM ${tag} WHERE doc = ${op.doc}`,
 				`DELETE FROM ${expr} WHERE doc = ${op.doc}`,
 				`DELETE FROM ${node} WHERE doc = ${op.doc}`
 			]
@@ -675,7 +820,7 @@ const refusedLaw = (
 	}
 	const table = fields.table.value
 	const owner = Arr.findFirst(
-		["Node", "Expr"],
+		["Node", "Expr", "Tag"],
 		(r) => installation.names.relation(r).name === table
 	)
 	return Option.isNone(owner)
@@ -697,12 +842,14 @@ type RuleName =
 	| "Leafed"
 	| "Expressed"
 	| "Parented"
+	| "Tagged"
+	| "Marked"
 
 /** The rules the whole schema alone states, which no probe reads: an aggregate's, a recursion's and a nested negation's. */
 const wholeOnly: ReadonlyArray<RuleName> = ["Fanout", "Reached", "Leafed"]
 
-/** The containments between selected sides, each the whole judge's and its twin's native foreign key. */
-const containments: ReadonlyArray<RuleName> = ["Expressed", "Parented"]
+/** The containments between the stored relations, each whole in the whole judge and its twin's native foreign key. */
+const containments: ReadonlyArray<RuleName> = ["Expressed", "Parented", "Tagged"]
 
 /** The situation a refusal by each rule reaches. */
 const refusedBy: { readonly [R in RuleName]: WholeFeature } = {
@@ -713,7 +860,9 @@ const refusedBy: { readonly [R in RuleName]: WholeFeature } = {
 	Reached: "refused by Reached",
 	Leafed: "refused by Leafed",
 	Expressed: "refused by Expressed",
-	Parented: "refused by Parented"
+	Parented: "refused by Parented",
+	Tagged: "refused by Tagged",
+	Marked: "refused by Marked"
 }
 
 /**
@@ -732,7 +881,13 @@ const nameOfLaw = (
 		case "key":
 			return "One type"
 		case "check":
-			return law.name === "Fanout" ? "Fanout" : law.name === "Leafed" ? "Leafed" : "Kinded"
+			return law.name === "Fanout"
+				? "Fanout"
+				: law.name === "Leafed"
+					? "Leafed"
+					: law.name === "Marked"
+						? "Marked"
+						: "Kinded"
 	}
 }
 
@@ -743,7 +898,11 @@ const ruleNameOf = (installation: Installation, law: LawId): RuleName => {
 		`the law ${law}`
 	).detail
 	if (detail.kind === "containment") {
-		return detail.from.relation === "Node" ? "Expressed" : "Parented"
+		return detail.from.relation === "Node"
+			? "Expressed"
+			: detail.from.relation === "Tag"
+				? "Tagged"
+				: "Parented"
 	}
 	assert.ok(detail.kind === "rule", `the law ${law} is a rule or a containment`)
 	return nameOfLaw(detail.rule.kind === "whole" ? detail.rule.law : detail.rule)
@@ -799,6 +958,20 @@ const judged = (
 		return { broken, refused: rule } satisfies Verdict
 	})
 
+/** Whether `table` holds a row at the document and start `at`, as `session` sees it. */
+const standing = (
+	session: RawSession,
+	table: string,
+	at: { readonly doc: Doc; readonly start: Start }
+) =>
+	Effect.map(
+		session.values(
+			`SELECT EXISTS (SELECT FROM ${table} WHERE doc = ${at.doc} AND start = ${at.start})`,
+			[]
+		),
+		(found) => found[0]?.[0] === true
+	)
+
 /** The units one transaction's writes reach, by the documents they write. */
 const unitsOf = (ops: ReadonlyArray<Op>): ReadonlySet<Doc> =>
 	new Set(Arr.flatMap(ops, (op) => (op.kind === "judge" ? [] : [op.doc])))
@@ -821,6 +994,7 @@ export const runEquivalence = (
 			...side,
 			tables: tablesOf(side.installed, schedule.shape)
 		}))
+		const wholeTables = tablesOf(whole.installed, schedule.shape)
 		c.note(shapeFeatures[schedule.shape])
 		for (const [at, ops] of schedule.transactions.entries()) {
 			const where = `transaction ${at} of ${Formatter.format(schedule)}`
@@ -855,6 +1029,8 @@ export const runEquivalence = (
 			})
 			let ended = false
 			let judgedOnce = false
+			/** The nodes this transaction wrote, each by its document and start. */
+			const nodesWritten = new Set<string>()
 			for (const op of ops) {
 				if (op.kind === "judge") {
 					const refused = yield* both
@@ -871,6 +1047,25 @@ export const runEquivalence = (
 					}
 					judgedOnce = true
 					continue
+				}
+				if (op.kind === "renode" && (yield* standing(whole.session, wholeTables.tag, op))) {
+					c.note("a node replaced under its tag")
+				}
+				if (
+					op.kind === "expr" &&
+					!nodesWritten.has(`${op.doc}:${op.start}`) &&
+					(yield* standing(whole.session, wholeTables.node, op)) &&
+					!(yield* standing(whole.session, wholeTables.expr, op))
+				) {
+					c.note("an expression written at a node that stood before")
+				}
+				if (op.kind === "node" || op.kind === "renode") {
+					nodesWritten.add(`${op.doc}:${op.start}`)
+				}
+				if (op.kind === "unit") {
+					for (const start of [0, 1, 2]) {
+						nodesWritten.add(`${op.doc}:${start}`)
+					}
 				}
 				for (const side of sides) {
 					for (const sql of statementsOf(side.tables, op)) {
@@ -1072,4 +1267,61 @@ export const runLocality = (
 			)
 		}
 		c.note(locality.statistics === "none" ? "measured with no statistics" : "measured analyzed")
+	})
+
+/**
+ * A case of the narrowed region: its judge's shape, the documents a transaction writes whole, three nodes and three
+ * expressions each, and how many of them it tags, one tag each.
+ */
+export interface Narrowed {
+	readonly shape: ShapeKey
+	readonly documents: number
+	readonly tagged: number
+}
+
+/** Tens of documents written whole, a few of them tagged. */
+export const narrowedGen: Gen<Narrowed> = (s) => ({
+	shape: s.draw(shapeGen),
+	documents: s.draw(int(40, 80)),
+	tagged: s.draw(int(1, 10))
+})
+
+/**
+ * One case of the narrowed region in its one transaction, which the case's end rolls back: `documents` lawful documents
+ * written whole through the captures, as a publish writes them, the first `tagged` of them tagged at their start 2, a
+ * node of kind 0 at mark 1, then the judge, and every whole rule's statement explained. Each scan of Tag runs at most
+ * once per tag written: Marks joins Tag and Node at Node's key, Tag contained in Node there, so its region holds the
+ * tags' units and no node's, every node written fresh (analysis/theory/unit.ts replacedAt), and Tagged's region holds
+ * the tags' units and the nodes removed, none; where the region held every node written, Marks would read Tag once per
+ * node, three a document.
+ */
+export const runNarrowed = (
+	installed: Installed,
+	connection: PgConnection,
+	narrowed: Narrowed,
+	c: Case<"documents written whole beside a few tags">
+) =>
+	Effect.gen(function* () {
+		const tables = tablesOf(installed, narrowed.shape)
+		for (const sql of [
+			...writtenWhole(tables, 1, narrowed.documents).slice(0, -1),
+			`INSERT INTO ${tables.tag} (doc, sub, part, start, mark) SELECT d, d + 1000000, d + 2000000, 2, 1 FROM generate_series(1, ${narrowed.tagged}) AS g(d)`,
+			"SET CONSTRAINTS ALL IMMEDIATE"
+		]) {
+			yield* connection.query(sql, [])
+		}
+		const tag = installed.installation.names.relation("Tag").name
+		const plans = yield* plansOf(installed, connection)
+		const loops = Arr.flatMap(plans, (plan) =>
+			Iterator.from(planNodes(plan))
+				.filter((n) => Option.contains(n.relation, tag))
+				.map((n) => n.actualLoops)
+				.toArray()
+		)
+		assert.ok(loops.length > 0, "a whole rule's statement reads Tag")
+		assert.ok(
+			Arr.every(loops, (n) => n <= narrowed.tagged),
+			`${Formatter.format(narrowed)}: each scan of Tag runs at most once per tag written, ${narrowed.tagged}, beside the ${3 * narrowed.documents} nodes written: ${Formatter.format(loops)}`
+		)
+		c.note("documents written whole beside a few tags")
 	})

@@ -40,6 +40,7 @@ import {
 	type LawSide,
 	queryOf,
 	type RelationRead,
+	type ReplacedRead,
 	ruleDesc,
 	type RuleLaw,
 	varRef,
@@ -67,6 +68,7 @@ import type { RelationInfo, TheoryRelation } from "#compiler/ir/law.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import type { Unit } from "#compiler/ir/unit.ts"
+import type { OwnedStatement } from "#compiler/schema/own.ts"
 
 /** The name the region delivers position `j` of the unit key under. */
 const unitColumn = (j: number): string => `u${j}`
@@ -187,7 +189,32 @@ interface RegionRead {
 	readonly relation: string
 	readonly polarity: RelationRead["polarity"]
 	readonly where: ReadonlyArray<InferredExpr>
+	/** Each field its match binds to a variable, with that variable. */
+	readonly bound: Readonly<Record<string, string>>
+	/**
+	 * Every other occurrence of a holder its rule matches beside it, at its polarity, with the fields that one binds to
+	 * variables: each fact the occurrence reads holds a row of each of them, at the variables they share.
+	 */
+	readonly beside: ReadonlyArray<Beside>
 }
+
+/** An occurrence of a holder a rule matches beside another (RegionRead `beside`): its place among the walk's
+ * occurrences (Walk `regions`), its relation and its bound fields. */
+interface Beside {
+	readonly at: number
+	readonly relation: string
+	readonly bound: Readonly<Record<string, string>>
+}
+
+/** The fields `bindings` binds to a variable, with the variable. */
+const boundVars = (
+	bindings: Readonly<Record<string, InferredExpr>>
+): Readonly<Record<string, string>> =>
+	Object.fromEntries(
+		Object.entries(bindings).flatMap(([field, e]) =>
+			e.kind === "var" ? [[field, e.var] as const] : []
+		)
+	)
 
 /** A field of the row a region reads, as a condition of it names it. */
 const rowField = (field: string): InferredExpr => ({ kind: "field", field })
@@ -196,6 +223,7 @@ const rowField = (field: string): InferredExpr => ({ kind: "field", field })
 const readsOnly = (e: InferredExpr, bound: ReadonlyMap<string, string>): boolean => {
 	switch (e.kind) {
 		case "absent":
+		case "exists":
 		case "param":
 			return false
 		case "var":
@@ -300,7 +328,9 @@ const sourceUnit = (
 			w.regions.push({
 				relation: source.name,
 				polarity: at.polarity,
-				where: rowConditions(bindings, where)
+				where: rowConditions(bindings, where),
+				bound: boundVars(bindings),
+				beside: []
 			})
 			const vars = varsAt(bindings, fields)
 			return vars === notLocal ? notLocal : { unit: { kind: "vars", vars }, source }
@@ -365,8 +395,9 @@ const walkedExprs = (
 }
 
 /**
- * An expression walked: every negation in it, at any depth, its source walked under the negation, and its unit, where
- * it reads one, the rule's own, `unit`, at which it is correlated, so the facts it reads lie in the rule's unit.
+ * An expression walked: every relational filter in it, at any depth, its source walked under the filter, a negation's
+ * at the flipped polarity and an existence's at the rule's own, and its unit, where it reads one, the rule's own,
+ * `unit`, at which it is correlated, so the facts it reads lie in the rule's unit.
  */
 const walkedExpr = (
 	e: InferredExpr,
@@ -374,8 +405,9 @@ const walkedExpr = (
 	at: At,
 	w: Walk
 ): InferredExpr | NotLocal => {
-	if (e.kind === "absent") {
-		const read = sourceUnit(e.source, e.bindings, [], { polarity: flipped(at.polarity) }, w)
+	if (e.kind === "absent" || e.kind === "exists") {
+		const polarity = e.kind === "absent" ? flipped(at.polarity) : at.polarity
+		const read = sourceUnit(e.source, e.bindings, [], { polarity }, w)
 		if (read === notLocal) {
 			return notLocal
 		}
@@ -421,13 +453,31 @@ interface RuleBody {
 const ruleBody = (r: InferredRule, at: At, aggregates: boolean, w: Walk): RuleBody | NotLocal => {
 	const units: Array<SourceUnit> = []
 	const matches: Array<InferredMatch> = []
+	/** Where in `w.regions` each holder this rule matches itself stands, its own occurrences beside one another. */
+	const own: Array<number> = []
 	for (const match of r.matches) {
+		const before = w.regions.length
 		const read = sourceUnit(match.source, match.bindings, r.where, at, w)
 		if (read === notLocal) {
 			return notLocal
 		}
+		if (match.source.kind === "relation" && w.regions.length === before + 1) {
+			own.push(before)
+		}
 		units.push(read.unit)
 		matches.push({ ...match, source: read.source })
+	}
+	const occurrences = own.map((i) => defined(w.regions[i], "an occurrence this rule matches"))
+	for (const [j, i] of own.entries()) {
+		const occurrence = defined(occurrences[j], "an occurrence this rule matches")
+		w.regions[i] = {
+			...occurrence,
+			beside: occurrences.flatMap((o, k) =>
+				k === j
+					? []
+					: [{ at: defined(own[k], "an occurrence's place"), relation: o.relation, bound: o.bound }]
+			)
+		}
 	}
 	const bearing = units.filter((u) => u.kind !== "none")
 	const hidden = bearing.some((u) => u.kind === "hidden")
@@ -846,6 +896,163 @@ const sidesAt = (polarity: RelationRead["polarity"]): ReadonlyArray<DeltaSide> =
 }
 
 /**
+ * A containment the schema states between the fields of two stored relations over every row of its source
+ * (`regionFactsOf`): each row of `from` holds at `pairs[i].from` the values some row of `to` holds at `pairs[i].to`. A
+ * law, it holds in every committed state: the migration that adds it checks every row, and every COMMIT after holds it,
+ * whatever discharges it, its foreign key or the rule judge.
+ */
+export interface FieldContainment {
+	readonly from: string
+	readonly to: string
+	readonly pairs: NonEmptyReadonlyArray<{ readonly from: string; readonly to: string }>
+}
+
+/** What a whole rule's region reads of the schema's laws (`regionOf`): each containment over every row of its source. */
+export interface RegionFacts {
+	readonly containments: ReadonlyArray<FieldContainment>
+}
+
+/**
+ * The containments `statements` state over every row of a stored relation, field by field into a stored relation
+ * (`RegionFacts`), and every one they compose to: a `contained` statement whose sides are stored relations (`stored`),
+ * whose source selects every row and whose every pair is a field on each side, its target selecting rows or not, since
+ * a row in a selection of `to` is a row of `to`; and E ⊆ N wherever E ⊆ M and M ⊆ N hold, M ⊆ N over every row of M at
+ * fields each of which E ⊆ M pairs: each row of E meets a row of M at E ⊆ M's pairs, which meets a row of N at M ⊆ N's,
+ * so the row of E holds at each field paired with one of those of M the value the row of N holds at its pair there
+ * (`composed`). A containment of any other form states no fact a region reads. In statement order, then each composition
+ * in the order the closure meets it, each containment once.
+ */
+export const regionFactsOf = (
+	statements: ReadonlyArray<OwnedStatement>,
+	stored: (relation: string) => boolean
+): RegionFacts => {
+	const stated = statements.flatMap((s): ReadonlyArray<FieldContainment> => {
+		if (
+			s.kind !== "contained" ||
+			!stored(s.left.relation) ||
+			!stored(s.right.relation) ||
+			s.left.selection.conjuncts.length > 0
+		) {
+			return []
+		}
+		const pairs = s.pairs.flatMap((p) =>
+			p.left.kind === "field" && p.right.kind === "field"
+				? [{ from: p.left.field, to: p.right.field }]
+				: []
+		)
+		return isNonEmpty(pairs) && pairs.length === s.pairs.length
+			? [{ from: s.left.relation, to: s.right.relation, pairs }]
+			: []
+	})
+	const text = (c: FieldContainment): string =>
+		`${c.from}\u0000${c.to}\u0000${c.pairs.map((p) => `${p.from}\u0001${p.to}`).join("\u0000")}`
+	const held = new Set<string>()
+	const containments: Array<FieldContainment> = []
+	const hold = (c: FieldContainment): void => {
+		if (c.from !== c.to && !held.has(text(c))) {
+			held.add(text(c))
+			containments.push(c)
+		}
+	}
+	stated.forEach(hold)
+	for (let at = 0; at < containments.length; at++) {
+		const first = defined(containments[at], "a containment the closure holds")
+		for (const second of stated) {
+			const c = composed(first, second)
+			if (c !== undefined) {
+				hold(c)
+			}
+		}
+	}
+	return { containments }
+}
+
+/** E ⊆ N from E ⊆ M (`first`) and M ⊆ N (`second`), where `second` pairs only fields of M `first` pairs (`regionFactsOf`). */
+const composed = (
+	first: FieldContainment,
+	second: FieldContainment
+): FieldContainment | undefined => {
+	if (first.to !== second.from) {
+		return undefined
+	}
+	const pairs = second.pairs.flatMap((p) => {
+		const from = first.pairs.find((q) => q.to === p.from)
+		return from === undefined ? [] : [{ from: from.from, to: p.to }]
+	})
+	return isNonEmpty(pairs) && pairs.length === second.pairs.length
+		? { from: first.from, to: second.to, pairs }
+		: undefined
+}
+
+/**
+ * The containment that proves an occurrence of a holder N needs no unit of a row N gained beyond those of the rows it
+ * gained where it lost one (`regionOf`), and the occurrence beside it the proof rests on: `r` positive, matched beside
+ * an occurrence of E at its polarity, the schema stating the containment E(F_E) ⊆ N(F_N) (RegionFacts), the two
+ * occurrences binding each pair's fields, F_E's of E and F_N's of N, to one variable, and a key of N among F_N's fields.
+ * Every such occurrence beside `r`, by its containment; none where `r` is not positive.
+ */
+const witnessesOf = (
+	r: RegionRead,
+	facts: RegionFacts,
+	relations: ReadonlyMap<string, TheoryRelation>
+): ReadonlyArray<{ readonly beside: Beside; readonly containment: FieldContainment }> => {
+	const n = relations.get(r.relation)
+	if (r.polarity !== "positive" || n?.kind !== "relation") {
+		return []
+	}
+	const keyed = (fields: ReadonlyArray<string>): boolean =>
+		[n.primaryFields, ...n.keyFields].some((key) => key.every((f) => fields.includes(f.name)))
+	return facts.containments.flatMap((c) =>
+		c.to === r.relation && keyed(c.pairs.map((p) => p.to))
+			? r.beside.flatMap((beside) =>
+					beside.relation === c.from &&
+					c.pairs.every((p) => {
+						const v = r.bound[p.to]
+						return v !== undefined && v === beside.bound[p.from]
+					})
+						? [{ beside, containment: c }]
+						: []
+				)
+			: []
+	)
+}
+
+/**
+ * The fields of N, a key of N among them, of the containment that proves a positive occurrence `r` of N needs the rows
+ * N gained only where they replace a row N lost (`regionOf`), the proof made at generate time, once: none where no
+ * containment proves it.
+ *
+ * The proof. Let `r` be a positive occurrence of N matched beside an occurrence of E, the schema stating the
+ * containment E(F_E) ⊆ N(F_N), both occurrences binding each pair's fields to one variable, a key of N among F_N's
+ * fields (`witnessesOf`), N and E immutable, as every holder of a unit is (`wholeRule`). A fact that `r` reads from a
+ * row n that a transaction gave N holds a row e of E with e[F_E] = n[F_N]. If the transaction gave E the row e too, the
+ * occurrence of E reads e among the rows E gained, and its unit is the region's through that occurrence, which reads
+ * every row E gained, since the proof requires that occurrence itself be proved of nothing. Otherwise e stood before
+ * the transaction, in a committed state, where the containment held: a row n0 of N stood with n0[F_N] = e[F_E] =
+ * n[F_N]. N holds at most one row at those values, by its key among F_N, and rows of N are never updated, so the
+ * transaction removed n0, which its delta of the rows N lost holds. So a row N gained opens a fact through `r` only
+ * where E gained one at it or where N lost a row at the same F_N values, and the region reads a row N gained only where
+ * the transaction lost a row of N at its F_N values (`replacing`).
+ *
+ * The proof reads `r`'s own polarity alone, positive, and changes no other occurrence's reads: an occurrence of N under
+ * a negation, or one an aggregate reads, where a row N loses can open a violation, reads its own sides as before
+ * (`sidesAt`), the rows N lost among them.
+ */
+const replacedAt = (
+	r: RegionRead,
+	regions: ReadonlyArray<RegionRead>,
+	facts: RegionFacts,
+	relations: ReadonlyMap<string, TheoryRelation>
+): NonEmptyReadonlyArray<string> | undefined => {
+	const proof = witnessesOf(r, facts, relations).find(
+		(w) =>
+			witnessesOf(defined(regions[w.beside.at], "an occurrence beside another"), facts, relations)
+				.length === 0
+	)
+	return proof === undefined ? undefined : mapNonEmpty(proof.containment.pairs, (p) => p.to)
+}
+
+/**
  * The region of a unit's keys: the union, over each occurrence of a holder (`RegionRead`) and each side its polarity
  * reads, delta.added for a side of news and delta.removed for one of olds, of the leading key fields of the rows the
  * side holds that meet the occurrence's conditions on its row, a set of unit keys under `u0`…`u(k-1)`, each rule once.
@@ -862,10 +1069,13 @@ const sidesAt = (polarity: RelationRead["polarity"]): ReadonlyArray<DeltaSide> =
 const regionOf = (
 	unit: Unit,
 	regions: ReadonlyArray<RegionRead>,
+	facts: RegionFacts,
+	relations: ReadonlyMap<string, TheoryRelation>,
 	loc: SourceLoc
-): InferredSource => {
+): Region => {
 	const holders = holdersOf(unit)
 	const rules: Array<InferredRule> = []
+	const replaced: Array<ReplacedRead> = []
 	for (const r of regions) {
 		const key = defined(holders.get(r.relation), "a region read's relation, a holder of its unit")
 		const read = new Set<string>()
@@ -882,8 +1092,15 @@ const regionOf = (
 			const j = key.indexOf(field)
 			return j >= 0 ? regionVar(j) : rowVar(field)
 		}
-		const fields = [...new Set([...key, ...[...read].toSorted(compareText)])]
+		const at = replacedAt(r, regions, facts, relations)
+		const fields = [...new Set([...key, ...[...read, ...(at ?? [])].toSorted(compareText)])]
 		const leaves: LeafRewrite = { var: () => undefined, field: (f) => varRef(varOf(f)) }
+		if (
+			at !== undefined &&
+			!replaced.some((x) => x.relation === r.relation && sameNames(x.fields, at))
+		) {
+			replaced.push({ relation: r.relation, fields: at })
+		}
 		for (const side of sidesAt(r.polarity)) {
 			const rule = ruleDesc(
 				fields.map((field) => ({ id: varOf(field), origin: { relation: r.relation, field }, loc })),
@@ -894,7 +1111,10 @@ const regionOf = (
 						loc
 					}
 				],
-				r.where.map((c) => mapLeaves(c, leaves)),
+				[
+					...r.where.map((c) => mapLeaves(c, leaves)),
+					...(at !== undefined && side === "added" ? [replacing(r.relation, at, varOf)] : [])
+				],
 				Object.fromEntries(key.map((_, j) => [unitColumn(j), varRef(regionVar(j))] as const)),
 				loc
 			)
@@ -906,7 +1126,35 @@ const regionOf = (
 	if (!isNonEmpty(rules)) {
 		return refuse("MalformedDescription", loc, "a whole rule whose captures hold a side")
 	}
-	return { kind: "step", query: queryOf(rules, loc), bind: {} }
+	return { source: { kind: "step", query: queryOf(rules, loc), bind: {} }, replaced }
+}
+
+/**
+ * That the transaction lost a row of `relation` at the values a row it gained holds at `fields` (`regionOf`): an
+ * existence of the relation's delta of lost rows, each of `fields` bound to the variable `varOf` names it by. A region's
+ * rule of the rows a proved occurrence's relation N gained reads them under it (`replacedAt`): every row the proof needs
+ * read is one N gained where it lost a row at its F_N values, so the rule reads exactly those, per key, in every
+ * transaction: a publish, which loses no row of N, and a removal, which gains none, read none of them, and a ChangeSet
+ * that removes rows of N and writes them again reads the ones it wrote again alone. The existence is correlated at F_N
+ * alone, a key of N among them, and reads a delta, which navigation reads as written (analysis/theory/navigate.ts
+ * readsOfRule), so PostgreSQL plans it as a semi-join of the gained rows against the lost ones, hashed once per
+ * statement, never a lookup of the lost rows per row gained.
+ */
+const replacing = (
+	relation: string,
+	fields: NonEmptyReadonlyArray<string>,
+	varOf: (field: string) => string
+): InferredExpr => ({
+	kind: "exists",
+	source: { kind: "delta", side: "removed", relation },
+	bindings: Object.fromEntries(fields.map((f) => [f, varRef(varOf(f))] as const))
+})
+
+/** A whole rule's region (`regionOf`): the step of its unit keys, and the lost rows it reads of each holder it proves
+ * reads its gained rows only where they replace one (`replacedAt`). */
+interface Region {
+	readonly source: InferredSource
+	readonly replaced: ReadonlyArray<ReplacedRead>
 }
 
 /**
@@ -919,11 +1167,14 @@ const restrictToUnits = (
 	violation: InferredQuery,
 	unit: Unit,
 	regions: ReadonlyArray<RegionRead>,
+	facts: RegionFacts,
+	relations: ReadonlyMap<string, TheoryRelation>,
 	loc: SourceLoc
-): InferredQuery => {
+): { readonly judged: InferredQuery; readonly replaced: ReadonlyArray<ReplacedRead> } => {
+	const region = regionOf(unit, regions, facts, relations, loc)
 	const read = walked(violation, top, {
 		holders: holdersOf(unit),
-		restrict: { kind: "region", region: regionOf(unit, regions, loc) },
+		restrict: { kind: "region", region: region.source },
 		reads: [],
 		regions: [],
 		self: undefined
@@ -931,7 +1182,7 @@ const restrictToUnits = (
 	if (read === notLocal) {
 		throw defect("a whole rule's violation query is unit-local at its unit")
 	}
-	return read.query
+	return { judged: read.query, replaced: region.replaced }
 }
 
 /**
@@ -999,6 +1250,7 @@ export const wholeRule = (
 	law: RuleLaw<LawSide>,
 	violation: InferredQuery,
 	relations: ReadonlyMap<string, TheoryRelation>,
+	facts: RegionFacts,
 	loc: SourceLoc
 ): WholeRule | undefined => {
 	const stored = storedReads(violation, relations)
@@ -1019,14 +1271,14 @@ export const wholeRule = (
 				law,
 				reads: found.reads,
 				unit: found.unit,
-				judged: restrictToUnits(violation, found.unit, found.regions, loc)
+				...restrictToUnits(violation, found.unit, found.regions, facts, relations, loc)
 			})
 		}
 	}
 	return undefined
 }
 
-/** The ordinary relations a query matches or negates, at any depth, sorted by name, each once. */
+/** The ordinary relations a query matches or filters by, at any depth, sorted by name, each once. */
 const storedReads = (
 	query: InferredQuery,
 	relations: ReadonlyMap<string, TheoryRelation>
@@ -1040,7 +1292,7 @@ const storedReads = (
 		}
 	}
 	const inExpr = (e: InferredExpr): void => {
-		if (e.kind === "absent") {
+		if (e.kind === "absent" || e.kind === "exists") {
 			inSource(e.source)
 			return
 		}

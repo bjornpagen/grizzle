@@ -587,8 +587,9 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 			{
 				file: "packages/engine/src/laws/model/model.ts",
 				original:
-					'\t\t\tcycles.kind === "planned"\n\t\t\t\t? referenceChoice(theory.laws, theory.relations, discharge)\n\t\t\t\t: cycles.references',
-				replacement: "\t\t\treferenceChoice(theory.laws, theory.relations, discharge)",
+					'\t\t\tcycles.kind === "planned"\n\t\t\t\t? referenceChoice(theory.laws, theory.relations, discharge, theory.regionFacts)\n\t\t\t\t: cycles.references',
+				replacement:
+					"\t\t\treferenceChoice(theory.laws, theory.relations, discharge, theory.regionFacts)",
 				why: "A slice compile chooses each fixed target's reference over its own closure in place of the whole schema's recorded choice (laws/model/model.ts), so it plans a native the installation lacks; the slice fails."
 			}
 		]
