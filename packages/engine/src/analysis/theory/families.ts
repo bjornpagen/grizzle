@@ -8,9 +8,14 @@ import {
 import { foldRule } from "#compiler/check/fold.ts"
 import { identifierOf, identity, type LawColumnStatement } from "#compiler/core/identity.ts"
 import type { ColumnIdent, Identifier, LawId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	appendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import {
 	type ExprDesc,
@@ -26,6 +31,7 @@ import {
 	type AxisPair,
 	type Family,
 	type FamilyFold,
+	type FoldPlane,
 	type MemberShape,
 	orderOf,
 	type TreeMembers
@@ -623,12 +629,45 @@ export const axisBase = (f: FamilyShape, axis: AxisKind): AxisBase | undefined =
 	}
 }
 
-/** One plane of a fold before lowering: its accumulators and end, and its identity (ir/family.ts FoldPlane). */
-interface PlaneEntry {
-	readonly before: NativeColumn
-	readonly after: NativeColumn
+/** One plane of a fold before lowering: its accumulators, each a `C`, its end and its identity (ir/family.ts FoldPlane). */
+interface PlaneEntry<C> {
+	readonly before: C
+	readonly after: C
 	readonly end: LawField
 	readonly identity: TypedLiteral
+}
+
+/**
+ * A fold's accumulators on each of its planes: `named`, the (before, after) fields its step side names, over its
+ * sequence's index field, which their copies along the predecessor axis read; or `hidden`, the drawn law columns its
+ * law names, as a fold over a counted family's always are (check/fold.ts foldRule).
+ */
+export type FoldAccumulators =
+	| {
+			readonly kind: "named"
+			readonly index: LawField
+			readonly planes: NonEmptyReadonlyArray<PlaneEntry<LawField>>
+	  }
+	| { readonly kind: "hidden"; readonly planes: NonEmptyReadonlyArray<PlaneEntry<ColumnIdent>> }
+
+/** A fold's planes as the family IR holds them, each accumulator a native column (ir/family.ts FoldPlane). */
+export const foldPlanes = (a: FoldAccumulators): NonEmptyReadonlyArray<FoldPlane> => {
+	switch (a.kind) {
+		case "named":
+			return mapNonEmpty(a.planes, (p) => ({
+				before: { kind: "field", field: p.before },
+				after: { kind: "field", field: p.after },
+				end: p.end,
+				identity: p.identity
+			}))
+		case "hidden":
+			return mapNonEmpty(a.planes, (p) => ({
+				before: { kind: "law", column: p.before },
+				after: { kind: "law", column: p.after },
+				end: p.end,
+				identity: p.identity
+			}))
+	}
 }
 
 /** A fold of a family before its selection is lowered (ir/family.ts FamilyFold). */
@@ -638,12 +677,10 @@ export interface FoldEntry {
 	/** The step side's conjuncts over the member's row, which the theory lowers into its DAG. */
 	readonly where: ReadonlyArray<ExprDesc>
 	readonly step: FamilyFold["step"]
-	readonly planes: NonEmptyReadonlyArray<PlaneEntry>
+	readonly accumulators: FoldAccumulators
 	/** The accumulated fields the fold names, each with its relation: each before and after the step side names, and
 	 * each end. */
 	readonly named: ReadonlyArray<{ readonly relation: RelationInfo; readonly field: LawField }>
-	/** Whether the step side names its accumulators: a fold over a counted family never does. */
-	readonly visible: boolean
 	/** The fold statement's location: where its selection's refusals point. */
 	readonly loc: SourceLoc
 }
@@ -698,7 +735,7 @@ export class FamilyEntry implements RiddenFamily {
 	/** Adds a fold, kept as the law `law`, with its copies on the predecessor and last axes. Its number is its position. */
 	fold(entry: FoldEntry, law: LawId): void {
 		this.#folds.push(entry)
-		for (const [plane, p] of entry.planes.entries()) {
+		for (const [plane, p] of foldPlanes(entry.accumulators).entries()) {
 			const rank = foldRank(p.end, plane)
 			this.carry("predecessor", p.before, p.after, rank, law)
 			this.carry("last", { kind: "field", field: p.end }, p.after, rank, law)
@@ -811,10 +848,10 @@ export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law
 	const monoid = monoidSpecs[s.monoid]
 	const rest = afterGroup(f, s.step, loc)
 	const valueTerm = monoid.step === "value" ? rest[0] : undefined
-	const accumulators = monoid.step === "value" ? rest.slice(1) : rest
+	const accumulatorTerms = monoid.step === "value" ? rest.slice(1) : rest
 	const x =
 		valueTerm === undefined ? undefined : fieldTerm(f.member, valueTerm, "a fold's step side", loc)
-	const named = accumulators.map((t) => fieldTerm(f.member, t, "a fold's step side", loc))
+	const named = accumulatorTerms.map((t) => fieldTerm(f.member, t, "a fold's step side", loc))
 	const pairs = named.flatMap((before, j) => {
 		if (j % 2 === 1) {
 			return []
@@ -844,38 +881,46 @@ export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law
 		throw defect("foldRule admits a fold of one end per plane")
 	}
 	const identities = monoid.identity(x?.type ?? firstEnd.type)
-	const planes = mapNonEmpty(identities, (identityLiteral, p): PlaneEntry => {
-		const plane: 0 | 1 = p === 0 ? 0 : 1
-		const pair = pairs[p]
-		const end = ends[p]
-		if (end === undefined) {
-			throw defect("foldRule admits a fold of one end per plane")
+	const endAt = (p: number): LawField =>
+		defined(ends[p], "foldRule admits a fold of one end per plane")
+	const accumulators = ((): FoldAccumulators => {
+		if (!isNonEmpty(pairs)) {
+			return {
+				kind: "hidden",
+				planes: mapNonEmpty(identities, (start, p) => {
+					const plane: 0 | 1 = p === 0 ? 0 : 1
+					return {
+						before: accumulatorColumn("before", f, law, plane),
+						after: accumulatorColumn("after", f, law, plane),
+						end: endAt(p),
+						identity: start
+					}
+				})
+			}
+		}
+		if (f.shape.kind === "counted") {
+			throw defect("foldRule admits no accumulator pair over a counted family")
 		}
 		return {
-			before:
-				pair === undefined
-					? { kind: "law", column: accumulatorColumn("before", f, law, plane) }
-					: { kind: "field", field: pair.before },
-			after:
-				pair === undefined
-					? { kind: "law", column: accumulatorColumn("after", f, law, plane) }
-					: { kind: "field", field: pair.after },
-			end,
-			identity: identityLiteral
+			kind: "named",
+			index: f.shape.index.field,
+			planes: mapNonEmpty(identities, (start, p) => {
+				const pair = defined(pairs[p], "foldRule admits no accumulator or one pair per plane")
+				return { before: pair.before, after: pair.after, end: endAt(p), identity: start }
+			})
 		}
-	})
+	})()
 	const step: FamilyFold["step"] = x === undefined ? { kind: "one" } : { kind: "value", field: x }
 	return Object.freeze({
 		law,
 		monoid: s.monoid,
 		where: s.step.selection.conjuncts,
 		step,
-		planes,
+		accumulators,
 		named: [
 			...named.map((field) => ({ relation: f.member, field })),
 			...ends.map((field) => ({ relation: f.owner, field }))
 		],
-		visible: pairs.length > 0,
 		loc
 	})
 }

@@ -19,6 +19,7 @@ import {
 	familyText,
 	type FoldEntry,
 	foldEntry,
+	foldPlanes,
 	type FoldStatement,
 	formerRank,
 	isTree,
@@ -989,59 +990,47 @@ export class LawSides {
 			more: ReadonlyArray<ExprDesc>
 		): ResolvedSide => this.side(scopeOver(f.owner.name, more), terms, loc)
 		const x = fold.step.kind === "value" ? fold.step.field : undefined
-		if (fold.visible) {
-			const index =
-				f.shape.index.kind === "field"
-					? f.shape.index.field
-					: defectField("a visible fold's family is ordered")
-			const planes = mapNonEmpty(fold.planes, (p) => {
-				const before =
-					p.before.kind === "field" ? p.before.field : defectField("a visible before is a field")
-				const after =
-					p.after.kind === "field" ? p.after.field : defectField("a visible after is a field")
-				return {
-					copy: [
-						memberSide([...group, { kind: "pred", field: index.name }, termOf(before)], []),
-						memberSide([...group, termOf(index), termOf(after)], [])
-					] as const,
-					last: [
-						ownerSide([...keys, { kind: "pred", field: f.count.name }, termOf(p.end)], []),
-						memberSide([...group, termOf(index), termOf(after)], [])
-					] as const,
-					before,
-					end: p.end,
-					identity: p.identity
-				}
-			})
-			const befores = mapNonEmpty(planes, (p) => based(p.before))
+		const accumulators = fold.accumulators
+		if (accumulators.kind === "named") {
+			const index = accumulators.index
+			const planes = mapNonEmpty(accumulators.planes, (p) => ({
+				copy: [
+					memberSide([...group, { kind: "pred", field: index.name }, termOf(p.before)], []),
+					memberSide([...group, termOf(index), termOf(p.after)], [])
+				] as const,
+				last: [
+					ownerSide([...keys, { kind: "pred", field: f.count.name }, termOf(p.end)], []),
+					memberSide([...group, termOf(index), termOf(p.after)], [])
+				] as const,
+				before: p.before,
+				end: p.end,
+				identity: p.identity
+			}))
 			const combined = combine<ExprDesc>(
 				monoidSpecs[fold.monoid],
-				befores,
+				mapNonEmpty(accumulators.planes, (p) => based(p.before)),
 				x === undefined ? { kind: "one" } : { kind: "value", expr: based(x) },
 				{
 					one: { kind: "literal", value: 1n },
 					apply: (fn: CombineFn, left, right) => ({ kind: "compute", fn, args: [left, right] })
 				}
 			)
-			const afters = mapNonEmpty(fold.planes, (p) =>
-				p.after.kind === "field" ? p.after.field : defectField("a visible after is a field")
-			)
 			const stepped = connectiveExpr(
 				"and",
-				afters.map((after, i): ExprDesc => ({
+				accumulators.planes.map((p, i): ExprDesc => ({
 					kind: "compare",
 					op: "eq",
-					left: based(after),
+					left: based(p.after),
 					right: defined(combined[i], "a monoid's combine gives one value per plane")
 				}))
 			)
 			const kept = connectiveExpr(
 				"and",
-				afters.map((after, i): ExprDesc => ({
+				accumulators.planes.map((p): ExprDesc => ({
 					kind: "compare",
 					op: "eq",
-					left: based(after),
-					right: defined(befores[i], "a visible fold's planes each have a before")
+					left: based(p.after),
+					right: based(p.before)
 				}))
 			)
 			const selects = connectiveExpr("and", fold.where)
@@ -1063,7 +1052,7 @@ export class LawSides {
 		switch (aggregate) {
 			case "sum":
 			case "max": {
-				const p = headNonEmpty(fold.planes)
+				const p = headNonEmpty(accumulators.planes)
 				return {
 					kind: "aggregate",
 					aggregate,
@@ -1088,7 +1077,7 @@ export class LawSides {
 					kind: "handles",
 					handles: mapNonEmpty(roster, (h) => ({
 						members: memberSide(group, [...fold.where, holds(x, h)]),
-						ends: mapNonEmpty(fold.planes, (p) => ownerSide(keys, [holds(p.end, h)]))
+						ends: mapNonEmpty(accumulators.planes, (p) => ownerSide(keys, [holds(p.end, h)]))
 					}))
 				}
 			}
@@ -1825,7 +1814,9 @@ export class Normalizer {
 		const fold = foldEntry(s, f, law)
 		const monoid = monoidSpecs[s.monoid]
 		const plane =
-			fold.step.kind === "value" ? fold.step.field.type : headNonEmpty(fold.planes).end.type
+			fold.step.kind === "value"
+				? fold.step.field.type
+				: headNonEmpty(foldPlanes(fold.accumulators)).end.type
 		const unproved = combineRule(monoid, plane)
 		if (unproved !== undefined) {
 			refuse("MalformedDescription", loc, unproved)
@@ -1998,7 +1989,7 @@ export class Normalizer {
 					monoid: f.monoid,
 					where: Object.freeze(where),
 					step: f.step,
-					planes: Object.freeze(mapNonEmpty(f.planes, (p) => Object.freeze({ ...p })))
+					planes: Object.freeze(mapNonEmpty(foldPlanes(f.accumulators), (p) => Object.freeze(p)))
 				})
 			})
 			return Object.freeze({ ...shape, axes: entry.axes(), folds: Object.freeze(folds) })
@@ -2176,10 +2167,6 @@ const familyWitness = (f: FamilyShape): NonEmptyReadonlyArray<HeadingColumn> =>
 	mapNonEmpty(f.group, (p) => ({ name: p.owner.name, type: meetType(p.member.type, p.owner.type) }))
 
 /** A defect: a field the resolved shape guarantees. */
-const defectField = (what: string): never => {
-	throw defect(what)
-}
-
 /**
  * The pins of a riding containment's accumulated carried columns, at its axis's base: the copy's start there, but on a
  * tree's owner axis, whose root references itself, the root's own value of the field it copies.
