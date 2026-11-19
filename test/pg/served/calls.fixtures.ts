@@ -7,7 +7,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { closed, fn, relation, rows, schema } from "#compiler/public/schema.ts"
+import { closed, type FunctionBody, fn, relation, rows, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Generated, generatedTemplate } from "#test/support/install-migrate.ts"
@@ -49,10 +49,9 @@ const languages = ["plpgsql", "sql"] as const
 
 type Language = (typeof languages)[number]
 
-const explodeBodies: { readonly [L in Language]: string } = {
-	plpgsql:
-		"\nBEGIN\n  RETURN QUERY SELECT (p.pos / 2) + shift, CASE WHEN p.txt = '' THEN NULL ELSE upper(p.txt) END FROM unnest(program) AS p;\nEND\n",
-	sql: "SELECT (p.pos / 2) + shift, CASE WHEN p.txt = '' THEN NULL ELSE upper(p.txt) END FROM unnest(program) AS p"
+const explodeBodies: { readonly [L in Language]: FunctionBody } = {
+	plpgsql: fn.body`\nBEGIN\n  RETURN QUERY SELECT (p.pos / 2) + shift, CASE WHEN p.txt = '' THEN NULL ELSE upper(p.txt) END FROM unnest(program) AS p;\nEND\n`,
+	sql: fn.body`SELECT (p.pos / 2) + shift, CASE WHEN p.txt = '' THEN NULL ELSE upper(p.txt) END FROM unnest(program) AS p`
 }
 
 const explodeOf = (language: Language) =>
@@ -72,7 +71,7 @@ const moodOf = fn("moodOf", {
 	returns: closedId(Mood),
 	volatility: "immutable",
 	language: "sql",
-	body: "SELECT m"
+	body: fn.body`SELECT m`
 })
 
 const scale = fn("scale", {
@@ -81,7 +80,7 @@ const scale = fn("scale", {
 	returns: pg.integer,
 	volatility: "immutable",
 	language: "sql",
-	body: "SELECT x * k"
+	body: fn.body`SELECT x * k`
 })
 
 /** The schema of a case under `name`: its relations and its two functions, explode in the case's language. */

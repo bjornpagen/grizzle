@@ -1147,17 +1147,27 @@ export const folded = fn("folded", {
 	returns: Word,
 	volatility: "immutable",
 	language: "sql",
-	body: "SELECT lower(word)"
+	body: fn.body`SELECT lower(word)`
 })
 
-/** Each word of `words` with its weight doubled: a set of rows, read from an array of rows. */
+/** Each word of `words` folded, its weight doubled: a set of rows, read from an array of rows. */
 export const doubled = fn("doubled", {
 	calls: [folded],
 	args: { words: Weighted },
 	returns: Weighted,
 	volatility: "immutable",
 	language: "plpgsql",
-	body: "\nBEGIN\n  RETURN QUERY SELECT folded(w.word), w.weight * 2 FROM unnest(words) AS w;\nEND\n"
+	body: fn.body`
+DECLARE
+  w ${Weighted};
+BEGIN
+  FOREACH w IN ARRAY words LOOP
+    w.word := folded(w.word);
+    w.weight := w.weight * 2;
+    RETURN NEXT w;
+  END LOOP;
+END
+`
 })
 
 export const Lexicon = schema("Lexicon", [folded, doubled], [])
@@ -1176,7 +1186,7 @@ export const shifted = fn("shifted", {
 	returns: Numbered,
 	volatility: "immutable",
 	language: "sql",
-	body: "SELECT p.pos + shift, folded(p.txt) FROM unnest(program) AS p"
+	body: fn.body`SELECT p.pos + shift, folded(p.txt) FROM unnest(program) AS p`
 })
 
 export const Docs = schema("Docs", [Doc, Line, folded, shifted], [])

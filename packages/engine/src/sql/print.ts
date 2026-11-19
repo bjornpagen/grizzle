@@ -412,11 +412,25 @@ export const printType = (type: TypeRef): string => {
 	const array = type.array ? "[]" : ""
 	switch (type.kind) {
 		case "named":
-			return `${printObjectName(type)}${type.typmod.length === 0 ? "" : `(${type.typmod.join(", ")})`}${array}`
+			return `${printObjectName(type)}${namedTypmod(type)}${array}`
 		case "builtin":
 			return `${printCatalogType(type.name)}${builtinTypmod(type)}${array}`
 	}
 }
+
+const namedTypmod = (type: Extract<TypeRef, { readonly kind: "named" }>): string =>
+	type.typmod.length === 0 ? "" : `(${type.typmod.join(", ")})`
+
+/**
+ * A type as a declared function's body names it: a named type, one of the function's own schema (its row types), by
+ * its name alone, which the function's pinned search_path resolves wherever the function stands, its installed schema
+ * or the drift check's scratch schema, whose replay renames a header's schema and never a body's text; a builtin as it
+ * prints.
+ */
+export const typeOnSearchPath = (type: TypeRef): string =>
+	type.kind === "named"
+		? `${quoteIdent(type.name)}${namedTypmod(type)}${type.array ? "[]" : ""}`
+		: printType(type)
 
 const isInt4 = (type: TypeRef): boolean =>
 	type.kind === "builtin" && type.name === "integer" && !type.array

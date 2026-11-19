@@ -19,6 +19,15 @@ export type AnyRows = Rows<Readonly<Record<string, FieldBase>>>
 export type FunctionType = FieldBase | AnyRows
 
 /**
+ * A declared function's body (schema/function.ts fn.body): the application's PL/pgSQL or SQL text, written as a template
+ * whose every placeholder is a heading, rows(...), which the installation names by its row type's name, the one its
+ * function's search_path resolves.
+ */
+export interface FunctionBody extends Built {
+	readonly kind: "body"
+}
+
+/**
  * A declared function (schema/function.ts fn): its name, its argument types by name in declared order, its result
  * type and its volatility, and the language of its body, which its Description holds.
  */

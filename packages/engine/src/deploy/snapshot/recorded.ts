@@ -1,7 +1,7 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
-import { quoteIdent, wellFormed } from "#compiler/core/text.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 import type { InstallationManifest, PhysicalKind, PhysicalObject } from "#compiler/ir/products.ts"
 import type {
 	CreateConstant,
@@ -17,7 +17,7 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { declaredBody } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
-import { functionSource, printStatement, printType } from "#compiler/sql/print.ts"
+import { functionSource, printStatement, typeOnSearchPath } from "#compiler/sql/print.ts"
 import { type AstHooks, Transform } from "#compiler/sql/transform.ts"
 
 /**
@@ -306,8 +306,10 @@ const stubBody: PlBlock = {
 /**
  * The stub body a recorded declared function is replayed with, by its language: PL/pgSQL's one RAISE, as a PL/pgSQL
  * function's stub; and for SQL, one SELECT of NULL as its result's type, which PostgreSQL validates against the result
- * as it creates the function, a set of a row type's values included, whose one column is the row. Neither runs, and the
- * check describes the function by its header and holds its installed source to the record's digest.
+ * as it creates the function, a set of a row type's values included, whose one column is the row, its type named as a
+ * body names one (typeOnSearchPath), since PostgreSQL validates the body under the function's own settings (pg_proc.c
+ * ProcedureCreate). Neither runs, and the check describes the function by its header and holds its installed source to
+ * the record's digest.
  */
 const declaredStub = (h: DeclaredHeader): CreateDeclaredFunction["body"] => {
 	switch (h.language) {
@@ -317,18 +319,10 @@ const declaredStub = (h: DeclaredHeader): CreateDeclaredFunction["body"] => {
 			)
 		case "sql":
 			return declaredBody(
-				`SELECT NULL::${stubType("setOf" in h.returns ? h.returns.setOf : h.returns)}`
+				`SELECT NULL::${typeOnSearchPath("setOf" in h.returns ? h.returns.setOf : h.returns)}`
 			)
 	}
 }
-
-/**
- * A declared SQL function's result type as its stub names it: a row type of its own schema by its name alone, which
- * the function's pinned search_path resolves wherever the function stands, its installed schema or the drift check's
- * scratch schema, since PostgreSQL validates the body under the function's own settings (pg_proc.c ProcedureCreate)
- * and the replay renames the header's schema, never the body's text; a base type as it prints.
- */
-const stubType = (t: TypeRef): string => (t.kind === "named" ? quoteIdent(t.name) : printType(t))
 
 /**
  * The value a recorded constant is replayed as: the empty value of its type, an empty array, an empty text (a library

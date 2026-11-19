@@ -3365,8 +3365,9 @@ first. A rule over either kind reads its definition, never the view.
 ## Declared functions
 
 `fn(name, { calls, args, returns, volatility, language, body })` declares a PostgreSQL function the application writes,
-a schema object a level lists beside its relations. Its body is PL/pgSQL or SQL text you own, installed byte for byte;
-grizzle prints its head and never reads its body.
+a schema object a level lists beside its relations. Its body is PL/pgSQL or SQL text you own, written
+`` fn.body`...` ``, installed byte for byte but for the headings it names; grizzle prints its head and never reads its
+body.
 
 ```ts
 const Word = str.regex("^[a-z]+$", "u")
@@ -3379,17 +3380,27 @@ export const folded = fn("folded", {
 	returns: Word,
 	volatility: "immutable",
 	language: "sql",
-	body: "SELECT lower(word)"
+	body: fn.body`SELECT lower(word)`
 })
 
-/** Each word of `words` with its weight doubled: a set of rows, read from an array of rows. */
+/** Each word of `words` folded, its weight doubled: a set of rows, read from an array of rows. */
 export const doubled = fn("doubled", {
 	calls: [folded],
 	args: { words: Weighted },
 	returns: Weighted,
 	volatility: "immutable",
 	language: "plpgsql",
-	body: "\nBEGIN\n  RETURN QUERY SELECT folded(w.word), w.weight * 2 FROM unnest(words) AS w;\nEND\n"
+	body: fn.body`
+DECLARE
+  w ${Weighted};
+BEGIN
+  FOREACH w IN ARRAY words LOOP
+    w.word := folded(w.word);
+    w.weight := w.weight * 2;
+    RETURN NEXT w;
+  END LOOP;
+END
+`
 })
 
 export const Lexicon = schema("Lexicon", [folded, doubled], [])
@@ -3408,6 +3419,12 @@ export const Lexicon = schema("Lexicon", [folded, doubled], [])
   `xsdRegex`; functions are one namespace across a schema's levels, apart from its relations. Each heading installs
   once per level as a row type named by its definition's digest, `__rows_<digest>`, so a changed heading is another
   type and the functions over it take the new one.
+- **A body names its row types** by placeholders: each `${heading}` of `` fn.body`...` `` is a heading `rows()` built,
+  and the body installs with its row type's name in its place, `"__rows_<digest>"`, which the function's search_path
+  resolves. A heading the body names is one its own arguments or result take rows of or return, or one a function it
+  `calls` does; any other is `MalformedDescription` when the schema is owned, since its row type may stand in no schema
+  of the level, or stand there for another function alone and go with it. The snapshot records the body as it
+  installs, names and all, so a changed heading is a changed body of every function that names it.
 - **It reads no table.** Every declared function is `SECURITY DEFINER`, owned by the installation's function owner,
   a role of no privilege on any table or view, under `SET search_path = pg_catalog, <its schema>, pg_temp`. So its
   body names the functions and row types of its own level unqualified, and a body that reads a relation, of its schema
@@ -3445,7 +3462,7 @@ export const shifted = fn("shifted", {
 	returns: Numbered,
 	volatility: "immutable",
 	language: "sql",
-	body: "SELECT p.pos + shift, folded(p.txt) FROM unnest(program) AS p"
+	body: fn.body`SELECT p.pos + shift, folded(p.txt) FROM unnest(program) AS p`
 })
 
 export const Docs = schema("Docs", [Doc, Line, folded, shifted], [])

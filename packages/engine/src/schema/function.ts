@@ -1,4 +1,4 @@
-import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	type DeclaredLanguage,
 	declaredLanguages,
@@ -12,8 +12,10 @@ import { isValidText } from "#compiler/core/text.ts"
 import {
 	builtNode,
 	type FieldDesc,
+	type FunctionBodyDesc,
 	type FunctionDesc,
 	type FunctionTypeDesc,
+	type HeadingDesc,
 	type NamedDesc
 } from "#compiler/ir/desc.ts"
 import {
@@ -31,6 +33,7 @@ import type {
 	AnyFunction,
 	AnyRows,
 	DeclaredFunction,
+	FunctionBody,
 	Rows
 } from "#compiler/types/schema/function.ts"
 
@@ -51,7 +54,7 @@ const valueDesc = (value: unknown, label: string): FieldDesc =>
 	).desc
 
 /** A heading's fields in declared order, at least one, each a value type. */
-const headingOf = (fields: unknown, label: string): NonEmptyReadonlyArray<NamedDesc<FieldDesc>> => {
+const headingOf = (fields: unknown, label: string): HeadingDesc => {
 	if (!isPlainRecord(fields)) {
 		throw malformed(label, "a record of field descriptors")
 	}
@@ -83,6 +86,45 @@ export const rowsBuilder = <const Fields extends Readonly<Record<string, FieldBa
 		desc: heading,
 		content: undefined
 	})
+}
+
+/** A run of a body's text: storable, as the text PostgreSQL stores whole. */
+const bodyText = (text: unknown, label: string): string => {
+	if (typeof text !== "string" || !isValidText(text)) {
+		throw malformed(label, "body: the function's text, storable, each escape of it a character's")
+	}
+	return text
+}
+
+/**
+ * fn.body`...`: a declared function's body, the application's PL/pgSQL or SQL text as a template literal reads it,
+ * each placeholder a heading rows() built, which the installation names by its row type's name alone, the one the
+ * function's pinned search_path resolves (physical/ddl/functions.ts). Its Description is the text and, between its
+ * runs, the headings it names (ir/desc.ts FunctionBodyDesc); ownership holds each to a heading of the function's own
+ * signature or a callee's (schema/function-own.ts).
+ */
+export const bodyBuilder = (
+	strings: TemplateStringsArray,
+	rowTypes: ReadonlyArray<AnyRows>
+): FunctionBody => {
+	const label = "fn.body"
+	const [text, ...after] = strings.map((run, i) => bodyText(run, `${label} text ${i}`))
+	const headings = rowTypes.map((value, i) => {
+		const heading = ownedEntry(value, "rows")
+		if (heading === undefined) {
+			throw malformed(`${label} placeholder ${i}`, "a heading built by rows(...)")
+		}
+		return heading.desc
+	})
+	const desc: FunctionBodyDesc = Object.freeze({
+		text: bodyText(text, label),
+		named: Object.freeze(
+			headings.map((rowType, i) =>
+				Object.freeze({ rowType, text: bodyText(after[i], `${label} text ${i + 1}`) })
+			)
+		)
+	})
+	return ownValue({ kind: "body", value: { ...builtMark, kind: "body" }, desc, content: undefined })
 }
 
 /** The Description of a declared function a builder made, or undefined for any other value. */
@@ -148,8 +190,9 @@ const admitFunction = (
 	if (!isLanguage(language)) {
 		throw malformed(label, `language: one of ${declaredLanguages.join(", ")}`)
 	}
-	if (typeof body !== "string" || !isValidText(body)) {
-		throw malformed(label, "body: the function's text, a storable string")
+	const bodyDesc = ownedDesc(body, "body")
+	if (bodyDesc === undefined) {
+		throw malformed(label, "body: the function's text, fn.body`...`")
 	}
 	return builtNode({
 		name: functionName,
@@ -163,7 +206,7 @@ const admitFunction = (
 		returns: functionTypeOf(returns, `${label} result`),
 		volatility,
 		language,
-		body,
+		body: bodyDesc,
 		loc: builderLoc(label, [functionName])
 	})
 }
@@ -186,7 +229,7 @@ export const fnBuilder = <
 		readonly returns: Returns
 		readonly volatility: V
 		readonly language: DeclaredLanguage
-		readonly body: string
+		readonly body: FunctionBody
 	},
 	extra: ReadonlyArray<unknown>
 ): DeclaredFunction<Name, Args, Returns, V> => {

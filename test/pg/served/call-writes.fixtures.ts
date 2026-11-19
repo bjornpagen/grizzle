@@ -57,7 +57,7 @@ const grade = fn("grade", {
 	returns: Graded,
 	volatility: "immutable",
 	language: "plpgsql",
-	body: "\nBEGIN\n  RETURN QUERY SELECT p.pos + shift, upper(p.txt) FROM unnest(program) AS p;\nEND\n"
+	body: fn.body`\nBEGIN\n  RETURN QUERY SELECT p.pos + shift, upper(p.txt) FROM unnest(program) AS p;\nEND\n`
 })
 
 /** The schema of a case under `name`: the base, and the level of Open and grade over it. */

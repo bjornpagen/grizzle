@@ -1,6 +1,6 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"
-import { fnBuilder, rowsBuilder } from "#compiler/schema/function.ts"
+import { bodyBuilder, fnBuilder, rowsBuilder } from "#compiler/schema/function.ts"
 import {
 	closedBuilder,
 	closedRelation as closedRelationBuilder,
@@ -51,6 +51,7 @@ import type {
 	AnyRows,
 	ArgsCheck,
 	DeclaredFunction,
+	FunctionBody,
 	HeadingCheck,
 	Rows as RowsOf,
 	SignatureCheck
@@ -410,11 +411,12 @@ export const rows = <const Fields extends Readonly<Record<string, FieldBase>>>(
  * fn(name, { calls, args, returns, volatility, language, body }): a declared function, the application's own PostgreSQL
  * function, which a level lists among its relations. `calls` lists the declared functions of its level its body calls,
  * which the installation creates first; each argument and its result are a value of a field's type or rows(heading);
- * its volatility is immutable, stable or volatile; its body is PL/pgSQL or SQL text the application owns, installed
- * byte for byte. It installs in its level's schema as SECURITY DEFINER under the installation's
- * function owner, a role of no privilege on any table, with its search_path pinned, so its body reads no table.
+ * its volatility is immutable, stable or volatile; its body is PL/pgSQL or SQL text the application owns, written
+ * fn.body`...`, installed byte for byte but for each heading it names, which installs as its row type's name. It
+ * installs in its level's schema as SECURITY DEFINER under the installation's function owner, a role of no privilege on
+ * any table, with its search_path pinned, so its body reads no table.
  */
-export const fn = <
+const declaredFunction = <
 	const Name extends string,
 	const Args extends Readonly<Record<string, FieldBase | AnyRows>>,
 	const Returns extends FieldBase | AnyRows,
@@ -427,11 +429,23 @@ export const fn = <
 		readonly returns: Returns & SignatureCheck<Returns>
 		readonly volatility: V
 		readonly language: DeclaredLanguage
-		readonly body: string
+		readonly body: FunctionBody
 	},
 	...extra: ReadonlyArray<never>
 ): DeclaredFunction<Name, Args, Returns, V> =>
 	fnBuilder<Name, Args, Returns, V>(name, definition, extra)
+
+/**
+ * fn.body`...`: a declared function's body, its PL/pgSQL or SQL text, each placeholder a heading rows() built, which
+ * the body names by its row type's name, `__rows_<digest>`, the one its function's search_path resolves: a heading of
+ * the function's own arguments or result, or of a function it calls.
+ */
+const body = (strings: TemplateStringsArray, ...rowTypes: ReadonlyArray<AnyRows>): FunctionBody =>
+	bodyBuilder(strings, rowTypes)
+
+export const fn: typeof declaredFunction & { readonly body: typeof body } = Object.freeze(
+	Object.assign(declaredFunction, { body })
+)
 
 /**
  * fragment(relations, statements): a library's relations and the statements over them, which an application's schema

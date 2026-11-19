@@ -1,6 +1,7 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { withoutSourceLocs } from "#compiler/core/canonical.ts"
+import { sameContent, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
 import { type FunctionDigest, functionDigest } from "#compiler/core/fingerprint.ts"
 import {
@@ -11,7 +12,13 @@ import {
 } from "#compiler/core/identity.ts"
 import { type SourceLoc, labeledChildLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import type { FieldDesc, FunctionDesc, FunctionTypeDesc, SchemaDesc } from "#compiler/ir/desc.ts"
+import type {
+	FieldDesc,
+	FunctionDesc,
+	FunctionTypeDesc,
+	HeadingDesc,
+	SchemaDesc
+} from "#compiler/ir/desc.ts"
 
 /**
  * A declared function as ownership admitted it: its declared name, parsed; the level that declares it, whose
@@ -130,11 +137,48 @@ const callsHeld = (
 	return Result.ok(functions)
 }
 
+/** The headings a declared function's signature takes rows of or returns, each once a use. */
+const signatureHeadings = (fn: FunctionDesc): ReadonlyArray<HeadingDesc> =>
+	[...fn.args.map((a) => a.type), fn.returns].flatMap((t) => (t.kind === "rows" ? [t.heading] : []))
+
+/**
+ * Each function's body held to the row types its level holds for it: every heading it names is one its own arguments
+ * or result take rows of or return, or a callee's, each of its own level (callsHeld), whose row types the installation
+ * creates before the function. A heading no signature of the function's reach takes may stand in no schema of its
+ * level, or stand there for another function alone and go with it, so naming one is refused.
+ */
+const bodiesHeld = (
+	functions: Readonly<Record<string, OwnedFunction>>
+): Result.Result<Readonly<Record<string, OwnedFunction>>, CompileError> => {
+	for (const fn of Object.values(functions)) {
+		const held = [
+			...signatureHeadings(fn.desc),
+			...fn.desc.calls.flatMap((callee) =>
+				signatureHeadings(
+					defined(functions[callee], `the function ${callee} ${fn.name} calls`).desc
+				)
+			)
+		]
+		for (const { rowType } of fn.desc.body.named) {
+			if (!held.some((h) => sameContent(h, rowType))) {
+				return Result.err(
+					malformedDescription(
+						fn.desc.loc,
+						`the row types function ${fn.name}'s body names as those of the headings its arguments, its result or its callees' take or return; it names the row type of fields ${rowType.map((f) => f.name).join(", ")}, which none of them does`
+					)
+				)
+			}
+		}
+	}
+	return Result.ok(functions)
+}
+
 /**
  * Each function the levels declare, by name: one namespace across every level, since a call names a function by its
  * declaration alone, each name parsed by the declared-name rule (IdentifierCollision for two whose conversions agree),
- * each argument's and its result's types ones a signature takes, and its calls those of its own level's functions in a
- * call graph of no cycle (callsHeld). A function's level is the one that declares it.
+ * each argument's and its result's types ones a signature takes, its calls those of its own level's functions in a call
+ * graph of no cycle (callsHeld), and every heading its body names one its signature or a callee's takes or returns
+ * (bodiesHeld). A function's level is the one that declares it.
  */
 export const ownFunctions = (
 	levels: NonEmptyReadonlyArray<SchemaDesc>
@@ -167,7 +211,7 @@ export const ownFunctions = (
 			}
 		}
 	}
-	return callsHeld(out)
+	return Result.flatMap(callsHeld(out), bodiesHeld)
 }
 
 /** A level's functions in canonical order, by name: what its canonical Description holds. */

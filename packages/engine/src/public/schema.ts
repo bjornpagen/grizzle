@@ -60,6 +60,7 @@ export type {
 	AnyFunction,
 	AnyRows,
 	DeclaredFunction,
+	FunctionBody,
 	FunctionType,
 	Rows
 } from "#compiler/types/schema/function.ts"

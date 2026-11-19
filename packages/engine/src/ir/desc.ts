@@ -1539,6 +1539,10 @@ export interface NamedDesc<T> {
 	readonly type: T
 }
 
+/** The heading of the rows a declared function takes or returns (schema/function.ts rows): its fields in declared order,
+ * at least one, which installs as a row type. */
+export type HeadingDesc = NonEmptyReadonlyArray<NamedDesc<FieldDesc>>
+
 /**
  * What a declared function takes as an argument or gives as its result: one value of a field's type, or rows of a
  * heading, its fields in declared order, which installs as a row type, an argument as an array of it and a result as a
@@ -1546,7 +1550,18 @@ export interface NamedDesc<T> {
  */
 export type FunctionTypeDesc =
 	| { readonly kind: "value"; readonly type: FieldDesc }
-	| { readonly kind: "rows"; readonly heading: NonEmptyReadonlyArray<NamedDesc<FieldDesc>> }
+	| { readonly kind: "rows"; readonly heading: HeadingDesc }
+
+/**
+ * A declared function's body (schema/function.ts fn.body): the application's text, and between its runs the row types
+ * it names, each a heading the function's own signature or a callee's holds, which the installation names by its row
+ * type's name alone (physical/ddl/functions.ts), so the text installed is `text`, then each named row type's name and
+ * the text after it. A body that names none is its text alone, `named` empty.
+ */
+export interface FunctionBodyDesc {
+	readonly text: string
+	readonly named: ReadonlyArray<{ readonly rowType: HeadingDesc; readonly text: string }>
+}
 
 /**
  * A function the application declares in a level (schema/function.ts fn): its name, the declared functions its body
@@ -1565,7 +1580,7 @@ export type FunctionDesc<L = Located> = L & {
 	readonly returns: FunctionTypeDesc
 	readonly volatility: FunctionVolatility
 	readonly language: DeclaredLanguage
-	readonly body: string
+	readonly body: FunctionBodyDesc
 }
 
 export type SchemaDesc<L = Located> = L & {
@@ -2855,11 +2870,24 @@ const schemaRelationShape: S.Shape<SchemaRelationDesc> = S.plain({
 
 const functionFieldShape: S.Shape<NamedDesc<FieldDesc>> = S.struct({ name, type: fieldDescShape })
 
+const headingShape: S.Shape<HeadingDesc> = S.nonEmptyUniqueArray(
+	functionFieldShape,
+	(f) => f.name,
+	"heading field names"
+)
+
 const functionTypeShape: S.Shape<FunctionTypeDesc> = S.tagged("kind", {
 	value: S.struct({ type: fieldDescShape }),
-	rows: S.struct({
-		heading: S.nonEmptyUniqueArray(functionFieldShape, (f) => f.name, "heading field names")
-	})
+	rows: S.struct({ heading: headingShape })
+})
+
+/** A run of a declared function's body: storable text. */
+const bodyTextShape = S.refine(S.string, isValidText, "a body of storable text")
+
+/** A declared function's body: its text, and each row type it names with the text after it. */
+const functionBodyShape: S.Shape<FunctionBodyDesc> = S.struct({
+	text: bodyTextShape,
+	named: S.array(S.struct({ rowType: headingShape, text: bodyTextShape }))
 })
 
 /** A declared function's Description: its arguments named apart, and a body of storable text. */
@@ -2880,7 +2908,7 @@ const functionDescShape: S.Shape<FunctionDesc> = S.located(
 			returns: functionTypeShape,
 			volatility: S.literalsShape(functionVolatilities),
 			language: S.literalsShape(declaredLanguages),
-			body: S.refine(S.string, isValidText, "a body of storable text")
+			body: functionBodyShape
 		},
 		loc
 	)

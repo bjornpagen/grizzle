@@ -9,6 +9,8 @@
  *   object needed and justified, and every constraint or index justified by a law or a program, but for the CHECKs
  *   that enforce a span or vector column's own type. The model is total over src's PhysicalKind by the union itself, so
  *   a new kind is a compile error here until its place is stated.
+ * - **No function, nothing of one:** a schema that declares no function (fn) installs no function owner, row type or
+ *   declared function, so what it drafts is what it drafted before a level could declare one.
  * - **Declaration order (metamorphic):** the SQL is byte for byte the same whatever order the relations and statements
  *   are declared in.
  * - **Identifiers:** the installed schema is the conversion of the schema's declared name, and a declared name the rule
@@ -86,6 +88,15 @@ export const theFreshInstallationIsInInstallOrderEveryObjectNeededAndJustifiedEv
 				const creates = (kind: PhysicalKind) => Arr.some(objects, (o) => o.kind === kind)
 				const lastOf = (kind: PhysicalKind) => Arr.map(objects, (o) => o.kind).lastIndexOf(kind)
 				assert.ok(creates("schema"), "the installation creates its namespace")
+				assert.deepEqual(
+					Arr.filter(
+						objects,
+						(o) =>
+							o.kind === "functionOwner" || o.kind === "rowType" || o.kind === "declaredFunction"
+					),
+					[],
+					"a schema that declares no function installs no function owner, row type or declared function"
+				)
 				for (const [k, o] of objects.entries()) {
 					for (const before of kindModel[o.kind].after) {
 						assert.ok(lastOf(before) < k, `every ${before} before ${o.ident}`)
@@ -135,6 +146,12 @@ export const theFreshInstallationIsInInstallOrderEveryObjectNeededAndJustifiedEv
 				original: '\t"structure",\n\t"indexes",',
 				replacement: '\t"indexes",\n\t"structure",',
 				why: "The Indexes phase is ordered before Structure, its tables'."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/functions.ts",
+				original: "\tif (first === undefined) {\n\t\treturn out\n\t}\n",
+				replacement: "",
+				why: "An installation that declares no function holds the function owner, a role and its grants no function needs, so a schema without fn drafts what it did not."
 			}
 		]
 	})

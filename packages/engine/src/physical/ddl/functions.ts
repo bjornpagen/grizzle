@@ -1,9 +1,9 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { FunctionVolatility } from "#compiler/core/function.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import type { FieldDesc, FunctionTypeDesc, NamedDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc, FunctionTypeDesc, HeadingDesc } from "#compiler/ir/desc.ts"
 import { baseTypeRef, rowTypeOf } from "#compiler/ir/physical.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { installationTypes } from "#compiler/physical/ddl/names.ts"
@@ -18,6 +18,7 @@ import {
 	type TypeRef
 } from "#compiler/sql/ast.ts"
 import { arrayOf, functionNameOf } from "#compiler/sql/build.ts"
+import { typeOnSearchPath } from "#compiler/sql/print.ts"
 
 /**
  * The installation's declared functions (schema/function.ts fn): each a SECURITY DEFINER function of its level's
@@ -34,8 +35,9 @@ import { arrayOf, functionNameOf } from "#compiler/sql/build.ts"
  *   PUBLIC. A function's argument of rows is an array of it and its result of rows a set of it.
  * - Each function: CREATE OR REPLACE FUNCTION <level>.<name>(<arguments>) RETURNS <type> | SETOF <row type> LANGUAGE
  *   <language> <volatility> SECURITY DEFINER SET search_path = pg_catalog, <level>, pg_temp AS <body>, the body byte for
- *   byte (sql/ast.ts CreateDeclaredFunction); EXECUTE revoked from PUBLIC; then handed over to the owner (sql/ast.ts
- *   HandOverFunction). A value's type is its field's base type: PostgreSQL holds a function's arguments and result to
+ *   byte but for each heading it names, which is its row type's name alone, the one the pinned search_path resolves
+ *   (sql/print.ts typeOnSearchPath), and which the function's object depends on (sql/ast.ts CreateDeclaredFunction);
+ *   EXECUTE revoked from PUBLIC; then handed over to the owner (sql/ast.ts HandOverFunction). A value's type is its field's base type: PostgreSQL holds a function's arguments and result to
  *   their declared types exactly, so a contract's or a pattern's domain is a statement's to check where it reads the
  *   value, never the signature's.
  *
@@ -140,7 +142,7 @@ export const addFunctions = (b: InstallBuilder): ReadonlyMap<string, InstalledFu
 		const levelNode = defined(b.levelNodes[fn.level], `the schema object of level ${fn.level}`)
 		const types = installationTypes(level)
 		const used: Array<Node<"setup">> = []
-		const rowType = (heading: NonEmptyReadonlyArray<NamedDesc<FieldDesc>>): TypeRef => {
+		const rowType = (heading: HeadingDesc): TypeRef => {
 			const { attributes, named, type } = rowTypeOf(
 				b.names,
 				types,
@@ -190,6 +192,10 @@ export const addFunctions = (b: InstallBuilder): ReadonlyMap<string, InstalledFu
 			fn.desc.returns.kind === "value"
 				? valueType(b, fn.desc.returns.type, fn)
 				: { setOf: rowType(fn.desc.returns.heading) }
+		const body = fn.desc.body.named.reduce(
+			(text, next) => `${text}${typeOnSearchPath(rowType(next.rowType))}${next.text}`,
+			fn.desc.body.text
+		)
 		const callees = fn.desc.calls.map(
 			(callee) => defined(out.get(callee), `the function ${callee}, created before ${fn.name}`).node
 		)
@@ -207,7 +213,7 @@ export const addFunctions = (b: InstallBuilder): ReadonlyMap<string, InstalledFu
 						returns,
 						language: fn.desc.language,
 						volatility: volatilityClause[fn.desc.volatility],
-						body: declaredBody(fn.desc.body)
+						body: declaredBody(body)
 					},
 					{
 						kind: "revoke",

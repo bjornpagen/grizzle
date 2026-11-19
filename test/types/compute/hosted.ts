@@ -210,7 +210,7 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/hosted.
 
 /** Cell, a field of each family, its schema, and Cells, a derived relation of its rows. */
 const hostedHeader = `export const Cell = relation("Cell", { id: Id, n: pg.bigint, d: pg.numeric(10, 2), x: pg["double precision"], w: pg.vector(2) }, ["id"])
-export const scale = fn("scale", { calls: [], args: { x: pg.bigint, k: pg.bigint }, returns: pg.bigint, volatility: "immutable", language: "sql", body: "SELECT x * k" })
+export const scale = fn("scale", { calls: [], args: { x: pg.bigint, k: pg.bigint }, returns: pg.bigint, volatility: "immutable", language: "sql", body: fn.body\`SELECT x * k\` })
 export const Root = schema("Root", [Cell, scale], [])
 export const Cells = derived("Cells", query(Root).rule((r) => {
 	const { id, n, d, x, w } = v(Cell, "cell")
