@@ -6,7 +6,8 @@
  * keyed within one parent only. Its facts hold within one evaluation of a correlated subtree only. Each case runs under a plan
  * perturbation drawn with it (test/support/oracle/perturb.ts), under the optimized artifact compiled for the `snapshot`
  * context against the installation's own evidence catalog, in every per-execution form, against the conservative
- * lowering (support.ts). Its escaped counterexamples are kept cases replayed before its streams (perEvaluationKept). No
+ * lowering (support.ts). Its escaped counterexamples are recorded beside its population and kept by their tokens
+ * (per-evaluation.fixtures.ts escapedCounterexamples). No
  * generated term raises (every partial operation is guarded, gen/compute.ts), so an execution error of any form is a
  * defect.
  *
@@ -15,258 +16,55 @@
  * Features: the population's required features (suite.ts and the file's own), "a fold key correlated with two parent
  * columns" among them, which a case whose turn aims at it reaches by the case built to (suite.ts foldKeyTwiceGen).
  */
-import type { Kept } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Formatter, Record } from "effect"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
+import type { Reached } from "@bjornpagen/testing/features"
+import { ReplayToken } from "@bjornpagen/testing/property"
+import { Function } from "effect"
 import {
-	casesPerPopulation,
-	differential,
-	foldKeyTwiceCase,
-	type OptimizedFeature,
-	optimizedShrink,
-	resolved
-} from "#test/pg/oracle/optimized/suite.ts"
-import {
-	perEvaluationGenConfig,
-	type QueryCase,
-	queryCaseGen
-} from "#test/support/oracle/gen/case.ts"
-import { canonicallySpelled, int4, type SpelledValue } from "#test/support/oracle/gen/domain.ts"
-import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
-import { aggregateOpId, aggregateResult } from "#test/support/oracle/gen/ops.ts"
-import { normalQuery } from "#test/support/oracle/gen/query.ts"
-import { type GenRelation, schemaName } from "#test/support/oracle/gen/schema.ts"
-import { literalOfValue } from "#test/support/oracle/reference/values.ts"
+	perEvaluationCases,
+	perEvaluationRequired
+} from "#test/pg/oracle/optimized/per-evaluation.fixtures.ts"
+import { differentialProperty, type OptimizedFeature } from "#test/pg/oracle/optimized/suite.ts"
 import { namedPlacement } from "#test/support/oracle/runner.ts"
-import { OracleSeat } from "#test/support/oracle/seat.ts"
-import {
-	type AggregateSpec,
-	type OccurrenceSpec,
-	plainRegion,
-	Q
-} from "#test/unit/lower/conservative/fixtures.ts"
-import { acrossParentsCase, withinOneParentCase } from "#test/unit/lower/dedup/cases.ts"
 
-/**
- * What the per-evaluation population must reach: a take correlated per outer row, a region reading an outer column, an
- * attachment nested below another's child, a per-parent take over an attachment, a correlated child under a nested
- * attachment, a parent key set read without DISTINCT, whose parent rows the differential holds to its claim, and a fold
- * attached by a key the attachment pairs with two parent columns, which each evaluation of the fold restricts to both.
- */
-const perEvaluationRequired = [
-	"correlated take",
-	"correlated region",
-	"nested attachment",
-	"per-parent take over an attachment",
-	"a correlated child under a nested attachment",
-	"a key set read without DISTINCT",
-	"a fold key correlated with two parent columns",
-	"nonempty"
-] as const satisfies ReadonlyArray<OptimizedFeature>
-
-/**
- * The per-evaluation population's escaped counterexamples, kept, each a hand-built query over relations keyed by k:
- *
- * - a region one of whose occurrences only tests that a fact exists while another occurrence's constant reads its
- *   source (a lateral constant, the soundness shapes of gen/query.ts). Demand analysis counted no column a region's own
- *   constants read of its sources as read laterally, so R02 moved the tested occurrence into a semi-join, out of the
- *   constant's scope, and the optimized lowering refused the reference it left ("a column n#4.a of a node in scope"). The region reads R0 and R1 (k, a): R0 holds a = 1 and a = 2, R1 the facts
- *   (1, 1) and (3, 2), and R1's occurrence binds a with its k fixed to R0's a, which keeps a = 1 and excludes a = 2.
- *   The tested occurrence of R0 binds a variable R1's binds too, or binds nothing;
- * - a semi-join of a group with itself on two of its grouping columns (a right side shared with another reader).
- *   Demand analysis counted a node's readers, not its references, so the group read on both sides was the semi-join's
- *   alone, and pushdown.semiGroup moved the semi-join below the group, which then read itself ("an acyclic DAG: the node reaches itself
- *   through its inputs"). R0 (k, a, b) groups into (a, b) = (1, 2), (2, 3)
- *   twice and (3, 5); the semi-join keeps the groups whose a is some group's b, all but (1, 2).
- *
- * Beside them, the page/generated-optimized counterexample at TEST_SEED=28094260 and its twin
- * (test/unit/lower/dedup/cases.ts): a take of one row per parent with an attachment nested below it, whose key set over
- * a holds a key within one parent only and repeats a = 0 across the two parents unless it deduplicates, and the same
- * attachment paired on the column that fixes the parent too, whose key set is proved across parents and read as it is.
- *
- * And this population's counterexample at TEST_SEED=1951254937 (its rotating stream's case 107), shrunk by hand: a
- * fold attached on two pairs that name one key of it, on[b=b, d=b] there. The optimized lowering restricted the fold by
- * the last pair alone, so a parent whose b and d differ received the group at its d. Shrunk, it is suite.ts
- * foldKeyTwiceCase over integers: R0 holds (0, 1, 2) and (1, 2, 2), and the parent (0, 1, 2) has no group.
- */
-const keyed = (name: string, columns: ReadonlyArray<string>): GenRelation => ({
-	name,
-	columns: Arr.map(columns, (c) => ({ name: c, type: int4 })),
-	primaryKey: ["k"],
-	keys: [],
-	mutable: false
-})
-
-const factsOf = (
-	rows: ReadonlyArray<ReadonlyArray<number>>
-): ReadonlyArray<ReadonlyArray<TypedLiteral>> =>
-	Arr.map(rows, (row) => Arr.map(row, (value) => literalOfValue(BigInt(value), int4)))
-
-/** The case of the query `build` makes over the stored relations, each with its facts; `base` reads a relation. */
-const keptCase = (
-	stored: ReadonlyArray<readonly [GenRelation, ReadonlyArray<ReadonlyArray<number>>]>,
-	build: (q: Q, base: (r: GenRelation) => RelNode) => RelNode
-): QueryCase => {
-	const q = new Q()
-	const root = build(q, (r) =>
-		q.base({ name: r.name, heading: r.columns, primaryKey: r.primaryKey }, conservativeMeta)
-	)
-	const dag = normalQuery(q.b.build(Arr.of(root)))
-	return {
-		schema: {
-			name: schemaName,
-			relations: Arr.map(stored, ([r]) => r),
-			closed: [],
-			containments: []
-		},
-		facts: canonicalFacts(
-			Record.fromEntries(Arr.map(stored, ([r, rows]) => [r.name, factsOf(rows)]))
-		),
-		query: { dag, params: {} },
-		spelling: { mode: "drawn", edge: false }
-	}
-}
-
-/** The region of R0's occurrence `tested` (built over R0's node) and R1's occurrence fixing k to R0's a. */
-const lateralConstantCase = (tested: (r0: RelNode) => OccurrenceSpec): QueryCase => {
-	const r0 = keyed("R0", ["k", "a"])
-	const r1 = keyed("R1", ["k", "a"])
-	return keptCase(
-		[
-			[
-				r0,
-				[
-					[1, 1],
-					[2, 2]
-				]
-			],
-			[
-				r1,
-				[
-					[1, 1],
-					[3, 2]
-				]
-			]
+/** The optimized lowering agrees with the conservative on the optimizer's population with per-evaluation shapes, raw text sets, with no repeated row. */
+export const perEvaluation = differentialProperty(
+	perEvaluationCases,
+	Function.identity,
+	namedPlacement("opte"),
+	{
+		situations: perEvaluationRequired satisfies ReadonlyArray<Reached<OptimizedFeature>>,
+		/** Its pre-conversion budget: runs 1250, coverage cases 1250 (suite.ts casesPerPopulation at 4d8f77263). */
+		budget: { runs: 1250, steered: 1250 },
+		kept: [
+			{
+				token: ReplayToken("test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:1"),
+				reason:
+					"an occurrence binding a variable another binds too, whose source the other's constant reads",
+				since: "2026-11-04"
+			},
+			{
+				token: ReplayToken("test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:2"),
+				reason: "an occurrence binding nothing, whose source another occurrence's constant reads",
+				since: "2026-11-04"
+			},
+			{
+				token: ReplayToken("test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:3"),
+				reason: "a semi-join of a group with itself on two of its grouping columns",
+				since: "2026-11-04"
+			},
+			{
+				token: ReplayToken("test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:4"),
+				reason:
+					"page/generated-optimized, TEST_SEED=28094260: a nested key set over children keyed within one parent only",
+				since: "2026-11-11"
+			},
+			{
+				token: ReplayToken("test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:5"),
+				reason:
+					"TEST_SEED=1951254937, case 107, shrunk by hand: a fold attached on two pairs that name one key of it",
+				since: "2026-11-14"
+			}
 		],
-		(q, base) => {
-			const s0 = base(r0)
-			return q.regionWith(
-				[tested(s0), { source: base(r1), bind: { a: "a" }, constants: { k: q.col(s0, "a") } }],
-				plainRegion
-			)
-		}
-	)
-}
-
-/** R0 grouped by (a, b), each group counted, semi-joined with itself on a = b. */
-const selfSemiJoinCase = (): QueryCase => {
-	const r0 = keyed("R0", ["k", "a", "b"])
-	const count: AggregateSpec = {
-		name: "n",
-		fn: "count",
-		op: aggregateOpId("count", undefined),
-		args: [],
-		type: aggregateResult("count", undefined)
-	}
-	return keptCase(
-		[
-			[
-				r0,
-				[
-					[1, 1, 2],
-					[2, 2, 3],
-					[3, 2, 3],
-					[4, 3, 5]
-				]
-			]
-		],
-		(q, base) => {
-			const groups = q.group(base(r0), ["k", "a", "b"], ["a", "b"], [count], conservativeMeta)
-			return q.semi(groups, groups, [["a", "b"]])
-		}
-	)
-}
-
-/** An integer stored in its canonical spelling. */
-const storedInt = (value: number): SpelledValue =>
-	canonicallySpelled(literalOfValue(BigInt(value), int4))
-
-const perEvaluationKept: ReadonlyArray<Kept<QueryCase, OptimizedFeature>> = [
-	{
-		note: "an occurrence binding a variable another binds too, whose source the other's constant reads",
-		reaches: ["nonempty"],
-		draws: "",
-		sketch: lateralConstantCase((s0) => ({ source: s0, bind: { a: "a" }, constants: {} }))
-	},
-	{
-		note: "an occurrence binding nothing, whose source another occurrence's constant reads",
-		reaches: ["nonempty"],
-		draws: "",
-		sketch: lateralConstantCase((s0) => ({ source: s0, bind: {}, constants: {} }))
-	},
-	{
-		note: "a semi-join of a group with itself on two of its grouping columns",
-		reaches: ["nonempty"],
-		draws: "",
-		sketch: selfSemiJoinCase()
-	},
-	{
-		note: "page/generated-optimized, TEST_SEED=28094260: a nested key set over children keyed within one parent only",
-		reaches: ["a correlated child under a nested attachment", "nonempty"],
-		draws: "",
-		sketch: withinOneParentCase()
-	},
-	{
-		note: "the TEST_SEED=28094260 case paired on the column that fixes the parent: a nested key set read as it is",
-		reaches: ["a correlated child under a nested attachment", "a key set read without DISTINCT"],
-		draws: "",
-		sketch: acrossParentsCase()
-	},
-	{
-		note: "TEST_SEED=1951254937, case 107, shrunk by hand: a fold attached on two pairs that name one key of it",
-		reaches: ["a fold key correlated with two parent columns", "nonempty"],
-		draws: "",
-		sketch: foldKeyTwiceCase(
-			int4,
-			["a", "b"],
-			[
-				[storedInt(1), storedInt(2)],
-				[storedInt(2), storedInt(2)]
-			]
-		)
-	}
-]
-
-layer(OracleSeat.layer)(
-	"the optimized lowering against the conservative lowering, the per-evaluation shapes",
-	(it) => {
-		it.effect(
-			"agrees on the optimizer's population with per-evaluation shapes, raw text sets, with no repeated row",
-			(ctx) =>
-				searched(
-					ctx,
-					differential(resolved(queryCaseGen(perEvaluationGenConfig)), namedPlacement("opte"), {
-						suite: "optimized/per-evaluation",
-						oracle: {
-							kind: "second-implementation",
-							name: "the conservative lowering's raw text sets, no repeated row on the optimized side"
-						},
-						literal: Formatter.format,
-						coverage: required<OptimizedFeature>(perEvaluationRequired, {
-							cases: casesPerPopulation,
-							sense: notesOnly
-						}),
-						kept: perEvaluationKept,
-						runs: casesPerPopulation,
-						shrink: optimizedShrink,
-						perturb: "all"
-					})
-				)
-		)
+		kills: []
 	}
 )

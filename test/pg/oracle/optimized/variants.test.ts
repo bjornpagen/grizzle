@@ -45,6 +45,7 @@ export const variants = differentialProperty(sketchGen, resolve, installedPlacem
 	situations: variantSituations satisfies ReadonlyArray<Reached<OptimizedFeature>>,
 	/** Its pre-conversion budget: runs 250, coverage cases 250 (variants.test.ts:76 at fe79ac6b2^). */
 	budget: { runs: 250, steered: 250 },
+	kept: [],
 	kills: [
 		{
 			file: "packages/engine/src/lower/optimize/dedup/place.ts",

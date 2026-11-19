@@ -1,25 +1,21 @@
 import { maxOf } from "@bjornpagen/grizzle-text/base/array"
-import {
-	aimed,
-	type Draw,
-	type Explored,
-	type Run,
-	type SearchFailure,
-	steered
-} from "@bjornpagen/testing/explore"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	type Aimed,
 	aimed as aimedSpace,
 	array,
-	constant,
 	element,
 	type Gen,
 	int,
 	type Space
 } from "@bjornpagen/testing/gen"
-import type { Budget, Case as PropertyCase, Kill, Oracle } from "@bjornpagen/testing/property"
-import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
+import type {
+	Budget,
+	Case as PropertyCase,
+	Kept as KeptToken,
+	Kill,
+	Oracle
+} from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record, type Scope } from "effect"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -63,13 +59,7 @@ import { normalQuery, queryExprs } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
 import { literalOfValue } from "#test/support/oracle/reference/values.ts"
-import {
-	type CheckOptions,
-	oracleCheck,
-	oracleProperty,
-	type Placement,
-	PropertyFailed
-} from "#test/support/oracle/runner.ts"
+import { oracleProperty, type Placement, PropertyFailed } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { type AggregateSpec, Q } from "#test/unit/lower/conservative/fixtures.ts"
@@ -292,12 +282,6 @@ const outcomeFeatures = (o: DifferentialOutcome): ReadonlyArray<OptimizedFeature
 	return [...features]
 }
 
-/**
- * The search budget of each generated population (optimizer, per-evaluation, dense and param-names .test.ts): the
- * cases of its rotating stream; its floor stream runs a quarter as many.
- */
-export const casesPerPopulation = 1250
-
 /** The two orders an Attach of foldKeyTwiceCase states its pairs in: each a parent column paired with the fold's a. */
 type ParentOrder = readonly ["a", "b"] | readonly ["b", "a"]
 
@@ -468,25 +452,10 @@ const sharedJoinGen: Gen<QueryCase> = (source) => {
  * aims at one draws that case in place of the population's (resolved), the case it runs, prints and keeps. A suite
  * that does not require a situation never aims at it.
  */
-const aims: ReadonlyArray<readonly [OptimizedFeature, Gen<QueryCase>]> = [
+export const optimizedAims: ReadonlyArray<readonly [OptimizedFeature, Gen<QueryCase>]> = [
 	["a fold key correlated with two parent columns", foldKeyTwiceGen],
 	["cte.notMaterialized", sharedJoinGen]
 ]
-
-/**
- * A population of whole cases, each resolved as it is generated, `gen`'s unless the case's turn aims at a situation
- * `aims` names, whose built case is drawn instead: the property's resolve draws nothing more, so a kept case replays
- * with no draws.
- */
-export const resolved = (gen: Gen<QueryCase>): Draw<QueryCase, Gen<QueryCase>, OptimizedFeature> =>
-	steered(aimed(gen, aims).generator, constant)
-
-/**
- * How far a failing case shrinks: every case runs on PostgreSQL, so shrinking a large case can take far longer than
- * finding it. Shrinking stops after this many candidates (deterministic, never wall time), at the smallest failing
- * case so far.
- */
-export const optimizedShrink: ShrinkBudget = { kind: "bounded", candidates: 240 }
 
 /** The oracle every optimized differential is checked against. */
 const conservativeSets: Oracle = {
@@ -523,7 +492,7 @@ const differentialOf = (c: QueryCase, placement: Placement, k: PropertyCase<Opti
  * one draws the case built to reach it.
  */
 export const optimizedSpace = (gen: Gen<QueryCase>): Aimed<QueryCase, OptimizedFeature> =>
-	aimedSpace(gen, aims)
+	aimedSpace(gen, optimizedAims)
 
 /**
  * The optimized differential as a property of the runner (runner.ts oracleProperty): `space`'s values, each resolved
@@ -538,67 +507,19 @@ export const differentialProperty = <S>(
 		readonly situations: ReadonlyArray<Reached<OptimizedFeature>>
 		readonly kills: ReadonlyArray<Kill>
 		readonly budget: Budget
+		readonly kept: ReadonlyArray<KeptToken>
 	}
 ) =>
 	oracleProperty(space, {
 		situations: spec.situations,
 		perturb: "all",
 		oracle: conservativeSets,
-		kept: [],
+		kept: spec.kept,
 		kills: spec.kills,
 		budget: spec.budget,
 		show: Formatter.format,
 		check: (k: PropertyCase<OptimizedFeature>) => (sketch) =>
 			Effect.flatMap(placing, (placement) => differentialOf(resolve(sketch), placement, k))
-	})
-
-/**
- * The differential property every optimized suite runs, and the features it notes: optimized and conservative raw sets
- * equal, no repeated row in the optimized output, and no repeated key under a key set read without DISTINCT.
- *
- * A case passes when every optimized form (the program, each per-execution variant, the VALUES transport) delivers
- * exactly the conservative run's raw text set in every statement, repeats no row, and keeps the order of every
- * ordered delivery, and when a member's explain's EXPLAIN plans every statement those forms sent; the conservative baseline
- * itself must repeat no row. Every parent key set a form reads without DISTINCT, the lowering's claim that its parent's
- * keys make it a set (lower/conservative/keys.ts), holds no repeated value on its columns in the rows the form delivers
- * for its parent (support.ts keySetRepeats): a claim that fails there fails the case even where no child of the
- * repeated key shows it. A failing case shrinks and is reported in printable form with both programs' SQL and the
- * optimized certificates.
- *
- * Explores the draw's cases through the differential property, each sketch resolved to its case in the property, each
- * outcome's features noted through its case. A case whose turn aims at a required situation the drawn populations
- * seldom reach is the case built to reach it, which the draw's generator draws (resolved's `aims`). Every case also
- * plans each statement its optimized forms sent as a member's explain plans it, which fails the case where PostgreSQL
- * refuses it, and the plan's shape joins the features, so the residual risk counts the plans the population likely
- * never met.
- */
-export const differential = <S>(
-	draw: Draw<S, Gen<QueryCase>, OptimizedFeature>,
-	placing: Effect.Effect<Placement, SqlError, Scope.Scope | OracleSeat>,
-	check: CheckOptions<S, OptimizedFeature>
-): Effect.Effect<Explored, SearchFailure | SqlError, Scope.Scope | OracleSeat | Run> =>
-	Effect.gen(function* () {
-		const placement = yield* placing
-		return yield* oracleCheck(draw, check, (population, k) =>
-			Effect.gen(function* () {
-				const c = k.draw(population)
-				const o = yield* differentialCase(c, { ...plainDifferential, placement })
-				k.noteAll(outcomeFeatures(o))
-				if (!baselineIsSet(o)) {
-					return yield* new PropertyFailed({
-						report: `the conservative baseline repeats a row\n${printDifferential(o)}`
-					})
-				}
-				if (!agrees(o)) {
-					return yield* new PropertyFailed({ report: printDifferential(o) })
-				}
-				if (o.keySetRepeats.length > 0) {
-					return yield* new PropertyFailed({
-						report: `${Arr.join(o.keySetRepeats, "\n")}\n${printDifferential(o)}`
-					})
-				}
-			})
-		)
 	})
 
 /**

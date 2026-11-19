@@ -1,11 +1,7 @@
-import { Context, Effect, Layer, type Scope } from "effect"
+import { Context, Effect, type Scope } from "effect"
 import { pgCluster } from "#test/support/env.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
-import {
-	type RolledBack,
-	Substrate,
-	type SubstrateShape
-} from "#test/support/substrate/substrate.ts"
+import { type RolledBack, type SubstrateShape } from "#test/support/substrate/substrate.ts"
 
 /**
  * A connection and the statements around a piece of an oracle case's work on it: `open` sent in one flush with the
@@ -73,9 +69,4 @@ export class OracleSeat extends Context.Service<OracleSeat, OracleSeatShape>()(
 			close: ["ROLLBACK"]
 		}))
 	})
-	/** A Vitest file's substrate (Substrate.layer) with its oracle cases' seat over it (ofSubstrate). */
-	static readonly layer = Layer.provideMerge(
-		Layer.effect(OracleSeat, Effect.map(Effect.service(Substrate), OracleSeat.ofSubstrate)),
-		Substrate.layer
-	)
 }
