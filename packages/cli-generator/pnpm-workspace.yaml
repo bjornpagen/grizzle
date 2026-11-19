@@ -1,5 +1,11 @@
 packages:
   - packages/*
+  # grizzle, the submodule pinned at its commit: its packages join the workspace and run from source, as every consumer
+  # takes them, and its own gate proves them. The grizzle tier (packages/generator/test/grizzle) installs a login through
+  # its command line, serves it through its public API and reaches its local cluster through grizzle-pg's pin.
+  - vendor/grizzle/packages/engine
+  - vendor/grizzle/packages/grizzle
+  - vendor/grizzle/packages/pg
   # The toolchain, the submodule pinned at its commit: its dev tools and testing library join the workspace and run from
   # source, and its own gate proves them.
   - vendor/toolchain/packages/devtools

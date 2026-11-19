@@ -311,15 +311,27 @@ importers:
       '@bjornpagen/devtools':
         specifier: workspace:*
         version: link:../../vendor/toolchain/packages/devtools
+      '@bjornpagen/grizzle':
+        specifier: workspace:*
+        version: link:../../vendor/grizzle/packages/grizzle
+      '@bjornpagen/grizzle-pg':
+        specifier: workspace:*
+        version: link:../../vendor/grizzle/packages/pg
       '@bjornpagen/testing':
         specifier: workspace:*
         version: link:../../vendor/toolchain/packages/testing
       '@effect/vitest':
         specifier: 'catalog:'
         version: 4.1.4(effect@4.1.4)(vitest@5.1.0(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1)))
+      '@types/pg':
+        specifier: 'catalog:'
+        version: 8.23.1
       oxfmt:
         specifier: 'catalog:'
         version: 0.78.0
+      pg:
+        specifier: 'catalog:'
+        version: 8.23.1
       vitest:
         specifier: 'catalog:'
         version: 5.1.0(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))
@@ -333,6 +345,54 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 7.1.0-beta
+
+  vendor/grizzle/packages/engine:
+    dependencies:
+      arkregex:
+        specifier: 'catalog:'
+        version: 0.0.14
+    devDependencies:
+      effect:
+        specifier: 'catalog:'
+        version: 4.1.4
+
+  vendor/grizzle/packages/grizzle:
+    dependencies:
+      '@bjornpagen/grizzle-engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.1.4(effect@4.1.4)(redis@6.3.1)
+    devDependencies:
+      '@types/pg':
+        specifier: 'catalog:'
+        version: 8.23.1
+      effect:
+        specifier: 'catalog:'
+        version: 4.1.4
+      pg:
+        specifier: 'catalog:'
+        version: 8.23.1
+
+  vendor/grizzle/packages/pg:
+    dependencies:
+      '@bjornpagen/grizzle-engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@bjornpagen/testing':
+        specifier: workspace:*
+        version: link:../../../toolchain/packages/testing
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.1.4(effect@4.1.4)(redis@6.3.1)
+      arkregex:
+        specifier: 'catalog:'
+        version: 0.0.14
+    devDependencies:
+      effect:
+        specifier: 'catalog:'
+        version: 4.1.4
 
   vendor/toolchain/packages/devtools:
     dependencies:

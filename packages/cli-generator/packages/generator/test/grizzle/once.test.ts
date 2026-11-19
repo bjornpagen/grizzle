@@ -1,59 +1,60 @@
 /**
- * A generated CLI calling a live grizzle server over HTTP answers what grizzle's in-process `once` answers.
+ * A generated CLI calling a live grizzle server over HTTP answers what grizzle's own HTTP door answers the same call.
  *
- * Grizzle's checkout at the commit this repository pins (vendor/grizzle) runs the driver (test/support/grizzle.ts,
- * test/fixtures/grizzle/driver.ts), which installs one login twice: twin A served over HTTP by grizzle's own handler,
- * twin B called in process. The generator builds the CLI from the login's OpenAPI document as `grizzle generate` writes
- * it, its author config binding A's origin. Each case stores drawn items in both twins, then makes one to four drawn
- * calls, each through the CLI against A and through B's `once`, in the same order, the CLI's by field flags or by one
- * whole `--body`. The login's members are a set read by an int8 floor, a set read by a refined text, a key, an ordered
- * read paged from either end or from a key, a read at the call's instant bound to the database's clock, a put whose
- * items carry every carrier the fixture holds, and a deletion of every item.
+ * The tier's twins (twins.ts) are one login (world.ts) installed twice on grizzle's local cluster through grizzle's
+ * command line, as an application installs it: twin A served over HTTP by grizzle's handler, twin B by the same handler
+ * in process. The generator builds the CLI from the login's OpenAPI document as `grizzle generate` writes it, its
+ * author config binding A's origin. Each case stores drawn items in both twins, then makes one to four drawn calls, each
+ * through the CLI against A and through B's handler, in the same order, the CLI's by field flags or by one whole
+ * `--body`. The login's members are a set read by an int8 floor, a set read by a refined text, a key, an ordered read
+ * paged from either end or from a key, a read at the call's instant bound to the database's clock, a put whose items
+ * carry every carrier the fixture holds, and a deletion of every item.
  *
- * The oracle is B's answer, encoded as grizzle's server frames encode it:
+ * The oracle is B's answer, its events as grizzle's handler frames them:
  *
  * - rows: the CLI exits 0 and prints `reset`, one `upsert` per row and `ready`, then `end` for the instant read alone;
  *   its rows are B's, a set read's as a set and the ordered read's in the order its upserts' `after` keys chain them;
  * - an outcome: the CLI exits 0 and prints the `outcome`, then `end`, the outcome B's;
  * - a CallError: the CLI exits 1 and prints the `error` event last, after the read's `reset` where the read was refused
- *   as it ran, its CallError B's, an `input` refusal's kind and retry alone, since the HTTP door words a fault its own
- *   way; or, for `input` alone, the CLI exits 2 and prints nothing, having refused the body before sending it.
+ *   as it ran, its CallError B's, an `input` refusal's kind and retry alone, since the CLI's body states the call's
+ *   members as its flags spell them; or, for `input` alone, the CLI exits 2 and prints nothing, having refused the
+ *   body before sending it.
  *
  * A case may follow a read first (`--follow`: a set read by its floor or name, a key, or a page from either end), over
  * stored items whose int8 lies inside the type's ends: once the CLI has printed its `ready`, a put through the CLI
  * stores an item the read sees (at the greatest or least int8 for a floor or a page, of the read's name, or the key's
  * own item changed), and the same put runs on B. The followed CLI must then print the change, upserts and removes
- * only, and `ready` again; interrupted, it exits 130, and the rows its events leave are B's once of the read after the
- * put.
+ * only, and `ready` again; interrupted, it exits 130, and the rows its events leave are B's answer to the read after
+ * the put.
  *
  * The CLI asserts no `pattern` (SCH-37), so a value grizzle's spelling refuses (an int8, a decimal, a refined text) or
  * a float4 no binary32 number is reaches the server, and is the `input` it answers there.
  *
  * A CallError whose `retry` is `safe`, from either side, is no answer of the call's: nothing committed, so the call is
- * made again, as `--retries` makes it, until it is answered. A case draws a focus, a required feature or none, and the
- * case aimed at it; while the floor and the steered phase still miss a feature, it aims at one of those instead
- *, so each is reached on every run seed. A case may run as long as grizzle lets one case of its own
- * searches run (test/support/limits.ts caseHang), which the driver reports: its calls wait on the same cluster.
+ * made again, as `--retries` makes it, until it is answered. Its budget is the count the suite stated before it was
+ * converted to a property: 16 independent cases, and up to 32 steered while a situation is unreached.
  */
-import { explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { constant, element, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"
+import { fail } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import {
+	aimed,
+	constant,
+	element,
+	type Gen,
+	int,
+	shuffled,
+	weighted
+} from "@bjornpagen/testing/gen"
 import { exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { HARDENED_FLAGS } from "@bjornpagen/testing/runner"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { fail } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"
 import {
 	Array as Arr,
 	type Cause,
 	Console,
-	Context,
-	Duration,
 	Effect,
 	Formatter,
-	Layer,
 	Option,
 	Queue,
 	Record as Rec,
@@ -62,15 +63,8 @@ import {
 	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
-import {
-	buildPackage,
-	type BuiltPackage,
-	generateFixture,
-	harnessLayer,
-	runBin
-} from "#test/support/cli-package.ts"
-import { type GrizzleDriver, grizzleDriver } from "#test/support/grizzle.ts"
-import { aimedAmong } from "#test/support/steering.ts"
+import { called, type Event, lastOf, store, type Twins, twinsNeed } from "#test/grizzle/twins.ts"
+import { runBin } from "#test/support/cli-package.ts"
 
 /** An item as the wire spells it: an int4 key, an int8, a numeric(12, 2), a money, a boolean, a float4, a name, a date, bytes, a uuid. */
 type Item = Readonly<{
@@ -130,8 +124,8 @@ type LiveRead =
  */
 type Follow = Readonly<{ read: LiveRead; by: By; write: Item; writeBy: By }>
 
-/** A case: the items stored in both twins, perhaps a followed read first, then the calls, in order. */
-type Case = Readonly<{
+/** A scenario: the items stored in both twins, perhaps a followed read first, then the calls, in order. */
+type Scenario = Readonly<{
 	stored: ReadonlyArray<Item>
 	follow: Option.Option<Follow>
 	calls: ReadonlyArray<Readonly<{ call: Call; by: By }>>
@@ -347,7 +341,7 @@ const followGen =
 
 /** The calls after a case's followed read: one to four, each drawn over `stored`. */
 const callsGen =
-	(stored: ReadonlyArray<Item>, min: number): Gen<Case["calls"]> =>
+	(stored: ReadonlyArray<Item>, min: number): Gen<Scenario["calls"]> =>
 	(source) =>
 		Array.from({ length: source.draw(int(min, 4)) }, () => ({
 			call: source.draw(callGen(stored)),
@@ -355,7 +349,7 @@ const callsGen =
 		}))
 
 /** A case with a followed read first: items whose int8 lies inside the type's ends, the read, then calls. */
-const followedCase: Gen<Case> = (source) => {
+const followedCase: Gen<Scenario> = (source) => {
 	const ids = source.draw(shuffled(storedIds, { min: 0, max: 5 }))
 	const stored = Arr.map(ids, (id) => source.draw(storableWithin(id, innerBigs)))
 	return {
@@ -366,7 +360,7 @@ const followedCase: Gen<Case> = (source) => {
 }
 
 /** Any case: a followed read first one time in four, else one to four calls over any stored items. */
-const caseGen: Gen<Case> = (source) => {
+const caseGen: Gen<Scenario> = (source) => {
 	if (
 		source.draw(
 			weighted([
@@ -384,12 +378,12 @@ const caseGen: Gen<Case> = (source) => {
 
 /** A case made to reach `feature`: the stored items and the one call that reach it, then any calls, every other choice drawn. */
 const caseFor =
-	(feature: Feature): Gen<Case> =>
+	(feature: Feature): Gen<Scenario> =>
 	(source) => {
 		const by = source.draw(element<By>(["fields", "body"]))
 		const ids = source.draw(shuffled(storedIds, { min: 1, max: 5 }))
 		const stored = Arr.map(ids, (id) => source.draw(storableItem(id)))
-		const aimedAt = (items: ReadonlyArray<Item>, call: Call, callBy: By): Case => ({
+		const aimedAt = (items: ReadonlyArray<Item>, call: Call, callBy: By): Scenario => ({
 			stored: items,
 			follow: Option.none(),
 			calls: [
@@ -505,12 +499,6 @@ const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"a live change reaching a followed read"
 ]
 
-/** A focus, or none, each half the time: none draws any case. */
-const FOCUS: Gen<Option.Option<Feature>> = weighted([
-	[1, constant(Option.none())],
-	[1, (source) => Option.some(source.draw(element(FEATURES)))]
-])
-
 /** A call's whole request body. */
 const bodyOf = (call: Call): Schema.Json => {
 	switch (call.program) {
@@ -553,29 +541,12 @@ const fieldArgs = (call: Call): ReadonlyArray<string> => {
 const argsOf = (call: Call, by: By): ReadonlyArray<string> =>
 	by === "fields" ? fieldArgs(call) : [`--body=${jsonTextOf(bodyOf(call))}`]
 
-/** The author config: the login's names, A's origin bound, plain HTTP allowed for the loopback server. */
-const configOf = (url: string): string =>
-	jsonTextOf({
-		package: { name: "gz-eocg", version: "1.0.0" },
-		binName: "gz-eocg",
-		envPrefix: "GZ_EOCG",
-		acceptedOrigins: [url],
-		allowInsecure: true
-	})
-
-const Installed = Schema.Struct({
-	url: Schema.String,
-	document: Schema.String,
-	caseHangMillis: Schema.Int
-})
-
-/** A CallError as the frames encode it: its kind, its retry and its payload's members. */
 const CallErrorJson = Schema.StructWithRest(
 	Schema.Struct({ kind: Schema.String, retry: Schema.String }),
 	[Schema.Record(Schema.String, Schema.Json)]
 )
 
-/** B's answer to one call (test/fixtures/grizzle/driver.ts Answer). */
+/** B's answer to one call: a read's rows in its order, a write's outcome, or its CallError, as its events give them. */
 const Answer = Schema.Union([
 	Schema.Struct({ kind: Schema.Literal("rows"), rows: Schema.Array(Schema.Json) }),
 	Schema.Struct({ kind: Schema.Literal("outcome"), outcome: Schema.Json }),
@@ -863,49 +834,32 @@ const judged = (call: Call, ran: Ran, answer: Answer) =>
 		}
 	})
 
-/** The suite's fixture: the driver, the CLI built from the login's document, and each program's command. */
-class GrizzleFixture extends Context.Service<
-	GrizzleFixture,
-	Readonly<{
-		driver: GrizzleDriver
-		url: string
-		caseHangMillis: number
-		built: BuiltPackage
-		commands: Readonly<Record<Program, ReadonlyArray<string>>>
-	}>
->()("effect-openapi-cli-generator/test/grizzle/once.test/GrizzleFixture") {}
-
-const fixture = Layer.effect(
-	GrizzleFixture,
+/**
+ * B's answer as its events give it: the `error` they end at, else the `outcome` they hold, else the rows a read's
+ * events leave, in order where the read is ordered.
+ */
+const answerOf = (call: Call, events: ReadonlyArray<Event>) =>
 	Effect.gen(function* () {
-		const driver = yield* grizzleDriver
-		const installed = yield* Effect.flatMap(
-			driver.ask({ op: "install" }),
-			Schema.decodeUnknownEffect(Installed)
-		)
-		const generated = yield* generateFixture({
-			spec: { path: "openapi.json", text: installed.document },
-			config: { path: "author-config.json", text: configOf(installed.url) },
-			authorFiles: []
-		})
-		const built = yield* buildPackage(generated)
-		const names = generated.result.report.commandNames
-		const commandOf = (program: Program) =>
-			Effect.fromOption(
-				Arr.findFirst(names, (name) => name.pointer === `/paths/~1server~1app~1${program}/post`)
-			).pipe(Effect.map((name) => name.path))
-		const commands: Record<Program, ReadonlyArray<string>> = {
-			atLeast: yield* commandOf("atLeast"),
-			named: yield* commandOf("named"),
-			item: yield* commandOf("item"),
-			ranked: yield* commandOf("ranked"),
-			past: yield* commandOf("past"),
-			put: yield* commandOf("put"),
-			clear: yield* commandOf("clear")
+		const refused = Arr.findFirst(events, (event) => event.event === "error")
+		if (Option.isSome(refused)) {
+			const { error } = yield* Schema.decodeUnknownEffect(ErrorData)(refused.value.data)
+			const answer: Answer = { kind: "error", error }
+			return answer
 		}
-		return { driver, url: installed.url, caseHangMillis: installed.caseHangMillis, built, commands }
+		const outcome = Arr.findFirst(events, (event) => event.event === "outcome")
+		if (Option.isSome(outcome)) {
+			const data = yield* Schema.decodeUnknownEffect(OutcomeData)(outcome.value.data)
+			const answer: Answer = { kind: "outcome", outcome: data.outcome }
+			return answer
+		}
+		const fields = yield* resetFields(events)
+		const rows = yield* Effect.flatMap(
+			folded(fields, events, call.program === "ranked"),
+			Effect.fromOption
+		)
+		const answer: Answer = { kind: "rows", rows }
+		return answer
 	})
-).pipe(Layer.provideMerge(harnessLayer))
 
 const decoder = new TextDecoder()
 
@@ -916,211 +870,202 @@ const decoder = new TextDecoder()
 const during = <A, E, R>(step: string, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
 	Effect.onInterrupt(effect, () => Console.error(`grizzle once: interrupted while ${step}`))
 
-layer(fixture, { excludeTestServices: true })("a generated CLI against a grizzle server", (it) => {
-	it.effect("answers every call as grizzle's in-process once answers it", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const { driver, url, caseHangMillis, built, commands } = yield* GrizzleFixture
-				return yield* explore(
-					{
-						suite: "grizzle once",
-						oracle: {
-							kind: "second-implementation",
-							name: "grizzle's in-process once of the same call on a twin installation, encoded as its server frames encode it"
-						},
-						draw: aimedAmong(FEATURES, FOCUS, (feature) => constant(Option.some(feature))),
-						literal: Formatter.format,
-						coverage: required<Feature>(FEATURES, { cases: 32, sense: notesOnly }),
-						kept: [],
-						runs: 16,
-						shrink: { kind: "bounded", candidates: 24 },
-						steerEvery: 1,
-						caseHang: Duration.millis(caseHangMillis)
-					},
-					(focus, notes) =>
-						Effect.gen(function* () {
-							const c = notes.draw(Option.match(focus, { onNone: () => caseGen, onSome: caseFor }))
-							/** The CLI's run of `call`, by `by`, made again while it ends at an error safe to make again. */
-							const cliRun = (call: Call, by: By) =>
-								Effect.repeat(
-									Effect.gen(function* () {
-										const finished = yield* during(
-											`the CLI's ${call.program} by ${by}`,
-											runBin(built, {
-												args: [...commands[call.program], "--base-url", url, ...argsOf(call, by)],
-												env: {},
-												stdin: new Uint8Array(0)
-											})
-										)
-										const printed = yield* printedOf(decoder.decode(finished.stdout))
-										const ran: Ran = {
-											exitCode: finished.exitCode,
-											printed,
-											stderr: decoder.decode(finished.stderr)
-										}
-										return ran
-									}),
-									{
-										while: (answered) => {
-											const again = saysAgain(answered)
-											if (again) {
-												notes.note("a call the server said to make again, made again")
-											}
-											return again
-										}
-									}
-								)
-							/** B's once of `call`, asked again while it answers an error safe to make again. */
-							const onceOf = (call: Call) =>
-								Effect.repeat(
-									during(
-										`grizzle's once of ${call.program}`,
-										Effect.flatMap(
-											driver.ask({ op: "once", program: call.program, body: bodyOf(call) }),
-											Schema.decodeUnknownEffect(Answer)
-										)
-									),
-									{
-										while: (answered) =>
-											answered.kind === "error" && answered.error.retry === "safe"
-									}
-								)
-							/** A failed case naming the call, what the CLI printed and what B answered. */
-							const differs = (
-								what: string,
-								difference: string,
-								printed: ReadonlyArray<Printed>,
-								stderr: string,
-								answer: Answer
-							) =>
-								fail(
-									`${what}: ${difference}\nthe CLI printed:\n${Arr.join(
-										Arr.map(printed, (line) => jsonTextOf(line)),
-										"\n"
-									)}\nits stderr:\n${stderr}\ngrizzle's once answered:\n${jsonTextOf(answer)}`
-								)
-							yield* during(
-								"storing the case's items",
-								driver.ask({ op: "store", stored: c.stored })
-							)
-							if (Option.isSome(c.follow)) {
-								const follow = c.follow.value
-								const write: Call = { program: "put", items: [follow.write] }
-								const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-								const handle = yield* spawner.spawn(
-									ChildProcess.make(
-										process.execPath,
-										[
-											...HARDENED_FLAGS,
-											built.bin,
-											...commands[follow.read.program],
-											"--base-url",
-											url,
-											"--follow",
-											...argsOf(follow.read, follow.by)
-										],
-										{ cwd: built.dir, env: {}, extendEnv: false }
-									)
-								)
-								const lines = yield* Queue.unbounded<string, Cause.Done>()
-								yield* Effect.forkScoped(
-									Stream.runForEach(Stream.splitLines(Stream.decodeText(handle.stdout)), (line) =>
-										Queue.offer(lines, line)
-									).pipe(Effect.ensuring(Queue.end(lines)))
-								)
-								const seen: Array<Printed> = []
-								/** The followed CLI's events through its next `ready`, false where its stream ended first. */
-								const throughReady = during(
-									`the CLI following ${follow.read.program} by ${follow.by}`,
-									Effect.gen(function* () {
-										for (;;) {
-											const line = yield* Effect.option(Queue.take(lines))
-											if (Option.isNone(line)) {
-												return false
-											}
-											const printed = yield* Schema.decodeEffect(Printed)(line.value)
-											seen.push(printed)
-											if (printed.event === "ready") {
-												return true
-											}
-										}
+/** The command of `program`, as the CLI names it. */
+const commandOf = (twins: Twins, program: Program) =>
+	Effect.fromOption(Option.fromUndefinedOr(twins.commands.get(program)))
+
+/** A failed case naming the call, what the CLI printed and what B answered. */
+const differs = (
+	what: string,
+	difference: string,
+	printed: ReadonlyArray<Printed>,
+	stderr: string,
+	answer: Answer
+) =>
+	fail(
+		`${what}: ${difference}\nthe CLI printed:\n${Arr.join(
+			Arr.map(printed, (line) => jsonTextOf(line)),
+			"\n"
+		)}\nits stderr:\n${stderr}\ngrizzle's door answered:\n${jsonTextOf(answer)}`
+	)
+
+/** A generated CLI answers every call as grizzle's own HTTP door answers it (see the header). */
+export const grizzleOnce = property.explore(
+	aimed(
+		caseGen,
+		Arr.map(FEATURES, (feature) => [feature, caseFor(feature)] as const)
+	),
+	{
+		needs: { twins: twinsNeed },
+		situations: FEATURES satisfies ReadonlyArray<Reached<Feature>>,
+		check:
+			({ twins: twinsOf }, notes: Case<Feature>) =>
+			(c) =>
+				Effect.gen(function* () {
+					const twins = yield* twinsOf
+					/** The CLI's run of `call`, by `by`, made again while it ends at an error safe to make again. */
+					const cliRun = (call: Call, by: By) =>
+						Effect.repeat(
+							Effect.gen(function* () {
+								const command = yield* commandOf(twins, call.program)
+								const run = yield* during(
+									`the CLI's ${call.program} by ${by}`,
+									runBin(twins.built, {
+										args: [...command, "--base-url", twins.url, ...argsOf(call, by)],
+										env: {},
+										stdin: new Uint8Array(0)
 									})
 								)
-								const readyFirst = yield* throughReady
-								const before = seen.length
-								const written = yield* cliRun(write, follow.writeBy)
-								const writtenOnce = yield* onceOf(write)
-								if (written.exitCode !== 0 || writtenOnce.kind !== "outcome") {
-									return differs(
-										`put by ${follow.writeBy}, made while ${follow.read.program} was followed`,
-										"the put a followed read sees did not store its item",
-										written.printed,
-										written.stderr,
-										writtenOnce
-									)
+								const printed = yield* printedOf(decoder.decode(run.stdout))
+								const ran: Ran = {
+									exitCode: run.exitCode,
+									printed,
+									stderr: decoder.decode(run.stderr)
 								}
-								const readyAgain = readyFirst && (yield* throughReady)
-								if (readyAgain) {
-									yield* Effect.ignore(handle.kill({ killSignal: "SIGINT" }))
+								return ran
+							}),
+							{
+								while: (answered) => {
+									const again = saysAgain(answered)
+									if (again) {
+										notes.note("a call the server said to make again, made again")
+									}
+									return again
 								}
-								const exitCode = yield* during(
-									"the followed CLI's exit once interrupted",
-									handle.exitCode
+							}
+						)
+					/** B's answer to `call`, asked again while it answers an error safe to make again. */
+					const onceOf = (call: Call) =>
+						Effect.repeat(
+							during(
+								`grizzle's door answering ${call.program}`,
+								Effect.flatMap(
+									called(twins, twins.b, call.program, bodyOf(call), lastOf(call.program)),
+									(events) => answerOf(call, events)
 								)
-								const answer = yield* onceOf(follow.read)
-								const live = Arr.map(Arr.drop(seen, before), (line) => line.event)
-								const fields = yield* resetFields(seen)
-								const difference =
-									!readyAgain || answer.kind !== "rows"
-										? differ("the followed stream ended before the put's change reached it")
-										: Arr.isReadonlyArrayEmpty(live) ||
-											  !Arr.every(
-													Arr.dropRight(live, 1),
-													(event) => event === "upsert" || event === "remove"
-											  )
-											? differ(`the put's change arrived as ${Formatter.format(live)}`)
-											: exitCode !== 130
-												? differ(`the followed CLI exited ${exitCode} when interrupted, not 130`)
-												: yield* sameRows(
-														fields,
-														seen,
-														answer.rows,
-														follow.read.program === "ranked"
-													)
-								if (Option.isSome(difference)) {
-									return differs(
-										`${follow.read.program} followed by ${follow.by}`,
-										difference.value,
-										seen,
-										"",
-										answer
-									)
-								}
-								notes.noteAll([
-									"a live change reaching a followed read",
-									follow.by === "fields" ? "field flags" : "a whole body"
-								])
+							),
+							{
+								while: (answered) => answered.kind === "error" && answered.error.retry === "safe"
 							}
-							for (const { call, by } of c.calls) {
-								notes.note(by === "fields" ? "field flags" : "a whole body")
-								const ran = yield* cliRun(call, by)
-								const answer = yield* onceOf(call)
-								const verdict = yield* judged(call, ran, answer)
-								notes.noteAll(verdict.reached)
-								if (Option.isSome(verdict.difference)) {
-									return differs(
-										`${call.program} by ${by}`,
-										verdict.difference.value,
-										ran.printed,
-										ran.stderr,
-										answer
-									)
+						)
+					yield* during("storing the case's items", store(twins, c.stored))
+					if (Option.isSome(c.follow)) {
+						const follow = c.follow.value
+						const write: Call = { program: "put", items: [follow.write] }
+						const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+						const command = yield* commandOf(twins, follow.read.program)
+						const handle = yield* spawner.spawn(
+							ChildProcess.make(
+								process.execPath,
+								[
+									...HARDENED_FLAGS,
+									twins.built.bin,
+									...command,
+									"--base-url",
+									twins.url,
+									"--follow",
+									...argsOf(follow.read, follow.by)
+								],
+								{ cwd: twins.built.dir, env: {}, extendEnv: false }
+							)
+						)
+						const lines = yield* Queue.unbounded<string, Cause.Done>()
+						yield* Effect.forkScoped(
+							Stream.runForEach(Stream.splitLines(Stream.decodeText(handle.stdout)), (line) =>
+								Queue.offer(lines, line)
+							).pipe(Effect.ensuring(Queue.end(lines)))
+						)
+						const seen: Array<Printed> = []
+						/** The followed CLI's events through its next `ready`, false where its stream ended first. */
+						const throughReady = during(
+							`the CLI following ${follow.read.program} by ${follow.by}`,
+							Effect.gen(function* () {
+								for (;;) {
+									const line = yield* Effect.option(Queue.take(lines))
+									if (Option.isNone(line)) {
+										return false
+									}
+									const printed = yield* Schema.decodeEffect(Printed)(line.value)
+									seen.push(printed)
+									if (printed.event === "ready") {
+										return true
+									}
 								}
-							}
-						}).pipe(Effect.scoped)
-				)
-			})
-		)
-	)
-})
+							})
+						)
+						const readyFirst = yield* throughReady
+						const before = seen.length
+						const written = yield* cliRun(write, follow.writeBy)
+						const writtenOnce = yield* onceOf(write)
+						if (written.exitCode !== 0 || writtenOnce.kind !== "outcome") {
+							return differs(
+								`put by ${follow.writeBy}, made while ${follow.read.program} was followed`,
+								"the put a followed read sees did not store its item",
+								written.printed,
+								written.stderr,
+								writtenOnce
+							)
+						}
+						const readyAgain = readyFirst && (yield* throughReady)
+						if (readyAgain) {
+							yield* Effect.ignore(handle.kill({ killSignal: "SIGINT" }))
+						}
+						const exitCode = yield* during(
+							"the followed CLI's exit once interrupted",
+							handle.exitCode
+						)
+						const answer = yield* onceOf(follow.read)
+						const live = Arr.map(Arr.drop(seen, before), (line) => line.event)
+						const fields = yield* resetFields(seen)
+						const difference =
+							!readyAgain || answer.kind !== "rows"
+								? differ("the followed stream ended before the put's change reached it")
+								: Arr.isReadonlyArrayEmpty(live) ||
+									  !Arr.every(
+											Arr.dropRight(live, 1),
+											(event) => event === "upsert" || event === "remove"
+									  )
+									? differ(`the put's change arrived as ${Formatter.format(live)}`)
+									: exitCode !== 130
+										? differ(`the followed CLI exited ${exitCode} when interrupted, not 130`)
+										: yield* sameRows(fields, seen, answer.rows, follow.read.program === "ranked")
+						if (Option.isSome(difference)) {
+							return differs(
+								`${follow.read.program} followed by ${follow.by}`,
+								difference.value,
+								seen,
+								"",
+								answer
+							)
+						}
+						notes.noteAll([
+							"a live change reaching a followed read",
+							follow.by === "fields" ? "field flags" : "a whole body"
+						])
+					}
+					for (const { call, by } of c.calls) {
+						notes.note(by === "fields" ? "field flags" : "a whole body")
+						const ran = yield* cliRun(call, by)
+						const answer = yield* onceOf(call)
+						const verdict = yield* judged(call, ran, answer)
+						notes.noteAll(verdict.reached)
+						if (Option.isSome(verdict.difference)) {
+							return differs(
+								`${call.program} by ${by}`,
+								verdict.difference.value,
+								ran.printed,
+								ran.stderr,
+								answer
+							)
+						}
+					}
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "grizzle's own HTTP door answering the same call in process, on a twin installation of the login"
+		},
+		kept: [],
+		budget: { runs: 16, steered: 32 },
+		kills: []
+	}
+)

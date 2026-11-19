@@ -32,7 +32,6 @@
 		"benchmark": "node corpus/tools/benchmark.ts",
 		"test": "vitest run",
 		"test:properties": "toolchain-test run",
-		"test:grizzle": "vitest run --config vitest.grizzle.config.ts",
 		"corpus": "scripts/memguard.sh 6144 -- node corpus/tools/run.ts --check",
 		"ratchet:lower": "node scripts/ratchet.ts typecheck --lower && node scripts/ratchet.ts oxlint --lower"
 	},
@@ -47,10 +46,14 @@
 		"yaml": "catalog:"
 	},
 	"devDependencies": {
-		"@effect/vitest": "catalog:",
 		"@bjornpagen/devtools": "workspace:*",
+		"@bjornpagen/grizzle": "workspace:*",
+		"@bjornpagen/grizzle-pg": "workspace:*",
 		"@bjornpagen/testing": "workspace:*",
+		"@effect/vitest": "catalog:",
+		"@types/pg": "catalog:",
 		"oxfmt": "catalog:",
+		"pg": "catalog:",
 		"vitest": "catalog:"
 	}
 }

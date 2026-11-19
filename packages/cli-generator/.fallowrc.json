@@ -3,15 +3,13 @@
 	"entry": [
 		"oxlint.ast.config.ts",
 		"packages/generator/test.config.ts",
+		// The grizzle tier's configuration, which twins.ts hands grizzle's command line by path.
+		"packages/generator/test/grizzle/grizzle.config.ts",
 		"packages/generator/src/runtime-src/**/*.ts",
 		"packages/generator/scripts/*.ts",
 		"packages/generator/corpus/tools/*.ts"
 	],
-	"ignorePatterns": [
-		"packages/generator/test/fixtures/golden/**",
-		"packages/generator/test/fixtures/grizzle/**",
-		"vendor/**"
-	],
+	"ignorePatterns": ["packages/generator/test/fixtures/golden/**", "vendor/**"],
 	// The tsconfigs' @effect/language-service plugin is no package: it is @effect/tsgo's, patched into TypeScript.
 	"ignoreDependencies": ["@effect/language-service"],
 	"rules": {
@@ -24,8 +22,7 @@
 				"patterns": [
 					"packages/generator/test/**",
 					"packages/generator/test.config.ts",
-					"packages/generator/vitest.config.ts",
-					"packages/generator/vitest.grizzle.config.ts"
+					"packages/generator/vitest.config.ts"
 				]
 			},
 			{

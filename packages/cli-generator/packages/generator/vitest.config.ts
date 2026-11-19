@@ -6,13 +6,12 @@ import { propertyModules } from "#test/support/roster.ts"
 const leftToRunner = Arr.map(propertyModules, (module) => `!${module}`)
 
 /**
- * `pnpm test`: every suite not yet converted to properties, but the grizzle tier (test/grizzle), which needs grizzle's
- * checkout and its PostgreSQL cluster and runs on its own as `pnpm test:grizzle` (vitest.grizzle.config.ts). A module
- * converted to properties runs under toolchain-test instead (test.config.ts, `pnpm test:properties`) and is left out
- * here; the list of them is test/support/roster.ts's, which both runners read, so they cannot drift apart.
+ * `pnpm test`: every suite not yet converted to properties. A module converted to properties runs under toolchain-test
+ * instead (test.config.ts, `pnpm test:properties`) and is left out here; the list of them is test/support/roster.ts's,
+ * which both runners read, so they cannot drift apart.
  */
 export default defineTestConfig({
-	include: ["test/**/*.test.ts", "!test/grizzle/**", ...leftToRunner],
+	include: ["test/**/*.test.ts", ...leftToRunner],
 	guided: [],
 	setup: [],
 	conditions: [],
