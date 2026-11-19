@@ -1,12 +1,12 @@
 /** What the properties of join-cost.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import { conservativeMeta, type ValidDag, type VarDecl } from "#compiler/ir/rel.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { type CallSite } from "#test/support/kernel/calls.ts"
+import type { CallSite } from "#test/support/kernel/calls.ts"
 
 const int4 = plainType("int4")
 

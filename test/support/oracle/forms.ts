@@ -1,4 +1,4 @@
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ConservativeParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { FormedStatement, SentStatement } from "#compiler/lower/shapes/index.ts"
 

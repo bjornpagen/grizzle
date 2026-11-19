@@ -1,5 +1,6 @@
 /** What the properties of desc.test.ts read: its spaces, models and helpers. */
 
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	array,
 	boolean,
@@ -25,7 +26,6 @@ import { type Canonicalizable, canonicalTag, type Json } from "#compiler/core/ca
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { MoneyText, VectorText } from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"

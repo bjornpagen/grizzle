@@ -17,7 +17,7 @@
  * shape admitted; a member, no member, and a walked member.
  */
 
-import { type Reached as ReachedOf } from "@bjornpagen/testing/features"
+import type { Reached as ReachedOf } from "@bjornpagen/testing/features"
 import { oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
@@ -187,7 +187,7 @@ export const postgreSQLsRegexCompileLimitsRefuseAPatternAsResourceBoundWithTheLi
 				why: "A pattern with exactly as many moving anchors as the anchors limit allows is refused; the limits property fails."
 			},
 			{
-				file: "packages/engine/src/scalar/regex/ir.ts",
+				file: "packages/text/src/regex/ir.ts",
 				original:
 					'\t\t\t\t\treturn (n.max === "unbounded" && this.#zeroPathsOf(n.body).asserted) || of(n.body)',
 				replacement: "\t\t\t\t\treturn of(n.body)",

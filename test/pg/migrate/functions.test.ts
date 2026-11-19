@@ -21,12 +21,12 @@
  *   share, and the refused table read.
  */
 
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { mismatchLine } from "#adapter/admission/drift.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import {
 	callOf,
 	callsOf,

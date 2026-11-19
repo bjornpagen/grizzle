@@ -1,6 +1,11 @@
+import {
+	concatNonEmpty,
+	isNonEmpty,
+	lastNonEmpty,
+	mapNonEmpty
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { concatNonEmpty, isNonEmpty, lastNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type DeliverySpine, deliverySpine } from "#compiler/ir/dag.ts"
 import type { CompletedOrder, Heading, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { withAdmission } from "#compiler/lower/conservative/admission.ts"

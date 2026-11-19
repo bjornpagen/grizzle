@@ -1,4 +1,4 @@
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { type Prepared, prepared } from "#compiler/core/prepared.ts"
 import type { Delivered, Heading } from "#compiler/ir/rel.ts"
 import type { DeclaredParamSlot, ProgramDelivery } from "#compiler/lower/conservative/types.ts"

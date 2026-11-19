@@ -10,11 +10,11 @@
  * Features: the meet situations test/support/text/bytes.ts names (meetFeatures).
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { textInfoBounds, textOf } from "#compiler/ir/scalar.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { uuid } from "#compiler/public/fields.ts"

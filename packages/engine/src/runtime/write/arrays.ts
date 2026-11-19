@@ -1,3 +1,5 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * A column of a write's rows as its placeholder carries it: an array of its cells' texts, or of its bytes values, as
  * the columnar transport writes it.
@@ -6,8 +8,6 @@ import { byteaArray, textArray } from "#compiler/codec/bytea.ts"
 import { columnLiteral } from "#compiler/codec/recordset.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import type * as Result from "#compiler/core/result.ts"
 import type { Param, ParamText } from "#compiler/core/wire.ts"
 import type { LiteralBound } from "#compiler/ir/products.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"

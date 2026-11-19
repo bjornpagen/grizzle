@@ -1,9 +1,9 @@
 /** What the properties of graph.test.ts read: its spaces, models and helpers. */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { type Gen, type GenValue, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"

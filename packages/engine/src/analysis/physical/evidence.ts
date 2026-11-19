@@ -1,6 +1,6 @@
-import { sameMembers } from "#compiler/core/array.ts"
+import { sameMembers } from "@bjornpagen/grizzle-text/base/array"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ConstraintName } from "#compiler/core/ids.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import {
 	type ClosedEvidence,
 	type ConstraintKind,

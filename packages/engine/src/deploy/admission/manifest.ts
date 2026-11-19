@@ -1,7 +1,7 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { replayedStatement, type SourceDigest } from "#compiler/deploy/snapshot/recorded.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type {

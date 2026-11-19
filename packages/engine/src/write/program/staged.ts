@@ -39,9 +39,13 @@
  * carriers are analyzed for (write/program/analyze.ts). So a statement that holds such a target, a family additions
  * statement's recount of its owners, sends the ANALYZE, and no other does.
  */
-import { indices } from "#compiler/core/array.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { partIndex } from "#compiler/runtime/lower/slots.ts"

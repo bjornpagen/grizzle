@@ -4,7 +4,7 @@
  * the rows the write inserts, reads and writes a row at a position resolved once per layout, never at a key looked up
  * in a map built and copied per row.
  */
-import { defect } from "#compiler/core/invariant.ts"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import { admittedText, type CarrierSpec } from "#compiler/scalar/values/identity.ts"
 

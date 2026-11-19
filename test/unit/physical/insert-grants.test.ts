@@ -32,11 +32,11 @@
  * and each program the control admits or the insert role is refused, with the kept case's stratum.
  */
 
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import { grantedPrivileges } from "#compiler/physical/ddl/roles.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"

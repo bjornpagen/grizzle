@@ -1,4 +1,4 @@
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Lowerers, NodeLowerer } from "#compiler/lower/conservative/context.ts"
 import { armCore, setOperation } from "#compiler/lower/conservative/union/arms.ts"
 

@@ -1,5 +1,7 @@
 /** What the properties of registry.test.ts read: its spaces, models and helpers. */
 
+import type { TextBounds } from "@bjornpagen/grizzle-text/regex/dfa"
+import type { Patterns, PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import {
 	aimed,
 	array,
@@ -37,15 +39,12 @@ import {
 	isNumericValue,
 	numericBoundOf,
 	type NumericValueType,
-	type Patterns,
-	type PatternSource,
 	RegexKey,
 	Roster,
 	type RosterHandles,
 	rosterOf,
 	type ScalarType,
 	spanOf,
-	type TextBounds,
 	type TextInfo,
 	type TextLanguage,
 	textOf

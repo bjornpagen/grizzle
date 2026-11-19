@@ -1,6 +1,6 @@
-import { sameOrder } from "#compiler/core/array.ts"
+import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { allocatedKinds, ExprId, NodeId, type ParamId } from "#compiler/core/ids.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import {
 	assembledDag,

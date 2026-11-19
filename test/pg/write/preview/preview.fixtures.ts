@@ -1,3 +1,4 @@
+import type * as Engine from "@bjornpagen/grizzle-text/base/result"
 /**
  * What the property of preview.test.ts reads: a case's schema, every relation of a drawn schema of families
  * (test/support/families/fill.ts, the fill order's and the fresh groups' specifications) beside a palette of closed ids
@@ -29,7 +30,6 @@ import {
 import type { WrittenOutcome } from "#adapter/db/handles.ts"
 import { rowEvaluator } from "#adapter/public/host.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
-import type * as Engine from "#compiler/core/result.ts"
 import type { CallError, CallErrorOf } from "#compiler/live/index.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { type PreviewRowsByName, previewOver } from "#compiler/program/preview.ts"

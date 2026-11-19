@@ -1,8 +1,8 @@
+import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Source } from "@bjornpagen/testing/source"
 import { type Swarm, swarm, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order } from "effect"
-import { maxOf } from "#compiler/core/array.ts"
 import type {
 	Expr,
 	FrameBound,

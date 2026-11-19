@@ -15,12 +15,12 @@
  * contract, with its typmod and collation, is the database suite's, against the installed views' catalog.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record } from "effect"
 import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
-import * as Result from "#compiler/core/result.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"

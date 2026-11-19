@@ -1,5 +1,5 @@
+import { invariant } from "@bjornpagen/grizzle-text/base/invariant"
 import { nominal } from "#compiler/core/brand.ts"
-import { invariant } from "#compiler/core/invariant.ts"
 
 /**
  * The width of a word.

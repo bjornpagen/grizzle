@@ -16,6 +16,7 @@ import {
 	type VariantOptions
 } from "#bench/harness/variant.ts"
 
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import {
 	agrees,
 	autocommit,
@@ -43,7 +44,6 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 import { dedupNodes, plansOf, summaryOf } from "#bench/query/support/plans.ts"
-import * as Engine from "#compiler/core/result.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { queryInput } from "#compiler/program/compile.ts"

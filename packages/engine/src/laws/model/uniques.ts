@@ -1,15 +1,15 @@
-import { appendAll } from "#compiler/core/array.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
-import { unsupported } from "#compiler/core/errors.ts"
-import { identifierOf } from "#compiler/core/identity.ts"
-import type { ColumnIdent, ConstraintName, LawId } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	dedupeNonEmpty,
 	isNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { Refusal } from "#compiler/core/canonical.ts"
+import { unsupported } from "#compiler/core/errors.ts"
+import { identifierOf } from "#compiler/core/identity.ts"
+import type { ColumnIdent, ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	declaredKeyOf,

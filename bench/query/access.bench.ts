@@ -41,6 +41,7 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import {
 	indexAccessOn,
 	outline,
@@ -49,7 +50,6 @@ import {
 	rowsReadFrom,
 	scansOf
 } from "#bench/query/support/plans.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { ConservativeParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { SentStatement } from "#compiler/lower/shapes/index.ts"

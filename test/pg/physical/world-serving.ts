@@ -1,3 +1,4 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Effect, Option, Record as Rec, Result, type Scope } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
@@ -8,7 +9,6 @@ import {
 	parsePlan,
 	planNodes
 } from "#bench/harness/explain.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 /**
  * Every world function judged by PostgreSQL's serving judge (serving.ts): the filter functions, key and unique

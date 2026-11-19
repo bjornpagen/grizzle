@@ -1,3 +1,4 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Effect } from "effect"
 import { summarize } from "#bench/cold/stats.ts"
 import {
@@ -21,7 +22,6 @@ import {
 	transactionScans,
 	writePhases
 } from "#bench/write/support/writes.ts"
-import { indices } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { counted, fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"

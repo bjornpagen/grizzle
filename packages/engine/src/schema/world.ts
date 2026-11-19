@@ -1,10 +1,14 @@
-import { sameOrder } from "#compiler/core/array.ts"
+import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { sameContent } from "#compiler/core/canonical.ts"
 import type { LoginRule, RoleRule } from "#compiler/core/causes.ts"
 import { CompileError, ruleRefused } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"

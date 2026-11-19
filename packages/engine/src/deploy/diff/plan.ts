@@ -1,6 +1,6 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { DeployPhase } from "#compiler/ir/products.ts"
 import type {
 	AlterTable,

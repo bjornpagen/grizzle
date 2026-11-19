@@ -1,5 +1,5 @@
-import { firstIndex, appendAll } from "#compiler/core/array.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { firstIndex, appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	combineAll,
 	type Comparator,

@@ -35,6 +35,7 @@
  * whose turn aims at one draws an input every check before its key admits, carrying the refused key (keyAims).
  */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -43,7 +44,6 @@ import { onceCalls } from "#adapter/db/handles.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { CallInputRefused } from "#adapter/errors/failures.ts"
 import { readCallError } from "#adapter/live/call-error.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { type Anchor, keyOf } from "#compiler/live/index.ts"
 import {
 	A,

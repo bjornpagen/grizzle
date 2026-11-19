@@ -1,3 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
@@ -21,12 +23,10 @@ import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { refinedConstants } from "#compiler/check/refinement/index.ts"
 import { arrayTexts } from "#compiler/codec/recordset.ts"
-import { indices } from "#compiler/core/array.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
-import type * as Result from "#compiler/core/result.ts"
 /**
  * Refinement validation sites on PostgreSQL 19.
  *

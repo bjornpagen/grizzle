@@ -1,3 +1,4 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	type AllenFormula,
 	atomOperands,
@@ -7,7 +8,6 @@ import {
 } from "#compiler/allen/atoms.ts"
 import { type AllenMask, emptyAllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
 import { allenTable } from "#compiler/allen/table.generated.ts"
-import { defect } from "#compiler/core/invariant.ts"
 
 /**
  * The table's formula for a mask. The empty mask's entry is empty. The table has an entry for every parsed mask, so a

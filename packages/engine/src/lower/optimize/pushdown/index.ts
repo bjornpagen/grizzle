@@ -1,6 +1,6 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type CertificateRule, localCertificate } from "#compiler/ir/certificate.ts"
 import { columnReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {

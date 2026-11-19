@@ -1,7 +1,7 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"

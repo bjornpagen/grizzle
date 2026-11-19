@@ -1,12 +1,12 @@
-/**
- * The one text of a value of a field's type, a function of its host value alone (codecText, the shell's, packages/grizzle
- * adapter/public/host.ts): the one public reading of a host value as text.
- */
 import type { Result as Public } from "effect"
 import { hostText } from "#compiler/codec/scalar.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
-import type * as Result from "#compiler/core/result.ts"
+/**
+ * The one text of a value of a field's type, a function of its host value alone (codecText, the shell's, packages/grizzle
+ * adapter/public/host.ts): the one public reading of a host value as text.
+ */
+import type { PublicResult } from "#compiler/core/public-result.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import { describeDeclared } from "#compiler/schema/relation.ts"
 import type { Field, GeneratedField, StoredOnlySql } from "#compiler/types/fields/field.ts"
@@ -38,7 +38,7 @@ export type TextedField<V> = Field<V, TextSql, unknown> | GeneratedField<Field<V
  */
 export const codecTextOver = <V>(
 	field: TextedField<V>,
-	answer: Result.PublicResult
+	answer: PublicResult
 ): ((value: V) => Public.Result<string, CodecFault>) => {
 	const { scalar } = describeDeclared(field, captureLoc("codecText", []))
 	const text = hostText(scalar)

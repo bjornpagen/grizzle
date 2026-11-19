@@ -7,6 +7,7 @@ import {
 	type VerdictInput
 } from "#bench/harness/gate.ts"
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	grantMemoryReading,
 	measureTransaction,
@@ -22,7 +23,6 @@ import {
 	plainStatement,
 	writePhases
 } from "#bench/write/support/writes.ts"
-import { indices } from "#compiler/core/array.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { contained, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

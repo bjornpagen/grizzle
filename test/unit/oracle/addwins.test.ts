@@ -18,7 +18,7 @@
  * member of several facts; a put displacing an occupant and one into an empty key; multi-stratum counts and counts
  * that differ from the pooled reading.
  */
-import { type Reached } from "@bjornpagen/testing/features"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { assert } from "#test/support/assert.ts"
@@ -281,7 +281,7 @@ export const countsAcrossStrataNettedOverThePerStratumChangesAgreesWithThePerStr
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/array.ts",
+				file: "packages/text/src/base/array.ts",
 				original: "\treturn i < 0 ? undefined : i",
 				replacement: "\treturn i >= 0 ? undefined : i",
 				why: "Operator mutant (comparison) at packages/engine/src/core/array.ts:11 in firstIndex: `<` becomes `>=`; the property fails (lane CATCH, grizzle 0baff5d6)."

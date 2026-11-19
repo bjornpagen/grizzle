@@ -1,7 +1,7 @@
 /** What the properties of choice-input.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, pipe, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { Account, Task, Work } from "#test/support/fixtures/api/work.ts"
 

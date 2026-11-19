@@ -1,3 +1,12 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	appendNonEmpty,
+	extendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { familyText, membersSelection } from "#compiler/analysis/theory/families.ts"
 import {
 	fieldDatum,
@@ -19,21 +28,12 @@ import {
 } from "#compiler/analysis/theory/query.ts"
 import { type RefillDeferral, refillDeferral } from "#compiler/analysis/theory/refill.ts"
 import { type RegionFacts, wholeRule } from "#compiler/analysis/theory/unit.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import type { DeclaredName, Identity, LawColumnStatement } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	appendNonEmpty,
-	extendNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
 import { type CellSide, sideOf } from "#compiler/ir/cells.ts"
 import {
 	type CompareOp,

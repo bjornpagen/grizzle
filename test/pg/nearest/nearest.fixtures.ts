@@ -1,9 +1,9 @@
 /** What the properties of nearest.test.ts read: its schema, programs, populations and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
 import type { ExecutedPlan, ExecutedStatement } from "#adapter/types/db.ts"
-import { indices } from "#compiler/core/array.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"

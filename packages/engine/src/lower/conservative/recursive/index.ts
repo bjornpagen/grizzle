@@ -1,4 +1,4 @@
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import type { NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { capsOf, typeLabel } from "#compiler/ir/scalar.ts"
 import {

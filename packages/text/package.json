@@ -1,7 +1,7 @@
 {
 	"name": "@bjornpagen/grizzle-text",
 	"private": true,
-	"description": "grizzle's text primitives, dependency-free and browser-safe: code point order, UTF-8 and XML's whiteSpace collapse and replace",
+	"description": "grizzle's text primitives and its one regex engine, dependency-free and browser-safe: code point order, UTF-8, XML's whiteSpace collapse and replace, the regex IR, its parsers, automata and printer, and the base they stand on",
 	"license": "0BSD",
 	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>",
 	"type": "module",
@@ -16,6 +16,8 @@
 		"./text": "./src/text.ts",
 		"./uri": "./src/uri.ts",
 		"./utf8": "./src/utf8.ts",
+		"./base/*": "./src/base/*.ts",
+		"./regex/*": "./src/regex/*.ts",
 		"./package.json": "./package.json"
 	},
 	"sideEffects": false,

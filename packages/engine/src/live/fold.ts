@@ -3,7 +3,7 @@
  * and coalescing share; diff, the least change from one value to another; and coalesce, the net change of pending
  * changes.
  */
-import { defect, defined } from "#compiler/core/invariant.ts"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type {
 	ListChange,
 	ListEvent,

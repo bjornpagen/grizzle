@@ -1,6 +1,6 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { appendNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Refusal } from "#compiler/core/canonical.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import { appendNonEmpty } from "#compiler/core/nonempty.ts"
 import { localCertificate, makeCertificate } from "#compiler/ir/certificate.ts"
 import { integerLiteral, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { AggregateSpec, NodeOf } from "#compiler/ir/rel.ts"

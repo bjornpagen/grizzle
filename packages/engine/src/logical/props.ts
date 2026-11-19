@@ -1,14 +1,14 @@
-import { appendAll } from "#compiler/core/array.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { NodeId, OccurrenceId, ParamId } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
 	lastNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
-import { TupleSet } from "#compiler/core/tuple-map.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
+import type { NodeId, OccurrenceId, ParamId } from "#compiler/core/ids.ts"
 import type { NodeScope, OuterRefs } from "#compiler/ir/dag.ts"
 import { type EvidenceContext, type Premise, strongest } from "#compiler/ir/evidence.ts"
 import {

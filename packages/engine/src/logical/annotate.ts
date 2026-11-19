@@ -1,8 +1,8 @@
-import { sameOrder } from "#compiler/core/array.ts"
+import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	assembledDag,
 	edgeValues,

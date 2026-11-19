@@ -1,4 +1,4 @@
-import * as Result from "#compiler/core/result.ts"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"

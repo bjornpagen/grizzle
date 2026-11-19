@@ -26,11 +26,11 @@
  *   it refuses.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { resolveCase } from "#test/support/oracle/public/generate.ts"
 import { drawnSchema, liveLoginGen } from "#test/support/served-login.ts"
 import {

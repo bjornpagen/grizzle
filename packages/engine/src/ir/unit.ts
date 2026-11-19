@@ -3,7 +3,7 @@
  * them immutable, so every fact of the rule's violation lies within one unit and a write changes the rule's verdict
  * only within the units it writes. The judge reads the rule's violation over those units alone (physical/ddl/rules.ts).
  */
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 export interface Unit {

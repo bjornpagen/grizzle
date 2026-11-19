@@ -1,5 +1,6 @@
 /** What the properties of certificates.test.ts read: its spaces, models and helpers. */
 
+import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
 import {
 	array,
 	boolean,
@@ -12,7 +13,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
-import { indices, maxOf } from "#compiler/core/array.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import { MoneyText } from "#compiler/ir/carriers.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"

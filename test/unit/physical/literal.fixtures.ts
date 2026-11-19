@@ -1,10 +1,10 @@
 /** What the properties of literal.test.ts read: its spaces, models and helpers. */
 
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { array, boolean, element, type Gen, int, subarray, weighted } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Predicate, Record as Rec, String as Str } from "effect"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Constant, Entry } from "#compiler/ir/cells.ts"
 import type { ExprDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import { closedId, natural, slot } from "#compiler/public/fields.ts"

@@ -1,3 +1,5 @@
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Record as Rec } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import { bitsColumn, bytesColumn, codeColumn, type Column } from "#compiler/core/decoder.ts"
@@ -5,8 +7,6 @@ import { type CompileError, malformedDescription } from "#compiler/core/errors.t
 import { identifierOf } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import { type Codebook, codecOf, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
 import type { ExprDesc, FieldDesc, LiteralDesc, Spelled } from "#compiler/ir/desc.ts"
 import {

@@ -1,5 +1,7 @@
 /** What the properties of representability.test.ts read: its spaces, models and helpers. */
 
+import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	array,
 	boolean,
@@ -11,8 +13,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
-import { indices, maxOf } from "#compiler/core/array.ts"
-import * as Result from "#compiler/core/result.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { type ExprDesc, type FieldDesc, fieldTypes } from "#compiler/ir/desc.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"

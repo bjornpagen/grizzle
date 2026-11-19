@@ -1,3 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
 import {
 	array,
 	boolean,
@@ -9,10 +11,8 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { wildcardPattern } from "#compiler/ir/scalar.ts"
-import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
 import { btreeMaxItemSize, keyLayout } from "#compiler/schema/representability.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { wideOctets, wideText } from "#test/support/wide-text.ts"

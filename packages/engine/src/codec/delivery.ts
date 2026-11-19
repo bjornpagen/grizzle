@@ -1,3 +1,5 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * How a statement delivers its rows, a hot path: every read of a statement's answer goes through `assembled` once, so
  * its work is native loops over the answer's cells with no closure per cell.
@@ -11,8 +13,6 @@
  * and a bytes column's cell is never a text a reader could take for its value (core/decoder.ts bytesValueOf).
  */
 import { bytesValueOf, rowCell, rowText } from "#compiler/core/decoder.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { AssembledRows, Cell, OutputRows } from "#compiler/core/wire.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 

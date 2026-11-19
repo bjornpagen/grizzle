@@ -1,3 +1,4 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { timerMaxMs } from "@bjornpagen/grizzle/runtime"
 import { Array as Arr, Effect, Option, Record as Rec, type Scope } from "effect"
 import {
@@ -30,7 +31,6 @@ import {
 	writesOf,
 	writtenInPlace
 } from "#bench/write/support/writes.ts"
-import { indices } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"

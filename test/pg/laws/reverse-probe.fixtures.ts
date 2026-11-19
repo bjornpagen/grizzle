@@ -1,9 +1,9 @@
 /** What the properties of reverse-probe.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import type { Case as SearchCase } from "@bjornpagen/testing/explore"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
-import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"

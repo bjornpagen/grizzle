@@ -1,10 +1,10 @@
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Effect, Option, Order, Record as Rec, type Scope, Struct } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import { type CompileError, isCompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import { type Codebook, codecOf, firstCodebook, type RosterCodec } from "#compiler/ir/codes.ts"
 import {
 	admitLoginRoles,

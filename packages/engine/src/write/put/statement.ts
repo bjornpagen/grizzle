@@ -1,12 +1,12 @@
-import { appendAll } from "#compiler/core/array.ts"
-import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	concatNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { rowNe, typedEq } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField } from "#compiler/ir/law.ts"
 import type { Needs } from "#compiler/ir/needs.ts"

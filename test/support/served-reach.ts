@@ -1,7 +1,7 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Order, Record as Rec, String as Str } from "effect"
 import type { ChangeVariants, WorkloadForm } from "#adapter/db/workload.ts"
 import type { LayerRole } from "#adapter/served/login.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import type { DecoderForm } from "#compiler/core/decoder.ts"
 import { type DeclaredName, identifierOf } from "#compiler/core/identity.ts"
 import type {

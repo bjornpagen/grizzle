@@ -1,3 +1,5 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The binary arrays of bytes and text columns, a hot path: a member's bytes values travel in PostgreSQL's binary format,
  * never as their hex text, so a value of n bytes sends n bytes and its length, and the server reads them with
@@ -10,8 +12,6 @@ import { utf8Length, writeUtf8 } from "@bjornpagen/grizzle-text/utf8"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import * as Result from "#compiler/core/result.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import { messageMaxBytes } from "#compiler/core/wire.ts"

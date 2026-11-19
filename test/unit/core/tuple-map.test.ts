@@ -14,10 +14,10 @@
  * another array, a key deleted and set again, a key set again in place.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	type ModelEntry,
@@ -124,19 +124,19 @@ export const aTupleMapAnswersEveryProgramOfSetsAndDeletesAsAListOfEntriesCompare
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/tuple-map.ts",
+				file: "packages/text/src/base/tuple-map.ts",
 				original: "return sameFrom(child.key, key, depth + 1) ? child : undefined",
 				replacement: "return child",
 				why: "A key found by its first element alone: a lookup of a key that shares only a prefix with the one held answers that one's value."
 			},
 			{
-				file: "packages/engine/src/core/tuple-map.ts",
+				file: "packages/text/src/base/tuple-map.ts",
 				original: "Number.isNaN(x) && Number.isNaN(y)",
 				replacement: "false",
 				why: "NaN unequal to itself past a key's first element: a key holding NaN there is not found by another array."
 			},
 			{
-				file: "packages/engine/src/core/tuple-map.ts",
+				file: "packages/text/src/base/tuple-map.ts",
 				original: "branch.end = child",
 				replacement: "branch.children.set(child.key[depth], child)",
 				why: "A key moved below a branch it ends at is held as a child, so a key that ends where another goes on is lost."

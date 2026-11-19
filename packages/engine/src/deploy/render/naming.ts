@@ -1,7 +1,7 @@
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { conversionOf } from "#compiler/core/identity.ts"
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import {
 	type Comparator,
 	combineAll,

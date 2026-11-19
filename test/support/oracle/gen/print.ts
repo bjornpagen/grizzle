@@ -1,5 +1,5 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Formatter, Record } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import { type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import type { SpelledValue } from "#test/support/oracle/gen/domain.ts"

@@ -20,14 +20,14 @@
  * each nesting.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { expandedSize } from "@bjornpagen/grizzle-text/regex/ir"
+import type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
+import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, array, element, finite, map, option } from "@bjornpagen/testing/gen"
 import { drawnFeature, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
-import { expandedSize } from "#compiler/scalar/regex/ir.ts"
-import { type RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import { admitRegex } from "#compiler/text/field.ts"
 import { assert, matchesObject, succeeded } from "#test/support/assert.ts"
 import {
@@ -77,7 +77,7 @@ export const refusalsWithLocationAndReasonRefusesValidECMAScriptOutsideTheFragme
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/parse.ts",
+				file: "packages/text/src/regex/parse.ts",
 				original:
 					'\t\t\tthis.#unsupported(at, this.#text(at, at + 3), "lookahead assertions are not admitted")',
 				replacement:
@@ -118,7 +118,7 @@ export const refusalsWithLocationAndReasonIsMalformedDescriptionExactlyWhereECMA
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/regex/parse.ts",
+					file: "packages/text/src/regex/parse.ts",
 					original: '\t\t\t\t\tthrow this.#malformed(this.#pos, ")", "unmatched \')\'")',
 					replacement: "\t\t\t\t\tthis.#pos += 1\n\t\t\t\t\tcontinue",
 					why: "An unmatched ')' is passed over, not refused as malformed; the malformed property fails."
@@ -159,7 +159,7 @@ export const refusalsWithLocationAndReasonRefusesALiteralNULAndALoneSurrogateInT
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/regex/parse.ts",
+					file: "packages/text/src/regex/parse.ts",
 					original:
 						'\t\tif (c === 0) {\n\t\t\tthis.#unsupported(at, construct, "NUL is not admitted text, so a pattern may not spell it")\n\t\t} else if (isSurrogate(c)) {',
 					replacement: "\t\tif (isSurrogate(c)) {",
@@ -268,7 +268,7 @@ export const nestingParsesAPatternNestedToAnyDepth100000LevelsIncluded = propert
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/ir.ts",
+				file: "packages/text/src/regex/ir.ts",
 				original:
 					'\t\t\t\t\treturn n.arms.reduce((total, arm) => (arm.kind === "empty" ? total : total + of(arm)), 0)',
 				replacement: "\t\t\t\t\treturn n.arms.reduce((total, arm) => total + of(arm), 0)",

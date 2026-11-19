@@ -1,3 +1,4 @@
+import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import * as Interleave from "@bjornpagen/testing/interleave"
 import {
 	Array as Arr,
@@ -10,7 +11,6 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import { maxOf } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { defined } from "#test/support/assert.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"

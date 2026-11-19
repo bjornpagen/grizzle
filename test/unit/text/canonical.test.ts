@@ -12,12 +12,12 @@
  * Features: an alternation, and nested alternations.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { canonicalText } from "@bjornpagen/grizzle-text/regex/ir"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { canonicalText } from "#compiler/scalar/regex/ir.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	alternations,
@@ -69,7 +69,7 @@ export const theCanonicalTextAndOrderWritesEachParsedPatternsIRAsJSONStringifyWr
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/ir.ts",
+				file: "packages/text/src/regex/ir.ts",
 				original:
 					"\t\tconst compare = (a: LiveNode, b: LiveNode): number => compareCanonical(a, b, this.#pieces)",
 				replacement:

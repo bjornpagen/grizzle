@@ -1,5 +1,9 @@
+import {
+	mapNonEmpty,
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { nominal } from "#compiler/core/brand.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings } from "#compiler/core/order.ts"
 import { compareQuoted, compareQuotedTuples } from "#compiler/core/text.ts"
 

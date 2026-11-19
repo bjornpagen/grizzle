@@ -1,3 +1,10 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import {
+	type ReadonlyTupleMap,
+	type ReadonlyTupleSet,
+	TupleMap,
+	TupleSet
+} from "@bjornpagen/grizzle-text/base/tuple-map"
 /**
  * The platform's laws on the host: every law the platform fixture (test/support/fixtures/api/platform.ts) declares,
  * stated in words over a platform's facts and sharing nothing with grizzle, and what a write does to a state under
@@ -37,14 +44,7 @@
  * COMMIT or at SET CONSTRAINTS ALL IMMEDIATE.
  */
 import { Array as Arr, Formatter, Order, Record as Rec } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import {
-	type ReadonlyTupleMap,
-	type ReadonlyTupleSet,
-	TupleMap,
-	TupleSet
-} from "#compiler/core/tuple-map.ts"
 import { contained, on, type Statement, select } from "#compiler/public/schema.ts"
 import { defined } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"

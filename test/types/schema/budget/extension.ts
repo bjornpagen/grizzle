@@ -1,5 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Effect } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"

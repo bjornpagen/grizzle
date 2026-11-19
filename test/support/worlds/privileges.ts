@@ -1,5 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Effect, Option, Order, Record } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity, roleIdentity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { trusted } from "#compiler/core/trusted.ts"

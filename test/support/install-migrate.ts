@@ -1,4 +1,5 @@
 import { inspect } from "node:util"
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import type { Need } from "@bjornpagen/testing/property"
 import type { Content } from "@bjornpagen/testing/resources"
 import {
@@ -26,7 +27,6 @@ import type { CliError } from "#cli/errors.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
-import * as Engine from "#compiler/core/result.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"

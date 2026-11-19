@@ -1,6 +1,6 @@
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { analyzeDemand } from "#compiler/analysis/demand/demand.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { localCertificate } from "#compiler/ir/certificate.ts"
 import type { Cell, EditNode, EditRefs, Heading, KindOver } from "#compiler/ir/rel.ts"
 import { DagEditor, restrictMeta } from "#compiler/lower/optimize/demand/editor.ts"

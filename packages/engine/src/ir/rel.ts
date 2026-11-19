@@ -1,3 +1,5 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { nominal } from "#compiler/core/brand.ts"
 import type {
 	ExprId,
@@ -8,9 +10,7 @@ import type {
 	ScopeId,
 	VarId
 } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import type { EvidenceContext, Premise } from "#compiler/ir/evidence.ts"
 import type {

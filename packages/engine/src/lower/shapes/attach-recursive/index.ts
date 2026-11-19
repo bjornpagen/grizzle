@@ -1,5 +1,9 @@
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Heading, HeadingColumn, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { capsOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import {

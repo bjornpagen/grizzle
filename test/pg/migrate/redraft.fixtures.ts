@@ -1,5 +1,6 @@
 /** What the properties of redraft.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
@@ -7,7 +8,6 @@ import type { AppliedEdit, MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import type { MigrationSession } from "#adapter/migrate/session.ts"
-import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { quoteIdent, wellFormed } from "#compiler/core/text.ts"

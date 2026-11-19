@@ -21,10 +21,10 @@
  * across it past every commit before it, a writer begun after it.
  */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { servedLiveOf } from "#compiler/plan/common.ts"
 import {
 	cases,

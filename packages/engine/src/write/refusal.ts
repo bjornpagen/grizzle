@@ -1,7 +1,7 @@
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, EntryName, LawId, StoredRelationName } from "#compiler/core/ids.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { BreachGuard, DeliveredBreach } from "#compiler/lower/conservative/types.ts"

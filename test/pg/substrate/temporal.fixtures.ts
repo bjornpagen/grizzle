@@ -1,8 +1,8 @@
 /** What the properties of temporal.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Effect, Option, type Scope } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	covered,

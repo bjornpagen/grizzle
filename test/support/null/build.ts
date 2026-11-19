@@ -1,5 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Array as Arr, String as Str } from "effect"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { ColumnRef } from "#compiler/ir/expr.ts"
 import {
 	accumulated,

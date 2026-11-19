@@ -1,3 +1,6 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
 import { int4Max } from "#compiler/core/canonical.ts"
 /**
@@ -22,10 +25,7 @@ import {
 	isFloatSpecialName,
 	type Json
 } from "#compiler/core/canonical.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import { validateText } from "#compiler/core/text.ts"
 import { int2Max, int2Min, int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { uuidGroups } from "#compiler/ir/carriers.ts"

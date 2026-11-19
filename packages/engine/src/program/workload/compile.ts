@@ -1,13 +1,13 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Fence, RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
 import { checkedRoleOver, type CheckedSchema } from "#compiler/analysis/schema.ts"
 import { checkQuery } from "#compiler/check/index.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, within } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import {
 	type ChangeSetDesc,

@@ -8,7 +8,7 @@
  * data by the constructors the compile path runs it through too. Every application loads its write so, a write compiled
  * in process as much as a served one, so what the file holds is exactly what an application reads.
  */
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { type Prepared, prepared } from "#compiler/core/prepared.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { NeededInput } from "#compiler/ir/needs.ts"

@@ -15,10 +15,10 @@
  * told apart).
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { assert } from "#test/support/assert.ts"
 import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { compareMultisets, compareRuns } from "#test/support/oracle/compare.ts"
@@ -85,7 +85,7 @@ export const rowMultisetsNameExactlyTheRowsEachSideHoldsMoreOftenAgainstACountBy
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/tuple-map.ts",
+				file: "packages/text/src/base/tuple-map.ts",
 				original: "\t\t\t\tchild.value = value",
 				replacement: "\t\t\t\t{}",
 				why: "Operator mutant (statement) at packages/engine/src/core/tuple-map.ts:114 in <module>: `child.value = value` becomes `{}`, so a key held in a slot and set again keeps its old value; the property fails (lane CATCH, grizzle 0baff5d6)."
@@ -149,7 +149,7 @@ export const canonicalCellKeyedSetsAgreeExactlyWhenEachRunsCellsSpellASetOfValue
 				why: "A float's -0 is written as 0 again, as before c067533e8, so a run's -0 and 0 are one canonical cell: two rows that differ only by the zero's sign read as one repeated; this property fails."
 			},
 			{
-				file: "packages/engine/src/core/tuple-map.ts",
+				file: "packages/text/src/base/tuple-map.ts",
 				original: "\t\t\t\tchild.value = value",
 				replacement: "\t\t\t\t{}",
 				why: "Operator mutant (statement) at packages/engine/src/core/tuple-map.ts:114 in <module>: `child.value = value` becomes `{}`, so a key held in a slot and set again keeps its old value; the property fails (lane CATCH, grizzle 0baff5d6)."

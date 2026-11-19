@@ -1,3 +1,5 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * What one served program takes and answers on the wire, as data over its scalars (live/wire.ts), and the walks of it:
  * a program's input (its parameters, its facts and a page's window), its rows, its keys and its write's outcome, each
@@ -14,8 +16,6 @@ import type { Option } from "effect"
 import type { Json, Path } from "#compiler/core/canonical.ts"
 import type { Delivery } from "#compiler/core/decoder.ts"
 import { transientTags } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sqlstateBody } from "#compiler/core/sqlstate.ts"
 import { int8Max } from "#compiler/ir/carriers.ts"
 import {

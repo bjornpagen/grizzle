@@ -1,5 +1,5 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { tupleConverter } from "#compiler/codec/row.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { DeleteResult, InsertResult } from "#compiler/write/insert/statement.ts"

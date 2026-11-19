@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import {
 	Array as Arr,
@@ -27,7 +28,6 @@ import { draftSchema, servedFiles } from "#cli/generate.ts"
 import type { RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import * as Result from "#compiler/core/result.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"

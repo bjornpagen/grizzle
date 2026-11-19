@@ -1,5 +1,5 @@
-import { defined } from "#compiler/core/invariant.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { LawField } from "#compiler/ir/law.ts"
 
 /** Columns allocated one per field, each paired with its field's handle where it is allocated: `pairs` in field order,

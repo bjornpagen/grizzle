@@ -16,12 +16,12 @@
  * budget, spelled otherwise than its ARE; the IN list chosen, the regex chosen, a tie.
  */
 
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { toAre } from "@bjornpagen/grizzle-text/regex/print"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, constant, oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
-import { toAre } from "#compiler/scalar/regex/print.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
@@ -81,7 +81,7 @@ export const constraintLoopsScalarRegexIrTsRepeatLeavesNoRepetitionThatLoopsThro
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/regex/ir.ts",
+					file: "packages/text/src/regex/ir.ts",
 					original: "\t\t\t\t\t\tasserted: passable && paths.some((p) => p.asserted)",
 					replacement: "\t\t\t\t\t\tasserted: passable && paths.every((p) => p.asserted)",
 					why: "A sequence's zero-width paths count as asserted only when every item asserts, so a body such as `(?:a|$|)b?` is neither rewritten nor refused as a loop; the constraint loops property fails."
@@ -193,7 +193,7 @@ export const readingAPrintedAREBackAdmitsAPatternExactlyWhenItAdmitsTheAREItPrin
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/print.ts",
+				file: "packages/text/src/regex/print.ts",
 				original: `\treturn min === 0 && max === 1 ? "?" : \`{\${min},\${max}}\``,
 				replacement: `\treturn min === 0 && max === 1 ? "?" : \`{\${min},\${max - 1}}\``,
 				why: "A counted quantifier's maximum printed one short in the ARE; the read back and budgets properties fail."

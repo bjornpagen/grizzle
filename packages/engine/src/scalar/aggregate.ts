@@ -1,6 +1,6 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, resourceBound, unsupported } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { int8Digits } from "#compiler/ir/carriers.ts"
 import { type CatalogOpId, OpId as opId } from "#compiler/ir/expr.ts"
 import { int8ExactDigits } from "#compiler/ir/physical.ts"

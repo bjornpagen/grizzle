@@ -1,8 +1,12 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { typedEq } from "#compiler/ir/compare.ts"
 /**
  * A stratum's family removals as one statement: every member its edits remove or update in place, each group they

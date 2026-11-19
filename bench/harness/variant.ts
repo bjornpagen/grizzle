@@ -1,3 +1,4 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { type Equivalence, exact, ordered } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Data, Effect, Formatter, Option, type Ordering, Result } from "effect"
 import { type Summary, summarizePhases } from "#bench/cold/stats.ts"
@@ -13,7 +14,6 @@ import {
 } from "#bench/harness/explain.ts"
 import { PhaseClock, type StandardPhase } from "#bench/harness/phases.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import type { SqlError } from "#test/support/pg.ts"

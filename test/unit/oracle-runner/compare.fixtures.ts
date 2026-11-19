@@ -1,5 +1,7 @@
 /** What the properties of compare.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import {
 	array,
 	constant,
@@ -10,14 +12,12 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter } from "effect"
-import { indices } from "#compiler/core/array.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { anyNumeric } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { assert } from "#test/support/assert.ts"
 import type { ValueIdentity } from "#test/support/kernel/identity.ts"
-import { type Run } from "#test/support/oracle/compare.ts"
+import type { Run } from "#test/support/oracle/compare.ts"
 import type { RawRow } from "#test/support/oracle/install/capture.ts"
 import { at } from "#test/support/oracle/pick.ts"
 

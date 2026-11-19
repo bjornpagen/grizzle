@@ -1,5 +1,6 @@
 /** What the properties of laws.test.ts read: its spaces, models and helpers. */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	aimed,
 	type Aimed,
@@ -14,7 +15,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Option, String as Str } from "effect"
-import * as Result from "#compiler/core/result.ts"
 import { type FieldDesc, pgScalarNames } from "#compiler/ir/desc.ts"
 import { type DeclaredType, languageOfText, languageWithin, textOf } from "#compiler/ir/scalar.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"

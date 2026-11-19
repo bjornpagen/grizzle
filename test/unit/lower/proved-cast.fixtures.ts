@@ -1,9 +1,9 @@
 /** What the properties of proved-cast.test.ts read: the stored text types, the text maps over them, and each site. */
 
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Gen } from "@bjornpagen/testing/gen"
 import { element } from "@bjornpagen/testing/gen"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type * as Result from "#compiler/core/result.ts"
 import {
 	compileInstallation,
 	type Installation,

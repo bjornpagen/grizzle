@@ -1,11 +1,11 @@
 /** What the properties of operators.test.ts read: its spaces, models and helpers. */
 
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Case } from "@bjornpagen/testing/explore"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { agree, exact } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { ExprId, NodeId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareOps } from "#compiler/ir/desc.ts"
 import { builtExpr, predicateTable } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"

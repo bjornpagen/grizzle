@@ -13,7 +13,6 @@
 	},
 	"exports": {
 		".": "./src/index.ts",
-		"./internal/core/array.ts": "./src/core/array.ts",
 		"./internal/core/page.ts": "./src/core/page.ts",
 		"./internal/live/index.ts": "./src/live/index.ts",
 		"./internal/plan/catalog.ts": "./src/plan/catalog.ts",

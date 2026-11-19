@@ -17,17 +17,17 @@
  * word the pattern holds, a character outside XML's Char.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { categoryRuns as committedRuns } from "@bjornpagen/grizzle-text/regex/categories.generated"
+import { has, size } from "@bjornpagen/grizzle-text/regex/charset"
+import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
+import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { nameChar, nameStart } from "@bjornpagen/grizzle-text/regex/xml"
+import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, String as Str } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
-import { categoryRuns as committedRuns } from "#compiler/scalar/regex/categories.generated.ts"
-import { has, size } from "#compiler/scalar/regex/charset.ts"
-import { Matcher } from "#compiler/scalar/regex/match.ts"
-import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
-import { nameChar, nameStart } from "#compiler/scalar/regex/xml.ts"
-import { xsdPattern } from "#compiler/scalar/regex/xsd.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compiledPattern } from "#test/support/regex.ts"
 import {
@@ -139,19 +139,19 @@ export const xsdPatternReadsEveryDrawnPatternAsAppendixFDefinesItsLanguage = pro
 				why: "Compute.xsdPattern hands the facet to grizzle's grammar as it is written, unanchored and with XML Schema's escapes unread; the printed pattern's language parts from the facet's."
 			},
 			{
-				file: "packages/engine/src/scalar/regex/xsd.ts",
+				file: "packages/text/src/regex/xsd.ts",
 				original: "\t\treturn Ir.seq([Ir.start, this.#closed(pattern), Ir.end])",
 				replacement: "\t\treturn this.#closed(pattern)",
 				why: "A pattern matches anywhere in a word, as an ECMAScript expression does, not the whole word Appendix F anchors; a word with more than the pattern holds is admitted."
 			},
 			{
-				file: "packages/engine/src/scalar/regex/xsd.ts",
+				file: "packages/text/src/regex/xsd.ts",
 				original: "const wildcard: CharSet = xmlComplement(\n\tcharSet([",
 				replacement: "const wildcard: CharSet = complement(\n\tcharSet([",
 				why: "The wildcard ranges over every code point, not XML's Char; a character outside it matches `.`."
 			},
 			{
-				file: "packages/engine/src/scalar/regex/xsd.ts",
+				file: "packages/text/src/regex/xsd.ts",
 				original: "\t\t\t\t\tset = intersection(this.#groupSet(of), complement(set))",
 				replacement: "\t\t\t\t\tset = this.#groupSet(of)",
 				why: "A subtraction leaves its class whole; a word of the subtracted characters is admitted."
@@ -192,7 +192,7 @@ export const xsdNameEscapesAreXML10SecondEditionsNameCharactersAndNotTheFifthEdi
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/xml.ts",
+				file: "packages/text/src/regex/xml.ts",
 				original: "export const nameStart: CharSet = union([\n\tbaseChar,\n\tideographic,\n",
 				replacement: "export const nameStart: CharSet = union([\n\tbaseChar,\n",
 				why: "`\\i` loses the ideographs; its count falls short of the Second Edition's."
@@ -227,13 +227,13 @@ export const xsdPatternRefusesEachConstructOutsideTheGrammarAtItsOffsetByItsReas
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/xsd.ts",
+				file: "packages/text/src/regex/xsd.ts",
 				original: '\t\t\t\tif (this.#is("?", 1)) {',
 				replacement: "\t\t\t\tif (this.#pos < 0) {",
 				why: "A `(?` group is read as a group whose first atom is a quantifier, refused as malformed after it, not where the construct begins as one XML Schema does not have."
 			},
 			{
-				file: "packages/engine/src/scalar/regex/xsd.ts",
+				file: "packages/text/src/regex/xsd.ts",
 				original:
 					'\t\tif (min > regexMaxRepeat || (max !== "unbounded" && max > regexMaxRepeat)) {',
 				replacement: "\t\tif (min < 0) {",
@@ -270,7 +270,7 @@ export const everyClassEscapeHoldsExactlyTheCharactersAppendixFsDefinitionDoes =
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/xsd.ts",
+				file: "packages/text/src/regex/xsd.ts",
 				original:
 					'const nonWord = (): CharSet => union([category("P"), category("Z"), category("C")])',
 				replacement: 'const nonWord = (): CharSet => union([category("P"), category("Z")])',
@@ -310,7 +310,7 @@ export const theCommittedGeneralCategoryTableIsTheRunningNodes = property.explor
 	kept: [],
 	kills: [
 		{
-			file: "packages/engine/src/scalar/regex/categories.generated.ts",
+			file: "packages/text/src/regex/categories.generated.ts",
 			original: '\t"zw,',
 			replacement: '\t"zv,zw,',
 			why: "A run is stated twice; the table parts from the running Node's at its first run."

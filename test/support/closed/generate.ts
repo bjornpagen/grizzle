@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * Rosters with holes and growth, built by construction, and the named invalid codes, handles and declarations that a
  * roster's codec, domain and draft must refuse.
@@ -38,7 +39,6 @@ import { element, type Gen, int, type Size, subset } from "@bjornpagen/testing/g
 import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, String as Str } from "effect"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec, type RosterCodec } from "#compiler/ir/codes.ts"
 import { Roster } from "#compiler/ir/scalar.ts"

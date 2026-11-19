@@ -1,13 +1,13 @@
 /** What the properties of lowering.test.ts read: its spaces, models and helpers. */
 
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { element, finite, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { makeIdSupply, type ParamId } from "#compiler/core/ids.ts"
 import { type Direction, directions } from "#compiler/core/order.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import { type PhysicalNames } from "#compiler/ir/physical.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import {
 	type CompletedOrder,

@@ -1,6 +1,6 @@
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { CoercionIdentity, ElisionReason } from "#compiler/ir/certificate.ts"
 import type { EvidenceContext, Grounds, Premise } from "#compiler/ir/evidence.ts"

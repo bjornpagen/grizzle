@@ -1,6 +1,10 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { type DecimalParts, partsText } from "#compiler/core/decimal.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type {
 	ArrayCheck,
 	ArraysSource,

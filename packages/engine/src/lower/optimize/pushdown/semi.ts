@@ -1,5 +1,5 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { type CertificateRule, localCertificate } from "#compiler/ir/certificate.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {

@@ -1,4 +1,4 @@
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { operatorSchemaOf } from "#compiler/ir/compare.ts"
 import type { Heading, NodeOf } from "#compiler/ir/rel.ts"
 import {

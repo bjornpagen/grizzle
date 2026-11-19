@@ -64,6 +64,7 @@ import {
 	runningQualified
 } from "#bench/query/support/lab.ts"
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import {
 	aggregateNodes,
 	joinTypes,
@@ -73,7 +74,6 @@ import {
 	rowsReadFrom,
 	scansOf
 } from "#bench/query/support/plans.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Expr, FunctionCall, OperandSelect, Select, WindowSpec } from "#compiler/sql/ast.ts"
 import {

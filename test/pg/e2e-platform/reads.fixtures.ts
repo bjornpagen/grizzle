@@ -1,10 +1,10 @@
 /** What the properties of reads.test.ts read: its spaces, models and helpers. */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import type { Reached } from "@bjornpagen/testing/features"
 import { array, type Gen, constant } from "@bjornpagen/testing/gen"
 import { fullSwarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { Anchor, CallError, Window } from "#compiler/live/index.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"

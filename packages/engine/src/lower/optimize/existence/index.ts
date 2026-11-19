@@ -1,8 +1,8 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { keyedBy } from "#compiler/analysis/physical/props.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId, VarId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { nodePremises } from "#compiler/ir/certificate.ts"
 import { columnReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {

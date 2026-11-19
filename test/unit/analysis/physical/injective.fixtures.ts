@@ -1,9 +1,9 @@
 /** What the properties of injective.test.ts read: its spaces, models and helpers. */
 
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Array as Arr, Formatter } from "effect"
 import { ExprId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { builtExpr, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"

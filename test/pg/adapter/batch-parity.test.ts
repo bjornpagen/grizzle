@@ -1,3 +1,4 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
@@ -19,7 +20,6 @@ import {
 	writeFrame
 } from "#adapter/wire/batch.ts"
 import type { Session, SessionState } from "#adapter/wire/session.ts"
-import { indices } from "#compiler/core/array.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 /**
  * The wire's flights (adapter/wire/batch.ts) on pg in pipeline mode, observed on the protocol through the tap

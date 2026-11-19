@@ -5,6 +5,13 @@
  */
 
 import {
+	categoryRuns,
+	generalCategories
+} from "@bjornpagen/grizzle-text/regex/categories.generated"
+import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
+import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
+import {
 	array,
 	constant,
 	element,
@@ -16,10 +23,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Function, Option, String as Str } from "effect"
-import { categoryRuns, generalCategories } from "#compiler/scalar/regex/categories.generated.ts"
-import { Matcher } from "#compiler/scalar/regex/match.ts"
-import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
-import { xsdPattern } from "#compiler/scalar/regex/xsd.ts"
 import { runsOfRunningNode } from "#scripts/gen/unicode/generate.ts"
 import { succeeded } from "#test/support/assert.ts"
 

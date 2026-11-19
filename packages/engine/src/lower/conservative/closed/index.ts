@@ -1,6 +1,10 @@
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { exactParts } from "#compiler/core/decimal.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { floatLiteral } from "#compiler/ir/carriers.ts"
 import { firstCalendarDate } from "#compiler/ir/date.ts"
 import { closedRows, type Heading } from "#compiler/ir/rel.ts"

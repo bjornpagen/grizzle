@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	boolean,
 	codePoint,
@@ -12,7 +13,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
 import { Option } from "effect"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { type FieldDesc, pgScalarNames } from "#compiler/ir/desc.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"

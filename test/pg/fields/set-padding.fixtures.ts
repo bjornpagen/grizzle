@@ -1,8 +1,8 @@
 /** What the properties of set-padding.test.ts read: its spaces, models and helpers. */
 
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { aimed, array, boolean, type Gen, int, map, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, String as Str } from "effect"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { Bits, bits, closedId, generated, pg } from "#compiler/public/fields.ts"

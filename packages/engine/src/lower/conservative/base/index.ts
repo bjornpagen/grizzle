@@ -1,4 +1,4 @@
-import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import {
 	distinctSelect,

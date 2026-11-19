@@ -1,11 +1,11 @@
 /** What the property of count.test.ts reads: its box, its model and the readings it builds. */
 
+import type * as EngineResult from "@bjornpagen/grizzle-text/base/result"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Result } from "effect"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
-import type * as EngineResult from "#compiler/core/result.ts"
 import { sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { natural, pg } from "#compiler/public/fields.ts"

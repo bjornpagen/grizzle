@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Brand } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
 import {
@@ -9,7 +10,6 @@ import {
 import { hostRead } from "#compiler/core/host.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { phantom } from "#compiler/core/phantom.ts"
-import * as Result from "#compiler/core/result.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { VectorText } from "#compiler/ir/carriers.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"

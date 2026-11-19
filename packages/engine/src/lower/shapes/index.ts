@@ -1,15 +1,15 @@
-import { searchInRows } from "#compiler/check/approximate/attach.ts"
-import { appendAll } from "#compiler/core/array.ts"
-import { canonicalEquals, Refusal } from "#compiler/core/canonical.ts"
-import type { NodeId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	concatNonEmpty,
 	isNonEmpty,
 	lastNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { searchInRows } from "#compiler/check/approximate/attach.ts"
+import { canonicalEquals, Refusal } from "#compiler/core/canonical.ts"
+import type { NodeId } from "#compiler/core/ids.ts"
 import type { CompletedOrder, Heading, NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import { withAdmission } from "#compiler/lower/conservative/admission.ts"
 import {

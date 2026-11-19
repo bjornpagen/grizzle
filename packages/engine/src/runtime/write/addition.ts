@@ -1,3 +1,5 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * A nested addition split along its relation's families, as binding reads a caller's fact (write/family/nesting.ts):
  * its own fields, and each family's members, to any depth.
@@ -5,9 +7,7 @@
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
 
 /** An addition split along its relation's families: its own fields, and each family's member additions in order. */

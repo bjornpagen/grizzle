@@ -1,3 +1,8 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { type ReadonlyTupleMap, TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 /**
  * The host's fills of a nested write: every column of every row a nesting writes that grizzle writes itself, by
  * the schema's fill order (ir/fill.ts), which the analysis built and checked when the schema compiled
@@ -34,10 +39,6 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
-import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import { type ExprTable, tableReads, type TypedLiteral } from "#compiler/ir/expr.ts"
@@ -52,7 +53,7 @@ import {
 } from "#compiler/ir/law.ts"
 import { type CombineBuild, type CombineStep, combine, monoidSpecs } from "#compiler/ir/monoid.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import { baseOf, type PatternSource, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Cells, ColumnIndex, Columns, Texts } from "#compiler/runtime/write/cells.ts"
 import {
 	type EvalLeaves,

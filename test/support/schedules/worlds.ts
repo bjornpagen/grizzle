@@ -1,5 +1,5 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Effect, Option, Record, Scope, String as Str } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { sameIdentity, valueIdentityOrder } from "#test/support/kernel/identity.ts"

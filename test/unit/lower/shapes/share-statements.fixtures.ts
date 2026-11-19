@@ -1,8 +1,8 @@
 /** What the properties of share-statements.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"

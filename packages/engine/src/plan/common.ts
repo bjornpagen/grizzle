@@ -77,13 +77,17 @@ export {
 	SchemaFingerprint,
 	type StoredRelationName
 } from "#compiler/core/ids.ts"
-export { defect, defined } from "#compiler/core/invariant.ts"
+export { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 export { flightMaxBytes, messageMaxBytes } from "#compiler/core/wire.ts"
 export { handleMaxBytes } from "#compiler/schema/own.ts"
 export { maxStringLength } from "#compiler/core/canonical.ts"
 export { SourceLoc } from "#compiler/core/loc.ts"
 export { prepared, type Prepared } from "#compiler/core/prepared.ts"
-export { concatNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+export {
+	concatNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 export {
 	type Built,
 	builtMark,
@@ -92,16 +96,16 @@ export {
 	type phantom
 } from "#compiler/core/phantom.ts"
 export { hasProperties, isList, isRecord } from "#compiler/core/record.ts"
-export * as Engine from "#compiler/core/result.ts"
+export * as Engine from "@bjornpagen/grizzle-text/base/result"
 export { rowEvaluatorOver } from "#compiler/program/evaluate.ts"
 export { codecTextOver, type TextedField } from "#compiler/program/text.ts"
 export type { Isolation } from "#compiler/core/isolation.ts"
-export type { Result } from "#compiler/core/result.ts"
+export type { Result } from "@bjornpagen/grizzle-text/base/result"
 export { sha256Hex } from "#compiler/core/sha256.ts"
 export { wellFormed } from "#compiler/core/text.ts"
 export { Sqlstate, sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
 export { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
-export { TupleMap } from "#compiler/core/tuple-map.ts"
+export { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 export type {
 	AssembledRows,
 	Cell,

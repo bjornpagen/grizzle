@@ -1,5 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
 import { type EqualSteps, equalSteps, type GrowthDimension } from "#test/types/batch/measured.ts"
 

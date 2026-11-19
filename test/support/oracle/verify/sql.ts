@@ -1,7 +1,7 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Order, Record as Rec, Result, String as Str } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import { CompileError, prose } from "#compiler/core/errors.ts"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"

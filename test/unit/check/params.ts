@@ -1,6 +1,6 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { array, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import type { AuthoredExprDesc, MatchDesc, QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import {

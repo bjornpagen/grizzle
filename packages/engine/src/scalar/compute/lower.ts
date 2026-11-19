@@ -1,3 +1,10 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchRefusal, int4Max, Refusal } from "#compiler/core/canonical.ts"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import {
@@ -7,10 +14,7 @@ import {
 	type PreconditionKind
 } from "#compiler/core/errors.ts"
 import { ExprId } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc, Located, Refs, Spelled } from "#compiler/ir/desc.ts"
 import {

@@ -1,5 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Identity } from "#compiler/core/identity.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { withDerivedRelations } from "#compiler/physical/derived/objects.ts"
 import { type InstallOptions, installOptions } from "#compiler/physical/install/compile.ts"

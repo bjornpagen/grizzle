@@ -1,3 +1,4 @@
+import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { Brand } from "effect"
 import type { Column, FieldHost } from "#compiler/core/decoder.ts"
 import type {
@@ -10,7 +11,6 @@ import type {
 	Proving
 } from "#compiler/core/phantom.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
-import type { Patterns } from "#compiler/ir/scalar.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"

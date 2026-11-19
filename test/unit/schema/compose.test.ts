@@ -22,7 +22,8 @@
  * level lists and one a lower level states, so both sides of the level rule are drawn by construction.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -30,7 +31,6 @@ import { Array as Arr, Effect, Record as Rec } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { relationDescOf } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { mutableBuilder, statementDescOf } from "#compiler/schema/statements.ts"

@@ -1,6 +1,6 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Option } from "effect"
-import { defect } from "#compiler/core/invariant.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { builtMark, type Phantom } from "#compiler/core/phantom.ts"
 import type { Cell, OutputText } from "#compiler/core/wire.ts"
 

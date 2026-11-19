@@ -1,6 +1,6 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { regex } from "arkregex"
 import type { ValueFault } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	type UuidGroup,
 	uuidGroupStart,

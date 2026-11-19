@@ -7,7 +7,7 @@
  * None of those values is the caller's, so no write can state a gap, a shared slot, a count that disagrees with its
  * family or a fold that disagrees with its members.
  */
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 

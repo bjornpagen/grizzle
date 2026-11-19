@@ -1,4 +1,4 @@
-import { firstIndex, appendAll } from "#compiler/core/array.ts"
+import { firstIndex, appendAll } from "@bjornpagen/grizzle-text/base/array"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { type Direction, opposite } from "#compiler/core/order.ts"
 import type { CatalogRule } from "#compiler/ir/certificate.ts"

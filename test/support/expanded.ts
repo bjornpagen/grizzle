@@ -1,3 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { Array as Arr } from "effect"
 import type {
 	CteUse,
@@ -6,8 +8,6 @@ import type {
 	RowSource,
 	SiteCore
 } from "#compiler/analysis/isolation/facts.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 
 /**
  * A row source of a statement that reads each query CTE again at each of its sites: a read, a core or a UNION's arms,

@@ -1,4 +1,4 @@
-import { appendNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { appendNonEmpty, type NonEmptyReadonlyArray } from "#text/base/nonempty.ts"
 
 /**
  * The walks the engine orders a directed graph by, each once: a graph is the vertices `roots` reach through a function

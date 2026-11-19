@@ -1,10 +1,10 @@
 /** What the properties of roster-set.test.ts read: its spaces, models and helpers. */
 
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Array as Arr, Data, Effect, Formatter, Result } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"

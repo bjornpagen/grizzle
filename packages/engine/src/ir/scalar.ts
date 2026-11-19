@@ -1,4 +1,11 @@
-import { sameOrder } from "#compiler/core/array.ts"
+import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import {
+	mapNonEmpty,
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { type TextBounds, textBounds } from "@bjornpagen/grizzle-text/regex/dfa"
+import type { Patterns, PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import { nominal } from "#compiler/core/brand.ts"
 import {
 	type Canonicalizable,
@@ -8,7 +15,6 @@ import {
 } from "#compiler/core/canonical.ts"
 import { ownedDigest, type RosterDigest, rosterDigest } from "#compiler/core/fingerprint.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
@@ -201,19 +207,6 @@ declare const regexKeyBrand: unique symbol
 export const RegexKey = nominal<string, RegexKey>()
 
 /**
- * Proved bounds on every member of a language, in code points and UTF-8 bytes. The analysis makes one by textBounds
- * alone, frozen where it is made.
- */
-export interface TextBounds {
-	readonly length: number
-	readonly bytes: number
-}
-
-/** Bounds of `length` code points and `bytes` UTF-8 bytes: the one constructor of a TextBounds, frozen. */
-export const textBounds = (length: number, bytes: number): TextBounds =>
-	Object.freeze({ length, bytes })
-
-/**
  * How PostgreSQL enforces a language of a text's patterns some admitted text value is no member of, with the bounds the
  * enforcement proves on every member: `VALUE IN (...)` of its members, at least one since an analyzed language has a
  * member, or `VALUE ~ '<ARE>'` of the translation of each pattern of the conjunction the check reads, joined by AND.
@@ -269,18 +262,6 @@ export type RegexCheck =
 /** The byte bound a check enforces beside its pattern's, str.bytes's: none for a pattern's check alone. */
 export const octetsOf = (check: RegexCheck): number | undefined =>
 	check.kind === "octets" ? check.octets : undefined
-
-/** One pattern as a text declares it: its source in grizzle's grammar and its flags. */
-export interface PatternSource {
-	readonly source: string
-	readonly flags: "u" | "su"
-}
-
-/**
- * A text's patterns, in declared order: a conjunction whose language is every text each member matches, the
- * intersection of the members' languages. str.regex declares one, str.and the members of each text it joins.
- */
-export type Patterns = NonEmptyReadonlyArray<PatternSource>
 
 /** A text's patterns as diagnostics name them: each `/source/flags`, joined by ` & ` as the host type joins them. */
 export const patternsText = (patterns: Patterns): string =>

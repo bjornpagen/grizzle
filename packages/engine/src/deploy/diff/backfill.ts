@@ -1,3 +1,12 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	appendNonEmpty,
+	dedupeNonEmpty,
+	flatMapNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * The backfill of the families a migration adds to relations that may hold rows: grizzle draws every
  * value a family holds (each index, count, copy and accumulator), so a family new to stored rows takes its values from
@@ -57,16 +66,7 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	appendNonEmpty,
-	dedupeNonEmpty,
-	flatMapNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
 import type { SnapshotTheory } from "#compiler/deploy/snapshot/types.ts"
 import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import { fieldReads, type TypedLiteral } from "#compiler/ir/expr.ts"

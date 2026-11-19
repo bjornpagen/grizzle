@@ -1,5 +1,6 @@
-import { appendAll } from "#compiler/core/array.ts"
-import { canonicalEquals, catchSignal, Refusal } from "#compiler/core/canonical.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { catchSignal } from "@bjornpagen/grizzle-text/base/result"
+import { canonicalEquals, Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { CompareOp } from "#compiler/ir/desc.ts"

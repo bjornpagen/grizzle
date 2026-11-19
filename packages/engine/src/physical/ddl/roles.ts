@@ -1,3 +1,13 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	appendNonEmpty,
+	extendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { DerivedRelationAnalysis } from "#compiler/analysis/derived/analyze.ts"
 import type { WorldAnalysis } from "#compiler/analysis/derived/world.ts"
 import {
@@ -13,7 +23,6 @@ import { refuse } from "#compiler/analysis/theory/build.ts"
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import type { AdmittedQuery } from "#compiler/check/index.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
@@ -25,18 +34,9 @@ import {
 	loginIdentity,
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	appendNonEmpty,
-	extendNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
-import * as Result from "#compiler/core/result.ts"
 import { typedEq } from "#compiler/ir/compare.ts"
 import type { FieldDesc, RoleWritingKey } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"

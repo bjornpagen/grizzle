@@ -40,14 +40,14 @@
  * are refreshed concurrently over their unique indexes.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, boolean, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { derivedKeyLayout } from "#compiler/analysis/derived/keys.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
-import { indices, maxOf } from "#compiler/core/array.ts"
-import * as Result from "#compiler/core/result.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { materializedDerived as runtimeDerived } from "#compiler/schema/relation.ts"

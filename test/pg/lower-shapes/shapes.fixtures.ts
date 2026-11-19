@@ -1,9 +1,9 @@
 /** What the properties of shapes.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, pipe, Record as Rec, String as Str } from "effect"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
-import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { codecOf, codeOf } from "#compiler/ir/codes.ts"

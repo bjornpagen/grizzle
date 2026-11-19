@@ -1,11 +1,11 @@
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { GeneratedRule } from "#compiler/core/causes.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { type ExprDesc, exprChildren } from "#compiler/ir/desc.ts"
 import {
-	type Patterns,
 	type ScalarType,
 	sameEnteredType,
 	type TextInfo,

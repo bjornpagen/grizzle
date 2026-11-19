@@ -1,5 +1,7 @@
 /** What the properties of membership.test.ts read: its spaces, models and helpers. */
 
+import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
 import {
 	array,
@@ -13,8 +15,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { analyzeText, type TextRefinement } from "#compiler/text/refinement.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { pickGen } from "#test/support/pick.ts"

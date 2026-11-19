@@ -67,8 +67,12 @@
  * The chain of doomed keys over generic edges, a member's columns equal to an owner's key, is the shape of a retirement's
  * deletion of a sealed group's bodies.
  */
-import { defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { rowEq, typedEq } from "#compiler/ir/compare.ts"
 import { type Family, isSequence, type TreeMembers } from "#compiler/ir/family.ts"
 import { type LawField, type RelationInfo, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"

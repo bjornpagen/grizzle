@@ -16,11 +16,11 @@
  * a vertex no root reaches; a chain a recursion holds and one past it, open and closed.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { stronglyConnected } from "@bjornpagen/grizzle-text/base/graph"
+import type { Reached } from "@bjornpagen/testing/features"
 import { boolean } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { stronglyConnected } from "#compiler/core/graph.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	type Chain,
@@ -68,19 +68,19 @@ export const stronglyConnectedGivesEveryComponentTheRootsReachOnceInTheOrderADep
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/graph.ts",
+				file: "packages/text/src/base/graph.ts",
 				original: "\t\t\t\t\tframe.low = Math.min(frame.low, index)",
 				replacement: "\t\t\t\t\tframe.low = Math.min(frame.low, frame.index)",
 				why: "An edge back to an open vertex lowers nothing, so a cycle of several vertices is split into one component a vertex; the components differ."
 			},
 			{
-				file: "packages/engine/src/core/graph.ts",
+				file: "packages/text/src/base/graph.ts",
 				original: "\t\t\t\tparent.low = Math.min(parent.low, frame.low)",
 				replacement: "\t\t\t\tparent.low = Math.min(parent.low, parent.index)",
 				why: "A vertex's low link never reaches its parent, so a cycle longer than one edge back is split; the components differ."
 			},
 			{
-				file: "packages/engine/src/core/graph.ts",
+				file: "packages/text/src/base/graph.ts",
 				original: "components.push(appendNonEmpty(above.toReversed(), frame.vertex))",
 				replacement: "components.push(appendNonEmpty(above, frame.vertex))",
 				why: "A component of three vertices or more lists those above its root first entered first; the order within it differs."
@@ -133,7 +133,7 @@ export const aChainOfAnyDepthPastWhatASmallStacksRecursionHoldsWalksOpenOrClosed
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/core/graph.ts",
+					file: "packages/text/src/base/graph.ts",
 					original:
 						"\tfor (const root of roots) {\n\t\tif (entered.has(root)) {\n\t\t\tcontinue\n\t\t}\n\t\tconst walk: Array<Frame<V>> = [enter(root)]\n\t\tfor (let frame = walk.at(-1); frame !== undefined; frame = walk.at(-1)) {\n\t\t\tconst successor = frame.successors[frame.next]\n\t\t\tif (successor !== undefined) {\n\t\t\t\tframe.next++\n\t\t\t\tconst index = open.get(successor)\n\t\t\t\tif (!entered.has(successor)) {\n\t\t\t\t\twalk.push(enter(successor))\n\t\t\t\t} else if (index !== undefined) {\n\t\t\t\t\tframe.low = Math.min(frame.low, index)\n\t\t\t\t}\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\twalk.pop()\n\t\t\tconst parent = walk.at(-1)\n\t\t\tif (parent !== undefined) {\n\t\t\t\tparent.low = Math.min(parent.low, frame.low)\n\t\t\t}\n\t\t\tif (frame.low === frame.index) {\n\t\t\t\tconst above = stack.splice(frame.depth).slice(1)\n\t\t\t\tfor (const vertex of above) {\n\t\t\t\t\topen.delete(vertex)\n\t\t\t\t}\n\t\t\t\topen.delete(frame.vertex)\n\t\t\t\tcomponents.push(appendNonEmpty(above.toReversed(), frame.vertex))\n\t\t\t}\n\t\t}\n\t}\n",
 					replacement:

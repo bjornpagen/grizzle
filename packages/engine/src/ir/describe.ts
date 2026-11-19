@@ -1,6 +1,6 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 import { descToJson, type QueryDesc } from "#compiler/ir/desc.ts"
 
 /**

@@ -1,10 +1,10 @@
 /** What the properties of feedback.test.ts read: its spaces, models and helpers. */
 
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { boolean, element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { conservativeMeta, type Heading, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
 import { emptyEnv, LowerContext } from "#compiler/lower/conservative/context.ts"

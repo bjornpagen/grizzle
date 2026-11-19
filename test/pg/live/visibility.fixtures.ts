@@ -1,9 +1,9 @@
 /** What the properties of visibility.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Effect, Formatter } from "effect"
 import { snapshotOf } from "#adapter/live/leader.ts"
-import { indices } from "#compiler/core/array.ts"
 import { placement } from "#compiler/plan/runtime.ts"
 import type { ServedLive } from "#compiler/plan/serve.ts"
 import type { SqlError } from "#test/support/pg.ts"

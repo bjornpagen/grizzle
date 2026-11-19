@@ -3,8 +3,8 @@
  * a change only where every input its members read outside their Description is the call's to give, and refuses the
  * rest by name.
  */
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { MemberAt } from "#compiler/runtime/write/binding.ts"
 import type { ArrayMember } from "#compiler/runtime/write/members.ts"
 import type { UnservedMember, UnservedReason } from "#compiler/served/unserved.ts"

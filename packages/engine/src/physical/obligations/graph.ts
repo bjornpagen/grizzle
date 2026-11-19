@@ -1,6 +1,6 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { compareIdentities, type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { IdentityKind, LawId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import {
 	combineAll,
 	type Comparator,

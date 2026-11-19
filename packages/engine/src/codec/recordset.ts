@@ -1,3 +1,6 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { type ReadonlyTupleMap, TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 /**
  * A relation input's encoding, a hot path: every execution that binds a relation input normalizes it and writes each
  * of its facts here, so the per-fact work is native loops with no closure or Option per element.
@@ -13,11 +16,8 @@ import { countParam, type ScalarCodec, scalarCodec, textParam } from "#compiler/
 import { nominal } from "#compiler/core/brand.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { sortInPlace } from "#compiler/core/order.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
-import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Param, ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type {

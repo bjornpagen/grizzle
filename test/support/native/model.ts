@@ -1,9 +1,9 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { Array as Arr, Option, Result } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId, RelationIdent } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { TupleSet } from "#compiler/core/tuple-map.ts"
 import {
 	builtExpr,
 	type LiveArgs,

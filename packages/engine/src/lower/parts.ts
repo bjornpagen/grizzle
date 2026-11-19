@@ -1,5 +1,9 @@
-import { maxOf } from "#compiler/core/array.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { maxOf } from "@bjornpagen/grizzle-text/base/array"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import type { PlainQuery } from "#compiler/lower/delivery.ts"
 import type {
 	ArraysSource,

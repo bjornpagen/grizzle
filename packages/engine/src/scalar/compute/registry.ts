@@ -1,5 +1,6 @@
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import type { PreconditionKind } from "#compiler/core/errors.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { deepFreeze } from "#compiler/core/record.ts"
 import type { ComputeFn } from "#compiler/ir/desc.ts"
 import {
@@ -15,13 +16,7 @@ import {
 } from "#compiler/ir/expr.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
 import type { OperandIndex, ParseForm, Precondition } from "#compiler/ir/proof.ts"
-import {
-	type Carrier,
-	carriers,
-	nativeNames,
-	type PatternSource,
-	type SpanCarrier
-} from "#compiler/ir/scalar.ts"
+import { type Carrier, carriers, nativeNames, type SpanCarrier } from "#compiler/ir/scalar.ts"
 import {
 	floatCast,
 	type HostCast,

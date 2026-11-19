@@ -1,6 +1,6 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, pipe, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { id } from "#test/support/fixtures/golden/types.ts"
 import { toastText } from "#test/support/oracle/gen/toast.ts"

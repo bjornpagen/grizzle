@@ -28,12 +28,12 @@
  * points.
  */
 
+import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
+import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { Matcher } from "#compiler/scalar/regex/match.ts"
-import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
@@ -115,7 +115,7 @@ export const hostNFAMembershipEqualsECMAScriptOnTheHandwrittenFamilyPatternsOver
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/regex/subset.ts",
+					file: "packages/text/src/regex/subset.ts",
 					original: "\t\t\t[this.nfa.start, ...targets],\n\t\t\t{ atStart: false, atEnd: false },",
 					replacement:
 						"\t\t\t[this.nfa.start, ...targets],\n\t\t\t{ atStart: false, atEnd: true },",
@@ -167,13 +167,13 @@ export const hostNFAMembershipEqualsECMAScriptOnGeneratedPatterns = property.exp
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/subset.ts",
+				file: "packages/text/src/regex/subset.ts",
 				original: "\t\t\t[this.nfa.start, ...targets],",
 				replacement: "\t\t\ttargets,",
 				why: "The host's search goes on only from the paths it is on, never starting a match again at a later code point while one is under way; the membership property fails."
 			},
 			{
-				file: "packages/engine/src/scalar/regex/subset.ts",
+				file: "packages/text/src/regex/subset.ts",
 				original: "\t\t\t[this.nfa.start, ...targets],\n\t\t\t{ atStart: false, atEnd: false },",
 				replacement: "\t\t\t[this.nfa.start, ...targets],\n\t\t\t{ atStart: false, atEnd: true },",
 				why: "The host's search reads `$` as holding past every code point, not only at the text's end; the membership properties fail."
@@ -221,7 +221,7 @@ export const hostNFAMembershipEqualsECMAScriptAcceptsNoStringThatIsNotAdmittedTe
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/regex/match.ts",
+					file: "packages/text/src/regex/match.ts",
 					original:
 						"\t\t\tif (atom === undefined) {\n\t\t\t\treturn false\n\t\t\t}\n\t\t\tstate = this.#step(state, atom)",
 					replacement: "\t\t\tstate = atom === undefined ? state : this.#step(state, atom)",
@@ -280,7 +280,7 @@ export const everyClaimedFactHoldsOnTheSamplesTautologiesAcceptFiniteLanguagesAr
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/dfa.ts",
+				file: "packages/text/src/regex/dfa.ts",
 				original: "\t\t\tout.push(codePointsText(prefix))",
 				replacement:
 					"\t\t\tout.push(codePointsText(prefix))\n\t\t\tout.push(codePointsText(prefix))",
@@ -341,7 +341,7 @@ export const everyClaimedFactHoldsOnTheSamplesEqualCanonicalKeysNeverDisagree = 
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/dfa.ts",
+				file: "packages/text/src/regex/dfa.ts",
 				original:
 					"\tJSON.stringify(dfa.states.map((s) => [s.accept ? 1 : 0, s.edges.map((e) => [e.set, e.to])]))",
 				replacement:
@@ -460,14 +460,14 @@ export const aMatchersWorkOverATextIsLinearInTheTextWhateverThePatternAndATextRe
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/match.ts",
+				file: "packages/text/src/regex/match.ts",
 				original: "\tmatches(value: string): boolean {\n\t\tlet state = 0\n",
 				replacement:
 					'\tmatches(value: string): boolean {\n\t\tconst points = Array.from(value, (p) => p.codePointAt(0) ?? 0)\n\t\tconst tried = (s: number, i: number): boolean => {\n\t\t\tthis.#spent += 1\n\t\t\treturn s === this.nfa.accept || entry(this.nfa.edges, s).some((e) => e.kind === "eps" ? tried(e.to, i) : e.kind === "start" ? i === 0 && tried(e.to, i) : e.kind === "end" ? i === points.length && tried(e.to, i) : i < points.length && e.set.some(([lo, hi]) => lo <= entry(points, i) && entry(points, i) <= hi) && tried(e.to, i + 1))\n\t\t}\n\t\tif (points.some((_, i) => tried(this.nfa.start, i)) || tried(this.nfa.start, points.length)) {\n\t\t\treturn true\n\t\t}\n\t\tlet state = 0\n',
 				why: "A backtracking matcher, which tries every path of the NFA from every position: its work over a run of `a`s a pattern's alternation or nested repetition reads two ways doubles with each `a`, past the linear bound at a short run."
 			},
 			{
-				file: "packages/engine/src/scalar/regex/match.ts",
+				file: "packages/text/src/regex/match.ts",
 				original: "\t\tfrom.next[atom] = target\n",
 				replacement: "",
 				why: "A matcher keeps no transition it built, so every code point of every text builds its transition again, as a matcher compiled per call would: reading a text again charges its transitions again."

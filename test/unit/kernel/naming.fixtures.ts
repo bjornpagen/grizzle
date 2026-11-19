@@ -1,5 +1,6 @@
 /** What the properties of naming.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	boolean,
 	codePoint,
@@ -12,7 +13,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"

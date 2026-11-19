@@ -1,8 +1,11 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
+import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
+import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { type ExprTable, predicateTable, predicateTree } from "#compiler/ir/expr.ts"
 import {
@@ -27,9 +30,6 @@ import {
  * widening, and a refinement's host NFA membership and language.
  */
 import type { PlainCarrier } from "#compiler/scalar/native.ts"
-import type { RegexNode } from "#compiler/scalar/regex/ir.ts"
-import { Matcher } from "#compiler/scalar/regex/match.ts"
-import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { languageOf, type TextRefinement } from "#compiler/text/refinement.ts"
 

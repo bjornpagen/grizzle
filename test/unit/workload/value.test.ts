@@ -216,8 +216,8 @@ export const workloadSchemaProgramsRefusesAProgramTheCheckerRefusesNamingTheProg
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/canonical.ts",
-				original: "\t\tif (caught instanceof signal) {\n\t\t\treturn Result.err(caught)\n\t\t}",
+				file: "packages/text/src/base/result.ts",
+				original: "\t\tif (caught instanceof signal) {\n\t\t\treturn err(caught)\n\t\t}",
 				replacement: "\t\t{}",
 				why: "Operator mutant (guard) at packages/engine/src/core/canonical.ts:223 in catchSignal: `if (caught instanceof signal) {\n\t\t\treturn Result.err(caught)\n\t\t}` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}

@@ -33,21 +33,21 @@ import {
 	splitWhere
 } from "#compiler/check/scan.ts"
 
-import type { MemberRelation, SchemaReading } from "#compiler/check/schema.ts"
-import { allenMaskMax } from "#compiler/core/allen.ts"
-import { canonicalEquals, catchRefusal } from "#compiler/core/canonical.ts"
-import { type CompileError, unsupported } from "#compiler/core/errors.ts"
-import { makeIdSupply, type NodeId, type ParamId, type VarId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { MemberRelation, SchemaReading } from "#compiler/check/schema.ts"
+import { allenMaskMax } from "#compiler/core/allen.ts"
+import { canonicalEquals, catchRefusal } from "#compiler/core/canonical.ts"
+import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import { makeIdSupply, type NodeId, type ParamId, type VarId } from "#compiler/core/ids.ts"
+import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import { DagBuilder, type ReservedNode } from "#compiler/ir/builder.ts"
 import { deliverySpine, relNode } from "#compiler/ir/dag.ts"
 import {

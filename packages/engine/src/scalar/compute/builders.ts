@@ -1,13 +1,13 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { replaceMap } from "@bjornpagen/grizzle-text/text"
 import { nominal } from "#compiler/core/brand.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
 import { CompileError, malformedDescription, prose, unsupported } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { captureLoc, childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	booleanField,
 	type CompareOp,
@@ -42,6 +42,8 @@ import {
 	spanWidthSql
 } from "#compiler/scalar/compute/tables.ts"
 
+import { printSource } from "@bjornpagen/grizzle-text/regex/print"
+import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import {
 	type GuardTest,
@@ -77,8 +79,6 @@ import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { admitMatch, matchRefusalAt } from "#compiler/scalar/regex/admit.ts"
 import { Pattern } from "#compiler/scalar/regex/pattern.ts"
-import { printSource } from "#compiler/scalar/regex/print.ts"
-import { xsdPattern } from "#compiler/scalar/regex/xsd.ts"
 import {
 	carrierSql,
 	describeField,

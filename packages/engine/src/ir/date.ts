@@ -1,6 +1,6 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { ValueFault } from "#compiler/core/errors.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import * as Result from "#compiler/core/result.ts"
 
 /**
  * A calendar date host value: ISO 8601's extended calendar form `YYYY-MM-DD`, a day of the proleptic Gregorian

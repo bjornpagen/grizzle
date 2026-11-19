@@ -1,6 +1,7 @@
 /** What the properties of keys.test.ts read: its spaces, models and helpers. */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import type { Reached } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -14,7 +15,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import { derivedKeyLayout } from "#compiler/analysis/derived/keys.ts"
-import { indices } from "#compiler/core/array.ts"
 import type { DerivedRefusal, KeyFault } from "#compiler/core/causes.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"

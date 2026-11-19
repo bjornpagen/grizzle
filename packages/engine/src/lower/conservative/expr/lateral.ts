@@ -1,4 +1,4 @@
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { isOperandBinding } from "#compiler/lower/conservative/expr/total.ts"
 import {
 	builtinFunctions,

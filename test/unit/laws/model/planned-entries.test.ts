@@ -20,10 +20,10 @@
  * as unbounded or over the limit, or admitted at the limit; a referencing run no B-tree entry holds, admitted.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"

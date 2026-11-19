@@ -23,6 +23,8 @@ import {
 } from "#compiler/schema/own.ts"
 import type { NativeKind } from "#test/support/native/model.ts"
 
+import { appendNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type {
 	ColumnIdent,
 	ConstraintName,
@@ -31,8 +33,6 @@ import type {
 	LawId,
 	RelationIdent
 } from "#compiler/core/ids.ts"
-import { appendNonEmpty } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import { ledgerTable } from "#compiler/deploy/ledger/ledger.ts"
 import {
 	descText,

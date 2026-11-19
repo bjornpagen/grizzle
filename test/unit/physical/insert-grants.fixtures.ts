@@ -1,5 +1,6 @@
 /** What the properties of insert-grants.test.ts read: its spaces, models and helpers. */
 
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	type Aimed,
 	aimed,
@@ -12,7 +13,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec, Result } from "effect"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { RoleDesc } from "#compiler/ir/desc.ts"

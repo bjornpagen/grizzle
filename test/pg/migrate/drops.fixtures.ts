@@ -1,14 +1,14 @@
 /** What the properties of drops.test.ts read: its spaces, models and helpers. */
 
-import { array, boolean, element, type Gen, int, option, shuffled } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
 import {
 	concatNonEmpty,
 	extendNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { array, boolean, element, type Gen, int, option, shuffled } from "@bjornpagen/testing/gen"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"

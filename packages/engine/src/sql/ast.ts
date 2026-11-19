@@ -1,10 +1,10 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { nominal } from "#compiler/core/brand.ts"
 import type { FloatSpecialName } from "#compiler/core/canonical.ts"
 import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { DeclaredLanguage } from "#compiler/core/function.ts"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Assignments } from "#compiler/sql/generation.ts"
 import type { CarrierName, NameMap } from "#compiler/sql/naming.ts"
 

@@ -1,3 +1,10 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	type Carried,
 	type Change,
@@ -14,10 +21,7 @@ import {
 import type { StaleCause } from "#compiler/core/causes.ts"
 import { CompileError, type RoleAccess } from "#compiler/core/errors.ts"
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Family } from "#compiler/ir/family.ts"
 /**
  * A stratum's refills as its family statements draw them (analysis/theory/refill.ts): the closure of the changes its

@@ -1,3 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { DecoderForm } from "#compiler/core/decoder.ts"
 import type { DeclaredName, ParamPlace } from "#compiler/core/identity.ts"
 import type {
@@ -10,13 +12,11 @@ import type {
 	StoredRelationName
 } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Prepared } from "#compiler/core/prepared.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type { CallerParamDecl, ConstraintLaws, PageFill } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, HeadingColumn } from "#compiler/ir/rel.ts"
-import type { Patterns } from "#compiler/ir/scalar.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
 import type { RoleWire, ServedWire } from "#compiler/live/member.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"

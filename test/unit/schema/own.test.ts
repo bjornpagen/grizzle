@@ -15,6 +15,7 @@
  * Features: as each search names them.
  */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Reached } from "@bjornpagen/testing/features"
 import { boolean, element, finite, int, shuffled, weighted } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
@@ -23,7 +24,6 @@ import { bigint } from "@bjornpagen/testing/values"
 import { regex as arkregex } from "arkregex"
 import { Array as Arr, Effect, Option, Record, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
-import * as Result from "#compiler/core/result.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"

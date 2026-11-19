@@ -1,3 +1,5 @@
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import {
@@ -13,9 +15,7 @@ import type {
 	ReadFact,
 	StatementFacts
 } from "#compiler/analysis/isolation/facts.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
-import * as Result from "#compiler/core/result.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { type AnyRole, login, relation, role, schema } from "#compiler/public/schema.ts"

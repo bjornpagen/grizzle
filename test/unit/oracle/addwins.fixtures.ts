@@ -1,5 +1,6 @@
 /** What the properties of addwins.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	array,
 	element,
@@ -12,7 +13,6 @@ import {
 	subset
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, Option, Record } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import {
 	type AddWinsOutcome,

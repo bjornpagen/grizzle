@@ -1,3 +1,4 @@
+import { longest, membersWithin } from "@bjornpagen/grizzle-text/regex/dfa"
 import { Array as Arr, Option, String as Str } from "effect"
 import type { Column } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -12,7 +13,6 @@ import {
 	rosterOf,
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
-import { longest, membersWithin } from "#compiler/scalar/regex/dfa.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import type { Carriers } from "#compiler/types/core/phantom.ts"

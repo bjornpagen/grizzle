@@ -1,5 +1,6 @@
 /** What the properties of races.test.ts read: its spaces, models and helpers. */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import type { Case } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -31,7 +32,6 @@ import {
 import { onceCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/served/compile.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"

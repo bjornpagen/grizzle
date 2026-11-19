@@ -1,5 +1,7 @@
 /** What the properties of text.test.ts read: its spaces, models and helpers. */
 
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import {
 	array,
 	boolean,
@@ -13,12 +15,10 @@ import {
 import { Array as Arr, Formatter, Option, Order, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Engine from "#compiler/core/result.ts"
-import { type ExprDesc } from "#compiler/ir/desc.ts"
+import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { matchAre, matchPattern } from "#compiler/scalar/regex/admit.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
 import { assert, assertNot, defined, refusalLoc, succeeded } from "#test/support/assert.ts"

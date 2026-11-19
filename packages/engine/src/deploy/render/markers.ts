@@ -1,4 +1,4 @@
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { type Lexeme, lex, lexemesOf, type Token } from "#compiler/sql/lexer.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 

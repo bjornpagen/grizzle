@@ -1,24 +1,11 @@
-import { codePoints } from "@bjornpagen/grizzle-text/text"
-import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
-import { type CompileError, unsupported } from "#compiler/core/errors.ts"
-import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
-	finiteCheck,
-	languageKey,
-	type PatternCheck,
-	type PatternLanguage,
-	type Patterns,
-	patternsText,
-	type RegexCheck,
-	type RegexKey,
-	regexCheck,
-	type TextBounds,
-	textBounds
-} from "#compiler/ir/scalar.ts"
-import { admitPattern } from "#compiler/scalar/regex/admit.ts"
-import { utf8Width } from "#compiler/scalar/regex/charset.ts"
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { utf8Width } from "@bjornpagen/grizzle-text/regex/charset"
+import { type TextBounds, textBounds } from "@bjornpagen/grizzle-text/regex/dfa"
 import {
 	type CanonicalDfa,
 	type DfaLimits,
@@ -28,12 +15,28 @@ import {
 	longest,
 	membersWithin,
 	minimalDfa
-} from "#compiler/scalar/regex/dfa.ts"
+} from "@bjornpagen/grizzle-text/regex/dfa"
+import { canonicalText, type RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
+import type { Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
+import type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
+import { toAre } from "@bjornpagen/grizzle-text/regex/print"
+import { codePoints } from "@bjornpagen/grizzle-text/text"
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
+import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
+import {
+	finiteCheck,
+	languageKey,
+	type PatternCheck,
+	type PatternLanguage,
+	patternsText,
+	type RegexCheck,
+	type RegexKey,
+	regexCheck
+} from "#compiler/ir/scalar.ts"
+import { admitPattern } from "#compiler/scalar/regex/admit.ts"
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
-import { canonicalText, type RegexNode } from "#compiler/scalar/regex/ir.ts"
-import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
-import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
-import { toAre } from "#compiler/scalar/regex/print.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
 import type { Collation, Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { and, binary, call, cUtf8Collation, le, lit, types } from "#compiler/sql/build.ts"

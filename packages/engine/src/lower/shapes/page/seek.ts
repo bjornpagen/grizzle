@@ -1,4 +1,4 @@
-import { appendNonEmpty, isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { appendNonEmpty, isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { type Direction, opposite } from "#compiler/core/order.ts"
 import { type OperatorNames, operatorSchemaOf, typedCompare } from "#compiler/ir/compare.ts"
 import type { PageFill, SizeFill } from "#compiler/ir/products.ts"

@@ -1,4 +1,4 @@
-import { type NonEmptyReadonlyArray, isNonEmpty } from "#compiler/core/nonempty.ts"
+import { type NonEmptyReadonlyArray, isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { LawField, RelationInfo, SpanField } from "#compiler/ir/law.ts"
 import { isCarried } from "#compiler/write/insert/statement.ts"
 

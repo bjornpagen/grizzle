@@ -1,3 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The runtime protocols the schema builders read and write.
  *
@@ -27,11 +29,9 @@
  */
 import { type CompileError, malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import {
 	type AdmittedClosedRelation,

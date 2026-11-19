@@ -1,4 +1,4 @@
-import { firstIndex } from "#compiler/core/array.ts"
+import { firstIndex } from "@bjornpagen/grizzle-text/base/array"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { floatLiteral as literalOfFloat } from "#compiler/ir/carriers.ts"
 import type { ColumnRef, ScalarExpr } from "#compiler/ir/expr.ts"

@@ -1,21 +1,21 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { loopsThroughAnchor, type RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
+import { buildNfa, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import {
+	parsePattern,
+	type RegexDiagnostic,
+	type RegexFlags
+} from "@bjornpagen/grizzle-text/regex/parse"
+import { toAre } from "@bjornpagen/grizzle-text/regex/print"
 import {
 	CompileError,
 	prose,
 	type RegexSpaceMeasure,
 	resourceBound
 } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
-import { loopsThroughAnchor, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
-import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
-import {
-	parsePattern,
-	type RegexDiagnostic,
-	type RegexFlags
-} from "#compiler/scalar/regex/parse.ts"
-import { toAre } from "#compiler/scalar/regex/print.ts"
 import { pastCompileSpace } from "#compiler/scalar/regex/space.ts"
 
 /** A pattern its admission passed: its normalized IR, the flags folded in, and the NFA the measures read. */

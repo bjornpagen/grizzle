@@ -1,5 +1,7 @@
 /** What the properties of canonical.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	type Aimed,
 	aimed,
@@ -20,7 +22,6 @@ import {
 import { bigint, double, float } from "@bjornpagen/testing/values"
 import { regex } from "arkregex"
 import { Array as Arr, DateTime, Option, Order, Record as Rec, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import {
 	type Canonicalizable,
 	type CanonicalToken,
@@ -38,7 +39,6 @@ import {
 } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { isList } from "#test/support/list.ts"

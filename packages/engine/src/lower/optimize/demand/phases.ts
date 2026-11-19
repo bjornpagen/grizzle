@@ -1,5 +1,5 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CompileError } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { closedPass } from "#compiler/lower/optimize/closed/index.ts"

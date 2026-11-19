@@ -1,5 +1,8 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { Stream } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import {
 	type CanonicalObject,
 	type CanonicalToken,
@@ -11,13 +14,10 @@ import {
 } from "#compiler/core/canonical.ts"
 import { attachment, merge, type RecordField, type RowDecoder } from "#compiler/core/decoder.ts"
 import { hostRead } from "#compiler/core/host.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { captureLoc, labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Order from "#compiler/core/order.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	type ChangeSetDesc,
 	decodeDesc,

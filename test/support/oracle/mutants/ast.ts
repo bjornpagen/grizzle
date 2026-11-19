@@ -1,10 +1,10 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import * as Result from "#compiler/core/result.ts"
-import {
-	type ConservativeProgram,
-	type ConservativeStatement
+import type {
+	ConservativeProgram,
+	ConservativeStatement
 } from "#compiler/lower/conservative/types.ts"
 import { traverseTree } from "#compiler/runtime/lower/tree.ts"
 import type {

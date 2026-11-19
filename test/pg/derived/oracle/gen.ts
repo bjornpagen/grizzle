@@ -1,6 +1,6 @@
+import { appendAll, indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, constant, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import { appendAll, indices } from "#compiler/core/array.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { Compute } from "#compiler/public/compute.ts"

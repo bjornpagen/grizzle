@@ -1,3 +1,6 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	type CanonicalObject,
 	canonicalOf,
@@ -14,12 +17,9 @@ import {
 import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
 import type { RosterDigest } from "#compiler/core/fingerprint.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import { type Parts, type SharingFormat, shareRepeated } from "#compiler/core/share.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"

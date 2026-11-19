@@ -16,13 +16,13 @@
  * Features: each op of a chain and each ending, a chain cut inside; a roster handle and a text that is none.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Reached } from "@bjornpagen/testing/features"
 import { codePoint, element, finite, string, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 import { queryState } from "#compiler/query/build/state.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"

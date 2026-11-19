@@ -1,6 +1,7 @@
 import { AssertionError } from "node:assert"
 import strict from "node:assert/strict"
 import { inspect, isDeepStrictEqual } from "node:util"
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Effect, Option, Record as Rec, Result, String as Str } from "effect"
 import {
 	type CompileError,
@@ -9,7 +10,6 @@ import {
 	isCompileError
 } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import * as Engine from "#compiler/core/result.ts"
 import { isList } from "#test/support/list.ts"
 import { messageOf } from "#test/support/message.ts"
 

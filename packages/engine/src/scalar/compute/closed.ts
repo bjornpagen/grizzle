@@ -1,6 +1,6 @@
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { scalarTerm } from "#compiler/scalar/compute/builders.ts"

@@ -1,4 +1,4 @@
-import { appendNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { appendNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { rowEq, rowNe, typedEq } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { Needs } from "#compiler/ir/needs.ts"

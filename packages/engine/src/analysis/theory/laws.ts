@@ -1,3 +1,13 @@
+import { sameMembers } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	extendNonEmpty,
+	headNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	type JoinColumn,
 	type Met,
@@ -52,7 +62,6 @@ import {
 import { type RegionFacts, wholeRule } from "#compiler/analysis/theory/unit.ts"
 import { unwrap } from "#compiler/check/fail.ts"
 import { combineRule, foldPlane } from "#compiler/check/fold.ts"
-import { sameMembers } from "#compiler/core/array.ts"
 import {
 	canonicalEquals,
 	catchRefusal,
@@ -63,18 +72,9 @@ import {
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import {
-	extendNonEmpty,
-	headNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	connectiveExpr,
 	type ExprDesc,

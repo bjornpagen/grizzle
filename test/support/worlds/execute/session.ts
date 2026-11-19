@@ -1,3 +1,4 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Effect, Option, Predicate, Record as Rec, type Ref, Result } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { fromEngine } from "#adapter/engine.ts"
@@ -6,7 +7,6 @@ import { compileServedOnce, type ServedRefusal } from "#adapter/public/compile.t
 import type { DecodedRow } from "#adapter/reader/stream.ts"
 import { runRefresh } from "#adapter/refresh/run.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 import { type Anchor, type KeyFields, keyOf } from "#compiler/live/index.ts"
 import { pagedMember, refreshMember, workload } from "#compiler/program/workload/value.ts"

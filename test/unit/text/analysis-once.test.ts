@@ -16,10 +16,10 @@
  * pattern.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
@@ -143,7 +143,7 @@ export const theTextAnalysisRunsOnceForEachDistinctPatternASchemasFieldsDeclareW
 							name: "analyzeText"
 						},
 						minimalDfa: {
-							file: "packages/engine/src/scalar/regex/dfa.ts",
+							file: "packages/text/src/regex/dfa.ts",
 							name: "minimalDfa"
 						}
 					}

@@ -1,6 +1,5 @@
-import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import {
 	type AreAtom,
 	type ArePiece,
@@ -8,13 +7,14 @@ import {
 	piecesOf,
 	printableIntervals,
 	type SetNode
-} from "#compiler/scalar/regex/are.ts"
-import { domain, type Interval } from "#compiler/scalar/regex/charset.ts"
-import { regexMaxHeldArcs } from "#compiler/scalar/regex/ir.ts"
-import { folded, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
-import { regexSpaceStates } from "#compiler/scalar/regex/ir.ts"
-import { partitionOf } from "#compiler/scalar/regex/partition.ts"
-import { entry } from "#compiler/scalar/regex/table.ts"
+} from "@bjornpagen/grizzle-text/regex/are"
+import { domain, type Interval } from "@bjornpagen/grizzle-text/regex/charset"
+import { regexMaxHeldArcs } from "@bjornpagen/grizzle-text/regex/ir"
+import { folded, type LiveNode, type RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
+import { regexSpaceStates } from "@bjornpagen/grizzle-text/regex/ir"
+import { partitionOf } from "@bjornpagen/grizzle-text/regex/partition"
+import { entry } from "@bjornpagen/grizzle-text/regex/table"
+import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
 
 /**
  * MAX_COLOR, the greatest color number of a regex's color map: a color is a short, and newcolor refuses a color past

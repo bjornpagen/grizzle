@@ -1,11 +1,11 @@
-import { defect, defined } from "#compiler/core/invariant.ts"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Expr, ObjectName, PackConstant, TypeRef } from "#compiler/sql/ast.ts"
 import { and, binary, call, cast, eq, lit, lt, qualifiedCall, types } from "#compiler/sql/build.ts"
 

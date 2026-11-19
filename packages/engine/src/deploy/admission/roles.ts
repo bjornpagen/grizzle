@@ -1,6 +1,6 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type InstalledRoleTooLong, roleInSpace, type RoleSpace } from "#compiler/core/identity.ts"
 import { compareStrings, mapInput, thenBy } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { ManifestStatement } from "#compiler/deploy/admission/manifest.ts"
 import { databaseDefaults } from "#compiler/physical/ddl/isolation.ts"

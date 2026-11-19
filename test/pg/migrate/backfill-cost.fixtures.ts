@@ -1,5 +1,6 @@
 /** What the properties of backfill-cost.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import {
@@ -8,7 +9,6 @@ import {
 	type PlanNode,
 	rowsTouched
 } from "#bench/harness/explain.ts"
-import { indices } from "#compiler/core/array.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { splitStatements } from "#compiler/plan/migration.ts"
 import { printStatement } from "#compiler/sql/print.ts"

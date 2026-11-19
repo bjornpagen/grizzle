@@ -1,7 +1,7 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { nominal } from "#compiler/core/brand.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { blockSize, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
-import * as Result from "#compiler/core/result.ts"
 import { int2Max } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
 import type { TextLanguage } from "#compiler/ir/scalar.ts"

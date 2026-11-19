@@ -1,8 +1,8 @@
 /** What the properties of retirable.test.ts read: its spaces, models and helpers. */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Result as EffectResult } from "effect"
-import * as Result from "#compiler/core/result.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relationBuilder as relation, retirementField } from "#compiler/schema/relation.ts"

@@ -1,8 +1,8 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	admittedText,
 	type CarrierSpec,

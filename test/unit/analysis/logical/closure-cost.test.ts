@@ -20,12 +20,12 @@
  * and several joined; one query of a reading and several.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import type { Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { analyzePhysical, type PhysicalEnv, unplaced } from "#compiler/analysis/physical/analyze.ts"
-import { indices } from "#compiler/core/array.ts"
 import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
 import { attributesOver, bitsOf, namesOf } from "#compiler/logical/attributes.ts"
 import { closure, namesNothing, rowsOf } from "#compiler/logical/closure.ts"

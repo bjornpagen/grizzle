@@ -1,7 +1,7 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid, Vector } from "#compiler/public/fields.ts"

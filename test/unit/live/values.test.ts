@@ -1,3 +1,4 @@
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 /**
  * The live model's values (packages/engine/src/live): keys, the values a read's events build, and the evaluators over
  * them. Rows are drawn as specs, a key's index in a dictionary of key values and a payload's index in one of payloads,
@@ -22,11 +23,10 @@
  * unchanged rows moved, and every lifecycle path.
  */
 import { word } from "@bjornpagen/testing/dictionary"
-import { type Reached } from "@bjornpagen/testing/features"
+import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	fold,
 	foldWrite,
@@ -398,7 +398,7 @@ export const theLiveModelsValuesKeysCompareByValueAndRowsByWhatTheyDeliver = pro
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/tuple-map.ts",
+				file: "packages/text/src/base/tuple-map.ts",
 				original: "\thas(key: K): boolean {\n\t\treturn this.#found(key) !== undefined\n\t}",
 				replacement: "\thas(key: K): boolean { return true }",
 				why: "Operator mutant (boolean-return) at packages/engine/src/core/tuple-map.ts:87 in <module>: `{\n\t\treturn this.#found(key) !== undefined\n\t}` becomes `{ return true }`; the property fails (lane CATCH, grizzle 0baff5d6)."

@@ -1,10 +1,10 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { QueryRead } from "#compiler/check/checker.ts"
 import { fail } from "#compiler/check/fail.ts"
 import { entries } from "#compiler/check/scan.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, locBelow, type SourceLoc } from "#compiler/core/loc.ts"
-import type * as Result from "#compiler/core/result.ts"
 import {
 	exprChildren,
 	type InferredExpr,

@@ -1,3 +1,4 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, constant, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import type { Source as Decisions } from "@bjornpagen/testing/source"
 import {
@@ -11,7 +12,6 @@ import {
 } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Option } from "effect"
 import { AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
-import { indices } from "#compiler/core/array.ts"
 import {
 	conversionOf,
 	type DeclaredName,

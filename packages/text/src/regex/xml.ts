@@ -1,4 +1,4 @@
-import { type CharSet, charSet, union } from "#compiler/scalar/regex/charset.ts"
+import { type CharSet, charSet, union } from "#text/regex/charset.ts"
 
 /**
  * XML's characters as XML Schema 1.0's regular expressions read them: the alphabet every pattern facet ranges over

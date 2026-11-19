@@ -1,8 +1,8 @@
 /** What the properties of keys.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { defined } from "#test/support/assert.ts"
 

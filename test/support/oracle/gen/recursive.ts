@@ -1,6 +1,6 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, constant, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, Option, Order, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"

@@ -15,15 +15,15 @@
  * Features: a pattern under u, one under su, a text matched, a text refused.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { buildNfa, type NfaEdge } from "@bjornpagen/grizzle-text/regex/nfa"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { regexCheck, RegexKey, type RegexRef } from "#compiler/ir/scalar.ts"
 import { matchFlags, type ServedMatchers, ServedPatterns } from "#compiler/scalar/regex/matcher.ts"
-import { buildNfa, type NfaEdge } from "#compiler/scalar/regex/nfa.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { exactValue } from "#test/support/equivalence.ts"

@@ -1,6 +1,6 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { int4Max } from "#compiler/core/canonical.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 import { int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 

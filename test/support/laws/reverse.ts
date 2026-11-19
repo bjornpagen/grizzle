@@ -1,3 +1,4 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 /**
  * The containments the reverse-index suites draw, and the rule their reverse index is planned by, restated: the law
  * model's plan (test/unit/laws/model/reverse-index.test.ts) and PostgreSQL's plan of the reverse probe
@@ -15,7 +16,6 @@
  */
 import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { bits, uuid } from "#compiler/public/fields.ts"
 import { closed } from "#compiler/public/schema.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"

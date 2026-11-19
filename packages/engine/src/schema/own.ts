@@ -1,3 +1,13 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	appendNonEmpty,
+	lastNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { arrayText, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
@@ -30,19 +40,9 @@ import {
 	type RelationIdent,
 	type SchemaFingerprint
 } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { labeledChildLoc, SourceLoc } from "#compiler/core/loc.ts"
-import {
-	appendNonEmpty,
-	lastNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray,
-	sortNonEmpty
-} from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import { type NonEmptyCanonicalSet, nonEmptyNameSet } from "#compiler/core/set.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	type AdmittedClosedRelation,
 	candidateKeyFields,

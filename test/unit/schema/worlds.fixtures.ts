@@ -1,5 +1,6 @@
 /** What the properties of worlds.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	array,
 	boolean,
@@ -13,7 +14,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import type { LoginRule, RoleRule } from "#compiler/core/causes.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"

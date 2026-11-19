@@ -1,5 +1,6 @@
 /** What the properties of owner-copy-cost.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
 import { rowsScannedAndPaired } from "#bench/harness/explain.ts"
@@ -10,7 +11,6 @@ import {
 	observedChange,
 	openFull
 } from "#bench/write/support/writes.ts"
-import { indices } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { contained, counted, fin, mutable, on, relation, schema } from "#compiler/public/schema.ts"

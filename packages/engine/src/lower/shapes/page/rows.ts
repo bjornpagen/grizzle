@@ -1,4 +1,4 @@
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Heading } from "#compiler/ir/rel.ts"
 import {
 	type ColumnMap,

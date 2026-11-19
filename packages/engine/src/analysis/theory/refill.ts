@@ -1,7 +1,7 @@
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { DerivedReader } from "#compiler/core/causes.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { fieldReads } from "#compiler/ir/expr.ts"
 import { type AxisPair, type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 /**

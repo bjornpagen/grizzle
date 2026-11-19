@@ -1,3 +1,5 @@
+import { invariant } from "@bjornpagen/grizzle-text/base/invariant"
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/demand/demand.ts"
 import {
 	analyzePhysicalUnder,
@@ -9,8 +11,6 @@ import {
 } from "#compiler/analysis/physical/analyze.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { invariant } from "#compiler/core/invariant.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { type Certificate, makeCertificate } from "#compiler/ir/certificate.ts"
 import type { FinishedCells } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"

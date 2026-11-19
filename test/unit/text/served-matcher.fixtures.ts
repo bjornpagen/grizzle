@@ -1,8 +1,8 @@
 /** What the properties of served-matcher.test.ts read: its spaces, models and helpers. */
 
+import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
-import { type PatternSource } from "#compiler/ir/scalar.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { families, flagsGen, patternOver, stringsOver } from "#test/unit/text/generators.ts"
 
 /** Drawn patterns over one family's alphabet, each with its flags, and texts over the alphabet to judge. */

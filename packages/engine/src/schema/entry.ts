@@ -1,7 +1,7 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { WritabilityReason } from "#compiler/core/causes.ts"
 import { EntryName } from "#compiler/core/ids.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	type BindingsDesc,
 	type ContextDesc,

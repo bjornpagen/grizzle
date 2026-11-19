@@ -1,7 +1,6 @@
 import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
-import { catchSignal } from "#compiler/core/canonical.ts"
-import * as Result from "#compiler/core/result.ts"
-import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
+import type { NonEmptyReadonlyArray } from "#text/base/nonempty.ts"
+import * as Result from "#text/base/result.ts"
 import {
 	type CharSet,
 	charSet,
@@ -15,8 +14,38 @@ import {
 	surrogateLo,
 	union,
 	word
-} from "#compiler/scalar/regex/charset.ts"
-import * as Ir from "#compiler/scalar/regex/ir.ts"
+} from "#text/regex/charset.ts"
+import * as Ir from "#text/regex/ir.ts"
+
+/**
+ * PostgreSQL's explicit repetition limit: a pattern whose `{m}`, `{m,}` or `{m,n}` states a bound above it is refused
+ * (scalar/regex/parse.ts), as PostgreSQL's regex compiler refuses it (regcomp.c scannum, against DUPMAX, which is
+ * _POSIX2_RE_DUP_MAX). regguts.h defines it only where <limits.h> does not, and POSIX fixes it at the same value
+ * (https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/limits.h.html, "{_POSIX2_RE_DUP_MAX} Maximum number of
+ * repeated occurrences of a BRE or ERE interval expression; [...] Value: 255"), so every platform's build has it.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2's regex compiler
+ * @unit repetitions
+ * @scope each bound of a counted repetition in one str.regex pattern
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/regex/regguts.h#L95
+ * @quote #define _POSIX2_RE_DUP_MAX 255
+ * @verified 2026-11-14
+ */
+export const regexMaxRepeat = 255
+
+/** One pattern as a text declares it: its source in grizzle's grammar and its flags. */
+export interface PatternSource {
+	readonly source: string
+	readonly flags: RegexFlags
+}
+
+/**
+ * A text's patterns, in declared order: a conjunction whose language is every text each member matches, the
+ * intersection of the members' languages. str.regex declares one, str.and the members of each text it joins.
+ */
+export type Patterns = NonEmptyReadonlyArray<PatternSource>
 
 export type RegexFlags = "u" | "su"
 
@@ -984,6 +1013,6 @@ export const parsePattern = (
 	flags: RegexFlags
 ): Result.Result<Ir.RegexNode, RegexDiagnostic> =>
 	Result.mapError(
-		catchSignal(Failure, () => new Parser(codePoints(source), flags).parse()),
+		Result.catchSignal(Failure, () => new Parser(codePoints(source), flags).parse()),
 		(failure) => failure.diagnostic
 	)

@@ -1,15 +1,15 @@
-import { Refusal } from "#compiler/core/canonical.ts"
-import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
-import type { ParamPlace } from "#compiler/core/identity.ts"
-import type { NodeId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { Refusal } from "#compiler/core/canonical.ts"
+import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
+import type { ParamPlace } from "#compiler/core/identity.ts"
+import type { NodeId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { typedEq } from "#compiler/ir/compare.ts"
 import { type NodeScope, nodeScopes, type OuterRefs } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"

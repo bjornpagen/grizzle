@@ -1,4 +1,4 @@
-import { firstIndex } from "#compiler/core/array.ts"
+import { firstIndex } from "@bjornpagen/grizzle-text/base/array"
 import type { Direction } from "#compiler/core/order.ts"
 import { type CompareOp, compareOps } from "#compiler/ir/desc.ts"
 import type { ColumnRef, ScalarExpr } from "#compiler/ir/expr.ts"

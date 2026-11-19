@@ -1,5 +1,5 @@
-import { defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { type KeyProof, keyWith } from "#compiler/ir/keys.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 

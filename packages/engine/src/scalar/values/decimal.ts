@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type Canonicalizable, canonicalTag, type TaggedValue } from "#compiler/core/canonical.ts"
 import { int4Max } from "#compiler/core/canonical.ts"
 import {
@@ -11,7 +12,6 @@ import {
 import { type CompileError, malformedDescription, type ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { type DecimalValue, decimalPayload, decimalTag } from "#compiler/ir/decimal.ts"
 import type { NumericTypmod } from "#compiler/ir/scalar.ts"
 import {

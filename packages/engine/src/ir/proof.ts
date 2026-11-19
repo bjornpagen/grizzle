@@ -1,5 +1,5 @@
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { Patterns } from "#compiler/ir/scalar.ts"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 
 /** An exact decimal, units · 10^-scale with scale ≥ 0: an end of a proved interval, never a host value. */
 export interface Exact {

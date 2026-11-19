@@ -1,5 +1,7 @@
+import { appendAll, sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import { type NonEmptyReadonlyArray, sortNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
-import { appendAll, sameOrder } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import {
 	canonicalTextOf,
@@ -13,9 +15,7 @@ import type { FunctionDigest } from "#compiler/core/fingerprint.ts"
 import type { FunctionVolatility } from "#compiler/core/function.ts"
 import type { IdentityValue } from "#compiler/core/identity.ts"
 import { ExprId, type NodeId, type ParamId } from "#compiler/core/ids.ts"
-import { type NonEmptyReadonlyArray, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings, mapInput, thenBy } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	type CanonicalFloat,
 	integerRanges,

@@ -26,17 +26,17 @@ import type {
 } from "#compiler/analysis/physical/props.ts"
 import { castIdentity, castInjective, comparedValue } from "#compiler/ir/injective.ts"
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import {
 	AllenReading,
 	joinedPairs,
 	type PairPredicate,
 	pointHolder
 } from "#compiler/check/allen.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	atMost,
 	boundsAtMost,

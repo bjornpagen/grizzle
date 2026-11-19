@@ -1,5 +1,9 @@
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { exactParts, nanParts } from "#compiler/core/decimal.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { int8ExactDigits } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"

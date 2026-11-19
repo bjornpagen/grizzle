@@ -1,13 +1,13 @@
 /** What the properties of conjunction.test.ts read: its spaces, models and helpers. */
 
+import { has } from "@bjornpagen/grizzle-text/regex/charset"
+import type { CanonicalDfa } from "@bjornpagen/grizzle-text/regex/dfa"
+import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import type { Patterns, PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { codePoints } from "@bjornpagen/grizzle-text/text"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
-import type { Patterns, PatternSource } from "#compiler/ir/scalar.ts"
-import { has } from "#compiler/scalar/regex/charset.ts"
-import type { CanonicalDfa } from "#compiler/scalar/regex/dfa.ts"
-import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import {
 	families,
 	type Family,

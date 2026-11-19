@@ -1,5 +1,6 @@
 import { placementCertificate } from "#compiler/analysis/certificates/builder.ts"
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	analyzePhysical,
 	type PhysicalAnalysis,
@@ -11,7 +12,6 @@ import type { Realization } from "#compiler/analysis/physical/props.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Certificate, MultiplicityRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"

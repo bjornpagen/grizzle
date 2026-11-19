@@ -1,11 +1,11 @@
 /** What the properties of schema-input.test.ts read: its spaces, models and helpers. */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { constant, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import type { Corruption } from "@bjornpagen/testing/lsw"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { FieldDecl, SchemaDesc } from "#compiler/ir/desc.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { schema } from "#compiler/public/schema.ts"

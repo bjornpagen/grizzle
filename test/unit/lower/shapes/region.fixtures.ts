@@ -1,8 +1,8 @@
 /** What the properties of region.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"

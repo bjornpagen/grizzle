@@ -1,3 +1,5 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * A nested write: an insert of an owner, or of a tree's roots, with every family it owns nested at its count fields,
  * to any depth.
@@ -26,8 +28,6 @@
  * and the member is appended.
  */
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import { type FillAt, type FillOrder, type FillPosition, layoutKey } from "#compiler/ir/fill.ts"
 import {

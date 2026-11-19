@@ -1,4 +1,4 @@
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { sameContent } from "#compiler/core/canonical.ts"
 import { CompileError, undeclaredRelation } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"

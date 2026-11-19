@@ -1,4 +1,4 @@
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { GenerationRow } from "#compiler/schema/api.ts"
 import {
 	closedBuilder,

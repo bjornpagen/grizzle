@@ -1,3 +1,6 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { DerivedRelationAnalysis } from "#compiler/analysis/derived/analyze.ts"
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import {
@@ -6,7 +9,6 @@ import {
 	derivedAnalysis
 } from "#compiler/analysis/schema.ts"
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
@@ -16,8 +18,6 @@ import {
 	identity
 } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Premise } from "#compiler/ir/evidence.ts"
 import { fieldNames } from "#compiler/ir/law.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"

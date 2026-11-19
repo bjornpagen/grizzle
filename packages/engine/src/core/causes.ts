@@ -1,5 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { LawId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 
 /** The list of a recursive definition an arm belongs to. */
 export type RecursionArm = "base" | "rec"

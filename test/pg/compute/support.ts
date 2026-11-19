@@ -1,5 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Effect, Formatter, Option, pipe, Result, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { describeOp } from "#compiler/ir/expr.ts"
 import { baseOf, type Carrier, type ScalarType } from "#compiler/ir/scalar.ts"

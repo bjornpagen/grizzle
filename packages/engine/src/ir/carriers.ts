@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { nominal } from "#compiler/core/brand.ts"
 import { type FloatSpecialName, floatSpecialNameOf, int4Max } from "#compiler/core/canonical.ts"
 import {
@@ -8,7 +9,6 @@ import {
 } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 
 /**
  * The least smallint.

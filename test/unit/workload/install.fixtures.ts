@@ -1,5 +1,6 @@
 /** What the properties of install.test.ts read: its spaces, models and helpers. */
 
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	array,
 	boolean,
@@ -11,7 +12,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
-import type * as Result from "#compiler/core/result.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import { type WorkloadPhysical, withWorkload } from "#compiler/physical/access/extension.ts"
 import {

@@ -1,10 +1,14 @@
-import { sameMembers } from "#compiler/core/array.ts"
+import { sameMembers } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { decoderOf, headingsOf, oneOf, type RowDecoder } from "#compiler/core/decoder.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { parseNameCharacters } from "#compiler/core/identity.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { captureLoc, childLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { deepFreeze, isList, isPlainRecord } from "#compiler/core/record.ts"
 import {

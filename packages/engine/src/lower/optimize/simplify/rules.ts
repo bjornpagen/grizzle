@@ -1,5 +1,9 @@
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type CertificateRule, localCertificate } from "#compiler/ir/certificate.ts"
 import type { ColumnRef, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 

@@ -1,6 +1,6 @@
-import { defect } from "#compiler/core/invariant.ts"
-import { has, type Interval } from "#compiler/scalar/regex/charset.ts"
-import { entry } from "#compiler/scalar/regex/table.ts"
+import { defect } from "#text/base/invariant.ts"
+import { has, type Interval } from "#text/regex/charset.ts"
+import { entry } from "#text/regex/table.ts"
 
 /** The element of `xs` at `i`, which the caller's bounds make present (scalar/regex/table.ts entry). */
 const at = (xs: ArrayLike<number>, i: number): number => entry(xs, i)

@@ -12,7 +12,7 @@
  * (test/pg/oracle/optimized/variants.test.ts).
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
@@ -207,7 +207,7 @@ export const codecAndResultChannelAlignmentReportsEachArtifactThatDeliversOtherR
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/array.ts",
+				file: "packages/text/src/base/array.ts",
 				original: "\ta === b || (a.length === b.length && a.every((x, i) => x === b[i]))",
 				replacement: "\ta === b",
 				why: "Operator mutant (disjunct) at packages/engine/src/core/array.ts:16 in sameOrder: `a === b || (a.length === b.length && a.every((x, i) => x === b[i]))` becomes `a === b`; the property fails (lane CATCH, grizzle 0baff5d6)."

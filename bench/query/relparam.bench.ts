@@ -31,6 +31,7 @@ import {
 	timeDeliveries
 } from "#bench/query/support/kit.ts"
 
+import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
 import {
 	indexAccessOn,
 	outline,
@@ -38,7 +39,6 @@ import {
 	rowsReadFrom,
 	summaryOf
 } from "#bench/query/support/plans.ts"
-import { indices, maxOf } from "#compiler/core/array.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"

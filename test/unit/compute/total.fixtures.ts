@@ -1,11 +1,11 @@
 /** What the properties of total.test.ts read: its spaces, models and helpers. */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type Aimed, aimed, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { CompareOp, ExprDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"

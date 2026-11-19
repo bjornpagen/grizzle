@@ -1,3 +1,13 @@
+import { stronglyConnected } from "@bjornpagen/grizzle-text/base/graph"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import { readBySlice } from "#compiler/analysis/closure.ts"
 import type { TriggerLaw } from "#compiler/analysis/isolation/facts.ts"
 import { type CheckedSchema, checkedSchema } from "#compiler/analysis/schema.ts"
@@ -25,7 +35,6 @@ import {
 } from "#compiler/analysis/theory/theory.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription, prose } from "#compiler/core/errors.ts"
-import { stronglyConnected } from "#compiler/core/graph.ts"
 import {
 	type Identity,
 	identifierOf,
@@ -43,13 +52,9 @@ import {
 	type NodeId,
 	type RelationIdent
 } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { blockSize, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
-import * as Result from "#compiler/core/result.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
 import { mergeDags } from "#compiler/ir/dag.ts"
@@ -90,12 +95,7 @@ import {
 } from "#compiler/ir/law.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
-import {
-	type ContractInfo,
-	type PatternSource,
-	type ScalarType,
-	textOf
-} from "#compiler/ir/scalar.ts"
+import { type ContractInfo, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { existenceConstraints } from "#compiler/laws/model/catalog.ts"
 import { keyOf } from "#compiler/laws/model/names.ts"
 import {

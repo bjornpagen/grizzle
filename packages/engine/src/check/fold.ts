@@ -1,3 +1,6 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import {
 	type RuleBreach,
@@ -6,11 +9,8 @@ import {
 	malformedDescription,
 	namedBreach
 } from "#compiler/core/errors.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import { type CombineFn, combine, type MonoidSpec } from "#compiler/ir/monoid.ts"

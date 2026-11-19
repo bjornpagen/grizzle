@@ -11,13 +11,13 @@
  *   host's transcription of it does.
  */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { atomLiterals, literalNegated } from "#compiler/allen/atoms.ts"
 import { fullAllenMask } from "#compiler/allen/mask.ts"
-import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import {

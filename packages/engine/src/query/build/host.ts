@@ -1,5 +1,5 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { hostRead } from "#compiler/core/host.ts"
-import * as Result from "#compiler/core/result.ts"
 import { queryState } from "#compiler/query/build/state.ts"
 import { malformed } from "#compiler/schema/protocol.ts"
 

@@ -1,9 +1,9 @@
 /** What the properties of families.test.ts read: its spaces, models and helpers. */
 
-import { type Case } from "@bjornpagen/testing/explore"
+import { firstIndex, indices } from "@bjornpagen/grizzle-text/base/array"
+import type { Case } from "@bjornpagen/testing/explore"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Result } from "effect"
-import { firstIndex, indices } from "#compiler/core/array.ts"
 import {
 	assert,
 	assertVariant,

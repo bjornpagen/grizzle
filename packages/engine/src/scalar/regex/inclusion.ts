@@ -1,8 +1,9 @@
-import { codePointsText } from "@bjornpagen/grizzle-text/text"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { Patterns } from "#compiler/ir/scalar.ts"
-import { formSource, type LexicalTarget } from "#compiler/scalar/lexical.ts"
-import { type CharSet, complement, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { type CharSet, complement, isEmpty, union } from "@bjornpagen/grizzle-text/regex/charset"
 import {
 	type CanonicalDfa,
 	type DfaLimits,
@@ -10,10 +11,13 @@ import {
 	intersectionDfa,
 	longestWithin,
 	minimalDfa
-} from "#compiler/scalar/regex/dfa.ts"
-import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
+} from "@bjornpagen/grizzle-text/regex/dfa"
+import type { Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
+import { entry } from "@bjornpagen/grizzle-text/regex/table"
+import { codePointsText } from "@bjornpagen/grizzle-text/text"
+import { formSource, type LexicalTarget } from "#compiler/scalar/lexical.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { entry } from "#compiler/scalar/regex/table.ts"
 
 /**
  * The DFA states a pattern's subset construction may create (scalar/regex/dfa.ts minimalDfa), a bound on the compiling

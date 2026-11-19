@@ -1,3 +1,4 @@
+import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
 /**
  * Mutations of families as the statements a writer sends, the model of what PostgreSQL does with each transaction of
  * them, and programs of mutations as a state machine over the families they leave (`@bjornpagen/testing/commands`).
@@ -49,7 +50,6 @@ import {
 import { boolean, element, type Gen, int, shuffled, type Size } from "@bjornpagen/testing/gen"
 import { fullSwarm, type Swarm, swarm, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Formatter, Option, Result, Struct } from "effect"
-import { indices, maxOf } from "#compiler/core/array.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { type FamilySpace, familiesGen } from "#test/support/families/generate.ts"
 import {

@@ -1,8 +1,9 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import { contractLaw } from "#compiler/analysis/theory/description.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type ExprTable, predicateTable } from "#compiler/ir/expr.ts"
 import { type Family, isSequence } from "#compiler/ir/family.ts"
 import {
@@ -23,7 +24,7 @@ import {
 	columnKey,
 	columnKeyOf
 } from "#compiler/ir/law.ts"
-import { baseOf, type PatternSource, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"

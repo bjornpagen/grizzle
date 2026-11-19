@@ -1,5 +1,6 @@
 /** What the properties of lowering.test.ts read: its spaces, models and helpers. */
 
+import * as RegexIr from "@bjornpagen/grizzle-text/regex/ir"
 import { array, element, type Gen, int, map, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
@@ -8,7 +9,6 @@ import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { RegexCheck } from "#compiler/ir/scalar.ts"
 import { createDomain } from "#compiler/physical/ddl/domains.ts"
-import * as RegexIr from "#compiler/scalar/regex/ir.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import {

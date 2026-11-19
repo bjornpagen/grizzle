@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import {
@@ -8,7 +9,6 @@ import {
 } from "#compiler/analysis/theory/theory.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import * as Result from "#compiler/core/result.ts"
 import { nodeScopes, topoOrder } from "#compiler/ir/dag.ts"
 import { literalDescShape } from "#compiler/ir/desc.ts"
 import { classMembers, type KeyProof, keyWith } from "#compiler/ir/keys.ts"

@@ -5,7 +5,7 @@
  * own expression (tables.ts lawColumnGeneration, lowerWrittenRow); and the anchor among the columns the UPDATE's
  * updater may assign.
  */
-import { defect } from "#compiler/core/invariant.ts"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { fieldReads, predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"

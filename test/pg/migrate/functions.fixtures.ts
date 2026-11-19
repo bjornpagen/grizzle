@@ -1,10 +1,10 @@
 /** What the property of functions.test.ts reads: its space, the schemas a case installs, and the facts it reads back. */
 
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { array, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"
 import { conversionOf } from "#compiler/core/identity.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { quoteIdent, wellFormed } from "#compiler/core/text.ts"
 import { date, natural, pg, uuid } from "#compiler/public/fields.ts"

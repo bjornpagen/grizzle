@@ -1,3 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
 import { type FunctionDigest, functionDigest } from "#compiler/core/fingerprint.ts"
@@ -8,9 +10,7 @@ import {
 	identity
 } from "#compiler/core/identity.ts"
 import { type SourceLoc, labeledChildLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { FieldDesc, FunctionDesc, FunctionTypeDesc, SchemaDesc } from "#compiler/ir/desc.ts"
 
 /**

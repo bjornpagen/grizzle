@@ -1,5 +1,6 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import { compileReasonText } from "#compiler/core/errors.ts"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
 import {
@@ -12,7 +13,6 @@ import {
 	ScopeId,
 	VarId
 } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { directions } from "#compiler/core/order.ts"
 import { assembledDag, relNode } from "#compiler/ir/dag.ts"

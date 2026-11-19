@@ -1,7 +1,7 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { CompletedOrder } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"

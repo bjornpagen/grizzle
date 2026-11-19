@@ -1,3 +1,14 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	concatNonEmpty,
+	headNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { allenMaskMax } from "#compiler/core/allen.ts"
 import { nominal } from "#compiler/core/brand.ts"
@@ -23,21 +34,11 @@ import {
 	type FunctionVolatility,
 	functionVolatilities
 } from "#compiler/core/function.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	concatNonEmpty,
-	headNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
 import { compareStrings, type Direction, directions } from "#compiler/core/order.ts"
 import { deepFreeze, isRecord, mapRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import { type CanonicalSet, tupleKeyedSet } from "#compiler/core/set.ts"
 import { isValidText } from "#compiler/core/text.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { isMoneyPayload, isVectorPayload, moneyTag, vectorTag } from "#compiler/ir/carriers.ts"
 import type { ClockBinding } from "#compiler/ir/clock.ts"
@@ -48,7 +49,6 @@ import type { DeltaSide } from "#compiler/ir/rel.ts"
 import { calendarDateShape, patternsShape, textLanguageShape } from "#compiler/ir/scalar-shape.ts"
 import {
 	type NumericBound,
-	type Patterns,
 	type RosterHandles,
 	type RosterOrder,
 	type TextLanguage,

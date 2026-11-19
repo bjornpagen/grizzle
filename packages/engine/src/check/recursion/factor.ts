@@ -1,3 +1,4 @@
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	boundParam,
 	type ParamCell,
@@ -13,7 +14,6 @@ import {
 import type { RecArm } from "#compiler/check/recursion/scan.ts"
 import { entries, ruleLeaves } from "#compiler/check/scan.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { mapBindingTerms, mapBindTerms, mapExprChildren, mapHeadTerms } from "#compiler/ir/desc.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"

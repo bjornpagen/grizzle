@@ -1,9 +1,9 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, Option } from "effect"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import {
 	type CompareOp,

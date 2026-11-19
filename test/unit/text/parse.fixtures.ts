@@ -1,5 +1,7 @@
 /** What the properties of parse.test.ts read: its spaces, models and helpers. */
 
+import type { RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
+import { parsePattern, type RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
 import {
 	aimed,
 	array,
@@ -13,8 +15,6 @@ import {
 import { lsw, WILD_KINDS, type WildKind } from "@bjornpagen/testing/lsw"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Result, String as Str } from "effect"
-import { type RegexNode } from "#compiler/scalar/regex/ir.ts"
-import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import { nonStringWildKinds } from "#test/unit/values/support.ts"
 
 export const parse = (source: string, flags: RegexFlags) => parsePattern(source, flags)

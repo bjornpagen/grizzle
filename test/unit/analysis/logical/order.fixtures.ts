@@ -1,9 +1,9 @@
 /** What the properties of order.test.ts read: its spaces, models and helpers. */
 
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { array, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Direction, directions } from "#compiler/core/order.ts"
 import { contextAdmits } from "#compiler/ir/evidence.ts"
 import type { KeyClasses } from "#compiler/ir/keys.ts"
@@ -15,7 +15,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { analyzeLogical, orderSubjectOf } from "#compiler/logical/annotate.ts"
-import { type OrderSubject } from "#compiler/logical/order.ts"
+import type { OrderSubject } from "#compiler/logical/order.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { asc as ascending, type BuiltQuery, Ir } from "#test/support/fixtures/ir/build.ts"

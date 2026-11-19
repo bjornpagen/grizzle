@@ -18,7 +18,7 @@
  * spelling not in normal form.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import type { Reached } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -246,7 +246,7 @@ export const traversalsOfGeneratedDAGsHandleAChainOfAnyDepthPastWhatTheCallStack
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/graph.ts",
+				file: "packages/text/src/base/graph.ts",
 				original:
 					"\tfor (const root of roots) {\n\t\tif (seen.has(root)) {\n\t\t\tcontinue\n\t\t}\n\t\tseen.add(root)\n\t\tconst stack: Array<{ readonly vertex: V; readonly inputs: ReadonlyArray<V>; next: number }> = [\n\t\t\t{ vertex: root, inputs: inputs(root), next: 0 }\n\t\t]\n\t\tfor (let frame = stack.at(-1); frame !== undefined; frame = stack.at(-1)) {\n\t\t\tconst input = frame.inputs[frame.next]\n\t\t\tif (input === undefined) {\n\t\t\t\tstack.pop()\n\t\t\t\torder.push(frame.vertex)\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tframe.next++\n\t\t\tif (!seen.has(input)) {\n\t\t\t\tseen.add(input)\n\t\t\t\tstack.push({ vertex: input, inputs: inputs(input), next: 0 })\n\t\t\t}\n\t\t}",
 				replacement:

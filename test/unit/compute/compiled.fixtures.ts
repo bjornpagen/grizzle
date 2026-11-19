@@ -3,9 +3,9 @@
  * with rows of it, a generated field, two row checks and a selection drawn over it, and the schema that states them.
  */
 
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { array, type Gen } from "@bjornpagen/testing/gen"
 import { Record as Rec } from "effect"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"

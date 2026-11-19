@@ -1,9 +1,7 @@
 import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
-import { catchSignal } from "#compiler/core/canonical.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import * as Result from "#compiler/core/result.ts"
-import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
-import { categoryRuns, generalCategories } from "#compiler/scalar/regex/categories.generated.ts"
+import { defined } from "#text/base/invariant.ts"
+import * as Result from "#text/base/result.ts"
+import { categoryRuns, generalCategories } from "#text/regex/categories.generated.ts"
 import {
 	type CharSet,
 	charSet,
@@ -12,10 +10,11 @@ import {
 	intersection,
 	single,
 	union
-} from "#compiler/scalar/regex/charset.ts"
-import * as Ir from "#compiler/scalar/regex/ir.ts"
-import type { RegexDiagnostic } from "#compiler/scalar/regex/parse.ts"
-import { nameChar, nameStart, xmlChar, xmlSchemaBlocks } from "#compiler/scalar/regex/xml.ts"
+} from "#text/regex/charset.ts"
+import * as Ir from "#text/regex/ir.ts"
+import { regexMaxRepeat } from "#text/regex/parse.ts"
+import type { RegexDiagnostic } from "#text/regex/parse.ts"
+import { nameChar, nameStart, xmlChar, xmlSchemaBlocks } from "#text/regex/xml.ts"
 
 /**
  * XML Schema 1.0's regular expressions (Part 2, Appendix F), read into the regex IR (ir.ts) as the one front end of
@@ -636,6 +635,6 @@ class Reader {
  */
 export const xsdPattern = (source: string): Result.Result<Ir.RegexNode, RegexDiagnostic> =>
 	Result.mapError(
-		catchSignal(Failure, () => new Reader(codePoints(source)).read()),
+		Result.catchSignal(Failure, () => new Reader(codePoints(source)).read()),
 		(failure) => failure.diagnostic
 	)

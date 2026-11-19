@@ -1,5 +1,5 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Data, Effect, Option, String as Str } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { Actors } from "#test/support/schedules/actors.ts"
 import {

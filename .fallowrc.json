@@ -166,23 +166,18 @@
 				// The core modules a browser loads: none reaches node:crypto (core/sha256.ts, core/seal.ts, and every module over them stays in core), and this zone imports no other, so the client's closure holds no Node module.
 				"name": "browser-core",
 				"patterns": [
-					"packages/engine/src/core/array.ts",
 					"packages/engine/src/core/brand.ts",
 					"packages/engine/src/core/canonical.ts",
 					"packages/engine/src/core/causes.ts",
 					"packages/engine/src/core/decimal.ts",
 					"packages/engine/src/core/errors.ts",
 					"packages/engine/src/core/host.ts",
-					"packages/engine/src/core/invariant.ts",
 					"packages/engine/src/core/loc.ts",
-					"packages/engine/src/core/nonempty.ts",
 					"packages/engine/src/core/order.ts",
 					"packages/engine/src/core/record.ts",
-					"packages/engine/src/core/result.ts",
 					"packages/engine/src/core/sqlstate.ts",
 					"packages/engine/src/core/text.ts",
-					"packages/engine/src/core/trusted.ts",
-					"packages/engine/src/core/tuple-map.ts"
+					"packages/engine/src/core/trusted.ts"
 				]
 			},
 			{
@@ -1092,7 +1087,7 @@
 			"file": "packages/engine/src/core/identity.ts",
 			"exports": ["DeclaredName", "Part", "SpanCheck"]
 		},
-		{ "file": "packages/engine/src/core/invariant.ts", "exports": ["defined"] },
+		{ "file": "packages/text/src/base/invariant.ts", "exports": ["defined"] },
 		{ "file": "packages/engine/src/core/record.ts", "exports": ["isList"] },
 		{ "file": "packages/engine/src/deploy/diff/plan.ts", "exports": ["Action", "Step"] },
 		{ "file": "packages/engine/src/deploy/render/folder.ts", "exports": ["Spelled"] },

@@ -1,3 +1,4 @@
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { failRecursion } from "#compiler/check/fail.ts"
 import type {
 	ResolvedExpr,
@@ -11,7 +12,6 @@ import type {
 import { entries } from "#compiler/check/scan.ts"
 import type { RecursionArm } from "#compiler/core/causes.ts"
 import { childLoc, locBelow, type SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { exprChildren } from "#compiler/ir/desc.ts"
 

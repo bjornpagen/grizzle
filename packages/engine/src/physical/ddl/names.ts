@@ -1,3 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { RoleEntry } from "#compiler/analysis/schema.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { catchCompileError, Refusal } from "#compiler/core/canonical.ts"
@@ -15,8 +17,6 @@ import {
 } from "#compiler/core/identity.ts"
 import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { DomainCheck } from "#compiler/ir/law.ts"
 import {

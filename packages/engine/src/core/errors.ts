@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	type ChangedColumn,
 	type ClaimRule,
@@ -30,7 +31,6 @@ import {
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { formatLoc, formatPath, prefixedLoc, sitedLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 
 /**

@@ -15,13 +15,13 @@
  * Features: each carrier stored and refused; each rewrite and each change; each malformation.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Reached } from "@bjornpagen/testing/features"
 import { boolean, element, int, shuffled } from "@bjornpagen/testing/gen"
 import { passed } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { binary32Max } from "#compiler/scalar/values/float.ts"

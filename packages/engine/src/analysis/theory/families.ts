@@ -1,3 +1,10 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	appendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { refuse, refuseBreach, refuseNamed } from "#compiler/analysis/theory/build.ts"
 import {
 	type FamilyStated,
@@ -8,14 +15,7 @@ import {
 import { foldRule } from "#compiler/check/fold.ts"
 import { identifierOf, identity, type LawColumnStatement } from "#compiler/core/identity.ts"
 import type { ColumnIdent, Identifier, LawId } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import {
-	appendNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import {
 	type ExprDesc,

@@ -1,8 +1,8 @@
 /** What the properties of beyond-primary.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { PrimaryKeyObject, UniqueObject, UniqueObjects } from "#compiler/laws/model/uniques.ts"
 import { uuid } from "#compiler/public/fields.ts"

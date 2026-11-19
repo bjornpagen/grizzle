@@ -1,10 +1,10 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { analyzeDemand } from "#compiler/analysis/demand/demand.ts"
 import { containmentEvidence } from "#compiler/analysis/physical/evidence.ts"
 import type { JustifiedKey } from "#compiler/analysis/physical/fds.ts"
 import { keyAmong } from "#compiler/analysis/physical/props.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type * as Result from "#compiler/core/result.ts"
 import {
 	type EvidenceContext,
 	type ExistenceConstraint,

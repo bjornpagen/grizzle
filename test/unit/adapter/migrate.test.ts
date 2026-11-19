@@ -22,7 +22,8 @@
  */
 
 import { inspect } from "node:util"
-import { type Reached } from "@bjornpagen/testing/features"
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
@@ -33,7 +34,6 @@ import {
 	transactionControl
 } from "#adapter/migrate/input.ts"
 import { planApply, runFiles } from "#adapter/migrate/plan.ts"
-import { indices } from "#compiler/core/array.ts"
 import type { LedgerState, RecordedFolder } from "#compiler/deploy/ledger/ledger.ts"
 import { emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"

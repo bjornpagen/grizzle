@@ -1,5 +1,5 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"

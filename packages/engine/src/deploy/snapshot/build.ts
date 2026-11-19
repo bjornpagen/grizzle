@@ -1,3 +1,10 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	headNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import {
 	canonicalEquals,
@@ -15,13 +22,10 @@ import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
 import { type DeclaredName, declaredAlike, identifierOf } from "#compiler/core/identity.ts"
 import type { Identifier, LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { headNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Declarations, MigrationPlan } from "#compiler/deploy/diff/plan.ts"
 import {

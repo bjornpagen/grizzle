@@ -15,15 +15,15 @@
  * the DFA bounds.
  */
 
-import { type Reached as ReachedOf } from "@bjornpagen/testing/features"
+import { minimalDfa } from "@bjornpagen/grizzle-text/regex/dfa"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { emptyLanguageAre } from "@bjornpagen/grizzle-text/regex/print"
+import type { Reached as ReachedOf } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { matchAre, matchPattern } from "#compiler/scalar/regex/admit.ts"
-import { minimalDfa } from "#compiler/scalar/regex/dfa.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
-import { emptyLanguageAre } from "#compiler/scalar/regex/print.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import {
@@ -128,7 +128,7 @@ export const aPatternNoTextMatchesIsNeverInTheIRRefusedByAnalyzeTextAndMatchedBy
 					why: "A Compute.matches pattern of the empty language is refused again, as no text matching it; the property fails."
 				},
 				{
-					file: "packages/engine/src/scalar/regex/ir.ts",
+					file: "packages/text/src/regex/ir.ts",
 					original: '\t\tif (item.kind === "never") {\n\t\t\treturn never',
 					replacement: '\t\tif (item.kind === "never") {\n\t\t\tcontinue',
 					why: "A sequence passes over an item no text matches, as if it matched the empty text; the property fails."

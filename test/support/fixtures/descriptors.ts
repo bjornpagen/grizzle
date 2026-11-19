@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * Field descriptors as a JavaScript caller builds them: the public contract and span over the admission cores
  * (scalar/contract.ts contractParts, scalar/span.ts spanParts), every argument unknown, so a test passes what the
@@ -7,7 +8,6 @@
 import { brandColumn } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { descText, type ExprDesc } from "#compiler/ir/desc.ts"
 import { contractParts } from "#compiler/scalar/contract.ts"
 import {

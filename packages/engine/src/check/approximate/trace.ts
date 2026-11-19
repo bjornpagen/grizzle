@@ -1,8 +1,8 @@
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import { describeOp, exprClosure, fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	exprsOf,

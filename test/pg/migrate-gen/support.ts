@@ -1,3 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { array, boolean, constant, element, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { type Swarm, swarm, swarmChoice, weightOf } from "@bjornpagen/testing/swarm"
 import {
@@ -10,7 +12,6 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import {
 	conversionOf as converts,
 	identity,
@@ -18,7 +19,6 @@ import {
 	maxIdentifierBytes
 } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"

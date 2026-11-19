@@ -1,5 +1,5 @@
+import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import type { CallerParamDecl } from "#compiler/ir/products.ts"
-import type { PatternSource } from "#compiler/ir/scalar.ts"
 import type { ServedMatchers } from "#compiler/scalar/regex/matcher.ts"
 import { ProgramPatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { ServedMember, ServedRoleForm, ServedVariants } from "#compiler/served/forms.ts"

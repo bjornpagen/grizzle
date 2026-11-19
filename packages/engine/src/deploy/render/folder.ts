@@ -1,3 +1,5 @@
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
@@ -9,9 +11,7 @@ import {
 import { digest } from "#compiler/core/fingerprint.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareNumbers, mapInput } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import {
 	isDigit,

@@ -1,5 +1,5 @@
-import { firstIndex } from "#compiler/core/array.ts"
-import { defined } from "#compiler/core/invariant.ts"
+import { firstIndex } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 

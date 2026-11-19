@@ -40,13 +40,13 @@
  * steered case constructs while it is pending: a start where the knob turns, and the turn.
  */
 
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { readableRelations } from "#compiler/physical/ddl/roles.ts"
 import {

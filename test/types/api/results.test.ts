@@ -33,14 +33,14 @@ export const results = boxAgreement(finite(word(resultsBox)), {
 			file: "packages/engine/src/types/schema/evaluation.ts",
 			original: "\treadonly selected: Result.Result<boolean, Unevaluated>",
 			replacement:
-				'\treadonly selected: Result.Result<boolean, Unevaluated> | import("#compiler/core/result.ts").Ok<boolean>',
+				'\treadonly selected: Result.Result<boolean, Unevaluated> | import("@bjornpagen/grizzle-text/base/result").Ok<boolean>',
 			why: "A row's selection admits the engine's Ok; the program fails at a selection."
 		},
 		{
 			file: "packages/engine/src/types/changeset/preview.ts",
 			original: ") => Result.Result<PreviewRows<S>, PreviewRefusal>",
 			replacement:
-				') => Result.Result<PreviewRows<S>, PreviewRefusal> | import("#compiler/core/result.ts").Err<PreviewRefusal>',
+				') => Result.Result<PreviewRows<S>, PreviewRefusal> | import("@bjornpagen/grizzle-text/base/result").Err<PreviewRefusal>',
 			why: "A preview admits the engine's Err; the program fails at a preview."
 		}
 	]

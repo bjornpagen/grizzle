@@ -1,8 +1,8 @@
-import { TupleMap } from "#compiler/core/tuple-map.ts"
-import { type CharSet, domain } from "#compiler/scalar/regex/charset.ts"
-import { closure, type Nfa } from "#compiler/scalar/regex/nfa.ts"
-import { type CharPartition, partitionOf } from "#compiler/scalar/regex/partition.ts"
-import { entry } from "#compiler/scalar/regex/table.ts"
+import { TupleMap } from "#text/base/tuple-map.ts"
+import { type CharSet, domain } from "#text/regex/charset.ts"
+import { closure, type Nfa } from "#text/regex/nfa.ts"
+import { type CharPartition, partitionOf } from "#text/regex/partition.ts"
+import { entry } from "#text/regex/table.ts"
 
 /**
  * The subset construction of an NFA's search language, the one both of its readers run: dfa.ts determinizes it whole,

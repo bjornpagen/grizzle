@@ -31,8 +31,11 @@
  * refused, a decimal's refused by its language and by its bytes; each kind of field lexicalForm reads.
  */
 
+import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
+import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
-import { type Reached } from "@bjornpagen/testing/features"
+import type { Reached } from "@bjornpagen/testing/features"
 import { array, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
@@ -49,9 +52,6 @@ import {
 	lexicalValue
 } from "#compiler/scalar/lexical.ts"
 import { inclusion } from "#compiler/scalar/regex/inclusion.ts"
-import { Matcher } from "#compiler/scalar/regex/match.ts"
-import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
@@ -238,7 +238,7 @@ export const lexicalFormsIsAdmittedByTheTextAnalysisAsARefinementStrRegexTypesAF
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/parse.ts",
+				file: "packages/text/src/regex/parse.ts",
 				original: '\t\tif (c !== cp("\\\\")) {',
 				replacement: '\t\tif (c === cp("\\\\")) {',
 				why: "Operator mutant (comparison) at packages/engine/src/scalar/regex/parse.ts:914 in <module>: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."

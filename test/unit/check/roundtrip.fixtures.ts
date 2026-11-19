@@ -14,6 +14,8 @@
  * Features: the live case, each faithful rewrite, and each corruption, stale or wild.
  */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { TextBounds } from "@bjornpagen/grizzle-text/regex/dfa"
 import { aimed, type Aimed, constant, type Gen } from "@bjornpagen/testing/gen"
 import {
 	type Broken,
@@ -22,7 +24,7 @@ import {
 	corrupted as corruptedGen,
 	corruptedFeature
 } from "@bjornpagen/testing/lsw"
-import { type Case } from "@bjornpagen/testing/property"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Option, Order, Record } from "effect"
 import { allenBit } from "#compiler/allen/mask.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
@@ -32,7 +34,6 @@ import { catchRefusal, type Json } from "#compiler/core/canonical.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import * as Result from "#compiler/core/result.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { descText, type QueryDesc, type QueryStageDesc, type RuleDesc } from "#compiler/ir/desc.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"
@@ -46,7 +47,6 @@ import {
 	rosterOf,
 	sameScalarType,
 	type ScalarType,
-	type TextBounds,
 	type TextLanguage,
 	textOf,
 	textPatterns,

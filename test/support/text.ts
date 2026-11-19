@@ -1,5 +1,6 @@
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
-import { type TextBounds, type TextInfo, textInfoOf } from "#compiler/ir/scalar.ts"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { TextBounds } from "@bjornpagen/grizzle-text/regex/dfa"
+import { type TextInfo, textInfoOf } from "#compiler/ir/scalar.ts"
 import { type TextRefinement, textLanguage } from "#compiler/text/refinement.ts"
 
 /** The bounds a refinement proves on every member, where it proves them. */

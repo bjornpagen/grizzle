@@ -1,3 +1,4 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 /**
  * Random families with their owners and counts: each owner's family drawn as the array the application writes under
  * it, so every drawn state satisfies the theorem by construction (theorem.ts).
@@ -15,7 +16,6 @@
 import { array, type Gen, int, shuffled, type Size } from "@bjornpagen/testing/gen"
 import { swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import type { Families, Family } from "#test/support/families/theorem.ts"
 
 /** The lengths a family's laws branch on, the simplest first. */

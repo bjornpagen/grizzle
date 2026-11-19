@@ -1,7 +1,7 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { canonicalSortKeyed, everyProperty } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Grounds, Premise } from "#compiler/ir/evidence.ts"
 import { type OpId, sortedOps, sortedUnique } from "#compiler/ir/expr.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"

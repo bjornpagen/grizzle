@@ -1,3 +1,4 @@
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Gen } from "@bjornpagen/testing/gen"
 import {
 	Array as Arr,
@@ -35,7 +36,6 @@ import {
 } from "#adapter/migrate/session.ts"
 import { oneShotStatement, sentAnswer } from "#adapter/wire/batch.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"

@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Outstanding, PhysicalAnalysis } from "#compiler/analysis/physical/analyze.ts"
 import { consumerOutput } from "#compiler/analysis/physical/consumers.ts"
 import {
@@ -10,7 +11,6 @@ import { nativeComparison } from "#compiler/analysis/physical/rules.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	type Certificate,
 	type ElisionReason,

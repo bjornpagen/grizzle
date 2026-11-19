@@ -1,5 +1,5 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 

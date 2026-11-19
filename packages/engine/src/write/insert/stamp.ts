@@ -1,4 +1,4 @@
-import { defined } from "#compiler/core/invariant.ts"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 /**
  * An insert's stamps (ir/instant.ts): the instant fields its rows leave out, each stamped with the call's instant of its
  * clock at the row's child, `greatest(c, h + 1)`, c the call's reading of the database's clock in microseconds and h the
@@ -25,7 +25,7 @@ import { defined } from "#compiler/core/invariant.ts"
  * one instant, and none sees another's row. The clock is the call's transaction_timestamp(), one value in every
  * statement of the call (sql/print.ts clockReading).
  */
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Stamped, StampSource } from "#compiler/ir/instant.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { Cte, Expr, FromItem, Select } from "#compiler/sql/ast.ts"

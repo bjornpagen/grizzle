@@ -1,6 +1,6 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { ValueFault } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import * as Result from "#compiler/core/result.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
 

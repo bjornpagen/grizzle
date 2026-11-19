@@ -3,7 +3,7 @@ import {
 	isNonEmpty,
 	type NonEmptyReadonlyArray,
 	sortNonEmpty
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { compareStrings } from "#compiler/core/order.ts"
 import { oneForm } from "#compiler/runtime/lower/forms.ts"
 import { stratumOf } from "#compiler/runtime/write/steps.ts"

@@ -1,3 +1,4 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Duration, Effect } from "effect"
 import { Pool } from "pg"
 import type { ServerError } from "#adapter/errors/failures.ts"
@@ -13,7 +14,6 @@ import {
 	sessionTransitions,
 	type TxControl
 } from "#adapter/wire/session.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { flightMaxBytes, messageMaxBytes } from "#compiler/core/wire.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"

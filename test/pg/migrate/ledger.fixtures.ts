@@ -1,5 +1,6 @@
 /** What the properties of ledger.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	accepting,
 	type Machine,
@@ -21,7 +22,6 @@ import type {
 } from "#adapter/migrate/errors.ts"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
-import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"

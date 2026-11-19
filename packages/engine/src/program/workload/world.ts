@@ -1,5 +1,5 @@
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { mapRecord } from "#compiler/core/record.ts"
 import {
 	type AttachDesc,

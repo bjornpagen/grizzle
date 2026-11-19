@@ -21,13 +21,13 @@ import type { Reached } from "@bjornpagen/testing/features"
  * test/unit/text/lowering.test.ts's.
  */
 
+import * as RegexIr from "@bjornpagen/grizzle-text/regex/ir"
+import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
+import { toAre } from "@bjornpagen/grizzle-text/regex/print"
 import { family, property, ReplayToken } from "@bjornpagen/testing/property"
 import type { Case } from "@bjornpagen/testing/property"
 import { Effect, Exit, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as RegexIr from "#compiler/scalar/regex/ir.ts"
-import { Matcher } from "#compiler/scalar/regex/match.ts"
-import { toAre } from "#compiler/scalar/regex/print.ts"
 import {
 	agreements,
 	compileWithin,

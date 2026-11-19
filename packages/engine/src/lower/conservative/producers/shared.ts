@@ -1,4 +1,4 @@
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { NodeOf, ProducerNode } from "#compiler/ir/rel.ts"
 import { isSpanCarrier, type SpanCarrier } from "#compiler/ir/scalar.ts"

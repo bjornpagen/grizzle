@@ -1,5 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ClockUnit } from "#compiler/core/clock.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Phantom } from "#compiler/core/phantom.ts"
 import type {
 	AnyChangeSet,

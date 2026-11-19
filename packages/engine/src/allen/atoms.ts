@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { endpointMask } from "#compiler/allen/endpoints.ts"
 import {
 	type AllenMask,
@@ -7,7 +8,6 @@ import {
 	intersectMasks,
 	uniteMasks
 } from "#compiler/allen/mask.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 
 /**
  * The nine range operators by their pg_operator.oprcode. A range operator's identity in the IR is its code with the

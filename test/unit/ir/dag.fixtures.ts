@@ -1,9 +1,9 @@
 /** What the properties of dag.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import {
 	ExprId,
 	type IdSupply,
@@ -41,7 +41,7 @@ import {
 	type ValueRefs,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import { type ScalarType } from "#compiler/ir/scalar.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { contractType } from "#compiler/scalar/registry.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { rebuildDag } from "#test/support/dag.ts"

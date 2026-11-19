@@ -1,6 +1,6 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { identity, type TemporaryCensus } from "#compiler/core/identity.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
 	inConstraints,
 	inRelations,

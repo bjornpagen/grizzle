@@ -1,5 +1,6 @@
 /** What the properties of fixtures.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import type { Steered } from "@bjornpagen/testing/explore"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
@@ -9,7 +10,6 @@ import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { compileServed } from "#adapter/public/compile.ts"
 import { Db } from "#adapter/public/db.ts"
 import { served } from "#adapter/public/layer.ts"
-import { indices } from "#compiler/core/array.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import { completedFiles } from "#compiler/deploy/ledger/ledger.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"

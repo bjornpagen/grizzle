@@ -1,3 +1,4 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Effect } from "effect"
 import {
 	type CaseRecord,
@@ -19,7 +20,6 @@ import {
 	timedSamples,
 	warmedOnce
 } from "#bench/write/support/writes.ts"
-import { indices } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"

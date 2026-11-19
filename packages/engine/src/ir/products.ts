@@ -1,3 +1,4 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { IndexMethod } from "#compiler/core/identity.ts"
@@ -11,7 +12,6 @@ import type {
 	StoredRelationName
 } from "#compiler/core/ids.ts"
 import type { Direction } from "#compiler/core/order.ts"
-import type * as Result from "#compiler/core/result.ts"
 import type { Param, ParamBinary, ParamText } from "#compiler/core/wire.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { Int8Type } from "#compiler/ir/clock.ts"

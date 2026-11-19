@@ -1,9 +1,12 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { toEcma } from "@bjornpagen/grizzle-text/regex/print"
 import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
-import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals, type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 /**
  * A login's OpenAPI 3.2 document, read off its served file alone (served/forms.ts ServedFile): one operation per program
  * of each of its roles, `POST /<login>/<role>/<program>`, whose request body is the program's input and whose answer is
@@ -20,7 +23,6 @@ import { mapNonEmpty } from "#compiler/core/nonempty.ts"
  */
 import { compareStrings } from "#compiler/core/order.ts"
 import { isList } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import { sha256Base32 } from "#compiler/core/sha256.ts"
 import { type Parts, type SharingFormat, shareRepeated } from "#compiler/core/share.ts"
 import { octetsOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
@@ -51,8 +53,6 @@ import {
 	type WireParam
 } from "#compiler/live/shape.ts"
 import { type SchemaGap, scalarSchema, type WireSchema, withGaps } from "#compiler/live/wire.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
-import { toEcma } from "#compiler/scalar/regex/print.ts"
 import type { ServedFile, ServedMember, ServedRoleForm } from "#compiler/served/forms.ts"
 
 /** The OpenAPI version the document states, 3.2.0, whose `itemSchema` describes each event of a stream. */

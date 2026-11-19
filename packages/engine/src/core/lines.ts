@@ -1,6 +1,6 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, resourceBound } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 
 /**
  * The one representation of a multi-line text grizzle builds: SQL statements, drafted migration files, snapshot.json and

@@ -1,5 +1,6 @@
 /** What the properties of planned-entries.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	boolean,
 	constant,
@@ -12,7 +13,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Order } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"

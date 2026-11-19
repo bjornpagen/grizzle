@@ -1,5 +1,5 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { dagDigestWithin } from "#compiler/ir/dag.ts"
 import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
 

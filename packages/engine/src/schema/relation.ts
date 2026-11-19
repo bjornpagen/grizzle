@@ -1,16 +1,20 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	lastNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import { sameContent } from "#compiler/core/canonical.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { lastNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark, fieldMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	builtNode,
 	type ClosedRow,

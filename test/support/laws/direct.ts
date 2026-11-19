@@ -1,3 +1,4 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	type Aimed,
@@ -13,7 +14,6 @@ import {
 import { agree } from "@bjornpagen/testing/oracle"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { type ConstraintLaws, constraintLaw } from "#compiler/ir/products.ts"
 import {

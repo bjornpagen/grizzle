@@ -1,5 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Data, Formatter, Result } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { VectorText } from "#compiler/ir/carriers.ts"
 import { convertDate } from "#compiler/ir/date.ts"

@@ -1,7 +1,14 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import {
+	headNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	sortNonEmpty
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { contractLaw, lawDescription } from "#compiler/analysis/theory/description.ts"
 import { contractLawIdentity } from "#compiler/analysis/theory/theory.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
@@ -13,9 +20,7 @@ import {
 	paramPlaceText
 } from "#compiler/core/identity.ts"
 import type { Identifier, LawId } from "#compiler/core/ids.ts"
-import { headNonEmpty, isNonEmpty, mapNonEmpty, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ClosedTheoryRelation, TableRelation } from "#compiler/ir/law.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"

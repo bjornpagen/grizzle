@@ -1,5 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Decoded, RowDecoder } from "#compiler/core/decoder.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Delivering, Phantom } from "#compiler/core/phantom.ts"
 import type { RosterOrder } from "#compiler/ir/scalar.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"

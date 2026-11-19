@@ -1,7 +1,7 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, FileSystem, Path, Result, String as Str } from "effect"
 import * as ts from "typescript/ast"
-import { indices } from "#compiler/core/array.ts"
 import { type SyntaxSource, withNativeSyntax } from "#scripts/dev/shared/native-syntax.ts"
 import { blocksOf, type DocumentedBlock, type Mirror } from "#test/types/examples/documents.ts"
 

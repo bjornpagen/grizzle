@@ -1,3 +1,4 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { Array as Arr, Order } from "effect"
 import {
 	type AllenConjunction,
@@ -10,7 +11,6 @@ import {
 	literalNegated
 } from "#compiler/allen/atoms.ts"
 import { fullAllenMask } from "#compiler/allen/mask.ts"
-import { defect } from "#compiler/core/invariant.ts"
 
 /** A conjunction of literals and the set of basic relations it holds for. */
 interface Term {

@@ -1,3 +1,8 @@
+import {
+	flatMapNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * grizzle's library (ir/physical.ts LibraryFn): the SQL functions of its own a Compute operation's SQL calls, each a
  * constant of parameters (sql/ast.ts CreateConstant), `LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN <body>`, its body
@@ -9,11 +14,6 @@
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
-import {
-	flatMapNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"

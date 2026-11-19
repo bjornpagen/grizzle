@@ -1,5 +1,5 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { nominal } from "#compiler/core/brand.ts"
-import * as Result from "#compiler/core/result.ts"
 
 /**
  * Reading a caller's value at the boundary. A JavaScript value is untrusted until it has been read once, and reading it

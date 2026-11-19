@@ -1,3 +1,4 @@
+import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
 /**
  * The tree relation of trees.md as hand-written DDL, the rows a writer sends, the model of what PostgreSQL does with
  * each transaction of them, the theorem's own checker, and the boxes of states, mutations and writes the substrate
@@ -29,7 +30,6 @@
  */
 import { element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
-import { indices, maxOf } from "#compiler/core/array.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import { qualified, tuple } from "#test/support/substrate.ts"

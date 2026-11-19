@@ -1,7 +1,7 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm as swarmOf, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, Record as Rec, Stream } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import { Decimal } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import type { Fact as RelationFact } from "#compiler/public/schema.ts"

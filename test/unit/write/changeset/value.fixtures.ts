@@ -1,5 +1,6 @@
 /** What the properties of value.test.ts read: its spaces, models and helpers. */
 
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	accepted,
 	type Answer,
@@ -23,14 +24,13 @@ import {
 	shuffled,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { type WildKind } from "@bjornpagen/testing/lsw"
-import { type Case } from "@bjornpagen/testing/property"
+import type { WildKind } from "@bjornpagen/testing/lsw"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Record as Rec, Stream } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties } from "#compiler/core/record.ts"
-import type * as Result from "#compiler/core/result.ts"
 import {
 	type ChangeSetDesc,
 	descText,
@@ -57,7 +57,7 @@ import {
 } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { assert, defined, nonEmpty, throwsRefused } from "#test/support/assert.ts"
-import { type FixtureSchema } from "#test/support/compile.ts"
+import type { FixtureSchema } from "#test/support/compile.ts"
 import { Employer, Payroll, Reporting } from "#test/support/fixtures/api/payroll.ts"
 import {
 	Account,

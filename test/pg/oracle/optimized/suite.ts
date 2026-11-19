@@ -1,3 +1,4 @@
+import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import {
 	aimed,
 	type Draw,
@@ -20,7 +21,6 @@ import {
 import type { Budget, Case as PropertyCase, Kill, Oracle } from "@bjornpagen/testing/property"
 import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
 import { Array as Arr, Effect, Formatter, Record, type Scope } from "effect"
-import { maxOf } from "#compiler/core/array.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { OpId, TypedLiteral } from "#compiler/ir/expr.ts"

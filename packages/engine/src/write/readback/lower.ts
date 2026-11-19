@@ -1,7 +1,7 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import { admitQuery } from "#compiler/check/index.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"

@@ -1,9 +1,9 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { fromJson, noRevivers, type Path } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, within } from "#compiler/core/errors.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type {
 	ServedSnapshot,

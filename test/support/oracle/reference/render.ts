@@ -1,6 +1,6 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Effect } from "effect"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { floatSpecials } from "#compiler/core/canonical.ts"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import { exactParts } from "#compiler/core/decimal.ts"

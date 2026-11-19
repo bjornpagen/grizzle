@@ -1,12 +1,12 @@
 /** What the properties of key-sets.test.ts read: its spaces, models and helpers. */
 
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { type Aimed, aimed } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Engine from "#compiler/core/result.ts"
 import { deliverySpine, relNode, rooted } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"

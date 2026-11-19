@@ -27,14 +27,15 @@
  * An item whose expression the host does not lower or does not evaluate is Unevaluated, its place its own.
  */
 
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Result as Public } from "effect"
 import { typingEnv } from "#compiler/analysis/theory/theory.ts"
 import { rowNode } from "#compiler/check/generated.ts"
 import { checkDefinition } from "#compiler/check/index.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
+import type { PublicResult } from "#compiler/core/public-result.ts"
 import { connectiveExpr, type ExprDesc } from "#compiler/ir/desc.ts"
 import { type ExprTable, predicateTable, storedColumn } from "#compiler/ir/expr.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
@@ -340,7 +341,7 @@ const verdictOf = (
  * each of its two values spelled once for the evaluator, and every other item where it is computed.
  */
 interface Answers {
-	readonly answer: Result.PublicResult
+	readonly answer: PublicResult
 	readonly truth: (
 		truth: Result.Result<boolean, Unevaluated>
 	) => Public.Result<boolean, Unevaluated>
@@ -350,7 +351,7 @@ interface Answers {
 }
 
 /** The answers of one evaluator over `answer` (Answers). */
-const answersOf = (answer: Result.PublicResult): Answers => {
+const answersOf = (answer: PublicResult): Answers => {
 	const truth = {
 		true: answer<boolean, Unevaluated>(truths.true),
 		false: answer<boolean, Unevaluated>(truths.false)
@@ -534,7 +535,7 @@ const evaluated = <S, R>(
  */
 export const rowEvaluatorOver = <S extends AnySchema>(
 	schema: S,
-	answer: Result.PublicResult
+	answer: PublicResult
 ): Result.Result<RowEvaluator<S>, CompileError> =>
 	Result.map(lawModel(schema, "rowEvaluator"), (model): RowEvaluator<S> => {
 		const relations = readRelations(model)

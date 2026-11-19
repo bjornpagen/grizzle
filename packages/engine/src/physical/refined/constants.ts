@@ -1,5 +1,5 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { refinedConstants } from "#compiler/check/refinement/index.ts"
-import * as Result from "#compiler/core/result.ts"
 import { noLive } from "#compiler/live/notify.ts"
 import { constantValidationObjects } from "#compiler/lower/shapes/refined/index.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"

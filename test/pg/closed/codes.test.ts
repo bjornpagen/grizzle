@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { drawn, exhaust, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen, int, subset } from "@bjornpagen/testing/gen"
@@ -19,7 +20,6 @@ import { scalarReader } from "#compiler/codec/read.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 /**
  * Closed ids as codes on PostgreSQL 19rc2: a roster's smallint domain, its names constant, the decoded column of a role

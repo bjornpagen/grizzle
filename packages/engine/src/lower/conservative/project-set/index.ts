@@ -1,5 +1,5 @@
+import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import {

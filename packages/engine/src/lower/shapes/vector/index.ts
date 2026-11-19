@@ -1,3 +1,8 @@
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { attachmentRefusal } from "#compiler/check/approximate/attach.ts"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import { approximateMisuse } from "#compiler/check/approximate/provenance.ts"
@@ -11,7 +16,6 @@ import {
 } from "#compiler/check/approximate/trace.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type CertificateRule, makeCertificate } from "#compiler/ir/certificate.ts"
 import type { NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import {

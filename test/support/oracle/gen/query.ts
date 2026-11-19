@@ -1,3 +1,4 @@
+import { appendAll, indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	array,
 	boolean,
@@ -17,7 +18,6 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
 import { allenExpr } from "#compiler/check/allen.ts"
 import { completeStatedOrders, type StatedOrder } from "#compiler/check/order.ts"
-import { appendAll, indices } from "#compiler/core/array.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"

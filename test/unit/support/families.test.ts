@@ -24,7 +24,7 @@
  */
 
 import { runProgram } from "@bjornpagen/testing/commands"
-import { type Reached } from "@bjornpagen/testing/features"
+import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result } from "effect"
@@ -124,7 +124,7 @@ export const theFamilyLoweringHoldsExactlyTheTheoremEachPartByItsOwnConstraints 
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/array.ts",
+				file: "packages/text/src/base/array.ts",
 				original: "\t\tout.push(i)",
 				replacement: "\t\t{}",
 				why: "Operator mutant (statement) at packages/engine/src/core/array.ts:26 in indices: `out.push(i)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
@@ -205,7 +205,7 @@ export const familyProgramsCommitLawfulMutationsToTheirFamiliesRefuseBreakingOne
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/array.ts",
+				file: "packages/text/src/base/array.ts",
 				original: "\tfor (let i = 0; i < n; i++) {",
 				replacement: "\tfor (let i = 0; i >= n; i++) {",
 				why: "Operator mutant (comparison) at packages/engine/src/core/array.ts:25 in indices: `<` becomes `>=`; the property fails (lane CATCH, grizzle 0baff5d6)."

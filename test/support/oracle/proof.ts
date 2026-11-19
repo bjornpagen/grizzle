@@ -1,6 +1,6 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Array as Arr, Option } from "effect"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { OpId } from "#compiler/ir/expr.ts"
 import type {
 	NativeProof,

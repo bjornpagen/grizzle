@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The stored rows of a fact set's family relations, filled as grizzle's own host fill fills a nested insert
  * (runtime/write/fill.ts filler). A fact is a written row (rows-first): its caller's fields, never a
@@ -17,7 +18,6 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import {
 	type LawField,

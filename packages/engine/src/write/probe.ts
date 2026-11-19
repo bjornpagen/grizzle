@@ -1,5 +1,9 @@
-import { defined } from "#compiler/core/invariant.ts"
-import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	appendNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 /**
  * A write statement's reads of stored relations, each driven by rows the statement holds: a probe of a key or a group

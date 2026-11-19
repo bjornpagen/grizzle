@@ -59,6 +59,7 @@ import {
 	QueueWork
 } from "#bench/queue/support/queue.ts"
 
+import { appendAll, indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	type BeforeCommit,
 	displacedThenInserted,
@@ -82,7 +83,6 @@ import {
 	writesOf,
 	writtenInPlace
 } from "#bench/write/support/writes.ts"
-import { appendAll, indices } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"

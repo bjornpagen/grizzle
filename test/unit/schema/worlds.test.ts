@@ -20,11 +20,11 @@
  *   a rule, in the order base, name, a login already holding it, and admitted otherwise, its description owned.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { decodeDesc } from "#compiler/ir/desc.ts"
 import { lowerQuery } from "#compiler/program/describe.ts"
 import { queryOver, queryValueDesc, varsOver } from "#compiler/query/build/query.ts"

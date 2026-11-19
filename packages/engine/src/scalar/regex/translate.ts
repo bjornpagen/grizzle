@@ -1,9 +1,7 @@
-import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
-import { maxOf } from "#compiler/core/array.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
-import type { PatternSource, Patterns, TextBounds } from "#compiler/ir/scalar.ts"
+import { maxOf } from "@bjornpagen/grizzle-text/base/array"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	type CharSet,
 	charSet,
@@ -17,13 +15,16 @@ import {
 	union,
 	utf8Classes,
 	utf8Width
-} from "#compiler/scalar/regex/charset.ts"
-import { end, type LiveNode, type RegexNode, seq, start } from "#compiler/scalar/regex/ir.ts"
-import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
+} from "@bjornpagen/grizzle-text/regex/charset"
+import type { TextBounds } from "@bjornpagen/grizzle-text/regex/dfa"
+import { end, type LiveNode, type RegexNode, seq, start } from "@bjornpagen/grizzle-text/regex/ir"
+import type { PatternSource, Patterns } from "@bjornpagen/grizzle-text/regex/parse"
+import type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
+import { printSource } from "@bjornpagen/grizzle-text/regex/print"
+import { alphabetOf, anchoredAt, anyText, sourceFlags } from "@bjornpagen/grizzle-text/regex/source"
+import { entry } from "@bjornpagen/grizzle-text/regex/table"
+import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
 import { memberNode, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { printSource } from "#compiler/scalar/regex/print.ts"
-import { alphabetOf, anchoredAt, anyText, sourceFlags } from "#compiler/scalar/regex/source.ts"
-import { entry } from "#compiler/scalar/regex/table.ts"
 
 /**
  * PostgreSQL's translate(x, from, to) as Compute.translate states it: its character map, its value over a text, and the

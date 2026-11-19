@@ -1,7 +1,7 @@
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Engine from "#compiler/core/result.ts"
 import { type ExprDesc, type GuardDesc, guardedExpr } from "#compiler/ir/desc.ts"
 import { type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"

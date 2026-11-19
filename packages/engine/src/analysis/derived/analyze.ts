@@ -1,3 +1,10 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { inferredFields } from "#compiler/analysis/derived/fields.ts"
 import {
 	type DerivedKeyLayout,
@@ -7,7 +14,6 @@ import {
 import { inheritedKeys } from "#compiler/analysis/logical/derived.ts"
 import { type AdmittedQuery, checkDefinition } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, derivedRefused, ruleRefused } from "#compiler/core/errors.ts"
 import {
@@ -18,8 +24,6 @@ import {
 } from "#compiler/core/identity.ts"
 import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { InferredFieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import {
 	classMembers,

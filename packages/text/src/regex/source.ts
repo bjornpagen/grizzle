@@ -1,12 +1,6 @@
-import { type CharSet, domain, union } from "#compiler/scalar/regex/charset.ts"
-import {
-	folded,
-	type LiveNode,
-	RegexBuilder,
-	type RegexNode,
-	set
-} from "#compiler/scalar/regex/ir.ts"
-import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
+import { type CharSet, domain, union } from "#text/regex/charset.ts"
+import { folded, type LiveNode, RegexBuilder, type RegexNode, set } from "#text/regex/ir.ts"
+import type { RegexFlags } from "#text/regex/parse.ts"
 
 /** The flags a printed source is read under: its sets are explicit classes, so no dot is left for a flag to read. */
 export const sourceFlags: RegexFlags = "u"

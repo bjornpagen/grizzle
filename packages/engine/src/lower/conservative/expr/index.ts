@@ -1,6 +1,6 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { floatSpecials } from "#compiler/core/canonical.ts"
 import type { ProseTag } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
 import { codecOf, codeOf, handlesHex, type RosterCodec } from "#compiler/ir/codes.ts"

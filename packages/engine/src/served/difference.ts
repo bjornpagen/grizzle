@@ -1,5 +1,6 @@
-import { catchSignal, taggedValueOf } from "#compiler/core/canonical.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { catchSignal } from "@bjornpagen/grizzle-text/base/result"
+import { taggedValueOf } from "#compiler/core/canonical.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"

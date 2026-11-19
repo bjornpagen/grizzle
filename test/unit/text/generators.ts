@@ -1,3 +1,5 @@
+import type { CharSet } from "@bjornpagen/grizzle-text/regex/charset"
+import type { Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { codePointsText } from "@bjornpagen/grizzle-text/text"
 import {
 	array,
@@ -11,8 +13,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, pipe, String as Str } from "effect"
-import type { CharSet } from "#compiler/scalar/regex/charset.ts"
-import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { upTo } from "#test/support/up-to.ts"
 

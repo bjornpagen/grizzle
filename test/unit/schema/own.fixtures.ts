@@ -1,5 +1,6 @@
 /** What the properties of own.test.ts read: its spaces, models and helpers. */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	array,
 	boolean,
@@ -15,7 +16,6 @@ import { bigint } from "@bjornpagen/testing/values"
 import { regex as arkregex } from "arkregex"
 import { Array as Arr } from "effect"
 import type { Refused } from "#compiler/core/refusals.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { natural, uuid } from "#compiler/public/fields.ts"

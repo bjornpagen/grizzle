@@ -1,3 +1,11 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	headNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
@@ -9,16 +17,8 @@ import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose, ruleRefused } from "#compiler/core/errors.ts"
 import { type EntryName, type LawId, ParamId, type StoredRelationName } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
-import {
-	headNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
 import * as Order from "#compiler/core/order.ts"
-import type * as Result from "#compiler/core/result.ts"
 import type { ClockBinding } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"

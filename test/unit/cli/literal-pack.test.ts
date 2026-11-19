@@ -19,11 +19,11 @@
  * Features: either constant changed; a cell changed or a padding bit set.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { headNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, FileSystem, Option, Order, String as Str } from "effect"
 import { check } from "#cli/check.ts"
-import { headNonEmpty } from "#compiler/core/nonempty.ts"
 import { metaFileName } from "#compiler/deploy/render/folder.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"

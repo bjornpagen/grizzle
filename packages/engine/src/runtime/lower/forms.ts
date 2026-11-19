@@ -1,4 +1,4 @@
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 
 /**
  * The forms of a statement: one; or, when per-execution choices of its shapes pick between two, the small form, the

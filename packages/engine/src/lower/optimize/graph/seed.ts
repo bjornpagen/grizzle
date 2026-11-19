@@ -1,4 +1,4 @@
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { canonicalEquals, sameUnder } from "#compiler/core/canonical.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { nodePremises } from "#compiler/ir/certificate.ts"

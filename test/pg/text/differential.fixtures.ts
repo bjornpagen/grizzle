@@ -1,3 +1,7 @@
+import * as RegexIr from "@bjornpagen/grizzle-text/regex/ir"
+import { buildNfa, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	aimed,
@@ -22,11 +26,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { createDomain } from "#compiler/physical/ddl/domains.ts"
-import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
-import * as RegexIr from "#compiler/scalar/regex/ir.ts"
-import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import {
@@ -487,7 +487,7 @@ export const showGrowth = (growth: Growth): string =>
  */
 /** The end anchor's translation to ARE (scalar/regex/are.ts), which a family whose patterns end at an anchor catches. */
 const endAnchorKill: Kill = {
-	file: "packages/engine/src/scalar/regex/print.ts",
+	file: "packages/text/src/regex/print.ts",
 	original: '\tanchors: { start: "\\\\A", end: "\\\\Z" }',
 	replacement: '\tanchors: { start: "\\\\A", end: "(?=\\\\n?\\\\Z)" }',
 	why: "The end anchor translated as matching before a final newline."
@@ -495,7 +495,7 @@ const endAnchorKill: Kill = {
 
 /** `\d` read as holding the Arabic-Indic digits beside ASCII's, as Unicode's decimal digits would have it. */
 const unicodeDigitKill: Kill = {
-	file: "packages/engine/src/scalar/regex/charset.ts",
+	file: "packages/text/src/regex/charset.ts",
 	original: "export const digit: CharSet = charSet([[0x30, 0x39]])",
 	replacement: "export const digit: CharSet = charSet([[0x30, 0x39], [0x660, 0x669]])",
 	why: "\\d holds the Arabic-Indic digits, which ECMAScript's \\d under the u flag does not; a non-ASCII digit's membership disagrees."
@@ -503,7 +503,7 @@ const unicodeDigitKill: Kill = {
 
 /** A negated class compiled as the class it negates. */
 const negationDroppedKill: Kill = {
-	file: "packages/engine/src/scalar/regex/parse.ts",
+	file: "packages/text/src/regex/parse.ts",
 	original: "\t\treturn Ir.set(negated ? complement(members) : members)",
 	replacement: "\t\treturn Ir.set(members)",
 	why: "A negated class's complement is dropped, so [^a] holds a; a negated class's membership disagrees."
@@ -511,7 +511,7 @@ const negationDroppedKill: Kill = {
 
 /** Printable ASCII punctuation from ! to / taken for alphanumerics and printed bare in the ARE, where it is an operator. */
 const punctuationBareKill: Kill = {
-	file: "packages/engine/src/scalar/regex/print.ts",
+	file: "packages/text/src/regex/print.ts",
 	original: "\t(c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)",
 	replacement: "\t(c >= 0x21 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)",
 	why: "A literal . * + ( ) prints without its backslash, so PostgreSQL reads an operator; an escaped literal's membership disagrees."

@@ -12,10 +12,10 @@
  * Features: each form, direction and termination the bag search must reach.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { assert, containsEqual, like, matchers } from "#test/support/assert.ts"
 import {
 	defaultRecursiveLimits,
@@ -116,7 +116,7 @@ export const graphShapedRecursiveGeneratorsBuildEachGraphShapeAsNamed = property
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/array.ts",
+				file: "packages/text/src/base/array.ts",
 				original: "\t\tout.push(i)",
 				replacement: "\t\t{}",
 				why: "Operator mutant (statement) at packages/engine/src/core/array.ts:26 in indices: `out.push(i)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
@@ -167,7 +167,7 @@ export const graphShapedRecursiveGeneratorsMarkTheCasesWhoseRecursionsTerminateW
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/array.ts",
+				file: "packages/text/src/base/array.ts",
 				original: "\ta === b || (a.length === b.length && a.every((x, i) => x === b[i]))",
 				replacement: "\ta === b || (a.length !== b.length && a.every((x, i) => x === b[i]))",
 				why: "Operator mutant (comparison) at packages/engine/src/core/array.ts:16 in sameOrder: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."

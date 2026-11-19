@@ -1,5 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { FilledRows, LogicalQuery, PageFill, ParamDecl } from "#compiler/ir/products.ts"
 import type {

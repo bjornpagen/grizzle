@@ -1,8 +1,8 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId, OccurrenceId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import * as Result from "#compiler/core/result.ts"
 import { columnReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {

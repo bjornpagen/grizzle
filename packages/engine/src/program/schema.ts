@@ -1,3 +1,5 @@
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import {
 	type CheckedSchema,
@@ -10,8 +12,6 @@ import { CompileError, malformedDescription, type RoleAccess } from "#compiler/c
 import { type DeclaredName, type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"

@@ -1,5 +1,6 @@
 /** What the properties of attach.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	array,
 	codePoint,
@@ -13,7 +14,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Option, pipe, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { fusedElement, type FusedLayout } from "#compiler/runtime/lower/fused.ts"
 import { T } from "#test/unit/lower/conservative/fixtures.ts"
 import { present } from "#test/unit/lower/support.ts"

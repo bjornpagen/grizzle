@@ -1,7 +1,7 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { JustifiedKey } from "#compiler/analysis/physical/fds.ts"
 import { keyAmong } from "#compiler/analysis/physical/props.ts"
 import type { VarId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { nodePremises } from "#compiler/ir/certificate.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type {

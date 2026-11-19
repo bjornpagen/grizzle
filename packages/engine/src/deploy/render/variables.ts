@@ -1,10 +1,10 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	roleInSpace,
 	roleNameForm,
 	type RoleNameForm,
 	type RoleSpace
 } from "#compiler/core/identity.ts"
-import * as Result from "#compiler/core/result.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { type Lexeme, lexemesOf } from "#compiler/sql/lexer.ts"
 import { databaseVariable } from "#compiler/sql/print.ts"

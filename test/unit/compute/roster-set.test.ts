@@ -12,12 +12,12 @@
  * Features: each door admitting and refusing, and a set of another roster whose names the field holds.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import { rosterOf } from "#compiler/ir/scalar.ts"
 import { Bits, bits } from "#compiler/public/fields.ts"
 import { closed } from "#compiler/public/schema.ts"

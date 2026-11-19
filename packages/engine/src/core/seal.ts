@@ -4,7 +4,7 @@
  * a pure function of its inputs; a nonce is never drawn twice under one key.
  */
 import { createCipheriv, createDecipheriv } from "node:crypto"
-import { catchSignal } from "#compiler/core/canonical.ts"
+import { catchSignal } from "@bjornpagen/grizzle-text/base/result"
 
 /**
  * The bytes of a nonce: 96 bits, the IV length GCM is defined for directly (SP 800-38D section 8.2).

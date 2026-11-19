@@ -1,3 +1,5 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 /**
  * Description-boundary vocabulary for the IR fixtures (packages/engine/src/ir/desc.ts).
  *
@@ -10,7 +12,6 @@
  */
 import { Array as Arr, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type * as Result from "#compiler/core/result.ts"
 import {
 	type AttachDesc as AttachOf,
 	type BindingsDesc as BindingsOf,
@@ -42,7 +43,7 @@ import {
 	type TermDesc,
 	type VarDesc as VarOf
 } from "#compiler/ir/desc.ts"
-import { handlesInOrder, type Patterns } from "#compiler/ir/scalar.ts"
+import { handlesInOrder } from "#compiler/ir/scalar.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"

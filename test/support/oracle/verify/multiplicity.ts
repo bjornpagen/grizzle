@@ -14,13 +14,13 @@ import {
 	type RootObservation
 } from "#compiler/analysis/physical/analyze.ts"
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { classifyEdges, consumerOutput } from "#compiler/analysis/physical/consumers.ts"
 import { keyedBy, type Realization } from "#compiler/analysis/physical/props.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { NodeId } from "#compiler/core/ids.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Certificate, ElisionRule, MultiplicityRule } from "#compiler/ir/certificate.ts"
 import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { contextAdmits, type EvidenceCatalog, type TemplateContext } from "#compiler/ir/evidence.ts"

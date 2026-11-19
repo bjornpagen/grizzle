@@ -1,4 +1,4 @@
-import { defect } from "#compiler/core/invariant.ts"
+import { defect } from "#text/base/invariant.ts"
 
 /**
  * The entry of a table of the regex automata at an index its algorithm keeps below the table's length. The one site of

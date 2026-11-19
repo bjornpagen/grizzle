@@ -1,5 +1,6 @@
 /** What the properties of lines.test.ts read: its spaces, models and helpers. */
 
+import type * as Engine from "@bjornpagen/grizzle-text/base/result"
 import {
 	characterOf,
 	codePoint,
@@ -11,7 +12,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type * as Engine from "#compiler/core/result.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 
 export type Longest =

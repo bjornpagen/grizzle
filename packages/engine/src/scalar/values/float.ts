@@ -1,5 +1,5 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { ValueFault } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 
 /**
  * IEEE 754-2019's binary32 format, the real, a vector component and pgvector's accumulators: its precision p, the bits

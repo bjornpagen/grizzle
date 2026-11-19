@@ -1,6 +1,6 @@
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import {
 	type Codebook,
 	draftCodebook,

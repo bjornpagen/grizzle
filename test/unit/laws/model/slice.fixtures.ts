@@ -1,5 +1,6 @@
 /** What the properties of slice.test.ts read: their spaces, the slice computed from a draw, and their helpers. */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	type Aimed,
 	aimed,
@@ -15,7 +16,6 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import {
 	type ChangeSetDesc,

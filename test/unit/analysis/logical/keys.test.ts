@@ -15,10 +15,10 @@
  * copies and equalities; each forged mapping.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	type Dependency,

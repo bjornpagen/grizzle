@@ -12,12 +12,12 @@
  *   database stood before the commit or after it, never a mix.
  */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Fiber, Layer, Option, Order, Stream } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { indices } from "#compiler/core/array.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import {
 	answer,

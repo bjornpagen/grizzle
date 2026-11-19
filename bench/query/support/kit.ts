@@ -1,4 +1,6 @@
 import { inspect } from "node:util"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { type Equivalence, exact, ordered } from "@bjornpagen/testing/oracle"
 import {
 	Array as Arr,
@@ -32,10 +34,8 @@ import {
 	type VariantStatement,
 	type VariantTransaction
 } from "#bench/harness/variant.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import * as Engine from "#compiler/core/result.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"

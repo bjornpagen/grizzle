@@ -1,7 +1,7 @@
 import { codePointAt, codePointUnits } from "@bjornpagen/grizzle-text/text"
-import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
-import { SearchSubsets, type Subset, subsetKey } from "#compiler/scalar/regex/subset.ts"
-import { entry } from "#compiler/scalar/regex/table.ts"
+import type { Nfa } from "#text/regex/nfa.ts"
+import { SearchSubsets, type Subset, subsetKey } from "#text/regex/subset.ts"
+import { entry } from "#text/regex/table.ts"
 
 /**
  * The most DFA states a matcher keeps for each state of its NFA. A text that reaches a state the matcher has not met,

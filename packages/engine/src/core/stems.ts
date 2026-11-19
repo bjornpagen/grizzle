@@ -1,6 +1,6 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import type { Result } from "@bjornpagen/grizzle-text/base/result"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import type { Result } from "#compiler/core/result.ts"
 
 /**
  * A login's or a role's stem, the PostgreSQL role its identity spells, which `grizzle generate` commits, computed once

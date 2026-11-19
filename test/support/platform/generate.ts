@@ -1,3 +1,4 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 /**
  * Generated platforms for the platform fixture (test/support/fixtures/api/platform.ts): their facts, built through the
  * host billing model (model.ts), so every generated state is one the laws admit.
@@ -24,7 +25,6 @@
 import { array, type Gen, int, map, type Size } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, pipe, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import type { Addition } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { nonEmpty } from "#test/support/assert.ts"

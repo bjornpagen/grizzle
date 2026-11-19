@@ -1,6 +1,6 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Order from "#compiler/core/order.ts"
 import type { ActionCore } from "#compiler/ir/write.ts"
 import { type UnitDelete, type UnitMember, unitRelations } from "#compiler/write/delete/unit.ts"

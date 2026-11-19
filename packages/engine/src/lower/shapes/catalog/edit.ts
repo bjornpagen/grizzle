@@ -1,7 +1,7 @@
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { allocatedKinds, ExprId, NodeId, OccurrenceId, ScopeId, VarId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import {
 	cellTable,
 	type FinishedCells,

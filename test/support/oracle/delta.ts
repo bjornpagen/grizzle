@@ -1,10 +1,10 @@
-import type { Order } from "effect"
 import {
 	type ReadonlyTupleMap,
 	type ReadonlyTupleSet,
 	TupleMap,
 	TupleSet
-} from "#compiler/core/tuple-map.ts"
+} from "@bjornpagen/grizzle-text/base/tuple-map"
+import type { Order } from "effect"
 import { compareFactIdentities, type FactIdentity } from "#compiler/scalar/values/identity.ts"
 
 export type Fact = { readonly [field: string]: unknown }

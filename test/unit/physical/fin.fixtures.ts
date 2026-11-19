@@ -1,11 +1,11 @@
 /** What the properties of fin.test.ts read: its spaces, models and helpers. */
 
-import { type Case } from "@bjornpagen/testing/explore"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Case } from "@bjornpagen/testing/explore"
 import { element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 import { constantOfLiteral, type Entry } from "#compiler/ir/cells.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { closedId, drawn as drawnField, natural, slot, uuid } from "#compiler/public/fields.ts"

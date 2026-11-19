@@ -1,6 +1,6 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, reportedAt } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { contextAdmits } from "#compiler/ir/evidence.ts"
 import type { CompletedOrder, OrderKey, RelNode, Roots, ValidDag } from "#compiler/ir/rel.ts"

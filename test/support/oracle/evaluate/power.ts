@@ -1,5 +1,5 @@
+import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Data, Option, Result, String as Str } from "effect"
-import { indices, maxOf } from "#compiler/core/array.ts"
 import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { assert, defined } from "#test/support/assert.ts"

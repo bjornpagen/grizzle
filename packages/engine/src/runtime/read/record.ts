@@ -1,4 +1,7 @@
-import { maxOf } from "#compiler/core/array.ts"
+import { maxOf } from "@bjornpagen/grizzle-text/base/array"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import {
 	type AttachmentLayout,
@@ -20,10 +23,7 @@ import {
 	UnlawfulDelivery
 } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type * as Result from "#compiler/core/result.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import { converterOf } from "#compiler/scalar/values/convert.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"

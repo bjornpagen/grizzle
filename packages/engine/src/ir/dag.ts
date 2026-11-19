@@ -1,9 +1,11 @@
-import { appendAll, sameOrder } from "#compiler/core/array.ts"
+import { appendAll, sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import { postorder } from "@bjornpagen/grizzle-text/base/graph"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal, omitSourceLocs, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
-import { postorder } from "#compiler/core/graph.ts"
 import {
 	allocatedKinds,
 	ExprId,
@@ -14,9 +16,7 @@ import {
 	ScopeId,
 	VarId
 } from "#compiler/core/ids.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { deepFreeze } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	builtExpr,
 	type ExprSpec,

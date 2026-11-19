@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The reference side of the oracle discriminates the structure of a program: the reference derives the delivered
  * statements from the IR, so a lowering that drops an attachment's part, delivers one under another name, or reports a
@@ -20,7 +21,6 @@
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
-import * as Result from "#compiler/core/result.ts"
 import {
 	type Offered,
 	type PlantFeature,

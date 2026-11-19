@@ -612,14 +612,15 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["packages/engine/src/core/invariant.ts", "packages/engine/src/core/loc.ts"],
+				files: ["packages/text/src/base/invariant.ts", "packages/engine/src/core/loc.ts"],
 				rules: active({ "devtools/no-new-error": "off" })
 			},
 			{
 				files: [
 					"packages/engine/src/core/canonical.ts",
 					"packages/engine/src/core/host.ts",
-					"packages/engine/src/ir/shape.ts"
+					"packages/engine/src/ir/shape.ts",
+					"packages/text/src/base/result.ts"
 				],
 				rules: active({ "devtools/no-try": "off" })
 			},

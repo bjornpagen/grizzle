@@ -1,7 +1,7 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import { validateText } from "#compiler/core/text.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"

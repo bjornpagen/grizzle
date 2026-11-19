@@ -4,10 +4,10 @@
  * strata its statements belong to. The compiled artifact (write/program/artifact.ts) places the steps; an application
  * reads them from its loaded write (flight.ts), so nothing here reaches the compiler.
  */
-import { indices, maxOf } from "#compiler/core/array.ts"
+import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { TransientReason } from "#compiler/core/errors.ts"
 import type { ConstraintName, EntryName, StoredRelationName } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Needs } from "#compiler/ir/needs.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"

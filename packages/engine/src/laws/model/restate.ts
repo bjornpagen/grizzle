@@ -1,3 +1,5 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	type LawIdentity,
 	mentions,
@@ -9,8 +11,6 @@ import { lawStatement } from "#compiler/analysis/theory/theory.ts"
 import { ownedText, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { identifierOf, identity, type LawColumnStatement } from "#compiler/core/identity.ts"
 import type { Identifier, LawId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { ComputeFn, ExprDesc, FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import { identityValueOf, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LawField, TheoryRelation } from "#compiler/ir/law.ts"

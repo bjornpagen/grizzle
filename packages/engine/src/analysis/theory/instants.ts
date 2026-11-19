@@ -1,3 +1,9 @@
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The classifier of a schema's instants (ir/instant.ts): every instant field a clock or a reference, read off the
  * theory's containments, built once when the schema compiles, its refusals a clock outside its primary key or first in
@@ -20,9 +26,7 @@
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { LawId, StoredRelationName } from "#compiler/core/ids.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	type Clock,
 	type InstantRole,

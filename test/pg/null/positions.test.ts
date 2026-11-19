@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * NULL is a value of grizzle's scalar language wherever it arises, on PostgreSQL 19rc2: a differential search over
  * drawn expressions placed in every position a rule or a query reads one.
@@ -63,7 +64,6 @@ import type { OnceCalls, WrittenOutcome } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import type { CallError } from "#compiler/live/index.ts"

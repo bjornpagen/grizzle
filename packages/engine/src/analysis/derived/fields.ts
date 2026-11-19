@@ -1,7 +1,7 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, derivedRefused } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import {

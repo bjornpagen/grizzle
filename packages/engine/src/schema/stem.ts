@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import {
@@ -9,7 +10,6 @@ import {
 	roleIdentity
 } from "#compiler/core/identity.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { LoginDesc, RoleDesc } from "#compiler/ir/desc.ts"
 import { schemaInstallation } from "#compiler/schema/own.ts"
 

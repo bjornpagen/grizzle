@@ -1,10 +1,10 @@
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	type DeclaredLanguage,
 	declaredLanguages,
 	type FunctionVolatility,
 	functionVolatilities
 } from "#compiler/core/function.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"

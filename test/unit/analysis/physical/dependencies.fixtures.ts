@@ -1,5 +1,6 @@
 /** What the properties of dependencies.test.ts read: its spaces, models and helpers. */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { array, element, type Gen, int, oneOf, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import {
@@ -10,7 +11,6 @@ import {
 	rowAttribute
 } from "#compiler/analysis/physical/fds.ts"
 import type { PhysicalProps } from "#compiler/analysis/physical/props.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { type EvidenceContext, lessDemanding } from "#compiler/ir/evidence.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"

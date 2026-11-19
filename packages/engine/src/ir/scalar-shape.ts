@@ -1,10 +1,12 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { TextBounds } from "@bjornpagen/grizzle-text/regex/dfa"
+import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import { floatSpecialNames } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { admittedFunctionDigest } from "#compiler/core/fingerprint.ts"
 import { functionVolatilities } from "#compiler/core/function.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import { ExprId, NodeId, ParamId } from "#compiler/core/ids.ts"
-import type * as Result from "#compiler/core/result.ts"
 import {
 	MoneyText,
 	type MoneyValue,
@@ -53,7 +55,6 @@ import {
 	type NumericBound,
 	type NumericTypmod,
 	type PatternCheck,
-	type Patterns,
 	type RegexCheck,
 	RegexKey,
 	type RegexRef,
@@ -61,7 +62,6 @@ import {
 	type ScalarType,
 	type SpanCarrier,
 	type SpanInfo,
-	type TextBounds,
 	type TextInfo,
 	type TextLanguage,
 	type VectorTypmod,

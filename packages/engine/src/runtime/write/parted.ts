@@ -23,9 +23,9 @@
  * placeholders are its own and number after the placeholders of the units the call sends before it (CutText). A call
  * that sends no part and no riding read-back sends no statement (`sentUnits`).
  */
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { nominal } from "#compiler/core/brand.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { holds, type NeededInput, type Needs } from "#compiler/ir/needs.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 

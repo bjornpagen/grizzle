@@ -4,7 +4,7 @@
  * served layer, only the live event model, the wire codecs and the exact values they decode into. .fallowrc.json's
  * plan-client zone holds the facade to that.
  */
-export { defect } from "#compiler/core/invariant.ts"
+export { defect } from "@bjornpagen/grizzle-text/base/invariant"
 export { trusted, trustedJson } from "#compiler/core/trusted.ts"
 export { encodeInput, slotDecoders, wireText } from "#compiler/live/codec.ts"
 export { documentWire } from "#compiler/live/document.ts"

@@ -1,4 +1,4 @@
-import type { ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
+import type { ReadonlyTupleMap, TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 
 /**
  * A change to a set as a signed multiset, a Z-set: each key weighs the times the change makes it present less the

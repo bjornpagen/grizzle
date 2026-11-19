@@ -1,7 +1,7 @@
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { characterOf, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import type { CompileBound, CompileError } from "#compiler/core/errors.ts"
-import * as Engine from "#compiler/core/result.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"

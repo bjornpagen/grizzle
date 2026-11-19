@@ -1,3 +1,4 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 /**
  * Coverage's model (fin.md §7), the specification turned into a checker, shared by the substrate's proof of the
  * lowering (temporal.test.ts) and grizzle's lowering's (test/pg/laws/coverage.test.ts): spans are half-open integer
@@ -5,7 +6,6 @@
  * source row is covered when its span is NULL, or non-empty and inside the union of its key's target spans.
  */
 import { Array as Arr, Option } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 
 /** A row's span: an interval [lo, hi) of the box's points, empty where lo = hi, or NULL outside φ. */

@@ -1,3 +1,4 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 /**
  * Exact cosine distance on PostgreSQL 19 and the pinned pgvector.
  *
@@ -42,7 +43,6 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Order, pipe, Record as Rec, String as Str } from "effect"
 import { planIndexNames } from "#bench/harness/explain.ts"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
-import { indices } from "#compiler/core/array.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"

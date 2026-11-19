@@ -16,12 +16,12 @@
  * base's, and the RFC's example base, in the batches.
  */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Reached } from "@bjornpagen/testing/features"
 import { agree, exact, ordered } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { identity } from "#compiler/core/identity.ts"
-import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import {

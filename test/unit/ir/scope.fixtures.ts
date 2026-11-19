@@ -1,5 +1,6 @@
 /** What the properties of scope.test.ts read: its spaces, models and helpers. */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import {
 	array,
 	constant,
@@ -11,9 +12,8 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import { ExprId, NodeId, OccurrenceId, ScopeId, VarId } from "#compiler/core/ids.ts"
-import { type OuterRefs } from "#compiler/ir/dag.ts"
+import type { OuterRefs } from "#compiler/ir/dag.ts"
 import type { TableExpr } from "#compiler/ir/expr.ts"
 import {
 	conservativeMeta,

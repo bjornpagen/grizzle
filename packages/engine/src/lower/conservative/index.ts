@@ -1,6 +1,6 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { ConservativeDelivery } from "#compiler/lower/conservative/deliver.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"

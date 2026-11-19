@@ -1,6 +1,6 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, OccurrenceId, type ParamId, ScopeId, VarId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import {
 	cellOrder,
 	cellTable,

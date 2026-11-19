@@ -1,9 +1,9 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import { bitInputText } from "#compiler/core/hex.ts"
 import { ExprId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
 	builtExpr,

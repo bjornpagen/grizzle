@@ -15,13 +15,13 @@
  * Features: each account scored, and a search over the view refused.
  */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { checkQuery } from "#compiler/check/index.ts"
-import * as Result from "#compiler/core/result.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { workload as servedPrograms } from "#compiler/program/workload/value.ts"

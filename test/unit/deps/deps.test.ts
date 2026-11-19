@@ -153,7 +153,7 @@ export const runtimeRunsUnderHardenedNodeAndLoadsEveryEntryPointEachReachingNoAr
 				why: "A src module (core/sqlstate.ts) builds and runs a RegExp as it loads; the tree's audit and the runtime property fail."
 			},
 			{
-				file: "packages/engine/src/core/array.ts",
+				file: "packages/text/src/base/array.ts",
 				original: "\tfor (let i = 0; i < n; i++) {",
 				replacement: "\tfor (let i = 0; i >= n; i++) {",
 				why: "Operator mutant (comparison) at packages/engine/src/core/array.ts:25 in indices: `<` becomes `>=`; the property fails (lane CATCH, grizzle 0baff5d6)."

@@ -19,6 +19,7 @@
  * Features: "equal facts spelled apart" and "deduplicated".
  */
 
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
@@ -27,7 +28,6 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
 import {

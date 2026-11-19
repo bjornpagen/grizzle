@@ -1,5 +1,5 @@
-import { defect, defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { fieldColumnType, rowTypeOf } from "#compiler/ir/physical.ts"
 import {
 	columnIn,

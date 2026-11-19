@@ -1,3 +1,5 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { nominal } from "#compiler/core/brand.ts"
 import {
 	type Canonicalizable,
@@ -8,9 +10,7 @@ import {
 } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { isCapturedStack, parseSourceLoc, SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { type CanonicalFloat, floatLiteral } from "#compiler/ir/carriers.ts"
 
 export type { Path }

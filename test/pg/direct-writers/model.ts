@@ -1,3 +1,4 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import type { Case } from "@bjornpagen/testing/explore"
 import { array, boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import {
@@ -10,7 +11,6 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { Expr, Insert, SqlStatement } from "#compiler/sql/ast.ts"
 import { and, col, eq, lit, provedSelect } from "#compiler/sql/build.ts"

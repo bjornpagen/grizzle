@@ -1,3 +1,4 @@
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
 /**
  * Compute.parseDouble on PostgreSQL 19rc2: over drawn decimal texts of doubles (test/support/lexical.ts doubleTextGen),
  * weighted at every point binary64's rounding turns on (the greatest finite double and the overflow threshold past it,
@@ -27,7 +28,6 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
-import * as Engine from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import {

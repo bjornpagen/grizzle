@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * A compiled write's binding: what binding one application of it reads besides the call's own values (write/program/
  * bind.ts bindWrite), every judgment it would otherwise take from the law model decided once, when the write compiles
@@ -6,7 +7,6 @@
  * and which columns of a written relation are a counted family's count or end.
  */
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { MemberDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"

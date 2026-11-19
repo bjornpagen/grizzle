@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	isWellFormedText,
 	joinWellFormed,
@@ -14,7 +15,6 @@ import {
 } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
-import * as Result from "#compiler/core/result.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 

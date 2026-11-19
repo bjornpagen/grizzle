@@ -1,3 +1,5 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 /**
  * Relation inputs: the host codec owns the set property and the null ban, deduplicating by fact identity after native
  * coercion and encoding canonically as one array literal per column. The host collects a Stream member whole before it
@@ -19,7 +21,7 @@
  * once and a fact spelled again; a column of no row, and a row of an empty cell; the bound far within, at, one past and
  * far past.
  */
-import { type Reached } from "@bjornpagen/testing/features"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import {
@@ -30,8 +32,6 @@ import {
 } from "#compiler/codec/recordset.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { EncodingFailure } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { arraysEncoder, readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, defined, failed, succeeded } from "#test/support/assert.ts"

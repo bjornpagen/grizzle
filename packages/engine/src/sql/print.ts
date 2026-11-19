@@ -1,3 +1,8 @@
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
@@ -6,7 +11,6 @@ import { resourceBound } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { BlockLines, CommentedLines, inlineText, type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { messageMaxBytes } from "#compiler/core/wire.ts"

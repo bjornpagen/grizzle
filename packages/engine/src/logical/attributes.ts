@@ -1,5 +1,5 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { nominal } from "#compiler/core/brand.ts"
-import { defined } from "#compiler/core/invariant.ts"
 
 /**
  * A node's attributes interned, and sets of them as bitsets.

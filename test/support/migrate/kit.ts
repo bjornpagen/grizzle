@@ -1,3 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	Array as Arr,
 	DateTime,
@@ -11,8 +13,6 @@ import { type LoginFileKind, loginFileKinds, loginFiles } from "#cli/files.ts"
 import type { refusalText } from "#cli/refusals.ts"
 import { rosterRenames } from "#cli/renames.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type MigrationName, parseMigrationName } from "#compiler/deploy/render/folder.ts"
 import { type GenerateResult, generateMigration } from "#compiler/deploy/render/generate.ts"

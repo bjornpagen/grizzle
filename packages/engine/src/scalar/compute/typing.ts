@@ -1,3 +1,13 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	appendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Patterns, PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
+import { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
 import { asciiFold } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { int4Max } from "#compiler/core/canonical.ts"
@@ -5,15 +15,7 @@ import { canonicalTextOf, catchRefusal, Refusal, sameContent } from "#compiler/c
 import { maxAllocSize } from "#compiler/core/errors.ts"
 import { CompileError, prose, type ProseTag, ruleRefused } from "#compiler/core/errors.ts"
 import type { FunctionDigest } from "#compiler/core/fingerprint.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import {
-	appendNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import { int4Digits, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { integerDigits, integerRanges } from "#compiler/ir/carriers.ts"
 import { dayNumber, firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
@@ -55,8 +57,6 @@ import {
 	languageWithin,
 	numericBoundOf,
 	numericTypmodOf,
-	type Patterns,
-	type PatternSource,
 	type PlainType,
 	rosterOf,
 	type ScalarType,
@@ -142,7 +142,7 @@ import {
 	wildcardText,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
-import { binary64Digits, regexMaxRepeat } from "#compiler/scalar/lexical.ts"
+import { binary64Digits } from "#compiler/scalar/lexical.ts"
 import { lexicalTargetOf } from "#compiler/scalar/lexical.ts"
 import { binary64Precision } from "#compiler/scalar/lexical.ts"
 import { plainType } from "#compiler/scalar/native.ts"

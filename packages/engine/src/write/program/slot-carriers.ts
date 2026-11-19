@@ -25,10 +25,14 @@
  * relation (write/program/analyze.ts), as every carrier of the program is. A slot of no column, read through its count,
  * carries nothing to stage.
  */
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ParamId } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { always } from "#compiler/ir/needs.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import type {

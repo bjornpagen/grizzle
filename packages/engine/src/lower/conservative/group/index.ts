@@ -1,6 +1,6 @@
+import { appendNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { appendNonEmpty } from "#compiler/core/nonempty.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import {
 	type ColumnMap,

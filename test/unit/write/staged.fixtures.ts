@@ -1,5 +1,6 @@
 /** What the properties of staged.test.ts read: its spaces, models and helpers. */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { array, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
@@ -7,7 +8,6 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import { prepared } from "#compiler/core/prepared.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { capabilitySet, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { MemberCell } from "#compiler/runtime/write/draw.ts"

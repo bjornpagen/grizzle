@@ -1,8 +1,8 @@
 /** What the properties of gaps.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import { type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import { keyFactors, type KeyProof } from "#compiler/ir/keys.ts"

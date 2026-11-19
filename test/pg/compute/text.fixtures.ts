@@ -1,8 +1,8 @@
 /** What the properties of text.test.ts read: its spaces, models and helpers. */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"

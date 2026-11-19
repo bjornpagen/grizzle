@@ -1,5 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import {
 	neighbourhood,
 	type Over,

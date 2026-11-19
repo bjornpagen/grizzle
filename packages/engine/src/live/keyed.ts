@@ -1,5 +1,5 @@
-import { defect } from "#compiler/core/invariant.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { ListChange, ReadShape, SetChange } from "#compiler/live/events.ts"
 import { type Form, formOf, type KeyFields, keyOf, type RowKey } from "#compiler/live/key.ts"
 

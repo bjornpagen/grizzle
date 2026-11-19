@@ -1,9 +1,9 @@
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * A group's key texts on the host, as a write's statements carry them: each key field's value admitted in its type's
  * carrier under the installation's codes.
  */
 import { carrierSpecOf, paramOfText } from "#compiler/codec/scalar.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { columnKeyOf } from "#compiler/ir/law.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"

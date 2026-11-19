@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Data, Effect, Option, Record as Rec } from "effect"
 import {
 	explainStatementWith,
@@ -7,7 +8,6 @@ import {
 } from "#bench/harness/explain.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { identity } from "#compiler/core/identity.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"

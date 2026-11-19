@@ -1,3 +1,4 @@
+import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { Case } from "@bjornpagen/testing/explore"
 import {
 	Array as Arr,
@@ -9,7 +10,6 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import { TupleSet } from "#compiler/core/tuple-map.ts"
 import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { sameValues, valueText } from "#test/support/laws/model.ts"
 import type { RealWorld } from "#test/support/worlds/execute/index.ts"

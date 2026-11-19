@@ -3,10 +3,14 @@
  * are read as, each part's rows behind its tag; the facts a member slot carries, read from its arrays; and the small
  * builders of the SQL the two write in common.
  */
-import { maxOf } from "#compiler/core/array.ts"
+import { maxOf } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	appendNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"

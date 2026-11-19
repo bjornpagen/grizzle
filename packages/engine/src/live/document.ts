@@ -7,7 +7,7 @@
  *
  * Runtime-free and browser-safe: a client reads the document once, trusting it as grizzle's own file.
  */
-import { defect, defined } from "#compiler/core/invariant.ts"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { MemberWire, RoleWitness } from "#compiler/live/shape.ts"

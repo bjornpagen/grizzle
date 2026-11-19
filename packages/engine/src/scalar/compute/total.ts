@@ -1,7 +1,7 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { deepFreeze } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { type ExprTable, predicateProblems, predicateTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"

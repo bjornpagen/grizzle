@@ -1,5 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Effect, Record as Rec, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { defined } from "#test/support/assert.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
 import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"

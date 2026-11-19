@@ -1,5 +1,9 @@
 /** What the properties of emptiness.test.ts read: its spaces, models and helpers. */
 
+import type * as Engine from "@bjornpagen/grizzle-text/base/result"
+import type { CharSet } from "@bjornpagen/grizzle-text/regex/charset"
+import { buildNfa, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { codePointsText } from "@bjornpagen/grizzle-text/text"
 import {
 	array,
@@ -15,11 +19,7 @@ import {
 import { Array as Arr, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
-import type * as Engine from "#compiler/core/result.ts"
-import type { CharSet } from "#compiler/scalar/regex/charset.ts"
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
-import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import {
 	families,

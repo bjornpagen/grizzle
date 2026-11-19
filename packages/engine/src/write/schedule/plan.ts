@@ -1,5 +1,11 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import {
 	CompileError,
@@ -8,10 +14,8 @@ import {
 	type ReadBackCrossing
 } from "#compiler/core/errors.ts"
 import type { EntryName, StoredRelationName } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Stamped } from "#compiler/ir/instant.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import { type DeltaSide, inputsOf, type RelNode } from "#compiler/ir/rel.ts"

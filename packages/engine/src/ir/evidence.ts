@@ -1,5 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ConstraintName, LawId, NodeId, ParamId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 
 /** The validity contexts evidence can hold in, from strongest to weakest scope. */

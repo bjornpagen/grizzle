@@ -1,3 +1,5 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Refusal } from "#compiler/core/canonical.ts"
 import {
 	type RuleBreach,
@@ -9,9 +11,7 @@ import {
 	resourceBound
 } from "#compiler/core/errors.ts"
 import { type LawId, makeIdSupply } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"

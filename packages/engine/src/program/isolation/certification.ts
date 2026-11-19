@@ -1,3 +1,7 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { TupleMap, TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import {
 	type Candidate,
 	certify,
@@ -8,13 +12,9 @@ import {
 import type { MemberFacts } from "#compiler/analysis/isolation/facts.ts"
 import type { CheckedSchema, RoleWorld } from "#compiler/analysis/schema.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { prepared } from "#compiler/core/prepared.ts"
-import * as Result from "#compiler/core/result.ts"
-import { TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
 import type { NativeColumn, NativeObject } from "#compiler/ir/law.ts"
 import { triggerLawsOver } from "#compiler/laws/model/model.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"

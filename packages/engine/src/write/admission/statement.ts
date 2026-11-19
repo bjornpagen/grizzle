@@ -1,4 +1,4 @@
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { always } from "#compiler/ir/needs.ts"
 import type { CallerParamDecl } from "#compiler/ir/products.ts"
 import { admittedTargets, checkedParams } from "#compiler/lower/conservative/admission.ts"

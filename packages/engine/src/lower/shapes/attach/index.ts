@@ -1,11 +1,11 @@
-import { resultTextCasts } from "#compiler/codec/scalar.ts"
-import type { NodeId } from "#compiler/core/ids.ts"
 import {
 	concatNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { resultTextCasts } from "#compiler/codec/scalar.ts"
+import type { NodeId } from "#compiler/core/ids.ts"
 import type { Cardinality } from "#compiler/ir/cardinality.ts"
 import type { CompletedOrder, Heading, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"

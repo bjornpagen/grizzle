@@ -3,9 +3,9 @@
  * compiled program exactly what an application reads, and `flightOf` loads it as an application of a write compiled in
  * process runs it, so every application runs the served form.
  */
-import { defect } from "#compiler/core/invariant.ts"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type {

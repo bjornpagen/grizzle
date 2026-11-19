@@ -1,5 +1,6 @@
 /** What the properties of membership.test.ts read: its spaces, models and helpers. */
 
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	boolean,
 	constant,
@@ -10,7 +11,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Order, Record as Rec } from "effect"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { type Codebook, codecOf, codeOf } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"

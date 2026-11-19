@@ -5,7 +5,7 @@
  */
 export type { Result } from "effect"
 export { indexesOf } from "#adapter/public/compile.ts"
-export type { Err, Ok } from "#compiler/core/result.ts"
+export type { Err, Ok } from "@bjornpagen/grizzle-text/base/result"
 export {
 	check,
 	codecText,

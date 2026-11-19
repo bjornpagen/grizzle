@@ -1,3 +1,5 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * A roster's codes as an installation holds them.
  *
@@ -11,9 +13,7 @@
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { bitInputText, hexText, setBit, wholeDigitBits, zeroDigits } from "#compiler/core/hex.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { type Reordered, type RosterCodes, rosterCodes } from "#compiler/ir/cells.ts"
 import type { Roster } from "#compiler/ir/scalar.ts"
 

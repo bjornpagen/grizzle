@@ -1,10 +1,10 @@
 /** What the properties of canonical.test.ts read: its spaces, models and helpers. */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import type { RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
 import { element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import type { Json } from "#compiler/core/canonical.ts"
-import { type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import { families, nestedPattern, patternOver } from "#test/unit/text/generators.ts"
 
 type Alt = Extract<RegexNode, { readonly kind: "alt" }>

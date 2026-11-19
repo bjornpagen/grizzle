@@ -1,8 +1,8 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
 import { ownedDigest } from "#compiler/core/fingerprint.ts"
-import type * as Result from "#compiler/core/result.ts"
 import type { ReplayedObject } from "#compiler/deploy/admission/manifest.ts"
 import type { InstallationManifest } from "#compiler/ir/products.ts"
 

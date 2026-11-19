@@ -1,4 +1,4 @@
-import * as Result from "#compiler/core/result.ts"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { fromUnits, toInteger } from "#compiler/scalar/compute/numeric.ts"

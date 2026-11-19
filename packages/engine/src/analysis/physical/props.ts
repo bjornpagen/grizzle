@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type {
 	Dependencies,
 	Identification,
@@ -5,7 +6,6 @@ import type {
 	JustifiedKey
 } from "#compiler/analysis/physical/fds.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Cardinality } from "#compiler/ir/cardinality.ts"
 import type { ElisionReason } from "#compiler/ir/certificate.ts"
 import type { RelKind } from "#compiler/ir/rel.ts"

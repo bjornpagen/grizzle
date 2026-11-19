@@ -21,10 +21,10 @@
  * Features: the inline statement, several fills, a carrier's ANALYZE, a row past the bound.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import * as Result from "#compiler/core/result.ts"
 import { executionsOf } from "#compiler/runtime/write/staged.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import {

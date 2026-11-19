@@ -1,5 +1,5 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { nominal } from "#compiler/core/brand.ts"
-import * as Result from "#compiler/core/result.ts"
 /**
  * The replication protocol commands the leader of an installation's live source sends on its decoder login's
  * replication connection (`replication=database`), each printed once at generate into the login's served file

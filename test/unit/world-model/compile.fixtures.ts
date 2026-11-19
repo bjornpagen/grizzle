@@ -1,8 +1,8 @@
 /** What the properties of compile.test.ts read: its spaces, models and helpers. */
 
+import type * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { type Aimed, aimed, constant, type Gen, map } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import type * as Engine from "#compiler/core/result.ts"
 import { additionsOf } from "#test/support/worlds/features.ts"
 import { defaultScope } from "#test/support/worlds/generate/enumerate.ts"
 import { installGen } from "#test/support/worlds/generate/install.ts"

@@ -1,5 +1,5 @@
-import { appendAll, maxOf } from "#compiler/core/array.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
+import { appendAll, maxOf } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	concatNonEmpty,
@@ -8,7 +8,7 @@ import {
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { always, type Needs } from "#compiler/ir/needs.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { shiftedPart, taggedArms } from "#compiler/lower/parts.ts"

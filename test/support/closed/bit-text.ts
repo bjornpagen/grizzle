@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The test oracles of a bit string's text: a closed relation's installed constant, a set over a roster, and the hex
  * spelling grizzle writes either in.
@@ -10,7 +11,6 @@
  */
 import { Array as Arr, String as Str } from "effect"
 import type { CompileBound } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Constant } from "#compiler/ir/cells.ts"
 
 /** The bits one hex digit spells, as the oracle counts them. */

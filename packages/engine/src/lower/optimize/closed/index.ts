@@ -1,5 +1,5 @@
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { nodePremises } from "#compiler/ir/certificate.ts"
 import type { ClosedEvidence } from "#compiler/ir/evidence.ts"
 import { columnReads, type OpId, type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"

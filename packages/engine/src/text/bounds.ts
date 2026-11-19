@@ -1,6 +1,6 @@
-import { type TextBounds, textBounds } from "#compiler/ir/scalar.ts"
-import { maxUtf8Width } from "#compiler/scalar/regex/charset.ts"
-import { folded, type RegexNode } from "#compiler/scalar/regex/ir.ts"
+import { maxUtf8Width } from "@bjornpagen/grizzle-text/regex/charset"
+import { type TextBounds, textBounds } from "@bjornpagen/grizzle-text/regex/dfa"
+import { folded, type RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
 
 interface Extent {
 	readonly length: number

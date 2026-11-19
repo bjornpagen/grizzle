@@ -3,6 +3,7 @@ import { Array as Arr, Data, Formatter, Option, Order, Record as Rec, String as 
 import { CompileError, type CompileReason, prose, type ProseTag } from "#compiler/core/errors.ts"
 import type { DomainDigest } from "#compiler/core/fingerprint.ts"
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	type DeclaredName,
 	identity as door,
@@ -13,7 +14,6 @@ import {
 } from "#compiler/core/identity.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
 import { candidateKeyFields, descText, type FieldDesc } from "#compiler/ir/desc.ts"

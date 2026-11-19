@@ -40,11 +40,12 @@
  * stands where two token lists first differ (TokenFeature).
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import {
 	arrayText,
 	canonicalEquals,
@@ -67,7 +68,6 @@ import {
 } from "#compiler/core/canonical.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	artifactRefusal,
 	assert,

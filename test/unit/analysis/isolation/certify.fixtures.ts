@@ -1,5 +1,6 @@
 /** What the properties of certify.test.ts read: its spaces, models and helpers. */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { array, element, type Gen, int, shuffled, subset, weighted } from "@bjornpagen/testing/gen"
 import type { Source } from "@bjornpagen/testing/source"
 import { regex } from "arkregex"
@@ -34,7 +35,6 @@ import type {
 	Unformed
 } from "#compiler/analysis/isolation/facts.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
-import * as Result from "#compiler/core/result.ts"
 import { defined } from "#test/support/assert.ts"
 import { expanded, type FlatRowSource } from "#test/support/expanded.ts"
 import { wild } from "#test/support/kernel/naming.ts"

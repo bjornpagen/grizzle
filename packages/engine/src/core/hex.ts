@@ -1,5 +1,5 @@
-import { defined } from "#compiler/core/invariant.ts"
-import * as Result from "#compiler/core/result.ts"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 
 /**
  * Hex, the one spelling of every bit string grizzle writes: a set's literal and its parameter text, a roster's live

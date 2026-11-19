@@ -1,8 +1,8 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { TupleMap, TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { WILD_KINDS } from "@bjornpagen/testing/lsw"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
-import { TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
-import { type Atom, type ValueIdentity } from "#test/support/kernel/identity.ts"
+import type { Atom, ValueIdentity } from "#test/support/kernel/identity.ts"
 import {
 	projection,
 	sameValues,

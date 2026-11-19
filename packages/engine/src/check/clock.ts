@@ -1,7 +1,7 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import { type ClockBinding, isInt8Type } from "#compiler/ir/clock.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 

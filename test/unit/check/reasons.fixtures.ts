@@ -1,13 +1,13 @@
 /** What the properties of reasons.test.ts read: its spaces, models and helpers. */
 
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { codePoint, element, type Gen, int, oneOf, string } from "@bjornpagen/testing/gen"
-import { type CorruptedFeature } from "@bjornpagen/testing/lsw"
+import type { CorruptedFeature } from "@bjornpagen/testing/lsw"
 import { bigint as bigintGen, double } from "@bjornpagen/testing/values"
 import { regex } from "arkregex"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import type * as Result from "#compiler/core/result.ts"
 import type { QueryDesc as LocatedQuery } from "#compiler/ir/desc.ts"
 import { assert, defined, placeOf, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
@@ -29,7 +29,7 @@ import {
 	rule,
 	vars
 } from "#test/unit/check/dsl.ts"
-import { type Boundary, type FaultRule } from "#test/unit/check/faults.ts"
+import type { Boundary, FaultRule } from "#test/unit/check/faults.ts"
 import { Qty } from "#test/unit/check/schemas.ts"
 
 /**

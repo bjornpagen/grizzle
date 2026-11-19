@@ -1,6 +1,6 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Brand } from "effect"
 import type { Columned } from "#compiler/core/decoder.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { mintedRefusal } from "#compiler/scalar/minted.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"

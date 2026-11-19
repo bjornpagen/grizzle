@@ -1,3 +1,4 @@
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import {
 	type Case,
 	type Draw,
@@ -46,7 +47,6 @@ import { assembled, cellKindOf, deliveryOf } from "#compiler/codec/delivery.ts"
 import { canonicalTag, catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import * as Engine from "#compiler/core/result.ts"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
 import { type Codebook, codecOf, codeOf, type RosterCodec } from "#compiler/ir/codes.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"

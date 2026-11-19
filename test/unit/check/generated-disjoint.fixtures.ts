@@ -1,10 +1,10 @@
 /** What the property of generated-disjoint.test.ts reads: the text types a case draws, its maps, and its oracle. */
 
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Gen } from "@bjornpagen/testing/gen"
 import { element } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type * as Result from "#compiler/core/result.ts"
 import {
 	compileInstallation,
 	type Installation,

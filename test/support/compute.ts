@@ -1,6 +1,6 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { unsupported } from "#compiler/core/errors.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Spelled } from "#compiler/ir/desc.ts"
 import type { OpId } from "#compiler/ir/expr.ts"
 import type { Precondition } from "#compiler/ir/proof.ts"

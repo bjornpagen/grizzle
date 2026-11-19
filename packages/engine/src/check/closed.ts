@@ -1,5 +1,5 @@
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ClosedRelation } from "#compiler/check/schema.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type {
 	ClosedHeading,
 	ClosedRelations,

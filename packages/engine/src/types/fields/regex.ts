@@ -1,5 +1,5 @@
+import type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
 import type { regex } from "arkregex"
-import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import type {
 	LanguageCount,
 	Rejected,

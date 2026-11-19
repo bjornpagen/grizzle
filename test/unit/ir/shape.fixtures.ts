@@ -1,5 +1,6 @@
 /** What the properties of shape.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import type { CheckoutDir } from "@bjornpagen/testing/checkout"
 import {
@@ -19,10 +20,9 @@ import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import { double } from "@bjornpagen/testing/values"
 import { Array as Arr, Cause, Data, Effect, Queue, Record as Rec, Stream } from "effect"
 import { ChildProcess } from "effect/process"
-import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import * as S from "#compiler/ir/shape.ts"
-import { type Place } from "#test/support/assert.ts"
+import type { Place } from "#test/support/assert.ts"
 
 /** A point: an integer x and an optional nonempty label. */
 const point = S.structWith({ x: S.integer }, { label: S.nonEmptyString })

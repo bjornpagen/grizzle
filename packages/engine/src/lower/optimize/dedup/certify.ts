@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	elisionCertificate,
 	existenceCertificate,
@@ -8,7 +9,6 @@ import type { PhysicalAnalysis } from "#compiler/analysis/physical/analyze.ts"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Certificate, MultiplicityRule } from "#compiler/ir/certificate.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { elisionKinds } from "#compiler/lower/optimize/dedup/policy.ts"

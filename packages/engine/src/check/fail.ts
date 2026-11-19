@@ -1,3 +1,4 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import {
@@ -8,7 +9,6 @@ import {
 	recursionRefused
 } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type * as Result from "#compiler/core/result.ts"
 
 /**
  * Refusal plumbing for the checker (compilation returns a Result and never throws).

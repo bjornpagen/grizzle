@@ -1,3 +1,11 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type Closure, closureOf } from "#compiler/analysis/closure.ts"
 import {
 	analyzeDerivedRelation,
@@ -17,16 +25,8 @@ import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { GeneratedRule, KeyFault } from "#compiler/core/causes.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { childLoc, labeledChildLoc, SourceLoc } from "#compiler/core/loc.ts"
-import {
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray,
-	sortNonEmpty
-} from "#compiler/core/nonempty.ts"
 import { compareStrings, mapInput } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	descText,
 	type ExprDesc,

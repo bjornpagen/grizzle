@@ -1,10 +1,4 @@
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
-import type { KeyFault } from "#compiler/core/causes.ts"
-import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
-import { identity, type IndexMethod } from "#compiler/core/identity.ts"
-import type { ConstraintName, IndexName, LawId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	extendNonEmpty,
 	isNonEmpty,
@@ -12,7 +6,14 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray,
 	sortNonEmpty
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import type { KeyFault } from "#compiler/core/causes.ts"
+import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
+import { identity, type IndexMethod } from "#compiler/core/identity.ts"
+import type { ConstraintName, IndexName, LawId } from "#compiler/core/ids.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	type Comparator,
 	combineAll,
@@ -24,7 +25,6 @@ import {
 	type Direction,
 	opposite
 } from "#compiler/core/order.ts"
-import type * as Result from "#compiler/core/result.ts"
 import {
 	defaultOpclass,
 	type IndexOpclass,

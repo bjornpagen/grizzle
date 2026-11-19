@@ -1,9 +1,9 @@
 /** What the properties of input.test.ts read: its spaces, models and helpers. */
 
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Record as Rec, String as Str } from "effect"
 import type { MemberFacts, StatementFacts, TriggerLaw } from "#compiler/analysis/isolation/facts.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { isolationInput } from "#compiler/program/isolation/input.ts"

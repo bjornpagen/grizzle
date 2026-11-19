@@ -1,3 +1,4 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 /**
  * A stamping insert reads its clock's head once per child it stamps, on PostgreSQL 19: an insert of Log's rows, Log(child,
  * at, note) keyed (child, at, note), its at a clock of child `child`, each row leaving at out, so the insert stamps
@@ -24,7 +25,6 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { planNodes } from "#bench/harness/explain.ts"
 import { explainedChange, installWrites, openFull, owner } from "#bench/write/support/writes.ts"
-import { indices } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { instant, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"

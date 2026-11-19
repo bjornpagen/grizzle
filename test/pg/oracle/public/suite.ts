@@ -1,3 +1,4 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	aimed,
 	type Case,
@@ -11,7 +12,6 @@ import { rating, required } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { Array as Arr, type Effect, Formatter, Option } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { runCase } from "#test/pg/oracle/public/run.ts"
 import { declineFeatures } from "#test/pg/oracle/support.ts"

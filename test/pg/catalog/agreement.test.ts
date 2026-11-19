@@ -1,3 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The compile-target catalog against its compositions on PostgreSQL 19 (R26-R31, R41, R42).
  *
@@ -27,10 +29,8 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { Direction } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"

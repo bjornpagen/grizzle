@@ -1,8 +1,8 @@
 /** What the properties of parse-once.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import {
@@ -174,7 +174,7 @@ export const evaluatorCaseOf = (c: ParseCase, selections: number) => {
 
 export const parseSites = Object.freeze({
 	admitted: { file: "packages/engine/src/scalar/regex/patterns.ts", name: "admittedParse" },
-	parsed: { file: "packages/engine/src/scalar/regex/parse.ts", name: "parsePattern" }
+	parsed: { file: "packages/text/src/regex/parse.ts", name: "parsePattern" }
 })
 
 export type ParseFeature =

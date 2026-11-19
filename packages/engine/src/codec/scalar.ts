@@ -1,8 +1,8 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import {

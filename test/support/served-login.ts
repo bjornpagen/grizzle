@@ -1,3 +1,4 @@
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { array, boolean, element, type Gen, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import {
@@ -8,7 +9,6 @@ import {
 	snapshotCompiled
 } from "#adapter/served/compile.ts"
 import { builtLogin, type LayerRole, ownLoginOver } from "#adapter/served/login.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { contextFieldAdmits, type FieldDecl, type SchemaDesc } from "#compiler/ir/desc.ts"

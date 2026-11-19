@@ -1,10 +1,13 @@
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
+import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
+import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { codePoints, compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Option, Result, String as Str } from "effect"
 import { floatSpecials } from "#compiler/core/canonical.ts"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
-import * as Engine from "#compiler/core/result.ts"
 import type { VectorText } from "#compiler/ir/carriers.ts"
 import {
 	type ColumnRef,
@@ -33,10 +36,7 @@ import {
 	nativeOps
 } from "#compiler/scalar/compute/registry.ts"
 import { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
-import { Matcher } from "#compiler/scalar/regex/match.ts"
 import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
-import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import type { BytesDigest } from "#compiler/scalar/values/bytes.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { compareFloat } from "#compiler/scalar/values/float.ts"

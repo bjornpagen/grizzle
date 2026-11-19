@@ -1,3 +1,6 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { lastNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The fill order of a schema's families (ir/fill.ts), built once when the schema compiles, and every column no write
  * can fill refused there, so a schema `grizzle generate` accepts is one every write of fills.
@@ -45,10 +48,7 @@ import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { FamilyName, FilledLater, FillAxis, UnwritableCause } from "#compiler/core/causes.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { lastNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import { fieldReads } from "#compiler/ir/expr.ts"
 import {
 	baseLiteral,

@@ -1,3 +1,4 @@
+import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { RecursionPlugin } from "#compiler/check/context.ts"
 import { only as onlyMember } from "#compiler/check/defined.ts"
 import { factorArms } from "#compiler/check/recursion/factor.ts"
@@ -6,7 +7,6 @@ import { scanArms } from "#compiler/check/recursion/scan.ts"
 import { conform, declaredRow, requireHashing } from "#compiler/check/recursion/state.ts"
 import { certificate, terminationVerdict } from "#compiler/check/recursion/termination.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 
 /** The location of a list's one member, or `fallback` for a list of none or several. */

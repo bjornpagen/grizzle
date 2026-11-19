@@ -1,4 +1,4 @@
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { baseTypeRef, qualifiedType } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {

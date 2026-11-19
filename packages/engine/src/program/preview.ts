@@ -1,3 +1,10 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
+import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
+import { hostRead } from "#compiler/core/host.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
+import { captureLoc } from "#compiler/core/loc.ts"
 /**
  * insertPreview(schema): the host half of an insertion, `ChangeSet.empty(S).insertAll(rows)`, as the first write of an
  * installation holding no row stores it, closed relations aside, with no SQL sent.
@@ -17,14 +24,8 @@
  * call does not insert is refused (OwnerAbsent),
  * since its family's statement would draw it past a stored owner no such installation holds.
  */
-import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
-import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
-import { hostRead } from "#compiler/core/host.ts"
-import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import { captureLoc } from "#compiler/core/loc.ts"
+import type { PublicResult } from "#compiler/core/public-result.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { familyKey, type FieldWriting, columnKeyOf } from "#compiler/ir/law.ts"
@@ -300,7 +301,7 @@ export const previewOver = (
 export const insertPreviewOver = <S extends AnySchema>(
 	schema: S,
 	transport: Transport,
-	answer: Result.PublicResult
+	answer: PublicResult
 ): Result.Result<InsertPreview<S>, CompileError> =>
 	Result.map(previewOver(schema, transport), (preview): InsertPreview<S> => {
 		const names: ReadonlyArray<string> = writableNamesOf(schema)

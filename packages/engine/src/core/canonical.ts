@@ -1,5 +1,7 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { jsonText, type WellFormedText, WellFormedWriter } from "@bjornpagen/grizzle-text/utf8"
-import { appendAll } from "#compiler/core/array.ts"
 import {
 	type CompileError,
 	isCompileError,
@@ -8,11 +10,9 @@ import {
 	resourceBound,
 	within
 } from "#compiler/core/errors.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { isCapturedStack, isSourceLoc, readSite, SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import { compareQuoted, wellFormed } from "#compiler/core/text.ts"
 
 /**
@@ -244,29 +244,9 @@ export class Refusal extends Error {
 	}
 }
 
-/**
- * The engine's one door from a thrown signal to a Result: runs `f`, and an instance of `signal` it throws is the
- * failure; any other throw is a defect and propagates. A signal is internal control flow, thrown deep inside a
- * traversal and caught at its boundary: the kernel's Refusal, a catalog recognizer's NoMatch, the regex parser's
- * Failure.
- */
-export const catchSignal = <A, S>(
-	signal: abstract new (...args: never) => S,
-	f: () => A
-): Result.Result<A, S> => {
-	try {
-		return Result.ok(f())
-	} catch (caught) {
-		if (caught instanceof signal) {
-			return Result.err(caught)
-		}
-		throw caught
-	}
-}
-
 /** Runs `f`, turning a thrown Refusal into a failure; any other throw is a defect and propagates. */
 export const catchRefusal = <A>(f: () => A): Result.Result<A, CompileError> =>
-	Result.mapError(catchSignal(Refusal, f), (refusal) => refusal.error)
+	Result.mapError(Result.catchSignal(Refusal, f), (refusal) => refusal.error)
 
 /**
  * Runs a public builder, which throws its CompileError to the JavaScript caller (schema(...), relation(...), the

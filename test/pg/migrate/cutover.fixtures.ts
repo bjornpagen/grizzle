@@ -1,5 +1,6 @@
 /** What the properties of cutover.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	accepted,
 	type Command,
@@ -34,7 +35,6 @@ import {
 } from "effect"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { transactionControl } from "#adapter/migrate/input.ts"
-import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"

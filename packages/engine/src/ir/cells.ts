@@ -1,3 +1,7 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { type ReadonlyTupleMap, TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 /**
  * The cells encoder: the one encoding of a closed relation as a string of cells, which every constant, domain and
  * lookup of a closed relation reads.
@@ -24,12 +28,8 @@ import {
 	setBit,
 	zeroDigits
 } from "#compiler/core/hex.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import { compareQuotedTuples } from "#compiler/core/text.ts"
-import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { RosterHandles, RosterOrder } from "#compiler/ir/scalar.ts"
 
 /** One code of a roster: the live handle it names, or the hole a removed handle left, which no handle takes again. */

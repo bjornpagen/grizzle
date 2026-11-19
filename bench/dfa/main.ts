@@ -1,4 +1,7 @@
 #!/usr/bin/env -S node
+import { type DfaLimits, type DfaOutcome, minimalDfa } from "@bjornpagen/grizzle-text/regex/dfa"
+import { buildNfa, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { parsePattern, type RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Array as Arr, Console, Data, DateTime, Effect, pipe, String as Str } from "effect"
@@ -10,10 +13,7 @@ import {
 } from "#bench/cold/identity.ts"
 import { elapsed, type Summary, summarize } from "#bench/cold/stats.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { type DfaLimits, type DfaOutcome, minimalDfa } from "#compiler/scalar/regex/dfa.ts"
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
-import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
-import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { upTo } from "#test/support/up-to.ts"
 

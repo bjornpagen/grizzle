@@ -1,5 +1,7 @@
 /** What the properties of lowered-rules.test.ts read: their spaces, the conditions restated, and their checkers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	type Aimed,
 	aimed,
@@ -14,10 +16,8 @@ import {
 } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId, RelationIdent } from "#compiler/core/ids.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import { compileLaws, triggerLawsOver } from "#compiler/laws/model/model.ts"

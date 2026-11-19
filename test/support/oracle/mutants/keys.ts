@@ -1,6 +1,6 @@
+import { appendAll, indices } from "@bjornpagen/grizzle-text/base/array"
 import { exact, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Option } from "effect"
-import { appendAll, indices } from "#compiler/core/array.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"

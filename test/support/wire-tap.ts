@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer"
 import { connect as netConnect } from "node:net"
 import { type TLSSocket, connect as tlsConnect } from "node:tls"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import {
 	Array as Arr,
 	Deferred,
@@ -15,7 +16,6 @@ import pgDriver from "pg"
 import type { ConnectRefusal } from "#adapter/errors/failures.ts"
 import type { Transport } from "#adapter/types/layer.ts"
 import { connectSession, type Session } from "#adapter/wire/session.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { pgPin } from "#test/support/env.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"

@@ -1,3 +1,4 @@
+import { appendAll, indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	type Answer,
 	accepted,
@@ -26,7 +27,6 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import { appendAll, indices } from "#compiler/core/array.ts"
 /**
  * The fin lemmas of fin.md §5.2, proved against PostgreSQL 19rc2 inside a stated box: the lowering's DDL written by hand
  * (test/pg/substrate/fin.ts), every state and every single mutation the box holds sent to PostgreSQL, and PostgreSQL's

@@ -1,3 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Deferred, Effect, Fiber, Formatter } from "effect"
 import type { ApplyError } from "#adapter/errors/execution.ts"
 import {
@@ -34,8 +36,6 @@ import {
 	warmedOnce,
 	writePhases
 } from "#bench/write/support/writes.ts"
-import { indices } from "#compiler/core/array.ts"
-import * as Engine from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { compileParsed, parsedChange } from "#compiler/plan/change.ts"
 import { noClock } from "#compiler/plan/common.ts"

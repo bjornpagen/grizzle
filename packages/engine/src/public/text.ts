@@ -30,7 +30,8 @@ export { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
 export { flightMaxBytes, messageMaxBytes } from "#compiler/core/wire.ts"
 export { maxStringLength } from "#compiler/core/canonical.ts"
 export { regexTextMaxBytes } from "#compiler/core/errors.ts"
-export { decimalTextMaxBytes, regexMaxRepeat } from "#compiler/scalar/lexical.ts"
+export { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
+export { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
 export { type JoinedHost, type RegexText, str } from "#compiler/text/field.ts"
 
 /** The SQL types a text parses into, those with a lexical form (scalar/lexical.ts). */
@@ -53,7 +54,7 @@ export const lexicalForm = (type: Field<unknown, ParseSql, unknown>): Pattern =>
 	Pattern.ofForm(lexicalTargetOfField(type))
 export type { Pattern } from "#compiler/scalar/regex/pattern.ts"
 export type { RegexFlagsValidate, RegexInfer, RegexValidate } from "#compiler/types/fields/regex.ts"
-export type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
+export type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
 
 /**
  * doubleText: the Pattern of every decimal text of a double, Compute.parseDouble's operand, under flags "u": a mantissa

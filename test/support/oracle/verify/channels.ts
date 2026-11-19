@@ -1,6 +1,6 @@
+import { appendAll, maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr } from "effect"
 import { cellKindOf, deliveryOf, resultWidth } from "#compiler/codec/delivery.ts"
-import { appendAll, maxOf } from "#compiler/core/array.ts"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { Heading } from "#compiler/ir/rel.ts"

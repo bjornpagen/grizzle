@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The facts a served change's call gives (adapter/db/workload.ts): its array members' facts, keyed by the op that adds
  * each member and then the relation it writes, read once at the boundary into the facts of the member slots the
@@ -7,7 +8,6 @@ import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { MemberAt } from "#compiler/runtime/write/binding.ts"
 
 /** An array member of a served change: the name of the member slot its facts travel in, the op that adds it and the

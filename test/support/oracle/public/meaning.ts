@@ -1,3 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Option, Record as Rec, Result } from "effect"
 import {
 	atomOperands,
@@ -7,11 +9,9 @@ import {
 } from "#compiler/allen/atoms.ts"
 import { allenFormula } from "#compiler/allen/lower.ts"
 import { fullAllenMask } from "#compiler/allen/mask.ts"
-import { indices } from "#compiler/core/array.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Engine from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import {
 	type ExprSpec,

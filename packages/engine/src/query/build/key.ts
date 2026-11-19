@@ -1,5 +1,5 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { ownedEntryOf } from "#compiler/schema/protocol.ts"

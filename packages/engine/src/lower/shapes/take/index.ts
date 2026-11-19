@@ -1,6 +1,6 @@
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import { atMost } from "#compiler/ir/cardinality.ts"
 import { localCertificate, makeCertificate } from "#compiler/ir/certificate.ts"
 import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"

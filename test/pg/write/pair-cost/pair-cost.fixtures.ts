@@ -1,10 +1,10 @@
 /** What the properties of pair-cost.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
 import { rowsScannedAndPaired } from "#bench/harness/explain.ts"
 import { explainedChange, installWrites, openFull } from "#bench/write/support/writes.ts"
-import { indices } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg, span } from "#compiler/public/fields.ts"
 import { counted, fin, key, on, relation, schema, select } from "#compiler/public/schema.ts"

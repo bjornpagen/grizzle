@@ -1,6 +1,6 @@
-import { postorder } from "#compiler/core/graph.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import { type CharSet, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
+import { postorder } from "#text/base/graph.ts"
+import { defect } from "#text/base/invariant.ts"
+import { type CharSet, isEmpty, union } from "#text/regex/charset.ts"
 
 /**
  * REG_MAX_COMPILE_SPACE's share of states: the compile space is the bytes of 500,000 states and four arcs for each,

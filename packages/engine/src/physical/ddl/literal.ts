@@ -1,5 +1,5 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	constantDigestOf,

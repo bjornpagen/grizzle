@@ -1,4 +1,4 @@
-import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
+import { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
 
 /**
  * The members of one union TypeScript represents: a union or template literal whose cross product reaches this many is

@@ -1,3 +1,4 @@
+import { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { ParseForm } from "#compiler/ir/proof.ts"
@@ -5,24 +6,6 @@ import type { NumericTypmod, ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { greatestFinite } from "#compiler/scalar/values/float.ts"
-
-/**
- * PostgreSQL's explicit repetition limit: a pattern whose `{m}`, `{m,}` or `{m,n}` states a bound above it is refused
- * (scalar/regex/parse.ts), as PostgreSQL's regex compiler refuses it (regcomp.c scannum, against DUPMAX, which is
- * _POSIX2_RE_DUP_MAX). regguts.h defines it only where <limits.h> does not, and POSIX fixes it at the same value
- * (https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/limits.h.html, "{_POSIX2_RE_DUP_MAX} Maximum number of
- * repeated occurrences of a BRE or ERE interval expression; [...] Value: 255"), so every platform's build has it.
- *
- * @limitKind published
- * @owner PostgreSQL 19rc2's regex compiler
- * @unit repetitions
- * @scope each bound of a counted repetition in one str.regex pattern
- * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/regex/regguts.h#L95
- * @quote #define _POSIX2_RE_DUP_MAX 255
- * @verified 2026-11-14
- */
-export const regexMaxRepeat = 255
 
 /**
  * IEEE 754-2019's binary64 format, double precision and JavaScript's number: its precision p.

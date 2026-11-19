@@ -1,7 +1,8 @@
 /** What the properties of normalize.test.ts read: its spaces, models and helpers. */
 
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { array, element, int, shuffled } from "@bjornpagen/testing/gen"
-import { type Case } from "@bjornpagen/testing/property"
+import type { Case } from "@bjornpagen/testing/property"
 import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Effect, Option, Order, Stream } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
@@ -9,7 +10,6 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { CodecFault, EncodingFailure } from "#compiler/core/errors.ts"
 import { hasProperties } from "#compiler/core/record.ts"
-import * as Engine from "#compiler/core/result.ts"
 import type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
 import { strataAt, type StratumAt } from "#compiler/ir/stratum.ts"
 import { pg } from "#compiler/public/fields.ts"

@@ -1,11 +1,11 @@
 /** What the properties of native.test.ts read: its spaces, models and helpers. */
 
-import { type Case, type Oracle } from "@bjornpagen/testing/explore"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { Case, Oracle } from "@bjornpagen/testing/explore"
 import { type Aimed, aimed, element, type Gen } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { assert, assertVariant, nonEmpty } from "#test/support/assert.ts"
 import {
 	type MutationStatement as FamilyStatement,

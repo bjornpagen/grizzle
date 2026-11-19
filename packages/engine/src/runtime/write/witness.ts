@@ -1,5 +1,13 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	concatNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import type {
 	ColumnIdent,
 	ConstraintName,
@@ -10,14 +18,6 @@ import type {
 	RelationIdent,
 	StoredRelationName
 } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import {
-	concatNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray,
-	sortNonEmpty
-} from "#compiler/core/nonempty.ts"
 import type { Split } from "#compiler/ir/cells.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ExprTable, TypedLiteral } from "#compiler/ir/expr.ts"

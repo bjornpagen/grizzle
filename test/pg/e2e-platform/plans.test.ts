@@ -34,12 +34,12 @@
  * its charges and debits written.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
-import { type Json } from "#compiler/core/canonical.ts"
-import { type AnyLoginRole } from "#compiler/public/schema.ts"
+import type { Json } from "#compiler/core/canonical.ts"
+import type { AnyLoginRole } from "#compiler/public/schema.ts"
 import { applyFacts, openedPlatform } from "#test/pg/e2e-platform/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"

@@ -1,6 +1,6 @@
+import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, type Gen, int, uniqueKeys, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
-import { maxOf } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"

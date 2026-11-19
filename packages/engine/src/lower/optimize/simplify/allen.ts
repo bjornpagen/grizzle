@@ -1,3 +1,4 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	AllenReading,
 	allenExpr,
@@ -8,7 +9,6 @@ import {
 } from "#compiler/check/allen.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { RootedDag } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"

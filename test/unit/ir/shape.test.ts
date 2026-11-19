@@ -21,13 +21,13 @@
  * site, each refinement admitted and refused, depths within and past a small stack, each cycle length and form.
  */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Checkout } from "@bjornpagen/testing/checkout"
-import { type Reached } from "@bjornpagen/testing/features"
+import type { Reached } from "@bjornpagen/testing/features"
 import { array, constant, element, finite, int, map, weighted } from "@bjornpagen/testing/gen"
 import { type Drawn, passed, wild } from "@bjornpagen/testing/lsw"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import * as S from "#compiler/ir/shape.ts"
 import {

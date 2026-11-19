@@ -1,18 +1,18 @@
-import { appendAll } from "#compiler/core/array.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
-import { CompileError } from "#compiler/core/errors.ts"
-import { type Identity, identifierOf } from "#compiler/core/identity.ts"
-import type { ConstraintName, IdentityKind, LawId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { Refusal } from "#compiler/core/canonical.ts"
+import { CompileError } from "#compiler/core/errors.ts"
+import { type Identity, identifierOf } from "#compiler/core/identity.ts"
+import type { ConstraintName, IdentityKind, LawId } from "#compiler/core/ids.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { codecOf } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {

@@ -1,4 +1,8 @@
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { type CallerParamDecl, callerParams } from "#compiler/ir/products.ts"
 import {
 	arraysSource,

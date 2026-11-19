@@ -1,8 +1,7 @@
 import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
-import { indices } from "#compiler/core/array.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
-import { type TextBounds, textBounds } from "#compiler/ir/scalar.ts"
+import { indices } from "#text/base/array.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#text/base/nonempty.ts"
+import { TupleMap } from "#text/base/tuple-map.ts"
 import {
 	type CharSet,
 	charSet,
@@ -13,11 +12,24 @@ import {
 	size,
 	utf8Classes,
 	utf8Width
-} from "#compiler/scalar/regex/charset.ts"
-import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
-import { type CharPartition, partitionOf } from "#compiler/scalar/regex/partition.ts"
-import { SearchSubsets, type Subset, subsetKey } from "#compiler/scalar/regex/subset.ts"
-import { entry } from "#compiler/scalar/regex/table.ts"
+} from "#text/regex/charset.ts"
+import type { Nfa } from "#text/regex/nfa.ts"
+import { type CharPartition, partitionOf } from "#text/regex/partition.ts"
+import { SearchSubsets, type Subset, subsetKey } from "#text/regex/subset.ts"
+import { entry } from "#text/regex/table.ts"
+
+/**
+ * Proved bounds on every member of a language, in code points and UTF-8 bytes. The analysis makes one by textBounds
+ * alone, frozen where it is made.
+ */
+export interface TextBounds {
+	readonly length: number
+	readonly bytes: number
+}
+
+/** Bounds of `length` code points and `bytes` UTF-8 bytes: the one constructor of a TextBounds, frozen. */
+export const textBounds = (length: number, bytes: number): TextBounds =>
+	Object.freeze({ length, bytes })
 
 export interface DfaLimits {
 	/** The most DFA states the subset construction may create. */

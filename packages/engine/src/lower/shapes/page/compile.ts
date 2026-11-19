@@ -1,14 +1,14 @@
-import { approximatePageMisuse } from "#compiler/check/approximate/provenance.ts"
-import { canonicalEquals, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedDescription, reportedAt } from "#compiler/core/errors.ts"
-import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
 	isNonEmpty,
 	lastNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { approximatePageMisuse } from "#compiler/check/approximate/provenance.ts"
+import { canonicalEquals, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { type CompileError, malformedDescription, reportedAt } from "#compiler/core/errors.ts"
+import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { contextAdmits } from "#compiler/ir/evidence.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"

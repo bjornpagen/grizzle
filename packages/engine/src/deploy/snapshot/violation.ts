@@ -1,6 +1,6 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { refuseLaw } from "#compiler/deploy/snapshot/objects.ts"
 import { meaningDigestWithin, rooted } from "#compiler/ir/dag.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"

@@ -1,5 +1,12 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	extendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { unwrap } from "#compiler/check/fail.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import { everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { int4Max } from "#compiler/core/canonical.ts"
@@ -13,14 +20,7 @@ import {
 	identity
 } from "#compiler/core/identity.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	extendNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import {
 	type BlockCoordinate,

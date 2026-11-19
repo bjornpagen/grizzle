@@ -1,5 +1,5 @@
+import type * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr } from "effect"
-import type * as Engine from "#compiler/core/result.ts"
 import type { AggregateFn } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"

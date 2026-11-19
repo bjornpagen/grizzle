@@ -12,12 +12,12 @@
  * Features: a binary operator and the negation among the forms; a function lowered to its call among the entries.
  */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { word } from "@bjornpagen/testing/dictionary"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { describeOp } from "#compiler/ir/expr.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { nativeOps, operandCarriers } from "#compiler/scalar/compute/registry.ts"

@@ -1,6 +1,6 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Formatter, Result } from "effect"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import { baseOf, numericTypmodOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"

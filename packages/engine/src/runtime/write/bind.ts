@@ -1,3 +1,7 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 /**
  * Binding one application of a write before any SQL is sent (`bindWrite`): its declared parameters admitted, its
  * members normalized, each statement's placeholder values encoded, and its statements' executions in its one flight,
@@ -12,11 +16,7 @@ import {
 import { carrierSpecOf, paramEncoder, paramOfText } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { isIterable } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import type { FillAt } from "#compiler/ir/fill.ts"
 import { familyKey, type GeneratedLaw, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"

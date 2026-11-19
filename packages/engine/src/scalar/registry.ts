@@ -1,3 +1,5 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { Columned } from "#compiler/core/decoder.ts"
 import {
 	type CompileError,
@@ -16,7 +18,6 @@ import {
 	fieldMark
 } from "#compiler/core/phantom.ts"
 import { deepFreeze, hasProperties } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc, FieldDesc, InferredFieldDesc, PgScalarName } from "#compiler/ir/desc.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
@@ -36,7 +37,6 @@ import {
 	type NumericBound,
 	type NumericTypmod,
 	type PatternLanguage,
-	type Patterns,
 	patternsText,
 	type Roster,
 	type ScalarType,

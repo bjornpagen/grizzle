@@ -1,3 +1,4 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import {
 	atomOperands,
@@ -9,7 +10,6 @@ import { allenFormula } from "#compiler/allen/lower.ts"
 import { AllenMask } from "#compiler/allen/mask.ts"
 import { makeIdSupply, type NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { DagBuilder, type ReservedNode } from "#compiler/ir/builder.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
 import { DecimalText, decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"

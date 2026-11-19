@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
@@ -17,7 +18,6 @@ import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "ef
 import { parsePlan, rowsRead } from "#bench/harness/explain.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 /**
  * The seeding of a rule over a query's probes on PostgreSQL 19rc2: each probe of the set judge (physical/ddl/rules.ts
  * addRules) is the rule's violation restricted to the rows the transaction wrote, its region, and those its chain

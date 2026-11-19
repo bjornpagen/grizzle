@@ -1,4 +1,8 @@
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { inputSetPlaceholder, type NodeOf, type PlaceholderInput } from "#compiler/ir/rel.ts"
 import {
 	arraysSource,

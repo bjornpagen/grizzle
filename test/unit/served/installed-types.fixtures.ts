@@ -1,5 +1,6 @@
 /** What the properties of installed-types.test.ts read: its spaces, models and helpers. */
 
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import { Result as Answered, Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { type ServedRefusal, snapshotCompiled } from "#adapter/served/compile.ts"
@@ -7,10 +8,9 @@ import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { servedSnapshot } from "#compiler/deploy/snapshot/served.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
-import { type ScalarType } from "#compiler/ir/scalar.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { paramDomainIdentity, paramDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { levelChain } from "#compiler/plan/common.ts"
 import { ownBuilt } from "#compiler/schema/own.ts"

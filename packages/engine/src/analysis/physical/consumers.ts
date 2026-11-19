@@ -1,5 +1,5 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import type { PhysicalProps, Realization } from "#compiler/analysis/physical/props.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import type { ConsumerSensitivity } from "#compiler/ir/multiplicity.ts"
 import type { KeySet, RelDag, RelNode } from "#compiler/ir/rel.ts"
 

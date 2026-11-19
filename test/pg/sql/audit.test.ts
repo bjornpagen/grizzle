@@ -1,3 +1,4 @@
+import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 /**
  * PostgreSQL as the second oracle of the SQL generator and of the structural audit (test/support/oracle/verify/sql.ts).
  *
@@ -26,7 +27,6 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { maxOf } from "#compiler/core/array.ts"
 import type { CreateTable, SqlStatement } from "#compiler/sql/ast.ts"
 import { builtinType, cUtf8Collation } from "#compiler/sql/build.ts"
 import { lex } from "#compiler/sql/lexer.ts"

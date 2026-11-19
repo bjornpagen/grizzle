@@ -1,5 +1,5 @@
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { FieldId } from "#compiler/core/ids.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings, mapInput } from "#compiler/core/order.ts"
 import type { CompatibilityClass } from "#compiler/ir/products.ts"
 import { type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"

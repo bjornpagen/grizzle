@@ -14,16 +14,16 @@
  * their limits, spans and vectors in keys.
  */
 
+import { maxOf } from "@bjornpagen/grizzle-text/base/array"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, boolean, constant, element, int, map, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { regex as arkregex } from "arkregex"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
-import { maxOf } from "#compiler/core/array.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
-import type { Patterns } from "#compiler/ir/scalar.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { keyTextBytes } from "#compiler/public/text.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"

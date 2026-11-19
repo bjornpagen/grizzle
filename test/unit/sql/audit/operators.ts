@@ -1,5 +1,9 @@
+import {
+	appendNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { Array as Arr, Option, String as Str } from "effect"
-import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type {
 	AlterTableAction,
 	Call,

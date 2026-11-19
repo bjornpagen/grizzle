@@ -19,10 +19,10 @@
  * none in progress.
  */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Option } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import {
 	caseGen,
 	cases,

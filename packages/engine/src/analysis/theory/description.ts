@@ -1,8 +1,8 @@
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { LawIdentity, ResolvedSide } from "#compiler/analysis/theory/laws.ts"
 import type { LawSide, QueryRule, RuleLaw } from "#compiler/analysis/theory/query.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { GeneratedLawId } from "#compiler/core/ids.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { everyFact, type ExprDesc, type SideDesc, type TermDesc } from "#compiler/ir/desc.ts"
 import { type Family, orderOf } from "#compiler/ir/family.ts"
 import {

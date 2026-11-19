@@ -1,10 +1,10 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import { buildTheory, type Theory } from "#compiler/analysis/theory/theory.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	type FieldDecl,
 	type FieldDesc,

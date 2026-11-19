@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CheckedSchema, checkedRoleOver, checkedSchema } from "#compiler/analysis/schema.ts"
 import {
 	type AdmittedQuery,
@@ -7,7 +8,6 @@ import {
 	checkReadBack
 } from "#compiler/check/index.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 import { decodeDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { parseSchemaInput, type SchemaInput } from "#compiler/program/schema.ts"

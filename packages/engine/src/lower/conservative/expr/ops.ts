@@ -1,5 +1,5 @@
-import { defect } from "#compiler/core/invariant.ts"
-import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { OpId, PatternTable, ScalarExpr } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"

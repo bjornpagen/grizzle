@@ -1,11 +1,6 @@
-import {
-	type AreAtom,
-	isAlternation,
-	piecesOf,
-	printableIntervals
-} from "#compiler/scalar/regex/are.ts"
-import type { CharSet, Interval } from "#compiler/scalar/regex/charset.ts"
-import { folded, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
+import { type AreAtom, isAlternation, piecesOf, printableIntervals } from "#text/regex/are.ts"
+import type { CharSet, Interval } from "#text/regex/charset.ts"
+import { folded, type LiveNode, type RegexNode } from "#text/regex/ir.ts"
 
 /**
  * The one printer of the regex IR, in three dialects: PostgreSQL's ARE (toAre), which a domain's CHECK and a query's

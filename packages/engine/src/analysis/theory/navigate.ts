@@ -1,3 +1,5 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import {
 	boundIn,
@@ -9,9 +11,7 @@ import {
 	varsOf
 } from "#compiler/analysis/theory/leaves.ts"
 import { leavesOf, ruleLeaves } from "#compiler/check/scan.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import {
 	type Channel,
 	exprChildren,

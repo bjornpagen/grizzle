@@ -14,13 +14,13 @@
  * Features: admitted and refused pairs; the column's width, a width one unit off it, and another width.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Reached } from "@bjornpagen/testing/features"
 import { constant, element, finite, int, oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
-import * as Result from "#compiler/core/result.ts"
 
 import { pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"

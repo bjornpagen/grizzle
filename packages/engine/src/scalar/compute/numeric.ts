@@ -1,4 +1,4 @@
-import * as Result from "#compiler/core/result.ts"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Undefined } from "#compiler/scalar/compute/registry.ts"
 import { Decimal, type FiniteParts, roundedUnits } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxFractionDigits } from "#compiler/scalar/values/fault.ts"

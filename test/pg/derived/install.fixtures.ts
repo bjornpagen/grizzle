@@ -1,12 +1,12 @@
 /** What the properties of install.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { array, element, type Gen, int, subset, weighted } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
 import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Effect, Order, pipe, Record as Rec, String as Str } from "effect"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
-import { indices } from "#compiler/core/array.ts"
-import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"

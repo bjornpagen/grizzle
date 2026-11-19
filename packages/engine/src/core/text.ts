@@ -1,8 +1,8 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { isWellFormedText, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import type { ValueFault } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import * as Result from "#compiler/core/result.ts"
 
 /**
  * Storable text: what PostgreSQL text can hold, and the orders of texts that spell lists of them, under the fixed

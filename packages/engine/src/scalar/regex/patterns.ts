@@ -1,9 +1,13 @@
-import { defect } from "#compiler/core/invariant.ts"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import type { CharSet } from "@bjornpagen/grizzle-text/regex/charset"
+import type { LiveNode, RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
+import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
+import { buildNfa, type NfaEdge } from "@bjornpagen/grizzle-text/regex/nfa"
+import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
+import { parsePattern, type RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
+import { entry } from "@bjornpagen/grizzle-text/regex/table"
 import type { ExprTable } from "#compiler/ir/expr.ts"
-import { type PatternSource, type RegexRef, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
-import type { CharSet } from "#compiler/scalar/regex/charset.ts"
-import type { LiveNode, RegexNode } from "#compiler/scalar/regex/ir.ts"
-import { Matcher } from "#compiler/scalar/regex/match.ts"
+import { type RegexRef, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import {
 	edgeCode,
 	matchFlags,
@@ -11,9 +15,6 @@ import {
 	type ServedMatcher,
 	type ServedMatchers
 } from "#compiler/scalar/regex/matcher.ts"
-import { buildNfa, type NfaEdge } from "#compiler/scalar/regex/nfa.ts"
-import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
-import { entry } from "#compiler/scalar/regex/table.ts"
 
 /**
  * An admitted pattern parsed: its node, which a translation's image reads, and the matcher of its automaton (match.ts

@@ -1,12 +1,12 @@
 /** What the properties of public-programs.test.ts read: its spaces, models and helpers. */
 
-import { type Case } from "@bjornpagen/testing/explore"
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"

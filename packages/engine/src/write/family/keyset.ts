@@ -13,14 +13,14 @@
  * `flaggedKeys`), never by a join of two: a CTE holds no statistics, so PostgreSQL estimates it at a row and may pair
  * every row of one with every row of the other.
  */
-import { defined } from "#compiler/core/invariant.ts"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { typedEq } from "#compiler/ir/compare.ts"
 import type { Family, TreeShape } from "#compiler/ir/family.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"

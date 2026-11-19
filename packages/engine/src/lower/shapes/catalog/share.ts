@@ -1,5 +1,5 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { OpId } from "#compiler/ir/expr.ts"
 import type { OperandPremise, OperationProof } from "#compiler/ir/proof.ts"
 import { type Cell, conservativeMeta, type EditRefs, type KindOver } from "#compiler/ir/rel.ts"

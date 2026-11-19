@@ -1,8 +1,8 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr } from "effect"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { ExprId, NodeId } from "#compiler/core/ids.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { assembledDag, edgeValues, normalizeWithin, topoOrder } from "#compiler/ir/dag.ts"
 import {
 	exprClosure,

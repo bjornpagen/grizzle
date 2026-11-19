@@ -1,3 +1,13 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	appendNonEmpty,
+	headNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import {
 	type LawSide,
@@ -10,21 +20,11 @@ import {
 	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
 import { checkQuery } from "#compiler/check/index.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals, canonicalTextOf, Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	appendNonEmpty,
-	headNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { weightOf } from "#compiler/core/zset.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"

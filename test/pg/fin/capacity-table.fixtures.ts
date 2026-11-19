@@ -1,8 +1,8 @@
 /** What the properties of capacity-table.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { accumulated, drawn, generated, natural, pg, span } from "#compiler/public/fields.ts"
 import {
@@ -20,7 +20,7 @@ import {
 	select
 } from "#compiler/public/schema.ts"
 import { type Seat as FinSeat, seatTemplate } from "#test/pg/fin/installed.ts"
-import { type FixtureSchema } from "#test/support/compile.ts"
+import type { FixtureSchema } from "#test/support/compile.ts"
 
 /** §6's rows. */
 export const rows = [

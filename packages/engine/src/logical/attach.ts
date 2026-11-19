@@ -1,6 +1,6 @@
-import { sameMembers } from "#compiler/core/array.ts"
+import { sameMembers } from "@bjornpagen/grizzle-text/base/array"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { NodeId, OccurrenceId } from "#compiler/core/ids.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	contextAdmits,
 	type EvidenceContext,

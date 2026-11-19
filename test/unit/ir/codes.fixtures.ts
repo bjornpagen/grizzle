@@ -1,9 +1,9 @@
 /** What the properties of codes.test.ts read: its spaces, models and helpers. */
 
+import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
 import { type Gen, int } from "@bjornpagen/testing/gen"
-import { type Case } from "@bjornpagen/testing/property"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order } from "effect"
-import { sameOrder } from "#compiler/core/array.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import {

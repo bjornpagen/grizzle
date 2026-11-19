@@ -1,3 +1,5 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
 /**
  * Liveness's one grammar: what a committed write changed, as the route keys a live program's runtime routes it by,
@@ -13,9 +15,7 @@ import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
 import { namedatalen } from "#compiler/core/identity.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { blockSize } from "#compiler/core/page.ts"
-import * as Result from "#compiler/core/result.ts"
 import { open, seal, sealKeyBytes, sealNonceBytes, sealTagBytes } from "#compiler/core/seal.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 

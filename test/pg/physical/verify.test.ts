@@ -1,3 +1,4 @@
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import { boolean, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
@@ -7,7 +8,6 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 /**
  * The catalog verifiers against drift on PostgreSQL 19: the erasure verifier (test/support/catalog/verify.ts), the
  * installed checker (test/support/catalog/installed.ts) and the manifest projection (test/support/catalog/expected.ts),

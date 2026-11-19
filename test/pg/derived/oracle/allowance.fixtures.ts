@@ -1,9 +1,9 @@
 /** What the properties of allowance.test.ts read: its spaces, models and helpers. */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec, String as Str } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { pg } from "#compiler/public/fields.ts"

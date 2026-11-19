@@ -1,5 +1,6 @@
 /** What the properties of checks.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import type { Case as SearchCase } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -13,7 +14,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Record, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { pg } from "#compiler/public/fields.ts"
 import {

@@ -32,6 +32,7 @@
  * leases than the pool holds.
  */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -48,7 +49,6 @@ import {
 } from "effect"
 import { LayerReleased } from "#adapter/errors/failures.ts"
 import type { Session } from "#adapter/wire/session.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import {
 	backendPidOf,
 	backendState,

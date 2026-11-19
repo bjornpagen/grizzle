@@ -1,3 +1,4 @@
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import {
 	Array as Arr,
 	Effect,
@@ -18,7 +19,6 @@ import type { Session } from "#adapter/wire/session.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { Law, Refused, RefusedLaw } from "#compiler/types/changeset/changeset.ts"

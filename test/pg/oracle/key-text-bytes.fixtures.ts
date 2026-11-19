@@ -1,5 +1,6 @@
 /** What the properties of key-text-bytes.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	type Aimed,
 	aimed,
@@ -11,7 +12,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import {
 	accumulated,
 	closedId,

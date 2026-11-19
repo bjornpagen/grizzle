@@ -1,5 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type {

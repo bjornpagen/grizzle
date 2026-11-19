@@ -1,3 +1,4 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { floorSeed } from "@bjornpagen/testing/random"
 import { sample, type Source } from "@bjornpagen/testing/source"
@@ -16,7 +17,6 @@ import type {
 } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import {
 	descText,

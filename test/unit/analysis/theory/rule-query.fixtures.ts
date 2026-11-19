@@ -1,10 +1,10 @@
 /** What the properties of rule-query.test.ts read: its spaces, models and helpers. */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import * as Result from "#compiler/core/result.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { TableConstraintLaw } from "#compiler/laws/model/model.ts"
 import { theoryViolations } from "#compiler/laws/model/violations.ts"

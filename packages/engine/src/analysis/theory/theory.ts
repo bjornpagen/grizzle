@@ -40,14 +40,14 @@ import {
 	type Part
 } from "#compiler/core/identity.ts"
 
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type RegionFacts, regionFactsOf } from "#compiler/analysis/theory/unit.ts"
 import { type ConstraintName, FieldId, type LawId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import * as Result from "#compiler/core/result.ts"
 import { type LabelledDag, LabelSupply } from "#compiler/ir/dag.ts"
 import {
 	type FieldDesc,

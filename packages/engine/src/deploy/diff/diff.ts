@@ -1,4 +1,13 @@
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { postorder } from "@bjornpagen/grizzle-text/base/graph"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { nominal } from "#compiler/core/brand.ts"
 import {
 	canonicalEquals,
@@ -7,7 +16,6 @@ import {
 	Refusal
 } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
-import { postorder } from "#compiler/core/graph.ts"
 import {
 	type Identity,
 	identifierOf,
@@ -15,14 +23,7 @@ import {
 	type TemporaryCensus,
 	type TemporaryKind
 } from "#compiler/core/identity.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray,
-	sortNonEmpty
-} from "#compiler/core/nonempty.ts"
 import {
 	type Comparator,
 	compareNumbers,
@@ -31,7 +32,6 @@ import {
 	mapInput,
 	thenBy
 } from "#compiler/core/order.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { type Aside, asideStatements } from "#compiler/deploy/diff/aside.ts"
 import {

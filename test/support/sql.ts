@@ -1,9 +1,9 @@
+import * as EngineResult from "@bjornpagen/grizzle-text/base/result"
 import { regex } from "arkregex"
 import { Array as Arr, Order, String as Str } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { CompileBound } from "#compiler/core/errors.ts"
-import * as EngineResult from "#compiler/core/result.ts"
 import { isDecimal, quoteIdent } from "#compiler/core/text.ts"
 import {
 	cellWidth,

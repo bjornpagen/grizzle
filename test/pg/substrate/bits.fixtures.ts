@@ -1,8 +1,8 @@
 /** What the properties of bits.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Option } from "effect"
-import { indices } from "#compiler/core/array.ts"
 
 /** PostgreSQL's, the host's or the reference's answer differs from another's, with all three spelt out. */
 export class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}

@@ -1,3 +1,5 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * A family's members drawn in SQL, in slot order, inside the statement that writes them: the values the host once drew
  * from a read of the stored group, computed by PostgreSQL from the group as the statement finds it. A migration's
@@ -28,9 +30,7 @@
  */
 import { Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import { columnReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Family, FamilyFold } from "#compiler/ir/family.ts"

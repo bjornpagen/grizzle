@@ -1,5 +1,6 @@
 /** What the properties of migrate.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	aimed,
 	array,
@@ -14,8 +15,7 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, pipe, String as Str } from "effect"
-import { type ParsedTarget } from "#adapter/migrate/input.ts"
-import { indices } from "#compiler/core/array.ts"
+import type { ParsedTarget } from "#adapter/migrate/input.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { RecordedFolder } from "#compiler/deploy/ledger/ledger.ts"

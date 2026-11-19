@@ -1,10 +1,10 @@
 /** What the properties of constants.test.ts read: its spaces, models and helpers. */
 
-import { type Case } from "@bjornpagen/testing/explore"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import {
 	admitLoginRoles,

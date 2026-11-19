@@ -1,7 +1,7 @@
+import * as EngineResult from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Option, Order, Result } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { ColumnIdent, LawId } from "#compiler/core/ids.ts"
-import * as EngineResult from "#compiler/core/result.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { AxisKind, Family } from "#compiler/ir/family.ts"
 import type { Drawn, LawRelation, NativeColumn, NativeObject, NativeOf } from "#compiler/ir/law.ts"

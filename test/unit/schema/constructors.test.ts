@@ -16,6 +16,7 @@
  * beside them.
  */
 
+import { appendAll, maxOf } from "@bjornpagen/grizzle-text/base/array"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -32,7 +33,6 @@ import { matching } from "@bjornpagen/testing/pattern"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { regex as arkregex } from "arkregex"
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
-import { appendAll, maxOf } from "#compiler/core/array.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	conjunctsOf,

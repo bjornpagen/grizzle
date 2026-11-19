@@ -29,10 +29,10 @@
  * and the domain refusing a negative count and a negative index.
  */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import {
 	caseGen,
 	type DomainFeature,

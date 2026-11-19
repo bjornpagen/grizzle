@@ -1,8 +1,8 @@
 /** What the properties of r37.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Term } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"

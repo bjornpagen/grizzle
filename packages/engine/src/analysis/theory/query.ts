@@ -1,3 +1,11 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import {
+	extendNonEmpty,
+	flatMapNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { refuse, refuseNamed } from "#compiler/analysis/theory/build.ts"
 import {
 	type BareLiteral,
@@ -9,15 +17,7 @@ import {
 	varRef,
 	varsOf
 } from "#compiler/analysis/theory/leaves.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	extendNonEmpty,
-	flatMapNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { mapRecord } from "#compiler/core/record.ts"
 import type { Refused } from "#compiler/core/refusals.ts"

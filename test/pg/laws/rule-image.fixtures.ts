@@ -1,10 +1,10 @@
 /** What the property of rule-image.test.ts reads: its schema and template, its space, and each case's run. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { parsePlan, type PlanNode, planNodes } from "#bench/harness/explain.ts"
-import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"

@@ -1,11 +1,11 @@
-import { type Identity, identity } from "#compiler/core/identity.ts"
 import {
 	appendNonEmpty,
 	flatMapNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { type Identity, identity } from "#compiler/core/identity.ts"
 import * as Order from "#compiler/core/order.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import {

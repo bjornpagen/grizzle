@@ -1,8 +1,8 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { type ReadonlyTupleSet, TupleMap, TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { type ReadonlyTupleSet, TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
 import { type Atom, sameIdentity, type ValueIdentity } from "#test/support/kernel/identity.ts"
 import {
 	everyFact,

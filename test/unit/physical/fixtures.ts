@@ -1,4 +1,4 @@
-import * as Result from "#compiler/core/result.ts"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { ExprDesc, FieldDecl, FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import type { IndexRequest } from "#compiler/ir/products.ts"
 import { noLive } from "#compiler/live/notify.ts"

@@ -1,11 +1,11 @@
-import { canonicalEquals } from "#compiler/core/canonical.ts"
-import type { NodeId } from "#compiler/core/ids.ts"
 import {
 	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
+import type { NodeId } from "#compiler/core/ids.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { SelectionKey } from "#compiler/ir/physical.ts"
 import type { HeadingColumn, NodeOf, Occurrence, VarDecl } from "#compiler/ir/rel.ts"

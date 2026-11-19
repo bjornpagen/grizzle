@@ -1,10 +1,10 @@
 /** What the properties of verify.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { type Aimed, aimed, type Gen, map, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import type { RelDag } from "#compiler/ir/rel.ts"
@@ -47,8 +47,8 @@ import {
 	untaggedUnionRoot,
 	witnessRoot
 } from "#test/support/oracle/mutants/cases.ts"
-import { type ChannelProgram } from "#test/support/oracle/verify/channels.ts"
-import { type PlanUnderVerification } from "#test/support/oracle/verify/multiplicity.ts"
+import type { ChannelProgram } from "#test/support/oracle/verify/channels.ts"
+import type { PlanUnderVerification } from "#test/support/oracle/verify/multiplicity.ts"
 import type { VerificationProblem } from "#test/support/oracle/verify/problems.ts"
 import { pickGen } from "#test/support/pick.ts"
 import { testSql } from "#test/support/sql.ts"

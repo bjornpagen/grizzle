@@ -1,5 +1,5 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Effect } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { type PreludeAt, preludeAt, preludeFrom } from "#test/support/prelude.ts"
 import {
 	neighbourhood,

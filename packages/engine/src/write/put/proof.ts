@@ -1,6 +1,6 @@
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"

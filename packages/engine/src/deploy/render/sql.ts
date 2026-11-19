@@ -1,16 +1,16 @@
-import { catchRefusal } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
-import type { LawId } from "#compiler/core/ids.ts"
-import type { Lines } from "#compiler/core/lines.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	concatNonEmpty,
 	flatMapNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
-import type * as Result from "#compiler/core/result.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import { catchRefusal } from "#compiler/core/canonical.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import type { LawId } from "#compiler/core/ids.ts"
+import type { Lines } from "#compiler/core/lines.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	type Action,

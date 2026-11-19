@@ -1,8 +1,8 @@
 /** What the properties of generated-side.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import {

@@ -1,5 +1,7 @@
 /** What the properties of migrations.test.ts read: its spaces, models and helpers. */
 
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type * as EngineResult from "@bjornpagen/grizzle-text/base/result"
 import {
 	accepted,
 	type Machine,
@@ -19,8 +21,6 @@ import { scalarReader } from "#compiler/codec/read.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type * as EngineResult from "#compiler/core/result.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"

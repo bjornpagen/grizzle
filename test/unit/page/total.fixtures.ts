@@ -1,8 +1,8 @@
 /** What the properties of total.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { relNode, rooted } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"

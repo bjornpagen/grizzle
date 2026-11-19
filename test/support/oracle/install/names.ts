@@ -1,9 +1,9 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { RosterCodec } from "#compiler/ir/codes.ts"
 
 /**

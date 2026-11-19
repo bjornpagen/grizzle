@@ -1,6 +1,6 @@
 import { availableParallelism } from "node:os"
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr } from "effect"
-import { indices } from "#compiler/core/array.ts"
 
 /**
  * The most sessions a test's pool holds at once (PoolBounds.max): one per core of the machine, the owner's all-cores

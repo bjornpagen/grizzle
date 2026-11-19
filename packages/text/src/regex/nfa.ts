@@ -1,6 +1,6 @@
-import type { CharSet } from "#compiler/scalar/regex/charset.ts"
-import { copiesOf, type RegexNode } from "#compiler/scalar/regex/ir.ts"
-import { entry } from "#compiler/scalar/regex/table.ts"
+import type { CharSet } from "#text/regex/charset.ts"
+import { copiesOf, type RegexNode } from "#text/regex/ir.ts"
+import { entry } from "#text/regex/table.ts"
 
 /**
  * An automaton's form, as buildNfa makes it and a load rebuilds it from the integers a served file carries (matcher.ts

@@ -1,5 +1,7 @@
 /** What the properties of file.test.ts read: its spaces, models and helpers. */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { constant, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
 import type { ScratchDir } from "@bjornpagen/testing/resources"
@@ -17,10 +19,8 @@ import {
 } from "effect"
 import { served } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { workload } from "#compiler/program/workload/value.ts"

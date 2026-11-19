@@ -1,3 +1,4 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	type Census,
 	type Censused,
@@ -5,7 +6,6 @@ import {
 	displayOf,
 	type StandingName
 } from "#compiler/core/identity.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import {
 	type AlterTableAction,
 	type ColumnDef,

@@ -1,5 +1,6 @@
 /** What the properties of histories.test.ts read: its spaces, models and helpers. */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	accepting,
 	type Command,
@@ -15,7 +16,6 @@ import type { Pending } from "@bjornpagen/testing/features"
 import { element, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { fullSwarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str, Struct } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { loginRoleExchange } from "#compiler/deploy/diff/diff.ts"
 import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"

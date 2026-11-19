@@ -1,9 +1,9 @@
 /** What the properties of credits.test.ts read: its spaces, models and helpers. */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { array, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import type { Addition } from "#compiler/public/changeset.ts"
 import { Uuid } from "#compiler/public/fields.ts"
 import {

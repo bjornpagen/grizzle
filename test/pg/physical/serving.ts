@@ -18,8 +18,8 @@ import {
 } from "#bench/harness/explain.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 
+import * as EngineResult from "@bjornpagen/grizzle-text/base/result"
 import type { Direction } from "#compiler/core/order.ts"
-import * as EngineResult from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { defaultOpclass, type LawField } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest, AccessUse, IndexRequest } from "#compiler/ir/products.ts"

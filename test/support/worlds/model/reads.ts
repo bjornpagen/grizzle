@@ -1,5 +1,5 @@
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { Array as Arr, Record as Rec } from "effect"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { sameValue, sameValues } from "#test/support/laws/model.ts"
 import { factKey, fieldDomain, headFieldDomain } from "#test/support/worlds/model/host.ts"

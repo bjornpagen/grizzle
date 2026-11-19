@@ -9,8 +9,8 @@
  * draws a plane by (`accumulations`: its aggregate, its arithmetic, and a step off the fold's selection). No site
  * dispatches on a monoid's name.
  */
-import { defect, defined } from "#compiler/core/invariant.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { int8Min } from "#compiler/ir/carriers.ts"
 import { integerRanges, MoneyText } from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"

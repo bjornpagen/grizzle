@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 /**
  * Each repeated shape of a JSON value defined once and referenced: the one sharing every file grizzle writes for a
  * login holds to (served/json.ts for the served file, live/openapi.ts for the OpenAPI document), over the format that
@@ -13,7 +14,6 @@
  * Runtime-free: generate runs it once per file it writes.
  */
 import type { Json } from "#compiler/core/canonical.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { isList } from "#compiler/core/record.ts"
 
 /**

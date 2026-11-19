@@ -1,3 +1,10 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type {
 	CteFacts,
 	CteUse,
@@ -10,10 +17,7 @@ import type {
 	StatementFacts,
 	WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { overRowsOf } from "#compiler/lower/conservative/expr/lateral.ts"
 import type {
 	Assignment,

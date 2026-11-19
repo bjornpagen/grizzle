@@ -1,5 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { fnBuilder, rowsBuilder } from "#compiler/schema/function.ts"
 import {
 	closedBuilder,

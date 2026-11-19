@@ -1,3 +1,11 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	flatMapNonEmpty,
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
 import { catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
@@ -13,15 +21,8 @@ import {
 	paramPlaceText
 } from "#compiler/core/identity.ts"
 import type { ConstraintName, DomainName, Identifier } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	flatMapNonEmpty,
-	type NonEmptyReadonlyArray,
-	sortNonEmpty
-} from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import { descText, type FieldDesc } from "#compiler/ir/desc.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
 import type { DomainCheck, DomainCheckTerm, LawField, TableRelation } from "#compiler/ir/law.ts"
@@ -30,7 +31,6 @@ import { type ParamDecl, type PhysicalReason, paramColumns } from "#compiler/ir/
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	type ContractInfo,
-	type Patterns,
 	patternsText,
 	type RegexRef,
 	type ScalarType,

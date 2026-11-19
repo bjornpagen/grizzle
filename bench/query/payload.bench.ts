@@ -15,6 +15,7 @@ import {
 	type VariantOptions
 } from "#bench/harness/variant.ts"
 
+import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import {
 	agrees,
 	autocommit,
@@ -35,7 +36,6 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 import { outline, planOf, serializedKb, summaryOf } from "#bench/query/support/plans.ts"
-import { maxOf } from "#compiler/core/array.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"

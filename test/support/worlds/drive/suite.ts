@@ -1,8 +1,5 @@
-import {
-	type Pending as Unreached,
-	type Reached,
-	type Situations
-} from "@bjornpagen/testing/features"
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import type { Pending as Unreached, Reached, Situations } from "@bjornpagen/testing/features"
 import {
 	element,
 	type Gen,
@@ -14,7 +11,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { type Case, type Kept, type Property, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Predicate, Record, type Scope, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"
 import { isImmediate, relationOf, sameValue, valueText } from "#test/support/laws/model.ts"
 import type { SqlError } from "#test/support/pg.ts"

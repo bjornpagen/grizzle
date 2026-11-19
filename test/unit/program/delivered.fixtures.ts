@@ -1,5 +1,6 @@
 /** What the properties of delivered.test.ts read: its spaces, models and helpers. */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { constant, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Result as Answered, Array as Arr, Formatter, Option, String as Str } from "effect"
@@ -8,7 +9,6 @@ import { readProgram } from "#adapter/reader/run.ts"
 import type { AttachmentLayout, BindContext, Layout } from "#compiler/core/decoder.ts"
 import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { codeNames } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"

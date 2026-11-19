@@ -1,5 +1,5 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CompileError } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import { own } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"

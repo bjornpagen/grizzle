@@ -1,3 +1,4 @@
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Refusal, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import { rowTypeDigest } from "#compiler/core/fingerprint.ts"
@@ -10,7 +11,6 @@ import {
 } from "#compiler/core/identity.ts"
 import type { ColumnIdent, DomainName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"

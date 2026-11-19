@@ -1,3 +1,9 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { carriedOn, spelledAxis } from "#compiler/analysis/theory/families.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import { canonicalEquals, Refusal } from "#compiler/core/canonical.ts"
@@ -10,9 +16,7 @@ import {
 	type TemporaryCensus
 } from "#compiler/core/identity.ts"
 import type { ColumnIdent, Identifier, LawId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import {
 	type Aside,

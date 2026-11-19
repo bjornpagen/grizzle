@@ -1,5 +1,5 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { LawId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { ConstraintLaw, ConstraintLawOf, DomainUse } from "#compiler/laws/model/model.ts"
 
 /** The laws of the columns `uses` a domain types, each once, in use order. */

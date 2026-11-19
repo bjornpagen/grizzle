@@ -1,6 +1,6 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { postorder } from "@bjornpagen/grizzle-text/base/graph"
 import { Array as Arr, Option } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
-import { postorder } from "#compiler/core/graph.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ExprId, NodeId, OccurrenceId } from "#compiler/core/ids.ts"
 import { jsonText } from "#compiler/core/trusted.ts"

@@ -42,15 +42,15 @@
  * owner's row first, and of two writes appending to one group at once the later meets that row and fails with 40001,
  * never at the (group, index) key both drew from their snapshots.
  */
-import { appendAll, firstIndex } from "#compiler/core/array.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
+import { appendAll, firstIndex } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"

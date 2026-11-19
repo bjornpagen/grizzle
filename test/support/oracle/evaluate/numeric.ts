@@ -1,4 +1,4 @@
-import * as Result from "#compiler/core/result.ts"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { fromUnits, type NumericResult } from "#compiler/scalar/compute/numeric.ts"
 import type { Undefined } from "#compiler/scalar/compute/registry.ts"
 import {

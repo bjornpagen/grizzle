@@ -1,5 +1,5 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import {
 	type BuiltinTypeName,

@@ -1,8 +1,8 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Reached, Situations } from "@bjornpagen/testing/features"
 import type { Budget, Case, Kill } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
-import * as Result from "#compiler/core/result.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import {

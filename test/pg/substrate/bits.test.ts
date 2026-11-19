@@ -15,6 +15,7 @@
  * disjoint set, one member of A, or independently, so every law is met both ways.
  */
 
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
@@ -29,7 +30,6 @@ import {
 	or,
 	toText
 } from "#compiler/codec/bits.ts"
-import { indices } from "#compiler/core/array.ts"
 import {
 	type BitFeature,
 	caseGen,

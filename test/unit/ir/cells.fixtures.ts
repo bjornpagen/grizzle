@@ -1,5 +1,7 @@
 /** What the properties of cells.test.ts read: its spaces, models and helpers. */
 
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type * as EngineResult from "@bjornpagen/grizzle-text/base/result"
 import {
 	array,
 	boolean,
@@ -11,11 +13,9 @@ import {
 	subarray,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { type Case } from "@bjornpagen/testing/property"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { maxStringLength } from "#compiler/core/canonical.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type * as EngineResult from "#compiler/core/result.ts"
 import {
 	type BlockCoordinate,
 	type CellLayout,

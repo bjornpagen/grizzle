@@ -1,11 +1,11 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * A family member relation's rows as the family statements write them (write/family/additions.ts, removals.ts): its
  * row layout (`rowLayout`), the families it is a member of, an owner's end fields, and an INSERT's gate of the rows it
  * places (`candidateGate`).
  */
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import {
 	type LawField,

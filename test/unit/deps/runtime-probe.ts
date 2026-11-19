@@ -208,7 +208,7 @@ const loads: ReadonlyArray<
  * test/unit/deps under the root it is given, so each resolves to the same URL as the root-relative path.
  */
 const field = await import("#compiler/text/field.ts")
-const parse = await import("#compiler/scalar/regex/parse.ts")
+const parse = await import("@bjornpagen/grizzle-text/regex/parse")
 const programPatterns = (await import("#compiler/scalar/regex/patterns.ts")).ProgramPatterns.of
 const refinement = await import("#compiler/text/refinement.ts")
 const texts = await import("#test/support/text.ts")

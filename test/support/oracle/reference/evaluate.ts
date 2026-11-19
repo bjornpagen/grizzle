@@ -1,5 +1,5 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Option, Record as Rec, Result } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"

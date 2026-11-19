@@ -1,9 +1,9 @@
 /** What the properties of checks.test.ts read: its spaces, models and helpers. */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { ConstraintOwner } from "#compiler/ir/products.ts"

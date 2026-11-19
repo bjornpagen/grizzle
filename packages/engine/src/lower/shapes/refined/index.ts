@@ -1,3 +1,5 @@
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	hasConstraint,
 	type RefinedConstant,
@@ -5,8 +7,6 @@ import {
 } from "#compiler/check/refinement/index.ts"
 import { canonicalEquals, canonicalTextOf, catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { Heading, NodeOf } from "#compiler/ir/rel.ts"

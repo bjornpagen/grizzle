@@ -15,11 +15,11 @@
  * Features: each account the read is served for.
  */
 
+import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { TupleSet } from "#compiler/core/tuple-map.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import { admittedPolicy, candidates, fixtureIn, vectorParam } from "#test/pg/vector/ann/support.ts"
 import {

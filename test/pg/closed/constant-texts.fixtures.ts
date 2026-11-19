@@ -1,5 +1,6 @@
 /** What the properties of constant-texts.test.ts read: its spaces, models and helpers. */
 
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Case } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -14,7 +15,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"

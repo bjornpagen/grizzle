@@ -1,18 +1,18 @@
-import { xmlWhitespace } from "@bjornpagen/grizzle-text/text"
-import type { PatternSource } from "#compiler/ir/scalar.ts"
-import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
 import {
 	type CharSet,
 	charSet,
 	complement,
 	isEmpty,
 	union
-} from "#compiler/scalar/regex/charset.ts"
-import type { LiveNode } from "#compiler/scalar/regex/ir.ts"
-import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
+} from "@bjornpagen/grizzle-text/regex/charset"
+import type { LiveNode } from "@bjornpagen/grizzle-text/regex/ir"
+import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
+import { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
+import type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
+import { sourceSet } from "@bjornpagen/grizzle-text/regex/print"
+import { alphabetOf, sourceFlags } from "@bjornpagen/grizzle-text/regex/source"
+import { xmlWhitespace } from "@bjornpagen/grizzle-text/text"
 import { memberNode, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { sourceSet } from "#compiler/scalar/regex/print.ts"
-import { alphabetOf, sourceFlags } from "#compiler/scalar/regex/source.ts"
 
 /**
  * XML Schema's whiteSpace facet over the four characters XML calls white space, `S ::= (#x20 | #x9 | #xD | #xA)+`

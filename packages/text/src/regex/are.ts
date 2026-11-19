@@ -4,8 +4,8 @@
  * The one printer of every dialect (print.ts) and the compile-space measure of PostgreSQL's regex compiler (space.ts)
  * both read it here.
  */
-import type { CharSet, Interval } from "#compiler/scalar/regex/charset.ts"
-import type { LiveNode } from "#compiler/scalar/regex/ir.ts"
+import type { CharSet, Interval } from "#text/regex/charset.ts"
+import type { LiveNode } from "#text/regex/ir.ts"
 
 /**
  * The set's intervals with the surrogate gap closed: no PostgreSQL text holds a surrogate, so [.., U+D7FF] and

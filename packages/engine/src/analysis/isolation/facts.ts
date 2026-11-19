@@ -1,3 +1,4 @@
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * What the isolation certifier reads of an installation (certify.ts): plain facts, drawn from the representation by
  * those who own it (each role's grant plan, the law model's discharge of each relation's laws, each compiled change
@@ -6,7 +7,6 @@
 import type { Witness } from "#compiler/analysis/theory/query.ts"
 import type { NoFormWhy } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import type { OnUpdate } from "#compiler/ir/law.ts"
 

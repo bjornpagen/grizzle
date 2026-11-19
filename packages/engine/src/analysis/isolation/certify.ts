@@ -1,3 +1,11 @@
+import { sameMembers, sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import {
 	type BodyFacts,
 	type CteUse,
@@ -17,14 +25,10 @@ import {
 	type WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
 import type { Witness } from "#compiler/analysis/theory/query.ts"
-import { sameMembers, sameOrder } from "#compiler/core/array.ts"
 import { noReadCommittedFormText } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
-import * as Result from "#compiler/core/result.ts"
-import { TupleSet } from "#compiler/core/tuple-map.ts"
 
 /**
  * The conditions a role's change members must all meet to run READ COMMITTED, after `form`, that every change member

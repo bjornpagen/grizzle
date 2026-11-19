@@ -1,7 +1,11 @@
-import { appendAll } from "#compiler/core/array.ts"
-import { postorder, stronglyConnected } from "#compiler/core/graph.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, lastNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { postorder, stronglyConnected } from "@bjornpagen/grizzle-text/base/graph"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	lastNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { type Dependency, type Implication, implication } from "#compiler/ir/keys.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import {

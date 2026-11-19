@@ -1,8 +1,8 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Effect, type Scope } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { admitLoginRoles } from "#compiler/ir/desc.ts"
 import {
 	compileInstallation,
