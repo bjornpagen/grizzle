@@ -59,8 +59,8 @@ export const aRuleOverAQueryJudgesTheTransactionsNetWriteAsTheRulesWholeCheckJud
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: '\t\t\t\t\t\t\t\t\t\tle(col("r3", "c2"), lit.int(0, types.bigint)),',
-				replacement: '\t\t\t\t\t\t\t\t\t\tle(col("r3", "c2"), lit.int(-1, types.bigint)),',
+				original: '\t\t\t\t\t\tle(col("r3", "c2"), lit.int(0, types.bigint)),',
+				replacement: '\t\t\t\t\t\tle(col("r3", "c2"), lit.int(-1, types.bigint)),',
 				why: "The judge's netting keeps an image whose puts and removals cancel, so a row a transaction put and removed is judged as if it stood, and a transaction that leaves the rules kept is refused."
 			},
 			{

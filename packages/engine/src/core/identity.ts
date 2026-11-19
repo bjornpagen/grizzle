@@ -4,6 +4,7 @@ import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { ConstantDigest, DomainDigest } from "#compiler/core/fingerprint.ts"
 import type { Identifier, IdentityKind } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings, type Direction } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
@@ -1555,6 +1556,23 @@ export const identity = Object.freeze({
 	 */
 	ruleJudge: (): Identity<"ruleJudge"> =>
 		mint("ruleJudge", [], ["judge"], "the rule judge", readable("__judge")),
+	/**
+	 * A part of the rule judge (physical/ddl/rules.ts addRules): the function that judges every rule whose statements
+	 * read one of the session's deltas `deltas`, which the judge runs where the session holds one of them. It is named
+	 * by its deltas, and its stem by the relation of the first, `relation`, so a part whose deltas change is another
+	 * function, created in its place.
+	 */
+	ruleJudgePart: (
+		relation: string,
+		deltas: NonEmptyReadonlyArray<Identity<"ruleDelta">>
+	): Identity<"ruleJudgePart"> =>
+		mint(
+			"ruleJudgePart",
+			deltas,
+			["judge", ...nameSegments(relation)],
+			`the rule judge of the deltas of ${relation} and the relations its rules join it to`,
+			hashed
+		),
 	/**
 	 * A session's delta of `relation`'s writes on one side of the rules that read it (physical/ddl/rules.ts addRules): a
 	 * table of pg_temp, by its installation, the identity of its root schema, since a session may write several, and by

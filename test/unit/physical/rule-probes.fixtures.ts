@@ -11,6 +11,7 @@ import type { PlStatement } from "#compiler/sql/ast.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { judgeBodiesOf } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
 import { probedRule } from "#test/support/probed.ts"
 import { owner } from "#test/unit/physical/fixtures.ts"
@@ -90,23 +91,17 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 		)
 	)
 	let statements = 0
-	for (const object of installation.manifest.objects) {
-		const [fn] = object.ddl
-		if (object.kind !== "ruleJudge" || fn?.kind !== "createFunction" || fn.language !== "plpgsql") {
-			continue
+	for (const block of blocksOf(judgeBodiesOf(installation))) {
+		assert.equal(
+			new Set(block.statements).size,
+			block.statements.length,
+			"the judge: each probe statement once in its guarded block"
+		)
+		if (block.statements.length >= 2) {
+			note("a block of two statements")
 		}
-		for (const block of blocksOf(fn.body.body)) {
-			assert.equal(
-				new Set(block.statements).size,
-				block.statements.length,
-				`${object.ident}: each probe statement once in its guarded block`
-			)
-			if (block.statements.length >= 2) {
-				note("a block of two statements")
-			}
-			if (block.olds) {
-				statements += block.statements.length
-			}
+		if (block.olds) {
+			statements += block.statements.length
 		}
 	}
 	if (probes > statements) {

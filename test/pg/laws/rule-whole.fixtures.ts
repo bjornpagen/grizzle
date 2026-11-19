@@ -4,7 +4,7 @@ import { aimed, array, boolean, element, type Gen, int, weighted } from "@bjornp
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec } from "effect"
 import { type PlanNode, parsePlan, planNodes, rowsRead } from "#bench/harness/explain.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
@@ -29,6 +29,7 @@ import { printExpr, printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
+import { judgeBodiesOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -904,22 +905,44 @@ export const runEquivalence = (
 		}
 	})
 
-/** The PL/pgSQL body of the installation's function named `name`. */
-const bodyOf = (installation: Installation, name: string): ReadonlyArray<PlStatement> =>
-	Arr.flatMap(installation.statements, (s) =>
-		s.kind === "createFunction" && s.language === "plpgsql" && s.name.name === name
-			? s.body.body
+/** The queries `body` tests by EXISTS to raise a rule named among `rules`, at any depth. */
+const raisedIn = (
+	body: ReadonlyArray<PlStatement>,
+	rules: ReadonlySet<string>
+): ReadonlyArray<OperandSelect> =>
+	Arr.flatMap(body, (s) =>
+		s.kind === "if"
+			? Arr.flatMap(s.branches, (b) => {
+					const [first] = b.body
+					const named =
+						first?.kind === "raise"
+							? Arr.findFirst(first.using, (o) => o.option === "CONSTRAINT").pipe(
+									Option.map((o) => o.value),
+									Option.getOrUndefined
+								)
+							: undefined
+					return [
+						...(b.condition.kind === "exists" &&
+						named?.kind === "literal" &&
+						named.value.kind === "text" &&
+						rules.has(named.value.value)
+							? [b.condition.query]
+							: []),
+						...raisedIn(b.body, rules)
+					]
+				})
 			: []
 	)
 
-/** The queries a judge's body tests by EXISTS at its top to raise: each whole rule's statement. */
+/** The queries the judge's parts test by EXISTS to raise a whole rule: each whole rule's statement. */
 export const wholeStatementsOf = (installation: Installation): ReadonlyArray<OperandSelect> =>
-	Arr.flatMap(bodyOf(installation, identifierOf(identity.ruleJudge())), (s) =>
-		s.kind === "if"
-			? Arr.flatMap(s.branches, (b) =>
-					b.condition.kind === "exists" && b.body[0]?.kind === "raise" ? [b.condition.query] : []
-				)
-			: []
+	raisedIn(
+		judgeBodiesOf(installation),
+		new Set(
+			Arr.flatMap(installation.laws.rules, (rule) =>
+				rule.rule.kind === "whole" ? [identifierOf(rule.named)] : []
+			)
+		)
 	)
 
 /**

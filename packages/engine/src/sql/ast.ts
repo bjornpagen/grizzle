@@ -325,7 +325,8 @@ export const builtinFunctionNames = [
 	"sha256",
 	"to_regclass",
 	"to_regprocedure",
-	"pg_get_userbyid"
+	"pg_get_userbyid",
+	"pg_my_temp_schema"
 ] as const
 export type BuiltinFunctionName = (typeof builtinFunctionNames)[number]
 
@@ -400,7 +401,10 @@ export interface Call {
 
 export type FunctionCall = CountStar | Call
 
-/** A record-valued PL/pgSQL name: a declared variable, or the trigger row images NEW and OLD. */
+/**
+ * A PL/pgSQL name: a declared variable or parameter, as the rule judge's flags and its session's deltas' names are
+ * (physical/ddl/rules.ts addRules), or the trigger row images NEW and OLD, each a record.
+ */
 export type PlRecord =
 	| { readonly kind: "plVar"; readonly name: string }
 	| { readonly kind: "plSpecial"; readonly name: "NEW" | "OLD" }

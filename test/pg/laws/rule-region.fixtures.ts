@@ -2,7 +2,7 @@
 
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { parsePlan, rowsTouched } from "#bench/harness/explain.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -14,6 +14,7 @@ import { printExpr } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
+import { judgeBodiesOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -117,13 +118,9 @@ const judgedStatements = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Opera
 			: []
 	)
 
-/** The judge's statements of `installed` (judgedStatements). */
+/** The judge's statements of `installed` (judgedStatements), in its parts. */
 const statementsOf = (installed: Installed): ReadonlyArray<OperandSelect> =>
-	Arr.flatMap(installed.installation.statements, (s) =>
-		s.kind === "createFunction" && s.language === "plpgsql" && Str.endsWith("__judge")(s.name.name)
-			? judgedStatements(s.body.body)
-			: []
-	)
+	judgedStatements(judgeBodiesOf(installed.installation))
 
 /**
  * The rows each judged statement handles at every node of its plan, over all of its loops (rowsTouched), on

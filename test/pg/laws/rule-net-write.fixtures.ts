@@ -21,6 +21,7 @@ import { printExpr, printStatement, quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
+import { judgeBodiesOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -165,7 +166,7 @@ const newsProbesOfA = (installation: Installation): ReadonlyArray<OperandSelect>
 		).pipe(Option.getOrUndefined),
 		"A's side of news"
 	)
-	return Arr.filter(probesIn(bodyOf(installation, identifierOf(identity.ruleJudge()))), (probe) =>
+	return Arr.filter(probesIn(judgeBodiesOf(installation)), (probe) =>
 		Str.includes(`"pg_temp".${quoteIdent(news.name)}`)(printExpr(exists(probe)))
 	)
 }

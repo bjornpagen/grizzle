@@ -94,6 +94,7 @@ import { cleared, type Seat, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
+import { judgeBodiesOf } from "#test/support/judge.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusalOf } from "#test/support/substrate.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -897,13 +898,10 @@ const bodyOf = (installation: Installation, name: string): ReadonlyArray<PlState
  */
 const probesOn = (seat: Seat, table: Table): ReadonlyArray<OperandSelect> => {
 	const deltas = deltasOf(seat, table)
-	return Arr.filter(
-		probesIn(bodyOf(seat.installed.installation, identifierOf(identity.ruleJudge()))),
-		(probe) => {
-			const text = printExpr(exists(probe))
-			return Arr.some(deltas, (d) => Str.includes(`"pg_temp".${quoteIdent(d.name)}`)(text))
-		}
-	)
+	return Arr.filter(probesIn(judgeBodiesOf(seat.installed.installation)), (probe) => {
+		const text = printExpr(exists(probe))
+		return Arr.some(deltas, (d) => Str.includes(`"pg_temp".${quoteIdent(d.name)}`)(text))
+	})
 }
 
 /** The planner settings of a table large beside one key's rows (the header). */

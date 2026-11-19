@@ -1259,7 +1259,7 @@ The whole map, from what you declare to what PostgreSQL enforces for every write
 | `closed.ordered(...)`, `closed.unordered(...)` | a smallint domain that admits only live handles' codes, checked against an IMMUTABLE function returning the roster's names as `name[]`; for a `bits(...)` field over the roster, a `bit(n)` domain that admits only live handles, n its codes rounded up to whole hex digits |
 | `closed.relation(...)` | no table: content-addressed IMMUTABLE constants for each closed relation or side a rule or query reads, and a table CHECK for each rule that reads one from an open row ([Closed relations](#closed-relations)) |
 | a rule: `contained`, `key`, `check`, ... | a foreign key, unique key, no-overlap key or CHECK, over STORED generated columns where a side selects rows or reads `pred` |
-| a rule over a derived relation | on each table its query reads, statement triggers that capture the rows each statement writes, and one deferred judge that runs the rule's violation query over them at COMMIT ([Rules over queries](#rules-over-queries)) |
+| a rule over a derived relation | on each table its query reads, statement triggers that capture the rows each statement writes, and one deferred judge that runs the rule's violation query over them at COMMIT where the transaction wrote a relation it reads ([Rules over queries](#rules-over-queries)) |
 | a family: `ordered`, `counted`, `tree`, `fold` | the drawn and accumulated fields grizzle fills on every write, hidden columns beside them, and the keys, CHECKs and foreign keys that prove each value it fills |
 | `role(...)` | a NOLOGIN role with a schema of views and its grants; on each table some role writes through a query entry that leaves rows out, row-level security and a policy for each role that writes it |
 | `login(...)` | a LOGIN NOINHERIT role that can switch to its roles, holds no privilege on your tables, and pins the session settings grizzle's guarantees rest on |
@@ -2217,7 +2217,13 @@ definition too.
   `DEFERRABLE INITIALLY DEFERRED`, whose function, the judge, runs at COMMIT: each rule's violation query, compiled by
   grizzle's own query compiler, read once over every row the transaction wrote, a chain of index lookups from the set of
   bindings those rows give it, each binding read once however many rows give it, or, for a unit-local rule, over the
-  set of the units those rows hold. It raises 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule. After `SET
+  set of the units those rows hold. It raises 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule. A
+  transaction runs only the rules over the relations it wrote: the judge reads once which of its temporary tables the
+  session holds, a part of the judge reads once which of its own hold a row, and a rule runs where a table its
+  violation query reads holds one, over tables that hold none its region being empty. The rules stand in parts, a
+  function each, the classes of the rules that read a temporary table in common, and the judge runs a part only where
+  the session holds one of its tables, so a session compiles, plans and runs only the parts of the relations it writes:
+  a learner's answers never run, plan or stand up the temporary tables of a content package's rules. After `SET
   CONSTRAINTS ALL IMMEDIATE` the judge runs at the end of each statement. The functions are SECURITY DEFINER on a
   pinned `search_path`, no role may run them, and a temporary table another role made under the judge's names is
   refused.

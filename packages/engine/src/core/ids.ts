@@ -87,6 +87,7 @@ export type IdentityKind =
 	| "ruleCapture"
 	| "captureTrigger"
 	| "ruleJudge"
+	| "ruleJudgePart"
 	| "ruleDelta"
 	| "ruleSentinel"
 	| "refusal"
