@@ -12,7 +12,8 @@ import {
 	attachedRows,
 	getCompiles,
 	headingNames,
-	reachedPairs
+	reachedPairs,
+	readsAsUnion
 } from "#test/support/worlds/model/reads.ts"
 import { applyCall } from "#test/support/worlds/model/session/apply.ts"
 import { claimsText } from "#test/support/worlds/model/session/claims.ts"
@@ -239,8 +240,10 @@ export const isPageSize = (size: number): boolean => Number.isSafeInteger(size) 
  * an attachment each row with the attached relation's rows whose field equals its own (model/reads.ts attachedRows); a
  * recursive read every pair its rows chain (reachedPairs). Refused on the host when it compiles: a relation the role does
  * not hold, a get naming a field its relation's heading lacks or holding a value of another type than its field's,
- * which the builder refuses as a literal of that field, a page ordered by a field its relation's heading lacks, and an
- * attachment or a recursive read naming a field its relation's heading lacks. A page of a compiled member whose size is
+ * which the builder refuses as a literal of that field, a page ordered by a field its relation's heading lacks, an
+ * attachment or a recursive read naming a field its relation's heading lacks, and a recursive read of a relation the
+ * role reads as a union, a query entry of more than one rule, since a recursion's step reads no union of rules
+ * (README "A recursive rule joins `self`": `RecursionRefused`, cause `unionStep`). A page of a compiled member whose size is
  * no window's size (isPageSize) is refused at its call's input, before the encoder sends anything.
  */
 const readCall = (
@@ -284,7 +287,9 @@ const readCall = (
 				? delivers((rows) => attachedRows(rows, rowsOf(via.relation), via, attachedField(heading)))
 				: refused
 		case "reach":
-			return heading.includes(via.from) && heading.includes(via.to)
+			return heading.includes(via.from) &&
+				heading.includes(via.to) &&
+				!readsAsUnion(role.entries[relation])
 				? delivers((rows) => reachedPairs(rows, via.from, via.to))
 				: refused
 		case "get":

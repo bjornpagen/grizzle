@@ -9,7 +9,13 @@ import {
 	steered as steeredSpace,
 	type Steered
 } from "@bjornpagen/testing/gen"
-import { type Case, type Kept, type Property, property } from "@bjornpagen/testing/property"
+import {
+	type Case,
+	type Kept,
+	type Kill,
+	type Property,
+	property
+} from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Predicate, Record, type Scope, String as Str } from "effect"
 import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"
 import { isImmediate, relationOf, sameValue, valueText } from "#test/support/laws/model.ts"
@@ -1754,6 +1760,8 @@ export interface ProgramSuite {
 	readonly lead: Lead
 	/** Its counterexamples, each replayed before any stream. */
 	readonly kept: ReadonlyArray<Kept>
+	/** The bugs it must catch (Kill), each applied in a kill trial its witnesses must fail. */
+	readonly kills: ReadonlyArray<Kill>
 }
 
 /**
@@ -1863,7 +1871,7 @@ export const programProperty = (spec: ProgramSuite): Property =>
 		},
 		budget: { runs: spec.cases, steered: programSteered * spec.cases },
 		kept: spec.kept,
-		kills: []
+		kills: spec.kills
 	})
 
 /**

@@ -51,5 +51,6 @@ export const readsRequired: Situations<WorldFeature> = [
 	"page:heading-key:first",
 	"page:heading-key:last",
 	"attach:nested",
-	"reach:chained"
+	"reach:chained",
+	"reach:union-refused"
 ]

@@ -58,7 +58,8 @@ export const privilegesCatalogCheck = programProperty({
 	realities: drawnRealities,
 	lead: noLead,
 	check: () => undefined,
-	kept: []
+	kept: [],
+	kills: []
 })
 
 /** Least privilege: a direct writer meets the world and the laws as the README's SQLSTATEs. */
@@ -74,5 +75,6 @@ export const privilegesDirect = programProperty({
 		breakingAtCommit(requiredWhere(directFeature))
 	),
 	check: readmeSqlstate,
-	kept: []
+	kept: [],
+	kills: []
 })

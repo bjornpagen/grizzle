@@ -21,5 +21,6 @@ export const errors = programProperty({
 	realities: docsAtBoundRealities,
 	lead: leadsOf(directTransaction(required), dbSession(required), breakingAtCommit(required)),
 	check: noCheck,
-	kept: []
+	kept: [],
+	kills: []
 })

@@ -17,5 +17,6 @@ export const pool = programProperty({
 	realities: drawnRealities,
 	lead: callPastAMigration(required),
 	check: noCheck,
-	kept: []
+	kept: [],
+	kills: []
 })

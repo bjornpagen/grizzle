@@ -17,5 +17,6 @@ export const rules = programProperty({
 	realities: drawnRealities,
 	lead: leadsOf(dbSession(required), domainRefusing),
 	check: witnessesShowTheirOwn,
-	kept: []
+	kept: [],
+	kills: []
 })

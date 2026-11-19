@@ -171,6 +171,14 @@ export const steppedPairs = (
 	)
 
 /**
+ * Whether a role reads `entry` as a union: a query entry of more than one rule, which a recursion's step may not read
+ * (README "A recursive rule joins `self`": RecursionRefused, cause unionStep), so a recursive read of it is refused when
+ * it compiles.
+ */
+export const readsAsUnion = (entry: EntrySpec | undefined): boolean =>
+	entry?.kind === "query" && entry.rules.length > 1
+
+/**
  * Every pair a relation's rows chain from field `from` to field `to` (README "Queries": recursion): each step's pair
  * (steppedPairs), and a pair's origin with each value a step starting at its reached value reaches, to a fixed point. A
  * recursive query's result is a set, so a cycle ends the walk.

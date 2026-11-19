@@ -26,5 +26,6 @@ export const deletion = programProperty({
 		derivedLeftStale(required)
 	),
 	check: noCheck,
-	kept: []
+	kept: [],
+	kills: []
 })
