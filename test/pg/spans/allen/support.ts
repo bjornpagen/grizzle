@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Order, type Scope } from "effect"
+import { Array as Arr, Effect, Option, Order } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
@@ -13,29 +13,17 @@ import { succeeded } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	type FixtureSchema,
-	installationSql,
 	paramTexts,
 	testCompile
 } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { oracleOwnedLogin } from "#test/support/oracle/install/real.ts"
-import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
 import { type ScriptInstall, scriptTemplate } from "#test/support/script-template.ts"
-import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import type { RawSession, SubstrateWorld } from "#test/support/substrate/session.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import type { RawSession } from "#test/support/substrate/session.ts"
 import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
-import { oracleWorld } from "#test/support/worlds.ts"
-
-export interface InstalledSpans {
-	readonly schema: string
-	readonly installation: Installation
-	/** The installation's one world, the oracle's full role (oracle/install/real.ts oracleLogin). */
-	readonly world: SubstrateWorld
-}
 
 export interface SpanInstallOptions {
 	readonly label: string
@@ -62,29 +50,7 @@ export const compileSpans = (
 }
 
 /**
- * Shared support of the span storage and Allen suites (test/pg/spans/allen, test/pg/spans/storage).
- *
- * A span schema installs through the fresh-install compiler, which gives every span column its shape, width and
- * endpoint CHECKs (physical/span), under a unique schema name, because roles are cluster-wide; a workload extension's GiST
- * requests join the installation's index requests. A query compiles through the program compiler (program/compile.ts) into a template whose two artifacts, optimized and
- * conservative, run statement by statement on a raw session: each placeholder encoded by its statement's own encoder,
- * every result column already cast to text by the template, so a run is the server's raw texts.
- */
-export const installSpans = (
-	desc: FixtureSchema,
-	options: SpanInstallOptions
-): Effect.Effect<InstalledSpans, SqlError | TransactionRolledBack, Substrate | Scope.Scope> =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const schema = yield* s.schema({ create: false, label: options.label })
-		const installation = compileSpans(desc, schema, options)
-		yield* transaction(s.admin, installationSql(installation, s.database))
-		const out: InstalledSpans = { schema, installation, world: yield* oracleWorld(installation) }
-		return out
-	})
-
-/**
- * installSpans as a template (script-template.ts scriptTemplate): `desc` compiled under the template's schema name
+ * A span schema as a template (script-template.ts scriptTemplate): `desc` compiled under the template's schema name
  * (compileSpans) by every worker, its script run once per member and its oracle login given its password, each case's
  * installation the template's in its clone. `name` tells it from its module's other templates.
  */

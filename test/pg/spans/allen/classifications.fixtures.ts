@@ -14,7 +14,6 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import {
 	compileSpanQuery,
-	type InstalledSpans,
 	compileSpans,
 	rowsAs,
 	runArtifact
@@ -152,7 +151,7 @@ const sameSortedRows = ordered(ordered(exact))
  * artifacts: a repeated row in either answer, or another set of pairs.
  */
 export const checkMask = (
-	installed: InstalledSpans,
+	installed: ScriptInstall,
 	reader: RawSession,
 	type: RangeType,
 	mask: number
@@ -279,7 +278,7 @@ export type PointFeature = `${WindowType} ${(typeof artifacts)[number]}`
  * The pointIn query of a point type over every stored span, and the pairs it must deliver: each span with each point
  * it contains. A contract point is compared as its base, the cast on the probe, never on the span.
  */
-export const pointCase = (point: WindowType, installed: InstalledSpans) => {
+export const pointCase = (point: WindowType, installed: ScriptInstall) => {
 	const type = point === "contract" ? "int8range" : point
 	const spans = universe(type)
 	const points =
