@@ -1,6 +1,6 @@
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
-import { readsOf, withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
+import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { clockParams } from "#compiler/check/clock.ts"
@@ -31,6 +31,7 @@ import {
 	type WriteMemberDesc,
 	type WriteOp
 } from "#compiler/ir/desc.ts"
+import { fieldReads } from "#compiler/ir/expr.ts"
 import { type Family, isSequence, isTreeOf, type TreeShape } from "#compiler/ir/family.ts"
 import { familyDrawn, layoutKey } from "#compiler/ir/fill.ts"
 import {
@@ -2247,7 +2248,7 @@ const compile = (
 					? [
 							{
 								key: columnKey({ kind: "field", field: f }),
-								reads: readsOf(f.writing.expr).map(keyOf)
+								reads: fieldReads([f.writing.expr]).map(keyOf)
 							}
 						]
 					: []
@@ -2257,7 +2258,7 @@ const compile = (
 					? [
 							{
 								key: columnKey({ kind: "law", column: c.column }),
-								reads: [...c.value.guard, c.value.term].flatMap(readsOf).map(keyOf)
+								reads: fieldReads([...c.value.guard, c.value.term]).map(keyOf)
 							}
 						]
 					: []

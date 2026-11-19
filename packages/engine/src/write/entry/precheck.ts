@@ -4,10 +4,10 @@ import type { EntryName, LawId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
-import { columnReads, witnessFields } from "#compiler/laws/model/uniques.ts"
+import { witnessFields } from "#compiler/laws/model/uniques.ts"
 import type { Cte, Expr, FunctionName, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	cast,
@@ -84,7 +84,7 @@ const probeCall = (world: CheckNames, entry: string, probe: OutsideProbe): Probe
 
 /** The fields of `relation` a generation expression reads, in declared field order. */
 const generatedFrom = (relation: RelationInfo, expr: ScalarExpr): ReadonlyArray<LawField> => {
-	const reads = new Set(columnReads(expr).map((c) => c.name))
+	const reads = new Set(fieldReads([expr]))
 	return relation.fields.filter((f) => reads.has(f.name))
 }
 

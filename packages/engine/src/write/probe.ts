@@ -1,3 +1,6 @@
+import { defined } from "#compiler/core/invariant.ts"
+import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 /**
  * A write statement's reads of stored relations, each driven by rows the statement holds: a probe of a key or a group
  * (sql/ast.ts FromSource `probe`), or the row an arbitration met (`met`). These are the only reads of a stored table a
@@ -6,12 +9,10 @@
  * lowering builds, never one of these. A family write's removals and a unit delete reach stored rows through keyed
  * reads instead (write/family/keyset.ts): joins from the rows they hold, each at an access path an index serves.
  */
-import { defined } from "#compiler/core/invariant.ts"
-import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
+import { columnReads } from "#compiler/ir/expr.ts"
 import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { columnReads, type UniqueObject } from "#compiler/laws/model/uniques.ts"
+import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env, LowerContext } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import type {
@@ -72,7 +73,7 @@ export const withinRow = (
 	u.kind === "guarded"
 		? u.within.map((g) => {
 				const columns: ColumnMap = new Map(g.reads.map((f) => [f.name, of(f)] as const))
-				const env: Env = new Map(columnReads(g.predicate).map((c) => [c.node, columns] as const))
+				const env: Env = new Map(columnReads([g.predicate]).map((c) => [c.node, columns] as const))
 				return lowerExpr(cx, g.predicate, env)
 			})
 		: []

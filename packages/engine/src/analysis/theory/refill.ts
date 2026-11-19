@@ -1,8 +1,8 @@
-import { readsOf } from "#compiler/analysis/theory/fill.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { DerivedReader } from "#compiler/core/causes.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { fieldReads } from "#compiler/ir/expr.ts"
 import { type AxisPair, type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 /**
  * What a write changes on rows already stored, and the families whose drawn values read such a change, which grizzle
@@ -116,7 +116,7 @@ const readersIn = (l: Family, column: NativeColumn): ReadonlyArray<Reader> => {
 		...l.folds.flatMap((fold): ReadonlyArray<Reader> =>
 			field !== undefined &&
 			((fold.step.kind === "value" && fold.step.field.name === field) ||
-				fold.where.some((w) => readsOf(w).includes(field)))
+				fold.where.some((w) => fieldReads([w]).includes(field)))
 				? [{ kind: "fold", family: l, column: { kind: "field", field: fold.planes[0].end } }]
 				: []
 		),
@@ -296,7 +296,7 @@ const reachedBy = (
 				for (const g of at.fields) {
 					if (
 						g.writing.kind === "generated" &&
-						readsOf(g.writing.expr).includes(column.field.name)
+						fieldReads([g.writing.expr]).includes(column.field.name)
 					) {
 						reach(at, { kind: "field", field: g }, own, copies)
 					}

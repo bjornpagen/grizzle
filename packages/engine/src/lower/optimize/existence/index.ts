@@ -4,7 +4,7 @@ import type { NodeId, VarId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { nodePremises } from "#compiler/ir/certificate.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { columnReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	type Cell,
 	type EditRefs,
@@ -17,7 +17,6 @@ import {
 import { baseOf } from "#compiler/ir/scalar.ts"
 import {
 	cellGraph,
-	columnRefs,
 	DagEditor,
 	derivedMeta,
 	widenedHeading
@@ -48,7 +47,7 @@ type Occurrence = OccurrenceOver<Cell, ScalarExpr, VarDecl>
 const regionReads = (region: Cell, o: Occurrence): ReadonlySet<string> => {
 	const out = new Set<string>()
 	for (const c of DagEditor.subtree(o.source)) {
-		for (const r of columnRefs(exprsOf(c.current)).filter((ref) => ref.node === region.id)) {
+		for (const r of columnReads(exprsOf(c.current)).filter((ref) => ref.node === region.id)) {
 			out.add(r.name)
 		}
 	}
@@ -81,7 +80,7 @@ const shapedExistence = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArr
 		if (!o.bindings.every((b) => elsewhere.has(b.var.id))) {
 			return false
 		}
-		if (columnRefs(o.constants.map((c) => c.expr)).length > 0) {
+		if (columnReads(o.constants.map((c) => c.expr)).length > 0) {
 			return false
 		}
 		return !DagEditor.correlated(o.source) && !cx.cells.feedback.has(o.source)

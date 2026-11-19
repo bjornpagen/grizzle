@@ -9,10 +9,10 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import * as Order from "#compiler/core/order.ts"
+import { fieldReads } from "#compiler/ir/expr.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
 import {
-	columnReads,
 	keyWitness,
 	type PrimaryKeyObject,
 	readFields,
@@ -203,7 +203,7 @@ export const readsDrawn = (u: UniqueObject, drawn: ReadonlyArray<string>): boole
 		(f) =>
 			drawn.includes(f.name) ||
 			(f.writing.kind === "generated" &&
-				columnReads(f.writing.expr).some((c) => drawn.includes(c.name)))
+				fieldReads([f.writing.expr]).some((name) => drawn.includes(name)))
 	)
 
 /** The unique objects of `relation` no declared key subsumes, as a statement probes them (`probeOrder`): those whose

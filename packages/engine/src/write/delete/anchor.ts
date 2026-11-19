@@ -1,5 +1,5 @@
 import { topoOrder } from "#compiler/ir/dag.ts"
-import { type ColumnRef, exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { columnReads, type ColumnRef, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import {
 	exprsOf,
@@ -25,13 +25,9 @@ type Region = NodeOf<"MatchRegion">
 const columnOf = (expr: ScalarExpr, input: RelNode): string | undefined =>
 	expr.kind === "column" && expr.column.node === input.id ? expr.column.name : undefined
 
-/** The node columns the expressions `exprs` read through column references. */
-const exprReads = (exprs: ReadonlyArray<ScalarExpr>): ReadonlyArray<ColumnRef> =>
-	exprClosure(exprs).flatMap((e) => (e.kind === "column" ? [e.column] : []))
-
 /** Every column reference the subtree rooted at `root` makes, its expressions' and its inputs' at any depth. */
 const subtreeReads = (root: RelNode): ReadonlyArray<ColumnRef> =>
-	exprReads(topoOrder({ roots: [root] }).flatMap((node) => exprsOf(node)))
+	columnReads(topoOrder({ roots: [root] }).flatMap((node) => exprsOf(node)))
 
 /** The anchor of a delete member rooted at `head` on `relation`, or undefined when the member is not anchored.
  *
@@ -125,7 +121,7 @@ export const deleteAnchor = (head: RelNode, relation: RelationInfo): DeleteAncho
 			(r) => r.node === occurrence.source.id || (r.node === region.id && aloneNames.has(r.name))
 		)
 	const constants = region.occurrences.flatMap((o) => o.constants.map((c) => c.expr))
-	if (readsAnchor(exprReads([...constants, ...region.correlated.map((c) => c.expr)]))) {
+	if (readsAnchor(columnReads([...constants, ...region.correlated.map((c) => c.expr)]))) {
 		return undefined
 	}
 	if (others.some((o) => readsAnchor(subtreeReads(o.source)))) {

@@ -3,7 +3,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId, OccurrenceId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { columnReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
 	type Cell,
@@ -18,7 +18,7 @@ import {
 	type RelNode,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import { columnRefs, DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
+import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 
 /**
  * A query restated by everyParentTakes, and the node standing in the restated DAG in place of each node of the query's
@@ -60,7 +60,7 @@ const candidateAt = (ed: DagEditor, cell: Cell): Candidate | undefined => {
 	if (take.kind !== "Take" || ed.isRoot(cell)) {
 		return undefined
 	}
-	if (take.correlation.some((c) => columnRefs([c.expr]).length > 0)) {
+	if (take.correlation.some((c) => columnReads([c.expr]).length > 0)) {
 		return undefined
 	}
 	/** One reader through one input position (DagEditor.readers): a region matching the take twice reads it twice. */
@@ -88,7 +88,7 @@ const candidateAt = (ed: DagEditor, cell: Cell): Candidate | undefined => {
 			return undefined
 		}
 		const reading = node.occurrences
-			.flatMap((o) => o.constants.map((c) => ({ o, c, refs: columnRefs([c.expr]) })))
+			.flatMap((o) => o.constants.map((c) => ({ o, c, refs: columnReads([c.expr]) })))
 			.filter(({ refs }) => refs.length > 0)
 		if (reading.some(({ refs }) => refs.some((r) => r.node !== consumer.id))) {
 			return undefined
@@ -107,7 +107,7 @@ const candidateAt = (ed: DagEditor, cell: Cell): Candidate | undefined => {
 		const rewritten = new Set(outer.map((c) => c.expr))
 		const region = at
 		const readsOutside = [...inside].some((n) =>
-			columnRefs(exprsOf(n.current).filter((e) => !(n === region && rewritten.has(e)))).some(
+			columnReads(exprsOf(n.current).filter((e) => !(n === region && rewritten.has(e)))).some(
 				(r) => !insideLabels.has(r.node)
 			)
 		)

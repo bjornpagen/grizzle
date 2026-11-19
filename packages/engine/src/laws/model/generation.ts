@@ -5,10 +5,9 @@
  * own expression (tables.ts lawColumnGeneration, lowerWrittenRow); and the anchor among the columns the UPDATE's
  * updater may assign.
  */
-import { readsOf } from "#compiler/analysis/theory/fill.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { serialDraw } from "#compiler/ir/desc.ts"
-import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { fieldReads, predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { nameKey, type ObjectName } from "#compiler/sql/ast.ts"
@@ -62,7 +61,7 @@ const storedGenerated = (laws: LawModel, relation: string): ReadonlyArray<Stored
 	const over = (
 		exprs: ReadonlyArray<ScalarExpr>
 	): { readonly columns: ReadonlyArray<string>; readonly size: number } => {
-		const reads = exprs.flatMap(readsOf).map(read)
+		const reads = exprs.flatMap((e) => fieldReads([e])).map(read)
 		return {
 			columns: [...new Set(reads.flatMap((r) => r.columns))],
 			size: exprs.reduce((sum, e) => sum + sizeOf(e), 0) + reads.reduce((sum, r) => sum + r.size, 0)

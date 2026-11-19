@@ -32,7 +32,7 @@ import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { columnReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Family, FamilyFold } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import {
@@ -54,7 +54,6 @@ import {
 } from "#compiler/ir/monoid.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { columnReads } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import type {
@@ -211,7 +210,7 @@ export const writeLowering = (w: WriteContext): ScanLowering => ({
 	names: w.names,
 	expression: (expr, field) => {
 		const env = new Map<Parameters<Env["get"]>[0], ColumnMap>()
-		for (const read of columnReads(expr)) {
+		for (const read of columnReads([expr])) {
 			const columns = new Map(env.get(read.node) ?? [])
 			columns.set(read.name, field(read.name))
 			env.set(read.node, columns)

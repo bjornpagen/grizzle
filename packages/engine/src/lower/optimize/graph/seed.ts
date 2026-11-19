@@ -2,11 +2,11 @@ import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals, sameUnder } from "#compiler/core/canonical.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { nodePremises } from "#compiler/ir/certificate.ts"
-import type { ColumnRef, DefinedOp, ScalarExpr } from "#compiler/ir/expr.ts"
+import { columnReads, type ColumnRef, type DefinedOp, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Cell, EditNode, EditRefs, HeadingColumn, KindOver } from "#compiler/ir/rel.ts"
 import { baseOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
-import { columnRefs, DagEditor, paramRefs } from "#compiler/lower/optimize/demand/editor.ts"
+import { DagEditor, paramRefs } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	type DemandAnalyses,
 	demandAnalyses,
@@ -155,7 +155,7 @@ const readsOnly = (
 	column: (ref: ColumnRef) => string | undefined,
 	allowed: ReadonlySet<string>
 ): boolean => {
-	const refs = columnRefs([expr])
+	const refs = columnReads([expr])
 	return (
 		refs.length > 0 &&
 		refs.every((r) => {
@@ -252,7 +252,7 @@ const constantSites = (
 		appendAll(
 			out,
 			o.constants.flatMap((c): ReadonlyArray<Site> => {
-				if (!allowed.has(c.column) || columnRefs([c.expr]).length > 0) {
+				if (!allowed.has(c.column) || columnReads([c.expr]).length > 0) {
 					return []
 				}
 				const stateColumn = rec.heading.find((h) => h.name === c.column)

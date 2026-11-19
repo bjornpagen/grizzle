@@ -2,7 +2,7 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type CertificateRule, localCertificate } from "#compiler/ir/certificate.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { columnReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	type Cell,
 	type EditNode,
@@ -17,7 +17,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
-import { columnRefs, DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
+import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	type CellDemand,
 	measureOverDemand,
@@ -125,7 +125,7 @@ const throughGroup = (
 	x: KindOver<"Group", EditRefs>
 ): boolean => {
 	const ed = cx.editor
-	const refs = columnRefs([m.filter.pred])
+	const refs = columnReads([m.filter.pred])
 	if (x.keys.length === 0 || !refs.every((r) => r.node === xCell.id && x.keys.includes(r.name))) {
 		return false
 	}
@@ -247,7 +247,7 @@ const intoSource = (
 		return true
 	}
 	for (const part of parts) {
-		const refs = columnRefs([part])
+		const refs = columnReads([part])
 		if (refs.length === 0 || !refs.every((r) => r.node === regionCell.id)) {
 			continue
 		}

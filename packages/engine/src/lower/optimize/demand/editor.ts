@@ -10,14 +10,15 @@ import {
 } from "#compiler/ir/dag.ts"
 import {
 	builtExpr,
+	columnReads,
 	type ColumnRef,
+	exprClosure,
 	type ExprOf,
 	type ExprSpec,
-	exprClosure,
 	type LiveArgs,
 	mapArgs,
-	type ScalarExpr,
 	sameArgs,
+	type ScalarExpr,
 	storedColumn
 } from "#compiler/ir/expr.ts"
 import { drive, Fold } from "#compiler/ir/fold.ts"
@@ -87,10 +88,6 @@ export const widenedHeading = (heading: Heading, vars: ReadonlyArray<VarDecl>): 
 	return [...heading, ...extra]
 }
 
-/** The column references the expression trees `roots` make, in their closure's first-visit order (ir/expr.ts). */
-export const columnRefs = (roots: ReadonlyArray<ScalarExpr>): ReadonlyArray<ColumnRef> =>
-	exprClosure(roots).flatMap((e) => (e.kind === "column" ? [e.column] : []))
-
 /** The parameters the expression trees `roots` read. */
 export const paramRefs = (roots: ReadonlyArray<ScalarExpr>): ReadonlyArray<ParamId> => [
 	...new Set(exprClosure(roots).flatMap((e) => (e.kind === "param" ? [e.param] : [])))
@@ -138,7 +135,7 @@ export const subtreeOf = <V>(g: Graph<V>, root: V): ReadonlySet<V> => {
 export const readsOutside = <V>(g: Graph<V>, inside: ReadonlySet<V>): boolean => {
 	const labels = new Set([...inside].map((v) => g.label(v)))
 	for (const v of inside) {
-		if (columnRefs(exprsOf(g.node(v))).some((r) => !labels.has(r.node))) {
+		if (columnReads(exprsOf(g.node(v))).some((r) => !labels.has(r.node))) {
 			return true
 		}
 	}
@@ -532,7 +529,7 @@ export class DagEditor<R extends Roots = Roots> {
 			const node = cell.current
 			if (
 				!edgesOf(node).includes(from) &&
-				!columnRefs(exprsOf(node)).some((r) => r.node === from.id)
+				!columnReads(exprsOf(node)).some((r) => r.node === from.id)
 			) {
 				continue
 			}

@@ -2,7 +2,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
-import type { ColumnIdent, ConstraintName, LawId, NodeId } from "#compiler/core/ids.ts"
+import type { ColumnIdent, ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
@@ -10,7 +10,7 @@ import {
 	isNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	declaredKeyOf,
 	isSpanField,
@@ -184,9 +184,8 @@ const compared = (
 		if (native.value.kind === "drawn") {
 			return undefined
 		}
-		const reads = columnReads(native.value.term)
 		const fields = readsOf(relation, native.value.term)
-		if (fields.length !== new Set(reads.map((r) => r.name)).size) {
+		if (fields.length !== fieldReads([native.value.term]).length) {
 			return undefined
 		}
 		for (const g of native.value.guard) {
@@ -262,25 +261,8 @@ const spanObject = (
 
 /** The fields of `relation` a row predicate reads, in declared field order. */
 const readsOf = (relation: LawRelation, predicate: ScalarExpr): ReadonlyArray<LawField> => {
-	const names = new Set(columnReads(predicate).map((c) => c.name))
+	const names = new Set(fieldReads([predicate]))
 	return relation.fields.filter((f) => names.has(f.name))
-}
-
-/** Every column a row expression reads, each a node and a column name, in the order the expression reads them. */
-export const columnReads = (
-	e: ScalarExpr
-): ReadonlyArray<{ readonly node: NodeId; readonly name: string }> => {
-	const out: Array<{ readonly node: NodeId; readonly name: string }> = []
-	const visit = (x: ScalarExpr): void => {
-		if (x.kind === "column") {
-			out.push(x.column)
-		}
-		for (const a of x.args) {
-			visit(a)
-		}
-	}
-	visit(e)
-	return out
 }
 
 /** A law column the law model planned on its relation is always known to it. */

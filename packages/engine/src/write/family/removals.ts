@@ -1,3 +1,9 @@
+import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
+import { appendAll } from "#compiler/core/array.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { typedEq } from "#compiler/ir/compare.ts"
 /**
  * A stratum's family removals as one statement: every member its edits remove or update in place, each group they
  * touch redrawn from its least changed slot, and every owner whose count or ends they change and no later statement
@@ -36,12 +42,7 @@
  * PostgreSQL finishes it before any slot it freed is taken again. Immediate foreign keys and the owner axis's cascade
  * act at the statement's end.
  */
-import { readsOf, withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
-import { appendAll } from "#compiler/core/array.ts"
-import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { typedEq } from "#compiler/ir/compare.ts"
+import { fieldReads } from "#compiler/ir/expr.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import {
@@ -175,7 +176,7 @@ export const familyInputs = (family: Family, relation: RelationInfo): ReadonlyAr
 			named.add(fold.step.field.name)
 		}
 		for (const w of fold.where) {
-			for (const name of readsOf(w)) {
+			for (const name of fieldReads([w])) {
 				named.add(name)
 			}
 		}

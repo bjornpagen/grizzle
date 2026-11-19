@@ -101,7 +101,7 @@ export const anExistenceOnlyMatchBecomesASemiJoinAnOccurrenceBindingNothingOfIts
 		kills: [
 			{
 				file: "packages/engine/src/lower/optimize/existence/index.ts",
-				original: "\t\tif (columnRefs(o.constants.map((c) => c.expr)).length > 0) {",
+				original: "\t\tif (columnReads(o.constants.map((c) => c.expr)).length > 0) {",
 				replacement: "\t\tif (o.constants.length > 0) {",
 				why: "An occurrence with any constant, a literal among them, is left a match; the existence-semi-join search fails."
 			}

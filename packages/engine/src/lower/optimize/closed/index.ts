@@ -2,17 +2,12 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { nodePremises } from "#compiler/ir/certificate.ts"
 import type { ClosedEvidence } from "#compiler/ir/evidence.ts"
-import { type OpId, type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"
+import { columnReads, type OpId, type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Cell, EditRefs, KindOver, OccurrenceOver, VarDecl } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
-import {
-	columnRefs,
-	DagEditor,
-	derivedMeta,
-	widenedHeading
-} from "#compiler/lower/optimize/demand/editor.ts"
+import { DagEditor, derivedMeta, widenedHeading } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	measureOverDemand,
 	overDemand,
@@ -64,7 +59,7 @@ const keyValue = (
 		return elsewhere.has(binding.var.id) ? { kind: "var", var: binding.var } : undefined
 	}
 	if (fixed.length === 1 && bound.length === 0 && constant !== undefined) {
-		return columnRefs([constant.expr]).length === 0
+		return columnReads([constant.expr]).length === 0
 			? { kind: "constant", expr: constant.expr }
 			: undefined
 	}
@@ -212,7 +207,7 @@ const rewriteMembership = (cx: RewriteCx, cell: Cell, region: Region, m: Members
 		 * The predicate reads the bound variables as the region's columns: one the region does not deliver widens it,
 		 * and a projection restores the heading it had.
 		 */
-		const read = new Set(columnRefs([pred]).map((r) => r.name))
+		const read = new Set(columnReads([pred]).map((r) => r.name))
 		const heading = widenedHeading(
 			region.heading,
 			region.vars.filter((v) => read.has(v.name))

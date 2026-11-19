@@ -3,7 +3,7 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
-import { describeOp, exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { describeOp, exprClosure, fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	exprsOf,
 	inputsOf,
@@ -207,9 +207,7 @@ const queryVectorOf = (
 	const { chain, region } = regioned
 	const fixing = fixingConjuncts(chain)
 	const anchors = new Map<Occurrence, Anchor>()
-	const names = new Set(
-		exprClosure([e]).flatMap((x) => (x.kind === "column" ? [x.column.name] : []))
-	)
+	const names = fieldReads([e])
 	for (const name of names) {
 		const decl = region.vars.find((v) => v.name === name)
 		if (decl === undefined || region.correlated.some((c) => c.var === decl)) {

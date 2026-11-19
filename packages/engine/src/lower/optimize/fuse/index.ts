@@ -1,9 +1,9 @@
 import type { NodeId, VarId } from "#compiler/core/ids.ts"
 import { localCertificate } from "#compiler/ir/certificate.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { columnReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Cell, EditRefs, KindOver, OccurrenceOver, VarDecl } from "#compiler/ir/rel.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
-import { columnRefs, DagEditor, derivedMeta } from "#compiler/lower/optimize/demand/editor.ts"
+import { DagEditor, derivedMeta } from "#compiler/lower/optimize/demand/editor.ts"
 
 import {
 	type CellDemand,
@@ -25,7 +25,7 @@ type Occurrence = OccurrenceOver<Cell, ScalarExpr, VarDecl>
 const predicateVars = (chain: RegionChain): ReadonlySet<string> =>
 	new Set(
 		chain.preds.flatMap((p) =>
-			columnRefs([p.pred]).flatMap((ref) => {
+			columnReads([p.pred]).flatMap((ref) => {
 				const v = p.columns.get(ref.name)
 				return v === undefined ? [] : [v.name]
 			})
@@ -47,7 +47,7 @@ const shapedFusion = (cx: RewriteCx, cell: Cell, o: Occurrence, chain: RegionCha
 	if (DagEditor.correlated(o.source)) {
 		return false
 	}
-	if (columnRefs(inner.occurrences.flatMap((x) => x.constants.map((c) => c.expr))).length > 0) {
+	if (columnReads(inner.occurrences.flatMap((x) => x.constants.map((c) => c.expr))).length > 0) {
 		return false
 	}
 	const innerOf = (column: string) => chain.columns.get(column)?.name
@@ -70,7 +70,7 @@ const shapedFusion = (cx: RewriteCx, cell: Cell, o: Occurrence, chain: RegionCha
 		if (equated.has(x)) {
 			return false
 		}
-		if (predVars.has(x) && columnRefs([c.expr]).length > 0) {
+		if (predVars.has(x) && columnReads([c.expr]).length > 0) {
 			return false
 		}
 	}

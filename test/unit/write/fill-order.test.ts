@@ -155,7 +155,7 @@ export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsGeneratedFi
 			{
 				file: "packages/engine/src/analysis/theory/fill.ts",
 				original:
-					'\t\tcase "generated":\n\t\t\treturn readsOf(rule.expr).map((name) => readColumn(relation, name))',
+					'\t\tcase "generated":\n\t\t\treturn fieldReads([rule.expr]).map((name) => readColumn(relation, name))',
 				replacement: '\t\tcase "generated":\n\t\t\treturn []',
 				why: "The fill order inverted: a generated field is filled on entering its row whatever it reads, so a copy of one that reads a fold's end or a counted family's column is admitted where the reference refuses it."
 			}

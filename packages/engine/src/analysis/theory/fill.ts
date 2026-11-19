@@ -49,7 +49,7 @@ import { defect, defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { lastNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { predicateTable, type ScalarExpr, tableReads } from "#compiler/ir/expr.ts"
+import { fieldReads } from "#compiler/ir/expr.ts"
 import {
 	baseLiteral,
 	type AxisKind,
@@ -66,6 +66,7 @@ import {
 	type FillRule,
 	type FillStage,
 	type FillWriter,
+	filledFrom,
 	layoutKey
 } from "#compiler/ir/fill.ts"
 import {
@@ -78,9 +79,6 @@ import {
 	fieldColumn
 } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-
-/** The field names an expression reads of its row. */
-export const readsOf = (expr: ScalarExpr): ReadonlyArray<string> => tableReads(predicateTable(expr))
 
 /**
  * `fields` of `relation`, then every field a generated one among them reads, transitively, each once: every field the
@@ -97,7 +95,7 @@ export const withGenerationInputs = (
 		if (field.writing.kind !== "generated") {
 			continue
 		}
-		for (const name of readsOf(field.writing.expr)) {
+		for (const name of fieldReads([field.writing.expr])) {
 			if (held.has(name)) {
 				continue
 			}
@@ -211,10 +209,10 @@ const readsOfRule = (relation: LawRelation, rule: FillRule): ReadonlyArray<Nativ
 			return [
 				...rule.befores,
 				...(rule.step.kind === "value" ? [rule.step.x] : []),
-				...rule.fold.where.flatMap((w) => readsOf(w).map((name) => readColumn(relation, name)))
+				...rule.fold.where.flatMap((w) => fieldReads([w]).map((name) => readColumn(relation, name)))
 			]
 		case "generated":
-			return readsOf(rule.expr).map((name) => readColumn(relation, name))
+			return fieldReads([rule.expr]).map((name) => readColumn(relation, name))
 		case "given":
 		case "owner":
 		case "index":
@@ -681,8 +679,7 @@ const readsBack = (draft: Draft, from: NativeColumn, to: NativeColumn): boolean 
 	const pending = [columnKey(from)]
 	for (let key = pending.pop(); key !== undefined; key = pending.pop()) {
 		const column = defined(draft.columns.get(key), `a column ${key} a draft's row reads`)
-		const rule = column.entry.rule
-		for (const read of rule.kind === "predecessor" ? [rule.to] : column.reads) {
+		for (const read of filledFrom(column.entry.rule, column.reads)) {
 			const next = columnKey(read)
 			if (next === columnKey(to)) {
 				return true

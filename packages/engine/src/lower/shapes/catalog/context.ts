@@ -3,6 +3,7 @@ import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { assembledDag } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, Grounds } from "#compiler/ir/evidence.ts"
+import { columnReads } from "#compiler/ir/expr.ts"
 import { keyIn } from "#compiler/ir/keys.ts"
 import {
 	type Cell,
@@ -16,7 +17,6 @@ import {
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
 import type { Props } from "#compiler/logical/props.ts"
-import { columnRefs } from "#compiler/lower/optimize/demand/editor.ts"
 import type { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
 
 /** A region as a catalog rewrite reads it: its occurrences' sources are cells. */
@@ -86,7 +86,7 @@ export class CatalogContext {
 			for (const input of inputsOf(cell.current)) {
 				add(cell, input.id)
 			}
-			for (const r of columnRefs(exprsOf(cell.current))) {
+			for (const r of columnReads(exprsOf(cell.current))) {
 				if (r.node !== cell.id) {
 					add(cell, r.node)
 				}

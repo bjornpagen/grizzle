@@ -140,6 +140,17 @@ export interface FillColumn {
 	readonly writer: FillWriter
 }
 
+/**
+ * The columns a fill column reads, its rule `rule` and its row's own columns `reads` (FillColumn.reads): a predecessor
+ * copy's column, which it reads on the member before, or the columns of its own row every other rule reads. The one
+ * reading the fill analysis follows a chain of copies by (analysis/theory/fill.ts readsBack) and a backfill's scan
+ * reads its rows by (deploy/diff/backfill.ts scanReads).
+ */
+export const filledFrom = (
+	rule: FillRule,
+	reads: ReadonlyArray<NativeColumn>
+): ReadonlyArray<NativeColumn> => (rule.kind === "predecessor" ? [rule.to] : reads)
+
 /** A relation's columns at one position, in the order each stage fills them, and the families its rows own. */
 export interface FillLayout {
 	readonly relation: TableRelation

@@ -69,20 +69,20 @@ import {
 } from "#compiler/core/nonempty.ts"
 import type { SnapshotTheory } from "#compiler/deploy/snapshot/types.ts"
 import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
-import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
+import { fieldReads, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, Family, FamilyFold, FoldPlane, TreeShape } from "#compiler/ir/family.ts"
 import {
 	type FillAt,
 	type FillColumn,
 	type FillLayout,
 	type FillRule,
+	filledFrom,
 	layoutKey
 } from "#compiler/ir/fill.ts"
 import type { NativeColumn, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
-import { columnReads } from "#compiler/laws/model/uniques.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import { lowerPersistent, persistentClosed } from "#compiler/physical/ddl/expr.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -498,10 +498,11 @@ const drawnAt = (
 	).columns.filter((c) => names.has(columnOf(c.column)))
 
 /**
- * The columns of the member a scan of `drawn` reads and does not draw, each as the table stores it: a fold's befores,
- * its step value and the fields its selection reads, and a predecessor copy's column, which it reads on the member
- * before; a generated field by the columns its generation reads, which the scan generates it from, as a write's does,
- * so no stored generation an earlier column's draw leaves stale is read.
+ * The columns of the member a scan of `drawn` reads and does not draw, each as the table stores it: what each drawn
+ * column's rule reads of the member's row (ir/fill.ts FillColumn.reads, the fill analysis's one reading of a rule, a
+ * fold's befores, its step value and the fields its selection reads), and a predecessor copy's column, which it reads
+ * on the member before; a generated field by the columns its generation reads, which the scan generates it from, as a
+ * write's does, so no stored generation an earlier column's draw leaves stale is read.
  */
 const scanReads = (
 	member: RelationInfo,
@@ -509,60 +510,28 @@ const scanReads = (
 ): ReadonlyArray<NativeColumn> => {
 	const drawnNames = new Set(drawn.map((c) => columnOf(c.column)))
 	const out = new Map<string, NativeColumn>()
-	const field = (name: string): NativeColumn => ({
-		kind: "field",
-		field: defined(
-			member.fields.find((f) => f.name === name),
-			`the field ${name} of ${member.name}`
-		)
-	})
-	/** Each field an expression over the member's row reads. */
-	const readsOf = (expr: ScalarExpr): void => {
-		for (const r of columnReads(expr)) {
-			read(field(r.name))
-		}
-	}
 	const read = (c: NativeColumn): void => {
 		const name = columnOf(c)
 		if (drawnNames.has(name) || out.has(name)) {
 			return
 		}
 		if (c.kind === "field" && c.field.writing.kind === "generated") {
-			readsOf(c.field.writing.expr)
+			for (const input of fieldReads([c.field.writing.expr])) {
+				read({
+					kind: "field",
+					field: defined(
+						member.fields.find((f) => f.name === input),
+						`the field ${input} of ${member.name}`
+					)
+				})
+			}
 			return
 		}
 		out.set(name, c)
 	}
 	for (const c of drawn) {
-		switch (c.rule.kind) {
-			case "predecessor":
-				read(c.rule.to)
-				break
-			case "after":
-				for (const b of c.rule.befores) {
-					read(b)
-				}
-				if (c.rule.step.kind === "value") {
-					read(c.rule.step.x)
-				}
-				for (const w of c.rule.fold.where) {
-					readsOf(w)
-				}
-				break
-			case "index":
-			case "copy":
-				break
-			case "given":
-			case "owner":
-			case "self":
-			case "own":
-			case "count":
-			case "start":
-			case "end":
-			case "ownerCopy":
-			case "last":
-			case "generated":
-				throw defect(`a ${c.rule.kind} rule among the columns a backfill's scan draws`)
+		for (const r of filledFrom(c.rule, c.reads)) {
+			read(r)
 		}
 	}
 	return [...out.values()]

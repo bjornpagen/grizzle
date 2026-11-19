@@ -1026,6 +1026,22 @@ export const exprClosure = (roots: ReadonlyArray<ScalarExpr>): ReadonlyArray<Sca
 	return [...seen]
 }
 
+/** The columns the expressions `exprs` read, each a column among them, in their order. */
+const columnsAmong = (exprs: ReadonlyArray<ScalarExpr | TableExpr>): ReadonlyArray<ColumnRef> =>
+	exprs.flatMap((e) => (e.kind === "column" ? [e.column] : []))
+
+/**
+ * The columns the expression trees `roots` read, each column of their closure once, in its first-visit order
+ * (exprClosure): the one reading of the columns an expression reads, iterative, which tableReads is of a table.
+ */
+export const columnReads = (roots: ReadonlyArray<ScalarExpr>): ReadonlyArray<ColumnRef> =>
+	columnsAmong(exprClosure(roots))
+
+/** The fields the expression trees `roots` read of their row, by name, each once, in columnReads's order. */
+export const fieldReads = (roots: ReadonlyArray<ScalarExpr>): ReadonlyArray<string> => [
+	...new Set(columnReads(roots).map((c) => c.name))
+]
+
 const predicateKinds: ReadonlyArray<ExprKind> = ["value", "literal", "op", "cast", "cond"]
 
 const tableAt = (exprs: Readonly<Record<ExprId, TableExpr>>, id: ExprId): TableExpr | undefined =>
@@ -1038,11 +1054,9 @@ const normalName = (index: number): ExprId => ExprId(`e#${index}`)
  * breadth-first through the arguments in operand order, each at its first occurrence, every argument by its number.
  * The number of an expression met for the first time is minted as it is met, so every argument has one.
  */
-/** The field names an expression's table reads of its row. */
+/** The field names an expression's table reads of its row, each once, in the table's order (fieldReads of a tree). */
 export const tableReads = (table: ExprTable): ReadonlyArray<string> => [
-	...new Set(
-		Object.values(table.exprs).flatMap((e) => (e.kind === "column" ? [e.column.name] : []))
-	)
+	...new Set(columnsAmong(Object.values(table.exprs)).map((c) => c.name))
 ]
 
 export const predicateTable = (root: ScalarExpr): ExprTable => {

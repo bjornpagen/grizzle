@@ -49,8 +49,8 @@ import {
 import type { CoercionIdentity } from "#compiler/ir/certificate.ts"
 import type { EvidenceCatalog, KeyConstraint } from "#compiler/ir/evidence.ts"
 import {
+	columnReads,
 	type EqualityKey,
-	exprClosure,
 	nativeEqualityKey,
 	type OpId,
 	type ScalarExpr,
@@ -216,16 +216,11 @@ type ValueRep =
 	| { readonly kind: "column"; readonly node: NodeId; readonly column: string }
 	| { readonly kind: "unknown" }
 
-/** The node columns an expression reads, transitively, each once, in first-visit order (expr.ts exprClosure). */
+/** The node columns an expression reads, each once, in first-visit order (ir/expr.ts columnReads). */
 const columnRefs = (e: ScalarExpr): ReadonlyArray<OuterColumn> => {
 	const out = new Map<string, OuterColumn>()
-	for (const at of exprClosure([e])) {
-		if (at.kind === "column") {
-			out.set(`${at.column.node}\u0000${at.column.name}`, {
-				node: at.column.node,
-				column: at.column.name
-			})
-		}
+	for (const c of columnReads([e])) {
+		out.set(`${c.node}\u0000${c.name}`, { node: c.node, column: c.name })
 	}
 	return [...out.values()]
 }

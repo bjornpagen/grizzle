@@ -1,6 +1,6 @@
 import type { NodeId } from "#compiler/core/ids.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import { type ColumnRef, exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { columnReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	edgesOf,
 	inputsOf,
@@ -74,25 +74,9 @@ export interface DemandAnalysis {
  * number of references each node has, one per input position naming it: a node referenced twice, by two readers or
  * twice by one, is a sharing boundary the CTE policy decides about.
  */
-const columnRefsOf = (exprs: ReadonlyArray<ScalarExpr>): ReadonlyArray<ColumnRef> => {
-	const out: Array<ColumnRef> = []
-	for (const e of exprClosure(exprs)) {
-		if (e.kind === "column") {
-			out.push(e.column)
-		}
-	}
-	return out
-}
-
-const exprColumns = (roots: ReadonlyArray<ScalarExpr>, input: NodeId): ReadonlyArray<string> => {
-	const out: Array<string> = []
-	for (const e of exprClosure(roots)) {
-		if (e.kind === "column" && e.column.node === input) {
-			out.push(e.column.name)
-		}
-	}
-	return out
-}
+/** The columns of `input` the expression trees `roots` read (ir/expr.ts columnReads). */
+const exprColumns = (roots: ReadonlyArray<ScalarExpr>, input: NodeId): ReadonlyArray<string> =>
+	columnReads(roots).flatMap((c) => (c.node === input ? [c.name] : []))
 
 const all = (node: RelNode): ReadonlySet<string> => new Set(node.heading.map((c) => c.name))
 
@@ -233,7 +217,7 @@ export const analyzeDemand = (dag: RelDag, pinned: Pinned): DemandAnalysis => {
 		for (const input of edgesOf(node)) {
 			references.set(input.id, (references.get(input.id) ?? 0) + 1)
 		}
-		for (const ref of columnRefsOf(scopeExprs(node))) {
+		for (const ref of columnReads(scopeExprs(node))) {
 			lateral.add(ref.node)
 			add(ref.node, [ref.name])
 		}

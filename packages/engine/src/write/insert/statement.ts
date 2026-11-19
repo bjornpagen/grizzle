@@ -3,6 +3,7 @@ import { defined } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { serialDraw } from "#compiler/ir/desc.ts"
+import { columnReads } from "#compiler/ir/expr.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { Needs } from "#compiler/ir/needs.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -10,7 +11,6 @@ import type { ParamDecl, StatementRole } from "#compiler/ir/products.ts"
 import type { Heading, KeySet, ValidDag } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
-import { columnReads } from "#compiler/laws/model/uniques.ts"
 import {
 	type ColumnMap,
 	type Env,
@@ -491,7 +491,7 @@ export const requestedValue = (
 			return colOf(f)
 		}
 		if (f.writing.kind === "generated") {
-			const reads = columnReads(f.writing.expr)
+			const reads = columnReads([f.writing.expr])
 			const row: ColumnMap = new Map(
 				reads.map((c) => {
 					const read = defined(
