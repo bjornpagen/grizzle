@@ -68,17 +68,19 @@ import {
 	type InferredSource,
 	type InferredStage,
 	type LiteralDesc,
+	type Located,
 	mapExprChildren,
 	type MatchDesc,
 	type QueryDesc,
 	queryParamNames,
+	type Refs,
 	type RuleDesc,
 	type TermDesc,
 	type VarDesc
 } from "#compiler/ir/desc.ts"
 import type { RelationInfo, TheoryRelation } from "#compiler/ir/law.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
-import { sameScalarType } from "#compiler/ir/scalar.ts"
+import { rosterOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import type { Unit } from "#compiler/ir/unit.ts"
 import type { OwnedStatement } from "#compiler/schema/own.ts"
 
@@ -906,9 +908,15 @@ export interface FieldContainment {
 }
 
 /** What a whole rule's region reads of the schema's laws (`regionOf`): each containment over the rows of its source its
- * selection admits. */
+ * selection admits, and each tree's root fields by its relation (`witnessesOf`). */
 export interface RegionFacts {
 	readonly containments: ReadonlyArray<FieldContainment>
+	/**
+	 * Each relation a tree statement states the tree of, `tree(on(T, parent, at), fin(T, n), { root: [r…] })`, with its
+	 * root fields r…, which its primary key (r…, start) leads with (analysis/theory/families.ts treeShape): its rows at
+	 * one value of r… are one tree, its every row but its root a member of its parent at one slot below its count.
+	 */
+	readonly roots: ReadonlyMap<string, NonEmptyReadonlyArray<string>>
 }
 
 /**
@@ -1050,7 +1058,7 @@ const statedOf = (
  * a pred term holds only of the rows whose predecessor is defined, a condition none of its field pairs states, so it
  * states no fact a region reads. A containment of a relation into itself at its own fields
  * states nothing and is not held. In statement order, then each composition in the order the closure meets it, each
- * containment once.
+ * containment once. Beside them, each tree statement's stored relation with its root fields (RegionFacts `roots`).
  */
 export const regionFactsOf = (
 	statements: ReadonlyArray<OwnedStatement>,
@@ -1083,7 +1091,14 @@ export const regionFactsOf = (
 			}
 		}
 	}
-	return { containments }
+	const roots = new Map(
+		statements.flatMap((s) =>
+			s.kind === "tree" && stored(s.member.relation) !== undefined
+				? [[s.member.relation, s.root] as const]
+				: []
+		)
+	)
+	return { containments, roots }
 }
 
 /** E ⊆ N from E ⊆ M (`first`) and M ⊆ N (`second`), over the rows of E `first`'s selection admits, where `second`
@@ -1106,40 +1121,113 @@ const composed = (
 }
 
 /**
+ * The field `e` bounds and the literals it bounds it within (`implies`, `covers`): an equality of a field with a
+ * literal, either side, the literal alone, or a field's membership in a list of literals; none for any other condition.
+ */
+const membership = <R extends Refs>(
+	e: ExprDesc<Located, R>
+): { readonly field: string; readonly values: ReadonlyArray<LiteralDesc> } | undefined => {
+	if (e.kind === "in") {
+		return e.arg.kind === "field" ? { field: e.arg.field, values: e.values } : undefined
+	}
+	if (e.kind !== "compare" || e.op !== "eq") {
+		return undefined
+	}
+	if (e.left.kind === "field" && e.right.kind === "literal") {
+		return { field: e.left.field, values: [e.right.value] }
+	}
+	return e.right.kind === "field" && e.left.kind === "literal"
+		? { field: e.right.field, values: [e.left.value] }
+		: undefined
+}
+
+/** Whether each of `values` is one of `within`, as canonical text spells literals. */
+const among = (values: ReadonlyArray<LiteralDesc>, within: ReadonlyArray<LiteralDesc>): boolean =>
+	values.every((v) => within.some((w) => canonicalEquals(v, w)))
+
+/**
  * Whether every row a reading's `conditions` admit meets `conjunct`, a selection's conjunct over the same row's fields
- * (`witnessesOf`): some condition is the conjunct itself, as canonical text spells both; or the conjunct is a field's
- * membership in a list of literals and some condition fixes the field to one of them, or bounds it to a list each of
- * whose literals is one of them. A condition holds of every row the reading reads, so a row it admits meets the
- * conjunct. No other conjunct is implied: a selection the conditions do not imply states no fact of the rows they read.
+ * (`covers`): some condition is the conjunct itself, as canonical text spells both; or the conjunct bounds a field
+ * within literals (`membership`) and some condition bounds the field within some of them. A condition holds of every
+ * row the reading reads, so a row it admits meets the conjunct. No other conjunct is implied: a selection the
+ * conditions do not imply states no fact of the rows they read.
  */
 const implies = (conditions: ReadonlyArray<InferredExpr>, conjunct: ExprDesc): boolean => {
 	if (conditions.some((c) => canonicalEquals(c, conjunct))) {
 		return true
 	}
-	if (conjunct.kind !== "in" || conjunct.arg.kind !== "field") {
-		return false
-	}
-	const field = conjunct.arg.field
-	const listed = (value: LiteralDesc): boolean =>
-		conjunct.values.some((v) => canonicalEquals(v, value))
-	/** Whether `term` is the conjunct's field and `other` one of its literals. */
-	const fixes = (term: InferredExpr, other: InferredExpr): boolean =>
-		term.kind === "field" && term.field === field && other.kind === "literal" && listed(other.value)
-	return conditions.some((c) =>
-		c.kind === "compare"
-			? c.op === "eq" && (fixes(c.left, c.right) || fixes(c.right, c.left))
-			: c.kind === "in" && c.arg.kind === "field" && c.arg.field === field && c.values.every(listed)
+	const within = membership(conjunct)
+	return (
+		within !== undefined &&
+		conditions.some((c) => {
+			const bound = membership(c)
+			return bound?.field === within.field && among(bound.values, within.values)
+		})
 	)
 }
 
 /**
- * The containments that may prove an occurrence of a holder N needs no unit of a row N gained beyond those of the rows
- * it gained where it lost one (`proofsOf`), each with the place of the occurrence beside it the proof rests on and the
- * fields of N it pairs: `r` positive, matched beside an occurrence of E at its polarity, the schema stating the
- * containment E(F) ⊆ N(G) over the rows of E its selection admits (RegionFacts), the occurrence of E reading only such
- * rows, its conditions implying the selection (`implies`), read at its projection onto the pairs the two occurrences
- * bind alike, each pair's field of E and of N to one variable, F_E and F_N, a key of N among F_N. Every such
- * occurrence beside `r`, by its containment; none where `r` is not positive.
+ * Whether every row of `from` a reading's `conditions` admit meets one of `selections`, each a selection's conjuncts
+ * (`witnessesOf`): the conditions imply one of them at each of its conjuncts (`implies`); or each is one conjunct
+ * bounding one field f within literals (`membership`), and together they list every value of f a row the conditions
+ * admit can hold: every value some condition bounds f within, or every value of f's type, a boolean's true and false or
+ * a closed id's every handle, no type's domain holding a null. No other union is read: a value of f none of them lists,
+ * which a row the conditions admit can hold, is one of a row none of them meets.
+ */
+const covers = (
+	conditions: ReadonlyArray<InferredExpr>,
+	selections: ReadonlyArray<ReadonlyArray<ExprDesc>>,
+	from: RelationInfo
+): boolean => {
+	if (selections.some((s) => s.every((conjunct) => implies(conditions, conjunct)))) {
+		return true
+	}
+	const bounds = selections.flatMap((s) => {
+		const [only, ...more] = s
+		const bound = only !== undefined && more.length === 0 ? membership(only) : undefined
+		return bound === undefined ? [] : [bound]
+	})
+	const [first] = bounds
+	if (
+		first === undefined ||
+		bounds.length !== selections.length ||
+		!bounds.every((b) => b.field === first.field)
+	) {
+		return false
+	}
+	const listed = bounds.flatMap((b) => b.values)
+	const type = from.heading.find((f) => f.name === first.field)?.type
+	const domain = type === undefined ? undefined : finiteDomain(type)
+	return (
+		conditions.some((c) => {
+			const bound = membership(c)
+			return bound?.field === first.field && among(bound.values, listed)
+		}) ||
+		(domain !== undefined && among(domain, listed))
+	)
+}
+
+/** Every value of a type, where it has finitely many a selection's literals can list (`covers`): a boolean's true and
+ * false, a closed id's every handle, a contract's its base's; none for any other type. */
+const finiteDomain = (t: ScalarType): ReadonlyArray<LiteralDesc> | undefined =>
+	t.carrier === "bool" ? [true, false] : t.carrier === "code" ? rosterOf(t)?.handles : undefined
+
+/**
+ * The witnesses that may prove an occurrence `r` of a holder N needs no unit of a row N gained beyond those of the rows
+ * it gained where it lost one at the fields the witness names (`proofsOf`), each the place of the occurrence beside it
+ * the proof rests on and those fields of N: `r` positive, matched beside an occurrence of E at its polarity, a
+ * containment of E into N over the rows of E its selection admits, read at its projection onto the pairs the two
+ * occurrences bind alike, each pair's field of E and of N to one variable, F_E and F_N; the containment one the schema
+ * states or composes (RegionFacts `containments`), or N's identity, N ⊆ N at each of its fields, which every row of N
+ * holds of itself, so that two occurrences of N bound alike at a key, or in one tree, witness each other; the fields
+ * named those at which a row of N standing fixes N's rows (`proofsOf`): F_N, where a key of N is among them, else the
+ * root fields of N's tree (RegionFacts `roots`), where they are among them; and the occurrence of E reading only rows
+ * the containment holds over: its conditions imply its selection (`implies`), or the selections of every containment
+ * of E into N that witnesses at that occurrence and those fields together hold every row its conditions admit
+ * (`covers`), each such row of E in one of them, which proves it at the same fields. Every such occurrence beside
+ * `r`: those whose one containment's selection its conditions imply, by containment, each the schema states or
+ * composes in order, then the identity; then those the union of their containments' selections covers alone; none
+ * where `r` is not positive.
  */
 const witnessesOf = (
 	r: RegionRead,
@@ -1151,52 +1239,102 @@ const witnessesOf = (
 	if (r.polarity !== "positive" || n?.kind !== "relation") {
 		return []
 	}
-	const keyed = (fields: ReadonlyArray<string>): boolean =>
-		[n.primaryFields, ...n.keyFields].some((key) => key.every((f) => fields.includes(f.name)))
-	return facts.containments.flatMap((c) =>
-		c.to === r.relation
-			? r.beside.flatMap((beside) => {
-					const e = defined(regions[beside], "an occurrence beside another")
-					if (
-						e.relation !== c.from ||
-						!c.selection.every((conjunct) => implies(e.where, conjunct))
-					) {
-						return []
-					}
-					const alike = c.pairs.flatMap((p) => {
-						const v = r.bound[p.to]
-						return v !== undefined && v === e.bound[p.from] ? [p.to] : []
-					})
-					return isNonEmpty(alike) && keyed(alike) ? [{ beside, fields: alike }] : []
-				})
-			: []
+	const root = facts.roots.get(n.name)
+	/** The fields among `alike` at which a row of N standing fixes N's rows: themselves where a key of N is among them,
+	 * N's tree's root fields where they are among them. */
+	const fixedAt = (
+		alike: NonEmptyReadonlyArray<string>
+	): NonEmptyReadonlyArray<string> | undefined =>
+		[n.primaryFields, ...n.keyFields].some((key) => key.every((f) => alike.includes(f.name)))
+			? alike
+			: root?.every((f) => alike.includes(f)) === true
+				? root
+				: undefined
+	const identity: FieldContainment = {
+		from: n.name,
+		to: n.name,
+		pairs: mapNonEmpty(n.heading, (f) => ({ from: f.name, to: f.name })),
+		selection: []
+	}
+	/** Each containment into N of the relation of an occurrence beside `r`, by the occurrence's place, at the fields of N
+	 * it fixes N's rows at (`fixedAt`) among the pairs both bind alike, with the selection it holds over. */
+	const held = [...facts.containments.filter((c) => c.to === n.name), identity].flatMap((c) =>
+		r.beside.flatMap((beside) => {
+			const e = defined(regions[beside], "an occurrence beside another")
+			if (e.relation !== c.from) {
+				return []
+			}
+			const alike = c.pairs.flatMap((p) => {
+				const v = r.bound[p.to]
+				return v !== undefined && v === e.bound[p.from] ? [p.to] : []
+			})
+			const fields = isNonEmpty(alike) ? fixedAt(alike) : undefined
+			return fields === undefined ? [] : [{ beside, fields, selection: c.selection }]
+		})
 	)
+	const where = (beside: number): ReadonlyArray<InferredExpr> =>
+		defined(regions[beside], "an occurrence beside another").where
+	/** Whether two containments witness at one occurrence and one set of fields. */
+	const together = (a: (typeof held)[number], b: (typeof held)[number]): boolean =>
+		a.beside === b.beside && sameOrder(a.fields, b.fields)
+	const implied = held.filter((h) =>
+		h.selection.every((conjunct) => implies(where(h.beside), conjunct))
+	)
+	const united = held.filter((h, j) => {
+		const e = relations.get(defined(regions[h.beside], "an occurrence beside another").relation)
+		return (
+			e?.kind === "relation" &&
+			held.findIndex((o) => together(o, h)) === j &&
+			!implied.some((w) => together(w, h)) &&
+			covers(
+				where(h.beside),
+				held.filter((o) => together(o, h)).map((o) => o.selection),
+				e
+			)
+		)
+	})
+	return [...implied, ...united].map(({ beside, fields }) => ({ beside, fields }))
 }
 
 /**
- * Each occurrence of the walk `regions` a containment proves needs the rows N gained only where they replace a row N
- * lost (`regionOf`), by its place, with the fields of N, a key of N among them, of the containment that proves it: the
- * proofs made at generate time, once, as one assignment. Each proof rests on an occurrence beside it the assignment
- * proves of nothing, which reads every row its relation gained that its conditions admit. The assignment takes the
- * occurrences fewer conditions restrict first, then in the walk's order, each proved by its first witness
- * (`witnessesOf`) whose occurrence is not proved, which is then never proved: a proof spares the region the rows its
+ * Each occurrence of the walk `regions` a witness proves needs the rows N gained only where they replace a row N lost
+ * at the fields the witness names (`regionOf`), by its place, with those fields: the proofs made at generate time,
+ * once, as one assignment. The assignment takes the occurrences fewer conditions restrict first, then in the walk's
+ * order, each proved by its first witness (`witnessesOf`) whose chain does not reach back to it: following each proved
+ * occurrence to the occurrence its witness rests on, every chain ends at an occurrence the assignment proves of
+ * nothing, which reads every row its relation gained that its conditions admit. A proof spares the region the rows its
  * occurrence's relation gained, and an occurrence its conditions restrict reads fewer of them where it stands unproved,
- * so where two occurrences each prove the other, the one its conditions restrict is the one read.
+ * so where occurrences prove each other, the one its conditions restrict most is the one read.
  *
- * The proof. Let `r` be a positive occurrence of N matched beside an occurrence of E, the schema stating, or
- * composing, a containment of E into N over the rows of E its selection admits, the occurrence of E reading only such
- * rows, and E(F_E) ⊆ N(F_N) its projection onto the pairs both occurrences bind to one variable each, a key of N among
- * F_N's fields (`witnessesOf`), N and E immutable, as every holder of a unit is (`wholeRule`). The projection holds
- * wherever the containment does: each row of E meets a row of N at every pair, so at the pairs kept; and E and N may
- * be one relation, a tree's own parent axis, two occurrences of it beside each other. A fact that `r` reads from a row n that a transaction gave N
- * holds a row e of E with e[F_E] = n[F_N], one the occurrence of E reads, so one the selection admits. If the
- * transaction gave E the row e too, the occurrence of E reads e among the rows E gained, and its unit is the region's
- * through that occurrence, which reads every row E gained that its conditions admit, since the assignment proves that
- * occurrence of nothing. Otherwise e stood before the transaction, in a committed state, where the containment held: a
- * row n0 of N stood with n0[F_N] = e[F_E] = n[F_N]. N holds at most one row at those values, by its key among F_N, and rows of N are never updated, so the
- * transaction removed n0, which its delta of the rows N lost holds. So a row N gained opens a fact through `r` only
- * where E gained one at it or where N lost a row at the same F_N values, and the region reads a row N gained only where
- * the transaction lost a row of N at its F_N values (`replacing`).
+ * The proof. Let `r` be a positive occurrence of N matched beside an occurrence of E, a containment of E into N, one
+ * the schema states or composes or N's identity, holding over the rows of E its selection admits, the occurrence of E
+ * reading only such rows, and E(F_E) ⊆ N(F_N) its projection onto the pairs both occurrences bind to one variable each
+ * (`witnessesOf`), N and E immutable, as every holder of a unit is (`wholeRule`). The projection holds wherever the
+ * containment does: each row of E meets a row of N at every pair, so at the pairs kept; and E and N may be one
+ * relation, a tree's own parent axis or N's identity, two occurrences of it beside each other. A fact that `r` reads
+ * from a row n that a transaction gave N holds a row e of E with e[F_E] = n[F_N], one the occurrence of E reads, so one
+ * the selection admits. If the transaction gave E the row e too, the fact holds a row its relation gained at the
+ * occurrence of E, which the assignment proves of nothing, so its region reads e among the rows E gained, or proves by
+ * a witness of its own, whose chain is shorter by one: by induction along the chain, which ends at an occurrence proved
+ * of nothing, every occurrence of it beside the next in one rule and so in the fact, the fact's unit is the region's,
+ * through a row gained at that last occurrence or a row lost at one before it. Otherwise e stood before the transaction,
+ * in a committed state, where the containment held: a row n0 of N stood with n0[F_N] = e[F_E] = n[F_N], and so at n's
+ * values of the fields G the witness names, rows of N being never updated:
+ *
+ * - G = F_N, a key of N among them: N holds at most one row at those values, so the transaction removed n0, which its
+ *   delta of the rows N lost holds, at n's values of F_N;
+ * - G = r…, the root fields of N's tree (RegionFacts `roots`): the rows of N at n's values of r… before the transaction,
+ *   n0 among them, were one tree, its root ρ the one at start 0 (T2 and the root pin; the key r…, start). Were no row
+ *   of N at those values lost, every one stood after it, ρ among them, and the rows gained there would be rows of that
+ *   one tree: the one of them of least start, g, is no root, since ρ is the one row at start 0; so its parent p, whose
+ *   start is below g's (T3, T4 and T6: a member starts past its parent's start), stands after the transaction and was
+ *   not gained, g's start being least, so p stood before; p's count is the same in both states, and in each its members
+ *   fill exactly the slots below it, one each (its family's laws, at the key r…, parent, at); the member at g's slot
+ *   before the transaction is no row lost, so it stands after at that slot, and it is g, which so was not gained. So the
+ *   transaction lost a row of N at n's values of r….
+ *
+ * So a row N gained opens a fact through `r` only where E gained its row or where N lost a row at the row's values of
+ * G, and the region reads a row N gained only where the transaction lost a row of N at its values of G (`replacing`).
  *
  * The proof reads `r`'s own polarity alone, positive, and changes no other occurrence's reads: an occurrence of N under
  * a negation, or one an aggregate reads, where a row N loses can open a violation, reads its own sides as before
@@ -1207,23 +1345,30 @@ const proofsOf = (
 	facts: RegionFacts,
 	relations: ReadonlyMap<string, TheoryRelation>
 ): ReadonlyMap<number, NonEmptyReadonlyArray<string>> => {
-	const proved = new Map<number, NonEmptyReadonlyArray<string>>()
-	const read = new Set<number>()
+	const proved = new Map<
+		number,
+		{ readonly beside: number; readonly fields: NonEmptyReadonlyArray<string> }
+	>()
+	/** Whether following the proofs from the occurrence at `from` to the occurrences they rest on reaches `to`. */
+	const reaches = (from: number, to: number): boolean => {
+		for (let at: number | undefined = from; at !== undefined; at = proved.get(at)?.beside) {
+			if (at === to) {
+				return true
+			}
+		}
+		return false
+	}
 	const order = regions
 		.map((r, at) => ({ at, conditions: r.where.length }))
 		.toSorted((a, b) => a.conditions - b.conditions || a.at - b.at)
 	for (const { at } of order) {
-		if (read.has(at)) {
-			continue
-		}
 		const r = defined(regions[at], "an occurrence of the walk")
-		const proof = witnessesOf(r, regions, facts, relations).find((w) => !proved.has(w.beside))
+		const proof = witnessesOf(r, regions, facts, relations).find((w) => !reaches(w.beside, at))
 		if (proof !== undefined) {
-			proved.set(at, proof.fields)
-			read.add(proof.beside)
+			proved.set(at, proof)
 		}
 	}
-	return proved
+	return new Map([...proved].map(([at, proof]) => [at, proof.fields] as const))
 }
 
 /**

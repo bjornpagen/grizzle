@@ -97,8 +97,9 @@ export const aUnitLocalRuleIsJudgedWholeOverTheUnitsATransactionWroteAsItsWholeC
 			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "\t\t\t\t\t\t!c.selection.every((conjunct) => implies(e.where, conjunct))",
-				replacement: "\t\t\t\t\t\tfalse",
+				original:
+					"\tconst implied = held.filter((h) =>\n\t\th.selection.every((conjunct) => implies(where(h.beside), conjunct))\n\t)",
+				replacement: "\tconst implied = held",
 				why: "A containment from a selection of its source proves an occurrence beside one that reads rows outside the selection, so Expressed, which holds the nodes of kind 1 or 2 in Expr, proves Typed's expressions read where they replace one alone, beside nodes of every kind: an expression written at a node of kind 0 that stood before, the node's parent no expression's, is never judged, and a transaction that breaks Rooted commits."
 			},
 			{

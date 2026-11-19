@@ -160,16 +160,15 @@ export interface WholeRule {
 	/** The violation query restricted to the units a transaction wrote (unit.ts restrictToUnits): what the judge runs. */
 	readonly judged: InferredQuery
 	/**
-	 * The holders whose gained rows its region reads only where they replace a row the transaction lost at the
-	 * containment's `fields`, proved by a containment at generate time to open a fact only there (unit.ts replacedAt):
-	 * the rows each lost, at those fields, which the judge captures for the region, beside the sides its occurrences
-	 * read.
+	 * The holders whose gained rows its region reads only where they replace a row the transaction lost at the `fields`
+	 * a witness fixes its rows at, proved at generate time to open a fact only there (unit.ts proofsOf): the rows each
+	 * lost, at those fields, which the judge captures for the region, beside the sides its occurrences read.
 	 */
 	readonly replaced: ReadonlyArray<ReplacedRead>
 }
 
-/** A holder whose lost rows a whole rule's region reads, and the fields, a key of it among them, at which the
- * containment that proves it pairs it (WholeRule `replaced`). */
+/** A holder whose lost rows a whole rule's region reads, and the fields at which the witness that proves it fixes its
+ * rows, a key of it among them or its tree's root fields (WholeRule `replaced`, unit.ts witnessesOf). */
 export interface ReplacedRead {
 	readonly relation: string
 	readonly fields: NonEmptyReadonlyArray<string>
