@@ -692,38 +692,76 @@ const transition = (
 
 	/**
 	 * Generated additions, in identity order, each with the calculator's own values that collide with no key containing a
-	 * serial field and repeat no fact of the state before the stratum or of the state they join, or with the
-	 * realization's values, whatever they repeat.
+	 * serial field and repeat no fact of the state before the stratum or of the state they join; or with the values a
+	 * realization's sequences handed out (`realized`), whatever fact of the state before the stratum they repeat, a fact
+	 * the stratum deleted among them, but never one that meets a fact of the state they join at a key containing a
+	 * serial field: the realization's statement would have met that fact there, refused with 23505 and drawn again, so
+	 * another of its additions holds that value, in an order no statement fixes, and the value waits for the next
+	 * addition that can take it; or with the values given for each (`given`), the facts a realization committed.
 	 */
 	const generatedIds: Array<FactIdentity> = []
 	const serialKeys = Arr.filter(allKeys(relation), (k) =>
 		Arr.some(k.fields, (f) => serialSet.has(f))
 	)
 	const draw = drawer(relation, partialHeading, draws)
-	/** The generated addition `id` with its serial values drawn, again while they collide and are the calculator's own. */
+	/** The realization's values, by serial field, an earlier addition met a fact of the state it joins with. */
+	const waiting = new Map<string, ReadonlyArray<bigint>>(
+		Arr.map(serial, (field) => [field, []] as const)
+	)
+	/** Whether a fact meets a fact of the state its addition joins: the same fact, or one at a key holding a serial field. */
+	const meetsAfter = (identity: FactIdentity, fact: Fact): boolean =>
+		after.has(identity) ||
+		Arr.some(serialKeys, (key) => {
+			const k = keyIdentity(relation, key.fields, fact)
+			return Arr.some(
+				[...after.values()],
+				(other) => keyIdentity(relation, key.fields, other) === k
+			)
+		})
+	/**
+	 * The generated addition `id` with its serial values: the realization's an earlier addition left waiting, then each
+	 * drawn, again while they collide and are the calculator's own, or while the realization's meet a fact of the state
+	 * the addition joins, which then wait for the next addition.
+	 */
 	const drawGenerated = (id: FactIdentity, partial: Fact): ReturnType<typeof admit> => {
+		const passed = new Map<string, ReadonlyArray<bigint>>(
+			Arr.map(serial, (field) => [field, []] as const)
+		)
 		for (;;) {
 			const fact: Record<string, unknown> = { ...partial }
-			const whose = Arr.map(serial, (field) => {
+			const taken = Arr.map(serial, (field) => {
+				const queue = entryOf(waiting, field, "the waiting values")
+				const passedHere = entryOf(passed, field, "the passed values")
+				const held = Arr.findFirst(queue, (v) => !Arr.contains(passedHere, v))
+				if (Option.isSome(held)) {
+					waiting.set(
+						field,
+						Arr.filter(queue, (v) => v !== held.value)
+					)
+					fact[field] = serialHost(serialCarrier(relation, field), held.value)
+					return { field, value: held.value, whose: "realization" as const }
+				}
 				const key = sequenceKey(relation.name, field)
 				const drawn = draw(entryOf(sequences, key, "the sequences"), id, field)
 				sequences.set(key, drawn.next)
 				fact[field] = serialHost(serialCarrier(relation, field), drawn.value)
-				return drawn.whose
+				return { field, value: drawn.value, whose: drawn.whose }
 			})
 			const admitted = admit(relation, relation.heading, fact)
-			const collides =
-				current.has(admitted.identity) ||
-				after.has(admitted.identity) ||
-				Arr.some(serialKeys, (key) => {
-					const k = keyIdentity(relation, key.fields, fact)
-					return Arr.some(
-						[...after.values()],
-						(other) => keyIdentity(relation, key.fields, other) === k
-					)
-				})
-			if (!collides || Arr.some(whose, (w) => w === "realization")) {
+			const realized = Arr.some(taken, (t) => t.whose === "realization")
+			const meets = meetsAfter(admitted.identity, fact)
+			if (
+				!realized ? !meets && !current.has(admitted.identity) : !meets || draws.kind === "given"
+			) {
 				return admitted
+			}
+			if (realized) {
+				for (const t of taken) {
+					if (t.whose === "realization") {
+						waiting.set(t.field, [...entryOf(waiting, t.field, "the waiting values"), t.value])
+						passed.set(t.field, [...entryOf(passed, t.field, "the passed values"), t.value])
+					}
+				}
 			}
 		}
 	}
