@@ -276,15 +276,14 @@ export const killsOf = (spec: FoldSpec): ReadonlyArray<Kill> =>
 		? [
 				{
 					file: "packages/engine/src/laws/model/plan.ts",
-					original: '\t\tif (start === undefined || axis === "owner") {',
-					replacement:
-						'\t\tif (start === undefined || axis === "owner" || axis === "predecessor") {',
+					original: "\t\t\t\t\treturn index",
+					replacement: "\t\t\t\t\treturn undefined",
 					why: "The first slot's pin left out: a junk seed of a family's first member commits."
 				},
 				{
 					file: "packages/engine/src/laws/model/plan.ts",
-					original: '\t\tif (start === undefined || axis === "owner") {',
-					replacement: '\t\tif (start === undefined || axis === "owner" || axis === "last") {',
+					original: "\t\t\t\t\treturn fieldColumn(this.#family.count)",
+					replacement: "\t\t\t\t\treturn undefined",
 					why: "The empty family's pin left out: a junk end of an empty family commits."
 				}
 			]
