@@ -1,5 +1,6 @@
-import { Array as Arr, Effect, Result } from "effect"
-import type { Option } from "effect"
+import { Array as Arr, Data, Effect, Option, Record, Result } from "effect"
+import { isObject } from "#model/json-tree.ts"
+import type { JsonObject } from "#model/json-tree.ts"
 import { PointerMemberNotFound, childPointer, evaluatePointerResult } from "#model/pointer.ts"
 import type { Json, PointerEvalError, PointerSyntaxError } from "#model/pointer.ts"
 import { keyOf } from "#resolve/canonical.ts"
@@ -50,6 +51,38 @@ export const nodeIn = (
 	key: CanonicalKey
 ): Effect.Effect<Json, PointerSyntaxError | PointerEvalError> =>
 	Effect.suspend(() => Effect.fromResult(nodeInResult(resolution, key)))
+
+/**
+ * A node of the document set that is not the object its place holds. Validation refuses a document
+ * whose Object at such a place is no object, so normalization meets one only as a defect.
+ */
+class NotAnObject extends Data.TaggedError("NotAnObject")<{ readonly at: CanonicalKey }> {}
+
+/**
+ * The object at `key`, read from its own document of the set; a node of another shape, or none, is
+ * a defect.
+ */
+export const objectIn = (resolution: Resolution, key: CanonicalKey): Effect.Effect<JsonObject> =>
+	nodeIn(resolution, key).pipe(
+		Effect.filterOrFail(isObject, () => new NotAnObject({ at: key })),
+		Effect.orDie
+	)
+
+/**
+ * The member names of the object at `key`, in the order the parsed object lists them, `None` when
+ * no node is there; a node of another shape is a defect.
+ */
+export const memberNamesAt = (
+	resolution: Resolution,
+	key: CanonicalKey
+): Effect.Effect<Option.Option<readonly string[]>> =>
+	Option.match(nodeOption(resolution, key), {
+		onNone: () => Effect.succeedNone,
+		onSome: (node) =>
+			isObject(node)
+				? Effect.succeedSome(Record.keys(node))
+				: Effect.die(new NotAnObject({ at: key }))
+	})
 
 /**
  * The key `tokens` below `key`, in the same document.

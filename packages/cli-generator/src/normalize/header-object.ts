@@ -1,5 +1,7 @@
-import { Effect, Schema } from "effect"
-import { follow, nodeIn } from "#normalize/document-set.ts"
+import { Effect, Option, Record } from "effect"
+import { isObject } from "#model/json-tree.ts"
+import type { JsonObject } from "#model/json-tree.ts"
+import { follow, nodeOption } from "#normalize/document-set.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
 import type { Resolution } from "#resolve/index.ts"
 
@@ -11,17 +13,14 @@ export interface HeaderMarks {
 	readonly required: boolean
 }
 
-/**
- * A mark that is absent or not a boolean reads as false without discarding its sibling.
- */
-const Mark = Schema.Boolean.pipe(
-	Schema.catchDecoding(() => Effect.succeedSome(false)),
-	Schema.withDecodingDefaultKey(Effect.succeed(false))
-)
-
-const HeaderObject = Schema.Struct({ deprecated: Mark, required: Mark })
-
 const unmarked: HeaderMarks = { deprecated: false, required: false }
+
+/**
+ * Whether a Header Object carries `mark` as `true`; a mark that is absent or not a boolean reads
+ * as false without discarding its sibling.
+ */
+const isMarked = (header: JsonObject, mark: keyof HeaderMarks): boolean =>
+	Option.exists(Record.get(header, mark), (value) => value === true)
 
 /**
  * The `required` and `deprecated` marks of the Header Object at use site `site` (a response header
@@ -32,7 +31,12 @@ export const headerMarks = (
 	resolution: Resolution,
 	site: CanonicalKey
 ): Effect.Effect<HeaderMarks> =>
-	nodeIn(resolution, follow(resolution, site)).pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(HeaderObject)),
-		Effect.orElseSucceed(() => unmarked)
+	Effect.sync(() =>
+		Option.match(Option.filter(nodeOption(resolution, follow(resolution, site)), isObject), {
+			onNone: () => unmarked,
+			onSome: (header) => ({
+				deprecated: isMarked(header, "deprecated"),
+				required: isMarked(header, "required")
+			})
+		})
 	)

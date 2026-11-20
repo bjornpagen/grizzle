@@ -1,15 +1,5 @@
 import { regex } from "arkregex"
-import {
-	Array as Arr,
-	Effect,
-	Option,
-	Order,
-	Record,
-	Result,
-	Schema,
-	SchemaGetter,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Option, Order, Record, Result, Schema, String as Str } from "effect"
 import { stripUnsafeText } from "#model/brands.ts"
 import { HeaderName, MediaRange } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
@@ -17,8 +7,10 @@ import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
 import { ResponseCase } from "#model/entities.ts"
 import type { MediaAlternative } from "#model/entities.ts"
 import { isSpecificationExtension } from "#model/extension.ts"
+import { stringMember } from "#model/json-tree.ts"
+import type { JsonObject } from "#model/json-tree.ts"
 import { declaredOpenapi, specSectionUrl } from "#model/spec-section.ts"
-import { childKey, follow, nodeIn, nodeOption, referenceIn } from "#normalize/document-set.ts"
+import { childKey, follow, memberNamesAt, objectIn, referenceIn } from "#normalize/document-set.ts"
 import { readEventContract } from "#normalize/event-stream.ts"
 import { headerMarks } from "#normalize/header-object.ts"
 import { headerPercentEncoding } from "#normalize/parameters.ts"
@@ -34,30 +26,6 @@ export interface NormalizedResponses {
 	readonly diagnostics: readonly Diagnostic[]
 	readonly responses: readonly ResponseCase[]
 }
-
-const Members = Schema.Record(Schema.String, Schema.Unknown)
-
-const ResponsesObject = Members
-
-/**
- * A Response Object as normalization reads it. Its `content` is `None` when absent, which is a response without a body
- * (RSP-07) rather than one with no media types; its absent `headers` are none.
- */
-const ResponseObject = Schema.Struct({
-	content: Schema.OptionFromOptionalKey(Members),
-	description: Schema.optionalKey(Schema.String),
-	headers: Members.pipe(Schema.withDecodingDefaultKey(Effect.succeed({}))),
-	summary: Schema.optionalKey(Schema.String)
-})
-
-const MediaObject = Schema.Struct({
-	description: Schema.optionalKey(Schema.Unknown),
-	encoding: Schema.optionalKey(Schema.Unknown),
-	itemSchema: Schema.optionalKey(Schema.Unknown),
-	schema: Schema.optionalKey(Schema.Unknown)
-})
-
-const HeaderObject = Schema.Struct({ schema: Schema.optionalKey(Schema.Unknown) })
 
 const isHeaderName = Schema.is(HeaderName)
 
@@ -212,50 +180,42 @@ type Member =
 	| { readonly _tag: "Extension" }
 	| { readonly _tag: "Refused"; readonly code: "RSS-06/invalid-key" | "RSS-10/status-out-of-range" }
 
-const [CodeKey, RangeKey, DefaultKey] = ResponseCase.fields.key.members
-
 /**
- * A three-digit Responses Object key, whatever its value. A key of this form outside 100 to 599 is
- * out of range (RSS-10) rather than outside the grammar (RSS-06).
+ * A range key, `1XX` to `5XX` with an uppercase X, its class digit captured.
  */
-const StatusDigits = Schema.String.check(Schema.isPattern(regex("^[0-9]{3}$", "u")))
-
-const isStatusDigits = Schema.is(StatusDigits)
+const rangeKey = regex("^(?<digit>[1-5])XX$", "u")
 
 /**
- * The response key grammar: `default`, a range `1XX` to `5XX`, or a code from 100 to 599. Each
- * branch decodes into its {@link ResponseCase} key, whose own checks bound the code and the range.
- * It only classifies member names, so it forbids encoding.
+ * A status code key, 100 to 599.
  */
-const ResponseKey = Schema.Union([
-	DefaultKey,
-	Schema.TemplateLiteralParser([Schema.Literals(["1", "2", "3", "4", "5"]), "XX"]).pipe(
-		Schema.decodeTo(RangeKey, {
-			decode: SchemaGetter.transform(([digit]) => ({ range: Number(digit) })),
-			encode: SchemaGetter.forbiddenEncoding
-		})
-	),
-	StatusDigits.pipe(
-		Schema.decodeTo(CodeKey, {
-			decode: SchemaGetter.transform((digits) => ({ code: Number(digits) })),
-			encode: SchemaGetter.forbiddenEncoding
-		})
-	)
-])
-
-const decodeResponseKey = Schema.decodeUnknownOption(ResponseKey)
+const codeKey = regex("^[1-5][0-9]{2}$", "u")
 
 /**
- * Classify one Responses Object member name: a response key, an extension, a three-digit code out
- * of range (RSS-10), or a name outside the grammar (RSS-06).
+ * A three-digit key, whatever its value: one that is no code from 100 to 599 is out of range
+ * (RSS-10) rather than outside the grammar (RSS-06).
+ */
+const statusDigits = regex("^[0-9]{3}$", "u")
+
+/**
+ * Classify one Responses Object member name by the response key grammar: `default`, a range `1XX`
+ * to `5XX` or a code from 100 to 599 is a case under its key; otherwise a three-digit code is out
+ * of range (RSS-10), an `x-` name an extension, and any other name outside the grammar (RSS-06).
  */
 const classifyKey = (text: string): Member => {
-	const key = decodeResponseKey(text)
-	if (Option.isSome(key)) {
-		return { _tag: "Case", key: key.value }
+	if (text === "default") {
+		return { _tag: "Case", key: "default" }
 	}
 
-	if (isStatusDigits(text)) {
+	const range = rangeKey.exec(text)?.groups.digit
+	if (range !== undefined) {
+		return { _tag: "Case", key: { range: Number(range) } }
+	}
+
+	if (codeKey.test(text)) {
+		return { _tag: "Case", key: { code: Number(text) } }
+	}
+
+	if (statusDigits.test(text)) {
 		return { _tag: "Refused", code: "RSS-10/status-out-of-range" }
 	}
 
@@ -337,15 +297,12 @@ const alternativeOf = Effect.fnUntraced(function* alternativeOf(
 	}
 
 	const home = follow(resolution, site)
-	const media = yield* nodeIn(resolution, home).pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(MediaObject)),
-		Effect.orDie
-	)
+	const media = yield* objectIn(resolution, home)
 	const findings: readonly Finding[] = [
-		...(media.encoding !== undefined && resolution.line !== "3.2"
+		...(Record.has(media, "encoding") && resolution.line !== "3.2"
 			? [{ at: home, code: "MED-10/encoding-ignored" } as const]
 			: []),
-		...(media.description !== undefined && resolution.line === "3.2"
+		...(Record.has(media, "description") && resolution.line === "3.2"
 			? [{ at: home, code: "MED-09/description-ignored" } as const]
 			: [])
 	]
@@ -356,15 +313,15 @@ const alternativeOf = Effect.fnUntraced(function* alternativeOf(
 		origin: home,
 		prefixEncoding: [],
 		rows: ["RSP-05"],
-		...(media.itemSchema === undefined
-			? {}
-			: { itemSchema: schemaRefAt(resolution, childKey(home, "itemSchema")) }),
-		...(media.schema === undefined
-			? {}
-			: { schema: schemaRefAt(resolution, childKey(home, "schema")) })
+		...(Record.has(media, "itemSchema")
+			? { itemSchema: schemaRefAt(resolution, childKey(home, "itemSchema")) }
+			: {}),
+		...(Record.has(media, "schema")
+			? { schema: schemaRefAt(resolution, childKey(home, "schema")) }
+			: {})
 	}
 	const contract =
-		plain.codec === "sse" && media.itemSchema !== undefined
+		plain.codec === "sse" && Record.has(media, "itemSchema")
 			? readEventContract(resolution, childKey(home, "itemSchema"))
 			: Result.succeed(Option.none())
 	if (Result.isFailure(contract)) {
@@ -387,11 +344,7 @@ const alternativeOf = Effect.fnUntraced(function* alternativeOf(
  * notice, and a content-based one never was percent-encoded.
  */
 const serializedBySchema = (resolution: Resolution, at: CanonicalKey): Effect.Effect<boolean> =>
-	nodeIn(resolution, follow(resolution, at)).pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(HeaderObject)),
-		Effect.map((header) => header.schema !== undefined),
-		Effect.orDie
-	)
+	Effect.map(objectIn(resolution, follow(resolution, at)), (header) => Record.has(header, "schema"))
 
 const headerOf = Effect.fnUntraced(function* headerOf(
 	resolution: Resolution,
@@ -429,12 +382,13 @@ const headersOf = Effect.fnUntraced(function* headersOf(
 	}
 })
 
-const docsOf = (
-	response: typeof ResponseObject.Type,
-	site: ResolvedReference | undefined
-): PlainCase["docs"] => {
-	const description = site?.description ?? response.description
-	const summary = site?.summary ?? response.summary
+/**
+ * A case's help text: its description and summary, a Reference Object's at the use site over the
+ * Response Object's own, each made safe.
+ */
+const docsOf = (response: JsonObject, site: ResolvedReference | undefined): PlainCase["docs"] => {
+	const description = site?.description ?? stringMember(response, "description")
+	const summary = site?.summary ?? stringMember(response, "summary")
 
 	return {
 		...(description === undefined ? {} : { description: stripUnsafeText(description) }),
@@ -442,6 +396,11 @@ const docsOf = (
 	}
 }
 
+/**
+ * The case of the Responses Object member `text` under its key, read where its `$ref` leads: its
+ * media alternatives and headers in member order. A response without `content` describes no body
+ * (RSP-07); one with it, its media types (RSP-05).
+ */
 const caseOf = Effect.fnUntraced(function* caseOf(
 	resolution: Resolution,
 	responses: CanonicalKey,
@@ -450,20 +409,18 @@ const caseOf = Effect.fnUntraced(function* caseOf(
 ): Effect.fn.Return<Built<PlainCase>> {
 	const site = childKey(responses, text)
 	const home = follow(resolution, site)
-	const response = yield* nodeIn(resolution, home).pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(ResponseObject)),
-		Effect.orDie
+	const response = yield* objectIn(resolution, home)
+	const content = yield* memberNamesAt(resolution, childKey(home, "content"))
+	const alternatives = yield* Effect.forEach(Option.getOrElse(content, Arr.empty), (mediaType) =>
+		alternativeOf(resolution, home, mediaType)
 	)
-	const alternatives = yield* Effect.forEach(
-		Option.match(response.content, { onNone: () => [], onSome: Record.keys }),
-		(mediaType) => alternativeOf(resolution, home, mediaType)
-	)
-	const headers = yield* headersOf(resolution, Record.keys(response.headers), home)
+	const headerNames = yield* memberNamesAt(resolution, childKey(home, "headers"))
+	const headers = yield* headersOf(resolution, Option.getOrElse(headerNames, Arr.empty), home)
 	const rows = [
 		placeOf(key).row,
 		"RSP-01",
 		...(headers.value.length === 0 ? [] : ["RSP-04"]),
-		Option.isNone(response.content) ? "RSP-07" : "RSP-05"
+		Option.isNone(content) ? "RSP-07" : "RSP-05"
 	]
 
 	return {
@@ -507,21 +464,6 @@ const toDiagnostic = (
 		specSection: specSectionUrl(resolution.line, rule.anchor)
 	})
 }
-
-/**
- * The member names of the Responses Object at `responses`, in the order the parsed object lists
- * them; an absent Responses Object, which 3.1 and 3.2 allow, has none. Validation refuses a
- * document whose Responses Object is no object, so one that is not is a defect here.
- */
-const responseKeys = (
-	resolution: Resolution,
-	responses: CanonicalKey
-): Effect.Effect<readonly string[]> =>
-	Option.match(nodeOption(resolution, responses), {
-		onNone: () => Effect.succeed([]),
-		onSome: (node) =>
-			Schema.decodeUnknownEffect(ResponsesObject)(node).pipe(Effect.map(Record.keys), Effect.orDie)
-	})
 
 /**
  * One member of a Responses Object: a case, a refused key, or an `x-` key left to NZ-5.
@@ -569,8 +511,10 @@ export const normalizeResponses = Effect.fnUntraced(function* normalizeResponses
 	operation: DiagnosticOperation
 ): Effect.fn.Return<NormalizedResponses> {
 	const responses = { document: resolution.document, pointer }
-	const keys = yield* responseKeys(resolution, responses)
-	const entries = yield* Effect.forEach(keys, (text) => entryOf(resolution, responses, text))
+	const keys = yield* memberNamesAt(resolution, responses)
+	const entries = yield* Effect.forEach(Option.getOrElse(keys, Arr.empty), (text) =>
+		entryOf(resolution, responses, text)
+	)
 	const findings = Arr.flatMap(entries, (entry) => entry.findings)
 	const cases = Arr.getSomes(Arr.map(entries, (entry) => entry.value))
 
