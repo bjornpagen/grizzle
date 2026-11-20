@@ -548,6 +548,14 @@ export default defineConfig(
 				})
 			},
 			{
+				files: ["test/support/kernel/long-keys.ts"],
+				rules: active({
+					/** A count of native keyings: it replaces Map's and Set's keying methods while one effect runs, each calling the native it saved, and restores them after (lengthHashedKeyings), the one way to see which keys a native Map or Set hashes. */
+					"eslint/no-extend-native": "off",
+					"typescript/unbound-method": "off"
+				})
+			},
+			{
 				files: ["test/pg/serverless/support.ts"],
 				rules: active({
 					/** A test plays Vercel's runtime: it installs Vercel's request context on the global object, where @vercel/functions reads it, and restores it after. */

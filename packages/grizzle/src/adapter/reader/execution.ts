@@ -27,7 +27,6 @@ import type {
 	TaggedPart
 } from "#compiler/plan/read.ts"
 import {
-	TupleMap,
 	assembled,
 	carried,
 	cellKindOf,
@@ -38,6 +37,9 @@ import {
 	keyColumns,
 	outputTextOf,
 	rowCell,
+	type TextsId,
+	TextsMap,
+	textsId,
 	rowText,
 	sameBytes,
 	scalarReader,
@@ -340,18 +342,20 @@ interface RowPlan {
 }
 
 /**
- * A row's identity: each cell's value text under its column's type (codec/read.ts cellText), in column order, so two
- * rows have one identity exactly when every column holds equal values under its type's equality, 1.0 and 1.00 or -0
- * and 0 alike, whatever their spellings. It is those texts, never one text joined from them, so it costs its row's
- * arity, whatever its cells' lengths.
+ * A row's identity: each cell's value text under its column's type (codec/read.ts cellText), in column order, as an
+ * identity (core/text.ts TextsId), so two rows have one identity exactly when every column holds equal values under its
+ * type's equality, 1.0 and 1.00 or -0 and 0 alike, whatever their spellings. It is those texts, never one text joined
+ * from them, and a set of identities is a TextsMap, which hashes them by their digest, so it costs its cells' units
+ * once, however long and however alike its texts: V8 hashes a text past 16,383 units by its length alone, so a native
+ * Map of such texts is one chain.
  */
-type RowIdentity = (cells: ReadonlyArray<Cell>) => ReadonlyArray<string>
+type RowIdentity = (cells: ReadonlyArray<Cell>) => TextsId
 
 /** The identity of rows whose cells, position by position, are read by `identities`. */
 const rowIdentity =
 	(identities: ReadonlyArray<(cell: Cell) => string>): RowIdentity =>
 	(cells) =>
-		identities.map((identity, at) => identity(rowCell(cells, at)))
+		textsId(identities.map((identity, at) => identity(rowCell(cells, at))))
 
 /** A fused attachment's column text as it is: its children are held to their own identities (FusedPlan). */
 const itself = (cell: Cell): string => outputTextOf(cell)
@@ -539,11 +543,11 @@ export const programRecords = (
 }
 
 /**
- * A parent key's map key: the key texts of the cells `key` reads, in its order (codec/read.ts keyText), so a parent and
- * the children PostgreSQL matched to it meet whichever zero each float holds.
+ * A parent key's map key: the identity of the key texts of the cells `key` reads, in its order (codec/read.ts keyText),
+ * so a parent and the children PostgreSQL matched to it meet whichever zero each float holds.
  */
-const keyOf = (cells: ReadonlyArray<Cell>, key: ReadonlyArray<KeyRead>): ReadonlyArray<string> =>
-	key.map((read) => read.cell(rowCell(cells, read.at)))
+const keyOf = (cells: ReadonlyArray<Cell>, key: ReadonlyArray<KeyRead>): TextsId =>
+	textsId(key.map((read) => read.cell(rowCell(cells, read.at))))
 
 /** The rows of `record` in a flight whose sent statements answered `sent`, as its delivery assembles them. */
 export const runOf = (record: StatementRecord, sent: SentRuns): AssembledRows =>
@@ -573,7 +577,7 @@ const sameCells = (a: ReadonlyArray<Cell>, b: ReadonlyArray<Cell>): boolean =>
  * delivered statement, an attachment's and a fused child array's included, is a set by its compiled proof.
  */
 const seenRows = (identity: RowIdentity): ((cells: ReadonlyArray<Cell>) => boolean) => {
-	const seen = new TupleMap<ReadonlyArray<string>, Array<ReadonlyArray<Cell>>>()
+	const seen = new TextsMap<Array<ReadonlyArray<Cell>>>()
 	return (cells) => {
 		const one = identity(cells)
 		const held = seen.get(one)
@@ -602,7 +606,7 @@ const repeated = (): UnreadableAnswer => new UnreadableAnswer({ index: 0, fate: 
 /** An attachment statement's Rows under a statement's rows, by their parent key (recordRowsOf). */
 interface Grouped {
 	readonly child: ChildPlan
-	readonly groups: TupleMap<ReadonlyArray<string>, Array<Row>>
+	readonly groups: TextsMap<Array<Row>>
 }
 
 /**
@@ -664,7 +668,7 @@ export const recordRowsOf = (
 		if (Result.isFailure(childRows)) {
 			return childRows
 		}
-		const groups = new TupleMap<ReadonlyArray<string>, Array<Row>>()
+		const groups = new TextsMap<Array<Row>>()
 		for (const row of childRows.success) {
 			const key = keyOf(row.cells, child.child)
 			const known = groups.get(key)

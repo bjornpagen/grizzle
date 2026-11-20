@@ -111,7 +111,6 @@ export { sha256Hex } from "#compiler/core/sha256.ts"
 export { wellFormed } from "#compiler/core/text.ts"
 export { Sqlstate, sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
 export { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
-export { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 export type {
 	AssembledRows,
 	Cell,

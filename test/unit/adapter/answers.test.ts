@@ -21,7 +21,7 @@
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { finite } from "@bjornpagen/testing/gen"
+import { finite, int, subset } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Result } from "effect"
 import { windowIntake } from "#adapter/page/execute.ts"
@@ -31,6 +31,7 @@ import { type Delivery, licenses, type Row, UnlawfulDelivery } from "#compiler/c
 import { bindGroups, named, record } from "#compiler/schema/record.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { codebookFor, firstCodes, schemaInputOf } from "#test/support/compile.ts"
+import { lengthHashedKeyings, longFamily } from "#test/support/kernel/long-keys.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { outputRows } from "#test/support/wire.ts"
 import {
@@ -55,6 +56,10 @@ import {
 	root,
 	type StitchFeature,
 	stitchCases,
+	taggedAttached,
+	taggedKeyCount,
+	taggedProgram,
+	taggedRoot,
 	uuids,
 	windowProgram
 } from "#test/unit/adapter/answers.fixtures.ts"
@@ -258,6 +263,107 @@ export const aStatementsRowsAreASetARowTheAnswerHoldsTwiceInAnySpellingIsUnreada
 			}
 		]
 	})
+
+/**
+ * A read's rows key no native Map or Set by a text V8 hashes by its length alone: tags each named by one of a family of
+ * two to four texts of one length past 16,383 units (kernel/long-keys.ts longFamily), each with up to three notes whose bodies
+ * are of the family too, delivered by the read of each tag with its notes' bodies (reader/execution.ts recordRowsOf),
+ * are each tag once with exactly its notes, and no native Map or Set was keyed by such a text (kernel/long-keys.ts
+ * lengthHashedKeyings): a statement's rows are a set by their identities and an attachment's rows are grouped by their
+ * parent key, each a TextsMap (core/text.ts), which hashes them by their digest, where a trie of the row's texts was a
+ * native Map per text, one chain of such texts. A parent key is bounded, as every key is, so the texts past the hashed
+ * length are the rows' own: a tag's name and a note's body.
+ *
+ * Budget: 40 independent cases and 0 steered, each a few long texts.
+ */
+export const aReadsRowsKeyNoNativeMapByATextV8HashesByItsLength = property.explore(
+	(s) => {
+		const family = longFamily(s.draw(int(2, 4)))
+		const every = upTo(family.length, (n) => n)
+		const tags = s.draw(subset(every, { min: 1, max: family.length }))
+		const notes = Arr.map(tags, () =>
+			s.draw(subset(every, { min: 0, max: Math.min(3, family.length) }))
+		)
+		return { family, tags, notes }
+	},
+	{
+		needs: {},
+		situations: [
+			"a tag without notes",
+			"a tag with two notes",
+			"one body under two tags"
+		] satisfies ReadonlyArray<
+			Reached<"a tag without notes" | "a tag with two notes" | "one body under two tags">
+		>,
+		check:
+			(_, c: Case<"a tag without notes" | "a tag with two notes" | "one body under two tags">) =>
+			({ family, tags, notes }) =>
+				Effect.gen(function* () {
+					const textOf = (at: number): string => defined(family[at], "a text of the family")
+					const sent: Array<ReadonlyArray<ReadonlyArray<string>>> = []
+					sent[taggedRoot.answer] = Arr.map(tags, (tag) =>
+						Arr.map(statementHeadingOf(taggedRoot), (col) =>
+							col.name === "name" ? textOf(tag) : String(tag)
+						)
+					)
+					sent[taggedAttached.answer] = Arr.flatMap(tags, (tag, t) =>
+						Arr.map(defined(notes[t], "a tag's notes"), (body) =>
+							Arr.map(statementHeadingOf(taggedAttached), (col, at) =>
+								at < taggedKeyCount
+									? String(tag)
+									: col.name === "body"
+										? textOf(body)
+										: String(t * family.length + body)
+							)
+						)
+					)
+					const answers: SentRuns = Arr.map(sent, outputRows)
+					const [delivered, keyings] = yield* lengthHashedKeyings(
+						Effect.sync(() => deliveredRows(taggedProgram, answers, {}))
+					)
+					assert.equal(keyings, 0, "no native Map or Set keyed by a text past the hashed length")
+					const rows = Result.getOrThrow(delivered)
+					assert.equal(rows.length, tags.length, "each tag once")
+					for (const row of rows) {
+						const t = Option.getOrThrow(
+							Arr.findFirstIndex(tags, (tag) => Arr.some(row.cells, (cell) => cell === textOf(tag)))
+						)
+						const kids = defined(row.children[0], "the notes slot")
+						const owned = defined(notes[t], "the tag's notes")
+						assert.equal(kids.length, owned.length, "each tag holds exactly its notes")
+						if (owned.length === 0) {
+							c.note("a tag without notes")
+						}
+						if (owned.length >= 2) {
+							c.note("a tag with two notes")
+						}
+					}
+					if (
+						Arr.some(
+							upTo(family.length, (n) => n),
+							(body) => Arr.filter(notes, (owned) => owned.includes(body)).length >= 2
+						)
+					) {
+						c.note("one body under two tags")
+					}
+				}),
+		oracle: {
+			kind: "specification",
+			name: "each tag once with its notes, no native keying by a text"
+		},
+		budget: { runs: 40, steered: 0 },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/text.ts",
+				original: "\treturn mintTextsId({ texts, digest: digest | 0, belowSurrogates })",
+				replacement:
+					'\treturn mintTextsId({ texts, digest: texts.join("\\u0000"), belowSurrogates })',
+				why: "A TextsMap keys its buckets by an identity's texts joined, a native Map of strings, as the reader's trie of a row's texts did: rows of texts past the hashed length key a native Map by each, one chain."
+			}
+		]
+	}
+)
 
 /**
  * A window's rows strictly increase in the fetch order and stop at the LIMIT, so an equal tuple, a step back or a row

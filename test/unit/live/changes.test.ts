@@ -21,11 +21,12 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { array, boolean } from "@bjornpagen/testing/gen"
+import { array, boolean, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result, String as Str } from "effect"
 import { transactionReader } from "#adapter/live/changes.ts"
 import type { Message } from "#adapter/live/pgoutput.ts"
+import { lengthHashedKeyings, longFamily } from "#test/support/kernel/long-keys.ts"
 import {
 	announcementGen,
 	changeGen,
@@ -36,6 +37,7 @@ import {
 	messageOf,
 	prefix,
 	relationMessages,
+	routedId,
 	type Step,
 	tables,
 	textsOf,
@@ -192,3 +194,90 @@ export const theLiveLeadersReadingOfAReplicationStreamATransactionsKeysAreTheCov
 			]
 		}
 	)
+
+/**
+ * The live leader keys no native Map or Set by a transaction's key V8 hashes by its length alone: a transaction of one
+ * to six inserts into the routed table, each routed value one of a family of two to four distinct texts of one length
+ * past 16,383 units (kernel/long-keys.ts longFamily), is read to its keys, each value's keyed key once, and no native
+ * Map or Set was keyed by such a text (kernel/long-keys.ts lengthHashedKeyings): a transaction's keys are held once
+ * each by their text as an identity, in a TextsMap (core/text.ts), which hashes it by its digest, where a native Map of
+ * the texts would be one chain, each insert comparing its key with every key of the chain.
+ *
+ * Budget: 40 independent cases and 0 steered, each a few long values.
+ */
+export const theLiveLeaderKeysNoNativeMapByATransactionsKeyV8HashesByItsLength = property.explore(
+	(s) => {
+		const family = longFamily(s.draw(int(2, 4)))
+		return {
+			family,
+			values: s.draw(array((t) => t.draw(int(0, family.length - 1)), { min: 1, max: 6 }))
+		}
+	},
+	{
+		needs: {},
+		situations: ["one value inserted twice", "several values"] satisfies ReadonlyArray<
+			Reached<"one value inserted twice" | "several values">
+		>,
+		check:
+			(_, c: Case<"one value inserted twice" | "several values">) =>
+			({ family, values }) =>
+				Effect.gen(function* () {
+					const steps: ReadonlyArray<Step> = Arr.map(values, (at) => ({
+						kind: "change",
+						change: {
+							kind: "insert",
+							relation: routedId,
+							next: { kind: "text", text: family[at] ?? assert.fail("a value of the family") }
+						}
+					}))
+					const messages: ReadonlyArray<Message> = [
+						...relationMessages,
+						{ kind: "begin", xid: 9 },
+						...Arr.map(steps, messageOf),
+						{ kind: "commit", endLsn: 42n }
+					]
+					const [read, keyings] = yield* lengthHashedKeyings(
+						Effect.sync(() => {
+							const reader = transactionReader(tables, views, prefix, ledger)
+							return Arr.flatMap(messages, (message) => {
+								const transaction = reader.read(message)
+								return Result.isSuccess(transaction) && transaction.success !== undefined
+									? [transaction.success]
+									: []
+							})
+						})
+					)
+					assert.equal(keyings, 0, "no native Map or Set keyed by a key past the hashed length")
+					const [transaction] = read
+					assert.ok(read.length === 1 && transaction !== undefined, "one transaction")
+					assert.equal(
+						transaction.notifications.length,
+						new Set(values).size,
+						"each value's key once"
+					)
+					assert.deepEqual(
+						textsOf(transaction.notifications),
+						textsOf(Arr.flatMap(steps, expectedOf)),
+						"the transaction's keys are each value's keyed key"
+					)
+					c.note(
+						new Set(values).size < values.length ? "one value inserted twice" : "several values"
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "each routed value's keyed key once, no native keying by it"
+		},
+		budget: { runs: 40, steered: 0 },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/text.ts",
+				original: "\treturn mintTextsId({ texts, digest: digest | 0, belowSurrogates })",
+				replacement:
+					'\treturn mintTextsId({ texts, digest: texts.join("\\u0000"), belowSurrogates })',
+				why: "A TextsMap keys its buckets by an identity's texts joined, a native Map of strings, as a transaction's Map of keys by their text did: a transaction of values past the hashed length keys a native Map by each key, one chain."
+			}
+		]
+	}
+)

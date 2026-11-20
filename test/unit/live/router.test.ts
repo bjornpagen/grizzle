@@ -15,13 +15,22 @@
  * under several keys a key reaches.
  */
 
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { array, subset } from "@bjornpagen/testing/gen"
+import { array, int, subset } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { addRoutes, removeRoutes, route, type RouteIndex } from "#adapter/live/router.ts"
-import { type Drawn, type Feature, keyGen, matches } from "#test/unit/live/router.fixtures.ts"
+import { lengthHashedKeyings, longFamily } from "#test/support/kernel/long-keys.ts"
+import { upTo } from "#test/support/up-to.ts"
+import {
+	type Drawn,
+	type Feature,
+	keyGen,
+	type LongFeature,
+	longKeyed,
+	matches
+} from "#test/unit/live/router.fixtures.ts"
 
 /**
  * The live router a key reaches exactly the subscriptions it matches, and deregistering keeps no empty bucket.
@@ -141,3 +150,106 @@ export const theLiveRouterAKeyReachesExactlyTheSubscriptionsItMatchesAndDeregist
 			]
 		}
 	)
+
+/**
+ * The live router keys no native Map or Set by a routed value V8 hashes by its length alone: subscriptions keyed at a
+ * family of two to four distinct values of one length past 16,383 units (kernel/long-keys.ts longFamily), each
+ * registered and some deregistered, and every value of the family routed, reach exactly the subscriptions still
+ * registered at that value, and no native Map or Set was keyed by such a value (kernel/long-keys.ts
+ * lengthHashedKeyings): a column's values are identities in a TextsMap (core/text.ts), which hashes each by its digest,
+ * where a native Map of them would be one chain, each lookup comparing its value with every value of the chain.
+ *
+ * Budget: 40 independent cases and 0 steered, each a few long values.
+ */
+export const theLiveRouterKeysNoNativeMapByAValueV8HashesByItsLength = property.explore(
+	(s) => {
+		const family = longFamily(s.draw(int(2, 4)))
+		const at: ReadonlyArray<number> = s.draw(
+			array((t) => t.draw(int(0, family.length - 1)), { min: 1, max: 6 })
+		)
+		return {
+			family,
+			at,
+			removed: s.draw(
+				subset(
+					upTo(at.length, (n) => n),
+					{ min: 0, max: at.length }
+				)
+			)
+		}
+	},
+	{
+		needs: {},
+		situations: [
+			"two subscriptions at one value",
+			"a value no subscription holds",
+			"a deregistered subscription"
+		] satisfies ReadonlyArray<Reached<LongFeature>>,
+		check:
+			(_, c: Case<LongFeature>) =>
+			({ family, at, removed }) =>
+				Effect.gen(function* () {
+					const all: ReadonlyArray<Drawn> = Arr.map(at, (value, name) => ({
+						name,
+						keys: [longKeyed(defined(family[value], "a value of the family"))]
+					}))
+					const gone = new Set(removed)
+					const [reached, keyings] = yield* lengthHashedKeyings(
+						Effect.sync(() => {
+							const index: RouteIndex<Drawn> = new Map()
+							for (const subscription of all) {
+								addRoutes(index, subscription, subscription.keys)
+							}
+							for (const subscription of all) {
+								if (gone.has(subscription.name)) {
+									removeRoutes(index, subscription, subscription.keys)
+								}
+							}
+							return Arr.map(family, (value) => {
+								const names: Array<number> = []
+								route(index, longKeyed(value), (subscription) => {
+									names.push(subscription.name)
+								})
+								return Arr.sort(names, Order.Number)
+							})
+						})
+					)
+					assert.equal(keyings, 0, "no native Map or Set keyed by a value past the hashed length")
+					for (const [value, names] of reached.entries()) {
+						const held = Arr.filter(at, (v, name) => v === value && !gone.has(name))
+						assert.deepEqual(
+							names,
+							Arr.filter(
+								upTo(at.length, (n) => n),
+								(name) => at[name] === value && !gone.has(name)
+							),
+							"a value reaches exactly the subscriptions still registered at it"
+						)
+						if (held.length >= 2) {
+							c.note("two subscriptions at one value")
+						}
+						if (Arr.every(at, (v) => v !== value)) {
+							c.note("a value no subscription holds")
+						}
+					}
+					if (gone.size > 0) {
+						c.note("a deregistered subscription")
+					}
+				}),
+		oracle: {
+			kind: "specification",
+			name: "the subscriptions registered at each value, no native keying by it"
+		},
+		budget: { runs: 40, steered: 0 },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/text.ts",
+				original: "\treturn mintTextsId({ texts, digest: digest | 0, belowSurrogates })",
+				replacement:
+					'\treturn mintTextsId({ texts, digest: texts.join("\\u0000"), belowSurrogates })',
+				why: "A TextsMap keys its buckets by an identity's texts joined, a native Map of strings, as the router's Map of values by their text did: routing a family of values past the hashed length keys a native Map by each, one chain."
+			}
+		]
+	}
+)

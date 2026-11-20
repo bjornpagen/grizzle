@@ -1,7 +1,13 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
 import type { ParamCodecs } from "#adapter/reader/relations.ts"
-import { admittedIdentifier, defect, type RouteKey } from "#compiler/plan/runtime.ts"
+import {
+	admittedIdentifier,
+	defect,
+	type RouteKey,
+	TextsMap,
+	textsId
+} from "#compiler/plan/runtime.ts"
 import type { ServedFootprint } from "#compiler/plan/serve.ts"
 
 /**
@@ -13,11 +19,13 @@ import type { ServedFootprint } from "#compiler/plan/serve.ts"
  * never the changes routed.
  *
  * The subscriptions of one table: those that read it whole (`wide`), and those registered at a routed column's bound
- * value (`keyed`, by column, then by value).
+ * value (`keyed`, by column, then by value, each value as an identity, core/text.ts TextsId: a bound value is a
+ * caller's text of any length, and V8 hashes a text past 16,383 units by its length alone, so a native Map of such
+ * values would be one chain).
  */
 interface TableRoutes<S> {
 	readonly wide: Set<S>
-	readonly keyed: Map<string, Map<string, Set<S>>>
+	readonly keyed: Map<string, TextsMap<Set<S>>>
 }
 
 /** The index: each table's subscriptions, by the table's installed name, as the change source names it. */
@@ -35,26 +43,19 @@ const tableRoutes = <S>(index: RouteIndex<S>, table: string): TableRoutes<S> => 
 }
 
 /** The subscriptions at `value` among `values`, made empty when none is held. */
-const valueSubscriptions = <S>(values: Map<string, Set<S>>, value: string): Set<S> => {
-	const held = values.get(value)
-	if (held !== undefined) {
-		return held
-	}
-	const made = new Set<S>()
-	values.set(value, made)
-	return made
-}
+const valueSubscriptions = <S>(values: TextsMap<Set<S>>, value: string): Set<S> =>
+	values.getOrInsertComputed(textsId([value]), () => new Set<S>())
 
 /** The values of `column` among `keyed`, made empty when none is held. */
 const columnValues = <S>(
-	keyed: Map<string, Map<string, Set<S>>>,
+	keyed: Map<string, TextsMap<Set<S>>>,
 	column: string
-): Map<string, Set<S>> => {
+): TextsMap<Set<S>> => {
 	const held = keyed.get(column)
 	if (held !== undefined) {
 		return held
 	}
-	const made = new Map<string, Set<S>>()
+	const made = new TextsMap<Set<S>>()
 	keyed.set(column, made)
 	return made
 }
@@ -95,13 +96,14 @@ export const removeRoutes = <S>(
 				break
 			case "keyed": {
 				const values = routes.keyed.get(key.column)
-				const subscriptions = values?.get(key.value)
+				const value = textsId([key.value])
+				const subscriptions = values?.get(value)
 				if (values === undefined || subscriptions === undefined) {
 					break
 				}
 				subscriptions.delete(subscription)
 				if (subscriptions.size === 0) {
-					values.delete(key.value)
+					values.delete(value)
 				}
 				if (values.size === 0) {
 					routes.keyed.delete(key.column)
@@ -142,7 +144,7 @@ export const route = <S>(
 			}
 			return
 		case "keyed": {
-			const subscriptions = routes.keyed.get(key.column)?.get(key.value)
+			const subscriptions = routes.keyed.get(key.column)?.get(textsId([key.value]))
 			if (subscriptions === undefined) {
 				return
 			}

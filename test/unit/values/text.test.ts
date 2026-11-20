@@ -36,6 +36,7 @@ import {
 import { jsonText } from "#compiler/core/trusted.ts"
 import { faulted, succeeded } from "#test/support/assert.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
+import { longestHashedText } from "#test/support/kernel/long-keys.ts"
 import {
 	plantedFault,
 	type PlantedFeature,
@@ -52,7 +53,6 @@ import {
 	collidingLists,
 	escaped,
 	kinds,
-	longestHashedText,
 	positions,
 	signOf,
 	spelledText,
@@ -269,7 +269,7 @@ const lookupCompares = <V>(map: TextsMap<V>, key: ReadonlyArray<string>) =>
  * one where its digest is one list's. Over drawn prefixes: two lists of the prefix and a piece made to meet under
  * FNV-1a's public start (text.fixtures.ts collidingLists, its digests textsId's), set beside a third list of the prefix alone, are three entries in the order they were set, each
  * read back with its own value, a list set again keeping its place, and one deleted leaving the other; and a family of
- * four texts of one length past V8's longest hashed text (text.fixtures.ts longestHashedText), the prefix and a filler
+ * four texts of one length past V8's longest hashed text (kernel/long-keys.ts longestHashedText), the prefix and a filler
  * then pieces made to meet under FNV-1a's public start (`collidingFamily`, its digests textsId's), whose first k for k =
  * 2 to 4 set in ascending order are k entries, each read back as itself and the rest of the family held by none. Every
  * lookup of a list or of a member of the family, held or not, compares texts with at most `avlHeight` of its bucket's

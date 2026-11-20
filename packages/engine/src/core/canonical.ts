@@ -13,7 +13,7 @@ import {
 import { isCapturedStack, isSourceLoc, readSite, SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
-import { compareQuoted, wellFormed } from "#compiler/core/text.ts"
+import { compareQuoted, type TextsId, textsId, wellFormed } from "#compiler/core/text.ts"
 
 /**
  * The longest string V8 builds, in UTF-16 code units: a statement, drafted file, snapshot.json, meta.json or canonical
@@ -1309,7 +1309,7 @@ class TokenSink implements Sink {
 
 /**
  * The canonical tokens of a value (`CanonicalToken`): its canonical text's, refused as `encode` refuses, but never for
- * its length, since no text is built. A key over a value's identity is its tokens, in a TupleMap.
+ * its length, since no text is built. A key over a value's identity is its tokens' (`canonicalTokensId`).
  */
 export const canonicalTokens = (
 	value: unknown,
@@ -1327,6 +1327,27 @@ export const canonicalTokens = (
 /** A scalar token's text: a number's or a boolean's as JSON.stringify writes it, a punctuation token's its own. */
 const scalarText = (token: number | boolean | Punctuation): string =>
 	typeof token === "symbol" ? punctuationText(token) : JSON.stringify(token)
+
+/**
+ * The identity of a token list (core/text.ts TextsId): its shape, the canonical text with each string's literal a lone
+ * quote, then each string as it is. No other token's text holds a quote and the canonical text is JSON's grammar, so a
+ * shape and its strings spell one list alone; no string is joined, so a set of values by their tokens is a TextsMap,
+ * which hashes them by their digest, never V8's hash of a string, which a text past 16,383 units has by its length
+ * alone.
+ */
+export const canonicalTokensId = (tokens: ReadonlyArray<CanonicalToken>): TextsId => {
+	const shape: Array<string> = []
+	const strings: Array<string> = []
+	for (const token of tokens) {
+		if (typeof token === "string") {
+			shape.push('"')
+			strings.push(token)
+		} else {
+			shape.push(scalarText(token))
+		}
+	}
+	return textsId([shape.join(""), ...strings])
+}
 
 /** The first UTF-16 code unit of a token's text: a string's opening quote, or a scalar text's first. */
 const firstUnit = (token: CanonicalToken): string =>

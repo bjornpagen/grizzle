@@ -415,6 +415,16 @@ export class TextsMap<V> {
 		return this
 	}
 
+	getOrInsertComputed(key: TextsId, compute: (key: TextsId) => V): V {
+		const found = this.#found(key)
+		if (found !== undefined) {
+			return found.value
+		}
+		const value = compute(key)
+		this.set(key, value)
+		return value
+	}
+
 	delete(key: TextsId): boolean {
 		const found = this.#found(key)
 		if (found === undefined) {

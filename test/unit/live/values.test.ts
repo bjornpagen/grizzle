@@ -21,24 +21,28 @@
  * Features: removes of present and absent keys, upserts new, in place and moving, re-sent upserts, whole-row keys,
  * unchanged rows moved, and every lifecycle path.
  */
-import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { word } from "@bjornpagen/testing/dictionary"
 import type { Reached } from "@bjornpagen/testing/features"
-import { finite } from "@bjornpagen/testing/gen"
+import { array, boolean, finite, int, subset } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { TextsMap } from "#compiler/core/text.ts"
 import {
 	fold,
 	foldWrite,
 	formOf,
 	type KeyFields,
+	Keyed,
 	type ReadEvent,
 	RowKey,
+	type SetChange,
 	sameValue,
 	type WriteEvent,
 	writeOpening
 } from "#compiler/live/index.ts"
+import { lengthHashedKeyings, longFamily } from "#test/support/kernel/long-keys.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { forms } from "#test/unit/live/values.dictionary.ts"
 import {
 	type Applied,
@@ -377,7 +381,7 @@ export const theLiveModelsValuesKeysCompareByValueAndRowsByWhatTheyDeliver = pro
 			({ left, right }) =>
 				Effect.sync(() => {
 					const [a, b] = [left, right]
-					const index = new TupleMap<ReadonlyArray<unknown>, true>()
+					const index = new TextsMap<true>()
 					index.set(formOf(RowKey([a.make()])), true)
 					assert.equal(index.has(formOf(RowKey([b.make()]))), a.key === b.key)
 					assert.equal(sameValue(a.make(), b.make()), a.delivery === b.delivery)
@@ -398,10 +402,117 @@ export const theLiveModelsValuesKeysCompareByValueAndRowsByWhatTheyDeliver = pro
 		kept: [],
 		kills: [
 			{
-				file: "packages/text/src/base/tuple-map.ts",
-				original: "\thas(key: K): boolean {\n\t\treturn this.#found(key) !== undefined\n\t}",
-				replacement: "\thas(key: K): boolean { return true }",
-				why: "Operator mutant (boolean-return) at packages/engine/src/core/tuple-map.ts:87 in <module>: `{\n\t\treturn this.#found(key) !== undefined\n\t}` becomes `{ return true }`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				file: "packages/engine/src/core/text.ts",
+				original: "\thas(key: TextsId): boolean {\n\t\treturn this.#found(key) !== undefined\n\t}",
+				replacement: "\thas(key: TextsId): boolean { return true }",
+				why: "A map of forms holds every form: two keys of two classes are one; the property fails."
+			},
+			{
+				file: "packages/engine/src/live/key.ts",
+				original: "\t\t\tinto.shape.push(formWords.bigint, value.toString(), formEnd)",
+				replacement: "\t\t\tinto.shape.push(formWords.number, value.toString(), formEnd)",
+				why: "A bigint's form is spelled as a number's: 1 and 1n, two keys, are one form; the property fails."
+			}
+		]
+	}
+)
+
+/** What a case of the long-keys property shows. */
+type LongKeyed = "a key upserted again in place" | "a key removed" | "a key added"
+
+/**
+ * A live set keys no native Map or Set by a key V8 hashes by its length alone: a set read's value keyed by one text
+ * field (live/keyed.ts Keyed), holding rows keyed by a family of two to four distinct texts of one length past 16,383
+ * units (kernel/long-keys.ts longFamily) and then a drawn run of upserts and removes of them applied, holds each key's
+ * last row exactly where the model of the run does, in place for a key it held, and no native Map or Set was keyed by
+ * such a text (kernel/long-keys.ts lengthHashedKeyings): a value's rows are held by their keys' forms in a TextsMap
+ * (core/text.ts), which hashes each by its digest, where a trie of the key's values was a native Map per value, one
+ * chain of such keys.
+ *
+ * Budget: 40 independent cases and 0 steered, each a few long keys.
+ */
+export const aLiveSetKeysNoNativeMapByAKeyV8HashesByItsLength = property.explore(
+	(s) => {
+		const family = longFamily(s.draw(int(2, 4)))
+		const text = int(0, family.length - 1)
+		return {
+			family,
+			start: s.draw(
+				subset(
+					upTo(family.length, (n) => n),
+					{ min: 0, max: family.length }
+				)
+			),
+			changes: s.draw(
+				array((t) => ({ remove: t.draw(boolean), at: t.draw(text), payload: t.draw(int(0, 9)) }), {
+					min: 1,
+					max: 6
+				})
+			)
+		}
+	},
+	{
+		needs: {},
+		situations: [
+			"a key upserted again in place",
+			"a key removed",
+			"a key added"
+		] satisfies ReadonlyArray<Reached<LongKeyed>>,
+		check:
+			(_, c: Case<LongKeyed>) =>
+			({ family, start, changes }) =>
+				Effect.gen(function* () {
+					const textOf = (at: number): string => defined(family[at], "a text of the family")
+					const fields: KeyFields = ["k"]
+					const model = new Map<number, number>(Arr.map(start, (at) => [at, 0] as const))
+					for (const change of changes) {
+						if (change.remove) {
+							c.note("a key removed")
+							model.delete(change.at)
+						} else {
+							c.note(model.has(change.at) ? "a key upserted again in place" : "a key added")
+							model.set(change.at, change.payload)
+						}
+					}
+					const [rows, keyings] = yield* lengthHashedKeyings(
+						Effect.sync(() =>
+							Arr.map(
+								[
+									...Keyed.of<"set", { readonly k: string; readonly v: number }>(
+										"set",
+										fields,
+										Arr.map(start, (at) => ({ k: textOf(at), v: 0 }))
+									).applying(
+										Arr.map(
+											changes,
+											(change): SetChange<{ readonly k: string; readonly v: number }> =>
+												change.remove
+													? { kind: "remove", key: RowKey([textOf(change.at)]) }
+													: { kind: "upsert", row: { k: textOf(change.at), v: change.payload } }
+										)
+									)
+								],
+								(row) => [row.k, row.v] as const
+							)
+						)
+					)
+					assert.equal(keyings, 0, "no native Map or Set keyed by a key past the hashed length")
+					assert.deepEqual(
+						rows,
+						Arr.map([...model], ([at, v]) => [textOf(at), v] as const),
+						"each key's last row, in place where the value held it"
+					)
+				}),
+		oracle: { kind: "specification", name: "a set's rows by key, each upserted in place or last" },
+		budget: { runs: 40, steered: 0 },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/text.ts",
+				original: "\treturn mintTextsId({ texts, digest: digest | 0, belowSurrogates })",
+				replacement:
+					'\treturn mintTextsId({ texts, digest: texts.join("\\u0000"), belowSurrogates })',
+				why: "A TextsMap keys its buckets by an identity's texts joined, a native Map of strings, as the value's trie of key values did: a family of keys past the hashed length keys a native Map by each, one chain."
 			}
 		]
 	}

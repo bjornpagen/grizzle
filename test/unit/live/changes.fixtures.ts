@@ -13,7 +13,7 @@ import {
 export const prefix = "__live_app_0"
 
 /** The relations of the stream: a routed table, by `g`; a table read whole; and a table no program reads. */
-const routedId = 1
+export const routedId = 1
 
 export const wholeId = 2
 

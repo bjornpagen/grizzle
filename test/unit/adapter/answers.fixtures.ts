@@ -24,6 +24,7 @@ import { queryInput } from "#compiler/program/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { record } from "#compiler/schema/record.ts"
 import { servedSource } from "#compiler/served/read.ts"
@@ -318,3 +319,54 @@ const rows = defined(windowProgram.records[0], "the rows part")
 
 /** The columns the window's rows statement outputs. */
 export const heading = statementOutput(rows.part.role, rows.part.heading, rows.part.fused).heading
+
+/**
+ * Tag(id, name) and Note(n, tag, body), each keyed by a number and holding a text of a's and b's of any length, which
+ * no key holds, since a key's every column is bounded (schema/representability.ts): a read whose rows' identities hold
+ * texts past V8's longest hashed text (kernel/long-keys.ts longestHashedText).
+ */
+const Tag = relation("Tag", { id: pg.integer, name: str.regex("^[ab]*$") }, ["id"])
+const Note = relation("Note", { n: pg.integer, tag: pg.integer, body: str.regex("^[ab]*$") }, ["n"])
+const Tagged = schema("Tagged", [Tag, Note], [contained(on(Note, "tag"), on(Tag, "id"))])
+
+/** Each tag with its notes' bodies: a root statement and one attachment statement, its rows led by the tag's id. */
+const tagsWithNotes = query(Tagged)
+	.rule((r) => {
+		const { id, name } = v(Tag, "tag")
+		return r.match(Tag, { id, name }).find({ id, name })
+	})
+	.attach(
+		"notes",
+		(tag) =>
+			query(Tagged).rule((r) => {
+				const { n, body } = v(Note, "note")
+				return r.match(Note, { n, tag: tag.id, body }).find({ n, body })
+			}),
+		"array"
+	)
+
+/** The read of each tag with its notes, as the reader runs it: its root part and its attachment's. */
+export const taggedProgram = readProgram(
+	servedSource(succeeded(compileTemplate(tagsWithNotes, Tagged, testCompile)).runs.conservative),
+	servedSpine(succeeded(queryInput(tagsWithNotes)).desc),
+	succeeded(codebookFor(schemaInputOf(Tagged), firstCodes))
+)
+
+/** The tagged read's root part and its attachment's. */
+export const taggedRoot = defined(
+	Arr.findFirst(taggedProgram.records, (r) => r.part.role.kind !== "attachment").pipe(
+		Option.getOrUndefined
+	),
+	"the tagged read's root part"
+)
+
+export const taggedAttached = defined(
+	Arr.findFirst(taggedProgram.records, (r) => r.part.role.kind === "attachment").pipe(
+		Option.getOrUndefined
+	),
+	"the tagged read's attachment part"
+)
+
+/** How many columns of the tagged attachment's rows lead with its parent's key. */
+export const taggedKeyCount =
+	taggedAttached.part.role.kind === "attachment" ? taggedAttached.part.role.parentKey.length : 0

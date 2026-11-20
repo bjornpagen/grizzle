@@ -6,7 +6,9 @@ import {
 	type Notification,
 	notificationText,
 	type RouteColumn,
-	type RouteTable
+	type RouteTable,
+	TextsMap,
+	textsId
 } from "#compiler/plan/runtime.ts"
 
 /**
@@ -104,11 +106,15 @@ const relationRoutes = (
 	return routes.length === 0 ? { kind: "whole", table } : { kind: "routed", table, columns, routes }
 }
 
-/** The notifications of one transaction, each once, by its text. */
-type Keys = Map<string, Notification>
+/**
+ * The notifications of one transaction, each once, by its text as an identity (core/text.ts TextsId): a keyed key's
+ * text holds a replicated row's value, of any length, and V8 hashes a text past 16,383 units by its length alone, so
+ * a native Map of such texts would be one chain.
+ */
+type Keys = TextsMap<Notification>
 
 const add = (keys: Keys, notification: Notification): void => {
-	keys.set(notificationText(notification), notification)
+	keys.set(textsId([notificationText(notification)]), notification)
 }
 
 /** One side of a row change as coverage reads it: each column's text, by position, or absent where the side does not say it. */
@@ -232,7 +238,7 @@ export const transactionReader = (
 				if (open !== undefined) {
 					return unroutable("a transaction begun inside another")
 				}
-				stream.open = { xid: message.xid, keys: new Map() }
+				stream.open = { xid: message.xid, keys: new TextsMap() }
 				return Result.succeed(undefined)
 			}
 			if (open === undefined) {

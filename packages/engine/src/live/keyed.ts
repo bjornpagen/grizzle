@@ -1,12 +1,12 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { type TextsId, TextsMap } from "#compiler/core/text.ts"
 import type { ListChange, ReadShape, SetChange } from "#compiler/live/events.ts"
-import { type Form, formOf, type KeyFields, keyOf, type RowKey } from "#compiler/live/key.ts"
+import { formOf, type KeyFields, keyOf, type RowKey } from "#compiler/live/key.ts"
 
 /** One row of a read's value: its key, the key's form, and the row. */
 export interface Entry<Row> {
 	readonly key: RowKey
-	readonly form: Form
+	readonly form: TextsId
 	readonly row: Row
 }
 
@@ -25,7 +25,7 @@ interface Node<Row> extends Entry<Row> {
 export class Keyed<S extends ReadShape, Row extends object> implements Iterable<Row> {
 	readonly shape: S
 	readonly fields: KeyFields
-	readonly #nodes = new TupleMap<Form, Node<Row>>()
+	readonly #nodes = new TextsMap<Node<Row>>()
 	#head: Node<Row> | undefined = undefined
 	#tail: Node<Row> | undefined = undefined
 
@@ -68,7 +68,7 @@ export class Keyed<S extends ReadShape, Row extends object> implements Iterable<
 	}
 
 	/** The entry whose key has the form `form`, none where no row's does. */
-	at(form: Form): Entry<Row> | undefined {
+	at(form: TextsId): Entry<Row> | undefined {
 		return this.#nodes.get(form)
 	}
 
@@ -141,7 +141,7 @@ export class Keyed<S extends ReadShape, Row extends object> implements Iterable<
 		this.#nodes.delete(node.form)
 	}
 
-	#remove(form: Form): void {
+	#remove(form: TextsId): void {
 		const node = this.#nodes.get(form)
 		if (node !== undefined) {
 			this.#unlink(node)

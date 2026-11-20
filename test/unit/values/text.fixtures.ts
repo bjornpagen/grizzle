@@ -13,6 +13,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { longestHashedText } from "#test/support/kernel/long-keys.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** The element at an index the test knows is in range, failing the test where it is not. */
@@ -140,22 +141,6 @@ export const bytesNeed = {
 	})
 } as const satisfies Need<unknown>
 
-/**
- * The longest string V8 hashes by its content, in UTF-16 code units: a longer one's hash is its length alone, so a
- * native Map or Set of distinct longer strings of one length holds them all in one chain, a lookup comparing its key
- * with each in turn.
- *
- * @limitKind published
- * @owner V8 14.6, Node 26.13.0's JavaScript engine
- * @unit UTF-16 code units
- * @scope one JavaScript string's hash
- * @constraint compile-time constant
- * @source https://github.com/nodejs/node/blob/v26.13.0/deps/v8/src/objects/string.h#L529
- * @quote For strings longer than this limit the string length is used as the hash value.
- * @verified 2026-11-19
- */
-export const longestHashedText = 16383
-
 /** FNV-1a's 32-bit offset basis and prime, as textsId starts and steps its digest (core/text.ts TextsId). */
 const fnvOffset = 0x811c9dc5
 const fnvPrime = 0x01000193
@@ -232,7 +217,7 @@ export const collidingLists = (
 }
 
 /**
- * Four distinct texts of one length past `longestHashedText`, `prefix` and a filler then two pieces of two units, whose
+ * Four distinct texts of one length past V8's longest hashed text (kernel/long-keys.ts longestHashedText), `prefix` and a filler then two pieces of two units, whose
  * lists of one text share a digest (core/text.ts TextsId), so V8 hashes them alike and so does a TextsMap: the second
  * pieces meet from the state the first ones reach (Joux's multicollisions), so either first piece and either second
  * make one digest, the long text before them folded once.

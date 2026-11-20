@@ -42,3 +42,17 @@ export type Feature =
 	| "a key reaching none"
 	| "a deregistered subscription a key would have reached"
 	| "one subscription reached through several keys"
+
+/** The keyed key of table `a`'s column `c` at `value`: where the long-values property registers and routes. */
+export const longKeyed = (value: string): RouteKey => ({
+	kind: "keyed",
+	table: admittedIdentifier<"table">("a"),
+	column: admittedIdentifier<"column">("c"),
+	value
+})
+
+/** The features a case of the long-values property shows. */
+export type LongFeature =
+	| "two subscriptions at one value"
+	| "a value no subscription holds"
+	| "a deregistered subscription"

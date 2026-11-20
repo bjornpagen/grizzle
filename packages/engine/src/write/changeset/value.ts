@@ -1,13 +1,13 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { Stream } from "effect"
 import {
 	type CanonicalObject,
 	type CanonicalToken,
 	canonicalOf,
 	canonicalTokens,
+	canonicalTokensId,
 	compareCanonicalTokens,
 	everyProperty,
 	type Outside
@@ -18,6 +18,7 @@ import { captureLoc, labeledChildLoc, type SourceLoc } from "#compiler/core/loc.
 import * as Order from "#compiler/core/order.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
+import { type TextsId, TextsMap, textsId } from "#compiler/core/text.ts"
 import {
 	type ChangeSetDesc,
 	decodeDesc,
@@ -133,11 +134,15 @@ interface ReadBackState {
 /**
  * What tells two values bound under one name apart: the value's canonical tokens (core/canonical.ts canonicalTokens),
  * read once when bind takes it, its canonical text's tokens and never that text, so a value whose texts sum past the
- * longest string is keyed as any other; or opaque for a value that has none, a Stream or a vector with a component
+ * longest string is keyed as any other, ordered by them and told apart by their identity (canonicalTokensId); or opaque for a value that has none, a Stream or a vector with a component
  * that is not finite, which is equal to no other value and has no canonical order.
  */
 type BoundKey =
-	| { readonly kind: "tokens"; readonly tokens: ReadonlyArray<CanonicalToken> }
+	| {
+			readonly kind: "tokens"
+			readonly tokens: ReadonlyArray<CanonicalToken>
+			readonly id: TextsId
+	  }
 	| { readonly kind: "opaque" }
 
 /** A parameter bind closed: the name it had when bound, its value, and the value's key. */
@@ -150,7 +155,9 @@ interface BoundParam {
 /** The key of a bound value (`BoundKey`). */
 const boundKey = (value: ParamValue): BoundKey => {
 	const tokens = canonicalTokens(value, everyProperty)
-	return tokens.ok ? { kind: "tokens", tokens: tokens.value } : { kind: "opaque" }
+	return tokens.ok
+		? { kind: "tokens", tokens: tokens.value, id: canonicalTokensId(tokens.value) }
+		: { kind: "opaque" }
 }
 
 /** Private parameters by origin, then by key: every canonical text in code-unit order (compareCanonicalTokens), then
@@ -358,7 +365,7 @@ const canonicalStratum = (members: ReadonlyArray<MemberState>): ReadonlyArray<Me
 	const arrays = new Map<string, Extract<MemberState, { kind: "array" }>>()
 	/** Equal described members are one: the first of each operation, relation, kind and text. */
 	const described: Array<Described> = []
-	const texts = new Map<string, Set<string>>()
+	const texts = new TextsMap<true>()
 	const streams: Array<MemberState> = []
 	for (const m of members) {
 		const group = groupKey(m)
@@ -377,10 +384,9 @@ const canonicalStratum = (members: ReadonlyArray<MemberState>): ReadonlyArray<Me
 			case "query":
 			case "equal":
 			case "computed": {
-				const seen = texts.get(`${m.kind}:${group}`) ?? new Set<string>()
-				texts.set(`${m.kind}:${group}`, seen)
-				if (!seen.has(m.text)) {
-					seen.add(m.text)
+				const text = textsId([m.kind, group, m.text])
+				if (!texts.has(text)) {
+					texts.set(text, true)
 					described.push(m)
 				}
 			}
@@ -711,17 +717,17 @@ const canonicalBindings = (scope: Scope): Scope => {
 	const merges = new Map<string, string>()
 	const kept = new Map<string, BoundParam>()
 	/** The kept private parameter of each origin and key, by name. */
-	const keyed = new Map<string, TupleMap<ReadonlyArray<CanonicalToken>, string>>()
+	const keyed = new Map<string, TextsMap<string>>()
 	for (const [name, param] of scope.bound) {
 		if (param.key.kind === "opaque") {
 			kept.set(name, param)
 			continue
 		}
-		const keys = keyed.get(param.origin) ?? new TupleMap<ReadonlyArray<CanonicalToken>, string>()
+		const keys = keyed.get(param.origin) ?? new TextsMap<string>()
 		keyed.set(param.origin, keys)
-		const same = keys.get(param.key.tokens)
+		const same = keys.get(param.key.id)
 		if (same === undefined) {
-			keys.set(param.key.tokens, name)
+			keys.set(param.key.id, name)
 			kept.set(name, param)
 		} else {
 			merges.set(name, same)
