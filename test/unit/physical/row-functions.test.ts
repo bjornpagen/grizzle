@@ -19,9 +19,9 @@
  */
 
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { inlineLiteralMaxBytes } from "#compiler/physical/ddl/row-functions.ts"
 import type {
@@ -32,7 +32,13 @@ import type {
 	TableConstraint
 } from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
-import { installationOf, rowCaseGen } from "#test/unit/physical/row-functions.fixtures.ts"
+import {
+	installationOf,
+	leadCaseGen,
+	leadInstallationOf,
+	type LeadCase,
+	rowCaseGen
+} from "#test/unit/physical/row-functions.fixtures.ts"
 
 type RowFeature =
 	| "a CHECK calling a row function"
@@ -251,3 +257,171 @@ export const noStatementPlansAConstantOfATablesChecksOrGenerations = property.ex
 		}
 	]
 })
+
+/** A value an expression of the lead box computes: an integer, a text, a truth value, or NULL. */
+type Value = bigint | string | boolean | null
+
+/**
+ * The row-function calls PostgreSQL makes evaluating `expr` over `row`, and its value: an AND's and an OR's operands in
+ * order, stopping at the first that decides it (execExprInterp.c EEOP_BOOL_AND_STEP, EEOP_BOOL_OR_STEP), each call of
+ * a function of `rows` one call, its value unknown, NULL. Any node the lead box's expressions hold no other of is the
+ * box's defect.
+ */
+const evaluated = (
+	expr: Expr,
+	row: Readonly<Record<string, Value>>,
+	rows: ReadonlySet<string>
+): { readonly value: Value; readonly calls: number } => {
+	let calls = 0
+	const truth = (v: Value): boolean | null => (v === null ? null : v === true)
+	/** A boolean connective's value, its operands in order until one decides it (`decides` for an OR, false for an AND). */
+	const connective = (args: ReadonlyArray<Expr>, decides: boolean): Value => {
+		let unknown = false
+		for (const arg of args) {
+			const v = truth(go(arg))
+			if (v === decides) {
+				return decides
+			}
+			unknown ||= v === null
+		}
+		return unknown ? null : !decides
+	}
+	const go = (e: Expr): Value => {
+		if (e.kind === "column") {
+			return defined(row[e.column], `the row's ${e.column}`)
+		}
+		if (e.kind === "literal") {
+			return e.value.kind === "int" || e.value.kind === "text" || e.value.kind === "bool"
+				? e.value.value
+				: null
+		}
+		if (e.kind === "cast" || e.kind === "collate") {
+			return go(e.expr)
+		}
+		if (e.kind === "binary" && (e.op === "=" || e.op === "<>")) {
+			const [l, r] = [go(e.left), go(e.right)]
+			return l === null || r === null ? null : (l === r) === (e.op === "=")
+		}
+		if (e.kind === "inList") {
+			const v = go(e.expr)
+			return v === null ? null : Arr.some(e.list, (x) => go(x) === v) !== e.not
+		}
+		if (e.kind === "not") {
+			const v = truth(go(e.expr))
+			return v === null ? null : !v
+		}
+		if (e.kind === "isTrue") {
+			return truth(go(e.expr)) === true
+		}
+		if (e.kind === "and" || e.kind === "or") {
+			return connective(e.args, e.kind === "or")
+		}
+		if (e.kind === "call" && e.fn.kind === "qualified" && rows.has(e.fn.name)) {
+			calls += 1
+			return null
+		}
+		return assert.fail(
+			`a statement evaluates a ${e.kind} of the lead box's hoisted expression outside its row function`
+		)
+	}
+	const value = go(expr)
+	return { value, calls }
+}
+
+type LeadFeature =
+	| "a selection's row outside its kinds"
+	| "a selection's row outside its one kind, which the law model holds after its pattern"
+	| "a selection's row of its kinds"
+	| "a CHECK's row its first operand decides"
+	| "a CHECK's row its pattern decides"
+
+/**
+ * A row a hoisted AND's or OR's inline operands decide calls no row function: a selection `kind IN (…) AND u ~ p`, which
+ * the law model may hold as `u ~ p AND kind = …`, and a CHECK `NOT kind IN (…) OR t ~ p` hold their kind test before
+ * the call of the pattern's row function, so a row of a kind outside the list makes no call, and one of a listed kind
+ * one.
+ */
+export const aRowAHoistedConjunctionsInlineOperandsDecideCallsNoRowFunction = property.explore(
+	leadCaseGen,
+	{
+		needs: {},
+		budget: { runs: 40, steered: 40 },
+		situations: [
+			"a selection's row outside its kinds",
+			"a selection's row outside its one kind, which the law model holds after its pattern",
+			"a selection's row of its kinds",
+			"a CHECK's row its first operand decides",
+			"a CHECK's row its pattern decides"
+		] satisfies ReadonlyArray<Reached<LeadFeature>>,
+		check: (_, c: Case<LeadFeature>) => (lead: LeadCase) =>
+			Effect.sync(() => {
+				const statements = leadInstallationOf(lead).statements
+				const { rows } = constantsOf(statements)
+				const row: Readonly<Record<string, Value>> = {
+					id: 1n,
+					kind: BigInt(lead.kind),
+					t: "a",
+					u: "a",
+					w: "1"
+				}
+				const counted = Arr.flatMap(statements, (s) =>
+					Arr.flatMap(plannedOf(s), ({ expr }) =>
+						Arr.some(walked(expr).called, (name) => rows.has(name))
+							? [evaluated(expr, row, rows).calls]
+							: []
+					)
+				)
+				const among = lead.members.includes(lead.kind)
+				assert.deepEqual(counted, [among ? 1 : 0], "the row-function calls of the row")
+				if (lead.shape === "selection" && !among && lead.members.length === 1) {
+					c.note(
+						"a selection's row outside its one kind, which the law model holds after its pattern"
+					)
+				}
+				c.note(
+					lead.shape === "selection"
+						? among
+							? "a selection's row of its kinds"
+							: "a selection's row outside its kinds"
+						: among
+							? "a CHECK's row its pattern decides"
+							: "a CHECK's row its first operand decides"
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "PostgreSQL's evaluation of AND and OR, operand by operand until one decides, counting each row-function call"
+		},
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/physical/row-functions.test.ts#aRowAHoistedConjunctionsInlineOperandsDecideCallsNoRowFunction:-:0.1.0.1"
+				),
+				reason:
+					"A key's selection of kind 0 and u ~ p, which the law model holds as `u ~ p AND kind = 0`, and a row of kind 1: with only the leading inline operands kept in place, the whole selection was the call, and the row called it (rotating case 16)",
+				since: "2026-11-20"
+			}
+		],
+		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/row-functions.ts",
+				original: '\tif (expr.kind !== "and" && expr.kind !== "or") {\n',
+				replacement: "\tif (expr === expr) {\n",
+				why: "A hoisted AND or OR is its row function's call whole, so every row calls it, a row outside a selection's kinds as one of them, as attribute's guards cost each row a call in 56f26ca01."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/row-functions.ts",
+				original: "\t\tif (selects(arg) && !hoists(scope, join(appendNonEmpty(inline, arg)))) {\n",
+				replacement:
+					"\t\tif (rest.length === 0 && selects(arg) && !hoists(scope, join(appendNonEmpty(inline, arg)))) {\n",
+				why: "Only the leading selectors stand before the call, so a selection the law model holds as `u ~ p AND kind = 0` calls its function on every row, the kind test inside it."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/row-functions.ts",
+				original: "const selects = (e: Expr): boolean =>\n",
+				replacement: "const selects = (e: Expr): boolean => e === e ||\n",
+				why: "Every operand that stays inline stands before the call, a function's call among them, so each statement that writes the table plans `char_length(t) > 3` again where the row function planned it once: qti's node paid 4.40M instructions a one-row statement to 56f26ca01's 4.30M."
+			}
+		]
+	}
+)

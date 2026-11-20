@@ -1,3 +1,8 @@
+import {
+	appendNonEmpty,
+	isNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 /**
  * A table's CHECK or stored generation whose expression reads what PostgreSQL would otherwise plan into every statement
@@ -16,7 +21,9 @@ import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
  * per byte; the call of a row function costs 4,405 per row (inlineLiteralMaxBytes's evidence). So an expression is
  * hoisted when it calls an installed constant, which costs a one-row statement more than the call, when it matches a
  * pattern, data of its language, or when its literals hold more than inlineLiteralMaxBytes together; every other
- * expression stays inline, where a statement of many rows pays nothing per row for it.
+ * expression stays inline, where a statement of many rows pays nothing per row for it. Of a hoisted AND or OR, the
+ * operands that stay inline together stand first, before the call of the rest, so a row they decide calls nothing: a
+ * selection's `<pattern> AND kind IN (…)` calls its function only on the rows of its kinds.
  *
  * The body is PL/pgSQL, never SQL: an SQL body PostgreSQL may inline is planned into every statement again, and one it
  * never inlines (STRICT, SECURITY DEFINER or a SET clause) runs its plan through the executor on every call, ten times
@@ -35,7 +42,7 @@ import type {
 	QualifiedFunctionRef,
 	TypeRef
 } from "#compiler/sql/ast.ts"
-import { param, qualifiedCall, types } from "#compiler/sql/build.ts"
+import { and, or, param, qualifiedCall, types } from "#compiler/sql/build.ts"
 import { identityHooks, ownColumns, transformExpr } from "#compiler/sql/transform.ts"
 
 /**
@@ -167,10 +174,15 @@ const identified = (scope: RowScope, body: Expr): Expr =>
 	})
 
 /**
- * `expr`, an expression of a table's row returning `returns`, as the CHECK or the generation states it: the call of its
- * row function on the columns it reads, in the order it first reads them, each the function's parameter by its position
- * and named by its column, which `install` installs, named by its definition's digest (`identified`); or `expr` itself
- * where it stays inline (`hoists`).
+ * `expr`, an expression of a table's row returning `returns`, as the CHECK or the generation states it: `expr` itself
+ * where it stays inline (`hoists`); else, a conjunction or a disjunction some of whose operands stay inline together,
+ * those operands first, in their order, then the call of its row function on the rest (`called`), so a row they decide,
+ * a row outside a selection's IN-list or one whose first condition already holds, calls no function: PostgreSQL
+ * evaluates an AND's and an OR's operands in the order it holds them and stops at the first that decides it
+ * (execExprInterp.c EEOP_BOOL_AND_STEP, EEOP_BOOL_OR_STEP); else the call of its row function on the whole expression.
+ * Moving the inline operands ahead of the rest changes no value: an AND or an OR over three-valued booleans is the same
+ * in any order, and PostgreSQL defines no order of evaluating them, so no SQL of grizzle's relies on one to keep an
+ * operand from being evaluated (a CASE arm does that).
  */
 const rowExpression = (
 	scope: RowScope,
@@ -181,6 +193,74 @@ const rowExpression = (
 	if (!hoists(scope, expr)) {
 		return expr
 	}
+	if (expr.kind !== "and" && expr.kind !== "or") {
+		return called(scope, expr, returns, install)
+	}
+	const join = expr.kind === "and" ? and : or
+	const { inline, rest } = inlineOperands(scope, expr.args, join)
+	return isNonEmpty(inline) && isNonEmpty(rest)
+		? join(appendNonEmpty(inline, called(scope, join(rest), types.boolean, install)))
+		: called(scope, expr, returns, install)
+}
+
+/**
+ * The operands of one AND or OR (`join`) that stand inline (`selects`), each taken in order while the ones taken with it
+ * still stay inline together (`hoists`), and the rest, each in order.
+ */
+const inlineOperands = (
+	scope: RowScope,
+	args: NonEmptyReadonlyArray<Expr>,
+	join: (args: NonEmptyReadonlyArray<Expr>) => Expr
+): { readonly inline: ReadonlyArray<Expr>; readonly rest: ReadonlyArray<Expr> } => {
+	const inline: Array<Expr> = []
+	const rest: Array<Expr> = []
+	for (const arg of args) {
+		if (selects(arg) && !hoists(scope, join(appendNonEmpty(inline, arg)))) {
+			inline.push(arg)
+		} else {
+			rest.push(arg)
+		}
+	}
+	return { inline, rest }
+}
+
+/** A column, cast or not, as a selector compares it. */
+const columnRead = (e: Expr): boolean =>
+	e.kind === "column" || (e.kind === "cast" && columnRead(e.expr))
+
+/** A literal, cast or not, as a selector compares a column with it. */
+const literalRead = (e: Expr): boolean =>
+	e.kind === "literal" || (e.kind === "cast" && literalRead(e.expr))
+
+const comparisons: ReadonlySet<string> = new Set(["=", "<>", "<", "<=", ">", ">="])
+
+/**
+ * Whether an operand is a selector: a column compared with a literal, or a member of a list of literals, or a NOT, an
+ * AND or an OR of selectors. A selector is the cheapest test a statement can plan, its column and its literals alone,
+ * so one stands inline before the call of its expression's row function, deciding the rows outside a selection's
+ * kinds; any other operand a row function plans, every function it calls among them, stays in it, so the statement
+ * plans no more of the expression than its selectors.
+ */
+const selects = (e: Expr): boolean =>
+	(e.kind === "binary" &&
+		comparisons.has(e.op) &&
+		((columnRead(e.left) && literalRead(e.right)) ||
+			(literalRead(e.left) && columnRead(e.right)))) ||
+	(e.kind === "inList" && columnRead(e.expr) && e.list.every(literalRead)) ||
+	(e.kind === "not" && selects(e.expr)) ||
+	((e.kind === "and" || e.kind === "or") && e.args.every(selects))
+
+/**
+ * The call of `expr`'s row function on the columns it reads, in the order it first reads them, each the function's
+ * parameter by its position and named by its column, which `install` installs, named by its definition's digest
+ * (`identified`).
+ */
+const called = (
+	scope: RowScope,
+	expr: Expr,
+	returns: TypeRef,
+	install: (fn: RowFunction) => void
+): Expr => {
 	const columns = ownColumns(expr)
 	const params: ReadonlyArray<FunctionParam> = columns.map((column) => ({
 		name: column,
