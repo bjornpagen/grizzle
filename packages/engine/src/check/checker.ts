@@ -262,6 +262,9 @@ interface ImportKey {
 	readonly closed: boolean
 }
 
+/** The key of a region's column among the re-exposed ones (Checker `#reexposed`). */
+const reexposedKey = (region: NodeId, column: string): string => `${region} ${column}`
+
 interface ParentScope {
 	/** The parent's label, which the child's correlation references name. */
 	readonly node: NodeId
@@ -972,6 +975,11 @@ export class Checker {
 	readonly #imported = new Map<string, RelNode>()
 	/** The imports bound to outer values under region reads, each built once by its key (`importedKey`'s `region`). */
 	readonly #regional = new Map<string, RelNode>()
+	/**
+	 * The columns of rule regions that re-expose an outer value an import binds a parameter to (RuleCheck `#declare`,
+	 * its ParamSlots), each by region and column (`reexposedKey`): a value a region is correlated to from outside.
+	 */
+	readonly #reexposed = new Set<string>()
 	/** The admitted patterns the query's compile reads (scalar/regex/patterns.ts), each parsed once per query. */
 	readonly patterns = new CompilePatterns()
 	/** The contexts the query matches, each with its descriptor's canonical text, for DuplicateIdentity. */
@@ -1949,7 +1957,7 @@ export class Checker {
 				)
 			}
 			case "query":
-				return this.#regionImport(src, loc, bind)
+				return this.#regionImport(src, scope, loc, bind)
 			case "step": {
 				const input = this.#importSource(src, loc, bind)
 				return this.node({ kind: "Step", input, heading: input.heading }, loc)
@@ -2390,25 +2398,43 @@ export class Checker {
 
 	/**
 	 * A query source's import (`#importSource`), and under region reads also one node for every match of one query at
-	 * one set of outer values (`importedKey`'s `region`): every match of one region that reads the import at its
-	 * region's columns reads that one node, which the lowering computes once, in that region (lower/optimize/cte-policy
-	 * rule 3b), where a node of each match's own spelled and computed the import at every match.
+	 * one set of outer values (`importedKey`'s `region`): there a parameter the importer binds to a value an outer region
+	 * re-exposes (`#reexposed`), a value that region is correlated to, is bound to that region's column itself, where the
+	 * importer reads it through a column of its own region (`#bindValue`), so the import is correlated to that region,
+	 * the same node for every rule under it that reads it at that value: each rule of a union reads the definition below
+	 * it at the unit's channels, which every rule of the union re-exposes as a column of its own, and the lowering
+	 * computes it once, in that region (lower/optimize/cte-policy rule 3b), where a node of each rule's own multiplied a
+	 * chain of unions by their rules at every level.
 	 */
 	#regionImport(
 		src: Pick<Extract<ResolvedSource, { readonly kind: "query" }>, "query" | "bind">,
+		scope: Scope,
 		loc: SourceLoc,
 		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
 	): RelNode {
 		if (this.options.read !== "region") {
 			return this.#importSource(src, loc, bind)
 		}
-		const values = this.#boundValues(src, loc, bind)
+		const values = this.#boundValues(src, loc, (term, param, at) => {
+			if (term.kind !== "param") {
+				return bind(term, param, at)
+			}
+			const outer = this.#resolveParam(term.cell, scope, at)
+			return outer.kind === "column" && this.#reexposed.has(reexposedKey(outer.node, outer.name))
+				? outer
+				: bind(term, param, at)
+		})
 		return this.#keyedImport(
 			src,
 			values,
 			loc,
 			importedKey(this.options.session, src.query, values, true)
 		)
+	}
+
+	/** Records `column` of `region` as a re-exposure of an outer value (`#reexposed`). */
+	reexposes(region: NodeId, column: string): void {
+		this.#reexposed.add(reexposedKey(region, column))
 	}
 
 	/** The values an import's bind map binds its parameters to. */
@@ -3073,6 +3099,7 @@ class RuleCheck {
 				outer: { node: value.node, name: value.name, type: value.type }
 			}
 			this.paramSlots.set(p.name, slot)
+			this.cx.reexposes(this.region, slot.name)
 			if (needed.has(p)) {
 				this.#needed.add(slot.id)
 			}

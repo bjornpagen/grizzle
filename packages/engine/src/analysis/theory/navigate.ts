@@ -146,10 +146,13 @@ const originOf = (
 }
 
 /**
- * How navigation reads an import a rule's unfolding reads more than once that joins: `perUnit`, whole, once, each read
- * a join of its rows (`sharedImports`), as a rule statement reads it, whose checker builds one node for every read of
- * one import (check/checker.ts #imported) and whose lowering computes it once per unit (lower/optimize/cte-policy);
- * `perRead`, inlined at each read, as a write member's query reads it, whose checker builds an import at every read.
+ * How navigation reads the imports a rule's unfolding multiplies, an import of one rule read more than once that joins
+ * and every import of several rules (`sharedImports`): `perUnit`, each whole, once, each read a join of its rows, as a
+ * rule statement reads it, whose checker builds one node for every read of one import (check/checker.ts #imported) and
+ * whose lowering computes it once per unit (lower/optimize/cte-policy), where a parameter, the unit's channels among
+ * them, restricts it, and each inlined at every read, or distributed into the rule's conjunctions, where none does, so
+ * no read of it reads every unit's rows; `perRead`, inlined at each read and distributed into the rule's conjunctions,
+ * as a write member's query reads it, whose checker builds an import at every read.
  */
 export type ImportSharing = "perUnit" | "perRead"
 

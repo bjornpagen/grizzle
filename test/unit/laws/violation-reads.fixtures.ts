@@ -353,10 +353,21 @@ export const uniquelyIndexedBy = (step: Step): ReadonlyArray<string> => {
 }
 
 /**
+ * Whether a FROM source reads only relations the statement computes itself, its CTEs: a CTE's name, or a derived table
+ * every core of which reads CTEs alone.
+ */
+const readsComputed = (source: FromSource): boolean =>
+	source.kind === "cte" ||
+	(source.kind === "derived" &&
+		Arr.every(bodyCores(source.query.body), (core) => Arr.every(sourcesOf(core), readsComputed)))
+
+/**
  * The cores of a query, wherever they stand, that join a source to the ones before it uncorrelated: a FROM source after
- * the first that is no LATERAL derived table or function, whose rows PostgreSQL joins to the others' by its estimates of
- * both. A chain of steps (analysis/theory/navigate.ts) joins none: every step after the first reads LATERAL, a lookup
- * by what the steps before it bound.
+ * the first that is no LATERAL derived table or function and reads a stored table, whose rows PostgreSQL joins to the
+ * others' by its estimates of both. A chain of steps (analysis/theory/navigate.ts) joins none: every step after the
+ * first reads LATERAL, a lookup by what the steps before it bound. A read of a relation the statement computes once
+ * per unit, a CTE (lower/optimize/cte-policy rule 3b), is no lookup by key, which no index of it serves: PostgreSQL
+ * joins its rows to the others' by a hash or a loop alike, the unit's rows alone.
  */
 export const looseJoins = (query: OperandSelect): number =>
 	Arr.filter(
@@ -364,7 +375,9 @@ export const looseJoins = (query: OperandSelect): number =>
 		(core) =>
 			Arr.some(
 				sourcesOf(core).slice(1),
-				(source) => !((source.kind === "derived" || source.kind === "function") && source.lateral)
+				(source) =>
+					!((source.kind === "derived" || source.kind === "function") && source.lateral) &&
+					!readsComputed(source)
 			)
 	).length
 

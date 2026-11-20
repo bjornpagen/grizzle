@@ -386,44 +386,64 @@ const cteRule = (strategy: Exclude<CteStrategy, "inline">): CertificateRule => `
 const statementScope: CteDecision["scope"] = { kind: "statement" }
 
 /**
- * The region every read of a node is an occurrence of, where `references`, the node's reads, are all occurrences of
- * that one region, no expression reads it, and every value it reads of the region is one the region is correlated to
- * from outside, never one its occurrences bind (`outer`, the node's outer references by label): a rule statement's
- * import its rule's unfolding reads more than once (analysis/theory/navigate.ts sharedImports), each read a match of
- * the rule itself, correlated to the unit's channels the region reads through its own columns (check/checker.ts
- * #bindValue). Its SELECT holds the CTE, every outer value it reads in scope there and none of the region's own items,
- * so the node is spelled and planned once and computed once per row the region is read for, the unit's rows alone,
- * each occurrence a join of its rows; inlined at each read, a chain of such definitions multiplied the statement at
- * every level (rule 3b). None for any other node, which stays inlined (rule 3).
+ * The region whose SELECT holds a shared correlated node's CTE (rule 3b), where `references`, the node's reads, are all
+ * occurrences of regions, no expression reads it, and every value it reads of an outer row is one that region is
+ * correlated to from outside, never one an occurrence binds (`outer`, the node's outer references by label): the one
+ * region every read is an occurrence of, or, read by occurrences of several, the one region whose columns it reads,
+ * inside which each of them stands, since each reads the node and the node reads those columns. A rule statement's
+ * import its rule's unfolding reads more than once (analysis/theory/navigate.ts sharedImports) is the first, each read
+ * a match of the rule itself, correlated to the unit's channels the region reads through its own columns
+ * (check/checker.ts #bindValue); the import each rule of a union reads at the unit's channels is the second, bound to
+ * the channels themselves (check/checker.ts #sharedImport), every rule of the union a region of its own. Its SELECT
+ * holds the CTE, every outer value it reads in scope there and none of the region's own items, so the node is spelled
+ * and planned once and computed once per row the region is read for, the unit's rows alone, each occurrence a join of
+ * its rows; inlined at each read, a chain of such definitions multiplied the statement at every level, and a chain of
+ * unions by their rules at every level. None for any other node, which stays inlined (rule 3).
  */
 const readingRegion = (
 	order: ReadonlyArray<RelNode>,
 	outer: (node: RelNode) => ReadonlyMap<NodeId, ReadonlySet<string>>
 ): ((node: RelNode, references: number) => NodeOf<"MatchRegion"> | undefined) => {
-	const readers = new Map<RelNode, Array<RelNode>>()
+	const readers = new Map<RelNode, Set<RelNode>>()
+	const byId = new Map<NodeId, RelNode>()
 	for (const n of order) {
+		byId.set(n.id, n)
 		for (const input of inputsOf(n)) {
 			const known = readers.get(input)
 			if (known === undefined) {
-				readers.set(input, [n])
+				readers.set(input, new Set([n]))
 			} else {
-				known.push(n)
+				known.add(n)
 			}
 		}
 	}
 	return (node, references) => {
-		const [only, ...more] = readers.get(node) ?? []
-		if (
-			only?.kind !== "MatchRegion" ||
-			!more.every((m) => m === only) ||
-			only.occurrences.filter((o) => o.source === node).length !== references
-		) {
+		const regions = [...(readers.get(node) ?? [])]
+		let occurrences = 0
+		for (const r of regions) {
+			if (r.kind !== "MatchRegion") {
+				return undefined
+			}
+			occurrences += r.occurrences.filter((o) => o.source === node).length
+		}
+		const read = outer(node)
+		const [only, ...more] = regions
+		const [first, ...others] = read.keys()
+		const holder = !isNonEmpty(more)
+			? only
+			: first !== undefined && others.length === 0
+				? byId.get(first)
+				: undefined
+		if (holder?.kind !== "MatchRegion" || occurrences !== references) {
 			return undefined
 		}
-		const correlated = new Set(only.correlated.map((c) => c.var.name))
-		const read = outer(node).get(only.id)
-		return read === undefined || [...read].every((column) => correlated.has(column))
-			? only
+		const columns = read.get(holder.id)
+		if (isNonEmpty(more) && columns === undefined) {
+			return undefined
+		}
+		const correlated = new Set(holder.correlated.map((c) => c.var.name))
+		return columns === undefined || [...columns].every((column) => correlated.has(column))
+			? holder
 			: undefined
 	}
 }
@@ -448,12 +468,14 @@ const readingRegion = (
  * 2. A recursive relation is a WITH RECURSIVE: always a CTE, computed once per statement.
  * 3. A correlated node, a node some expression reads laterally, and a node on a recursive step are inlined: a CTE of
  *    the statement's WITH cannot read an outer row, and a recursive term admits one self-reference.
- * 3b. But a shared correlated node of several sources whose every read is an occurrence of one region, reading of the
- *    outer rows only what that region is correlated to, is MATERIALIZED in the region's own SELECT (readingRegion),
- *    where every outer value it reads is in scope: spelled and planned once, computed once per row the region is read
- *    for, each occurrence a join of its rows. A rule statement's import its rule's unfolding reads more than once is
- *    one (analysis/theory/navigate.ts sharedImports); inlined at each read, a chain of such definitions multiplied the
- *    statement at every level.
+ * 3b. But a shared correlated node of several sources whose every read is an occurrence of one region, or of regions
+ *    inside the one region whose columns it reads, reading of the outer rows only what that region is correlated to, is
+ *    MATERIALIZED in the region's own SELECT (readingRegion), where every outer value it reads is in scope: spelled
+ *    and planned once, computed once per row the region is read for, each occurrence a join of its rows. A rule
+ *    statement's import its rule's unfolding reads more than once is one (analysis/theory/navigate.ts sharedImports),
+ *    and so is the import each rule of a union reads at the unit's channels (check/checker.ts #sharedImport); inlined
+ *    at each read, a chain of such definitions multiplied the statement at every level, and a chain of unions by their
+ *    rules at every level.
  * 4. A node whose stages are all scans, filters and projections of one source is inlined at each use: each use can then
  *    probe the source's indexes with its own restrictions, which a shared result would hide ("sharing an unfiltered
  *    computation is not automatically preferable to two selective indexed probes").

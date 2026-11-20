@@ -263,21 +263,29 @@ export const judged = (c: Chain, note: (r: Reached) => void): void => {
  * the one before; and a whole rule over it, a check of its kind. Distributed into its conjunctions, the rule is one
  * conjunction for each choice of a rule at every read, `arms` to the `width`, each reading Node `width` times.
  */
-export interface Unions {
-	readonly width: 1 | 2 | 3
-	readonly arms: 2 | 3
-}
+export type Unions =
+	| { readonly form: "side by side"; readonly width: 1 | 2 | 3; readonly arms: 2 | 3 }
+	| { readonly form: "chain"; readonly reads: 1; readonly depth: 1 | 2 | 3 | 4 }
+	| { readonly form: "chain"; readonly reads: 2; readonly depth: 1 | 2 }
 
-export const unionsGen: Gen<Unions> = (s) => ({
-	width: s.draw(element<Unions["width"]>([1, 2, 3])),
-	arms: s.draw(element<Unions["arms"]>([2, 3]))
-})
+export const unionsGen: Gen<Unions> = (s) =>
+	s.draw(element<Unions["form"]>(["side by side", "chain"])) === "side by side"
+		? {
+				form: "side by side",
+				width: s.draw(element<1 | 2 | 3>([1, 2, 3])),
+				arms: s.draw(element<2 | 3>([2, 3]))
+			}
+		: s.draw(element<1 | 2>([1, 2])) === 1
+			? { form: "chain", reads: 1, depth: s.draw(element<1 | 2 | 3 | 4>([1, 2, 3, 4])) }
+			: { form: "chain", reads: 2, depth: s.draw(element<1 | 2>([1, 2])) }
 
 export type UnionReached =
 	| "a union read once"
 	| "a union read twice"
 	| "a union read three times"
 	| "a union of three rules"
+	| "a chain of unions four deep"
+	| "a chain of unions each rule reading the level below twice"
 
 /** The nodes of kinds 0 and 1, each with its parent and kind under its own names. */
 const either = query(Base)
@@ -296,8 +304,156 @@ const any3 = either.rule((r) => {
 	return r.match(Node, { doc, start, parent, kind: 2 }).find({ doc, a: start, b: parent, k: 2 })
 })
 
-/** The union box's schema: Base, and the derived relation of `width` reads of the union with a check beside it. */
+/**
+ * The chains of unions, each level over the one below (union1 over leaf, union2 over union1, and on): two rules, the
+ * nodes of kind 0 and of any other kind, each one read of the level below at the row's own `a`, or, in the chain each
+ * rule of which reads the level below twice (twiceUnion1, twiceUnion2), the first read at the row's own `a` and the
+ * second at its `b`, delivering the first's `a` and `k` and the second's `b`. Distributed, each level is two
+ * conjunctions over the level below's, or four each reading it twice, so a chain `depth` deep reads Node two to the
+ * `depth` times, or four to the `depth`. Each level is its own value, its heading typed by the level it reads.
+ */
+const union1 = query(Base)
+	.rule((r) => {
+		const { doc, a, b } = v(leaf, "x0")
+		return r.match(leaf, { doc, a, b, k: 0 }).find({ doc, a, b, k: 0 })
+	})
+	.rule((r) => {
+		const { doc, a, b, k } = v(leaf, "x0")
+		return r.match(leaf, { doc, a, b, k }).where(r.ne(k, 0)).find({ doc, a, b, k })
+	})
+
+const union2 = query(Base)
+	.rule((r) => {
+		const { doc, a, b } = v(union1, "x0")
+		return r.match(union1, { doc, a, b, k: 0 }).find({ doc, a, b, k: 0 })
+	})
+	.rule((r) => {
+		const { doc, a, b, k } = v(union1, "x0")
+		return r.match(union1, { doc, a, b, k }).where(r.ne(k, 0)).find({ doc, a, b, k })
+	})
+
+const union3 = query(Base)
+	.rule((r) => {
+		const { doc, a, b } = v(union2, "x0")
+		return r.match(union2, { doc, a, b, k: 0 }).find({ doc, a, b, k: 0 })
+	})
+	.rule((r) => {
+		const { doc, a, b, k } = v(union2, "x0")
+		return r.match(union2, { doc, a, b, k }).where(r.ne(k, 0)).find({ doc, a, b, k })
+	})
+
+const union4 = query(Base)
+	.rule((r) => {
+		const { doc, a, b } = v(union3, "x0")
+		return r.match(union3, { doc, a, b, k: 0 }).find({ doc, a, b, k: 0 })
+	})
+	.rule((r) => {
+		const { doc, a, b, k } = v(union3, "x0")
+		return r.match(union3, { doc, a, b, k }).where(r.ne(k, 0)).find({ doc, a, b, k })
+	})
+
+const twiceUnion1 = query(Base)
+	.rule((r) => {
+		const { doc, a, b } = v(leaf, "x0")
+		const { b: b1 } = v(leaf, "x1")
+		return r
+			.match(leaf, { doc, a, b, k: 0 })
+			.match(leaf, { doc, a: b, b: b1 })
+			.find({ doc, a, b: b1, k: 0 })
+	})
+	.rule((r) => {
+		const { doc, a, b, k } = v(leaf, "x0")
+		const { b: b1 } = v(leaf, "x1")
+		return r
+			.match(leaf, { doc, a, b, k })
+			.match(leaf, { doc, a: b, b: b1 })
+			.where(r.ne(k, 0))
+			.find({ doc, a, b: b1, k })
+	})
+
+const twiceUnion2 = query(Base)
+	.rule((r) => {
+		const { doc, a, b } = v(twiceUnion1, "x0")
+		const { b: b1 } = v(twiceUnion1, "x1")
+		return r
+			.match(twiceUnion1, { doc, a, b, k: 0 })
+			.match(twiceUnion1, { doc, a: b, b: b1 })
+			.find({ doc, a, b: b1, k: 0 })
+	})
+	.rule((r) => {
+		const { doc, a, b, k } = v(twiceUnion1, "x0")
+		const { b: b1 } = v(twiceUnion1, "x1")
+		return r
+			.match(twiceUnion1, { doc, a, b, k })
+			.match(twiceUnion1, { doc, a: b, b: b1 })
+			.where(r.ne(k, 0))
+			.find({ doc, a, b: b1, k })
+	})
+
+/** The union box's schema: Base, and the derived relation of the case's union reads with a check beside it. */
 const unionSchemaOf = (u: Unions): FixtureSchema => {
+	if (u.form === "chain" && u.reads === 2) {
+		switch (u.depth) {
+			case 1: {
+				const Top = derived("Top", twiceUnion1)
+				return schema.extend(
+					[Base],
+					"judge_size_1",
+					[Top],
+					[check("Small", Top, (t) => t.le(t.k, 100))]
+				)
+			}
+			case 2: {
+				const Top = derived("Top", twiceUnion2)
+				return schema.extend(
+					[Base],
+					"judge_size_1",
+					[Top],
+					[check("Small", Top, (t) => t.le(t.k, 100))]
+				)
+			}
+		}
+	}
+	if (u.form === "chain") {
+		switch (u.depth) {
+			case 1: {
+				const Top = derived("Top", union1)
+				return schema.extend(
+					[Base],
+					"judge_size_1",
+					[Top],
+					[check("Small", Top, (t) => t.le(t.k, 100))]
+				)
+			}
+			case 2: {
+				const Top = derived("Top", union2)
+				return schema.extend(
+					[Base],
+					"judge_size_1",
+					[Top],
+					[check("Small", Top, (t) => t.le(t.k, 100))]
+				)
+			}
+			case 3: {
+				const Top = derived("Top", union3)
+				return schema.extend(
+					[Base],
+					"judge_size_1",
+					[Top],
+					[check("Small", Top, (t) => t.le(t.k, 100))]
+				)
+			}
+			case 4: {
+				const Top = derived("Top", union4)
+				return schema.extend(
+					[Base],
+					"judge_size_1",
+					[Top],
+					[check("Small", Top, (t) => t.le(t.k, 100))]
+				)
+			}
+		}
+	}
 	const union = u.arms === 2 ? either : any3
 	const top = (() => {
 		switch (u.width) {
@@ -333,15 +489,37 @@ const unionSchemaOf = (u: Unions): FixtureSchema => {
 }
 
 /**
- * Judges each statement of the union box's whole rule: it reads Node `arms` times, once in each rule of the union,
- * which navigation reads whole, one node per unit every read of which joins its rows; distributed into its
- * conjunctions, it read Node `width` times in each of `arms` to the `width` conjunctions.
+ * Judges each statement of the union box's whole rule. Over reads side by side, it reads Node `arms` times, once in
+ * each rule of the union, which navigation reads whole, one node per unit every read of which joins its rows;
+ * distributed into its conjunctions, it read Node `width` times in each of `arms` to the `width` conjunctions. Over a
+ * chain, it reads Node at most four times whatever the depth, each of the lowest level's two rules at the two sets of
+ * values a level is read at, the unit's channels and the channels with kind 0, which the first rule of the level above
+ * fixes: each level is one node per unit at each set of values, which every rule of the level above reads at the
+ * unit's channels (check/checker.ts #sharedImport) and the lowering computes once in the unit's region (cte-policy rule
+ * 3b); distributed, it read Node two to the depth times, or four to the depth where each rule reads the level below
+ * twice.
  */
 export const judgedUnions = (u: Unions, note: (r: UnionReached) => void): void => {
 	const owned = owning(unionSchemaOf(u))
 	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
 	const statements = judgedStatementsOf(installation)
 	assert.ok(statements.length > 0, "the check is judged")
+	if (u.form === "chain") {
+		if (u.depth === 4) {
+			note("a chain of unions four deep")
+		}
+		if (u.reads === 2) {
+			note("a chain of unions each rule reading the level below twice")
+		}
+		for (const { query: statement } of statements) {
+			const reads = nodeReadsOf(statement)
+			assert.ok(
+				reads <= 4,
+				`a statement over a chain of unions ${u.depth} deep, each rule reading the level below ${u.reads} times, reads Node ${reads} times, where the lowest level's two rules read it at two sets of values, four times`
+			)
+		}
+		return
+	}
 	note(
 		u.width === 1
 			? "a union read once"

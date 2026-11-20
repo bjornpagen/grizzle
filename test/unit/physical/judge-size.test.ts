@@ -80,7 +80,9 @@ export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHowever
 			"a union read once",
 			"a union read twice",
 			"a union read three times",
-			"a union of three rules"
+			"a union of three rules",
+			"a chain of unions four deep",
+			"a chain of unions each rule reading the level below twice"
 		] satisfies ReadonlyArray<ReachedOf<UnionReached>>,
 		check: (_, c: Case<UnionReached>) => (unions) =>
 			Effect.sync(() => judgedUnions(unions, c.note)),
@@ -88,7 +90,7 @@ export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHowever
 			kind: "specification",
 			name: "the union: its rules read Node once each, and no read of the union reads it again"
 		},
-		box: "one to three reads of a union of two or three rules over Node, each the nodes of one kind, under a whole rule's check",
+		box: "one to three reads of a union of two or three rules over Node, each the nodes of one kind, or a chain one to four deep of unions of two rules each reading the level below once, or one or two deep each reading it twice, under a whole rule's check",
 		kept: [],
 		kills: [
 			{
@@ -110,6 +112,19 @@ export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHowever
 				original: "\t\tconst known = this.#by.get(identity.value)",
 				replacement: "\t\tconst known = undefined",
 				why: "Every read of a union a navigation keeps whole is an object of its own, so the checker, which keys an import by its query's place (check/session.ts), builds a node at every read, and the rule over two reads of a union of two rules reads Node four times; the property fails."
+			},
+			{
+				file: "packages/engine/src/check/checker.ts",
+				original:
+					'\t\t\treturn outer.kind === "column" && this.#reexposed.has(reexposedKey(outer.node, outer.name))',
+				replacement: '\t\t\treturn outer.kind === "column" && this.#reexposed.size < 0',
+				why: "Each rule of a union reads the level below at the column its own region re-exposes the unit's channels at, as before, so each rule's read is a node of its own, and a chain of unions three deep reads Node eight times, four deep sixteen; the property fails."
+			},
+			{
+				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+				original: "\t\t\t: first !== undefined && others.length === 0",
+				replacement: "\t\t\t: first === undefined && others.length === 0",
+				why: "A node the rules of a union read is placed in no region, one read by occurrences of several regions inlined at each (rule 3, as before), so a chain of unions spells the level below in each rule above it, and four deep reads Node sixteen times; the property fails."
 			}
 		]
 	})
