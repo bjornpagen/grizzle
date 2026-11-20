@@ -1,299 +1,221 @@
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
-import * as NodePath from "@effect/platform-node/NodePath"
-import { Array as Arr, Effect, Layer, Order, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { DocumentUri } from "#model/brands.ts"
-import { RowId } from "#model/entities.ts"
-import type { Json } from "#model/pointer.ts"
-import { rewriteDialect } from "#validate/dialect.ts"
-import { diagnoseDocument } from "#validate/index.ts"
-import { groupErrors } from "#validate/locations.ts"
+/**
+ * The validation stage's diagnosis of a document (validate/index.ts diagnoseDocument, design 3.2): on every line, a
+ * known disagreement between the official schema and the text (design 10.4) is a notice and nothing more, and every
+ * other error of the line's official schema is a document refusal under the line's row, at the decoded instance it
+ * rejects, citing the rejecting keyword, so neither hides the other. A property name holding a lone UTF-16 surrogate is
+ * refused at its pointer, the surrogate escaped, before any schema reads the document. The 3.1 text's dialect id is
+ * rewritten to the dated id in a copy, wherever a `$schema` holds it and at the root's `jsonSchemaDialect`, and the
+ * input is never changed. A fixed method as a 3.2 `additionalOperations` key, in any spelling, is left to the structure
+ * check (PTH-24).
+ */
+import { assert } from "@bjornpagen/testing/assert"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import { digestService } from "#test/support/digest.ts"
+import {
+	type DialectFeature,
+	dialectedSpace,
+	dialectFeaturesOf,
+	type DiagnosisFeature,
+	diagnosisFeaturesOf,
+	expectedMethodKey,
+	expectedNamedOf,
+	expectedPlantedOf,
+	expectedRewriteOf,
+	type MethodKeyFeature,
+	methodKeyAnswerOf,
+	methodKeyFeaturesOf,
+	methodKeySpace,
+	namedAnswerOf,
+	type NamedFeature,
+	namedFeaturesOf,
+	namedSpace,
+	plantedAnswerOf,
+	plantedSpace,
+	rewriteAnswerOf
+} from "#test/validate/diagnostics.fixtures.ts"
 
-const uri = Schema.decodeUnknownSync(DocumentUri)("https://example.com/openapi.json")
-
-const rowId = Schema.decodeUnknownSync(RowId)
-
-const dialectBase = "https://spec.openapis.org/oas/3.1/dialect/base"
-
-const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest)
-
-const diagnose = (document: Json) =>
-	Effect.runPromise(diagnoseDocument(document, uri).pipe(Effect.provide(layer)))
-
-const ok = { "200": { description: "ok" } } as const
-
-const document = (openapi: string, extra: Record<string, Json> = {}): Json => ({
-	info: { title: "t", version: "1" },
-	openapi,
-	paths: {},
-	...extra
-})
-
-const operation = (get: Json): Json => ({ "/a{b}": { get } })
-
-const pathParameter: Json = {
-	allowReserved: true,
-	in: "path",
-	name: "b",
-	required: true,
-	schema: { type: "string" }
-}
-
-const link = (parameters: Json): Json =>
-	operation({
-		responses: { "200": { description: "ok", links: { l: { operationId: "x", parameters } } } }
-	})
-
-const classes: ReadonlyArray<{
-	readonly code: string
-	readonly document: Json
-	readonly pointer: string
-}> = [
-	{ code: "DOC-02/patch-digits", document: document("3.0.10"), pointer: "/openapi" },
-	{
-		code: "DOC-03/self-fragment",
-		document: document("3.2.0", { $self: "https://x.example/a#frag" }),
-		pointer: "/$self"
-	},
-	{
-		code: "SCH-01/dialect-base-id",
-		document: document("3.1.0", { jsonSchemaDialect: dialectBase }),
-		pointer: "/jsonSchemaDialect"
-	},
-	{
-		code: "LNK-04/non-string-parameter",
-		document: document("3.1.0", { paths: link({ id: 5 }) }),
-		pointer: "/paths/~1a{b}/get/responses/200/links/l/parameters/id"
-	},
-	{
-		code: "LNK-04/non-string-parameter",
-		document: document("3.2.0", { paths: link({ id: 5 }) }),
-		pointer: "/paths/~1a{b}/get/responses/200/links/l/parameters/id"
-	},
-	{
-		code: "PRM-35/allow-reserved-outside-query",
-		document: document("3.1.0", {
-			paths: operation({ parameters: [pathParameter], responses: ok })
+/**
+ * A document holding up to three planted constructs is left as it was built and diagnosed as its line's official
+ * schema and the table of known disagreements say.
+ */
+export const plantedDiagnosis = property.exhaust(plantedSpace, {
+	box: "every line, with no construct and with every one, two or three of the eleven together",
+	needs: { digest: digestService },
+	situations: [
+		"no diagnostic",
+		"a notice beside a refusal",
+		"two notices of one row",
+		"a DOC-02 notice",
+		"a DOC-03 notice",
+		"a SCH-01 notice",
+		"a LNK-04 notice",
+		"a PRM-35 notice",
+		"a VAL-02 refusal",
+		"a VAL-03 refusal",
+		"a VAL-04 refusal"
+	],
+	check: (resources, k: Case<DiagnosisFeature>) => (planted) =>
+		Effect.gen(function* () {
+			k.noteAll(diagnosisFeaturesOf(planted))
+			const digest = yield* resources.digest
+			const actual = yield* plantedAnswerOf(planted, digest)
+			assert.deepEqual(actual, expectedPlantedOf(planted))
 		}),
-		pointer: "/paths/~1a{b}/get/parameters/0/allowReserved"
-	}
-]
-
-describe("known disagreements", () => {
-	test.each(classes)("$code at $pointer is a notice, not a refusal", async (found) => {
-		const result = await diagnose(found.document)
-
-		expect(result.refusals).toEqual([])
-		expect(result.notices.map((notice) => [notice.code, notice.pointer])).toEqual([
-			[found.code, found.pointer]
-		])
-		expect(result.notices[0]?.severity).toBe("notice")
-		expect(result.notices[0]?.row).toBe(rowId(found.code.split("/")[0]))
-	})
-
-	test("a valid document has no diagnostics", async () => {
-		expect(await diagnose(document("3.1.0"))).toEqual({ notices: [], refusals: [] })
-	})
-})
-
-describe("refusals", () => {
-	test("carry the decoded instance pointer and the keyword location", async () => {
-		const result = await diagnose(
-			document("3.1.0", {
-				paths: operation({
-					parameters: [{ foo: 1, in: "query", name: "b", schema: { type: "string" } }],
-					responses: ok
-				})
-			})
-		)
-
-		expect(result.notices).toEqual([])
-		expect(result.refusals).toHaveLength(1)
-		expect(result.refusals[0]?.diagnostic.code).toBe("VAL-03/schema-invalid")
-		expect(result.refusals[0]?.diagnostic.severity).toBe("refusal")
-		expect(result.refusals[0]?.diagnostic.scope).toBe("document")
-		expect<string | undefined>(result.refusals[0]?.diagnostic.pointer).toBe(
-			"/paths/~1a{b}/get/parameters/0/foo"
-		)
-		expect(result.refusals[0]?.keywordLocation).toBe(
-			"https://spec.openapis.org/oas/3.1/schema/2026-08-03#/$defs/parameter/unevaluatedProperties"
-		)
-	})
-
-	test("use the row of the declared line", async () => {
-		const result = await diagnose(document("3.0.3", { paths: { "/a": { get: {} } } }))
-
-		expect(result.refusals.map((refusal) => refusal.diagnostic.row)).toEqual([rowId("VAL-02")])
-	})
-
-	test("a disagreement does not hide another error", async () => {
-		const result = await diagnose(
-			document("3.0.10", { paths: { "/a": { get: {} } }, servers: "x" })
-		)
-
-		expect(result.notices.map((notice) => notice.code)).toEqual(["DOC-02/patch-digits"])
-		expect(
-			Arr.sort(
-				result.refusals.map((refusal) => String(refusal.diagnostic.pointer)),
-				Order.String
-			)
-		).toEqual(["/paths/~1a/get", "/servers"])
-	})
-})
-
-const schemaDocument = (type: string): Json =>
-	document("3.1.0", {
-		components: {
-			schemas: {
-				One: { $schema: dialectBase, type },
-				Two: { $schema: dialectBase, type: "object" }
-			}
+	oracle: {
+		kind: "specification",
+		name: "each line's official schema, its known disagreements with the text (design 10.4) and its refusal row"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/validate/index.ts",
+			original: "Arr.filter(matched, ({ entry }) => Option.isNone(entry)),",
+			replacement: "matched,",
+			why: "Every error group is a refusal, a known disagreement too, so each notice comes with a refusal at its pointer; the property fails."
 		},
-		jsonSchemaDialect: dialectBase
-	})
-
-describe("dialect id rewrite", () => {
-	test("leaves the input unchanged and counts one occurrence per rewritten value", async () => {
-		const input = schemaDocument("string")
-		const before = JSON.stringify(input)
-		const rewritten = await Effect.runPromise(rewriteDialect(input))
-
-		expect(JSON.stringify(input)).toBe(before)
-		expect(rewritten.copy).not.toBe(input)
-		expect(Arr.sort(rewritten.occurrences, Order.String)).toEqual([
-			"/components/schemas/One/$schema",
-			"/components/schemas/Two/$schema",
-			"/jsonSchemaDialect"
-		])
-		expect(JSON.stringify(rewritten.copy)).not.toContain(dialectBase)
-	})
-
-	test("yields one SCH-01 notice per occurrence and validates Schema Objects", async () => {
-		const input = schemaDocument("string")
-		const before = JSON.stringify(input)
-		const result = await diagnose(input)
-
-		expect(JSON.stringify(input)).toBe(before)
-		expect(result.refusals).toEqual([])
-		expect(result.notices.map((notice) => notice.code)).toEqual([
-			"SCH-01/dialect-base-id",
-			"SCH-01/dialect-base-id",
-			"SCH-01/dialect-base-id"
-		])
-	})
-
-	test("a Schema Object error survives the rewrite", async () => {
-		const result = await diagnose(schemaDocument("strng"))
-
-		expect(result.notices).toHaveLength(3)
-		expect(result.refusals.map((refusal) => String(refusal.diagnostic.pointer))).toEqual([
-			"/components/schemas/One/type"
-		])
-	})
-
-	test("only the 3.1 line is rewritten", async () => {
-		const input = document("3.2.0", { jsonSchemaDialect: dialectBase })
-		const rewritten = await Effect.runPromise(rewriteDialect(input))
-
-		expect(rewritten.occurrences).toEqual([])
-
-		const copy: Json = rewritten.copy
-
-		expect(copy).toEqual(input)
-	})
-
-	test("copies the input even when no site exists", async () => {
-		const input = document("3.1.0")
-		const rewritten = await Effect.runPromise(rewriteDialect(input))
-
-		expect(rewritten.occurrences).toEqual([])
-
-		const copy: Json = rewritten.copy
-
-		expect(copy).toEqual(input)
-		expect(Object.is(copy, input)).toBe(false)
-	})
-})
-
-const unit = (instanceLocation: string, keyword = "k") => ({
-	absoluteKeywordLocation: `https://example.com/s#/${keyword}`,
-	instanceLocation,
-	keyword
-})
-
-describe("error grouping", () => {
-	test("percent-decodes and groups ancestors under the deepest location", async () => {
-		const groups = await Effect.runPromise(
-			groupErrors([unit("#"), unit("#/a"), unit("#/a/%7Bn%7D", "deep"), unit("#/a/%7Bn%7D", "two")])
-		)
-
-		expect(groups).toHaveLength(1)
-		expect<string | undefined>(groups[0]?.pointer).toBe("/a/{n}")
-		expect(groups[0]?.deepest.map((found) => found.keyword)).toEqual(["deep", "two"])
-		expect(groups[0]?.context.map((found) => found.instanceLocation)).toEqual(["#", "#/a"])
-	})
-
-	test("independent branches form separate groups", async () => {
-		const groups = await Effect.runPromise(groupErrors([unit("#/b"), unit("#"), unit("#/a")]))
-
-		expect(groups.map((group) => String(group.pointer))).toEqual(["/a", "/b"])
-		expect(groups[0]?.context).toHaveLength(1)
-		expect(groups[1]?.context).toHaveLength(0)
-	})
-
-	test("a property-name location (#*) groups under the key's own pointer", async () => {
-		const groups = await Effect.runPromise(groupErrors([unit("#"), unit("#*/a/b")]))
-
-		expect(groups.map((group) => String(group.pointer))).toEqual(["/a/b"])
-	})
-})
-
-const withKey = (key: string): Json =>
-	document("3.1.0", {
-		components: { schemas: { One: { properties: { [key]: { type: "string" } }, type: "object" } } }
-	})
-
-describe("lone surrogates in property names", () => {
-	test.each([
-		["high", "\uD800", "\\uD800"],
-		["low", "\uDC00", "\\uDC00"],
-		["high before a letter", "a\uD83Dz", "a\\uD83Dz"]
-	])("a lone %s surrogate is refused with the escaped pointer", async (_name, key, escaped) => {
-		const result = await diagnose(withKey(key))
-
-		expect(result.notices).toEqual([])
-		expect(result.refusals).toHaveLength(1)
-
-		const found = result.refusals[0]?.diagnostic
-
-		expect(found?.code).toBe("DOC-14/invalid-encoding")
-		expect(found?.scope).toBe("document")
-		expect(found?.severity).toBe("refusal")
-		expect<string | undefined>(found?.pointer).toBe(`/components/schemas/One/properties/${escaped}`)
-		expect(found?.message).toContain(escaped)
-		expect(found?.message).not.toContain(key)
-	})
-
-	test("a valid surrogate pair is accepted", async () => {
-		expect(await diagnose(withKey("\u{1F600}"))).toEqual({ notices: [], refusals: [] })
-	})
-})
-
-describe("additionalOperations keys equal to a fixed method", () => {
-	test.each(["POST", "post", "Post"])(
-		"3.2: %s validates; the structure check refuses it (PTH-24)",
-		async (key) => {
-			const operationObject: Json = { responses: ok }
-			const result = await diagnose(
-				document("3.2.1", {
-					paths: {
-						"/a": { additionalOperations: { [key]: operationObject }, post: operationObject }
-					}
-				})
-			)
-
-			expect(result).toEqual({ notices: [], refusals: [] })
+		{
+			file: "packages/generator/src/validate/disagreements.ts",
+			original: '"3.0": { anchor: "schema-0", row: "VAL-02" },',
+			replacement: '"3.0": { anchor: "schema-0", row: "VAL-03" },',
+			why: "A 3.0 document is refused under the 3.1 line's row; the property fails."
+		},
+		{
+			file: "packages/generator/src/validate/index.ts",
+			original: "const rewriteNotices = Arr.isReadonlyArrayNonEmpty(rewritten.occurrences)",
+			replacement: "const rewriteNotices = Arr.isReadonlyArrayEmpty(rewritten.occurrences)",
+			why: "The rewritten dialect ids give no SCH-01 notice, so the 3.1 text's id passes unsaid; the property fails."
+		},
+		{
+			file: "packages/generator/src/validate/disagreements.ts",
+			original: "match.instance(tokens) &&",
+			replacement: "true &&",
+			why: "A disagreement matches by its keyword alone, wherever the instance sits, so 3.1's unknown Parameter Object member reads as PRM-35's allowReserved and is a notice where it is a refusal; the property fails."
+		},
+		{
+			file: "packages/generator/src/validate/index.ts",
+			original: "const result = yield* validateCopy(rewritten.copy)",
+			replacement: "const result = yield* validateCopy(validatorCopy(document))",
+			why: "The schema validates the document as written, not its rewritten copy, so the 3.1 text's dialect id is refused beside its SCH-01 notice; the property fails."
 		}
-	)
+	]
+})
+
+/** A property name holding a lone surrogate is refused at its escaped pointer, and nothing else is said. */
+export const loneSurrogateNames = property.exhaust(namedSpace, {
+	box: "every line, every name of one to three code units of a letter and U+1F600's two halves, with no construct beside it or each one alone",
+	needs: { digest: digestService },
+	situations: [
+		"a lone high surrogate",
+		"a lone low surrogate",
+		"a surrogate pair",
+		"a lone surrogate beside a construct",
+		"a well-formed name beside a construct"
+	],
+	check: (resources, k: Case<NamedFeature>) => (named) =>
+		Effect.gen(function* () {
+			k.noteAll(namedFeaturesOf(named))
+			const digest = yield* resources.digest
+			const actual = yield* namedAnswerOf(named, digest)
+			assert.deepEqual(actual, expectedNamedOf(named))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "UTF-16's surrogate pairing, read unit by unit, and DOC-14's refusal of a name that is no Unicode text"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/validate/surrogates.ts",
+			original:
+				"...(loneSurrogate.test(key) ? [pointerOf([...tokens, key])] : []),\n\t\t\t...folded",
+			replacement: "...folded",
+			why: "No property name is a surrogate site, so a lone surrogate reaches the validator, which cannot percent-encode it, and no DOC-14 refusal is made; the property fails (TESTPOLICY2's census, mutant 30c9af81c7)."
+		},
+		{
+			file: "packages/generator/src/validate/surrogates.ts",
+			original: "loneSurrogate.test(codePoint) ?",
+			replacement: "false ?",
+			why: "A lone surrogate stands in the pointer as itself, unescaped, so the refusal's pointer is no Unicode text; the property fails."
+		},
+		{
+			file: "packages/generator/src/validate/surrogates.ts",
+			original:
+				"Str.toUpperCase(Option.getOrElse(Str.codePointAt(0)(codePoint), () => 0).toString(16))",
+			replacement: "Option.getOrElse(Str.codePointAt(0)(codePoint), () => 0).toString(16)",
+			why: "A lone surrogate is escaped in lowercase hexadecimal digits, which is not how a pointer shows it; the property fails."
+		}
+	]
+})
+
+/** The dialect id is rewritten in a copy at every place it counts on 3.1, and nowhere else. */
+export const dialectRewrite = property.exhaust(dialectedSpace, {
+	box: "every line, with every set of the seven places a dialect id may sit",
+	needs: {},
+	situations: [
+		"no site",
+		"an id rewritten",
+		"an id left on 3.0",
+		"an id left on 3.2",
+		"a jsonSchemaDialect below the root left",
+		"another dialect's id left"
+	],
+	check: (_, k: Case<DialectFeature>) => (dialected) =>
+		Effect.gen(function* () {
+			k.noteAll(dialectFeaturesOf(dialected))
+			const actual = yield* rewriteAnswerOf(dialected)
+			assert.deepEqual(actual, expectedRewriteOf(dialected))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 3.2's dialect id substitution: the 3.1 text's id, at the root's jsonSchemaDialect or any $schema, in a copy"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/validate/dialect.ts",
+			original: 'const occurrences = line === "3.1" ? foldJson(document, sites, []) : []',
+			replacement: "const occurrences = foldJson(document, sites, [])",
+			why: "The rewrite counts the text's dialect id on 3.0 and 3.2 too, lines whose text has no such id; the property fails."
+		},
+		{
+			file: "packages/generator/src/validate/dialect.ts",
+			original: '(tokens.length === 0 && key === "jsonSchemaDialect")',
+			replacement: 'key === "jsonSchemaDialect"',
+			why: "A jsonSchemaDialect member below the root is rewritten and counted as if it were the document's own; the property fails."
+		},
+		{
+			file: "packages/generator/src/validate/dialect.ts",
+			original: 'rewriting(line === "3.1")',
+			replacement: "rewriting(true)",
+			why: "The copy of a 3.0 or 3.2 document holds the dated 3.1 id where its input holds the text's; the property fails."
+		}
+	]
+})
+
+/** A fixed method as a 3.2 additionalOperations key is left to the structure check, in every spelling. */
+export const fixedMethodKeys = property.exhaust(methodKeySpace, {
+	box: "every fixed method of the 3.2 Path Item Object, lowercase, uppercase and capitalized",
+	needs: { digest: digestService },
+	situations: ["a lowercase key", "a uppercase key", "a capitalized key"],
+	check: (resources, k: Case<MethodKeyFeature>) => (key) =>
+		Effect.gen(function* () {
+			k.noteAll(methodKeyFeaturesOf(key))
+			const digest = yield* resources.digest
+			const actual = yield* methodKeyAnswerOf(key, digest)
+			assert.deepEqual(actual, expectedMethodKey)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "PTH-24: the text bars a fixed method as an additionalOperations key in any spelling, which the structure check refuses"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/validate/index.ts",
+			original: "const groups = Arr.filter(errorGroups, (group) => !isFixedMethodKey(group))",
+			replacement: "const groups = errorGroups",
+			why: "The 3.2 schema's bar on an uppercase fixed method key is a refusal of its own, so the structure check's PTH-24 refusal comes with a second; the property fails."
+		}
+	]
 })
