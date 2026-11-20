@@ -1521,6 +1521,10 @@ const printAlterTableAction = (action: AlterTableAction): string => {
 			return "ENABLE ROW LEVEL SECURITY"
 		case "disableRowSecurity":
 			return "DISABLE ROW LEVEL SECURITY"
+		case "enableTrigger":
+			return `ENABLE TRIGGER ${quoteIdent(action.name)}`
+		case "disableTrigger":
+			return `DISABLE TRIGGER ${quoteIdent(action.name)}`
 		case "replicaIdentity":
 			return action.identity === "full" ? "REPLICA IDENTITY FULL" : "REPLICA IDENTITY DEFAULT"
 		case "setExpression":
@@ -2213,6 +2217,12 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 				`FOR EACH STATEMENT EXECUTE FUNCTION ${printObjectName(statement.function)}()`
 			)
 		}
+		case "createUpdateGuardTrigger": {
+			out.line(`CREATE TRIGGER ${quoteIdent(statement.name)}`)
+			const clauses = out.nested()
+			clauses.line(`BEFORE UPDATE ON ${printObjectName(statement.table)}`)
+			return clauses.line(`FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}()`)
+		}
 		case "createConstraintTrigger": {
 			out.line(`CREATE CONSTRAINT TRIGGER ${quoteIdent(statement.name)}`)
 			const clauses = out.nested()
@@ -2369,6 +2379,7 @@ export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Comma
 		case "packConstant":
 		case "createConstant":
 		case "createGuardTrigger":
+		case "createUpdateGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
 		case "createPublication":

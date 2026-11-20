@@ -35,7 +35,7 @@ import {
 	type LiteralDesc,
 	nestedFields
 } from "#compiler/ir/desc.ts"
-import { type ExprTable, type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
+import { type ExprTable, fieldReads, type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import { instantInputText, isInstantDesc, isInstantType } from "#compiler/ir/instant.ts"
 import {
 	type ClosedSlot,
@@ -624,6 +624,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		}
 		const heading = sortNonEmpty(declared, byFieldName)
 		const candidates = r.keys.filter((k) => !k.primary)
+		const primaryFields = keyed(r.desc.primaryKey)
 		return {
 			kind: "relation",
 			name,
@@ -633,13 +634,50 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			heading,
 			primaryKey: r.desc.primaryKey,
 			keys: candidates.map((k) => k.fields),
-			primaryFields: keyed(r.desc.primaryKey),
+			primaryFields,
 			keyFields: candidates.map((k) => keyed(k.fields)),
 			mutable: r.mutable,
 			inserts: r.inserts,
+			inPlace: this.#inPlace(r, declared, primaryFields),
 			level: r.level,
 			loc
 		}
+	}
+
+	/**
+	 * The fields of `r` a write changes in place on a row it keeps (law.ts RelationInfo `inPlace`), its fields `fields`
+	 * and its primary key's `primary`: of a mutable relation, every field outside its primary key; of an immutable one,
+	 * its accumulated fields where some family that is no tree has it as its member and a mutable relation as its owner,
+	 * whose owner axis carries the owner's columns into them by ON UPDATE CASCADE (laws/model/plan.ts ownerSources), its
+	 * retirement fields, and each generated field that reads one of them, which PostgreSQL generates again as they change.
+	 */
+	#inPlace(
+		r: OwnedOrdinary,
+		fields: NonEmptyReadonlyArray<LawField>,
+		primary: NonEmptyReadonlyArray<LawField>
+	): ReadonlyArray<string> {
+		if (r.mutable) {
+			return fields.flatMap((f) => (primary.includes(f) ? [] : [f.name]))
+		}
+		const cascaded = this.owned.statements.some(
+			(s) =>
+				s.kind === "family" &&
+				s.member.relation === r.name &&
+				this.owned.relations[s.slots.owner]?.mutable === true
+		)
+		const rewritten = new Set(
+			fields.flatMap((f) =>
+				(cascaded && f.writing.kind === "accumulated") || f.writing.kind === "retirement"
+					? [f.name]
+					: []
+			)
+		)
+		return fields.flatMap((f) =>
+			rewritten.has(f.name) ||
+			(f.writing.kind === "generated" && fieldReads([f.writing.expr]).some((g) => rewritten.has(g)))
+				? [f.name]
+				: []
+		)
 	}
 
 	/**

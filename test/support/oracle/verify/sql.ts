@@ -2425,6 +2425,7 @@ class StatementAuditor {
 			case "createConstant":
 			case "packConstant":
 			case "createGuardTrigger":
+			case "createUpdateGuardTrigger":
 			case "createConstraintTrigger":
 			case "createTransitionTrigger":
 			case "createPublication":
@@ -2568,6 +2569,8 @@ class StatementAuditor {
 									return
 								case "enableRowSecurity":
 								case "disableRowSecurity":
+								case "enableTrigger":
+								case "disableTrigger":
 								case "replicaIdentity":
 									return
 							}
@@ -2817,6 +2820,7 @@ class StatementAuditor {
 				return
 			}
 			case "createGuardTrigger":
+			case "createUpdateGuardTrigger":
 			case "createConstraintTrigger":
 			case "createTransitionTrigger":
 				this.ident(statement.name, "trigger", "name")

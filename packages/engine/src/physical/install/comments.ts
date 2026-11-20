@@ -70,6 +70,8 @@ const actionCreated = (table: ObjectName, a: AlterTableAction): ReadonlyArray<Cr
 		case "dropConstraint":
 		case "enableRowSecurity":
 		case "disableRowSecurity":
+		case "enableTrigger":
+		case "disableTrigger":
 		case "replicaIdentity":
 			return []
 	}
@@ -134,6 +136,7 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 		case "createPolicy":
 			return [{ on: { kind: "POLICY", name: s.name, on: s.table }, identifier: s.name }]
 		case "createGuardTrigger":
+		case "createUpdateGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
 			return [{ on: { kind: "TRIGGER", name: s.name, on: s.table }, identifier: s.name }]

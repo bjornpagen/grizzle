@@ -155,6 +155,17 @@ export interface RelationInfo extends StoredRelationOf<"relation">, TableRelatio
 	/** The keys ownership declared on it, its primary key first. */
 	readonly keyNames: NonEmptyReadonlyArray<KeyName>
 	readonly inserts: Inserts
+	/**
+	 * The fields a write changes in place on a row it keeps, in field order, decided once where the checked schema types
+	 * the relation (analysis/schema.ts): a mutable relation's every field outside its primary key, which a put updates;
+	 * an immutable one's accumulated fields where it is a member of a family, no tree, whose owner is mutable, which the
+	 * family's owner axis rewrites ON UPDATE CASCADE as the owner's columns change; its retirement fields, which its
+	 * group's retirement sets (physical/ddl/retire.ts); and its generated fields that read either. Every other field of
+	 * an immutable relation holds the value its row was inserted with until the row is deleted: the premise a unit-local
+	 * rule's judge reads the fields it reads under (analysis/theory/unit.ts wholeRule), and what the relation's
+	 * immutability guard holds against every UPDATE, the owner's included (physical/ddl/immutable.ts).
+	 */
+	readonly inPlace: ReadonlyArray<string>
 }
 
 /**

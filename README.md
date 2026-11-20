@@ -171,8 +171,9 @@ status. Three things follow:
 - **Every field is required.** There are no nullable columns. A post that has never been viewed has no `PostViews` row,
   and one that has been viewed has exactly one: a value that may be missing is a fact that may be missing.
 - **A relation is a set.** A fact inserted twice is one fact, and a write that changes nothing answers `unchanged`.
-- **Facts are inserted and deleted, not edited in place.** A relation is immutable by default, and no role holds
-  UPDATE on it. A `put` states the fact that holds at a key afterwards, which is what an update means. Declaring
+- **Facts are inserted and deleted, not edited in place.** A relation is immutable by default, no role holds
+  UPDATE on it, and its table refuses every UPDATE that would change a row, the owner's and psql's included, with
+  42501 naming the table. A `put` states the fact that holds at a key afterwards, which is what an update means. Declaring
   `mutable(Post)` among the rules changes how a put is carried out, never what it means.
 
 ### Types are sets of values
@@ -1879,7 +1880,11 @@ schema.
   exactly as declared there, and nothing else of its name.
 - **No nullable columns.** A value that may be missing is a row that may be missing, in a table of its own, like
   `PostViews`.
-- **Immutable by default.** Rows are inserted and deleted, never updated, and no role holds UPDATE on them.
+- **Immutable by default.** Rows are inserted and deleted, never updated, and no role holds UPDATE on them. Each
+  immutable table carries an immutability guard, a `BEFORE UPDATE` row trigger that refuses an UPDATE changing any field
+  but the few grizzle itself rewrites in place (a family member's copy of a mutable owner's column, which the owner
+  axis's ON UPDATE CASCADE carries, and a retirement), whoever runs it, its owner included, with 42501 naming the table.
+  A migration's data steps on such a table run with the guard disabled and enable it again in the same transaction.
   `mutable(Post)` among a schema's rules allows in-place updates; it changes how a `put` runs, never what it means. A
   family's owner whose family changes after it is inserted is mutable too ([Families](#families)).
 - **First insertion wins, by `race`.** `race(Claim)` among a schema's rules makes a table's primary key first come,
@@ -2416,8 +2421,9 @@ definition too.
   bound asks nothing of it: an open interval is the absence of its end, never a span unbounded above, and every span
   stays bounded and non-empty. The judge holds each bound at COMMIT, whether the transaction writes a visit, a start or
   an end, and the host judges a row of either as PostgreSQL does (`rowEvaluator`).
-- **Unit-local rules are judged whole.** A rule is unit-local when every stored relation its query reads is immutable
-  and leads its primary key with the same fields, its unit key, and its query joins within one unit: every match of a
+- **Unit-local rules are judged whole.** A rule is unit-local when every stored relation its query reads is immutable,
+  no field it reads one grizzle rewrites in place (a member's copy of a mutable owner's column, a retirement), and
+  leads its primary key with the same fields, its unit key, and its query joins within one unit: every match of a
   stored relation, in every rule of its violation query at any depth, binds those fields to the same variables, every
   negation is correlated at them, and every aggregate's groups hold them. A content package's relations keyed
   `(package, path, …)` are one such family of units, each document a unit. Every fact of such a rule's violation lies

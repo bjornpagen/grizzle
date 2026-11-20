@@ -18,6 +18,7 @@ import {
 	type CreateDomain,
 	type CreateConstraintTrigger,
 	type CreateTransitionTrigger,
+	type CreateUpdateGuardTrigger,
 	type CreateGuardTrigger,
 	type CreateLiveSecret,
 	type CreateIndex,
@@ -132,6 +133,11 @@ export type Installed<O extends AnyObject = ManifestObject> =
 			readonly create: CreateConstraintTrigger | CreateTransitionTrigger
 	  }
 	| {
+			readonly kind: "immutableTrigger"
+			readonly object: O
+			readonly create: CreateUpdateGuardTrigger
+	  }
+	| {
 			readonly kind:
 				| "refusalFunction"
 				| "unitFunction"
@@ -139,6 +145,7 @@ export type Installed<O extends AnyObject = ManifestObject> =
 				| "snapshotGuard"
 				| "ruleJudge"
 				| "lawFunction"
+				| "immutableGuard"
 			readonly object: O
 			readonly create: FunctionHeader
 	  }
@@ -339,12 +346,17 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 				: malformed(
 						"a rule's trigger installed by its CREATE CONSTRAINT TRIGGER, or a rule capture by its CREATE TRIGGER"
 					)
+		case "immutableTrigger":
+			return o.ddl.length === 1 && s?.kind === "createUpdateGuardTrigger"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a table's immutability guard trigger installed by its CREATE TRIGGER")
 		case "refusalFunction":
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
 		case "ruleJudge":
-		case "lawFunction": {
+		case "lawFunction":
+		case "immutableGuard": {
 			const header = functionHeaderOf(s)
 			return header === undefined
 				? malformed("a CREATE FUNCTION ... LANGUAGE plpgsql")
@@ -510,6 +522,7 @@ export const objectTable = (o: AnyObject): ObjectName | undefined => {
 		case "uniqueIndex":
 		case "statistics":
 		case "isolationTrigger":
+		case "immutableTrigger":
 		case "lawTrigger":
 			return v.create.table
 		case "primaryKey":
@@ -531,6 +544,7 @@ export const objectTable = (o: AnyObject): ObjectName | undefined => {
 		case "snapshotGuard":
 		case "ruleJudge":
 		case "lawFunction":
+		case "immutableGuard":
 		case "worldFunction":
 		case "role":
 		case "membership":
@@ -662,6 +676,8 @@ export const builtOver = <O extends AnyObject>(
 		case "snapshotGuard":
 		case "ruleJudge":
 		case "lawFunction":
+		case "immutableGuard":
+		case "immutableTrigger":
 		case "isolationTrigger":
 		case "worldFunction":
 		case "role":
@@ -776,6 +792,7 @@ const objectParts = <O extends AnyObject>(
 			return [{ kind: "column", table: v.table, name: v.column, definition: v.definition }]
 		case "table":
 		case "isolationTrigger":
+		case "immutableTrigger":
 		case "lawTrigger":
 		case "constant":
 		case "domain":
@@ -786,6 +803,7 @@ const objectParts = <O extends AnyObject>(
 		case "snapshotGuard":
 		case "ruleJudge":
 		case "lawFunction":
+		case "immutableGuard":
 		case "worldFunction":
 		case "role":
 		case "membership":

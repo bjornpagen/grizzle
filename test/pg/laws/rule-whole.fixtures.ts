@@ -62,7 +62,7 @@ const shapes: { readonly [K in ShapeKey]: UnitShape } = {
 	"3 reversed": [3, "reversed"]
 }
 
-const shapeKeys: Arr.NonEmptyReadonlyArray<ShapeKey> = [
+export const shapeKeys: Arr.NonEmptyReadonlyArray<ShapeKey> = [
 	"1 key",
 	"2 key",
 	"2 reversed",
@@ -413,13 +413,13 @@ export const judgeTemplates: Readonly<
 }
 
 /** The tables of shape `shape`'s relations in an installation of one of its judges, as its writes name them. */
-interface Tables {
+export interface Tables {
 	readonly node: string
 	readonly expr: string
 	readonly tag: string
 }
 
-const tablesOf = (installed: Installed, shape: ShapeKey): Tables => {
+export const tablesOf = (installed: Installed, shape: ShapeKey): Tables => {
 	const names = namesOf(installed)
 	const { Node, Expr, Tag } = relationsOf[shape]
 	return { node: names.table(Node), expr: names.table(Expr), tag: names.table(Tag) }
@@ -800,7 +800,7 @@ const aims: ReadonlyArray<readonly [WholeFeature, Gen<Schedule>]> = [
 export const wholeSpace = aimed(scheduleGen, aims)
 
 /** The statements of one write, on an installation's tables. */
-const statementsOf = (
+export const statementsOf = (
 	{ node, expr, tag }: Tables,
 	op: Exclude<Op, { readonly kind: "judge" }>
 ): ReadonlyArray<string> => {

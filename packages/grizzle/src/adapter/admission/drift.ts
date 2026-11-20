@@ -1308,6 +1308,7 @@ const inScratch = (
 		case "handOverFunction":
 		case "createRowType":
 		case "createGuardTrigger":
+		case "createUpdateGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
 		case "createStatistics":

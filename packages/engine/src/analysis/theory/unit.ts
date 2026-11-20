@@ -1346,7 +1346,8 @@ const witnessesOf = (
  * of nothing, every occurrence of it beside the next in one rule and so in the fact, the fact's unit is the region's,
  * through a row gained at that last occurrence or a row lost at one before it. Otherwise e stood before the transaction,
  * in a committed state, where the containment held: a row n0 of N stood with n0[F_N] = e[F_E] = n[F_N], and so at n's
- * values of the fields G the witness names, rows of N being never updated:
+ * values of the fields G the witness names, no field of N `r` reads being changed in place (law.ts RelationInfo `inPlace`,
+ * which wholeRule admits none of and N's immutability guard holds against every UPDATE, physical/ddl/immutable.ts):
  *
  * - G = F_N, a key of N among them: N holds at most one row at those values, so the transaction removed n0, which its
  *   delta of the rows N lost holds, at n's values of F_N;
@@ -1589,9 +1590,11 @@ const unitAt = (
 
 /**
  * The whole rule of `law`, whose violation query is `violation`, where it is unit-local (see the header), decided once
- * when the schema compiles: every stored relation it reads immutable, at the widest unit key its joins allow, its
- * violation restricted to the units a transaction wrote (`restrictToUnits`); none where it is not unit-local, which its
- * probes judge.
+ * when the schema compiles: every stored relation it reads immutable and no field it reads one its relation's rows
+ * change in place (law.ts RelationInfo `inPlace`), so every row it reads holds the values it was inserted with until it
+ * is deleted, which its immutability guard holds against every UPDATE (physical/ddl/immutable.ts); at the widest unit
+ * key its joins allow, its violation restricted to the units a transaction wrote (`restrictToUnits`); none where it is
+ * not unit-local, which its probes judge.
  */
 export const wholeRule = (
 	law: RuleLaw<LawSide>,
@@ -1610,9 +1613,15 @@ export const wholeRule = (
 		(k, r) => Math.min(k, r.primaryFields.length),
 		first.primaryFields.length
 	)
+	/** Whether a read of `relation` at `column` reads a field the relation's rows change in place. */
+	const changing = (relation: string, column: string): boolean =>
+		all.some((r) => r.name === relation && r.inPlace.includes(column))
 	for (let k = widest; k >= 1; k--) {
 		const found = unitAt(violation, all, k)
 		if (found !== undefined) {
+			if (found.reads.some((r) => r.columns.some((c) => changing(r.relation, c)))) {
+				return undefined
+			}
 			return Object.freeze({
 				kind: "whole",
 				law,

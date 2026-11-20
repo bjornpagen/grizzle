@@ -324,13 +324,17 @@ const rosterObjects = (codes: ReadonlyArray<Coded>) => {
 
 const table = identifierOf(identity.table(parsedName("T")))
 const setColumn = identifierOf(identity.column(parsedName("s")))
+/** T's immutability guard (physical/ddl/immutable.ts) and its trigger, which a data step on T's rows runs without. */
+const guard = identifierOf(identity.immutableGuard(parsedName("T")))
+const guardTrigger = identifierOf(identity.immutableTrigger())
 const generatedColumn = identifierOf(identity.column(parsedName("g")))
 
 /**
  * One drafted statement as the model speaks of it, a word of a closed vocabulary over the names it names: a function
  * created, its PUBLIC revoke or its drop; a domain created or dropped; a domain's CHECK dropped, added NOT VALID or
- * validated; the set column converted to a domain by its cast to bit(n); a column added at its placeholder; a law's
- * migration check; or any other statement by its kind, which the model never predicts.
+ * validated; the set column converted to a domain by its cast to bit(n); a column added at its placeholder; T's
+ * immutability guard's trigger disabled or enabled, and its function replaced; a law's migration check; or any other
+ * statement by its kind, which the model never predicts.
  */
 const observedOf = (draft: Draft): ReadonlyArray<string> => {
 	const statements = (a: Action): ReadonlyArray<string> => {
@@ -380,6 +384,9 @@ const tableWord = (s: Extract<SqlStatement, { readonly kind: "alterTable" }>): s
 	if (rest.length === 0 && action.kind === "setExpression") {
 		return `set expression ${s.table.name}.${action.column}`
 	}
+	if (rest.length === 0 && (action.kind === "disableTrigger" || action.kind === "enableTrigger")) {
+		return `${action.kind === "disableTrigger" ? "disable" : "enable"} trigger ${s.table.name}.${action.name}`
+	}
 	if (rest.length > 0 || action.kind !== "alterColumnType" || action.type.kind !== "named") {
 		return `other alterTable`
 	}
@@ -391,6 +398,9 @@ const tableWord = (s: Extract<SqlStatement, { readonly kind: "alterTable" }>): s
 }
 
 const statementWord = (s: SqlStatement): string => {
+	if (s.kind === "createFunction" && s.name.name === guard) {
+		return `replace guard ${table}`
+	}
 	if (s.kind === "createConstant") {
 		return `create function ${s.name.name}`
 	}
@@ -517,7 +527,10 @@ const predicted = (
 				["setup", `revoke function ${now.live}`],
 				["setup", `create domain ${now.bits}`],
 				["structure", `placeholder column ${table}.${setColumn}`],
-				["structure.immediate", "other setConstraintsImmediate"]
+				["structure", `disable trigger ${table}.${guardTrigger}`],
+				["structure.immediate", "other setConstraintsImmediate"],
+				["structure.constraints", `enable trigger ${table}.${guardTrigger}`],
+				["validate", `replace guard ${table}`]
 			)
 		} else if (namesChanged) {
 			out.push(

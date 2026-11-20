@@ -30,6 +30,7 @@ import {
 	type TextDomain
 } from "#compiler/physical/ddl/domains.ts"
 import { addFunctions } from "#compiler/physical/ddl/functions.ts"
+import { addImmutableGuards } from "#compiler/physical/ddl/immutable.ts"
 import { readCommittedRelations } from "#compiler/physical/ddl/isolation.ts"
 import { addLibrary } from "#compiler/physical/ddl/library.ts"
 import { addLiveSource } from "#compiler/physical/ddl/live.ts"
@@ -452,6 +453,7 @@ export const installationOver = (
 				const { keyIndexes, tables } = addTables(b)
 				const units = addUnitFunctions(b)
 				const rules = addRules(b)
+				addImmutableGuards(b)
 				addSpanStorage(b, plan.spans)
 
 				const claimedDerived = new Set<string>()

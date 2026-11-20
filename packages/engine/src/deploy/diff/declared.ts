@@ -1560,6 +1560,8 @@ const withColumns = (
 			case "dropConstraint":
 			case "enableRowSecurity":
 			case "disableRowSecurity":
+			case "enableTrigger":
+			case "disableTrigger":
 			case "replicaIdentity":
 				return a
 		}
@@ -1663,6 +1665,7 @@ const withColumns = (
 		case "createRowType":
 		case "adoptRole":
 		case "createGuardTrigger":
+		case "createUpdateGuardTrigger":
 		case "createTransitionTrigger":
 		case "alterDatabaseDefault":
 		case "createExtension":
@@ -1746,6 +1749,7 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 		case "dropPublication":
 		case "createLiveSecret":
 		case "createGuardTrigger":
+		case "createUpdateGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
 		case "alterDatabaseDefault":

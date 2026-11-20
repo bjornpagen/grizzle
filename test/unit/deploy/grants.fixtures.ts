@@ -292,7 +292,8 @@ interface Run {
  * column grant is a unit of its table and privilege per column that the table's REVOKE of the privilege takes too, and
  * a DROP of an object or a role takes every unit on it or of it; a DROP ROLE of a role that still holds a unit is
  * refused (2BP01). A PUBLIC unit is a revoke of the installation's default, which a migration runs only for an object it
- * creates (a new or recreated object starts from PostgreSQL's defaults). Idle: a GRANT of a unit held, a REVOKE of one
+ * creates (a new or recreated object starts from PostgreSQL's defaults, a function its CREATE FUNCTION creates among
+ * them). Idle: a GRANT of a unit held, a REVOKE of one
  * not held, a REVOKE of a unit of a grantee that survives on an object the migration drops, and a GRANT of a unit the
  * migration revoked on an object it did not create again.
  */
@@ -376,6 +377,13 @@ const run = (start: ReadonlySet<string>, statements: ReadonlyArray<SqlStatement>
 			created.add(`DOMAIN ${s.name.schema}.${s.name.name}`)
 		} else if (s.kind === "createSchema") {
 			created.add(`SCHEMA ${s.name}`)
+		} else if (s.kind === "createFunction") {
+			created.add(
+				`FUNCTION ${s.name.schema}.${s.name.name}(${Arr.join(
+					Arr.map(s.params, (param) => printType(param.type)),
+					", "
+				)})`
+			)
 		}
 	}
 	for (const [u, object] of revoked) {

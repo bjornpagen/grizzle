@@ -94,6 +94,9 @@ const guardTriggerOf = (s: SqlStatement | RecordedStatement): Option.Option<stri
 const guardedTableOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createGuardTrigger" ? Option.some(s.table.name) : Option.none()
 
+const immutableTriggerOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
+	s.kind === "createUpdateGuardTrigger" ? Option.some(s.name) : Option.none()
+
 const ruleTriggerOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createConstraintTrigger" ? Option.some(s.name) : Option.none()
 
@@ -363,6 +366,7 @@ export const installedScope = (
 				...functionsOf("isolationFunction", { kind: "isolationGuard" }),
 				...functionsOf("ruleJudge", { kind: "rule" }),
 				...functionsOf("lawFunction", { kind: "rule" }),
+				...functionsOf("immutableGuard", { kind: "immutableGuard" }),
 				...functionsOf("snapshotGuard", { kind: "snapshotGuard" }),
 				...functionsOf("worldFunction", { kind: "world" }),
 				...unitFunctions(
@@ -388,6 +392,7 @@ export const installedScope = (
 			]),
 			triggers: new Map<string, InstalledTrigger>([
 				...triggersOf("isolationTrigger", guardTriggerOf, "isolation"),
+				...triggersOf("immutableTrigger", immutableTriggerOf, "immutable"),
 				...triggersOf("lawTrigger", ruleTriggerOf, "rule"),
 				...triggersOf("lawTrigger", captureTriggerOf, "capture")
 			]),

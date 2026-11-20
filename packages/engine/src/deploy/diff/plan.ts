@@ -268,6 +268,8 @@ export const alterationPass = (a: AlterTableAction): AlterTablePass => {
 		case "alterConstraintDeferral":
 		case "enableRowSecurity":
 		case "disableRowSecurity":
+		case "enableTrigger":
+		case "disableTrigger":
 		case "replicaIdentity":
 			return "misc"
 	}

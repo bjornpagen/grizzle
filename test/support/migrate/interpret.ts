@@ -3211,6 +3211,8 @@ class Model {
 					break
 				case "enableRowSecurity":
 				case "disableRowSecurity":
+				case "enableTrigger":
+				case "disableTrigger":
 				case "replicaIdentity":
 					this.#table(s.table)
 					break
@@ -3565,6 +3567,7 @@ class Model {
 				}
 				return
 			case "createGuardTrigger":
+			case "createUpdateGuardTrigger":
 			case "createTransitionTrigger":
 				if (this.#ours(s.table)) {
 					this.#trigger(s.table, s.name, s.function, [], [])

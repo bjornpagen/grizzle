@@ -1010,6 +1010,8 @@ export class Transform {
 			case "setRetirementDefault":
 			case "enableRowSecurity":
 			case "disableRowSecurity":
+			case "enableTrigger":
+			case "disableTrigger":
 			case "replicaIdentity":
 				return a
 		}
@@ -1369,6 +1371,7 @@ export class Transform {
 				const fn = this.name(s.function, "function")
 				return table === s.table && fn === s.function ? s : { ...s, table, function: fn }
 			}
+			case "createUpdateGuardTrigger":
 			case "createConstraintTrigger":
 			case "createTransitionTrigger": {
 				const table = this.name(s.table, "relation")
@@ -1496,6 +1499,7 @@ export class Transform {
 			case "createRowType":
 			case "adoptRole":
 			case "createGuardTrigger":
+			case "createUpdateGuardTrigger":
 			case "createConstraintTrigger":
 			case "createTransitionTrigger":
 			case "createPublication":

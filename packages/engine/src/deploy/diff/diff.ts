@@ -109,6 +109,7 @@ import type { Head } from "#compiler/ir/instant.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
+import { immutableTriggerName } from "#compiler/physical/ddl/immutable.ts"
 import { refreshStatement } from "#compiler/physical/derived/objects.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -306,12 +307,14 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	statistics: 7,
 	materializedView: 9,
 	lawTrigger: 3,
+	immutableTrigger: 3,
 	isolationTrigger: 3,
 	refusalFunction: 11,
 	unitFunction: 11,
 	isolationFunction: 11,
 	snapshotGuard: 11,
 	lawFunction: 11,
+	immutableGuard: 11,
 	declaredFunction: 11,
 	lawColumn: 12,
 	column: 13,
@@ -1505,8 +1508,10 @@ class Differ {
 		for (const t of this.targets) {
 			this.visit(t)
 		}
-		if (this.holdsDataSteps(this.backfill())) {
+		const written = this.dataSteps(this.backfill())
+		if (isNonEmpty(written)) {
 			this.push("structure.immediate", statement(checkedAtOnce))
+			this.unguard(written)
 		}
 		this.ruleChecks(checks.rules)
 		this.validations()
@@ -2094,6 +2099,17 @@ class Differ {
 					this.sql("validate", o.ddl)
 				}
 				return
+			case "immutableGuard":
+				if (before === undefined) {
+					this.sql("validate", o.ddl)
+				} else if (!sameRecord(before, o)) {
+					this.sql(
+						"validate",
+						o.ddl.filter((s) => s.kind !== "revoke")
+					)
+				}
+				return
+			case "immutableTrigger":
 			case "lawTrigger":
 				if (before === undefined) {
 					this.sql("validate", o.ddl)
@@ -2652,8 +2668,8 @@ class Differ {
 	/** The backfill of the families new to stored rows and of the columns drawn again (backfill.ts), once every column it
 	 * draws is added: its UPDATEs, then each added column's DROP DEFAULT, before any constraint that reads them
 	 * (structure.constraints). It draws, on each table both install, every column of it a family draws that this
-	 * migration revalues in place (ColumnFate revalued) beside those it adds. */
-	backfill(): boolean {
+	 * migration revalues in place (ColumnFate revalued) beside those it adds. The tables its UPDATEs write. */
+	backfill(): ReadonlyArray<ObjectName> {
 		const drawn = new Map<NameKey, BackfilledTable>(
 			[...this.backfilled].map(
 				([key, { table, added }]) => [key, { table, added, redrawn: [] }] as const
@@ -2681,20 +2697,50 @@ class Differ {
 			this.push("structure.backfill", { kind: "violation", law: c.law, query: c.query })
 		}
 		this.sql("structure.backfill", [...updates, ...dropDefaults, ...notNulls])
-		return updates.length > 0
+		return updates.flatMap((u) => (u.kind === "update" ? [u.table] : []))
 	}
 
-	/** Whether Structure holds a data step: a reviewer's UPDATE a placeholder column invites, a fill, or the backfill's
-	 * (`backfilled`). Each runs after SET CONSTRAINTS ALL IMMEDIATE (checkedAtOnce, structure.immediate), before which
-	 * Structure runs no UPDATE: its drops and its tables' alterations, which write no row. */
-	holdsDataSteps(backfilled: boolean): boolean {
-		return (
-			backfilled ||
-			this.fills.size > 0 ||
-			[...this.alterations.structure.values()].some((a) =>
-				[a.first, ...a.rest].some((x) => x.kind === "addColumnPlaceholder")
+	/** The tables Structure's data steps write rows of: each a reviewer's UPDATE a placeholder column invites, a fill or
+	 * the backfill's (`backfilled`) writes, each once, none where Structure holds no data step. Each runs after SET
+	 * CONSTRAINTS ALL IMMEDIATE (checkedAtOnce, structure.immediate), before which Structure runs no UPDATE: its drops
+	 * and its tables' alterations, which write no row. */
+	dataSteps(backfilled: ReadonlyArray<ObjectName>): ReadonlyArray<ObjectName> {
+		const tables = new Map<NameKey, ObjectName>()
+		for (const t of [
+			...backfilled,
+			...[...this.fills.values()].map((f) => f.table),
+			...[...this.alterations.structure.values()].flatMap((a) =>
+				[a.first, ...a.rest].some((x) => x.kind === "addColumnPlaceholder") ? [a.table] : []
 			)
+		]) {
+			tables.set(nameKey(t), t)
+		}
+		return [...tables.values()]
+	}
+
+	/**
+	 * The immutability guard (physical/ddl/immutable.ts) of each table of `written` the previous installation guards,
+	 * disabled in the table's Structure alteration, before Structure's first data step, and enabled again in its
+	 * structure.constraints alteration, after its last, in Structure's one transaction: a data step writes a column the
+	 * migration adds, sets aside or draws again on rows already stored, which the guard would refuse as a change of a
+	 * fixed field, and no other transaction sees the guard disabled, nor any committed state holds it so. A table the
+	 * previous installation does not guard takes its guard in Validate, after every data step.
+	 */
+	unguard(written: NonEmptyReadonlyArray<ObjectName>): void {
+		const guarded = new Set(
+			[...this.prev.values()].flatMap((o) => {
+				const v = installed(o)
+				return v.kind === "immutableTrigger" ? [nameKey(v.create.table)] : []
+			})
 		)
+		for (const t of written) {
+			if (guarded.has(nameKey(t))) {
+				this.alter("structure", t, [{ kind: "disableTrigger", name: immutableTriggerName }])
+				this.alter("structure.constraints", t, [
+					{ kind: "enableTrigger", name: immutableTriggerName }
+				])
+			}
+		}
 	}
 
 	/** The steps of a field's change in place from `b` to `c` (inPlace), its conversion by its cast or its placeholder
@@ -3269,6 +3315,7 @@ class Differ {
 			case "isolationFunction":
 			case "snapshotGuard":
 			case "lawFunction":
+			case "immutableGuard":
 				drop(
 					v.kind,
 					statement({ kind: "dropFunction", name: functionNameOf(v.create), ifExists: false })
@@ -3305,6 +3352,7 @@ class Differ {
 					statement({ kind: "drop", object: "ROLE", name: v.create.name, ifExists: false })
 				)
 				return
+			case "immutableTrigger":
 			case "lawTrigger":
 				drop(
 					v.kind,
@@ -4446,6 +4494,7 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 		case "snapshotGuard":
 		case "ruleJudge":
 		case "lawFunction":
+		case "immutableGuard":
 		case "worldFunction":
 			return [{ kind: "FUNCTION", name: functionNameOf(v.create) }]
 		case "roleSchema":
@@ -4458,6 +4507,7 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 		case "uniqueIndex":
 		case "statistics":
 		case "isolationTrigger":
+		case "immutableTrigger":
 		case "lawTrigger":
 		case "role":
 		case "functionOwner":

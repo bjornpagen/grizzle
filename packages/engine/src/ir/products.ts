@@ -523,6 +523,8 @@ export const physicalKinds = [
 	"ruleJudge",
 	"lawFunction",
 	"lawTrigger",
+	"immutableGuard",
+	"immutableTrigger",
 	"role",
 	"decoder",
 	"membership",

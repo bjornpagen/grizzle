@@ -1465,6 +1465,15 @@ export type AlterTableAction =
 	| { readonly kind: "disableRowSecurity" }
 	| {
 			/**
+			 * ENABLE TRIGGER and DISABLE TRIGGER <name>: an immutability guard (physical/ddl/immutable.ts) disabled for a
+			 * migration's data steps on its table and enabled again after them, in one transaction, so no committed state
+			 * holds it disabled (deploy/diff/diff.ts unguard).
+			 */
+			readonly kind: "enableTrigger" | "disableTrigger"
+			readonly name: string
+	  }
+	| {
+			/**
 			 * REPLICA IDENTITY FULL or DEFAULT: what an update's or a delete's WAL record keeps of the row it changed, every
 			 * column or the primary key's, which the installation's live source decodes its old routing values from
 			 * (physical/ddl/live.ts).
@@ -1505,6 +1514,8 @@ export const addedColumn = (a: AlterTableAction): ColumnDef | undefined => {
 		case "dropConstraint":
 		case "enableRowSecurity":
 		case "disableRowSecurity":
+		case "enableTrigger":
+		case "disableTrigger":
 		case "replicaIdentity":
 		case "setExpression":
 			return undefined
@@ -1723,6 +1734,18 @@ export interface DropTrigger {
  */
 export interface CreateGuardTrigger {
 	readonly kind: "createGuardTrigger"
+	readonly name: string
+	readonly table: ObjectName
+	readonly function: ObjectName
+}
+
+/**
+ * CREATE TRIGGER <name> BEFORE UPDATE ON <table> FOR EACH ROW EXECUTE FUNCTION <function>(): an immutable relation's
+ * immutability guard (physical/ddl/immutable.ts), which PostgreSQL fires for every row an UPDATE of the table finds,
+ * whoever runs it, the table's owner and a foreign key's ON UPDATE CASCADE among them.
+ */
+export interface CreateUpdateGuardTrigger {
+	readonly kind: "createUpdateGuardTrigger"
 	readonly name: string
 	readonly table: ObjectName
 	readonly function: ObjectName
@@ -2447,6 +2470,7 @@ export type Ddl =
 	| PackConstant
 	| CreateConstant
 	| CreateGuardTrigger
+	| CreateUpdateGuardTrigger
 	| CreateConstraintTrigger
 	| CreateTransitionTrigger
 	| CreatePublication

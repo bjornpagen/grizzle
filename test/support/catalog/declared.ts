@@ -81,7 +81,8 @@ const levels = (desc: SchemaDesc): Declared => {
  *   its trigger on every table, the snapshot guard and grizzle's bookkeeping tables (deploy/ledger/ledger.ts
  *   bookkeepingTables), the migrations ledger among them;
  * - a relation is immutable unless a `mutable(R)` statement names it, and only a mutable relation's table may be
- *   updated by a non-owner role;
+ *   updated by a non-owner role; an immutable relation's table carries the immutability guard, its function named by
+ *   its identity, which refuses an UPDATE of its fixed fields to every role, the owner included;
  * - a roster is its domain and its names constant, named by the digest of its handles in code order, which a first
  *   installation numbers by declared position, so the constant holds the declared handles in order and no hole; a
  *   roster a set field is typed over also installs its live-codes constant, named by the same digest, and its bits
@@ -117,6 +118,16 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 			[identifierOf(identity.isolationGuard()), { kind: "isolationGuard" }],
 			[identifierOf(identity.snapshotGuard()), { kind: "snapshotGuard" }],
 			[identifierOf(identity.ruleJudge()), { kind: "rule" }],
+			...Arr.flatMap(relations, (r): ReadonlyArray<readonly [string, InstalledFunction]> =>
+				r.kind === "relation" && !mutable.has(r.name)
+					? [
+							[
+								identifierOf(identity.immutableGuard(parsedName(r.name))),
+								{ kind: "immutableGuard" }
+							]
+						]
+					: []
+			),
 			...unitFunctions(headers),
 			...Arr.flatMap(relations, (r): ReadonlyArray<readonly [string, InstalledFunction]> => {
 				if (r.kind !== "closed") {
@@ -150,7 +161,8 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 			})
 		]),
 		triggers: new Map<string, InstalledTrigger>([
-			[identifierOf(identity.isolationTrigger()), "isolation"]
+			[identifierOf(identity.isolationTrigger()), "isolation"],
+			[identifierOf(identity.immutableTrigger()), "immutable"]
 		]),
 		rowSecure: new Set(),
 		logins: new Map(),

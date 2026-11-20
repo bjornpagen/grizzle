@@ -546,6 +546,7 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 			case "renameConstraint":
 			case "lockTable":
 			case "createGuardTrigger":
+			case "createUpdateGuardTrigger":
 			case "createConstraintTrigger":
 			case "createTransitionTrigger":
 			case "createPublication":

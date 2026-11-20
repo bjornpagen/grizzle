@@ -54,6 +54,7 @@ export type ManifestStatement =
 					| "createRowType"
 					| "adoptRole"
 					| "createGuardTrigger"
+					| "createUpdateGuardTrigger"
 					| "createConstraintTrigger"
 					| "createTransitionTrigger"
 					| "createPublication"
@@ -96,6 +97,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "createRowType":
 		case "adoptRole":
 		case "createGuardTrigger":
+		case "createUpdateGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
 		case "createPublication":

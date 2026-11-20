@@ -855,6 +855,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			case "materializedView":
 			case "statistics":
 			case "isolationTrigger":
+			case "immutableTrigger":
 			case "lawTrigger":
 			case "refusalFunction":
 			case "unitFunction":
@@ -862,6 +863,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			case "snapshotGuard":
 			case "ruleJudge":
 			case "lawFunction":
+			case "immutableGuard":
 			case "worldFunction":
 			case "role":
 			case "membership":

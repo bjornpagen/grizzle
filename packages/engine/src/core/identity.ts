@@ -1595,6 +1595,28 @@ export const identity = Object.freeze({
 			readable("__isolation")
 		),
 	/**
+	 * The immutability guard of the immutable relation `relation` (physical/ddl/immutable.ts): the function its table's
+	 * guard trigger runs on every row an UPDATE finds, which refuses one that changes a field the relation's rows never
+	 * change in place.
+	 */
+	immutableGuard: (relation: string): Identity<"immutableGuard"> =>
+		mint(
+			"immutableGuard",
+			[relation],
+			["immutable", ...nameSegments(relation)],
+			`immutability guard of ${relation}`,
+			hashed
+		),
+	/** Every immutable relation's table's guard trigger: one name, which PostgreSQL scopes to its table's triggers. */
+	immutableTrigger: (): Identity<"immutableTrigger"> =>
+		mint(
+			"immutableTrigger",
+			[],
+			["immutable"],
+			"the immutability guard trigger",
+			readable("__immutable")
+		),
+	/**
 	 * The live change source of the installation whose root level's PostgreSQL schema is `root`: one name for its
 	 * publication, which PostgreSQL scopes to the database, and for its replication slot and decoder login, each cluster
 	 * wide under the installation's role space (roleInSpace); the publication's name is also the fan-out channel and the

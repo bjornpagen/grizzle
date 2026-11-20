@@ -86,6 +86,8 @@ export type IdentityKind =
 	| "proofsKey"
 	| "isolationGuard"
 	| "isolationTrigger"
+	| "immutableGuard"
+	| "immutableTrigger"
 	| "lawTrigger"
 	| "lawFunction"
 	| "ruleCapture"

@@ -26,6 +26,7 @@ export type InstalledFunction =
 	| { readonly kind: "refusal" }
 	| { readonly kind: "snapshotGuard" }
 	| { readonly kind: "isolationGuard" }
+	| { readonly kind: "immutableGuard" }
 	| { readonly kind: "rule" }
 	| { readonly kind: "hold" }
 	| { readonly kind: "retire" }
@@ -50,11 +51,12 @@ export const unitFunctions = (
 	])
 
 /**
- * What a trigger of the installation is: the isolation guard a guarded table carries, a rule over a query's deferred
- * constraint trigger on a table its query reads, or the set judge's capture of one event on such a table, a statement
- * trigger with transition tables (physical/ddl/rules.ts judged).
+ * What a trigger of the installation is: the isolation guard a guarded table carries, the immutability guard an
+ * immutable relation's table carries (physical/ddl/immutable.ts), a rule over a query's deferred constraint trigger on a
+ * table its query reads, or the set judge's capture of one event on such a table, a statement trigger with transition
+ * tables (physical/ddl/rules.ts judged).
  */
-const installedTriggers = ["isolation", "rule", "capture"] as const
+const installedTriggers = ["isolation", "immutable", "rule", "capture"] as const
 
 export type InstalledTrigger = (typeof installedTriggers)[number]
 
@@ -310,6 +312,9 @@ const unless = (holds: boolean, problem: ErasureProblem): ReadonlyArray<ErasureP
  * TRUNCATE (32).
  */
 const guardTriggerType = 2 + 4 + 8 + 16 + 32
+
+/** pg_trigger.tgtype of the immutability guard: row level (1), BEFORE (2) and UPDATE (16). */
+const immutableTriggerType = 1 + 2 + 16
 
 /** pg_trigger.tgtype's row-level bit, which a rule's trigger sets. */
 const ruleTriggerLevel = 1
@@ -741,6 +746,7 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 				...loginLacks(j, object, f.grants, "EXECUTE")
 			]
 		case "isolationGuard":
+		case "immutableGuard":
 		case "rule":
 			return [...definer, ...grantProblems(j, held, allowed.none, allowed.none)]
 		case "names":
@@ -954,6 +960,17 @@ const triggerProblems = (j: Judging, t: Trigger): ReadonlyArray<ErasureProblem> 
 					(t.type & beforeOrInstead) === 0 &&
 					j.expect.functions.get(t.function)?.kind === "rule",
 				{ kind: "malformedCapture", trigger: t.name, table: t.table }
+			)
+		]
+	}
+	if (expected === "immutable") {
+		return [
+			...enabled,
+			...unless(
+				!t.constraint &&
+					t.type === immutableTriggerType &&
+					j.expect.functions.get(t.function)?.kind === "immutableGuard",
+				{ kind: "malformedGuard", table: t.table }
 			)
 		]
 	}
