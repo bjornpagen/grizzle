@@ -11,7 +11,6 @@ import {
 	Layer,
 	Option,
 	Runtime,
-	Schema,
 	Sink,
 	Stdio,
 	Stream,
@@ -22,8 +21,10 @@ import { CliOutput, Command, Flag } from "effect/cli"
 import type { HttpBody } from "effect/http"
 import * as Input from "#runtime-src/runtime/input.ts"
 import * as Output from "#runtime-src/runtime/output.ts"
+import * as Read from "#runtime-src/runtime/read.ts"
 import { runCredentialsLayer } from "#runtime-src/runtime/redact.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
+import { chunkText } from "#test/support/stdio.ts"
 
 /** The kinds of flag the emitter writes for a field whose value the runtime checks, labels or reads from a file. */
 export type FlagKind =
@@ -190,10 +191,9 @@ const numericFieldFlag = (kind: "integer" | "number" | "int64", name: string) =>
 				Flag.optional
 			)
 
-const decoder = new TextDecoder()
-
-const bodyText = (body: HttpBody.HttpBody): string =>
-	body._tag === "Uint8Array" ? decoder.decode(body.body) : ""
+/** A merged JSON body's text: its bytes read as UTF-8, and no text where it sends none. */
+const bodyText = (body: HttpBody.HttpBody): Effect.Effect<string> =>
+	body._tag === "Uint8Array" ? chunkText(body.body) : Effect.succeed("")
 
 /** A console that prints nothing; Object.assign keeps the host console's methods, which spreading would drop. */
 const silent: Console.Console = Object.assign({}, globalThis.console, {
@@ -229,8 +229,14 @@ const runNumeric = (
 				bodyFile: Option.none(),
 				fields: { [`/${name}`]: flags.field },
 				required: true,
-				schema: Schema.Struct({ [name]: Schema.optionalKey(Schema.Finite) })
-			}).pipe(Effect.flatMap((body) => Effect.sync(() => sent.push(bodyText(body)))))
+				schema: Read.object(
+					(object) => ({ [name]: Read.optionalMember(object, name, Read.number) }),
+					false
+				)
+			}).pipe(
+				Effect.flatMap(bodyText),
+				Effect.flatMap((text) => Effect.sync(() => sent.push(text)))
+			)
 		)
 		return yield* ranWith(
 			Command.runWith(command, { renderErrors: false, version: "0" })(args),
@@ -322,7 +328,7 @@ export const numberPartSent = (text: string) =>
 			flags: { ratio: "ratio" },
 			repeated: [],
 			required: true,
-			schema: Schema.Struct({ ratio: Schema.Finite })
+			schema: Read.object((object) => ({ ratio: Read.member(object, "ratio", Read.number) }), false)
 		})({ ratio: [new Input.JsonNumber(text)] })
 		const built = yield* Serialize.request("POST", {
 			body: Serialize.formData(fields, { parts: [["ratio", "text/plain"]], required: true }),
@@ -332,7 +338,7 @@ export const numberPartSent = (text: string) =>
 		})
 		const chunks =
 			built.body._tag === "Stream" ? yield* Stream.runCollect(Stream.orDie(built.body.stream)) : []
-		return decoder.decode(Buffer.concat(Arr.map(chunks, (chunk) => Buffer.from(chunk))))
+		return yield* chunkText(Buffer.concat(Arr.map(chunks, (chunk) => Buffer.from(chunk))))
 	})
 
 /**

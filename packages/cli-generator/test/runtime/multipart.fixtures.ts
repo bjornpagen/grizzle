@@ -24,7 +24,6 @@ import {
 	Predicate,
 	Record as Rec,
 	Result,
-	Schema,
 	Stream,
 	String as Str
 } from "effect"
@@ -32,6 +31,26 @@ import { JsonNumber, jsonNull } from "#runtime-src/runtime/input.ts"
 import type * as Multipart from "#runtime-src/runtime/multipart.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 import type { Json, Nested } from "#runtime-src/runtime/serialize.ts"
+import {
+	allOf,
+	anything,
+	array as arrayOf,
+	check,
+	enumeration,
+	integer,
+	maximum,
+	maxItems,
+	member,
+	minimum,
+	minItems,
+	minLength,
+	number as numberReader,
+	object,
+	optionalMember,
+	property,
+	type Reader,
+	string
+} from "#runtime-src/runtime/read.ts"
 import {
 	type HeaderCase,
 	headerModel,
@@ -1153,44 +1172,60 @@ const assertDrawn: Gen<AssertCase> = (source) => {
 const flagOf = (path: ReadonlyArray<string>): string =>
 	Arr.join(Arr.map(path, Str.replaceAll("_", "-")), ".")
 
+/** A whole number a JavaScript number holds exactly: JSON Schema's `integer` between the safe integers' ends. */
+const safeInteger: Reader<number> = allOf(integer, [
+	minimum(Number.MIN_SAFE_INTEGER),
+	maximum(Number.MAX_SAFE_INTEGER)
+])
+
 /** A part kind's schema. */
-const schemaOf = (kind: PartKind): Schema.Top => {
+const schemaOf = (kind: PartKind): Reader<unknown> => {
 	switch (kind) {
 		case "text":
-			return Schema.String
+			return string
 		case "code":
-			return Schema.String.check(Schema.isPattern(threeLetters))
+			return check(string, (value) => threeLetters.test(value), "three capital letters (pattern)")
 		case "count":
-			return Schema.Int
+			return safeInteger
 		case "choice":
-			return Schema.Literals(["skip", "upsert"])
+			return enumeration(["skip", "upsert"])
 		case "tags":
-			return Schema.Array(Schema.String)
+			return arrayOf(string)
 		case "file":
-			return Schema.String.check(Schema.isMinLength(1))
+			return allOf(string, [minLength(1)])
 		case "meta":
-			return Schema.Struct({
-				big: Schema.Finite,
-				name: Schema.String,
-				tags: Schema.Array(Schema.Unknown)
-			})
+			return object(
+				(meta) => ({
+					big: member(meta, "big", check(numberReader, Number.isFinite, "a finite number")),
+					name: member(meta, "name", string),
+					tags: member(meta, "tags", arrayOf(anything))
+				}),
+				anything
+			)
 		case "pages":
-			return Schema.Tuple([Schema.Struct({ id: Schema.Int })])
+			return allOf(arrayOf(property("id", safeInteger)), [minItems(1), maxItems(1)])
 	}
 }
 
 const threeLetters = regex("^[A-Z]{3}$", "u")
 
 /** A record of schemas, each optional or not. */
-const structOf = (members: ReadonlyArray<readonly [string, Schema.Top, boolean]>): Schema.Top =>
-	Schema.Struct(
-		Rec.fromEntries(
-			Arr.map(
-				members,
-				([name, schema, optional]) =>
-					[name, optional ? Schema.optionalKey(schema) : schema] as const
-			)
-		)
+const structOf = (
+	parts: ReadonlyArray<readonly [string, Reader<unknown>, boolean]>
+): Reader<unknown> =>
+	object(
+		(read) =>
+			Rec.fromEntries(
+				Arr.map(
+					parts,
+					([name, reader, optional]) =>
+						[
+							name,
+							optional ? optionalMember(read, name, reader) : member(read, name, reader)
+						] as const
+				)
+			),
+		anything
 	)
 
 /** Whether a schema part is nested by name. */

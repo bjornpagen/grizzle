@@ -8,7 +8,6 @@ import {
 	Result,
 	Record as Rec,
 	Schema,
-	SchemaParser,
 	Stream,
 	String as Str
 } from "effect"
@@ -16,6 +15,7 @@ import { Flag } from "effect/cli"
 import { ResponseStreamError } from "#domain/errors.ts"
 import { parseJson } from "#runtime/json.ts"
 import { lineReader } from "#runtime/lines.ts"
+import type { Reader } from "#runtime/read.ts"
 import { encoder } from "#runtime/redact.ts"
 import { compactJsonText } from "#runtime/sequential.ts"
 import { jsonText, utf8Text } from "#runtime/utf8.ts"
@@ -291,10 +291,10 @@ export const sseParser = (maxRecordBytes: number): SseParser => {
 
 /**
  * How JSON event data reads: `json`, the server's JSON text with its insignificant whitespace removed and nothing else
- * changed; or `{ json }`, such a text checked first against the schema of its `contentSchema` (domain/schemas.ts), so
- * data the schema refuses ends the stream (`invalidData`) and never prints.
+ * changed; or `{ json }`, such a text read first by the reader of its `contentSchema` (domain/schemas.ts), so data the
+ * reader refuses ends the stream (`invalidData`) and never prints.
  */
-export type JsonData = "json" | { readonly json: Schema.Top }
+export type JsonData = "json" | { readonly json: Reader<unknown> }
 
 /** How an event's data prints: `text`, a JSON string; else as JSON (`JsonData`). */
 export type EventData = "text" | JsonData
@@ -609,21 +609,15 @@ const eventSteps = (
 		: [step]
 }
 
-/** The parse options event data is checked under: a member no property of a closed object declares is refused. */
-const closedObjects = { onExcessProperty: "error" } as const
-
 /**
- * Whether an event's data is what its row admits: any data where no schema checks it; else one JSON text the schema
- * decodes, every closed object's excess member refused. JSON that is no JSON text is `eventLine`'s to refuse.
+ * Whether an event's data is what its row admits: any data where no reader reads it; else one JSON text the row's
+ * reader admits, which refuses a closed object's excess member. JSON that is no JSON text is `eventLine`'s to refuse.
  */
 const admitted = (data: EventData, text: string): boolean =>
 	typeof data === "string" ||
 	Option.match(jsonValueOf(text), {
 		onNone: () => true,
-		onSome: (value) =>
-			Result.isSuccess(
-				SchemaParser.decodeUnknownResult(Schema.toType(data.json))(value, closedObjects)
-			)
+		onSome: (value) => Result.isSuccess(data.json(value))
 	})
 
 /**

@@ -11,12 +11,13 @@ import {
 	Path,
 	Predicate,
 	Record,
-	Schema,
 	Stream,
 	String as Str
 } from "effect"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
+import type { JsonObject } from "#model/json-tree.ts"
+import type { Json } from "#model/pointer.ts"
 import { configGen, configOf, documentGen, documentOf, textOf } from "#test/support/openapi-gen.ts"
 import type { ConfigSketch, DocumentSketch, Line } from "#test/support/openapi-gen.ts"
 
@@ -77,9 +78,9 @@ export type Emitted = Readonly<{ kind: "holds" | "lacks"; text: string }>
 export type Plant = Readonly<{
 	path: string
 	method: "get" | "post"
-	operation: Schema.JsonObject
-	schemas: ReadonlyArray<readonly [string, Schema.Json]>
-	schemes: ReadonlyArray<readonly [string, Schema.Json]>
+	operation: JsonObject
+	schemas: ReadonlyArray<readonly [string, Json]>
+	schemes: ReadonlyArray<readonly [string, Json]>
 	family: Family
 	variants: ReadonlyArray<Variant>
 	facts: ReadonlyArray<Fact>
@@ -94,7 +95,7 @@ export type ConstructCase = Readonly<{
 	plant: Plant
 }>
 
-const ok: Schema.Json = { "204": { description: "Done." } }
+const ok: Json = { "204": { description: "Done." } }
 
 /** The pointer of `method` on `path`. */
 const operationPointer = (path: string, method: string): string =>
@@ -120,25 +121,25 @@ const when = (holds: boolean, variant: Variant): ReadonlyArray<Variant> => (hold
 /** An operation tagged `planted`, with its id and what else it holds. */
 const plantedOperation = (
 	operationId: string,
-	members: Readonly<Record<string, Schema.Json>>
-): Schema.JsonObject => ({ operationId, tags: ["planted"], responses: ok, ...members })
+	members: Readonly<Record<string, Json>>
+): JsonObject => ({ operationId, tags: ["planted"], responses: ok, ...members })
 
 /** A required JSON body over `schema`. */
-const jsonBody = (schema: Schema.Json): Schema.Json => ({
+const jsonBody = (schema: Json): Json => ({
 	required: true,
 	content: { "application/json": { schema } }
 })
 
 /** A required JSON body over an object of `properties`. */
-const objectBody = (properties: Readonly<Record<string, Schema.Json>>): Schema.Json =>
+const objectBody = (properties: Readonly<Record<string, Json>>): Json =>
 	jsonBody({ type: "object", properties })
 
 /** A multipart/form-data body over an object of `properties`, with `encoding`. */
 const multipartBody = (
 	required: boolean,
-	properties: Readonly<Record<string, Schema.Json>>,
-	encoding: Readonly<Record<string, Schema.Json>>
-): Schema.Json => ({
+	properties: Readonly<Record<string, Json>>,
+	encoding: Readonly<Record<string, Json>>
+): Json => ({
 	required,
 	content: { "multipart/form-data": { schema: { type: "object", properties }, encoding } }
 })
@@ -148,7 +149,7 @@ const holds = (text: string): Emitted => ({ kind: "holds", text })
 const lacks = (text: string): Emitted => ({ kind: "lacks", text })
 
 /** An object of four bounds, the object member every deepObject plant's union holds. */
-const RANGE: Schema.Json = {
+const RANGE: Json = {
 	type: "object",
 	properties: {
 		gt: { type: "integer" },
@@ -161,7 +162,7 @@ const RANGE: Schema.Json = {
 const DEEP_NAMES: Arr.NonEmptyReadonlyArray<string> = ["created", "window", "span"]
 
 /** A query parameter by deepObject, exploded, over `schema`. */
-const deepParameter = (name: string, schema: Schema.Json, required: boolean): Schema.Json => ({
+const deepParameter = (name: string, schema: Json, required: boolean): Json => ({
 	in: "query",
 	name,
 	required,
@@ -252,31 +253,25 @@ const deepObjectsPlant: Gen<Plant> = (s) => {
 }
 
 /** A pet with a `kind` it is told apart by, and `properties` beside it. */
-const pet = (properties: Readonly<Record<string, Schema.Json>>): Schema.JsonObject => ({
+const pet = (properties: Readonly<Record<string, Json>>): JsonObject => ({
 	type: "object",
 	required: ["kind"],
 	properties: { kind: { type: "string" }, ...properties }
 })
 
 /** A pet with no other property that names `discriminator` for the schemas composed with it. */
-const discriminatedPet = (discriminator: Schema.Json): Schema.JsonObject => ({
+const discriminatedPet = (discriminator: Json): JsonObject => ({
 	type: "object",
 	required: ["kind"],
 	properties: { kind: { type: "string" } },
 	discriminator
 })
 
-const PLANTED_CAT: readonly [string, Schema.Json] = [
-	"PlantedCat",
-	pet({ meow: { type: "boolean" } })
-]
+const PLANTED_CAT: readonly [string, Json] = ["PlantedCat", pet({ meow: { type: "boolean" } })]
 
-const PLANTED_DOG: readonly [string, Schema.Json] = [
-	"PlantedDog",
-	pet({ bark: { type: "boolean" } })
-]
+const PLANTED_DOG: readonly [string, Json] = ["PlantedDog", pet({ bark: { type: "boolean" } })]
 
-const reference = (name: string): Schema.Json => ({ $ref: `#/components/schemas/${name}` })
+const reference = (name: string): Json => ({ $ref: `#/components/schemas/${name}` })
 
 /** A discriminator on a schema with no allOf, anyOf or oneOf has nothing to select among: refused at it (DSC-05). */
 const loneDiscriminatorPlant: Gen<Plant> = () => ({
@@ -364,7 +359,7 @@ const composedDiscriminatorPlant: Gen<Plant> = oneOf<Plant>([
 ])
 
 /** A multipart object part `doc` sent as `contentType`, beside a plain `name`. */
-const docPart = (required: boolean, contentType: string): Schema.Json =>
+const docPart = (required: boolean, contentType: string): Json =>
 	multipartBody(
 		required,
 		{
@@ -450,8 +445,7 @@ const opaqueXmlPlant: Gen<Plant> = () => ({
 })
 
 /** The JSON text of a default as help prints it after `default: `. */
-const shownDefault = (value: Schema.Json): string =>
-	Predicate.isString(value) ? value : textOf(value)
+const shownDefault = (value: Json): string => (Predicate.isString(value) ? value : textOf(value))
 
 /**
  * A 3.0 `default` that does not conform to its schema's type is refused at element scope (S30-27) and help omits it;
@@ -462,9 +456,9 @@ const defaultPlant =
 	(line: Line, conformingGen: Gen<boolean>): Gen<Plant> =>
 	(s) => {
 		const conforming = s.draw(conformingGen)
-		const value: Schema.Json = conforming
+		const value: Json = conforming
 			? s.draw(element([0, 10, -3]))
-			: s.draw(element<Schema.Json>(["x", true, "10"]))
+			: s.draw(element<Json>(["x", true, "10"]))
 		const path = "/planted-default"
 		const shown = conforming || line !== "3.0"
 		return {
@@ -702,8 +696,7 @@ const numericPlant =
 	(s) => {
 		const kind = s.draw(kindGen)
 		const name = s.draw(element(["count", "ratio", "total"]))
-		const schema: Schema.Json =
-			kind === "int64" ? { type: "integer", format: "int64" } : { type: kind }
+		const schema: Json = kind === "int64" ? { type: "integer", format: "int64" } : { type: kind }
 		const asJsonNumber = "Flag.map((text) => new Input.JsonNumber(text))"
 		const property = `${mediaPointer("/planted-numbers", "post", "application/json")}/schema/properties/${name}`
 		return {
@@ -736,7 +729,7 @@ const numericPlant =
 		}
 	}
 
-const PLANTED_KEY: Schema.Json = { type: "apiKey", in: "header", name: "X-Planted-Key" }
+const PLANTED_KEY: Json = { type: "apiKey", in: "header", name: "X-Planted-Key" }
 
 /**
  * A requirement naming a scheme no document declares is reported once, at the name, by check (SEC-09 on 3.0 and 3.1,
@@ -750,7 +743,7 @@ const undeclaredPlant =
 		const beside = s.draw(besideGen)
 		const path = "/planted-secured"
 		const operation = operationPointer(path, "get")
-		const security: Schema.Json = beside
+		const security: Json = beside
 			? [{ plantedKey: [], plantedMissing: [] }]
 			: [{ plantedMissing: [] }, { plantedKey: [] }]
 		const unresolved = line === "3.2" ? "SEC-10/unresolved-scheme" : "SEC-09/unresolved-scheme"
@@ -981,23 +974,23 @@ export const AIMS: ReadonlyArray<readonly [Feature, Space<ConstructCase>]> = [
 	]
 ]
 
-const isObject = (value: Schema.Json | undefined): value is Schema.JsonObject =>
+const isObject = (value: Json | undefined): value is JsonObject =>
 	Predicate.isObject(value) && !Arr.isArray(value)
 
 /** The member `key` of `object` when it is an object, else an empty one. */
-const objectAt = (object: Schema.JsonObject, key: string): Schema.JsonObject => {
+const objectAt = (object: JsonObject, key: string): JsonObject => {
 	const value = object[key]
 	return isObject(value) ? value : {}
 }
 
 /** `entries` added to the object at `key` of `object`. */
 const withEntries = (
-	object: Schema.JsonObject,
+	object: JsonObject,
 	key: string,
-	entries: ReadonlyArray<readonly [string, Schema.Json]>
-): Schema.JsonObject =>
+	entries: ReadonlyArray<readonly [string, Json]>
+): JsonObject =>
 	Arr.isReadonlyArrayNonEmpty(entries)
-		? Record.set<string, Schema.Json, string, Schema.Json>(
+		? Record.set<string, Json, string, Json>(
 				object,
 				key,
 				Record.union(objectAt(object, key), Record.fromEntries(entries), (_, added) => added)
@@ -1005,7 +998,7 @@ const withEntries = (
 		: object
 
 /** The document with the planted operation at its own path and the plant's components beside the drawn ones. */
-const plantedDocument = (drawnCase: ConstructCase): Schema.JsonObject => {
+const plantedDocument = (drawnCase: ConstructCase): JsonObject => {
 	const document = documentOf(drawnCase.document)
 	const { plant } = drawnCase
 	const components = withEntries(
@@ -1017,7 +1010,7 @@ const plantedDocument = (drawnCase: ConstructCase): Schema.JsonObject => {
 	return isObject(document["components"]) ||
 		Arr.isReadonlyArrayNonEmpty(plant.schemas) ||
 		Arr.isReadonlyArrayNonEmpty(plant.schemes)
-		? Record.set<string, Schema.Json, string, Schema.Json>(pathed, "components", components)
+		? Record.set<string, Json, string, Json>(pathed, "components", components)
 		: pathed
 }
 

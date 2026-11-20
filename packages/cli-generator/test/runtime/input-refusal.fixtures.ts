@@ -1,4 +1,4 @@
-/** What input-refusal.test.ts's property reads: the body schema, the planted faults, and the stdin the body check claims. */
+/** What input-refusal.test.ts's property reads: the body's reader, the planted faults, and the stdin the body check claims. */
 
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { aimed, type Aimed, constant, element, type Gen, weighted } from "@bjornpagen/testing/gen"
@@ -8,26 +8,37 @@ import {
 	JsonPointer,
 	Layer,
 	Option,
-	Schema,
 	Sink,
 	Stdio,
 	Stream,
 	String as Str
 } from "effect"
+import type { Json } from "#model/pointer.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
+import * as Read from "#runtime-src/runtime/read.ts"
 
 /** A member name holding both characters a JSON pointer escapes. */
 const odd = "a/b~c"
 
-/** The schema: one object with a member of every JSON type, a nested object and an array of strings. */
-const Body = Schema.Struct({
-	text: Schema.String,
-	count: Schema.Finite,
-	flag: Schema.Boolean,
-	none: Schema.Null,
-	list: Schema.Array(Schema.String),
-	nested: Schema.Struct({ [odd]: Schema.String })
-})
+/**
+ * The body's reader, as the domain module writes one: one closed object with a member of every JSON type, a closed
+ * nested object and an array of strings.
+ */
+const body: Read.Reader<unknown> = Read.object(
+	(members) => ({
+		text: Read.member(members, "text", Read.string),
+		count: Read.member(members, "count", Read.number),
+		flag: Read.member(members, "flag", Read.boolean),
+		none: Read.member(members, "none", Read.nullValue),
+		list: Read.member(members, "list", Read.array(Read.string)),
+		nested: Read.member(
+			members,
+			"nested",
+			Read.object((nested) => ({ [odd]: Read.member(nested, odd, Read.string) }), false)
+		)
+	}),
+	false
+)
 
 /** A place a fault is planted at: a member of the top object, the nested object's member, or the list's first item. */
 type Place = "text" | "count" | "flag" | "none" | "list" | "nested" | "nested member" | "list item"
@@ -58,7 +69,7 @@ const placed: Readonly<Record<Place, Readonly<{ path: ReadonlyArray<string>; typ
 }
 
 /** A value of each JSON type, its spelling a planted one no message may quote. */
-const valueOf: Readonly<Record<JsonType, Schema.Json>> = {
+const valueOf: Readonly<Record<JsonType, Json>> = {
 	"a string": "planted-secret",
 	"a number": 7_654_321,
 	"a boolean": true,
@@ -162,7 +173,7 @@ const faultFor =
 	}
 
 /** What `place` holds in a body: the planted value, `valid`, or nothing where the fault leaves it out. */
-const holding = (fault: Fault, place: Place, valid: Schema.Json): Option.Option<Schema.Json> => {
+const holding = (fault: Fault, place: Place, valid: Json): Option.Option<Json> => {
 	switch (fault.kind) {
 		case "extra":
 			return Option.some(valid)
@@ -177,16 +188,16 @@ const holding = (fault: Fault, place: Place, valid: Schema.Json): Option.Option<
 const extra = (
 	fault: Fault,
 	within: "top" | "nested"
-): ReadonlyArray<readonly [string, Option.Option<Schema.Json>]> =>
+): ReadonlyArray<readonly [string, Option.Option<Json>]> =>
 	fault.kind === "extra" && fault.within === within
 		? [[extraName, Option.some("planted-secret")]]
 		: []
 
 /** An object of the members `entries` holds, each left out where it holds nothing. */
 const objectOf = (
-	entries: ReadonlyArray<readonly [string, Option.Option<Schema.Json>]>
-): Schema.JsonObject => {
-	const object: Record<string, Schema.Json> = {}
+	entries: ReadonlyArray<readonly [string, Option.Option<Json>]>
+): Readonly<Record<string, Json>> => {
+	const object: Record<string, Json> = {}
 	for (const [name, value] of entries) {
 		if (Option.isSome(value)) {
 			object[name] = value.value
@@ -196,7 +207,7 @@ const objectOf = (
 }
 
 /** A valid body, its list holding `items` strings, with `fault` planted. */
-const bodyOf = (fault: Fault, items: number): Schema.Json =>
+const bodyOf = (fault: Fault, items: number): Json =>
 	objectOf([
 		["text", holding(fault, "text", "t")],
 		["count", holding(fault, "count", 1)],
@@ -247,7 +258,7 @@ export const refusalOf = (fault: Fault, items: number) =>
 					bodyFile: Option.none(),
 					fields: {},
 					required: true,
-					schema: Body,
+					schema: body,
 					constants: {}
 				})
 			).pipe(Effect.provideContext(context))

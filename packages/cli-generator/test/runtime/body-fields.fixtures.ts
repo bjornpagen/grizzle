@@ -27,7 +27,6 @@ import {
 	Record,
 	Redacted,
 	Ref,
-	Schema,
 	Sink,
 	Stdio,
 	Stream,
@@ -35,6 +34,7 @@ import {
 } from "effect"
 import * as Input from "#runtime-src/runtime/input.ts"
 import * as Output from "#runtime-src/runtime/output.ts"
+import * as Read from "#runtime-src/runtime/read.ts"
 import { RunCredentials, type ScrubEntry } from "#runtime-src/runtime/redact.ts"
 
 /** A JSON value as drawn: scalars keep their source text, so a number is written exactly as it was given. */
@@ -988,7 +988,14 @@ const fieldValueOf = (tree: Tree): Input.FieldValue => {
 	}
 }
 
-const Person = Schema.Struct({ count: Schema.optionalKey(Schema.Finite), name: Schema.String })
+/** The drawn body schema: a closed object of a required name and an optional count. */
+const person: Read.Reader<unknown> = Read.object(
+	(object) => ({
+		count: Read.optionalMember(object, "count", Read.number),
+		name: Read.member(object, "name", Read.string)
+	}),
+	false
+)
 
 const claimOf = Effect.map(Layer.build(Input.stdinClaimLayer), Context.get(Input.StdinClaim))
 
@@ -1032,7 +1039,7 @@ export const observed = (dir: ScratchDir, drawn: Merge, entry: "merge" | "struct
 			bodyFile,
 			fields: fieldRecord,
 			required: drawn.required,
-			schema: drawn.schema === "person" ? Person : Schema.Unknown
+			schema: drawn.schema === "person" ? person : Read.anything
 		}
 		const recorded = yield* Ref.make<ReadonlyArray<ScrubEntry>>([])
 		const read =

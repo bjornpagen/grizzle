@@ -78,10 +78,10 @@ export const jsonBodySchemas = property.explore(cases, {
 	budget: { runs: 6, steered: 24 },
 	kills: [
 		{
-			file: "packages/cli-generator/src/runtime-src/runtime/input.ts",
-			original: 'const closedObjects = { onExcessProperty: "error" } as const',
-			replacement: 'const closedObjects = { onExcessProperty: "ignore" } as const',
-			why: "A closed object takes a key no property declares, so a body with an undeclared key at any depth is sent where SCH-13 refuses it; the property fails."
+			file: "packages/cli-generator/src/runtime-src/runtime/read.ts",
+			original: '\t\t\t\t? [{ path: [name], refusal: { _tag: "AdditionalProperties" } }]',
+			replacement: "\t\t\t\t? []",
+			why: "A closed object's reader takes a member no property declares, so a body with an undeclared key at any depth is sent where SCH-13 refuses it; the property fails."
 		},
 		{
 			file: "packages/cli-generator/src/normalize/schemas.ts",

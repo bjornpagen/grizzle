@@ -29,6 +29,7 @@ import {
 	String as Str,
 	Stream
 } from "effect"
+import * as Read from "#runtime-src/runtime/read.ts"
 import {
 	type EventContract,
 	type EventData,
@@ -627,7 +628,7 @@ export const parseFeatures = (
 
 /**
  * A JSON data value as the tokens it is written with, what its `/error/retry` holds, and whether the checked rows'
- * schema (`ErrorData`) admits it.
+ * reader (`errorData`) admits it.
  */
 type JsonData = Readonly<{
 	tokens: Arr.NonEmptyReadonlyArray<string>
@@ -667,14 +668,27 @@ const jsonData: Gen<JsonData> = element([
 ])
 
 /**
- * The schema of the checked rows' data: an error of a kind and a retry, both objects closed, which admits the error
- * data alone (JsonData admitted).
+ * The reader of the checked rows' data: an error of a kind and a retry, both objects closed, which admits the error
+ * data alone (JsonData admitted), built from the runtime's readers as a generated domain module builds one.
  */
-const ErrorData = Schema.Struct({
-	error: Schema.Struct({ kind: Schema.String, retry: Schema.String })
-})
+const errorData: Read.Reader<unknown> = Read.object(
+	(object) => ({
+		error: Read.member(
+			object,
+			"error",
+			Read.object(
+				(error) => ({
+					kind: Read.member(error, "kind", Read.string),
+					retry: Read.member(error, "retry", Read.string)
+				}),
+				false
+			)
+		)
+	}),
+	false
+)
 
-/** How a model row's data reads: as the runtime's `EventData`, `checked` standing for JSON checked by `ErrorData`. */
+/** How a model row's data reads: as the runtime's `EventData`, `checked` standing for JSON read by `errorData`. */
 type ModelData = "json" | "text" | "checked"
 
 /** A contract row as the model draws it: the runtime's `EventRow` with its data a `ModelData`. */
@@ -683,15 +697,15 @@ type ModelRow =
 	| Readonly<{ data: ModelData; next: string; role: "ready" }>
 	| Readonly<{ data: "json" | "checked"; retryWhen: RetryWhen; role: "error" }>
 
-/** A model data's runtime form: data checked against `ErrorData`, as the generated api names a domain schema. */
+/** A model data's runtime form: data read by `errorData`, as the generated api names a domain reader. */
 const runtimeData = (data: ModelData): EventData =>
-	data === "checked" ? { json: ErrorData } : data
+	data === "checked" ? { json: errorData } : data
 
 /** A model row as the runtime's contract holds it. */
 const runtimeRow = (row: ModelRow): EventRow => {
 	if ("retryWhen" in row) {
 		return {
-			data: row.data === "checked" ? { json: ErrorData } : row.data,
+			data: row.data === "checked" ? { json: errorData } : row.data,
 			retryWhen: row.retryWhen,
 			role: row.role
 		}

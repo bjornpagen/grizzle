@@ -14,9 +14,6 @@ import {
 	Redacted,
 	Ref,
 	Result,
-	Schema,
-	type SchemaAST,
-	SchemaIssue,
 	Stdio,
 	Stream,
 	String as Str
@@ -28,6 +25,7 @@ import { UsageError } from "#domain/errors.ts"
 import { InvalidJsonText, type JsonReviver, parseJson, parseRevivedJson } from "#runtime/json.ts"
 import type { MediaDeclaration } from "#runtime/negotiate.ts"
 import * as Negotiate from "#runtime/negotiate.ts"
+import type { JsonType, LimitKeyword, ReadIssues, Reader, Refusal } from "#runtime/read.ts"
 import type { Secret } from "#runtime/redact.ts"
 import { RunCredentials, encoder } from "#runtime/redact.ts"
 import { utf8Text } from "#runtime/utf8.ts"
@@ -1062,100 +1060,90 @@ interface BodyOptions {
 	readonly constants: Constants
 	readonly fields: Fields
 	readonly required: boolean
-	readonly schema: Schema.Top
+	/**
+	 * The body schema's reader, which the domain module writes: a closed object (`additionalProperties: false`) refuses
+	 * a member no property declares (SCH-13) itself, so no option of the check decides the closure.
+	 */
+	readonly schema: Reader<unknown>
+}
+
+/** What each JSON type is called where a value of another type stands. */
+const typeWords: Readonly<Record<JsonType, string>> = {
+	string: "a string",
+	number: "a number",
+	integer: "an integer",
+	boolean: "a boolean",
+	null: "null",
+	array: "an array",
+	object: "an object"
+}
+
+/** What each limit keyword expects, worded around its limit. */
+const limitWords: Readonly<Record<LimitKeyword, (limit: number) => string>> = {
+	minimum: (limit) => `at least ${limit}`,
+	maximum: (limit) => `at most ${limit}`,
+	exclusiveMinimum: (limit) => `more than ${limit}`,
+	exclusiveMaximum: (limit) => `less than ${limit}`,
+	multipleOf: (limit) => `a multiple of ${limit}`,
+	minLength: (limit) => `at least ${limit} characters`,
+	maxLength: (limit) => `at most ${limit} characters`,
+	minItems: (limit) => `at least ${limit} items`,
+	maxItems: (limit) => `at most ${limit} items`,
+	minProperties: (limit) => `at least ${limit} members`,
+	maxProperties: (limit) => `at most ${limit} members`
 }
 
 /**
- * The parse options every body is checked under: a member no property of a closed object declares is an excess
- * property, and refused (SCH-13). The domain module writes a closed object (`additionalProperties: false`) as a plain
- * Struct and an open one as a Struct with a JSON rest, so this one option decides the closure; no default strips it.
+ * What the schema expects where a body breaks it, worded by the JSON Schema keyword it breaks: a value of another
+ * `type`, not the `const` or no value the `enum` lists, a `required` member missing, a member `additionalProperties`
+ * refuses or an item `items` refuses, a value the `false` schema refuses, a limit keyword's bound, repeated
+ * `uniqueItems`, no alternative or more than one (`oneOf`), or the reader's own words for a keyword of its own. The
+ * body's own value is never in it.
  */
-const closedObjects = { onExcessProperty: "error" } as const
-
-/** What JSON a node of the schema expects where a value of another type stands, by the JSON Schema `type` it names. */
-const expectedType = (ast: SchemaAST.AST): string => {
-	switch (ast._tag) {
-		case "String":
-		case "TemplateLiteral":
-			return "a string"
-		case "Number":
-			return "a number"
-		case "Boolean":
-			return "a boolean"
-		case "Null":
-			return "null"
-		case "Arrays":
-			return "an array"
-		case "Objects":
-		case "ObjectKeyword":
-			return "an object"
-		case "Literal":
-			return `${Formatter.format(ast.literal)} (const)`
-		case "Union":
+const refusalWords = (refusal: Refusal): string => {
+	switch (refusal._tag) {
+		case "Type":
+			return `expected ${typeWords[refusal.expected]}`
+		case "Const":
+			return `expected ${Formatter.format(refusal.expected)} (const)`
 		case "Enum":
-			return "one of its alternatives"
-		case "Declaration":
-		case "Undefined":
-		case "Void":
-		case "Never":
-		case "Unknown":
-		case "Any":
-		case "BigInt":
-		case "Symbol":
-		case "UniqueSymbol":
-		case "Suspend":
-			return "a value of another type"
+			return `expected one of ${Arr.join(
+				Arr.map(refusal.expected, (value) => Formatter.format(value)),
+				", "
+			)} (enum)`
+		case "Required":
+			return "a required member is missing (required)"
+		case "AdditionalProperties":
+			return "a member the schema does not admit (additionalProperties)"
+		case "AdditionalItems":
+			return "an item the schema does not admit (items)"
+		case "False":
+			return "a value the schema forbids"
+		case "Limit":
+			return `expected ${limitWords[refusal.keyword](refusal.limit)} (${refusal.keyword})`
+		case "UniqueItems":
+			return "expected items that do not repeat (uniqueItems)"
+		case "NoAlternative":
+			return "expected one of its alternatives"
+		case "ManyAlternatives":
+			return "more than one alternative matches (oneOf)"
+		case "Keyword":
+			return refusal.reason
 	}
 }
-
-/**
- * A schema issue's first place and what fails there, as Standard Schema reads them, each leaf worded by the JSON Schema
- * keyword it breaks: a value of another `type`, a `required` member missing, a member `additionalProperties` refuses,
- * or `oneOf` alternatives matched more than once. A check's own words (`minimum`, `maxItems` and the like) stay
- * Effect's. The body's own value is never in it.
- */
-const firstIssue = SchemaIssue.makeFormatterStandardSchemaV1({
-	leafHook: (issue) => {
-		switch (issue._tag) {
-			case "InvalidType":
-				return `expected ${expectedType(issue.ast)}`
-			case "InvalidValue":
-				return "a value the schema does not admit"
-			case "MissingKey":
-				return "a required member is missing (required)"
-			case "UnexpectedKey":
-				return "a member the schema does not admit (additionalProperties)"
-			case "Forbidden":
-				return "a value the schema forbids"
-			case "OneOf":
-				return "more than one alternative matches (oneOf)"
-		}
-	}
-})
 
 /**
  * Where a body the schema refuses fails first, and what the schema expects there: ` at <JSON pointer>: <expectation>`,
- * the pointer RFC 6901's, or `: <expectation>` at the body's root. The value is not printed: the parse reports no input,
- * so a secret in the body stays out of the message.
+ * the pointer RFC 6901's, or `: <expectation>` at the body's root. The value is not printed: a reader's issue holds no
+ * input, so a secret in the body stays out of the message.
  */
-const whereRefused = (issue: SchemaIssue.Issue): string =>
-	Option.match(Arr.head(firstIssue(issue).issues), {
-		onNone: () => "",
-		onSome: (first) => {
-			const path = Arr.map(first.path ?? [], (step) =>
-				JsonPointer.escapeToken(
-					typeof step === "object"
-						? String(step.key)
-						: typeof step === "symbol"
-							? (step.description ?? "")
-							: String(step)
-				)
-			)
-			return Arr.isReadonlyArrayEmpty(path)
-				? `: ${first.message}`
-				: ` at /${Arr.join(path, "/")}: ${first.message}`
-		}
-	})
+const whereRefused = (issues: ReadIssues): string => {
+	const first = Arr.headNonEmpty(issues)
+	const path = Arr.map(first.path, (step) => JsonPointer.escapeToken(String(step)))
+	return Arr.isReadonlyArrayEmpty(path)
+		? `: ${refusalWords(first.refusal)}`
+		: ` at /${Arr.join(path, "/")}: ${refusalWords(first.refusal)}`
+}
 
 /**
  * What the merge of the body sources settled on: no body, the operator's bytes as given, or the
@@ -1194,10 +1182,8 @@ const mergeSources = (
 		const settled = (merged: Merged) => ({ merged, parse })
 		const assert = (text: string) =>
 			Effect.flatMap(guarded(decodePlain)(text), (value) =>
-				Effect.mapError(
-					Schema.decodeUnknownEffect(Schema.toType(options.schema), closedObjects)(value),
-					(error) =>
-						usage(flag, `the request body does not match its schema${whereRefused(error.issue)}`)
+				Effect.mapError(Effect.fromResult(options.schema(value)), (issues) =>
+					usage(flag, `the request body does not match its schema${whereRefused(issues)}`)
 				)
 			)
 

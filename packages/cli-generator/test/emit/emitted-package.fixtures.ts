@@ -32,6 +32,7 @@ import type {
 	SchemaSketch,
 	SchemeSketch
 } from "#test/support/openapi-gen.ts"
+import { chunkText } from "#test/support/stdio.ts"
 
 /** The formatter's options for generated files, as docs/printer.md names them. */
 const FORMAT_OPTIONS: FormatConfig = {
@@ -837,21 +838,19 @@ export const unshipped = (dir: string) =>
 		return Arr.getSomes(missing)
 	})
 
-const decoder = new TextDecoder()
-
 /** What a package's own typecheck reports: nothing when it passes, else tsc's output, or the failure itself when tsc
  * never ran. */
 export const typecheckReport = (generated: Parameters<typeof typecheckPackage>[0]) =>
-	Effect.map(Effect.exit(typecheckPackage(generated)), (checked) =>
+	Effect.flatMap(Effect.exit(typecheckPackage(generated)), (checked) =>
 		Exit.match(checked, {
-			onSuccess: () => "",
+			onSuccess: () => Effect.succeed(""),
 			onFailure: (cause) =>
 				Option.match(Cause.findErrorOption(cause), {
-					onNone: () => Formatter.format(cause),
+					onNone: () => Effect.succeed(Formatter.format(cause)),
 					onSome: (failed) =>
 						failed._tag === "BuildStepFailed"
-							? decoder.decode(failed.stdout)
-							: Formatter.format(failed)
+							? chunkText(failed.stdout)
+							: Effect.succeed(Formatter.format(failed))
 				})
 		})
 	)

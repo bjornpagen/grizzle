@@ -33,12 +33,13 @@ export const FORMAT_OPTIONS: FormatConfig = {
 	jsdoc: { commentLineStrategy: "multiline", lineWrappingStyle: "balance" }
 }
 
-/** Definition keys: short, long past the line, folding to the same stem, and named like Effect's own exports. */
+/** Definition keys: short, long past the line, folding to the same stem, and named like the module's import or a cli
+ * module's. */
 const KEYS: Arr.NonEmptyReadonlyArray<string> = [
 	"User",
 	"user_update",
 	"my-schema",
-	"Schema",
+	"Read",
 	"Command",
 	"Customer_balance_resource_cash_balance_transaction_resource_applied_to_payment_transaction",
 	"D0",
@@ -286,12 +287,12 @@ export type Feature =
 	| "a recursive definition"
 	| "an alias named before its recursive target"
 	| "an alias named after its recursive target"
-	| "mutually recursive definitions"
+	| "a reference that closes a cycle"
 	| "an unreachable definition"
 	| "an annotation left out"
 	| "a long name"
 	| "a folded name"
-	| "a name Effect also exports"
+	| "a reserved name"
 	| "a closed object"
 	| "a nullable member"
 
@@ -301,8 +302,7 @@ export const featuresOf = (
 	drawnCase: DomainCase,
 	identifiers: ReturnType<typeof domainIdentifiers>,
 	reachable: ReadonlyArray<string>,
-	text: string,
-	types: ReadonlyArray<string>
+	text: string
 ): ReadonlyArray<Feature> => {
 	const readsItself = (key: string) =>
 		Arr.contains(
@@ -345,7 +345,9 @@ export const featuresOf = (
 					)
 			)
 		),
-		...(types.length > 1 ? (["mutually recursive definitions"] as const) : []),
+		...(Str.includes("(): Read.Reader<unknown> =>")(text)
+			? (["a reference that closes a cycle"] as const)
+			: []),
 		...(reachable.length < drawnCase.definitions.length
 			? (["an unreachable definition"] as const)
 			: []),
@@ -356,24 +358,22 @@ export const featuresOf = (
 		...(Arr.some(reachable, (key) => Str.includes("_")(key) || Str.includes("-")(key))
 			? (["a folded name"] as const)
 			: []),
-		...(Arr.some(reachable, (key) => key === "Schema" || key === "Command")
-			? (["a name Effect also exports"] as const)
+		...(Arr.some(reachable, (key) => key === "Read" || key === "Command")
+			? (["a reserved name"] as const)
 			: []),
 		...(Arr.contains(keys, "additionalProperties") ? (["a closed object"] as const) : []),
-		...(Str.includes("Schema.NullOr")(text) || Str.includes("Schema.Null")(text)
-			? (["a nullable member"] as const)
-			: [])
+		...(Str.includes("Read.nullable(")(text) ? (["a nullable member"] as const) : [])
 	]
 }
 
 export type Fault =
-	| "a definition that is no schema object"
-	| "a schema the importer rejects"
+	| "a definition that is no schema"
+	| "a reference to no definition"
 	| "a key the identifier map leaves out"
 	| "two keys given one name"
-	| "a name Effect exports differently"
+	| "a name that is no identifier"
 
-type Reason = "identifier-mismatch" | "import-failed" | "unsupported-definition"
+type Reason = "identifier-mismatch" | "unresolved-reference" | "unsupported-definition"
 
 /** A definition set with one planted fault on a reachable key, and the reason it must be refused for. */
 type Planted = Readonly<{
@@ -393,18 +393,18 @@ export const plantedGen: Gen<Planted> = (s) => {
 	return s.draw(
 		oneOf<Planted>([
 			() => ({
-				definitions: replaced(true),
+				definitions: replaced(3),
 				roots,
 				identifiers,
-				fault: "a definition that is no schema object",
+				fault: "a definition that is no schema",
 				reason: "unsupported-definition"
 			}),
 			() => ({
-				definitions: replaced({ not: { type: "string" } }),
+				definitions: replaced({ type: "array", items: { $ref: "#/$defs/Absent" } }),
 				roots,
 				identifiers,
-				fault: "a schema the importer rejects",
-				reason: "import-failed"
+				fault: "a reference to no definition",
+				reason: "unresolved-reference"
 			}),
 			() => ({
 				definitions: replaced({ type: "string" }),
@@ -429,9 +429,9 @@ export const plantedGen: Gen<Planted> = (s) => {
 				roots,
 				identifiers: new Map([
 					...Arr.fromIterable(identifiers),
-					[root, fixedSafeIdentifier("Schema")]
+					[root, fixedSafeIdentifier("class")]
 				]),
-				fault: "a name Effect exports differently",
+				fault: "a name that is no identifier",
 				reason: "identifier-mismatch"
 			})
 		])

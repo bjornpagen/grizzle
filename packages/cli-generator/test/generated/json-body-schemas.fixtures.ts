@@ -14,15 +14,9 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Option,
-	Record as Rec,
-	Schema,
-	String as Str
-} from "effect"
+import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { Array as Arr, Duration, Effect, Option, Record as Rec, String as Str } from "effect"
+import type { Json } from "#model/pointer.ts"
 import {
 	type CaptureServer,
 	captureServer,
@@ -71,7 +65,7 @@ const STRING = { type: "string" } as const
 const INTEGER = { type: "integer" } as const
 
 /** Each operation's body schema. */
-const SCHEMAS: Readonly<Record<Operation, Schema.Json>> = {
+const SCHEMAS: Readonly<Record<Operation, Json>> = {
 	"ref-siblings": { $ref: "#/components/schemas/Count", maximum: 5 },
 	closed: {
 		type: "object",
@@ -111,7 +105,7 @@ const spec = jsonText({
 	info: { title: "JSON body schemas", version: "1.0.0" },
 	components: { schemas: { Count: { type: "integer", minimum: 1 } } },
 	paths: Rec.fromEntries(
-		Arr.map(OPERATIONS, (operation): readonly [string, Schema.Json] => [
+		Arr.map(OPERATIONS, (operation): readonly [string, Json] => [
 			`/${operation}`,
 			{
 				post: {

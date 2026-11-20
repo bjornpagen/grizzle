@@ -3,9 +3,9 @@
  * Schema keyword it breaks, and never quoting the body's own value: `--body: the request body does not match its schema
  * at <RFC 6901 pointer>: <expectation>`.
  *
- * The schema is one object of every JSON type, a nested object whose one member's name holds both characters a pointer
- * escapes, and an array; both objects are closed, as the domain module writes `additionalProperties: false`, a plain
- * Struct the body is checked against with every excess property refused. A property draws a valid body, then plants
+ * The body's reader is one object of every JSON type, a nested object whose one member's name holds both characters a
+ * pointer escapes, and an array; both objects are closed, as the domain module writes `additionalProperties: false`, a
+ * struct read that refuses every member no property declares. A property draws a valid body, then plants
  * exactly one fault: a required member left out, a value of another JSON type, or a member no property declares, aimed
  * while a feature is pending at one that is. The oracle is the plant: the message names the planted
  * place's pointer, and `(required)`, the JSON type the schema expects there, or `(additionalProperties)`, and quotes no
@@ -55,22 +55,21 @@ export const bodyRefusal = property.explore(faults, {
 	budget: { runs: 40, steered: 40 },
 	kills: [
 		{
-			file: "packages/cli-generator/src/runtime-src/runtime/input.ts",
-			original: 'const closedObjects = { onExcessProperty: "error" } as const',
-			replacement: 'const closedObjects = { onExcessProperty: "ignore" } as const',
-			why: "A body is checked with excess properties ignored, so a member no property declares passes; the property fails."
+			file: "packages/cli-generator/src/runtime-src/runtime/read.ts",
+			original: '\t\t\t\t? [{ path: [name], refusal: { _tag: "AdditionalProperties" } }]',
+			replacement: "\t\t\t\t? []",
+			why: "A closed object's reader passes a member no property declares, so the body is sent with it; the property fails."
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/input.ts",
-			original:
-				'\t\t\tcase "MissingKey":\n\t\t\t\treturn "a required member is missing (required)"',
-			replacement: '\t\t\tcase "MissingKey":\n\t\t\t\treturn "a required member is missing"',
+			original: '\t\tcase "Required":\n\t\t\treturn "a required member is missing (required)"',
+			replacement: '\t\tcase "Required":\n\t\t\treturn "a required member is missing"',
 			why: "A missing member's message no longer names the keyword it breaks; the property fails."
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/input.ts",
-			original: "\t\t\t\tJsonPointer.escapeToken(",
-			replacement: "\t\t\t\t(",
+			original: "(step) => JsonPointer.escapeToken(String(step))",
+			replacement: "(step) => String(step)",
 			why: "The refusal's pointer leaves `/` and `~` in a member's name unescaped, so a name holding them points elsewhere; the property fails."
 		}
 	]

@@ -7,19 +7,17 @@ import {
 	Predicate,
 	Record as Rec,
 	Result,
-	Schema,
-	SchemaIssue,
-	SchemaParser,
 	String as Str,
 	Struct
 } from "effect"
-import type { Stream } from "effect"
+import type { Schema, Stream } from "effect"
 import { Headers, HttpBody, HttpClientRequest, UrlParams } from "effect/http"
 import { UsageError } from "#domain/errors.ts"
 import { JsonNull, JsonNumber, isJsonNumberText, jsonText as writeJson } from "#runtime/input.ts"
 import type { Chosen, SentType } from "#runtime/input.ts"
 import * as Multipart from "#runtime/multipart.ts"
 import type { MediaDeclaration } from "#runtime/negotiate.ts"
+import type { ReadIssue, Reader } from "#runtime/read.ts"
 import { encoder as utf8, loneSurrogate } from "#runtime/redact.ts"
 import { isJsonFamily, mediaEssence } from "#runtime/sequential.ts"
 
@@ -1519,12 +1517,13 @@ export interface FormPartFlags {
 /**
  * What `assertFormData` reads beside the part values: the parts' flags, each by-name nested part's
  * own part flags (design 6.3, HT:B16), whose entry in `flags` is its first nested flag, whether the
- * body is required, and its schema.
+ * body is required, and the reader of its schema, which the domain module writes and which refuses
+ * each member a closed object does not declare.
  */
 export interface FormSchemaOptions extends FormPartFlags {
 	readonly nested?: Readonly<Record<string, FormPartFlags>>
 	readonly required: boolean
-	readonly schema: Schema.Top
+	readonly schema: Reader<unknown>
 }
 
 /**
@@ -1568,8 +1567,6 @@ const assertedValue = (value: LeafValue): Schema.Json => {
 
 	return Predicate.isObject(value) ? Number(value.text) : value
 }
-
-const standardIssues = SchemaIssue.makeFormatterStandardSchemaV1()
 
 /**
  * A part's path: its name, and a nested part's nested name after it, as one key.
@@ -1619,33 +1616,19 @@ const assertedObject = (
 	return Rec.fromEntries(entries)
 }
 
-type PathSegment = PropertyKey | { readonly key: PropertyKey }
-
-/**
- * An issue path segment's name, if it is a string key.
- */
-const segmentName = (segment: PathSegment | undefined): string | undefined => {
-	const key = Predicate.isObject(segment) ? segment.key : segment
-
-	return Predicate.isString(key) ? key : undefined
-}
-
 /**
  * The path of the part an issue is under: its first segment, if that is a part name, and for a
  * by-name nested part the nested name after it.
  */
-const issuePath = (
-	issue: { readonly path?: readonly PathSegment[] | undefined },
-	nested: ReadonlySet<string>
-): string | undefined => {
-	const [head, inner] = issue.path ?? []
-	const name = segmentName(head)
-	const member = segmentName(inner)
-	if (name === undefined) {
+const issuePath = (issue: ReadIssue, nested: ReadonlySet<string>): string | undefined => {
+	const [name, member] = issue.path
+	if (!Predicate.isString(name)) {
 		return undefined
 	}
 
-	return nested.has(name) && member !== undefined ? partPath([name, member]) : partPath([name])
+	return nested.has(name) && Predicate.isString(member)
+		? partPath([name, member])
+		: partPath([name])
 }
 
 /**
@@ -1683,10 +1666,7 @@ export const assertFormData =
 				return fields
 			}
 
-			const checked = SchemaParser.decodeResult(Schema.toType(options.schema))(value, {
-				errors: "all",
-				onExcessProperty: "error"
-			})
+			const checked = options.schema(value)
 			if (Result.isSuccess(checked)) {
 				return fields
 			}
@@ -1694,7 +1674,7 @@ export const assertFormData =
 			const nested = new Set(Rec.keys(options.nested ?? {}))
 			const failing = new Set(
 				Arr.filter(
-					Arr.map(standardIssues(checked.failure).issues, (issue) => issuePath(issue, nested)),
+					Arr.map(checked.failure, (issue) => issuePath(issue, nested)),
 					(slot) => slot === undefined || !seen.files.has(slot)
 				)
 			)

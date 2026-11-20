@@ -1,14 +1,14 @@
 /**
  * The domain module as a property. A generated set of JSON Schema definitions, some reachable from the request roots
  * and some not, prints to `domain/schemas.ts`, which TypeScript parses with no syntax diagnostic and oxfmt, under the
- * options docs/printer.md names, leaves unchanged. It exports exactly the reachable definitions, each under the name
- * the identifier map gives it and each after every definition it reads outside a `Schema.suspend`, an alias of a
- * recursive definition among them in either name order; the same set in another order prints the same bytes; no
- * `default`, `example` or `examples` value reaches it; and no reachable definition prints the empty module. A set is
- * drawn as the validation copy can be: no cycle of references returns to a schema without descending into the
- * instance. A planted fault is refused with its reason: a reachable definition that is no schema object, one the
- * importer rejects, a reachable key the identifier map leaves out, two reachable keys given one name, and a name Effect
- * would export differently.
+ * options docs/printer.md names, leaves unchanged. It exports exactly the reachable definitions, each a reader and its
+ * type under the name the identifier map gives it, and no reader reads another while the module loads, outside an arrow
+ * function (`Read.lazy`, a struct's member reads), an alias of a recursive definition among them in either name order;
+ * the same set in another order prints the same bytes; no `default`, `example` or `examples` value reaches it; and no
+ * reachable definition prints the empty module. A set is drawn as the validation copy can be: no cycle of references
+ * returns to a schema without descending into the instance. A planted fault is refused with its reason: a reachable
+ * definition that is no schema, a reference to no definition, a reachable key the identifier map leaves out, two
+ * reachable keys given one name, and a name that is no identifier.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -44,12 +44,12 @@ export const domainModule = property.explore(caseGen, {
 		"a recursive definition",
 		"an alias named before its recursive target",
 		"an alias named after its recursive target",
-		"mutually recursive definitions",
+		"a reference that closes a cycle",
 		"an unreachable definition",
 		"an annotation left out",
 		"a long name",
 		"a folded name",
-		"a name Effect also exports",
+		"a reserved name",
 		"a closed object",
 		"a nullable member"
 	] satisfies ReadonlyArray<Reached<Feature>>,
@@ -64,7 +64,11 @@ export const domainModule = property.explore(caseGen, {
 			const syntax = yield* syntaxDiagnosticsOf("schemas.ts", file.content)
 			const exported = yield* parsedExports(file.content)
 			const reachable = reachableFrom(drawnCase.definitions, drawnCase.roots)
-			k.noteAll(featuresOf(drawnCase, identifiers, reachable, file.content, exported.types))
+			k.noteAll(featuresOf(drawnCase, identifiers, reachable, file.content))
+			const names = Arr.sort(
+				Arr.getSomes(Arr.map(reachable, (key) => Option.fromUndefinedOr(identifiers.get(key)))),
+				Order.String
+			)
 			assert.deepEqual(
 				{
 					path: file.path,
@@ -75,6 +79,7 @@ export const domainModule = property.explore(caseGen, {
 						Arr.map(exported.constants, (constant) => constant.name),
 						Order.String
 					),
+					types: Arr.sort(exported.types, Order.String),
 					outOfOrder: outOfOrder(exported.constants),
 					annotations: Str.includes(SENTINEL)(file.content)
 				},
@@ -83,10 +88,8 @@ export const domainModule = property.explore(caseGen, {
 					reordered: file.content,
 					formatted: file.content,
 					syntax: 0,
-					exported: Arr.sort(
-						Arr.getSomes(Arr.map(reachable, (key) => Option.fromUndefinedOr(identifiers.get(key)))),
-						Order.String
-					),
+					exported: names,
+					types: names,
 					outOfOrder: [],
 					annotations: false
 				}
@@ -94,7 +97,7 @@ export const domainModule = property.explore(caseGen, {
 		}),
 	oracle: {
 		kind: "specification",
-		name: "TypeScript's parser and oxfmt as judges, and exactly the reachable definitions under the identifier map's names, each after what it reads"
+		name: "TypeScript's parser and oxfmt as judges, and exactly the reachable definitions under the identifier map's names, none read while the module loads"
 	},
 	kept: [
 		{
@@ -110,21 +113,22 @@ export const domainModule = property.explore(caseGen, {
 	kills: [
 		{
 			file: "packages/cli-generator/src/emit/domain.ts",
-			original: 'if (type._tag === "Union" && !hugsUnion(type.members)) {',
-			replacement: 'if (type._tag === "Union") {',
-			why: "A type alias of a union hugging null opens it on the `=` line, so a long `ReadonlyArray<X> | null` stays there where the formatter moves it under the `=`; the property fails (its kept case)."
-		},
-		{
-			file: "packages/cli-generator/src/emit/domain.ts",
-			original: '[name, group(["<", indent([softline, join([",", line], args)]), softline, ">"])]',
-			replacement: '[group(["<", indent([softline, join([",", line], args)]), softline, ">"])]',
-			why: "A reference whose type arguments do not hug prints them without its name; the property fails (CATCH's evidence, mutant b7a7d92d86)."
+			original:
+				'return place === "read" ? ident(name) : readCall("lazy", [arrow([], ident(name))])',
+			replacement: "return ident(name)",
+			why: "A reference at a definition's top names its definition where it must read it lazily, so a reader reads one declared after it while the module loads; the property fails."
 		},
 		{
 			file: "packages/cli-generator/src/names/domain.ts",
 			original: "identifiers.set(key, identifier)",
 			replacement: "{}",
 			why: "The domain module's identifier map keeps no name, so every definition is refused as unnamed; the property fails (EOCG-EMIT's handoff from help-non-standard.test.ts, mutant b463d38258)."
+		},
+		{
+			file: "packages/generator/src/normalize/schemas.ts",
+			original: '\treturn defs === "$defs" && rest.length === 0 ? key : undefined',
+			replacement: '\treturn defs === "$defs" && rest.length === (-1) ? key : undefined',
+			why: "referenceKey reads no `#/$defs/<token>` reference as naming a definition, so the copy holds no definition a root references and every reference is refused as resolving nowhere; the property fails (CATCH's evidence, mutant 05368cc231)."
 		}
 	]
 })
@@ -136,11 +140,11 @@ export const domainModule = property.explore(caseGen, {
 export const domainRefusal = property.explore(plantedGen, {
 	needs: {},
 	situations: [
-		"a definition that is no schema object",
-		"a schema the importer rejects",
+		"a definition that is no schema",
+		"a reference to no definition",
 		"a key the identifier map leaves out",
 		"two keys given one name",
-		"a name Effect exports differently"
+		"a name that is no identifier"
 	] satisfies ReadonlyArray<Reached<Fault>>,
 	check: (_, k: Case<Fault>) => (planted) =>
 		Effect.map(
@@ -161,10 +165,11 @@ export const domainRefusal = property.explore(plantedGen, {
 	budget: { runs: 100, steered: 200 },
 	kills: [
 		{
-			file: "packages/cli-generator/src/normalize/schemas.ts",
-			original: '\treturn defs === "$defs" && rest.length === 0 ? key : undefined',
-			replacement: '\treturn defs === "$defs" && rest.length === (-1) ? key : undefined',
-			why: "referenceKey reads no `#/$defs/<token>` reference as naming a definition, so a definition set's references are refused or resolved wrongly; the property fails (CATCH's evidence, mutant 05368cc231)."
+			file: "packages/cli-generator/src/emit/domain.ts",
+			original:
+				"Arr.dedupe(Arr.map(definitions, ({ name }) => name)).length === definitions.length",
+			replacement: "true",
+			why: "Two definitions given one name are both exported, so a cli module imports one name for two readers; the property fails."
 		}
 	]
 })
