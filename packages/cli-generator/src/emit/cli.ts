@@ -2080,7 +2080,7 @@ const commandStatement = (
 		const built = call(builder, inputs.length === 0 ? [] : [obj(inputs)])
 		const send = fn(
 			"Effect.flatMap",
-			call(path("Output.send"), choices.accepts ? [meta, path("flags.accept")] : [meta])
+			fn("Output.send", meta, choices.accepts ? path("flags.accept") : fn("Option.none"))
 		)
 		const stopPoint = choices.follows
 			? [fn("Effect.provideService", path("Sse.StopPoint"), path("flags.follow"))]
