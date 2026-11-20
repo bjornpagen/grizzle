@@ -207,6 +207,12 @@ export const declaredFunctions = property.explore(caseGen, {
 	kept: [],
 	kills: [
 		{
+			file: "packages/grizzle/src/adapter/admission/drift.ts",
+			original: "\ttype: true,\n",
+			replacement: "\ttype: false,\n",
+			why: "A declared function's row type is an object the drift check describes no fact of, so it neither owns nor replays its composite, its relation and its columns, and every installation of one drifts by them."
+		},
+		{
 			file: "packages/engine/src/physical/ddl/functions.ts",
 			original: '\t\t\t\t\t{ kind: "handOverFunction", name: signature, owner: ownerRole }\n',
 			replacement: "",

@@ -1672,32 +1672,37 @@ const proofEnvironment = (server: ServerEnvironment, installation: InstallationN
 	)
 
 /**
- * The kinds of manifest identity a fact names (descriptionSelect): the objects of an installation PostgreSQL
- * describes, which the drift check proves. An object of any other kind (a role, a membership, a grant, the
- * publication, a database default, an extension, a validation) has no description: the reads beside the descriptions
- * judge it.
+ * Whether PostgreSQL describes an object of each kind of manifest identity, every kind decided here, so a new kind is a
+ * type error until it is: the objects a fact names (descriptionSelect), which the drift check owns its facts by, proves
+ * and replays, a declared function's row type (`type:`, a composite, its relation and its columns) among them; and the
+ * kinds with no description (a role, a membership, a grant, the publication, an extension, and a validation's
+ * identity, `other`), which the reads beside the descriptions judge.
  */
-const describedKinds = [
-	"schema",
-	"domain",
-	"table",
-	"materializedView",
-	"view",
-	"index",
-	"statistics",
-	"function",
-	"rowSecurity",
-	"replicaIdentity",
-	"column",
-	"constraint",
-	"trigger",
-	"policy"
-] as const satisfies ReadonlyArray<GraphIdent["kind"]>
-
-const isDescribed = (ident: string): boolean => {
-	const kind = parseIdent(ident).kind
-	return Arr.some(describedKinds, (k) => k === kind)
+const describedKind: { readonly [K in GraphIdent["kind"]]: boolean } = {
+	schema: true,
+	extension: false,
+	role: false,
+	membership: false,
+	privileges: false,
+	publication: false,
+	domain: true,
+	type: true,
+	table: true,
+	materializedView: true,
+	view: true,
+	index: true,
+	statistics: true,
+	function: true,
+	rowSecurity: true,
+	replicaIdentity: true,
+	column: true,
+	constraint: true,
+	trigger: true,
+	policy: true,
+	other: false
 }
+
+const isDescribed = (ident: string): boolean => describedKind[parseIdent(ident).kind]
 
 /**
  * The object of the installation a fact is a fact of, among the objects it describes (`described`): the object it
