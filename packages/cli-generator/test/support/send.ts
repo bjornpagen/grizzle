@@ -27,7 +27,7 @@ import * as Output from "#runtime-src/runtime/output.ts"
 import { RunCredentials, type ScrubEntry } from "#runtime-src/runtime/redact.ts"
 
 /** The environment prefix every harness run's CLI reads its settings under. */
-const PREFIX = "EXAMPLE"
+export const PREFIX = "EXAMPLE"
 
 /** What one request the CLI sent looked like on the wire: its method, URL, headers in order, and body. */
 export type Wire = Readonly<{
