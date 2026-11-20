@@ -33,7 +33,7 @@ import {
 	ended,
 	endNotes,
 	expectedKind,
-	type Feature,
+	type LeadingFeature,
 	read
 } from "#test/unit/live/leading.fixtures.ts"
 
@@ -52,8 +52,8 @@ export const theLiveLeadershipEndsEveryWaitingReadWithATypedErrorAtAnyEndOfItsCa
 			"a candidacy dying of a defect",
 			"a candidacy interrupted",
 			"a candidacy started after one died"
-		] satisfies ReadonlyArray<Reached<Feature>>,
-		check: (_, c: Case<Feature>) => (ends) =>
+		] satisfies ReadonlyArray<Reached<LeadingFeature>>,
+		check: (_, c: Case<LeadingFeature>) => (ends) =>
 			Effect.scoped(
 				Effect.gen(function* () {
 					const scope = yield* Effect.scope

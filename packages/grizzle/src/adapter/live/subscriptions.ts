@@ -1,9 +1,20 @@
-import { Clock, Deferred, Duration, Effect, Option, Result, type Scope, Stream } from "effect"
+import {
+	Clock,
+	type Context,
+	Deferred,
+	Duration,
+	Effect,
+	Option,
+	Result,
+	type Scope,
+	Stream
+} from "effect"
 import type { Expiry } from "#adapter/db/claims.ts"
 import type { ServerError } from "#adapter/errors/failures.ts"
 import { sourceCallError, watchEnded } from "#adapter/live/call-error.ts"
 import { addRoutes, removeRoutes, route, type RouteIndex } from "#adapter/live/router.ts"
 import type { ChangeSink, ChangeSource, SourceLoss, SourceRefusal } from "#adapter/live/source.ts"
+import { ownServices } from "#adapter/services.ts"
 import type { AnswerFailure, FailureOf, Keyed, ReadShape, ReadState } from "#compiler/live/index.ts"
 import { defect, type RouteKey } from "#compiler/plan/runtime.ts"
 
@@ -261,11 +272,16 @@ const expiring = <A>(expiry: Expiry, effect: Effect.Effect<A>, expiredAs: A): Ef
 	}
 }
 
-/** The registry of a layer whose change source is `source`, built in the layer's scope. */
+/**
+ * The registry of a layer whose change source is `source`, built in the layer's scope, under the layer's own services
+ * (services.ts ownServices), which each generation's source runs under.
+ */
 export const makeSubscriptions = (
 	source: ChangeSource
 ): Effect.Effect<Subscriptions, never, Scope.Scope> =>
-	Effect.map(Effect.scope, (layer) => {
+	Effect.gen(function* () {
+		const layer = yield* Effect.scope
+		const services = yield* ownServices()
 		const registry: { current: Generation | undefined } = { current: undefined }
 
 		const sinkOf = (generation: Generation): ChangeSink => ({
@@ -280,7 +296,9 @@ export const makeSubscriptions = (
 		/**
 		 * The generation's source opened in a scope of its own, which closes once the generation is lost, its source's
 		 * refusal or a loss while it opens losing it; the scope of the fiber that runs it is the layer's, whose end
-		 * interrupts it and loses it.
+		 * interrupts it and loses it. It runs under the layer's own services, in place of the context of the read whose
+		 * registering started it, so the source every later read shares is traced under no read's span and holds none of
+		 * its services.
 		 */
 		const run = (generation: Generation): Effect.Effect<void> =>
 			Effect.ensuring(
@@ -324,7 +342,16 @@ export const makeSubscriptions = (
 				ended: Deferred.makeUnsafe()
 			}
 			registry.current = generation
-			return Effect.as(Effect.forkIn(run(generation), layer), generation)
+			return Effect.as(
+				Effect.forkIn(
+					Effect.updateContext(
+						run(generation),
+						(_: Context.Context<never>): Context.Context<never> => services
+					),
+					layer
+				),
+				generation
+			)
 		})
 
 		const register = <S extends ReadShape, Row extends object, E>(

@@ -118,6 +118,7 @@
 					"packages/grizzle/src/adapter/served/explain.ts",
 					"packages/grizzle/src/adapter/served/load.ts",
 					"packages/grizzle/src/adapter/served/served.ts",
+					"packages/grizzle/src/adapter/services.ts",
 					"packages/grizzle/src/adapter/wire/batch.ts",
 					"packages/grizzle/src/adapter/wire/failure.ts",
 					"packages/grizzle/src/adapter/wire/releasing-pool.ts",

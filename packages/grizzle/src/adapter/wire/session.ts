@@ -45,6 +45,7 @@ import {
 	TlsRefused,
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
+import { ownServices } from "#adapter/services.ts"
 import type {
 	PgClient,
 	PgClientConfig,
@@ -394,7 +395,9 @@ const attemptFailed = (
 		: Effect.fail(connectRefusalOf(spec, handshakes, error))
 
 /**
- * The services a client's password Effect runs under: `current`, else its pool's or its caller's (`own`).
+ * The services a client's password Effect runs under: `current`, else its pool's or its caller's (`own`). A pool's are
+ * its layer's own (services.ts ownServices), the span its layer was built in left behind; a lone session's are its
+ * caller's, for whom it connects.
  *
  * A pool's: a client is constructed synchronously inside the call that needs it (pg's Pool constructs and connects one
  * inside `connect` when it has room), so the lease holds `current` around that call and gives it back to `own`. A
@@ -1363,7 +1366,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 			startup: { kind: "login", options: config.session.startup },
 			controls: config.session
 		}
-		const own = yield* Effect.context()
+		const own = yield* ownServices()
 		const attemptServices: AttemptServices = { current: own, own }
 		/**
 		 * The session of each client pg's Pool connected, made when its client is ready, before anyone holds the

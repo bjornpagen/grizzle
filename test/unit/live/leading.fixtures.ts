@@ -56,13 +56,13 @@ export const expectedKind = {
 	interruption: "failed"
 } as const
 
-export type Feature =
+export type LeadingFeature =
 	| "a candidacy failing"
 	| "a candidacy dying of a defect"
 	| "a candidacy interrupted"
 	| "a candidacy started after one died"
 
-export const endNotes: { readonly [E in End]: Feature } = {
+export const endNotes: { readonly [E in End]: LeadingFeature } = {
 	failure: "a candidacy failing",
 	defect: "a candidacy dying of a defect",
 	interruption: "a candidacy interrupted"

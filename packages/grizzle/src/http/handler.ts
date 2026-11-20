@@ -19,6 +19,7 @@ import { settingFaultText, type SettingFault } from "#adapter/errors/failures.ts
 import { doorRefusal, openCallError } from "#adapter/live/call-error.ts"
 import { type HeldRole, heldRole, type ReadLogin, readServedLogin } from "#adapter/pool/served.ts"
 import type { LoadedMember, LoadedRole } from "#adapter/served/load.ts"
+import { ownServices } from "#adapter/services.ts"
 import type { DbLayerOf, ServedLogin } from "#adapter/types/layer.ts"
 import type { CallErrorOf, FailureOf } from "#compiler/live/index.ts"
 import type { AnyLogin } from "#compiler/plan/common.ts"
@@ -411,14 +412,15 @@ const answerEvents = (
 /**
  * The answers httpHandler serves, each request's with its progress (HttpAnswer): its config read and its route table
  * built as httpHandler's are, once, and each answer's body its events framed (sse.ts sseStream), their frames counted as
- * they join it.
+ * they join it. Each request comes from outside any fiber and runs under the handler's own services
+ * (services.ts ownServices), its layers among them, never under the span the handler was built in.
  */
 export const httpAnswers = <const Ls extends readonly [AnyLogin, ...Array<AnyLogin>]>(
 	config: HttpConfig<Ls>
 ): Effect.Effect<(request: Request) => HttpAnswer, HttpConfigRefused, DbLayerOf<Ls[number]>> =>
 	Effect.gen(function* () {
 		const read = yield* Effect.fromResult(Result.mapError(readConfig(config), refusedSetting))
-		const context = yield* Effect.context<DbLayerOf<Ls[number]>>()
+		const context = yield* ownServices<DbLayerOf<Ls[number]>>()
 		const logins = yield* Effect.fromResult(
 			Result.all(
 				Arr.map(read.logins, (login) =>
@@ -452,8 +454,9 @@ export const httpAnswers = <const Ls extends readonly [AnyLogin, ...Array<AnyLog
 /**
  * httpHandler(config): a fetch-style handler serving every member of every role of the config's served logins, one
  * route each, `POST /<login>/<role>/<program>` (routes.ts), built in an Effect that requires each login's DbLayer and
- * captures the context it runs in once, so the handler lives as long as the caller's runtime or layer scope, and
- * grizzle builds no runtime of its own.
+ * captures the context it runs in once, the span it runs in left behind (services.ts ownServices), so the handler lives
+ * as long as the caller's runtime or layer scope, grizzle builds no runtime of its own, and no request is traced under
+ * the handler's build.
  *
  * Every request is answered 200 with a text/event-stream body (sse.ts) carrying its call's events: its member's watch
  * (db/handles.ts memberCalls), reset, upserts, ready and the live changes for a read, reset, upserts, ready then end
