@@ -18,7 +18,6 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { syntaxOf } from "@bjornpagen/testing/syntax"
 import { Array as Arr, Effect, Option, Result } from "effect"
 import { printJson, printModule, printPackageJson } from "#emit/printer.ts"
-import { JsonLiteral } from "#model/brands.ts"
 import {
 	canonicalModule,
 	type FaultFeature,
@@ -258,7 +257,7 @@ export const printedJson = property.explore(jsonGen(3), {
 	] satisfies ReadonlyArray<Reached<JsonFeature>>,
 	check: (_resources, k: Case<JsonFeature>) => (value) =>
 		Effect.gen(function* () {
-			const text = printJson(JsonLiteral.make(value))
+			const text = printJson(value)
 			const formatter = yield* formatted("printed.json", text)
 			const tree = yield* syntaxOf("/printed-json.ts", `(${text})`, (file) => ({
 				read: readJsonFile(file),
@@ -322,7 +321,7 @@ export const printedManifest = property.explore(manifestCaseGen, {
 	] satisfies ReadonlyArray<Reached<ManifestFeature>>,
 	check: (_resources, k: Case<ManifestFeature>) => (drawnCase) =>
 		drawnCase.kind === "refused"
-			? Effect.map(Effect.exit(printPackageJson(JsonLiteral.make(drawnCase.manifest))), (exit) => {
+			? Effect.map(Effect.exit(printPackageJson(drawnCase.manifest)), (exit) => {
 					k.note(drawnCase.feature)
 					assert.deepEqual(
 						refusalOf(exit, true),
@@ -334,7 +333,7 @@ export const printedManifest = property.explore(manifestCaseGen, {
 				})
 			: Effect.gen(function* () {
 					const { manifest } = drawnCase
-					const text = yield* printPackageJson(JsonLiteral.make(manifest))
+					const text = yield* printPackageJson(manifest)
 					const formatter = yield* formatted("package.json", text)
 					const tree = yield* syntaxOf("/package-json.ts", `(${text})`, (file) => ({
 						read: readJsonFile(file),
@@ -370,9 +369,9 @@ export const printedManifest = property.explore(manifestCaseGen, {
 		{
 			file: "packages/cli-generator/src/emit/printer.ts",
 			original:
-				"Arr.findFirst(Record.keys<string, Schema.Json>(manifest), (key) => !knownPackageKeys.has(key)),",
+				"Arr.findFirst(Record.keys<string, Json>(manifest), (key) => !knownPackageKeys.has(key)),",
 			replacement:
-				"Arr.findFirst(Record.keys<string, Schema.Json>(manifest), (key) => false && !knownPackageKeys.has(key)),",
+				"Arr.findFirst(Record.keys<string, Json>(manifest), (key) => false && !knownPackageKeys.has(key)),",
 			why: "A top-level key outside the documented order is no longer refused: it is dropped from the printed manifest; the property fails."
 		}
 	]

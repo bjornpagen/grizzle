@@ -34,7 +34,6 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import type { Schema } from "effect"
 import { format } from "oxfmt"
 import type { FormatConfig } from "oxfmt"
 import {
@@ -127,6 +126,7 @@ import type {
 	Statement,
 	TypeExpr
 } from "#emit/printer.ts"
+import type { Json } from "#model/pointer.ts"
 
 type Keyword = Extract<TypeExpr, { readonly _tag: "TypeKeyword" }>["keyword"]
 
@@ -2024,17 +2024,15 @@ const readJson = (node: Expression): Read<Tree> => {
 	})
 }
 
-const isJsonArray = (value: Schema.Json): value is Schema.JsonArray => Arr.isArray(value)
+const isJsonArray = (value: Json): value is readonly Json[] => Arr.isArray(value)
 
-const isJsonScalar = (value: Schema.Json): value is null | boolean | number | string =>
+const isJsonScalar = (value: Json): value is null | boolean | number | string =>
 	value === null || typeof value !== "object"
 
 /** A JSON value as a tree, each object's members in the order `order` gives them. */
 export const treeOf = (
-	value: Schema.Json,
-	order: (
-		members: ReadonlyArray<readonly [string, Schema.Json]>
-	) => ReadonlyArray<readonly [string, Schema.Json]>
+	value: Json,
+	order: (members: ReadonlyArray<readonly [string, Json]>) => ReadonlyArray<readonly [string, Json]>
 ): Tree => {
 	if (isJsonScalar(value)) {
 		return { kind: "scalar", value }
@@ -2051,9 +2049,9 @@ export const treeOf = (
 	}
 }
 
-const byJsonKey = Order.mapInput(Order.String, (entry: readonly [string, Schema.Json]) => entry[0])
+const byJsonKey = Order.mapInput(Order.String, (entry: readonly [string, Json]) => entry[0])
 
-export const sortedMembers = (members: ReadonlyArray<readonly [string, Schema.Json]>) =>
+export const sortedMembers = (members: ReadonlyArray<readonly [string, Json]>) =>
 	Arr.sort(members, byJsonKey)
 
 /** Every array and object of a parsed JSON text: whether it is empty, and whether it spans lines. */
@@ -2090,14 +2088,14 @@ const JSON_KEYS: Arr.NonEmptyReadonlyArray<string> = [
 	'"q"'
 ]
 
-const jsonScalar: Gen<Schema.Json> = weighted<Schema.Json>([
+const jsonScalar: Gen<Json> = weighted<Json>([
 	[1, () => null],
 	[1, boolean],
 	[3, numberValue],
 	[3, stringValue]
 ])
 
-export const jsonGen = (depth: number): Gen<Schema.Json> =>
+export const jsonGen = (depth: number): Gen<Json> =>
 	depth === 0
 		? jsonScalar
 		: weighted([
@@ -2149,7 +2147,7 @@ const PACKAGE_KEYS: Arr.NonEmptyReadonlyArray<string> = [
 /** The maps the formatter sorts by key inside a manifest. */
 const SORTED_KEYS: ReadonlyArray<string> = ["bin", "dependencies", "devDependencies", "engines"]
 
-const stringMap = (keys: Arr.NonEmptyReadonlyArray<string>, value: Gen<string>): Gen<Schema.Json> =>
+const stringMap = (keys: Arr.NonEmptyReadonlyArray<string>, value: Gen<string>): Gen<Json> =>
 	map(
 		uniqueArray(element(keys), (key) => map(value, (text) => [key, text] as const), {
 			min: 0,
@@ -2158,19 +2156,19 @@ const stringMap = (keys: Arr.NonEmptyReadonlyArray<string>, value: Gen<string>):
 		Record.fromEntries
 	)
 
-const packageValue = (key: string): Gen<Schema.Json> =>
+const packageValue = (key: string): Gen<Json> =>
 	Match.value(key).pipe(
-		Match.when("private", (): Gen<Schema.Json> => boolean),
-		Match.when("description", (): Gen<Schema.Json> => stringValue),
+		Match.when("private", (): Gen<Json> => boolean),
+		Match.when("description", (): Gen<Json> => stringValue),
 		Match.when("bin", () =>
 			stringMap(["users", "users-cli", "u"], element(["dist/src/bin.js", "bin.js"]))
 		),
-		Match.when("files", (): Gen<Schema.Json> =>
+		Match.when("files", (): Gen<Json> =>
 			shuffled(["dist", "README.md", "src"], { min: 0, max: 3 })
 		),
 		Match.when("imports", () =>
 			map(
-				subarray<readonly [string, Schema.Json]>([
+				subarray<readonly [string, Json]>([
 					["#*.ts", { types: "./src/*.ts", default: "./dist/src/*.js" }],
 					["#runtime/*", "./src/runtime/*"]
 				]),
@@ -2193,13 +2191,11 @@ const packageValue = (key: string): Gen<Schema.Json> =>
 			stringMap(["typescript", "@types/node", "vitest"], element(["7.1.0-beta", "26.0.0"]))
 		),
 		Match.when("engines", () => stringMap(["node", "pnpm"], element([">=26", ">=12"]))),
-		Match.orElse((): Gen<Schema.Json> =>
-			element(["users-cli", "1.0.0", "MIT", "module", "pnpm@12.16.1"])
-		)
+		Match.orElse((): Gen<Json> => element(["users-cli", "1.0.0", "MIT", "module", "pnpm@12.16.1"]))
 	)
 
 /** A manifest of documented keys in a drawn order, each with a value of its kind. */
-const manifestGen: Gen<Schema.JsonObject> = (s) =>
+const manifestGen: Gen<Record.ReadonlyRecord<string, Json>> = (s) =>
 	Record.fromEntries(
 		Arr.map(
 			s.draw(shuffled(PACKAGE_KEYS, { min: 0, max: PACKAGE_KEYS.length })),
@@ -2208,12 +2204,12 @@ const manifestGen: Gen<Schema.JsonObject> = (s) =>
 	)
 
 /** A manifest's members in the documented order, its dependency maps sorted, every other map as drawn. */
-export const manifestTree = (manifest: Schema.JsonObject): Tree => ({
+export const manifestTree = (manifest: Record.ReadonlyRecord<string, Json>): Tree => ({
 	kind: "object",
 	members: Arr.getSomes(
 		Arr.map(PACKAGE_KEYS, (key) =>
 			Option.map(
-				Record.get<string, Schema.Json>(manifest, key),
+				Record.get<string, Json>(manifest, key),
 				(value) =>
 					[
 						key,
@@ -2234,8 +2230,8 @@ export type ManifestFeature =
 
 /** A manifest as drawn, or one with a planted fault: a key outside the order, or a root that is no object. */
 type ManifestCase =
-	| Readonly<{ kind: "printed"; manifest: Schema.JsonObject }>
-	| Readonly<{ kind: "refused"; manifest: Schema.Json; subject: string; feature: ManifestFeature }>
+	| Readonly<{ kind: "printed"; manifest: Record.ReadonlyRecord<string, Json> }>
+	| Readonly<{ kind: "refused"; manifest: Json; subject: string; feature: ManifestFeature }>
 
 const UNKNOWN_KEYS: Arr.NonEmptyReadonlyArray<string> = [
 	"author",
@@ -2250,7 +2246,7 @@ export const manifestCaseGen: Gen<ManifestCase> = weighted<ManifestCase>([
 	[
 		2,
 		(s) => {
-			const entries = Record.toEntries<string, Schema.Json>(s.draw(manifestGen))
+			const entries = Record.toEntries<string, Json>(s.draw(manifestGen))
 			const key = s.draw(element(UNKNOWN_KEYS))
 			const at = s.draw(int(0, entries.length))
 			return {
@@ -2270,7 +2266,7 @@ export const manifestCaseGen: Gen<ManifestCase> = weighted<ManifestCase>([
 		(s) => ({
 			kind: "refused",
 			manifest: s.draw(
-				oneOf<Schema.Json>([jsonScalar, (t) => t.draw(array(jsonScalar, { min: 0, max: 3 }))])
+				oneOf<Json>([jsonScalar, (t) => t.draw(array(jsonScalar, { min: 0, max: 3 }))])
 			),
 			subject: "root",
 			feature: "a root that is no object"
@@ -2303,27 +2299,24 @@ export type JsonFeature =
 const filledLine = regex("^ *-?[0-9][0-9.e+-]*(?:, -?[0-9][0-9.e+-]*)+,?$", "u")
 
 /** Every value inside a JSON value, itself first. */
-const jsonValues = (value: Schema.Json): ReadonlyArray<Schema.Json> =>
+const jsonValues = (value: Json): ReadonlyArray<Json> =>
 	isJsonScalar(value)
 		? [value]
 		: [
 				value,
-				...Arr.flatMap(
-					isJsonArray(value) ? value : Record.values<string, Schema.Json>(value),
-					jsonValues
-				)
+				...Arr.flatMap(isJsonArray(value) ? value : Record.values<string, Json>(value), jsonValues)
 			]
 
-const jsonKeys = (value: Schema.Json): ReadonlyArray<string> =>
+const jsonKeys = (value: Json): ReadonlyArray<string> =>
 	Arr.flatMap(jsonValues(value), (inner) =>
-		isJsonScalar(inner) || isJsonArray(inner) ? [] : Record.keys<string, Schema.Json>(inner)
+		isJsonScalar(inner) || isJsonArray(inner) ? [] : Record.keys<string, Json>(inner)
 	)
 
-const isJsonObject = (value: Schema.Json): value is Schema.JsonObject =>
+const isJsonObject = (value: Json): value is Record.ReadonlyRecord<string, Json> =>
 	!isJsonScalar(value) && !isJsonArray(value)
 
 export const jsonFeatures = (
-	value: Schema.Json,
+	value: Json,
 	text: string,
 	shapes: ReadonlyArray<Shape>
 ): ReadonlyArray<JsonFeature> => {
@@ -2362,8 +2355,7 @@ export const jsonFeatures = (
 		...whenJson(
 			Arr.some(
 				values,
-				(inner) =>
-					isJsonObject(inner) && Arr.some(Record.values<string, Schema.Json>(inner), isJsonObject)
+				(inner) => isJsonObject(inner) && Arr.some(Record.values<string, Json>(inner), isJsonObject)
 			),
 			"a nested object"
 		),
@@ -2388,12 +2380,14 @@ const whenManifest = (holds: boolean, feature: ManifestFeature): ReadonlyArray<M
 const unsorted = (keys: ReadonlyArray<string>): boolean =>
 	Arr.some(Arr.zip(keys, Arr.drop(keys, 1)), ([before, after]) => Order.String(before, after) > 0)
 
-export const manifestFeatures = (manifest: Schema.JsonObject): ReadonlyArray<ManifestFeature> => {
-	const keys = Record.keys<string, Schema.Json>(manifest)
+export const manifestFeatures = (
+	manifest: Record.ReadonlyRecord<string, Json>
+): ReadonlyArray<ManifestFeature> => {
+	const keys = Record.keys<string, Json>(manifest)
 	const maps = Arr.getSomes(
-		Arr.map(Record.toEntries<string, Schema.Json>(manifest), ([key, value]) =>
+		Arr.map(Record.toEntries<string, Json>(manifest), ([key, value]) =>
 			isJsonObject(value)
-				? Option.some([key, Record.keys<string, Schema.Json>(value)] as const)
+				? Option.some([key, Record.keys<string, Json>(value)] as const)
 				: Option.none()
 		)
 	)

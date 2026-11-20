@@ -13,7 +13,6 @@ import {
 	Record,
 	String as Str
 } from "effect"
-import type { Schema } from "effect"
 import {
 	guardTemplateCurly,
 	jsDoc,
@@ -24,7 +23,7 @@ import {
 	numberText
 } from "#emit/escape.ts"
 import type { JsDocText } from "#emit/escape.ts"
-import type { JsonLiteral } from "#model/brands.ts"
+import type { Json } from "#model/pointer.ts"
 
 const reservedWords: ReadonlySet<string> = new Set([
 	"arguments",
@@ -1407,25 +1406,23 @@ export const printModule = (module: Module): Effect.Effect<string, PrinterError>
 		return blocks.length === 0 ? "" : `${Arr.join(blocks, "\n\n")}\n`
 	})
 
-type JsonValue = (typeof JsonLiteral)["Type"]
+const isJsonArray = (value: Json): value is readonly Json[] => Arr.isArray(value)
 
-const isJsonArray = (value: Schema.Json): value is Schema.JsonArray => Arr.isArray(value)
-
-const isJsonScalar = (value: Schema.Json): value is boolean | number | string | null =>
+const isJsonScalar = (value: Json): value is boolean | number | string | null =>
 	value === null ||
 	Predicate.isBoolean(value) ||
 	Predicate.isNumber(value) ||
 	Predicate.isString(value)
 
-const isNonEmptyJsonObject = (value: Schema.Json): boolean =>
+const isNonEmptyJsonObject = (value: Json): boolean =>
 	!isJsonScalar(value) && !isJsonArray(value) && !Record.isEmptyReadonlyRecord(value)
 
-const isLongJsonArray = (value: Schema.Json): boolean => isJsonArray(value) && value.length > 1
+const isLongJsonArray = (value: Json): boolean => isJsonArray(value) && value.length > 1
 
 /**
  * An array holding a non-empty object, or two or more arrays that each hold more than one element.
  */
-const jsonAlwaysBroken = (values: readonly Schema.Json[]): boolean =>
+const jsonAlwaysBroken = (values: readonly Json[]): boolean =>
 	Arr.some(values, (value) => isNonEmptyJsonObject(value)) ||
 	(values.length > 1 && Arr.every(values, (value) => isLongJsonArray(value)))
 
@@ -1436,7 +1433,7 @@ const jsonAlwaysBroken = (values: readonly Schema.Json[]): boolean =>
 const jsonScalarText = (value: boolean | number | string | null): string =>
 	Predicate.isNumber(value) ? numberText(value) : jsonText(value)
 
-const jsonFlat = (value: Schema.Json): string | undefined => {
+const jsonFlat = (value: Json): string | undefined => {
 	if (isJsonScalar(value)) {
 		return jsonScalarText(value)
 	}
@@ -1454,10 +1451,10 @@ const jsonFlat = (value: Schema.Json): string | undefined => {
 	return Record.isEmptyReadonlyRecord(value) ? "{}" : undefined
 }
 
-type RenderJson = (value: Schema.Json, place: Place) => string
+type RenderJson = (value: Json, place: Place) => string
 
 const jsonArrayLines = (
-	values: Schema.JsonArray,
+	values: readonly Json[],
 	indent: number,
 	renderItem: RenderJson
 ): readonly string[] => {
@@ -1477,10 +1474,10 @@ const jsonArrayLines = (
 	})
 }
 
-const byJsonKey = Order.mapInput(Order.String, (entry: readonly [string, Schema.Json]) => entry[0])
+const byJsonKey = Order.mapInput(Order.String, (entry: readonly [string, Json]) => entry[0])
 
 const jsonObjectLines = (
-	value: Schema.JsonObject,
+	value: Record.ReadonlyRecord<string, Json>,
 	indent: number,
 	renderItem: RenderJson
 ): readonly string[] => {
@@ -1521,7 +1518,7 @@ const renderJson: RenderJson = (value, place) => {
  * Prints a JSON file in the `docs/printer.md` JSON layout: objects broken with sorted keys, arrays
  * flat when they fit, a final newline.
  */
-export const printJson = (value: JsonValue): string =>
+export const printJson = (value: Json): string =>
 	`${renderJson(value, { column: 0, indent: 0, tail: 0 })}\n`
 
 const packageKeys: readonly string[] = [
@@ -1554,7 +1551,7 @@ const sortedKeys: ReadonlySet<string> = new Set([
 	"engines"
 ])
 
-const sortedMap = (value: Schema.Json): Schema.Json =>
+const sortedMap = (value: Json): Json =>
 	isJsonScalar(value) || isJsonArray(value)
 		? value
 		: Record.fromEntries(Arr.sort(Record.toEntries(value), byJsonKey))
@@ -1566,10 +1563,12 @@ const unsupportedPackageJson = (subject: string) =>
  * The manifest's members in the `docs/printer.md` key order, its dependency maps, `bin` and `engines`
  * sorted by key.
  */
-const orderedManifest = (manifest: Schema.JsonObject): Schema.JsonObject =>
+const orderedManifest = (
+	manifest: Record.ReadonlyRecord<string, Json>
+): Record.ReadonlyRecord<string, Json> =>
 	Record.fromEntries(
 		Arr.flatMap(packageKeys, (key) =>
-			Option.match(Record.get<string, Schema.Json>(manifest, key), {
+			Option.match(Record.get<string, Json>(manifest, key), {
 				onNone: () => [],
 				onSome: (value) => [[key, sortedKeys.has(key) ? sortedMap(value) : value] as const]
 			})
@@ -1581,13 +1580,13 @@ const orderedManifest = (manifest: Schema.JsonObject): Schema.JsonObject =>
  * plus a final newline, top-level keys in the `docs/printer.md` order, the dependency maps, `bin`
  * and `engines` sorted by key. Fails on a top-level key outside that order.
  */
-export const printPackageJson = (manifest: JsonValue): Effect.Effect<string, PrinterError> => {
+export const printPackageJson = (manifest: Json): Effect.Effect<string, PrinterError> => {
 	if (isJsonScalar(manifest) || isJsonArray(manifest)) {
 		return unsupportedPackageJson("root")
 	}
 
 	return Option.match(
-		Arr.findFirst(Record.keys<string, Schema.Json>(manifest), (key) => !knownPackageKeys.has(key)),
+		Arr.findFirst(Record.keys<string, Json>(manifest), (key) => !knownPackageKeys.has(key)),
 		{
 			onNone: () =>
 				Effect.succeed(`${Formatter.formatJson(orderedManifest(manifest), { space: 2 })}\n`),

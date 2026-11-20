@@ -11,7 +11,6 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import type { Schema } from "effect"
 import {
 	buildsParameter,
 	encodesByKey,
@@ -62,6 +61,7 @@ import type { AuthorConfig } from "#model/author-config.ts"
 import { stripUnsafeText } from "#model/brands.ts"
 import type { Api, MediaAlternative, Operation, Parameter } from "#model/entities.ts"
 import { formatPointer } from "#model/pointer.ts"
+import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { constantOf } from "#names/constant.ts"
 import { packageImports, rootNamespaceImports, runtimeNamespaces } from "#names/domain.ts"
@@ -151,7 +151,7 @@ export interface CliEmitOutput {
 	readonly refusals: readonly CliRefusal[]
 }
 
-type Defs = Record.ReadonlyRecord<string, Schema.Json>
+type Defs = Record.ReadonlyRecord<string, Json>
 
 type Entry = readonly [string, Expr]
 
@@ -222,16 +222,15 @@ const secretDescription = (description: string): Expr =>
 
 const refPrefix = "#/$defs/"
 
-type JsonObject = Record.ReadonlyRecord<string, Schema.Json>
+type JsonObject = Record.ReadonlyRecord<string, Json>
 
-const own = (record: JsonObject, key: string): Schema.Json | undefined =>
+const own = (record: JsonObject, key: string): Json | undefined =>
 	Record.has(record, key) ? record[key] : undefined
 
-const isJsonObject = (json: Schema.Json | undefined): json is JsonObject =>
+const isJsonObject = (json: Json | undefined): json is JsonObject =>
 	Predicate.isObject(json) && !Arr.isArray(json)
 
-const isJsonArray = (json: Schema.Json | undefined): json is readonly Schema.Json[] =>
-	Arr.isArray(json)
+const isJsonArray = (json: Json | undefined): json is readonly Json[] => Arr.isArray(json)
 
 /** A bound outside the safe-integer range makes an integer field a digit string (design 4.5). */
 const boundKeywords: readonly string[] = [
@@ -242,15 +241,15 @@ const boundKeywords: readonly string[] = [
 ]
 
 interface FieldNode {
-	readonly allOf: readonly Schema.Json[]
+	readonly allOf: readonly Json[]
 	readonly contentEncoding: string | undefined
 	readonly contentMediaType: string | undefined
-	readonly default: Option.Option<Schema.Json>
+	readonly default: Option.Option<Json>
 	readonly deprecated: boolean
-	readonly enum: Option.Option<readonly Schema.Json[]>
+	readonly enum: Option.Option<readonly Json[]>
 	readonly format: string | undefined
 	readonly int64: boolean
-	readonly items: Schema.Json | undefined
+	readonly items: Json | undefined
 	readonly maxLength: Option.Option<number>
 	readonly prose: Option.Option<string>
 	readonly properties: JsonObject | undefined
@@ -263,10 +262,7 @@ interface FieldNode {
  * `None` for a node the walk cannot read: not an object, or a `$ref` that is not a string. A
  * `default` normalize refused reads as absent.
  */
-const fieldNode = (
-	json: Schema.Json,
-	refusedDefaults: ReadonlySet<Schema.Json>
-): Option.Option<FieldNode> => {
+const fieldNode = (json: Json, refusedDefaults: ReadonlySet<Json>): Option.Option<FieldNode> => {
 	if (!isJsonObject(json)) {
 		return Option.none()
 	}
@@ -296,9 +292,7 @@ const fieldNode = (
 		allOf: isJsonArray(allOf) ? allOf : [],
 		contentEncoding: text("contentEncoding"),
 		contentMediaType: text("contentMediaType"),
-		default: refusedDefaults.has(json)
-			? Option.none()
-			: Record.get<string, Schema.Json>(json, "default"),
+		default: refusedDefaults.has(json) ? Option.none() : Record.get<string, Json>(json, "default"),
 		deprecated: own(json, "deprecated") === true,
 		enum: isJsonArray(values) ? Option.some(values) : Option.none(),
 		format: text("format"),
@@ -359,7 +353,7 @@ interface Chain {
 
 type Work =
 	| { readonly _tag: "Direct"; readonly node: FieldNode }
-	| { readonly _tag: "Expand"; readonly json: Schema.Json }
+	| { readonly _tag: "Expand"; readonly json: Json }
 
 /**
  * The text encoding of a base64 string node: `contentEncoding` on every line, or `format: byte`
@@ -382,7 +376,7 @@ const encodingOf = (node: FieldNode, line: SpecLine): FieldEncoding | undefined 
 interface FieldStore {
 	readonly defs: Defs
 	readonly line: SpecLine
-	readonly refusedDefaults: ReadonlySet<Schema.Json>
+	readonly refusedDefaults: ReadonlySet<Json>
 }
 
 /**
@@ -396,9 +390,9 @@ const fieldSchema = (
 	pointer: string,
 	repeated: boolean
 ): FieldSchema => {
-	const chain = (start: Schema.Json | undefined): Chain => {
+	const chain = (start: Json | undefined): Chain => {
 		const nodes: FieldNode[] = []
-		const seen = new Set<Schema.Json>()
+		const seen = new Set<Json>()
 		let current = start
 		while (current !== undefined && !seen.has(current)) {
 			seen.add(current)
@@ -423,8 +417,8 @@ const fieldSchema = (
 		return { nodes, settled: false }
 	}
 	/** Depth first, in declaration order: a node's own `properties`, then its `allOf` members. */
-	const property = (start: Schema.Json, name: string): Schema.Json | undefined => {
-		const seen = new Set<Schema.Json>([start])
+	const property = (start: Json, name: string): Json | undefined => {
+		const seen = new Set<Json>([start])
 		const pending: Work[] = [{ _tag: "Expand", json: start }]
 		for (let work = pending.pop(); work !== undefined; work = pending.pop()) {
 			if (work._tag === "Direct") {
@@ -2585,7 +2579,7 @@ const rootFile = (
 	})
 
 /** The schema store's `$defs`: its document's `$defs` object, none when it holds no object there. */
-const defsOf = (document: Schema.Json): Defs => {
+const defsOf = (document: Json): Defs => {
 	const defs = isJsonObject(document) ? own(document, "$defs") : undefined
 
 	return isJsonObject(defs) ? defs : {}
@@ -2597,7 +2591,7 @@ const byPath = Order.mapInput(Order.String, (file: EmittedFile) => file.path)
 const refusedDefaultCode = "S30-27/nonconforming-default"
 
 /** The member of an object, or the element of an array, that one path token names. */
-const childAt = (json: Schema.Json | undefined, token: string): Schema.Json | undefined => {
+const childAt = (json: Json | undefined, token: string): Json | undefined => {
 	if (isJsonObject(json)) {
 		return own(json, token)
 	}
@@ -2610,14 +2604,14 @@ const childAt = (json: Schema.Json | undefined, token: string): Schema.Json | un
  * shown): the validation copy's edits under that code, located in `defs`, so help reads the one
  * fact normalize records rather than re-checking conformance. Only the 3.0 line records one.
  */
-const refusedDefaultsOf = (edits: readonly SchemaEdit[], defs: Defs): ReadonlySet<Schema.Json> => {
-	const nodes = new Set<Schema.Json>()
+const refusedDefaultsOf = (edits: readonly SchemaEdit[], defs: Defs): ReadonlySet<Json> => {
+	const nodes = new Set<Json>()
 	for (const edit of edits) {
 		if (edit.code !== refusedDefaultCode) {
 			continue
 		}
 
-		let node: Schema.Json | undefined = own(defs, edit.key)
+		let node: Json | undefined = own(defs, edit.key)
 		for (const token of edit.path.slice(0, -1)) {
 			node = childAt(node, token)
 		}
