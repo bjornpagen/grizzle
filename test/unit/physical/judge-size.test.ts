@@ -90,7 +90,7 @@ export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHowever
 			kind: "specification",
 			name: "the union: its rules read Node once each, and no read of the union reads it again"
 		},
-		box: "one to three reads of a union of two or three rules over Node, each the nodes of one kind, or a chain one to four deep of unions of two rules each reading the level below once, or one or two deep each reading it twice, under a whole rule's check",
+		box: "one to three reads of a union of two or three rules over Node, each the nodes of one kind, or a chain one to four deep of unions of two rules each reading the level below once or twice, under a whole rule's check",
 		kept: [],
 		kills: [
 			{
@@ -102,9 +102,9 @@ export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHowever
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original:
-					'\t\t\tcase "perUnit":\n\t\t\t\treturn navigate(rule, loc, columns, sharing, interned)',
+					'\t\t\tcase "perStatement":\n\t\t\t\treturn navigate(rule, loc, columns, sharing, keptOf(rule), interned)',
 				replacement:
-					'\t\t\tcase "perUnit":\n\t\t\t\treturn flatMapNonEmpty(split, (conjunction) => navigatedRule(conjunction, loc, columns, sharing, interned))',
+					'\t\t\tcase "perStatement":\n\t\t\t\treturn flatMapNonEmpty(conjunctions([rule], columns), (conjunction) => navigatedRule(conjunction, loc, columns, sharing, keptOf(conjunction), interned))',
 				why: "A whole rule's statement is distributed into its conjunctions before navigation reads it, as a write member's is, so every union it reads is read once in each conjunction; the property fails."
 			},
 			{
@@ -122,8 +122,8 @@ export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHowever
 			},
 			{
 				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
-				original: "\t\t\t: first !== undefined && others.length === 0",
-				replacement: "\t\t\t: first === undefined && others.length === 0",
+				original: "\t\t\t: innermost === undefined",
+				replacement: "\t\t\t: innermost !== undefined",
 				why: "A node the rules of a union read is placed in no region, one read by occurrences of several regions inlined at each (rule 3, as before), so a chain of unions spells the level below in each rule above it, and four deep reads Node sixteen times; the property fails."
 			}
 		]

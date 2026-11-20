@@ -155,7 +155,7 @@ export const aRulesCheckOverEveryRowReadsEachStoredTableNeverAViewInOneChainOfLo
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: '\t\tcheckQuery(b.checked, navigateQuery(query, loc, columns, "perUnit"), {\n',
+				original: "\t\tcheckQuery(b.checked, navigateQuery(query, loc, columns, sharing), {\n",
 				replacement: "\t\tcheckQuery(b.checked, query, {\n",
 				why: "The judge reads its queries as written, a join of every relation a probe reads, which PostgreSQL may plan as a product it filters; it fails the first box by its loose joins."
 			}
@@ -354,8 +354,9 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\t\tif (inner.length === 1 && inner[0] === stage.arms[0]) {",
-				replacement: "\t\t\tif (true) {",
+				original:
+					'\t\tif (m === undefined || source?.kind !== "query" || stage?.kind !== "rules") {',
+				replacement: "\t\tif (true) {",
 				why: "A filter of a rule over an import of several rules is read as written, Two's two rules over ops each a core of the three reads ops joins, derived whole and anti-joined to Known by PostgreSQL's estimates; it fails the containment's case."
 			},
 			{
@@ -366,16 +367,14 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original:
-					"\t\tif (split.length === 1 || !split.some((conjunction) => joins(conjunction, columns))) {",
-				replacement:
-					"\t\tif (true || split.length === 1 || !split.some((conjunction) => joins(conjunction, columns))) {",
+				original: "\t\t\t!splits(rule) ||",
+				replacement: "\t\t\ttrue ||",
 				why: "A rule over Either, a union of Op's and Item's rows, is read as written beside its negation of Two, which is derived whole and anti-joined to it; it fails the union's case."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\t\tconst inner = conjunctions(stage.arms, columns)",
-				replacement: "\t\t\tconst inner = stage.arms",
+				original: "\t\tfor (const rule of conjunctionsOf(stage.arms, columns)) {",
+				replacement: "\t\tfor (const rule of stage.arms) {",
 				why: "Conjunctions split an import of several rules matched directly alone, so Either, one rule over the query either of two, is no union to them, and its rule is read as written beside its negation of Two; it fails the union's case."
 			}
 		]

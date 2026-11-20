@@ -154,7 +154,7 @@ const originOf = (
  * no read of it reads every unit's rows; `perRead`, inlined at each read and distributed into the rule's conjunctions,
  * as a write member's query reads it, whose checker builds an import at every read.
  */
-export type ImportSharing = "perUnit" | "perRead"
+export type ImportSharing = "perUnit" | "perStatement" | "perRead"
 
 /** An import's bind map, its terms in the scope of the rule the unfolding reads it in. */
 type Binds = ReadonlyMap<string, InferredExpr>
@@ -197,15 +197,59 @@ class Interned {
  * to (`fixedTerms`), a whole rule's unit channels among them, and navigated as a query of its own from them
  * (`boundInside`, `navigateQuery`): every read of it at those values reads one import, which the checker builds once
  * (check/checker.ts #imported) and the lowering computes once at the scope its channels come from, the unit's rows
- * alone (lower/optimize/cte-policy), its other bindings each read's own, a join of its rows. The keys of the imports
- * no parameter restricts (`unrestricted`), which read whole would read every unit's rows, a probe's import bound to the
- * rows of its delta by variables alone among them: `Navigator.rule` inlines those at each read again, read by the keys
- * the steps before them bound.
+ * alone (lower/optimize/cte-policy), its other bindings each read's own, a join of its rows. Of a union, the rules
+ * whose head fixes a field the read binds to another literal are dropped (`armsAt`): no row of theirs meets the read,
+ * so a selection of one rule of a union by the literal its head fixes, qti's statements of one required fact
+ * (`select(PackageFact, fact = author)`), computes that rule alone. The keys of the imports no parameter restricts
+ * (`unrestricted`), which read whole would read every unit's rows, a probe's import bound to the rows of its delta by
+ * variables alone among them: `Navigator.rule` inlines those at each read again, read by the keys the steps before
+ * them bound, except under `perStatement`, which reads every unit's rows by its own extent.
  */
+/**
+ * `source`, an import read at `bindings`, with each rule of its union whose head fixes a field the read binds to another
+ * literal dropped (`fixed`, the rule's fixed terms): it delivers no row the read meets. Its bind map binds only the
+ * parameters the rules it keeps read. Itself where no rule is dropped, or where every rule would be.
+ */
+const armsAt = (
+	source: Imported,
+	bindings: InferredBindings,
+	fixed: (term: InferredExpr) => InferredExpr | undefined
+): Imported => {
+	const stage = source.query.stage
+	if (stage.kind !== "rules" || stage.arms.length === 1) {
+		return source
+	}
+	const literals = Object.entries(bindings).flatMap(([field, e]) => {
+		const held = fixed(e) ?? e
+		return held.kind === "literal" ? [[field, held] as const] : []
+	})
+	const meets = (arm: InferredRule): boolean =>
+		literals.every(([field, literal]) => {
+			const head = arm.head[field]
+			return head?.kind !== "literal" || canonicalEquals(head.value, literal.value)
+		})
+	const [first, ...rest] = stage.arms.filter(meets)
+	if (first === undefined || rest.length + 1 === stage.arms.length) {
+		return source
+	}
+	const arms: NonEmptyReadonlyArray<InferredRule> = [first, ...rest]
+	const read = new Set(
+		arms.flatMap((arm) =>
+			ruleLeaves(arm, true).params.flatMap((p) => (p.kind === "param" ? [p.name] : []))
+		)
+	)
+	return {
+		...source,
+		bind: Object.fromEntries(Object.entries(source.bind).filter(([name]) => read.has(name))),
+		query: { ...source.query, stage: { ...stage, arms } }
+	}
+}
+
 const sharedWithin = (
 	flat: Flat,
 	loc: SourceLoc,
 	columns: QueryColumns,
+	sharing: ImportSharing,
 	interned: Interned
 ): { readonly flat: Flat; readonly unrestricted: ReadonlySet<string> } => {
 	const fixed = fixedTerms({
@@ -227,8 +271,9 @@ const sharedWithin = (
 		if (r.source.kind !== "query") {
 			return r
 		}
-		const inside = boundInside(r.source, r.bindings, byParameter, columns)
-		if (inside === r.source) {
+		const read = armsAt(r.source, r.bindings, fixed)
+		const inside = boundInside(read, r.bindings, byParameter, columns)
+		if (inside === read && sharing !== "perStatement") {
 			const binds = scalarBinds(r.source.bind)
 			unrestricted.add(importKey(r.source.query, binds ?? new Map()))
 			return r
@@ -237,7 +282,7 @@ const sharedWithin = (
 			...r,
 			source: interned.of({
 				...inside,
-				query: navigatedQuery(inside.query, loc, columns, "perUnit", interned)
+				query: navigatedQuery(inside.query, loc, columns, sharing, interned)
 			})
 		}
 	})
@@ -252,6 +297,9 @@ interface KeptImports {
 	readonly kept: ReadonlySet<string>
 	readonly unions: ReadonlySet<string>
 }
+
+/** No import kept: a write member's navigation (`perRead`), which inlines every import at every read. */
+const noImports: KeptImports = { kept: new Set(), unions: new Set() }
 
 /**
  * The imports `rule`'s unfolding reads whole (`KeptImports`), by key (`importKey`). An import of one rule that the
@@ -268,7 +316,7 @@ interface KeptImports {
  * inlining leaves it: a read inside an import navigation keeps whole is that import's own, so the shallowest imports
  * read more than once are kept first, and the rest counted again without the rows they hold.
  */
-const sharedImports = (rule: InferredRule, columns: QueryColumns): KeptImports => {
+const sharedImports = (rules: ReadonlyArray<InferredRule>, columns: QueryColumns): KeptImports => {
 	const shared = new Set<string>()
 	const unions = new Set<string>()
 	for (;;) {
@@ -309,7 +357,9 @@ const sharedImports = (rule: InferredRule, columns: QueryColumns): KeptImports =
 				visit(stage.arms[0], (e) => toTop(boundIn(mapLeaves(e, leaves), binds)), depth + 1)
 			}
 		}
-		visit(rule, (e) => e, 0)
+		for (const rule of rules) {
+			visit(rule, (e) => e, 0)
+		}
 		const joined = [...counts].flatMap(([key, c]) => {
 			const reads = c.n > 1 && !shared.has(key) ? readsOfRule(c.rule, columns) : undefined
 			return reads !== undefined && reads > 1 ? [{ key, depth: c.depth }] : []
@@ -359,48 +409,89 @@ interface Flat {
 const conjunctions = (
 	arms: NonEmptyReadonlyArray<InferredRule>,
 	columns: QueryColumns
-): NonEmptyReadonlyArray<InferredRule> =>
-	flatMapNonEmpty(arms, (arm): NonEmptyReadonlyArray<InferredRule> => {
-		for (const [at, m] of arm.matches.entries()) {
-			const source = m.source
-			if (source.kind !== "query") {
-				continue
-			}
-			const stage = source.query.stage
-			if (stage.kind !== "rules") {
-				continue
-			}
-			const inner = conjunctions(stage.arms, columns)
-			if (inner.length === 1 && inner[0] === stage.arms[0]) {
-				continue
-			}
-			const alone =
-				stage.arms.length > 1
-					? (rule: InferredRule): InferredRule => headAtUnion(rule, columns(source.query))
-					: (rule: InferredRule): InferredRule => rule
-			return conjunctions(
-				mapNonEmpty(inner, (rule) => ({
-					...arm,
-					matches: arm.matches.map((x, i) =>
-						i === at
-							? {
-									...m,
-									source: {
-										...source,
-										query: {
-											...source.query,
-											stage: { ...stage, arms: [alone(rule)] }
+): NonEmptyReadonlyArray<InferredRule> => {
+	const [first, ...rest] = conjunctionsOf(arms, columns)
+	if (first === undefined) {
+		throw defect("a union of rules has a conjunction")
+	}
+	return [first, ...rest]
+}
+
+/**
+ * The conjunctions of `arms` (`conjunctions`), one at a time, each built only when it is read: whether one of them
+ * joins is known at the first that does, where the union of them all is the product of the widths of the unions they
+ * read, at any depth.
+ */
+function* conjunctionsOf(
+	arms: Iterable<InferredRule>,
+	columns: QueryColumns
+): Generator<InferredRule, void, undefined> {
+	for (const arm of arms) {
+		const at = arm.matches.findIndex(
+			(m) =>
+				m.source.kind === "query" &&
+				m.source.query.stage.kind === "rules" &&
+				(m.source.query.stage.arms.length > 1 || m.source.query.stage.arms.some(splits))
+		)
+		const m = arm.matches[at]
+		const source = m?.source
+		const stage = source?.kind === "query" ? source.query.stage : undefined
+		if (m === undefined || source?.kind !== "query" || stage?.kind !== "rules") {
+			yield arm
+			continue
+		}
+		const alone =
+			stage.arms.length > 1
+				? (rule: InferredRule): InferredRule => headAtUnion(rule, columns(source.query))
+				: (rule: InferredRule): InferredRule => rule
+		for (const rule of conjunctionsOf(stage.arms, columns)) {
+			yield* conjunctionsOf(
+				[
+					{
+						...arm,
+						matches: arm.matches.map((x, i) =>
+							i === at
+								? {
+										...m,
+										source: {
+											...source,
+											query: {
+												...source.query,
+												stage: { ...stage, arms: [alone(rule)] }
+											}
 										}
 									}
-								}
-							: x
-					)
-				})),
+								: x
+						)
+					}
+				],
 				columns
 			)
 		}
-		return [arm]
-	})
+	}
+}
+
+/**
+ * Whether `rule` is more than one conjunction (`conjunctions`): it matches an import of several rules, or of one rule
+ * that is in turn, at any depth.
+ */
+const splits = (rule: InferredRule): boolean =>
+	rule.matches.some(
+		(m) =>
+			m.source.kind === "query" &&
+			m.source.query.stage.kind === "rules" &&
+			(m.source.query.stage.arms.length > 1 || m.source.query.stage.arms.some(splits))
+	)
+
+/** Whether some value `values` yields holds `test`, read no further than the first that does. */
+const someOf = <A>(values: Iterable<A>, test: (a: A) => boolean): boolean => {
+	for (const a of values) {
+		if (test(a)) {
+			return true
+		}
+	}
+	return false
+}
 
 /** `rule` with each bare literal of its head typed at the column of the union it is a rule of (`union`): itself where none is. */
 const headAtUnion = (rule: InferredRule, union: ColumnTypes): InferredRule => {
@@ -503,23 +594,24 @@ class Navigator {
 	 * negation is, the last would gate the outermost Result and be judged first, reading a later arm's relations for a
 	 * row an earlier arm already refutes.
 	 */
-	rule(rule: InferredRule, depth: number): NonEmptyReadonlyArray<InferredRule> {
-		const imports: KeptImports =
-			this.#sharing === "perUnit"
-				? sharedImports(rule, this.#columns)
-				: { kept: new Set(), unions: new Set() }
+	rule(
+		rule: InferredRule,
+		depth: number,
+		imports: KeptImports
+	): NonEmptyReadonlyArray<InferredRule> {
 		const shared = new Set(imports.kept)
 		let within = sharedWithin(
 			this.#defined(this.#inline(rule, shared, (e) => e)),
 			this.#loc,
 			this.#columns,
+			this.#sharing,
 			this.#interned
 		)
 		while (within.unrestricted.size > 0) {
 			if ([...within.unrestricted].some((key) => imports.unions.has(key))) {
-				return flatMapNonEmpty(conjunctions([rule], this.#columns), (conjunction) =>
-					this.rule(conjunction, depth)
-				)
+				const split = conjunctions([rule], this.#columns)
+				const kept = sharedImports(split, this.#columns)
+				return flatMapNonEmpty(split, (conjunction) => this.rule(conjunction, depth, kept))
 			}
 			for (const key of within.unrestricted) {
 				shared.delete(key)
@@ -528,6 +620,7 @@ class Navigator {
 				this.#defined(this.#inline(rule, shared, (e) => e)),
 				this.#loc,
 				this.#columns,
+				this.#sharing,
 				this.#interned
 			)
 		}
@@ -934,7 +1027,9 @@ class Navigator {
 				}
 				const columns = this.#columns(source.query)
 				const arms =
-					this.#sharing === "perUnit" ? stage.arms : conjunctions(stage.arms, this.#columns)
+					this.#sharing === "perRead" ? conjunctions(stage.arms, this.#columns) : stage.arms
+				const keptOf = (arm: InferredRule): KeptImports =>
+					this.#sharing === "perRead" ? noImports : sharedImports([arm], this.#columns)
 				const navigated = flatMapNonEmpty(arms, (arm) => {
 					const at: Array<InferredExpr> = []
 					for (const [field, outer] of Object.entries(a.bindings)) {
@@ -946,7 +1041,7 @@ class Navigator {
 							equal(atColumn(head, field, columns), passing.expr(atColumn(outer, field, columns)))
 						)
 					}
-					return this.rule({ ...arm, where: [...arm.where, ...at] }, depth + 1)
+					return this.rule({ ...arm, where: [...arm.where, ...at] }, depth + 1, keptOf(arm))
 				})
 				return {
 					kind: a.kind,
@@ -983,9 +1078,10 @@ const navigate = (
 	loc: SourceLoc,
 	columns: QueryColumns,
 	sharing: ImportSharing,
+	imports: KeptImports,
 	interned: Interned
 ): NonEmptyReadonlyArray<InferredRule> =>
-	new Navigator(loc, columns, sharing, interned).rule(rule, 0)
+	new Navigator(loc, columns, sharing, interned).rule(rule, 0, imports)
 
 /** Whether a scalar condition holds a relational filter anywhere below its top, where navigation reads none (`navigable`). */
 const filtersBelow = (e: InferredExpr): boolean =>
@@ -1089,10 +1185,11 @@ const navigatedRule = (
 	loc: SourceLoc,
 	columns: QueryColumns,
 	sharing: ImportSharing,
+	imports: KeptImports,
 	interned: Interned
 ): NonEmptyReadonlyArray<InferredRule> => {
 	if (joins(rule, columns)) {
-		return navigate(rule, loc, columns, sharing, interned)
+		return navigate(rule, loc, columns, sharing, imports, interned)
 	}
 	const fixed = fixedTerms(rule)
 	const matches = rule.matches.map((m): InferredMatch => {
@@ -1247,17 +1344,22 @@ const navigatedQuery = (
 	if (stage.kind !== "rules") {
 		return query
 	}
+	const keptOf = (rule: InferredRule): KeptImports =>
+		sharing === "perRead" ? noImports : sharedImports([rule], columns)
 	const arms = flatMapNonEmpty(stage.arms, (rule): NonEmptyReadonlyArray<InferredRule> => {
-		const split = conjunctions([rule], columns)
-		if (split.length === 1 || !split.some((conjunction) => joins(conjunction, columns))) {
-			return navigatedRule(rule, loc, columns, sharing, interned)
+		if (
+			!splits(rule) ||
+			!someOf(conjunctionsOf([rule], columns), (conjunction) => joins(conjunction, columns))
+		) {
+			return navigatedRule(rule, loc, columns, sharing, keptOf(rule), interned)
 		}
 		switch (sharing) {
 			case "perUnit":
-				return navigate(rule, loc, columns, sharing, interned)
+			case "perStatement":
+				return navigate(rule, loc, columns, sharing, keptOf(rule), interned)
 			case "perRead":
-				return flatMapNonEmpty(split, (conjunction) =>
-					navigatedRule(conjunction, loc, columns, sharing, interned)
+				return flatMapNonEmpty(conjunctions([rule], columns), (conjunction) =>
+					navigatedRule(conjunction, loc, columns, sharing, keptOf(conjunction), interned)
 				)
 		}
 	})

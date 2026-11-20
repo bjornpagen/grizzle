@@ -389,8 +389,9 @@ const statementScope: CteDecision["scope"] = { kind: "statement" }
  * The region whose SELECT holds a shared correlated node's CTE (rule 3b), where `references`, the node's reads, are all
  * occurrences of regions, no expression reads it, and every value it reads of an outer row is one that region is
  * correlated to from outside, never one an occurrence binds (`outer`, the node's outer references by label): the one
- * region every read is an occurrence of, or, read by occurrences of several, the one region whose columns it reads,
- * inside which each of them stands, since each reads the node and the node reads those columns. A rule statement's
+ * region every read is an occurrence of, or, read by occurrences of several, the innermost region whose columns it
+ * reads, every other one it reads enclosing it, inside which each of them stands, since each reads the node and the
+ * node reads those columns. A rule statement's
  * import its rule's unfolding reads more than once (analysis/theory/navigate.ts sharedImports) is the first, each read
  * a match of the rule itself, correlated to the unit's channels the region reads through its own columns
  * (check/checker.ts #bindValue); the import each rule of a union reads at the unit's channels is the second, bound to
@@ -428,12 +429,16 @@ const readingRegion = (
 		}
 		const read = outer(node)
 		const [only, ...more] = regions
-		const [first, ...others] = read.keys()
+		const keys = [...read.keys()]
+		const innermost = keys.find((k) => {
+			const at = byId.get(k)
+			return at !== undefined && keys.every((j) => j === k || outer(at).has(j))
+		})
 		const holder = !isNonEmpty(more)
 			? only
-			: first !== undefined && others.length === 0
-				? byId.get(first)
-				: undefined
+			: innermost === undefined
+				? undefined
+				: byId.get(innermost)
 		if (holder?.kind !== "MatchRegion" || occurrences !== references) {
 			return undefined
 		}

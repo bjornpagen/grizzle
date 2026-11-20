@@ -9,7 +9,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { QueryColumns } from "#compiler/analysis/theory/columns.ts"
-import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
+import { type ImportSharing, navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import {
 	everyRowProbes,
 	type LawSide,
@@ -191,7 +191,8 @@ const compileProbe = (
 		b.columns,
 		`rule ${rule.law.named.display} on ${relation.name}`,
 		relation.loc,
-		deltas
+		deltas,
+		"perUnit"
 	)
 
 /**
@@ -216,10 +217,11 @@ const judgedStatement = (
 	columns: QueryColumns,
 	label: string,
 	loc: SourceLoc,
-	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
+	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined,
+	sharing: Exclude<ImportSharing, "perRead">
 ): Compiled => {
 	const checked = unwrap(
-		checkQuery(b.checked, navigateQuery(query, loc, columns, "perUnit"), {
+		checkQuery(b.checked, navigateQuery(query, loc, columns, sharing), {
 			read: "region",
 			label,
 			clock: noClock,
@@ -1279,7 +1281,8 @@ export const addRules = (
 			(query) => b.columns(unit.definitionOf(query)),
 			label,
 			rule.law.loc,
-			deltas
+			deltas,
+			"perUnit"
 		)
 		appendAll(requests, lowered.requests)
 		const holder = defined(
@@ -1337,18 +1340,28 @@ export const addRules = (
 	const everyRowCheck = (rule: RuleTrigger): OperandSelect => {
 		const r = rule.rule
 		const label = `rule ${rule.law.named.display} over every row`
-		const lowered = (query: InferredQuery): Compiled =>
-			judgedStatement(b, catalog, rule, query, b.columns, label, rule.law.loc, everyRow(rule))
+		const lowered = (query: InferredQuery, sharing: Exclude<ImportSharing, "perRead">): Compiled =>
+			judgedStatement(
+				b,
+				catalog,
+				rule,
+				query,
+				b.columns,
+				label,
+				rule.law.loc,
+				everyRow(rule),
+				sharing
+			)
 		const compiled: NonEmptyReadonlyArray<Compiled> =
 			r.kind === "whole"
-				? [lowered(r.everyRow)]
+				? [lowered(r.everyRow, "perStatement")]
 				: mapNonEmpty(
 						everyRowProbes(
 							r,
 							(name) => rule.tables.some((t) => t.relation.name === name),
 							rule.law.loc
 						),
-						lowered
+						(probe) => lowered(probe, "perUnit")
 					)
 		appendAll(
 			requests,
