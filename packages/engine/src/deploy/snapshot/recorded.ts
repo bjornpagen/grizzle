@@ -314,17 +314,20 @@ const declaredStub = (h: DeclaredHeader): CreateDeclaredFunction["body"] => {
 
 /**
  * The value a recorded constant is replayed as: the empty value of its type, an empty array, the empty input of a
- * library function's text or bytea (physical/ddl/library.ts; `''` reads as either type's empty value) or an empty bit
- * string, an SQL constant's every result type; a PL/pgSQL constant's body PostgreSQL only parses as it creates the
- * function, so its stub is never typed. The drift check describes a constant by its name, its owner, its parameters,
- * its result type and its language's clauses alone, and the scratch replay reads no row, so no value is read.
+ * library function's text or bytea (physical/ddl/library.ts; `''` reads as either type's empty value), false for a
+ * library function's boolean (isXsdPattern's), or an empty bit string, an SQL constant's every result type; a PL/pgSQL
+ * constant's body PostgreSQL only parses as it creates the function, so its stub is never typed. The drift check
+ * describes a constant by its name, its owner, its parameters, its result type and its language's clauses alone, and
+ * the scratch replay reads no row, so no value is read.
  */
 const stubValue = (returns: TypeRef): Expr =>
 	returns.array
 		? lit.text("{}", returns)
 		: returns.kind === "builtin" && (returns.name === "text" || returns.name === "bytea")
 			? lit.text("", returns)
-			: lit.bits("", returns)
+			: returns.kind === "builtin" && returns.name === "boolean"
+				? lit.bool(false)
+				: lit.bits("", returns)
 
 /**
  * A recorded statement as the drift check replays it: a PL/pgSQL function with its header and the stub body, a constant

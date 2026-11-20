@@ -67,11 +67,11 @@ import {
 	param,
 	provedCore,
 	select,
-	simpleSelect,
 	targetAs,
 	types,
 	windowOf
 } from "#compiler/sql/build.ts"
+import { freshNames, NameSupply } from "#compiler/sql/naming.ts"
 
 /** A library function's body: its parameters, read by position in it, its result type and its expression. */
 interface LibraryBody {
@@ -108,35 +108,95 @@ const from = (x: Expr, at: Expr): Expr => call("substring", [x, at])
 const fromFirst = (x: Expr, delimiter: string): Expr =>
 	from(x, binary("+", length(before(x, delimiter)), integer(1)))
 
-/** Named columns of a derived table or a step: each its name and its value. */
+/** Named columns of a derived table or a step: each the name the body reads it by and its value. */
 type Columns = NonEmptyReadonlyArray<readonly [string, Expr]>
 
+/** A name origin of the library: a body's relation or column, by what it holds. */
+const internal = (purpose: string) => ({ kind: "internal", purpose: `library ${purpose}` }) as const
+
 /**
- * A derived table of `columns` over `sources`, `(SELECT … FROM sources) AS alias(columns)`, LATERAL where it reads the
- * sources before it.
+ * A relation of a library body: its alias and its columns, each minted by the body's name supply (sql/naming.ts
+ * NameSupply), as every statement grizzle emits names its relations and columns, so no name a body holds is a name a
+ * caller or another body could hold, and the structural audit reads every one as generated. The body reads each column
+ * by the name it states it by (`read`), which no SQL spells.
  */
-const table = (
-	alias: string,
+interface Named {
+	readonly alias: string
+	/** The minted columns, in the order the body states them. */
+	readonly columns: NonEmptyReadonlyArray<string>
+	/** The minted name of the column the body states as `name`. */
+	readonly column: (name: string) => string
+	/** The column the body states as `name`, read through the relation's alias. */
+	readonly read: (name: string) => Expr
+}
+
+/** A relation of `what`, of the columns the body states as `heading`, its alias and each column minted by `names`. */
+const relationOf = (
+	names: NameSupply,
+	what: string,
+	heading: NonEmptyReadonlyArray<string>
+): Named => {
+	const alias = names.relation(internal(what))
+	const columns = mapNonEmpty(heading, (name) => names.column(internal(`${what} ${name}`)))
+	const minted = new Map(heading.map((name, i) => [name, columns[i]] as const))
+	const column = (name: string): string =>
+		defined(minted.get(name), `the column ${name} of the library's ${what}`)
+	return { alias, columns, column, read: (name) => col(alias, column(name)) }
+}
+
+/** A derived table and its columns as the body reads them (`Named`). */
+interface Table {
+	readonly source: FromSource
+	readonly read: (name: string) => Expr
+}
+
+/**
+ * `relation` as a derived table of `columns` over `sources`, `(SELECT … FROM sources) AS alias(columns)`, LATERAL where
+ * it reads the sources before it, each column the relation's own, which states them in the same order.
+ */
+const tableOf = (
+	relation: Named,
 	columns: Columns,
 	sources: ReadonlyArray<FromItem>,
 	lateral: boolean
-): FromSource =>
-	derived(
+): Table => ({
+	source: derived(
 		operandSelect(
 			core(
-				columns.map(([name, value]) => targetAs(value, name)),
+				columns.map(([name, value]) => targetAs(value, relation.column(name))),
 				sources,
 				undefined
 			)
 		),
-		alias,
-		columns.map(([name]) => name),
+		relation.alias,
+		columns.map(([name]) => relation.column(name)),
+		lateral
+	),
+	read: relation.read
+})
+
+/** A derived table of `what` over `sources` (`tableOf`), its names minted by `names`. */
+const table = (
+	names: NameSupply,
+	what: string,
+	columns: Columns,
+	sources: ReadonlyArray<FromItem>,
+	lateral: boolean
+): Table =>
+	tableOf(
+		relationOf(
+			names,
+			what,
+			mapNonEmpty(columns, ([name]) => name)
+		),
+		columns,
+		sources,
 		lateral
 	)
 
 /** One row of `columns` over the sources before it, `LATERAL (SELECT …) AS alias(columns)`, or over none. */
-const step = (alias: string, columns: Columns, lateral: boolean): FromSource =>
-	table(alias, columns, [], lateral)
+const step = (names: NameSupply, what: string, columns: Columns, lateral: boolean): Table =>
+	table(names, what, columns, [], lateral)
 
 /** A window's rows: from `start` to `end`, the segments in order. */
 interface Frame {
@@ -153,10 +213,10 @@ const afterHere: Frame = {
 	end: { kind: "unboundedFollowing" }
 }
 
-/** The window function `name` of `arg` over the rows `frame` names, the segments in order of `alias`'s `k`. */
-const windowed = (name: "sum" | "min", arg: Expr, frame: Frame, alias: string): Expr => ({
+/** The window function `name` of `arg` over the rows `frame` names, the segments in order of `order`. */
+const windowed = (name: "sum" | "min", arg: Expr, frame: Frame, order: Expr): Expr => ({
 	...call(name, [arg]),
-	over: { ...windowOf([], [asc(col(alias, "k"))]), frame }
+	over: { ...windowOf([], [asc(order)]), frame }
 })
 
 /** Whether `segment` is a dot segment, `.` or `..`. */
@@ -185,56 +245,63 @@ const dotSegment = (segment: Expr): Expr => ({
  * by each window and by the aggregate, so the work is the path's length and the sort of its segments, and no regular
  * expression is read.
  */
-const removeDotSegments = (input: Expr): Expr => {
+const removeDotSegments = (names: NameSupply, input: Expr): Expr => {
+	const split = relationOf(names, "path segments", ["t", "k"])
 	const segments: FromSource = {
 		kind: "function",
 		call: call("string_to_table", [input, text("/")]),
-		alias: "s",
-		columns: ["t", "k"],
+		alias: split.alias,
+		columns: split.columns,
 		lateral: false,
 		ordinality: true
 	}
+	const s = split.read
 	const counted = table(
-		"g",
+		names,
+		"counted segments",
 		[
-			["t", col("s", "t")],
-			["k", col("s", "k")],
-			["dot", dotSegment(col("s", "t"))],
+			["t", s("t")],
+			["k", s("k")],
+			["dot", dotSegment(s("t"))],
 			["count", { ...countStar(), over: windowOf([], []) }],
 			[
 				"plain",
-				windowed("sum", when(dotSegment(col("s", "t")), integer(0), integer(1)), throughHere, "s")
+				windowed("sum", when(dotSegment(s("t")), integer(0), integer(1)), throughHere, s("k"))
 			]
 		],
 		[segments],
 		false
 	)
+	const g = counted.read
 	const led = table(
-		"l",
+		names,
+		"led segments",
 		[
-			["t", col("g", "t")],
-			["k", col("g", "k")],
-			["dot", col("g", "dot")],
-			["last", eq(col("g", "k"), col("g", "count"))],
-			["lead", eq(col("g", "plain"), when(col("g", "dot"), integer(0), integer(1)))]
+			["t", g("t")],
+			["k", g("k")],
+			["dot", g("dot")],
+			["last", eq(g("k"), g("count"))],
+			["lead", eq(g("plain"), when(g("dot"), integer(0), integer(1)))]
 		],
-		[counted],
+		[counted.source],
 		false
 	)
+	const l = led.read
 	const moves = table(
-		"p",
+		names,
+		"segment moves",
 		[
-			["k", col("l", "k")],
+			["k", l("k")],
 			[
 				"unit",
 				{
 					kind: "case",
 					operand: undefined,
 					whens: [
-						{ when: col("l", "lead"), result: col("l", "t") },
-						{ when: col("l", "dot"), result: text("/") }
+						{ when: l("lead"), result: l("t") },
+						{ when: l("dot"), result: text("/") }
 					],
-					else: concat(text("/"), col("l", "t"))
+					else: concat(text("/"), l("t"))
 				}
 			],
 			[
@@ -243,56 +310,62 @@ const removeDotSegments = (input: Expr): Expr => {
 					kind: "case",
 					operand: undefined,
 					whens: [
-						{ when: not(col("l", "dot")), result: integer(1) },
-						{ when: col("l", "lead"), result: integer(0) },
-						{ when: col("l", "last"), result: integer(1) }
+						{ when: not(l("dot")), result: integer(1) },
+						{ when: l("lead"), result: integer(0) },
+						{ when: l("last"), result: integer(1) }
 					],
 					else: integer(0)
 				}
 			],
-			[
-				"pop",
-				when(and([not(col("l", "lead")), eq(col("l", "t"), text(".."))]), integer(1), integer(0))
-			]
+			["pop", when(and([not(l("lead")), eq(l("t"), text(".."))]), integer(1), integer(0))]
 		],
-		[led],
+		[led.source],
 		false
 	)
+	const p = moves.read
 	const running = table(
-		"n",
+		names,
+		"running pushes",
 		[
-			["k", col("p", "k")],
-			["unit", col("p", "unit")],
-			["push", col("p", "push")],
-			["n", windowed("sum", binary("-", col("p", "push"), col("p", "pop")), throughHere, "p")]
+			["k", p("k")],
+			["unit", p("unit")],
+			["push", p("push")],
+			["n", windowed("sum", binary("-", p("push"), p("pop")), throughHere, p("k"))]
 		],
-		[moves],
+		[moves.source],
 		false
 	)
+	const n = running.read
 	const later = table(
-		"a",
+		names,
+		"later pushes",
 		[
-			["k", col("n", "k")],
-			["unit", col("n", "unit")],
-			["push", col("n", "push")],
-			["n", col("n", "n")],
-			["later", windowed("min", binary("-", col("n", "n"), col("n", "push")), afterHere, "n")]
+			["k", n("k")],
+			["unit", n("unit")],
+			["push", n("push")],
+			["n", n("n")],
+			["later", windowed("min", binary("-", n("n"), n("push")), afterHere, n("k"))]
 		],
-		[running],
+		[running.source],
 		false
 	)
-	const kept = and([
-		eq(col("a", "push"), integer(1)),
-		ge(firstNonNull([col("a", "later"), col("a", "n")]), col("a", "n"))
-	])
+	const a = later.read
+	const kept = and([eq(a("push"), integer(1)), ge(firstNonNull([a("later"), a("n")]), a("n"))])
 	const joined: Expr = {
-		...call("string_agg", [col("a", "unit"), text("")]),
-		orderBy: [asc(col("a", "k"))]
+		...call("string_agg", [a("unit"), text("")]),
+		orderBy: [asc(a("k"))]
 	}
 	return firstNonNull([
 		{
 			kind: "subquery",
-			query: select(provedCore("oneRow", [targetAs(joined, "path")], [later], kept))
+			query: select(
+				provedCore(
+					"oneRow",
+					[targetAs(joined, names.column(internal("path without dot segments")))],
+					[later.source],
+					kept
+				)
+			)
 		},
 		text("")
 	])
@@ -301,7 +374,7 @@ const removeDotSegments = (input: Expr): Expr => {
 /** The two texts resolveReference splits, the base's parts named `b_…` in a step and the reference's `r_…`. */
 const sides = ["b", "r"] as const
 type Side = (typeof sides)[number]
-const part = (alias: string, side: Side, name: string): Expr => col(alias, `${side}_${name}`)
+const part = (row: Table, side: Side, name: string): Expr => row.read(`${side}_${name}`)
 /** A step's columns: `f`'s parts of the base, then of the reference. */
 const bothSides = (f: (side: Side) => Columns): Columns =>
 	flatMapNonEmpty(sides, (side) =>
@@ -323,12 +396,14 @@ const bothSides = (f: (side: Side) => Columns): Columns =>
  * empty path, else the base's up to its last `/` and it.
  */
 const resolveReferenceDefinition = (): LibraryBody => {
+	const names = new NameSupply(freshNames)
 	const texts: { readonly [S in Side]: Expr } = {
 		b: param(1, types.text),
 		r: param(2, types.text)
 	}
 	const fragments = step(
-		"s1",
+		names,
+		"fragments",
 		[
 			["b_before", before(texts.b, "#")],
 			["r_before", before(texts.r, "#")],
@@ -337,26 +412,29 @@ const resolveReferenceDefinition = (): LibraryBody => {
 		false
 	)
 	const queries = step(
-		"s2",
+		names,
+		"queries",
 		bothSides((side) => [
-			["hier", before(part("s1", side, "before"), "?")],
-			["query", fromFirst(part("s1", side, "before"), "?")]
+			["hier", before(part(fragments, side, "before"), "?")],
+			["query", fromFirst(part(fragments, side, "before"), "?")]
 		]),
 		true
 	)
 	const heads = step(
-		"s3",
-		bothSides((side) => [["head", before(part("s2", side, "hier"), ":")]]),
+		names,
+		"heads",
+		bothSides((side) => [["head", before(part(queries, side, "hier"), ":")]]),
 		true
 	)
 	const schemes = step(
-		"s4",
+		names,
+		"schemes",
 		bothSides((side) => {
-			const head = part("s3", side, "head")
+			const head = part(heads, side, "head")
 			const scheme = when(
 				and([
 					stated(head),
-					lt(length(head), length(part("s2", side, "hier"))),
+					lt(length(head), length(part(queries, side, "hier"))),
 					eq(length(before(head, "/")), length(head))
 				]),
 				concat(head, text(":")),
@@ -367,19 +445,24 @@ const resolveReferenceDefinition = (): LibraryBody => {
 		true
 	)
 	const afters = step(
-		"s5",
+		names,
+		"afters",
 		bothSides((side) => [
 			[
 				"after",
-				from(part("s2", side, "hier"), binary("+", length(part("s4", side, "scheme")), integer(1)))
+				from(
+					part(queries, side, "hier"),
+					binary("+", length(part(schemes, side, "scheme")), integer(1))
+				)
 			]
 		]),
 		true
 	)
 	const authorities = step(
-		"s6",
+		names,
+		"authorities",
 		bothSides((side) => {
-			const after = part("s5", side, "after")
+			const after = part(afters, side, "after")
 			const authority = when(
 				call("starts_with", [after, text("//")]),
 				concat(text("//"), before(from(after, integer(3)), "/")),
@@ -390,23 +473,24 @@ const resolveReferenceDefinition = (): LibraryBody => {
 		true
 	)
 	const paths = step(
-		"s7",
+		names,
+		"paths",
 		bothSides((side) => [
 			[
 				"path",
 				from(
-					part("s5", side, "after"),
-					binary("+", length(part("s6", side, "authority")), integer(1))
+					part(afters, side, "after"),
+					binary("+", length(part(authorities, side, "authority")), integer(1))
 				)
 			]
 		]),
 		true
 	)
-	const baseAuthority = part("s6", "b", "authority")
-	const basePath = part("s7", "b", "path")
-	const referenceScheme = part("s4", "r", "scheme")
-	const referencePath = part("s7", "r", "path")
-	const named = or([stated(referenceScheme), stated(part("s6", "r", "authority"))])
+	const baseAuthority = part(authorities, "b", "authority")
+	const basePath = part(paths, "b", "path")
+	const referenceScheme = part(schemes, "r", "scheme")
+	const referencePath = part(paths, "r", "path")
+	const named = or([stated(referenceScheme), stated(part(authorities, "r", "authority"))])
 	const merged = when(
 		and([stated(baseAuthority), unstated(basePath)]),
 		concat(text("/"), referencePath),
@@ -419,10 +503,11 @@ const resolveReferenceDefinition = (): LibraryBody => {
 		)
 	)
 	const targets = step(
-		"t",
+		names,
+		"resolved target",
 		[
-			["scheme", when(stated(referenceScheme), referenceScheme, part("s4", "b", "scheme"))],
-			["authority", when(named, part("s6", "r", "authority"), baseAuthority)],
+			["scheme", when(stated(referenceScheme), referenceScheme, part(schemes, "b", "scheme"))],
+			["authority", when(named, part(authorities, "r", "authority"), baseAuthority)],
 			["kept", and([not(named), unstated(referencePath)])],
 			[
 				"input",
@@ -431,18 +516,18 @@ const resolveReferenceDefinition = (): LibraryBody => {
 		],
 		true
 	)
-	const kept = col("t", "kept")
+	const kept = targets.read("kept")
 	const query = when(
-		and([kept, unstated(part("s2", "r", "query"))]),
-		part("s2", "b", "query"),
-		part("s2", "r", "query")
+		and([kept, unstated(part(queries, "r", "query"))]),
+		part(queries, "b", "query"),
+		part(queries, "r", "query")
 	)
 	const target = concat(
-		col("t", "scheme"),
-		col("t", "authority"),
-		when(kept, basePath, removeDotSegments(col("t", "input"))),
+		targets.read("scheme"),
+		targets.read("authority"),
+		when(kept, basePath, removeDotSegments(names, targets.read("input"))),
 		query,
-		part("s1", "r", "fragment")
+		part(fragments, "r", "fragment")
 	)
 	return {
 		params: [
@@ -454,8 +539,10 @@ const resolveReferenceDefinition = (): LibraryBody => {
 			kind: "subquery",
 			query: operandSelect(
 				core(
-					[targetAs(target, "target")],
-					[fragments, queries, heads, schemes, afters, authorities, paths, targets],
+					[targetAs(target, names.column(internal("resolved reference")))],
+					[fragments, queries, heads, schemes, afters, authorities, paths, targets].map(
+						(t) => t.source
+					),
 					undefined
 				)
 			)
@@ -796,11 +883,35 @@ const xsdPatternDefinition = (): LibraryBody => {
 	const ops = xsdStates.flatMap((s) => xsdClasses.map((c) => placeOf(xsdOps, moveOf(s, c)[1])))
 	const state = (s: XsdState): Expr => integer(placeOf(xsdStates, s))
 	const op = (o: XsdOp): Expr => integer(placeOf(xsdOps, o))
-	const r = (column: string): Expr => col("r", column)
-	const c = col("h", "c")
+	const names = new NameSupply(freshNames)
+	const lengthNames = relationOf(names, "pattern length", ["n"])
+	const splitNames = relationOf(names, "pattern characters", ["c", "k"])
+	const charactersNames = relationOf(names, "pattern code points", ["cs", "n"])
+	const readNames = relationOf(names, "pattern read", [
+		"i",
+		"s",
+		"parens",
+		"depth",
+		"first",
+		"acc",
+		"lo"
+	])
+	const charNames = relationOf(names, "pattern character", ["c"])
+	const classNames = relationOf(names, "pattern class", ["k"])
+	const moveNames = relationOf(names, "pattern move", ["next", "op"])
+	const afterNames = relationOf(names, "pattern registers", [
+		"s",
+		"parens",
+		"depth",
+		"first",
+		"acc",
+		"lo"
+	])
+	const r = readNames.read
+	const c = charNames.read("c")
 	const character = call("chr", [c])
-	const moved = col("m", "op")
-	const next = col("m", "next")
+	const moved = moveNames.read("op")
+	const next = moveNames.read("next")
 	/** A move's effect on one register: its value under each op that sets it, the register as it was under any other. */
 	const register = (kept: Expr, set: NonEmptyReadonlyArray<readonly [XsdOp, Expr]>): Expr => ({
 		kind: "case",
@@ -820,7 +931,7 @@ const xsdPatternDefinition = (): LibraryBody => {
 		],
 		else: c
 	}
-	const names = [...xsdCategoryNames, ...[...xmlSchemaBlocks.keys()].map((b) => `Is${b}`)]
+	const categories = [...xsdCategoryNames, ...[...xmlSchemaBlocks.keys()].map((b) => `Is${b}`)]
 	const digits = (numeral: Expr): Expr => call("ltrim", [numeral, text("0")])
 	const least = digits(r("lo"))
 	const most = digits(r("acc"))
@@ -832,61 +943,69 @@ const xsdPatternDefinition = (): LibraryBody => {
 	const split: FromSource = {
 		kind: "function",
 		call: call("regexp_split_to_table", [pattern, text("")]),
-		alias: "p",
-		columns: ["c", "k"],
+		alias: splitNames.alias,
+		columns: splitNames.columns,
 		lateral: false,
 		ordinality: true
 	}
+	/** The pattern's length, one row, carried beside its characters so their aggregate groups by it: a pattern of no
+	 * character holds no row of them, and no group, and the recursion reads none, as it reads none of a pattern of n = 0. */
+	const counted = tableOf(lengthNames, [["n", length(pattern)]], [], false)
 	const characters: Cte = {
 		...cte(
-			"t",
-			["cs", "n"],
-			simpleSelect(
-				[
-					targetAs(
-						{
-							...call("array_agg", [call("ascii", [col("p", "c")])]),
-							orderBy: [asc(col("p", "k"))]
-						},
-						"cs"
-					),
-					targetAs(length(pattern), "n")
-				],
-				[split],
-				undefined
-			)
+			charactersNames.alias,
+			charactersNames.columns,
+			operandSelect({
+				...core(
+					[
+						targetAs(
+							{
+								...call("array_agg", [call("ascii", [splitNames.read("c")])]),
+								orderBy: [asc(splitNames.read("k"))]
+							},
+							charactersNames.column("cs")
+						),
+						targetAs(counted.read("n"), charactersNames.column("n"))
+					],
+					[counted.source, split],
+					undefined
+				),
+				groupBy: [counted.read("n")]
+			})
 		),
 		materialized: "MATERIALIZED"
 	}
 	const start = core(
 		[
-			targetAs(integer(1), "i"),
-			targetAs(state("branch"), "s"),
-			targetAs(integer(0), "parens"),
-			targetAs(integer(0), "depth"),
-			targetAs(integer(0), "first"),
-			targetAs(text(""), "acc"),
-			targetAs(text(""), "lo")
+			targetAs(integer(1), readNames.column("i")),
+			targetAs(state("branch"), readNames.column("s")),
+			targetAs(integer(0), readNames.column("parens")),
+			targetAs(integer(0), readNames.column("depth")),
+			targetAs(integer(0), readNames.column("first")),
+			targetAs(text(""), readNames.column("acc")),
+			targetAs(text(""), readNames.column("lo"))
 		],
 		[],
 		undefined
 	)
 	const cell = binary(
 		"+",
-		binary("+", binary("*", r("s"), integer(width)), col("k", "k")),
+		binary("+", binary("*", r("s"), integer(width)), classNames.read("k")),
 		integer(1)
 	)
 	const following = core(
 		[
-			targetAs(binary("+", r("i"), integer(1)), "i"),
-			...["s", "parens", "depth", "first", "acc", "lo"].map((x) => targetAs(col("x", x), x))
+			targetAs(binary("+", r("i"), integer(1)), readNames.column("i")),
+			...["s", "parens", "depth", "first", "acc", "lo"].map((x) =>
+				targetAs(afterNames.read(x), readNames.column(x))
+			)
 		],
 		[
-			cteRef("r"),
-			cteRef("t"),
-			step("h", [["c", subscript(col("t", "cs"), r("i"))]], true),
-			step(
-				"k",
+			cteRef(readNames.alias),
+			cteRef(charactersNames.alias),
+			tableOf(charNames, [["c", subscript(charactersNames.read("cs"), r("i"))]], [], true).source,
+			tableOf(
+				classNames,
 				[
 					[
 						"k",
@@ -899,18 +1018,20 @@ const xsdPatternDefinition = (): LibraryBody => {
 						])
 					]
 				],
+				[],
 				true
-			),
-			step(
-				"m",
+			).source,
+			tableOf(
+				moveNames,
 				[
 					["next", subscript(integers(nexts), cell)],
 					["op", subscript(integers(ops), cell)]
 				],
+				[],
 				true
-			),
-			step(
-				"x",
+			).source,
+			tableOf(
+				afterNames,
 				[
 					[
 						"s",
@@ -925,7 +1046,7 @@ const xsdPatternDefinition = (): LibraryBody => {
 									kind: "equalsAny",
 									expr: r("acc"),
 									array: lit.text(
-										`{${names.map((n) => `"${n}"`).join(",")}}`,
+										`{${categories.map((n) => `"${n}"`).join(",")}}`,
 										defined(arrayOf(types.text), "a text array type")
 									),
 									schema: undefined
@@ -984,14 +1105,15 @@ const xsdPatternDefinition = (): LibraryBody => {
 						])
 					]
 				],
+				[],
 				true
-			)
+			).source
 		],
-		and([le(r("i"), col("t", "n")), ne(r("s"), state("refused"))])
+		and([le(r("i"), charactersNames.read("n")), ne(r("s"), state("refused"))])
 	)
 	const read = cte(
-		"r",
-		["i", "s", "parens", "depth", "first", "acc", "lo"],
+		readNames.alias,
+		readNames.columns,
 		operandSelect(operandUnionAll([start, following]))
 	)
 	const last: OperandSelect = {
@@ -1000,10 +1122,10 @@ const xsdPatternDefinition = (): LibraryBody => {
 				[
 					targetAs(
 						and([isIn(r("s"), [state("branch"), state("atom")]), eq(r("parens"), integer(0))]),
-						"member"
+						names.column(internal("pattern member"))
 					)
 				],
-				[cteRef("r")],
+				[cteRef(readNames.alias)],
 				undefined
 			)
 		),

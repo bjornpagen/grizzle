@@ -104,8 +104,8 @@ export const computeIsXsdPatternOnPostgreSQL19TheLibraryFunctionsVerdictOnEveryT
 			},
 			{
 				file: "packages/engine/src/physical/ddl/library.ts",
-				original: "\tconst names = [...xsdCategoryNames, ",
-				replacement: '\tconst names = ["Foo", ...xsdCategoryNames, ',
+				original: "\tconst categories = [...xsdCategoryNames, ",
+				replacement: '\tconst categories = ["Foo", ...xsdCategoryNames, ',
 				why: "A category escape's name the tables do not hold is admitted: `\\p{Foo}` is admitted, which the reader refuses."
 			},
 			{

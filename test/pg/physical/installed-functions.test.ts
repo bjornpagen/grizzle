@@ -7,11 +7,12 @@
  * language, its parameters in order, STRICT exactly where stated and its SET clauses (test/support/catalog/verify.ts
  * StatedShape); each with EXECUTE held by exactly the roles whose reads and writes call it.
  *
- * - **Property:** over the row-function boxes (test/unit/physical/row-functions.fixtures.ts) and boxes calling the
- *   library's digest, Crypto.sha256 in a generated field and a key over a text of no byte bound, held by its image
- *   (installed-functions.fixtures.ts; the library functions of hand-named bodies wait on the structural audit), each installed by
- *   the migrator in a database of its own, the checker finds nothing, and the catalog holds every function the
- *   installation's constant objects create.
+ * - **Property:** over the row-function boxes (test/unit/physical/row-functions.fixtures.ts) and boxes calling each
+ *   library function a schema reaches, Text.resolveReference and Crypto.sha256 in a generated field, Xml.isPattern in a
+ *   CHECK, and a key over a text of no byte bound, held by its image (installed-functions.fixtures.ts), each installed by
+ *   the migrator in a database of its own, whose install runs the structural audit, which holds every alias of every
+ *   statement, a library body's among them, to the name supply's, and the checker, the catalog holds every function
+ *   the installation's constant objects create.
  * - **Oracle:** specification: the checker's rule for each kind, by the kind the installer recorded.
  * - **Features:** an installation creating a function of each kind.
  */
@@ -130,6 +131,18 @@ export const everyFunctionAnInstallationEmitsOfEveryConstantKindPassesTheInstall
 				replacement:
 					'\t\t\tisConstantKind(named.kind) ? [[named.identifier, named.kind === "rowFunction" ? "closedConstant" : named.kind] as const] : []\n',
 				why: "A row function is judged as a closed relation's constant, so the checker refuses every PL/pgSQL row function of the columns it reads under its closed search_path, as level-checks met at 56f26ca01."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/library.ts",
+				original: "\tconst alias = names.relation(internal(what))\n",
+				replacement: '\tconst alias = names.relation(internal(what)).replace("r", "s")\n',
+				why: "A library body names its relations by hand, as resolveReference's s1 to s7 and isXsdPattern's t and r were, which the structural audit refuses and a caller's names could meet: every install of a schema calling them dies at the audit."
+			},
+			{
+				file: "packages/engine/src/deploy/snapshot/recorded.ts",
+				original: '\t\t\t: returns.kind === "builtin" && returns.name === "boolean"\n',
+				replacement: '\t\t\t: returns.kind === "builtin" && returns.name === "never"\n',
+				why: "The drift check replays a library function of a boolean result, isXsdPattern's, with an empty bit string, which PostgreSQL refuses (42846, cannot cast type bit to boolean), so every migration of a schema calling Xml.isPattern stops at its check."
 			}
 		]
 	})

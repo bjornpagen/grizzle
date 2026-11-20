@@ -97,8 +97,8 @@ export const computeResolveReferenceOnPostgreSQL19TheLibraryFunctionsTargetOfEve
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/library.ts",
-				original: '\t\twhen(kept, basePath, removeDotSegments(col("t", "input"))),',
-				replacement: '\t\twhen(kept, basePath, col("t", "input")),',
+				original: '\t\twhen(kept, basePath, removeDotSegments(names, targets.read("input"))),',
+				replacement: '\t\twhen(kept, basePath, targets.read("input")),',
 				why: "The SQL leaves a reference's dot segments in its target's path; the RFC's `.` and `..` examples resolve to paths that still hold them."
 			}
 		]
