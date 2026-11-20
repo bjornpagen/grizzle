@@ -11,6 +11,7 @@
 		"#test/*": "./test/*",
 		"#corpus/*": "./corpus/*",
 		"#scripts/*": "./scripts/*",
+		"#runtime/utf8.ts": "@bjornpagen/grizzle-text/utf8",
 		"#runtime/*": "./src/runtime-src/runtime/*",
 		"#domain/*": "./src/runtime-src/domain/*",
 		"#*": "./src/*"
