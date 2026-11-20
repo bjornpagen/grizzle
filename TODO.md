@@ -762,8 +762,9 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   row security WITH CHECK reads a domain-typed stored generated column. A pgsql-bugs report with an unbuilt diff. It
   blocks partitioning edullm's 9 tables whose laws read such columns (MULTICORE); once a release grizzle pins carries
   a fix, they can be partitioned.
-- upstream/plpgsql-lineno-rescan: PL/pgSQL rescans the source on every location-to-line lookup. No release carries
-  the fix, and grizzle's pin, the unpatched release, pays it (README, PostgreSQL known issues).
+- upstream/plpgsql-lineno-rescan: PL/pgSQL rescans the source on every location-to-line lookup that goes back a
+  line. No release carries the fix; grizzle prints each statement of a block on one line, so no lookup of its own goes
+  back but the block's BEGIN (README, PostgreSQL known issues).
 - upstream/btree-gist-multibyte-penalty: btree_gist's fix for multibyte text keys (b82d69abf6) is on master only. The
   folder holds the owner's unfiled text_utf8 placement test for master, and b82d69abf6 back-patched with that test for
   REL_19_STABLE. 19.0 shipped without it, and grizzle's pin, the unpatched release, pays it (README, PostgreSQL known

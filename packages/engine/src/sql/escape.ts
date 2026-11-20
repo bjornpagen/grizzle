@@ -1,3 +1,6 @@
+import { quoteString } from "#compiler/core/text.ts"
+import { lexemesOf } from "#compiler/sql/lexer.ts"
+
 /**
  * The characters a text tool may read as a line ending, or rewrite, and their backslash escapes: what a drafted
  * migration file never holds inside a constant (deploy/render/filed.ts), and what the drift report shows by name.
@@ -56,6 +59,29 @@ export const escaped = (text: string): string => {
 		if (escape !== undefined) {
 			out += text.slice(from, k) + escape
 			from = k + 1
+		}
+	}
+	return from === 0 ? text : out + text.slice(from)
+}
+
+/** One piece of an escape string: `value` escaped (escaped) and its quotes doubled, between quotes. */
+export const escapedPiece = (value: string): string => quoteString(escaped(value))
+
+/** The escape string of `value`, E'<value>' on one line, which PostgreSQL parses into the constant `value`. */
+export const escapeString = (value: string): string => `E${escapedPiece(value)}`
+
+/**
+ * `text` with each standard string constant whose value holds a line feed spelled as its escape string (escapeString),
+ * so no line of `text` ends inside a constant; every other lexeme, and everything between lexemes, stands as it is. A
+ * text whose every string constant holds no line feed is itself.
+ */
+export const lineFeedsEscaped = (text: string): string => {
+	let out = ""
+	let from = 0
+	for (const lexeme of lexemesOf(text).lexemes) {
+		if (lexeme.kind === "string" && lexeme.prefix === undefined && lexeme.text.includes("\n")) {
+			out += text.slice(from, lexeme.start) + escapeString(lexeme.text)
+			from = lexeme.end
 		}
 	}
 	return from === 0 ? text : out + text.slice(from)

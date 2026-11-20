@@ -3,7 +3,7 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import {
 	findNodes,
 	type PlanNode,
@@ -34,6 +34,7 @@ import {
 	type OperandSelect,
 	type SelectCore
 } from "#compiler/sql/ast.ts"
+import { type Lexeme, lexemesOf } from "#compiler/sql/lexer.ts"
 import { sqlText, writeDoBlock } from "#compiler/sql/print.ts"
 import { identityHooks, transformQuery } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -325,21 +326,31 @@ const needlessDeduplications = (query: OperandSelect): ReadonlyArray<SelectCore>
  * The statements PostgreSQL plans for a check's block, from its text, each as PL/pgSQL plans it: a PERFORM as the
  * SELECT whose keyword it replaces, for every row (pl_exec.c exec_stmt_perform), an IF's condition as SELECT
  * <condition> (exec_eval_expr), an EXISTS sublink in it for its first row. FOUND, the probe's own flag, reads no table.
+ * Each statement of the block is one line of its text (sql/print.ts proceduralBlock), a compound one holding its body,
+ * so a line is read as the statements its terminators end, each ended where PostgreSQL's scanner reads a semicolon.
  */
 const plannedStatements = (text: string): ReadonlyArray<string> =>
 	Arr.flatMap(Str.split(text, "\n"), (line) => {
-		const statement = Str.trim(line)
-		if (Str.startsWith("PERFORM ")(statement) && Str.endsWith(";")(statement)) {
-			return [`SELECT ${Str.slice("PERFORM ".length, -1)(statement)}`]
-		}
-		if (
-			Str.startsWith("IF ")(statement) &&
-			Str.endsWith(" THEN")(statement) &&
-			statement !== "IF FOUND THEN"
-		) {
-			return [`SELECT ${Str.slice("IF ".length, -" THEN".length)(statement)}`]
-		}
-		return []
+		const lexemes = lexemesOf(line).lexemes
+		const ends: ReadonlyArray<number> = Arr.filterMap(lexemes, (l) =>
+			l.kind === "terminator" ? Result.succeed(l.start) : Result.failVoid
+		)
+		const starts: ReadonlyArray<number> = [0, ...Arr.map(ends, (end) => end + 1)]
+		return Arr.flatMap(Arr.zip(starts, ends), ([start, end]: readonly [number, number]) => {
+			const statement = Str.trim(Str.slice(start, end)(line))
+			if (Str.startsWith("PERFORM ")(statement)) {
+				return [`SELECT ${Str.slice("PERFORM ".length)(statement)}`]
+			}
+			const then: Lexeme | undefined = Arr.findFirst(
+				lexemes,
+				(l) => l.start > start && l.start < end && l.kind === "word" && l.upper === "THEN"
+			).pipe(Option.getOrUndefined)
+			if (!Str.startsWith("IF ")(statement) || then === undefined) {
+				return []
+			}
+			const condition = Str.slice("IF ".length)(Str.trim(Str.slice(start, then.start)(line)))
+			return condition === "FOUND" ? [] : [`SELECT ${condition}`]
+		})
 	})
 
 /**

@@ -1,5 +1,4 @@
-import { quoteString } from "#compiler/core/text.ts"
-import { escaped, isUnfiled } from "#compiler/sql/escape.ts"
+import { escapedPiece, escapeString, isUnfiled } from "#compiler/sql/escape.ts"
 import { type Lexeme, lexemesOf } from "#compiler/sql/lexer.ts"
 
 /**
@@ -52,15 +51,12 @@ const holdsUnfiled = (text: string, layout: "inline" | "lines"): boolean => {
 	return false
 }
 
-/** One piece of an escape string: its value escaped and its quotes doubled, between quotes. */
-const piece = (value: string): string => quoteString(escaped(value))
-
 /** A body as an escape string continued line by line: E, then one piece per line, each but the last ending in \n. */
 const continuedPieces = (body: string): string => {
 	const lines = body.split("\n")
 	const last = lines.length - 1
 	const pieces = lines.flatMap((line, i) =>
-		i < last ? [piece(`${line}\n`)] : line === "" && i > 0 ? [] : [piece(line)]
+		i < last ? [escapedPiece(`${line}\n`)] : line === "" && i > 0 ? [] : [escapedPiece(line)]
 	)
 	return `E${pieces.join("\n")}`
 }
@@ -74,7 +70,7 @@ const respelled = (lexeme: Lexeme): { readonly text: string; readonly end: numbe
 	switch (lexeme.kind) {
 		case "string":
 			return lexeme.prefix === undefined && holdsUnfiled(lexeme.text, "inline")
-				? { text: `E${piece(lexeme.text)}`, end: lexeme.end }
+				? { text: escapeString(lexeme.text), end: lexeme.end }
 				: undefined
 		case "dollar":
 			return holdsUnfiled(lexeme.body, "lines")

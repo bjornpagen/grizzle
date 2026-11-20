@@ -386,9 +386,24 @@ type Commentable =
 	| { readonly kind: "statement"; readonly statement: SqlStatement }
 	| { readonly kind: "DO block"; readonly block: PlBlock }
 
-/** A commented alternative: a generated statement, a trigger function or a DO block. */
+/**
+ * A commented alternative: a generated statement, a COMMENT whose text is built of the fragments, a trigger function or
+ * a DO block. A block spells a constant holding a line feed as an escape string (sql/print.ts proceduralBlock), so the
+ * COMMENT's text is where a commented alternative's literal holds a raw line feed.
+ */
 export const commentable: Gen<Commentable> = weighted<Commentable>([
 	[2, (s) => ({ kind: "statement", statement: s.draw(statementGen(sqlCatalog)) })],
+	[
+		1,
+		(s) => ({
+			kind: "statement",
+			statement: {
+				kind: "comment",
+				on: { kind: "SCHEMA", name: "audit" },
+				text: s.draw(fragmentText)
+			}
+		})
+	],
 	[1, (s) => ({ kind: "statement", statement: triggerFunction(s.draw(plBlockGen)) })],
 	[1, (s) => ({ kind: "DO block", block: s.draw(plBlockGen) })]
 ])

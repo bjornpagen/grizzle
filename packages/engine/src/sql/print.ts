@@ -60,6 +60,7 @@ import {
 	type PackConstant,
 	type PerformQuery,
 	type PlBlock,
+	type PlDeclaration,
 	type PlStatement,
 	type PublishedTable,
 	type DrivenColumn,
@@ -99,6 +100,7 @@ import {
 	databaseDefaultBlock,
 	databaseLock
 } from "#compiler/sql/catalog.ts"
+import { lineFeedsEscaped } from "#compiler/sql/escape.ts"
 import { statementParams } from "#compiler/sql/transform.ts"
 
 /**
@@ -1632,25 +1634,12 @@ const performLine = (out: Lines, query: PerformQuery): void =>
 		})};`
 	)
 
-/** A RAISE EXCEPTION, its USING options aligned under the first. */
-const raiseLines = (
-	out: Lines,
-	statement: Extract<PlStatement, { readonly kind: "raise" }>
-): void => {
+/** A RAISE EXCEPTION and its USING options, on the one line a block's statement takes (proceduralBlock). */
+const raiseText = (statement: Extract<PlStatement, { readonly kind: "raise" }>): string => {
 	const head = `RAISE EXCEPTION ${quoteString(statement.message)}`
-	if (statement.using.length === 0) {
-		return out.line(`${head};`)
-	}
-	out.line(head)
-	const options = out.nested()
-	const lead = "USING "
-	const continuation = " ".repeat(lead.length)
-	for (const [i, option] of statement.using.entries()) {
-		const last = i === statement.using.length - 1
-		options.line(
-			`${i === 0 ? lead : continuation}${option.option} = ${printExpr(option.value)}${last ? ";" : ","}`
-		)
-	}
+	return statement.using.length === 0
+		? `${head};`
+		: `${head} USING ${statement.using.map((o) => `${o.option} = ${printExpr(o.value)}`).join(", ")};`
 }
 
 const plStatement = (out: Lines, statement: PlStatement): void => {
@@ -1714,7 +1703,7 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 			return out.line("END CASE;")
 		}
 		case "raise":
-			return raiseLines(out, statement)
+			return out.line(raiseText(statement))
 		case "return":
 			return out.line(`RETURN ${printExpr(statement.value)};`)
 	}
@@ -1726,18 +1715,42 @@ const plStatements = (out: Lines, statements: ReadonlyArray<PlStatement>): void 
 	}
 }
 
-const plBlock = (out: Lines, block: PlBlock): void => {
-	if (block.declare.length > 0) {
+/**
+ * A PL/pgSQL block, a function's body or a DO statement's: its declarations, each on a line, and each statement of its
+ * body on one line, whatever it holds, so the block compiles in time linear in its length. PL/pgSQL resolves a
+ * statement's location to its line number as it reduces the statement, an IF, an ELSIF, a CASE WHEN or a loop only after
+ * the statements of its body, and plpgsql_location_to_lineno rescans the source from its first byte whenever a location
+ * lies before the start of the line it last resolved (PostgreSQL 19.0, src/pl/plpgsql/src/pl_scanner.c, "be correct,
+ * but not fast, if input location goes backwards"), as it does at every compound statement whose body begins a later
+ * line: a block of N such statements compiled in O(N x length), at CREATE FUNCTION and at the first call in every
+ * backend, 17 s for one CASE of 40,000 arms. A statement on one line holds every location its reduction resolves, so no
+ * location goes back but the block's own BEGIN, resolved last, whose rescan reads the declarations alone. A string
+ * constant whose value holds a line feed is spelled as its escape string (sql/escape.ts lineFeedsEscaped), so the line
+ * ends at the statement's end, never inside the constant.
+ */
+const proceduralBlock = <S>(
+	out: Lines,
+	declare: ReadonlyArray<PlDeclaration>,
+	body: ReadonlyArray<S>,
+	statement: (out: Lines, s: S) => void
+): void => {
+	if (declare.length > 0) {
 		out.line("DECLARE")
 		const declarations = out.nested()
-		for (const d of block.declare) {
+		for (const d of declare) {
 			declarations.line(`${quoteIdent(d.name)} ${printType(d.type)};`)
 		}
 	}
 	out.line("BEGIN")
-	plStatements(out.nested(), block.body)
+	const statements = out.nested()
+	for (const s of body) {
+		statements.line(lineFeedsEscaped(inlineText((row) => statement(row, s))))
+	}
 	out.line("END")
 }
+
+const plBlock = (out: Lines, block: PlBlock): void =>
+	proceduralBlock(out, block.declare, block.body, plStatement)
 
 /**
  * The dollar-quote tag for a body's lines: `$$` unless a line holds it, then `$gz$`, `$gz1$`, …. No tag holds a
@@ -2592,7 +2605,7 @@ const doStatement = (out: Lines, statement: DoStatement): void => {
 		case "perform":
 			return performLine(out, statement.query)
 		case "raise":
-			return raiseLines(out, statement)
+			return out.line(raiseText(statement))
 	}
 }
 
@@ -2605,17 +2618,7 @@ const doStatements = (out: Lines, statements: ReadonlyArray<DoStatement>): void 
 /** DO and a catalog-language block, dollar-quoted under a tag its body does not hold. */
 const writeDo = (out: Lines, block: DoBlock): void => {
 	const body: Array<string> = []
-	const lines = new BlockLines(body, sqlUnit, "")
-	if (block.declare.length > 0) {
-		lines.line("DECLARE")
-		const declarations = lines.nested()
-		for (const d of block.declare) {
-			declarations.line(`${quoteIdent(d.name)} ${printType(d.type)};`)
-		}
-	}
-	lines.line("BEGIN")
-	doStatements(lines.nested(), block.body)
-	lines.line("END")
+	proceduralBlock(new BlockLines(body, sqlUnit, ""), block.declare, block.body, doStatement)
 	const tag = dollarQuoteTag(body)
 	out.line(`DO ${tag}`)
 	for (const line of body) {
