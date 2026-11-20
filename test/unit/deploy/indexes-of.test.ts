@@ -125,7 +125,8 @@ export const indexesOfNamesEachIndexsReasonsAndKeyColumnsInOrderAndMappedThrough
 									case "law":
 										return { kind: "law", laws: column.laws, direction: column.direction }
 									case "image":
-										return { kind: "image", direction: column.direction }
+									case "suffix":
+										return { kind: column.kind, direction: column.direction }
 								}
 							}),
 							reasons: index.reasons

@@ -35,7 +35,7 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { arrayOf, cUtf8Collation, namedType, numericType, types } from "#compiler/sql/build.ts"
 import type { ClosedConstant } from "#compiler/sql/constants.ts"
-import type { ImagedColumns } from "#compiler/sql/image.ts"
+import type { StoredColumns } from "#compiler/sql/image.ts"
 
 /** The greatest d with 10^d - 1 at most `bound`, a magnitude. */
 const exactDigits = (bound: bigint): number => {
@@ -180,10 +180,16 @@ export interface PhysicalNames {
 	 */
 	readonly refusal: QualifiedFunctionRef
 	/**
-	 * The columns its lookup indexes hold by their image (sql/image.ts ImagedColumns), whose every equality a statement
+	 * The columns its lookup indexes hold by their image (sql/image.ts StoredColumns), whose every equality a statement
 	 * states of their images too (statingImages).
 	 */
-	readonly imaged: ImagedColumns
+	readonly imaged: StoredColumns
+	/**
+	 * The text columns a B-tree holds the suffix key of (sql/suffix.ts StoredColumns), whose every suffix test a
+	 * statement reads as its key's range (seekingSuffixes): a judged read's own seeks' (physical/ddl/rules.ts), none for
+	 * any other statement, which no suffix key serves.
+	 */
+	readonly suffixed: StoredColumns
 	/**
 	 * A declared function, by its declared name (schema/function.ts fn): its installed name, in the schema of the level
 	 * that declares it, where its row types are too (physical/ddl/functions.ts).

@@ -59,10 +59,18 @@ interface Pushed {
 	readonly eq: ReadonlyMap<string, "fixed" | "literal">
 	readonly range: ReadonlyMap<string, ReadonlySet<Bound>>
 	readonly span: ReadonlySet<string>
+	/** The text columns a consumer holds to end with a fixed value (atoms.ts `suffix`). */
+	readonly suffix: ReadonlySet<string>
 	readonly pairs: ReadonlyArray<Atom>
 }
 
-const nothing: Pushed = { eq: new Map(), range: new Map(), span: new Set(), pairs: [] }
+const nothing: Pushed = {
+	eq: new Map(),
+	range: new Map(),
+	span: new Set(),
+	suffix: new Set(),
+	pairs: []
+}
 
 /** The occurrences that drive through their keys around an occurrence with no region: none, it having no partner. */
 const alone: ReadonlySet<number> = new Set()
@@ -89,6 +97,7 @@ const pushedKey = (p: Pushed): string =>
 			.map(([column, bounds]) => `${column}\u0002${sorted(bounds).join("\u0002")}`)
 			.join("\u0001"),
 		sorted(p.span).join("\u0001"),
+		sorted(p.suffix).join("\u0001"),
 		p.pairs
 			.map((a) => atomKey(a))
 			.toSorted(compareStrings)
@@ -133,6 +142,7 @@ const withAtoms = (p: Pushed, atoms: ReadonlyArray<Atom>): Pushed => {
 	const eq = new Map(p.eq)
 	const range = new Map(p.range)
 	const span = new Set(p.span)
+	const suffix = new Set(p.suffix)
 	const pairs = [...p.pairs]
 	for (const a of atoms) {
 		switch (a.kind) {
@@ -145,6 +155,9 @@ const withAtoms = (p: Pushed, atoms: ReadonlyArray<Atom>): Pushed => {
 			case "span":
 				span.add(a.column)
 				continue
+			case "suffix":
+				suffix.add(a.column)
+				continue
 			case "pairEq":
 			case "pairRange":
 			case "pairSpan":
@@ -152,7 +165,7 @@ const withAtoms = (p: Pushed, atoms: ReadonlyArray<Atom>): Pushed => {
 				continue
 		}
 	}
-	return { eq, range, span, pairs }
+	return { eq, range, span, suffix, pairs }
 }
 
 /** The facts renamed through `rename`, which maps an output column to the input column it is; a fact on a column it
@@ -161,6 +174,7 @@ const mapPushed = (p: Pushed, rename: (column: string) => string | undefined): P
 	const eq = new Map<string, "fixed" | "literal">()
 	const range = new Map<string, ReadonlySet<Bound>>()
 	const span = new Set<string>()
+	const suffix = new Set<string>()
 	/** Two renamed columns of a pair atom, when both rename and stay two. */
 	const both = (x: string, y: string): readonly [string, string] | undefined => {
 		const a = rename(x)
@@ -185,6 +199,12 @@ const mapPushed = (p: Pushed, rename: (column: string) => string | undefined): P
 			span.add(to)
 		}
 	}
+	for (const c of p.suffix) {
+		const to = rename(c)
+		if (to !== undefined) {
+			suffix.add(to)
+		}
+	}
 	/** A pair atom over its renamed columns, none when either renames to nothing or both to one column. */
 	const renamedPair = (a: Atom): ReadonlyArray<Atom> => {
 		switch (a.kind) {
@@ -200,10 +220,11 @@ const mapPushed = (p: Pushed, rename: (column: string) => string | undefined): P
 			case "eq":
 			case "range":
 			case "span":
+			case "suffix":
 				return []
 		}
 	}
-	return { eq, range, span, pairs: p.pairs.flatMap(renamedPair) }
+	return { eq, range, span, suffix, pairs: p.pairs.flatMap(renamedPair) }
 }
 
 const restrict = (p: Pushed, columns: ReadonlyArray<string>): Pushed => {
@@ -215,6 +236,7 @@ const fixedOn = (columns: Iterable<string>): Pushed => ({
 	eq: new Map([...columns].map((c) => [c, "fixed" as const] as const)),
 	range: new Map(),
 	span: new Set(),
+	suffix: new Set(),
 	pairs: []
 })
 
@@ -236,6 +258,8 @@ interface OccurrenceFacts {
 	readonly eq: Map<string, "fixed" | "literal">
 	readonly range: Map<string, Set<Bound>>
 	readonly span: Set<string>
+	/** Its text columns its consumers hold to end with a fixed value (Pushed `suffix`). */
+	readonly suffix: Set<string>
 	/** By partner occurrence index, in occurrence order. */
 	readonly partners: Map<number, PartnerFacts>
 	/** Each region variable class bound here, to its first column. */
@@ -334,6 +358,7 @@ const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
 			eq: new Map(),
 			range: new Map(),
 			span: new Set(),
+			suffix: new Set(),
 			partners: new Map(),
 			classes
 		}
@@ -451,6 +476,11 @@ const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
 			b.facts.span.add(b.column)
 		}
 	}
+	for (const column of pushed.suffix) {
+		for (const b of bindingsAt(column)) {
+			b.facts.suffix.add(b.column)
+		}
+	}
 	/** Join conditions: shared variable classes and pair atoms between classes. */
 	const relate = (k1: number, k2: number, kind: "eq" | "range" | "span"): void => {
 		const joined = bindingsOf(k1).flatMap((x) =>
@@ -493,6 +523,7 @@ const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
 			case "eq":
 			case "range":
 			case "span":
+			case "suffix":
 				return []
 		}
 	}
@@ -502,9 +533,15 @@ const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
 	return { occurrences, classOf }
 }
 
-/** Whether an occurrence carries a fixed restriction: an equality with a fixed value, a range or a span predicate. */
+/**
+ * Whether an occurrence carries a fixed restriction: an equality with a fixed value, a range, a span predicate or a
+ * suffix test.
+ */
 const restricted = (o: OccurrenceFacts): boolean =>
-	[...o.eq.values()].some((k) => k === "fixed") || o.range.size > 0 || o.span.size > 0
+	[...o.eq.values()].some((k) => k === "fixed") ||
+	o.range.size > 0 ||
+	o.span.size > 0 ||
+	o.suffix.size > 0
 
 type KeysOf = (base: NodeOf<"Base">) => ReadonlyArray<KeySet>
 
@@ -518,6 +555,7 @@ interface Binding {
 	readonly eq: ReadonlyMap<string, "fixed" | "literal">
 	readonly range: ReadonlyMap<string, ReadonlySet<Bound>>
 	readonly spans: ReadonlyArray<string>
+	readonly suffix: ReadonlySet<string>
 }
 
 /** A binding classified for its probe context: a key lookup, a scalar probe fixing no key, or a span binding, which
@@ -549,6 +587,7 @@ type ProbeContext =
 			readonly kind: "scalar"
 			readonly eq: ReadonlyMap<string, "fixed" | "literal">
 			readonly range: ReadonlyMap<string, ReadonlySet<Bound>>
+			readonly suffix: ReadonlySet<string>
 			readonly use: "equality lookup" | "join key"
 	  }
 	| {
@@ -573,11 +612,23 @@ const equalities = (ctx: ProbeContext): ReadonlyMap<string, "fixed" | "literal">
 const pushedOf = (ctx: ProbeContext): Pushed => {
 	switch (ctx.kind) {
 		case "key":
-			return { eq: ctx.bound.eq, range: ctx.bound.range, span: new Set(ctx.bound.spans), pairs: [] }
+			return {
+				eq: ctx.bound.eq,
+				range: ctx.bound.range,
+				span: new Set(ctx.bound.spans),
+				suffix: ctx.bound.suffix,
+				pairs: []
+			}
 		case "scalar":
-			return { eq: ctx.eq, range: ctx.range, span: new Set(), pairs: [] }
+			return { eq: ctx.eq, range: ctx.range, span: new Set(), suffix: ctx.suffix, pairs: [] }
 		case "span":
-			return { eq: ctx.eq, range: ctx.range, span: new Set(ctx.spans), pairs: [] }
+			return {
+				eq: ctx.eq,
+				range: ctx.range,
+				span: new Set(ctx.spans),
+				suffix: new Set(),
+				pairs: []
+			}
 	}
 }
 
@@ -631,6 +682,8 @@ class Extractor {
 	/** Every path asked for, with the columns of the lookup through it (`equalities`), none for an ordered or a vector
 	 * one. */
 	readonly lookups: Array<Lookup> = []
+	/** Every suffix seek a probe context asks for (`SuffixSeek`). */
+	readonly seeks: Array<SuffixSeek> = []
 	readonly statistics = new Map<string, StatisticsShape>()
 	/** The pushed facts each node was visited under, by their key: the walk's seen-set. */
 	readonly #visited = new Map<RelNode, Set<string>>()
@@ -682,6 +735,7 @@ class Extractor {
 						eq: new Map(pushed.eq),
 						range: new Map([...pushed.range].map(([c, b]) => [c, new Set(b)] as const)),
 						span: new Set([...pushed.span].filter((c) => isSpanColumn(n.heading, c))),
+						suffix: new Set(pushed.suffix),
 						partners: new Map(),
 						classes: new Map()
 					},
@@ -690,7 +744,7 @@ class Extractor {
 				return
 			case "Filter":
 				this.textSearch(n.input, n.pred)
-				return this.visit(n.input, withAtoms(pushed, predicateAtoms(n.input.id, n.pred)))
+				return this.visit(n.input, withAtoms(pushed, this.atomsOf(n)))
 			case "ProjectSet":
 				return this.visit(n.input, mapPushed(pushed, this.projection(n)))
 			case "Take": {
@@ -778,6 +832,28 @@ class Extractor {
 			const e = out.expr
 			return e.kind === "column" && e.column.node === n.input.id ? e.column.name : undefined
 		}
+	}
+
+	/**
+	 * The atoms of a filter's predicate over its input (atoms.ts predicateAtoms), a column fixed per evaluation where its
+	 * input computes it as a constant (`constantColumn`) or a region's variable is correlated with a fixed value, the
+	 * channel a navigation step passes the row before it in by (analysis/theory/navigate.ts).
+	 */
+	atomsOf(n: NodeOf<"Filter">): ReadonlyArray<Atom> {
+		const input = n.input
+		const constant = (column: string): boolean => {
+			if (input.kind === "ProjectSet") {
+				return this.constantColumn(input, column)
+			}
+			return (
+				input.kind === "MatchRegion" &&
+				input.correlated.some((c) => {
+					const operand = operandOf(input.id, c.expr)
+					return c.var.name === column && (operand.kind === "fixed" || operand.kind === "literal")
+				})
+			)
+		}
+		return predicateAtoms(input.id, n.pred, constant)
 	}
 
 	/** Whether an output column of a projection is a constant: a literal, a parameter, or an outer value. */
@@ -869,7 +945,7 @@ class Extractor {
 				...span,
 				...[...eq].filter(([c, k]) => k === "fixed" && isSpanColumn(heading, c)).map(([c]) => c)
 			])
-			return { eq, range, spans }
+			return { eq, range, spans, suffix: o.suffix }
 		}
 		const classify = (b: Binding, use: "equality lookup" | "join key"): Classified => {
 			const key = keyWithin(new Set(b.eq.keys()))
@@ -878,7 +954,10 @@ class Extractor {
 			}
 			return b.spans.length > 0
 				? { kind: "spanned" }
-				: { kind: "unkeyed", context: { kind: "scalar", eq: b.eq, range: b.range, use } }
+				: {
+						kind: "unkeyed",
+						context: { kind: "scalar", eq: b.eq, range: b.range, suffix: b.suffix, use }
+					}
 		}
 		const joined = partners.map(([at, p]) => ({
 			at,
@@ -1013,6 +1092,16 @@ class Extractor {
 				this.lookups,
 				contextPaths(ctx).map((p): Lookup => ({ path: p, binds: [binds] }))
 			)
+			if (ctx.kind === "scalar") {
+				const fixed = sorted(
+					[...ctx.eq.keys()].filter((c) => !isSpanColumn(heading, c) && !isVectorColumn(heading, c))
+				)
+				for (const column of sorted(ctx.suffix)) {
+					if (!ctx.eq.has(column) && isTextColumn(heading, column)) {
+						this.seeks.push({ relation: base.relation, fixed, column })
+					}
+				}
+			}
 		}
 		/** Correlated selections. */
 		const selected = sorted([...o.eq.keys()].filter((c) => !isVectorColumn(heading, c)))
@@ -1050,11 +1139,7 @@ class Extractor {
 	): ReadonlyArray<Resolution<A>> {
 		switch (n.kind) {
 			case "Filter":
-				return this.resolve(
-					n.input,
-					requests,
-					withAtoms(pushed, predicateAtoms(n.input.id, n.pred))
-				)
+				return this.resolve(n.input, requests, withAtoms(pushed, this.atomsOf(n)))
 			case "ProjectSet": {
 				const rename = this.projection(n)
 				/** Each request as the input reads it: an input column the projection renames, or fixed to a constant the
@@ -1091,6 +1176,7 @@ class Extractor {
 					eq: new Map(pushed.eq),
 					range: new Map([...pushed.range].map(([c, b]) => [c, new Set(b)] as const)),
 					span: new Set(pushed.span),
+					suffix: new Set(pushed.suffix),
 					partners: new Map(),
 					classes: new Map()
 				}
@@ -1428,6 +1514,34 @@ export const extractAccess = (
 		paths: uniquePaths(x.lookups.map((l) => l.path)),
 		statistics: [...x.statistics.values()].toSorted(statisticsOrder)
 	}
+}
+
+/**
+ * A read of a stored relation's text column by a suffix its probe holds fixed (atoms.ts `suffix`), the columns its probe
+ * fixes by equality, in code point order, leading: what a B-tree on the column's suffix key serves as a range
+ * (sql/suffix.ts), which a judged read asks for (physical/ddl/rules.ts requestsOf) and states (seekingSuffixes). No
+ * workload path is one: a workload's statements state no suffix key's range, so an index on it would serve none of
+ * their reads.
+ */
+export interface SuffixSeek {
+	readonly relation: string
+	readonly fixed: ReadonlyArray<string>
+	readonly column: string
+}
+
+/** The suffix seeks of a walk of `roots` (`SuffixSeek`), each once, in their walk's order. */
+export const extractSuffixSeeks = (
+	roots: ReadonlyArray<RelNode>,
+	options: ExtractOptions
+): ReadonlyArray<SuffixSeek> => {
+	const once = new Map<string, SuffixSeek>()
+	for (const seek of extracted(roots, options).seeks) {
+		const key = [seek.relation, seek.column, ...seek.fixed].join("\u0000")
+		if (!once.has(key)) {
+			once.set(key, seek)
+		}
+	}
+	return [...once.values()]
 }
 
 /** The paths of `extractAccess`, each with the lookups through it (paths.ts Lookup): what a judged read's index requests

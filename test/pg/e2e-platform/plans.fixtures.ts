@@ -1519,7 +1519,11 @@ export const lawProbes = (
 			}
 			const keys = r.blocks.flat()
 			const fields = Arr.map(keys, (k) =>
-				k.column.kind === "field" ? k.column.field.name : k.column.column
+				k.column.kind === "field"
+					? k.column.field.name
+					: k.column.kind === "suffix"
+						? `suffix(${k.column.of.field.name})`
+						: k.column.column
 			)
 			const label = `${r.use} on ${r.relation}(${Arr.join(fields, ", ")})`
 			const relation = Option.getOrThrowWith(
@@ -1527,6 +1531,9 @@ export const lawProbes = (
 				() => new Error(`${label}: no relation ${r.relation}`)
 			)
 			const conditions = Arr.map(keys, (k, at) => {
+				if (k.column.kind === "suffix") {
+					return assert.fail(`${label} seeks a suffix, which no platform fixture reads`)
+				}
 				if (k.column.kind === "law") {
 					if (r.method === "gist") {
 						return assert.fail(`${label} asks GiST for the law column ${k.column.column}`)

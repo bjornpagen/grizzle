@@ -254,7 +254,12 @@ const requestKeys = (
 }> =>
 	request.role === "lawMaintenance"
 		? Arr.map(request.blocks.flat(), (k) => ({
-				field: k.column.kind === "field" ? k.column.field.name : k.column.column,
+				field:
+					k.column.kind === "field"
+						? k.column.field.name
+						: k.column.kind === "suffix"
+							? `suffix(${k.column.of.field.name})`
+							: k.column.column,
 				dir: k.dir,
 				opclass: k.opclass
 			}))
@@ -273,7 +278,9 @@ const keyColumn = (
 	key: { readonly column: KeyTerm }
 ): string => {
 	const column =
-		key.column.kind === "image" || key.column.kind === "bound" ? key.column.of : key.column
+		key.column.kind === "image" || key.column.kind === "suffix" || key.column.kind === "bound"
+			? key.column.of
+			: key.column
 	return column.kind === "field"
 		? installed.installation.names.column(relation, column.field)
 		: column.column

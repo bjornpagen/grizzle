@@ -10,6 +10,7 @@ import {
 import { searchInRows } from "#compiler/check/approximate/attach.ts"
 import { canonicalEquals, unwrap } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { CompletedOrder, Heading, NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import { withAdmission } from "#compiler/lower/conservative/admission.ts"
 import { statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
@@ -143,6 +144,7 @@ import {
 	NameSupply,
 	namesPast
 } from "#compiler/sql/naming.ts"
+import { seekingSuffixes } from "#compiler/sql/suffix.ts"
 
 /**
  * A bound parent set at or below this size takes the correlated LATERAL form. A LATERAL probe of LIMIT k per parent and
@@ -183,6 +185,16 @@ import {
  *   differ from the Lab fixture's
  */
 export const lateralParentMax = 256
+
+/**
+ * A statement as its relations' indexes read it: each equality of a text a lookup index holds by its image stating the
+ * images' equality beside it (sql/image.ts statingImages), and each suffix test of a text a B-tree holds the suffix key
+ * of read as that key's range (sql/suffix.ts seekingSuffixes).
+ */
+const readByItsIndexes = (
+	query: Select,
+	names: Pick<PhysicalNames, "imaged" | "suffixed">
+): Select => seekingSuffixes(statingImages(query, names.imaged), names.suffixed)
 
 /**
  * Which form a per-execution take choice lowers to in one lowering of a statement: the LATERAL form for a small parent
@@ -1032,9 +1044,9 @@ export class OptimizedDelivery<
 			const printed = printedStatement(
 				withAdmission(
 					cx,
-					statingImages(
+					readByItsIndexes(
 						withLeading(refineDelivered(cx, only.query, output.heading), log.ctes),
-						cx.names.imaged
+						cx.names
 					)
 				),
 				output.names,
@@ -1097,7 +1109,7 @@ export class OptimizedDelivery<
 		const ast = bindLaterally(
 			withAdmission(
 				cx,
-				statingImages(
+				readByItsIndexes(
 					{
 						...select(body),
 						with: {
@@ -1108,7 +1120,7 @@ export class OptimizedDelivery<
 							)
 						}
 					},
-					cx.names.imaged
+					cx.names
 				)
 			),
 			supply

@@ -292,13 +292,15 @@ export type IndexedColumn =
 	  }
 
 /**
- * One key column of an index, in the index's key order: a column it holds (IndexedColumn), or the image of one, the
- * md5 digest a lookup index holds in place of a text of no byte bound (sql/image.ts); with its direction, a
- * B-tree's ascending or descending, or none for an index that orders nothing (GiST, HNSW, hash).
+ * One key column of an index, in the index's key order: a column it holds (IndexedColumn), the image of one, the
+ * md5 digest a lookup index holds in place of a text of no byte bound (sql/image.ts), or the suffix key of a text
+ * field, which a law's probe seeks a suffix through (sql/suffix.ts); with its direction, a B-tree's ascending or
+ * descending, or none for an index that orders nothing (GiST, HNSW, hash).
  */
 export type IndexKeyColumn = { readonly direction: "asc" | "desc" | "none" } & (
 	| IndexedColumn
 	| { readonly kind: "image"; readonly of: IndexedColumn }
+	| { readonly kind: "suffix"; readonly of: IndexedColumn }
 )
 
 /**

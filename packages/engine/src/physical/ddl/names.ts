@@ -45,7 +45,7 @@ import {
 } from "#compiler/schema/representability.ts"
 import type { FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
 import type { ClosedConstant } from "#compiler/sql/constants.ts"
-import { type ImagedColumns, imagedColumns } from "#compiler/sql/image.ts"
+import { type StoredColumns, storedColumns } from "#compiler/sql/image.ts"
 import { type OutsideProbe, probeIdentity } from "#compiler/write/insert/unique.ts"
 
 export interface InstallNames extends PhysicalNames {
@@ -391,11 +391,12 @@ export const roleReadNames = (
 	closedIndex: names.closedIndex,
 	refusal: names.refusal,
 	declaredFunction: names.declaredFunction,
-	imaged: imagedViews(names, world, role, entries)
+	imaged: imagedViews(names, world, role, entries),
+	suffixed: names.suffixed
 })
 
 /**
- * The imaged columns of a role's views (sql/image.ts ImagedColumns). A whole entry's view holds its table's columns
+ * The imaged columns of a role's views (sql/image.ts StoredColumns). A whole entry's view holds its table's columns
  * under their names, and PostgreSQL reads a plain view's lookups through its table's indexes, so its imaged columns are
  * its table's. A query entry's view is a security barrier, into which a condition passes only where it is leakproof, as
  * an image's equality is (md5, core/identity.ts TextImage): its imaged columns are its head's texts of no contract a
@@ -408,8 +409,8 @@ const imagedViews = (
 	world: WorldNames,
 	role: OwnedRole,
 	entries: ReadonlyArray<RoleEntry>
-): ImagedColumns =>
-	imagedColumns([
+): StoredColumns =>
+	storedColumns([
 		...Object.entries(role.relations).flatMap(([relation, e]) =>
 			e.kind === "whole"
 				? names.imaged
@@ -619,7 +620,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 		closedRelations: input.closedRelations,
 		closedIndex: closedIndexOf(input.closedTable),
 		selectionKeys: (relation) => input.selectionKeys.get(relation) ?? [],
-		imaged: imagedColumns(
+		imaged: storedColumns(
 			Object.values(owned.relations).flatMap((r) => {
 				if (r.kind !== "relation") {
 					return []
@@ -635,6 +636,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 				)
 			})
 		),
+		suffixed: storedColumns([]),
 		/** A contract's domain by its name, whether the base declares it, a context field or a served parameter, named by
 		 * its definition. */
 		contractDomain: (contract) => ({ schema: types, name: identifierOf(contractNamed(contract)) }),

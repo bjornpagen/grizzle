@@ -82,6 +82,27 @@ const readsOf = (e: InferredExpr): ReadonlySet<string> => varsOf(e, new Set())
  */
 const keyedTerm = (e: InferredExpr): boolean => readsOf(e).size > 0 || leavesOf(e).params.length > 0
 
+/**
+ * The subject and suffix of a suffix test, `endsWith(x, t)` or `endsWith(x, t) = true` (Text.endsWith), whose subject
+ * is a variable: what a read binding `x` is sought by once `t` is known, the B-tree on its column's suffix key serving
+ * it (sql/suffix.ts), as an equality's term keys the column it binds.
+ */
+const suffixTestOf = (
+	c: InferredExpr
+): { readonly subject: string; readonly suffix: InferredExpr } | undefined => {
+	const test =
+		c.kind === "compare" && c.op === "eq" && c.right.kind === "literal" && c.right.value === true
+			? c.left
+			: c
+	if (test.kind !== "compute" || test.fn !== "endsWith") {
+		return undefined
+	}
+	const [subject, suffix] = test.args
+	return subject?.kind === "var" && suffix !== undefined
+		? { subject: subject.var, suffix }
+		: undefined
+}
+
 /** How a read is looked up from the values known so far: its columns bound by a keyed term, and all its columns bound. */
 interface Lookup {
 	readonly keyed: number
@@ -850,8 +871,31 @@ class Navigator {
 			}
 			return out
 		}
-		/** How a read is looked up from the values known so far (`Lookup`). */
-		const lookupOf = (r: Read, values: ReadonlyMap<string, boolean>): Lookup => {
+		/**
+		 * The variables a suffix test still pending seeks by a suffix the steps placed so far hold, keyed
+		 * (`suffixTestOf`, `keyedTerm`).
+		 */
+		const sought = (): ReadonlySet<string> =>
+			new Set(
+				pending.flatMap((c) => {
+					const test = suffixTestOf(c)
+					return test !== undefined &&
+						!known.has(test.subject) &&
+						isKnown(test.suffix) &&
+						keyedTerm(test.suffix)
+						? [test.subject]
+						: []
+				})
+			)
+		/**
+		 * How a read is looked up from the values known so far (`Lookup`): a column bound to a variable a suffix test seeks
+		 * is keyed, a seek of the B-tree on its suffix key.
+		 */
+		const lookupOf = (
+			r: Read,
+			values: ReadonlyMap<string, boolean>,
+			seeks: ReadonlySet<string>
+		): Lookup => {
 			let keyed = 0
 			let bound = 0
 			for (const e of Object.values(r.bindings)) {
@@ -864,6 +908,8 @@ class Navigator {
 					) {
 						keyed++
 					}
+				} else if (e.kind === "var" && seeks.has(e.var)) {
+					keyed++
 				}
 			}
 			return { keyed, bound }
@@ -963,10 +1009,14 @@ class Navigator {
 		}
 		while (reads.length > 0) {
 			const values = fixed()
+			const seeks = sought()
 			let best = 0
 			for (const [i, r] of reads.entries()) {
 				const current = reads[best]
-				if (current !== undefined && narrower(lookupOf(r, values), lookupOf(current, values))) {
+				if (
+					current !== undefined &&
+					narrower(lookupOf(r, values, seeks), lookupOf(current, values, seeks))
+				) {
 					best = i
 				}
 			}

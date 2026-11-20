@@ -82,7 +82,7 @@ import { everySlice } from "#compiler/schema/reach.ts"
 import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
-import { imagedColumns } from "#compiler/sql/image.ts"
+import { storedColumns } from "#compiler/sql/image.ts"
 import type { IdentifiedLaw, Law } from "#compiler/types/changeset/changeset.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"
@@ -206,7 +206,8 @@ export const productionNames = (
 			name: identifierOf(paramDomainIdentity(place, regex))
 		}),
 		selectionKeys: () => [],
-		imaged: imagedColumns([]),
+		imaged: storedColumns([]),
+		suffixed: storedColumns([]),
 		declaredFunction: (name) => ({
 			ref: {
 				kind: "qualified",

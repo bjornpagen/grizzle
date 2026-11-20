@@ -7,6 +7,7 @@ export type Atom =
 	| { readonly kind: "eq"; readonly column: string; readonly with: "fixed" | "literal" }
 	| { readonly kind: "range"; readonly column: string; readonly bound: "lower" | "upper" }
 	| { readonly kind: "span"; readonly column: string }
+	| { readonly kind: "suffix"; readonly column: string }
 	| { readonly kind: "pairEq"; readonly a: string; readonly b: string }
 	| { readonly kind: "pairRange"; readonly column: string; readonly other: string }
 	| { readonly kind: "pairSpan"; readonly column: string; readonly other: string }
@@ -26,6 +27,8 @@ export const atomKey = (a: Atom): string => {
 			return `range\u0000${a.column}\u0000${a.bound}`
 		case "span":
 			return `span\u0000${a.column}`
+		case "suffix":
+			return `suffix\u0000${a.column}`
 		case "pairEq":
 			return `pairEq\u0000${a.a}\u0000${a.b}`
 		case "pairRange":
@@ -157,6 +160,10 @@ const spanAtoms = (span: Operand, other: Operand): ReadonlyArray<Atom> => {
  * - range: a local column bounded below or above by a fixed value (lt, le, gt, ge, between);
  * - span: a span column under a range operator against a fixed value (every Allen mask's formula carries an unnegated
  *   atom the GiST range_ops class serves), and `span @> point` (pointIn);
+ * - suffix: a local text column that ends with a fixed value (Text.endsWith, bare or held equal to true), a local
+ *   column `fixedColumn` holds fixed per evaluation among them, an outer value a navigation step's projection passes in
+ *   beside its relation's columns (analysis/theory/navigate.ts), which a B-tree on the text's suffix key serves as a
+ *   range (sql/suffix.ts);
  * - pairEq, pairRange, pairSpan: the same relations between two local columns, which inside a match region are join
  *   conditions between occurrences.
  *
@@ -166,8 +173,12 @@ const spanAtoms = (span: Operand, other: Operand): ReadonlyArray<Atom> => {
  * index finds, never driven by it. An IN list over fixed values is an equality; over literals, a literal equality. Ordering comparisons of spans order
  * ranges as values, which no access path serves; span equality is the Allen `equals` mask, a range_ops operator too. A
  * literal-only bound selects no key column under the fixed policy. No other operation is a sargable predicate:
- * arithmetic, the text and numeric functions, a cast, a negation and an inequality give no atom. */
-export const predicateAtoms = (local: NodeId, e: ScalarExpr): ReadonlyArray<Atom> => {
+ * arithmetic, the text and numeric functions but the suffix test, a cast, a negation and an inequality give no atom. */
+export const predicateAtoms = (
+	local: NodeId,
+	e: ScalarExpr,
+	fixedColumn: (column: string) => boolean
+): ReadonlyArray<Atom> => {
 	if (e.kind !== "op") {
 		return []
 	}
@@ -190,9 +201,9 @@ export const predicateAtoms = (local: NodeId, e: ScalarExpr): ReadonlyArray<Atom
 	}
 	switch (native.fn) {
 		case "and":
-			return dedupe(e.args.flatMap((a) => predicateAtoms(local, a)))
+			return dedupe(e.args.flatMap((a) => predicateAtoms(local, a, fixedColumn)))
 		case "or": {
-			const sets = e.args.map((a) => predicateAtoms(local, a))
+			const sets = e.args.map((a) => predicateAtoms(local, a, fixedColumn))
 			const [first, ...rest] = sets
 			if (first === undefined) {
 				return []
@@ -202,16 +213,34 @@ export const predicateAtoms = (local: NodeId, e: ScalarExpr): ReadonlyArray<Atom
 					(a) =>
 						a.kind !== "range" &&
 						a.kind !== "pairRange" &&
+						a.kind !== "suffix" &&
 						rest.every((s) => s.some((b) => atomKey(b) === atomKey(a)))
 				)
 			)
 		}
-		case "eq":
+		case "eq": {
+			const [l, r] = e.args
+			return l?.kind === "op" &&
+				nativeOp(l.op)?.fn === "endsWith" &&
+				r?.kind === "literal" &&
+				r.value.kind === "bool" &&
+				r.value.value
+				? predicateAtoms(local, l, fixedColumn)
+				: comparisonAtoms(native.fn, operand(0), operand(1))
+		}
 		case "lt":
 		case "le":
 		case "gt":
 		case "ge":
 			return comparisonAtoms(native.fn, operand(0), operand(1))
+		case "endsWith": {
+			const text = operand(0)
+			const suffix = operand(1)
+			return text.kind === "column" &&
+				(suffix.kind === "fixed" || (suffix.kind === "column" && fixedColumn(suffix.name)))
+				? [{ kind: "suffix", column: text.name }]
+				: []
+		}
 		case "between": {
 			const x = operand(0)
 			return x.kind === "column"
@@ -265,7 +294,6 @@ export const predicateAtoms = (local: NodeId, e: ScalarExpr): ReadonlyArray<Atom
 		case "regexpCount":
 		case "concat":
 		case "startsWith":
-		case "endsWith":
 		case "right":
 		case "substring":
 		case "infixAt":

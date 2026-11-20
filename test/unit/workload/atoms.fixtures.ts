@@ -26,7 +26,7 @@ export const filterAtoms = (q: unknown) => {
 		"the query checks"
 	).dag
 	return Arr.flatMap(topoOrder(dag), (n) =>
-		n.kind === "Filter" ? predicateAtoms(n.input.id, n.pred) : []
+		n.kind === "Filter" ? predicateAtoms(n.input.id, n.pred, () => false) : []
 	)
 }
 

@@ -23,12 +23,12 @@ export interface StoredColumn {
 }
 
 /**
- * The stored columns a lookup index may hold by their image (`imageOf`) in place of the text, by the table or plain view
- * a statement reads it through: each field of its relation's images (schema/representability.ts relationImages), which
- * hold every text an index of the relation holds by its image, or the columns a judged read's own lookups read by theirs
- * (physical/ddl/rules.ts).
+ * A set of stored columns, by the table or plain view a statement reads each through: the columns a lookup index may
+ * hold by their image (`imageOf`) in place of the text, each field of its relation's images (schema/representability.ts
+ * relationImages), which hold every text an index of the relation holds by its image, or the columns a judged read's
+ * own lookups read by theirs (physical/ddl/rules.ts); or the columns a B-tree holds the suffix key of (sql/suffix.ts).
  */
-export interface ImagedColumns {
+export interface StoredColumns {
 	readonly has: (column: StoredColumn) => boolean
 	/** The imaged columns of a table or view, by name. */
 	readonly of: (table: ObjectName) => ReadonlyArray<string>
@@ -76,8 +76,8 @@ export const imagedColumnOf = (e: Expr): string | undefined => {
 		: undefined
 }
 
-/** The imaged columns `columns`, each by the table or plain view it is read through. */
-export const imagedColumns = (columns: Iterable<StoredColumn>): ImagedColumns => {
+/** The stored columns `columns`, each by the table or plain view it is read through. */
+export const storedColumns = (columns: Iterable<StoredColumn>): StoredColumns => {
 	const byTable = new Map<NameKey, Set<string>>()
 	for (const c of columns) {
 		const key = nameKey(c.table)
@@ -96,7 +96,7 @@ export const imagedColumns = (columns: Iterable<StoredColumn>): ImagedColumns =>
  * column whose query delivers it from a stored column, a plain core's target or a query's that reads one, under no
  * WITH; none for any other source, a CTE's, a function's or an input's, which an index of a table never serves.
  */
-const originIn = (from: ReadonlyArray<FromItem>, ref: Expr): StoredColumn | undefined => {
+export const originIn = (from: ReadonlyArray<FromItem>, ref: Expr): StoredColumn | undefined => {
 	if (ref.kind !== "column" || ref.table === undefined) {
 		return undefined
 	}
@@ -160,7 +160,7 @@ const sourceAlias = (source: FromSource): string =>
  * equality, right after it: `a = b AND image(a) = image(b)` holds exactly where `a = b` does, NULL where it is NULL,
  * since equal texts have one image (`imageOf`) and the image of NULL is NULL.
  */
-const imagedConjunction = (e: Expr, from: ReadonlyArray<FromItem>, imaged: ImagedColumns): Expr => {
+const imagedConjunction = (e: Expr, from: ReadonlyArray<FromItem>, imaged: StoredColumns): Expr => {
 	const conjuncts = e.kind === "and" ? e.args : [e]
 	const reads = (side: Expr): boolean => {
 		const origin = originIn(from, side)
@@ -178,7 +178,7 @@ const imagedConjunction = (e: Expr, from: ReadonlyArray<FromItem>, imaged: Image
 }
 
 /** A core whose WHERE and join conditions each state its imaged columns' equalities of images (`imagedConjunction`). */
-const imagedCore = (core: SelectCore, imaged: ImagedColumns): SelectCore => {
+const imagedCore = (core: SelectCore, imaged: StoredColumns): SelectCore => {
 	const where =
 		core.where === undefined ? undefined : imagedConjunction(core.where, core.from, imaged)
 	const from = core.from.map((item): FromItem => {
@@ -208,5 +208,5 @@ const imagedCore = (core: SelectCore, imaged: ImagedColumns): SelectCore => {
  * by its image, the equality of the two sides' images (`imageOf`), so PostgreSQL reads the lookup through that index as
  * a point lookup. A query that compares none is the query itself.
  */
-export const statingImages = (query: Select, imaged: ImagedColumns): Select =>
+export const statingImages = (query: Select, imaged: StoredColumns): Select =>
 	new Transform({ ...identityHooks, core: (core) => imagedCore(core, imaged) }).setQuery(query)

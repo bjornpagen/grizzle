@@ -116,6 +116,7 @@ import {
 } from "#compiler/sql/ast.ts"
 import type { OwnerFunction } from "#compiler/sql/constants.ts"
 import { imagedColumnOf } from "#compiler/sql/image.ts"
+import { suffixedColumnOf } from "#compiler/sql/suffix.ts"
 
 /** Entries in the code-unit order of their keys. */
 const byKey: Comparator<readonly [string, unknown]> = mapInput(
@@ -630,12 +631,12 @@ interface GatheredTable {
 }
 
 /**
- * A key column of an index's statement: the column it names or whose image it holds (sql/image.ts), and its
- * direction (IndexKeyColumn).
+ * A key column of an index's statement: the column it names, whose image it holds (sql/image.ts) or whose suffix key it
+ * holds (sql/suffix.ts), and its direction (IndexKeyColumn).
  */
 interface KeyAt {
 	readonly column: string
-	readonly held: "column" | "image"
+	readonly held: "column" | "image" | "suffix"
 	readonly direction: IndexKeyColumn["direction"]
 }
 
@@ -713,8 +714,8 @@ const constraintKeys = (constraint: TableConstraint): NonEmptyReadonlyArray<KeyA
 }
 
 /**
- * The key columns of a CREATE INDEX, each a column it names or the image of one, its one expression a key holds, a
- * B-tree's with its direction, any other's with none.
+ * The key columns of a CREATE INDEX, each a column it names, the image of one or the suffix key of one, the two
+ * expressions a key holds, a B-tree's with its direction, any other's with none.
  */
 const createdKeys = (create: CreateIndex): NonEmptyReadonlyArray<KeyAt> =>
 	mapNonEmpty(create.keys, (k): KeyAt => {
@@ -723,12 +724,16 @@ const createdKeys = (create: CreateIndex): NonEmptyReadonlyArray<KeyAt> =>
 			return { column: k.key.column, held: "column", direction }
 		}
 		const imaged = imagedColumnOf(k.key.expr)
-		if (imaged === undefined) {
-			throw defect(
-				`the index ${create.name} over an expression no image is, which no installation creates`
-			)
+		if (imaged !== undefined) {
+			return { column: imaged, held: "image", direction }
 		}
-		return { column: imaged, held: "image", direction }
+		const suffixed = suffixedColumnOf(k.key.expr)
+		if (suffixed !== undefined) {
+			return { column: suffixed, held: "suffix", direction }
+		}
+		throw defect(
+			`the index ${create.name} over an expression no image and no suffix key is, which no installation creates`
+		)
 	})
 
 /**
@@ -816,9 +821,13 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 		}
 		const columns = mapNonEmpty(keys, (k): IndexKeyColumn => {
 			const column = columnOf(k)
-			return k.held === "image"
-				? { kind: "image", of: column, direction: k.direction }
-				: { ...column, direction: k.direction }
+			switch (k.held) {
+				case "image":
+				case "suffix":
+					return { kind: k.held, of: column, direction: k.direction }
+				case "column":
+					return { ...column, direction: k.direction }
+			}
 		})
 		on.indexes.set(name, { columns, reasons })
 	}
@@ -1335,7 +1344,7 @@ const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
 								n,
 								{
 									columns: i.columns.map((c) =>
-										c.kind === "image"
+										c.kind === "image" || c.kind === "suffix"
 											? { kind: c.kind, of: indexedForm(c.of), direction: c.direction }
 											: { ...indexedForm(c), direction: c.direction }
 									),

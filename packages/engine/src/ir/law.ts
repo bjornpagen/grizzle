@@ -415,9 +415,21 @@ export type IndexOpclass =
 
 export const defaultOpclass: IndexOpclass = Object.freeze({ kind: "default" })
 
-/** A key of a law's index request: a column of its relation by its arm, its direction and its operator class. */
+/**
+ * The suffix key of a text field (sql/suffix.ts suffixKeyOf), which a law's probe seeks a suffix it holds fixed through
+ * (physical/access/extract.ts SuffixSeek): a key past its request's equalities, a B-tree's range.
+ */
+export interface SuffixColumn {
+	readonly kind: "suffix"
+	readonly of: FieldColumn
+}
+
+/**
+ * A key of a law's index request: a column of its relation by its arm, or a text field's suffix key, its direction and
+ * its operator class.
+ */
 export interface LawIndexKey {
-	readonly column: NativeColumn
+	readonly column: NativeColumn | SuffixColumn
 	readonly dir: Direction
 	readonly opclass: IndexOpclass
 }

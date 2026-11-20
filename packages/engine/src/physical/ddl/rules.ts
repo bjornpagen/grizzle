@@ -49,7 +49,7 @@ import type { RuleTable, RuleTrigger } from "#compiler/laws/model/model.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
 import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
-import { extractLookups } from "#compiler/physical/access/extract.ts"
+import { extractLookups, extractSuffixSeeks } from "#compiler/physical/access/extract.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { unaliased } from "#compiler/physical/derived/definition.ts"
 import { requestImaged } from "#compiler/physical/indexes/engine.ts"
@@ -102,7 +102,7 @@ import {
 	windowOf
 } from "#compiler/sql/build.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
-import { type ImagedColumns, imagedColumns } from "#compiler/sql/image.ts"
+import { type StoredColumns, storedColumns } from "#compiler/sql/image.ts"
 import { printTableName } from "#compiler/sql/print.ts"
 
 /** A compiled probe: the statement whose rows break the rule, its outputs unaliased, and its index requests. */
@@ -232,7 +232,11 @@ const judgedStatement = (
 	const lowered = unwrap(
 		Result.flatMap(optimizedInput(checked, queryEvidence), (annotated) =>
 			lowerOptimized(annotated, {
-				names: { ...b.names, imaged: imagedBy(b, requests) },
+				names: {
+					...b.names,
+					imaged: imagedBy(b, requests),
+					suffixed: suffixedBy(b, requests)
+				},
 				subject: { kind: "ruleRegion", deltas },
 				context: "transaction",
 				catalog
@@ -263,8 +267,8 @@ const judgedStatement = (
  * the engine plans them by), by its table and column: a judged read states the images' equality of those its own
  * lookups read through and of no other.
  */
-const imagedBy = (b: InstallBuilder, requests: ReadonlyArray<IndexRequest>): ImagedColumns =>
-	imagedColumns(
+const imagedBy = (b: InstallBuilder, requests: ReadonlyArray<IndexRequest>): StoredColumns =>
+	storedColumns(
 		requests.flatMap((r) => {
 			const target = b.target(r.relation)
 			return r.role === "lawMaintenance" && target.kind === "built"
@@ -277,11 +281,87 @@ const imagedBy = (b: InstallBuilder, requests: ReadonlyArray<IndexRequest>): Ima
 	)
 
 /**
+ * The text columns the indexes of law `requests` hold the suffix key of (physical/indexes/engine.ts KeyTerm `suffix`),
+ * by its table and column: a judged read reads each suffix test of those its own seeks read through as the key's range
+ * (sql/suffix.ts seekingSuffixes), and of no other.
+ */
+const suffixedBy = (b: InstallBuilder, requests: ReadonlyArray<IndexRequest>): StoredColumns =>
+	storedColumns(
+		requests.flatMap((r) => {
+			const target = b.target(r.relation)
+			return r.role === "lawMaintenance" && target.kind === "built"
+				? r.blocks.flat().flatMap((k) =>
+						k.column.kind === "suffix"
+							? [
+									{
+										table: b.names.relation(r.relation),
+										column: target.column({ kind: "field", field: k.column.of.field.name })
+									}
+								]
+							: []
+					)
+				: []
+		})
+	)
+
+/**
  * The index requests of a judged query's access paths (physical/access/extract.ts), read from the root of its checked
  * DAG: law-maintenance requests of `rule`, so a judged read reads by index wherever the planner can. Each is one block
- * of its columns (ir/law.ts LawIndexRequest), but a whole rule's (`unitLead`), whose first block is its unit's key.
+ * of its columns (ir/law.ts LawIndexRequest), but a whole rule's (`unitLead`), whose first block is its unit's key; and
+ * a suffix seek's (`seekRequestsOf`).
  */
 const requestsOf = (
+	b: InstallBuilder,
+	rule: RuleTrigger,
+	root: RelNode
+): ReadonlyArray<IndexRequest> => [
+	...lookupRequestsOf(b, rule, root),
+	...seekRequestsOf(b, rule, root)
+]
+
+/**
+ * The requests of a judged query's suffix seeks (physical/access/extract.ts SuffixSeek): a B-tree whose first block is
+ * the columns the seek's probe fixes by equality, where it fixes any, and whose last key is the suffix key of the text
+ * it seeks (ir/law.ts SuffixColumn), which its range reads (sql/suffix.ts).
+ */
+const seekRequestsOf = (
+	b: InstallBuilder,
+	rule: RuleTrigger,
+	root: RelNode
+): ReadonlyArray<IndexRequest> =>
+	extractSuffixSeeks([root], { pageable: [] }).flatMap((seek): ReadonlyArray<IndexRequest> => {
+		const target = b.model.relations.get(seek.relation)?.relation
+		const text = target?.fields.find((f) => f.name === seek.column)
+		if (target === undefined || text === undefined) {
+			return []
+		}
+		const fixed = seek.fixed.flatMap((name): ReadonlyArray<LawIndexKey> =>
+			target.fields.flatMap((f) =>
+				f.name === name
+					? [{ column: { kind: "field", field: f }, dir: "asc", opclass: defaultOpclass }]
+					: []
+			)
+		)
+		const suffix: LawIndexKey = {
+			column: { kind: "suffix", of: { kind: "field", field: text } },
+			dir: "asc",
+			opclass: defaultOpclass
+		}
+		return [
+			{
+				relation: target.name,
+				blocks: isNonEmpty(fixed) ? [fixed, [suffix]] : [[suffix]],
+				reads: { kind: "rows" },
+				method: "btree",
+				role: "lawMaintenance",
+				use: "rule probe",
+				justification: { kind: "law", law: rule.law.id }
+			}
+		]
+	})
+
+/** The requests of a judged query's lookups (`requestsOf`). */
+const lookupRequestsOf = (
 	b: InstallBuilder,
 	rule: RuleTrigger,
 	root: RelNode

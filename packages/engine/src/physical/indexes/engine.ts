@@ -61,18 +61,31 @@ import {
 import type { CreateIndex } from "#compiler/sql/ast.ts"
 import { columnKey, exprKey, tableCol } from "#compiler/sql/build.ts"
 import { imageOf } from "#compiler/sql/image.ts"
+import { suffixKeyOf } from "#compiler/sql/suffix.ts"
 
 /**
  * What an index key holds: a column by its arm, a field or a law column; a column's image, the md5 digest a lookup
  * index holds in place of a text its entry cannot hold as itself (core/identity.ts TextImage `md5`, sql/image.ts), which
  * a lookup that binds the column binds too, since every statement grizzle writes states its image's equality beside the
- * column's; or, in a request's keys alone, a column it binds by equality that its relation's statements state the image
- * of (`bound`, `requestKeys`), which an index holding the column or its image serves alike and a created index holds as
- * its own entry decides (`createIndex`).
+ * column's; a text field's suffix key, `chr(1) || reverse(column)` (sql/suffix.ts suffixKeyOf), which a law's probe
+ * seeks a suffix it holds fixed through as a range of the key (physical/access/extract.ts SuffixSeek), every judged
+ * read of the field stating the range in place of its suffix test (seekingSuffixes), a key past its request's
+ * equalities that only an index holding the same field's suffix key serves; or, in a request's keys alone, a column it
+ * binds by equality that its relation's statements state the image of (`bound`, `requestKeys`), which an index holding
+ * the column or its image serves alike and a created index holds as its own entry decides (`createIndex`).
+ *
+ * The suffix key's coordinates are code points: its range is code point order, which comparing two texts collated
+ * pg_catalog.pg_c_utf8 is, the one collation grizzle stores a text in (sql/ast.ts Collation), which PostgreSQL defines
+ * for the UTF8 encoding alone, so an installation stands only in a UTF8 database; PostgreSQL's reverse() reverses by
+ * code points, a multibyte character kept whole; and the leading U+0001 is a sentinel under which every suffix has a
+ * least text above its keys, the key's last code point not U+10FFFF raised by one, U+D7FF to U+E000 past the
+ * surrogates, which no text holds. The engine drafts a B-tree on a suffix key only where a law's probe requests one,
+ * through the law requests' own path (`planIndexes`), never a workload's, whose statements state no suffix range.
  */
 export type KeyTerm =
 	| IndexColumn
 	| { readonly kind: "image"; readonly of: IndexColumn }
+	| { readonly kind: "suffix"; readonly of: IndexColumn }
 	| { readonly kind: "bound"; readonly of: IndexColumn }
 
 /** A key of an index, or one a request asks an index for. */
@@ -99,16 +112,22 @@ export const keyTermText = (c: KeyTerm): string => {
 			return c.column
 		case "image":
 			return `image(${keyTermText(c.of)})`
+		case "suffix":
+			return `suffix(${keyTermText(c.of)})`
 		case "bound":
 			return keyTermText(c.of)
 	}
 }
 
 /**
- * Whether two keys hold one thing: one field, one law column, or the image of one column; a request's bound column is
- * the column and its image alike, either of which an index serving its equality may hold.
+ * Whether two keys hold one thing: one field, one law column, the image of one column, or the suffix key of one; a
+ * request's bound column is the column and its image alike, either of which an index serving its equality may hold,
+ * and never a suffix key, which no equality reads.
  */
 const sameColumn = (a: KeyTerm, b: KeyTerm): boolean => {
+	if (a.kind === "suffix" || b.kind === "suffix") {
+		return a.kind === "suffix" && b.kind === "suffix" && sameColumn(a.of, b.of)
+	}
 	if (a.kind === "bound" || b.kind === "bound") {
 		return sameColumn(readColumn(a), readColumn(b))
 	}
@@ -123,8 +142,9 @@ const sameColumn = (a: KeyTerm, b: KeyTerm): boolean => {
 }
 
 /**
- * Each key's datum, in key order: an image's md5's digits (schema/representability.ts imageDatum `md5`), every other
- * key's its column's, `columns` in their order.
+ * Each key's datum, in key order: an image's md5's digits (schema/representability.ts imageDatum `md5`), a suffix key's
+ * its column's with the sentinel's one byte more (`suffixDatum`), every other key's its column's, `columns` in their
+ * order.
  */
 const imagedDatums = (
 	keys: ReadonlyArray<IndexKey>,
@@ -132,32 +152,43 @@ const imagedDatums = (
 ): ReadonlyArray<{ readonly field: string; readonly datum: DatumBound }> => {
 	const imagesBefore = (at: number): number =>
 		keys.slice(0, at).filter((k) => k.column.kind === "image").length
-	return keys.map((k, at) =>
-		k.column.kind === "image"
-			? { field: keyTermText(k.column), datum: imageDatum.md5 }
-			: defined(columns[at - imagesBefore(at)], "a datum per column key")
-	)
+	return keys.map((k, at) => {
+		if (k.column.kind === "image") {
+			return { field: keyTermText(k.column), datum: imageDatum.md5 }
+		}
+		const column = defined(columns[at - imagesBefore(at)], "a datum per column key")
+		return k.column.kind === "suffix" ? { ...column, datum: suffixDatum(column.datum) } : column
+	})
 }
 
 /**
- * The column a key reads: its own, the column it is the image of, or the column a request binds. A lookup that binds a
- * column binds its image.
+ * A suffix key's datum (sql/suffix.ts suffixKeyOf): its text's, which it holds reversed, and the sentinel U+0001
+ * before it, one byte of UTF-8 more.
+ */
+const suffixDatum = (text: DatumBound): DatumBound => ({ ...text, bytes: text.bytes + 1 })
+
+/**
+ * The column a key reads: its own, the column it is the image or the suffix key of, or the column a request binds. A
+ * lookup that binds a column binds its image.
  */
 const readColumn = (c: KeyTerm): IndexColumn =>
-	c.kind === "image" || c.kind === "bound" ? c.of : c
+	c.kind === "image" || c.kind === "suffix" || c.kind === "bound" ? c.of : c
 
 /**
  * What each of a request's keys, in their order, is to its entry (core/identity.ts EntryRole): a law's probe's every
- * key an equality; a workload request's every key its path binds by equality (AccessIndexRequest `fixed`) an
- * equality, a seek's fixed prefix among them, and every key past them a prefix matched where it is a prefix search's
- * and read in its order otherwise.
+ * key an equality but a suffix key, which its seek matches a prefix of; a workload request's every key its path binds
+ * by equality (AccessIndexRequest `fixed`) an equality, a seek's fixed prefix among them, and every key past them a
+ * prefix matched where it is a prefix search's and read in its order otherwise.
  */
-const keyRoles = (request: IndexRequest, keys: number): ReadonlyArray<EntryRole> => {
+const keyRoles = (
+	request: IndexRequest,
+	keys: ReadonlyArray<IndexKey>
+): ReadonlyArray<EntryRole> => {
 	if (request.role === "lawMaintenance") {
-		return Array.from({ length: keys }, () => "equality")
+		return keys.map((k) => (k.column.kind === "suffix" ? "prefix" : "equality"))
 	}
 	const past: EntryRole = request.use === "prefix search" ? "prefix" : "order"
-	return Array.from({ length: keys }, (_, at) => (at < request.fixed ? "equality" : past))
+	return keys.map((_, at) => (at < request.fixed ? "equality" : past))
 }
 
 /**
@@ -180,7 +211,7 @@ const requestKeys = (
 	if (request.method !== "btree") {
 		return keys
 	}
-	const roles = keyRoles(request, keys.length)
+	const roles = keyRoles(request, keys)
 	return keys.map((k, at) => {
 		if (roles[at] !== "equality" || (k.column.kind !== "field" && k.column.kind !== "law")) {
 			return k
@@ -326,11 +357,14 @@ interface Columns {
 /** A run of columns that lead an index together, in any order among themselves. */
 type Block = NonEmptyReadonlyArray<IndexKey>
 
-/** A law's request's blocks of keys (ir/law.ts LawIndexRequest), each column an index column. */
+/** A law's request's blocks of keys (ir/law.ts LawIndexRequest), each column an index column, a suffix key over one. */
 const lawBlocks = (r: LawIndexRequest): NonEmptyReadonlyArray<Block> =>
 	mapNonEmpty(r.blocks, (block) =>
 		mapNonEmpty(block, (k): IndexKey => ({
-			column: indexColumnOf(k.column),
+			column:
+				k.column.kind === "suffix"
+					? { kind: "suffix", of: indexColumnOf(k.column.of) }
+					: indexColumnOf(k.column),
 			dir: k.dir,
 			opclass: k.opclass
 		}))
@@ -1219,14 +1253,16 @@ export const planIndexes = (
 				}
 				const columns: Columns = {
 					holds: (column) =>
-						column.kind === "image" ? "many" : holdsOf(typeOf(readColumn(column)))
+						column.kind === "image" || column.kind === "suffix"
+							? "many"
+							: holdsOf(typeOf(readColumn(column)))
 				}
 				return [
 					{
 						request: r,
 						placements: placementsOf(r, keys, blocks, columns, label),
 						keys,
-						roles: keyRoles(r, keys.length),
+						roles: keyRoles(r, keys),
 						blocks,
 						columns,
 						label,
@@ -1371,11 +1407,11 @@ const unitReads = (relationPlan: ReadonlyArray<Planned>): ReadonlyArray<UnitRead
 /** A created B-tree's keys, each unit read of its relation that binds every one of them by equality holding them to its
  * unit (see `planIndexes`): the fields of that read's unit the keys lack, appended after them in the unit's order, read
  * by read in the plan's order, so a read binds the widened keys whole only when the reads before it appended fields it
- * binds too. */
+ * binds too. A suffix key is bound by no equality, so no read binds the keys of a B-tree that holds one. */
 const confined = (keys: Keys, reads: ReadonlyArray<UnitRead>): Keys =>
 	reads.reduce((held: Keys, read): Keys => {
 		const among = (k: IndexKey, of: ReadonlyArray<IndexColumn>): boolean =>
-			of.some((column) => sameColumn(column, readColumn(k.column)))
+			k.column.kind !== "suffix" && of.some((column) => sameColumn(column, readColumn(k.column)))
 		const missing = read.unit.filter(
 			(k) =>
 				!among(
@@ -1413,8 +1449,9 @@ const heldKeys = (
 				return { datum: imageDatum.md5, imaged: undefined, nullable: false }
 			}
 			const f = field(readColumn(k.column))
+			const datum = f.desc.kind === "bytes" ? undefined : datumBound(f.desc)
 			return {
-				datum: f.desc.kind === "bytes" ? undefined : datumBound(f.desc),
+				datum: k.column.kind === "suffix" && datum !== undefined ? suffixDatum(datum) : datum,
 				imaged: k.column.kind === "bound" ? imagedOf(f.desc) : undefined,
 				nullable: f.nullable
 			}
@@ -1431,6 +1468,7 @@ const heldKeys = (
 			case "field":
 			case "law":
 			case "image":
+			case "suffix":
 				return { ...k, column }
 		}
 	})
@@ -1475,7 +1513,7 @@ const createIndex = (
 				keys.flatMap((k) =>
 					k.column.kind === "image"
 						? []
-						: [{ field: keyTermText(k.column), desc: targetField(k.column).desc }]
+						: [{ field: keyTermText(k.column), desc: targetField(readColumn(k.column)).desc }]
 				)
 			)
 			if (!columns.ok) {
@@ -1548,7 +1586,9 @@ const createIndex = (
 		keys: mapNonEmpty(keys, (k) => ({
 			...(k.column.kind === "image"
 				? exprKey(imageOf(tableCol(o.column(k.column.of))))
-				: columnKey(o.column(k.column))),
+				: k.column.kind === "suffix"
+					? exprKey(suffixKeyOf(tableCol(o.column(k.column.of))))
+					: columnKey(o.column(k.column))),
 			opclass:
 				k.opclass.kind === "default"
 					? undefined
