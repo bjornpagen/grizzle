@@ -25,7 +25,9 @@ import { type HeadingPlan, type ReadFact, samePlan } from "#compiler/scalar/valu
 
 /**
  * A decoded array's reads: a flat relation's rows, each one fact read under `plan`, in the array's order; or a nested
- * relation's, each split and its levels read (runtime/write/addition.ts NestedReading), its levels' facts under `plans`.
+ * relation's, each its split's shape and its levels' reads (runtime/write/addition.ts NestedReading, NestedShape), its
+ * levels' facts read under `plans`: the split's own copies of each level's fields are no reading's, since the write
+ * takes the reads and lays the rows out by the shape alone.
  */
 export type DecodedInput =
 	| {

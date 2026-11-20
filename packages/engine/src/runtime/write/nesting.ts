@@ -31,8 +31,8 @@ import {
 	additionSplitter,
 	type LevelRead,
 	levelOrder,
-	type NestedAddition,
 	type NestedReading,
+	type NestedShape,
 	type NestingLevels,
 	type SplitFamily
 } from "#compiler/runtime/write/addition.ts"
@@ -511,17 +511,20 @@ export const nestedReader =
 		if (!addition.ok) {
 			return Result.err({ fault: addition.error.fault, field: undefined })
 		}
-		const order = levelOrder(levels, addition.value)
+		const { shape, facts } = addition.value
+		const order = levelOrder(levels, shape)
 		const reads: Array<LevelRead<L>> = []
 		for (let i = order.length - 1; i >= 0; i -= 1) {
-			const { addition: at, level } = defined(order[i], "a nested addition met in pre-order")
-			const read = level.normalize.readRow(at.fact)
+			const { node, level } = defined(order[i], "a nested addition met in pre-order")
+			const read = level.normalize.readRow(
+				defined(facts[node.slot], "a node's own fields at its slot")
+			)
 			if (!read.ok) {
 				return read
 			}
 			reads.push({ level, read: read.value })
 		}
-		return Result.ok({ addition: addition.value, reads })
+		return Result.ok({ shape, reads })
 	}
 
 /**
@@ -533,7 +536,7 @@ const readingAgain = (
 	levels: NestingLevels<Level>,
 	kept: NestedReading<unknown>
 ): Result.Result<NestedReading<Level>, EncodingFailure> => {
-	const order = levelOrder(levels, kept.addition)
+	const order = levelOrder(levels, kept.shape)
 	const reads: Array<LevelRead<Level>> = []
 	for (const [at, { read }] of kept.reads.entries()) {
 		const { level } = defined(order[order.length - 1 - at], "a level read of each addition")
@@ -543,7 +546,7 @@ const readingAgain = (
 		}
 		reads.push({ level, read: now.value })
 	}
-	return Result.ok({ addition: kept.addition, reads })
+	return Result.ok({ shape: kept.shape, reads })
 }
 
 /**
@@ -560,10 +563,10 @@ const hostNodes = (
 		readonly transport: Transport
 	}
 ): Result.Result<HostNode, EncodingFailure | MessageBound> => {
-	const order = levelOrder(normalizers, reading.addition)
-	const built = new Map<NestedAddition, HostNode>()
+	const order = levelOrder(normalizers, reading.shape)
+	const built = new Map<NestedShape, HostNode>()
 	for (let i = order.length - 1; i >= 0; i -= 1) {
-		const { addition, level } = defined(order[i], "a nested addition met in pre-order")
+		const { node, level } = defined(order[i], "a nested addition met in pre-order")
 		const { read } = defined(reading.reads[order.length - 1 - i], "a level read of each addition")
 		const normalize = level.normalize
 		const { frame, messageBytes } = write.transport
@@ -583,13 +586,13 @@ const hostNodes = (
 			texts[field.at] = admittedTexts[place]
 		}
 		built.set(
-			addition,
+			node,
 			Object.freeze({
-				relation: addition.relation,
+				relation: node.relation,
 				values,
 				texts,
 				families: Object.freeze(
-					addition.families.map((g) =>
+					node.families.map((g) =>
 						Object.freeze({
 							family: g.family,
 							members: Object.freeze(
@@ -601,7 +604,7 @@ const hostNodes = (
 			})
 		)
 	}
-	return Result.ok(defined(built.get(reading.addition), "the nesting's root"))
+	return Result.ok(defined(built.get(reading.shape), "the nesting's root"))
 }
 
 /**

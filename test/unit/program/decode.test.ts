@@ -38,12 +38,17 @@ import {
 	Decoded,
 	type DecodeFeature,
 	decodeFeatures,
+	describedShape,
 	detachedOne,
 	doubledGen,
 	flights,
+	keptOf,
+	nestedTops,
+	nodesOf,
 	outcomeOf,
 	preview,
 	setsChanged,
+	shapeOfRow,
 	stored,
 	type TakenFeature,
 	takenFeatures,
@@ -214,7 +219,7 @@ export const decodeRefusesExactlyWhereTheInsertsOwnAdmissionRefusesAtTheSameFiel
 				original:
 					"\t\t\t\t\t\t\t\tnestedReader(nesting.relation, levels, additionSplitter(nesting.sequences)),",
 				replacement:
-					"\t\t\t\t\t\t\t\t(fact) => Result.map(levels.own.normalize.readRow(fact), (read) => ({ addition: { relation: nesting.relation, fact: {}, families: [] }, reads: [{ level: levels.own, read }] })),",
+					"\t\t\t\t\t\t\t\t(fact) => Result.map(levels.own.normalize.readRow(fact), (read) => ({ shape: { relation: nesting.relation, families: [] }, reads: [{ level: levels.own, read }] })),",
 				why: "decode reads a nested relation's rows flat, as its own level alone: every row whose nesting holds a member array is refused as factShape, where the insert admits it."
 			}
 		]
@@ -436,3 +441,66 @@ export const decodeAndTheInsertOfWhatItAdmittedReadEachRowOnceInAll = property.e
 		}
 	]
 })
+
+/**
+ * Decode keeps of a nested row its levels' reads and its nesting's shape alone (runtime/write/addition.ts NestedShape):
+ * over drawn rows of each nested top-level relation, an owner with its items and a tree to depth two, each admitted,
+ * decode records one reading of each row, its shape and its reads alone, whose shape is the row's nesting node for
+ * node, each node holding its relation, its slot and its families and nothing more, each family its id and its members,
+ * the row's in order, and whose reads are one a node, so no reading holds a copy of any level's fields the split made,
+ * which no write reads after decode.
+ */
+export const decodeKeepsOfANestedRowItsLevelsReadsAndItsNestingsShapeAlone = property.explore(
+	doubledGen,
+	{
+		needs: {},
+		budget: { runs: 40, steered: 0 },
+		situations: [],
+		check: () => (drawn) =>
+			Effect.sync(() => {
+				for (const relation of nestedTops) {
+					const rows = drawn.once[relation]
+					assert.ok(
+						Result.isSuccess(decoder.decode(relation, rows)),
+						`decode admits ${relation}'s rows`
+					)
+					const readings = keptOf(relation, rows)
+					if (readings === undefined) {
+						return assert.fail(`decode records the readings of ${relation}'s rows`)
+					}
+					assert.equal(readings.length, rows.length, `one reading of each of ${relation}'s rows`)
+					for (const [i, reading] of readings.entries()) {
+						assert.deepEqual(
+							Arr.map(Reflect.ownKeys(reading), String),
+							["shape", "reads"],
+							`${relation}'s row ${i}: its reading is its shape and its reads`
+						)
+						const expected = shapeOfRow(relation, rows[i])
+						assert.deepEqual(
+							describedShape(reading.shape),
+							expected,
+							`${relation}'s row ${i}: its reading keeps its nesting's shape alone`
+						)
+						assert.equal(
+							reading.reads.length,
+							nodesOf(expected),
+							`${relation}'s row ${i}: one read of each level of it`
+						)
+					}
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a nested row's reading keeps its shape and its levels' reads, no copy of its fields"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/runtime/write/nesting.ts",
+				original: "\t\treturn Result.ok({ shape, reads })",
+				replacement: "\t\treturn Result.ok({ shape, facts, reads })",
+				why: "A nested row's reading keeps its split's own fields beside its reads: decode holds a frozen copy of every level's fields of every nested row it admitted, which no write reads after decode."
+			}
+		]
+	}
+)

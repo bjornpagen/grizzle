@@ -11,15 +11,29 @@ import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
 import type { ReadFact } from "#compiler/scalar/values/identity.ts"
 
-/** An addition split along its relation's families: its own fields, and each family's member additions in order. */
-export interface NestedAddition {
+/**
+ * The shape of an addition split along its relation's families: its relation, its slot, and each family's members'
+ * shapes in order, to any depth, with no fact: what a nested write lays a fact's rows out by once its levels are read
+ * (nesting.ts hostNodes), which is all a decoded row's reading keeps of its split (runtime/write/decoded.ts). A node's
+ * slot is its place among the split's nodes, at which the split holds its own fields (`NestedAddition` facts).
+ */
+export interface NestedShape {
 	readonly relation: StoredRelationName
-	/** The fact's own fields: every field but its families' count fields and the fields grizzle draws or accumulates. */
-	readonly fact: Readonly<Record<string, unknown>>
+	readonly slot: number
 	readonly families: ReadonlyArray<{
 		readonly family: FamilyId
-		readonly members: ReadonlyArray<NestedAddition>
+		readonly members: ReadonlyArray<NestedShape>
 	}>
+}
+
+/**
+ * An addition split along its relation's families: its shape, and each node's own fields at the node's slot, every field
+ * the node's fact states but its families' count fields. The two are apart so a reading keeps the shape and drops the
+ * fields once each level is read (nesting.ts nestedReader).
+ */
+export interface NestedAddition {
+	readonly shape: NestedShape
+	readonly facts: ReadonlyArray<Readonly<Record<string, unknown>>>
 }
 
 /** An addition whose shape breaks at `path`: the count fields and member positions from the addition down. */
@@ -172,12 +186,14 @@ const splitAddition = (
 		}
 		splits[next.slot] = { relation: next.relation, own, families: groups }
 	}
-	const built: Array<NestedAddition | undefined> = splits.map(() => undefined)
+	const built: Array<NestedShape | undefined> = splits.map(() => undefined)
+	const facts: Array<Readonly<Record<string, unknown>>> = []
 	for (let slot = splits.length - 1; slot >= 0; slot -= 1) {
 		const split = defined(splits[slot], "every slot the walk reserved is split")
+		facts[slot] = split.own
 		built[slot] = Object.freeze({
 			relation: split.relation,
-			fact: split.own,
+			slot,
 			families: Object.freeze(
 				split.families.map((g) =>
 					Object.freeze({
@@ -190,7 +206,7 @@ const splitAddition = (
 			)
 		})
 	}
-	return Result.ok(defined(built[0], "the addition's own slot"))
+	return Result.ok({ shape: defined(built[0], "the addition's own slot"), facts })
 }
 
 /**
@@ -205,24 +221,24 @@ export interface NestingLevels<L> {
 }
 
 /**
- * Every addition of the nesting `root` heads, in pre-order, each with the level it stands at in `levels`: the order a
- * nested write reads its levels in, backwards, members before their owners (nesting.ts nestedReader), as a decoded row's
- * are read.
+ * Every node of the nesting `root` heads, in pre-order, each with the level it stands at in `levels`: the order a nested
+ * write reads its levels in, backwards, members before their owners (nesting.ts nestedReader), as a decoded row's are
+ * read.
  */
 export const levelOrder = <L>(
 	levels: NestingLevels<L>,
-	root: NestedAddition
-): ReadonlyArray<{ readonly addition: NestedAddition; readonly level: L }> => {
-	const order: Array<{ readonly addition: NestedAddition; readonly level: L }> = []
-	const pending: Array<{ readonly addition: NestedAddition; readonly level: L }> = [
-		{ addition: root, level: levels.own }
+	root: NestedShape
+): ReadonlyArray<{ readonly node: NestedShape; readonly level: L }> => {
+	const order: Array<{ readonly node: NestedShape; readonly level: L }> = []
+	const pending: Array<{ readonly node: NestedShape; readonly level: L }> = [
+		{ node: root, level: levels.own }
 	]
 	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
 		order.push(next)
-		for (const g of next.addition.families) {
+		for (const g of next.node.families) {
 			const level = defined(levels.members.get(g.family), "a sequence the nesting splits along")
 			for (const m of g.members) {
-				pending.push({ addition: m, level })
+				pending.push({ node: m, level })
 			}
 		}
 	}
@@ -236,11 +252,12 @@ export interface LevelRead<L> {
 }
 
 /**
- * A nested fact as the write reads it (nesting.ts nestedReader): its addition, split along its sequences, and each of its
- * levels' facts read, in the order they are read, members before their owners: the reverse of levelOrder's pre-order,
- * so the read of the addition levelOrder puts at i is at the reading's length − 1 − i.
+ * A nested fact as the write reads it (nesting.ts nestedReader): its addition's shape, split along its sequences, and
+ * each of its levels' facts read, in the order they are read, members before their owners: the reverse of levelOrder's
+ * pre-order, so the read of the node levelOrder puts at i is at the reading's length − 1 − i. No node's own fields are
+ * kept past its read, so a decoded row's kept reading holds its levels' reads and its shape alone.
  */
 export interface NestedReading<L> {
-	readonly addition: NestedAddition
+	readonly shape: NestedShape
 	readonly reads: ReadonlyArray<LevelRead<L>>
 }

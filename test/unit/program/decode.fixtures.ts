@@ -21,7 +21,9 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { slotPlace } from "#compiler/codec/fault.ts"
 import type { EncodingPlace } from "#compiler/core/errors.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
+import type { Heading } from "#compiler/ir/rel.ts"
 import { previewOver } from "#compiler/program/preview.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { closed } from "#compiler/public/dynamic.ts"
@@ -38,8 +40,11 @@ import {
 } from "#compiler/public/fields.ts"
 import { fin, on, ordered, relation, schema, tree } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import type { NestedShape } from "#compiler/runtime/write/addition.ts"
 import { bindWrite, type InsertedStratum } from "#compiler/runtime/write/bind.ts"
+import { keptReadings } from "#compiler/runtime/write/decoded.ts"
 import type { FlightWrite } from "#compiler/runtime/write/flight.ts"
+import { levelNormalizer } from "#compiler/runtime/write/nesting.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { FactsRefused } from "#compiler/types/changeset/decode.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
@@ -762,3 +767,92 @@ export const takenSpace: Aimed<TakenCase, TakenFeature> = aimed(
 		]
 	]
 )
+
+/** Each relation a nested row holds, with the family it owns, by its count field and its member relation, or none. */
+const nestedIn: Readonly<
+	Record<string, { readonly count: string; readonly member: string } | undefined>
+> = {
+	Owner: { count: "items", member: "Item" },
+	Item: undefined,
+	Node: { count: "children", member: "Node" }
+}
+
+/** The top-level relations whose rows nest others. */
+export const nestedTops = ["Owner", "Node"] as const satisfies ReadonlyArray<Top>
+
+/**
+ * The readings decode recorded of `rows`, decoded rows of `relation`, as the insert's own levels take them
+ * (runtime/write/decoded.ts keptReadings): each level read under the heading the insert's nesting gives it, under the
+ * decoder's codes; none where decode recorded none.
+ */
+export const keptOf = (relation: (typeof nestedTops)[number], rows: ReadonlyArray<unknown>) => {
+	const flight = flights["the decoder's codes"]
+	const [nesting] = Arr.flatMap(flight.prepared.groups, (g) =>
+		Arr.flatMap(g.inputs, (input) =>
+			input.kind === "nested" && input.nesting.relation === relation ? [input.nesting] : []
+		)
+	)
+	if (nesting === undefined) {
+		return assert.fail(`the insert nests ${relation}`)
+	}
+	const level = (of: StoredRelationName, heading: Heading) => ({
+		normalize: levelNormalizer(of, heading, relation, flight.codes)
+	})
+	return keptReadings(rows, {
+		own: level(nesting.relation, nesting.own),
+		members: new Map(Arr.map(nesting.sequences, (f) => [f.id, level(f.member, f.heading)] as const))
+	})?.readings
+}
+
+/** A nesting's node as a property compares it: its own keys, its relation, and each family's own keys and members. */
+export interface DescribedNode {
+	readonly keys: ReadonlyArray<string>
+	readonly relation: string
+	readonly families: ReadonlyArray<{
+		readonly keys: ReadonlyArray<string>
+		readonly members: ReadonlyArray<DescribedNode>
+	}>
+}
+
+/** A kept reading's shape described, node for node (`DescribedNode`). */
+export const describedShape = (node: NestedShape): DescribedNode => ({
+	keys: Arr.map(Reflect.ownKeys(node), String),
+	relation: node.relation,
+	families: Arr.map(node.families, (g) => ({
+		keys: Arr.map(Reflect.ownKeys(g), String),
+		members: Arr.map(g.members, describedShape)
+	}))
+})
+
+/**
+ * What a reading keeps of `row`, a row of `relation`, by the rule: its nesting's shape and nothing more, each node its
+ * relation, its slot and its families alone, each family its id and its members, the row's own in order, to any depth.
+ */
+export const shapeOfRow = (relation: string, row: unknown): DescribedNode => {
+	const family = nestedIn[relation]
+	return {
+		keys: ["relation", "slot", "families"],
+		relation,
+		families:
+			family === undefined
+				? []
+				: [
+						{
+							keys: ["family", "members"],
+							members: Arr.map(membersOf(row, family.count), (member) =>
+								shapeOfRow(family.member, member)
+							)
+						}
+					]
+	}
+}
+
+/** The members a row states at a count field: its array there, none where it states none. */
+const membersOf = (row: unknown, count: string): ReadonlyArray<unknown> => {
+	const members: unknown = Predicate.hasProperty(row, count) ? row[count] : undefined
+	return Arr.isArray(members) ? members : []
+}
+
+/** How many nodes a described nesting holds: one level's read each. */
+export const nodesOf = (node: DescribedNode): number =>
+	1 + Arr.reduce(node.families, 0, (n, g) => n + Arr.reduce(g.members, 0, (m, x) => m + nodesOf(x)))
