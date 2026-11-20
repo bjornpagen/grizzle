@@ -4,13 +4,13 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ParamId } from "#compiler/core/ids.ts"
-import { factSet } from "#compiler/ir/compare.ts"
+import { type FactColumn, factOperand, factSet } from "#compiler/ir/compare.ts"
 import { contextAdmits } from "#compiler/ir/evidence.ts"
 import { type KeyProof, keyIn } from "#compiler/ir/keys.ts"
 import { type LawField, type RelationInfo, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import { always, needing, type Needs } from "#compiler/ir/needs.ts"
 import type { Heading, RelNode } from "#compiler/ir/rel.ts"
-import { floatCarrierOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { needsOf } from "#compiler/logical/needs.ts"
 import {
 	arraysSource,
@@ -46,7 +46,6 @@ import {
 	distinctCore,
 	gt,
 	lit,
-	negativeZero,
 	notExists,
 	provedCore,
 	sameTypeRef,
@@ -458,9 +457,9 @@ export const readInput = (
 }
 
 /** Reads an input as an operand of the set operation that deduplicates it, an exact deletion's EXCEPT: no DISTINCT and
- * no claim, its rows as they come. Where the operation compares rows as facts (`compared` "facts"), each float field's
- * being -0 (sql/build.ts negativeZero) follows its fields, so two rows that differ only in a zero's sign are two facts
- * to it, where its own comparison, PostgreSQL's equality, holds them one. */
+ * no claim, its rows as they come. Where the operation compares rows as facts (`compared` "facts"), it is a fact
+ * operand (ir/compare.ts factOperand), each float field's being -0 after its fields, so two rows that differ only in a
+ * zero's sign are two facts to it, where its own comparison, PostgreSQL's equality, holds them one. */
 export const readOperand = (
 	w: WriteContext,
 	input: WriteInput,
@@ -469,18 +468,24 @@ export const readOperand = (
 	at: string
 ): OperandRead => {
 	const { from, targets, types: columnTypes } = readTargets(w, input, options, at)
-	const signs =
-		compared === "rows"
-			? []
-			: columnTypes.flatMap((t, place) => {
-					const carrier = floatCarrierOf(t.type)
-					const read = targets[place]
-					return carrier === undefined || read === undefined
-						? []
-						: [target(negativeZero(read.expr, carrier))]
-				})
-	return { body: core([...targets, ...signs], [from], undefined), signs: signs.length }
+	const columns = factColumns(targets, columnTypes)
+	if (compared === "rows" || !isNonEmpty(columns)) {
+		return { body: core(targets, [from], undefined), signs: 0 }
+	}
+	const operand = factOperand(columns)
+	return { body: core(operand.targets, [from], undefined), signs: operand.signs }
 }
+
+/** An input's columns read at `targets`, each of its type in `columnTypes`, in order, as facts' columns (ir/compare.ts
+ * FactColumn): none for a read of no field, whose one target is the unit marker. */
+const factColumns = (
+	targets: NonEmptyReadonlyArray<Target>,
+	columnTypes: ReadonlyArray<InputColumnType>
+): ReadonlyArray<FactColumn> =>
+	columnTypes.flatMap((t, at) => {
+		const read = targets[at]
+		return read === undefined ? [] : [{ target: read, type: t.type }]
+	})
 
 /** An input's columns read for `options`, each cast into its field's type as `options.into` says. */
 const readTargets = (
@@ -544,10 +549,7 @@ const factsOf = (
 	columnTypes: ReadonlyArray<InputColumnType>,
 	from: FromItem
 ): SetCore => {
-	const columns = columnTypes.flatMap((t, at) => {
-		const read = targets[at]
-		return read === undefined ? [] : [{ target: read, type: t.type }]
-	})
+	const columns = factColumns(targets, columnTypes)
 	return isNonEmpty(columns)
 		? factSet(columns, [from], undefined)
 		: distinctCore(targets, [from], undefined)

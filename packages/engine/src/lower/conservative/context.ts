@@ -28,6 +28,7 @@ import {
 	type RelKind,
 	type RelNode,
 	type TakeBound,
+	unionArms,
 	type ValidDag
 } from "#compiler/ir/rel.ts"
 import { refinementText, regexOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -60,6 +61,8 @@ import {
 	isSetQuery,
 	type OperandSelect,
 	type Select,
+	type SelectCore,
+	type SetCore,
 	type Target,
 	transactionInstant,
 	type TypeRef
@@ -74,10 +77,14 @@ import {
 	derived,
 	distinctCore,
 	lit,
+	operandSelect,
+	operandUnionAll,
 	positionalValue,
 	provedSelect,
 	sameTypeRef,
 	select,
+	setBodyOf,
+	setOp,
 	slotParam,
 	target,
 	types,
@@ -545,6 +552,74 @@ interface Scope {
 	readonly evaluations: EvaluationHost | undefined
 }
 
+/** Each write DAG's fact spine (factSpine), made once: a DAG is immutable. */
+const factSpines = new WeakMap<ValidDag, ReadonlySet<RelNode>>()
+
+/**
+ * A write program's fact spine: the nodes whose rows are the facts its members state, as they reach the member's
+ * statement (check/checker.ts RowsOf): each root, a union's arms, a projection's input, a filter's, the left side of a
+ * semi-join or an anti-join, down to the region its rules match, whose sources are relations of their own. A merge on
+ * it takes no canonical zero, so every boundary on it forms its rows by their identity (LowerContext.setOf); a node off
+ * it, a region's source, a group's input, a take's, is a query's, whose merges the checker gave the canonical zero.
+ */
+const factSpine = (dag: ValidDag): ReadonlySet<RelNode> => {
+	const made = factSpines.get(dag)
+	if (made !== undefined) {
+		return made
+	}
+	const spine = new Set<RelNode>()
+	const reach = (node: RelNode): void => {
+		if (spine.has(node)) {
+			return
+		}
+		spine.add(node)
+		for (const below of spineBelow(node)) {
+			reach(below)
+		}
+	}
+	for (const root of dag.roots) {
+		reach(root)
+	}
+	factSpines.set(dag, spine)
+	return spine
+}
+
+/** The nodes a fact spine continues through below `node` on it (factSpine): those whose rows are its own. */
+const spineBelow = (node: RelNode): ReadonlyArray<RelNode> => {
+	switch (node.kind) {
+		case "Union":
+			return unionArms(node.groups)
+		case "ProjectSet":
+		case "Filter":
+			return [node.input]
+		case "SemiJoin":
+		case "AntiJoin":
+			return [node.left]
+		case "MatchRegion":
+		case "Base":
+		case "Closed":
+		case "Context":
+		case "InputSet":
+		case "Delta":
+		case "Intersect":
+		case "Difference":
+		case "Take":
+		case "Group":
+		case "Produce":
+		case "Recursive":
+		case "SelfRef":
+		case "ApproximateNearest":
+		case "OrderedResult":
+		case "Attach":
+		case "Forbid":
+		case "Window":
+		case "OrderedSetAggregate":
+		case "Step":
+		case "Call":
+			return []
+	}
+}
+
 /** Where a lowering's first statement starts naming: a read-back's start, every other statement's r1 and c1. */
 const firstStart = (options: ConservativeOptions): NameSupplyStart =>
 	options.subject.kind === "readBack" ? options.subject.start : freshNames
@@ -770,6 +845,7 @@ export class LowerContext {
 			case "membership":
 				return subject.row
 			case "query":
+			case "write":
 			case "ruleRegion":
 			case "violationProbe":
 			case "readBack":
@@ -778,6 +854,62 @@ export class LowerContext {
 					at,
 					"a write filter's row outside the membership that names its values"
 				)
+		}
+	}
+
+	/**
+	 * The set of `node`'s rows `targets` deliver, in its heading's order, over `from` where `where` holds: the one
+	 * boundary every lowerer puts on a node's own rows. On a write's fact spine (factSpine), where the rows are facts a
+	 * member states and no merge took the canonical zero, a set of facts by their identity (ir/compare.ts factSet), -0
+	 * and +0 two of them, as the write's statement forms them (write/insert/input.ts inputSet); elsewhere SELECT
+	 * DISTINCT, under PostgreSQL's equality, where the checker gave every float a merge may take its canonical zero
+	 * (check/merge.ts), so no plan picks one.
+	 */
+	setOf(
+		node: RelNode,
+		targets: NonEmptyReadonlyArray<Target>,
+		from: ReadonlyArray<FromItem>,
+		where: Expr | undefined
+	): SetCore {
+		if (!this.#onFactSpine(node)) {
+			return distinctCore(targets, from, where)
+		}
+		const columns = node.heading.flatMap((c, at) => {
+			const read = targets[at]
+			return read === undefined ? [] : [{ target: read, type: c.type }]
+		})
+		return isNonEmpty(columns) ? factSet(columns, from, where) : distinctCore(targets, from, where)
+	}
+
+	/**
+	 * The set union of a union node's arms, each projected onto its heading (union/arms.ts armCore): UNION, under
+	 * PostgreSQL's equality, off a write's fact spine; on it, the arms' UNION ALL formed into one set of facts by their
+	 * identity (setOf), so a member's -0 and +0 at otherwise equal fields stay two facts.
+	 */
+	unionOf(node: NodeOf<"Union">, arms: NonEmptyReadonlyArray<SelectCore>): Select {
+		if (!this.#onFactSpine(node)) {
+			return select(
+				setBodyOf(setOp("UNION", arms), "a set union over at least two arms, or one set arm")
+			)
+		}
+		const all = this.wrap(operandSelect(operandUnionAll(arms)), node.heading, {
+			kind: "node",
+			node: node.id
+		})
+		return select(this.setOf(node, headingTargets(node.heading, all.map), [all.item], undefined))
+	}
+
+	/** Whether `node` is on the fact spine of the write this lowers (factSpine): none is, off a write's members. */
+	#onFactSpine(node: RelNode): boolean {
+		switch (this.options.subject.kind) {
+			case "write":
+				return factSpine(this.dag).has(node)
+			case "query":
+			case "ruleRegion":
+			case "violationProbe":
+			case "readBack":
+			case "membership":
+				return false
 		}
 	}
 
@@ -1161,17 +1293,19 @@ export const readsSet = (source: FromSource): boolean =>
 	source.kind !== "derived" || isSetQuery(source.query)
 
 /**
- * The rows of the sources `from` where `where` holds, delivered by `targets`, which hold every column of each source,
- * each as it is, through the binary coercion, which keeps every value, or fixed by `where`: a filter's heading, a
- * renaming's, a region's every column bound. Two distinct rows of the sources then deliver two distinct rows, so over
- * sets no row repeats and the core stands under the proof `keyed`, the sets' whole headings (sql/ast.ts RowsProof),
- * with no deduplication; over rows that may repeat, it is the conservative set boundary.
+ * The rows of `node` over the sources `from` where `where` holds, delivered by `targets`, which hold every column of
+ * each source, each as it is, through the binary coercion, which keeps every value, or fixed by `where`: a filter's
+ * heading, a renaming's, a region's every column bound. Two distinct rows of the sources then deliver two distinct
+ * rows, so over sets no row repeats and the core stands under the proof `keyed`, the sets' whole headings (sql/ast.ts
+ * RowsProof), with no deduplication; over rows that may repeat, it is the node's set boundary (LowerContext.setOf).
  */
 export const wholeSelect = (
+	cx: LowerContext,
+	node: RelNode,
 	from: ReadonlyArray<FromSource>,
 	targets: NonEmptyReadonlyArray<Target>,
 	where: ReadonlyArray<Expr>
 ): Select =>
 	from.every(readsSet)
 		? provedSelect("keyed", targets, from, conjunction(where))
-		: distinctSelect(targets, from, where)
+		: select(cx.setOf(node, targets, from, conjunction(where)))

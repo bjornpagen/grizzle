@@ -17,7 +17,6 @@ import {
 	columnIn,
 	type CteTable,
 	cteAtFirstUse,
-	distinctSelect,
 	type Env,
 	emptyEnv,
 	freshCtes,
@@ -117,7 +116,8 @@ import {
 	type OperandBody,
 	type OperandSelect,
 	type OrderItem,
-	type Select
+	type Select,
+	type SelectCore
 } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -496,31 +496,37 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 
 /**
  * A query without its outermost set boundary: the plain realization of a conservative plug-in whose query is a SELECT
- * DISTINCT, under the proof the physical analysis made of it (`certified`), or an operand where it made none and the
- * node's consumers make its rows a set. A set operation, DISTINCT ON, or a query without DISTINCT is returned
- * unchanged.
+ * DISTINCT or a set of facts (ir/compare.ts factSet, grouped by its targets and its floats' signs alone), under the
+ * proof the physical analysis made of it (`certified`), or an operand where it made none and the node's consumers make
+ * its rows a set. A set operation, DISTINCT ON, or a query of neither boundary is returned unchanged.
  */
 export const withoutBoundary = (
 	query: OperandSelect,
 	rows: "certified" | "operand"
 ): OperandSelect => {
 	const body = query.body
-	if (body.kind !== "core" || body.distinct !== true) {
+	if (body.kind !== "core" || !boundaryCore(body)) {
 		return query
 	}
 	return {
 		...query,
 		body:
-			rows === "operand" ? { ...body, distinct: false, rows } : { ...body, distinct: false, rows }
+			rows === "operand"
+				? { ...body, distinct: false, groupBy: [], rows }
+				: { ...body, distinct: false, groupBy: [], rows }
 	}
 }
 
+/** Whether a core is a set boundary over its rows: SELECT DISTINCT, or a set of facts (ir/compare.ts factSet). */
+const boundaryCore = (body: SelectCore): boolean =>
+	body.distinct === true || (body.distinct === false && body.rows === "facts")
+
 /**
- * Whether a query's outermost form eliminates repeats exactly: SELECT DISTINCT, UNION, INTERSECT, EXCEPT, or a
- * recursive CTE under UNION.
+ * Whether a query's outermost form eliminates repeats exactly: SELECT DISTINCT, a set of facts, UNION, INTERSECT,
+ * EXCEPT, or a recursive CTE under UNION.
  */
 const exactBody = (body: OperandBody): boolean =>
-	(body.kind === "core" && body.distinct === true) ||
+	(body.kind === "core" && boundaryCore(body)) ||
 	(body.kind === "setOp" && body.op !== "UNION ALL") ||
 	(body.kind === "select" && exactBody(body.body))
 
@@ -533,7 +539,7 @@ export const withBoundary = (cx: LowerContext, node: RelNode, query: OperandSele
 		return query
 	}
 	const source = cx.wrap(query, node.heading, { kind: "node", node: node.id })
-	return distinctSelect(headingTargets(node.heading, source.map), [source.item], [])
+	return select(cx.setOf(node, headingTargets(node.heading, source.map), [source.item], undefined))
 }
 
 /** A conservative plug-in realized as the placement decided. */

@@ -20,7 +20,6 @@ import {
 import {
 	type ColumnMap,
 	columnIn,
-	distinctSelect,
 	type Env,
 	type EvaluationLookup,
 	extendEnv,
@@ -36,7 +35,7 @@ import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, FromSource, Target } from "#compiler/sql/ast.ts"
-import { col, derived, target, unitTargets } from "#compiler/sql/build.ts"
+import { col, conjunction, derived, select, target, unitTargets } from "#compiler/sql/build.ts"
 
 type Region = NodeOf<"MatchRegion">
 
@@ -302,8 +301,8 @@ const regionEvaluations = (cx: LowerContext, node: Region): ReadonlyMap<Occurren
 const lowerMatchRegion: NodeLowerer<"MatchRegion"> = (node, cx, env) => {
 	const parts = regionParts(node, cx, env)
 	return bindsEveryColumn(node)
-		? wholeSelect(parts.from, parts.targets, parts.conditions)
-		: distinctSelect(parts.targets, parts.from, parts.conditions)
+		? wholeSelect(cx, node, parts.from, parts.targets, parts.conditions)
+		: select(cx.setOf(node, parts.targets, parts.from, conjunction(parts.conditions)))
 }
 
 /**

@@ -7,7 +7,7 @@ import {
 import { Refusal } from "#compiler/core/canonical.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { factSet } from "#compiler/ir/compare.ts"
+import { type FactColumn, factOperand, factSet } from "#compiler/ir/compare.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import { always } from "#compiler/ir/needs.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -29,6 +29,7 @@ import {
 import {
 	col,
 	cUtf8Collation,
+	derived,
 	distinctCore,
 	keyedSet,
 	provedCore,
@@ -269,25 +270,80 @@ type CarrierSource =
 			readonly snapshot: WriteCarrier
 	  }
 
-/** A relation's stored facts, its fields in heading order, read under `names`. */
-const storedBody = (w: WriteContext, relation: RelationInfo, names: PhysicalNames): SetCore => {
-	const alias = w.cx.supply.relation({ kind: "internal", purpose: "carrier operand" })
-	return provedCore(
-		"keyed",
-		relation.heading.map((f) => target(col(alias, names.column(relation.name, f.name)))),
-		[{ kind: "table", table: names.relation(relation.name), alias }],
-		undefined
-	)
+/** A relation's facts as a statement reads them: the FROM item over them and each field's column, in heading order. */
+interface FactsRead {
+	readonly from: FromItem
+	readonly columns: NonEmptyReadonlyArray<FactColumn>
 }
 
-/** A carrier's rows, its columns in heading order. */
-const carrierBody = (w: WriteContext, carrier: WriteCarrier): SetCore => {
+/** A relation's stored facts, its fields in heading order, read under `names`. */
+const storedFacts = (w: WriteContext, relation: RelationInfo, names: PhysicalNames): FactsRead => {
 	const alias = w.cx.supply.relation({ kind: "internal", purpose: "carrier operand" })
-	return provedCore(
+	return {
+		from: { kind: "table", table: names.relation(relation.name), alias },
+		columns: mapNonEmpty(relation.heading, (f) => ({
+			target: target(col(alias, names.column(relation.name, f.name))),
+			type: f.type
+		}))
+	}
+}
+
+/** A snapshot carrier of `relation`'s facts (`relationCarrier`), its columns in the relation's heading order. */
+const snapshotFacts = (
+	w: WriteContext,
+	relation: RelationInfo,
+	carrier: WriteCarrier
+): FactsRead => {
+	const alias = w.cx.supply.relation({ kind: "internal", purpose: "carrier operand" })
+	return {
+		from: carrierScan(carrier, alias),
+		columns: mapNonEmpty(relation.heading, (f) => ({
+			target: target(col(alias, carrierField(carrier, f.name).column)),
+			type: f.type
+		}))
+	}
+}
+
+/** Facts read whole, a set by the key of the relation they are facts of. */
+const keyedFacts = (read: FactsRead): SetCore =>
+	provedCore(
 		"keyed",
-		carrier.heading.map((c) => target(col(alias, c.column))),
-		[carrierScan(carrier, alias)],
+		read.columns.map((c) => c.target),
+		[read.from],
 		undefined
+	)
+
+/**
+ * The facts of `left` that `right` lacks, by their identity, a float's -0 and +0 two of them (ir/compare.ts
+ * factOperand): a stored row changed only in its zero's sign is a change, where EXCEPT under PostgreSQL's equality
+ * holds it unchanged. The EXCEPT reads each operand's float columns' signs after its columns, and its rows are read back
+ * at the columns alone, a set by the relation's key, which every row of `left` holds.
+ */
+const factDifference = (w: WriteContext, left: FactsRead, right: FactsRead): Select => {
+	const leftOperand = factOperand(left.columns)
+	const rightOperand = factOperand(right.columns)
+	const alias = w.cx.supply.relation({ kind: "internal", purpose: "carrier difference" })
+	const columns = mapNonEmpty(left.columns, () =>
+		w.cx.supply.column({ kind: "internal", purpose: "carrier difference column" })
+	)
+	const signs = Array.from({ length: leftOperand.signs }, () =>
+		w.cx.supply.column({ kind: "internal", purpose: "carrier difference zero sign" })
+	)
+	const difference = select({
+		kind: "setOp",
+		op: "EXCEPT",
+		arms: [
+			provedCore("keyed", leftOperand.targets, [left.from], undefined),
+			provedCore("keyed", rightOperand.targets, [right.from], undefined)
+		]
+	})
+	return select(
+		provedCore(
+			"keyed",
+			columns.map((c) => target(col(alias, c))),
+			[derived(difference, alias, [...columns, ...signs], false)],
+			undefined
+		)
 	)
 }
 
@@ -339,13 +395,13 @@ const fillQuery = (
 		case "member":
 			return memberRows(w, carrier.heading, source.node, at)
 		case "relation":
-			return select(storedBody(w, source.relation, source.names))
+			return select(keyedFacts(storedFacts(w, source.relation, source.names)))
 		case "difference": {
-			const stored = () => storedBody(w, source.relation, source.names)
-			const snapshot = () => carrierBody(w, source.snapshot)
+			const stored = () => storedFacts(w, source.relation, source.names)
+			const snapshot = () => snapshotFacts(w, source.relation, source.snapshot)
 			const [left, right] = source.side === "added" ? [stored, snapshot] : [snapshot, stored]
-			const leftBody = left()
-			return select({ kind: "setOp", op: "EXCEPT", arms: [leftBody, right()] })
+			const leftRead = left()
+			return factDifference(w, leftRead, right())
 		}
 	}
 }

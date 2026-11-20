@@ -29,7 +29,14 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * - I, immutable, keyed by (s, variable): a put of Proj's member, which the DELETE-then-insert pair reads twice, so the
  *   write carries it (write/carriers/carriers.ts memberRows);
  * - Arm, mutable, keyed by (s, variable, field): a deletion of `gone` beside an insert of `given` in one stratum, which
- *   the deletion reads as D EXCEPT A (write/delete/exact.ts).
+ *   the deletion reads as D EXCEPT A (write/delete/exact.ts);
+ * - P, mutable, keyed by (s, variable): a put of Proj's member over a stored fact, read back as P's added and removed
+ *   facts, which the conservative realization reads off its state snapshots' difference (write/carriers/carriers.ts
+ *   factDifference).
+ *
+ * Proj's member is also read by a region that leaves `field` unbound (`dropped`), so two facts of `given` meet in the
+ * region itself, on a member's fact spine (lower/conservative/context.ts factSpine); and every write runs by both
+ * artifacts, the optimized one generate serves and the conservative realization, the write oracle's baseline.
  */
 const Proj = relation(
 	"Proj",
@@ -59,7 +66,12 @@ const Arm = relation(
 	["s", "variable", "field"]
 )
 
-export const Facts = schema("Facts", [Proj, Rec, U, I, Arm], [mutable(Arm)])
+const P = relation("P", { s: pg.bigint, variable: pg.bigint, value: pg["double precision"] }, [
+	"s",
+	"variable"
+])
+
+export const Facts = schema("Facts", [Proj, Rec, U, I, Arm, P], [mutable(Arm), mutable(P)])
 
 /** A parameter relation's facts whole, each at the call's snapshot: `gone`'s, a deletion's member. */
 const goneFacts = query(Facts).rule((r) => {
@@ -100,6 +112,17 @@ const projected = query(Facts).rule((r) => {
 		.find({ s: r.param("s", pg.bigint), variable, value })
 })
 
+/** `given` matched without its field, each fact's value under its variable: the region itself may meet two facts. */
+const dropped = query(Facts).rule((r) => {
+	const given = r.relation("given", {
+		variable: pg.bigint,
+		field: pg.bigint,
+		value: pg["double precision"]
+	})
+	const { variable, value } = v(given, "given")
+	return r.match(given, { variable, value }).find({ s: r.param("s", pg.bigint), variable, value })
+})
+
 /** The union of two rules, each `given` with its field dropped. */
 const unioned = query(Facts)
 	.rule((r) => {
@@ -138,22 +161,51 @@ const header = query(Facts).rule((r) => {
 		.find({ s: r.param("s", pg.bigint), variable, field, base: 1n })
 })
 
-/** The writes, each under its name in the workload, beside the load of Arm's stored fact. */
+/** The writes, each under its name in the workload, beside the load of Arm's and P's stored facts. P's added and removed
+ * facts are read back whole. */
 const programs = Object.freeze({
-	load: ChangeSet.empty(Facts).insert(Arm, []),
+	loadArm: ChangeSet.empty(Facts).insert(Arm, []),
+	loadP: ChangeSet.empty(Facts).insert(P, []),
 	once: ChangeSet.empty(Facts).insert(Proj, projected),
+	dropped: ChangeSet.empty(Facts).insert(Proj, dropped),
+	replaced: ChangeSet.empty(Facts)
+		.put(P, projected)
+		.read("added", (d) =>
+			query(Facts).rule((r) => {
+				const { s, variable, value } = v(d.added(P), "added")
+				return r.match(d.added(P), { s, variable, value }).find({ s, variable, value })
+			})
+		)
+		.read("removed", (d) =>
+			query(Facts).rule((r) => {
+				const { s, variable, value } = v(d.removed(P), "removed")
+				return r.match(d.removed(P), { s, variable, value }).find({ s, variable, value })
+			})
+		),
 	twice: ChangeSet.empty(Facts).insert(Proj, projected).insert(Rec, header),
 	thrice: ChangeSet.empty(Facts).insert(U, unioned).insert(Rec, header),
 	carried: ChangeSet.empty(Facts).put(I, projected),
 	swap: ChangeSet.empty(Facts).delete(Arm, goneFacts).insert(Arm, givenFacts)
 })
 
-/** The writes a case makes, by how they read `given`: once, twice (the arm and its header), three times (a union's two
- * rules and the header), carried by a put, and beside a deletion of `gone` in its stratum. */
-const writes = ["once", "twice", "thrice", "carried", "swap"] as const satisfies ReadonlyArray<
-	keyof typeof programs
->
+/** The writes a case makes, by how they read `given`: once, by a region without its field, twice (the arm and its
+ * header), three times (a union's two rules and the header), carried by a put, beside a deletion of `gone` in its
+ * stratum, and by a put over a stored fact of P, read back as P's changes. */
+const writes = [
+	"once",
+	"dropped",
+	"twice",
+	"thrice",
+	"carried",
+	"swap",
+	"replaced"
+] as const satisfies ReadonlyArray<keyof typeof programs>
 export type Write = (typeof writes)[number]
+
+/** The artifact a case's write runs by: the optimized one generate serves, or the conservative realization
+ * (test/support/served-db.ts conservativeServedJson). */
+const artifacts = ["optimized", "conservative"] as const
+export type Artifact = (typeof artifacts)[number]
 
 /**
  * The doubles a case writes: both zeros, NaN, the least subnormal of each sign, the least normal and a plain value, so
@@ -169,14 +221,17 @@ const values: Arr.NonEmptyReadonlyArray<number> = [
 	1.5
 ]
 
-/** A case: a write, the value of `given`'s first fact, and its second fact's, at another field of the same variable. */
+/** A case: the artifact, a write, the value of `given`'s first fact, and its second fact's, at another field of the same
+ * variable. The swap and the put over P write the first alone, beside a stored fact of the second's value (`gone`). */
 export interface Sketch {
+	readonly artifact: Artifact
 	readonly write: Write
 	readonly first: number
 	readonly second: Option.Option<number>
 }
 
 export const sketchGen: Gen<Sketch> = (source) => ({
+	artifact: source.draw(element(artifacts)),
 	write: source.draw(element(writes)),
 	first: source.draw(element(values)),
 	second: source.draw(option(element(values)))
@@ -199,10 +254,12 @@ export const givenOf = (
 /** One fact as its identity reads it: Object.is, NaN being NaN. */
 const sameFact = (a: number, b: number): boolean => Object.is(a, b)
 
-/** What a write answers, and the bits each float it stored holds, by relation, as float8send gives them. */
+/** What a write answers, the bits each float it stored holds, by relation, as float8send gives them, and the bits of
+ * each value its read-backs read, by read-back, in order. */
 export interface Answer {
 	readonly outcome: "accepted" | "unchanged" | "refused" | "outsideWorld"
 	readonly stored: ReadonlyArray<readonly [string, ReadonlyArray<string>]>
+	readonly reads: ReadonlyArray<readonly [string, ReadonlyArray<string>]>
 }
 
 /** A double's IEEE 754 bits, as float8send gives them, in hex: every NaN in PostgreSQL's one form. */
@@ -219,29 +276,43 @@ export const expected = (s: Sketch): Answer => {
 	if (s.write === "swap") {
 		return {
 			outcome: sameFact(s.first, gone(s)) ? "unchanged" : "accepted",
-			stored: [["Arm", [bitsOf(s.first)]]]
+			stored: [["Arm", [bitsOf(s.first)]]],
+			reads: []
+		}
+	}
+	if (s.write === "replaced") {
+		const same = sameFact(s.first, gone(s))
+		return {
+			outcome: same ? "unchanged" : "accepted",
+			stored: [["P", [bitsOf(s.first)]]],
+			reads: [
+				["added", same ? [] : [bitsOf(s.first)]],
+				["removed", same ? [] : [bitsOf(gone(s))]]
+			]
 		}
 	}
 	const second = Option.getOrUndefined(s.second)
 	const projectedValues =
 		second === undefined || sameFact(s.first, second) ? [s.first] : [s.first, second]
 	if (projectedValues.length > 1) {
-		return { outcome: "refused", stored: storedBy(s.write, []) }
+		return { outcome: "refused", stored: storedBy(s.write, []), reads: [] }
 	}
-	return { outcome: "accepted", stored: storedBy(s.write, [bitsOf(s.first)]) }
+	return { outcome: "accepted", stored: storedBy(s.write, [bitsOf(s.first)]), reads: [] }
 }
 
-/** The value the swap's stored fact and its deletion hold: the second value, or the first's other zero, or the first. */
+/** The value the swap's and the put's stored fact holds, and the swap's deletion: the second value, or the first's other
+ * zero, or the first. */
 export const gone = (s: Sketch): number =>
 	Option.getOrElse(s.second, () => (s.first === 0 ? (Object.is(s.first, -0) ? 0 : -0) : s.first))
 
 /** The relations a write stores a float in, each with its stored bits. */
 const storedBy = (
-	write: Exclude<Write, "swap">,
+	write: Projecting,
 	bits: ReadonlyArray<string>
 ): ReadonlyArray<readonly [string, ReadonlyArray<string>]> => {
 	switch (write) {
 		case "once":
+		case "dropped":
 		case "twice":
 			return [["Proj", bits]]
 		case "thrice":
@@ -250,6 +321,13 @@ const storedBy = (
 			return [["I", bits]]
 	}
 }
+
+/** The bits of each value a read-back reads, in order. */
+export const readBits = (rows: Iterable<{ readonly value: number }>): ReadonlyArray<string> =>
+	Arr.sort(
+		Arr.map(Arr.fromIterable(rows), (row) => bitsOf(row.value)),
+		Str.Order
+	)
 
 /** The bits each stored row's `value` holds, as float8send gives them, in hex, in their order. */
 export const storedBits = (
@@ -267,43 +345,63 @@ export const storedBits = (
 	})
 
 /** The writes that read `given` as a projection, each case's facts one of the three counts `featureOf` tells apart. */
-type Projecting = Exclude<Write, "swap">
+type Projecting = Exclude<Write, "swap" | "replaced">
 
-/** The features a case reaches: a projecting write of one fact, of one fact stated twice, of two facts at one key; the
- * swap of the stored fact, of its other zero, of another fact. */
-export type Feature =
+/** The writes of the first fact alone over a stored fact. */
+type OverStored = Extract<Write, "swap" | "replaced">
+
+/** The features a case reaches, by each artifact: a projecting write of one fact, of one fact stated twice, of two facts
+ * at one key; the swap and the put over P of the stored fact, of its other zero, of another fact. */
+export type Feature = `${Artifact}: ${
 	| `${Projecting} of one fact`
 	| `${Projecting} of one fact twice`
 	| `${Projecting} of two facts at one key`
-	| "swap of the stored fact"
-	| "swap of its other zero"
-	| "swap of another fact"
+	| `${OverStored} of the stored fact`
+	| `${OverStored} of its other zero`
+	| `${OverStored} of another fact`}`
 
-export const features: Arr.NonEmptyReadonlyArray<Feature> = [
-	...Arr.flatMap(
-		["once", "twice", "thrice", "carried"] as const,
-		(w) => [`${w} of one fact`, `${w} of one fact twice`, `${w} of two facts at one key`] as const
-	),
-	"swap of the stored fact",
-	"swap of its other zero",
-	"swap of another fact"
-]
+export const features: Arr.NonEmptyReadonlyArray<Feature> = Arr.flatMap(
+	artifacts,
+	(a) =>
+		[
+			...Arr.flatMap(
+				["once", "dropped", "twice", "thrice", "carried"] as const,
+				(w) =>
+					[
+						`${a}: ${w} of one fact`,
+						`${a}: ${w} of one fact twice`,
+						`${a}: ${w} of two facts at one key`
+					] as const
+			),
+			...Arr.flatMap(
+				["swap", "replaced"] as const,
+				(w) =>
+					[
+						`${a}: ${w} of the stored fact`,
+						`${a}: ${w} of its other zero`,
+						`${a}: ${w} of another fact`
+					] as const
+			)
+		] as const
+)
 
 /** The feature a case reaches. */
 export const featureOf = (s: Sketch): Feature => {
-	const write = s.write
-	if (write === "swap") {
+	const { artifact, write } = s
+	if (write === "swap" || write === "replaced") {
 		const stored = gone(s)
 		return sameFact(s.first, stored)
-			? "swap of the stored fact"
+			? `${artifact}: ${write} of the stored fact`
 			: s.first === stored
-				? "swap of its other zero"
-				: "swap of another fact"
+				? `${artifact}: ${write} of its other zero`
+				: `${artifact}: ${write} of another fact`
 	}
 	return Option.match(s.second, {
-		onNone: (): Feature => `${write} of one fact`,
+		onNone: (): Feature => `${artifact}: ${write} of one fact`,
 		onSome: (second): Feature =>
-			sameFact(s.first, second) ? `${write} of one fact twice` : `${write} of two facts at one key`
+			sameFact(s.first, second)
+				? `${artifact}: ${write} of one fact twice`
+				: `${artifact}: ${write} of two facts at one key`
 	})
 }
 

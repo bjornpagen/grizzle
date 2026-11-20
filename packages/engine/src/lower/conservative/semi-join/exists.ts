@@ -1,7 +1,6 @@
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import {
 	columnIn,
-	distinctSelect,
 	type Env,
 	extendEnv,
 	headingTargets,
@@ -15,6 +14,7 @@ import {
 	exists,
 	lit,
 	notExists,
+	select,
 	simpleSelect,
 	target,
 	types
@@ -63,8 +63,10 @@ export const existenceTest = (
 	)
 	const targets = headingTargets(node.heading, left.map)
 	if (feedback) {
-		return distinctSelect(targets, [left.item, right.item], on)
+		return select(cx.setOf(node, targets, [left.item, right.item], conjunction(on)))
 	}
 	const witness = simpleSelect([target(lit.int(1, types.integer))], [right.item], conjunction(on))
-	return distinctSelect(targets, [left.item], [negated ? notExists(witness) : exists(witness)])
+	return select(
+		cx.setOf(node, targets, [left.item], negated ? notExists(witness) : exists(witness))
+	)
 }

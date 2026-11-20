@@ -3,7 +3,6 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import {
-	distinctSelect,
 	extendEnv,
 	type Lowerers,
 	type NodeLowerer,
@@ -11,7 +10,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
-import { target, unitTargets } from "#compiler/sql/build.ts"
+import { select, target, unitTargets } from "#compiler/sql/build.ts"
 
 /** The column of `input` an expression delivers with every value kept: the column, or its binary coercion. */
 const keptColumn = (e: ScalarExpr, input: NodeId): string | undefined =>
@@ -49,8 +48,8 @@ const lowerProjectSet: NodeLowerer<"ProjectSet"> = (node, cx, env) => {
 		? mapNonEmpty(node.out, (o) => target(lowerExpr(cx, o.expr, scope)))
 		: unitTargets
 	return keepsEveryColumn(node)
-		? wholeSelect([input.item], targets, [])
-		: distinctSelect(targets, [input.item], [])
+		? wholeSelect(cx, node, [input.item], targets, [])
+		: select(cx.setOf(node, targets, [input.item], undefined))
 }
 
 /** This kind's entry of the conservative kind table (dispatch.ts). */

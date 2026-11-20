@@ -23,7 +23,17 @@ import {
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { type NativeOp, nativeOp, operandCarriers } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, FromItem, JoinStep, OperandBody, Select, Target } from "#compiler/sql/ast.ts"
-import { and, col, core, derived, lit, operandSelect, target } from "#compiler/sql/build.ts"
+import {
+	and,
+	col,
+	conjunction,
+	core,
+	derived,
+	lit,
+	operandSelect,
+	select,
+	target
+} from "#compiler/sql/build.ts"
 import { identityHooks, inertVisitor, transformExpr, visitSelect } from "#compiler/sql/transform.ts"
 
 /**
@@ -425,7 +435,7 @@ export const regionLowerer =
 			parts.occurrences.length <= collapseLimit ||
 			parts.from.length > parts.occurrences.length
 		) {
-			return distinctSelect(parts.targets, parts.from, parts.conditions)
+			return select(cx.setOf(node, parts.targets, parts.from, conjunction(parts.conditions)))
 		}
 		const within = new Set(parts.occurrences.map((o) => o.alias))
 		const terms = parts.conditions.flatMap(sqlConjuncts).map((e) => termOf(e, within))
@@ -469,7 +479,7 @@ export const regionLowerer =
 				: head.item
 		const [next, ...after] = rest
 		if (next === undefined || !once(start.occurrence.source)) {
-			return distinctSelect(parts.targets, [chainOf(start, rest, 0)], at(0))
+			return select(cx.setOf(node, parts.targets, [chainOf(start, rest, 0)], conjunction(at(0))))
 		}
 		return keyedByOnce(
 			cx,

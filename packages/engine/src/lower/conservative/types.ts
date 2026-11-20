@@ -123,8 +123,10 @@ export interface MembershipLowering {
 
 /**
  * What a conservative lowering lowers: a query, which reads no delta (a Delta node in one is UnsupportedOperation), as a
- * derived relation's definition does; a rule's probe over its region (physical/ddl/rules.ts), which reads the
- * session's delta of its relation (RegionLowering) and no parameter; a write program's read-back; a
+ * derived relation's definition does; a write program's members (`write`), queries whose roots' rows are the facts
+ * the write states (check/checker.ts RowsOf), so every boundary on a member's fact spine is a set of facts by their
+ * identity (context.ts factSpine, LowerContext.setOf); a rule's probe over its region (physical/ddl/rules.ts), which
+ * reads the session's delta of its relation (RegionLowering) and no parameter; a write program's read-back; a
  * write filter's membership, which reads its row; or a law's full violation query, the migration's probe
  * (deploy/diff) of a law over closed relations alone, a query over declared values only, which types a text refinement
  * no `__text_` domain names (a contract's base pattern no stored column carries) as text, where any other query refuses
@@ -132,6 +134,7 @@ export interface MembershipLowering {
  */
 type ConservativeSubject =
 	| { readonly kind: "query" }
+	| { readonly kind: "write" }
 	| RegionLowering
 	| { readonly kind: "violationProbe" }
 	| ReadBackLowering
@@ -149,6 +152,7 @@ export const judgesLaw = (subject: ConservativeSubject): boolean => {
 		case "ruleRegion":
 			return true
 		case "query":
+		case "write":
 		case "readBack":
 		case "membership":
 			return false

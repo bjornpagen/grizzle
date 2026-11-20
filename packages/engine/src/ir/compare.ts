@@ -11,6 +11,7 @@ import {
 	provedCore,
 	row,
 	sameZeroSign,
+	target,
 	zerosOfTwoSigns
 } from "#compiler/sql/build.ts"
 
@@ -179,12 +180,23 @@ export interface FactColumn {
 }
 
 /**
+ * Each float column's being -0 (sql/build.ts negativeZero), in column order: what a fact's identity adds to
+ * PostgreSQL's equality, which holds -0 = 0 and every NaN one value. No NaN and no nonzero value is -0, so two rows of
+ * equal columns agree on every sign exactly when factEq holds them one fact.
+ */
+const zeroSigns = (columns: ReadonlyArray<FactColumn>): ReadonlyArray<Expr> =>
+	columns.flatMap((c) => {
+		const carrier = floatCarrierOf(c.type)
+		return carrier === undefined ? [] : [negativeZero(c.target.expr, carrier)]
+	})
+
+/**
  * The rows of `columns` over `from` where `where` holds, as a set of facts: two rows are one exactly when factEq holds
  * them one, equal and each float a zero of one sign where it is a zero, as their identity reads them
  * (scalar/values/identity.ts canonicalText). So a caller's -0 and +0 stay two facts, where SELECT DISTINCT, under
  * PostgreSQL's equality, keeps one of them, the one its plan meets first. Rows of no float column are SELECT DISTINCT
- * itself; rows holding one are grouped by every column and by each float's being -0 (sql/build.ts negativeZero), which
- * no NaN and no nonzero value is, so it splits no class of PostgreSQL's equality but a zero's.
+ * itself; rows holding one are grouped by every column and by each float's being -0 (zeroSigns), which splits no class
+ * of PostgreSQL's equality but a zero's.
  */
 export const factSet = (
 	columns: NonEmptyReadonlyArray<FactColumn>,
@@ -192,10 +204,7 @@ export const factSet = (
 	where: Expr | undefined
 ): SetCore => {
 	const targets = mapNonEmpty(columns, (c) => c.target)
-	const signs = columns.flatMap((c) => {
-		const carrier = floatCarrierOf(c.type)
-		return carrier === undefined ? [] : [negativeZero(c.target.expr, carrier)]
-	})
+	const signs = zeroSigns(columns)
 	if (signs.length === 0) {
 		return distinctCore(targets, from, where)
 	}
@@ -203,4 +212,22 @@ export const factSet = (
 		...provedCore("facts", targets, from, where),
 		groupBy: [...targets.map((t) => t.expr), ...signs]
 	}
+}
+
+/**
+ * An operand of a set operation that compares facts, a fact difference (EXCEPT): its columns' targets, then each float
+ * column's being -0 (zeroSigns), `signs` of them. The operation compares its operands' rows under PostgreSQL's
+ * equality, which the signs refine to the facts' identity, so it holds two rows one exactly when factEq does: a stored
+ * -0 is no repeat of a +0 beside it. Its reader takes the columns before the signs.
+ */
+export interface FactOperand {
+	readonly targets: NonEmptyReadonlyArray<Target>
+	readonly signs: number
+}
+
+/** `columns` as an operand of a set operation that compares facts (FactOperand). */
+export const factOperand = (columns: NonEmptyReadonlyArray<FactColumn>): FactOperand => {
+	const signs = zeroSigns(columns).map(target)
+	const [first, ...rest] = mapNonEmpty(columns, (c) => c.target)
+	return { targets: [first, ...rest, ...signs], signs: signs.length }
 }

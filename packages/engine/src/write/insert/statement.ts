@@ -277,7 +277,7 @@ export const writeContext = (dag: ValidDag, options: WriteContextOptions): Write
 		{
 			names: options.reads,
 			params: options.params,
-			subject: { kind: "query" }
+			subject: { kind: "write" }
 		},
 		options.dispatch
 	)
