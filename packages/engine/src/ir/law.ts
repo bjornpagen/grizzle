@@ -186,6 +186,12 @@ export interface ClosedSlot {
 export interface ClosedTheoryRelation extends StoredRelationOf<"closed"> {
 	/** The facts as typed rows in declared field order (`fields`): none for a relation that holds no fact. */
 	readonly rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>
+	/**
+	 * Each field's values over the facts, by its position in `fields` (ir/rel.ts closedValues): its column's distinct
+	 * literals in the order the rows first hold them, every value a payload read of the field takes, worked out once
+	 * where the relation is read (analysis/schema.ts), so no reader of the field reads the rows for them again.
+	 */
+	readonly values: ReadonlyArray<ReadonlyArray<TypedLiteral>>
 	/** The key fields that are slots of a fin coordinate, in key order: none for a key that is a product of closed ids. */
 	readonly slots: ReadonlyArray<ClosedSlot>
 }

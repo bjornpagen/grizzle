@@ -34,6 +34,7 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Result as Public } from "effect"
+import { closedTableOf } from "#compiler/analysis/schema.ts"
 import { typingEnv } from "#compiler/analysis/theory/theory.ts"
 import { rowNode } from "#compiler/check/generated.ts"
 import { checkDefinition } from "#compiler/check/index.ts"
@@ -86,7 +87,7 @@ import type {
 	ValueRefused
 } from "#compiler/types/schema/evaluation.ts"
 import type { AnySchema, RelationOf } from "#compiler/types/schema/schema.ts"
-import { closedTableOf, lawChecksOf, witnessField } from "#compiler/write/program/decide.ts"
+import { lawChecksOf, witnessField } from "#compiler/write/program/decide.ts"
 
 /**
  * An expression the host evaluates over a source's rows, lowered once: its table, or Unevaluated where the host's
@@ -629,7 +630,7 @@ export const rowEvaluatorOver = <S extends AnySchema>(
 ): Result.Result<RowEvaluator<S>, CompileError> =>
 	Result.map(lawModel(schema, "rowEvaluator"), (model): RowEvaluator<S> => {
 		const relations = readRelations(model, firstCodebook(rostersOf(model.owned)))
-		const judge = judgeOf(closedTableOf({ schema: model.checked }), new CompilePatterns())
+		const judge = judgeOf(closedTableOf(model.checked), new CompilePatterns())
 		const answers = answersOf(answer)
 		const sources = new WeakMap<object, Prepared>()
 		const preparedOf = (source: object): Prepared => {

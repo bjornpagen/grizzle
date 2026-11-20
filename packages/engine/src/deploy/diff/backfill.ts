@@ -102,7 +102,7 @@ import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
-import { lowerPersistent, persistentClosed } from "#compiler/physical/ddl/expr.ts"
+import { lowerPersistent } from "#compiler/physical/ddl/expr.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import {
 	type Cte,
@@ -506,7 +506,6 @@ const backfillLowering = (installation: Installation): ScanLowering => ({
 	expression: (expr, field) =>
 		lowerPersistent(installation.names, expr, {
 			reads: { kind: "row", column: (ref) => field(ref.name) },
-			closed: persistentClosed(installation.checked),
 			loc: backfillLoc
 		}),
 	baseType: (type) => baseTypeRef(installation.names, type)

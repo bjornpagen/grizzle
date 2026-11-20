@@ -31,6 +31,7 @@
 
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { closedTableOf } from "#compiler/analysis/schema.ts"
 import type { RelationNormalizer, RowRefusal } from "#compiler/codec/recordset.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
@@ -53,7 +54,6 @@ import type { HeadingPlan, ReadFact } from "#compiler/scalar/values/identity.ts"
 import type { InsertableNameOf, InsertAllRowsOf } from "#compiler/types/changeset/changeset.ts"
 import type { FactsDecoder, FactsRefused, RowPlace } from "#compiler/types/changeset/decode.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
-import { closedTableOf } from "#compiler/write/program/decide.ts"
 
 /**
  * A level of a relation's rows as decode reads them: the normalizer its facts are read by, its refined fields, and each
@@ -179,7 +179,7 @@ export const factsDecoderOver = <S extends AnySchema>(
 	Result.map(
 		Result.flatMap(parseBuiltSchema(schema, captureLoc("factsDecoder", [])), builtLawModel),
 		(model) => {
-			const judge = judgeOf(closedTableOf({ schema: model.checked }), new CompilePatterns())
+			const judge = judgeOf(closedTableOf(model.checked), new CompilePatterns())
 			const inserts = familyInsertsOf(schema, model)
 			/** The decoder of `relation`'s rows (RowsDecoder), from its member's input in its families' insert, or the
 			 * CompileError that insert refuses by. */

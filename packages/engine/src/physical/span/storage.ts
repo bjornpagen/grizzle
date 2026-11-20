@@ -32,7 +32,7 @@ import {
 } from "#compiler/ir/scalar.ts"
 import type { ConstraintLaw, LawModel } from "#compiler/laws/model/model.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import { lowerPersistent, persistentClosed } from "#compiler/physical/ddl/expr.ts"
+import { lowerPersistent } from "#compiler/physical/ddl/expr.ts"
 import { enforcement, lawReasons } from "#compiler/physical/obligations/graph.ts"
 import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, TableConstraint } from "#compiler/sql/ast.ts"
@@ -187,7 +187,6 @@ const spanEndpointPredicate = (
 		const substituted = substituteEndpoint(predicate, bound, field, spanType, carrier)
 		return lowerPersistent(b.names, substituted, {
 			reads: { kind: "row", column: (ref) => (ref.name === field ? tableCol(column) : undefined) },
-			closed: persistentClosed(b.checked),
 			loc: SourceLoc(
 				`the ${bound} endpoint check of ${relation}.${field} over contract ${contract.name}`,
 				[]

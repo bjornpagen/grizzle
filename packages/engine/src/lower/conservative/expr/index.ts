@@ -29,6 +29,7 @@ import { equalityChain, sharedExpr } from "#compiler/lower/conservative/expr/sha
 import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
+import { closedLeaf } from "#compiler/runtime/write/fill.ts"
 import { binaryCoercion, isDateParse } from "#compiler/scalar/compute/registry.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
@@ -458,6 +459,7 @@ export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
 	return lowerScalar(
 		sharedExpr(expr, {
 			closed: cx.names.closedRelations,
+			host: closedLeaf(cx.names.closedIndex),
 			size: (e) => printedSize(() => lowerScalar(e, measured))
 		}),
 		site

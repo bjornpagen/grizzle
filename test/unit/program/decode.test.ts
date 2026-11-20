@@ -279,7 +279,7 @@ export const aDecoderPlansEachHeadingParsesEachPatternAndSplitsEachNestingOnceWh
 				file: "packages/engine/src/program/decode.ts",
 				original: "\t\t\t\t\t\t\t\t\t\tconst field = domainOf(judge, at, read)",
 				replacement:
-					"\t\t\t\t\t\t\t\t\t\tconst field = domainOf(judgeOf(closedTableOf({ schema: model.checked }), new CompilePatterns()), at, read)",
+					"\t\t\t\t\t\t\t\t\t\tconst field = domainOf(judgeOf(closedTableOf(model.checked), new CompilePatterns()), at, read)",
 				why: "Each row's domains are judged by a judge of its own, its patterns parsed again: twice the rows parse twice as often."
 			}
 		]

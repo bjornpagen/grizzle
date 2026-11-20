@@ -232,6 +232,7 @@ export const productionNames = (
 			)
 		},
 		closedRelations: new Map(),
+		closedIndex: new Map(),
 		refusal: { kind: "qualified", schema, name: identifierOf(identity.refusal()) }
 	}
 	return names

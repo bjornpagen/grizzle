@@ -1,7 +1,7 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { type ReadonlyTupleMap, TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 /**
  * The host's fills of a nested write: every column of every row a nesting writes that grizzle writes itself, by
@@ -52,7 +52,7 @@ import {
 	columnKeyOf
 } from "#compiler/ir/law.ts"
 import { type CombineBuild, type CombineStep, combine, monoidSpecs } from "#compiler/ir/monoid.ts"
-import type { HeadingColumn } from "#compiler/ir/rel.ts"
+import type { ClosedIndex, HeadingColumn, IndexedClosed } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Cells, ColumnIndex, Columns, Texts } from "#compiler/runtime/write/cells.ts"
 import {
@@ -583,7 +583,7 @@ export interface Evaluation {
 
 /**
  * The closed relations an installation's evaluators read, by name: where a write compiles, its schema's
- * (write/program/decide.ts closedTableOf); where a served login loads, its file's, each once (served/forms.ts
+ * (`closedTableOf`); where a served login loads, its file's, each once (served/forms.ts
  * ServedFile closed).
  */
 export type ClosedTable = ReadonlyMap<string, ClosedRows>
@@ -608,68 +608,49 @@ export interface ClosedRows {
 const keyHost = (cell: TypedLiteral): HostValue => hostOfLiteral("code", cell)
 
 /**
- * The closed reads the host evaluates a generation expression's C.at, C.row and C.has by, over the closed relations
- * `closed` holds, by name: C.at's cell is the field's value at the row whose key is its arguments, NULL where no row is;
- * C.row's set is a fresh Set of the last key field's value of every row whose key begins with its arguments; C.has is
- * whether a row's key is its arguments, false where none is. Each relation is indexed by key on its first read, which
- * C.at and C.has share, each key the tuple of its values: a closed relation's key is closed ids, whose values are their
- * handles, texts a Map compares by content, so a key is its values themselves, never one text joined from them.
+ * A closed relation indexed for the host's reads of it (ir/rel.ts IndexedClosed): each row by its key, the tuple of its
+ * key fields' values, and each key's prefix short of its last field by the last field's values that complete it, each
+ * value a closed id's handle, which every key field is.
  */
-export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves["closed"] => {
-	const cells = new Map<
-		string,
-		ReadonlyTupleMap<ReadonlyArray<HostValue>, ReadonlyArray<TypedLiteral>>
-	>()
-	const prefixes = new Map<
-		string,
-		ReadonlyTupleMap<ReadonlyArray<HostValue>, ReadonlySet<string>>
-	>()
-	const keyed = (
-		relation: string,
-		c: ClosedRows
-	): ReadonlyTupleMap<ReadonlyArray<HostValue>, ReadonlyArray<TypedLiteral>> => {
-		const held = cells.get(relation)
-		if (held !== undefined) {
-			return held
+const indexedClosed = (c: ClosedRows): IndexedClosed => {
+	const rows = new TupleMap<ReadonlyArray<HostValue>, ReadonlyArray<TypedLiteral>>()
+	const completions = new TupleMap<ReadonlyArray<HostValue>, Set<string>>()
+	for (const row of c.rows) {
+		const key = row.slice(0, c.key).map(keyHost)
+		rows.set(key, row)
+		const last = key[c.key - 1]
+		if (typeof last !== "string") {
+			continue
 		}
-		const built = new TupleMap<ReadonlyArray<HostValue>, ReadonlyArray<TypedLiteral>>()
-		for (const row of c.rows) {
-			built.set(row.slice(0, c.key).map(keyHost), row)
-		}
-		cells.set(relation, built)
-		return built
+		const prefix = key.slice(0, c.key - 1)
+		const set = completions.get(prefix) ?? new Set<string>()
+		set.add(last)
+		completions.set(prefix, set)
 	}
-	const completed = (
-		relation: string,
-		c: ClosedRows
-	): ReadonlyTupleMap<ReadonlyArray<HostValue>, ReadonlySet<string>> => {
-		const held = prefixes.get(relation)
-		if (held !== undefined) {
-			return held
-		}
-		const built = new TupleMap<ReadonlyArray<HostValue>, Set<string>>()
-		for (const row of c.rows) {
-			const last = row[c.key - 1]
-			const value = last === undefined ? undefined : keyHost(last)
-			if (typeof value !== "string") {
-				continue
-			}
-			const prefix = row.slice(0, c.key - 1).map(keyHost)
-			const set = built.get(prefix) ?? new Set<string>()
-			set.add(value)
-			built.set(prefix, set)
-		}
-		prefixes.set(relation, built)
-		return built
-	}
-	return (read, args) => {
+	return Object.freeze({ heading: c.heading, rows, completions })
+}
+
+/** The closed relations of `table` indexed for the host's reads of them (`indexedClosed`), each once, by name. */
+export const closedIndexOf = (table: ClosedTable): ClosedIndex =>
+	new Map(Array.from(table, ([name, c]) => [name, indexedClosed(c)] as const))
+
+/**
+ * The closed reads the host evaluates a generation expression's C.at, C.row and C.has by, over the closed relations
+ * `closed` indexes, by name: C.at's cell is the field's value at the row whose key is its arguments, NULL where no row is;
+ * C.row's set is a fresh Set of the last key field's value of every row whose key begins with its arguments; C.has is
+ * whether a row's key is its arguments, false where none is. It reads the index alone, so it is made wherever an
+ * evaluation is, the index where its closed relations are (`closedIndexOf`).
+ */
+export const closedLeaf =
+	(closed: ClosedIndex): EvalLeaves["closed"] =>
+	(read, args) => {
 		const c = closed.get(read.relation)
 		if (c === undefined) {
 			return undefined
 		}
 		switch (read.kind) {
 			case "closedAt": {
-				const row = keyed(read.relation, c).get(args)
+				const row = c.rows.get(args)
 				if (row === undefined) {
 					return sqlNull
 				}
@@ -677,12 +658,11 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
 				return cell === undefined ? undefined : hostOfLiteral(baseOf(read.type).carrier, cell)
 			}
 			case "closedHas":
-				return keyed(read.relation, c).has(args)
+				return c.rows.has(args)
 			case "closedRow":
-				return new Set(completed(read.relation, c).get(args) ?? [])
+				return new Set(c.completions.get(args) ?? [])
 		}
 	}
-}
 
 /**
  * A fold plane's after at a row its selection holds of: `combine(before, x)` (`combineHost`), admitted to the plane's

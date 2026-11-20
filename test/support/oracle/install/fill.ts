@@ -29,6 +29,7 @@ import {
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { type Cells, columnIndex } from "#compiler/runtime/write/cells.ts"
 import {
+	closedIndexOf,
 	closedLeaf,
 	type FilledNode,
 	filler,
@@ -264,7 +265,7 @@ export const familyRows = (
 			)
 		),
 		codes,
-		hostEvaluator(closedLeaf(closed), patterns),
+		hostEvaluator(closedLeaf(closedIndexOf(closed)), patterns),
 		index
 	)
 	const rows = new Map<string, Array<Cells>>()

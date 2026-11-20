@@ -15,6 +15,7 @@ import {
 import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import { closedTableOf } from "#compiler/analysis/schema.ts"
 import { drawn as drawnField, natural } from "#compiler/public/fields.ts"
 import { fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -27,7 +28,6 @@ import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { closedTableOf } from "#compiler/write/program/decide.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -169,7 +169,7 @@ export const keyedAt = (
 	const prepared = prepareBinding(
 		program.binding,
 		program.frontend.codes,
-		closedTableOf(program.frontend),
+		closedTableOf(program.frontend.schema),
 		new CompilePatterns()
 	)
 	succeeded(

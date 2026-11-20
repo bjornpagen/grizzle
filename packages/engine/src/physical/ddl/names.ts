@@ -28,6 +28,7 @@ import {
 import { type RegexRef, type ScalarType, textInfoBounds } from "#compiler/ir/scalar.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
 import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
+import { closedIndexOf, type ClosedTable } from "#compiler/runtime/write/fill.ts"
 import type { Owned, OwnedEntry, OwnedLogin, OwnedRole } from "#compiler/schema/own.ts"
 import { imagedText } from "#compiler/schema/representability.ts"
 import type { FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
@@ -172,6 +173,8 @@ interface NamesInput {
 	readonly closed: ReadonlyMap<string, ClosedConstant>
 	/** Each closed relation's theory, its heading and its rows, by its declared name. */
 	readonly closedRelations: ReadonlyMap<string, ClosedTheoryRelation>
+	/** The closed relations as the host reads them (analysis/schema.ts closedTableOf), by their declared names. */
+	readonly closedTable: ClosedTable
 	/** Each stored relation's selection keys' law columns, by its declared name (`selectionKeysOf`). */
 	readonly selectionKeys: ReadonlyMap<string, ReadonlyArray<SelectionKey>>
 	/** The library functions the installation installs (physical/ddl/library.ts libraryCalls). */
@@ -347,6 +350,7 @@ export const roleReadNames = (
 	closed: names.closed,
 	library: names.library,
 	closedRelations: names.closedRelations,
+	closedIndex: names.closedIndex,
 	refusal: names.refusal,
 	declaredFunction: names.declaredFunction,
 	imaged: imagedViews(names, world, role, entries)
@@ -550,6 +554,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 				? { kind: "qualified", schema, name: identifierOf(libraryIdentity(fn)) }
 				: uninstalledFunction(fn),
 		closedRelations: input.closedRelations,
+		closedIndex: closedIndexOf(input.closedTable),
 		selectionKeys: (relation) => input.selectionKeys.get(relation) ?? [],
 		imaged: imagedColumns(
 			Object.values(owned.relations).flatMap((r) =>

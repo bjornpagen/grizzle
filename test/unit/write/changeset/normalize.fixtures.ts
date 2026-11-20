@@ -8,6 +8,7 @@ import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Effect, Option, Order, Stream } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import { closedTableOf } from "#compiler/analysis/schema.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { CodecFault, EncodingFailure } from "#compiler/core/errors.ts"
 import { hasProperties } from "#compiler/core/record.ts"
@@ -25,7 +26,7 @@ import type {
 	MemberSlot,
 	WriteFrontend
 } from "#compiler/write/frontend/compile.ts"
-import { closedTableOf, decideBinding } from "#compiler/write/program/decide.ts"
+import { decideBinding } from "#compiler/write/program/decide.ts"
 import { bareRecord, succeeded } from "#test/support/assert.ts"
 import { lawIdOf, lawNamesOf } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"
@@ -264,7 +265,7 @@ export const normalizedOf = (changes: ChangeSetValue) =>
 		const prepared = prepareBinding(
 			binding,
 			frontend.codes,
-			closedTableOf(frontend),
+			closedTableOf(frontend.schema),
 			new CompilePatterns()
 		)
 		const facts = yield* collectInputs(binding.groups, parsedOf(changes).inputs)

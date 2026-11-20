@@ -263,7 +263,7 @@ const variantsWrites = (variants: ChangeVariants): ReadonlyArray<CompiledWrite> 
 
 /**
  * The closed relations a login's served writes evaluate, each once by name (served/forms.ts ServedFile closed): every
- * one a write's binding or witness names, drawn from the schema the write compiled over (decide.ts closedTableOf), in
+ * one a write's binding or witness names, drawn from the schema the write compiled over (runtime/write/fill.ts closedTableOf), in
  * the order the roles, their members and their variants first name it.
  */
 const closedOfLogin = (roles: ReadonlyArray<LayerRole>): ClosedTable => {
@@ -277,7 +277,7 @@ const closedOfLogin = (roles: ReadonlyArray<LayerRole>): ClosedTable => {
 						...write.binding.witness.evaluation.closed
 					]
 					const missing = Arr.dedupe(Arr.filter(named, (name) => !table.has(name)))
-					for (const [name, rows] of closedNamed(missing, closedTableOf(write.frontend))) {
+					for (const [name, rows] of closedNamed(missing, closedTableOf(write.frontend.schema))) {
 						table.set(name, rows)
 					}
 				}

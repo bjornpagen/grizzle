@@ -1,10 +1,11 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * A compiled write as a served file holds it (runtime/write/flight.ts ServedWrite): `projectWrite` takes from the
  * compiled program exactly what an application reads, and `flightOf` loads it as an application of a write compiled in
  * process runs it, so every application runs the served form.
  */
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { closedTableOf } from "#compiler/analysis/schema.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -40,7 +41,7 @@ import type {
 	SentForm
 } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
-import { closedTableOf, decideBinding } from "#compiler/write/program/decide.ts"
+import { decideBinding } from "#compiler/write/program/decide.ts"
 import { partedOf } from "#compiler/write/program/single.ts"
 
 /** A relation input's column as its encoder reads it: its name and type. */
@@ -215,7 +216,12 @@ export const projectWrite = (compiled: CompiledWrite): ServedWrite =>
 /** A write compiled in process as an application runs it: projected at the level it was compiled for and loaded, as a
  * served one is. */
 export const flightOf = (compiled: CompiledWrite, codes: Codebook): FlightWrite =>
-	loadWrite(projectWrite(compiled), codes, closedTableOf(compiled.frontend), new CompilePatterns())
+	loadWrite(
+		projectWrite(compiled),
+		codes,
+		closedTableOf(compiled.frontend.schema),
+		new CompilePatterns()
+	)
 
 /**
  * A write's host half compiled in process from its front end, no statement built (runtime/write/bind.ts HostBinding):

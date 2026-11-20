@@ -15,9 +15,7 @@ import {
 	withArgs
 } from "#compiler/ir/expr.ts"
 import type { ClosedTheoryRelation } from "#compiler/ir/law.ts"
-import { closedCell, closedValues } from "#compiler/ir/rel.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
-import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
 import { compiledExpr, type EvalLeaves, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { literalOfHost } from "#compiler/scalar/compute/literal.ts"
 import { connectiveOps, definedIdOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
@@ -56,10 +54,16 @@ import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.
 /** What the rewrite reads where the expression stands. */
 export interface ShareScope {
 	/**
-	 * The closed relations by their declared names (ir/physical.ts PhysicalNames): the values a read of one takes, and
-	 * the facts a subterm of constants is evaluated over.
+	 * The closed relations by their declared names (ir/physical.ts PhysicalNames closedRelations): the values a read of
+	 * one takes.
 	 */
 	readonly closed: ReadonlyMap<string, ClosedTheoryRelation>
+	/**
+	 * The host's reads of the closed relations (runtime/write/fill.ts closedLeaf), over the installation's index of them
+	 * (ir/physical.ts PhysicalNames closedIndex): the facts a subterm of constants is evaluated over, so no rewrite reads a
+	 * relation's rows.
+	 */
+	readonly host: EvalLeaves["closed"]
 	/**
 	 * The length of the SQL text the site prints `expr` as, measured without printing anything of a statement; undefined
 	 * where the site refuses to print it.
@@ -68,22 +72,23 @@ export interface ShareScope {
 }
 
 /**
- * The host's reads of closed relations (runtime/write/fill.ts closedLeaf), each relation's rows reordered from its
- * fields' declared order to its heading's, its key first, as the checker holds them (analysis/schema.ts).
+ * The values a closed payload read takes, its field's over its relation's facts (ir/law.ts ClosedTheoryRelation
+ * `values`), worked out where the relation was read, never here.
  */
-const closedLeaves = (closed: ReadonlyMap<string, ClosedTheoryRelation>): EvalLeaves["closed"] =>
-	closedLeaf(
-		new Map(
-			[...closed].map(([name, r]): readonly [string, ClosedRows] => [
-				name,
-				{
-					heading: r.heading,
-					key: r.primaryFields.length,
-					rows: r.rows.map((row) => r.heading.map((f) => closedCell(row, f.position)))
-				}
-			])
+const closedReadValues = (
+	closed: ReadonlyMap<string, ClosedTheoryRelation>,
+	read: ExprOf<"closedAt">
+): ReadonlyArray<TypedLiteral> => {
+	const relation = closed.get(read.relation)
+	const field = relation?.heading.find((f) => f.name === read.field)
+	const values = field === undefined ? undefined : relation?.values[field.position]
+	if (values === undefined) {
+		throw defect(
+			`a closed relation ${read.relation} of the site's names with a field ${read.field}`
 		)
-	)
+	}
+	return values
+}
 
 /** The closed relations' facts a path knows: the membership tests that hold wherever the path is evaluated. */
 type Facts = ReadonlySet<ExprOf<"closedHas">>
@@ -212,7 +217,6 @@ class Sharing {
 	readonly #rewritten = new Map<Facts, Map<ScalarExpr, ScalarExpr>>()
 	readonly #nonNull = new Map<Facts, Map<ScalarExpr, boolean>>()
 	readonly #facts = new Map<string, Facts>()
-	readonly #leaves: EvalLeaves["closed"]
 	readonly #scope: ShareScope
 	#minted = 0
 	/** Whether a split may apply: some subterm of the expression occurs twice in it. */
@@ -220,7 +224,6 @@ class Sharing {
 
 	constructor(scope: ShareScope) {
 		this.#scope = scope
-		this.#leaves = closedLeaves(scope.closed)
 	}
 
 	/**
@@ -347,7 +350,8 @@ class Sharing {
 
 	/**
 	 * The values `e` takes, where the compiler knows them, finitely many, in a fixed order, each once: a literal's own,
-	 * a closed payload read's its column's over the relation's rows (ir/rel.ts closedValues), a conditional's its arms'.
+	 * a closed payload read's its field's over the relation's facts (ir/law.ts ClosedTheoryRelation `values`), a
+	 * conditional's its arms'.
 	 * A boolean's are true and false, which the split reads of its type.
 	 */
 	#valuesOf(e: ScalarExpr): ReadonlyArray<TypedLiteral> | undefined {
@@ -358,16 +362,8 @@ class Sharing {
 			switch (e.kind) {
 				case "literal":
 					return [e.value]
-				case "closedAt": {
-					const relation = this.#scope.closed.get(e.relation)
-					const field = relation?.heading.find((f) => f.name === e.field)
-					if (relation === undefined || field === undefined) {
-						throw defect(
-							`a closed relation ${e.relation} of the site's names with a field ${e.field}`
-						)
-					}
-					return closedValues(relation.rows, field.position)
-				}
+				case "closedAt":
+					return closedReadValues(this.#scope.closed, e)
 				case "cond": {
 					const [, t, f] = e.args
 					const a = this.#valuesOf(t)
@@ -490,7 +486,7 @@ class Sharing {
 		}
 		const table = predicateTable(form)
 		const value = compiledExpr(table)(
-			{ value: undefined, column: () => undefined, closed: this.#leaves },
+			{ value: undefined, column: () => undefined, closed: this.#scope.host },
 			ProgramPatterns.of(tablePatterns(table))
 		)
 		return !value.ok || value.value === sqlNull

@@ -16,6 +16,7 @@ import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { ClosedTheoryRelation } from "#compiler/ir/law.ts"
+import type { ClosedIndex } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
 	patternsText,
@@ -145,10 +146,17 @@ export interface PhysicalNames {
 	 */
 	readonly library: (fn: LibraryFn) => QualifiedFunctionRef
 	/**
-	 * The closed relations' theories, by their declared names: their headings and rows, the values a read of one takes
-	 * and the facts a constant subterm is evaluated over (lower/conservative/expr/share.ts).
+	 * The closed relations' theories, by their declared names: their headings, rows and the values a read of one takes
+	 * (lower/conservative/expr/share.ts).
 	 */
 	readonly closedRelations: ReadonlyMap<string, ClosedTheoryRelation>
+	/**
+	 * The closed relations indexed for the host's reads of them (runtime/write/fill.ts closedIndexOf), by their declared
+	 * names: what a constant subterm's C.at, C.row and C.has evaluate to where a persistent expression or a query's is
+	 * lowered (physical/ddl/expr.ts plannedConstants, lower/conservative/expr/share.ts). Made once for the installation,
+	 * so no expression a lowering rewrites reads a relation's rows.
+	 */
+	readonly closedIndex: ClosedIndex
 	/** The selection keys' law columns of a stored relation, by its declared name (`SelectionKey`): none for a
 	 * relation with none. */
 	readonly selectionKeys: (relation: string) => ReadonlyArray<SelectionKey>

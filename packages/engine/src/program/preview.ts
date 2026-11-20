@@ -1,6 +1,7 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { closedTableOf } from "#compiler/analysis/schema.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { lawDescription } from "#compiler/analysis/theory/description.ts"
 import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
@@ -58,7 +59,6 @@ import type {
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { changeSetOver, insertAllSlots, parseChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileChangeSet, type WriteFrontend } from "#compiler/write/frontend/compile.ts"
-import { closedTableOf } from "#compiler/write/program/decide.ts"
 import { hostBindingOf } from "#compiler/write/program/served.ts"
 
 /**
@@ -443,7 +443,7 @@ export const familyInsertsOf = (schema: AnySchema, model: LawModel): FamilyInser
 		schema,
 		model,
 		codes: firstCodebook(rostersOf(model.owned)),
-		closed: once(() => closedTableOf({ schema: model.checked })),
+		closed: once(() => closedTableOf(model.checked)),
 		patterns: new CompilePatterns()
 	}
 	/** The insert of each set of families a call wrote, by the top-level relations it inserts, in the schema's order. */

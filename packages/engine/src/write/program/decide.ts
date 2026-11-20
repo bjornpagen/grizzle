@@ -41,7 +41,6 @@ import type {
 	OwnedColumn
 } from "#compiler/runtime/write/binding.ts"
 import type {
-	ClosedTable,
 	Evaluation,
 	FillColumnData,
 	FillFamily,
@@ -463,26 +462,6 @@ const evaluationOver = (
 	}
 	return Object.freeze({ closed: [...closed], patterns: [...distinct.values()] })
 }
-
-/**
- * The closed relations of a write's schema as its evaluators read them (runtime/write/fill.ts ClosedTable), by name,
- * each its heading's names, its key's width and its rows in heading order: the table a write compiled in process
- * prepares its binding against, and a served file's closed relations are drawn from.
- */
-export const closedTableOf = (frontend: Pick<WriteFrontend, "schema">): ClosedTable =>
-	new Map(
-		[...frontend.schema.closed].map(
-			([name, c]) =>
-				[
-					name,
-					Object.freeze({
-						heading: c.heading.map((h) => ({ name: h.name })),
-						key: c.relation.primaryFields.length,
-						rows: c.rows
-					})
-				] as const
-		)
-	)
 
 /** A member slot as a binding holds it (normalize.ts SlotData). */
 const slotData = (slot: MemberSlot): SlotData => ({

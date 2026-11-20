@@ -6,6 +6,7 @@ import {
 	sortNonEmpty
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { closedTableOf } from "#compiler/analysis/schema.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { contractLaw, lawDescription } from "#compiler/analysis/theory/description.ts"
 import { contractLawIdentity } from "#compiler/analysis/theory/theory.ts"
@@ -534,6 +535,7 @@ export const planInstallation = (
 			codes,
 			closed: qualifiedClosed(identifierOf(headNonEmpty(settings.levels)), closed),
 			closedRelations: new Map(closedRelationsOf(model).map((r) => [r.name, r] as const)),
+			closedTable: closedTableOf(checked),
 			selectionKeys: selectionKeysOf(model.natives),
 			library
 		})

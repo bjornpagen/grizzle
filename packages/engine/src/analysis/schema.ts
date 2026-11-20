@@ -48,7 +48,7 @@ import {
 	type RelationInfo,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
-import { closedCell, type DeclaredKey } from "#compiler/ir/rel.ts"
+import { closedCell, closedValues, type DeclaredKey } from "#compiler/ir/rel.ts"
 import {
 	enteredType,
 	isRefined,
@@ -57,6 +57,7 @@ import {
 	sameScalarType,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
+import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
 import { admitLiteral, refined } from "#compiler/scalar/compute/evaluate.ts"
 import { admittedLiteral } from "#compiler/scalar/compute/literal.ts"
 import { exprEmitter, lowerTerm } from "#compiler/scalar/compute/lower.ts"
@@ -300,6 +301,28 @@ const leafText = (leaf: LeafDesc): string => {
 			return `parent column ${leaf.column}`
 	}
 }
+
+/**
+ * The closed relations of a checked schema as its evaluators read them (runtime/write/fill.ts ClosedTable), by name,
+ * each its heading's names, its key's width and its rows in heading order: the table a write compiled in process
+ * prepares its binding against, a served file's closed relations are drawn from, and an installation indexes for its
+ * host's reads (ir/physical.ts PhysicalNames closedIndex).
+ */
+export const closedTableOf = (checked: Pick<CheckedSchema, "closed">): ClosedTable =>
+	new Map(
+		Array.from(
+			checked.closed,
+			([name, c]) =>
+				[
+					name,
+					Object.freeze({
+						heading: c.heading.map((h) => ({ name: h.name })),
+						key: c.relation.primaryFields.length,
+						rows: c.rows
+					})
+				] as const
+		)
+	)
 
 /**
  * The schema as the checker reads it (check/schema.ts SchemaReading), with its views analyzed.
@@ -818,6 +841,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			level: r.level,
 			loc,
 			rows,
+			values: declared.map((f) => closedValues(rows, f.position)),
 			slots:
 				desc.kind === "closed"
 					? []

@@ -1,5 +1,4 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import { bitInputText } from "#compiler/core/hex.ts"
@@ -26,7 +25,7 @@ import {
 	type ScalarSite
 } from "#compiler/lower/conservative/expr/index.ts"
 import { sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
-import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
+import { closedLeaf } from "#compiler/runtime/write/fill.ts"
 import {
 	type EvalLeaves,
 	compiledExpr,
@@ -87,25 +86,9 @@ type PersistentReading =
 
 interface PersistentScope {
 	readonly reads: PersistentReading
-	/** The closed relations a closed read in a constant subterm applies, by name (`persistentClosed`). */
-	readonly closed: EvalLeaves["closed"]
 	/** Where a refusal is reported. */
 	readonly loc: SourceLoc
 }
-
-/** The closed relations of a checked schema as a constant subterm's closed reads apply them, its rows by key. */
-export const persistentClosed = (checked: CheckedSchema): EvalLeaves["closed"] =>
-	closedLeaf(
-		new Map(
-			[...checked.closed].map(([name, c]): readonly [string, ClosedRows] => [
-				name,
-				{ heading: c.heading, key: c.relation.primaryFields.length, rows: c.rows }
-			])
-		)
-	)
-
-/** What a persistent expression that reads no closed relation applies to a closed read: none, as it holds none. */
-export const noPersistentClosed: EvalLeaves["closed"] = () => undefined
 
 /** Whether `e` is AND or OR, and which: the connectives PostgreSQL's planner reduces by an operand's value. */
 const connectiveOf = (e: ScalarExpr): "and" | "or" | undefined => {
@@ -285,21 +268,24 @@ export const lowerPersistent = (
 	expr: ScalarExpr,
 	scope: PersistentScope
 ): Expr => {
+	const host = closedLeaf(names.closedIndex)
 	const lowered = (e: ScalarExpr): Expr =>
-		lowerScalar(e, persistentSite(names, scope, plannedConstants(e, scope.closed)))
+		lowerScalar(e, persistentSite(names, scope, host, plannedConstants(e, host)))
 	return lowered(
 		sharedExpr(expr, {
 			closed: names.closedRelations,
+			host,
 			size: (e) => printedSize(() => lowered(e))
 		})
 	)
 }
 
 /** The persistent site of a tree in `scope` (lowerPersistent), each of `constants`, the subterms PostgreSQL's planner
- * folds, as the value of its planned form where the host has one. */
+ * folds, as the value of its planned form where the host, its closed reads `host`'s, has one. */
 const persistentSite = (
 	names: PhysicalNames,
 	scope: PersistentScope,
+	host: EvalLeaves["closed"],
 	constants: ReadonlyMap<ScalarExpr, ScalarExpr>
 ): ScalarSite => {
 	const site: ScalarSite = {
@@ -336,9 +322,9 @@ const persistentSite = (
 		whole: (expr) => {
 			const planned = constants.get(expr)
 			return (
-				(planned === undefined ? undefined : foldedConstant(names, planned, scope.closed)) ??
+				(planned === undefined ? undefined : foldedConstant(names, planned, host)) ??
 				(expr.kind === "op" && isConstantBetween(expr, constants)
-					? composedBetween(names, expr, scope, site, constants)
+					? composedBetween(names, expr, site, host, constants)
 					: undefined)
 			)
 		}
@@ -380,8 +366,8 @@ const isConstantBetween = (
 const composedBetween = (
 	names: PhysicalNames,
 	expr: ScalarExpr & { readonly kind: "op" },
-	scope: PersistentScope,
 	site: ScalarSite,
+	host: EvalLeaves["closed"],
 	constants: ReadonlyMap<ScalarExpr, ScalarExpr>
 ): Expr => {
 	const [x, low, high] = expr.args
@@ -410,7 +396,7 @@ const composedBetween = (
 			? foldedConstant(
 					names,
 					comparison(plannedOf(x, constants), plannedOf(bound, constants)),
-					scope.closed
+					host
 				)
 			: undefined
 		return value ?? lowerScalar(comparison(x, bound), site)

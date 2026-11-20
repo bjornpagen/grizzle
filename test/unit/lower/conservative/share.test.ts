@@ -20,18 +20,25 @@
  *
  * Features: each shape, a shared subterm printed once, a NULL shared read and one beside the flags Pick holds, a NULL
  * value and a value, several rows.
+ *
+ * The rewrite's work, counted, never timed (kernel/calls.ts callCounts):
+ *
+ * - No lowering reads a closed relation's rows: g lowered twice or three times reads them as often as once, the values
+ *   a closed read takes and the host's reads of the relations being the installation's.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
 import { agree, exact } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
-import { persistentClosed } from "#compiler/physical/ddl/expr.ts"
+import { closedLeaf } from "#compiler/runtime/write/fill.ts"
 import { compiledExpr, type EvalLeaves, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import { hostColumns } from "#test/support/null/build.ts"
 import { evalTerm, type Item, silent } from "#test/support/null/language.ts"
 import {
@@ -40,6 +47,7 @@ import {
 	generatedExpr,
 	generatedSql,
 	installationOfCase,
+	loweredG,
 	occurrences,
 	type ShareCase,
 	type ShareFeature,
@@ -85,10 +93,11 @@ export const aTermsSharedSubtermsAreEvaluatedOnceItsRewriteKeepsItsValueAtEveryR
 			Effect.gen(function* () {
 				k.note(sc.shape)
 				const installation = installationOfCase(sc)
-				const closed = persistentClosed(installation.checked)
+				const closed = closedLeaf(installation.names.closedIndex)
 				const g = generatedExpr(installation, "g")
 				const rewritten = sharedExpr(g, {
 					closed: installation.names.closedRelations,
+					host: closed,
 					size: () => 0
 				})
 				const before = hostAt(g, closed)
@@ -168,6 +177,92 @@ export const aTermsSharedSubtermsAreEvaluatedOnceItsRewriteKeepsItsValueAtEveryR
 				original: "\t\t\t\tconst simple = simpleCase(chain, lower)\n",
 				replacement: "\t\t\t\tconst simple = undefined\n",
 				why: "A chain of equalities prints as conditionals, each comparing its subject again: the flag of a chain is printed once per comparison."
+			}
+		]
+	})
+
+/**
+ * The calls that read a closed relation's rows: its closed table made (analysis/schema.ts closedTableOf), the table
+ * indexed for the host's reads (runtime/write/fill.ts indexedClosed), a column's values worked out (ir/rel.ts
+ * closedValues), a cell read (closedCell).
+ */
+const rowReads = Object.freeze({
+	tables: { file: "packages/engine/src/analysis/schema.ts", name: "closedTableOf" },
+	indexes: { file: "packages/engine/src/runtime/write/fill.ts", name: "indexedClosed" },
+	values: { file: "packages/engine/src/ir/rel.ts", name: "closedValues" },
+	cells: { file: "packages/engine/src/ir/rel.ts", name: "closedCell" },
+	read: { file: "packages/engine/src/lower/conservative/expr/share.ts", name: "closedReadValues" }
+})
+
+/** A case of the NULL language and how many times its g is lowered: twice or three times. */
+const loweredTimesGen: Gen<{ readonly sc: ShareCase; readonly times: 2 | 3 }> = (s) => ({
+	sc: s.draw(caseGen),
+	times: s.draw(element([2, 3] as const))
+})
+
+/**
+ * Lowering an expression reads no closed relation's rows: the values a closed read takes are its relation's, worked out
+ * where the schema is checked (ir/law.ts ClosedTheoryRelation `values`), and the index the host reads the closed
+ * relations by, which a constant subterm is evaluated over, the installation's (ir/physical.ts PhysicalNames
+ * closedIndex). Over the
+ * cases of share.fixtures' worlds, g lowered as its column is (physical/ddl/expr.ts lowerPersistent) twice or three
+ * times reads the rows (rowReads) exactly as often as lowered once, whatever the rewrite reads of a closed read's values.
+ */
+export const loweringAnExpressionReadsNoClosedRelationsRowsItsValuesAndTheHostsReadsAreTheInstallations =
+	property.explore(loweredTimesGen, {
+		needs: {},
+		situations: [
+			"a closed read's values",
+			"two lowerings",
+			"three lowerings"
+		] satisfies ReadonlyArray<
+			Reached<"a closed read's values" | "two lowerings" | "three lowerings">
+		>,
+		check:
+			(_, k: Case<"a closed read's values" | "two lowerings" | "three lowerings">) =>
+			({ sc, times }) =>
+				Effect.gen(function* () {
+					const installation = installationOfCase(sc)
+					const g = generatedExpr(installation, "g")
+					const lowered = (n: number) =>
+						Effect.sync(() => Array.from({ length: n }, () => loweredG(installation, g)))
+					const [first, once] = yield* callCounts(lowered(1), rowReads)
+					const [again, many] = yield* callCounts(lowered(times), rowReads)
+					k.note(times === 2 ? "two lowerings" : "three lowerings")
+					if (once.read > 0) {
+						k.note("a closed read's values")
+					}
+					assert.ok(
+						Arr.every(again, (sql) => sql === first[0]),
+						"every lowering of g prints one column"
+					)
+					const { read: _once, ...onceRows } = once
+					const { read: _many, ...manyRows } = many
+					assert.deepEqual(
+						manyRows,
+						onceRows,
+						`g lowered ${times} times reads the rows as often as once`
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "a lowering's reads of closed rows, the installation's, counted (kernel/calls.ts callCounts) the same at one lowering and at several"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/schema.ts",
+				original: "\t\t\tvalues: declared.map((f) => closedValues(rows, f.position)),\n",
+				replacement:
+					"\t\t\tget values() {\n\t\t\t\treturn declared.map((f) => closedValues(rows, f.position))\n\t\t\t},\n",
+				why: "A closed read's values are worked out from its relation's rows wherever they are read, as share.ts did for each expression (pantry's Node, whose 35 rewrites read Pick-sized columns again each time): each lowering reads the rows again."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/names.ts",
+				original: "\t\tclosedIndex: closedIndexOf(input.closedTable),\n",
+				replacement:
+					"\t\tget closedIndex() {\n\t\t\treturn closedIndexOf(input.closedTable)\n\t\t},\n",
+				why: "The closed relations are indexed for the host's reads wherever an expression is lowered, as share.ts's Sharing and persistentClosed built the host's reads for each expression: each lowering indexes the rows again."
 			}
 		]
 	})

@@ -27,6 +27,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { ConstraintLawOf, DomainUse } from "#compiler/laws/model/model.ts"
 import {
+	closedIndexOf,
 	closedLeaf,
 	closedNamed,
 	type ClosedTable,
@@ -748,7 +749,7 @@ const columnOfEvaluated = (e: Evaluated): SqlValue | undefined =>
 
 /** The judge of rows over the closed relations `table` holds, its patterns read from `patterns`. */
 export const judgeOf = (table: ClosedTable, patterns: PatternReads): Judge => {
-	const closed = closedLeaf(table)
+	const closed = closedLeaf(closedIndexOf(table))
 	/** Each relation's fields by name, read once a relation: the relation's state, so a column's read finds its field. */
 	const fieldsByName = new WeakMap<JudgedTable, ReadonlyMap<string, JudgedField>>()
 	const fieldsOf = (relation: JudgedTable): ReadonlyMap<string, JudgedField> => {

@@ -7,6 +7,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
+import { closedTableOf } from "#compiler/analysis/schema.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
@@ -69,8 +70,8 @@ import {
 } from "#compiler/logical/annotate.ts"
 import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
 import {
+	closedIndexOf,
 	closedLeaf,
-	type ClosedRows,
 	type HostEvaluator,
 	hostEvaluator
 } from "#compiler/runtime/write/fill.ts"
@@ -902,17 +903,7 @@ const compile = (
 
 	/** The host's evaluation of the generated fields a nesting's copies, steps and selections read, over the schema's
 	 * closed relations, as PostgreSQL generates them, by the law model's compiled patterns. */
-	const evaluate = hostEvaluator(
-		closedLeaf(
-			new Map(
-				[...checked.closed].map(([name, c]): readonly [string, ClosedRows] => [
-					name,
-					{ heading: c.heading, key: c.relation.primaryFields.length, rows: c.rows }
-				])
-			)
-		),
-		laws.patterns
-	)
+	const evaluate = hostEvaluator(closedLeaf(closedIndexOf(closedTableOf(checked))), laws.patterns)
 	const nestings = new Map<string, Nesting>()
 	/** The nesting of an insert into `relation`, built once: its rows leave out every instant and place, as a nested fact
 	 * states none, which its stamps fill or which are refused (write/frontend/instants.ts stampsOf), its one family

@@ -1,7 +1,8 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { ReadonlyTupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { nominal } from "#compiler/core/brand.ts"
-import { canonicalEquals } from "#compiler/core/canonical.ts"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type {
 	ExprId,
 	LawId,
@@ -431,23 +432,42 @@ export const closedCell = (row: ReadonlyArray<TypedLiteral>, position: number): 
 }
 
 /**
- * The values of the column at `position` of closed facts' rows (a ClosedTheoryRelation's, at its field's position):
- * each distinct literal once, by canonical equality, in the order the rows first hold it. A closed relation's payload
- * read takes one of them wherever it finds a row, so they are every value it can take.
+ * The values of the column at `position` of closed facts' rows (a ClosedTheoryRelation's `values`, at its field's
+ * position): each distinct literal once, by canonical equality, its canonical text read once a row, in the order the
+ * rows first hold it. A closed relation's payload read takes one of them wherever it finds a row, so they are every
+ * value it can take.
  */
 export const closedValues = (
 	rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>,
 	position: number
 ): ReadonlyArray<TypedLiteral> => {
+	const seen = new Set<string>()
 	const values: Array<TypedLiteral> = []
 	for (const row of rows) {
 		const literal = closedCell(row, position)
-		if (!values.some((v) => canonicalEquals(v, literal))) {
+		const text = canonicalTextOf(literal)
+		if (!seen.has(text)) {
+			seen.add(text)
 			values.push(literal)
 		}
 	}
 	return values
 }
+
+/**
+ * A closed relation indexed for the host's reads of it (runtime/write/fill.ts closedLeaf): its heading's names, each
+ * row in heading order by its key, and each key's prefix short of its last field by the handles of the last that
+ * complete it. A key is the tuple of its fields' host values, each a closed id's handle, a text a map compares by
+ * content, so a key is its values themselves, never one text joined from them.
+ */
+export interface IndexedClosed {
+	readonly heading: ReadonlyArray<{ readonly name: string }>
+	readonly rows: ReadonlyTupleMap<ReadonlyArray<unknown>, ReadonlyArray<TypedLiteral>>
+	readonly completions: ReadonlyTupleMap<ReadonlyArray<unknown>, ReadonlySet<string>>
+}
+
+/** Closed relations indexed for the host's reads of them, by name (runtime/write/fill.ts closedIndexOf). */
+export type ClosedIndex = ReadonlyMap<string, IndexedClosed>
 
 /** The literals of a Closed node's column at `position` of its heading, one per row in row order. */
 export const closedColumn = <R extends RefKinds>(

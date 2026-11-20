@@ -19,6 +19,7 @@ import {
 import type { OnceCalls, WrittenOutcome } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
+import { closedTableOf } from "#compiler/analysis/schema.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
@@ -37,7 +38,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
+import { closedIndexOf, closedLeaf } from "#compiler/runtime/write/fill.ts"
 import { compiledExpr, type EvalLeaves } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
@@ -510,14 +511,7 @@ const generatedExpr = (model: LawModel, relation: string): ScalarExpr => {
 
 /** The model's closed rows as the host's fill reads them. */
 const closedRowsOf = (model: LawModel): EvalLeaves["closed"] =>
-	closedLeaf(
-		new Map(
-			Arr.map([...model.checked.closed], ([name, c]): readonly [string, ClosedRows] => [
-				name,
-				{ heading: c.heading, key: c.relation.primaryFields.length, rows: c.rows }
-			])
-		)
-	)
+	closedLeaf(closedIndexOf(closedTableOf(model.checked)))
 
 /** The laws an outcome names, by its relation and kind: a check by its name, a generated field as "g". */
 const lawName = (law: Law): string => {

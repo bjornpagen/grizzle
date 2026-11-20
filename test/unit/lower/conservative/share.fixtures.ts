@@ -9,14 +9,17 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, type Weighted, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
+import { lowerPersistent } from "#compiler/physical/ddl/expr.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { installationsOf, rostersOf } from "#compiler/schema/own.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
+import { tableCol } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { buildTerm, closedOf, itemFields, storedField } from "#test/support/null/build.ts"
@@ -429,3 +432,18 @@ export const sharedSql = (installation: Installation, sc: ShareCase): string | u
 /** How many times `part` occurs in `text`, none overlapping. */
 export const occurrences = (text: string, part: string): number =>
 	part.length === 0 ? 0 : Str.split(part)(text).length - 1
+
+/**
+ * Gen's generated field g lowered as its column's persistent SQL (physical/ddl/expr.ts lowerPersistent), as the
+ * installation's table lowers it (physical/ddl/tables.ts): each column it reads Gen's own.
+ */
+export const loweredG = (installation: Installation, g: ScalarExpr): string =>
+	printExpr(
+		lowerPersistent(installation.names, g, {
+			reads: {
+				kind: "row",
+				column: (ref) => tableCol(installation.names.column("Gen", ref.name))
+			},
+			loc: SourceLoc("Gen.g", [])
+		})
+	)

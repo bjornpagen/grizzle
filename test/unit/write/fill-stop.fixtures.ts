@@ -5,6 +5,7 @@ import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import { closedTableOf } from "#compiler/analysis/schema.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import { generatedLaw } from "#compiler/ir/law.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
@@ -29,7 +30,6 @@ import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { closedTableOf } from "#compiler/write/program/decide.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -261,7 +261,7 @@ const statementOutcome = (path: Path, stated: StatedRows, missing: boolean): Out
 			prepareBinding(
 				path.program.binding,
 				path.program.frontend.codes,
-				closedTableOf(path.program.frontend),
+				closedTableOf(path.program.frontend.schema),
 				new CompilePatterns()
 			).witness,
 			stated,

@@ -6,6 +6,7 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { agree, exact } from "@bjornpagen/testing/oracle"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
+import { closedTableOf } from "#compiler/analysis/schema.ts"
 import { ExprId, NodeId } from "#compiler/core/ids.ts"
 import { compareOps } from "#compiler/ir/desc.ts"
 import { builtExpr, predicateTable } from "#compiler/ir/expr.ts"
@@ -23,7 +24,7 @@ import {
 	ordered,
 	schema
 } from "#compiler/public/schema.ts"
-import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
+import { closedIndexOf, closedLeaf } from "#compiler/runtime/write/fill.ts"
 import { computeCore as C } from "#compiler/scalar/compute/builders.ts"
 import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { type NativeOp, nativeOps } from "#compiler/scalar/compute/registry.ts"
@@ -462,14 +463,7 @@ const tracing = (c: Case<Feature>): Trace => ({
 })
 
 const closedRows = (model: ReturnType<typeof modelOf>) =>
-	closedLeaf(
-		new Map(
-			Arr.map([...model.checked.closed], ([name, c]): readonly [string, ClosedRows] => [
-				name,
-				{ heading: c.heading, key: c.relation.primaryFields.length, rows: c.rows }
-			])
-		)
-	)
+	closedLeaf(closedIndexOf(closedTableOf(model.checked)))
 
 const closed = Object.freeze(closedOf(world))
 

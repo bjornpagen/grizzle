@@ -17,6 +17,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { type ColumnIndex, columnIndex } from "#compiler/runtime/write/cells.ts"
 import {
+	closedIndexOf,
 	closedLeaf,
 	closedNamed,
 	type ClosedTable,
@@ -192,7 +193,7 @@ export const prepareBinding = (
 	patterns: PatternReads
 ): PreparedBinding => {
 	const evaluate = hostEvaluator(
-		closedLeaf(closedNamed(binding.evaluation.closed, closed)),
+		closedLeaf(closedIndexOf(closedNamed(binding.evaluation.closed, closed))),
 		patterns
 	)
 	const columns = columnIndex()

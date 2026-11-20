@@ -35,7 +35,7 @@ import type { NamedPrimaryKey } from "#compiler/laws/model/model.ts"
 import { addColumnChecks, columnChecks } from "#compiler/physical/ddl/column-checks.ts"
 import { closedMembership, planSides } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
-import { lowerPersistent, persistentClosed } from "#compiler/physical/ddl/expr.ts"
+import { lowerPersistent } from "#compiler/physical/ddl/expr.ts"
 import { addIsolationTrigger } from "#compiler/physical/ddl/isolation.ts"
 import {
 	enforcement,
@@ -753,7 +753,6 @@ const lowerRow = (
 				return column === undefined ? undefined : tableCol(column)
 			}
 		},
-		closed: persistentClosed(b.checked),
 		loc: SourceLoc(label, [])
 	})
 }
