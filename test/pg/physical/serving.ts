@@ -242,7 +242,8 @@ const keyColumn = (
 	relation: string,
 	key: { readonly column: KeyTerm }
 ): string => {
-	const column = key.column.kind === "image" ? key.column.of : key.column
+	const column =
+		key.column.kind === "image" || key.column.kind === "bound" ? key.column.of : key.column
 	return column.kind === "field"
 		? installed.installation.names.column(relation, column.field)
 		: column.column

@@ -247,7 +247,7 @@ const imageBytes = 32
 
 /**
  * Whether the key over `fields` holds the text `f` by its image: a text of no bound always, and a text wider than its
- * image where the key, every column as itself, can outgrow its entry (schema/representability.ts keyImages).
+ * image where the key, every column as itself, can outgrow its entry (schema/representability.ts entryImages).
  */
 export const imaged = (s: Shape, fields: ReadonlyArray<string>, f: string): boolean =>
 	Arr.contains(fields, f) &&

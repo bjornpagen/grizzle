@@ -36,8 +36,8 @@ export const aWholeRulesLookupReadsOneUnitALoopThroughWhateverIndexPostgreSQLTak
 		kills: [
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: '\tconst keys = method === "btree" ? confined(drafts, reads) : drafts',
-				replacement: "\tconst keys = drafts",
+				original: 'heldKeys(method === "btree" ? confined(drafts, reads) : drafts, targetField)',
+				replacement: "heldKeys(drafts, targetField)",
 				why: "A created B-tree is drafted without the units of the whole rules that read its relation, so the index Placed's probe asks of Node, (at, kind, pkg), lacks doc: PostgreSQL reads Typed's lookup of a node through it, kind among its keys and governor a filter, and each lookup reads every document of the package at that place (21 rows a loop beside 20 documents)."
 			}
 		]

@@ -434,10 +434,8 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeHoldATextNoPatternBoundsByItsDigest
 				},
 				{
 					file: "packages/engine/src/schema/representability.ts",
-					original:
-						"\t\t!fits && c.text && (c.datum === undefined || c.datum.bytes > keyImageDatum.textDigest.bytes)",
-					replacement:
-						"\t\tfits && c.text && (c.datum === undefined || c.datum.bytes > keyImageDatum.textDigest.bytes)",
+					original: "(!fits && imageable(c, image) ? image : undefined)",
+					replacement: "(fits && imageable(c, image) ? image : undefined)",
 					why: "A key that fits holds its texts by their digests and one that would outgrow its entry holds them as themselves: a key past the limit refused, one within it imaged."
 				},
 				{

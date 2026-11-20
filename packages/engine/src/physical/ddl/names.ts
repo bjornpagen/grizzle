@@ -31,7 +31,12 @@ import type { NamedNative } from "#compiler/laws/model/model.ts"
 import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import { closedIndexOf, type ClosedTable } from "#compiler/runtime/write/fill.ts"
 import type { Owned, OwnedEntry, OwnedLogin, OwnedRole } from "#compiler/schema/own.ts"
-import { imagedText } from "#compiler/schema/representability.ts"
+import {
+	type ImageableColumn,
+	keyedField,
+	lookupImageable,
+	relationImages
+} from "#compiler/schema/representability.ts"
 import type { FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
 import type { ClosedConstant } from "#compiler/sql/constants.ts"
 import { type ImagedColumns, imagedColumns } from "#compiler/sql/image.ts"
@@ -98,6 +103,35 @@ export interface InstallNames extends PhysicalNames {
 export interface ContractSource {
 	readonly base: ScalarType
 	readonly check: DomainCheck
+}
+
+/** A column a law adds to a stored relation: its identifier, and how an index entry holds it. */
+export interface LawColumnHeld {
+	readonly column: string
+	readonly held: ImageableColumn
+}
+
+/**
+ * The columns each stored relation's laws add to it, by the relation's declared name, from the law model's natives, each
+ * with its identifier and as an index entry holds it (schema/representability.ts ImageableColumn): its datum by the
+ * values it holds (ir/law.ts LawColumnValues), whether it is a text and whether it may hold NULL.
+ */
+export const lawColumnsHeld = (
+	natives: ReadonlyArray<NamedNative>
+): ReadonlyMap<string, ReadonlyArray<LawColumnHeld>> => {
+	const out = new Map<string, Array<LawColumnHeld>>()
+	for (const { namespace, object: o } of natives) {
+		if (namespace !== "column") {
+			continue
+		}
+		const held = out.get(o.relation.name) ?? []
+		held.push({
+			column: o.column,
+			held: { ...keyedField(o.holds.desc), nullable: o.holds.nullable }
+		})
+		out.set(o.relation.name, held)
+	}
+	return out
 }
 
 /**
@@ -182,6 +216,12 @@ interface NamesInput {
 	readonly selectionKeys: ReadonlyMap<string, ReadonlyArray<SelectionKey>>
 	/** The library functions the installation installs (physical/ddl/library.ts libraryCalls). */
 	readonly library: ReadonlyArray<LibraryFn>
+	/**
+	 * The columns each stored relation's laws add to it, by its declared name, as an index entry holds them
+	 * (`lawColumnsHeld`): what the widest entry over the relation's columns counts beside its fields
+	 * (schema/representability.ts relationImages).
+	 */
+	readonly lawColumns: ReadonlyMap<string, ReadonlyArray<LawColumnHeld>>
 }
 
 /** A role of an installation named under its levels: the owned role and its PostgreSQL role, fitted once, here, before
@@ -364,8 +404,10 @@ export const roleReadNames = (
  * The imaged columns of a role's views (sql/image.ts ImagedColumns). A whole entry's view holds its table's columns
  * under their names, and PostgreSQL reads a plain view's lookups through its table's indexes, so its imaged columns are
  * its table's. A query entry's view is a security barrier, into which a condition passes only where it is leakproof, as
- * an image's equality is (md5): its imaged columns are its head's texts of no byte bound and no contract, each its
- * definition's (`entries`), which read its base's column where the head names one.
+ * an image's equality is (md5, core/identity.ts TextImage): its imaged columns are its head's texts of no contract a
+ * lookup's entry may hold by their image (schema/representability.ts lookupImageable), each its definition's
+ * (`entries`), which reads its base's column where the head names one, wherever a relation it reads holds a field by its
+ * image: a head no image of its base can serve is read as itself.
  */
 const imagedViews = (
 	names: InstallNames,
@@ -382,11 +424,16 @@ const imagedViews = (
 				: []
 		),
 		...entries.flatMap((e) =>
-			e.kind === "world"
+			e.kind === "world" &&
+			e.analysis.reads.some(
+				(r) =>
+					role.base.relations[r]?.kind === "relation" &&
+					names.imaged.of(names.relation(r)).length > 0
+			)
 				? e.analysis.heading.flatMap((c) =>
 						c.type.carrier === "text" &&
 						c.type.contract === undefined &&
-						textInfoBounds(c.type.text) === undefined
+						lookupImageable(textInfoBounds(c.type.text)?.bytes)
 							? [{ table: world.view(e.name), column: identifierOf(viewColumn(c.name)) }]
 							: []
 					)
@@ -562,16 +609,20 @@ export const installNames = (input: NamesInput): InstallNames => {
 		closedIndex: closedIndexOf(input.closedTable),
 		selectionKeys: (relation) => input.selectionKeys.get(relation) ?? [],
 		imaged: imagedColumns(
-			Object.values(owned.relations).flatMap((r) =>
-				r.kind === "relation"
-					? Object.values(r.fields)
-							.filter((f) => imagedText(f.desc))
-							.map((f) => ({
-								table: { schema: identifierOf(levelOf(r.name)), name: r.ident },
-								column: f.column
-							}))
-					: []
-			)
+			Object.values(owned.relations).flatMap((r) => {
+				if (r.kind !== "relation") {
+					return []
+				}
+				const table = { schema: identifierOf(levelOf(r.name)), name: r.ident }
+				const columns = [
+					...Object.values(r.fields).map((f) => ({ column: f.column, held: keyedField(f.desc) })),
+					...(input.lawColumns.get(r.name) ?? [])
+				]
+				const images = relationImages(columns.map((c) => c.held))
+				return columns.flatMap((c, at) =>
+					images[at] === true ? [{ table, column: c.column }] : []
+				)
+			})
 		),
 		/** A contract's domain by its name, whether the base declares it, a context field or a served parameter, named by
 		 * its definition. */

@@ -50,8 +50,8 @@ import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipelin
 import { extractLookups } from "#compiler/physical/access/extract.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { unaliased } from "#compiler/physical/derived/definition.ts"
+import { requestImaged } from "#compiler/physical/indexes/engine.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
-import { imagedText } from "#compiler/schema/representability.ts"
 import type {
 	ColumnDefinition,
 	CreateTransitionTrigger,
@@ -243,23 +243,21 @@ const judgedStatement = (
 }
 
 /**
- * The columns the indexes of law `requests` hold by their image: each field a B-tree request's key holds that is a text
- * of no byte bound (schema/representability.ts imagedText), every key of a law's request one its lookups bind by
- * equality (physical/indexes/engine.ts imagedKey), by its table and column.
+ * The columns the indexes of law `requests` hold by their image (physical/indexes/engine.ts requestImaged, the one rule
+ * the engine plans them by), by its table and column: a judged read states the images' equality of those its own
+ * lookups read through and of no other.
  */
 const imagedBy = (b: InstallBuilder, requests: ReadonlyArray<IndexRequest>): ImagedColumns =>
 	imagedColumns(
-		requests.flatMap((r) =>
-			r.role === "lawMaintenance" && r.method === "btree"
-				? r.blocks
-						.flat()
-						.flatMap((k) =>
-							k.column.kind === "field" && imagedText(k.column.field.desc)
-								? [{ table: b.names.relation(r.relation), column: k.column.field.column }]
-								: []
-						)
+		requests.flatMap((r) => {
+			const target = b.target(r.relation)
+			return r.role === "lawMaintenance" && target.kind === "built"
+				? requestImaged(r, target).map((column) => ({
+						table: b.names.relation(r.relation),
+						column: target.column(column)
+					}))
 				: []
-		)
+		})
 	)
 
 /**

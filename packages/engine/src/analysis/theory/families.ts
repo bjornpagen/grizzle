@@ -47,7 +47,7 @@ import {
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import { monoidSpecs } from "#compiler/ir/monoid.ts"
-import { keyedField, keyImages } from "#compiler/schema/representability.ts"
+import { entryImages, keyedField } from "#compiler/schema/representability.ts"
 
 /**
  * Families and their axes, as the theory resolves them.
@@ -370,7 +370,7 @@ const fixedAtInsert = (writing: FieldWriting): boolean => {
 /**
  * The images a family's owner axis carries in the place of the member's fields it rewrites ON UPDATE CASCADE (Family
  * `images`), its column named at the naming door: the axis's UNIQUE, over the owner's key, its count and each owner
- * field a pair carries, decides which of them it holds by its image (schema/representability.ts keyImages, as
+ * field a pair carries, decides which of them it holds by its image (schema/representability.ts entryImages, as
  * laws/model/plan.ts installs that UNIQUE), and each member field paired with one so imaged carries a copy of the image:
  * each group field, whose owner field is a key's text no write rewrites, then each field a pair carries from an immutable
  * owner's field fixed at its insert, which no write rewrites either, so the cascade rewrites each copy with the image it
@@ -400,7 +400,10 @@ export const familyImages = (
 		).values()
 	]
 	const imaged = new Map(
-		keyImages(targets.map((f) => keyedField(f.desc))).flatMap((image, i) => {
+		entryImages(
+			"key",
+			targets.map((f) => keyedField(f.desc))
+		).flatMap((image, i) => {
 			const target = targets[i]
 			return image === undefined || target === undefined ? [] : [[target.name, image] as const]
 		})

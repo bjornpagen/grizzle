@@ -1,4 +1,5 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { EntryRole } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 
 /** The list of a recursive definition an arm belongs to. */
@@ -126,6 +127,9 @@ export type RecursionRefusal =
  * - `unboundedText`: a text field whose pattern proves no byte bound, the one datum with no bound.
  * - `btreeEntry`: an entry that can reach `bytes`, above the B-tree limit `limit` (BTMaxItemSize), and the bytes each of
  *   its columns' datums is counted at, in index order: a text's is the byte bound its pattern and contract prove.
+ * - `orderedText`: an index's entry that can reach `bytes`, above the B-tree limit `limit`, past every equality it holds
+ *   by its image, for the texts it reads in their order or matches a prefix of, which it holds as themselves since no
+ *   image keeps a text's order: each with its role and the bytes its datum is counted at.
  * - `spans`: more than one span field, which no native lowering serves.
  * - `gistEntry`: a span key's GiST entry that can reach `bytes`, above the limit `limit` of a GiST page.
  * - `gistOperatorClass`: a span key's scalar field with no btree_gist operator class.
@@ -141,6 +145,16 @@ export type KeyFault =
 			readonly bytes: number
 			readonly limit: number
 			readonly datums: ReadonlyArray<{ readonly field: string; readonly bytes: number }>
+	  }
+	| {
+			readonly kind: "orderedText"
+			readonly bytes: number
+			readonly limit: number
+			readonly columns: ReadonlyArray<{
+				readonly field: string
+				readonly role: Exclude<EntryRole, "equality">
+				readonly bytes: number
+			}>
 	  }
 	| { readonly kind: "spans"; readonly fields: Names }
 	| { readonly kind: "gistEntry"; readonly bytes: number; readonly limit: number }
@@ -349,6 +363,8 @@ export const keyFaultText = (name: string, key: ReadonlyArray<string>, fault: Ke
 			return `${name}: field ${fault.field} is bytes, which is stored only, with no equality, so no key or index holds it`
 		case "btreeEntry":
 			return `${name}: its B-tree entry can reach ${fault.bytes} bytes, above PostgreSQL's ${fault.limit}-byte limit (${fault.datums.map((d) => `${d.field} ${d.bytes} bytes`).join(", ")})`
+		case "orderedText":
+			return `${name}: its B-tree entry can reach ${fault.bytes} bytes, above PostgreSQL's ${fault.limit}-byte limit, past every equality it holds by its image, for the texts it holds as themselves since no image keeps a text's order (${fault.columns.map((c) => `${c.field} ${c.bytes} bytes, ${c.role === "order" ? "read in its order" : "a prefix matched"}`).join("; ")}); a byte bound on them that fits the entry admits it`
 		case "spans":
 			return `${name}: a key with more than one span field (${fault.fields.join(", ")}) has no native lowering`
 		case "gistEntry":

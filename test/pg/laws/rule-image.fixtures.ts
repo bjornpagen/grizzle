@@ -25,18 +25,24 @@ import { judgedStatementsOf, plannedQueryOf } from "#test/support/judge.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
+import { pgErrorFields } from "#test/support/substrate/errors.ts"
+import { postgresBtreeMaxItem } from "#test/unit/schema/representability.fixtures.ts"
 
 /**
  * edullm's pantry in small: the attributes of the elements of documents of packages, keyed by their element and name,
  * each holding its `value`, a text of no byte bound, as an attribute's normalized value is (alt text, style and data-*
  * values carry no QTI bound); ObjectIdentifier, the derived selection of each item's and test's root `identifier`; and
  * the ledger's item sessions, each held to an identifier of its package by a rule over that query (qti-database's
- * ledger.ts). The rule's probe of a written session reads Attribute by (package, name, kind, value), and of a deleted
- * attribute ItemSession by (package, item): every document of a package holds one identifier, so the rows that share a
- * probe's bounded columns are a package's identifiers, and only `value`, of no byte bound, tells one from another.
+ * ledger.ts), its `item` a text of 2,700 bytes at most, which no B-tree entry holds as itself beside its package, as a
+ * pantry text bounded only by its widest value is. The rule's probe of a written session reads Attribute by (package,
+ * name, kind, value), and of a deleted attribute ItemSession by (package, item): every document of a package holds one
+ * identifier, so the rows that share a probe's other columns are a package's identifiers, and only `value`, or `item`,
+ * tells one from another. Each probe's entry, every column as itself, could outgrow a B-tree entry, so its index holds
+ * each text it binds by equality by its image, the package's among them.
  */
 const Short = str.bytes(64, str.regex("^.*$", "su"))
 const Free = str.regex("^.*$", "su")
+const Wide = str.bytes(2700, Free)
 const Kind = closed.ordered("ImageKind", ["item", "test", "element"])
 const Name = closed.ordered("ImageName", ["identifier", "title", "class"])
 
@@ -52,7 +58,7 @@ const Attribute = relation(
 	},
 	["package", "path", "start", "name"]
 )
-const ItemSession = relation("ItemSession", { id: pg.integer, package: Short, item: Free }, ["id"])
+const ItemSession = relation("ItemSession", { id: pg.integer, package: Short, item: Wide }, ["id"])
 
 const Base = schema("rule_image", [Kind, Name, Attribute, ItemSession], [])
 const ObjectIdentifier = derived(
@@ -115,11 +121,18 @@ export const imageTemplate = migratedTemplate({
 })
 
 /**
- * The lengths a value is drawn at, in bytes: a few, as an item's short identifier; hundreds, as alt text; and thousands,
- * past every B-tree entry (BTMaxItemSize, 2,704 bytes), as edullm's longest attribute values, 1,275 bytes, and a style
- * or data-* value of no QTI bound. One document's value is the empty text whatever the lengths (`valueSql`).
+ * The lengths a value is drawn at, in bytes: a few, as an item's short identifier; 433, the single string value of the
+ * correct response of a production AlphaTest item, past pantry's interim bound of 428 bytes; and 2,700, `item`'s bound,
+ * which as itself is past every B-tree entry (BTMaxItemSize, 2,704 bytes, its 8-byte header and 4-byte varlena header
+ * beside it). One document's value is the empty text whatever the lengths (`valueSql`).
  */
-const valueLengths = [8, 400, 3000] as const
+const valueLengths = [8, 433, 2700] as const
+
+/**
+ * The most bytes of a text an index entry holds as itself alone: BTMaxItemSize less the index tuple's 8-byte header and
+ * the text's 4-byte varlena header (representability.fixtures.ts postgresBtreeMaxItem).
+ */
+const loneTextBytes = postgresBtreeMaxItem - 12
 
 /**
  * A case: the packages stored, each one's documents and stored sessions, the lengths of its values, the sessions
@@ -154,6 +167,7 @@ export type ImageFeature =
 	| "a value past a B-tree entry"
 	| "values of one length"
 	| "a read through a query entry"
+	| "a session one byte off its identifier refused"
 
 /**
  * The document whose value document `d`'s identifier holds, as SQL over `d`: d + 1 holds d's where d is a multiple of
@@ -377,7 +391,27 @@ export const runImaged = (
 		const through = yield* within(statement.sql, "the reader's read through its query entry")
 		assert.ok(through.length > 0, "the reader's read reads Attribute")
 		c.note("a read through a query entry")
-		if (Arr.some(stored.lengths, (n) => n > 2704)) {
+		/**
+		 * A session of package 1 whose item is document 4's identifier with its last character changed holds no
+		 * identifier of its package: the model refuses it, and so must the judge, whose probe finds no row by the image of
+		 * a text no stored identifier is (23503, a containment's).
+		 */
+		const near = `(SELECT overlay(${a("value")} placing (CASE WHEN right(${a("value")}, 1) = 'a' THEN 'b' ELSE 'a' END) from char_length(${a("value")})) FROM ${attribute} WHERE ${a("package")} = ${pkg("1")} AND ${a("path")} = ${path("4")} AND ${a("name")} = 0)`
+		yield* connection.query("SAVEPOINT near", [])
+		yield* connection.query("SET CONSTRAINTS ALL DEFERRED", [])
+		yield* connection.query(
+			`INSERT INTO ${session} (${s("id")}, ${s("package")}, ${s("item")}) VALUES (${stored.sessions + stored.stored * stored.packages}, ${pkg("1")}, ${near})`,
+			[]
+		)
+		const missed = yield* Effect.flip(connection.query("SET CONSTRAINTS ALL IMMEDIATE", []))
+		assert.equal(
+			pgErrorFields(missed)?.code,
+			"23503",
+			`${Formatter.format(stored)}: a session one byte off a stored identifier is refused by the containment`
+		)
+		yield* connection.query("ROLLBACK TO SAVEPOINT near", [])
+		c.note("a session one byte off its identifier refused")
+		if (Arr.some(stored.lengths, (n) => n > loneTextBytes)) {
 			c.note("a value past a B-tree entry")
 		}
 		if (Arr.dedupe(stored.lengths).length === 1) {

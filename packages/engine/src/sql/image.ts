@@ -23,8 +23,10 @@ export interface StoredColumn {
 }
 
 /**
- * The stored columns a lookup index holds by their image (`imageOf`) in place of the text: each text column of no byte
- * bound (schema/representability.ts imagedText), by the table or plain view a statement reads it through.
+ * The stored columns a lookup index may hold by their image (`imageOf`) in place of the text, by the table or plain view
+ * a statement reads it through: each field of its relation's images (schema/representability.ts relationImages), which
+ * hold every text an index of the relation holds by its image, or the columns a judged read's own lookups read by theirs
+ * (physical/ddl/rules.ts).
  */
 export interface ImagedColumns {
 	readonly has: (column: StoredColumn) => boolean
@@ -33,19 +35,16 @@ export interface ImagedColumns {
 }
 
 /**
- * The image of a text a lookup index holds in its place: `pg_catalog.md5(text)`, its 32 hexadecimal digits, IMMUTABLE
- * and LEAKPROOF, which every B-tree entry holds, where a text whose pattern proves no byte bound fits none
- * (schema/representability.ts imagedText). A lookup reads it as a point lookup: every statement grizzle writes that
- * compares such a column by equality states the equality of the two sides' images beside it (`statingImages`), which
- * PostgreSQL matches to the index's expression and reads as an index condition, and the column's own equality rechecks
- * the rows the image finds, so a collision of two texts' digests reads one row more and decides nothing: an image, never
- * a proof.
- *
- * md5 is the one function of a text PostgreSQL marks leakproof (pg_proc.proleakproof) whose value an index entry holds
- * whatever the text: hashtext, hashtextextended, textsend and convert_to are not, and sha256 reads only bytea, which no
- * leakproof cast reaches. Only a leakproof condition passes into a security-barrier view (a role's query entry, through
- * which a role reads rows it may see), so with any other the lookup through such a view reads every row of the image's
- * other columns. A server in FIPS mode refuses md5, and with it every write of a table such an index is on.
+ * The image of a text a lookup index holds in its place: `pg_catalog.md5(text)`, its 32 hexadecimal digits, the
+ * lookup's image (core/identity.ts TextImage `md5`, whose roster states why a lookup's image is md5 and a key's
+ * SHA-256), which a lookup's entry holds wherever it could not hold the text as itself (schema/representability.ts
+ * entryImages). A lookup reads it as a point lookup: every statement grizzle writes that compares such a column by
+ * equality states the equality of the two sides' images beside it (`statingImages`), which PostgreSQL matches to the
+ * index's expression and reads as an index condition, and the column's own equality rechecks the rows the image finds,
+ * so a collision of two texts' digests reads one row more and decides nothing: an image, never a proof. md5 is
+ * leakproof, so the condition passes into a security-barrier view (a role's query entry, through which a role reads
+ * rows it may see); with any other the lookup through such a view reads every row of the image's other columns. A
+ * server in FIPS mode refuses md5, and with it every write of a table such an index is on.
  *
  * Its equality agrees with the text's: every text grizzle stores is collated pg_catalog.pg_c_utf8, which is
  * deterministic, so texteq compares a text's bytes, of which md5 is a function; its digits are ASCII, which every
@@ -77,7 +76,7 @@ export const imagedColumnOf = (e: Expr): string | undefined => {
 		: undefined
 }
 
-/** The imaged columns `columns`, each a text column of no byte bound by the table or plain view it is read through. */
+/** The imaged columns `columns`, each by the table or plain view it is read through. */
 export const imagedColumns = (columns: Iterable<StoredColumn>): ImagedColumns => {
 	const byTable = new Map<NameKey, Set<string>>()
 	for (const c of columns) {

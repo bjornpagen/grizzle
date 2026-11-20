@@ -37,6 +37,7 @@ import {
 } from "#compiler/physical/obligations/graph.ts"
 import { vectorExtension } from "#compiler/physical/vector/storage.ts"
 import type { Owned, OwnedLogin } from "#compiler/schema/own.ts"
+import { keyedField, relationImages } from "#compiler/schema/representability.ts"
 import {
 	type Expr,
 	type FunctionName,
@@ -118,6 +119,12 @@ export interface BuiltTarget {
 	readonly kind: "built"
 	readonly field: (column: IndexColumn) => TargetField | undefined
 	readonly column: (column: IndexColumn) => string
+	/**
+	 * Whether a lookup over the relation may hold the column by its image where it binds it by equality: a stored
+	 * relation's columns its statements state the image's equality of (physical/ddl/names.ts InstallNames `imaged`), a
+	 * view's by the same rule over its fields (schema/representability.ts relationImages).
+	 */
+	readonly imaged: (column: IndexColumn) => boolean
 	readonly object: Node<"structure">
 }
 
@@ -654,10 +661,16 @@ export class InstallBuilder {
 	target(relation: string): RelationTarget {
 		const view = this.#views.get(relation)
 		if (view !== undefined) {
+			const fields = [...view.fields]
+			const images = relationImages(
+				fields.map(([, f]) => ({ ...keyedField(f.desc), nullable: f.nullable }))
+			)
+			const imaged = new Set(fields.flatMap(([name], at) => (images[at] === true ? [name] : [])))
 			return {
 				kind: "built",
 				field: (c) => (c.kind === "field" ? view.fields.get(c.field) : undefined),
 				column: (c) => (c.kind === "field" ? this.names.column(relation, c.field) : c.column),
+				imaged: (c) => c.kind === "field" && imaged.has(c.field),
 				object: view.object
 			}
 		}
@@ -677,6 +690,11 @@ export class InstallBuilder {
 						: { desc: field.desc, type: field.type, nullable: false }
 				},
 				column: (c) => (c.kind === "field" ? this.names.column(relation, c.field) : c.column),
+				imaged: (c) =>
+					this.names.imaged.has({
+						table: this.names.relation(relation),
+						column: c.kind === "field" ? this.names.column(relation, c.field) : c.column
+					}),
 				object: this.table(relation)
 			}
 		}

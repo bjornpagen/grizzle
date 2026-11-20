@@ -10,7 +10,7 @@
  *   side, exhausted. The oracle: the B-tree entry nbtree.h bounds, counted by hand from the columns' layouts as
  *   schema/representability.ts documents the count (entryBytes): the UNIQUE holds `after` as itself where its entry fits
  *   BTMaxItemSize, and by its digest, 32 bytes, exactly where it would outgrow it, a text of no bound among them
- *   (schema/representability.ts keyImages), so the fold is admitted at every bound. Features: unbounded, and each
+ *   (schema/representability.ts entryImages), so the fold is admitted at every bound. Features: unbounded, and each
  *   bound's kind with each verdict.
  * - A carried set's key: a set an axis carries is its roster's bit(n), n every code the roster has minted, holes
  *   included, sized exactly by the installation's codes (physical/ddl/tables.ts setUniqueBound), so a roster pruned of

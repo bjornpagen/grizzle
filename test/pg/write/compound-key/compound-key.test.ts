@@ -419,10 +419,8 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 		kills: [
 			{
 				file: "packages/engine/src/schema/representability.ts",
-				original:
-					"\t\t!fits && c.text && (c.datum === undefined || c.datum.bytes > keyImageDatum.textDigest.bytes)",
-				replacement:
-					"\t\tfalse && c.text && (c.datum === undefined || c.datum.bytes > keyImageDatum.textDigest.bytes)",
+				original: "(!fits && imageable(c, image) ? image : undefined)",
+				replacement: "(false && imageable(c, image) ? image : undefined)",
 				why: "A key over a text of no bound refused again, unboundedText, where its image keys it."
 			},
 			{

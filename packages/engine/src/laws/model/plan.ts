@@ -84,10 +84,10 @@ import {
 	type EntryColumn,
 	type GistEntryBytes,
 	gistEntry,
+	entryImages,
+	imageDatum,
 	indexMaxKeys,
-	keyImageDatum,
-	isTextDesc,
-	keyImages
+	isTextDesc
 } from "#compiler/schema/representability.ts"
 
 /** A refusal deep inside recognition is a core Refusal, which the model's boundary returns (`catchRefusal`). */
@@ -241,7 +241,7 @@ const plannedField = (c: PlannedColumn): LawField => {
  */
 const plannedDatum = (c: PlannedColumn): DatumBound | undefined => {
 	const image = c.kind === "law" ? heldImage(c.column) : undefined
-	return image === undefined ? fieldDatum(plannedField(c)) : keyImageDatum[image]
+	return image === undefined ? fieldDatum(plannedField(c)) : imageDatum[image]
 }
 
 /**
@@ -336,7 +336,7 @@ interface BoundedColumn<C extends PlannedColumn> {
  */
 const createdDatum = (c: PlannedColumn): DatumBound | undefined => {
 	const image = c.kind === "law" ? heldImage(c.column) : undefined
-	return image === undefined ? datumBound(plannedField(c).desc) : keyImageDatum[image]
+	return image === undefined ? datumBound(plannedField(c).desc) : imageDatum[image]
 }
 
 /** The columns of `columns` whose datum is bounded in an index the engine creates (`createdDatum`), in their order. */
@@ -511,13 +511,14 @@ const lawColumn = (column: LawColumnPlan): PlannedColumn => ({ kind: "law", colu
 
 /**
  * The images a key, a UNIQUE or an index over `columns` installs them over in their place (schema/representability.ts
- * keyImages), one rule at the key's own columns, each read as its entry counts it (`plannedDatum`, `mayBeNull`); an
- * image itself is never imaged again, and a counted predecessor is a natural.
+ * entryImages), one rule at the key's own columns, each read as its entry counts it (`plannedDatum`,
+ * `mayBeNull`); an image itself is never imaged again, and a counted predecessor is a natural.
  */
 const imagesOf = (
 	columns: NonEmptyReadonlyArray<PlannedColumn>
 ): ReadonlyArray<KeyImage | undefined> =>
-	keyImages(
+	entryImages(
+		"key",
 		columns.map((c) => ({
 			datum: plannedDatum(c),
 			text:
@@ -530,7 +531,7 @@ const imagesOf = (
 /**
  * A planned column of `relation` as an index over it holds it under `image`: the column itself, or the law column of
  * its image in its place, generated from the row, which a key, a UNIQUE or a reference compares as it would the column,
- * two rows agreeing there exactly where they agree at the column (schema/representability.ts keyImages).
+ * two rows agreeing there exactly where they agree at the column (schema/representability.ts entryImages).
  */
 const keyedAs = (
 	relation: RelationInfo,

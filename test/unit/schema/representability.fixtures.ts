@@ -677,7 +677,7 @@ type FixedType =
 	| "uuid"
 	| "closedId"
 
-type KeyFieldSketch =
+export type KeyFieldSketch =
 	| { readonly kind: "fixed"; readonly type: FixedType }
 	| { readonly kind: "numeric"; readonly precision: number; readonly scale: number }
 	| { readonly kind: "ascii text"; readonly length: number }
@@ -687,7 +687,7 @@ type KeyFieldSketch =
 	| { readonly kind: "octet contract"; readonly bytes: number }
 
 /** A datum's longest bytes and its type's alignment, and whether its type is fixed-width (typlen > 0) or a varlena. */
-interface Datum {
+export interface Datum {
 	readonly bytes: number
 	readonly align: number
 	readonly fixed: boolean
@@ -715,7 +715,7 @@ const varlena = (bytes: number): Datum => ({ bytes: 4 + bytes, align: 4, fixed: 
  * text is its bytes, four per code point unless pinned to ASCII; a text nothing bounds is held by its image, the
  * SHA-256 of its UTF-8, a bytea of 32 bytes.
  */
-const datumOf = (f: KeyFieldSketch): Datum | undefined => {
+export const datumOf = (f: KeyFieldSketch): Datum | undefined => {
 	switch (f.kind) {
 		case "fixed":
 			return fixedDatum[f.type]
@@ -734,10 +734,11 @@ const datumOf = (f: KeyFieldSketch): Datum | undefined => {
 }
 
 /** Whether a key field is a text, which a key that would outgrow its entry holds by its image where it is wider. */
-const isTextSketch = (f: KeyFieldSketch): boolean => f.kind !== "fixed" && f.kind !== "numeric"
+export const isTextSketch = (f: KeyFieldSketch): boolean =>
+	f.kind !== "fixed" && f.kind !== "numeric"
 
-/** A text's image in an index entry: SHA-256's 32 bytes, a varlena. */
-const imageDatum = varlena(32)
+/** A text's image in an index entry: SHA-256's 32 bytes, a varlena, as md5's 32 hexadecimal digits are. */
+export const textImageDatum = varlena(32)
 
 /**
  * The datums a key's index entry holds for its fields, in key order, each with whether it is a text's image: every field
@@ -752,8 +753,8 @@ export const keyedDatums = (
 	const fits = bounded.length === own.length && btreeTupleBytes(bounded) <= postgresBtreeMaxItem
 	return Arr.map(fields, (f, i) => {
 		const datum = own[i]
-		return !fits && isTextSketch(f) && (datum === undefined || datum.bytes > imageDatum.bytes)
-			? { datum: imageDatum, imaged: true }
+		return !fits && isTextSketch(f) && (datum === undefined || datum.bytes > textImageDatum.bytes)
+			? { datum: textImageDatum, imaged: true }
 			: { datum: defined(datum, "a bounded field"), imaged: false }
 	})
 }

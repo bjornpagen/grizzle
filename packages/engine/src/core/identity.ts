@@ -910,12 +910,51 @@ export interface KeySide {
 export type IndexMethod = "btree" | "gist" | "hnsw" | "hash"
 
 /**
- * The images a key installs a column over in its place, where the key's entry cannot hold the column's own values
- * (schema/representability.ts keyImages): `textDigest`, a text, keyed by its SHA-256 digest, the 32 bytes of its
- * UTF-8's (physical/ddl/library.ts textDigest).
+ * The kinds of B-tree entry, by what decides a row's place among its entries: a `key`'s, a primary key's or a UNIQUE's,
+ * which decides two rows' equality by its entry alone; a `lookup`'s, an index a read binds, ranges, matches a prefix of
+ * or pages by, which finds rows its read then checks against the read's every condition.
  */
-const keyImageRoster = ["textDigest"] as const
-export type KeyImage = (typeof keyImageRoster)[number]
+const entryKindRoster = ["key", "lookup"] as const
+export type IndexEntryKind = (typeof entryKindRoster)[number]
+
+/**
+ * What a B-tree entry does with a column: binds it by `equality`, reads its entries in its `order` (a seek, a page, a
+ * range's last column), or matches a `prefix` of it (a prefix search's last column). A key's every column is an
+ * equality. Only an equality's column is held by its image, which keeps equality and no order.
+ */
+const entryRoleRoster = ["equality", "order", "prefix"] as const
+export type EntryRole = (typeof entryRoleRoster)[number]
+
+/**
+ * The images a B-tree entry holds a text column by in its place, where the entry cannot hold the column's own values
+ * (schema/representability.ts entryImages), one for each kind of entry, each the one PostgreSQL leaves it:
+ * - `textDigest`, a key's: the SHA-256 digest of the text's UTF-8, its 32 bytes (physical/ddl/library.ts textDigest), in
+ *   a bytea column STORED from the row. A key decides two rows' equality by its image alone, so its image must resist
+ *   collisions: two texts of one MD5 digest are constructible, and under md5 they would be one key, the second
+ *   text's write refused as a duplicate. SHA-256 has no known collision, the premise every fingerprint grizzle keys by
+ *   rests on.
+ * - `md5`, a lookup's: `pg_catalog.md5(text)`, its 32 hexadecimal digits, in the index's expression (sql/image.ts
+ *   imageOf). A lookup rechecks the text's own equality on every row its image finds, so a collision reads a row more
+ *   and decides nothing; and its condition, the image of a probe's or a joined table's column, must pass into a role's
+ *   query entry, a security-barrier view, which PostgreSQL admits only for a condition no function that is not
+ *   leakproof reads a column under (REL_19_0 src/backend/optimizer/util/clauses.c contain_leaked_vars_walker: "If node
+ *   contains a leaky function call, and there's any Var or Var-representative node underneath it, reject"). md5 is
+ *   the one function of a text that is leakproof and IMMUTABLE (src/include/catalog/pg_proc.dat: md5(text) `proleakproof
+ *   => 't'`); sha256 is leakproof but reads bytea, and every function that takes a text to its bytes is not (convert_to
+ *   and textsend, both STABLE; encode and decode). Nor can grizzle declare its textDigest LEAKPROOF: "only superuser can
+ *   define a leakproof function" (src/backend/commands/functioncmds.c, CREATE and ALTER FUNCTION), and an installation's
+ *   owner on Amazon RDS is rds_superuser, never a superuser.
+ */
+const textImageRoster = ["textDigest", "md5"] as const
+export type TextImage = (typeof textImageRoster)[number]
+
+/** The image each kind of entry holds a text by (TextImage): a key's digest, a lookup's md5. */
+export const entryImage = Object.freeze({ key: "textDigest", lookup: "md5" } as const satisfies {
+	readonly [K in IndexEntryKind]: TextImage
+})
+
+/** The image a key installs a text column over in its place: `textDigest`, in the column a law adds (ir/law.ts). */
+export type KeyImage = (typeof entryImage)["key"]
 
 /** What a key's image is the image of: a field of the relation, by its name, or a law column, by its identity. */
 export type ImageOf =
