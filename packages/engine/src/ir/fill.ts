@@ -14,11 +14,14 @@
  * fills is read by no other family's fill and by nothing the walk fills.
  */
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { KeyImage } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import { type Family, type FamilyFold, isSequence } from "#compiler/ir/family.ts"
 import {
+	type ColumnKey,
+	columnKey,
 	type FamilyId,
 	familyKey,
 	type NativeColumn,
@@ -213,3 +216,100 @@ export const familyDrawn = (
 			c.rule.kind !== "generated"
 		)
 	})
+
+/**
+ * Where an append draws a counted family's groups that hold stored members (write/family/additions.ts):
+ * - `kept`: from each group's kept count on, past its stored members, which keep every column, their copies along the
+ *   family's owner axis aside, which the owner's recount cascades into them at the statement's end;
+ * - `whole`: from slot 0, each stored member drawn again beside the appended ones and updated in place. A value the
+ *   family draws (a fold's step or selection, a predecessor copy, or a member column its last axis carries) reads,
+ *   through the member's row, a settled copy: a copy along the family's own owner axis of an owner column the family's
+ *   own fill writes (`FillWriter` counted), its count or a generated field over it, which an append changes on every
+ *   member at once. Such a group is drawn as the host's fill draws a fresh one: its count, then each such owner column
+ *   at it (`settled`, by the owner column's key), then every member's copies and the family's values over them.
+ */
+export type AppendStart =
+	| { readonly kind: "kept" }
+	| { readonly kind: "whole"; readonly settled: NonEmptyReadonlyArray<ColumnKey> }
+
+/** The family a rule draws a column for, none for a rule of no family's. */
+const ruleFamily = (rule: FillRule): Family | undefined => {
+	switch (rule.kind) {
+		case "count":
+		case "ownerCopy":
+		case "predecessor":
+		case "last":
+		case "after":
+		case "image":
+			return rule.family
+		case "given":
+		case "owner":
+		case "self":
+		case "base":
+		case "index":
+		case "copy":
+		case "start":
+		case "end":
+		case "generated":
+			return undefined
+	}
+}
+
+/**
+ * Where an append to `family` draws its groups of `relation`, its member (`AppendStart`), by the fill order: a sequence's
+ * and an immutable owner's from their kept counts, a sequence's members being the walk's and an immutable owner's
+ * family fixed when its owner is inserted; a mutable owner's counted family whole where a value it draws reads a settled
+ * copy.
+ */
+export const appendStartOf = (fill: FillOrder, relation: string, family: Family): AppendStart => {
+	if (isSequence(family) || !family.owner.mutable) {
+		return { kind: "kept" }
+	}
+	const own = (rule: FillRule): boolean => {
+		const f = ruleFamily(rule)
+		return f !== undefined && familyKey(f.id) === familyKey(family.id)
+	}
+	/** The owner's columns the family's own fill writes, by key, at any position of the owner's: each position lays the
+	 * owner's counts and its generated fields out alike. */
+	const written = new Set(
+		[...fill.layouts.values()].flatMap((l) =>
+			l.relation.name === family.owner.name
+				? l.columns.flatMap((c) =>
+						c.writer.kind === "counted" && familyKey(c.writer.family.id) === familyKey(family.id)
+							? [columnKey(c.column)]
+							: []
+					)
+				: []
+		)
+	)
+	const columns = defined(
+		fill.layouts.get(layoutKey(relation, { kind: "member", family })),
+		`the fill layout of ${relation} as a member of ${family.id.owner}.${family.id.count}`
+	).columns
+	const settled = columns.flatMap((c) =>
+		c.rule.kind === "ownerCopy" && own(c.rule) && written.has(columnKey(c.rule.to))
+			? [{ member: columnKey(c.column), owner: columnKey(c.rule.to) }]
+			: []
+	)
+	/** The member's columns that read a settled copy, through any column of its row between. */
+	const reading = new Set(settled.map((x) => x.member))
+	for (let grown = true; grown;) {
+		grown = false
+		for (const c of columns) {
+			const key = columnKey(c.column)
+			if (!reading.has(key) && filledFrom(c.rule, c.reads).some((r) => reading.has(columnKey(r)))) {
+				reading.add(key)
+				grown = true
+			}
+		}
+	}
+	const owners = [...new Set(settled.map((x) => x.owner))]
+	const readsSettled =
+		columns.some(
+			(c) =>
+				(c.rule.kind === "after" || c.rule.kind === "predecessor") &&
+				own(c.rule) &&
+				reading.has(columnKey(c.column))
+		) || family.axes.last.some((p) => reading.has(columnKey(p.to)))
+	return readsSettled && isNonEmpty(owners) ? { kind: "whole", settled: owners } : { kind: "kept" }
+}

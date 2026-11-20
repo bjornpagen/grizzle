@@ -1616,7 +1616,7 @@ const compile = (
 					: []
 			)
 		)
-		const refill = unwrap(stratumRefill(families, writes, edited, holds))
+		const refill = unwrap(stratumRefill(laws.theory.fill, families, writes, edited, holds))
 		if (refill !== undefined) {
 			refills.set(s, refill)
 		}

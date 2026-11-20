@@ -30,6 +30,7 @@ import { CompileError, type RoleAccess } from "#compiler/core/errors.ts"
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { Family } from "#compiler/ir/family.ts"
+import { appendStartOf, type FillOrder } from "#compiler/ir/fill.ts"
 import { columnKey, familyKey, type RelationInfo } from "#compiler/ir/law.ts"
 
 /** One of a stratum's writes as its refills start from it: its change, where it is, and where a put's rows come from. */
@@ -69,7 +70,8 @@ export interface StratumRefill {
  * Where a refill starts (write/family/removals.ts RefillWay): a put of a plain relation, whose facts state its changed
  * rows; an edit of a family's member relation, whose own removals statement redraws its changed rows by `family`; or
  * an append to `family`, whose additions statement recounts the owners whose count and ends its stored members copy,
- * an UPDATE the owner axis cascades into them (write/family/additions.ts recountOf).
+ * an UPDATE the owner axis cascades into them (write/family/additions.ts recountOf), and draws the family's groups
+ * whole where a value the family draws reads such a copy (ir/fill.ts AppendStart `whole`).
  */
 export type RefillStart =
 	| { readonly kind: "put"; readonly relation: StoredRelationName }
@@ -106,23 +108,39 @@ const sameWay = (a: PlainRefillWay, b: PlainRefillWay): boolean =>
  * The way a path that starts at a family member relation's write rides in the write's statements: an edit of the
  * relation that redraws a column of its rows a counted or ordered family it owns copies into its members, read there as
  * that copy, the rider of the edit's removals statement; or an append to a counted or ordered family of a mutable owner,
- * whose recount changes a count or an end the family's stored members copy. None for any other path of a member's
- * write, which grizzle refuses (StaleDerivedRead, `edit`).
+ * whose recount changes a count or an end the family's stored members copy, or a value the family draws over such a
+ * copy along its own owner axis, which its appends draw whole (ir/fill.ts AppendStart, by `fill`). None for any other
+ * path of a member's write, which grizzle refuses (StaleDerivedRead, `edit`).
  */
-const memberWay = (change: WriteChange, path: RefillPath): PlainRefillWay | undefined => {
+const memberWay = (
+	fill: FillOrder,
+	change: WriteChange,
+	path: RefillPath
+): PlainRefillWay | undefined => {
 	const { changed, reader } = path
-	const [hop] = path.copies
+	const [hop, ...further] = path.copies
 	if (change.op === "insert") {
-		return hop === undefined &&
-			changed.by === "owner" &&
-			reader.kind === "owner" &&
-			familyKey(changed.family.id) === familyKey(reader.family.id) &&
-			reader.family.member.name === change.relation.name &&
-			reader.family.owner.mutable
-			? {
-					root: { kind: "recount", relation: change.relation.name, family: reader.family },
-					hops: [reader.family]
-				}
+		const f = reader.family
+		const recount: PlainRefillWay = {
+			root: { kind: "recount", relation: change.relation.name, family: f },
+			hops: [f]
+		}
+		if (
+			changed.by !== "owner" ||
+			familyKey(changed.family.id) !== familyKey(f.id) ||
+			f.member.name !== change.relation.name ||
+			!f.owner.mutable
+		) {
+			return undefined
+		}
+		if (hop === undefined) {
+			return reader.kind === "owner" ? recount : undefined
+		}
+		return further.length === 0 &&
+			familyKey(hop.family.id) === familyKey(f.id) &&
+			reader.kind !== "owner" &&
+			appendStartOf(fill, f.member.name, f).kind === "whole"
+			? recount
 			: undefined
 	}
 	return hop === undefined &&
@@ -148,7 +166,8 @@ const memberWay = (change: WriteChange, path: RefillPath): PlainRefillWay | unde
  * - a refill of a value that reads what another refill itself changes (StaleDerivedRead, `chained`);
  * - a family member's put or delete whose change reaches another family's value through an owner axis, but the copies
  *   a re-placed owner's members hold, and an edit's or an append's recount of an owner that a value other than its own
- *   family's members' copies reads (StaleDerivedRead, `edit`);
+ *   family's members' copies reads, or its own family's values over those copies where its appends do not draw it whole
+ *   (StaleDerivedRead, `edit`);
  * - a refill a role does not hold the rows of whole (OutsideRole): the members it rewrites, which its write list names,
  *   and every row its changes' cascades pass, which it holds;
  * - a way no statement of the stratum draws: a plain relation's put whose cascade passes the rows of a member the
@@ -157,9 +176,10 @@ const memberWay = (change: WriteChange, path: RefillPath): PlainRefillWay | unde
  *   edits of two relations (StaleDerivedRead, `edits`).
  *
  * `edited` names the relations a write of the stratum edits as a family's members, whose owners' copies a cascade
- * reaches too.
+ * reaches too; `fill` is the schema's fill order, by which an append draws its family's groups (ir/fill.ts AppendStart).
  */
 export const stratumRefill = (
+	fill: FillOrder,
 	families: ReadonlyArray<Family>,
 	writes: ReadonlyArray<StratumWrite>,
 	edited: ReadonlySet<string>,
@@ -270,7 +290,7 @@ export const stratumRefill = (
 	for (const path of paths) {
 		const { change, hops } = path
 		if (managed(change.relation)) {
-			const way = memberWay(change, path)
+			const way = memberWay(fill, change, path)
 			if (way === undefined) {
 				const reached = path.reader.family.id
 				return Result.err(

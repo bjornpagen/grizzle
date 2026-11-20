@@ -17,6 +17,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import {
 	admittedFillSpecGen,
+	appendGen,
 	besides,
 	buildFill,
 	chainOf,
@@ -106,6 +107,7 @@ export type ClusterSituation =
 	| "an owner put in place beside an append to its family"
 	| "a follow-up that refills a value it leaves stale"
 	| "a follow-up that refills a fold stepping a copy"
+	| "a follow-up that draws a stored counted group whole"
 	| "a follow-up that re-places an owner of counted members"
 	| "a follow-up that re-places an immutable owner of counted members"
 	| "a follow-up that moves an owner of counted members to another owner's group"
@@ -828,6 +830,27 @@ const ownerPutGeneratedGen: Gen<ClusterCase> = caseOver(
 )
 
 /**
+ * A case aimed at an append that draws a stored counted group whole (ir/fill.ts AppendStart `whole`): R0, mutable, owns a
+ * counted family of R1, whose members copy along its owner axis R0's `g`, the greater of its `v` and its count of them,
+ * and whose sum fold steps that copy; R1 mutable, holding `g` or not, as drawn. The follow-up appends to a stored R0
+ * row's group and half the time puts that row (fill.ts `appendGen`): every member's copy changes with the count, so the
+ * group's every fold plane and its end are drawn again over every member.
+ */
+const wholeAppendGen: Gen<ClusterCase> = caseOver(
+	(source) => ({
+		relations: [
+			{ generated: { kind: "row", source: { kind: "count", family: 0 } }, mutable: true },
+			{ generated: source.draw(boolean) ? generationOfV : noGeneration, mutable: true }
+		],
+		families: [{ kind: "counted", owner: 0, member: 1, fold: "sum" }],
+		copies: [{ family: 0, axis: "owner", source: { kind: "generated" } }],
+		steps: [{ kind: "copy", family: 0, copy: 0 }]
+	}),
+	(spec) => constant(fullInstance(spec)),
+	(spec, rows) => appendGen(spec, rows, 0)
+)
+
+/**
  * A case aimed at a fold stepping a generated field that reads a column its family draws: R0 owning R1 in an ordered
  * or a counted family whose sum fold steps R1's `g`, the greater of R1's `v` and R1's index in the family, which the
  * family's own scan draws; R1 mutable or immutable as drawn. The reference admits and writes each (fill.ts verdictOf,
@@ -863,7 +886,8 @@ export const generationSituations: Arr.NonEmptyReadonlyArray<ClusterSituation> =
 	"a copy of a generated field reading a field grizzle draws or accumulates",
 	"a fold stepping a generated field that reads a column its family draws",
 	"a follow-up written over the stored instance",
-	"an owner's put refilling a value over a copy of its generated field that reads a field grizzle accumulates"
+	"an owner's put refilling a value over a copy of its generated field that reads a field grizzle accumulates",
+	"a follow-up that draws a stored counted group whole"
 ]
 
 /** The situations the generation suite reaches only now and then, each with the cases a witness draws while it is
@@ -873,7 +897,8 @@ export const generationAims: ReadonlyArray<readonly [ClusterSituation, Gen<Clust
 	[
 		"an owner's put refilling a value over a copy of its generated field that reads a field grizzle accumulates",
 		ownerPutGeneratedGen
-	]
+	],
+	["a follow-up that draws a stored counted group whole", wholeAppendGen]
 ]
 
 /**
@@ -1104,6 +1129,18 @@ export const checkCase = (
 				Arr.some(verdict.stale, (s) => Arr.some(spec.steps, (step) => step.family === s.family))
 			) {
 				c.note("a follow-up that refills a fold stepping a copy")
+			}
+			if (
+				Arr.some(
+					verdict.stale,
+					(s) =>
+						s.origin.op === "insert" &&
+						s.reader.kind !== "owner" &&
+						s.hops.length === 1 &&
+						s.hops[0] === s.family
+				)
+			) {
+				c.note("a follow-up that draws a stored counted group whole")
 			}
 			const replacedOwners = Arr.filter(
 				after,

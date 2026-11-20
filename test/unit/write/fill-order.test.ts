@@ -166,9 +166,23 @@ export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsGeneratedFi
 				reason:
 					"an immutable owner's family read through a generated field: R0, immutable, generates g from its count of R1's counted family, R1, immutable, copies g along the owner axis and the family's sum steps that copy; the instance's insert of R0 and R1 together compiles, and R1's put refills nothing, an immutable owner's family being fixed when its owner is inserted, where both were refused as a refill of R1's rows (StaleDerivedRead, immutable)",
 				since: "2026-11-19"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/write/fill-order.test.ts#theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsGeneratedFieldsReadingDrawnOrAccumulatedFieldsCompileExactlyWhereTheReferenceModelAdmitsThem:-:0.2.0.0.3.d.0.0.0.d.3.0.3.2.0.0.0.4.0.0.0.0.0.0.0.0.1.0.0.0.1.1.1.3.1.2.1.0.1.0.0.0.0.0"
+				),
+				reason:
+					"a mutable owner's family read through a generated field: R1, mutable, generates g from its count n3 of R2's counted family F3, R2 copies g along F3's owner axis into c0 and F3's sum s3 steps c0; an append to F3 changes c0 on every member, which F3's additions draw whole from slot 0 at the new count (ir/fill.ts AppendStart), so the instance's insert of R0, R1 and R2 together compiles, where it was refused as a recount reaching F3's own fold (StaleDerivedRead, edit)",
+				since: "2026-11-20"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/write/frontend/refill.ts",
+				original: '\t\t\tappendStartOf(fill, f.member.name, f).kind === "whole"',
+				replacement: "\t\t\tfalse",
+				why: "An append's recount of a mutable owner, carried along its own family's owner axis into a copy that family's own fold steps, is refused as before (StaleDerivedRead, edit), though the family's additions draw it whole: the kept case of 2026-11-20, the instance's insert of R1 beside its counted members R2, is refused."
+			},
 			{
 				file: "packages/engine/src/analysis/theory/refill.ts",
 				original: '\th.member.name === relation.name && h.shape.kind !== "tree" && h.owner.mutable',

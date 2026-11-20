@@ -44,7 +44,15 @@ export const theFillOrderOnTheClusterAnAdmittedSchemaWhoseGeneratedFieldsReadFie
 				since: "2026-11-19"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/write/program/compile.ts",
+				original:
+					"\t\t\t\t\t\t\t\tstart: appendStartOf(frontend.laws.theory.fill, relation.name, f.family),",
+				replacement: '\t\t\t\t\t\t\t\tstart: { kind: "kept" as const },',
+				why: "The old incremental recount: an append draws a stored group whose sum steps its members' copy of the owner's g over its count from its kept count, the appended members copying the owner's g at the stored count and continuing the stored members' planes, which the new count's g leaves stale, so the owner's sum misses it on every member; the follow-up aimed at it stores rows unlike the reference writer's, or the members' fold CHECK refuses the cascade that carries the new g into them."
+			}
+		]
 	})
 
 /**

@@ -16,7 +16,7 @@ import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { isSequence, isTreeOf } from "#compiler/ir/family.ts"
-import { familyDrawn } from "#compiler/ir/fill.ts"
+import { appendStartOf, familyDrawn } from "#compiler/ir/fill.ts"
 import { columnKeyOf, familyKey, type RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import {
@@ -611,6 +611,7 @@ const familyProgram = (
 							families: familiesOf(relation).map((f) => ({
 								family: f.family,
 								drawn: f.drawn,
+								start: appendStartOf(frontend.laws.theory.fill, relation.name, f.family),
 								fresh: isSequence(f.family)
 									? ({ kind: "none" } as const)
 									: ({

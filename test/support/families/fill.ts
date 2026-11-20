@@ -1619,14 +1619,15 @@ export interface SpecWrite {
 /**
  * A value the reference finds a change leaves stale, which a refill of its family draws again: the column the change
  * makes, by a write or by a refill, the write the change starts from (a refill's, the one whose path first reached
- * it), every relation the change passes on its way (its own, then each its cascade reaches), the value drawn from it,
- * and the family whose refill draws it.
+ * it), every relation the change passes on its way (its own, then each its cascade reaches), the families whose owner
+ * axes carry it there, in order, the value drawn from it, and the family whose refill draws it.
  */
 export interface StaleSpec {
 	readonly changed: ChangedColumn
 	readonly from: "write" | "refill"
 	readonly origin: SpecWrite
 	readonly passed: Arr.NonEmptyReadonlyArray<string>
+	readonly hops: ReadonlyArray<number>
 	readonly reader: DerivedReader
 	readonly family: number
 }
@@ -1686,6 +1687,21 @@ const derivedReaders = (
 	})
 ]
 
+/** The relations an insert of `r` nests, through its sequences, every one but `r`. */
+const nestedBy = (spec: FillSpec, r: number): ReadonlySet<number> => {
+	const nested = new Set<number>()
+	const pending = [r]
+	for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
+		for (const s of spec.families) {
+			if (s.owner === at && s.kind !== "counted" && s.member !== r && !nested.has(s.member)) {
+				nested.add(s.member)
+				pending.push(s.member)
+			}
+		}
+	}
+	return nested
+}
+
 /** A change of stored rows the reference follows: a write of a ChangeSet's, or a refill of family `family`. */
 type SpecChange =
 	| { readonly kind: "write"; readonly write: SpecWrite }
@@ -1725,7 +1741,8 @@ const staleOf = (
 		column: string,
 		except: (k: number) => boolean,
 		seen: ReadonlySet<string>,
-		passed: Arr.NonEmptyReadonlyArray<string>
+		passed: Arr.NonEmptyReadonlyArray<string>,
+		hops: ReadonlyArray<number>
 	): void => {
 		const visit = `${at} ${column} ${seen.size === 0 ? "own" : "carried"}`
 		if (seen.has(visit)) {
@@ -1733,7 +1750,7 @@ const staleOf = (
 		}
 		const next = new Set([...seen, visit])
 		for (const { reader, family } of derivedReaders(spec, at, column, except)) {
-			found.push({ changed, from: change.kind, origin, passed, reader, family })
+			found.push({ changed, from: change.kind, origin, passed, hops, reader, family })
 		}
 		for (const [k, f] of spec.families.entries()) {
 			if (replaced.has(at) && f.kind !== "tree" && f.owner === at && column === countName(k)) {
@@ -1742,6 +1759,7 @@ const staleOf = (
 					from: change.kind,
 					origin,
 					passed,
+					hops,
 					reader: {
 						kind: "owner",
 						family: familyNamed(spec, k),
@@ -1766,6 +1784,7 @@ const staleOf = (
 						from: change.kind,
 						origin,
 						passed,
+						hops,
 						reader: {
 							kind: "owner",
 							family: familyNamed(spec, c.family),
@@ -1775,14 +1794,19 @@ const staleOf = (
 						family: c.family
 					})
 				}
-				reach(changed, family.member, copyName(j), () => false, next, [
-					...passed,
-					relationName(family.member)
-				])
+				reach(
+					changed,
+					family.member,
+					copyName(j),
+					() => false,
+					next,
+					[...passed, relationName(family.member)],
+					[...hops, c.family]
+				)
 			}
 		}
 		if (generationReads(spec, at).includes(column)) {
-			reach(changed, at, "g", except, next, passed)
+			reach(changed, at, "g", except, next, passed, hops)
 		}
 	}
 	const carried = (k: number, axis: Axis): ReadonlyArray<string> =>
@@ -1821,19 +1845,7 @@ const staleOf = (
 		const write = change.write
 		const r = write.relation
 		const written = (k: number): boolean => familyAt(spec, k).member === r
-		/** The relations an insert of r nests, through its sequences, every one but r. */
-		const nested = new Set<number>()
-		if (write.op === "insert") {
-			const pending = [r]
-			for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
-				for (const s of spec.families) {
-					if (s.owner === at && s.kind !== "counted" && s.member !== r && !nested.has(s.member)) {
-						nested.add(s.member)
-						pending.push(s.member)
-					}
-				}
-			}
-		}
+		const nested = write.op === "insert" ? nestedBy(spec, r) : new Set<number>()
 		return [
 			...(write.op === "put"
 				? Arr.map(["v", ...(holdsGenerated(spec, r) ? ["g"] : [])], (column) => ({
@@ -1885,7 +1897,8 @@ const staleOf = (
 			c.column,
 			c.except,
 			new Set(),
-			[relationName(c.at)]
+			[relationName(c.at)],
+			[]
 		)
 	}
 	return found
@@ -2665,6 +2678,41 @@ export const ownerPutGen =
 		)
 
 /**
+ * A follow-up aimed at an append's recount: one or two new members of the counted family `family`, whose member is a
+ * member of no other family, under the first row of its owner, and half the time a put of that row with a new `v`;
+ * none where the instance holds no row of the owner.
+ */
+export const appendGen =
+	(
+		spec: FillSpec,
+		rows: ReadonlyArray<InstanceRow>,
+		family: number
+	): Gen<Option.Option<FollowUp>> =>
+	(source) => {
+		const f = familyAt(spec, family)
+		const firstId = Arr.reduce(rows, 0, (most, r) => Math.max(most, r.id)) + 1
+		return Option.map(
+			Arr.findFirst(rows, (r) => r.relation === f.owner),
+			(row): FollowUp => ({
+				owner: f.owner,
+				row: row.id,
+				put: source.draw(boolean)
+					? Option.some(row.v + BigInt(source.draw(int(1, 3))))
+					: Option.none(),
+				inserted: Array.from({ length: source.draw(int(1, 2)) }, (_, i) => ({
+					relation: f.member,
+					id: firstId + i,
+					v: BigInt(source.draw(int(-2, 3))),
+					memberOf: [{ family, owner: row.id, slot: 0 }]
+				})),
+				removed: Option.none(),
+				appended: Option.none(),
+				moved: Option.none()
+			})
+		)
+	}
+
+/**
  * Every move a follow-up over the ordered family `family` may make of a member that owns a row, its relation mutable,
  * to the end of another owner's group, in the instance's order: its member and that owner, by id.
  */
@@ -3077,24 +3125,36 @@ export const writesVerdict = (spec: FillSpec, writes: ReadonlyArray<SpecWrite>):
 		)
 	]
 	/** Whether a stale value of a member relation's write is one grizzle refills: the copy a re-placed owner's members
-	 * hold of a column the edit redraws, or its own family's members' copy of an append's recount of their owner, each
-	 * through no further owner axis. */
+	 * hold of a column the edit redraws, through no further owner axis; or, of an append's recount of their owner, its
+	 * own family's members' copy, through no further owner axis, or a value its own family draws over that copy, carried
+	 * along its own owner axis alone, which the append draws again over the whole group: an append of the insert's own
+	 * relation, or of a counted member its nesting writes, each a write of that relation's own. */
 	const refilledOfMember = (s: StaleSpec): boolean => {
 		const w = s.origin
 		const f = familyAt(spec, s.family)
-		if (s.passed.length !== 1 || s.reader.kind !== "owner") {
-			return false
+		if (w.op !== "insert") {
+			return (
+				s.passed.length === 1 &&
+				s.reader.kind === "owner" &&
+				s.changed.by === "member" &&
+				s.changed.relation === relationName(w.relation) &&
+				f.owner === w.relation &&
+				f.member !== w.relation
+			)
 		}
-		return w.op === "insert"
-			? s.changed.by === "owner" &&
-					s.changed.relation === relationName(f.owner) &&
-					ownerColumns(s.family).includes(s.changed.column) &&
-					f.member === w.relation &&
-					relationAt(spec, f.owner).mutable
-			: s.changed.by === "member" &&
-					s.changed.relation === relationName(w.relation) &&
-					f.owner === w.relation &&
-					f.member !== w.relation
+		const carried =
+			s.reader.kind === "owner"
+				? s.passed.length === 1
+				: s.hops.length === 1 && s.hops[0] === s.family
+		return (
+			carried &&
+			s.changed.by === "owner" &&
+			s.changed.relation === relationName(f.owner) &&
+			ownerColumns(s.family).includes(s.changed.column) &&
+			(f.member === w.relation ||
+				(f.kind === "counted" && nestedBy(spec, w.relation).has(f.member))) &&
+			relationAt(spec, f.owner).mutable
+		)
 	}
 	const edited = Arr.filter(
 		stale,
