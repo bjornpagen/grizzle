@@ -60,7 +60,10 @@ export type BinInvocation = Readonly<{
 /** A build step of a generated package. */
 type BuildStep = "install" | "typecheck" | "build"
 
-/** A build step that exited non-zero, with its exit code and output. */
+/**
+ * A build step that exited non-zero, with its exit code and output, which its message states, so a need that fails by
+ * it (workerFixture, the grizzle tier's twins) says which step failed and why.
+ */
 class BuildStepFailed extends Schema.TaggedError<
 	BuildStepFailed,
 	{ readonly brand: unique symbol }
@@ -69,7 +72,12 @@ class BuildStepFailed extends Schema.TaggedError<
 	exitCode: Schema.Int,
 	stdout: Schema.Uint8Array,
 	stderr: Schema.Uint8Array
-}) {}
+}) {
+	override get message(): string {
+		const decoder = new TextDecoder()
+		return `the generated package's ${this.step} exited ${this.exitCode}:\n${decoder.decode(this.stdout)}${decoder.decode(this.stderr)}`
+	}
+}
 
 /** The generated manifest's one bin, the built entry a user's `npx` runs. */
 const Manifest = Schema.fromJsonString(

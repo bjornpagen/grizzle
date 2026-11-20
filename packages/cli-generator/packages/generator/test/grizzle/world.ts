@@ -1,16 +1,17 @@
 /**
  * The grizzle tier's login (once.test.ts): one relation of every carrier a CLI flag spells differently (an int4 key, an
- * int8, a numeric(12, 2), a money, a boolean, a float4, a refined text, a date, bytes and a uuid), a law that refuses an
- * id below 1, and one role, `app`, writing it, whose workload holds one member of every shape a role serves: a set read
- * by an int8 floor, a set read by a refined text, a key, an ordered read paged from either end, a read at its call's
- * instant bound to the database's clock, a put, and a deletion of every item. `grizzle generate` drafts it and `grizzle
- * migrate` installs it through grizzle.config.ts, as an application's would be.
+ * int8, a numeric(12, 2), a money, a boolean, a float4, a refined text, a date, bytes and a uuid under a contract), a
+ * law that refuses an id below 1, and one role, `app`, writing it, whose workload holds one member of every shape a
+ * role serves: a set read by an int8 floor, a set read by a refined text, a key, an ordered read paged from either end,
+ * a read at its call's instant bound to the database's clock, a put, and a deletion of every item. `grizzle generate`
+ * drafts it and `grizzle migrate` installs it through grizzle.config.ts, as an application's would be.
  */
 import {
 	bytes,
 	ChangeSet,
 	check,
 	clocked,
+	contract,
 	date,
 	login,
 	mutable,
@@ -29,6 +30,9 @@ import {
 /** A name of lower-case letters, one to eight. */
 const Name = str.regex("^[a-z]{1,8}$")
 
+/** An item's tag: a uuid, under a contract that says whose id it is, as grizzle takes every uuid. */
+const Tag = contract("ItemTag", uuid)
+
 const Item = relation(
 	"Item",
 	{
@@ -41,7 +45,7 @@ const Item = relation(
 		name: Name,
 		day: date,
 		blob: bytes,
-		tag: uuid
+		tag: Tag
 	},
 	["id"]
 )

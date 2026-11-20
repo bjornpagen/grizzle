@@ -6,6 +6,7 @@ packages:
   - vendor/grizzle/packages/engine
   - vendor/grizzle/packages/grizzle
   - vendor/grizzle/packages/pg
+  - vendor/grizzle/packages/text
   # The toolchain, the submodule pinned at its commit: its dev tools and testing library join the workspace and run from
   # source, and its own gate proves them.
   - vendor/toolchain/packages/devtools

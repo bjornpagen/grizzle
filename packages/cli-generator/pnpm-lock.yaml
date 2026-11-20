@@ -345,6 +345,9 @@ importers:
 
   vendor/grizzle/packages/engine:
     dependencies:
+      '@bjornpagen/grizzle-text':
+        specifier: workspace:*
+        version: link:../text
       arkregex:
         specifier: 'catalog:'
         version: 0.0.14
@@ -358,6 +361,9 @@ importers:
       '@bjornpagen/grizzle-engine':
         specifier: workspace:*
         version: link:../engine
+      '@bjornpagen/grizzle-text':
+        specifier: workspace:*
+        version: link:../text
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.1.4(effect@4.1.4)(redis@6.3.1)
@@ -374,12 +380,6 @@ importers:
 
   vendor/grizzle/packages/pg:
     dependencies:
-      '@bjornpagen/grizzle-engine':
-        specifier: workspace:*
-        version: link:../engine
-      '@bjornpagen/testing':
-        specifier: workspace:*
-        version: link:../../../toolchain/packages/testing
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.1.4(effect@4.1.4)(redis@6.3.1)
@@ -390,6 +390,8 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.1.4
+
+  vendor/grizzle/packages/text: {}
 
   vendor/toolchain/packages/devtools:
     dependencies:
