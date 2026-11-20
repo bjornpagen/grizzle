@@ -32,14 +32,7 @@ import {
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
 import { admitSpelling } from "#compiler/ir/pattern.ts"
-import {
-	baseOf,
-	type Carrier,
-	capsOf,
-	numericTypmodOf,
-	rosterOf,
-	type ScalarType
-} from "#compiler/ir/scalar.ts"
+import { baseOf, type Carrier, capsOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { cosineNormMax, cosineNormMin, numericMaxPrecision } from "#compiler/scalar/values/fault.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -184,7 +177,7 @@ export const scalarCorruptions: Arr.NonEmptyReadonlyArray<
 		(t) => t.contract !== undefined,
 		(t) => [
 			{ ...t, caps: capsOf(t) },
-			...(t.carrier === "numeric" ? [{ ...t, typmod: numericTypmodOf(t) }] : []),
+			...numericMembersOf(t),
 			...(t.carrier === "code" ? [{ ...t, roster: rosterOf(t) }] : [])
 		]
 	),
@@ -195,6 +188,18 @@ export const scalarCorruptions: Arr.NonEmptyReadonlyArray<
 		(t) => Arr.map(["timestamptz", "json", "int8[]", "enum"], (carrier) => ({ ...t, carrier }))
 	)
 ]
+
+/**
+ * A contract's descriptor beside the numeric member its base holds, a stale copy the decoder refuses: numeric(p, s)'s
+ * typmod, or numeric of no typmod's bound; none for a contract over any other carrier.
+ */
+function numericMembersOf(t: ScalarType): ReadonlyArray<unknown> {
+	const base = baseOf(t)
+	if (base.carrier !== "numeric") {
+		return []
+	}
+	return [base.typmod === undefined ? { ...t, bound: base.bound } : { ...t, typmod: base.typmod }]
+}
 
 /** The numeric literal of the value `text` spells, display scale or not, at `type`. */
 export const at = (text: string, type: ScalarType) =>
