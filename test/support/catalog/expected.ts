@@ -565,6 +565,7 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 			case "createRowType":
 			case "adoptRole":
 			case "createConstant":
+			case "stubConstant":
 			case "packConstant":
 			case "dropFunction":
 			case "refresh":

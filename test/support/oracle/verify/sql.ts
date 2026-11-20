@@ -21,6 +21,7 @@ import {
 	type ColumnDef,
 	type CommentTarget,
 	type CreateCarrier,
+	type CreateConstant,
 	type CreateFunction,
 	type CreateTable,
 	type Cte,
@@ -44,6 +45,7 @@ import {
 	type SelectCore,
 	type SqlFunction,
 	type SqlStatement,
+	type StubConstant,
 	type TableConstraint,
 	type TableName,
 	type Target,
@@ -2421,6 +2423,7 @@ class StatementAuditor {
 			case "createRowType":
 			case "adoptRole":
 			case "createConstant":
+			case "stubConstant":
 			case "packConstant":
 			case "createGuardTrigger":
 			case "createUpdateGuardTrigger":
@@ -2478,6 +2481,22 @@ class StatementAuditor {
 				this.objectName(on.domain, "domain", "on")
 				return
 		}
+	}
+
+	/** A constant's name, its parameters' names and types, and its result type: a constant's and its stub's alike. */
+	constantHeader(statement: CreateConstant | StubConstant): void {
+		this.objectName(statement.name, "function", "name")
+		this.at("params", () => {
+			for (const [i, param] of statement.params.entries()) {
+				this.at(i, () => {
+					this.ident(param.name, "parameter", "name")
+					this.type(param.type)
+				})
+			}
+		})
+		this.at("returns", () => {
+			this.type(statement.returns)
+		})
 	}
 
 	/**
@@ -2777,23 +2796,15 @@ class StatementAuditor {
 				this.ident(statement.role, "role", "role")
 				return
 			case "createConstant":
-				this.objectName(statement.name, "function", "name")
-				this.at("params", () => {
-					for (const [i, param] of statement.params.entries()) {
-						this.at(i, () => {
-							this.ident(param.name, "parameter", "name")
-							this.type(param.type)
-						})
-					}
-				})
-				this.at("returns", () => {
-					this.type(statement.returns)
-				})
+				this.constantHeader(statement)
 				this.argumentsBody(statement.params, () => {
 					this.at("body", () => {
 						this.constantBody(statement.body)
 					})
 				})
+				return
+			case "stubConstant":
+				this.constantHeader(statement)
 				return
 			case "packConstant": {
 				this.objectName(statement.function, "function", "function")

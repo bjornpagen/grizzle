@@ -2309,6 +2309,28 @@ export interface LibraryConstant extends PlainConstant {
 }
 
 /**
+ * CREATE FUNCTION <name>(<params>) RETURNS <type> <language's clauses> RETURN NULL::<type>: a constant as the drift
+ * check replays it from its record (deploy/snapshot/recorded.ts RecordedConstant), which holds its header alone, its
+ * body in the committed migration that created it. The function is the constant's but for its value, NULL of its
+ * result type, the one value every type holds whatever it refines: the replay may run it, since PostgreSQL evaluates an
+ * IMMUTABLE call of no argument where it plans a stored generation, an index's expression or predicate, or a default
+ * it stores (a generated set field whose term reads no column is the call of a row function of no parameter), and
+ * every check it meets there admits NULL. A domain grizzle creates carries no NOT NULL and holds each of its CHECKs as
+ * `VALUE IS NULL OR (<predicate>) IS TRUE` (CreateDomain, DomainConstraint), so NULL passes it before its predicate
+ * reads any other constant; a strict operator or function over NULL returns NULL without raising; and the replay
+ * writes no row, so no table's CHECK or NOT NULL is evaluated. Where the constant's value read back, as an empty bit
+ * string, a domain's CHECK over a constant of another width raised (22026). The language's clauses are the constant's
+ * own, as the drift check describes it by them.
+ */
+export interface StubConstant {
+	readonly kind: "stubConstant"
+	readonly language: ConstantLanguage
+	readonly name: ObjectName
+	readonly params: ReadonlyArray<FunctionParam>
+	readonly returns: TypeRef
+}
+
+/**
  * A constant's body language, by when PostgreSQL plans what the body reads:
  *
  * - `sql`, `LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN <body>`, planned into each statement that calls it, which
@@ -2470,6 +2492,7 @@ export type Ddl =
 	| AdoptRole
 	| PackConstant
 	| CreateConstant
+	| StubConstant
 	| CreateGuardTrigger
 	| CreateUpdateGuardTrigger
 	| CreateConstraintTrigger

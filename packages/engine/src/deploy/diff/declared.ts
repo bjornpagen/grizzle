@@ -1888,7 +1888,8 @@ const manifestUnderRoles = (
 		s.kind === "createFunction" ||
 		s.kind === "createDeclaredFunction" ||
 		s.kind === "createConstant" ||
-		s.kind === "packConstant"
+		s.kind === "packConstant" ||
+		s.kind === "stubConstant"
 			? s
 			: withRoles(s, roles)
 	const renamedIn = (list: ReadonlyArray<SqlStatement>): ReadonlyArray<SqlStatement> =>

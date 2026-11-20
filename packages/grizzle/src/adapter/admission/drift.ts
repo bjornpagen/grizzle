@@ -1299,6 +1299,7 @@ const inScratch = (
 		case "alterTable":
 		case "createDomain":
 		case "createConstant":
+		case "stubConstant":
 		case "packConstant":
 		case "createMaterializedView":
 		case "createView":

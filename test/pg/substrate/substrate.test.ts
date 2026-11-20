@@ -85,10 +85,10 @@ export const releasesEveryRoleUnderItsPrefix = property.explore(aimed(releasingG
 		{
 			file: "packages/engine/src/sql/print.ts",
 			original:
-				"\tfor (const line of body) {\n\t\tout.line(line)\n\t}\n\tout.line(tag)\n}\n\n/** A statement of the catalog language (sql/catalog.ts), written into `out`: a read on one line, a DO block nested. */",
+				"\tfor (const line of body) {\n\t\tout.line(line)\n\t}\n\tout.line(tag)\n}\n\n/** What a stub constant returns (sql/ast.ts StubConstant): NULL of its result type. */",
 			replacement:
-				"\tfor (const line of body) {\n\t\tout.line(line)\n\t}\n\t{}\n}\n\n/** A statement of the catalog language (sql/catalog.ts), written into `out`: a read on one line, a DO block nested. */",
-			why: "Operator mutant (statement) at packages/engine/src/sql/print.ts:2383 in writeDo: `out.line(tag)` becomes `{}`; the property fails (lane CATCH, grizzle b0d74512)."
+				"\tfor (const line of body) {\n\t\tout.line(line)\n\t}\n\t{}\n}\n\n/** What a stub constant returns (sql/ast.ts StubConstant): NULL of its result type. */",
+			why: "Operator mutant (statement) in packages/engine/src/sql/print.ts quotedLines, which writeDo quotes a DO block by: `out.line(tag)` becomes `{}`; the property fails (lane CATCH, grizzle b0d74512, re-pointed where lane DRIFTREDS moved writeDo's quoting into quotedLines)."
 		}
 	]
 })

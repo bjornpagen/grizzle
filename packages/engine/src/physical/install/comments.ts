@@ -161,6 +161,7 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 				}
 			]
 		case "createConstant":
+		case "stubConstant":
 			return [
 				{
 					on: { kind: "FUNCTION", name: { ...s.name, args: s.params.map((p) => p.type) } },

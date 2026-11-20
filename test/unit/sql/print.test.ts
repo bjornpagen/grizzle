@@ -166,8 +166,8 @@ export const dollarQuotingQuotesABlocksLinesWithATagNoneOfThemHoldsSoADOBlockAnd
 		kills: [
 			{
 				file: "packages/engine/src/sql/print.ts",
-				original: "\tconst body = blockLines(block)\n\tconst tag = dollarQuoteTag(body)",
-				replacement: '\tconst body = blockLines(block)\n\tconst tag = "$$"',
+				original: "\tconst tag = dollarQuoteTag(body)",
+				replacement: '\tconst tag = "$$"',
 				why: "Every body is quoted under $$; the dollar quoting search fails."
 			}
 		]

@@ -762,6 +762,7 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "dropIndex":
 			case "createFunction":
 			case "createConstant":
+			case "stubConstant":
 			case "packConstant":
 			case "dropFunction":
 			case "refresh":

@@ -1816,8 +1816,12 @@ const blockLines = (block: PlBlock): ReadonlyArray<string> => {
 export const functionSource = (block: PlBlock): string => `\n${blockLines(block).join("\n")}\n`
 
 /** `<opener> <tag>`, the block's lines, and the tag: a function's `AS` body or a DO statement. */
-const dollarQuoted = (out: Lines, opener: "AS" | "DO", block: PlBlock): void => {
-	const body = blockLines(block)
+const dollarQuoted = (out: Lines, opener: "AS" | "DO", block: PlBlock): void =>
+	quotedLines(out, opener, blockLines(block))
+
+/** `<opener> <tag>`, `body`'s lines, and the tag, a dollar-quote tag no line holds (dollarQuoteTag): a function's `AS`
+ * body, a stub constant's (sql/ast.ts StubConstant) among them, or a DO statement. */
+const quotedLines = (out: Lines, opener: "AS" | "DO", body: ReadonlyArray<string>): void => {
 	const tag = dollarQuoteTag(body)
 	out.line(`${opener} ${tag}`)
 	for (const line of body) {
@@ -1825,6 +1829,9 @@ const dollarQuoted = (out: Lines, opener: "AS" | "DO", block: PlBlock): void => 
 	}
 	out.line(tag)
 }
+
+/** What a stub constant returns (sql/ast.ts StubConstant): NULL of its result type. */
+const stubValue = (returns: TypeRef): string => `NULL::${printType(returns)}`
 
 /** What a function returns, as its RETURNS clause spells it: a catalog type, or a set of one type's values. */
 const printReturns = (returns: CreateFunction["returns"]): string =>
@@ -2211,6 +2218,20 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 						body: [{ kind: "return", value: statement.body }]
 					})
 			}
+		case "stubConstant":
+			out.line(constantHead(statement.name, statement.params, statement.returns))
+			switch (statement.language) {
+				case "sql":
+					out.line(constantClauses)
+					return out.line(`RETURN ${stubValue(statement.returns)}`)
+				case "plpgsql":
+					out.line(plannedConstantClauses)
+					return quotedLines(out, "AS", [
+						"BEGIN",
+						`  RETURN ${stubValue(statement.returns)};`,
+						"END"
+					])
+			}
 		case "createGuardTrigger": {
 			out.line(`CREATE TRIGGER ${quoteIdent(statement.name)}`)
 			const clauses = out.nested()
@@ -2382,6 +2403,7 @@ export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Comma
 		case "adoptRole":
 		case "packConstant":
 		case "createConstant":
+		case "stubConstant":
 		case "createGuardTrigger":
 		case "createUpdateGuardTrigger":
 		case "createConstraintTrigger":
@@ -2673,12 +2695,7 @@ const doStatements = (out: Lines, statements: ReadonlyArray<DoStatement>): void 
 const writeDo = (out: Lines, block: DoBlock): void => {
 	const body: Array<string> = []
 	proceduralBlock(new BlockLines(body, sqlUnit, ""), block.declare, block.body, doStatement)
-	const tag = dollarQuoteTag(body)
-	out.line(`DO ${tag}`)
-	for (const line of body) {
-		out.line(line)
-	}
-	out.line(tag)
+	quotedLines(out, "DO", body)
 }
 
 /** A statement of the catalog language (sql/catalog.ts), written into `out`: a read on one line, a DO block nested. */

@@ -43,6 +43,7 @@ export type ManifestStatement =
 					| "createTable"
 					| "createDomain"
 					| "createConstant"
+					| "stubConstant"
 					| "packConstant"
 					| "createIndex"
 					| "createMaterializedView"
@@ -86,6 +87,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "createTable":
 		case "createDomain":
 		case "createConstant":
+		case "stubConstant":
 		case "packConstant":
 		case "createIndex":
 		case "createMaterializedView":
@@ -156,7 +158,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 }
 
 /** An installed object as the drift check replays it: its graph identity and its recorded DDL as manifest statements,
- * a PL/pgSQL function with its header and a stub body and a constant returning the empty value of its type
+ * a PL/pgSQL function with its header and a stub body and a constant as its stub, returning NULL of its type
  * (snapshot/recorded.ts replayedStatement). */
 export interface ReplayedObject {
 	readonly ident: string

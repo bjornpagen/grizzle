@@ -4,20 +4,16 @@ import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import type { InstallationManifest, PhysicalKind, PhysicalObject } from "#compiler/ir/products.ts"
 import type {
-	ConstantLanguage,
 	CreateConstant,
 	CreateDeclaredFunction,
-	Expr,
-	FunctionParam,
-	ObjectName,
 	PackConstant,
 	PlBlock,
 	PlFunction,
 	SqlStatement,
-	TypeRef
+	StubConstant
 } from "#compiler/sql/ast.ts"
 import { declaredBody, stubBody } from "#compiler/sql/ast.ts"
-import { lit, types } from "#compiler/sql/build.ts"
+import { types } from "#compiler/sql/build.ts"
 import { functionSource, printStatement, typeOnSearchPath } from "#compiler/sql/print.ts"
 import { type AstHooks, Transform } from "#compiler/sql/transform.ts"
 
@@ -80,16 +76,12 @@ export interface RecordedDeclaredFunction {
 /**
  * A constant's header: the function its content names, its body's language, its parameters and its result type, which
  * a CREATE FUNCTION of a roster's or a dictionary's array, a library function or a row function (sql/ast.ts
- * CreateConstant) and a closed relation's literal pack (PackConstant, an SQL constant) alike state. Its name is its
- * content's digest (core/identity.ts), so the header says what the constant holds; its language is what the drift check
- * describes it by, a PL/pgSQL constant by its header as PostgreSQL deparses it.
+ * CreateConstant) and a closed relation's literal pack (PackConstant, an SQL constant) alike state, and which the drift
+ * check replays as the constant's stub (sql/ast.ts StubConstant). Its name is its content's digest (core/identity.ts),
+ * so the header says what the constant holds; its language is what the drift check describes it by, a PL/pgSQL
+ * constant by its header as PostgreSQL deparses it.
  */
-export interface ConstantHeader {
-	readonly language: ConstantLanguage
-	readonly name: ObjectName
-	readonly params: ReadonlyArray<FunctionParam>
-	readonly returns: TypeRef
-}
+export type ConstantHeader = Omit<StubConstant, "kind">
 
 /**
  * A constant as a committed snapshot records it: its header alone, whose name digests its content, so a changed content
@@ -113,10 +105,10 @@ export type RecordedStatement =
 	| RecordedConstant
 
 /** A statement a committed snapshot records whole: every installed statement but a PL/pgSQL function, a declared
- * function and a constant. */
+ * function and a constant, its stub's among them. */
 export type WholeStatement = Exclude<
 	SqlStatement,
-	PlFunction | CreateDeclaredFunction | CreateConstant | PackConstant
+	PlFunction | CreateDeclaredFunction | CreateConstant | PackConstant | StubConstant
 >
 
 /** An installed object as a committed snapshot records it, its statements recorded (RecordedStatement). */
@@ -205,15 +197,15 @@ const withBody = (h: FunctionHeader, body: PlBlock): PlFunction => {
 }
 
 /** A constant's header, a literal pack's its function's, which takes no parameter and returns its bits. */
-export const constantHeader = (c: CreateConstant | PackConstant): ConstantHeader =>
-	c.kind === "createConstant"
-		? { language: c.language, name: c.name, params: c.params, returns: c.returns }
-		: { language: "sql", name: c.function, params: [], returns: types.varbit }
+export const constantHeader = (c: CreateConstant | PackConstant | StubConstant): ConstantHeader =>
+	c.kind === "packConstant"
+		? { language: "sql", name: c.function, params: [], returns: types.varbit }
+		: { language: c.language, name: c.name, params: c.params, returns: c.returns }
 
 /** An installed statement as its snapshot records it: a PL/pgSQL function and a constant by their headers, the
  * function with its source's digest; every other statement whole. */
 const recordedStatement = (s: SqlStatement): RecordedStatement => {
-	if (s.kind === "createConstant" || s.kind === "packConstant") {
+	if (s.kind === "createConstant" || s.kind === "packConstant" || s.kind === "stubConstant") {
 		return { kind: "recordedConstant", header: constantHeader(s) }
 	}
 	if (s.kind === "createDeclaredFunction") {
@@ -313,33 +305,19 @@ const declaredStub = (h: DeclaredHeader): CreateDeclaredFunction["body"] => {
 }
 
 /**
- * The value a recorded constant is replayed as: the empty value of its type, an empty array, the empty input of a
- * library function's text or bytea (physical/ddl/library.ts; `''` reads as either type's empty value), false for a
- * library function's boolean (isXsdPattern's), or an empty bit string, an SQL constant's every result type; a PL/pgSQL
- * constant's body PostgreSQL only parses as it creates the function, so its stub is never typed. The drift check
- * describes a constant by its name, its owner, its parameters, its result type and its language's clauses alone, and
- * the scratch replay reads no row, so no value is read.
- */
-const stubValue = (returns: TypeRef): Expr =>
-	returns.array
-		? lit.text("{}", returns)
-		: returns.kind === "builtin" && (returns.name === "text" || returns.name === "bytea")
-			? lit.text("", returns)
-			: returns.kind === "builtin" && returns.name === "boolean"
-				? lit.bool(false)
-				: lit.bits("", returns)
-
-/**
- * A recorded statement as the drift check replays it: a PL/pgSQL function with its header and the stub body, a constant
- * returning the empty value of its type, every other statement whole.
+ * A recorded statement as the drift check replays it: a PL/pgSQL function with its header and the stub body, which
+ * never runs, since every function grizzle writes in PL/pgSQL is VOLATILE or STABLE, which PostgreSQL never folds, and
+ * a declared function's call stands in no CHECK, generation, key or contract (schema/terms.ts rowForeign,
+ * scalar/compute/lower.ts), where PostgreSQL would plan it as it creates the object; a constant as its stub, returning
+ * NULL of its type, which every check the replay can evaluate admits (sql/ast.ts StubConstant); every other statement
+ * whole.
  */
 export const replayedStatement = (s: RecordedStatement): SqlStatement => {
 	if (s.kind === "recordedFunction") {
 		return withBody(s.header, stubBody)
 	}
 	if (s.kind === "recordedConstant") {
-		const { language, name, params, returns } = s.header
-		return { kind: "createConstant", language, name, params, returns, body: stubValue(returns) }
+		return { kind: "stubConstant", ...s.header }
 	}
 	if (s.kind === "recordedDeclaredFunction") {
 		return { ...s.header, body: declaredStub(s.header) }

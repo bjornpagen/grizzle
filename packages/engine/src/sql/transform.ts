@@ -1366,6 +1366,14 @@ export class Transform {
 					? s
 					: { ...s, name, params, returns, body }
 			}
+			case "stubConstant": {
+				const name = this.name(s.name, "function")
+				const params = mapList(s.params, (p) => this.functionParam(p))
+				const returns = this.type(s.returns)
+				return name === s.name && params === s.params && returns === s.returns
+					? s
+					: { ...s, name, params, returns }
+			}
 			case "createGuardTrigger": {
 				const table = this.name(s.table, "relation")
 				const fn = this.name(s.function, "function")
@@ -1491,6 +1499,7 @@ export class Transform {
 			case "alterTable":
 			case "comment":
 			case "createConstant":
+			case "stubConstant":
 			case "createDomain":
 			case "createExtension":
 			case "createFunction":

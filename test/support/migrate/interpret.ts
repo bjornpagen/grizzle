@@ -3927,6 +3927,7 @@ class Model {
 			case "delete":
 			case "merge":
 			case "createCarrier":
+			case "stubConstant":
 			case "beginRead":
 			case "beginWrite":
 			case "commit":

@@ -1,9 +1,11 @@
 /** What installed-functions.test.ts draws: schemas whose installation creates a function of each kind the installer
  * names a constant by (physical/ddl/context.ts addConstant). */
 
-import { element, type Gen } from "@bjornpagen/testing/gen"
+import { element, type Gen, subset } from "@bjornpagen/testing/gen"
+import { Array as Arr } from "effect"
 import { Crypto, Logic, Text, Xml } from "#compiler/public/compute.ts"
-import { check, key, login, on, relation, schema } from "#compiler/public/schema.ts"
+import { Bits, bits, closedId, pg } from "#compiler/public/fields.ts"
+import { check, closed, key, login, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
@@ -17,13 +19,18 @@ import {
 /**
  * A case: one of the row-function boxes (row-functions.fixtures.ts), a relation contained in a closed relation over a
  * roster or one matching patterns, whose installation creates a closed relation's constants, a roster's constants and
- * row functions; or a relation of texts calling one of grizzle's library functions, each a generated field or a CHECK,
+ * row functions; a relation of texts calling one of grizzle's library functions, each a generated field or a CHECK,
  * or keyed by a text of no byte bound, which the key holds by its image, the library's digest, with a login of a role
- * that writes the relation and one that reads it.
+ * that writes the relation and one that reads it; or a relation whose generated set field reads no column, the
+ * singleton of a closed relation's closed id at the handle `at`, the relation holding a row at each handle of `held`:
+ * at a handle it holds no row of, the field is the call of a row function of no parameter, which
+ * PostgreSQL evaluates as it creates the table, the drift check's replay included, and its result's bits domain's
+ * CHECK reads the roster's live constant.
  */
 export type FunctionCase =
 	| { readonly kind: "rows"; readonly row: RowCase }
 	| { readonly kind: "library"; readonly use: LibraryUse }
+	| { readonly kind: "unread"; readonly held: ReadonlyArray<Handle>; readonly at: Handle }
 
 /** The library functions a box calls: each of the library's, in a generated field, a CHECK or a key's image. */
 const libraryUses = [
@@ -35,10 +42,24 @@ const libraryUses = [
 
 export type LibraryUse = (typeof libraryUses)[number]
 
-export const functionCaseGen: Gen<FunctionCase> = (s) =>
-	s.draw(element([true, false] as const))
-		? { kind: "rows", row: s.draw(rowCaseGen) }
-		: { kind: "library", use: s.draw(element(libraryUses)) }
+const handles = ["h0", "h1", "h2"] as const
+
+type Handle = (typeof handles)[number]
+
+export const functionCaseGen: Gen<FunctionCase> = (s) => {
+	switch (s.draw(element(["rows", "library", "unread"] as const))) {
+		case "rows":
+			return { kind: "rows", row: s.draw(rowCaseGen) }
+		case "library":
+			return { kind: "library", use: s.draw(element(libraryUses)) }
+		case "unread":
+			return {
+				kind: "unread",
+				held: s.draw(subset(handles, { min: 0, max: handles.length })),
+				at: s.draw(element(handles))
+			}
+	}
+}
 
 const text = str.regex("^.*$", "su")
 
@@ -71,7 +92,25 @@ const librarySchemaOf = (use: LibraryUse) => {
 	}
 }
 
-/** A case's schema and the logins it installs with: a row box's none, a library case's its desk. */
+const H = closed.ordered("H", handles)
+
+/** An unread case's schema: Picks holds (h, h) at each handle h of `held`, and T's generated set field g is the
+ * singleton of Picks' f at the handle `at`, reading no column of T. */
+const unreadSchemaOf = (held: ReadonlyArray<Handle>, at: Handle) => {
+	const Picks = closed.relation(
+		"Picks",
+		{ k: closedId(H), f: closedId(H) },
+		["k"],
+		Arr.map(held, (h) => ({ k: h, f: h }))
+	)
+	const T = relation.generated("T", { id: pg.integer }, ["id"], () => ({
+		g: generatedField(bits(H), Bits.singleton(Picks.at("f", at)), [])
+	}))
+	return schema("Unread", [H, Picks, T], [])
+}
+
+/** A case's schema and the logins it installs with: a row box's none, a library case's its desk, an unread case's
+ * none. */
 export const functionSchemaOf = (c: FunctionCase) => {
 	switch (c.kind) {
 		case "rows":
@@ -80,5 +119,7 @@ export const functionSchemaOf = (c: FunctionCase) => {
 			const built = librarySchemaOf(c.use)
 			return { schema: built.schema, logins: [built.login] }
 		}
+		case "unread":
+			return { schema: unreadSchemaOf(c.held, c.at), logins: [] }
 	}
 }
