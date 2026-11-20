@@ -51,7 +51,8 @@ import {
 	type FillRefusal,
 	fillRefusal,
 	type GeneratedNull,
-	type HostNode
+	type HostNode,
+	type StatementFills
 } from "#compiler/runtime/write/fill.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
 import type { DigestBook } from "#compiler/scalar/values/bytes.ts"
@@ -107,6 +108,9 @@ export interface NestingData {
 	readonly start: FillAt
 	readonly layouts: ReadonlyMap<StoredRelationName, NestedLayoutData>
 	readonly top: Heading
+	/** The columns of its own rows its family statement fills, which its walk leaves to it: its stamps' and every
+	 * generated field over one (write/family/nesting.ts Nesting `pending`). */
+	readonly pending: ReadonlySet<ColumnKey>
 }
 
 /** What a nested write's walk fills its rows by when it binds: the write's filler (fill.ts filler), the installation's
@@ -346,9 +350,10 @@ export const nestedRows = (
 		return taken
 	}
 	const hosts = taken.value
+	const left = statementFills(nesting)
 	let stopped: NestedGeneratedNull | undefined
 	for (const host of hosts) {
-		const filled = walk.fill(host, nesting.start, nesting.layouts)
+		const filled = walk.fill(host, nesting.start, left)
 		if (!filled.ok) {
 			const refusal = nestedRefusal(filled.error, slotPlace(member))
 			if (refusal._tag !== "GeneratedNull") {
@@ -390,6 +395,29 @@ export const nestedRows = (
 		}
 	}
 	return stopped === undefined ? Result.ok(tops) : Result.err(stopped)
+}
+
+/** Each nesting's columns its family statement fills, by relation, made once for each nesting (`statementFills`): a
+ * registry keyed by the nesting's own data, so its walk's layouts are laid out once for the write. */
+const fillsByNesting = new WeakMap<NestingData, StatementFills>()
+
+/**
+ * The columns of each relation a nesting's walk meets that its family statement fills (fill.ts StatementFills): its own
+ * rows' (NestingData `pending`), beside those its counted families fill where its own rows are a counted family's
+ * members, and each reached member relation's (NestedLayoutData `pending`).
+ */
+const statementFills = (nesting: NestingData): StatementFills => {
+	const known = fillsByNesting.get(nesting)
+	if (known !== undefined) {
+		return known
+	}
+	const own = nesting.layouts.get(nesting.relation)?.pending ?? new Set<ColumnKey>()
+	const made: StatementFills = new Map<
+		StoredRelationName,
+		{ readonly pending: ReadonlySet<ColumnKey> }
+	>([...nesting.layouts, [nesting.relation, { pending: new Set([...own, ...nesting.pending]) }]])
+	fillsByNesting.set(nesting, made)
+	return made
 }
 
 /** Text order by code point. */

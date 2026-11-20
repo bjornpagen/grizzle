@@ -1719,26 +1719,52 @@ export type SlotSourceDesc =
 	| { readonly kind: "array"; readonly slot: string }
 	| { readonly kind: "stream"; readonly slot: string }
 
+/**
+ * The fields of an insert's host rows the call computes (ChangeSet.insert's third argument): `query`, one rule that
+ * matches nothing and finds each field's value, a term over the call's scalar parameters, its clock reading and
+ * literals, so one row, one value of each field for the whole call. Every array and Stream insert of its relation in its
+ * stratum leaves those fields out and takes them from it (write/frontend/compile.ts); it writes no row of its own.
+ */
+export interface ComputedSourceDesc<L = Located> {
+	readonly kind: "computed"
+	readonly query: QueryDesc<L>
+}
+
+/** What an insert member's facts are: a member's source, or the fields its stratum's host rows leave out for the call
+ * to compute. */
+export type InsertSourceDesc<L = Located> = MemberSourceDesc<L> | ComputedSourceDesc<L>
+
 /** What a member does to its relation's facts: inserts, deletes or puts them. */
 export type WriteOp = "insert" | "delete" | "put"
 
 /**
- * A member: a write of its relation, `op` its facts' operation; or a retirement of the groups of the retirable unit its
- * relation heads, each fact one group, a value of the header's key, which travels in a slot alone, since a retirement's
- * groups are values the call states (ChangeSet.retire).
+ * A member: a write of its relation, `op` its facts' operation, an insert's facts its source or the fields its host
+ * rows leave out for the call to compute; or a retirement of the groups of the retirable unit its relation heads, each
+ * fact one group, a value of the header's key, which travels in a slot alone, since a retirement's groups are values the
+ * call states (ChangeSet.retire).
  */
 export type MemberDesc<L = Located> = L &
 	(
 		| {
-				readonly op: WriteOp
+				readonly op: "insert"
+				readonly relation: string
+				readonly member: InsertSourceDesc<L>
+		  }
+		| {
+				readonly op: "delete" | "put"
 				readonly relation: string
 				readonly member: MemberSourceDesc<L>
 		  }
 		| { readonly op: "retire"; readonly relation: string; readonly member: SlotSourceDesc }
 	)
 
-/** A write member: a member of a write `op`. */
-export type WriteMemberDesc<L = Located> = Extract<MemberDesc<L>, { readonly op: WriteOp }>
+/** A write member of facts: every write member but an insert's computed fields (ComputedSourceDesc), which writes no
+ * row of its own. */
+export type FactsMemberDesc<L = Located> = L & {
+	readonly op: WriteOp
+	readonly relation: string
+	readonly member: MemberSourceDesc<L>
+}
 
 /** A retire member (ChangeSet.retire). */
 export type RetireMemberDesc<L = Located> = Extract<MemberDesc<L>, { readonly op: "retire" }>
@@ -1774,14 +1800,15 @@ export const renameEqualParams = (
 		)
 	)
 
-/** The parameters a member needs, by name: a query's (queryParamNames), a field-equality member's, an array's or a
- * Stream's none, its facts being values. */
-export const memberParamNames = (member: MemberSourceDesc): ReadonlySet<string> => {
+/** The parameters a member needs, by name: a query's and a computed record's (queryParamNames), a field-equality
+ * member's, an array's or a Stream's none, its facts being values. */
+export const memberParamNames = (member: InsertSourceDesc): ReadonlySet<string> => {
 	switch (member.kind) {
 		case "array":
 		case "stream":
 			return new Set()
 		case "query":
+		case "computed":
 			return queryParamNames(member.query)
 		case "equal":
 			return equalParamNames(member.fields)
@@ -3123,9 +3150,18 @@ const writeSourceShape = S.tagged("kind", {
 /** A write member of `op`: its relation and its source. */
 const writeMemberShape = S.structWith({ relation: name, member: writeSourceShape }, loc)
 
+/** An insert member's source: a write member's, or the computed fields of its stratum's host rows. */
+const insertSourceShape = S.tagged("kind", {
+	array: S.struct({ slot: name }),
+	stream: S.struct({ slot: name }),
+	query: S.struct({ query: unorderedQueryShape }),
+	equal: S.struct({ fields: S.recordShape(equaledDescShape, name) }),
+	computed: S.struct({ query: unorderedQueryShape })
+})
+
 const memberDescShape: S.Shape<MemberDesc> = S.located(
 	S.tagged("op", {
-		insert: writeMemberShape,
+		insert: S.structWith({ relation: name, member: insertSourceShape }, loc),
 		delete: writeMemberShape,
 		put: writeMemberShape,
 		retire: S.structWith(
@@ -3150,6 +3186,7 @@ export const enumeratedMember = (member: MemberDesc["member"]): boolean => {
 			return true
 		case "query":
 		case "equal":
+		case "computed":
 			return false
 	}
 }

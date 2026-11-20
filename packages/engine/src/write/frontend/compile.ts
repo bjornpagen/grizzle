@@ -29,14 +29,14 @@ import {
 	enumeratedMember,
 	type PlannedChangeSetDesc,
 	type PlannedMemberDesc,
+	type FactsMemberDesc,
 	type RetireMemberDesc,
-	type WriteMemberDesc,
 	type WriteOp
 } from "#compiler/ir/desc.ts"
 import { fieldReads } from "#compiler/ir/expr.ts"
 import { type Family, isSequence, isTreeOf, type TreeShape } from "#compiler/ir/family.ts"
 import { familyDrawn, layoutKey } from "#compiler/ir/fill.ts"
-import { headText, type Stamped } from "#compiler/ir/instant.ts"
+import { type Computed, type Stamped, stampText } from "#compiler/ir/instant.ts"
 import {
 	familyKey,
 	type LawField,
@@ -258,10 +258,13 @@ const statedInRelation: StatedIn = Object.freeze({ kind: "relation" })
 /** What a slot of facts that nest no member states beside their key and caller's fields: nothing. */
 const noneWalked: ReadonlySet<ColumnKey> = new Set()
 
-/** A slot of a stratum's edit of one member relation, by the operation its facts take. */
+/** A slot of a stratum's edit of one member relation, by the operation its facts take, with the fields its facts leave
+ * out that its family statement fills (ir/instant.ts Stamped): a stamped nesting's root's, and an insert's computed
+ * fields; none for any other slot. */
 export interface EditSlot {
 	readonly as: "inserts" | "puts" | "deletes"
 	readonly slot: ParamId
+	readonly stamps: ReadonlyArray<Stamped>
 }
 
 /** A stratum's edits of one member relation: its slots, each normalized as any slot is, one per operation, its
@@ -550,7 +553,7 @@ const determined = (field: LawField): boolean =>
  * primary key is read; an insert names no row by its key, a sequence's members being inserted nested under their owner,
  * whose nesting draws their index.
  */
-const refuseUnstatedKey = (member: WriteMemberDesc, relation: WrittenRelation): void => {
+const refuseUnstatedKey = (member: FactsMemberDesc, relation: WrittenRelation): void => {
 	const op = member.op
 	if (op === "insert") {
 		return
@@ -674,7 +677,7 @@ interface CheckedMember {
 	readonly source:
 		| {
 				readonly kind: "enumerated"
-				readonly member: Extract<WriteMemberDesc["member"], { readonly kind: "array" | "stream" }>
+				readonly member: Extract<FactsMemberDesc["member"], { readonly kind: "array" | "stream" }>
 		  }
 		| { readonly kind: "described"; readonly query: LogicalQuery; readonly root: RelNode }
 }
@@ -709,6 +712,9 @@ interface Draft {
 	readonly carried: Heading
 	readonly reads: DraftReads
 	readonly entry: DraftEntry
+	/** The fields its host rows leave out that the call computes, each filled by the call's value (ir/instant.ts Stamp
+	 * `call`); none for a described member's rows, which state every field. */
+	readonly computed: ReadonlyArray<Stamped>
 	/** Where its first member stands, which a refusal of how it writes an instant names. */
 	readonly loc: SourceLoc
 }
@@ -905,11 +911,14 @@ const compile = (
 	 * closed relations, as PostgreSQL generates them, by the law model's compiled patterns. */
 	const evaluate = hostEvaluator(closedLeaf(closedIndexOf(closedTableOf(checked))), laws.patterns)
 	const nestings = new Map<string, Nesting>()
-	/** The nesting of an insert into `relation`, built once: its rows leave out every instant and place, as a nested fact
-	 * states none, which its stamps fill or which are refused (write/frontend/instants.ts stampsOf), its one family
-	 * statement stamping them (write/family/nesting.ts Nesting `stamps`). */
-	const nestingFor = (relation: RelationInfo): Nesting => {
-		const known = nestings.get(relation.name)
+	/** The nesting of an insert into `relation` in the `s`-th stratum, built once for each record of computed fields it
+	 * takes: its rows leave out every instant and place, as a nested fact states none, which its stamps fill or which are
+	 * refused (write/frontend/instants.ts stampsOf), and every field the stratum's insert computes, which the call's value
+	 * fills (`computedStamps`), its one family statement filling them all (write/family/nesting.ts Nesting `stamps`). */
+	const nestingFor = (relation: RelationInfo, s: number): Nesting => {
+		const computed = computedStamps(s, relation.name)
+		const cached = computed.length === 0 ? relation.name : `${relation.name}\u0000${s}`
+		const known = nestings.get(cached)
 		if (known !== undefined) {
 			return known
 		}
@@ -922,15 +931,21 @@ const compile = (
 					relation,
 					"insert",
 					relation.fields
-						.filter((f) => f.writing.kind !== "instant" && f.writing.kind !== "place")
+						.filter(
+							(f) =>
+								f.writing.kind !== "instant" &&
+								f.writing.kind !== "place" &&
+								!computed.some((c) => c.field.name === f.name)
+						)
 						.map((f) => ({ name: f.name, type: f.type })),
 					{ kind: "family" },
-					relation.loc
+					relation.loc,
+					computed
 				),
 				relation.loc
 			)
 		)
-		nestings.set(relation.name, built)
+		nestings.set(cached, built)
 		return built
 	}
 	/** The sequence `name` is a member of, a tree's aside: its members are written only under their owner. */
@@ -953,7 +968,7 @@ const compile = (
 	 * nested counted member among them, which its nesting appends to its counted families as its own insert would; a
 	 * put's own, which inserts a row its key finds none at; a delete's none.
 	 */
-	const addedBy = (member: WriteMemberDesc): ReadonlySet<string> => {
+	const addedBy = (member: FactsMemberDesc): ReadonlySet<string> => {
 		switch (member.op) {
 			case "insert":
 				return insertedBy(member.relation)
@@ -1070,8 +1085,8 @@ const compile = (
 	 * own among them: each one's counted families complete its rows after the walk, in its stratum's additions, as they
 	 * do a member's own insert (write/family/nesting.ts NestedLayout).
 	 */
-	const countedReached = (relation: RelationInfo): ReadonlyArray<StoredRelationName> =>
-		[...nestingFor(relation).layouts].flatMap(([name, laid]) =>
+	const countedReached = (relation: RelationInfo, s: number): ReadonlyArray<StoredRelationName> =>
+		[...nestingFor(relation, s).layouts].flatMap(([name, laid]) =>
 			laid.pending.size > 0 ? [name] : []
 		)
 	/** Whether an insert into `name` nests families: it owns a sequence, ordered or a tree, or is a tree's relation.
@@ -1112,10 +1127,10 @@ const compile = (
 	 * members' references to its count do. A write of stored owners only inserts none, and compiles.
 	 */
 	const refuseQueriedOwnerAppend = (
-		member: WriteMemberDesc,
+		member: FactsMemberDesc,
 		relation: RelationInfo,
 		query: LogicalQuery,
-		members: ReadonlyArray<WriteMemberDesc>
+		members: ReadonlyArray<FactsMemberDesc>
 	): void => {
 		const op = member.op
 		if (op === "delete") {
@@ -1200,11 +1215,130 @@ const compile = (
 			carried: carriedOf(member)
 		}
 	}
-	/** Each stratum's write members, and its retire members, which write no relation (`strataRetires`). */
+	/** Each stratum's write members of facts, its inserts' computed fields aside (`strataComputed`), and its retire
+	 * members, which write no relation (`strataRetires`). */
 	const strataWrites = desc.strata.map((stratum) =>
-		stratum.members.flatMap((m): ReadonlyArray<WriteMemberDesc> => (m.op === "retire" ? [] : [m]))
+		stratum.members.flatMap((m): ReadonlyArray<FactsMemberDesc> =>
+			m.op === "retire" || m.member.kind === "computed"
+				? []
+				: [{ op: m.op, relation: m.relation, member: m.member, loc: m.loc }]
+		)
 	)
-	const strataMembers = strataWrites.map((members) =>
+	/**
+	 * Each stratum's computed records (ir/instant.ts Computed), by the relation whose host rows leave their fields out:
+	 * each record's query, one rule matching nothing, checked as an insert member of its relation whose head is the
+	 * computed fields alone (check/member.ts checkMemberHeading), so each field's value is a term of its type over the
+	 * call's parameters, its clock reading among them, and literals, and its parameters join the ChangeSet's. A relation
+	 * takes one record a stratum; one written through a query entry takes none, its rows filling the entry's fill.
+	 */
+	const strataComputed = desc.strata.map((stratum, s): ReadonlyMap<string, Computed> => {
+		const records = new Map<string, Computed>()
+		for (const m of stratum.members) {
+			if (m.op !== "insert" || m.member.kind !== "computed") {
+				continue
+			}
+			const loc = m.loc
+			const target = targetOf(m.relation, loc)
+			const relation = target.relation
+			if (records.has(relation.name)) {
+				refuse(
+					"UnsupportedOperation",
+					loc,
+					`an insert into ${relation.name} computing one record of fields in its stratum: its host rows take each computed field from one value, so state every computed field of the stratum's inserts of ${relation.name} in one record`
+				)
+			}
+			if (target.entry.kind !== "whole") {
+				refuse(
+					"UnsupportedOperation",
+					loc,
+					`an insert into ${relation.name} through the query entry ${target.entry.entry.entry} computing fields of its host rows: the entry's fill reads its rows as they are stated, so state every field, or insert ${relation.name} whole`
+				)
+			}
+			const [arm, ...moreArms] =
+				m.member.query.stage.kind === "rules" ? m.member.query.stage.arms : []
+			if (
+				arm === undefined ||
+				moreArms.length > 0 ||
+				arm.matches.length > 0 ||
+				arm.where.length > 0 ||
+				arm.vars.length > 0
+			) {
+				return refuse(
+					"MalformedDescription",
+					loc,
+					`the computed fields of an insert into ${relation.name}: one rule that matches nothing and finds each field's value`
+				)
+			}
+			if (
+				!stratum.members.some(
+					(o) =>
+						o.op === "insert" &&
+						o.relation === m.relation &&
+						(o.member.kind === "array" || o.member.kind === "stream")
+				)
+			) {
+				refuse(
+					"UnsupportedOperation",
+					loc,
+					`computed fields of ${relation.name}'s host rows, beside no array or Stream insert of ${relation.name} in their stratum: the call computes the fields an insert's host rows leave out`
+				)
+			}
+			const named = new Set(Object.keys(arm.head))
+			const computedHeading: MemberRelation = {
+				name: relation.name,
+				heading: relation.heading.filter((c) => named.has(c.name))
+			}
+			const query = unwrap(
+				checkMember(
+					checked,
+					{
+						op: "insert",
+						relation: computedHeading,
+						query: navigateQuery(m.member.query, loc),
+						loc
+					},
+					{ label: `insert ${relation.name}'s computed fields`, clock }
+				)
+			)
+			for (const p of query.params) {
+				merge(params, p, loc)
+			}
+			const root = query.dag.roots[0]
+			if (root.kind !== "ProjectSet") {
+				throw defect(
+					`the computed fields of ${relation.name} checked as one rule's projection, not a ${root.kind}`
+				)
+			}
+			const [first, ...rest] = root.out.map(({ name, expr }) => ({
+				field: defined(
+					relation.fields.find((f) => f.name === name),
+					`the computed field ${relation.name}.${name}`
+				),
+				expr
+			}))
+			if (first === undefined) {
+				return refuse(
+					"MalformedDescription",
+					loc,
+					`the computed fields of an insert into ${relation.name}: at least one field`
+				)
+			}
+			records.set(relation.name, { key: `${s}\u0000${relation.name}`, fields: [first, ...rest] })
+		}
+		return records
+	})
+	/** The fields of `relation`'s host rows its insert in the `s`-th stratum computes, each filled by the call's one value
+	 * of it (ir/instant.ts Stamp `call`); none where the stratum computes none of its fields. */
+	const computedStamps = (s: number, relation: string): ReadonlyArray<Stamped> => {
+		const computed = strataComputed[s]?.get(relation)
+		return computed === undefined
+			? []
+			: computed.fields.map(({ field }) => ({
+					field,
+					stamp: { kind: "call", computed, from: field.name }
+				}))
+	}
+	const strataMembers = strataWrites.map((members, s) =>
 		members.map((member): CheckedMember => {
 			const loc = member.loc
 			const target = targetOf(member.relation, loc)
@@ -1282,7 +1416,7 @@ const compile = (
 			 * insert does, so an immutable owner of one of them takes it only where the stratum inserts that owner. */
 			const nestedFixed =
 				member.op === "insert" && nests(relation.name)
-					? countedReached(relation).flatMap((name) =>
+					? countedReached(relation, s).flatMap((name) =>
 							families.filter(
 								(f) =>
 									f.member.name === name &&
@@ -1432,7 +1566,7 @@ const compile = (
 			 * walk's, under their fresh owners. */
 			const nestedCounted =
 				m.op === "insert" && nests(relation.name)
-					? countedReached(relation).flatMap((name) =>
+					? countedReached(relation, s).flatMap((name) =>
 							name === relation.name ? [] : [writtenOf(name, m.loc)]
 						)
 					: []
@@ -1592,7 +1726,11 @@ const compile = (
 		readonly stratum: StratumAt
 		readonly relation: StoredRelationName
 		readonly write:
-			| { readonly op: "insert" | "put" | "delete"; readonly slot: ParamId }
+			| {
+					readonly op: "insert" | "put" | "delete"
+					readonly slot: ParamId
+					readonly stamps: ReadonlyArray<Stamped>
+			  }
 			| { readonly op: "nested" }
 	}> = []
 	const draftsByStratum = occupied.map(([stratum, { s, members, retires }]) => {
@@ -1685,7 +1823,8 @@ const compile = (
 					carried: Heading,
 					slot: MemberSlot | undefined,
 					roots: ReadonlyArray<RelNode>,
-					site: SourceLoc
+					site: SourceLoc,
+					computed: ReadonlyArray<Stamped>
 				): void => {
 					const reads: DraftReads | undefined = isNonEmpty(roots)
 						? { kind: "described", slot, roots }
@@ -1696,7 +1835,15 @@ const compile = (
 						return
 					}
 					if (target.kind === "whole") {
-						drafts.push({ act, relation, carried, reads, entry: { kind: "whole" }, loc: site })
+						drafts.push({
+							act,
+							relation,
+							carried,
+							reads,
+							entry: { kind: "whole" },
+							loc: site,
+							computed
+						})
 						return
 					}
 					if (!target.fillable) {
@@ -1712,7 +1859,8 @@ const compile = (
 						carried,
 						reads,
 						entry: { kind: "entry", entry: target.entry, names: target.names, fill },
-						loc: site
+						loc: site,
+						computed
 					})
 				}
 				/** An owner of counted families' counts and ends, which its enumerated slot carries at their starts when the
@@ -1742,15 +1890,17 @@ const compile = (
 					 * bind.ts freshOwners), which an inserted row holds; a put's row, which may be a stored one the stratum
 					 * moves, holds them as its groups' members do, and these only where a group holds none
 					 * (write/family/additions.ts appendedOf). */
-					const heading = op === "delete" ? facts : [...facts, ...owned]
+					const computed = op === "insert" ? computedStamps(s, relation.name) : []
+					const stated = facts.filter((c) => !computed.some((st) => st.field.name === c.name))
+					const heading = op === "delete" ? stated : [...stated, ...owned]
 					const act: WriteAct = op === "delete" ? { op, names: "rows" } : { op }
-					const slot = singleInput(act, heading, facts)
+					const slot = singleInput(act, heading, stated)
 					if (slot !== undefined) {
 						edits.push(
 							Object.freeze({
 								stratum,
 								relation: relation.name,
-								write: { op, slot: slot.slot }
+								write: { op, slot: slot.slot, stamps: computed }
 							})
 						)
 					}
@@ -1769,7 +1919,8 @@ const compile = (
 							carried,
 							singleInput(act, carried, facts),
 							queries.map((q) => q.root),
-							loc
+							loc,
+							[]
 						)
 						break
 					}
@@ -1795,16 +1946,16 @@ const compile = (
 						 * written fields, so a fact inserted and deleted is one fact with one identity, which nets. A
 						 * generated field is a function of the written ones, so it decides no match. */
 						const act: WriteAct = { op, names: "rows" }
-						draft(act, facts, singleInput(act, facts, facts), [], loc)
+						draft(act, facts, singleInput(act, facts, facts), [], loc, [])
 						for (const q of queries) {
-							draft(act, facts, undefined, [q.root], q.loc)
+							draft(act, facts, undefined, [q.root], q.loc, [])
 						}
 						break
 					}
 					case "insert": {
 						const insert: WriteAct = { op }
 						if (nests(relation.name)) {
-							const nesting = nestingFor(relation)
+							const nesting = nestingFor(relation, s)
 							if (memberNames !== undefined) {
 								/** A nested insert's facts are its rows as its nesting writes them (Nesting.top), each count and end
 								 * drawn from its members: never a put's, which state their caller's fields, so the host refuses the
@@ -1828,33 +1979,37 @@ const compile = (
 									})
 								)
 								nestedWrites.push(Object.freeze({ stratum, nesting, slot }))
-								for (const name of countedReached(relation)) {
+								for (const name of countedReached(relation, s)) {
 									edits.push(
 										Object.freeze({ stratum, relation: name, write: { op: "nested" } as const })
 									)
 								}
 								if (nesting.root.kind === "plain") {
-									if (nesting.stamps.has(relation.name)) {
+									const stamps = nesting.stamps.get(relation.name)
+									if (stamps !== undefined) {
 										edits.push(
 											Object.freeze({
 												stratum,
 												relation: relation.name,
-												write: { op: "insert", slot: slot.slot }
+												write: { op: "insert", slot: slot.slot, stamps }
 											})
 										)
 									} else {
-										draft(insert, nesting.top, slot, [], loc)
+										draft(insert, nesting.top, slot, [], loc, [])
 									}
 								}
 							}
 							break
 						}
 						/** An owner of counted families carries its counts and ends in its slot, at their starts, which the
-						 * stratum's appends to it replace before its insert is sent. */
-						const carried = [...facts, ...owned]
-						draft(insert, carried, singleInput(insert, carried, facts), [], loc)
+						 * stratum's appends to it replace before its insert is sent; its host rows leave out every field the
+						 * call computes, which its statement fills. */
+						const computed = computedStamps(s, relation.name)
+						const stated = facts.filter((c) => !computed.some((st) => st.field.name === c.name))
+						const carried = [...stated, ...owned]
+						draft(insert, carried, singleInput(insert, carried, stated), [], loc, computed)
 						for (const q of queries) {
-							draft(insert, facts, undefined, [q.root], q.loc)
+							draft(insert, facts, undefined, [q.root], q.loc, [])
 						}
 						break
 					}
@@ -1958,7 +2113,7 @@ const compile = (
 	const builtByStratum = draftsByStratum.map(({ stratum, drafts, outside }) => ({
 		stratum,
 		outside,
-		built: drafts.map(({ act, relation, carried, reads, entry, loc }): Built => {
+		built: drafts.map(({ act, relation, carried, reads, entry, loc, computed }): Built => {
 			/** The source, what it reads and the heading it delivers: the slot alone; one described member's query alone;
 			 * or the Union of the slot's InputSet and of every described member's query. A query entry's sources, in its
 			 * facts, fill its fill's relation parameter, and the fill is the source. */
@@ -2015,7 +2170,8 @@ const compile = (
 							? { kind: "family" }
 							: { kind: "own" }
 						: { kind: "entry" },
-					loc
+					loc,
+					computed
 				),
 				entry:
 					entry.kind === "entry"
@@ -2428,8 +2584,9 @@ const compile = (
 			)
 		/**
 		 * The member relations the stratum appends, each statement's: one apiece, but the relations whose appended rows a
-		 * nesting stamps from one head, which one statement writes so the head is stamped once (write/family/nesting.ts
-		 * Nesting `stamps`), each set in the order `appended` names its first.
+		 * nesting stamps from one head or fills from one computed record, which one statement writes so the head is stamped
+		 * once and the record evaluated once (write/family/nesting.ts Nesting `stamps`), each set in the order `appended`
+		 * names its first.
 		 */
 		const stampedTogether = (
 			appended: ReadonlyArray<StoredRelationName>
@@ -2438,7 +2595,7 @@ const compile = (
 				new Set(
 					nestedWrites.flatMap((n) =>
 						n.stratum === stratum
-							? (n.nesting.stamps.get(member) ?? []).map((st) => headText(st.stamp.head))
+							? (n.nesting.stamps.get(member) ?? []).map((st) => stampText(st.stamp))
 							: []
 					)
 				)
@@ -2789,7 +2946,7 @@ const compile = (
 			slots: editSlotOps.flatMap(([op, as]) =>
 				list
 					.flatMap((e): ReadonlyArray<EditSlot> =>
-						e.write.op === op ? [{ as, slot: e.write.slot }] : []
+						e.write.op === op ? [{ as, slot: e.write.slot, stamps: e.write.stamps }] : []
 					)
 					.slice(0, 1)
 			)

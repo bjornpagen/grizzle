@@ -516,12 +516,6 @@ const familyProgram = (
 							: []
 					)
 				)
-				/** The stamps of the facts of `slot`: a stamped nesting's root's, its family statement's to stamp
-				 * (write/family/nesting.ts Nesting `stamps`), none for any other slot. */
-				const slotStamps = (slot: MemberSlot) => {
-					const nested = frontend.nested.find((n) => n.stratum === s && n.slot.slot === slot.slot)
-					return nested?.nesting.stamps.get(nested.nesting.relation.name) ?? []
-				}
 				/** The member relations the statement appends, or, appending none, the one whose owners it recounts. */
 				const members = node.appends === "rows" ? node.members : [node.member]
 				/** Each appended relation's row sources: its slots, then its nested rows. */
@@ -531,8 +525,7 @@ const familyProgram = (
 						if (e.as === "deletes") {
 							return []
 						}
-						const slot = memberSlotOf(frontend, e.slot)
-						return [{ as: e.as, slot, stamps: slotStamps(slot) }]
+						return [{ as: e.as, slot: memberSlotOf(frontend, e.slot), stamps: e.stamps }]
 					})
 					if (isNonEmpty(slots)) {
 						sourced.set(edit.relation.name, [{ kind: "slots", slots }])

@@ -16,7 +16,7 @@ import {
 import type { EntryName, StoredRelationName } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
-import type { Stamped } from "#compiler/ir/instant.ts"
+import { headStamped, type Stamped } from "#compiler/ir/instant.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import { type DeltaSide, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
@@ -370,7 +370,7 @@ const formedAt = (action: ChosenAction, level: Isolation): void => {
 	const why: NoFormWhy | undefined =
 		primaryKeyShape(relation).kind === "span"
 			? "spanKey"
-			: action.info.stamps.length > 0
+			: headStamped(action.info.stamps).length > 0
 				? "stamp"
 				: undefined
 	if (level === "readCommitted" && why !== undefined) {

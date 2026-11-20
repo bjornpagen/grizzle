@@ -806,6 +806,13 @@ export interface ChangeSetOf<
 	 */
 	readonly insert: ChangeSetInsert
 	/**
+	 * Adds each member fact as insert does, its rows, an array or a Stream, leaving out every field `computed` names,
+	 * which the call computes: under each field a term over the call's parameters, its clock reading and literals,
+	 * written at the field's type, evaluated once for every row of R its stratum's host rows insert, in the statement
+	 * that writes them; a nested member whose group carries a computed field of its owner's key holds its owner's value.
+	 */
+	readonly insertComputed: ChangeSetInsertComputed
+	/**
 	 * Adds the members of each relation the record names by its key, as one insert of each would: the members at each
 	 * key are what insert takes for that relation, checked as insert checks them and refused at their key. Inserts within
 	 * one stratum are one set, so the record's order is no part of the ChangeSet.
@@ -905,6 +912,78 @@ type ChangeSetInsert = <
 		Last["doomed"]
 	>,
 	Arrays | ArrayAdded<"insert", R, M, S, Done>
+>
+
+/**
+ * The rows an insert takes whose fields Computed its call computes: Row less those fields (ChangeSet.insertComputed),
+ * Row itself where it computes none.
+ */
+type ComputedRow<Row, Computed> = [Computed] extends [never] ? Row : Omit<Row, Computed & keyof Row>
+
+/**
+ * What insertComputed computes of R's host rows, C: at least one field, and under each a field of R its caller
+ * writes, a term the call evaluates once, over its parameters, its clock reading and literals, that writes the field
+ * at its own type (WritesAt), as a query member's head does: a JavaScript value of its language, or a term of its
+ * identity and SQL type exactly, Compute.cast making one of any other. The record is the head of a query member that
+ * matches nothing, so a field its caller does not write, an instant among them, is refused as such a head's is.
+ */
+type ComputedCheck<C, R> = [keyof C] extends [never]
+	? Refusal<"insertComputed computes at least one field: insert writes rows that state every field">
+	: {
+			readonly [K in keyof C]: K extends Exclude<
+				keyof Fact<R>,
+				UnwrittenFieldsOf<R> | InstantFieldsOf<R>
+			>
+				? WritesAt<C[K], CarrierAt<R, K>> extends true
+					? unknown
+					: Refusal<"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast">
+				: Refusal<"the query's head is not a fact of the relation">
+		}
+
+/** The parameters an insert's computed fields need together, each term's (ParamsOfTerm), unknown where none names one. */
+type ComputedParams<C> = {
+	[K in keyof C]-?: (params: ParamsOfTerm<C[K]>) => void
+}[keyof C] extends (params: infer P) => void
+	? P
+	: unknown
+
+/** ChangeSet.insertComputed over the ChangeSet it is called on (ChangeSet): insert's, its rows an array or a Stream
+ * that leave out every field C computes. */
+type ChangeSetInsertComputed = <
+	S,
+	Params,
+	Writes extends string,
+	Reads,
+	Cx,
+	Done extends Strata,
+	Last extends Stratum,
+	Arrays,
+	R extends AnyRelation | AnyWorld,
+	const M extends ReadonlyArray<unknown> | Stream.Stream<unknown>,
+	const C extends Readonly<Record<string, unknown>>
+>(
+	this: ChangeSetOf<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
+	relation: R &
+		WritableCheck<S, R> &
+		NotSequenceMember<S, R> &
+		EditsOnce<Done, EditsWith<Last, S, R>>,
+	facts: M & MemberCheck<M, ComputedRow<AdditionIn<S, R>, keyof C>, R>,
+	computed: C & ComputedCheck<C, R>
+) => ChangeSetOf<
+	S,
+	JointParams<Params, ComputedParams<C>>,
+	Writes | NameOf<R> | NestedWrites<S, R>,
+	Reads,
+	Cx | ContextsOf<C[keyof C]>,
+	Done,
+	Stratum<
+		Last["inserts"] | NameOf<R> | NestedWrites<S, R>,
+		Last["needs"] | FixedOwnerOf<S, R>,
+		EditsWith<Last, S, R>,
+		Last["puts"],
+		Last["doomed"]
+	>,
+	Arrays | ArrayAdded<"insert", R, M, S, Done, keyof C>
 >
 
 /** ChangeSet.insertAll over the ChangeSet it is called on (ChangeSet). */
@@ -1213,8 +1292,8 @@ type PositionOf<Before extends ReadonlyArray<unknown>> = { readonly [K in keyof 
  * member its parts, so a ChangeSet of more members, and of members known more exactly, is the narrower type, as one of
  * known strata is narrower than one whose strata are not known.
  */
-interface ArrayMember<in Op, in Spelled, in At, in Address> {
-	readonly member: (op: Op, spelled: Spelled, at: At, address: Address) => void
+interface ArrayMember<in Op, in Spelled, in At, in Address, in Computed> {
+	readonly member: (op: Op, spelled: Spelled, at: At, address: Address, computed: Computed) => void
 }
 
 /**
@@ -1260,11 +1339,13 @@ type LevelOfMember<S, Address, Spelled> = Address extends "fragment"
  * instantiate again at every call that adds a member after it, and the test that binds them holds no tuple of S's
  * parts (IsNone).
  */
-type MemberOf<Op extends ArrayOp, R, At extends ReadonlyArray<unknown>, S> = [R] extends [never]
+type MemberOf<Op extends ArrayOp, R, At extends ReadonlyArray<unknown>, S, Computed = never> = [
+	R
+] extends [never]
 	? never
 	: NameIn<R, RelationsOf<S>> extends infer Spelled
 		? LevelAddress<S> extends infer Address
-			? ArrayMember<Op, Spelled, At, Address>
+			? ArrayMember<Op, Spelled, At, Address, Computed>
 			: never
 		: never
 
@@ -1275,8 +1356,8 @@ type MemberOf<Op extends ArrayOp, R, At extends ReadonlyArray<unknown>, S> = [R]
  * them (write/changeset/value.ts); two in two strata meet with no position (RepeatedArrays), which a workload refuses
  * (types/db/workload.ts), as the engine refuses them in a served workload (UnservedMember).
  */
-type ArrayAdded<Op extends ArrayOp, R, M, S, Done extends Strata> =
-	IsArrayMember<M> extends true ? MemberOf<Op, R, PositionOf<Done>, S> : never
+type ArrayAdded<Op extends ArrayOp, R, M, S, Done extends Strata, Computed = never> =
+	IsArrayMember<M> extends true ? MemberOf<Op, R, PositionOf<Done>, S, Computed> : never
 
 /**
  * Whether every member of the union M is an array, true for none: told by its keys, as MemberFit tells it, so a query
@@ -1299,10 +1380,11 @@ type Shifted<A, Before extends ReadonlyArray<unknown>> =
 		infer Op,
 		infer Spelled,
 		infer At extends ReadonlyArray<unknown>,
-		infer Address
+		infer Address,
+		infer Computed
 	>
 		? readonly [...PositionOf<Before>, ...At] extends infer Later
-			? ArrayMember<Op, Spelled, Later, Address>
+			? ArrayMember<Op, Spelled, Later, Address, Computed>
 			: never
 		: never
 
@@ -1318,10 +1400,11 @@ type RecordOf<S, A> =
 		infer Op extends ArrayOp,
 		infer Spelled,
 		infer At extends ReadonlyArray<unknown>,
-		infer Address
+		infer Address,
+		infer Computed
 	>
 		? RelationIn<Spelled, RelationsOf<LevelOfMember<S, Address, Spelled>>> extends infer R
-			? RowOfOp<Op, LevelOfMember<S, Address, Spelled>, R> extends infer Row
+			? RowOfOp<Op, LevelOfMember<S, Address, Spelled>, R, Computed> extends infer Row
 				? {
 						readonly [O in Op]: {
 							readonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At>
@@ -1331,10 +1414,10 @@ type RecordOf<S, A> =
 			: never
 		: never
 
-/** The facts Op takes for R over its level L: an insert's addition, a delete's row, a put's written fact, a
- * retirement's group. */
-type RowOfOp<Op, L, R> = Op extends "insert"
-	? AdditionIn<L, R>
+/** The facts Op takes for R over its level L: an insert's addition, less the fields Computed its insert computes
+ * (ComputedRow), a delete's row, a put's written fact, a retirement's group. */
+type RowOfOp<Op, L, R, Computed> = Op extends "insert"
+	? ComputedRow<AdditionIn<L, R>, Computed>
 	: Op extends "delete"
 		? DeletedRow<L, R>
 		: Op extends "retire"
@@ -1380,7 +1463,8 @@ type PositionOfMember<A> =
 		infer Op extends ArrayOp,
 		infer Spelled,
 		infer At extends ReadonlyArray<unknown>,
-		infer _Address
+		infer _Address,
+		infer _Computed
 	>
 		? { readonly [O in Op]: { readonly [N in NameOfSpelled<Spelled>]: { readonly at: At } } }
 		: never

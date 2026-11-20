@@ -40,17 +40,17 @@ export const cost = costGate(memberForms, {
 		{
 			file: "packages/engine/src/types/changeset/changeset.ts",
 			original:
-				"type ArrayAdded<Op extends ArrayOp, R, M, S, Done extends Strata> =\n\tIsArrayMember<M> extends true ? MemberOf<Op, R, PositionOf<Done>, S> : never",
+				"type ArrayAdded<Op extends ArrayOp, R, M, S, Done extends Strata, Computed = never> =\n\tIsArrayMember<M> extends true ? MemberOf<Op, R, PositionOf<Done>, S, Computed> : never",
 			replacement:
-				"type ArrayAdded<Op extends ArrayOp, R, M, S, Done extends Strata> = [M] extends [ReadonlyArray<unknown>]\n\t? MemberOf<Op, R, PositionOf<Done>, S>\n\t: never",
+				"type ArrayAdded<Op extends ArrayOp, R, M, S, Done extends Strata, Computed = never> = [M] extends [ReadonlyArray<unknown>]\n\t? MemberOf<Op, R, PositionOf<Done>, S, Computed>\n\t: never",
 			why: "ArrayAdded tells an array member by testing the member boxed (`[M] extends [ReadonlyArray<unknown>]`): the box holds the query member, and the test instantiates it whole, its schema with it; the query members' cost grows with the schema."
 		},
 		{
 			file: "packages/engine/src/types/changeset/changeset.ts",
 			original:
-				"\t\t? RelationIn<Spelled, RelationsOf<LevelOfMember<S, Address, Spelled>>> extends infer R\n\t\t\t? RowOfOp<Op, LevelOfMember<S, Address, Spelled>, R> extends infer Row\n\t\t\t\t? {\n\t\t\t\t\t\treadonly [O in Op]: {\n\t\t\t\t\t\t\treadonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At>\n\t\t\t\t\t\t}\n\t\t\t\t\t}",
+				"\t\t? RelationIn<Spelled, RelationsOf<LevelOfMember<S, Address, Spelled>>> extends infer R\n\t\t\t? RowOfOp<Op, LevelOfMember<S, Address, Spelled>, R, Computed> extends infer Row\n\t\t\t\t? {\n\t\t\t\t\t\treadonly [O in Op]: {\n\t\t\t\t\t\t\treadonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At>\n\t\t\t\t\t\t}\n\t\t\t\t\t}",
 			replacement:
-				"\t\t? LevelOfMember<S, Address, Spelled> extends infer L\n\t\t\t? RelationIn<Spelled, RelationsOf<L>> extends infer R\n\t\t\t\t? RowOfOp<Op, L, R> extends infer Row\n\t\t\t\t\t? {\n\t\t\t\t\t\t\treadonly [O in Op]: {\n\t\t\t\t\t\t\t\treadonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At>\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t: never",
+				"\t\t? LevelOfMember<S, Address, Spelled> extends infer L\n\t\t\t? RelationIn<Spelled, RelationsOf<L>> extends infer R\n\t\t\t\t? RowOfOp<Op, L, R, Computed> extends infer Row\n\t\t\t\t\t? {\n\t\t\t\t\t\t\treadonly [O in Op]: {\n\t\t\t\t\t\t\t\treadonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At>\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t: never",
 			why: "RecordOf binds an array member's level by `infer` before it reads the member's relation and row: the level is the schema, and the branch that reads it instantiates it whole, once for each member, so each array member the handle reads walks every relation; the array members' cost grows with the schema."
 		},
 		{

@@ -1,0 +1,122 @@
+/** What the property of computed.test.ts reads: its box and the write of each case. */
+
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { Compute } from "#compiler/public/compute.ts"
+import { contract, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { param } from "#compiler/public/query.ts"
+import { fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import type { AnySchema } from "#compiler/types/schema/schema.ts"
+import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+
+/** A span a call adds to its clock's reading, bounded by its predicate, so a millis reading plus it fits a bigint with no
+ * guard (core/clock.ts clockReadingRange). */
+const Span = contract("Span", pg.bigint, (d) =>
+	Compute.and(Compute.ge(d, 0n), Compute.le(d, 10n ** 12n))
+)
+
+/** The call's reading of the database's clock plus the parameter `by`, cast into bigint with no guard, as den's lease. */
+const after = <const By extends string>(by: By) =>
+	Compute.cast(
+		Compute.add(Compute.base(param("now", pg.bigint)), Compute.base(param(by, Span))),
+		pg.bigint
+	)
+
+/** How deep the insert's rows nest: no family, one sequence of members, or members nesting members of their own. */
+type Depth = 0 | 1 | 2
+
+/** Which field the insert computes: a payload field of its own rows alone, or a field of its owner's key every member
+ * carries. */
+type Where = "payload" | "key"
+
+export interface Computing {
+	readonly depth: Depth
+	readonly where: Where
+}
+
+export type ComputingFeature =
+	| "depth 0"
+	| "depth 1"
+	| "depth 2"
+	| "a payload field computed"
+	| "a key field computed, members carrying it"
+
+export const computingGen: Gen<Computing> = (source) => ({
+	depth: source.draw(element([0, 1, 2] as const)),
+	where: source.draw(element(["payload", "key"] as const))
+})
+
+export const computingFeatures = (c: Computing): ReadonlyArray<ComputingFeature> => [
+	c.depth === 0 ? "depth 0" : c.depth === 1 ? "depth 1" : "depth 2",
+	c.where === "payload" ? "a payload field computed" : "a key field computed, members carrying it"
+]
+
+/**
+ * The case's schema, the relations its insert writes rows of, and its write: Owner(q, due, until) keyed (q, due), its
+ * members M1(q, due, at, v) from depth 1 and M2(q, due, at, bt, w) at depth 2, each carrying its owner's key, its
+ * insert computing `until`, or `due` with it, built as a JavaScript caller builds it (write/changeset/value.ts).
+ */
+export const computingOf = (c: Computing) => {
+	const Spans = relation("Spans", { span: Span }, ["span"])
+	const key = { q: pg.integer, due: pg.bigint }
+	const { S, Owner } = ((): { readonly S: AnySchema; readonly Owner: unknown } => {
+		switch (c.depth) {
+			case 0: {
+				const Owner = relation("Owner", { ...key, until: pg.bigint }, ["q", "due"])
+				return { S: schema("Computing", [Spans, Owner], []), Owner }
+			}
+			case 1: {
+				const Owner = relation("Owner", { ...key, until: pg.bigint, ms: drawn(natural) }, [
+					"q",
+					"due"
+				])
+				const M1 = relation("M1", { ...key, at: drawn(natural), v: pg.integer }, ["q", "due", "at"])
+				return {
+					S: schema(
+						"Computing",
+						[Spans, Owner, M1],
+						[ordered(on(M1, "q", "due", "at"), fin(Owner, "ms"))]
+					),
+					Owner
+				}
+			}
+			case 2: {
+				const Owner = relation("Owner", { ...key, until: pg.bigint, ms: drawn(natural) }, [
+					"q",
+					"due"
+				])
+				const M1 = relation(
+					"M1",
+					{ ...key, at: drawn(natural), v: pg.integer, ns: drawn(natural) },
+					["q", "due", "at"]
+				)
+				const M2 = relation("M2", { ...key, at: natural, bt: drawn(natural), w: pg.integer }, [
+					"q",
+					"due",
+					"at",
+					"bt"
+				])
+				return {
+					S: schema(
+						"Computing",
+						[Spans, Owner, M1, M2],
+						[
+							ordered(on(M1, "q", "due", "at"), fin(Owner, "ms")),
+							ordered(on(M2, "q", "due", "at", "bt"), fin(M1, "ns"))
+						]
+					),
+					Owner
+				}
+			}
+		}
+	})()
+	const computed =
+		c.where === "payload"
+			? { until: after("budget") }
+			: { due: after("delay"), until: after("budget") }
+	return {
+		schema: S,
+		/** The relations whose rows carry a computed field: the owner's, and every member's where its key's `due` is one. */
+		carrying: c.where === "key" ? ["Owner", "M1", "M2"].slice(0, c.depth + 1) : ["Owner"],
+		changeSet: () => ChangeSet.empty(S).insertComputed(Owner, [], computed)
+	}
+}

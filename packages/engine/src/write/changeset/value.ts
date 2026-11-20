@@ -35,6 +35,8 @@ import {
 import * as S from "#compiler/ir/shape.ts"
 import { inReservedSpace, slotSpelling } from "#compiler/ir/slots.ts"
 import { schemaInfo } from "#compiler/query/build/heading.ts"
+import { queryOver } from "#compiler/query/build/query.ts"
+import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { isCallback } from "#compiler/query/build/scope.ts"
 import { isOrdered, publicDesc, queryState } from "#compiler/query/build/state.ts"
 import { headValueOf } from "#compiler/query/build/terms.ts"
@@ -102,6 +104,18 @@ type MemberState =
 			/** Each field it selects by, and the parameter or literal the field equals. */
 			readonly fields: Readonly<Record<string, EqualedDesc>>
 			/** The canonical identity text of its fields, which orders and deduplicates field-equality members. */
+			readonly text: string
+			readonly params: ReadonlySet<string>
+			readonly desc: MemberDesc
+	  }
+	| {
+			readonly kind: "computed"
+			readonly op: "insert"
+			readonly relation: string
+			/** The fields its stratum's host rows of its relation leave out, one rule finding each one's value
+			 * (ir/desc.ts ComputedSourceDesc). */
+			readonly query: QueryDesc
+			/** The canonical identity text of the query, which orders and deduplicates computed records. */
 			readonly text: string
 			readonly params: ReadonlySet<string>
 			readonly desc: MemberDesc
@@ -230,6 +244,13 @@ export type MemberInput = ReadonlyArray<unknown> | Stream.Stream<unknown> | Quer
 export interface ChangeSetValue extends Built {
 	readonly reads: RowDecoder<unknown>
 	insert(relation: unknown, facts: MemberInput): ChangeSetValue
+	/** A JavaScript caller's computed fields are a plain record of terms, read once, as deleteWhere's are, naming at
+	 * least one field. */
+	insertComputed(
+		relation: unknown,
+		facts: MemberInput,
+		computed: Readonly<Record<string, unknown>>
+	): ChangeSetValue
 	/** A JavaScript caller's record is read once: one that is no plain record, holds a symbol key or throws as it is read
 	 * is refused, and so is a key that names no relation the ChangeSet writes. */
 	insertAll(rows: Readonly<Record<string, MemberInput>>): ChangeSetValue
@@ -300,14 +321,17 @@ const kindRank: Readonly<Record<MemberState["kind"], number>> = {
 	array: 0,
 	stream: 1,
 	query: 2,
-	equal: 3
+	equal: 3,
+	computed: 4
 }
 
-/** A member its statement reads the facts of, a query or a field-equality member, held by its canonical text. */
-type Described = Extract<MemberState, { readonly kind: "query" | "equal" }>
+/** A member its statement reads the facts of, a query or a field-equality member, or an insert's computed fields, held
+ * by its canonical text. */
+type Described = Extract<MemberState, { readonly kind: "query" | "equal" | "computed" }>
 
 /** Whether a member is described, so ordered and deduplicated by its text. */
-const isDescribed = (m: MemberState): m is Described => m.kind === "query" || m.kind === "equal"
+const isDescribed = (m: MemberState): m is Described =>
+	m.kind === "query" || m.kind === "equal" || m.kind === "computed"
 
 /** The group of a member: its op and relation. An op is a word without a colon, so the first colon ends it. */
 const groupKey = (m: MemberState): string => `${m.op}:${m.relation}`
@@ -351,7 +375,8 @@ const canonicalStratum = (members: ReadonlyArray<MemberState>): ReadonlyArray<Me
 				streams.push(m)
 				break
 			case "query":
-			case "equal": {
+			case "equal":
+			case "computed": {
 				const seen = texts.get(`${m.kind}:${group}`) ?? new Set<string>()
 				texts.set(`${m.kind}:${group}`, seen)
 				if (!seen.has(m.text)) {
@@ -596,6 +621,9 @@ const renameMember = (m: MemberState, rename: ReadonlyMap<string, string>): Memb
 	if (m.kind === "equal") {
 		return equalState(m.op, m.relation, renameEqualParams(m.fields, rename), m.desc.loc)
 	}
+	if (m.kind === "computed") {
+		return computedState(m.relation, renamedQuery(m.query, rename), m.desc.loc)
+	}
 	const query = renamedQuery(m.query, rename)
 	return {
 		...m,
@@ -765,6 +793,15 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 		insert(relation, facts) {
 			return addMember(stateOf(this, "ChangeSet.insert"), this.reads, "insert", relation, facts)
 		},
+		insertComputed(relation, facts, computed) {
+			return addInsertComputed(
+				stateOf(this, "ChangeSet.insertComputed"),
+				this.reads,
+				relation,
+				facts,
+				computed
+			)
+		},
 		insertAll(rows) {
 			return addInserts(stateOf(this, "ChangeSet.insertAll"), this.reads, rows)
 		},
@@ -910,6 +947,76 @@ const addMember = <S, P, W extends string, Rd, Done extends Strata, Last extends
 	const name = memberRelation(relation, state.over, label)
 	const member = memberState(state, op, name, captureLoc(`${op} ${name}`, []), facts, label)
 	const scope = scopeWith(state, member)
+	return make(state.over, scope.strata, scope.reads, scope.bound, decoder)
+}
+
+/** An insert's computed fields on `relation`, its query and its location kept: its state, its canonical text ordering
+ * and deduplicating it. */
+const computedState = (
+	relation: string,
+	query: QueryDesc,
+	loc: SourceLoc
+): Extract<MemberState, { readonly kind: "computed" }> => ({
+	kind: "computed",
+	op: "insert",
+	relation,
+	query,
+	text: identityText(query),
+	params: queryParamNames(query),
+	desc: Object.freeze({
+		op: "insert",
+		relation,
+		member: Object.freeze({ kind: "computed", query }),
+		loc
+	})
+})
+
+/**
+ * insertComputed: its facts' member, an array's or a Stream's, as insert adds it, and the computed fields of its
+ * stratum's host rows of `relation` (ir/desc.ts ComputedSourceDesc): the query of one rule over the ChangeSet's level
+ * that matches nothing and finds the record, each term as find admits a head term, so a term holding a variable of
+ * another rule is refused there as every captured variable is. A query's head computes its own fields, and a record
+ * that names no field computes nothing, which is insert's.
+ */
+const addInsertComputed = <
+	S,
+	P,
+	W extends string,
+	Rd,
+	Done extends Strata,
+	Last extends Stratum,
+	A
+>(
+	state: ChangeSetState,
+	decoder: RowDecoder<Rd>,
+	relation: unknown,
+	facts: MemberInput,
+	computed: Readonly<Record<string, unknown>>
+): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {
+	const label = "ChangeSet.insertComputed"
+	const name = memberRelation(relation, state.over, label)
+	const loc = captureLoc(`insert ${name}`, [])
+	const member = memberState(state, "insert", name, loc, facts, label)
+	if (member.kind !== "array" && member.kind !== "stream") {
+		throw malformed(
+			label,
+			"rows as an array or a Stream, which leave the computed fields out: a query's head computes its own fields"
+		)
+	}
+	const fields = recordEntries(computed, label, `a record of ${name}'s computed fields to terms`)
+	if (fields.length === 0) {
+		throw malformed(label, "at least one computed field: insert writes rows that state every field")
+	}
+	const query = publicDesc(
+		defined(
+			queryState(
+				queryOver(state.over.value).rule((r: RuleValue) => r.find(Object.fromEntries(fields)))
+			),
+			"the query of an insert's computed fields"
+		),
+		label
+	)
+	const scope = scopeWith(scopeWith(state, member), computedState(name, query, keptLoc(loc)))
 	return make(state.over, scope.strata, scope.reads, scope.bound, decoder)
 }
 

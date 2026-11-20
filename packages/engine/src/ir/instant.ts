@@ -1,6 +1,7 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { LawId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
+import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
@@ -111,11 +112,55 @@ export type InstantRole =
 			readonly stamp: StampSource | undefined
 	  }
 
-/** A field an insert's rows leave out, an instant or a place, and what stamps it (StampSource). */
+/**
+ * An insert's computed fields (ChangeSet.insert's third argument, write/frontend/compile.ts): each field its host rows
+ * leave out, with its value, an expression over the call's scalar parameters and its clock reading alone, checked as a
+ * query member's head writing that field (check/member.ts), so one value for every row of the call. The statement that
+ * writes the rows evaluates the record once, one MATERIALIZED CTE of a row (write/insert/stamp.ts callValuesCte), which
+ * every row that carries one of its fields joins. A record is one object, and its CTE is keyed by it.
+ */
+export interface Computed {
+	/** Its identity among its write's records: its stratum's position and its relation's name, one record each. */
+	readonly key: string
+	readonly fields: NonEmptyReadonlyArray<{ readonly field: LawField; readonly expr: ScalarExpr }>
+}
+
+/** What fills a field, as a write keys the statements that must fill it together: a head's spelling (headText), or a
+ * computed record's key, each filled once in its stratum. */
+export const stampText = (stamp: Stamp): string =>
+	stamp.kind === "head" ? headText(stamp.head) : `computed ${stamp.computed.key}`
+
+/**
+ * What fills a field an insert's rows leave out:
+ * - `head`: a head's stamp at the row's child (StampSource): an instant's clock or a place, read from the greatest value
+ *   the child holds;
+ * - `call`: a value of the call, the field `from` of the insert's computed record (Computed), one value for every row
+ *   of the call: the computed field itself in its own relation's rows, and in a member's the owner's computed field its
+ *   group field pairs with (write/family/nesting.ts carriedStamps).
+ */
+export type Stamp =
+	| ({ readonly kind: "head" } & StampSource)
+	| { readonly kind: "call"; readonly computed: Computed; readonly from: string }
+
+/** A head's stamp (Stamp `head`). */
+export type HeadStamp = Extract<Stamp, { readonly kind: "head" }>
+
+/** A field an insert's rows leave out, an instant, a place or a computed field, and what fills it (Stamp). */
 export interface Stamped {
 	readonly field: LawField
-	readonly stamp: StampSource
+	readonly stamp: Stamp
 }
+
+/** A field a head stamps (Stamp `head`). */
+export interface HeadStamped {
+	readonly field: LawField
+	readonly stamp: HeadStamp
+}
+
+/** The fields of `stamps` a head stamps, the call's values aside: the ones whose head a stamping write reads, which
+ * serialize their calls and which one statement of one stratum stamps (write/frontend/instants.ts). */
+export const headStamped = (stamps: ReadonlyArray<Stamped>): ReadonlyArray<HeadStamped> =>
+	stamps.flatMap((s) => (s.stamp.kind === "head" ? [{ field: s.field, stamp: s.stamp }] : []))
 
 /** The schema's instants, each by its relation's name and its field's (InstantRole), and its places, each by its
  * relation's name, which holds one at most, last in its primary key. */

@@ -1052,7 +1052,7 @@ const usedParams = (desc: ChangeSetDesc): ReadonlySet<string> =>
 		...Arr.flatMap(desc.reads, (r) => [...queryParamNames(r.query)])
 	])
 
-const kindRank = { array: 0, stream: 1, query: 2, equal: 3 } as const
+const kindRank = { array: 0, stream: 1, query: 2, equal: 3, computed: 4 } as const
 
 /**
  * The real value read back into the canonical form, and held to the invariants the form does not show: members sorted
@@ -1093,7 +1093,7 @@ const readBackValue = (
 			op: m.op,
 			kind: kindRank[m.member.kind],
 			text:
-				m.member.kind === "query"
+				m.member.kind === "query" || m.member.kind === "computed"
 					? textOf(m.member.query)
 					: m.member.kind === "equal"
 						? textOf(m.member.fields)
@@ -1163,6 +1163,8 @@ const readBackValue = (
 							break
 						case "equal":
 							return assert.fail("a field-equality member, which no step of the program makes")
+						case "computed":
+							return assert.fail("an insert's computed fields, which no step of the program makes")
 					}
 				}
 				return {

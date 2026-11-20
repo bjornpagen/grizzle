@@ -27,7 +27,13 @@ import type { InstantRule, PlaceRule } from "#compiler/core/causes.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { WriteOp } from "#compiler/ir/desc.ts"
-import { headText, type Instants, type Stamped } from "#compiler/ir/instant.ts"
+import {
+	type HeadStamped,
+	headStamped,
+	headText,
+	type Instants,
+	type Stamped
+} from "#compiler/ir/instant.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 
@@ -42,7 +48,7 @@ const placeRefused = (loc: SourceLoc, relation: string, field: string, rule: Pla
 }
 
 /** A stamp's head's spelling in a refusal: its relation and field. */
-const clockText = (s: Stamped): string => headText(s.stamp.head)
+const clockText = (s: HeadStamped): string => headText(s.stamp.head)
 
 /**
  * The refusal of `s`, a stamp of `relation`'s, as stamped apart: `apart` in two strata or in a stratum of several
@@ -51,7 +57,7 @@ const clockText = (s: Stamped): string => headText(s.stamp.head)
 const refusedApart = (
 	loc: SourceLoc,
 	relation: string,
-	s: Stamped,
+	s: HeadStamped,
 	apart: "strata" | "statements"
 ): never =>
 	s.stamp.head.kind === "clock"
@@ -71,9 +77,11 @@ export type StampingWriter =
 
 /**
  * What an action of `op` over `relation` stamps, its source delivering `heading`, its rows written by `writer`: the
- * instant fields its insert's rows leave out, each with its stamp source, and its relation's place, which an insert
- * always stamps; none for a put or a delete, which state every instant and write no relation with a place. Refused as
- * the module's header says.
+ * instant fields its insert's rows leave out, each with its stamp source, its relation's place, which an insert always
+ * stamps, and `computed`, the fields its insert computes from the call (ir/instant.ts Computed), each its value; none
+ * for a put or a delete, which state every instant and write no relation with a place. A head's child may hold a
+ * computed field, which every row of the call holds alike, never a field a head stamps. Refused as the module's header
+ * says.
  */
 export const stampsOf = (
 	instants: Instants,
@@ -81,12 +89,13 @@ export const stampsOf = (
 	op: WriteOp,
 	heading: Heading,
 	writer: StampingWriter,
-	loc: SourceLoc
+	loc: SourceLoc,
+	computed: ReadonlyArray<Stamped>
 ): ReadonlyArray<Stamped> => {
 	const roles = instants.roles.get(relation.name)
 	const place = instants.places.get(relation.name)
 	const stated = (f: LawField): boolean => heading.some((c) => c.name === f.name)
-	const stamped: Array<Stamped> = []
+	const stamped: Array<HeadStamped> = []
 	for (const field of relation.fields) {
 		const role = roles?.get(field.name)
 		if (role === undefined) {
@@ -104,13 +113,13 @@ export const stampsOf = (
 		if (role.stamp === undefined) {
 			return refused(loc, relation.name, field.name, { kind: "unstampable" })
 		}
-		stamped.push({ field, stamp: role.stamp })
+		stamped.push({ field, stamp: { kind: "head", ...role.stamp } })
 	}
 	if (place !== undefined) {
 		if (op !== "insert") {
 			return placeRefused(loc, relation.name, place.field.name, { kind: "written", op })
 		}
-		stamped.push({ field: place.field, stamp: { head: place, child: place.child } })
+		stamped.push({ field: place.field, stamp: { kind: "head", head: place, child: place.child } })
 	}
 	for (const s of stamped) {
 		const inChild = s.stamp.child.find((f) => stamped.some((o) => o.field.name === f.name))
@@ -126,7 +135,7 @@ export const stampsOf = (
 	if (first !== undefined && writer.kind === "entry") {
 		return refusedApart(loc, relation.name, first, "statements")
 	}
-	return stamped
+	return [...computed, ...stamped]
 }
 
 /**
@@ -145,10 +154,11 @@ export const refuseStampedStatements = (
 ): void => {
 	const stamping = new Map<string, number>()
 	for (const a of actions) {
-		const clocks = new Set(a.stamps.map(clockText))
+		const heads = headStamped(a.stamps)
+		const clocks = new Set(heads.map(clockText))
 		for (const clock of clocks) {
 			const statements = (stamping.get(clock) ?? 0) + a.statements
-			const first = a.stamps.find((s) => clockText(s) === clock)
+			const first = heads.find((s) => clockText(s) === clock)
 			if (statements > 1 && first !== undefined) {
 				return refusedApart(a.loc, a.relation.name, first, "statements")
 			}
@@ -172,19 +182,22 @@ export interface StampingAction {
 
 /**
  * Refuses a ChangeSet whose actions `actions` stamp a clock in two strata, a head in a stratum's own statements and in
- * its family statement too, or a reference beside no insert of its clock in its stratum (see the module's header).
+ * its family statement too, or a reference beside no insert of its clock in its stratum (see the module's header). A
+ * call's value reads no head, so it is stamped apart from nothing.
  */
 export const refuseStampsApart = (actions: ReadonlyArray<StampingAction>): void => {
 	/** Each head a stratum's family statement stamps, by its stratum and its spelling. */
 	const family = new Set(
 		actions.flatMap((a) =>
-			a.writer === "family" ? a.stamps.map((s) => `${a.stratum}\u0000${clockText(s)}`) : []
+			a.writer === "family"
+				? headStamped(a.stamps).map((s) => `${a.stratum}\u0000${clockText(s)}`)
+				: []
 		)
 	)
 	for (const a of actions) {
 		const apart =
 			a.writer === "own"
-				? a.stamps.find((s) => family.has(`${a.stratum}\u0000${clockText(s)}`))
+				? headStamped(a.stamps).find((s) => family.has(`${a.stratum}\u0000${clockText(s)}`))
 				: undefined
 		if (apart !== undefined) {
 			return refusedApart(a.loc, a.relation.name, apart, "statements")
@@ -193,7 +206,7 @@ export const refuseStampsApart = (actions: ReadonlyArray<StampingAction>): void 
 	/** Each clock its own stamps stamp, by its relation and field, with the stratum that stamps it. */
 	const clocks = new Map<string, number>()
 	for (const a of actions) {
-		for (const s of a.stamps) {
+		for (const s of headStamped(a.stamps)) {
 			const own =
 				s.stamp.head.relation === a.relation.name && s.stamp.head.field.name === s.field.name
 			if (!own) {
@@ -208,7 +221,7 @@ export const refuseStampsApart = (actions: ReadonlyArray<StampingAction>): void 
 		}
 	}
 	for (const a of actions) {
-		for (const s of a.stamps) {
+		for (const s of headStamped(a.stamps)) {
 			if (clocks.get(clockText(s)) !== a.stratum) {
 				return refused(a.loc, a.relation.name, s.field.name, {
 					kind: "clockUnstamped",

@@ -46,6 +46,7 @@ import { appendAll, firstIndex } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
+	concatNonEmpty,
 	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
@@ -54,7 +55,13 @@ import {
 import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
-import { type Head, headText, type Stamped } from "#compiler/ir/instant.ts"
+import {
+	type Computed,
+	type Head,
+	headStamped,
+	headText,
+	type Stamped
+} from "#compiler/ir/instant.ts"
 import {
 	familyKey,
 	type LawField,
@@ -156,7 +163,15 @@ import {
 import type { MemberSlot } from "#compiler/write/frontend/compile.ts"
 import type { CopySource, OwnerCopy } from "#compiler/write/frontend/schedule.ts"
 import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
-import { type HeadStamps, headStampsCte, headStampsNames } from "#compiler/write/insert/stamp.ts"
+import {
+	type CallValues,
+	callColumn,
+	callValuesCte,
+	callValuesNames,
+	type HeadStamps,
+	headStampsCte,
+	headStampsNames
+} from "#compiler/write/insert/stamp.ts"
 import {
 	returnedColumn,
 	rowType,
@@ -214,12 +229,20 @@ export type RowSource =
 	  }
 
 /** Whether the rows of `source` state the column `key`, at which an appended row repeats a stored one: a slot's stated
- * fields (insert/input.ts RelationInput), and a nested row's every column the walk fills; never a column a counted
- * family draws, which its stored group holds. */
+ * fields (insert/input.ts RelationInput), and a nested row's every column the walk fills, and the fields the call
+ * computes for either; never a column a counted family draws, which its stored group holds. */
 const statesColumn = (source: RowSource, key: ColumnKey): boolean =>
 	source.kind === "slots"
-		? source.slots.some(({ slot }) => slot.input.stated.some((c) => columnKeyOf(c.name) === key))
-		: source.walked.has(key)
+		? source.slots.some(
+				({ slot, stamps }) =>
+					slot.input.stated.some((c) => columnKeyOf(c.name) === key) || computes(stamps, key)
+			)
+		: source.walked.has(key) || computes(source.stamps, key)
+
+/** Whether `stamps` fill the column `key` with the call's value, a computed field, which the call states as its host
+ * rows state their fields, one value for all of them (ir/instant.ts Stamp `call`). */
+const computes = (stamps: ReadonlyArray<Stamped>, key: ColumnKey): boolean =>
+	stamps.some((st) => st.stamp.kind === "call" && columnKeyOf(st.field.name) === key)
 
 /** A source of the rows of an owner relation the stratum inserts that an additions statement reads an owner copy from
  * (schedule.ts CopySource `held`): one of its slots' stated facts, or the stratum's nested rows of it. */
@@ -671,10 +694,13 @@ const appendedOf = (
 				])
 			]
 			const appended = shapedCte(supply, "appended member", keys)
-			const arms = mapNonEmpty(source.slots, ({ as, slot }) => {
+			const arms = mapNonEmpty(source.slots, ({ as, slot, stamps }) => {
 				const compared =
 					as === "inserts"
-						? slot.input.stated.map(fieldOf)
+						? [
+								...slot.input.stated.map(fieldOf),
+								...stamps.flatMap((st) => (st.stamp.kind === "call" ? [fieldOf(st.field)] : []))
+							]
 						: member.relation.primaryFields.map(fieldOf)
 				const [first, ...rest] = compared
 				if (first === undefined) {
@@ -828,10 +854,54 @@ const stampedSources = (
 			}
 		}
 	}
+	/** Each computed record the sources' rows take a value of, once, its values' CTE named and pushed, evaluated once for
+	 * the whole statement (write/insert/stamp.ts callValuesCte). */
+	const calls = new Map<Computed, CallValues>()
+	for (const x of stamping) {
+		for (const { stamp } of x.stamps) {
+			if (stamp.kind !== "call" || calls.has(stamp.computed)) {
+				continue
+			}
+			const values = callValuesNames(supply, stamp.computed)
+			calls.set(stamp.computed, values)
+			ctes.push(callValuesCte(w, values))
+		}
+	}
+	/** The call's value of a field of `x`'s rows, read from its record's one row, none where the call computes no value of
+	 * it. */
+	const calledIn = (x: StampingSource, field: string): Expr | undefined => {
+		for (const { field: f, stamp } of x.stamps) {
+			if (stamp.kind === "call" && f.name === field) {
+				const values = defined(calls.get(stamp.computed), "a computed record's values")
+				return col(values.name, callColumn(values, stamp.from))
+			}
+		}
+		return undefined
+	}
+	/** A field of a row of `x`, read as `r`, before its heads stamp it: its row's, or the call's value. */
+	const valueIn = (x: StampingSource, r: string, field: string): Expr =>
+		calledIn(x, field) ?? col(r, columnAt(x.rows, columnKeyOf(field)))
+	/** The rows of `x`, read as `r`, beside the values of every record they take one of, its one row each. */
+	const withCalls = (x: StampingSource, r: string): FromItem => {
+		const called = [
+			...new Set(x.stamps.flatMap((st) => (st.stamp.kind === "call" ? [st.stamp.computed] : [])))
+		]
+		const [firstCall, ...moreCalls] = called
+		return firstCall === undefined
+			? cteRefAs(x.rows.name, r)
+			: {
+					kind: "joins",
+					first: cteRefAs(x.rows.name, r),
+					steps: mapNonEmpty([firstCall, ...moreCalls], (c): JoinStep => ({
+						kind: "cross",
+						source: cteRef(defined(calls.get(c), "a computed record's values").name)
+					}))
+				}
+	}
 	/** Each head the sources stamp, once, its stamps' CTE named, by its relation and field (ir/instant.ts headText). */
 	const heads = new Map<string, { readonly head: Head; readonly names: HeadStamps }>()
 	for (const x of stamping) {
-		for (const st of x.stamps) {
+		for (const st of headStamped(x.stamps)) {
 			const at = headText(st.stamp.head)
 			if (!heads.has(at)) {
 				heads.set(at, { head: st.stamp.head, names: headStampsNames(supply, st.stamp.head) })
@@ -840,17 +910,19 @@ const stampedSources = (
 	}
 	for (const [at, { head, names }] of heads) {
 		const arms = stamping.flatMap((x) =>
-			x.stamps.flatMap((st) => {
+			headStamped(x.stamps).flatMap((st) => {
 				if (headText(st.stamp.head) !== at) {
 					return []
 				}
 				const r = supply.relation(internal("stamped source"))
 				return [
 					core(
-						mapNonEmpty(st.stamp.child, (f) =>
-							target(col(r, columnAt(x.rows, columnKeyOf(f.name))))
-						),
-						[cteRefAs(x.rows.name, r)],
+						mapNonEmpty(st.stamp.child, (f) => target(valueIn(x, r, f.name))),
+						[
+							st.stamp.child.some((f) => calledIn(x, f.name) !== undefined)
+								? withCalls(x, r)
+								: cteRefAs(x.rows.name, r)
+						],
 						undefined
 					)
 				]
@@ -876,14 +948,35 @@ const stampedSources = (
 			...x.stamps.map((st) => columnKeyOf(st.field.name))
 		])
 		const r = supply.relation(internal("stamped row"))
-		const joined = x.stamps.map((st) => {
+		const joined = headStamped(x.stamps).map((st) => {
 			const names = defined(heads.get(headText(st.stamp.head)), "a stamped head's stamps").names
 			return { st, alias: supply.relation(internal("stamp")), names }
 		})
+		const rowsWithCalls = withCalls(x, r)
 		const [firstJoin, ...moreJoins] = joined
-		if (firstJoin === undefined) {
-			throw defect("a stamping source's stamps")
-		}
+		const from: FromItem = ((): FromItem => {
+			if (firstJoin === undefined) {
+				return rowsWithCalls
+			}
+			const headJoins = mapNonEmpty(
+				[firstJoin, ...moreJoins],
+				({ st, alias, names }): JoinStep => ({
+					kind: "on",
+					source: cteRefAs(names.name, alias),
+					on: and(
+						mapNonEmpty(st.stamp.child, (f, i) =>
+							eq(
+								valueIn(x, r, f.name),
+								col(alias, defined(names.child[i], "a stamped child column"))
+							)
+						)
+					)
+				})
+			)
+			return rowsWithCalls.kind === "joins"
+				? { ...rowsWithCalls, steps: concatNonEmpty(rowsWithCalls.steps, headJoins) }
+				: { kind: "joins", first: rowsWithCalls, steps: headJoins }
+		})()
 		ctes.push(
 			cte(
 				view.name,
@@ -893,28 +986,22 @@ const stampedSources = (
 						"input",
 						[
 							...[...x.rows.columns].map(([k, c]) => targetAs(col(r, c), columnAt(view, k))),
-							...joined.map(({ st, alias, names }) =>
-								targetAs(col(alias, names.at), columnAt(view, columnKeyOf(st.field.name)))
-							)
-						],
-						[
-							{
-								kind: "joins",
-								first: cteRefAs(x.rows.name, r),
-								steps: mapNonEmpty([firstJoin, ...moreJoins], ({ st, alias, names }) => ({
-									kind: "on",
-									source: cteRefAs(names.name, alias),
-									on: and(
-										mapNonEmpty(st.stamp.child, (f, i) =>
-											eq(
-												col(r, columnAt(x.rows, columnKeyOf(f.name))),
-												col(alias, defined(names.child[i], "a stamped child column"))
-											)
-										)
+							...x.stamps.map((st) => {
+								const at = columnAt(view, columnKeyOf(st.field.name))
+								if (st.stamp.kind === "call") {
+									return targetAs(
+										defined(calledIn(x, st.field.name), "a computed field's value"),
+										at
 									)
-								}))
-							}
+								}
+								const { alias, names } = defined(
+									joined.find((j) => j.st.field.name === st.field.name),
+									"a stamped field's stamp"
+								)
+								return targetAs(col(alias, names.at), at)
+							})
 						],
+						[from],
 						undefined
 					)
 				)

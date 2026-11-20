@@ -91,7 +91,11 @@ export default defineConfig({
   the call's transaction began, in `"micros"` or `"millis"`: the input omits it, every statement of the call reads the
   one instant, and a clocked read answers `once` alone, never live. Bind a lease's, a timer's or a due instant's `now`
   so, never the host's clock; a reading lies in PostgreSQL's timestamptz range in its unit, so `now + delay`, the delay a
-  contract its predicate bounds, casts into its field with no guard where those bounds fit (millis: into a bigint). A
+  contract its predicate bounds, casts into its field with no guard where those bounds fit (millis: into a bigint).
+  Rows an array or a Stream inserts take such a field from the call: `insertComputed(Claim, [], { until: Compute.cast(
+  Compute.add(Compute.base(param("now", Instant)), Compute.base(param("budget", Budget))), Instant) })`, its rows
+  leaving `until` out, the record evaluated once per call in the statement that writes the rows, a nested owner's
+  members carrying a computed key field holding the owner's one value (README "Writes"). A
   reading is a value, a `bigint`, never an `instant`: a row records when it was written
   by a field of type `instant`, which no caller states. Key the row by its natural fields and the instant after them,
   `relation("SignIn", { user, at: instant, ... }, ["user", "at"])`: its `at` is a clock of child `user`, which an

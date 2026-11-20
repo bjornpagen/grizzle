@@ -14,11 +14,12 @@ import { hostHeld, type RelationUniques } from "#compiler/write/insert/unique.ts
 const hostKeyField = (f: LawField): HostKeyField => ({ field: f.name, type: f.type })
 
 /**
- * The fields at which the host holds a key of rows that leave out `stamped`, the fields their statement stamps (ir/instant.ts
- * Stamped): every field of it the host holds a fact's value at (insert/unique.ts `hostHeld`), and none of a stamped field,
- * where the key holds every field of its stamp's child: every row of one call that agrees at the child carries one stamp,
- * so two rows the key holds apart differ at its other fields. None where it holds another field no fact holds, or a
- * stamped field without its child, which rows of one call may stamp apart: only their statement compares them.
+ * The fields at which the host holds a key of rows that leave out `stamped`, the fields their statement fills (ir/instant.ts
+ * Stamped): every field of it the host holds a fact's value at (insert/unique.ts `hostHeld`), and none of a stamped field
+ * whose stamp is the call's one value (Stamp `call`), or a head's where the key holds every field of the stamp's child:
+ * every row of one call that agrees at the child carries one stamp, so two rows the key holds apart differ at its other
+ * fields. None where it holds another field no fact holds, or a head's stamped field without its child, which rows of one
+ * call may stamp apart: only their statement compares them.
  */
 const heldAt = (
 	fields: ReadonlyArray<LawField>,
@@ -28,7 +29,10 @@ const heldAt = (
 	for (const f of fields) {
 		const stamp = stamped.find((s) => s.field.name === f.name)
 		if (stamp !== undefined) {
-			if (!stamp.stamp.child.every((c) => fields.some((g) => g.name === c.name))) {
+			if (
+				stamp.stamp.kind === "head" &&
+				!stamp.stamp.child.every((c) => fields.some((g) => g.name === c.name))
+			) {
 				return undefined
 			}
 			continue

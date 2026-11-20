@@ -29,10 +29,23 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
  * Under SERIALIZABLE, two calls that stamp one group's place each read the other's head or are refused, so no two
  * commit one place.
  */
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import { type Head, sameStamp, type Stamped, type StampSource } from "#compiler/ir/instant.ts"
+import {
+	concatNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import {
+	type Computed,
+	type Head,
+	type HeadStamp,
+	headStamped,
+	sameStamp,
+	type Stamped
+} from "#compiler/ir/instant.ts"
 import type { LawField } from "#compiler/ir/law.ts"
-import type { Cte, Expr, FromItem, OperandSelect, Select } from "#compiler/sql/ast.ts"
+import { emptyEnv } from "#compiler/lower/conservative/context.ts"
+import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
+import type { Cte, Expr, FromItem, JoinStep, OperandSelect, Select } from "#compiler/sql/ast.ts"
 import {
 	and,
 	binary,
@@ -59,7 +72,7 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
 
 /** One head's stamps of an insert: its stamp source, the stamped fields it fills, and its CTE's names. */
 interface StampGroup extends HeadStamps {
-	readonly stamp: StampSource
+	readonly stamp: HeadStamp
 	readonly fields: NonEmptyReadonlyArray<LawField>
 }
 
@@ -145,10 +158,56 @@ export const headStampsNames = (supply: NameSupply, head: Head): HeadStamps => (
 	at: supply.column(internal("stamp"))
 })
 
+/** A computed record's values as a CTE (ir/instant.ts Computed): its name, and a column for each of its fields, by the
+ * field's name. */
+export interface CallValues {
+	readonly computed: Computed
+	readonly name: string
+	readonly columns: ReadonlyMap<string, string>
+}
+
+/** The names of a computed record's CTE, allocated from `supply`: its relation and a column per field. */
+export const callValuesNames = (supply: NameSupply, computed: Computed): CallValues => ({
+	computed,
+	name: supply.relation(internal("computed values")),
+	columns: new Map(
+		computed.fields.map(
+			({ field }) => [field.name, supply.column(internal("computed value"))] as const
+		)
+	)
+})
+
+/** The column of `values` that holds its record's field `from`. */
+export const callColumn = (values: CallValues, from: string): string =>
+	defined(values.columns.get(from), `the computed value ${from}`)
+
+/**
+ * The CTE `values` of its computed record, its one row: each field's expression over the call's scalar parameters and
+ * its clock reading, written at its field's type, MATERIALIZED, so the call evaluates the record once, and every row
+ * that carries one of its fields joins that one row.
+ */
+export const callValuesCte = (w: WriteContext, values: CallValues): Cte => ({
+	name: values.name,
+	columns: values.computed.fields.map(({ field }) => callColumn(values, field.name)),
+	materialized: "MATERIALIZED",
+	query: select(
+		provedCore(
+			"oneRow",
+			mapNonEmpty(values.computed.fields, ({ field, expr }) =>
+				target(written(w, lowerExpr(w.cx, expr, emptyEnv), field.type))
+			),
+			[],
+			undefined
+		)
+	)
+})
+
 /**
  * The CTEs of an insert's stamped input (see the module's header): `read`, the input's read of the fields it carries,
- * `carried`, as the CTE `input`; each head's stamps; then the input whole as `out`, every field of `fields` under its
- * column of `columns`, a stamped field's from its head's stamps.
+ * `carried`, as the CTE `input`; each computed record's values, read once (`callValuesCte`); each head's stamps, its
+ * children read from the input's rows and the call's values; then the input whole as `out`, every field of `fields`
+ * under its column of `columns`, a stamped field's from its head's stamps, a computed one's from the call's values,
+ * which every row joins.
  */
 export const stampedInput = (
 	w: WriteContext,
@@ -163,8 +222,14 @@ export const stampedInput = (
 	}
 ): NonEmptyReadonlyArray<Cte> => {
 	const input = supply.relation(internal("stamped input"))
+	const calls: Array<CallValues> = []
+	for (const { stamp } of stamps) {
+		if (stamp.kind === "call" && !calls.some((c) => c.computed === stamp.computed)) {
+			calls.push(callValuesNames(supply, stamp.computed))
+		}
+	}
 	const groups: Array<StampGroup> = []
-	for (const s of stamps) {
+	for (const s of headStamped(stamps)) {
 		const known = groups.findIndex((g) => sameStamp(g.stamp, s.stamp))
 		const group = groups[known]
 		if (group !== undefined) {
@@ -173,7 +238,40 @@ export const stampedInput = (
 		}
 		groups.push({ stamp: s.stamp, fields: [s.field], ...headStampsNames(supply, s.stamp.head) })
 	}
-	const inCol = (f: LawField): Expr => col(input, out.columns.of(f))
+	/** A field the call computes, with the CTE of its record's values and its column there. */
+	const calledOf = (
+		f: LawField
+	): { readonly name: string; readonly column: string } | undefined => {
+		for (const { field, stamp } of stamps) {
+			if (stamp.kind !== "call" || field.name !== f.name) {
+				continue
+			}
+			const values = defined(
+				calls.find((c) => c.computed === stamp.computed),
+				"a computed record's values"
+			)
+			return { name: values.name, column: callColumn(values, stamp.from) }
+		}
+		return undefined
+	}
+	/** A field of a row of the input, before its heads stamp it: its input's, or the call's value. */
+	const inCol = (f: LawField): Expr => {
+		const called = calledOf(f)
+		return called === undefined ? col(input, out.columns.of(f)) : col(called.name, called.column)
+	}
+	/** The input's rows beside the call's values, which every row joins, their one row each. */
+	const [firstCall, ...moreCalls] = calls
+	const withCalls: FromItem =
+		firstCall === undefined
+			? cteRef(input)
+			: {
+					kind: "joins",
+					first: cteRef(input),
+					steps: mapNonEmpty([firstCall, ...moreCalls], (c) => ({
+						kind: "cross",
+						source: cteRef(c.name)
+					}))
+				}
 	const stampCtes = groups.map((g): Cte =>
 		headStampsCte(
 			w,
@@ -183,7 +281,7 @@ export const stampedInput = (
 			select(
 				distinctCore(
 					mapNonEmpty(g.stamp.child, (f) => target(inCol(f))),
-					[cteRef(input)],
+					[g.stamp.child.some((f) => calledOf(f) !== undefined) ? withCalls : cteRef(input)],
 					undefined
 				)
 			)
@@ -194,19 +292,22 @@ export const stampedInput = (
 	const [first, ...more] = groups
 	const from: FromItem =
 		first === undefined
-			? cteRef(input)
+			? withCalls
 			: {
 					kind: "joins",
 					first: cteRef(input),
-					steps: mapNonEmpty([first, ...more], (g) => ({
-						kind: "on",
-						source: cteRef(g.name),
-						on: and(
-							mapNonEmpty(g.stamp.child, (f, i) =>
-								eq(inCol(f), col(g.name, defined(g.child[i], "a stamped child column")))
+					steps: concatNonEmpty(
+						calls.map((c): JoinStep => ({ kind: "cross", source: cteRef(c.name) })),
+						mapNonEmpty([first, ...more], (g): JoinStep => ({
+							kind: "on",
+							source: cteRef(g.name),
+							on: and(
+								mapNonEmpty(g.stamp.child, (f, i) =>
+									eq(inCol(f), col(g.name, defined(g.child[i], "a stamped child column")))
+								)
 							)
-						)
-					}))
+						}))
+					)
 				}
 	const whole = select(
 		provedCore(
@@ -226,6 +327,7 @@ export const stampedInput = (
 			materialized: undefined,
 			query: read
 		},
+		...calls.map((c) => callValuesCte(w, c)),
 		...stampCtes,
 		{ name: out.name, columns: out.columns.columns, materialized: undefined, query: whole }
 	]

@@ -324,8 +324,9 @@ export const aStampedNestingIsOneStatementWritingItsOwnerAndEveryMemberItsHeadSt
 			},
 			{
 				file: "packages/engine/src/write/family/nesting.ts",
-				original: "\t\tconst pair = family.group.find((g) => g.owner.name === s.field.name)\n",
-				replacement: "\t\tconst pair = family.group.find(() => false)\n",
+				original:
+					"\t\t\t...family.group.flatMap((g) => (g.owner.name === s.field.name ? [g.member] : [])),\n",
+				replacement: "\t\t\t...family.group.flatMap(() => []),\n",
 				why: "No member carries its owner's stamp, so the walk sends a member's stamped group field it never filled and the members are their own statement's, apart from the owner's stamp."
 			}
 		]

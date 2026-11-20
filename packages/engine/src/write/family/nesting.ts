@@ -38,7 +38,7 @@ import type { FillAxis } from "#compiler/core/causes.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { LawId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
+import { type Family, isCopy, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import {
 	type FillAt,
 	type FillColumn,
@@ -140,7 +140,8 @@ export const nestingData = (nesting: Nesting): NestingData => ({
 			{ layout: laidLayout(at.layout), pending: at.pending, position: atData(at.position) }
 		])
 	),
-	top: headingData(nesting.top)
+	top: headingData(nesting.top),
+	pending: nesting.pending
 })
 
 /** A nested write as compiled: see the module's header. */
@@ -157,10 +158,13 @@ export interface Nesting {
 	/** Each relation whose rows its family statements write: every reached member relation, and the insert's own unless
 	 * its root is plain. */
 	readonly layouts: ReadonlyMap<StoredRelationName, NestedLayout>
-	/** The fields the insert's own row writes: every field of its relation but a generated one. */
+	/** The fields the insert's own row writes: every field of its relation but a generated one and those its stamps fill. */
 	readonly top: Heading
 	/** The columns of the insert's own row the walk fills where it starts (`walkedAt`), which its facts state. */
 	readonly walked: ReadonlySet<ColumnKey>
+	/** The columns of the insert's own rows its family statement fills, which the walk leaves to it (`statementFilled`):
+	 * its stamps' and every generated field over one; none where nothing stamps its rows. */
+	readonly pending: ReadonlySet<ColumnKey>
 	/**
 	 * Each relation of the nesting whose rows leave out a field a stamp fills, with those fields (ir/instant.ts Stamped):
 	 * the insert's own, its place, clocks and stamped references, and each member's group field paired with a stamped
@@ -190,17 +194,32 @@ const keyedOf = (
 
 /**
  * The stamps a nesting's members carry from `owned`, the stamps of the rows of their families' owner (Nesting `stamps`):
- * each member's group field paired with an owner's stamped field, stamped by the owner's stamp at the member's fields
- * the group pairs with that stamp's child. A family's group pairs its owner's whole key, and a stamp's child stands in
- * its row's key, so every child field is paired.
+ * each member field filled with an owner's stamped field, its group field paired with it or its copy along the owner
+ * axis, stamped by the owner's stamp at the member's fields the group pairs with that stamp's child, or filled by the
+ * owner's computed value, the call's one value of it. A family's group pairs its owner's whole key, and a stamp's child
+ * stands in its row's key, so every child field is paired.
  */
 const carriedStamps = (family: Family, owned: ReadonlyArray<Stamped>): ReadonlyArray<Stamped> =>
 	owned.flatMap((s): ReadonlyArray<Stamped> => {
-		const pair = family.group.find((g) => g.owner.name === s.field.name)
-		if (pair === undefined) {
+		const carriers = [
+			...family.group.flatMap((g) => (g.owner.name === s.field.name ? [g.member] : [])),
+			...family.axes.owner.flatMap((p) =>
+				p.to.kind === "field" &&
+				p.to.field.name === s.field.name &&
+				p.from.kind === "field" &&
+				isCopy(family, p.from)
+					? [p.from.field]
+					: []
+			)
+		]
+		if (carriers.length === 0) {
 			return []
 		}
-		const child = mapNonEmpty(s.stamp.child, (c) => {
+		const stamp = s.stamp
+		if (stamp.kind === "call") {
+			return carriers.map((field) => ({ field, stamp }))
+		}
+		const child = mapNonEmpty(stamp.child, (c) => {
 			const paired = family.group.find((g) => g.owner.name === c.name)
 			if (paired === undefined) {
 				throw defect(
@@ -209,7 +228,10 @@ const carriedStamps = (family: Family, owned: ReadonlyArray<Stamped>): ReadonlyA
 			}
 			return paired.member
 		})
-		return [{ field: pair.member, stamp: { head: s.stamp.head, child } }]
+		return carriers.map((field) => ({
+			field,
+			stamp: { kind: "head" as const, head: stamp.head, child }
+		}))
 	})
 
 /** The fields of a level a fact supplies: its caller's, but those its nesting supplies: a member's
@@ -512,12 +534,13 @@ export const nestingOf = (
 			own: ownHeading(
 				relation,
 				tree === undefined ? { kind: "top" } : { kind: "root", family: tree }
-			),
+			).filter((f) => !ownStamped.has(columnKeyOf(f.name))),
 			layouts,
 			top: relation.fields
 				.filter((f) => f.writing.kind !== "generated" && !ownStamped.has(columnKeyOf(f.name)))
 				.map((f) => ({ name: f.name, type: f.type })),
 			walked: new Set([...walkedAt(fill, relation, start)].filter((k) => !ownStamped.has(k))),
+			pending: ownStamped,
 			stamps
 		})
 	)

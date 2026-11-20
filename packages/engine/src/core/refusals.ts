@@ -132,6 +132,7 @@ export const refusals = [
 	"delta.met names no family's members: their additions are their family statement's, which meets no stored fact at an arbiter key",
 	"grizzle mints no ids: key a row by its natural identity, its parent's key and its own name or place, a content digest, a published name and version, or an outside system's id under a contract of its own",
 	"insertAll names each relation by a required key: an optional key may insert nothing",
+	"insertComputed computes at least one field: insert writes rows that state every field",
 	"no arm of the source delivers the bound constants",
 	"not a field of the arms the bindings select",
 	"one literal name",
