@@ -11,7 +11,6 @@ import {
 	Duration,
 	Effect,
 	FileSystem,
-	Formatter,
 	Layer,
 	Option,
 	Order,
@@ -20,6 +19,7 @@ import {
 	Record as Rec,
 	Redacted,
 	Ref,
+	Result,
 	Runtime,
 	Sink,
 	Stdio,
@@ -87,6 +87,7 @@ import {
 } from "#runtime/client.ts"
 import type { RetryDecision } from "#runtime/client.ts"
 import { asCliError, printStderr } from "#runtime/input.ts"
+import { jsonText } from "#runtime/json.ts"
 import type { MediaDeclaration } from "#runtime/negotiate.ts"
 import { accept as acceptValue, dispatchResponse } from "#runtime/negotiate.ts"
 import type { ScrubEntry } from "#runtime/redact.ts"
@@ -114,6 +115,7 @@ import {
 } from "#runtime/sequential.ts"
 import type { EventContract, EventFailed, EventTable, StopAt } from "#runtime/sse.ts"
 import { eventStream, hasLifecycle, openContract, readsState, StopPoint } from "#runtime/sse.ts"
+import { utf8Chunks, utf8Text } from "#runtime/utf8.ts"
 
 /**
  * The default of `--max-record-bytes` (runtime/output.ts MaxRecordBytes): the most UTF-8 bytes one record of a
@@ -550,14 +552,18 @@ const jsonData = (text: string, credentials: readonly ScrubEntry[]): Option.Opti
 
 /**
  * Read an error response body whole for `ApiResponseError.body`, as text, scrubbed, sanitized and scrubbed again. An
- * error body is the server's answer to this run, read to its end as the success body is, and printed in full.
+ * error body is the server's answer to this run, read to its end as the success body is, and printed in full. A body
+ * whose bytes are no UTF-8 fails with `invalidText`: it has no text to print.
  */
 export const readErrorBody = <E, R>(
 	body: Stream.Stream<Uint8Array, E, R>,
 	credentials: readonly ScrubEntry[]
-): Effect.Effect<string, E, R> =>
-	Effect.map(Stream.mkUint8Array(body), (read) =>
-		scrubbedAndSanitized(new TextDecoder().decode(read), credentials)
+): Effect.Effect<string, E | ResponseStreamError, R> =>
+	Effect.flatMap(Stream.mkUint8Array(body), (read) =>
+		Option.match(Option.fromUndefinedOr(utf8Text(read)), {
+			onNone: () => Effect.fail(new ResponseStreamError({ reason: "invalidText" })),
+			onSome: (text) => Effect.succeed(scrubbedAndSanitized(text, credentials))
+		})
 	)
 
 /**
@@ -905,22 +911,28 @@ interface ErrorFields {
 }
 
 /**
- * One line holding `{"error":{...}}`, keys alphabetical. Every string arrives scrubbed and
- * sanitized; the JSON escaping covers the characters sanitizing keeps (design 7.4, C5). `data`, already one compact
- * JSON text, is written as it is, first, so its numbers and key order stay as the server sent them.
+ * One line holding `{"error":{...}}`, keys alphabetical, a field that is `undefined` left out, written by the runtime's
+ * one JSON door (`jsonText`). Every string arrives scrubbed and sanitized; the JSON escaping covers the characters
+ * sanitizing keeps (design 7.4, C5). `data`, already one compact JSON text, is written as it is, first, so its numbers
+ * and key order stay as the server sent them.
  */
 const jsonLine = (fields: ErrorFields): string => {
 	const { carried } = fields
-	const text = Formatter.formatJson({
-		body: carried?.key === "body" ? carried.text : undefined,
-		kind: fields.kind,
-		matched: fields.matched,
-		message: fields.message,
-		operation: fields.operation,
-		requestId: fields.requestId,
-		retryAfter: fields.retryAfter,
-		status: fields.status
-	})
+	const members: ReadonlyArray<readonly [string, string | number | undefined]> = [
+		["body", carried?.key === "body" ? carried.text : undefined],
+		["kind", fields.kind],
+		["matched", fields.matched],
+		["message", fields.message],
+		["operation", fields.operation],
+		["requestId", fields.requestId],
+		["retryAfter", fields.retryAfter],
+		["status", fields.status]
+	]
+	const text = jsonText(
+		Rec.fromEntries(
+			Arr.flatMap(members, ([key, value]) => (value === undefined ? [] : [[key, value] as const]))
+		)
+	)
 
 	return carried?.key === "data"
 		? `{"error":{"data":${carried.json},${Str.slice(1)(text)}}`
@@ -1750,6 +1762,24 @@ const redactPartHead = (head: string, names: readonly (string | RegExp)[]): stri
 	)
 
 /**
+ * One piece of the `--dry-run` body's view: its bytes, or the refusal of a body whose text it cannot show. The view's
+ * stream ends at its first refusal (`Effect.fromResult`).
+ */
+type Piece = Result.Result<Uint8Array, UsageError>
+
+/**
+ * The refusal of a request body whose text `--dry-run` would show, a text-labeled body or a multipart head, where its
+ * bytes are no UTF-8: it is printed as no other text than the bytes hold.
+ */
+const notTextBody = (): UsageError =>
+	new UsageError({ message: "the request body is not UTF-8 text" })
+
+/**
+ * `notTextBody` as the piece that ends the view.
+ */
+const notText = (): Piece => Result.fail(notTextBody())
+
+/**
  * The recorded-value scrub over text that arrives in chunks, for the `--dry-run` body: each piece
  * is emitted scrubbed (`scrub`) once it ends with no proper prefix of any recorded form, found by
  * `dropTrailingFragment` repeated until it holds, so every occurrence lies whole inside one emitted
@@ -1757,7 +1787,7 @@ const redactPartHead = (head: string, names: readonly (string | RegExp)[]): stri
  * form, so memory stays bound. The text is decoded as UTF-8 across chunk ends.
  */
 class StreamScrubber {
-	private readonly decoder = new TextDecoder()
+	private readonly decoder = utf8Chunks()
 	private pending = ""
 	private readonly recorded: readonly ScrubEntry[]
 
@@ -1765,41 +1795,52 @@ class StreamScrubber {
 		this.recorded = recorded
 	}
 
-	push(chunk: Uint8Array): readonly Uint8Array[] {
-		const text = this.pending + this.decoder.decode(chunk, { stream: true })
-		let safe = text
-		let shorter = dropTrailingFragment(safe, this.recorded, unchanged)
-		while (shorter.length < safe.length) {
-			safe = shorter
-			shorter = dropTrailingFragment(safe, this.recorded, unchanged)
-		}
+	push(chunk: Uint8Array): readonly Piece[] {
+		return Option.match(Option.fromUndefinedOr(this.decoder.chunk(chunk)), {
+			onNone: () => [notText()],
+			onSome: (decoded) => {
+				const text = this.pending + decoded
+				let safe = text
+				let shorter = dropTrailingFragment(safe, this.recorded, unchanged)
+				while (shorter.length < safe.length) {
+					safe = shorter
+					shorter = dropTrailingFragment(safe, this.recorded, unchanged)
+				}
 
-		this.pending = Str.slice(safe.length)(text)
+				this.pending = Str.slice(safe.length)(text)
 
-		return this.emit(safe)
+				return this.emit(safe)
+			}
+		})
 	}
 
-	end(): readonly Uint8Array[] {
-		const rest = this.pending + this.decoder.decode()
-		this.pending = ""
+	end(): readonly Piece[] {
+		return Option.match(Option.fromUndefinedOr(this.decoder.end()), {
+			onNone: () => [notText()],
+			onSome: (decoded) => {
+				const rest = this.pending + decoded
+				this.pending = ""
 
-		return this.emit(rest)
+				return this.emit(rest)
+			}
+		})
 	}
 
-	private emit(text: string): readonly Uint8Array[] {
-		return text === "" ? [] : [encoder.encode(scrubValues(text, this.recorded))]
+	private emit(text: string): readonly Piece[] {
+		return text === "" ? [] : [Result.succeed(encoder.encode(scrubValues(text, this.recorded)))]
 	}
 }
 
 const scrubStream =
 	(recorded: readonly ScrubEntry[]) =>
-	<E, R>(body: Stream.Stream<Uint8Array, E, R>): Stream.Stream<Uint8Array, E, R> =>
+	<E, R>(body: Stream.Stream<Uint8Array, E, R>): Stream.Stream<Uint8Array, E | UsageError, R> =>
 		body.pipe(
 			Stream.mapAccum(
 				() => new StreamScrubber(recorded),
 				(scrubber, chunk: Uint8Array) => [scrubber, scrubber.push(chunk)] as const,
 				{ onHalt: (scrubber) => scrubber.end() }
-			)
+			),
+			Stream.mapEffect(Effect.fromResult)
 		)
 
 /**
@@ -1833,13 +1874,13 @@ class MultipartSummary {
 		this.recorded = recorded
 	}
 
-	push(chunk: Uint8Array): readonly Uint8Array[] {
+	push(chunk: Uint8Array): readonly Piece[] {
 		this.pending = Bytes.concat([this.pending, chunk])
 
 		return this.drain(false)
 	}
 
-	end(): readonly Uint8Array[] {
+	end(): readonly Piece[] {
 		const out = [...this.drain(true)]
 		this.flushText(out)
 
@@ -1849,7 +1890,7 @@ class MultipartSummary {
 	/**
 	 * A part's content bytes: text is emitted through the recorded-value scrub; a summarized part is only counted.
 	 */
-	private content(bytes: Uint8Array, out: Uint8Array[]): void {
+	private content(bytes: Uint8Array, out: Piece[]): void {
 		if (this.summary === undefined) {
 			this.text ??= new StreamScrubber(this.recorded)
 			for (const piece of this.text.push(bytes)) {
@@ -1860,7 +1901,7 @@ class MultipartSummary {
 		}
 	}
 
-	private flushText(out: Uint8Array[]): void {
+	private flushText(out: Piece[]): void {
 		if (this.text !== undefined) {
 			for (const piece of this.text.end()) {
 				out.push(piece)
@@ -1869,7 +1910,7 @@ class MultipartSummary {
 		}
 	}
 
-	private closePart(out: Uint8Array[]): void {
+	private closePart(out: Piece[]): void {
 		this.flushText(out)
 		if (this.summary !== undefined) {
 			out.push(this.scrubbed(`<${this.summary}, ${this.counted} bytes>`))
@@ -1879,12 +1920,12 @@ class MultipartSummary {
 		this.counted = 0
 	}
 
-	private scrubbed(text: string): Uint8Array {
-		return encoder.encode(scrubValues(text, this.recorded))
+	private scrubbed(text: string): Piece {
+		return Result.succeed(encoder.encode(scrubValues(text, this.recorded)))
 	}
 
-	private drain(final: boolean): readonly Uint8Array[] {
-		const out: Uint8Array[] = []
+	private drain(final: boolean): readonly Piece[] {
+		const out: Piece[] = []
 		let progressed = this.step(final, out)
 		while (progressed) {
 			progressed = this.step(final, out)
@@ -1897,7 +1938,7 @@ class MultipartSummary {
 	 * One step of the machine: it consumes input or changes mode and returns true, or returns false when it needs more
 	 * bytes.
 	 */
-	private step(final: boolean, out: Uint8Array[]): boolean {
+	private step(final: boolean, out: Piece[]): boolean {
 		if (this.mode === "epilogue") {
 			this.content(this.pending, out)
 			this.pending = new Uint8Array(0)
@@ -1910,9 +1951,10 @@ class MultipartSummary {
 
 	/**
 	 * A part head, up to its blank line. A head that opens a nested multipart body keeps its last CRLF in the input,
-	 * since that CRLF starts the nested body's first delimiter.
+	 * since that CRLF starts the nested body's first delimiter. A head whose bytes are no UTF-8 is refused, and the
+	 * machine stops.
 	 */
-	private head(final: boolean, out: Uint8Array[]): boolean {
+	private head(final: boolean, out: Piece[]): boolean {
 		const found = indexOfBytes(this.pending, headEnd)
 		if (Option.isNone(found)) {
 			if (final) {
@@ -1924,7 +1966,14 @@ class MultipartSummary {
 		}
 
 		const at = found.value
-		const head = new TextDecoder().decode(this.pending.subarray(0, at))
+		const head = utf8Text(this.pending.subarray(0, at))
+		if (head === undefined) {
+			out.push(notText())
+			this.pending = new Uint8Array(0)
+
+			return false
+		}
+
 		const shown = redactPartHead(head, this.names)
 		const contentType = partContentType.exec(head)?.groups.type
 		const nested = boundaryOf(contentType)
@@ -1953,7 +2002,7 @@ class MultipartSummary {
 	 * the input it emits all but a tail that may hold the start of a delimiter and those two bytes. A boundary text
 	 * followed by neither CRLF nor `--` lies inside a part's content and is no delimiter.
 	 */
-	private body(final: boolean, out: Uint8Array[]): boolean {
+	private body(final: boolean, out: Piece[]): boolean {
 		const boundary = this.boundaries.at(-1) ?? ""
 		const delimiter = encoder.encode(`\r\n--${boundary}`)
 		const found = indexOfBytes(this.pending, delimiter)
@@ -1986,7 +2035,7 @@ class MultipartSummary {
 
 		this.content(this.pending.subarray(0, at), out)
 		this.closePart(out)
-		out.push(encoder.encode(`${this.first ? "" : "\r\n"}--${boundary}${next}`))
+		out.push(Result.succeed(encoder.encode(`${this.first ? "" : "\r\n"}--${boundary}${next}`)))
 		this.first = false
 		this.pending = this.pending.subarray(after + 2)
 		if (next === "--") {
@@ -2008,13 +2057,14 @@ const summarizeMultipart = <E, R>(
 	boundary: string,
 	recorded: readonly ScrubEntry[],
 	names: readonly (string | RegExp)[]
-): Stream.Stream<Uint8Array, E, R> =>
+): Stream.Stream<Uint8Array, E | UsageError, R> =>
 	body.pipe(
 		Stream.mapAccum(
 			() => new MultipartSummary(boundary, recorded, names),
 			(summary, chunk: Uint8Array) => [summary, summary.push(chunk)] as const,
 			{ onHalt: (summary) => summary.end() }
-		)
+		),
+		Stream.mapEffect(Effect.fromResult)
 	)
 
 const newline = encoder.encode("\n")
@@ -2042,7 +2092,8 @@ const line = (text: string): Stream.Stream<Uint8Array> => Stream.succeed(encoder
  * multipart body summarized by `MultipartSummary`, a part header `names` lists redacted; a binary
  * body as `<binary body, N bytes>` from its declared length, or, with no length, which is stdin, as
  * `<binary body from stdin>` (`<body from stdin>` for a text one) without reading it. A file the
- * runtime streams arrives with its size only, so its path cannot be named here.
+ * runtime streams arrives with its size only, so its path cannot be named here. Text whose bytes are no UTF-8 is
+ * refused (`notTextBody`).
  */
 const dryRunBody = (
 	request: HttpClientRequest.HttpClientRequest,
@@ -2061,7 +2112,10 @@ const dryRunBody = (
 
 	if (body._tag === "Uint8Array") {
 		return printsAsText(mediaType)
-			? line(scrubValues(new TextDecoder().decode(body.body), recorded))
+			? Option.match(Option.fromUndefinedOr(utf8Text(body.body)), {
+					onNone: () => Stream.fail(notTextBody()),
+					onSome: (text) => line(scrubValues(text, recorded))
+				})
 			: line(`<binary body, ${body.body.length} bytes>`)
 	}
 
