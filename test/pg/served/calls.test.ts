@@ -6,8 +6,8 @@
  *   rows argument (the seed's item's lines, a query bound to the seed's item) and a value argument (the seed's shift),
  *   which reads the variables of the match before it, and finds each row with scale(pos, 3), a call term, and the
  *   seed's mood as moodOf returns it, a closed id passed as its code and read back under its roster's domain. Where
- *   PostgreSQL's own rows hold no NULL, the served answer is exactly those rows; where one holds NULL, a line of empty
- *   text, the call is refused.
+ *   PostgreSQL's own rows hold no NULL, the served answer is exactly those rows, each once; where one holds NULL, a
+ *   line of empty text, the call is refused, its statement raising SQLSTATE 22004, null_value_not_allowed.
  * - **Oracle:** PostgreSQL: the owner's direct call of explode at each seed's array of its lines and of scale at each
  *   row, as plain SQL over the installation's tables, each row's mood the one the case drew for its seed.
  * - **Features:** each language, no seed, a seed of no line (an empty rows argument), two lines giving one row, a row
@@ -18,7 +18,8 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberExplains, onceCalls } from "#adapter/db/handles.ts"
+import { sqlstates } from "#compiler/core/sqlstate.ts"
 import {
 	type CallsFeature,
 	callsTemplates,
@@ -66,33 +67,49 @@ export const aServedProgramsCallsAnswerPostgresqlsOwnRowsOfThem = property.explo
 						yield* loadMigrated(installed, factsOf(c))
 						const expected = yield* oracleRows(substrate.admin, installed.schema)
 						const world = worldOf(c.language, installed.declared)
-						yield* withServedDb(installed, world.server.roles.app, {}, ({ ctx: db, load }) =>
-							Effect.gen(function* () {
-								const loaded = yield* load(programsOf(c.language))
-								const answered = yield* Effect.result(
-									readOnce(onceCalls(db, member(loaded, "run")))({ params: {}, facts: {} })
-								)
-								const refuses = Arr.some(expected, (row) => row["out"] === null)
-								if (refuses) {
-									notes.note("a row holding NULL, refused")
-									assert.ok(
-										Result.isFailure(answered),
-										`a call whose rows hold NULL is refused: ${Formatter.format(answered)}`
+						yield* withServedDb(
+							installed,
+							world.server.roles.app,
+							{},
+							({ ctx: db, loadWithTables }) =>
+								Effect.gen(function* () {
+									const loaded = yield* loadWithTables(programsOf(c.language))
+									const run = member(loaded.members, "run")
+									const input = { params: {}, facts: {} }
+									const answered = yield* Effect.result(readOnce(onceCalls(db, run))(input))
+									const refuses = Arr.some(expected, (row) => row["out"] === null)
+									if (refuses) {
+										notes.note("a row holding NULL, refused")
+										assert.ok(
+											Result.isFailure(answered),
+											`a call whose rows hold NULL is refused: ${Formatter.format(answered)}`
+										)
+										const explains = memberExplains(db, loaded.tables, run)
+										if (explains.kind !== "read") {
+											return assert.fail("a read explains as a read")
+										}
+										const ran = yield* Effect.result(explains.explainAnalyze(input))
+										assert.ok(
+											Result.isFailure(ran) &&
+												ran.failure._tag === "ReadFailure" &&
+												ran.failure.reason._tag === "ServerError" &&
+												ran.failure.reason.sqlstate === sqlstates.nullValueNotAllowed,
+											`its statement raises null_value_not_allowed: ${Formatter.format(ran)}`
+										)
+										return
+									}
+									if (Result.isFailure(answered)) {
+										return assert.fail(`the program answers: ${Formatter.format(answered.failure)}`)
+									}
+									if (expected.length > 0) {
+										notes.note("rows answered")
+									}
+									assert.deepEqual(
+										sortedTexts(Arr.map(answered.success, rowText)),
+										sortedTexts(Arr.map(expected, (row) => rowText(withMood(c, row)))),
+										"the served program answers PostgreSQL's own rows of its calls"
 									)
-									return
-								}
-								if (Result.isFailure(answered)) {
-									return assert.fail(`the program answers: ${Formatter.format(answered.failure)}`)
-								}
-								if (expected.length > 0) {
-									notes.note("rows answered")
-								}
-								assert.deepEqual(
-									sortedTexts(Arr.map(answered.success, rowText)),
-									sortedTexts(Arr.map(expected, (row) => rowText(withMood(c, row)))),
-									"the served program answers PostgreSQL's own rows of its calls"
-								)
-							})
+								})
 						)
 					}),
 					Substrate,
@@ -108,8 +125,8 @@ export const aServedProgramsCallsAnswerPostgresqlsOwnRowsOfThem = property.explo
 	kills: [
 		{
 			file: "packages/engine/src/lower/conservative/call/index.ts",
-			original: "		[or([whole, refused])]\n",
-			replacement: "		[]\n",
+			original: "\treturn calledRows(node, columns, [item], [noNull], cx)",
+			replacement: "\treturn calledRows(node, columns, [item], [], cx)",
 			why: "A row of the function's holding NULL is delivered, not refused, so a call of a line of empty text answers."
 		}
 	]

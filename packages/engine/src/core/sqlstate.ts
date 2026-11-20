@@ -89,6 +89,11 @@ export const sqlstates = {
 	notNullViolation: brand("23502"),
 	/** A subquery used as an expression returned more than one row. */
 	cardinalityViolation: brand("21000"),
+	/**
+	 * A NULL a declared function returned where grizzle holds a value, a value, a row's field or a field's row, which a
+	 * query's read of its call raises through the installation's refusal function (lower/conservative/call).
+	 */
+	nullValueNotAllowed: brand("22004"),
 	/** The isolation guard's refusal of a write in a transaction below SERIALIZABLE (physical/ddl/isolation.ts). */
 	invalidTransactionState: brand("25000"),
 	/**

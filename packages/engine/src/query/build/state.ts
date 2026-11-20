@@ -303,6 +303,18 @@ const relationCarriers = (value: unknown, label: string): Carriers => {
 	return Object.freeze(out)
 }
 
+/** The carriers of a heading of field descriptors, each field's descriptor's: a call's heading of values' rows. */
+export const descriptorCarriers = (
+	descriptors: Readonly<Record<string, unknown>>,
+	label: string
+): Carriers => {
+	const out: Record<string, Carrier> = {}
+	for (const [field, descriptor] of Object.entries(descriptors)) {
+		out[field] = descriptorCarrier(descriptor, `${label} ${field}`)
+	}
+	return Object.freeze(out)
+}
+
 /** The field descriptors a context value holds. */
 const descriptorsOf = (
 	value: Readonly<Record<string, unknown>>

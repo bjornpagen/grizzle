@@ -16,6 +16,7 @@ import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import { rewritePipeline } from "#compiler/lower/optimize/pipeline.ts"
 import { type ReferenceInput, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import {
 	descOf,
@@ -105,6 +106,7 @@ const preserves = (inst: Installed, plan: Plan, c: Case<UniverseFeature>): void 
 					schema: inst.schema,
 					facts: db.facts,
 					params,
+					functions: noFunctions,
 					observer: unobserved
 				}
 				sameDelivery(input, query, rewritten.value)

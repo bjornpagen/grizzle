@@ -821,12 +821,21 @@ export const textSplits = ["tokens"] as const
 export type TextSplit = (typeof textSplits)[number]
 
 /**
- * The function a Call reads the rows of: a declared function that returns rows (Compute.rowsOf), which PostgreSQL alone
- * evaluates, so no host evaluator reads one; or one of grizzle's splits of its one value argument, `splitArgument`
- * (TextSplit), which the host evaluates as PostgreSQL does.
+ * The function a Call reads the rows of: a declared function that returns rows (Compute.rowsOf); a field of the one row
+ * a declared function returns (Compute.rowOf), `field`, one of the row's fields `row`, in its row type's attribute
+ * order, which holds rows of a heading of values; each of which PostgreSQL alone evaluates, so no host evaluator reads
+ * one but through a model of the function it is given; or one of grizzle's splits of its one value argument,
+ * `splitArgument` (TextSplit), which the host evaluates as PostgreSQL does. Every read of a field of one call of an
+ * immutable or stable function at one argument tuple reads one evaluation of the call, whose row holds every field:
+ * the lowering evaluates it once for all of them (lower/conservative/call).
  */
 export type CallFunction =
 	| ({ readonly kind: "declared" } & CalledFunction)
+	| ({
+			readonly kind: "field"
+			readonly field: string
+			readonly row: NonEmptyReadonlyArray<string>
+	  } & CalledFunction)
 	| { readonly kind: "split"; readonly split: TextSplit }
 
 /** The one argument of a split (CallFunction `split`): the text it splits. */

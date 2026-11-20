@@ -84,8 +84,8 @@ export const aLawsFullCheckReadsEachTableOncePerOccurrenceAndEachRowABoundedNumb
 			},
 			{
 				file: "packages/engine/src/lower/conservative/match-region/index.ts",
-				original: "\t\t? wholeSelect(from, parts.targets, parts.conditions)",
-				replacement: "\t\t? distinctSelect(parts.targets, from, parts.conditions)",
+				original: "\t\t? wholeSelect(parts.from, parts.targets, parts.conditions)",
+				replacement: "\t\t? distinctSelect(parts.targets, parts.from, parts.conditions)",
 				why: "A region that binds every column of its sets deduplicates them again, as each scan of a check's tables is a region of one occurrence."
 			}
 		]

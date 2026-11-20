@@ -21,6 +21,7 @@ import {
 	witnessRoot
 } from "#test/support/oracle/mutants/cases.ts"
 import { type ReferenceInput, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import {
 	FragmentReference,
 	owedOf,
@@ -109,6 +110,7 @@ export const inputOf = (c: {
 	schema: c.schema,
 	facts: c.facts,
 	params: c.query.params,
+	functions: noFunctions,
 	observer: unobserved
 })
 

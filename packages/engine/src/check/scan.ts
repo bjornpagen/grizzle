@@ -104,7 +104,7 @@ const sourceLeaves = <P extends object, T, D extends InferredFieldDesc>(
 	}
 	if (s.kind === "query" || s.kind === "step") {
 		bound(s.bind)
-	} else if (s.kind === "call") {
+	} else if (s.kind === "call" || s.kind === "callField") {
 		for (const [, a] of entries(s.args)) {
 			if (a.kind === "rows") {
 				bound(a.bind)

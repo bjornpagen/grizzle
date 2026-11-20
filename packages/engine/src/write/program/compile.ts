@@ -27,13 +27,25 @@ import {
 	type ProgramArtifacts,
 	type StatementSpec
 } from "#compiler/ir/products.ts"
-import type { DeltaSide, RelDag, RelNode } from "#compiler/ir/rel.ts"
+import {
+	type DeltaSide,
+	edgesOf,
+	type NodeOf,
+	type RelDag,
+	type RelNode
+} from "#compiler/ir/rel.ts"
 import type { ReadBack } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { generations } from "#compiler/laws/model/generation.ts"
 import { fieldImages, type LawModel } from "#compiler/laws/model/model.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
-import { WriteParams } from "#compiler/lower/conservative/context.ts"
+import {
+	evaluationKey,
+	evaluationQuery,
+	evaluationWidth,
+	readsOnlyParameters
+} from "#compiler/lower/conservative/call/index.ts"
+import { emptyEnv, type LowerContext, WriteParams } from "#compiler/lower/conservative/context.ts"
 import type { DeclaredParamSlot, WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { isPlainQuery } from "#compiler/lower/delivery.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
@@ -289,6 +301,48 @@ const inputReads = (inputs: ReadonlyArray<WriteInput>): ReadonlyArray<string> =>
 				? input.node.meta.reads.map((r) => `relation:${r}`)
 				: []
 	)
+
+/** The nodes a planned write lowers: its described input, its exception's, and the region a deletion is anchored on. */
+const plannedNodes = (planned: PlannedWrite): ReadonlyArray<RelNode> => {
+	const inputs = [planned.input, ...(planned.op === "exactDelete" ? planned.except : [])]
+	return [
+		...inputs.flatMap((input) => (input.kind === "described" ? [input.node] : [])),
+		...(planned.op === "anchoredDelete" ? [planned.anchor.region] : [])
+	]
+}
+
+/**
+ * The evaluations a single statement holds once each as a part of its own, which every part reads
+ * (lower/shapes/share/statements.ts carryEvaluation): one per evaluation key (lower/conservative/call evaluationKey) of
+ * the calls the field reads under `roots` read, each that reads only parameters (readsOnlyParameters), with the first
+ * read of it, in the order the reads are met.
+ */
+const heldEvaluations = (
+	cx: LowerContext,
+	roots: ReadonlyArray<RelNode>
+): ReadonlyArray<{ readonly read: NodeOf<"Call">; readonly key: string }> => {
+	const seen = new Set<RelNode>()
+	const keys = new Set<string>()
+	const held: Array<{ readonly read: NodeOf<"Call">; readonly key: string }> = []
+	const queue = [...roots]
+	for (const node of queue) {
+		if (seen.has(node)) {
+			continue
+		}
+		seen.add(node)
+		for (const input of edgesOf(node)) {
+			queue.push(input)
+		}
+		if (node.kind === "Call" && node.function.kind === "field" && readsOnlyParameters(cx, node)) {
+			const key = evaluationKey(cx.dag, node)
+			if (!keys.has(key)) {
+				keys.add(key)
+				held.push({ read: node, key })
+			}
+		}
+	}
+	return held
+}
 
 export interface ArtifactBuilder {
 	/** Each statement placed so far, a read-back's naming its read-back, with its audited AST for the carriers'
@@ -1173,6 +1227,36 @@ const optimizedPlacement = (
 				const buildParts = (): BuiltParts => {
 					let start = ownStatement
 					const shares: Array<SharedPart> = []
+					sharing.clearEvaluations()
+					for (const read of heldEvaluations(w.cx, [
+						...step.shares.map((share) => share.node),
+						...step.writes.flatMap(plannedNodes)
+					])) {
+						/** A call's evaluation every part reads: a part of its own, before the shared sub-queries that read it. */
+						const fill = { ...w, start }
+						const supply = new NameSupply(start)
+						const placeholders = new WriteParams()
+						fill.cx.beginWriteStatement(supply, placeholders)
+						const query = evaluationQuery(read.read, fill.cx, emptyEnv)
+						const params = [...placeholders.slots]
+						const names = freshNames(
+							namesPast(supply.map(), ownStatement),
+							evaluationWidth(read.read)
+						)
+						start = names.next
+						shares.push({
+							name: names.relation,
+							columns: names.columns,
+							query,
+							params,
+							nameMap: [...supply.map(), ...names.nameMap]
+						})
+						sharing.carryEvaluation(read.key, {
+							kind: "enclosing",
+							name: names.relation,
+							columns: names.columns
+						})
+					}
 					for (const share of step.shares) {
 						const heading = share.node.heading.map((c) => ({
 							name: c.name,
@@ -1206,6 +1290,7 @@ const optimizedPlacement = (
 						start = namesPast(statement.sql.nameMap, ownStatement)
 						return { step: writeStep(planned, statement), statement }
 					})
+					sharing.clearEvaluations()
 					return { shares, writes, start }
 				}
 				const position = b.statements.length

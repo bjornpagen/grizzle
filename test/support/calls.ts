@@ -1,6 +1,7 @@
-import { Effect, Option } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
 import type { OnceCalls, WrittenOutcome } from "#adapter/db/handles.ts"
 import type { DecodedRow } from "#adapter/reader/stream.ts"
+import type { Plan } from "#adapter/types/db.ts"
 import type { CallError, CallErrorOf } from "#compiler/live/index.ts"
 import { defect } from "#compiler/plan/runtime.ts"
 
@@ -66,3 +67,11 @@ export const writeOnce =
 	(calls: OnceCalls) =>
 	(input: unknown): Effect.Effect<WrittenOutcome, CallError> =>
 		calls.shape === "write" ? calls.once(input) : Effect.die(defect("a write of a read member"))
+
+/**
+ * The Function Scan nodes of a plan, at any depth: each a function in a FROM list the statement calls once per row that
+ * drives it, a declared function's or one of PostgreSQL's (unnest).
+ */
+export const functionScans = (plan: Plan): number =>
+	(plan.node === "Function Scan" ? 1 : 0) +
+	Arr.reduce(plan.children, 0, (n: number, child) => n + functionScans(child))

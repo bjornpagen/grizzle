@@ -12,6 +12,7 @@ import { canonicalEquals, unwrap } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { CompletedOrder, Heading, NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import { withAdmission } from "#compiler/lower/conservative/admission.ts"
+import { statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
 import {
 	columnIn,
 	type CteTable,
@@ -942,6 +943,7 @@ export class OptimizedDelivery<
 	} {
 		this.state.begin(mode)
 		this.beginStatement()
+		this.cx.hostStatementEvaluations(statementEvaluations(this.state.log.ctes, this.cx))
 		this.#placed = []
 		this.#siblings = new Map()
 		const roots = place()

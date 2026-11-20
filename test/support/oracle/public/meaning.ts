@@ -124,6 +124,7 @@ import {
 	sortRows,
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import {
 	asBigint,
 	asDecimal,
@@ -1376,6 +1377,7 @@ export const expectedFrom = (
 		schema: referenceSchema(c.schema),
 		facts: factsOf(c),
 		params: paramsOf(read),
+		functions: noFunctions,
 		observer
 	})
 	const statements = new Map(
@@ -1415,6 +1417,7 @@ export const expectedMixedFrom = (
 		schema: referenceSchema(c.schema),
 		facts: factsOf(c),
 		params: {},
+		functions: noFunctions,
 		observer
 	})
 	const statements = new Map(

@@ -702,6 +702,19 @@ const leafProps = (
 }
 
 /**
+ * A call's rows: they repeat what its function returns twice, a declared function's row of its set or of a field's
+ * array, so only the DISTINCT its realization places makes them a set (finish), where a consumer observes repeats, and
+ * its plain form identifies nothing by its heading.
+ */
+const callProps = (node: NodeOf<"Call">, cx: RuleContext): PhysicalProps =>
+	finish(node, cx, {
+		fds: new DependencyDraft(node.heading.map((c) => c.name)),
+		fixed: new Map(),
+		dedup: placed,
+		maxCard: unbounded
+	})
+
+/**
  * The physical uniqueness inference rules, one per node kind.
  *
  * Each rule computes what a node's SQL delivers when it is realized plainly, or under the exact deduplication its
@@ -768,22 +781,8 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 				maxCard: unbounded
 			})
 		}
-		case "Call": {
-			/** A call's rows are a set its lowering makes distinct: its whole heading is its key. */
-			const columns = node.heading.map((c) => c.name)
-			const fds = new DependencyDraft(columns)
-			fds.identify(
-				columns,
-				withReason(
-					joinJustifications([
-						justify({ premises: [nodePremise(node.id)] }),
-						comparing(node.heading.map((c) => c.type))
-					]),
-					["deduplicatedInput"]
-				)
-			)
-			return finish(node, cx, { fds, fixed: new Map(), dedup: placed, maxCard: unbounded })
-		}
+		case "Call":
+			return callProps(node, cx)
 		case "Context":
 			return atMostOneFact(node, cx)
 		case "Delta":

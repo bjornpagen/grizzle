@@ -815,6 +815,20 @@ class Numbering<A extends string> {
 export const normalizeWithin = (
 	context: RelDag,
 	roots: Roots
+): Result.Result<DagTable, CompileError> => normalizedOver(context, roots, "followed")
+
+/**
+ * What a name a node holds of a node the walk has not met is, as normalizedOver reads it: the node, read through the
+ * context's labels and numbered as the walk's own (`followed`); or, for a node outside what the roots reach by their
+ * inputs, the label itself (`labelled`), so the form reads an enclosing node by which it is and never by what it holds.
+ */
+type OuterNames = "followed" | "labelled"
+
+/** normalizeWithin, every name of a node outside the roots' reach read as `outer` says (OuterNames). */
+const normalizedOver = (
+	context: RelDag,
+	roots: Roots,
+	outer: OuterNames
 ): Result.Result<DagTable, CompileError> =>
 	catchRefusal(() => {
 		const n = new Numbering("n", NodeId)
@@ -839,7 +853,13 @@ export const normalizeWithin = (
 			}
 			return n.name(node.id)
 		}
+		/** What the roots reach by their inputs, when a name of a node outside it is its label (`labelled`). */
+		const reached =
+			outer === "labelled" ? new Set(postorder(roots, inputsOf).map((node) => node.id)) : undefined
 		const nodeName = (id: NodeId): NodeId => {
+			if (reached !== undefined && !reached.has(id)) {
+				return id
+			}
 			if (!n.has(id)) {
 				const node = labelled(id)
 				if (node === undefined) {
@@ -891,7 +911,13 @@ export const normalizeWithin = (
 		for (const { expr, id, spec } of pending) {
 			const deps = {
 				params: expr.deps.params,
-				nodes: sortedUnique(expr.deps.nodes.map((label) => n.named(label, ["exprs", id, "deps"])))
+				nodes: sortedUnique(
+					expr.deps.nodes.map((label) =>
+						reached !== undefined && !reached.has(label)
+							? label
+							: n.named(label, ["exprs", id, "deps"])
+					)
+				)
 			}
 			exprs[id] = { ...spec, volatility: expr.volatility, id, deps }
 		}
@@ -946,15 +972,34 @@ const digestedFields = (node: TableNode): object => {
 	return node
 }
 
+/** The digest of what `roots` reach within `context`, its enclosing nodes read as `outer` says (normalizedOver). */
+const digestOver = (
+	context: RelDag,
+	roots: Roots,
+	domain: string,
+	outer: OuterNames
+): Result.Result<DagDigest, CompileError> =>
+	Result.flatMap(normalizedOver(context, roots, outer), (normal) =>
+		Result.map(digest(domain, claimedForm(normal), { omit: omitSourceLocs }), DagDigest)
+	)
+
 /** The digest of the DAG `roots` reach within `context` (normalizeWithin): a sub-query's share key. */
 export const dagDigestWithin = (
 	context: RelDag,
 	roots: Roots,
 	domain: string
-): Result.Result<DagDigest, CompileError> =>
-	Result.flatMap(normalizeWithin(context, roots), (normal) =>
-		Result.map(digest(domain, claimedForm(normal), { omit: omitSourceLocs }), DagDigest)
-	)
+): Result.Result<DagDigest, CompileError> => digestOver(context, roots, domain, "followed")
+
+/**
+ * The digest of what `roots` reach by their inputs within `context`, each name of a node outside that reach its label
+ * (OuterNames `labelled`): equal for two copies of one sub-query that read the same enclosing nodes, wherever they
+ * stand among those nodes' readers, and for two that read none. A call's evaluation key (lower/conservative/call).
+ */
+export const reachDigestWithin = (
+	context: RelDag,
+	roots: Roots,
+	domain: string
+): Result.Result<DagDigest, CompileError> => digestOver(context, roots, domain, "labelled")
 
 /** The digest of a whole DAG. */
 export const dagDigest = (dag: RelDag, domain: string): Result.Result<DagDigest, CompileError> =>

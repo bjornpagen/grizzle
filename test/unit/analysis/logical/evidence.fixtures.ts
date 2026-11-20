@@ -67,6 +67,7 @@ import {
 } from "#test/support/oracle/gen/schema.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { pickFrom, pickGen, pickOf } from "#test/support/pick.ts"
 import {
 	fixedNamesUnscoped,
@@ -650,6 +651,7 @@ export const holdsOn = <S>(
 							schema: contextedCase.schema,
 							facts: contextedCase.facts,
 							params: contextedCase.query.params,
+							functions: noFunctions,
 							observer: unobserved
 						},
 						c.note,

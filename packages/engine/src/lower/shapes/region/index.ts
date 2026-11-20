@@ -420,12 +420,12 @@ export const regionLowerer =
 			conditions: [...lowered.conditions, ...impliedBounds(node, cx, env, lowered)]
 		}
 		const [first, ...others] = parts.occurrences
-		if (first === undefined || parts.occurrences.length <= collapseLimit) {
-			return distinctSelect(
-				parts.targets,
-				parts.occurrences.map((o) => o.item),
-				parts.conditions
-			)
+		if (
+			first === undefined ||
+			parts.occurrences.length <= collapseLimit ||
+			parts.from.length > parts.occurrences.length
+		) {
+			return distinctSelect(parts.targets, parts.from, parts.conditions)
 		}
 		const within = new Set(parts.occurrences.map((o) => o.alias))
 		const terms = parts.conditions.flatMap(sqlConjuncts).map((e) => termOf(e, within))

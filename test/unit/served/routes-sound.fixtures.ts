@@ -37,6 +37,7 @@ import {
 } from "#test/support/oracle/public/program.ts"
 import { expectedStatements } from "#test/support/oracle/reference/deliver.ts"
 import { Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import {
 	compare,
 	equal,
@@ -453,6 +454,7 @@ export const worldSound = (
 						schema: referenceSchema(c.schema),
 						facts: factsOf(facts),
 						params: { [seenParam]: { kind: "scalar", type: field.type, value: bound } },
+						functions: noFunctions,
 						observer: unobserved
 					}),
 					ir.dag.roots[0]

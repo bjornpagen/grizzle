@@ -49,9 +49,9 @@ const spellSource = (source: OpenSource, s: Spellings): SourceDesc => {
 				)
 			}
 		case "call":
+		case "callField":
 			return {
-				kind: "call",
-				function: source.function,
+				...source,
 				args: mapRecord(source.args, (a) =>
 					a.kind === "rows"
 						? {

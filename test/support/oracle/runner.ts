@@ -127,6 +127,7 @@ import {
 	expectedStatements
 } from "#test/support/oracle/reference/deliver.ts"
 import { statingReference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { renderExpected } from "#test/support/oracle/reference/render.ts"
 import { type DeclineReason, ReferenceUnsupported } from "#test/support/oracle/reference/values.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
@@ -852,6 +853,7 @@ const referenceStatements = (c: QueryCase, multiplier: number): Result.Result<St
 				schema: c.schema,
 				facts: c.facts,
 				params: c.query.params,
+				functions: noFunctions,
 				observer: {
 					...unobserved,
 					decline: (reason) => {

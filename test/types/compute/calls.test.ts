@@ -14,7 +14,7 @@ import { callsProgram } from "#test/types/compute/calls.ts"
 
 /** Over every form an argument of a closed id is passed by, admits exactly its own roster's values. */
 export const calls = boxAgreement(finite(word(callsBox)), {
-	box: "every form a call of a declared function passes an argument of a closed id by: a term, a handle, a name, a code and rows of a query, of its own roster and of another; and a query's call of a function of one row, of rows that hold rows, and taking one row",
+	box: "every form a call of a declared function passes an argument of a closed id by: a term, a handle, a name, a code and rows of a query, of its own roster and of another; a query's call of a function of one row, of rows that hold rows, and taking one row; and a query's read of a field of a function's one row, of rows of its roster's ids read as its own and as another's, of a value, of one row and of rows that hold rows, and of the fields of a volatile function's row and of a function of rows",
 	situations: [],
 	notes: () => [],
 	checking: "disarmed",
@@ -33,9 +33,22 @@ export const calls = boxAgreement(finite(word(callsBox)), {
 		},
 		{
 			file: "packages/engine/src/types/compute/call.ts",
-			original: "\tFields extends Readonly<Record<string, FieldBase>>\n> = DeclaredFunction<",
-			replacement: "\tFields extends Readonly<Record<string, FunctionType>>\n> = DeclaredFunction<",
-			why: "A query reads the rows of a function whose rows hold rows, which no field holds, so its cell typechecks and its directive is unused; the program fails."
+			original: "\t\t\t? K\n\t\t\t: never\n\t\t: never\n}[keyof Fields]",
+			replacement: "\t\t\t? K\n\t\t\t: never\n\t\t: K\n}[keyof Fields]",
+			why: "A field of a value or of one row is a key of the call's fields, a source of never, so the cells that read one typecheck and their directives are unused; the program fails."
+		},
+		{
+			file: "packages/engine/src/types/compute/call.ts",
+			original: '\tRow<Rows<Fields>>,\n\t"immutable" | "stable"\n>',
+			replacement: '\tRow<Rows<Fields>>,\n\t"immutable" | "stable" | "volatile"\n>',
+			why: "A volatile function's row is read by its fields, whose reads could not share its one evaluation, so its cell typechecks and its directive is unused; the program fails."
+		},
+		{
+			file: "packages/engine/src/types/compute/call.ts",
+			original: "\t\t? CallSource<FactOfFields<F>, CallParams<A>, F, CallReads<A>>\n\t\t: never\n}",
+			replacement:
+				"\t\t? CallSource<FactOfFields<F>, CallParams<A>, Carriers, CallReads<A>>\n\t\t: never\n}",
+			why: "A field's rows are carried by no heading of their own, so a variable of them is untyped, passes for another roster's id, and that cell's directive is unused; the program fails."
 		}
 	]
 })

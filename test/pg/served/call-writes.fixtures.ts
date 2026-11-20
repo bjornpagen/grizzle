@@ -274,13 +274,3 @@ export const expectedOf = (admin: PgConnection, schemaName: string, c: GradingCa
 		)
 		return { attempts, values }
 	})
-
-/** The Function Scan nodes of `grade` in a plan, at any depth: each a call the statement makes per row it drives. */
-export const gradeScans = (plan: unknown): number => {
-	if (!isRecord(plan)) {
-		return 0
-	}
-	const own = plan["Node Type"] === "Function Scan" && plan["Function Name"] === "grade" ? 1 : 0
-	const children = plan["Plans"]
-	return own + (Arr.isArray(children) ? Arr.reduce(children, 0, (n, p) => n + gradeScans(p)) : 0)
-}

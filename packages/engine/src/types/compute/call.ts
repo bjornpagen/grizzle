@@ -1,6 +1,7 @@
 import type { Built, phantom } from "#compiler/core/phantom.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type {
+	Carriers,
 	Facts,
 	Headed,
 	Meets,
@@ -14,13 +15,13 @@ import type {
 	UnionToIntersection
 } from "#compiler/types/core/phantom.ts"
 import type { Field, FieldBase, LiteralOf } from "#compiler/types/fields/field.ts"
-import type { DeclaredFunction, FunctionType, Rows } from "#compiler/types/schema/function.ts"
+import type { DeclaredFunction, FunctionType, Row, Rows } from "#compiler/types/schema/function.ts"
 import type { FactOfFields } from "#compiler/types/schema/relation.ts"
 
 /**
- * Compute.call(f, args) and Compute.rowsOf(f, args) (query/build/call.ts): a call of a declared function
- * (schema/function.ts fn), the value of one that returns a value, a term, and the rows of one that returns rows, a
- * source a rule matches.
+ * Compute.call(f, args), Compute.rowsOf(f, args) and Compute.rowOf(f, args) (query/build/call.ts): a call of a declared
+ * function (schema/function.ts fn), the value of one that returns a value, a term; the rows of one that returns rows, a
+ * source a rule matches; and the fields of the one row one returns, each that holds rows of values a source.
  */
 
 /**
@@ -98,6 +99,43 @@ export type RowsFunction<
 	Rows<Fields>,
 	"immutable" | "stable" | "volatile"
 >
+
+/**
+ * A function a rule matches the fields of the one row of: one that returns one row of a heading, immutable or stable,
+ * so every read of its row's fields at one argument tuple reads one evaluation of it.
+ */
+export type RowFunction<
+	Args,
+	Fields extends Readonly<Record<string, FunctionType>>
+> = DeclaredFunction<
+	string,
+	Args & Readonly<Record<string, FunctionType>>,
+	Row<Rows<Fields>>,
+	"immutable" | "stable"
+>
+
+/** The fields of a row a query reads (CallFields): each that holds rows of a heading of values alone. */
+type ReadFields<Fields> = {
+	[K in keyof Fields]: Fields[K] extends Rows<infer F>
+		? F extends Readonly<Record<string, FieldBase>>
+			? K
+			: never
+		: never
+}[keyof Fields]
+
+/**
+ * The fields of a call of a function of one row (Compute.rowOf), by name: each field of the row that holds rows of a
+ * heading of values, the rows it holds a source of that heading, as Compute.rowsOf's rows are (CallSource), every one
+ * of them read from one evaluation of the call. A field of a value, of one row, or of rows whose heading holds rows or
+ * a row is no source, which only another function's body reads.
+ */
+export type CallFields<A, Fields> = {
+	readonly [K in ReadFields<Fields>]: Fields[K] extends Rows<
+		infer F extends Readonly<Record<string, FieldBase>> & Carriers
+	>
+		? CallSource<FactOfFields<F>, CallParams<A>, F, CallReads<A>>
+		: never
+}
 
 /**
  * The value of a call: a term of the function's result field, its domain, SQL type, language and facts, needing what

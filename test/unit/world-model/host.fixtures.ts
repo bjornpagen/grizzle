@@ -36,6 +36,7 @@ import {
 } from "#test/support/oracle/reference/evaluate.ts"
 
 import type { Uuid } from "#compiler/public/fields.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import {
 	literalOf,
 	type Row,
@@ -417,6 +418,7 @@ export const referenceRows = (
 			)
 		),
 		params: {},
+		functions: noFunctions,
 		observer: unobserved
 	}
 	const contextFacts: SessionFacts = Rec.fromEntries(

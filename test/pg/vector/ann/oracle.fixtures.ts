@@ -13,6 +13,7 @@ import {
 	sortRows,
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { compare, ReferenceUnsupported, valueAt } from "#test/support/oracle/reference/values.ts"
 
 /**
@@ -64,6 +65,7 @@ export const nearestFeatures = (c: QueryCase): ReadonlyArray<AnnOracleFeature> =
 		schema: c.schema,
 		facts: c.facts,
 		params: c.query.params,
+		functions: noFunctions,
 		observer: {
 			...unobserved,
 			nearest: (n, source) => {

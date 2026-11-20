@@ -7,6 +7,7 @@ import { freeVars, nodeScopes, nodesByLabel, topoOrder } from "#compiler/ir/dag.
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import { describeOp, exprClosure, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import {
+	type CallFunction,
 	type CompletedOrder,
 	exprsOf,
 	type FrameBound,
@@ -174,6 +175,18 @@ class ExprPrinter {
 	}
 }
 
+/** The function a call reads the rows of, as the printed DAG names it: a field's of its function's row by both. */
+const calledName = (called: CallFunction): string => {
+	switch (called.kind) {
+		case "declared":
+			return called.name
+		case "field":
+			return `${called.name}.${called.field}`
+		case "split":
+			return called.split
+	}
+}
+
 const printHeading = (heading: Heading): string =>
 	`(${Arr.join(
 		Arr.map(heading, (c) => `${c.name} ${typeLabel(c.type)}`),
@@ -272,7 +285,7 @@ const printBody = (n: RelNode, printer: ExprPrinter): string => {
 		case "Step":
 			return `Step ${n.input.id}`
 		case "Call":
-			return `Call ${n.function.kind === "declared" ? n.function.name : n.function.split}(${Arr.join(
+			return `Call ${calledName(n.function)}(${Arr.join(
 				Arr.map(n.args, (a) =>
 					a.kind === "value" ? `${a.name}=${e(a.expr)}` : `${a.name}=${a.rows.id}`
 				),

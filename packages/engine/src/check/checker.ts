@@ -71,6 +71,7 @@ import {
 	type FieldDesc,
 	functionTypeLabel,
 	type LiteralDesc,
+	type NamedDesc,
 	type OrderDesc,
 	type VarDesc,
 	valueHeading
@@ -1949,18 +1950,17 @@ export class Checker {
 				return this.#contextSource(src, loc)
 			case "call":
 				return this.#callSource(src, loc, bind)
+			case "callField":
+				return this.#callFieldSource(src, loc, bind)
 			case "split":
 				return this.#splitSource(src, loc, bind)
 		}
 	}
 
 	/**
-	 * A call of a declared function that returns rows (Compute.call): the function its level declares, each of its
-	 * arguments by its declared name and none other. A value argument is bound as an import's parameter is (`bind`): a
-	 * variable of the region the call is matched in, a parent variable, a parameter or a typed constant, of a type that
-	 * meets the argument's declared type. A rows argument is a query imported under its bind map (#importSource), whose
-	 * heading holds each field of the argument's heading at a type that meets the field's. The call's heading is its
-	 * result's, each field at its declared type, which the lowering casts the function's value to.
+	 * A call of a declared function that returns rows (Compute.rowsOf): the function its level declares, its arguments
+	 * (#callArgs). The call's heading is its result's, each field at its declared type, which the lowering casts the
+	 * function's value to.
 	 */
 	#callSource(
 		src: Extract<ResolvedSource, { readonly kind: "call" }>,
@@ -1984,10 +1984,101 @@ export class Checker {
 				`a declared function whose rows a query reads, of values alone; a field of ${fn.name}'s rows holds rows or a row, which another function's body reads`
 			)
 		}
-		this.#callArguments(fn, Object.keys(src.args), loc)
-		const args = fn.desc.args.map((declared): CallArg<LiveRefs> => {
+		return this.node(
+			{
+				kind: "Call",
+				function: {
+					kind: "declared",
+					name: fn.name,
+					volatility: fn.desc.volatility,
+					definition: fn.definition
+				},
+				args: this.#callArgs(fn, src.args, loc, bind),
+				heading: this.#calledHeading(returned, loc)
+			},
+			loc
+		)
+	}
+
+	/**
+	 * A read of a field of a call of a declared function that returns one row (Compute.rowOf): the function its level
+	 * declares, immutable or stable, so every read of a field of one call at one argument tuple reads one evaluation of
+	 * it; the field, one of its row's that holds rows of a heading of values; its arguments (#callArgs). The read's
+	 * heading is the field's heading, each field at its declared type, which the lowering casts the function's value to.
+	 */
+	#callFieldSource(
+		src: Extract<ResolvedSource, { readonly kind: "callField" }>,
+		loc: SourceLoc,
+		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+	): RelNode {
+		const fn = this.#declaredFunction(src.function, loc)
+		const returns = fn.desc.returns
+		if (returns.kind !== "row") {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`a declared function that returns one row, whose fields a query reads; ${fn.name} returns ${functionTypeLabel(returns)}`
+			)
+		}
+		if (fn.desc.volatility === "volatile") {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`an immutable or stable function, whose one evaluation at its arguments every read of its row's fields shares; ${fn.name} is volatile`
+			)
+		}
+		const field = returns.heading.find((f) => f.name === src.field)
+		const read = field?.type.kind === "rows" ? valueHeading(field.type.heading) : undefined
+		if (read === undefined) {
+			return fail(
+				"MalformedDescription",
+				childLoc(loc, "field"),
+				`a field of ${fn.name}'s row that holds rows of values alone; ${field === undefined ? `its row has no field ${src.field}` : `${src.field} holds ${functionTypeLabel(field.type)}, which another function's body reads`}`
+			)
+		}
+		return this.node(
+			{
+				kind: "Call",
+				function: {
+					kind: "field",
+					field: src.field,
+					row: mapNonEmpty(returns.heading, (f) => f.name),
+					name: fn.name,
+					volatility: fn.desc.volatility,
+					definition: fn.definition
+				},
+				args: this.#callArgs(fn, src.args, loc, bind),
+				heading: this.#calledHeading(read, loc)
+			},
+			loc
+		)
+	}
+
+	/** The heading of rows a call delivers: each of the heading's fields at its declared type. */
+	#calledHeading(heading: ReadonlyArray<NamedDesc<FieldDesc>>, loc: SourceLoc): Heading {
+		return heading.map((f) => ({
+			name: f.name,
+			type: this.fieldType(f.type, childLoc(loc, f.name))
+		}))
+	}
+
+	/**
+	 * A call's arguments, in its function's declared order, each by its declared name and none other
+	 * (#callArguments). A value argument is bound as an import's parameter is (`bind`): a variable of the region the
+	 * call is matched in, a parent variable, a parameter or a typed constant, of a type that meets the argument's
+	 * declared type. A rows argument is a query imported under its bind map (#importSource), whose heading holds each
+	 * field of the argument's heading at a type that meets the field's.
+	 */
+	#callArgs(
+		fn: OwnedFunction,
+		given: Extract<ResolvedSource, { readonly kind: "call" }>["args"],
+		loc: SourceLoc,
+		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+	): ReadonlyArray<CallArg<LiveRefs>> {
+		this.#callArguments(fn, Object.keys(given), loc)
+		return fn.desc.args.map((declared): CallArg<LiveRefs> => {
 			const at = childLoc(childLoc(loc, "args"), declared.name)
-			const arg = defined(src.args[declared.name], "an argument #callArguments found")
+			const arg = defined(given[declared.name], "an argument #callArguments found")
 			if (declared.type.kind === "value") {
 				if (arg.kind === "rows") {
 					return fail("MalformedDescription", at, `a value for argument ${declared.name}, not rows`)
@@ -2027,23 +2118,6 @@ export class Checker {
 			})
 			return { kind: "rows", name: declared.name, rows, columns }
 		})
-		return this.node(
-			{
-				kind: "Call",
-				function: {
-					kind: "declared",
-					name: fn.name,
-					volatility: fn.desc.volatility,
-					definition: fn.definition
-				},
-				args,
-				heading: returned.map((f) => ({
-					name: f.name,
-					type: this.fieldType(f.type, childLoc(loc, f.name))
-				}))
-			},
-			loc
-		)
 	}
 
 	/**
@@ -2651,6 +2725,8 @@ const sourceLabel = (src: ResolvedSource): string => {
 			return "the asked row"
 		case "call":
 			return `the rows of function ${src.function}`
+		case "callField":
+			return `the rows of field ${src.field} of function ${src.function}`
 		case "split":
 			return `the ${src.split} of a text`
 	}

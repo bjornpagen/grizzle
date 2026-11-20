@@ -25,13 +25,12 @@ import {
 	expectedOf,
 	factsOf,
 	type GradingFeature,
-	gradeScans,
 	gradingTemplate,
 	programsOf,
 	worldOf,
 	writtenOf
 } from "#test/pg/served/call-writes.fixtures.ts"
-import { writeOnce } from "#test/support/calls.ts"
+import { functionScans, writeOnce } from "#test/support/calls.ts"
 import { loadMigrated } from "#test/support/install-migrate.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -79,7 +78,7 @@ export const writesFromACallGuardedByADerivedRelationCallItOnceAndWriteTheGuarde
 											return assert.fail("a ChangeSet explains as a change")
 										}
 										const plans = yield* explains.explain(input)
-										const scans = Arr.map(plans, (p) => gradeScans(p.plan))
+										const scans = Arr.map(plans, (p) => functionScans(p.plan))
 										assert.deepEqual(
 											Arr.filter(scans, (n) => n > 0),
 											[1],

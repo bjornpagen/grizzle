@@ -3499,12 +3499,13 @@ export const Lexicon = schema("Lexicon", [folded, doubled, summary], [])
 
 ### Calling a function
 
-A query calls a declared function of its schema in one of two ways, by what the function returns.
+A query calls a declared function of its schema in one of three ways, by what the function returns.
 `Compute.call(f, args)` is the value of a function that returns a value: a term, which stands wherever a term of its
 result's type stands. `Compute.rowsOf(f, args)` is the rows of a function that returns rows: a source, which a rule
-matches as it matches a bound query. Each argument is named as the function declares it, every one of them and no
-other: a value is a term, a parameter or a JavaScript value, as a bind map takes one; rows are a query, or a bound
-query, whose heading holds the argument's fields.
+matches as it matches a bound query. `Compute.rowOf(f, args)` is the fields of the one row a function returns: a
+record of sources, one for each field of the row that holds rows of a heading of values. Each argument is named as the
+function declares it, every one of them and no other: a value is a term, a parameter or a JavaScript value, as a bind
+map takes one; rows are a query, or a bound query, whose heading holds the argument's fields.
 
 ```ts
 /** A document, by its slug. */
@@ -3542,6 +3543,56 @@ export const shiftedLines = query(Docs).rule((r) => {
 })
 ```
 
+A function that computes several sets at once returns them as the fields of one row, and a statement reads each of
+them as a source. The ChangeSet below files a document's lines by the length of their word, two members of one
+statement, and calls `parted` once:
+
+```ts
+const Parted = rows({ short: Numbered, long: Numbered })
+
+/** The lines of `program`, parted by the length of their word: one row, two fields of rows. */
+export const parted = fn("parted", {
+	calls: [],
+	args: { program: Numbered },
+	returns: row(Parted),
+	volatility: "immutable",
+	language: "sql",
+	body: fn.body`SELECT ROW(
+  ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) < 5),
+  ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) >= 5))::${Parted}`
+})
+
+const Short = relation("Short", { doc: DocSlug, pos: natural, txt: Word }, ["doc", "pos"])
+const Long = relation("Long", { doc: DocSlug, pos: natural, txt: Word }, ["doc", "pos"])
+export const Words = schema("Words", [Line, Short, Long, parted], [])
+
+const wordsOf = query(Words).rule((r) => {
+	const { pos, txt } = v(Line, "line")
+	return r.match(Line, { doc: r.param("doc", DocSlug), pos, txt }).find({ pos, txt })
+})
+
+/** A document's lines, each filed under its word's length. */
+export const file = ChangeSet.empty(Words)
+	.insert(
+		Short,
+		query(Words).rule((r) => {
+			const doc = r.param("doc", DocSlug)
+			const { short } = Compute.rowOf(parted, { program: wordsOf.bind({ doc }) })
+			const { pos, txt } = v(short, "short")
+			return r.match(short, { pos, txt }).find({ doc, pos, txt })
+		})
+	)
+	.insert(
+		Long,
+		query(Words).rule((r) => {
+			const doc = r.param("doc", DocSlug)
+			const { long } = Compute.rowOf(parted, { program: wordsOf.bind({ doc }) })
+			const { pos, txt } = v(long, "long")
+			return r.match(long, { pos, txt }).find({ doc, pos, txt })
+		})
+	)
+```
+
 - **Where it runs.** A call of rows is read `LATERAL`, after the matches whose variables its arguments read, once per
   their binding: `shifted` above runs once per document, at the array of that document's lines. A rows argument is an
   array of the heading's row type, `ARRAY(SELECT ROW(...)::<row type> FROM (<query>))`, a set, in no order; a value
@@ -3550,12 +3601,27 @@ export const shiftedLines = query(Docs).rule((r) => {
   its field's declared type, so a contract or a pattern refuses a value of the function's that breaks it, where the
   query reads it. grizzle holds no NULL: a function that returns NULL, as a value or in a field of a row, fails the
   query with SQLSTATE `22004`.
+- **The fields of one row.** `Compute.rowOf(f, args)` holds a source for each field of `f`'s row that holds rows of
+  a heading of values, by the field's name, its facts the heading's, a set, typed by the heading as a call's rows are; a
+  field of a value, of one row, or of rows whose heading holds rows or a row is none of them, and from a description
+  `MalformedDescription`. Every read of a field of one call at one argument tuple reads one evaluation of it, so a
+  statement that reads several fields calls the function once: a call whose arguments read only parameters, and
+  bound queries over them, is one `MATERIALIZED` CTE of its statement, `SELECT r.* FROM f(...) AS r(...)`, which each
+  field's read unnests (`LATERAL unnest(e.field)`), and in a ChangeSet's stratum of one statement one CTE that every
+  member reads; a call that reads its rule's variables is one `LATERAL` item of the rule's region, once per binding,
+  whichever of its fields the rule matches. A value an argument reads from a stored row, for a call several members
+  share, comes in through a rows argument, a query bound to parameters, or as a parameter: a value argument bound to
+  a member's own variable makes each member's call its own. `f` is immutable or stable, since a volatile function's
+  evaluations are not one; a volatile `f` is refused. grizzle holds no NULL: a row holding NULL at any field, the
+  function's NULL row among them, fails the statement with SQLSTATE `22004` where the call is evaluated, and a NULL
+  element of a field's array, or one holding NULL, where the field is read, so a field of no rows, an empty array, is
+  the empty source and never a NULL.
 - **What a query calls.** A query calls a function whose arguments are values and rows of headings of values, and
-  that returns a value or rows of such a heading. A function that takes or returns one row, or rows of a heading with
-  a field of rows or of a row, is called by another function's body alone, and a query's call of it is
-  `MalformedDescription` (from JavaScript, and a type error where its types say so): a query's sources and terms hold
-  fields, and no field holds a composite or an array of them, so a query could neither read such a column nor build
-  such an argument.
+  that returns a value, rows of such a heading, or one row whose fields it reads. A function that takes one row, or
+  that returns rows of a heading with a field of rows or of a row, is called by another function's body alone, and a
+  query's call of it is `MalformedDescription` (from JavaScript, and a type error where its types say so): a query's
+  sources and terms hold fields, and no field holds a composite or an array of them, so a query could neither read such
+  a column nor build such an argument.
 - **What may call one.** A call is a query's term alone: a check, a contract's predicate and a generated field are
   evaluated on the host too, and PostgreSQL alone evaluates a declared function, so a call there is a type error
   (`Refused`), and refused from JavaScript when the schema is owned. A term calls an immutable or stable function; a

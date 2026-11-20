@@ -33,6 +33,7 @@ import {
 	type ReferenceInput,
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { equal } from "#test/support/oracle/reference/values.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import {
@@ -339,6 +340,7 @@ const judge = (inst: Installed, plan: Plan, c: Case<ClaimFeature>): void => {
 					schema: inst.schema,
 					facts: db.facts,
 					params,
+					functions: noFunctions,
 					observer: unobserved
 				}
 				/** The database and the parameters, printed only for a failure's report. */

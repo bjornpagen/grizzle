@@ -638,6 +638,7 @@ class Flattener {
 			case "context":
 				return this.#refuse(relation, `${verb} a context`)
 			case "call":
+			case "callField":
 				return this.#refuse(relation, `${verb} a declared function's rows`)
 			case "split":
 				return this.#refuse(relation, `${verb} a text's split, which only a unit-local rule reads`)
@@ -1111,6 +1112,7 @@ const liveQuery = (query: InferredQuery, definition: LiveEnv["definition"]): Inf
 			case "step":
 				return { ...s, query: liveQuery(s.query, definition) }
 			case "call":
+			case "callField":
 				return {
 					...s,
 					args: mapRecord(s.args, (a) =>

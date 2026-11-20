@@ -33,6 +33,7 @@ import {
 	type ReferenceInput,
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import {
 	Declined,
 	equal,
@@ -265,6 +266,7 @@ export const agrees = (c: QueryCase, rewritten: LogicalQuery): RewriteAgreement 
 		schema: c.schema,
 		facts: c.facts,
 		params: c.query.params,
+		functions: noFunctions,
 		observer: unobserved
 	}
 	const expected = referenceDelivery(c.query.dag, c.query.dag.roots[0], input)
@@ -334,6 +336,7 @@ const handInput = (
 	},
 	facts: canonicalFacts(facts),
 	params,
+	functions: noFunctions,
 	observer: unobserved
 })
 

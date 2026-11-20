@@ -252,6 +252,7 @@ const wholeMatches = (matches: RuleDesc["matches"]): boolean =>
 			case "step":
 				return Arr.every(["a", "b"], (f) => bound.includes(f))
 			case "call":
+			case "callField":
 			case "split":
 			case "context":
 			case "delta":

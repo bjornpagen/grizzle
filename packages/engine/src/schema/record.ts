@@ -21,6 +21,7 @@ import { recordsReader } from "#compiler/runtime/read/record.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import type { CallFields } from "#compiler/types/compute/call.ts"
 import type {
 	Carrier,
 	Carriers,
@@ -179,6 +180,15 @@ export const mint = <Origins, F extends Carriers>(
 	assembled<Minted<F, Origins>>(
 		Object.entries(fields).map(([key, carrier]) => [key, make(carrier, key)] as const)
 	)
+
+/**
+ * The record of the sources a call of a function of one row reads its fields by (query/build/call.ts callFields), each
+ * of `sources` under its field's name (see the header). The arguments A and the row's fields are the caller's phantom
+ * statement, as mint's carriers are: each source's heading the field's, which the call's builder made it of.
+ */
+export const calledFields = <A, Fields>(
+	sources: ReadonlyArray<readonly [string, unknown]>
+): CallFields<A, Fields> => assembled<CallFields<A, Fields>>(sources)
 
 /** Whether a head entry is a JavaScript value: a string, a number, a bigint, a boolean, a Decimal or a Money. */
 const isHeadValue = (entry: unknown) =>

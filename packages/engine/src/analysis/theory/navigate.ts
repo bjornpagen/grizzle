@@ -646,6 +646,7 @@ class Navigator {
 			case "param":
 			case "paramOf":
 			case "call":
+			case "callField":
 			case "split":
 			case "interior":
 			case "self":

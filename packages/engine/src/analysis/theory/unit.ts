@@ -378,6 +378,7 @@ const sourceUnit = (
 		case "param":
 		case "paramOf":
 		case "call":
+		case "callField":
 		case "interior":
 		case "delta":
 		case "context":

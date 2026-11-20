@@ -39,6 +39,7 @@ import {
 	expectedStatements
 } from "#test/support/oracle/reference/deliver.ts"
 import { Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { distinctRows, equal, type Row, type Value } from "#test/support/oracle/reference/values.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { loadOrder, type PlatformFacts } from "#test/support/platform/generate.ts"
@@ -258,6 +259,7 @@ const referenceOf = (
 		schema,
 		facts: canonicalFacts(valueFacts),
 		params: genParams,
+		functions: noFunctions,
 		observer: unobserved
 	})
 }

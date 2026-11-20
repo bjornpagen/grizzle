@@ -1,4 +1,4 @@
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/demand/demand.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
@@ -7,10 +7,12 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { freeVars, type NodeScope, nodeScopes, nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import { edgesOf, inputsOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
+import { statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
 import {
 	type CteTable,
 	cteAtFirstUse,
 	type Env,
+	type EvaluationLookup,
 	emptyEnv,
 	type LowerContext,
 	type NodeDispatch,
@@ -415,6 +417,11 @@ export class StatementSharing {
 	readonly #inner: NodeDispatch
 	/** What each carried copy reads, by the copy's label. */
 	readonly #carried = new Map<NodeId, { readonly key: string; readonly source: SharedSource }>()
+	/**
+	 * The CTE of the single statement that holds a call's evaluation as a part (carryEvaluation), by the call's
+	 * evaluation key (lower/conservative/call evaluationKey), which every read of it in the statement's parts reads.
+	 */
+	readonly #evaluations = new Map<string, Extract<SharedSource, { readonly kind: "enclosing" }>>()
 
 	constructor(index: ShareIndex, inner: NodeDispatch) {
 		this.index = index
@@ -425,6 +432,45 @@ export class StatementSharing {
 	carry(share: CarriedShare, source: SharedSource): void {
 		for (const copy of share.copies) {
 			this.#carried.set(copy.id, { key: share.key, source })
+		}
+	}
+
+	/**
+	 * Every read of a field of a call of evaluation key `key` reads the CTE `source` from now on: the single statement's
+	 * part that holds the call's evaluation (write/program/compile.ts), a CTE of the statement each of its parts reads.
+	 */
+	carryEvaluation(
+		key: string,
+		source: Extract<SharedSource, { readonly kind: "enclosing" }>
+	): void {
+		this.#evaluations.set(key, source)
+	}
+
+	/**
+	 * No evaluation is carried from now on: a single statement's parts are built (write/program/compile.ts), and no
+	 * statement after them reads its CTEs.
+	 */
+	clearEvaluations(): void {
+		this.#evaluations.clear()
+	}
+
+	/**
+	 * The evaluation a part of a single statement reads where the statement holds it as a part of its own
+	 * (carryEvaluation), undefined for any other.
+	 */
+	readonly #carriedEvaluation: EvaluationLookup = (read, key, cx) => {
+		const source = this.#evaluations.get(key)
+		if (source === undefined) {
+			return undefined
+		}
+		const alias = cx.relationAlias({ kind: "node", node: read.id })
+		const [first, ...rest] = source.columns
+		if (first === undefined) {
+			throw defect("a carried evaluation's columns, one per field of its call's row")
+		}
+		return {
+			from: [{ kind: "enclosing", name: source.name, alias }],
+			attributes: [col(alias, first), ...rest.map((c) => col(alias, c))]
 		}
 	}
 
@@ -504,7 +550,15 @@ export class StatementSharing {
 		}
 		const inScope: NodeDispatch = (n, ncx, nenv) =>
 			this.#readCarrier(n, ncx, filling) ?? this.#shared(n, ncx, nenv, scope)
-		const query = this.#shared(node, cx.withDispatch(inScope), env, scope)
+		const root = cx.withDispatch(inScope)
+		const query = this.#shared(
+			node,
+			root
+				.withEvaluations(statementEvaluations(scope.ctes, root))
+				.withEvaluations(this.#carriedEvaluation),
+			env,
+			scope
+		)
 		return withLeading(query, scope.ctes)
 	}
 

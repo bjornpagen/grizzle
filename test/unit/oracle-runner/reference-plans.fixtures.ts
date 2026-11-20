@@ -30,6 +30,7 @@ import {
 	type ReferenceInput,
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import {
 	type DeclineReason,
 	rowIdentity,
@@ -66,6 +67,7 @@ const transcript = (c: QueryCase, nested: boolean): ReadonlyArray<TranscriptEntr
 		schema: c.schema,
 		facts: c.facts,
 		params: c.query.params,
+		functions: noFunctions,
 		observer: {
 			...unobserved,
 			decline: (reason) => {

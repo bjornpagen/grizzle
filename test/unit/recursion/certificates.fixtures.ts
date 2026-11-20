@@ -37,6 +37,7 @@ import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { valueIdentity } from "#test/support/oracle/reference/values.ts"
 import { pickFrom, pickIndex } from "#test/support/pick.ts"
 import {
@@ -1078,6 +1079,7 @@ export const statesPerVertex = (
 		schema,
 		facts: factsOf(schema, g),
 		params: paramsOf(q, g),
+		functions: noFunctions,
 		observer: unobserved
 	})
 	const states = reference.eval(recursive, noBindings)

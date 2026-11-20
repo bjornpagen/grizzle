@@ -330,7 +330,7 @@ export const buildAnchoredDelete = (
 			relation,
 			"exact",
 			{ r2, r3, returned },
-			{ leading: [], using: parts.occurrences.map((o) => o.item), where: conditions },
+			{ leading: [], using: parts.from, where: conditions },
 			needsOf(region)
 		)
 	})

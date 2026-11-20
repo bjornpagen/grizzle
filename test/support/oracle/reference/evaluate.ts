@@ -44,6 +44,14 @@ import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { aggregate } from "#test/support/oracle/reference/aggregate.ts"
 import {
+	CallRefused,
+	type DeclaredModels,
+	isNullResult,
+	type ModelArg,
+	type ModelResult,
+	type ModelRow
+} from "#test/support/oracle/reference/functions.ts"
+import {
 	asBigint,
 	asDecimal,
 	asSpan,
@@ -568,13 +576,14 @@ const probeOf = (
 }
 
 /**
- * The inputs a reference needs: the schema the Base nodes name, the stored facts and the parameter values, and what its
- * test observes of the evaluation.
+ * The inputs a reference needs: the schema the Base nodes name, the stored facts and the parameter values, the models
+ * of the declared functions its calls call (functions.ts), and what its test observes of the evaluation.
  */
 export interface ReferenceInput {
 	readonly schema: GenSchema
 	readonly facts: GenFacts
 	readonly params: Readonly<Record<string, GenParam>>
+	readonly functions: DeclaredModels
 	readonly observer: ReferenceObserver
 }
 
@@ -1078,14 +1087,42 @@ export class Reference {
 		return truthOf(this.expr(e, scope))
 	}
 
-	/** A call's rows: a split's (`split`); a declared function's PostgreSQL alone evaluates. */
+	/**
+	 * A call's rows: a split's (`split`); a declared function's by its model (ReferenceInput functions), its rows
+	 * (`declared`) or the rows of a field of its one row (`field`), each a set of rows in the call's heading order, the
+	 * call refused (CallRefused) where the result holds NULL where the call reads it, as the lowering refuses it: a
+	 * row holding NULL; for a field, a row holding NULL at any of its fields, or a NULL row, before the field is read.
+	 */
 	call(node: NodeOf<"Call">, scope: Bindings): ReadonlyArray<Row> {
 		const called = node.function
 		switch (called.kind) {
-			case "declared":
-				throw referenceUnsupported(
-					`the call of declared function ${called.name}, which PostgreSQL alone evaluates`
+			case "declared": {
+				const result = this.#modelled(node, called.name, scope)
+				if (result.kind !== "rows" || result.rows === null) {
+					throw new Error(`the model of ${called.name} returns rows, a set, never NULL`)
+				}
+				return this.#calledRows(node, called.name, result.rows, "a row holding NULL")
+			}
+			case "field": {
+				const result = this.#modelled(node, called.name, scope)
+				if (result.kind !== "row") {
+					throw new Error(`the model of ${called.name} returns one row`)
+				}
+				const row = result.row
+				if (row === null || Arr.some([...row.values()], isNullResult)) {
+					throw new CallRefused({ function: called.name, held: "a row holding NULL" })
+				}
+				const field = row.get(called.field)
+				if (field?.kind !== "rows" || field.rows === null) {
+					throw new Error(`the model of ${called.name} returns rows at field ${called.field}`)
+				}
+				return this.#calledRows(
+					node,
+					called.name,
+					field.rows,
+					`a row holding NULL in field ${called.field}`
 				)
+			}
 			case "split": {
 				const [text] = node.args
 				if (text?.kind !== "value" || node.args.length !== 1) {
@@ -1098,6 +1135,59 @@ export class Reference {
 				return splits[called.split](value, node.heading)
 			}
 		}
+	}
+
+	/** A declared function's result at a call's arguments, by its model: each value's, and each rows argument's set. */
+	#modelled(node: NodeOf<"Call">, name: string, scope: Bindings): ModelResult {
+		const model = this.input.functions.get(name)
+		if (model === undefined) {
+			throw referenceUnsupported(
+				`the call of declared function ${name}, of no model, which PostgreSQL alone evaluates`
+			)
+		}
+		const args = new Map<string, ModelArg>()
+		for (const a of node.args) {
+			if (a.kind === "value") {
+				args.set(a.name, { kind: "value", value: this.expr(a.expr, scope) })
+			} else {
+				const rows = this.eval(a.rows, scope)
+				args.set(a.name, {
+					kind: "rows",
+					rows: Arr.map(
+						rows.rows,
+						(row) =>
+							new Map(
+								Arr.map(a.columns, (c) => [
+									c.name,
+									valueAt(row, columnIndex(rows.heading, c.name, "a call's rows argument"))
+								])
+							)
+					)
+				})
+			}
+		}
+		return model(args)
+	}
+
+	/**
+	 * A call's rows in its heading's order, each value its column's (coerce), refused where a row is NULL or holds NULL
+	 * at a column of the heading, as the lowering's `num_nonnulls` refuses it.
+	 */
+	#calledRows(
+		node: NodeOf<"Call">,
+		name: string,
+		rows: ReadonlyArray<ModelRow | null>,
+		held: string
+	): ReadonlyArray<Row> {
+		return Arr.map(rows, (row) =>
+			Arr.map(node.heading, (c) => {
+				const cell = row?.get(c.name)
+				if (cell?.kind !== "value" || cell.value === null) {
+					throw new CallRefused({ function: name, held })
+				}
+				return coerce(cell.value, c.type)
+			})
+		)
 	}
 
 	/** An intersection's row is one of a left and a right row; a difference keeps only left rows. */

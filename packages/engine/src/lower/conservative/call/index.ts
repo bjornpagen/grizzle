@@ -1,18 +1,34 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { unwrap } from "#compiler/core/canonical.ts"
+import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { reachDigestWithin, relNode } from "#compiler/ir/dag.ts"
 import { fieldColumnType, rowTypeOf } from "#compiler/ir/physical.ts"
-import { type CallFunction, type NodeOf, type TextSplit, tokensHeading } from "#compiler/ir/rel.ts"
+import {
+	type CallFunction,
+	conservativeMeta,
+	type NodeOf,
+	type RelDag,
+	type TextSplit,
+	tokensHeading
+} from "#compiler/ir/rel.ts"
 import {
 	columnIn,
 	distinctSelect,
 	type Env,
+	type EvaluationLookup,
+	emptyEnv,
 	type LowerContext,
 	type Lowerers,
 	type NodeLowerer
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { collapsedText } from "#compiler/lower/conservative/expr/ops.ts"
-import type { Expr, FromSource, OperandSelect } from "#compiler/sql/ast.ts"
+import type { Cte, Expr, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
 import {
 	binary,
 	call,
@@ -27,35 +43,29 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 
+/** The node a call's names are minted for, and the label refusals name it by. */
+const originOf = (node: NodeOf<"Call">) => ({ kind: "node", node: node.id }) as const
+
 /**
- * A declared function's call: the rows it returns for its arguments, a set, each value of its declared type.
- *
- *   SELECT DISTINCT r3.c3::<its type>, r3.c4::<its type>
- *     FROM <level>.<function>(<value>::<base type>, ARRAY(SELECT ROW(r2.c1, r2.c2)::<level>.__rows_<digest>
- *       FROM (<rows argument>) AS r2(c1, c2)), ...) AS r3(c3, c4)
- *     WHERE pg_catalog.num_nonnulls(r3.c3, r3.c4) = 2 OR <level>.__refuse('22004', '<function>', ...)
+ * A declared function's call at its arguments, as its FROM item, `<level>.<function>(<args>) AS <alias>(<columns>)`,
+ * `count` fresh columns renaming its result's columns positionally, a row's attributes or a set's columns in its row
+ * type's order.
  *
  * Each argument is passed in the function's declared order: a value cast to its declared type's base, the type the
  * function takes it at; rows as the array of the heading's row type (ir/physical.ts rowTypeOf), each element the row
- * of the argument query's fields in the heading's declared order. An argument reads outer values through the
- * environment, a region's columns among them, so a call that reads its region's variables is placed LATERAL by the
- * region (match-region), and runs once per binding of the matches before it.
- *
- * The function's rows are its row type's, its columns renamed positionally, in its attributes' order, the heading's
- * declared order, each to a fresh column of the statement; each is cast to the type its field's
- * values are stored as (ir/physical.ts fieldColumnType): a contract's, a pattern's or a closed id's roster's domain,
- * which PostgreSQL checks the value at, raising where it is none of the type, a code no handle of the roster holds
- * among them, so the call's value is the field's typed; and DISTINCT makes them a set. A row that holds NULL at any
- * column is refused through the installation's refusal function (SQLSTATE 22004, null_value_not_allowed), since
- * grizzle holds no NULL: no row of a function's result is absent at a field.
+ * of the argument query's fields in the heading's declared order,
+ * `ARRAY(SELECT ROW(r2.c1, r2.c2)::<level>.__rows_<digest> FROM (<rows argument>) AS r2(c1, c2))`. An argument reads
+ * outer values through the environment, a region's columns among them, so a call that reads its region's variables is
+ * placed LATERAL by the region (match-region), and runs once per binding of the matches before it.
  */
-const lowerDeclared = (
+const calledItem = (
 	node: NodeOf<"Call">,
-	called: Extract<CallFunction, { readonly kind: "declared" }>,
+	name: string,
+	count: number,
 	cx: LowerContext,
 	env: Env
-): OperandSelect => {
-	const fn = cx.names.declaredFunction(called.name)
+): { readonly item: FromSource; readonly columns: ReadonlyArray<Expr> } => {
+	const fn = cx.names.declaredFunction(name)
 	const args = node.args.map((a): Expr => {
 		if (a.kind === "value") {
 			return cast(lowerExpr(cx, a.expr, env), cx.baseTypeRef(a.type))
@@ -76,25 +86,55 @@ const lowerDeclared = (
 			query: select(keyedSet([target(element)], [rows.item], undefined, "a call's rows argument"))
 		}
 	})
-	const origin = { kind: "node", node: node.id } as const
-	const alias = cx.relationAlias(origin)
-	/** The function's columns renamed in its row type's attribute order, the heading's declared order. */
-	const columns = node.heading.map((c) => ({ name: c.name, column: cx.supply.column(origin) }))
-	const item: FromSource = {
-		kind: "function",
-		call: qualifiedCall(fn.ref.schema, fn.ref.name, args),
-		alias,
-		columns: columns.map((c) => c.column),
-		lateral: false,
-		ordinality: false
+	const alias = cx.relationAlias(originOf(node))
+	const columns = Array.from({ length: count }, () => cx.supply.column(originOf(node)))
+	return {
+		item: {
+			kind: "function",
+			call: qualifiedCall(fn.ref.schema, fn.ref.name, args),
+			alias,
+			columns,
+			lateral: false,
+			ordinality: false
+		},
+		columns: columns.map((c) => col(alias, c))
 	}
-	const reads = columns.map((c) => col(alias, c.column))
-	const whole = binary("=", call("num_nonnulls", reads), lit.int(reads.length, types.integer))
-	const refused = qualifiedCall(cx.names.refusal.schema, cx.names.refusal.name, [
-		lit.text("22004", types.text),
-		lit.text(called.name, types.text),
-		lit.text(`function ${called.name} returned a row holding NULL`, types.text)
+}
+
+/**
+ * The refusal of a NULL a function returned where grizzle holds a value: `pg_catalog.num_nonnulls(<values>) = n OR
+ * <level>.__refuse('22004', '<function>', '<what held it>')`, through the installation's refusal function (SQLSTATE
+ * 22004, null_value_not_allowed), since grizzle holds no NULL, so no row of a function's result is absent at a field.
+ */
+const refusingNull = (
+	cx: LowerContext,
+	name: string,
+	values: NonEmptyReadonlyArray<Expr>,
+	held: string
+): Expr =>
+	or([
+		binary("=", call("num_nonnulls", values), lit.int(values.length, types.integer)),
+		qualifiedCall(cx.names.refusal.schema, cx.names.refusal.name, [
+			lit.text(sqlstates.nullValueNotAllowed, types.text),
+			lit.text(name, types.text),
+			lit.text(`function ${name} returned ${held}`, types.text)
+		])
 	])
+
+/**
+ * A call's rows, a set, each value of its declared type: the columns `columns` of the sources `from` where `where`
+ * holds, each cast to the type its field's values are stored as (ir/physical.ts fieldColumnType): a contract's, a
+ * pattern's or a closed id's roster's domain, which PostgreSQL checks the value at, raising where it is none of the
+ * type, a code no handle of the roster holds among them, so the call's value is the field's typed; and DISTINCT makes
+ * them a set.
+ */
+const calledRows = (
+	node: NodeOf<"Call">,
+	columns: ReadonlyArray<Expr>,
+	from: ReadonlyArray<FromSource>,
+	where: ReadonlyArray<Expr>,
+	cx: LowerContext
+): OperandSelect => {
 	const heading = node.heading
 	if (!isNonEmpty(heading)) {
 		throw defect("a call's heading, its result's fields, of at least one field")
@@ -103,14 +143,261 @@ const lowerDeclared = (
 		mapNonEmpty(heading, (c, i) =>
 			target(
 				cast(
-					col(alias, defined(columns[i], "a column of the call per field of its heading").column),
+					defined(columns[i], "a column of the call per field of its heading"),
 					fieldColumnType(cx.names, c.type).type
 				)
 			)
 		),
-		[item],
-		[or([whole, refused])]
+		from,
+		where
 	)
+}
+
+/**
+ * A declared function's call that returns rows: the rows it returns for its arguments, a set, each value of its
+ * declared type (calledRows).
+ *
+ *   SELECT DISTINCT r3.c3::<its type>, r3.c4::<its type>
+ *     FROM <level>.<function>(<value>::<base type>, ARRAY(...), ...) AS r3(c3, c4)
+ *     WHERE pg_catalog.num_nonnulls(r3.c3, r3.c4) = 2 OR <level>.__refuse('22004', '<function>', ...)
+ *
+ * The function's rows are its row type's (calledItem), its columns renamed positionally, in its attributes' order, the
+ * heading's declared order, each to a fresh column of the statement; a row that holds NULL at any column is refused
+ * (refusingNull).
+ */
+const lowerDeclared = (
+	node: NodeOf<"Call">,
+	called: Extract<CallFunction, { readonly kind: "declared" }>,
+	cx: LowerContext,
+	env: Env
+): OperandSelect => {
+	const { item, columns } = calledItem(node, called.name, node.heading.length, cx, env)
+	if (!isNonEmpty(columns)) {
+		throw defect("a call's heading, its result's fields, of at least one field")
+	}
+	const noNull = refusingNull(cx, called.name, columns, "a row holding NULL")
+	return calledRows(node, columns, [item], [noNull], cx)
+}
+
+/** The place of the field a read reads among the fields of the call's row (CallFunction `field`). */
+const fieldAt = (called: Extract<CallFunction, { readonly kind: "field" }>): number => {
+	const at = called.row.indexOf(called.field)
+	if (at < 0) {
+		throw defect(`${called.field}, a field of ${called.name}'s row`)
+	}
+	return at
+}
+
+/**
+ * The evaluation of a call of a declared function that returns one row, which every read of one of its row's fields
+ * reads: its FROM item (calledItem), one row, each attribute of its row type a column, and the refusal of a row holding
+ * NULL at any of its fields (refusingNull), a NULL row among them, which PostgreSQL's FROM reads as a row of NULLs.
+ */
+const evaluationOf = (
+	node: NodeOf<"Call">,
+	called: Extract<CallFunction, { readonly kind: "field" }>,
+	cx: LowerContext,
+	env: Env
+): {
+	readonly item: FromSource
+	readonly attributes: NonEmptyReadonlyArray<Expr>
+	readonly check: Expr
+} => {
+	const { item, columns } = calledItem(node, called.name, called.row.length, cx, env)
+	if (!isNonEmpty(columns)) {
+		throw defect(`the row of ${called.name}, of at least one field`)
+	}
+	return {
+		item,
+		attributes: columns,
+		check: refusingNull(cx, called.name, columns, "a row holding NULL")
+	}
+}
+
+/**
+ * A call's evaluation as a read places it itself, where no query around it hosts it: its FROM item, its attributes,
+ * and the refusal of a row holding NULL, which the read's WHERE states of the item alone, so PostgreSQL evaluates it
+ * where it scans the call, before the read unnests a field (evaluationOf).
+ */
+const ownEvaluation = (
+	node: NodeOf<"Call">,
+	called: Extract<CallFunction, { readonly kind: "field" }>,
+	cx: LowerContext,
+	env: Env
+): {
+	readonly from: ReadonlyArray<FromSource>
+	readonly attributes: NonEmptyReadonlyArray<Expr>
+	readonly where: ReadonlyArray<Expr>
+} => {
+	const { item, attributes, check } = evaluationOf(node, called, cx, env)
+	return { from: [item], attributes, where: [check] }
+}
+
+/**
+ * A call's evaluation as a query of its own, which a host places once for every read of its row's fields it holds
+ * (HostedEvaluation): `SELECT r3.c3, ..., r3.cn FROM <level>.<function>(<args>) AS r3(c3, ..., cn) WHERE <no NULL>`,
+ * one row of the row type's attributes, an array of rows for each field of rows. Its columns are the attributes in
+ * their order, `count` of them (evaluationWidth).
+ */
+export const evaluationQuery = (node: NodeOf<"Call">, cx: LowerContext, env: Env): Select => {
+	const called = node.function
+	if (called.kind !== "field") {
+		throw defect("an evaluation of a call whose row's fields a query reads")
+	}
+	const { item, attributes, check } = evaluationOf(node, called, cx, env)
+	return select(
+		keyedSet(
+			mapNonEmpty(attributes, (a) => target(a)),
+			[item],
+			check,
+			"a call's one row"
+		)
+	)
+}
+
+/** The columns of a call's evaluation (evaluationQuery): its row's attributes, one per field of the row. */
+export const evaluationWidth = (node: NodeOf<"Call">): number => {
+	const called = node.function
+	if (called.kind !== "field") {
+		throw defect("an evaluation of a call whose row's fields a query reads")
+	}
+	return called.row.length
+}
+
+/**
+ * The identity of a read's call, its evaluation key: the function and the arguments it is called at, the field it reads,
+ * its heading and what an analysis claims of its rows left out, digested as a share key is but with every enclosing
+ * node its arguments read named by its label (ir/dag.ts reachDigestWithin), so two reads of fields of one call at equal
+ * arguments, its function immutable or stable, read one evaluation of it: two that read only parameters wherever they
+ * stand, and two that read the same enclosing row, a region's, in that region.
+ */
+export const evaluationKey = (dag: RelDag, node: NodeOf<"Call">): string => {
+	const called = node.function
+	if (called.kind !== "field") {
+		throw defect("the evaluation key of a read of a field of a call")
+	}
+	const evaluation = relNode(node.id, {
+		...node,
+		function: {
+			kind: "declared",
+			name: called.name,
+			volatility: called.volatility,
+			definition: called.definition
+		},
+		heading: [],
+		meta: conservativeMeta
+	})
+	return unwrap(reachDigestWithin(dag, [evaluation], "evaluation"))
+}
+
+/**
+ * Whether a field read's call reads nothing outside the read: no outer reference and no recursion's feedback, so its
+ * evaluation stands at its statement's WITH, which it may be read from wherever the read stands.
+ */
+export const readsOnlyParameters = (cx: LowerContext, read: NodeOf<"Call">): boolean =>
+	cx.freeRefs(read).size === 0 && !cx.readsFeedback(read)
+
+/**
+ * The evaluations a statement holds once each, as MATERIALIZED CTEs `ctes` holds, its WITH's entries
+ * (LowerContext.hostStatementEvaluations): every call a read of a field reads that reads only parameters
+ * (readsOnlyParameters), one CTE per evaluation key, defined at the first read of it, its body lowered in `root`,
+ * after every entry it reads, and read by each read of it under an alias of its own; a call that reads an outer row is
+ * no statement's to hold.
+ */
+export const statementEvaluations = (ctes: Set<Cte>, root: LowerContext): EvaluationLookup => {
+	const held = new Map<
+		string,
+		{ readonly name: string; readonly columns: NonEmptyReadonlyArray<string> }
+	>()
+	return (read, key, cx) => {
+		if (!readsOnlyParameters(cx, read)) {
+			return undefined
+		}
+		const known = held.get(key)
+		const cte = known ?? definedEvaluation(read, root, ctes)
+		held.set(key, cte)
+		const alias = cx.relationAlias(originOf(read))
+		return {
+			from: [{ kind: "cte", name: cte.name, alias }],
+			attributes: mapNonEmpty(cte.columns, (c) => col(alias, c))
+		}
+	}
+}
+
+/**
+ * A call's evaluation as a MATERIALIZED CTE of `ctes` (evaluationQuery), its body lowered in `cx`, entered after every
+ * entry its body defines: its name and columns, one per attribute of the call's row.
+ */
+const definedEvaluation = (
+	read: NodeOf<"Call">,
+	cx: LowerContext,
+	ctes: Set<Cte>
+): { readonly name: string; readonly columns: NonEmptyReadonlyArray<string> } => {
+	const query = evaluationQuery(read, cx, emptyEnv)
+	const origin = originOf(read)
+	const name = cx.relationAlias(origin)
+	const [first, ...rest] = Array.from({ length: evaluationWidth(read) }, () =>
+		cx.supply.column(origin)
+	)
+	if (first === undefined) {
+		throw defect("a call's row, of at least one field")
+	}
+	const columns: NonEmptyReadonlyArray<string> = [first, ...rest]
+	ctes.add({ name, columns, materialized: "MATERIALIZED", query })
+	return { name, columns }
+}
+
+/**
+ * A read of a field of a declared function's one row (Compute.rowOf): the rows the field holds for its arguments, a
+ * set, each value of its declared type (calledRows), read from the call's evaluation (evaluationOf) by unnesting the
+ * field's array of rows.
+ *
+ *   SELECT DISTINCT r4.c5::<its type>, r4.c6::<its type>
+ *     FROM <level>.<function>(<args>) AS r3(c1, c2, c3), LATERAL pg_catalog.unnest(r3.c2) AS r4(c5, c6)
+ *     WHERE (pg_catalog.num_nonnulls(r3.c1, r3.c2, r3.c3) = 3 OR <level>.__refuse(...))
+ *       AND (pg_catalog.num_nonnulls(r4.c5, r4.c6) = 2 OR <level>.__refuse(...))
+ *
+ * The call's row is evaluated once for every read of its fields a query around the read hosts
+ * (LowerContext.hostedEvaluation): a region's LATERAL item for the reads its occurrences make, a statement's
+ * MATERIALIZED CTE for every read of a call over parameters alone; a read no host holds evaluates the call itself, as
+ * above. A row holding NULL at any field is refused where it is evaluated, before any field of it is read, so an empty
+ * array is a field of no rows, the empty source, and a NULL one never reads as one; a row of a field that holds NULL,
+ * a NULL element of the array among them, which unnest reads as a row of NULLs, is refused where the field is read.
+ */
+const lowerField = (
+	node: NodeOf<"Call">,
+	called: Extract<CallFunction, { readonly kind: "field" }>,
+	cx: LowerContext,
+	env: Env
+): OperandSelect => {
+	const hosted = cx.hostedEvaluation(node, evaluationKey(cx.dag, node))
+	const evaluated =
+		hosted === undefined ? ownEvaluation(node, called, cx, env) : { ...hosted, where: [] }
+	const array = defined(
+		evaluated.attributes[fieldAt(called)],
+		"the attribute of the field a read reads"
+	)
+	const alias = cx.relationAlias(originOf(node))
+	const columns = node.heading.map(() => cx.supply.column(originOf(node)))
+	const reads = columns.map((c) => col(alias, c))
+	if (!isNonEmpty(reads)) {
+		throw defect("a field's heading, of at least one field")
+	}
+	const rows: FromSource = {
+		kind: "function",
+		call: call("unnest", [array]),
+		alias,
+		columns,
+		lateral: evaluated.from.length > 0,
+		ordinality: false
+	}
+	const noNullRow = refusingNull(
+		cx,
+		called.name,
+		reads,
+		`a row holding NULL in field ${called.field}`
+	)
+	return calledRows(node, reads, [...evaluated.from, rows], [...evaluated.where, noNullRow], cx)
 }
 
 /**
@@ -179,13 +466,16 @@ const splitLowerings: {
 
 /**
  * Call: the rows a function returns for its arguments, a set, by its function (ir/rel.ts CallFunction): a declared
- * function's (lowerDeclared) or one of grizzle's splits' (splitLowerings).
+ * function's (lowerDeclared), a field's of a declared function's one row (lowerField), or one of grizzle's splits'
+ * (splitLowerings).
  */
 const lowerCall: NodeLowerer<"Call"> = (node, cx, env) => {
 	const called = node.function
 	switch (called.kind) {
 		case "declared":
 			return lowerDeclared(node, called, cx, env)
+		case "field":
+			return lowerField(node, called, cx, env)
 		case "split":
 			return splitLowerings[called.split](node, cx, env)
 	}

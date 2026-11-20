@@ -26,6 +26,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { genCatalog } from "#test/support/evidence.ts"
 import { unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import {
 	type DedupFeature,
 	dedupFeatures,
@@ -52,6 +53,7 @@ export const placementDeliversTheReferenceSetWithNoRepeatsOnGeneratedRootedAndNo
 					schema: k.c.schema,
 					facts: k.c.facts,
 					params: k.c.query.params,
+					functions: noFunctions,
 					observer: unobserved
 				}
 				const dag = k.ordered ? orderedRoot(k.c.query.dag) : k.c.query.dag

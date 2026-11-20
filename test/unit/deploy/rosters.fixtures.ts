@@ -55,6 +55,7 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { lawNamesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { owning } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -715,6 +716,7 @@ const lawBroken = (pairLawId: LawId, installation: Installation): boolean => {
 		schema: { name: "Codes", relations: [], closed: [], containments: [] },
 		facts: {},
 		params: {},
+		functions: noFunctions,
 		observer: unobserved
 	})
 	return reference.eval(forbid.violation, noBindings).rows.length > 0

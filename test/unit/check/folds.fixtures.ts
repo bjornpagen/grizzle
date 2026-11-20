@@ -17,6 +17,7 @@ import { int4 } from "#test/support/oracle/gen/domain.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import type { Value } from "#test/support/oracle/reference/values.ts"
 import {
 	attach,
@@ -473,6 +474,7 @@ export const referenceAnswer = (
 		schema: blogFactsOf(c.commentKey),
 		facts: canonicalFacts({ Post: literals(db.Post), Comment: literals(db.Comment) }),
 		params: {},
+		functions: noFunctions,
 		observer: unobserved
 	})
 	const relation = reference.eval(root, noBindings)

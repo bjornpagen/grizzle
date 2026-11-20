@@ -149,6 +149,7 @@ class Collector {
 				this.#imported(s.query, s.bind)
 				return
 			case "call":
+			case "callField":
 				for (const a of Object.values(s.args)) {
 					if (a.kind === "rows") {
 						this.#imported(a.query, a.bind)

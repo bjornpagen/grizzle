@@ -39,6 +39,7 @@ import {
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
 import { RecordingReference } from "#test/support/oracle/reference/evaluations.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { equal, type Row, valueIdentity } from "#test/support/oracle/reference/values.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import type { HostFacts } from "#test/unit/analysis/theory/support.ts"
@@ -127,6 +128,7 @@ const violations = (
 		schema: genSchemaOf(t),
 		facts: genFactsOf(t, facts),
 		params: {},
+		functions: noFunctions,
 		observer: unobserved
 	})
 	return new Map(

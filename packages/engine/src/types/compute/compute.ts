@@ -52,10 +52,12 @@ import type { Pattern } from "#compiler/scalar/regex/pattern.ts"
 import type {
 	CallArgs,
 	CalledTerm,
+	CallFields,
 	CallParams,
 	CallReads,
 	CallSource,
 	ExactCallArgs,
+	RowFunction,
 	RowsFunction,
 	ValueFunction
 } from "#compiler/types/compute/call.ts"
@@ -1375,6 +1377,22 @@ export interface ComputeApi {
 		f: RowsFunction<Args, Fields>,
 		args: A & ExactCallArgs<A, Args>
 	): CallSource<FactOfFields<Fields>, CallParams<A>, Fields, CallReads<A>>
+	/**
+	 * The fields of the one row a declared function of one row returns at its arguments, immutable or stable, each
+	 * argument as Compute.rowsOf takes one: each field of the row that holds rows of a heading of values, by its name, a
+	 * source a rule matches, its facts the heading's, a set. Every read of them reads one evaluation of the call, so a
+	 * statement that reads several of them calls the function once at its arguments. A row holding NULL at any field
+	 * raises where it is evaluated, and a row of a field holding NULL where the field is read (SQLSTATE 22004); a field
+	 * of no rows is the empty source.
+	 */
+	rowOf<
+		const Args extends Readonly<Record<string, FunctionType>>,
+		Fields extends Readonly<Record<string, FunctionType>>,
+		const A extends CallArgs<Args>
+	>(
+		f: RowFunction<Args, Fields>,
+		args: A & ExactCallArgs<A, Args>
+	): CallFields<A, Fields>
 }
 
 /** The comparison and boolean helpers a row check sees beside its fields. */

@@ -81,6 +81,7 @@ export const inlineWorlds = (query: QueryDesc, role: CheckedSchema): QueryDesc =
 					)
 				}
 			case "call":
+			case "callField":
 				return {
 					...s,
 					args: mapRecord(s.args, (a) =>

@@ -417,6 +417,11 @@ export type Lowerers<K extends RelKind> = { readonly [P in K]: NodeLowerer<P> }
 interface Shared {
 	supply: NameSupply
 	statement: StatementPlaceholders
+	/**
+	 * The host of the evaluations the statement holds once each in its own WITH (call/index.ts statementEvaluations),
+	 * which the statement's builder states after it begins it, undefined where it states none.
+	 */
+	evaluations: EvaluationLookup | undefined
 	readonly free: Map<RelNode, OuterRefs>
 	scopes: Fold<RelNode, NodeScope> | undefined
 }
@@ -492,11 +497,42 @@ export const withLeading = <Q extends OperandSelect>(query: Q, ctes: Iterable<Ct
 }
 
 /**
+ * A call's evaluation as a read of a field of its row finds it where a query around the read hosts it
+ * (lower/conservative/call): the items the read's own FROM places before the field's rows, none where an item in scope
+ * evaluates the call, and the row's attributes in their order, each a column of one of those items or of the one in
+ * scope.
+ */
+export interface HostedEvaluation {
+	readonly from: ReadonlyArray<FromSource>
+	readonly attributes: NonEmptyReadonlyArray<Expr>
+}
+
+/**
+ * What hosts the evaluations of the calls whose fields a scope's queries read: a host's evaluation of the call of the
+ * read `read`, of evaluation key `key` (call/index.ts evaluationKey), undefined where it holds none, and the host
+ * around it, which a read asks next.
+ */
+interface EvaluationHost {
+	readonly outer: EvaluationHost | undefined
+	readonly evaluation: EvaluationLookup
+}
+
+/**
+ * A host's evaluation of the call a field read `read` reads, of evaluation key `key`, undefined where it holds none
+ * (EvaluationHost).
+ */
+export type EvaluationLookup = (
+	read: NodeOf<"Call">,
+	key: string,
+	cx: LowerContext
+) => HostedEvaluation | undefined
+
+/**
  * What the query being lowered is nested in: how many subquery expressions (EXISTS) enclose it, the feedback relations
- * of the recursions being lowered around it, and the dispatch its nodes lower through. A scope is extended for a
- * subtree, never changed and restored: PostgreSQL refuses a recursive reference inside a subquery expression of its own
- * recursive term (42P19), so a feedback scan lowered deeper than its recursive CTE is refused; a whole WITH RECURSIVE
- * inside EXISTS is fine.
+ * of the recursions being lowered around it, the dispatch its nodes lower through, and the hosts of the evaluations its
+ * field reads read. A scope is extended for a subtree, never changed and restored: PostgreSQL refuses a recursive
+ * reference inside a subquery expression of its own recursive term (42P19), so a feedback scan lowered deeper than its
+ * recursive CTE is refused; a whole WITH RECURSIVE inside EXISTS is fine.
  */
 interface Scope {
 	readonly sublinkDepth: number
@@ -505,6 +541,8 @@ interface Scope {
 	readonly dispatch: NodeDispatch
 	/** The innermost share frame the query is lowered in, if its dispatch shares (dispatch.ts). */
 	readonly sharing: ShareFrame | undefined
+	/** The innermost host of the evaluations its field reads read, undefined where none hosts one. */
+	readonly evaluations: EvaluationHost | undefined
 }
 
 /** Where a lowering's first statement starts naming: a read-back's start, every other statement's r1 and c1. */
@@ -544,10 +582,17 @@ export class LowerContext {
 		this.#shared = {
 			supply: new NameSupply(firstStart(options)),
 			statement: { kind: "query", params: new StatementParams<never>() },
+			evaluations: undefined,
 			free: new Map(),
 			scopes: undefined
 		}
-		this.#scope = { sublinkDepth: 0, feedback: new Map(), dispatch, sharing: undefined }
+		this.#scope = {
+			sublinkDepth: 0,
+			feedback: new Map(),
+			dispatch,
+			sharing: undefined,
+			evaluations: undefined
+		}
 	}
 
 	/**
@@ -610,6 +655,39 @@ export class LowerContext {
 	}
 
 	/**
+	 * The scope whose field reads find their calls' evaluations in `lookup` first, then in the hosts around it and the
+	 * statement's.
+	 */
+	withEvaluations(lookup: EvaluationLookup): LowerContext {
+		return this.#within({
+			...this.#scope,
+			evaluations: { outer: this.#scope.evaluations, evaluation: lookup }
+		})
+	}
+
+	/**
+	 * The evaluation of the call of evaluation key `key` a query around the scope hosts: the innermost host's that holds
+	 * it, undefined where none does, so the read evaluates the call itself.
+	 */
+	hostedEvaluation(read: NodeOf<"Call">, key: string): HostedEvaluation | undefined {
+		for (let host = this.#scope.evaluations; host !== undefined; host = host.outer) {
+			const hosted = host.evaluation(read, key, this)
+			if (hosted !== undefined) {
+				return hosted
+			}
+		}
+		return this.#shared.evaluations?.(read, key, this)
+	}
+
+	/**
+	 * The statement being lowered hosts the evaluations `lookup` holds, after every host of the scopes inside it: its
+	 * builder states them once it begins it, and emits the WITH entries they define.
+	 */
+	hostStatementEvaluations(lookup: EvaluationLookup): void {
+		this.#shared.evaluations = lookup
+	}
+
+	/**
 	 * The next statement of a query or a page, its placeholders `params`, naming past the last one's names: no two
 	 * statements of one lowering define one generated name, so any of them can be parts of one statement (a riding
 	 * read-back's of the write statement it rides, ReadBackLowering start; a conservative program's of its one statement,
@@ -623,12 +701,14 @@ export class LowerContext {
 	beginStatementWith(supply: NameSupply, params: Placeholders): void {
 		this.#shared.supply = supply
 		this.#shared.statement = { kind: "query", params }
+		this.#shared.evaluations = undefined
 	}
 
 	/** The next statement of a write, naming from `supply`, its placeholders `params`, which its member slots read. */
 	beginWriteStatement(supply: NameSupply, params: WriteParams): void {
 		this.#shared.supply = supply
 		this.#shared.statement = { kind: "write", params }
+		this.#shared.evaluations = undefined
 	}
 
 	/**

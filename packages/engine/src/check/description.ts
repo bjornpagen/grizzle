@@ -177,6 +177,7 @@ class Structure {
 				}
 				return
 			case "call":
+			case "callField":
 				for (const [arg, a] of entries(s.args)) {
 					const at = childLoc(childLoc(loc, "args"), arg)
 					if (a.kind === "rows") {

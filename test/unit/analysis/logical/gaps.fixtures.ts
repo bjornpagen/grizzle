@@ -25,6 +25,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { canonicalFacts, type GenFacts, type LiteralRow } from "#test/support/oracle/gen/facts.ts"
 import type { GenRelation, GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { logicalUnsound } from "#test/unit/analysis/logical/support.ts"
 
 export const int4 = plainType("int4")
@@ -120,7 +121,7 @@ export const analyzedSoundly = (
 	const analysis = succeeded(analyzeLogical(dag, checkerEvidence))
 	const soundness = logicalUnsound(
 		analysis.dag,
-		{ schema, facts, params: {}, observer: unobserved },
+		{ schema, facts, params: {}, functions: noFunctions, observer: unobserved },
 		() => undefined,
 		{ keyedViews: false }
 	)

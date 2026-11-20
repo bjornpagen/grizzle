@@ -1,31 +1,41 @@
 import type { Built } from "#compiler/core/phantom.ts"
 import { isPlainRecord } from "#compiler/core/record.ts"
 import {
+	type FieldDesc,
 	type FunctionDesc,
 	type FunctionTypeDesc,
 	functionTypeLabel,
+	type NamedDesc,
 	valueHeading
 } from "#compiler/ir/desc.ts"
 import type { OpenCallArg, OpenExpr, OpenSource } from "#compiler/ir/open.ts"
 import { tokensHeading } from "#compiler/ir/rel.ts"
 import { tokenPattern } from "#compiler/ir/scalar.ts"
 import { fieldTyping, heading } from "#compiler/query/build/heading.ts"
-import { callSourceValue, type SourceInfo, sourceInfo } from "#compiler/query/build/state.ts"
+import {
+	callSourceValue,
+	descriptorCarriers,
+	type SourceInfo,
+	sourceInfo
+} from "#compiler/query/build/state.ts"
 import { scalarTerm } from "#compiler/scalar/compute/builders.ts"
 import { predicateExpr, type ScalarTerm, termExpr, typed } from "#compiler/scalar/compute/term.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { bareEnv, type SqlTag } from "#compiler/scalar/registry.ts"
 import { functionDescOf } from "#compiler/schema/function.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
-import { describedField, malformed } from "#compiler/schema/protocol.ts"
+import { describedField, malformed, ownedEntry } from "#compiler/schema/protocol.ts"
+import { calledFields } from "#compiler/schema/record.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type {
 	CallArgs,
 	CalledTerm,
+	CallFields,
 	CallParams,
 	CallReads,
 	CallSource,
 	ExactCallArgs,
+	RowFunction,
 	RowsFunction,
 	ValueFunction
 } from "#compiler/types/compute/call.ts"
@@ -36,8 +46,9 @@ import type { FactOfFields } from "#compiler/types/schema/relation.ts"
 
 /**
  * The calls of a declared function (schema/function.ts fn) a query states: Compute.call(f, args), the value of a
- * function that returns a value, a term (ir/desc.ts ExprDesc call), and Compute.rowsOf(f, args), the rows of one that
- * returns rows, a source a rule matches (ir/desc.ts SourceDesc call). Each argument is named as the function declares
+ * function that returns a value, a term (ir/desc.ts ExprDesc call); Compute.rowsOf(f, args), the rows of one that
+ * returns rows, a source a rule matches (ir/desc.ts SourceDesc call); and Compute.rowOf(f, args), the fields of the one
+ * row one returns, each that holds rows of values a source a rule matches (ir/desc.ts SourceDesc callField). Each argument is named as the function declares
  * it, every one of them and none other: a value argument a term, a parameter or a JavaScript value, as a bind map binds
  * a parameter; a rows argument a query or a bound query, whose heading the checker holds to the argument's.
  */
@@ -146,6 +157,49 @@ export const callTerm = <
 }
 
 /**
+ * The arguments of a call of rows (Compute.rowsOf, Compute.rowOf), each by its declared name: a value argument a term
+ * (valueArgument), a rows argument a query or a bound query of values (rowsArgument), whose source infos say where the
+ * call may be matched. A rows argument of a heading of rows or of a row, and one of one row, are refused: only another
+ * function's body passes one.
+ */
+const sourceArgs = (
+	desc: FunctionDesc,
+	args: unknown,
+	label: string
+): {
+	readonly rows: ReadonlyArray<SourceInfo>
+	readonly described: Readonly<Record<string, OpenCallArg>>
+} => {
+	const rows: Array<SourceInfo> = []
+	const described: Record<string, OpenCallArg> = {}
+	for (const [name, type, value] of namedArgs(desc, args, label)) {
+		if (type.kind === "value") {
+			described[name] = valueArgument(value, `${label} ${name}`)
+		} else if (type.kind === "rows" && valueHeading(type.heading) !== undefined) {
+			const rowsArg = rowsArgument(value, `${label} ${name}`)
+			rows.push(rowsArg.info)
+			described[name] = { kind: "rows", query: rowsArg.imported.query, bind: rowsArg.imported.bind }
+		} else {
+			throw malformed(
+				`${label} ${name}`,
+				`an argument a query passes, a value or rows of values alone; ${desc.name} takes ${functionTypeLabel(type)} at ${name}, which only another function's body passes`
+			)
+		}
+	}
+	return { rows, described }
+}
+
+/** The heading a call's rows are typed by: each field of a heading of values at its descriptor's typing. */
+const rowsHeading = (
+	fields: Readonly<Record<string, unknown>>,
+	read: ReadonlyArray<NamedDesc<FieldDesc>>
+) =>
+	heading(
+		read.map((field) => [field.name, fieldTyping(fields[field.name], field.type, bareEnv)]),
+		[]
+	)
+
+/**
  * Compute.rowsOf(f, args): the rows a declared function that returns rows of a heading returns at its arguments, a
  * source a rule matches, of the heading's fields, types and carriers.
  */
@@ -173,32 +227,71 @@ export const callRows = <
 			`a function whose rows hold values alone; a field of ${desc.name}'s rows holds rows or a row, which only another function's body reads`
 		)
 	}
-	const rows: Array<SourceInfo> = []
-	const described: Record<string, OpenCallArg> = {}
-	for (const [name, type, value] of namedArgs(desc, args, label)) {
-		if (type.kind === "value") {
-			described[name] = valueArgument(value, `${label} ${name}`)
-		} else if (type.kind === "rows" && valueHeading(type.heading) !== undefined) {
-			const rowsArg = rowsArgument(value, `${label} ${name}`)
-			rows.push(rowsArg.info)
-			described[name] = { kind: "rows", query: rowsArg.imported.query, bind: rowsArg.imported.bind }
-		} else {
-			throw malformed(
-				`${label} ${name}`,
-				`an argument a query passes, a value or rows of values alone; ${desc.name} takes ${functionTypeLabel(type)} at ${name}, which only another function's body passes`
-			)
-		}
-	}
+	const { rows, described } = sourceArgs(desc, args, label)
 	const fields = f.returns.fields
 	return callSourceValue(
 		{ kind: "call", function: desc.name, args: described },
-		heading(
-			returned.map((field) => [field.name, fieldTyping(fields[field.name], field.type, bareEnv)]),
-			[]
-		),
+		rowsHeading(fields, returned),
 		fields,
 		rows,
 		`function ${desc.name}`
+	)
+}
+
+/**
+ * Compute.rowOf(f, args): the fields of the one row a declared function of one row returns at its arguments, an
+ * immutable or stable one, so every read of them reads one evaluation of the call: each field of the row that holds
+ * rows of a heading of values, by its name, a source a rule matches of the heading's fields, types and carriers
+ * (ir/desc.ts SourceDesc callField). A field of a value, of one row, or of rows whose heading holds rows or a row is no
+ * source, which only another function's body reads.
+ */
+export const callFields = <
+	const Args extends Readonly<Record<string, FunctionType>>,
+	Fields extends Readonly<Record<string, FunctionType>>,
+	const A extends CallArgs<Args>
+>(
+	f: RowFunction<Args, Fields>,
+	args: A & ExactCallArgs<A, Args>
+): CallFields<A, Fields> => {
+	const label = "Compute.rowOf"
+	const desc = declaredOf(f, label)
+	const returns = desc.returns
+	if (returns.kind !== "row") {
+		throw malformed(
+			label,
+			`a function that returns one row; ${desc.name} returns ${functionTypeLabel(returns)}`
+		)
+	}
+	if (desc.volatility === "volatile") {
+		throw malformed(
+			label,
+			`an immutable or stable function, whose one evaluation at its arguments every read of its row's fields shares; ${desc.name} is volatile`
+		)
+	}
+	const { rows, described } = sourceArgs(desc, args, label)
+	const fields: Readonly<Record<string, unknown>> = f.returns.heading.fields
+	return calledFields<A, Fields>(
+		returns.heading.flatMap((field) => {
+			const read = field.type.kind === "rows" ? valueHeading(field.type.heading) : undefined
+			const held = ownedEntry(fields[field.name], "rows")
+			if (read === undefined || held === undefined) {
+				return []
+			}
+			const descriptors: Readonly<Record<string, unknown>> = held.value.fields
+			const carriers = descriptorCarriers(descriptors, `${label} ${field.name}`)
+			return [
+				[
+					field.name,
+					callSourceValue(
+						{ kind: "callField", function: desc.name, args: described, field: field.name },
+						rowsHeading(descriptors, read),
+						carriers,
+						rows,
+						`field ${field.name} of function ${desc.name}`
+					)
+				] as const
+			]
+		})
 	)
 }
 

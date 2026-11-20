@@ -1,3 +1,4 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	extendNonEmpty,
 	isNonEmpty,
@@ -11,10 +12,17 @@ import type { SelectionKey } from "#compiler/ir/physical.ts"
 import type { HeadingColumn, NodeOf, Occurrence, VarDecl } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import {
+	evaluationKey,
+	evaluationQuery,
+	evaluationWidth,
+	readsOnlyParameters
+} from "#compiler/lower/conservative/call/index.ts"
+import {
 	type ColumnMap,
 	columnIn,
 	distinctSelect,
 	type Env,
+	type EvaluationLookup,
 	extendEnv,
 	type InputSource,
 	type LowerContext,
@@ -28,7 +36,7 @@ import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, FromSource, Target } from "#compiler/sql/ast.ts"
-import { col, target, unitTargets } from "#compiler/sql/build.ts"
+import { col, derived, target, unitTargets } from "#compiler/sql/build.ts"
 
 type Region = NodeOf<"MatchRegion">
 
@@ -229,15 +237,42 @@ export interface PlacedOccurrence {
 
 /**
  * A region lowered to its parts: the targets over its variables, its occurrences' derived tables in placement order
- * (each correlated one after what it reads), and the conditions over them. The conservative lowering reads them as one
- * FROM list under WHERE; the optimized one may order them as a JOIN chain (shapes/region).
+ * (each correlated one after what it reads), its FROM list, those tables in that order and before the first of the
+ * occurrences that read one the evaluation of a call it hosts (regionEvaluations), and the conditions over them. The
+ * conservative lowering reads its FROM list under WHERE; the optimized one may order its occurrences as a JOIN chain
+ * (shapes/region) where the list is their tables alone.
  */
 interface RegionParts {
 	readonly targets: NonEmptyReadonlyArray<Target>
 	/** The value of each column of the region's heading, in heading order. */
 	readonly columns: ReadonlyArray<{ readonly column: HeadingColumn; readonly value: Expr }>
 	readonly occurrences: ReadonlyArray<PlacedOccurrence>
+	readonly from: ReadonlyArray<FromSource>
 	readonly conditions: ReadonlyArray<Expr>
+}
+
+/**
+ * The calls a region's occurrences read the fields of that it evaluates once for them, by the occurrences that read
+ * them: each call over an outer row (no statement holds it: call/index.ts readsOnlyParameters) whose evaluation key
+ * two or more occurrences' field reads share, each occurrence by that key. Its evaluation stands in the region's FROM
+ * list, LATERAL, before the first of them, once per binding of what it reads, and each of them reads it
+ * (LowerContext.withEvaluations), so a rule that matches several fields of one call calls it once per binding.
+ */
+const regionEvaluations = (cx: LowerContext, node: Region): ReadonlyMap<Occurrence, string> => {
+	const keyed = node.occurrences.flatMap((o) =>
+		o.source.kind === "Call" &&
+		o.source.function.kind === "field" &&
+		!readsOnlyParameters(cx, o.source)
+			? [{ occurrence: o, key: evaluationKey(cx.dag, o.source) }]
+			: []
+	)
+	return new Map(
+		keyed.flatMap((k) =>
+			keyed.filter((other) => other.key === k.key).length > 1
+				? [[k.occurrence, k.key] as const]
+				: []
+		)
+	)
 }
 
 /**
@@ -266,10 +301,9 @@ interface RegionParts {
  */
 const lowerMatchRegion: NodeLowerer<"MatchRegion"> = (node, cx, env) => {
 	const parts = regionParts(node, cx, env)
-	const from = parts.occurrences.map((o) => o.item)
 	return bindsEveryColumn(node)
-		? wholeSelect(from, parts.targets, parts.conditions)
-		: distinctSelect(parts.targets, from, parts.conditions)
+		? wholeSelect(parts.from, parts.targets, parts.conditions)
+		: distinctSelect(parts.targets, parts.from, parts.conditions)
 }
 
 /**
@@ -311,7 +345,11 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 		}
 	}
 	const from: Array<PlacedOccurrence> = []
+	const items: Array<FromSource> = []
 	const shared = sharedSources(node)
+	const evaluating = regionEvaluations(cx, node)
+	/** The attributes of each call's evaluation the region placed, by its evaluation key. */
+	const evaluated = new Map<string, NonEmptyReadonlyArray<Expr>>()
 	/** Each probed occurrence's law columns, by the field each stands for (`probeKeys`). */
 	const probes = new Map<Occurrence, ReadonlyMap<string, Expr>>()
 	/**
@@ -363,8 +401,14 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 		const o = ready.occurrence
 		pending.splice(ready.position, 1)
 		const needs = occurrenceNeeds(cx, node, o, shared)
-		const correlated = needs.vars.size > 0 || needs.sources.size > 0
-		const read = cx.sourceAs(o.source, scope(), correlated)
+		const key = evaluating.get(o)
+		const correlated = needs.vars.size > 0 || needs.sources.size > 0 || key !== undefined
+		const read =
+			key === undefined || o.source.kind !== "Call"
+				? cx.sourceAs(o.source, scope(), correlated)
+				: cx
+						.withEvaluations(placedEvaluation(cx, o.source, key, scope(), evaluated, items))
+						.sourceAs(o.source, scope(), correlated)
 		const probe = shared.has(o.source.id)
 			? undefined
 			: withLawColumns(cx, o, read, probeKeys(cx, o))
@@ -373,6 +417,7 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 			probes.set(o, probe.probed)
 		}
 		from.push({ occurrence: o, item: source.item, alias: source.alias, map: source.map })
+		items.push(source.item)
 		if (!shared.has(o.source.id)) {
 			placedSources.set(o.source.id, source.map)
 		}
@@ -447,7 +492,48 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 		return { column, value: e }
 	})
 	const targets = isNonEmpty(columns) ? mapNonEmpty(columns, (c) => target(c.value)) : unitTargets
-	return { targets, columns, occurrences: from, conditions: where }
+	return { targets, columns, occurrences: from, from: items, conditions: where }
+}
+
+/**
+ * The evaluation the region holds of the call the field read `read` reads, of evaluation key `key`
+ * (regionEvaluations), placed at the first read of it (placeEvaluation) and read by every read of it through its
+ * columns, its attributes.
+ */
+const placedEvaluation = (
+	cx: LowerContext,
+	read: NodeOf<"Call">,
+	key: string,
+	env: Env,
+	evaluated: Map<string, NonEmptyReadonlyArray<Expr>>,
+	items: Array<FromSource>
+): EvaluationLookup => {
+	const attributes = evaluated.get(key) ?? placeEvaluation(cx, read, env, items)
+	evaluated.set(key, attributes)
+	return (_read, asked) => (asked === key ? { from: [], attributes } : undefined)
+}
+
+/**
+ * A call's evaluation placed in `items`, the region's FROM list, as a LATERAL derived table, its query lowered in the
+ * scope `env` its first read is placed in (call/index.ts evaluationQuery): its columns, the attributes of its row.
+ */
+const placeEvaluation = (
+	cx: LowerContext,
+	read: NodeOf<"Call">,
+	env: Env,
+	items: Array<FromSource>
+): NonEmptyReadonlyArray<Expr> => {
+	const origin = { kind: "node", node: read.id } as const
+	const query = evaluationQuery(read, cx, env)
+	const alias = cx.relationAlias(origin)
+	const [first, ...rest] = Array.from({ length: evaluationWidth(read) }, () =>
+		cx.supply.column(origin)
+	)
+	if (first === undefined) {
+		throw defect("a call's row, of at least one field")
+	}
+	items.push(derived(query, alias, [first, ...rest], true))
+	return mapNonEmpty([first, ...rest], (c) => col(alias, c))
 }
 
 /** This kind's entry of the conservative kind table (dispatch.ts). */

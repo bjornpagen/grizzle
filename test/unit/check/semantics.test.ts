@@ -14,6 +14,7 @@ import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { checkAuthored, checking, checkMemberOf, checkOptions } from "#test/support/policy.ts"
 import { kindOfType, schemaDescOf } from "#test/unit/check/drawn.ts"
 import { imported, lit, match, plainVar, queryDesc, rule, varRef } from "#test/unit/check/dsl.ts"
@@ -347,6 +348,7 @@ export const theCheckersParameterMemberAndBoundRulesBindANegatedMatchsParameterW
 						])
 					}),
 					params: {},
+					functions: noFunctions,
 					observer: unobserved
 				}).eval(q.dag.roots[0], noBindings)
 				const tagged = (item: number, at: (label: number) => boolean): boolean =>

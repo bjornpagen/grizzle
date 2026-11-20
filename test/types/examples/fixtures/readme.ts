@@ -1222,6 +1222,51 @@ export const shiftedLines = query(Docs).rule((r) => {
 		.find({ doc, pos, txt, again: Compute.call(folded, { word: txt }) })
 })
 
+/** "Calling a function": the fields of one row, two members of one statement reading one call. */
+const Parted = rows({ short: Numbered, long: Numbered })
+
+/** The lines of `program`, parted by the length of their word: one row, two fields of rows. */
+export const parted = fn("parted", {
+	calls: [],
+	args: { program: Numbered },
+	returns: row(Parted),
+	volatility: "immutable",
+	language: "sql",
+	body: fn.body`SELECT ROW(
+  ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) < 5),
+  ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) >= 5))::${Parted}`
+})
+
+const Short = relation("Short", { doc: DocSlug, pos: natural, txt: Word }, ["doc", "pos"])
+const Long = relation("Long", { doc: DocSlug, pos: natural, txt: Word }, ["doc", "pos"])
+export const Words = schema("Words", [Line, Short, Long, parted], [])
+
+const wordsOf = query(Words).rule((r) => {
+	const { pos, txt } = v(Line, "line")
+	return r.match(Line, { doc: r.param("doc", DocSlug), pos, txt }).find({ pos, txt })
+})
+
+/** A document's lines, each filed under its word's length. */
+export const file = ChangeSet.empty(Words)
+	.insert(
+		Short,
+		query(Words).rule((r) => {
+			const doc = r.param("doc", DocSlug)
+			const { short } = Compute.rowOf(parted, { program: wordsOf.bind({ doc }) })
+			const { pos, txt } = v(short, "short")
+			return r.match(short, { pos, txt }).find({ doc, pos, txt })
+		})
+	)
+	.insert(
+		Long,
+		query(Words).rule((r) => {
+			const doc = r.param("doc", DocSlug)
+			const { long } = Compute.rowOf(parted, { program: wordsOf.bind({ doc }) })
+			const { pos, txt } = v(long, "long")
+			return r.match(long, { pos, txt }).find({ doc, pos, txt })
+		})
+	)
+
 /** The QTI content model, maintained on its own: an item is its QTI identifier. */
 export const Item = relation("Item", { id: ItemIdentifier, title: Title }, ["id"])
 export const Qti = schema("Qti", [Item], [])

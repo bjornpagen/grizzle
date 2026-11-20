@@ -699,6 +699,7 @@ export const bindTerms = <L, R extends Refs>(
 		case "step":
 			return scalar(s.bind, (param) => param)
 		case "call":
+		case "callField":
 			return Object.entries(s.args).flatMap(([arg, a]) =>
 				a.kind === "rows" ? scalar(a.bind, (param) => `${arg}.${param}`) : [[arg, a] as const]
 			)
@@ -803,6 +804,7 @@ export const mapBindTerms = <L, R extends Refs>(
 		case "step":
 			return { ...s, bind: mapped(s.bind) }
 		case "call":
+		case "callField":
 			return {
 				...s,
 				args: mapRecord(s.args, (a): CallArgDesc<L, R> =>
@@ -861,9 +863,9 @@ export type CallArgDesc<L = Located, R extends Refs = Spelled> =
 
 /**
  * The declared functions a Description calls, by name, at any depth: each call term (ExprDesc call) and each call
- * source (SourceDesc call) it holds, through its imports, attachments, interiors, rows arguments, members and read-backs
- * alike. A Description is plain data, a tree of records and lists, and a call is the one node of kind "call" that names
- * a `function`, so the walk reads every node once and needs no case for any other.
+ * source (SourceDesc call and callField) it holds, through its imports, attachments, interiors, rows arguments, members
+ * and read-backs alike. A Description is plain data, a tree of records and lists, and a call is a node of kind "call"
+ * or "callField" that names a `function`, so the walk reads every node once and needs no case for any other.
  */
 export const callsOf = (desc: unknown): ReadonlySet<string> => {
 	const out = new Set<string>()
@@ -879,7 +881,10 @@ export const callsOf = (desc: unknown): ReadonlySet<string> => {
 		}
 		const record = node
 		const called = record["function"]
-		if (record["kind"] === "call" && typeof called === "string") {
+		if (
+			(record["kind"] === "call" || record["kind"] === "callField") &&
+			typeof called === "string"
+		) {
 			out.add(called)
 		}
 		for (const value of Object.values(record)) {
@@ -919,6 +924,18 @@ export type SourceDesc<L = Located, R extends Refs = Spelled> =
 			readonly kind: "call"
 			readonly function: string
 			readonly args: Readonly<Record<string, CallArgDesc<L, R>>>
+	  }
+	| {
+			/**
+			 * Compute.rowOf(f, args)[field] of a declared function `function` that returns one row: the rows `field` holds,
+			 * a field of the row of rows of a heading of values, matched like a table, each argument by its name
+			 * (CallArgDesc), each read where the match stands, as a call's rows are (`call`). Every read of a field of one
+			 * call at one argument tuple reads one evaluation of it.
+			 */
+			readonly kind: "callField"
+			readonly function: string
+			readonly args: Readonly<Record<string, CallArgDesc<L, R>>>
+			readonly field: string
 	  }
 	| {
 			/**
@@ -1995,6 +2012,7 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 			case "paramOf":
 				return { kind: "paramOf", relation: s.relation, ...this.#spelling.param(s.name) }
 			case "call":
+			case "callField":
 				return {
 					...s,
 					args: mapRecord(s.args, (a) =>
@@ -2478,6 +2496,14 @@ const sourceDescBody: S.Shape<SourceDesc> = S.tagged("kind", {
 			S.ref("a call's argument", () => callArgDescShape),
 			S.nonEmptyString
 		)
+	}),
+	callField: S.struct({
+		function: name,
+		args: S.recordShape(
+			S.ref("a call's argument", () => callArgDescShape),
+			S.nonEmptyString
+		),
+		field: name
 	}),
 	split: S.struct({
 		split: S.literalsShape(textSplits),

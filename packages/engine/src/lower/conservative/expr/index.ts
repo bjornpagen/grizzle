@@ -2,6 +2,7 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { catchRefusal, floatSpecials } from "#compiler/core/canonical.ts"
 import type { ProseTag } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
+import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
 import { codecOf, codeOf, handlesHex, type RosterCodec } from "#compiler/ir/codes.ts"
 import { datePartSlices } from "#compiler/ir/date.ts"
@@ -400,7 +401,7 @@ const declaredCall = (
 		})
 	)
 	const refused = qualifiedCall(site.names.refusal.schema, site.names.refusal.name, [
-		lit.text("22004", types.text),
+		lit.text(sqlstates.nullValueNotAllowed, types.text),
 		lit.text(expr.function.name, types.text),
 		lit.text(`function ${expr.function.name} returned NULL`, types.text)
 	])

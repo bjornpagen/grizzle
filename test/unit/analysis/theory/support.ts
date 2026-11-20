@@ -26,6 +26,7 @@ import { canonicallySpelled } from "#test/support/oracle/gen/domain.ts"
 import type { GenFacts, StoredRow } from "#test/support/oracle/gen/facts.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 
 /**
  * The theory's families, trees and folds as the unit tests read them: a schema description owned, checked and
@@ -157,6 +158,7 @@ export const referenceRows = (
 		schema: genSchemaOf(t),
 		facts: genFactsOf(t, facts),
 		params: {},
+		functions: noFunctions,
 		observer: unobserved
 	})
 	const names = Arr.map(node.heading, (c) => c.name)
@@ -182,6 +184,7 @@ const violatedLaws = (t: TestTheory, facts: HostFacts): ReadonlyMap<LawId, numbe
 		schema: genSchemaOf(t),
 		facts: genFactsOf(t, facts),
 		params: {},
+		functions: noFunctions,
 		observer: unobserved
 	})
 	return new Map(
