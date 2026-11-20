@@ -6,7 +6,6 @@
  * t0 < t5 < t9 a few days apart, the run period [p0, p1) inside [t0, t9), two eight-hour pending shifts inside
  * employment, and weeks counted since the epoch.
  */
-import { Array as Arr } from "effect"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { id } from "#test/support/fixtures/golden/types.ts"
 
@@ -106,8 +105,8 @@ const withholdLevyLines: ReadonlyArray<LevyLineRow> = [
 ]
 
 /**
- * The Posting member's generated additions (no entry): every line's gross as a debit, its net and its withholding as
- * credits.
+ * The Posting member's generated additions, keyed by their line and account: every line's gross as a debit, its net
+ * and its withholding as credits.
  */
 type PostingAddition = {
 	readonly line: string
@@ -125,17 +124,11 @@ const withholdPostings: ReadonlyArray<PostingAddition> = [
 	{ line: l2, account: "Withholding", side: "credit", amount: 22_000n }
 ]
 
-/** The entry numbers the database assigns in insertion order, which comparisons treat up to renaming. */
-const stateAPostings: ReadonlyArray<PostingAddition & { readonly entry: bigint }> = Arr.map(
-	withholdPostings,
-	(p, i) => ({ entry: BigInt(i + 1), ...p })
-)
-
 /** The state after onboard, logShifts and draftRun. */
 export const stateA: Facts = {
 	...onboardFacts,
 	...logShiftsFacts,
 	...draftLinesFacts,
 	LevyLine: withholdLevyLines,
-	Posting: stateAPostings
+	Posting: withholdPostings
 }
