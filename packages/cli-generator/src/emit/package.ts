@@ -1,10 +1,11 @@
 import { findPackageJSON } from "node:module"
-import { Data, Effect, FileSystem, Record, Schema } from "effect"
+import { Data, Effect, FileSystem, Option, Predicate, Record, Result } from "effect"
 import type { Path } from "effect"
 import { printJson, printPackageJson } from "#emit/printer.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
 import type { Json } from "#model/pointer.ts"
 import generatorManifest from "#package.json" with { type: "json" }
+import { parseJson } from "#runtime/json.ts"
 
 export interface EmittedFile {
 	readonly content: string
@@ -27,7 +28,13 @@ const PINNED = {
 	devDependencies: ["@types/node", "typescript"]
 } as const
 
-const InstalledManifest = Schema.fromJsonString(Schema.Struct({ version: Schema.String }))
+/** The `version` an installed package's manifest text states, when it is JSON naming one as a string. */
+const manifestVersion = (text: string): Option.Option<string> =>
+	Option.flatMap(Result.getSuccess(parseJson(text)), (manifest) =>
+		Predicate.isObject(manifest)
+			? Option.filter(Record.get(manifest, "version"), Predicate.isString)
+			: Option.none()
+	)
 
 /**
  * The version of an installed package, read from the manifest the module resolution finds for it from the generator's
@@ -40,8 +47,7 @@ const installedVersion = (name: string) =>
 		const manifest = yield* Effect.sync(() => findPackageJSON(name, import.meta.url))
 		const located = yield* Effect.fromNullishOr(manifest)
 		const text = yield* fs.readFileString(located)
-		const { version } = yield* Schema.decodeEffect(InstalledManifest)(text)
-		return version
+		return yield* Effect.fromOption(manifestVersion(text))
 	}).pipe(Effect.orDie)
 
 /** Each listed package pinned to its installed version, by name. */
