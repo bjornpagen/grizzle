@@ -367,9 +367,9 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original:
-					"\t\treturn split.length > 1 && split.some((conjunction) => joins(conjunction, columns))",
+					"\t\tif (split.length === 1 || !split.some((conjunction) => joins(conjunction, columns))) {",
 				replacement:
-					"\t\treturn false && split.length > 1 && split.some((conjunction) => joins(conjunction, columns))",
+					"\t\tif (true || split.length === 1 || !split.some((conjunction) => joins(conjunction, columns))) {",
 				why: "A rule over Either, a union of Op's and Item's rows, is read as written beside its negation of Two, which is derived whole and anti-joined to it; it fails the union's case."
 			},
 			{

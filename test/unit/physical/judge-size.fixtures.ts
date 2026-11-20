@@ -1,4 +1,4 @@
-/** What the property of judge-size.test.ts reads: its space, its chain schemas and the judge's reads of Node. */
+/** What the properties of judge-size.test.ts read: their spaces, their schemas and the judge's reads of Node. */
 
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
@@ -253,6 +253,110 @@ export const judged = (c: Chain, note: (r: Reached) => void): void => {
 		assert.ok(
 			reads <= c.uses,
 			`a statement of the chain ${c.depth} deep, each level reading the one below ${c.uses} times, reads Node ${reads} times, where its leaf's readers read it ${c.uses} times`
+		)
+	}
+}
+
+/**
+ * One case of the union box: a definition over `width` reads of one union of `arms` rules over Node, each rule the
+ * nodes of one kind, every read within one document, the first at the row's own `a` and each later one at the `b` of
+ * the one before; and a whole rule over it, a check of its kind. Distributed into its conjunctions, the rule is one
+ * conjunction for each choice of a rule at every read, `arms` to the `width`, each reading Node `width` times.
+ */
+export interface Unions {
+	readonly width: 1 | 2 | 3
+	readonly arms: 2 | 3
+}
+
+export const unionsGen: Gen<Unions> = (s) => ({
+	width: s.draw(element<Unions["width"]>([1, 2, 3])),
+	arms: s.draw(element<Unions["arms"]>([2, 3]))
+})
+
+export type UnionReached =
+	| "a union read once"
+	| "a union read twice"
+	| "a union read three times"
+	| "a union of three rules"
+
+/** The nodes of kinds 0 and 1, each with its parent and kind under its own names. */
+const either = query(Base)
+	.rule((r) => {
+		const { doc, start, parent } = v(Node, "n")
+		return r.match(Node, { doc, start, parent, kind: 0 }).find({ doc, a: start, b: parent, k: 0 })
+	})
+	.rule((r) => {
+		const { doc, start, parent } = v(Node, "n")
+		return r.match(Node, { doc, start, parent, kind: 1 }).find({ doc, a: start, b: parent, k: 1 })
+	})
+
+/** The nodes of kinds 0, 1 and 2, each with its parent and kind under its own names. */
+const any3 = either.rule((r) => {
+	const { doc, start, parent } = v(Node, "n")
+	return r.match(Node, { doc, start, parent, kind: 2 }).find({ doc, a: start, b: parent, k: 2 })
+})
+
+/** The union box's schema: Base, and the derived relation of `width` reads of the union with a check beside it. */
+const unionSchemaOf = (u: Unions): FixtureSchema => {
+	const union = u.arms === 2 ? either : any3
+	const top = (() => {
+		switch (u.width) {
+			case 1:
+				return query(Base).rule((r) => {
+					const { doc, a, b, k } = v(union, "x0")
+					return r.match(union, { doc, a, b, k }).find({ doc, a, b, k })
+				})
+			case 2:
+				return query(Base).rule((r) => {
+					const { doc, a, b, k } = v(union, "x0")
+					const { b: b1 } = v(union, "x1")
+					return r
+						.match(union, { doc, a, b, k })
+						.match(union, { doc, a: b, b: b1 })
+						.find({ doc, a, b: b1, k })
+				})
+			case 3:
+				return query(Base).rule((r) => {
+					const { doc, a, b, k } = v(union, "x0")
+					const { b: b1 } = v(union, "x1")
+					const { b: b2 } = v(union, "x2")
+					return r
+						.match(union, { doc, a, b, k })
+						.match(union, { doc, a: b, b: b1 })
+						.match(union, { doc, a: b1, b: b2 })
+						.find({ doc, a, b: b2, k })
+				})
+		}
+	})()
+	const Top = derived("Top", top)
+	return schema.extend([Base], "judge_size_1", [Top], [check("Small", Top, (t) => t.le(t.k, 100))])
+}
+
+/**
+ * Judges each statement of the union box's whole rule: it reads Node `arms` times, once in each rule of the union,
+ * which navigation reads whole, one node per unit every read of which joins its rows; distributed into its
+ * conjunctions, it read Node `width` times in each of `arms` to the `width` conjunctions.
+ */
+export const judgedUnions = (u: Unions, note: (r: UnionReached) => void): void => {
+	const owned = owning(unionSchemaOf(u))
+	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
+	const statements = judgedStatementsOf(installation)
+	assert.ok(statements.length > 0, "the check is judged")
+	note(
+		u.width === 1
+			? "a union read once"
+			: u.width === 2
+				? "a union read twice"
+				: "a union read three times"
+	)
+	if (u.arms === 3) {
+		note("a union of three rules")
+	}
+	for (const { query: statement } of statements) {
+		const reads = nodeReadsOf(statement)
+		assert.ok(
+			reads <= u.arms,
+			`a statement over ${u.width} reads of a union of ${u.arms} rules over Node reads Node ${reads} times, where the union's rules read it ${u.arms} times`
 		)
 	}
 }

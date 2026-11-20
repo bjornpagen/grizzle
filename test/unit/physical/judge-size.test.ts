@@ -17,7 +17,14 @@ import { type Reached as ReachedOf } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { chainGen, judged, type Reached } from "#test/unit/physical/judge-size.fixtures.ts"
+import {
+	chainGen,
+	judged,
+	judgedUnions,
+	type Reached,
+	type UnionReached,
+	unionsGen
+} from "#test/unit/physical/judge-size.fixtures.ts"
 
 /** A whole rule's statement over a chain of definitions reads Node's table at its leaf's reader's uses alone, however deep the chain. */
 export const aWholeRulesStatementOverAChainOfDefinitionsReadsTheLeafsRelationOnceHoweverTheChainMultipliesIt =
@@ -39,8 +46,8 @@ export const aWholeRulesStatementOverAChainOfDefinitionsReadsTheLeafsRelationOnc
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\tif (!isNonEmpty(joined)) {\n\t\t\treturn shared",
-				replacement: "\t\tif (isNonEmpty(joined) || !isNonEmpty(joined)) {\n\t\t\treturn shared",
+				original: "\t\tif (!isNonEmpty(joined)) {\n\t\t\treturn { kept",
+				replacement: "\t\tif (isNonEmpty(joined) || !isNonEmpty(joined)) {\n\t\t\treturn { kept",
 				why: "Navigation keeps no import whole, as before: each read of a definition inlines it, so a chain two deep of two reads per level reads Node four times and three deep eight; the property fails."
 			},
 			{
@@ -54,6 +61,55 @@ export const aWholeRulesStatementOverAChainOfDefinitionsReadsTheLeafsRelationOnc
 				original: '\t\t\tconst region = cost === "scan" ? undefined : regionOf(node, references)',
 				replacement: "\t\t\tconst region = undefined",
 				why: "A shared node correlated to its region is inlined at each read (rule 3, as before), so the import navigation keeps whole is spelled at every read of it, each level's definition again inside the one above, and a chain three deep reads Node four times or more; the property fails."
+			}
+		]
+	})
+
+/**
+ * A whole rule's statement over reads of a union reads each of the union's rules once, however many reads of it the
+ * rule joins: navigation reads the union whole (analysis/theory/navigate.ts sharedImports `unions`), one node per unit
+ * every read of which joins its rows, its rules navigated inside it, where distributed into the rule's conjunctions
+ * (`conjunctions`) it was one conjunction for each choice of a rule at every read, the union's rules to the power of
+ * its reads, each reading Node at every read (edullm IMPL-TESTS on 5447: the prefixed map response rules, 533 KB and
+ * 2158 SELECTs each).
+ */
+export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHoweverManyReadsItJoins =
+	property.exhaust(finite(unionsGen), {
+		needs: {},
+		situations: [
+			"a union read once",
+			"a union read twice",
+			"a union read three times",
+			"a union of three rules"
+		] satisfies ReadonlyArray<ReachedOf<UnionReached>>,
+		check: (_, c: Case<UnionReached>) => (unions) =>
+			Effect.sync(() => judgedUnions(unions, c.note)),
+		oracle: {
+			kind: "specification",
+			name: "the union: its rules read Node once each, and no read of the union reads it again"
+		},
+		box: "one to three reads of a union of two or three rules over Node, each the nodes of one kind, under a whole rule's check",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\t\t\t\tunions.add(key)",
+				replacement: "\t\t\t\t\tunions.size",
+				why: "Navigation keeps no union whole, as before: the rule over two reads of a union of two rules is distributed into its four conjunctions, each reading Node twice; the property fails."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original:
+					'\t\t\tcase "perUnit":\n\t\t\t\treturn navigate(rule, loc, columns, sharing, interned)',
+				replacement:
+					'\t\t\tcase "perUnit":\n\t\t\t\treturn flatMapNonEmpty(split, (conjunction) => navigatedRule(conjunction, loc, columns, sharing, interned))',
+				why: "A whole rule's statement is distributed into its conjunctions before navigation reads it, as a write member's is, so every union it reads is read once in each conjunction; the property fails."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\tconst known = this.#by.get(identity.value)",
+				replacement: "\t\tconst known = undefined",
+				why: "Every read of a union a navigation keeps whole is an object of its own, so the checker, which keys an import by its query's place (check/session.ts), builds a node at every read, and the rule over two reads of a union of two rules reads Node four times; the property fails."
 			}
 		]
 	})
