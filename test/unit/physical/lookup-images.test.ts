@@ -5,8 +5,8 @@
  * one, a candidate key over the same fields:
  *
  * - the request's created index holds by its image, md5, exactly the texts it binds by equality wider than the image or
- *   of no byte bound, wherever its entry, every key as itself, could outgrow BTMaxItemSize, and every other key as
- *   itself: a text it reads in its order or matches a prefix of stays itself;
+ *   of no byte bound, a seek's fixed prefix among them, wherever its entry, every key as itself, could outgrow
+ *   BTMaxItemSize, and every other key as itself: a text it reads in its order or matches a prefix of stays itself;
  * - an entry that still holds a text of no bound is refused as unbounded, and one still past the limit is refused naming
  *   the ordered and prefixed texts it holds as themselves (KeyFault `orderedText`), or for its bytes where it holds none;
  * - each image key is created as md5 of its column, the leakproof image a lookup's condition passes a role's query entry
@@ -51,7 +51,8 @@ export const aLookupsEntryHoldsTheTextsItBindsByEqualityByItsMd5WhereItCouldOutg
 			"refused for its bytes",
 			"refused as unbounded",
 			"a key holding a text by its digest",
-			"served by the key's index"
+			"served by the key's index",
+			"a seek's fixed text held by its image"
 		] satisfies ReadonlyArray<Reached<LookupFeature>>,
 		check: (_, c: Case<LookupFeature>) => (s) =>
 			Effect.sync(() => {
@@ -178,6 +179,12 @@ export const aLookupsEntryHoldsTheTextsItBindsByEqualityByItsMd5WhereItCouldOutg
 							: "an equality held by its image"
 				)
 				if (
+					(s.use === "page seek" || s.use === "take seek") &&
+					Arr.some(verdict.imaged, (imaged, i) => imaged && i < s.fixed)
+				) {
+					c.note("a seek's fixed text held by its image")
+				}
+				if (
 					imagedFields.length > 0 &&
 					Arr.some(index.keys, (k) => k.column.kind !== "image") &&
 					s.use !== "equality lookup"
@@ -191,6 +198,13 @@ export const aLookupsEntryHoldsTheTextsItBindsByEqualityByItsMd5WhereItCouldOutg
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original: '(at < request.fixed ? "equality" : past)',
+				replacement:
+					'(at < request.fixed && request.use !== "page seek" && request.use !== "take seek" ? "equality" : past)',
+				why: "A seek's fixed prefix read as keys it orders by, as every seek key was: a page of a document by (package, path, start) holds its identity texts as themselves, so they keep a byte bound no image needs, and a fixed text of no bound is refused."
+			},
 			{
 				file: "packages/engine/src/core/identity.ts",
 				original:
@@ -207,10 +221,9 @@ export const aLookupsEntryHoldsTheTextsItBindsByEqualityByItsMd5WhereItCouldOutg
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original:
-					'\t\t\treturn [...every("equality").slice(1), request.use === "prefix search" ? "prefix" : "order"]',
-				replacement: '\t\t\treturn every("equality")',
-				why: "A range's last key read as an equality: its text held by its image, whose order is no range's."
+				original: 'const past: EntryRole = request.use === "prefix search" ? "prefix" : "order"',
+				replacement: 'const past: EntryRole = "equality"',
+				why: "A key past a request's fixed prefix read as an equality: a range's last text, or a seek's ordered one, held by its image, whose order is no range's nor page's."
 			},
 			{
 				file: "packages/engine/src/schema/representability.ts",

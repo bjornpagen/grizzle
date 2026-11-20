@@ -1235,6 +1235,7 @@ const requestForm = (r: StoredIndexRequest): SnapshotForm => ({
 			: { expr: k.expr, dir: k.dir, opclass: k.opclass }
 	),
 	method: r.method,
+	fixed: r.fixed,
 	role: r.role,
 	use: r.use
 })
@@ -1246,6 +1247,7 @@ const accessForm = (a: ProgramAccess): SnapshotForm => ({
 		derived: p.derived,
 		method: p.method,
 		keys: p.keys.map((k): SnapshotForm => ({ field: k.field, dir: k.dir })),
+		fixed: p.fixed,
 		use: p.use
 	})),
 	statistics: a.statistics.map((st): SnapshotForm => ({

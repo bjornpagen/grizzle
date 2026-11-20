@@ -122,6 +122,30 @@ const fieldColumn = (relation: string, field: string): NativeColumn => ({
 	)
 })
 
+/**
+ * How many of a request's keys, from the first, a path of its use binds by equality (AccessPath `fixed`): a lookup's,
+ * a key lookup's, a join key's and a write target's every key, a range's and a prefix search's every key but its last,
+ * and none of a seek's, which states no prefix here, nor of an approximate retrieval's or a span predicate's.
+ */
+const fixedOf = (use: AccessUse, keys: number): number => {
+	switch (use) {
+		case "key lookup":
+		case "equality lookup":
+		case "join key":
+		case "write target":
+			return keys
+		case "range":
+		case "prefix search":
+			return keys - 1
+		case "take seek":
+		case "page seek":
+		case "span predicate":
+		case "approximate vector retrieval":
+		case "text search":
+			return 0
+	}
+}
+
 /** The keys of a drawn request, which draws one at least. */
 const nonEmptyKeys = <K>(keys: ReadonlyArray<K>): Arr.NonEmptyReadonlyArray<K> => {
 	const [first, ...rest] = keys
@@ -140,6 +164,7 @@ export const requestOf = (s: RequestSketch, i: number): IndexRequest => {
 				}
 			],
 			method: "hnsw",
+			fixed: 0,
 			role: "access",
 			use: "approximate vector retrieval"
 		}
@@ -182,6 +207,7 @@ export const requestOf = (s: RequestSketch, i: number): IndexRequest => {
 				relation: rel,
 				keys,
 				method: "btree",
+				fixed: fixedOf(s.use, keys.length),
 				role: "access",
 				use: s.use
 			}
@@ -284,6 +310,7 @@ const access = (keys: ReadonlyArray<string>, method: "btree" | "gist"): IndexReq
 	relation: "Event",
 	keys: Arr.map(keys, (expr) => ({ expr, dir: "asc", opclass: defaultOpclass })),
 	method,
+	fixed: 0,
 	role: "access",
 	use: "page seek"
 })

@@ -22,7 +22,7 @@ const methodOpclass = {
 /** The identity of a path: equal paths of several programs are one request. Its parts are joined by NUL, its keys by
  * \u0003 and a key's parts by \u0001; no name holds a control character. The method decides the operator class. */
 const pathKey = (p: AccessPath): string =>
-	`${p.relation}\u0000${p.method}\u0000${p.keys.map((k) => `${k.field}\u0001${k.dir}`).join("\u0003")}\u0000${p.use}`
+	`${p.relation}\u0000${p.method}\u0000${p.keys.map((k) => `${k.field}\u0001${k.dir}`).join("\u0003")}\u0000${p.fixed}\u0000${p.use}`
 
 /** The canonical order of paths, by relation, method, keys and use: strings by code unit; key lists elementwise, the
  * longer first when one begins the other. */
@@ -49,6 +49,7 @@ const pathOrder: Comparator<AccessPath> = combineAll([
 	mapInput(compareStrings, (p: AccessPath) => p.relation),
 	mapInput(compareStrings, (p: AccessPath) => p.method),
 	mapInput(keysOrder, (p: AccessPath) => p.keys),
+	mapInput(compareNumbers, (p: AccessPath) => p.fixed),
 	mapInput(compareStrings, (p: AccessPath) => p.use)
 ])
 
@@ -108,6 +109,7 @@ export const pathRequest = (p: AccessPath, vectorSchema: string): AccessIndexReq
 		opclass: requestOpclass(p.method, vectorSchema)
 	})),
 	method: p.method,
+	fixed: p.fixed,
 	role: "access",
 	use: p.use
 })

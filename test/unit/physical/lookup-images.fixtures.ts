@@ -31,7 +31,8 @@ import {
 /**
  * The uses a workload's B-tree request is drawn under, each with what it does with its keys: a lookup binds each by
  * equality; a range binds every key but its last, which it reads in its order; a prefix search every key but its last,
- * a prefix of which it matches; a page and a take seek read every key in its order.
+ * a prefix of which it matches; a page and a take seek bind a prefix of its keys, those its equalities fix, and read
+ * every key after it in its order.
  */
 const uses = [
 	"equality lookup",
@@ -51,16 +52,48 @@ type Use = (typeof uses)[number]
 export interface LookupSketch {
 	readonly fields: Arr.NonEmptyReadonlyArray<KeyFieldSketch>
 	readonly use: Use
+	/** How many of its keys, from the first, it binds by equality (AccessPath `fixed`), as its use allows. */
+	readonly fixed: number
 	readonly keyed: boolean
 }
 
+/** How many of `keys` keys a request of `use` binds by equality: a seek's drawn prefix, before at least one it orders. */
+const fixedGen =
+	(use: Use, keys: number): Gen<number> =>
+	(source) => {
+		switch (use) {
+			case "equality lookup":
+				return keys
+			case "range":
+			case "prefix search":
+				return keys - 1
+			case "page seek":
+			case "take seek":
+				return source.draw(int(0, keys - 1))
+		}
+	}
+
 const drawnGen: Gen<LookupSketch> = (source) => {
 	const [first, ...rest] = source.draw(array(keyFieldGen, { min: 1, max: 4 }))
+	const fields: Arr.NonEmptyReadonlyArray<KeyFieldSketch> = [first ?? { kind: "wildcard" }, ...rest]
+	const use = source.draw(element(uses))
 	return {
-		fields: [first ?? { kind: "wildcard" }, ...rest],
-		use: source.draw(element(uses)),
+		fields,
+		use,
+		fixed: source.draw(fixedGen(use, fields.length)),
 		keyed: source.draw(boolean)
 	}
+}
+
+/**
+ * A seek whose fixed prefix leads with a text of no byte bound, then any keys it fixes or orders: its entry can outgrow
+ * BTMaxItemSize, so it holds the fixed text by its image and reads its entries in the order of the rest.
+ */
+const seekGen: Gen<LookupSketch> = (source) => {
+	const others = source.draw(array(keyFieldGen, { min: 1, max: 3 }))
+	const fields: Arr.NonEmptyReadonlyArray<KeyFieldSketch> = [{ kind: "wildcard" }, ...others]
+	const use = source.draw(element(["page seek", "take seek"] as const))
+	return { fields, use, fixed: source.draw(int(1, fields.length - 1)), keyed: false }
 }
 
 /**
@@ -72,7 +105,8 @@ const pastGen =
 	(source) => {
 		const others = source.draw(array(keyFieldGen, { min: 0, max: 2 }))
 		const last: KeyFieldSketch = { kind: "octet contract", bytes: source.draw(int(2700, 2800)) }
-		return { fields: Arr.append(others, last), use, keyed: false }
+		const fields = Arr.append(others, last)
+		return { fields, use, fixed: source.draw(fixedGen(use, fields.length - 1)), keyed: false }
 	}
 
 /**
@@ -86,31 +120,31 @@ const numericsGen: Gen<LookupSketch> = (source) => {
 		precision: source.draw(int(900, 1000)),
 		scale: 0
 	}))
-	return {
-		fields: Arr.append(fields, { kind: "numeric", precision: 1000, scale: 0 }),
-		use: source.draw(element(uses)),
-		keyed: false
-	}
+	const widest: KeyFieldSketch = { kind: "numeric", precision: 1000, scale: 0 }
+	const all = Arr.append(fields, widest)
+	const use = source.draw(element(uses))
+	return { fields: all, use, fixed: source.draw(fixedGen(use, all.length)), keyed: false }
 }
 
 export const lookupGen: Aimed<LookupSketch, LookupFeature> = aimed(drawnGen, [
 	["refused naming an ordered text", pastGen("page seek")],
 	["refused naming a prefixed text", pastGen("prefix search")],
-	["refused for its bytes", numericsGen]
+	["refused for its bytes", numericsGen],
+	["a seek's fixed text held by its image", seekGen]
 ])
 
-/** What each use does with its every key but its last, and with its last, stated from the use alone. */
-const useRoles: Readonly<Record<Use, { readonly rest: EntryRole; readonly last: EntryRole }>> = {
-	"equality lookup": { rest: "equality", last: "equality" },
-	range: { rest: "equality", last: "order" },
-	"prefix search": { rest: "equality", last: "prefix" },
-	"page seek": { rest: "order", last: "order" },
-	"take seek": { rest: "order", last: "order" }
+/** What each use does with a key past those it binds by equality, stated from the use alone. */
+const pastRole: Readonly<Record<Use, EntryRole>> = {
+	"equality lookup": "equality",
+	range: "order",
+	"prefix search": "prefix",
+	"page seek": "order",
+	"take seek": "order"
 }
 
-/** What each of a request's keys is to its entry, stated from its use alone (`useRoles`). */
-const rolesOf = (use: Use, keys: number): ReadonlyArray<EntryRole> =>
-	Array.from({ length: keys }, (_, at) => (at < keys - 1 ? useRoles[use].rest : useRoles[use].last))
+/** What each of a request's keys is to its entry: an equality for each it fixes, then its use's (`pastRole`). */
+const rolesOf = (s: LookupSketch): ReadonlyArray<EntryRole> =>
+	Array.from({ length: s.fields.length }, (_, at) => (at < s.fixed ? "equality" : pastRole[s.use]))
 
 /**
  * The model's verdict on the request's created index, restated from PostgreSQL's B-tree item limit (BTMaxItemSize,
@@ -127,7 +161,7 @@ type LookupVerdict =
 	| { readonly kind: "entry" }
 
 export const lookupVerdict = (s: LookupSketch): LookupVerdict => {
-	const roles = rolesOf(s.use, s.fields.length)
+	const roles = rolesOf(s)
 	const own = Arr.map(s.fields, datumOf)
 	const bounded = Arr.filter(own, (d): d is Datum => d !== undefined)
 	const fits = bounded.length === own.length && btreeTupleBytes(bounded) <= postgresBtreeMaxItem
@@ -184,6 +218,7 @@ const lookupRequest = (s: LookupSketch): IndexRequest => ({
 		opclass: defaultOpclass
 	})),
 	method: "btree",
+	fixed: s.fixed,
 	role: "access",
 	use: s.use
 })
@@ -208,3 +243,4 @@ export type LookupFeature =
 	| "refused as unbounded"
 	| "a key holding a text by its digest"
 	| "served by the key's index"
+	| "a seek's fixed text held by its image"

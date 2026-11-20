@@ -208,6 +208,30 @@ const methodOfUse: Readonly<Record<AccessUse, AccessIndexRequest["method"]>> = {
 	"text search": "gin"
 }
 
+/**
+ * How many of a spec's keys, from the first, a path of its use binds by equality (AccessPath `fixed`): every key but
+ * the last of a range, a prefix search's and a span predicate's, every key of a lookup, none of a seek, which names no
+ * fixed prefix here, nor of an approximate retrieval.
+ */
+const fixedOfUse = (use: AccessUse, keys: number): number => {
+	switch (use) {
+		case "key lookup":
+		case "equality lookup":
+		case "join key":
+		case "write target":
+			return keys
+		case "range":
+		case "prefix search":
+		case "span predicate":
+			return keys - 1
+		case "take seek":
+		case "page seek":
+		case "approximate vector retrieval":
+		case "text search":
+			return 0
+	}
+}
+
 /** A spec as text, for a report. */
 export const specText = (spec: RequestSpec): string =>
 	spec.kind === "access"
@@ -269,6 +293,7 @@ const requestOf = (spec: RequestSpec, at: number, fieldOf: FieldOf): IndexReques
 				relation: spec.relation,
 				keys: Arr.map(spec.keys, (k) => ({ expr: k.field, dir: k.dir, opclass: defaultOpclass })),
 				method: methodOfUse[spec.use],
+				fixed: fixedOfUse(spec.use, spec.keys.length),
 				role: "access",
 				use: spec.use
 			}

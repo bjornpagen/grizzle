@@ -328,6 +328,7 @@ const changeSetIr = (
 					derived: false,
 					method: primaryKeyShape(r).kind === "span" ? "gist" : "btree",
 					keys: r.primaryKey.map((field) => ({ field, dir: "asc" as const })),
+					fixed: r.primaryKey.length,
 					use: "write target"
 				}))
 			return {
@@ -798,6 +799,7 @@ const samePath = (a: AccessPath, b: AccessPath): boolean =>
 	a.derived === b.derived &&
 	a.method === b.method &&
 	a.use === b.use &&
+	a.fixed === b.fixed &&
 	sameList(a.keys, b.keys, (x, y) => x.field === y.field && x.dir === y.dir)
 
 const sameStatistics = (a: StatisticsShape, b: StatisticsShape): boolean =>

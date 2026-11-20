@@ -148,24 +148,16 @@ const readColumn = (c: KeyTerm): IndexColumn =>
 
 /**
  * What each of a request's keys, in their order, is to its entry (core/identity.ts EntryRole): a law's probe's every
- * key, and a workload lookup's, an equality; a range's every key but its last an equality, and its last read in its
- * order, or a prefix search's last a prefix matched; an order's every key read in its order (btreeNeeds).
+ * key an equality; a workload request's every key its path binds by equality (AccessIndexRequest `fixed`) an
+ * equality, a seek's fixed prefix among them, and every key past them a prefix matched where it is a prefix search's
+ * and read in its order otherwise.
  */
 const keyRoles = (request: IndexRequest, keys: number): ReadonlyArray<EntryRole> => {
-	const every = (role: EntryRole): ReadonlyArray<EntryRole> =>
-		Array.from({ length: keys }, () => role)
 	if (request.role === "lawMaintenance") {
-		return every("equality")
+		return Array.from({ length: keys }, () => "equality")
 	}
-	switch (btreeNeeds[request.use]) {
-		case "lookup":
-			return every("equality")
-		case "range":
-			return [...every("equality").slice(1), request.use === "prefix search" ? "prefix" : "order"]
-		case "order":
-		case "none":
-			return every("order")
-	}
+	const past: EntryRole = request.use === "prefix search" ? "prefix" : "order"
+	return Array.from({ length: keys }, (_, at) => (at < request.fixed ? "equality" : past))
 }
 
 /**

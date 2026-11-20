@@ -408,6 +408,13 @@ export interface AccessPath {
 	readonly derived: boolean
 	readonly method: WorkloadIndexMethod
 	readonly keys: ReadonlyArray<AccessKey>
+	/**
+	 * How many of its keys, from the first, it binds by equality: a lookup's, a key lookup's and a write target's every
+	 * key; a range's and a prefix search's every key but its last; a seek's and a span predicate's the prefix its
+	 * equalities fix before the keys it orders or spans by; an approximate retrieval's and a text search's none. A key past them is read in
+	 * its order or matched by a prefix (physical/indexes/engine.ts keyRoles), which an index holds as itself.
+	 */
+	readonly fixed: number
 	readonly use: AccessUse
 }
 
@@ -458,6 +465,8 @@ export interface AccessIndexRequest {
 		readonly opclass: IndexOpclass
 	}>
 	readonly method: WorkloadIndexMethod
+	/** How many of its keys, from the first, its lookups bind by equality (AccessPath `fixed`). */
+	readonly fixed: number
 	readonly role: "access"
 	readonly use: AccessUse
 }

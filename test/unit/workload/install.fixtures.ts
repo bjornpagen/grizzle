@@ -286,6 +286,7 @@ export const installOf = (
 							derived: false,
 							method: "btree",
 							keys: [{ field: "x", dir: "asc" }],
+							fixed: 0,
 							use: "range"
 						}
 					]

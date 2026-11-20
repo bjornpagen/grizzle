@@ -932,12 +932,14 @@ class Extractor {
 		const path = (
 			method: AccessPath["method"],
 			keys: ReadonlyArray<AccessKey>,
+			fixed: number,
 			use: AccessUse
 		): AccessPath => ({
 			relation: base.relation,
 			derived: base.relationKind === "derived",
 			method,
 			keys,
+			fixed,
 			use
 		})
 		const contextPaths = (ctx: ProbeContext): ReadonlyArray<AccessPath> => {
@@ -946,6 +948,7 @@ class Extractor {
 					path(
 						keyMethod(base, ctx.key),
 						ctx.key.map((f) => asc(f)),
+						ctx.key.length,
 						"key lookup"
 					)
 				]
@@ -959,6 +962,7 @@ class Extractor {
 					path(
 						"gist",
 						[...prefix, span].map((f) => asc(f)),
+						prefix.length,
 						"span predicate"
 					)
 				)
@@ -981,6 +985,7 @@ class Extractor {
 							path(
 								"btree",
 								[...prefix, column].map((f) => asc(f)),
+								prefix.length,
 								use
 							)
 						]
@@ -991,6 +996,7 @@ class Extractor {
 						path(
 							"btree",
 							prefix.map((f) => asc(f)),
+							prefix.length,
 							ctx.use
 						)
 					]
@@ -1237,6 +1243,7 @@ class Extractor {
 			derived: r.base.relationKind === "derived",
 			method: "btree",
 			keys: [...prefix.map((field): AccessKey => ({ field, dir: lead.dir })), ...ordered],
+			fixed: prefix.length,
 			use
 		}
 	}
@@ -1276,6 +1283,7 @@ class Extractor {
 							derived: r.base.relationKind === "derived",
 							method: "gin",
 							keys: [{ field, dir: "asc" }],
+							fixed: 0,
 							use: "text search"
 						},
 						binds: []
@@ -1319,6 +1327,7 @@ class Extractor {
 						derived: r.base.relationKind === "derived",
 						method: "hnsw",
 						keys: [{ field, dir: "asc" }],
+						fixed: 0,
 						use: "approximate vector retrieval"
 					},
 					binds: []
