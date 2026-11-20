@@ -24,7 +24,6 @@ import {
 	Predicate,
 	Ref,
 	Runtime,
-	Sink,
 	Stdio,
 	Stream,
 	String as Str
@@ -36,6 +35,7 @@ import * as Output from "#runtime-src/runtime/output.ts"
 import { RunCredentials, type ScrubEntry } from "#runtime-src/runtime/redact.ts"
 import { recordingConsole } from "#test/support/console.ts"
 import { metavarOf } from "#test/support/help.ts"
+import { appendingTo } from "#test/support/stdio.ts"
 
 /** A flag of the drawn entry command, by its long name. */
 export type FlagName =
@@ -549,13 +549,6 @@ type Ran = Readonly<{
 const exitCode = (exit: Exit.Exit<unknown, unknown>): number =>
 	Exit.isSuccess(exit) ? 0 : Runtime.getErrorExitCode(Cause.squash(exit.cause))
 
-const pushChunk = (into: Array<string>) => (chunk: string | Uint8Array) =>
-	Effect.sync(() => {
-		into.push(typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk))
-	})
-
-const appending = (into: Array<string>) => () => Sink.forEach(pushChunk(into))
-
 const result = "the command result\n"
 
 const entryCommand = (drawn: Line, seen: Array<HandedValues>) => {
@@ -604,8 +597,8 @@ const ran = (drawn: Line) =>
 				Stdio.make({
 					args: Effect.succeed([]),
 					stdin: Stream.empty,
-					stdout: appending(stdout),
-					stderr: appending(stderr)
+					stdout: appendingTo(stdout),
+					stderr: appendingTo(stderr)
 				})
 			),
 			Effect.provideServiceEffect(RunCredentials, Ref.make<ReadonlyArray<ScrubEntry>>([])),

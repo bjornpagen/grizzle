@@ -76,6 +76,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/runtime/negotiate.test.ts",
 	"test/runtime/output-sequential.test.ts",
 	"test/runtime/output-sink.test.ts",
+	"test/runtime/output.test.ts",
 	"test/runtime/presenter.test.ts",
 	"test/runtime/redact.test.ts",
 	"test/runtime/response-headers.test.ts",

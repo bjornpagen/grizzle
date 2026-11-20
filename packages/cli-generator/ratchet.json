@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 850,
+		"total": 773,
 		"files": {
 			"packages/cli-generator/src/emit/api.ts": 124,
 			"packages/cli-generator/src/emit/cli.ts": 122,
@@ -25,7 +25,6 @@
 			"packages/cli-generator/test/runtime/output-dry-run.test.ts": 64,
 			"packages/cli-generator/test/runtime/output-error-json.test.ts": 72,
 			"packages/cli-generator/test/runtime/output-idle.test.ts": 16,
-			"packages/cli-generator/test/runtime/output.test.ts": 77,
 			"packages/cli-generator/test/runtime/presenter.test.ts": 1,
 			"packages/cli-generator/test/runtime/send-servers.test.ts": 24,
 			"packages/cli-generator/test/runtime/serialize-form.test.ts": 2,
@@ -36,7 +35,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 724,
+		"total": 690,
 		"files": {
 			"packages/cli-generator/corpus/tools/coverage.ts": 1,
 			"packages/cli-generator/corpus/tools/exercise.ts": 1,
@@ -153,9 +152,8 @@
 			"packages/cli-generator/test/resolve/document-set.test.ts": 3,
 			"packages/cli-generator/test/runtime/body-fields.fixtures.ts": 1,
 			"packages/cli-generator/test/runtime/command-tree.fixtures.ts": 1,
-			"packages/cli-generator/test/runtime/credentials.fixtures.ts": 3,
+			"packages/cli-generator/test/runtime/credentials.fixtures.ts": 1,
 			"packages/cli-generator/test/runtime/error-rendering.fixtures.ts": 1,
-			"packages/cli-generator/test/runtime/flag-values.fixtures.ts": 1,
 			"packages/cli-generator/test/runtime/input-file-part.test.ts": 1,
 			"packages/cli-generator/test/runtime/input-refusal.fixtures.ts": 1,
 			"packages/cli-generator/test/runtime/multipart.fixtures.ts": 1,
@@ -164,7 +162,6 @@
 			"packages/cli-generator/test/runtime/output-idle.test.ts": 8,
 			"packages/cli-generator/test/runtime/output-sequential.fixtures.ts": 1,
 			"packages/cli-generator/test/runtime/output-sink.fixtures.ts": 1,
-			"packages/cli-generator/test/runtime/output.test.ts": 31,
 			"packages/cli-generator/test/runtime/presenter.fixtures.ts": 1,
 			"packages/cli-generator/test/runtime/send-servers.test.ts": 17,
 			"packages/cli-generator/test/runtime/sequential-media-parity.fixtures.ts": 2,

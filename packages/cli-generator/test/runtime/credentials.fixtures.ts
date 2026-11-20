@@ -50,6 +50,7 @@ import * as Input from "#runtime-src/runtime/input.ts"
 import * as Output from "#runtime-src/runtime/output.ts"
 import { RunCredentials, type ScrubEntry } from "#runtime-src/runtime/redact.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
+import { appendingTo, chunkText } from "#test/support/stdio.ts"
 
 /** A scheme of the generated security table every credential case runs against. */
 export type SchemeName =
@@ -598,13 +599,6 @@ const key = (name: string, input: Option.Option<string>): Terminal.UserInput => 
 	key: { ctrl: false, meta: false, name, shift: false }
 })
 
-const pushChunk = (into: Array<string>) => (chunk: string | Uint8Array) =>
-	Effect.sync(() => {
-		into.push(typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk))
-	})
-
-const appending = (into: Array<string>) => () => Sink.forEach(pushChunk(into))
-
 const claimOf = Effect.map(Layer.build(Input.stdinClaimLayer), Context.get(Input.StdinClaim))
 
 const fileBytes = (
@@ -751,8 +745,8 @@ export const evaluated = (drawn: World) =>
 				Stdio.make({
 					args: Effect.succeed([]),
 					stdin: Stream.make(encoder.encode(drawn.stdin)),
-					stdout: appending(rendered),
-					stderr: appending(stderr),
+					stdout: appendingTo(rendered),
+					stderr: appendingTo(stderr),
 					stdinIsTerminal: Effect.succeed(drawn.stdinTty),
 					stdoutIsTerminal: Effect.succeed(drawn.stdoutTty)
 				})
@@ -1805,8 +1799,7 @@ const respondTo = (drawn: Call, url: URL): Response => {
 }
 
 const recordStderr = (events: Array<string>, into: Array<string>) => (chunk: string | Uint8Array) =>
-	Effect.sync(() => {
-		const text = typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk)
+	Effect.map(chunkText(chunk), (text) => {
 		events.push(Str.startsWith("Notice:")(text) ? "notice" : "stderr")
 		into.push(text)
 	})
