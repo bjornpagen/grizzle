@@ -69,7 +69,8 @@ export const aCountIsANaturalWhereverItIsReadMeetingANaturalFieldParameterOrLite
 			},
 			{
 				file: "packages/engine/src/schema/own.ts",
-				original: "\t\tthis.#contracts.set(naturalOwned.desc.name, naturalOwned)\n",
+				original:
+					"\t\tthis.#contracts.set(naturalOwned.desc.name, { ...naturalOwned, level: 0 })\n",
 				replacement: "\t\tvoid naturalOwned\n",
 				why: "A schema that declares no natural field holds no natural, so a derived relation's count is refused as a contract the schema does not declare, and the property fails."
 			}

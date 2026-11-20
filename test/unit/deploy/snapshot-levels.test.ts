@@ -14,11 +14,11 @@
  * and its codes; and nothing of a snapshot.json that records no format, or another, is served.
  */
 
-import { assert, defined } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Order } from "effect"
 import { parseSnapshot, readSnapshot } from "#adapter/boundary/snapshot.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import {
@@ -31,14 +31,20 @@ import {
 } from "#compiler/deploy/snapshot/build.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
-import { firstCodebook } from "#compiler/ir/codes.ts"
-import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { installationsOf, own, rostersOf } from "#compiler/schema/own.ts"
-import { schemaDescOf } from "#compiler/schema/schema.ts"
+import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
-import { caseGen, type Placement, schemaOf } from "#test/unit/deploy/snapshot-levels.fixtures.ts"
+import {
+	caseGen,
+	installationOf,
+	type LeveledFeature,
+	leveledFeatures,
+	leveledGen,
+	leveledSchemas,
+	type Placement,
+	schemaOf
+} from "#test/unit/deploy/snapshot-levels.fixtures.ts"
 
 /** Snapshot.json reads back as the snapshot written, of the same fingerprint, whatever literal a level's law selects by. */
 export const snapshotJsonReadsBackAsTheSnapshotWrittenOfTheSameFingerprintWhateverLiteralALevelsLawSelectsBy =
@@ -47,19 +53,7 @@ export const snapshotJsonReadsBackAsTheSnapshotWrittenOfTheSameFingerprintWhatev
 		situations: ["root", "level"] satisfies ReadonlyArray<Reached<Placement>>,
 		check: (_, k: CaseOf<Placement>) => (c) =>
 			Effect.sync(() => {
-				const owned = succeeded(own(defined(schemaDescOf(schemaOf(c)), "the case's description")))
-				const installation = succeeded(
-					compileInstallation(
-						owned,
-						completeInstallOptions(
-							owned,
-							installationsOf(owned),
-							[],
-							[],
-							firstCodebook(rostersOf(owned))
-						)
-					)
-				)
+				const installation = installationOf(schemaOf(c))
 				const snapshot = succeeded(
 					finishSnapshot(
 						succeeded(
@@ -139,12 +133,92 @@ export const snapshotJsonReadsBackAsTheSnapshotWrittenOfTheSameFingerprintWhatev
 				original: "\tconst first = level + 1",
 				replacement: "\tconst first = level + 2",
 				why: "The served levels above the one served start a level late (snapshot/served.ts servedSnapshot)."
+			}
+		]
+	})
+
+/**
+ * Each level records the laws its schema, owned alone over the levels below it, states that the level below it does
+ * not, and targetState reads them off the installation's theory: it checks no schema and builds no theory of a lower
+ * level (deploy/snapshot/build.ts levelsOf).
+ *
+ * The box, exhausted: Z at the root and A at the level over it, A contained in Z, the contract Cents typing a field of
+ * Z, of A or of both (A's name ordered first, so ownership meets A's use first), and a key statement over Z at the root
+ * or over A at the level. The oracle is the specification: each level's schema value owned and compiled alone, its
+ * theory's laws less the level below it's.
+ */
+export const eachLevelRecordsTheLawsItsSchemaAloneStatesThatTheLevelBelowDoesNotAndTargetStateBuildsNoTheory =
+	property.exhaust(finite(leveledGen), {
+		needs: {},
+		situations: [
+			"Cents used at root",
+			"Cents used at level",
+			"Cents used at both",
+			"a key at root",
+			"a key at level"
+		] satisfies ReadonlyArray<Reached<LeveledFeature>>,
+		check: (_, k: CaseOf<LeveledFeature>) => (c) =>
+			Effect.gen(function* () {
+				const { root, level } = leveledSchemas(c)
+				const installation = installationOf(level)
+				const checks = lawChecks(installation)
+				const [state, built] = yield* callCounts(
+					Effect.sync(() => succeeded(targetState({ installation, workload: noWorkload, checks }))),
+					{
+						theories: {
+							file: "packages/engine/src/analysis/theory/theory.ts",
+							name: "buildTheory"
+						},
+						checked: { file: "packages/engine/src/analysis/schema.ts", name: "checkedSchema" }
+					}
+				)
+				assert.equal(built.theories, 0, "targetState builds no theory: it reads the installation's")
+				assert.equal(built.checked, 0, "targetState checks no schema of a lower level")
+				const stated = (s: AnySchema) =>
+					Arr.map(installationOf(s).laws.theory.laws, (law) => law.id)
+				const below = stated(root)
+				assert.deepEqual(
+					Arr.map(state.levels, (l) => Arr.map(l.laws, (law): string => law.law)),
+					Arr.map([below, Arr.filter(stated(level), (id) => !below.includes(id))], (ids) =>
+						Arr.sort(ids, Order.String)
+					),
+					"each level records the laws its schema alone states that the level below it does not"
+				)
+				for (const feature of leveledFeatures(c)) {
+					k.note(feature)
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "each level's schema value compiled alone, its theory's laws less the level below it's"
+		},
+		box: "Z at the root, A at the level contained in Z, Cents typing Z, A or both, a key at the root or the level",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/schema/own.ts",
+				original: "\t\t\tstatementLevels: ordered.map((s) => s.level),",
+				replacement: "\t\t\tstatementLevels: ordered.map(() => 0),",
+				why: "Every statement is the root's: the level's containment and key are recorded among the root's laws."
+			},
+			{
+				file: "packages/engine/src/schema/own.ts",
+				original: "\t\t\t\t\t\t} else if (entry.level < prior.level) {",
+				replacement: "\t\t\t\t\t\t} else if (false) {",
+				why: "A contract is at the level of the first relation by name that uses it, A's above Z's: Cents, which Z at the root uses, is recorded among the level's laws."
 			},
 			{
 				file: "packages/engine/src/deploy/snapshot/build.ts",
-				original: "\t\t\t\t\t\t\t\towned.levels.slice(0, i + 1).map((l) => l.fingerprint)",
-				replacement: "\t\t\t\t\t\t\t\towned.levels.slice(0, i).map((l) => l.fingerprint)",
-				why: "A lower level is owned alone without its own fingerprint, which its owner hashed (schema/own.ts ownLevel); its snapshot is refused."
+				original:
+					'\t\t\tlaw.detail.kind === "contract" ? [[law.id, law.detail.owned.level] as const] : []',
+				replacement: '\t\t\tlaw.detail.kind === "contract" ? [[law.id, 0] as const] : []',
+				why: "Every contract's law is the root's: Cents, which only the level's A uses, is recorded among the root's laws."
+			},
+			{
+				file: "packages/engine/src/deploy/snapshot/build.ts",
+				original: "\t\t...theory.primaryKeys.map((p) => [p.law.id, p.relation.level] as const),",
+				replacement: "\t\t...theory.primaryKeys.map((p) => [p.law.id, 0] as const),",
+				why: "Every primary key is the root's: A's, which the level declares, is recorded among the root's laws."
 			}
 		]
 	})

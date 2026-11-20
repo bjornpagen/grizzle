@@ -1954,11 +1954,3 @@ export const triggerLawsOver = (model: LawModel, relation: string): ReadonlyArra
 			? [{ law: r.law.id, witnesses: witnesses(r.rule) }]
 			: []
 	)
-
-/**
- * The theory an owned schema states for `slice`: its checked schema's (analysis/theory/theory.ts buildTheory), with
- * every refusal the check and the theory raise, and none of the specialization compileLaws adds. What a reader of the
- * schema's laws alone reads: a lower level's, which the snapshot records (deploy/snapshot/build.ts levelsOf).
- */
-export const statedTheory = (owned: Owned, slice: Slice): Result.Result<Theory, CompileError> =>
-	Result.flatMap(checkedSchema(owned, slice), buildTheory)

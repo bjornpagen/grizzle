@@ -91,7 +91,7 @@ import {
 	fillersOf,
 	ownFill
 } from "#compiler/laws/model/fillers.ts"
-import { type LawModel, statedTheory } from "#compiler/laws/model/model.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { LawColumnPlan } from "#compiler/laws/model/plan.ts"
 import { type LivePlan, type LiveSource, noLive } from "#compiler/live/notify.ts"
 import type { ClosedNames, NamedClosed } from "#compiler/physical/ddl/constants.ts"
@@ -101,8 +101,7 @@ import { definitionMeanings } from "#compiler/physical/derived/meaning.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import { namedEdges, namedIdent } from "#compiler/physical/obligations/graph.ts"
-import { levelChain, type Owned, ownLevel } from "#compiler/schema/own.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
+import type { Owned } from "#compiler/schema/own.ts"
 import {
 	addedColumn,
 	type AlterTableAction,
@@ -567,50 +566,60 @@ interface TargetInput {
 /**
  * The installation's levels as the snapshot records them (SnapshotLevel), root first: each level's name, schema and
  * fingerprint, and the laws its theory states that the theory of the level below it does not, each described as an
- * outcome names it. A lower level's theory is the one its checked schema states, the level owned alone; the top's is
- * the installation's own. A lower level's law model is not compiled: the installation's, of every slice under planned
- * cycles, specialized every law of the schema, each lower level's included, and a lower level's law specializes alone
- * as it does there, so the level alone refuses nothing the installation's did not.
+ * outcome names it. A lower level's theory is the one its schema states owned alone, the levels below it included; the
+ * top's is the installation's own. A law is what it is, whatever else the schema states (analysis/theory/theory.ts
+ * lawStatement), so a level's schema states exactly the installation's laws stated by what that schema holds: a
+ * statement of it, the primary key of a relation of it, a contract a relation of it uses. Each law is so first stated
+ * at the lowest level of what states it: what declares it (ir/law.ts LawSource), its primary key's relation's, its
+ * contract's (OwnedContract level) or its statement's (Owned statementLevels), and every statement merged into it, read
+ * off the installation's theory, so no lower level's schema is owned, checked or given a theory again.
  */
 const levelsOf = (installation: Installation): ReadonlyArray<SnapshotLevel> => {
 	const owned = installation.owned
-	const chain = levelChain(owned.desc)
-	const top = chain.length - 1
-	const stated = new Set<LawId>()
-	return owned.levels.map((level, i): SnapshotLevel => {
-		const desc = chain[i]
-		const theory =
-			i === top || desc === undefined
-				? installation.laws.theory
-				: unwrap(
-						Result.flatMap(
-							ownLevel(
-								desc,
-								owned.levels.slice(0, i + 1).map((l) => l.fingerprint)
-							),
-							(alone) => statedTheory(alone, everySlice(alone))
-						)
-					)
-		const laws: Array<DescribedLaw> = []
-		for (const law of theory.laws) {
-			if (!stated.has(law.id)) {
-				stated.add(law.id)
-				laws.push({
-					law: law.id,
-					described: defined(
-						installation.described.get(law.id),
-						"the installation describes its laws"
-					)
-				})
-			}
+	const theory = installation.laws.theory
+	/** The level of each law no statement declares: a primary key's, its relation's; a contract's, its own. */
+	const undeclared = new Map<string, number>([
+		...theory.primaryKeys.map((p) => [p.law.id, p.relation.level] as const),
+		...theory.laws.flatMap((law) =>
+			law.detail.kind === "contract" ? [[law.id, law.detail.owned.level] as const] : []
+		)
+	])
+	const statementLevel = (statement: number): number =>
+		defined(owned.statementLevels[statement], "a law's statement is a statement of its schema")
+	/** The level of what declares `law` (ir/law.ts LawSource): its relation, its contract or its statement. */
+	const declaredAt = (law: (typeof theory.laws)[number]): number => {
+		switch (law.source.kind) {
+			case "relation":
+			case "contract":
+				return defined(undeclared.get(law.id), "a primary key's and a contract's law have a level")
+			case "key":
+			case "check":
+			case "contained":
+			case "family":
+			case "tree":
+			case "fold":
+			case "alternatives":
+			case "retirable":
+				return statementLevel(law.source.statement)
 		}
-		return {
-			name: level.name,
-			schema: identifierOf(defined(installation.names.levels[i], "a level's schema")),
-			fingerprint: level.fingerprint,
-			laws: laws.toSorted((a, b) => compareStrings(a.law, b.law))
-		}
-	})
+	}
+	const stated = Map.groupBy(theory.laws, (law) =>
+		law.statements.reduce((low, s) => Math.min(low, statementLevel(s)), declaredAt(law))
+	)
+	return owned.levels.map((level, i): SnapshotLevel => ({
+		name: level.name,
+		schema: identifierOf(defined(installation.names.levels[i], "a level's schema")),
+		fingerprint: level.fingerprint,
+		laws: (stated.get(i) ?? [])
+			.map((law): DescribedLaw => ({
+				law: law.id,
+				described: defined(
+					installation.described.get(law.id),
+					"the installation describes its laws"
+				)
+			}))
+			.toSorted((a, b) => compareStrings(a.law, b.law))
+	}))
 }
 
 /** An installed table as snapshotTablesOf gathers it: its relation, each field by its column, and its indexes. */

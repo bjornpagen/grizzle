@@ -1,10 +1,18 @@
 /** What the properties of snapshot-levels.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
+import { completeInstallOptions } from "#compiler/physical/complete.ts"
+import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { closed, contained, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { installationsOf, own, rostersOf } from "#compiler/schema/own.ts"
+import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
 const Kind = closed.ordered("Kind", ["One", "Two"])
@@ -99,4 +107,69 @@ export const schemaOf = (c: Case): AnySchema => {
 				[contained(on(R, "other"), on(B, "id")), selectedKey(c.literal)]
 			)
 	}
+}
+
+/** Where a contract's values are held: by a relation of the root, by one of the level over it, or by one of each. */
+const uses = ["root", "level", "both"] as const
+
+export type Use = (typeof uses)[number]
+
+/** Where a key statement stands: at the root over its relation, or at the level over the level's own. */
+const keyPlacements = ["root", "level"] as const
+
+export type KeyPlacement = (typeof keyPlacements)[number]
+
+/** What a two-level case reaches: where Cents is used, and where the key statement stands. */
+export type LeveledFeature = `Cents used at ${Use}` | `a key at ${KeyPlacement}`
+
+/** The situations a two-level case reaches. */
+export const leveledFeatures = (c: LeveledCase): ReadonlyArray<LeveledFeature> => [
+	`Cents used at ${c.use}`,
+	`a key at ${c.key}`
+]
+
+/** A two-level schema of the box: where Cents is used, and where the key statement stands. */
+interface LeveledCase {
+	readonly use: Use
+	readonly key: KeyPlacement
+}
+
+export const leveledGen: Gen<LeveledCase> = (source) => ({
+	use: source.draw(element(uses)),
+	key: source.draw(element(keyPlacements))
+})
+
+const Cents = contract("Cents", pg.bigint, (v) => Compute.ge(v, 0n))
+
+/**
+ * The case's two schemas, the root alone and the level over it: Z at the root, A at the level, A contained in Z by its
+ * z; Cents typing Z's c, A's c, or both, A's name ordered before Z's so ownership meets A's use of Cents first; the key
+ * statement over Z's c at the root, or over A's c at the level.
+ */
+export const leveledSchemas = (
+	c: LeveledCase
+): { readonly root: AnySchema; readonly level: AnySchema } => {
+	const Z = relation("Z", { id: Id, c: c.use === "level" ? pg.bigint : Cents }, ["id"])
+	const A = relation("A", { id: Id, z: Id, c: c.use === "root" ? pg.bigint : Cents }, ["id"])
+	const root = schema("Root", [Z], c.key === "root" ? [key(on(Z, "c"))] : [])
+	return {
+		root,
+		level: schema.extend(
+			root,
+			"Upper",
+			[A],
+			[contained(on(A, "z"), on(Z, "id")), ...(c.key === "level" ? [key(on(A, "c"))] : [])]
+		)
+	}
+}
+
+/** The installation of a schema value, owned and compiled with its first codebook. */
+export const installationOf = (s: AnySchema): Installation => {
+	const owned = succeeded(own(defined(schemaDescOf(s), "the case's description")))
+	return succeeded(
+		compileInstallation(
+			owned,
+			completeInstallOptions(owned, installationsOf(owned), [], [], firstCodebook(rostersOf(owned)))
+		)
+	)
 }

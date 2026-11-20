@@ -211,14 +211,17 @@ export type OwnedView =
 	| ({ readonly kind: "materialized" } & Installed<"view">)
 
 /**
- * An owned contract: its declared name, its type-level brand, and its descriptor. Ownership names no installed object
- * for it: its domain is named by the domain's physical definition, which only the installation's names spell
- * (physical/ddl/names.ts InstallNames.contractNamed), so contracts of one definition share one domain.
+ * An owned contract: its declared name, its type-level brand, its descriptor, and its level, the lowest level of a
+ * stored relation whose fields hold its values (the root's for natural, which every schema owns): the lowest level
+ * whose schema, owned alone, owns it, and so states its law. Ownership names no installed object for it: its domain is
+ * named by the domain's physical definition, which only the installation's names spell (physical/ddl/names.ts
+ * InstallNames.contractNamed), so contracts of one definition share one domain.
  */
 export interface OwnedContract {
 	readonly name: DeclaredName
 	readonly desc: FieldDesc & { readonly kind: "contract" }
 	readonly loc: SourceLoc
+	readonly level: number
 }
 
 /**
@@ -283,6 +286,11 @@ export interface Owned extends OwnedSchema {
 	 * statement of any level is, which a law's `statements` name.
 	 */
 	readonly statementAt: ReadonlyMap<string, number>
+	/**
+	 * Each statement's level, by its index in `statements`: the lowest level that states it, whose schema, owned alone,
+	 * states it and so every law it states (deploy/snapshot/build.ts levelsOf).
+	 */
+	readonly statementLevels: ReadonlyArray<number>
 	readonly contracts: Readonly<Record<string, OwnedContract>>
 	/** Every function a level declares, by its declared name (schema/function-own.ts). */
 	readonly functions: Readonly<Record<string, OwnedFunction>>
@@ -1237,13 +1245,17 @@ class Owner {
 	readonly #statements: Array<StatementEntry> = []
 	/** Each ordinary relation's namespace of row checks, filled as its check statements are owned. */
 	readonly #checkNames = new Map<string, DeclaredNamespace>()
-	/** Each contract by its name: its first descriptor, that descriptor's canonical text, and where it was first used. */
+	/**
+	 * Each contract by its name: its first descriptor, that descriptor's canonical text, where it was first used, and the
+	 * lowest level of a relation that uses it (OwnedContract `level`).
+	 */
 	readonly #contracts = new Map<
 		string,
 		{
 			readonly desc: FieldDesc & { readonly kind: "contract" }
 			readonly text: string
 			readonly loc: SourceLoc
+			readonly level: number
 		}
 	>()
 	readonly #mutable = new Set<string>()
@@ -1270,7 +1282,7 @@ class Owner {
 		const statements = this.#statements.map((s) => {
 			const statement = this.#checkStatement(s)
 			this.#checkLevels(s)
-			return { text: s.text, statement }
+			return { text: s.text, level: s.level, statement }
 		})
 		this.#checkRaces(statements.map((s) => s.statement))
 		const relations = this.#ownRelations(statements.map((s) => s.statement))
@@ -1295,6 +1307,7 @@ class Owner {
 			relations,
 			statements: ordered.map((s) => s.statement),
 			statementAt: new Map(ordered.map((s, i) => [s.text, i] as const)),
+			statementLevels: ordered.map((s) => s.level),
 			contracts,
 			functions,
 			fieldIds
@@ -1419,7 +1432,7 @@ class Owner {
 	 * count (scalar/aggregate.ts countOverload), and every query over the schema may count.
 	 */
 	#collectFields(): void {
-		this.#contracts.set(naturalOwned.desc.name, naturalOwned)
+		this.#contracts.set(naturalOwned.desc.name, { ...naturalOwned, level: 0 })
 		const ordered = [...this.#relations.values()].toSorted((a, b) =>
 			a.desc.name < b.desc.name ? -1 : 1
 		)
@@ -1444,13 +1457,15 @@ class Owner {
 					if (d.kind === "contract") {
 						const prior = this.#contracts.get(d.name)
 						if (prior === undefined) {
-							this.#contracts.set(d.name, { desc: d, text: textOf(d), loc })
+							this.#contracts.set(d.name, { desc: d, text: textOf(d), loc, level: entry.level })
 						} else if (prior.text !== textOf(d)) {
 							failWith({
 								_tag: "DuplicateIdentity",
 								at: loc,
 								duplicate: { kind: "contract", name: d.name, earlier: prior.loc }
 							})
+						} else if (entry.level < prior.level) {
+							this.#contracts.set(d.name, { ...prior, level: entry.level })
 						}
 					}
 				})
@@ -2467,7 +2482,7 @@ class Owner {
 		const names = DeclaredNamespace.of("contract")
 		for (const [declared, c] of byName(this.#contracts)) {
 			const name = declareName(names, declared, "contract", c.loc)
-			out[name] = { name, desc: c.desc, loc: c.loc }
+			out[name] = { name, desc: c.desc, loc: c.loc, level: c.level }
 		}
 		return out
 	}
@@ -2558,22 +2573,6 @@ export const ownServed = (
 	recorded: ReadonlyArray<SchemaFingerprint>
 ): Result.Result<Owned, CompileError> =>
 	ownWith(built.desc, writtenOf(built.content), recordedLevels(recorded))
-
-/**
- * own() of a lower level `desc` of an owned schema, alone, each of its levels' fingerprints, root first, the one owning
- * the schema hashed there (`fingerprints`, its Owned levels'): a level's fingerprint is the digest of the canonical
- * description it tops, which the levels below it alone make (hashedLevels), so none is hashed again. What a lower
- * level's theory is stated over (deploy/snapshot/build.ts levelsOf).
- */
-export const ownLevel = (
-	desc: SchemaDesc,
-	fingerprints: ReadonlyArray<SchemaFingerprint>
-): Result.Result<Owned, CompileError> =>
-	ownWith(
-		desc,
-		mapNonEmpty(levelChain(desc), (level) => level.statements.map(canonicalStatementOf)),
-		recordedLevels(fingerprints)
-	)
 
 /**
  * Owns `desc`, each level's statements in canonical form in `written` (root first, as levelChain gives its levels),
