@@ -7,9 +7,10 @@
  * - **The translation is a fact of the constant:** the installation holds the field's ARE dictionary beside its
  *   dictionary, one text[] whose element at each code is that code's pattern as the ARE PostgreSQL reads, the
  *   dictionary's own value translated (scalar/regex/admit.ts matchAre), in the dictionary's code order.
- * - **The match translates nothing as it runs:** the CHECK reads the ARE dictionary by the key the closed read reads,
- *   and its expression holds no CASE and no pattern, neither a source nor an ARE, so its size is the key's read
- *   whatever the patterns are.
+ * - **The match translates nothing as it runs:** the CHECK, with the body of the row function it calls read for its
+ *   call (physical/ddl/row-functions.ts), reads the ARE dictionary by the key the closed read reads, and its expression
+ *   holds no CASE and no pattern, neither a source nor an ARE, so its size is the key's read whatever the patterns
+ *   are.
  * - **Only a closed relation's own field holds patterns:** a stored relation's str.pattern field is refused where the
  *   schema is owned, a match over a closed relation's plain text payload where it is lowered, and a str.pattern value
  *   no Compute.matches admission admits at the closed relation's rows, once, before any match reads it.
@@ -142,7 +143,25 @@ export const aStrPatternFieldsMatchReadsEachPatternsAREByItsKeyFromItsAREDiction
 					(n) => n["kind"] === "check" && n["name"] === constraint
 				)
 				assert.ok(Option.isSome(check), `the CHECK ${constraint}`)
-				const read = nodes(check.value["predicate"])
+				/** The body of each row function the installation creates, by its name: what a call of one reads. */
+				const rowBodies = new Map(
+					Arr.flatMap(statements, (n) => {
+						const name = recordAt(n, "name")?.["name"]
+						return n["kind"] === "createConstant" &&
+							n["language"] === "plpgsql" &&
+							typeof name === "string"
+							? [[name, n["body"]] as const]
+							: []
+					})
+				)
+				const predicate = nodes(check.value["predicate"])
+				const read = [
+					...predicate,
+					...Arr.flatMap(predicate, (n) => {
+						const name = n["kind"] === "qualified" ? n["name"] : undefined
+						return typeof name === "string" && rowBodies.has(name) ? nodes(rowBodies.get(name)) : []
+					})
+				]
 				assert.ok(
 					Arr.some(
 						read,

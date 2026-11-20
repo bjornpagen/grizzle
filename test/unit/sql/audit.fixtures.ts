@@ -62,10 +62,14 @@ export const clip = (text: string): string =>
 /**
  * The type every use of each placeholder index is cast to, by its printed form: an expression's placeholder is cast to
  * its type, an input array's, `unnest($n::<type>[])`, to its column's type made an array (bit(n)'s included, which no
- * TypeRef states), and an input count's to bigint.
+ * TypeRef states), and an input count's to bigint. A constant's CREATE holds none: each `$n` of its body is its own
+ * argument, a row function's (physical/ddl/row-functions.ts) as a library function's, which a Bind never supplies.
  */
 const placeholderTypes = (s: SqlStatement): ReadonlyMap<number, ReadonlySet<string>> => {
 	const types = new Map<number, Set<string>>()
+	if (s.kind === "createConstant") {
+		return types
+	}
 	const use = (index: number, printed: string): void => {
 		const seen = types.get(index) ?? new Set<string>()
 		seen.add(printed)
@@ -129,7 +133,11 @@ export const universal = (t: Twinned): void => {
 	const order: ReadonlyArray<TypeRef> = auditStatementDetailed(s).params
 	const used = placeholderTypes(s)
 	assert.equal(order.length, used.size, "one type per placeholder index")
-	assert.equal(statementParams(s), order.length, "the parameters a Bind of the statement supplies")
+	assert.equal(
+		statementParams(s),
+		s.kind === "createConstant" ? s.params.length : order.length,
+		"the parameters a Bind of the statement supplies, or a constant's arguments, which statementParams counts"
+	)
 	for (const [i, type] of order.entries()) {
 		unorderedEqual([...(used.get(i + 1) ?? [])], [printType(type)], `$${i + 1}`)
 	}

@@ -1155,6 +1155,14 @@ export const identity = Object.freeze({
 			`library function ${fn} (${digest})`,
 			hashed
 		),
+	/**
+	 * A table CHECK's or stored generation's expression over its row, installed as a function of the columns it reads
+	 * (physical/ddl/row-functions.ts), named by the digest of its definition alone: an expression stated again, on any
+	 * table, is the function already installed, and a changed one is a new function, which the CHECK or the column
+	 * re-points at, as a changed constant is a new constant.
+	 */
+	rowFunction: (digest: ConstantDigest<"row-function">): Identity<"rowFunction"> =>
+		mint("rowFunction", [digest], ["row"], `row function ${digest}`, hashed),
 	/** A derived relation's materialized view. */
 	view: (relation: DeclaredName): Identity<"view"> =>
 		readableAs("view", relation, `derived relation ${relation}`),

@@ -27,6 +27,12 @@ import { addIsolation } from "#compiler/physical/ddl/isolation.ts"
 import { snapshotGuardDdl } from "#compiler/physical/ddl/ledger.ts"
 import type { InstallNames } from "#compiler/physical/ddl/names.ts"
 import {
+	rowCheck,
+	rowGeneration,
+	type RowFunction,
+	type RowScope
+} from "#compiler/physical/ddl/row-functions.ts"
+import {
 	type Before,
 	enforcement,
 	type Node,
@@ -36,15 +42,20 @@ import {
 	type QualifiedKind
 } from "#compiler/physical/obligations/graph.ts"
 import { vectorExtension } from "#compiler/physical/vector/storage.ts"
+import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import type { Owned, OwnedLogin } from "#compiler/schema/own.ts"
 import { keyedField, relationImages } from "#compiler/schema/representability.ts"
 import {
+	type AlterTableAction,
+	type ColumnDef,
+	type CreateConstant,
 	type Expr,
 	type FunctionName,
 	nameKey,
 	type NameKey,
 	type ObjectName,
 	type SqlStatement,
+	type TableConstraint,
 	type TypeRef
 } from "#compiler/sql/ast.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
@@ -226,6 +237,15 @@ const widenedRelation = (
 	return undefined
 }
 
+/** A constant of parameters' revoke from PUBLIC, which holds EXECUTE on every new function: a library function's and a
+ * row function's (physical/ddl/row-functions.ts). */
+export const constantRevoke = (create: CreateConstant): SqlStatement => ({
+	kind: "revoke",
+	privileges: ["ALL"],
+	on: { kind: "FUNCTION", names: [{ ...create.name, args: create.params.map((p) => p.type) }] },
+	from: [{ kind: "PUBLIC" }]
+})
+
 /** What every DDL generator of one installation shares: the owned schema, its law model, the installed names, the
  * obligation graph the objects go into, and the identities the installation names its own objects by (`name`).
  *
@@ -280,6 +300,12 @@ export class InstallBuilder {
 	readonly #views = new Map<string, IndexedView>()
 	/** The law columns of each stored relation an index may name (`lawColumnFields`). */
 	readonly #lawColumns: ReadonlyMap<string, ReadonlyMap<string, TargetField>>
+	/** Each pattern language the installation spells, by the ARE of its spelling (ir/pattern.ts InstalledSpellings): what
+	 * a row function's identity reads a pattern it matches as (physical/ddl/row-functions.ts). */
+	readonly #languages: ReadonlyMap<string, string>
+	/** The type of each column of each installed table the objects so far give it, by the table's qualified name and the
+	 * column's identifier: what a row function's parameter reading the column is typed by. */
+	readonly #columnTypes = new Map<string, Map<string, TypeRef>>()
 	/** The columns each table, view and materialized view the objects so far create holds, by its qualified name. */
 	readonly #columns = new Map<string, number>()
 	/** The identifiers of the levels' schemas, where every table of the installation is. */
@@ -304,6 +330,9 @@ export class InstallBuilder {
 		this.natives = input.model.natives
 		this.#lawColumns = lawColumnFields(input.model.natives)
 		this.#levelSchemas = new Set(input.names.levels.map(identifierOf))
+		this.#languages = new Map(
+			[...input.names.spellings.table].map(([language, spelling]) => [matchAre(spelling), language])
+		)
 		const levelNode = (installation: Identity<"schema">, index: number): Node<"setup"> =>
 			this.add(
 				{
@@ -391,7 +420,8 @@ export class InstallBuilder {
 		spec: ObjectSpec<P>,
 		after: ReadonlyArray<Node<Before<NoInfer<P>>>>
 	): Node<P> {
-		for (const statement of spec.ddl) {
+		const ddl = spec.ddl.map((statement) => this.#withRowFunctions(statement, spec.reasons))
+		for (const statement of ddl) {
 			this.#countColumns(statement)
 			const table = evaluatedTable(statement)
 			if (table !== undefined && this.#levelSchemas.has(table.schema)) {
@@ -403,7 +433,77 @@ export class InstallBuilder {
 				}
 			}
 		}
-		return this.graph.add(spec, after)
+		return this.graph.add({ ...spec, ddl }, after)
+	}
+
+	/**
+	 * A statement on an installed table with each CHECK it adds and each generation of a column it adds its row
+	 * function's call where the expression hoists (physical/ddl/row-functions.ts), each row function added as a constant
+	 * (`addConstant`) for `reasons`, the table's object's: every CHECK and stored generation of the installation's tables
+	 * is added through here, whatever adds it. Each column the statement gives its table is kept, by the table's name,
+	 * for the types of the parameters a later row function of the table reads it by.
+	 */
+	#withRowFunctions(statement: SqlStatement, reasons: ReadonlyArray<PhysicalReason>): SqlStatement {
+		if (
+			(statement.kind !== "createTable" && statement.kind !== "alterTable") ||
+			!this.#levelSchemas.has(statement.table.schema)
+		) {
+			return statement
+		}
+		const table = printObjectName(statement.table)
+		const columns = this.#columnTypes.get(table) ?? new Map<string, TypeRef>()
+		this.#columnTypes.set(table, columns)
+		const scope: RowScope = {
+			schema: this.schema,
+			readsConstant: (fn) => fn.schema === this.schema && this.#readsData(fn.name),
+			columnType: (column) =>
+				columns.get(column) ?? missing(`physical: no column ${column} of ${table}`),
+			languageOf: (are) => this.#languages.get(are)
+		}
+		const install = (fn: RowFunction): void => {
+			this.name(fn.named)
+			this.addConstant(fn.named, { ddl: [fn.create, constantRevoke(fn.create)], reasons }, [
+				this.schemaNode
+			])
+		}
+		const column = (c: ColumnDef): ColumnDef => ({
+			...c,
+			generated: rowGeneration(scope, c.generated, c.type, install)
+		})
+		const check = <C extends TableConstraint>(c: C): C | (C & { readonly kind: "check" }) =>
+			c.kind === "check" ? { ...c, predicate: rowCheck(scope, c.predicate, install) } : c
+		if (statement.kind === "createTable") {
+			for (const c of statement.columns) {
+				columns.set(c.name, c.type)
+			}
+			return {
+				...statement,
+				columns: mapNonEmpty(statement.columns, column),
+				secondary: statement.secondary.map(check)
+			}
+		}
+		for (const a of statement.actions) {
+			if (a.kind === "addColumn") {
+				columns.set(a.column.name, a.column.type)
+			}
+		}
+		return {
+			...statement,
+			actions: mapNonEmpty(statement.actions, (a): AlterTableAction =>
+				a.kind === "addColumn"
+					? { ...a, column: column(a.column) }
+					: a.kind === "addConstraint"
+						? { ...a, constraint: check(a.constraint) }
+						: a
+			)
+		}
+	}
+
+	/** Whether the installed function `name` is a constant of the installation's data, a closed relation's, a roster's
+	 * or a dictionary's, whose value a call reads: neither a library function nor a row function. */
+	#readsData(name: string): boolean {
+		const kind = this.#constants.get(name)?.named.kind
+		return kind === "closedConstant" || kind === "rosterConstant" || kind === "rosterLive"
 	}
 
 	/** The columns `statement` gives the relation it creates or adds to, counted against tableMaxColumns. */
@@ -458,7 +558,9 @@ export class InstallBuilder {
 	 * the new reasons too.
 	 */
 	addConstant(
-		name: Identity<"closedConstant" | "rosterConstant" | "rosterLive" | "libraryFunction">,
+		name: Identity<
+			"closedConstant" | "rosterConstant" | "rosterLive" | "libraryFunction" | "rowFunction"
+		>,
 		spec: Omit<ObjectSpec<"setup">, "kind" | "ident" | "phase">,
 		after: ReadonlyArray<Node<"setup">>
 	): Node<"setup"> {

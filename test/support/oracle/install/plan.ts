@@ -1035,6 +1035,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 	for (const r of rosters.values()) {
 		ddl.push({
 			kind: "createConstant",
+			language: "sql",
 			name: r.names,
 			params: [],
 			returns: types.name(true),

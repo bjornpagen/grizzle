@@ -22,7 +22,7 @@ import { exprClosure } from "#compiler/ir/expr.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { persistentExprs } from "#compiler/physical/ddl/constants.ts"
-import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
+import { constantRevoke, type InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement } from "#compiler/physical/obligations/graph.ts"
 import { libraryOf, nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type {
@@ -34,7 +34,6 @@ import type {
 	Cte,
 	FunctionParam,
 	OperandSelect,
-	SqlStatement,
 	TypeRef
 } from "#compiler/sql/ast.ts"
 import {
@@ -1084,16 +1083,9 @@ const imageFunctions: { readonly [I in KeyImage]: LibraryFn } = Object.freeze({
 /** A library function's CREATE in the schema `schema`: an installation's, or a session's pg_temp. */
 export const libraryCreate = (schema: string, fn: LibraryFn): CreateConstant => ({
 	kind: "createConstant",
+	language: "sql",
 	name: { schema, name: libraryIdentity(fn).identifier },
 	...definitions[fn]
-})
-
-/** A library function's revoke from PUBLIC, which holds EXECUTE on every new function. */
-const revokeOf = (create: CreateConstant): SqlStatement => ({
-	kind: "revoke",
-	privileges: ["ALL"],
-	on: { kind: "FUNCTION", names: [{ ...create.name, args: create.params.map((p) => p.type) }] },
-	from: [{ kind: "PUBLIC" }]
 })
 
 /** The library functions the installation installs as its objects, after its schema, each its CREATE and its revoke. */
@@ -1105,7 +1097,7 @@ export const addLibrary = (b: InstallBuilder): void => {
 		b.addConstant(
 			named,
 			{
-				ddl: [create, revokeOf(create)],
+				ddl: [create, constantRevoke(create)],
 				reasons: [enforcement(`the library function ${fn}`)]
 			},
 			[b.schemaNode]

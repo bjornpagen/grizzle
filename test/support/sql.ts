@@ -420,6 +420,7 @@ const nameArrayText = (names: ReadonlyArray<string>): string =>
 export const namesConstantSql = (fn: ObjectName, names: ReadonlyArray<string>): string =>
 	printStatement({
 		kind: "createConstant",
+		language: "sql",
 		name: fn,
 		params: [],
 		returns: types.name(true),
@@ -434,6 +435,7 @@ export const namesConstantSql = (fn: ObjectName, names: ReadonlyArray<string>): 
 export const liveConstantSql = (fn: ObjectName, live: string): string =>
 	printStatement({
 		kind: "createConstant",
+		language: "sql",
 		name: fn,
 		params: [],
 		returns: types.varbit,

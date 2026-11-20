@@ -1893,6 +1893,9 @@ const constantHead = (
 /** What every constant is: an SQL function PostgreSQL evaluates once and may run in parallel. */
 const constantClauses = "LANGUAGE sql IMMUTABLE PARALLEL SAFE"
 
+/** A PL/pgSQL constant's clauses (sql/ast.ts ConstantLanguage): planned once per backend, under the closed path. */
+const plannedConstantClauses = `LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE SET search_path = ${printedSearchPath}`
+
 /** The line a literal pack's comment begins with (writePack), which `grizzle check` finds it by. */
 const literalPackComment = "-- closed constant: "
 
@@ -2182,8 +2185,17 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 			return writePack(out, statement)
 		case "createConstant":
 			out.line(constantHead(statement.name, statement.params, statement.returns))
-			out.line(constantClauses)
-			return out.line(`RETURN ${printExpr(statement.body)}`)
+			switch (statement.language) {
+				case "sql":
+					out.line(constantClauses)
+					return out.line(`RETURN ${printExpr(statement.body)}`)
+				case "plpgsql":
+					out.line(plannedConstantClauses)
+					return dollarQuoted(out, "AS", {
+						declare: [],
+						body: [{ kind: "return", value: statement.body }]
+					})
+			}
 		case "createGuardTrigger": {
 			out.line(`CREATE TRIGGER ${quoteIdent(statement.name)}`)
 			const clauses = out.nested()

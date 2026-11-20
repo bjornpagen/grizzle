@@ -345,19 +345,29 @@ installation holds them both ([Levels](#levels)). `natural` is a count, a `bigin
   seats of the subscription's plan.
 
 `PlanLimits` has no table. Its rows become IMMUTABLE constants, which PostgreSQL folds into every statement that reads
-them, and `WithinPlan` becomes a CHECK that reads them. Abridged from `grizzle generate`:
+them, and `WithinPlan` becomes a CHECK that reads them through a row function, a PL/pgSQL function of the columns the
+check reads, which each backend plans once with the constants folded in, so no statement that writes `Subscription`
+reads them again ([PostgreSQL known issues](#postgresql-known-issues)). Abridged from `grizzle generate`:
 
 ```sql
 CREATE FUNCTION "blog"."__constant_votvjyxb73"() RETURNS bigint[]
 LANGUAGE sql IMMUTABLE PARALLEL SAFE
 RETURN '{"1","50"}'::bigint[];
 
+CREATE FUNCTION "blog"."__row_thta7vjw4u"("seats" "blog"."__domain_gfw43vigph", "plan" "billing"."plan") RETURNS boolean
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE SET search_path = "pg_catalog", "pg_temp"
+AS $$
+BEGIN
+  RETURN $1::"blog"."__domain_gfw43vigph" <= ("blog"."__constant_votvjyxb73"())[NULLIF("pg_catalog"."substring"("blog"."__constant_ab5qkascpx"(), $2::"billing"."plan" * 2 + 1, 2)::integer, 0) - 1 + 1];
+END
+$$;
+
 CREATE TABLE "billing"."subscription" (
   "org" "blog"."__text_t2hbrv4zer" NOT NULL,
   "plan" "billing"."plan" NOT NULL,
   "seats" "blog"."__domain_gfw43vigph" NOT NULL,
   CONSTRAINT "__subscription_pk_ji5ktre5v6" PRIMARY KEY ("org"),
-  CONSTRAINT "within_plan" CHECK (("seats" <= ("blog"."__constant_votvjyxb73"())[NULLIF("pg_catalog"."substring"("blog"."__constant_ab5qkascpx"(), "plan" * 2 + 1, 2)::integer, 0) - 1 + 1]) IS TRUE)
+  CONSTRAINT "within_plan" CHECK (("blog"."__row_thta7vjw4u"("seats", "plan")) IS TRUE)
 );
 ```
 
@@ -2025,8 +2035,8 @@ by a parameter is at most one row to the engine and many to the types.
 
 It has no table. The migration installs it as content-addressed IMMUTABLE constants, a bit string indexed by its key's
 codes and an array of each open-typed field's values, which PostgreSQL folds into every statement that reads them. A
-rule that reads one from an open row is a CHECK on that row's table, named by its rule: a containment of a row's
-`(kind, flag)` into `Allowed` is one substring read of the row's own codes.
+rule that reads one from an open row is a CHECK on that row's table, named by its rule, through a row function of the
+columns it reads: a containment of a row's `(kind, flag)` into `Allowed` is one substring read of the row's own codes.
 
 Three reads stand in a row check, a selection, a generated field's term or a query's filter, never in a value a query
 delivers or binds:
@@ -5199,7 +5209,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 **Imprecise GiST indexes over multibyte text.** Through PostgreSQL 19, btree_gist prices a UTF8 text key by the byte after the common prefix of its subtree's bounds, cut at a character boundary, so characters that share leading bytes, such as the CJK Unified Ideographs, price alike, and a GiST index led by such text is imprecise: a point lookup takes 14 buffers for one row of 20,000 two-ideograph keys, where ASCII keys take 3. grizzle builds such an index only for a no-overlap key or a span filter whose text field comes first. It stays valid; only its lookups cost more. PostgreSQL's master branch fixes this in commit b82d69abf6, for PostgreSQL 20, where the lookup takes 3 buffers; rebuild an older index there. No PostgreSQL 19 release carries it (a request to back-patch it is drafted, not filed, in [upstream/btree-gist-multibyte-penalty](upstream/btree-gist-multibyte-penalty)), and grizzle's tests run on the unpatched release, so the indexes the test suite builds pay this cost too.
 
-**CHECKs and generated columns re-planned per statement.** PostgreSQL 19 parses and plans every CHECK and stored generation expression in each statement that needs it, calling each IMMUTABLE function it reads and copying the result in. A closed relation is installed as such a function ([Closed relations](#closed-relations)): on one-row INSERTs into a bare table (measured on 19rc1, whose ExecRelCheck and ExecInitGenerated 19.0 keeps byte for byte), a CHECK over a 33 KB constant adds 13 µs, one over 128 KiB 20 µs, and a generated column over 128 KiB 22 µs. Planned once per relcache entry, as PostgreSQL plans index expressions and domain checks, each costs 0.4 to 1.2 µs, whether the constant is 363 bits or 128 KiB, measured with a change of grizzle's own that no PostgreSQL release carries ([upstream/relcache-planned-check-and-generation](upstream/relcache-planned-check-and-generation)). A roster's domain is unaffected: a domain's check is planned once per backend. Only the cost differs, never the behaviour.
+**CHECKs and generated columns re-planned per statement.** PostgreSQL 19 parses and plans every CHECK and stored generation expression again in each statement that writes its table: it reads each literal back from the stored expression a byte at a time and evaluates each IMMUTABLE function the expression calls, copying the value in. Counted in user-mode instructions of the writing backend on 19.0, a literal costs a statement about 207 instructions a byte, and a call of a constant about 7,800 plus 0.83 a byte of its value; before grizzle answered it, each INSERT statement into qti's interaction_attribute table paid 90.6 million instructions for its CHECKs and generations, its attribute table 35.0 million. grizzle installs each CHECK and stored generation that calls a constant of the installation's data, a closed relation's, a roster's or a dictionary's ([Closed relations](#closed-relations)), that matches a pattern, or whose literals hold more than 21 bytes of text or bits together, as a row function: a PL/pgSQL function of the columns it reads, named by its definition's digest, which each backend plans once with the constants folded in, and the CHECK or the column calls it. A statement then pays the call once a row, about 4,400 instructions, where it paid the literals and the constants once a statement, so a statement of many rows into a table of many such expressions pays more than it did: qti's interaction_attribute, 72 calls a row, breaks even near 300 rows a statement. Planning CHECKs once per relcache entry, as PostgreSQL plans index expressions and domain checks, would remove both costs: a change of grizzle's own that no PostgreSQL release carries ([upstream/relcache-planned-check-and-generation](upstream/relcache-planned-check-and-generation)). A roster's domain is unaffected: a domain's check is planned once per backend. Only the cost differs, never the behaviour.
 
 **PL/pgSQL functions with many IFs or CASE arms compile in quadratic time, unless each statement is one line.** PL/pgSQL learns an IF's, an ELSIF's and a CASE WHEN's line number after its body's statements have asked for theirs, and PostgreSQL 19 rescans the function's source from its start whenever a location lies on a line before the one it last resolved, so a function of N such statements written over lines compiles in O(N x length), at CREATE FUNCTION and again at its first call in each backend: one CASE of 40,000 arms takes about 17 s. grizzle prints every statement of a PL/pgSQL block on one line, its body with it, and spells a string constant that holds a line feed as an escape string, so no location goes back but the block's own BEGIN, and its law functions compile in time linear in their length: qti's largest, 4.3 MB of 1,764 IF and ELSIF branches, resolves its lines in one walk of its source, where printed over lines it rescanned 2.3 GB. Recording where each line starts once and finding a location's line by binary search would fix it for every function, with the same line numbers: a change of grizzle's own that no PostgreSQL release carries, prepared for pgsql-hackers in [upstream/plpgsql-lineno-rescan](upstream/plpgsql-lineno-rescan) and not yet sent.
 

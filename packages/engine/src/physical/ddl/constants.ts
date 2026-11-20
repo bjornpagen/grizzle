@@ -892,6 +892,7 @@ const dictionaryOf = (b: InstallBuilder, planned: PlannedDictionary): CreateCons
 	)
 	return {
 		kind: "createConstant",
+		language: "sql",
 		name: functionOf(b.schema, planned.named),
 		params: [],
 		returns: array,
@@ -1104,6 +1105,7 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 					ddl: [
 						{
 							kind: "createConstant",
+							language: "sql",
 							name: names,
 							params: [],
 							returns: namesType,
@@ -1172,6 +1174,7 @@ const addBits = (
 			ddl: [
 				{
 					kind: "createConstant",
+					language: "sql",
 					name: live,
 					params: [],
 					returns: types.varbit,

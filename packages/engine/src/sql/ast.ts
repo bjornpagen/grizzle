@@ -2253,18 +2253,33 @@ export interface PackConstant {
 }
 
 /**
- * CREATE FUNCTION <name>(<params>) RETURNS <type> LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN <body>: a constant.
- * Never OR REPLACE: a domain's planned check keeps the constant it folded, so a function changed under it would go
- * unseen, and a new constant is a new name. No SET clause: a function with one is never inlined, and its body names
- * every type and function by its schema. A parameter is read by position, $n, as every grizzle SQL body reads.
+ * CREATE FUNCTION <name>(<params>) RETURNS <type> <language's clauses> <body>: a constant, an IMMUTABLE PARALLEL SAFE
+ * function named by its content's digest, its body `RETURN <body>` in its language (ConstantLanguage). Never OR
+ * REPLACE: a domain's planned check keeps the constant it folded, so a function changed under it would go unseen, and
+ * a new constant is a new name. A parameter is read by position, $n, as every grizzle SQL body reads.
  */
 export interface CreateConstant {
 	readonly kind: "createConstant"
+	readonly language: ConstantLanguage
 	readonly name: ObjectName
 	readonly params: ReadonlyArray<FunctionParam>
 	readonly returns: TypeRef
 	readonly body: Expr
 }
+
+/**
+ * A constant's body language, by when PostgreSQL plans what the body reads:
+ *
+ * - `sql`, `LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN <body>`, planned into each statement that calls it, which
+ *   inlines the body or evaluates the call once per statement: a closed relation's, a roster's or a dictionary's
+ *   constant, and a library function. No SET clause: a function with one is never inlined, and its body names every
+ *   type and function by its schema.
+ * - `plpgsql`, `LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE SET search_path = pg_catalog, pg_temp AS $$BEGIN RETURN
+ *   <body>; END$$`, planned once per backend, at its first call, every constant its body calls folded into that plan and
+ *   every literal read with it: a row function (physical/ddl/row-functions.ts). PL/pgSQL resolves the body's operators
+ *   as it plans it, under the path its SET clause fixes, so no caller's path changes what it means.
+ */
+export type ConstantLanguage = "sql" | "plpgsql"
 
 /** A declared function's volatility as CREATE FUNCTION spells it. */
 export type DeclaredVolatility = "IMMUTABLE" | "STABLE" | "VOLATILE"

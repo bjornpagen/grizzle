@@ -4,6 +4,7 @@ import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import type { InstallationManifest, PhysicalKind, PhysicalObject } from "#compiler/ir/products.ts"
 import type {
+	ConstantLanguage,
 	CreateConstant,
 	CreateDeclaredFunction,
 	Expr,
@@ -77,11 +78,14 @@ export interface RecordedDeclaredFunction {
 }
 
 /**
- * A constant's header: the function its content names, its parameters and its result type, which a CREATE FUNCTION of
- * a roster's or a dictionary's array (sql/ast.ts CreateConstant) and a closed relation's literal pack (PackConstant)
- * alike state. Its name is its content's digest (core/identity.ts), so the header says what the constant holds.
+ * A constant's header: the function its content names, its body's language, its parameters and its result type, which
+ * a CREATE FUNCTION of a roster's or a dictionary's array, a library function or a row function (sql/ast.ts
+ * CreateConstant) and a closed relation's literal pack (PackConstant, an SQL constant) alike state. Its name is its
+ * content's digest (core/identity.ts), so the header says what the constant holds; its language is what the drift check
+ * describes it by, a PL/pgSQL constant by its header as PostgreSQL deparses it.
  */
 export interface ConstantHeader {
+	readonly language: ConstantLanguage
 	readonly name: ObjectName
 	readonly params: ReadonlyArray<FunctionParam>
 	readonly returns: TypeRef
@@ -203,8 +207,8 @@ const withBody = (h: FunctionHeader, body: PlBlock): PlFunction => {
 /** A constant's header, a literal pack's its function's, which takes no parameter and returns its bits. */
 export const constantHeader = (c: CreateConstant | PackConstant): ConstantHeader =>
 	c.kind === "createConstant"
-		? { name: c.name, params: c.params, returns: c.returns }
-		: { name: c.function, params: [], returns: types.varbit }
+		? { language: c.language, name: c.name, params: c.params, returns: c.returns }
+		: { language: "sql", name: c.function, params: [], returns: types.varbit }
 
 /** An installed statement as its snapshot records it: a PL/pgSQL function and a constant by their headers, the
  * function with its source's digest; every other statement whole. */
@@ -311,8 +315,9 @@ const declaredStub = (h: DeclaredHeader): CreateDeclaredFunction["body"] => {
 /**
  * The value a recorded constant is replayed as: the empty value of its type, an empty array, the empty input of a
  * library function's text or bytea (physical/ddl/library.ts; `''` reads as either type's empty value) or an empty bit
- * string, a constant's every result type. The drift check describes a constant by its name, its owner, its parameters
- * and its result type alone, and the scratch replay reads no row, so no value is read.
+ * string, an SQL constant's every result type; a PL/pgSQL constant's body PostgreSQL only parses as it creates the
+ * function, so its stub is never typed. The drift check describes a constant by its name, its owner, its parameters,
+ * its result type and its language's clauses alone, and the scratch replay reads no row, so no value is read.
  */
 const stubValue = (returns: TypeRef): Expr =>
 	returns.array
@@ -330,8 +335,8 @@ export const replayedStatement = (s: RecordedStatement): SqlStatement => {
 		return withBody(s.header, stubBody)
 	}
 	if (s.kind === "recordedConstant") {
-		const { name, params, returns } = s.header
-		return { kind: "createConstant", name, params, returns, body: stubValue(returns) }
+		const { language, name, params, returns } = s.header
+		return { kind: "createConstant", language, name, params, returns, body: stubValue(returns) }
 	}
 	if (s.kind === "recordedDeclaredFunction") {
 		return { ...s.header, body: declaredStub(s.header) }
@@ -382,10 +387,11 @@ export const transformRecorded = (
 			}
 		}
 		if (s.kind === "recordedConstant") {
-			const { name, params, returns } = s.header
+			const { language, name, params, returns } = s.header
 			return {
 				kind: s.kind,
 				header: {
+					language,
 					name: t.name(name, "function"),
 					params: params.map((p) => t.functionParam(p)),
 					returns: t.type(returns)

@@ -777,7 +777,8 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   issues).
 - upstream/gist-costestimate-column-position: a pgsql-hackers reply to BUG #15408, for PostgreSQL 20.
 - upstream/relcache-planned-check-and-generation: CHECK and generation expressions planned once per relcache entry.
-  No release carries it, and grizzle's pin, the unpatched release, pays it (README, PostgreSQL known issues).
+  No release carries it: grizzle's pin, the unpatched release, pays it for every expression left inline, and a row
+  function's call a row for every one installed as a row function (README, PostgreSQL known issues).
 - upstream/fallow-unused-class-member-union-property: fallow credits no class member called through a property of a
   union-typed value, so .fallowrc.json keeps use and relationUse. File at fallow-rs/fallow, then drop the entries once
   repro.sh reports Cell.never alone.

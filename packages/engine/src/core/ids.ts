@@ -51,6 +51,7 @@ export type IdentityKind =
 	| "bitsDomain"
 	| "closedConstant"
 	| "libraryFunction"
+	| "rowFunction"
 	| "hold"
 	| "retire"
 	| "primaryKey"
