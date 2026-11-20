@@ -2,6 +2,7 @@ import { availableParallelism } from "node:os"
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import {
 	Array as Arr,
+	Data,
 	Effect,
 	FileSystem,
 	JsonPointer,
@@ -9,7 +10,7 @@ import {
 	Path,
 	Predicate,
 	Record,
-	Schema,
+	Result,
 	String as Str
 } from "effect"
 import type { Built } from "#corpus/tools/run.ts"
@@ -17,6 +18,8 @@ import { CorpusRunFailed, spawn } from "#corpus/tools/run.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import type { Json } from "#model/pointer.ts"
+import { parseJson } from "#runtime/json.ts"
+import { string } from "#runtime/read.ts"
 
 type Command = Built["commands"][number]
 
@@ -41,16 +44,11 @@ const filledArrayDepth = 2
  */
 const invocationsAtOnce = availableParallelism()
 
-const decodeText = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.String))
-
 /** A body the walk cannot build: a reference it does not follow, or a schema no value it builds meets. */
-class Unbuildable extends Schema.TaggedError<Unbuildable, { readonly brand: unique symbol }>()(
-	"Unbuildable",
-	{ reason: Schema.String }
-) {}
+class Unbuildable extends Data.TaggedError("Unbuildable")<{ readonly reason: string }> {}
 
 const unbuildable = (reason: string): Effect.Effect<never, Unbuildable> =>
-	Effect.fail(Unbuildable.make({ reason }))
+	Effect.fail(new Unbuildable({ reason }))
 
 /** The node at a list of RFC 6901 tokens below `root`. */
 const nodeAtTokens = (root: Json, tokens: readonly string[]): Option.Option<Json> =>
@@ -246,9 +244,13 @@ const valueOf = (schema: Json, walk: Walk): Effect.Effect<Json, Unbuildable> =>
 const bodySchemaOf = (value: Json, command: Command): Option.Option<Json> =>
 	nodeOf(value, `${command.pointer}/requestBody/content/application~1json/schema`)
 
+/** The string a constant's JSON text spells, where it spells one. */
+const textOf = (json: string): Option.Option<string> =>
+	Result.getSuccess(Result.flatMap(parseJson(json), string))
+
 /** A constant header as a dry run prints it: its lowercased name and its one value's text. */
 const constantLine = (constant: Command["constants"][number]): string =>
-	`${Str.toLowerCase(constant.wireName)}: ${Option.getOrElse(decodeText(constant.value), () => constant.value)}`
+	`${Str.toLowerCase(constant.wireName)}: ${Option.getOrElse(textOf(constant.value), () => constant.value)}`
 
 /**
  * The lines a command's dry run must print in its head, read from its `--describe` entry: its request line, its JSON
@@ -329,7 +331,7 @@ const exerciseCommand = (built: Built, command: Command) =>
 		const words = Arr.join(command.path, " ")
 		const name = `${built.id}: ${words}`
 		const failed = (output: string) =>
-			CorpusRunFailed.make({ id: built.id, output, step: `${words} body` })
+			new CorpusRunFailed({ id: built.id, output, step: `${words} body` })
 		const help = yield* runBin(built, `${words} --help`, [...command.path, "--help"])
 		const shown = [
 			`${command.method} ${command.pathTemplate}`,

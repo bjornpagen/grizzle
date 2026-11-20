@@ -1,22 +1,31 @@
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
-import {
-	Array as Arr,
-	Function as Fn,
-	Effect,
-	Option,
-	Order,
-	Predicate,
-	Schema,
-	String as Str
-} from "effect"
-import { WalkElement, walk } from "#corpus/tools/walk.ts"
-import type { WalkError } from "#corpus/tools/walk.ts"
-import { escapeToken } from "#model/pointer.ts"
+import { Array as Arr, Data, Effect, Option, Order, Predicate, Result, String as Str } from "effect"
+import { walk } from "#corpus/tools/walk.ts"
+import type { WalkElement, WalkError, WalkOperation } from "#corpus/tools/walk.ts"
+import { isDocumentUri } from "#model/brands.ts"
+import type { DocumentUri } from "#model/brands.ts"
+import { diagnosticScopes } from "#model/diagnostic.ts"
+import type { DiagnosticScope } from "#model/diagnostic.ts"
+import { escapeToken, isJsonPointer } from "#model/pointer.ts"
+import type { JsonPointer } from "#model/pointer.ts"
 import type { Resolution } from "#resolve/index.ts"
-import { readDescription } from "#runtime-src/runtime/describe.ts"
-import type { Description, UnreadableDescription } from "#runtime-src/runtime/describe.ts"
-import type { InvalidJsonText } from "#runtime-src/runtime/json.ts"
+import { readDescription } from "#runtime/describe.ts"
+import type { DescribedCommand } from "#runtime/describe.ts"
+import { parseJson } from "#runtime/json.ts"
+import {
+	anything,
+	array,
+	literal,
+	member,
+	members,
+	optionalMember,
+	refine,
+	string,
+	struct,
+	union
+} from "#runtime/read.ts"
+import type { Members, Reader } from "#runtime/read.ts"
 
 /**
  * What one coverage check reads: the resolved entry document, the built CLI's `--describe` stdout
@@ -30,32 +39,28 @@ export interface CoverageInput {
 }
 
 /** A command's site in `--describe`: its document label, its visible path and its pointer. */
-const CommandSite = Schema.Struct({
-	document: Schema.String,
-	path: Schema.Array(Schema.String),
-	pointer: Schema.String
-})
+interface CommandSite {
+	readonly document: string
+	readonly path: readonly string[]
+	readonly pointer: string
+}
 
 /**
  * A report's `field` refusal that `--describe` does not agree with (design 8.3 rule 6), by the
  * refusal's document and pointer and the request media type and property it names.
  */
-const RefusedField = Schema.Struct({
-	document: Schema.String,
-	kind: Schema.Literal("refusedField"),
-	mediaType: Schema.String,
-	name: Schema.String,
-	pointer: Schema.String
-})
-
-export type RefusedField = typeof RefusedField.Type
+export interface RefusedField {
+	readonly document: DocumentUri
+	readonly kind: "refusedField"
+	readonly mediaType: string
+	readonly name: string
+	readonly pointer: JsonPointer
+}
 
 /**
  * What nothing accounts for: a walked element, or a field refusal no command agrees with.
  */
-const Missing = Schema.Union([WalkElement, RefusedField])
-
-export type Missing = typeof Missing.Type
+export type Missing = WalkElement | RefusedField
 
 /**
  * What `--describe` claims that nothing in the spec stands behind: a command whose
@@ -63,82 +68,128 @@ export type Missing = typeof Missing.Type
  * declare or inherit, or a refused field with no `field` refusal at its Encoding entry. Value
  * fields mirror the walk's element fields.
  */
-const Invented = Schema.Union([
-	Schema.Struct({ ...CommandSite.fields, kind: Schema.Literal("command") }),
-	Schema.Struct({
-		...CommandSite.fields,
-		kind: Schema.Literal("refusedField"),
-		mediaType: Schema.String,
-		name: Schema.String
-	}),
-	Schema.Struct({
-		...CommandSite.fields,
-		kind: Schema.Literal("requestMedia"),
-		mediaType: Schema.String
-	}),
-	Schema.Struct({ ...CommandSite.fields, kind: Schema.Literal("response"), key: Schema.String }),
-	Schema.Struct({
-		...CommandSite.fields,
-		kind: Schema.Literal("securityAlternative"),
-		schemes: Schema.Array(Schema.String)
-	}),
-	Schema.Struct({ ...CommandSite.fields, kind: Schema.Literal("server"), url: Schema.String })
-])
-
-export type Invented = typeof Invented.Type
+export type Invented =
+	| (CommandSite & { readonly kind: "command" })
+	| (CommandSite & {
+			readonly kind: "refusedField"
+			readonly mediaType: string
+			readonly name: string
+	  })
+	| (CommandSite & { readonly kind: "requestMedia"; readonly mediaType: string })
+	| (CommandSite & { readonly key: string; readonly kind: "response" })
+	| (CommandSite & { readonly kind: "securityAlternative"; readonly schemes: readonly string[] })
+	| (CommandSite & { readonly kind: "server"; readonly url: string })
 
 /**
  * The elements nothing accounts for, the claims nothing in the spec stands behind, and the
  * elements accounted for only by a notice. A notice does not say the element was not generated,
  * so `byNotice` keeps that coverage visible instead of silently passing it.
  */
-const Coverage = Schema.Struct({
-	byNotice: Schema.Array(WalkElement),
-	invented: Schema.Array(Invented),
-	missing: Schema.Array(Missing)
-})
+export interface Coverage {
+	readonly byNotice: readonly WalkElement[]
+	readonly invented: readonly Invented[]
+	readonly missing: readonly Missing[]
+}
 
-export type Coverage = typeof Coverage.Type
+/** The built CLI's `--describe` output or the package's generation report is no text of its kind. */
+export class CoverageInputUnreadable extends Data.TaggedError("CoverageInputUnreadable")<{
+	readonly input: "describe" | "report"
+}> {}
 
-/** A join that found an element missing or a command invented, carrying the whole coverage. */
-export class CoverageMismatch extends Schema.TaggedError<
-	CoverageMismatch,
-	{ readonly brand: unique symbol }
->()("CoverageMismatch", Coverage.fields) {}
+export type CoverageError = CoverageInputUnreadable | WalkError
 
-export type CoverageError = Schema.SchemaError | InvalidJsonText | UnreadableDescription | WalkError
+/** A location the report names: a document and a pointer in it, as the report spells them. */
+interface ReportSite {
+	readonly document: string
+	readonly pointer: string
+}
 
-/**
- * Only the fields the join reads. The checker decodes the report itself instead of importing the
- * generator's report codec, which would pull in the model it checks (design 8.3). `operation` is the
- * request method token and path template of the operation a diagnostic concerns; `related` locates
- * the element in a `$ref` target when the pointer is the use site (design 8.1).
- */
-const ReportEntry = Schema.Struct({
-	document: Schema.String,
-	operation: Schema.optionalKey(Schema.Struct({ method: Schema.String, path: Schema.String })),
-	pointer: Schema.String,
-	related: Schema.optionalKey(
-		Schema.Array(Schema.Struct({ document: Schema.String, pointer: Schema.String }))
-	),
-	scope: Schema.Literals(["document", "operation", "element", "field"])
-})
+/** The request method token and path template of the operation a diagnostic concerns. */
+interface ReportOperation {
+	readonly method: string
+	readonly path: string
+}
 
 /**
- * `skipped` is optional so a hand-built report naming no skip still decodes; the generator always
- * writes it.
+ * Only the fields the join reads. The checker reads the report itself instead of importing the
+ * generator's report codec, which would pull in the model it checks (design 8.3). `operation` is
+ * the operation a diagnostic concerns, where it concerns one; `related` locates the element in a
+ * `$ref` target when the pointer is the use site (design 8.1), and is empty where the report states
+ * none.
  */
-const Report = Schema.Struct({
-	notices: Schema.Array(Schema.Struct({ ...ReportEntry.fields, code: Schema.String })),
-	refusals: Schema.Array(ReportEntry),
-	skipped: Schema.optionalKey(
-		Schema.Array(Schema.Struct({ document: Schema.String, pointer: Schema.String }))
+interface ReportEntry {
+	readonly document: DocumentUri
+	readonly operation: Option.Option<ReportOperation>
+	readonly pointer: JsonPointer
+	readonly related: readonly ReportSite[]
+	readonly scope: DiagnosticScope
+}
+
+/** A notice: a report entry and its code. */
+interface ReportNotice extends ReportEntry {
+	readonly code: string
+}
+
+/** The report as the join reads it: its notices, its refusals and the operations the author config skipped. */
+interface Report {
+	readonly notices: readonly ReportNotice[]
+	readonly refusals: readonly ReportEntry[]
+	readonly skipped: readonly ReportSite[]
+}
+
+const reportSite: Reader<ReportSite> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				document: member(object, "document", string),
+				pointer: member(object, "pointer", string)
+			},
+			anything
+		)
 	)
+
+const reportOperation: Reader<ReportOperation> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{ method: member(object, "method", string), path: member(object, "path", string) },
+			anything
+		)
+	)
+
+/** The reads of a report entry's members, a notice's among them. */
+const entryReads = (object: Members) => ({
+	document: member(object, "document", refine(string, isDocumentUri, "an absolute URI")),
+	operation: optionalMember(object, "operation", reportOperation),
+	pointer: member(object, "pointer", refine(string, isJsonPointer, "a JSON Pointer")),
+	related: Result.map(
+		optionalMember(object, "related", array(reportSite)),
+		Option.getOrElse((): readonly ReportSite[] => [])
+	),
+	scope: member(object, "scope", union(Arr.map(diagnosticScopes, literal)))
 })
 
-const decodeDescription = (text: string) => Effect.fromResult(readDescription(text))
+const reportEntry: Reader<ReportEntry> = (value) =>
+	Result.flatMap(members(value), (object) => struct(object, entryReads(object), anything))
 
-const decodeReport = Schema.decodeUnknownEffect(Schema.fromJsonString(Report))
+const reportNotice: Reader<ReportNotice> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(object, { ...entryReads(object), code: member(object, "code", string) }, anything)
+	)
+
+const reportOf: Reader<Report> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				notices: member(object, "notices", array(reportNotice)),
+				refusals: member(object, "refusals", array(reportEntry)),
+				skipped: member(object, "skipped", array(reportSite))
+			},
+			anything
+		)
+	)
 
 /**
  * `--describe` names a document by its label, the path relative to the entry's directory when it
@@ -247,8 +298,8 @@ const encodingEntry = regex("/content/(?<media>[^/]*)/encoding/(?<name>[^/]*)$",
 const mediaTypesTarget = "/components/mediaTypes/"
 
 /** The related location that names the field refusal's Encoding entry under `content/<media>`. */
-const entryOf = (record: typeof ReportEntry.Type): string => {
-	const [first, second] = record.related ?? []
+const entryOf = (record: ReportEntry): string => {
+	const [first, second] = record.related
 
 	return (Str.startsWith(mediaTypesTarget)(first?.pointer ?? "") ? second : first)?.pointer ?? ""
 }
@@ -272,7 +323,7 @@ interface FieldSite {
  * the body is inline, else from the use site and `related[0]`, or `related[1]` when `related[0]` is a
  * `components/mediaTypes` target. Undefined when it is anchored at neither.
  */
-const fieldSiteOf = (record: typeof ReportEntry.Type): FieldSite | undefined => {
+const fieldSiteOf = (record: ReportEntry): FieldSite | undefined => {
 	const direct = fieldAnchor.exec(record.pointer)?.groups
 	const operation = direct?.operation ?? useSite.exec(record.pointer)?.groups.operation
 	const entry = direct ?? encodingEntry.exec(entryOf(record))?.groups
@@ -288,10 +339,6 @@ const fieldName = (mediaType: string, name: string): string => `${mediaType}\u00
 
 /** An operation-scope refusal's name, as the report spells it: the request method token and path. */
 const operationName = (method: string, path: string): string => `${method}\u0000${path}`
-
-type Command = Description["commands"][number]
-
-type Operation = Extract<WalkElement, { readonly kind: "operation" }>
 
 /** A security alternative is a set of scheme names; `{}` is the empty set. */
 const schemeSet = (schemes: readonly string[]): string => jsonText(Arr.sort(schemes, Order.String))
@@ -309,7 +356,7 @@ interface Offer {
 	readonly servers: ReadonlySet<string>
 }
 
-const commandOffer = (command: Command): Offer => ({
+const commandOffer = (command: DescribedCommand): Offer => ({
 	media: new Set(command.requestMedia),
 	parameters: new Set([
 		...Arr.map(command.flags, (flag) => flag.pointer),
@@ -430,8 +477,12 @@ export const coverageOf = (
 		const entry = input.resolution.document
 		const label = memo((document: string) => labelOf(entry, document))
 		const elements = yield* walk(input.resolution)
-		const description = yield* decodeDescription(input.describe)
-		const report = yield* decodeReport(input.report)
+		const description = yield* Effect.fromResult(readDescription(input.describe)).pipe(
+			Effect.mapError(() => new CoverageInputUnreadable({ input: "describe" }))
+		)
+		const report = yield* Effect.fromResult(Result.flatMap(parseJson(input.report), reportOf)).pipe(
+			Effect.mapError(() => new CoverageInputUnreadable({ input: "report" }))
+		)
 
 		const labelled = <R extends { readonly document: string }>(records: readonly R[]) =>
 			Arr.map(records, (record) => ({ ...record, document: label(record.document) }))
@@ -481,9 +532,10 @@ export const coverageOf = (
 		)
 		const refusedNames = new Set(
 			Arr.flatMap(operationRefusals, (record) =>
-				record.operation === undefined
-					? []
-					: [operationName(record.operation.method, record.operation.path)]
+				Option.match(record.operation, {
+					onNone: () => [],
+					onSome: (operation) => [operationName(operation.method, operation.path)]
+				})
 			)
 		)
 
@@ -498,33 +550,33 @@ export const coverageOf = (
 			)
 		)
 		const skipped = new Set(
-			Arr.map(labelled(report.skipped ?? []), (record) => key(record.document, record.pointer))
+			Arr.map(labelled(report.skipped), (record) => key(record.document, record.pointer))
 		)
 
 		const operations = new Map(
-			Arr.flatMap(elements, (element): readonly (readonly [string, Operation])[] =>
+			Arr.flatMap(elements, (element): readonly (readonly [string, WalkOperation])[] =>
 				element.kind === "operation" ? [[siteOf(element), element]] : []
 			)
 		)
-		const commandsBySite = new Map<string, Command[]>()
+		const commandsBySite = new Map<string, DescribedCommand[]>()
 		for (const command of description.commands) {
 			append(commandsBySite, key(command.document, command.pointer), command)
 		}
 
 		const offerOf = memo(commandOffer)
 		const refusedFieldsOf = memo(
-			(command: Command): ReadonlySet<string> =>
+			(command: DescribedCommand): ReadonlySet<string> =>
 				new Set(Arr.map(command.refusedFields, (field) => fieldName(field.mediaType, field.name)))
 		)
-		const commandsOf = (operation: Operation): readonly Command[] =>
+		const commandsOf = (operation: WalkOperation): readonly DescribedCommand[] =>
 			lookup(commandsBySite, siteOf(operation)) ?? []
 
 		/**
 		 * Each element's owner, the walked operation at one of its sites; operations by the pointers
 		 * they inherit; and elements by owner and by pointer, as `inherits` names them.
 		 */
-		const owners = new Map<WalkElement, Operation>()
-		const owned = new Map<Operation, WalkElement[]>()
+		const owners = new Map<WalkElement, WalkOperation>()
+		const owned = new Map<WalkOperation, WalkElement[]>()
 		const atPointer = new Map<string, WalkElement[]>()
 		for (const element of elements) {
 			const owner = Arr.findFirst(
@@ -539,8 +591,8 @@ export const coverageOf = (
 			append(atPointer, element.pointer, element)
 		}
 
-		const ownerOf = (element: WalkElement): Operation | undefined => lookup(owners, element)
-		const inheritors = new Map<string, Operation[]>()
+		const ownerOf = (element: WalkElement): WalkOperation | undefined => lookup(owners, element)
+		const inheritors = new Map<string, WalkOperation[]>()
 		for (const operation of operations.values()) {
 			for (const pointer of operation.inherits) {
 				append(inheritors, pointer, operation)
@@ -555,7 +607,7 @@ export const coverageOf = (
 		 * The report spells the method as the request token, the walk as the path-item key.
 		 */
 		const refused = memo(
-			(operation: Operation): boolean =>
+			(operation: WalkOperation): boolean =>
 				has(skipped, siteOf(operation)) ||
 				has(refusedNames, operationName(Str.toUpperCase(operation.method), operation.path)) ||
 				has(refusedDocuments, label(operation.document)) ||
@@ -569,7 +621,7 @@ export const coverageOf = (
 		 * Every command of the operation (its primary name and each alias) must carry the element; an
 		 * operation with no command carries nothing.
 		 */
-		const carried = (operation: Operation, element: WalkElement): boolean => {
+		const carried = (operation: WalkOperation, element: WalkElement): boolean => {
 			if (refused(operation)) {
 				return true
 			}
@@ -620,7 +672,7 @@ export const coverageOf = (
 		 * A field refusal agrees with `--describe` when its operation has no command by decision, or
 		 * when every command of it carries the media type and lists the field.
 		 */
-		const agreed = (record: (typeof report.refusals)[number]): readonly RefusedField[] => {
+		const agreed = (record: ReportEntry): readonly RefusedField[] => {
 			const field = fieldSiteOf(record)
 			const mediaType = field?.mediaType ?? ""
 			const name = field?.name ?? ""
@@ -662,7 +714,7 @@ export const coverageOf = (
 		 * What an operation declares or inherits: the elements within it and those at its inherited
 		 * pointers.
 		 */
-		const declared = memo((operation: Operation): Offer => {
+		const declared = memo((operation: WalkOperation): Offer => {
 			const effective = [
 				...(owned.get(operation) ?? []),
 				...Arr.flatMap(operation.inherits, (pointer) => lookup(atPointer, pointer) ?? [])
@@ -733,16 +785,3 @@ export const coverageOf = (
 		}
 	})
 }
-
-/**
- * Runs the join and fails with the mismatch when an element is missing or a command is invented.
- */
-export const checkCoverage = (
-	input: CoverageInput
-): Effect.Effect<Coverage, CoverageError | CoverageMismatch> =>
-	coverageOf(input, Fn.constVoid).pipe(
-		Effect.filterOrFail(
-			(coverage) => coverage.missing.length === 0 && coverage.invented.length === 0,
-			(coverage) => CoverageMismatch.make(coverage)
-		)
-	)

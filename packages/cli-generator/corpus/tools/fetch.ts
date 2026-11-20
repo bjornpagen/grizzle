@@ -1,102 +1,243 @@
 import { regex } from "arkregex"
-import { Effect, FileSystem, Path, Schema } from "effect"
+import { Array as Arr, Data, Effect, FileSystem, Option, Path, Result, String as Str } from "effect"
 import type { Digest } from "effect/crypto"
 import { HttpClient, HttpClientResponse } from "effect/http"
-import { sha256Hex } from "#model/digest.ts"
+import { isSha256Hex, sha256Hex } from "#model/digest.ts"
+import type { Sha256Hex } from "#model/digest.ts"
+import { parseJson } from "#runtime/json.ts"
+import type { InvalidJsonText } from "#runtime/json.ts"
+import {
+	array,
+	check,
+	integer,
+	literal,
+	member,
+	members,
+	optionalMember,
+	refine,
+	string,
+	struct,
+	union
+} from "#runtime/read.ts"
+import type { Reader, ReadIssues } from "#runtime/read.ts"
 
-const Sha256 = Schema.String.pipe(Schema.check(Schema.isPattern(regex("^[0-9a-f]{64}$", "u"))))
-
-const Twin = Schema.Struct({ sha256: Sha256, sourceUrl: Schema.NonEmptyString })
-
-/** A repository at one commit: `owner/repo@<40 hex digits>`. */
-const Commit = Schema.String.pipe(
-	Schema.check(Schema.isPattern(regex("^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+@[0-9a-f]{40}$", "u")))
-)
+/** A specification's twin: the same document in the other format, by its sha256 and source URL. */
+interface Twin {
+	readonly sha256: Sha256Hex
+	readonly sourceUrl: string
+}
 
 /**
  * A specification a public source publishes, fetched by its pin (design 8.2): `pinnedRef` is
  * `owner/repo@<commit>`, or `unpinned` for a source that cannot be pinned (such sources stay in the
- * `extended` tier), and `twin` is the same document in the other format.
+ * `extended` tier), and `twin` is the same document in the other format, where one is pinned.
  */
-const Fetched = Schema.Struct({
-	kind: Schema.Literal("fetched"),
-	pinnedRef: Schema.NonEmptyString,
-	sourceUrl: Schema.NonEmptyString,
-	twin: Schema.optionalKey(Twin)
-})
+interface Fetched {
+	readonly kind: "fetched"
+	readonly pinnedRef: string
+	readonly sourceUrl: string
+	readonly twin: Option.Option<Twin>
+}
+
+/**
+ * How a committed specification was written: `tool` and `input` are the tool's and the input's
+ * commits, each `owner/repo@<40 hex digits>`, `command` runs in `directory` of the input and writes
+ * `output` there (both relative to the input's root), and `changes` are the edits made to either
+ * beyond those commits, in plain words, none when the commits alone wrote it.
+ */
+interface ProducedBy {
+	readonly changes: readonly string[]
+	readonly command: string
+	readonly directory: string
+	readonly input: string
+	readonly output: string
+	readonly tool: string
+}
 
 /**
  * A specification no public source publishes, because a tool writes it from another repository's
  * code: its bytes are committed at `path`, under the corpus root, and `producedBy` says how they
- * were written. `tool` and `input` are the tool's and the input's commits, `command` runs in
- * `directory` of the input and writes `output` there (both relative to the input's root), and
- * `changes` are the edits made to either beyond those commits, in plain words, none when the
- * commits alone wrote it.
+ * were written.
  */
-const Committed = Schema.Struct({
-	kind: Schema.Literal("committed"),
-	path: Schema.NonEmptyString,
-	producedBy: Schema.Struct({
-		changes: Schema.Array(Schema.NonEmptyString),
-		command: Schema.NonEmptyString,
-		directory: Schema.String,
-		input: Commit,
-		output: Schema.NonEmptyString,
-		tool: Commit
-	})
-})
+interface Committed {
+	readonly kind: "committed"
+	readonly path: string
+	readonly producedBy: ProducedBy
+}
+
+/** The formats a specification is written in. */
+const formats = ["json", "yaml"] as const
+
+/** The corpus tiers (design 8.2): the run takes `ci` entries; a source without a license or a stable pin is `extended`. */
+const tiers = ["ci", "extended"] as const
 
 /** One specification of the corpus (design 8.2): its bytes' size, format, sha256 and source. */
-export const CorpusEntry = Schema.Struct({
-	bytes: Schema.Int,
-	format: Schema.Literals(["json", "yaml"]),
-	id: Schema.NonEmptyString,
-	infoLicense: Schema.optionalKey(Schema.NonEmptyString),
-	license: Schema.NonEmptyString,
-	licenseSha256: Schema.optionalKey(Sha256),
-	sha256: Sha256,
-	source: Schema.Union([Fetched, Committed]),
-	tier: Schema.Literals(["ci", "extended"])
-})
+export interface CorpusEntry {
+	readonly bytes: number
+	readonly format: (typeof formats)[number]
+	readonly id: string
+	readonly infoLicense: Option.Option<string>
+	readonly license: string
+	readonly licenseSha256: Option.Option<Sha256Hex>
+	readonly sha256: Sha256Hex
+	readonly source: Committed | Fetched
+	readonly tier: (typeof tiers)[number]
+}
 
 /**
  * The corpus manifest: a version and one entry per pinned spec.
  */
-export const Corpus = Schema.Struct({
-	specs: Schema.Array(CorpusEntry),
-	version: Schema.Literal(1)
-})
+interface Corpus {
+	readonly specs: readonly CorpusEntry[]
+	readonly version: 1
+}
+
+/** A string with at least one character. */
+const nonEmptyReader: Reader<string> = check(string, Str.isNonEmpty, "a non-empty string")
+
+const sha256Reader: Reader<Sha256Hex> = refine(
+	string,
+	isSha256Hex,
+	"64 lowercase hexadecimal digits"
+)
+
+const commitPattern = regex("^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+@[0-9a-f]{40}$", "u")
+
+/** A repository at one commit: `owner/repo@<40 hex digits>`. */
+const commitReader: Reader<string> = check(
+	string,
+	(text) => commitPattern.test(text),
+	"a repository at one commit, owner/repo@<40 hex digits>"
+)
+
+const twinReader: Reader<Twin> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				sha256: member(object, "sha256", sha256Reader),
+				sourceUrl: member(object, "sourceUrl", nonEmptyReader)
+			},
+			false
+		)
+	)
+
+const fetchedReader: Reader<Fetched> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				kind: member(object, "kind", literal("fetched")),
+				pinnedRef: member(object, "pinnedRef", nonEmptyReader),
+				sourceUrl: member(object, "sourceUrl", nonEmptyReader),
+				twin: optionalMember(object, "twin", twinReader)
+			},
+			false
+		)
+	)
+
+const producedByReader: Reader<ProducedBy> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				changes: member(object, "changes", array(nonEmptyReader)),
+				command: member(object, "command", nonEmptyReader),
+				directory: member(object, "directory", string),
+				input: member(object, "input", commitReader),
+				output: member(object, "output", nonEmptyReader),
+				tool: member(object, "tool", commitReader)
+			},
+			false
+		)
+	)
+
+const committedReader: Reader<Committed> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				kind: member(object, "kind", literal("committed")),
+				path: member(object, "path", nonEmptyReader),
+				producedBy: member(object, "producedBy", producedByReader)
+			},
+			false
+		)
+	)
+
+const corpusEntryReader: Reader<CorpusEntry> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				bytes: member(object, "bytes", integer),
+				format: member(object, "format", union(Arr.map(formats, literal))),
+				id: member(object, "id", nonEmptyReader),
+				infoLicense: optionalMember(object, "infoLicense", nonEmptyReader),
+				license: member(object, "license", nonEmptyReader),
+				licenseSha256: optionalMember(object, "licenseSha256", sha256Reader),
+				sha256: member(object, "sha256", sha256Reader),
+				source: member(
+					object,
+					"source",
+					union<Committed | Fetched>([fetchedReader, committedReader])
+				),
+				tier: member(object, "tier", union(Arr.map(tiers, literal)))
+			},
+			false
+		)
+	)
+
+const corpusReader: Reader<Corpus> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				specs: member(object, "specs", array(corpusEntryReader)),
+				version: member(object, "version", literal(1))
+			},
+			false
+		)
+	)
+
+/** The corpus manifest's text is no JSON text, or its value is no manifest: `cause` says which, and where. */
+export class CorpusManifestUnreadable extends Data.TaggedError("CorpusManifestUnreadable")<{
+	readonly cause: InvalidJsonText | ReadIssues
+}> {}
+
+/** The corpus manifest read from its text, `corpus/corpus.json`'s. */
+export const readCorpus = (text: string): Result.Result<Corpus, CorpusManifestUnreadable> =>
+	Result.mapError(
+		Result.flatMap(parseJson(text), corpusReader),
+		(cause) => new CorpusManifestUnreadable({ cause })
+	)
 
 /** A spec's bytes, fetched or committed, hash to another sha256 than its entry's. */
-export class CorpusHashMismatch extends Schema.TaggedError<
-	CorpusHashMismatch,
-	{ readonly brand: unique symbol }
->()("CorpusHashMismatch", {
-	actual: Schema.String,
-	expected: Schema.String,
-	source: Schema.String
-}) {}
+export class CorpusHashMismatch extends Data.TaggedError("CorpusHashMismatch")<{
+	readonly actual: string
+	readonly expected: string
+	readonly source: string
+}> {}
 
 /** A source URL off the one allowed scheme, host, port and credential, refused before any request. */
-export class CorpusSourceRefused extends Schema.TaggedError<
-	CorpusSourceRefused,
-	{ readonly brand: unique symbol }
->()("CorpusSourceRefused", { sourceUrl: Schema.String }) {}
+export class CorpusSourceRefused extends Data.TaggedError("CorpusSourceRefused")<{
+	readonly sourceUrl: string
+}> {}
 
 /** The request for a pinned source failed or answered other than 2xx. */
-export class CorpusFetchFailed extends Schema.TaggedError<
-	CorpusFetchFailed,
-	{ readonly brand: unique symbol }
->()("CorpusFetchFailed", { cause: Schema.Defect(), sourceUrl: Schema.String }) {}
+export class CorpusFetchFailed extends Data.TaggedError("CorpusFetchFailed")<{
+	readonly cause: unknown
+	readonly sourceUrl: string
+}> {}
 
 /** The cache directory or a cached file could not be read or written. */
-export class CorpusCacheFailed extends Schema.TaggedError<
-	CorpusCacheFailed,
-	{ readonly brand: unique symbol }
->()("CorpusCacheFailed", { cause: Schema.Defect(), path: Schema.String }) {}
+export class CorpusCacheFailed extends Data.TaggedError("CorpusCacheFailed")<{
+	readonly cause: unknown
+	readonly path: string
+}> {}
 
 export interface Pin {
-	readonly sha256: string
+	readonly sha256: Sha256Hex
 	readonly sourceUrl: string
 }
 
@@ -132,11 +273,11 @@ export const githubSource: Source<HttpClient.HttpClient> = (sourceUrl) =>
 				Effect.flatMap(HttpClientResponse.filterStatusOk),
 				Effect.flatMap((response) => response.arrayBuffer),
 				Effect.mapBoth({
-					onFailure: (cause) => CorpusFetchFailed.make({ cause, sourceUrl }),
+					onFailure: (cause) => new CorpusFetchFailed({ cause, sourceUrl }),
 					onSuccess: (buffer) => new Uint8Array(buffer)
 				})
 			)
-		: Effect.fail(CorpusSourceRefused.make({ sourceUrl }))
+		: Effect.fail(new CorpusSourceRefused({ sourceUrl }))
 
 /**
  * Returns the cache path `<cacheDir>/<sha256>` for the pinned bytes. A cached file is used only
@@ -156,7 +297,7 @@ export const fetchPinned = <R>(
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
 		const target = path.join(cacheDir, pin.sha256)
-		const cacheFailed = (cause: unknown) => CorpusCacheFailed.make({ cause, path: target })
+		const cacheFailed = (cause: unknown) => new CorpusCacheFailed({ cause, path: target })
 		const present = yield* fs.exists(target).pipe(Effect.mapError(cacheFailed))
 
 		if (present) {
@@ -173,7 +314,7 @@ export const fetchPinned = <R>(
 		const actual = yield* sha256Hex(bytes)
 
 		if (actual !== pin.sha256) {
-			return yield* CorpusHashMismatch.make({
+			return yield* new CorpusHashMismatch({
 				actual,
 				expected: pin.sha256,
 				source: pin.sourceUrl
@@ -205,17 +346,17 @@ export interface Located {
  * A committed entry's file under the corpus root, named `file:///<path>` as an author config is,
  * used only when its bytes hash to the entry's sha256.
  */
-const committedAt = (sha256: string, path: string, root: string) =>
+const committedAt = (sha256: Sha256Hex, path: string, root: string) =>
 	Effect.gen(function* committed() {
 		const fs = yield* FileSystem.FileSystem
 		const paths = yield* Path.Path
 		const target = paths.join(root, path)
 		const bytes = yield* fs
 			.readFile(target)
-			.pipe(Effect.mapError((cause) => CorpusCacheFailed.make({ cause, path: target })))
+			.pipe(Effect.mapError((cause) => new CorpusCacheFailed({ cause, path: target })))
 		const actual = yield* sha256Hex(bytes)
 		if (actual !== sha256) {
-			return yield* CorpusHashMismatch.make({ actual, expected: sha256, source: path })
+			return yield* new CorpusHashMismatch({ actual, expected: sha256, source: path })
 		}
 
 		const found: Located = { document: `file:///${path}`, path: target }
@@ -228,7 +369,7 @@ const committedAt = (sha256: string, path: string, root: string) =>
  * named by its source URL, or a committed entry's under the corpus root `root`.
  */
 export const locate = <R>(
-	entry: typeof CorpusEntry.Type,
+	entry: CorpusEntry,
 	root: string,
 	cacheDir: string,
 	source: Source<R>

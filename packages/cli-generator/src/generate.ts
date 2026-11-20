@@ -115,6 +115,9 @@ export interface GenerateResult {
 	readonly report: GenerationReportValue
 }
 
+/** Why nothing was written: the author config cannot be used, the document is refused, or `--strict` met a refusal. */
+export const refusalReasons = ["config", "document", "strict"] as const
+
 /**
  * Nothing was written (design 8.1 exit 1): the author config cannot be used, the document is
  * refused, or `--strict` met a refusal. `diagnostics` are the run's diagnostics so far.
@@ -124,7 +127,7 @@ export class GenerateRefused extends Schema.TaggedError<
 	{ readonly brand: unique symbol }
 >()("GenerateRefused", {
 	diagnostics: Schema.Array(Schema.declare(isDiagnostic)),
-	reason: Schema.Literals(["config", "document", "strict"])
+	reason: Schema.Literals(refusalReasons)
 }) {}
 
 /**

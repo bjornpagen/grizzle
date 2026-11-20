@@ -8,6 +8,7 @@ import {
 	Function as Fn,
 	Config,
 	Console,
+	Data,
 	Duration,
 	Effect,
 	FileSystem,
@@ -15,8 +16,8 @@ import {
 	Order,
 	Path,
 	Record,
+	Result,
 	Runtime,
-	Schema,
 	Stream,
 	String as Str
 } from "effect"
@@ -24,36 +25,31 @@ import { FetchHttpClient } from "effect/http"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { coverageOf } from "#corpus/tools/coverage.ts"
 import type { Coverage, Invented, Missing } from "#corpus/tools/coverage.ts"
-import { Corpus, fetchPinned, githubSource, locate } from "#corpus/tools/fetch.ts"
+import { fetchPinned, githubSource, locate, readCorpus } from "#corpus/tools/fetch.ts"
 import type { CorpusEntry } from "#corpus/tools/fetch.ts"
-import { Generation, GenerationRequest, reportFile } from "#corpus/tools/generate.ts"
+import { readGeneration, reportFile } from "#corpus/tools/generate.ts"
+import type { GenerationRequest } from "#corpus/tools/generate.ts"
 import { walk } from "#corpus/tools/walk.ts"
 import { GenerateRefused } from "#generate.ts"
 import { loadBytes } from "#load/index.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { isDocumentUri } from "#model/brands.ts"
 import { sha256Hex } from "#model/digest.ts"
 import type { Json } from "#model/pointer.ts"
-import { VerdictCoverage } from "#model/verdict.ts"
+import { declaredOpenapi } from "#model/spec-section.ts"
+import type { VerdictCoverage } from "#model/verdict.ts"
 import { collectInformational } from "#normalize/informational.ts"
 import generatorPackage from "#package.json" with { type: "json" }
 import { makeVerdict, printVerdict } from "#report/verdict.ts"
 import type { VerdictValue } from "#report/verdict.ts"
 import { resolve } from "#resolve/index.ts"
-import { readDescription } from "#runtime-src/runtime/describe.ts"
-import type { Description } from "#runtime-src/runtime/describe.ts"
+import { readDescription } from "#runtime/describe.ts"
+import type { Description } from "#runtime/describe.ts"
+import { parseJson } from "#runtime/json.ts"
+import { member, members, record, string } from "#runtime/read.ts"
 import { lineOf } from "#validate/dispatch.ts"
 
-export type Entry = typeof CorpusEntry.Type
-
-const decodeDocument = Schema.decodeUnknownEffect(DocumentUri)
-
-export const decodeCorpus = Schema.decodeUnknownEffect(Schema.fromJsonString(Corpus))
-
-const decodeDescription = (text: string) => Effect.fromResult(readDescription(text))
-
-const decodeGeneration = Schema.decodeUnknownEffect(Schema.fromJsonString(Generation))
-
-const encodeRequest = Schema.encodeEffect(Schema.fromJsonString(GenerationRequest))
+/** The corpus manifest read from its text, as the run and the benchmark read `corpus/corpus.json`. */
+export const decodeCorpus = (text: string) => Effect.fromResult(readCorpus(text))
 
 const generateEntry = new URL("generate.ts", import.meta.url).pathname
 
@@ -61,20 +57,21 @@ const generateEntry = new URL("generate.ts", import.meta.url).pathname
  * A step of the run that cannot produce a verdict: a build step that exited non-zero, a bin that
  * did not describe itself, a spec the generator could not read.
  */
-export class CorpusRunFailed extends Schema.TaggedError<
-	CorpusRunFailed,
-	{ readonly brand: unique symbol }
->()("CorpusRunFailed", { id: Schema.String, output: Schema.String, step: Schema.String }) {}
+export class CorpusRunFailed extends Data.TaggedError("CorpusRunFailed")<{
+	readonly id: string
+	readonly output: string
+	readonly step: string
+}> {}
 
 /**
  * The generation process for one spec ended without writing its result: a defect of the generator
  * or of its input that the process has already logged. The run stops, as it does for any failure
  * of generation other than a refusal.
  */
-export class CorpusGenerateFailed extends Schema.TaggedError<
-	CorpusGenerateFailed,
-	{ readonly brand: unique symbol }
->()("CorpusGenerateFailed", { exitCode: Schema.NullOr(Schema.Int), id: Schema.String }) {
+export class CorpusGenerateFailed extends Data.TaggedError("CorpusGenerateFailed")<{
+	readonly exitCode: number | null
+	readonly id: string
+}> {
 	override get message(): string {
 		return `${this.id}: generation exited ${String(this.exitCode)} without a result`
 	}
@@ -85,10 +82,9 @@ export class CorpusGenerateFailed extends Schema.TaggedError<
  * gap: a refused spec, an unequal twin, a verdict that differs from the committed file, bad
  * arguments. The process exits 1.
  */
-export class CorpusFindings extends Schema.TaggedError<
-	CorpusFindings,
-	{ readonly brand: unique symbol }
->()("CorpusFindings", { findings: Schema.Array(Schema.String) }) {
+export class CorpusFindings extends Data.TaggedError("CorpusFindings")<{
+	readonly findings: readonly string[]
+}> {
 	override readonly [Runtime.errorExitCode] = 1
 
 	override get message(): string {
@@ -101,10 +97,9 @@ export class CorpusFindings extends Schema.TaggedError<
  * claim nothing in the spec stands behind. The process exits 3, so a caller can tell a coverage
  * proof that failed from a spec that did not build or was refused.
  */
-export class CorpusCoverageGaps extends Schema.TaggedError<
-	CorpusCoverageGaps,
-	{ readonly brand: unique symbol }
->()("CorpusCoverageGaps", { findings: Schema.Array(Schema.String) }) {
+export class CorpusCoverageGaps extends Data.TaggedError("CorpusCoverageGaps")<{
+	readonly findings: readonly string[]
+}> {
 	override readonly [Runtime.errorExitCode] = 3
 
 	override get message(): string {
@@ -173,7 +168,7 @@ export const spawn = (
 	Effect.gen(function* spawnStep() {
 		const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 		const [file, ...args] = command
-		const failed = (output: string) => CorpusRunFailed.make({ id, output, step })
+		const failed = (output: string) => new CorpusRunFailed({ id, output, step })
 		const [stdout, stderr, exitCode] = yield* Effect.scoped(
 			Effect.flatMap(
 				spawner.spawn(
@@ -194,13 +189,11 @@ export const spawn = (
 					)
 			)
 		).pipe(
+			Effect.mapError((cause) => failed(String(cause))),
 			Effect.timeoutOrElse({
 				duration: Duration.minutes(10),
 				orElse: () => Effect.fail(failed("timed out after 10 minutes"))
-			}),
-			Effect.mapError((cause) =>
-				Schema.is(CorpusRunFailed)(cause) ? cause : failed(String(cause))
-			)
+			})
 		)
 
 		return exitCode === 0 ? stdout : yield* failed(`exit ${String(exitCode)}\n${stdout}${stderr}`)
@@ -254,7 +247,7 @@ const describeInvented = (invented: Invented): string => {
 	return invented.kind === "server" ? `${head} ${invented.url}` : head
 }
 
-type CoverageEntries = typeof VerdictCoverage.Encoded
+type CoverageEntries = typeof VerdictCoverage.Type
 
 /**
  * A walk element or field refusal as the verdict lists it: its use site, its kind and the kind's
@@ -313,16 +306,13 @@ const inventedEntry = (invented: Invented): CoverageEntries["invented"][number] 
 		: { kind: invented.kind, path }
 }
 
-const decodeCoverage = Schema.decodeEffect(VerdictCoverage)
-
 /** The verdict's coverage (design 8.2): each list typed, none of them text. */
-const coverageEntries = (coverage: Coverage) =>
-	decodeCoverage({
-		byNotice: Arr.map(coverage.byNotice, elementEntry),
-		checked: true,
-		invented: Arr.map(coverage.invented, inventedEntry),
-		missing: Arr.map(coverage.missing, elementEntry)
-	})
+const coverageEntries = (coverage: Coverage): CoverageEntries => ({
+	byNotice: Arr.map(coverage.byNotice, elementEntry),
+	checked: true,
+	invented: Arr.map(coverage.invented, inventedEntry),
+	missing: Arr.map(coverage.missing, elementEntry)
+})
 
 /**
  * The causes a coverage join reports, one line each naming the spec id and the element: what
@@ -348,14 +338,23 @@ const twinState = (twin: Twin): string => {
 }
 
 /**
+ * The URI an entry's diagnostics name a document by: its source URL, or a repository path's
+ * `file:///` URL, which the run fails on as a step of the entry's when it is no absolute URI.
+ */
+const documentNamed = (id: string, text: string) =>
+	Effect.fromOption(Option.liftPredicate(text, isDocumentUri)).pipe(
+		Effect.mapError(() => new CorpusRunFailed({ id, output: text, step: "document name" }))
+	)
+
+/**
  * Generates the package (and the twin) in a child process and reads back what the verdict needs.
  * The child's output and logs are the run's own; a refusal fails here as `generate` would.
  */
-const generateApart = (id: string, request: typeof GenerationRequest.Type) =>
+const generateApart = (id: string, request: GenerationRequest) =>
 	Effect.gen(function* generateRun() {
 		const fs = yield* FileSystem.FileSystem
 		const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-		const encoded = yield* encodeRequest(request)
+		const encoded = jsonText(request)
 		const exitCode = yield* spawner
 			.exitCode(
 				ChildProcess.make(process.execPath, [...process.execArgv, generateEntry, encoded], {
@@ -364,14 +363,14 @@ const generateApart = (id: string, request: typeof GenerationRequest.Type) =>
 					stderr: "inherit"
 				})
 			)
-			.pipe(Effect.mapError(() => CorpusGenerateFailed.make({ exitCode: null, id })))
+			.pipe(Effect.mapError(() => new CorpusGenerateFailed({ exitCode: null, id })))
 		const written = yield* fs.exists(request.result)
 		if (exitCode !== 0 || !written) {
-			return yield* CorpusGenerateFailed.make({ exitCode, id })
+			return yield* new CorpusGenerateFailed({ exitCode, id })
 		}
 
 		const text = yield* fs.readFileString(request.result)
-		const generation = yield* decodeGeneration(text)
+		const generation = yield* Effect.fromResult(readGeneration(text))
 
 		return generation._tag === "Refused"
 			? yield* GenerateRefused.make({
@@ -399,8 +398,8 @@ const buildPackage = (id: string, dir: string, build: Context["build"]) =>
 				yield* fs
 					.symlink(path.join(workspaceRoot, "node_modules"), path.join(dir, "node_modules"))
 					.pipe(
-						Effect.mapError((cause) =>
-							CorpusRunFailed.make({ id, output: String(cause), step: "link" })
+						Effect.mapError(
+							(cause) => new CorpusRunFailed({ id, output: String(cause), step: "link" })
 						)
 					)
 				yield* spawn(id, "build", [process.execPath, "--run", "build"], { cwd: dir })
@@ -413,7 +412,7 @@ const buildPackage = (id: string, dir: string, build: Context["build"]) =>
  * repository path as the config is, never by a host path (C8); the twin is named as the JSON is,
  * so only the format differs.
  */
-const runEntry = (entry: Entry, corpusVersion: number, context: Context) =>
+const runEntry = (entry: CorpusEntry, corpusVersion: number, context: Context) =>
 	Effect.gen(function* runOne() {
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
@@ -421,8 +420,8 @@ const runEntry = (entry: Entry, corpusVersion: number, context: Context) =>
 		const configPath = path.join(context.root, configName)
 		const located = yield* locate(entry, context.root, context.cacheDir, githubSource)
 		const specPath = located.path
-		const document = yield* decodeDocument(located.document)
-		const configDocument = yield* decodeDocument(`file:///${configName}`)
+		const document = yield* documentNamed(entry.id, located.document)
+		const configDocument = yield* documentNamed(entry.id, `file:///${configName}`)
 
 		yield* fs.makeDirectory(context.work, { recursive: true })
 
@@ -437,16 +436,16 @@ const runEntry = (entry: Entry, corpusVersion: number, context: Context) =>
 			json: { outDir: jsonDir, specPath },
 			result: path.join(scratch, "generation.json")
 		}
-		const twinPin = entry.source.kind === "fetched" ? entry.source.twin : undefined
+		const twinPin = entry.source.kind === "fetched" ? entry.source.twin : Option.none()
 		const generated = yield* generateApart(
 			entry.id,
-			twinPin === undefined
+			Option.isNone(twinPin)
 				? request
 				: {
 						...request,
 						twin: {
 							outDir: path.join(scratch, "yaml"),
-							specPath: yield* fetchPinned(twinPin, context.cacheDir, githubSource)
+							specPath: yield* fetchPinned(twinPin.value, context.cacheDir, githubSource)
 						}
 					}
 		)
@@ -455,13 +454,15 @@ const runEntry = (entry: Entry, corpusVersion: number, context: Context) =>
 		yield* buildPackage(entry.id, jsonDir, context.build)
 
 		const manifest = yield* fs.readFileString(path.join(jsonDir, "package.json"))
-		const { bin } = yield* Schema.decodeEffect(
-			Schema.fromJsonString(Schema.Struct({ bin: Schema.Record(Schema.String, Schema.String) }))
-		)(manifest)
-		const binPaths = Record.values(bin)
+		const binPaths = Result.match(
+			Result.flatMap(parseJson(manifest), (value) =>
+				Result.flatMap(members(value), (object) => member(object, "bin", record(string, string)))
+			),
+			{ onFailure: () => [], onSuccess: Record.values }
+		)
 		const [binPath] = binPaths
 		if (binPath === undefined || binPaths.length !== 1) {
-			return yield* CorpusRunFailed.make({ id: entry.id, output: manifest, step: "bin" })
+			return yield* new CorpusRunFailed({ id: entry.id, output: manifest, step: "bin" })
 		}
 
 		const configBytes = yield* fs.readFile(configPath)
@@ -469,9 +470,7 @@ const runEntry = (entry: Entry, corpusVersion: number, context: Context) =>
 		const loaded = yield* loadBytes(specBytes, { document })
 		const line = yield* lineOf(loaded.value)
 		const resolution = yield* resolve({ document, line, value: loaded.value })
-		const openapi = yield* Schema.decodeUnknownEffect(Schema.Struct({ openapi: Schema.String }))(
-			loaded.value
-		)
+		const openapi = yield* Effect.fromOption(declaredOpenapi(loaded.value))
 		const informational = (yield* collectInformational(resolution)).length
 		const elements = yield* walk(resolution)
 		const total = Arr.filter(elements, (element) => element.kind === "operation").length
@@ -484,7 +483,11 @@ const runEntry = (entry: Entry, corpusVersion: number, context: Context) =>
 		)
 		const report = yield* fs.readFileString(path.join(jsonDir, reportFile))
 		const coverage = yield* coverageOf({ describe, report, resolution }, Fn.constVoid)
-		const { commands } = yield* decodeDescription(describe)
+		const { commands } = yield* Effect.fromResult(readDescription(describe)).pipe(
+			Effect.mapError(
+				() => new CorpusRunFailed({ id: entry.id, output: describe, step: "describe" })
+			)
+		)
 		const inventedCommands = new Set(
 			Arr.flatMap(coverage.invented, (invented) =>
 				invented.kind === "command" ? [`${invented.document}\u0000${invented.pointer}`] : []
@@ -503,13 +506,13 @@ const runEntry = (entry: Entry, corpusVersion: number, context: Context) =>
 		const verdict = makeVerdict({
 			commandNames,
 			corpusVersion,
-			coverage: yield* coverageEntries(coverage),
+			coverage: coverageEntries(coverage),
 			diagnostics: generated.diagnostics,
 			generator: { config: configName, configSha256, version: generatorPackage.version },
 			informational,
 			nonStandard,
 			operations,
-			spec: { id: entry.id, openapi: openapi.openapi, sha256: entry.sha256 },
+			spec: { id: entry.id, openapi, sha256: entry.sha256 },
 			twinEquality: { checked: twin.checked, equal: twin.checked && twin.differing.length === 0 }
 		})
 
@@ -571,7 +574,8 @@ const firstDifference = (committed: string, regenerated: string) => {
  * The verdict file an entry owns under `corpus/verdicts/`: its id and the first 12 hex digits of its
  * pinned sha256.
  */
-const verdictName = (entry: Entry): string => `${entry.id}@${Str.slice(0, 12)(entry.sha256)}.json`
+const verdictName = (entry: CorpusEntry): string =>
+	`${entry.id}@${Str.slice(0, 12)(entry.sha256)}.json`
 
 /** A refused document writes no package, so there is no verdict to build: the run names the codes. */
 const refusedFinding = (id: string, refused: GenerateRefused): Findings => ({
@@ -590,7 +594,12 @@ const refusedFinding = (id: string, refused: GenerateRefused): Findings => ({
  * `ci` entry has a config and a verdict (design 8.2). A failed step is a finding, so the other
  * selected specs still run and are reported. Returns the run's findings.
  */
-export const verdictFor = (entry: Entry, corpusVersion: number, context: Context, check: boolean) =>
+export const verdictFor = (
+	entry: CorpusEntry,
+	corpusVersion: number,
+	context: Context,
+	check: boolean
+) =>
 	Effect.gen(function* verdictOne() {
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
@@ -669,7 +678,7 @@ export const verdictFor = (entry: Entry, corpusVersion: number, context: Context
  * The committed verdicts that no `ci` entry names (design 8.2 Drift check): a file left behind by a
  * pin change or a removed entry. Every `ci` entry names its file, whether `--only` selected it or not.
  */
-const staleVerdicts = (ci: readonly Entry[], root: string) =>
+const staleVerdicts = (ci: readonly CorpusEntry[], root: string) =>
 	Effect.gen(function* stale() {
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
@@ -709,11 +718,11 @@ export const settle = (found: readonly Findings[]) =>
 		const coverage = Arr.flatMap(found, (findings) => findings.coverage)
 
 		if (other.length > 0) {
-			return yield* CorpusFindings.make({ findings: [...other, ...coverage] })
+			return yield* new CorpusFindings({ findings: [...other, ...coverage] })
 		}
 
 		if (coverage.length > 0) {
-			return yield* CorpusCoverageGaps.make({ findings: coverage })
+			return yield* new CorpusCoverageGaps({ findings: coverage })
 		}
 	})
 
@@ -755,7 +764,7 @@ const run = (options: Options) =>
 
 		const unknownIds = Arr.filter(options.only, (id) => !Arr.some(ci, (entry) => entry.id === id))
 		if (unknownIds.length > 0) {
-			return yield* CorpusFindings.make({
+			return yield* new CorpusFindings({
 				findings: Arr.map(unknownIds, (id) => `--only ${id}: no ci entry with that id`)
 			})
 		}
@@ -818,7 +827,7 @@ if (import.meta.main) {
 	const parsed = parseArguments(process.argv.slice(2))
 	const program =
 		"problems" in parsed
-			? Effect.fail(CorpusFindings.make({ findings: parsed.problems }))
+			? Effect.fail(new CorpusFindings({ findings: parsed.problems }))
 			: run(parsed.options)
 
 	NodeRuntime.runMain(

@@ -6,14 +6,23 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import {
 	Array as Arr,
 	Console,
+	Data,
 	Effect,
 	FileSystem,
+	Option,
 	Path,
-	Schema,
+	Predicate,
+	Result,
 	Stream,
 	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
+import { isJson } from "#model/json-tree.ts"
+import type { Json } from "#model/pointer.ts"
+import { parseJson } from "#runtime/json.ts"
+import type { InvalidJsonText } from "#runtime/json.ts"
+import { anything, array, member, members, string, struct } from "#runtime/read.ts"
+import type { Reader, ReadIssues } from "#runtime/read.ts"
 
 /**
  * The runtime gate: generates the runtime-gate fixture, whose operations reach every module of the generated runtime,
@@ -38,51 +47,53 @@ const FIXTURE = `${PACKAGE}/test/fixtures/runtime-gate`
 const TOKEN_ACQUISITION = "/token-acquisition"
 
 /** A failure of the gate: a step did not run or did not pass, or the generator's report could not be read. */
-class RuntimeGateFailure extends Schema.TaggedError<
-	RuntimeGateFailure,
-	{ readonly brand: unique symbol }
->()("RuntimeGateFailure", {
-	detail: Schema.String
-}) {}
+class RuntimeGateFailure extends Data.TaggedError("RuntimeGateFailure")<{
+	readonly detail: string
+}> {}
 
-/** The generation report, as the gate reads it: each refusal's code and the pointer it names. */
-const Report = Schema.fromJsonString(
-	Schema.Struct({
-		refusals: Schema.Array(Schema.Struct({ code: Schema.String, pointer: Schema.String }))
-	})
-)
+/** A refusal of the generation report, as the gate reads it: its code and the pointer it names. */
+interface Refusal {
+	readonly code: string
+	readonly pointer: string
+}
 
-const decodeReport = Schema.decodeUnknownEffect(Report)
+const refusal: Reader<Refusal> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{ code: member(object, "code", string), pointer: member(object, "pointer", string) },
+			anything
+		)
+	)
 
-/** A module, or some of its exports, the shared lint bans, and why. */
-const BannedModule = Schema.Struct({
-	name: Schema.String,
-	importNames: Schema.optionalKey(Schema.Array(Schema.String)),
-	allowImportNames: Schema.optionalKey(Schema.Array(Schema.String)),
-	message: Schema.String
-})
+/** The generation report's refusals, read from its text. */
+const refusalsOf = (
+	text: string
+): Result.Result<readonly Refusal[], InvalidJsonText | ReadIssues> =>
+	Result.flatMap(parseJson(text), (value) =>
+		Result.flatMap(members(value), (object) => member(object, "refusals", array(refusal)))
+	)
 
 /**
  * The shared lint's no-restricted-imports, read by value from the preset over no list of the generator's own: its
- * banned modules. Its patterns, the relative-import ban, are hand-written code's rule and stay out: an emitted
+ * banned modules, as JSON. Its patterns, the relative-import ban, are hand-written code's rule and stay out: an emitted
  * package's own modules reach each other by relative paths.
  */
-const SharedImportBans = Schema.Tuple([
-	Schema.Literal("error"),
-	Schema.Struct({ paths: Schema.Array(BannedModule) })
-])
+const importBans = (rule: unknown): Option.Option<Json> => {
+	if (!Arr.isArray(rule)) {
+		return Option.none()
+	}
 
-/** A property the shared lint bans, and why. */
-const BannedProperty = Schema.Struct({
-	object: Schema.optionalKey(Schema.String),
-	property: Schema.String,
-	message: Schema.String
-})
+	const [level, options] = rule
+
+	return level === "error" && Predicate.isObject(options) && isJson(options["paths"])
+		? Option.some([level, { paths: options["paths"] }])
+		: Option.none()
+}
 
 /** The shared lint's no-restricted-properties, read by value from the preset over no list of the generator's own. */
-const SharedPropertyBans = Schema.TupleWithRest(Schema.Tuple([Schema.Literal("error")]), [
-	BannedProperty
-])
+const propertyBans = (rule: unknown): Option.Option<Json> =>
+	Arr.isArray(rule) && rule[0] === "error" && isJson(rule) ? Option.some(rule) : Option.none()
 
 /**
  * The preset's top-level rules over a repository of the core alone that states no list, no library and no name of its
@@ -123,12 +134,14 @@ const bareRules = standard(
 }).rules
 
 /** The emitted package's lint: oxlint's own categories off, and the shared bans alone, as oxlint's JSON configuration. */
-const emittedLint = Effect.all([
-	Schema.decodeUnknownEffect(SharedImportBans)(bareRules?.["eslint/no-restricted-imports"]),
-	Schema.decodeUnknownEffect(SharedPropertyBans)(bareRules?.["eslint/no-restricted-properties"])
-]).pipe(
+const emittedLint = Effect.fromOption(
+	Option.all([
+		importBans(restrictedImports({ paths: [], patterns: [] })),
+		propertyBans(restrictedProperties([]))
+	])
+).pipe(
 	Effect.mapBoth({
-		onSuccess: ([[level, { paths }], properties]) =>
+		onSuccess: ([imports, properties]) =>
 			jsonText({
 				categories: {
 					correctness: "off",
@@ -140,12 +153,12 @@ const emittedLint = Effect.all([
 					suspicious: "off"
 				},
 				rules: {
-					"no-restricted-imports": [level, { paths }],
+					"no-restricted-imports": imports,
 					"no-restricted-properties": properties
 				}
 			}),
 		onFailure: () =>
-			RuntimeGateFailure.make({
+			new RuntimeGateFailure({
 				detail: "the shared lint's import and property bans are unreadable"
 			})
 	})
@@ -172,9 +185,9 @@ const run = Effect.fn("runtimeGate.run")(function* (
 					{ concurrency: "unbounded" }
 				)
 		)
-	).pipe(Effect.mapError(() => RuntimeGateFailure.make({ detail: `${step} could not run` })))
+	).pipe(Effect.mapError(() => new RuntimeGateFailure({ detail: `${step} could not run` })))
 	if (exitCode !== 0) {
-		return yield* RuntimeGateFailure.make({
+		return yield* new RuntimeGateFailure({
 			detail: `${step} exited with ${String(exitCode)}:\n${stdout}${stderr}`
 		})
 	}
@@ -188,12 +201,12 @@ const main = Effect.gen(function* () {
 	const scratch = yield* fs
 		.makeTempDirectoryScoped()
 		.pipe(
-			Effect.mapError(() =>
-				RuntimeGateFailure.make({ detail: "no scratch directory could be made" })
+			Effect.mapError(
+				() => new RuntimeGateFailure({ detail: "no scratch directory could be made" })
 			)
 		)
 	const out = path.join(scratch, "cli")
-	const report = yield* run(
+	const refusals = yield* run(
 		"generation",
 		node,
 		[
@@ -210,19 +223,19 @@ const main = Effect.gen(function* () {
 		PACKAGE
 	).pipe(
 		Effect.flatMap((stdout) =>
-			decodeReport(stdout).pipe(
-				Effect.mapError(() =>
-					RuntimeGateFailure.make({ detail: "the generation report is unreadable" })
+			Effect.fromResult(refusalsOf(stdout)).pipe(
+				Effect.mapError(
+					() => new RuntimeGateFailure({ detail: "the generation report is unreadable" })
 				)
 			)
 		)
 	)
 	const unexpected = Arr.filter(
-		report.refusals,
+		refusals,
 		(refusal) => !Str.endsWith(TOKEN_ACQUISITION)(refusal.code)
 	)
 	if (Arr.isReadonlyArrayNonEmpty(unexpected)) {
-		return yield* RuntimeGateFailure.make({
+		return yield* new RuntimeGateFailure({
 			detail: Arr.join(
 				[
 					"the generator refused part of the runtime-gate fixture, so it no longer reaches the whole runtime:",
@@ -235,18 +248,19 @@ const main = Effect.gen(function* () {
 	yield* fs
 		.symlink(path.resolve(ROOT, "node_modules"), path.join(out, "node_modules"))
 		.pipe(
-			Effect.mapError(() =>
-				RuntimeGateFailure.make({ detail: "the workspace's dependencies could not be linked" })
+			Effect.mapError(
+				() => new RuntimeGateFailure({ detail: "the workspace's dependencies could not be linked" })
 			)
 		)
 	yield* run("the generated package's typecheck", node, ["--run", "typecheck"], out)
 	const lint = path.join(scratch, "emitted.oxlintrc.json")
 	yield* emittedLint.pipe(
 		Effect.flatMap((text) => fs.writeFileString(lint, text)),
-		Effect.mapError(() =>
-			RuntimeGateFailure.make({
-				detail: "the emitted package's lint configuration could not be written"
-			})
+		Effect.mapError(
+			() =>
+				new RuntimeGateFailure({
+					detail: "the emitted package's lint configuration could not be written"
+				})
 		)
 	)
 	yield* run(
