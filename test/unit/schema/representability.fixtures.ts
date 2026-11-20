@@ -1515,3 +1515,53 @@ export const holdsImage = (installation: { readonly laws: LawModel }): boolean =
 		installation.laws.natives,
 		(n) => n.namespace === "column" && n.plan.kind === "image" && n.object.value.kind === "image"
 	)
+
+/**
+ * A case of a selected key over a text of no byte bound: the text first among the key's terms, so it is the side's
+ * guarded term (laws/model/plan.ts sideColumns), beside `companions` of the budget box's kinds, over the selection of
+ * R's live rows.
+ */
+export interface GuardedTextCase {
+	readonly companions: ReadonlyArray<Companion>
+}
+
+export const guardedTextCaseGen: Gen<GuardedTextCase> = (source) => ({
+	companions: source.draw(array(companionGen, { min: 0, max: 3 }))
+})
+
+/** The guarded text case's schema: R(id, live, t, c0…), keyed over select(R, live = true) on (t, c0…). */
+export const guardedTextSchemaOf = (c: GuardedTextCase) => {
+	const named = Arr.map(c.companions, (x, i): readonly [string, FieldBase] => [
+		`c${i}`,
+		companionDescriptor(x, i)
+	])
+	const R = relation(
+		"R",
+		{ id: Id, live: rawPg.boolean, t: str.regex("^.*$", "su"), ...Rec.fromEntries(named) },
+		["id"],
+		[]
+	)
+	return schema(
+		"Guarded",
+		[Kind, R],
+		[
+			keyBuilder(
+				onBuilder(
+					selectBuilder(R, (r: Row & { readonly live: Row["id"] }) => r.eq(r.live, true)),
+					["t", ...Arr.map(named, ([n]) => n)]
+				)
+			)
+		],
+		[]
+	)
+}
+
+/** The images an installation's law model plans over law columns, each as what it images and what its value is. */
+export const lawColumnImages = (installation: {
+	readonly laws: LawModel
+}): ReadonlyArray<{ readonly of: string; readonly value: string }> =>
+	Arr.flatMap(installation.laws.natives, (n) =>
+		n.namespace === "column" && n.plan.kind === "image" && n.plan.of.kind === "law"
+			? [{ of: n.plan.of.column.kind, value: n.object.value.kind }]
+			: []
+	)

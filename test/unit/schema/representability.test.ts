@@ -72,6 +72,9 @@ import {
 	type KeySizeFeature,
 	type KeySizeSketch,
 	holdsImage,
+	guardedTextCaseGen,
+	guardedTextSchemaOf,
+	lawColumnImages,
 	Kind,
 	keyImagedFields,
 	lengthConjunctGen,
@@ -336,17 +339,49 @@ export const keyTextBytesIsTheMostBytesATextHoldsAsItselfBesideItsFieldsInEveryI
 				original: '\t\t\t: r === "numeric"',
 				replacement: '\t\t\t: r !== "numeric"',
 				why: "Operator mutant 8e1e18ac38 at packages/engine/src/scalar/compute/typing.ts:2160 in <module>: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
-			},
+			}
+		]
+	})
+
+/** A selected key's guarded text of no byte bound is held by the image of its law column, an image and never the text. */
+export const aSelectedKeysGuardedTextOfNoByteBoundIsHeldByTheImageOfItsLawColumn = property.explore(
+	guardedTextCaseGen,
+	{
+		needs: {},
+		budget: { runs: 12, steered: 12 },
+		situations: ["the text alone", "the text beside companions"] satisfies ReadonlyArray<
+			Reached<"the text alone" | "the text beside companions">
+		>,
+		check: (_, c: Case<"the text alone" | "the text beside companions">) => (g) =>
+			Effect.sync(() => {
+				c.note(g.companions.length === 0 ? "the text alone" : "the text beside companions")
+				const done = succeeded(
+					installed(guardedTextSchemaOf(g)),
+					"the selected key over a text compiles"
+				)
+				assert.deepEqual(
+					lawColumnImages(done),
+					[{ of: "term", value: "image" }],
+					"the key holds its guarded text by the image of the text's law column"
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "README's digest key: a text of no byte bound held by its image, the side's guarded column's (laws/model/plan.ts sideColumns, keyedAs)"
+		},
+		kept: [],
+		kills: [
 			{
 				file: "packages/engine/src/laws/model/model.ts",
 				original:
 					'\t\t\t\tcase "constant": {\n\t\t\t\t\tconst { guard, term } = this.#lower(row, column, loc)\n\t\t\t\t\treturn { guard, term }\n\t\t\t\t}',
 				replacement:
 					'\t\t\t\tcase "constant": {\n\t\t\t\t\treturn this.#lower(row, column, loc)\n\t\t\t\t}',
-				why: "A selected side's image lowered as its text, the image's kind overwritten by the term's: a key over a selection one byte past its budget stores the text in its bytea image column."
+				why: "A selected side's image lowered as its text, the image's kind overwritten by the term's: a selected key's guarded text of no byte bound is stored as itself in its bytea image column."
 			}
 		]
-	})
+	}
+)
 
 /** B-tree entries (nbtree.h BTMaxItemSize) hold a text no pattern bounds by its digest and refuse a key whose worst-case entry is above the item limit, and admit every other. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 150 runs and 150 steered cases. */
 export const bTreeEntriesNbtreeHBTMaxItemSizeHoldATextNoPatternBoundsByItsDigestAndRefuseAKeyWhoseWorstCaseEntryIsAboveTheItemLimitAndAdmitEveryOther =

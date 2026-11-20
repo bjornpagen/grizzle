@@ -815,22 +815,29 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 		keyConstraint: (relation, fields) => keyConstraint(relation, { fields }),
 		containmentConstraint,
 		/**
-		 * A relation's one projected key, as the sketch draws at most one per relation: the UNIQUE of its selected
-		 * side, over a law column per field, where a declared key's are fields.
+		 * A relation's one projected key, as the sketch draws at most one per relation: the theory's key over its
+		 * selected side's fields, and the UNIQUE the law model installs for that law, however the side lowers its terms
+		 * (laws/model/plan.ts sideColumns).
 		 */
 		projectedKey: (relation, fields) => {
-			for (const n of laws.natives) {
-				const o = n.object
+			for (const law of laws.theory.laws) {
+				const d = law.detail
 				if (
-					n.namespace !== "constraint" ||
-					o.kind !== "Unique" ||
-					o.relation.name !== relation ||
-					o.columns.length !== fields.length ||
-					!Arr.every(o.columns, (c) => c.kind === "law")
+					d.kind !== "projectedKey" ||
+					d.side.relation !== relation ||
+					!sameColumns(
+						Arr.flatMap(d.side.terms, (t) => (t.kind === "field" ? [t.column.name] : [])),
+						fields
+					)
 				) {
 					continue
 				}
-				return { law: lawOf(relation, identifierOf(n.named)), constraint: identifierOf(n.named) }
+				for (const n of laws.natives) {
+					const o = n.object
+					if (n.namespace === "constraint" && o.kind === "Unique" && o.lawIds.includes(law.id)) {
+						return { law: law.id, constraint: identifierOf(n.named) }
+					}
+				}
 			}
 			throw new Error(`no installed projected key ${relation}(${Arr.join(fields, ", ")})`)
 		},
