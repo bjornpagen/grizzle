@@ -19,7 +19,7 @@ import type {
 import { Array as Arr, Effect, Formatter, Record, type Scope } from "effect"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import type { OpId, TypedLiteral } from "#compiler/ir/expr.ts"
+import { nativeEqualityKey, type OpId, type TypedLiteral } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import {
 	conservativeMeta,
@@ -48,7 +48,6 @@ import {
 	bool,
 	canonicallySpelled,
 	int4,
-	literalEqualityKey,
 	type SpelledValue,
 	scalarOfSpec,
 	spelledAt,
@@ -355,7 +354,7 @@ const foldKeys = nonEmptyList(
 		const type = scalarOfSpec(spec)
 		const values = Arr.dedupeWith(
 			valueClasses(type, false),
-			(x: TypedLiteral, y: TypedLiteral) => literalEqualityKey(x) === literalEqualityKey(y)
+			(x: TypedLiteral, y: TypedLiteral) => nativeEqualityKey(x) === nativeEqualityKey(y)
 		)
 		return values.length >= 2 ? [{ type, values }] : []
 	}),

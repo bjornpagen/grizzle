@@ -36,6 +36,7 @@ import {
 	type PairPredicate,
 	pointHolder
 } from "#compiler/check/allen.ts"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import {
 	atMost,
@@ -991,9 +992,14 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => 
 			fds.identify([c], just)
 			fds.imply([c], columns, just)
 		}
+		/** A column fixed to its literal holds that literal itself in every fact, a float's zero of one sign. */
 		const [literal] = literals
 		const [key] = values
-		if (literal !== undefined && key !== undefined && new Set(values).size === 1) {
+		if (
+			literal !== undefined &&
+			key !== undefined &&
+			new Set(literals.map(canonicalTextOf)).size === 1
+		) {
 			fds.fix(c, facts)
 			fixed.set(c, [{ fixed: { kind: "literal", literal, key }, just: facts }])
 		}

@@ -22,6 +22,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
+import { nativeEqualityKey } from "#compiler/ir/expr.ts"
 import {
 	type AggregateFeature,
 	aggregateBox,
@@ -40,7 +41,7 @@ import {
 	typeBox
 } from "#test/pg/oracle-gen/vocabulary.fixtures.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
-import { literalEqualityKey, valueClasses } from "#test/support/oracle/gen/domain.ts"
+import { valueClasses } from "#test/support/oracle/gen/domain.ts"
 import { aggregateApplies, aggregateResult } from "#test/support/oracle/gen/ops.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
@@ -159,7 +160,7 @@ export const drawValueClassesThatArePostgreSQLsEqualityClasses = property.exhaus
 								const b = at(literals, Number(j), "the right literal")
 								assert.equal(
 									equal,
-									literalEqualityKey(a) === literalEqualityKey(b),
+									nativeEqualityKey(a) === nativeEqualityKey(b),
 									`${sqlLiteral(a, t, schema)} = ${sqlLiteral(b, t, schema)}`
 								)
 							}

@@ -18,6 +18,7 @@ import { ExprId, type NodeId, type ParamId } from "#compiler/core/ids.ts"
 import { type Comparator, compareStrings, mapInput, thenBy } from "#compiler/core/order.ts"
 import {
 	type CanonicalFloat,
+	floatLiteral,
 	integerRanges,
 	isIntegerTypmod,
 	type MoneyValue,
@@ -862,12 +863,20 @@ declare const equalityKeyBrand: unique symbol
 const equalityKey = nominal<string, EqualityKey>()
 
 /**
- * The native identity of a literal, for comparing discriminant tuples and closed facts: its canonical text, since
- * every literal holds its value in the one form (a decimal without display scale, a float with one zero). The literal
- * is a value of its type (literalProblem), which encodes.
+ * A literal's key under PostgreSQL's native equality, for comparing discriminant tuples and closed facts and deciding a
+ * key, a distinctness or a selection by literals: its canonical text, since every literal holds its value in the one
+ * form (a decimal without display scale), but a float's -0, which that equality holds equal to +0 and keys as +0, as a
+ * key text does (scalar/values/identity.ts keyText), where its canonical text, its identity, tells the two zeros apart.
+ * A column is fixed to a literal, or two columns are one, by their literals' identities (canonicalTextOf), so the
+ * literal read for the column is the column's own value. The literal is a value of its type (literalProblem), which
+ * encodes.
  */
 export const nativeEqualityKey = (literal: TypedLiteral): EqualityKey =>
-	equalityKey(canonicalTextOf(literal))
+	equalityKey(
+		canonicalTextOf(
+			literal.kind === "floatSpecial" && literal.value === "-0" ? floatLiteral(0) : literal
+		)
+	)
 
 /**
  * The integer a literal is, or undefined: an int literal, or a finite numeric literal whose least scale is 0. A

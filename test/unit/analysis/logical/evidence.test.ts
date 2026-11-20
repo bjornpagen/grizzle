@@ -165,9 +165,24 @@ export const theLogicalAnalysissClaimsHoldOnTheFactsBareChildrenAlongDeclaredCon
 				reason:
 					"a span coverage typed a bare child, and a parent covered apart from its target's span had none",
 				since: "2026-11-14"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/analysis/logical/evidence.test.ts#theLogicalAnalysissClaimsHoldOnTheFactsBareChildrenAlongDeclaredContainmentsAndFiltersOverOneFact:-:1.0.1.2.4.1.7.0.0.0.0.b.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0"
+				),
+				reason:
+					"a closed payload of double precision holding Open 0 and Held -0, one value under PostgreSQL's equality, claimed a key",
+				since: "2026-11-19"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original:
+					'\t\t\tliteral.kind === "floatSpecial" && literal.value === "-0" ? floatLiteral(0) : literal',
+				replacement: "\t\t\tliteral",
+				why: "A literal's equality key tells -0 from +0, so a closed payload of both zeros claims a key PostgreSQL's equality breaks (ir/expr.ts nativeEqualityKey); the kept case fails."
+			},
 			{
 				file: "packages/engine/src/logical/props.ts",
 				original: "\t\t\t\t...rest,\n\t\t\t\texactlyOne: false,",

@@ -1,8 +1,8 @@
 import { assert } from "@bjornpagen/testing/assert"
 /**
  * The generators' scalar types, value domains and spelling rule (test/support/oracle/gen/domain.ts): every generated
- * type's value classes hold only values the type stores exactly, one native-equality value per class, its edges
- * included; text carries the metadata its pattern derives and admits every generated text; a key field's type is
+ * type's value classes hold only values the type stores exactly, one value per class and two classes two values by
+ * identity (a float's -0 and 0, one value under PostgreSQL's equality, two classes), its edges included; text carries the metadata its pattern derives and admits every generated text; a key field's type is
  * representable as a key; and a stored value is its class's one value, written in its canonical spelling or one of its
  * twins (gen/domain.ts twinSpellings).
  *
@@ -18,8 +18,9 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { literalProblem, nativeEqualityKey } from "#compiler/ir/expr.ts"
+import { literalProblem } from "#compiler/ir/expr.ts"
 import { isRefined, numericBoundOf, textOf } from "#compiler/ir/scalar.ts"
 import { refined } from "#compiler/scalar/compute/evaluate.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -75,7 +76,7 @@ export const generatedScalarTypesHoldOnlyExactlyStoredValuesOneNativeEqualityVal
 					if (t.contract?.predicate !== undefined) {
 						c.note("a contract's predicate")
 					}
-					const values = Arr.map(classes, nativeEqualityKey)
+					const values = Arr.map(classes, canonicalTextOf)
 					assert.equal(new Set(values).size, classes.length, "distinct values")
 					assert.equal(isRefined(compareParamType(t)), false)
 					const bound = numericBoundOf(t)

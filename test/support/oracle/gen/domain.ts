@@ -1,6 +1,5 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
-import { floatSpecials } from "#compiler/core/canonical.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { VectorText, floatLiteral } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
@@ -29,7 +28,6 @@ import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { noRosters, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { compareFloat } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { toastPair, toastText } from "#test/support/oracle/gen/toast.ts"
@@ -975,32 +973,11 @@ export const resolveParamValue = (
 export const resolveStored = (type: ScalarType, sketch: ValueSketch, edge: boolean): SpelledValue =>
 	spelledAt(type, resolveValue(type, sketch, edge), sketch.sp)
 
-/**
- * The float a literal is, NaN, an infinity and -0 among them, or none for a literal of no float: what the domain's
- * equality on floats (scalar/values/float.ts compareFloat) compares.
- */
-const floatOf = (literal: TypedLiteral): number | undefined =>
-	literal.kind === "float"
-		? literal.value
-		: literal.kind === "floatSpecial"
-			? floatSpecials[literal.value]
-			: undefined
-
-/**
- * A literal's class under PostgreSQL's native equality, which a key and a fact's equality hold: its native identity
- * (ir/expr.ts nativeEqualityKey), but a float equal to 0 under the domain's equality (compareFloat), -0, a value of its
- * own since c067533e8, in 0's class.
- */
-export const literalEqualityKey = (literal: TypedLiteral): string => {
-	const x = floatOf(literal)
-	return nativeEqualityKey(x !== undefined && compareFloat(x, 0) === 0 ? flt(0) : literal)
-}
-
 export const literalRowKey = (
 	row: ReadonlyArray<TypedLiteral>,
 	columns: ReadonlyArray<number>
 ): string =>
 	Arr.join(
-		Arr.map(columns, (c) => literalEqualityKey(elementAt(row, c, "a generated row"))),
+		Arr.map(columns, (c) => nativeEqualityKey(elementAt(row, c, "a generated row"))),
 		"\u0000"
 	)

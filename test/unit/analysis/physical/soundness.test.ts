@@ -21,7 +21,7 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { type PhysicalEnv, unplaced } from "#compiler/analysis/physical/analyze.ts"
 import { genCatalog } from "#test/support/evidence.ts"
@@ -127,8 +127,24 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsTheSoundnessPopulationBoth
 				kind: "second-implementation",
 				name: "the fragment evaluator: what each node's plain SQL delivers"
 			},
-			kept: [],
+			kept: [
+				{
+					token: ReplayToken(
+						"test/unit/analysis/physical/soundness.test.ts#everyPhysicalClaimHoldsOnTheDeliveredRowsTheSoundnessPopulationBothRealizationsLateralSourcesCorrelatedVariablesAndTakesSharedNodesWindowsAndApproximateSearches:0:1.0.1.2.2.1.b.0.0.b.0.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.8.2.1.0.1.6.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.q.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+					),
+					reason:
+						"a closed payload of float4 holding Open 0 and Done -0, one value under PostgreSQL's equality, claimed a key",
+					since: "2026-11-19"
+				}
+			],
 			kills: [
+				{
+					file: "packages/engine/src/ir/expr.ts",
+					original:
+						'\t\t\tliteral.kind === "floatSpecial" && literal.value === "-0" ? floatLiteral(0) : literal',
+					replacement: "\t\t\tliteral",
+					why: "A literal's equality key tells -0 from +0, so a closed payload of both zeros claims a key PostgreSQL's equality breaks (ir/expr.ts nativeEqualityKey); the kept case fails."
+				},
 				{
 					file: "packages/engine/src/analysis/physical/rules.ts",
 					original: "\t\tif (new Set(values).size === values.length && rows.length > 0) {",

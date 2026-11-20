@@ -7,6 +7,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { NodeId, OccurrenceId, ParamId } from "#compiler/core/ids.ts"
 import type { NodeScope, OuterRefs } from "#compiler/ir/dag.ts"
@@ -1809,14 +1810,21 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 			const deps: Array<Dependency> =
 				rows.length <= 1 ? [atMostOneRow(all, { kind: "singleFact" })] : []
 			const equal: Array<Equality> = []
-			/** Each class's first column so far, with its type and its values fact by fact. */
+			/** Each class's first column so far, with its type and its values' identities fact by fact. */
 			const firsts: Array<{
 				readonly column: string
 				readonly type: ScalarType
-				readonly values: ReadonlyArray<EqualityKey>
+				readonly values: ReadonlyArray<string>
 			}> = []
+			/**
+			 * Each column's values fact by fact: their keys under PostgreSQL's equality, which a key is distinct by, and their
+			 * identities, which a fixed column and two equal ones are one by, so a literal read for a column is its own.
+			 */
 			const columns = reading.heading.map((_, i) =>
 				closedColumn(reading, i).map((v) => nativeEqualityKey(v))
+			)
+			const identities = reading.heading.map((_, i) =>
+				closedColumn(reading, i).map((v) => canonicalTextOf(v))
 			)
 			if (rows.length > 1) {
 				for (const key of rowKeys(columns, rows.length)) {
@@ -1830,7 +1838,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 			}
 			for (const [i, h] of reading.heading.entries()) {
 				const c = h.name
-				const values = defined(columns[i], "a column's values")
+				const values = defined(identities[i], "a column's values")
 				if (values.length > 0 && new Set(values).size === 1) {
 					deps.push(fixedColumn(c, { kind: "closedValue" }))
 				}
