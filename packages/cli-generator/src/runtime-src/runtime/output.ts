@@ -661,7 +661,7 @@ const errorBodyOf = (error: KnownError, credentials: readonly ScrubEntry[]): str
 export const renderError = (
 	error: KnownError,
 	credentials: readonly ScrubEntry[],
-	methodRetried = false
+	methodRetried: boolean
 ): string => {
 	const capped =
 		error._tag === "ApiResponseError" && error.retryAfterSeconds !== undefined
@@ -872,16 +872,15 @@ const parseTimeFormat = (envPrefix: string): Effect.Effect<ErrorFormat> =>
 	)
 
 /**
- * The run's rendering from `RunRecord`: the recorded format, else the parse-time format when the
- * caller named the env prefix, else `text`; the hint when `send` recorded a method D-AD7 would
- * retry (`wouldRetry`).
+ * The run's rendering from `RunRecord`: the recorded format, else the parse-time format of
+ * `envPrefix`; the hint when `send` recorded a method D-AD7 would retry (`wouldRetry`).
  */
-const runRendering = Effect.fnUntraced(function* readRendering(envPrefix: string | undefined) {
+const runRendering = Effect.fnUntraced(function* readRendering(envPrefix: string) {
 	const record = yield* Effect.serviceOption(RunRecord)
 	const state: RunRecordState = Option.isSome(record) ? yield* Ref.get(record.value) : {}
-	const fallback: ErrorFormat = envPrefix === undefined ? "text" : yield* parseTimeFormat(envPrefix)
+	const parseTime = yield* parseTimeFormat(envPrefix)
 	const rendering: Rendering = {
-		format: state.format ?? fallback,
+		format: state.format ?? parseTime,
 		hint: state.sent !== undefined && wouldRetry(state.sent.method, state.sent.idempotencyKey)
 	}
 
@@ -1090,20 +1089,20 @@ const renderCause = <E>(
  * the catch, adds the credentials the command handler evaluated and its secret-file values.
  *
  * The format is the one `recordRun` put in `RunRecord`; when nothing was recorded (a parse-time
- * error) and `options.envPrefix` is given, `json` when `<envPrefix>_ERROR_FORMAT` is `json`; else
- * text. `json` prints one `{"error":{...}}` object per error. An exchange failure carries
- * `retryHint` when the method `send` recorded is one D-AD7 would retry. Without `RunRecord`
- * nothing is recorded and no hint applies.
+ * error), `json` when `<envPrefix>_ERROR_FORMAT` is `json`, else text, `options.envPrefix` being
+ * the prefix the generated entry always names. `json` prints one `{"error":{...}}` object per
+ * error. An exchange failure carries `retryHint` when the method `send` recorded is one D-AD7
+ * would retry. Without `RunRecord` nothing is recorded and no hint applies.
  */
 export const finalCatch =
-	(credentials: readonly ScrubEntry[], options?: { readonly envPrefix: string }) =>
+	(credentials: readonly ScrubEntry[], options: { readonly envPrefix: string }) =>
 	<A, E, R>(
 		effect: Effect.Effect<A, E, R>
 	): Effect.Effect<A, E | InternalError, R | RunCredentials | Stdio.Stdio> =>
 		Effect.catchCause(effect, (cause) =>
 			Effect.gen(function* renderFailure() {
 				const recorded = yield* recordedCredentials
-				const rendering = yield* runRendering(options?.envPrefix)
+				const rendering = yield* runRendering(options.envPrefix)
 
 				return yield* renderCause(cause, [...credentials, ...recorded], rendering)
 			})
@@ -2280,7 +2279,7 @@ const printDryRun = (
  * (`Auth.redactedNames`) are the entry's to provide, with its other layers.
  */
 export const send =
-	(meta: OperationMeta, accept: Option.Option<string> = Option.none()) =>
+	(meta: OperationMeta, accept: Option.Option<string>) =>
 	(request: HttpClientRequest.HttpClientRequest) =>
 		Effect.gen(function* sendRequest() {
 			const operation = displayName(meta)
