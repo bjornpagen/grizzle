@@ -71,7 +71,7 @@ export const aLoginOverAnyLevelOfAnInstallationCompilesUnderItsSnapshotServedOrR
 					file: "packages/engine/src/physical/ddl/names.ts",
 					original: "\tconst codes = levelCodes(input.codes, owned)",
 					replacement: "\tconst codes = input.codes",
-					why: "A level's names hold the installation's codes whole, a level above the login's rosters among them, whose domains the login's level cannot name, and its installation refusals range over them: the compile dies (\"grizzle: internal error\", alphatest-novus's login over OnerosterSync, below Auth's rosters and its reconciliation's level of derived relations)."
+					why: "A level's names hold the installation's codes whole, a level above the login's rosters among them, whose domains the login's level cannot name, and its installation refusals range over them: the compile dies (\"grizzle: internal error\", metis's login over OnerosterSync, below Auth's rosters and its reconciliation's level of derived relations)."
 				}
 			]
 		}

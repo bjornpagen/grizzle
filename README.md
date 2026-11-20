@@ -2296,6 +2296,13 @@ definition too.
   approximate search, in the query or in a query it negates, are refused the same way (`Refused` over a derived
   relation, its refusal the type error's words), and a type error where the query does it itself. A family and a fold
   read tables only.
+- **An order across relations is a row check over their join.** A sitting's visits lie after its start and, once it
+  has one, before its end: `AfterStart` derives each visit beside its sitting's start, `check("VisitAfterStart",
+  AfterStart, (s) => s.ge(Compute.lower(s.during, Seconds), s.at))`, and `BeforeEnd` each visit beside its end, its
+  check `s.le(Compute.upper(s.during, Seconds), s.at)`. A sitting with no end has no fact of `BeforeEnd`, so its end
+  bound asks nothing of it: an open interval is the absence of its end, never a span unbounded above, and every span
+  stays bounded and non-empty. The judge holds each bound at COMMIT, whether the transaction writes a visit, a start or
+  an end, and the host judges a row of either as PostgreSQL does (`rowEvaluator`).
 - **Unit-local rules are judged whole.** A rule is unit-local when every stored relation its query reads is immutable
   and leads its primary key with the same fields, its unit key, and its query joins within one unit: every match of a
   stored relation, in every rule of its violation query at any depth, binds those fields to the same variables, every
