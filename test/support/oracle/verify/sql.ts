@@ -3429,6 +3429,13 @@ const statementShape = (tokens: ReadonlyArray<Token>): StatementShape => {
 	return "other"
 }
 
+/**
+ * The prefixes of the string constants grizzle writes, each held to its cast as any string: a bit string's hex digits,
+ * X'' (sql/print.ts), and a constant holding a line feed inside a PL/pgSQL block, its escape string E'' (sql/escape.ts
+ * lineFeedsEscaped). A string of every other prefix, a binary B'' among them, is refused.
+ */
+const writtenPrefixes: ReadonlySet<string> = new Set(["X", "E"])
+
 const raiseLevels: ReadonlySet<string> = new Set([
 	"EXCEPTION",
 	"NOTICE",
@@ -3673,10 +3680,7 @@ class TextAuditor {
 				}
 				break
 			case "string": {
-				/** A bit-string constant is hex, the one spelling grizzle writes (sql/print.ts), held to its cast as any string;
-				 * every other prefix, a binary B'' among them, is refused. */
-				const bitString = t.prefix === "X"
-				if (t.prefix !== undefined && !bitString) {
+				if (t.prefix !== undefined && !writtenPrefixes.has(t.prefix)) {
 					this.report("untypedLiteral", t.start, `a ${t.prefix}'' string literal`)
 					break
 				}

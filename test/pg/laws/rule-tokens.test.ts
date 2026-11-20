@@ -64,6 +64,12 @@ export const aRuleOverATextsTokensIsJudgedAsXMLReadsTheListItsTokensSplitAtEachR
 		kept: [],
 		kills: [
 			{
+				file: "packages/engine/src/sql/escape.ts",
+				original: '\t\tcase 0x0a:\n\t\t\treturn "\\\\n"\n',
+				replacement: '\t\tcase 0x0a:\n\t\t\treturn "\\\\r"\n',
+				why: "An escape string spells a line feed as a carriage return, so the whitespace fold of a PL/pgSQL block, whose constant holds a line feed and is spelled E'' on the block's one line, reads a line feed as no space, and a list XML splits at one is refused."
+			},
+			{
 				file: "packages/engine/src/lower/conservative/call/index.ts",
 				original: "\t\t\t\tcollapsedText(lowerExpr(cx, text.expr, env)),",
 				replacement: "\t\t\t\tlowerExpr(cx, text.expr, env),",

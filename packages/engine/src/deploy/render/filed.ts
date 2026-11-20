@@ -63,7 +63,8 @@ const continuedPieces = (body: string): string => {
 /**
  * The spelling of a lexeme the file respells, to the end of its source, or none where the printer's stands: a standard
  * string constant or a dollar-quoted body holding an unfiled character; never a prefixed string, which the printer
- * writes only as a bit string's hex digits.
+ * writes as a bit string's hex digits or, for a constant holding a line feed inside a PL/pgSQL block, as its escape
+ * string already (sql/escape.ts lineFeedsEscaped).
  */
 const respelled = (lexeme: Lexeme): { readonly text: string; readonly end: number } | undefined => {
 	switch (lexeme.kind) {
