@@ -5,7 +5,7 @@ import { array, type Gen, subset } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { temporarySchema } from "#compiler/core/temporary.ts"
-import { quoteString } from "#compiler/core/text.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -269,10 +269,35 @@ const listed = (names: Iterable<string>): string =>
 const sameSet = (x: ReadonlySet<string>, y: ReadonlySet<string>): boolean =>
 	x.size === y.size && Arr.every([...x], (n) => y.has(n))
 
+/**
+ * The deltas a transaction wrote a row into, as its judge reads them: the written set of the sentinel's row
+ * (physical/ddl/rules.ts arming, marked), read before the judge runs, which deletes the row and every row of the deltas
+ * it names once its statements read them; none where no sentinel or no row stands. Found by its column in the
+ * catalog, which locks no table, and read by its one row, which locks the sentinel alone, no delta.
+ */
+const writtenSet = (session: RawSession) =>
+	Effect.gen(function* () {
+		const sentinels = yield* session.values(
+			"SELECT c.relname::text FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_attribute AS a ON a.attrelid = c.oid WHERE c.relnamespace = pg_catalog.pg_my_temp_schema() AND a.attname = '__written'",
+			[]
+		)
+		const written = new Set<string>()
+		for (const [name] of sentinels) {
+			for (const [set] of yield* session.values(
+				`SELECT __written FROM pg_temp.${quoteIdent(String(name))}`,
+				[]
+			)) {
+				for (const delta of Arr.isArray(set) ? set : []) {
+					written.add(String(delta))
+				}
+			}
+		}
+		return written
+	})
+
 /** What the session holds once a transaction's judge ran: the deltas it holds a lock on, which every statement of the
- * transaction that read or wrote one took, read before anything here reads a delta; the deltas that stand, those of them
- * holding a row, and the stored tables it holds ACCESS SHARE on, which a statement takes on every table it reads until
- * the transaction ends. */
+ * transaction that read or wrote one took, read before anything here reads a delta; the deltas that stand; and the
+ * stored tables it holds ACCESS SHARE on, which a statement takes on every table it reads until the transaction ends. */
 const observed = (
 	session: RawSession,
 	deltas: ReadonlyArray<string>,
@@ -285,22 +310,13 @@ const observed = (
 		)
 		const touched = new Set(Arr.map(locks, ([name]) => String(name)))
 		const standing = new Set<string>()
-		const written = new Set<string>()
 		for (const name of deltas) {
 			const [[stands] = []] = yield* session.values(
 				`SELECT to_regclass(${quoteString(printTableName(objectName(temporarySchema, name)))}) IS NOT NULL`,
 				[]
 			)
-			if (stands !== true) {
-				continue
-			}
-			standing.add(name)
-			const [[holds] = []] = yield* session.values(
-				`SELECT EXISTS (SELECT FROM ${printTableName(objectName(temporarySchema, name))})`,
-				[]
-			)
-			if (holds === true) {
-				written.add(name)
+			if (stands === true) {
+				standing.add(name)
 			}
 		}
 		const locked = new Set<string>()
@@ -313,13 +329,13 @@ const observed = (
 				locked.add(table)
 			}
 		}
-		return { touched, standing, written, locked }
+		return { touched, standing, locked }
 	})
 
 /**
- * One case on a fresh clone, in one session, each transaction in turn: its writes, the judge run by SET CONSTRAINTS ALL
- * IMMEDIATE, then what the session holds read, and COMMIT. The judge runs a rule statement exactly where a delta it
- * reads holds a row (README, Rules over queries: a rule is judged over the rows a transaction wrote, and over deltas
+ * One case on a fresh clone, in one session, each transaction in turn: its writes, its written set read, the judge run
+ * by SET CONSTRAINTS ALL IMMEDIATE, then what the session holds read, and COMMIT. The judge runs a rule statement
+ * exactly where a delta it reads holds a row, which the written set names (README, Rules over queries: a rule is judged over the rows a transaction wrote, and over deltas
  * that hold none its region is empty): the stored tables the transaction holds ACCESS SHARE on are exactly those the
  * statements over its written deltas read, since nothing else of the transaction reads a stored table; and every delta
  * the session holds that it did not hold before holds a row, its capture's, or is read by a statement that ran, which
@@ -347,8 +363,9 @@ export const runWrites = (
 			for (const op of writes) {
 				yield* session.query(statementOf(installed, op, t), [])
 			}
+			const written = yield* writtenSet(session)
 			yield* session.query("SET CONSTRAINTS ALL IMMEDIATE", [])
-			const { touched, standing, written, locked } = yield* observed(session, deltas, stored)
+			const { touched, standing, locked } = yield* observed(session, deltas, stored)
 			const ran = Arr.filter(statements, (s) => Arr.some(s.deltas, (d) => written.has(d)))
 			const expectedLocked = new Set(Arr.flatMap(ran, (s) => s.stored))
 			assert.ok(

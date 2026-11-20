@@ -89,8 +89,11 @@ import {
 	operandSelect,
 	operandUnionAll,
 	or,
+	provedCore,
 	provedSelect,
 	qualifiedCall,
+	select,
+	setOperation,
 	simpleSelect,
 	targetAs,
 	types,
@@ -540,36 +543,66 @@ const armedSentinel = (sentinel: string, judge: ObjectName): PlStatement => ({
 })
 
 /**
- * INSERT INTO pg_temp.<sentinel> (__written) SELECT '{}' WHERE NOT EXISTS (SELECT FROM pg_temp.<sentinel>): its one
- * row, once, its written set empty until a capture marks a delta (`marked`).
+ * The sentinel's one row where none stands, written by a capture after its rows and its marks (`marked`), so its
+ * written set names each of `deltas` that holds a row:
+ *
+ *   INSERT INTO pg_temp.<sentinel> (__written)
+ *   SELECT ARRAY(SELECT '<delta>' WHERE EXISTS (SELECT FROM pg_temp.<delta>) UNION ...)
+ *   WHERE NOT EXISTS (SELECT FROM pg_temp.<sentinel>)
+ *
+ * The row's INSERT fires the judge's trigger: deferred, at COMMIT or SET CONSTRAINTS ALL IMMEDIATE, as before; after
+ * SET CONSTRAINTS ALL IMMEDIATE, at the end of this statement of the capture, inside it, since PostgreSQL fires an
+ * AFTER trigger at the end of the statement that queued it, a function's own among them. Written before the capture's
+ * rows, the row fired the judge there over a written set none of them was in yet, so no write after SET CONSTRAINTS
+ * ALL IMMEDIATE was judged, and its rows stood in its deltas for a later transaction's judge to read.
  */
-const arming = (sentinel: string): PlStatement => ({
-	kind: "modify",
-	statement: {
-		kind: "insert",
-		with: undefined,
-		table: sessionTable(sentinel),
-		alias: undefined,
-		onConflict: undefined,
-		returning: [],
-		columns: [writtenColumn],
-		source: {
-			kind: "query",
-			query: provedSelect(
-				"oneRow",
-				[{ expr: lit.text("{}", namesType), alias: undefined }],
-				[],
-				notExists(
-					simpleSelect(
-						[],
-						[{ kind: "table", table: sessionTable(sentinel), alias: "r1" }],
-						undefined
+const arming = (sentinel: string, deltas: NonEmptyReadonlyArray<SessionDelta>): PlStatement => {
+	const [first, second, ...rest] = mapNonEmpty(deltas, (d, at) =>
+		provedCore(
+			"oneRow",
+			[{ expr: lit.text(d.name, types.text), alias: undefined }],
+			[],
+			holding(d.name, `r${at + 2}`)
+		)
+	)
+	return {
+		kind: "modify",
+		statement: {
+			kind: "insert",
+			with: undefined,
+			table: sessionTable(sentinel),
+			alias: undefined,
+			onConflict: undefined,
+			returning: [],
+			columns: [writtenColumn],
+			source: {
+				kind: "query",
+				query: provedSelect(
+					"oneRow",
+					[
+						{
+							expr: {
+								kind: "array",
+								query: select(
+									second === undefined ? first : setOperation("UNION", [first, second, ...rest])
+								)
+							},
+							alias: undefined
+						}
+					],
+					[],
+					notExists(
+						simpleSelect(
+							[],
+							[{ kind: "table", table: sessionTable(sentinel), alias: "r1" }],
+							undefined
+						)
 					)
 				)
-			)
+			}
 		}
 	}
-})
+}
 
 /**
  * Marks `delta` in the transaction's written set, the sentinel row's (`writtenColumn`), where the delta holds a row:
@@ -1091,12 +1124,13 @@ const emptied = (delta: SessionDelta): PlStatement => ({
  *   ACCESS EXCLUSIVE lock, a rebuild of its indexes and its TOAST table's, and invalidations every backend reads, so a
  *   session that held a delta of each of 18 sides paid 18 truncations at every judged COMMIT. Its columns name no domain: a session's table typed by one
  *   would block DROP DOMAIN and ALTER DOMAIN ... ADD CONSTRAINT in every other session while it lives.
- * - Arming: a capture that writes the rows a statement put, or those it found into the side of olds, first inserts the
- *   one row of the session's sentinel, a table of pg_temp created with it, whose DEFERRABLE INITIALLY DEFERRED
- *   constraint trigger runs the judge, so the judge runs once, at COMMIT, or at SET CONSTRAINTS ALL IMMEDIATE and after
- *   each statement from then on. A sentinel that holds its row arms nothing more. The row holds the transaction's
- *   written set, the names of the deltas its captures wrote a row into, each marked by the capture that wrote it
- *   (`marked`). A DELETE that only cancels images of news arms and marks nothing: it can break no rule, and the images
+ * - Arming: a capture that writes the rows a statement put, or those it found into the side of olds, writes them, marks
+ *   each delta it wrote in the sentinel's row where it stands (`marked`), and last inserts the one row of the session's
+ *   sentinel where none stands, a table of pg_temp created with it, naming the deltas it wrote (`arming`). Its
+ *   DEFERRABLE INITIALLY DEFERRED constraint trigger runs the judge, so the judge runs once, at COMMIT, or at SET
+ *   CONSTRAINTS ALL IMMEDIATE and after each statement from then on, there at the end of the capture's insert of the
+ *   row, after its rows. A sentinel that holds its row arms nothing more. The row holds the transaction's written set,
+ *   the names of the deltas its captures wrote a row into. A DELETE that only cancels images of news arms and marks nothing: it can break no rule, and the images
  *   it cancels were put by a statement that armed the judge and marked their delta.
  * - The judge: it reads the written set and deletes the sentinel's row, so a later statement arms it again into a new
  *   set. Its rules stand in parts (`partsOf`), each a function of its own (identity.ruleJudgePart): the classes of the
@@ -1520,11 +1554,18 @@ const addCapture = (
 	const side = (s: ProbeSide): JudgedSide | undefined => t.sides.find((x) => x.side === s)
 	const news = side("added")
 	const olds = side("removed")
-	/** The sentinel stood up and armed, its row's written set there for the writes to mark (`marked`), then the writes. */
-	const armed = (writes: ReadonlyArray<PlStatement>): ReadonlyArray<PlStatement> => [
+	/**
+	 * The sentinel stood up, then the writes, each of which marks the deltas it writes in the standing row (`marked`),
+	 * then the row written where none stands, naming `deltas` that hold a row (`arming`): last, so the judge it fires
+	 * reads this capture's rows.
+	 */
+	const armed = (
+		deltas: NonEmptyReadonlyArray<SessionDelta>,
+		writes: ReadonlyArray<PlStatement>
+	): ReadonlyArray<PlStatement> => [
 		armedSentinel(sentinel, judge),
-		arming(sentinel),
-		...writes
+		...writes,
+		arming(sentinel, deltas)
 	]
 	const into = (
 		s: JudgedSide,
@@ -1535,6 +1576,9 @@ const addCapture = (
 		captured(relation, s, rows, other),
 		marked(sentinel, s.delta)
 	]
+	const updatedSides = [news, olds].flatMap((s): ReadonlyArray<JudgedSide> =>
+		s === undefined || s.read.length === 0 ? [] : [s]
+	)
 	const updated = [news, olds].flatMap((s): ReadonlyArray<PlStatement> =>
 		s === undefined || s.read.length === 0
 			? []
@@ -1604,13 +1648,24 @@ const addCapture = (
 						event: "insert" as const,
 						body: whereRowed(
 							transitionTables.news,
-							armed(into(news, transitionTables.news, undefined))
+							armed([news.delta], into(news, transitionTables.news, undefined))
 						)
 					}
 				]),
-		...(updated.length === 0
-			? []
-			: [{ event: "update" as const, body: whereRowed(transitionTables.news, armed(updated)) }]),
+		...(isNonEmpty(updatedSides)
+			? [
+					{
+						event: "update" as const,
+						body: whereRowed(
+							transitionTables.news,
+							armed(
+								mapNonEmpty(updatedSides, (updatedSide) => updatedSide.delta),
+								updated
+							)
+						)
+					}
+				]
+			: []),
 		...(olds === undefined
 			? news === undefined
 				? []
@@ -1620,7 +1675,10 @@ const addCapture = (
 						event: "delete" as const,
 						body: whereRowed(
 							transitionTables.olds,
-							armed([...into(olds, transitionTables.olds, undefined), ...removedFromNews])
+							armed(
+								[olds.delta],
+								[...into(olds, transitionTables.olds, undefined), ...removedFromNews]
+							)
 						)
 					}
 				])

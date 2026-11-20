@@ -7,7 +7,8 @@
  * g, and a rule over Stated, a key by the unit, probed, or a check, judged whole.
  *
  * Each case writes rows of one unit that all state one g, so they derive one fact, and explains every judged statement
- * at the judge; then writes three times as many rows of the unit and explains them again. Without the set, a probe's
+ * over the deltas that hold them, before the judge reads them, since it deletes them once its statements have; then
+ * writes three times as many rows of the unit and explains them again over the deltas that hold them all. Without the set, a probe's
  * region and a whole rule's repeat their binding once per row, and the read of the unit after it runs once per repeat,
  * the work of a whole package's publish squared: pantry's key over SourcePointer by package read the 37,578 node rows
  * g3-11 wrote once for each of them, 1,412,106,084 rows filtered away (SELECTWHOLE's auto_explain at ce22f1f35).

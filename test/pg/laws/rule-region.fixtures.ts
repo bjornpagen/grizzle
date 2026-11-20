@@ -116,21 +116,24 @@ const workOf = (installed: Installed, connection: PgConnection) =>
 		)
 	)
 
-/** The INSERT of T's rows `from` to `to` of unit 1, each stating `g`, through the captures, and the judge. */
+/**
+ * The INSERT of T's rows `from` to `to` of unit 1, each stating `g`, through the captures, whose rows stand in the
+ * deltas until the judge reads them, at COMMIT, which the case never reaches.
+ */
 const written = (
 	installed: Installed,
 	from: number,
 	to: number,
 	g: number
 ): ReadonlyArray<string> => [
-	`INSERT INTO ${namesOf(installed).table(T)} (package, id, g) SELECT 1, i, ${g} FROM generate_series(${from}, ${to}) AS r(i)`,
-	"SET CONSTRAINTS ALL IMMEDIATE"
+	`INSERT INTO ${namesOf(installed).table(T)} (package, id, g) SELECT 1, i, ${g} FROM generate_series(${from}, ${to}) AS r(i)`
 ]
 
 /**
  * One case in its one transaction, which the case's end rolls back: `rows` rows of one unit written, each stating one
- * g, so all derive one fact, the judge run, and each judged statement explained; then three times as many rows of the
- * unit again, and each explained again. Each statement's work must grow at most twice as fast as the rows, under eight
+ * g, so all derive one fact, and each judged statement explained over the deltas that hold them, the judge deferred to
+ * a COMMIT the case never reaches, since the judge deletes every row of a delta it reads; then three times as many rows
+ * of the unit again, and each explained again over the deltas that hold them all. Each statement's work must grow at most twice as fast as the rows, under eight
  * times for four times the rows: its region is the set of bindings the rows give it, one here, so it reads the unit's
  * rows once beside its region's, four times the work; a region of the rows themselves, each deriving the unit's fact
  * again, reads the unit's rows once per row, sixteen times the work.

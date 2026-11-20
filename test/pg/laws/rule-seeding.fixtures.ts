@@ -1254,12 +1254,100 @@ interface Delta {
 /** The session tables with columns a capture's body creates, at any depth: its deltas. */
 const deltasIn = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Delta> =>
 	Arr.flatMap(body, (s): ReadonlyArray<Delta> =>
-		s.kind === "createSessionTable" && s.columns.length > 0
+		s.kind === "createSessionTable" && !isSentinel(s.columns)
 			? [{ name: s.name, columns: Arr.map(s.columns, (c) => c.name) }]
 			: s.kind === "if"
 				? [...Arr.flatMap(s.branches, (b) => deltasIn(b.body)), ...deltasIn(s.else)]
 				: []
 	)
+
+/** Whether a session table's columns are the sentinel's: its written set (physical/ddl/rules.ts arming), no delta's. */
+const isSentinel = (columns: ReadonlyArray<{ readonly name: string }>): boolean =>
+	Arr.some(columns, (c) => c.name === "__written")
+
+/** Every statement of `body`, at any depth of the conditions it stands under, the conditions' own first. */
+const everyStatement = (body: ReadonlyArray<PlStatement>): ReadonlyArray<PlStatement> =>
+	Arr.flatMap(body, (s): ReadonlyArray<PlStatement> =>
+		s.kind === "if"
+			? [s, ...Arr.flatMap(s.branches, (b) => everyStatement(b.body)), ...everyStatement(s.else)]
+			: [s]
+	)
+
+/** Whether `s` is a condition whose first branch runs a statement `test` holds of. */
+const guards = (s: PlStatement, test: (inner: PlStatement) => boolean): boolean =>
+	s.kind === "if" && Arr.some(Arr.headNonEmpty(s.branches).body, test)
+
+/**
+ * The statements of `table`'s capture (physical/ddl/rules.ts addCapture) that a write of a row runs around its rows,
+ * each once: `standUp`, which stands up each delta of the table and the sentinel, its trigger the judge's, and writes
+ * its row, naming the deltas that hold a row, none yet; and `mark`, which names in the row's written set each delta
+ * that holds a row. A statement of the table that writes no row runs none of them, so the footprint runs them itself,
+ * before SET CONSTRAINTS ALL IMMEDIATE, so the row's INSERT defers the judge to it.
+ */
+const armingOf = (seat: Seat, table: Table) => {
+	const statements = everyStatement(
+		bodyOf(seat.installed.installation, identifierOf(identity.ruleCapture(table)))
+	)
+	const once = (picked: ReadonlyArray<PlStatement>): ReadonlyArray<PlStatement> =>
+		Arr.dedupeWith(picked, (a, b) => printedPl(a) === printedPl(b))
+	const sentinels = new Set(
+		Arr.flatMap(statements, (s) =>
+			s.kind === "createSessionTable" && isSentinel(s.columns) ? [s.name] : []
+		)
+	)
+	const standUp = once(
+		Arr.filter(
+			statements,
+			(s) =>
+				guards(s, (inner) => inner.kind === "createSessionTable") ||
+				(s.kind === "modify" &&
+					s.statement.kind === "insert" &&
+					typeof s.statement.table !== "string" &&
+					sentinels.has(s.statement.table.name))
+		)
+	)
+	const mark = once(
+		Arr.filter(statements, (s) =>
+			guards(s, (inner) => inner.kind === "modify" && inner.statement.kind === "update")
+		)
+	)
+	return { standUp, mark }
+}
+
+/** `body` as a function of the session's own, pg_temp.`name`, its call printed beside it. */
+const sessionFunction = (name: string, body: ReadonlyArray<PlStatement>): ReadonlyArray<string> => {
+	const [first, ...rest] = body
+	return first === undefined
+		? []
+		: [
+				printStatement({
+					kind: "createFunction",
+					language: "plpgsql",
+					name: { schema: "pg_temp", name },
+					volatility: "VOLATILE",
+					parallel: "UNSAFE",
+					security: "DEFINER",
+					returns: "void",
+					params: [],
+					body: { declare: [], body: [first, ...rest] }
+				}),
+				`SELECT pg_temp.${quoteIdent(name)}()`
+			]
+}
+
+/** A statement's text as a function body prints it, by which two statements of a capture are one. */
+const printedPl = (statement: PlStatement): string =>
+	printStatement({
+		kind: "createFunction",
+		language: "plpgsql",
+		name: { schema: "pg_temp", name: "printed" },
+		volatility: "VOLATILE",
+		parallel: "UNSAFE",
+		security: "DEFINER",
+		returns: "void",
+		params: [],
+		body: { declare: [], body: [statement] }
+	})
 
 /** The deltas `table`'s capture writes (physical/ddl/rules.ts addRules), deduplicated by name. */
 const deltasOf = (seat: Seat, table: Table): ReadonlyArray<Delta> =>
@@ -1330,14 +1418,12 @@ const siReadLocks = (session: RawSession) =>
 
 /**
  * The footprint of touching `touched`, on a fresh session planning for large tables, in one transaction rolled back. A
- * stored row stands in every delta of its table as it is stored: a statement of each event that writes no row runs the
- * captures, which make the session's deltas, and the row's image is copied into each, so the judge's region is the
- * row and the table is not written, which would move the row's index entries. A block is inserted and deleted again,
- * which the captures take, and its image put back on the side of news, which the delete cancelled there, so each side
- * holds it as each held it before the side of news was the transaction's net write. Then SET CONSTRAINTS ALL IMMEDIATE
- * runs the judge over the deltas; the SIRead locks the
- * transaction holds are counted; and each probe of the judge over the table is explained while the deltas hold the
- * row's images.
+ * stored row stands in every delta of its table as it is stored: the capture's own statements stand up the session's
+ * deltas and arm the judge (`armingOf`), which a statement that writes no row runs none of, the row's image is copied
+ * into each delta, and the capture's marks name each in the written set, so the judge's region is the row and the
+ * table is not written, which would move the row's index entries. A touched row its table does not store, a block,
+ * stands in each delta at its id alone. Then SET CONSTRAINTS ALL IMMEDIATE runs the judge over the deltas; the SIRead locks the transaction
+ * holds are counted; and each probe of the judge over the table is explained while the deltas hold the row's images.
  */
 const footprintOf = (seat: Seat, touched: Touched) =>
 	Effect.gen(function* () {
@@ -1349,39 +1435,37 @@ const footprintOf = (seat: Seat, touched: Touched) =>
 		const table = touched.table
 		const t = seat.table(table)
 		const id = seat.column(table, "id")
-		const write = touched.stored
-			? [
-					`INSERT INTO ${t} (${id}) SELECT ${touched.id} WHERE false`,
-					`DELETE FROM ${t} WHERE false`,
-					...Arr.map(deltasOf(seat, table), (d) => {
-						const columns = Arr.join(Arr.map(d.columns, quoteIdent), ", ")
-						const values = Arr.join(
-							Arr.map(d.columns, (c) => (c === countColumn ? "1" : quoteIdent(c))),
-							", "
-						)
-						return `INSERT INTO pg_temp.${quoteIdent(d.name)} (${columns}) SELECT ${values} FROM ${t} WHERE ${id} = ${touched.id}`
-					})
-				]
-			: [
-					`INSERT INTO ${t} (${id}) VALUES (${touched.id})`,
-					`DELETE FROM ${t} WHERE ${id} = ${touched.id}`,
-					...Arr.flatMap(deltasOf(seat, table), (d) =>
-						Arr.contains(d.columns, countColumn)
-							? [
-									`INSERT INTO pg_temp.${quoteIdent(d.name)} (${Arr.join(Arr.map(d.columns, quoteIdent), ", ")}) SELECT ${Arr.join(
-										Arr.map(d.columns, (c) =>
-											c === countColumn
-												? "1"
-												: quoteIdent(c) === id
-													? `${touched.id}`
-													: assert.fail(`a block's delta holds ${c}`)
-										),
-										", "
-									)}`
-								]
-							: []
+		const { standUp, mark } = armingOf(seat, table)
+		const images = touched.stored
+			? Arr.map(deltasOf(seat, table), (d) => {
+					const columns = Arr.join(Arr.map(d.columns, quoteIdent), ", ")
+					const values = Arr.join(
+						Arr.map(d.columns, (c) => (c === countColumn ? "1" : quoteIdent(c))),
+						", "
 					)
-				]
+					return `INSERT INTO pg_temp.${quoteIdent(d.name)} (${columns}) SELECT ${values} FROM ${t} WHERE ${id} = ${touched.id}`
+				})
+			: Arr.flatMap(deltasOf(seat, table), (d) =>
+					Arr.contains(d.columns, countColumn)
+						? [
+								`INSERT INTO pg_temp.${quoteIdent(d.name)} (${Arr.join(Arr.map(d.columns, quoteIdent), ", ")}) SELECT ${Arr.join(
+									Arr.map(d.columns, (c) =>
+										c === countColumn
+											? "1"
+											: quoteIdent(c) === id
+												? `${touched.id}`
+												: assert.fail(`a block's delta holds ${c}`)
+									),
+									", "
+								)}`
+							]
+						: []
+				)
+		const write = [
+			...sessionFunction("rule_seed_stand_up", standUp),
+			...images,
+			...sessionFunction("rule_seed_mark", mark)
+		]
 		yield* session.begin
 		const footprint = yield* Effect.onError(
 			Effect.gen(function* () {
