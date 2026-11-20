@@ -147,6 +147,9 @@ const placed = (doc: number): string => `${doc}, ${doc + 1000000}, ${doc + 20000
 /** The judges of each shape: whole, its relations immutable, and probed, its relations mutable. */
 type Judge = "whole" | "probed"
 
+/** The kinds of node Expressed's selection holds, each an expression: a node of any other kind stands outside it. */
+const expressedKinds = [1, 2] as const satisfies ReadonlyArray<Kind>
+
 /**
  * The schema the properties judge of shape `shape`, by its rules over queries and its containments between selected
  * sides, every one unit-local: each relation keyed by its document's place first, every rule joining within one
@@ -199,7 +202,7 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 		[
 			contained(
 				on(
-					select(Node, (n) => n.in(n.kind, [1, 2])),
+					select(Node, (n) => n.in(n.kind, expressedKinds)),
 					"doc",
 					"sub",
 					"part",
@@ -545,6 +548,7 @@ export type WholeFeature =
 	| "refused by Marked"
 	| "a node replaced under its tag"
 	| "an expression written at a node that stood before"
+	| "Rooted refusing an expression written at a node outside Expressed's selection that stood before"
 	| "a whole unit inserted"
 	| "a unit dropped whole"
 	| "an expression removed under its member"
@@ -582,6 +586,7 @@ export const wholeFeatures: Arr.NonEmptyReadonlyArray<WholeFeature> = [
 	"refused by Marked",
 	"a node replaced under its tag",
 	"an expression written at a node that stood before",
+	"Rooted refusing an expression written at a node outside Expressed's selection that stood before",
 	"a whole unit inserted",
 	"a unit dropped whole",
 	"an expression removed under its member",
@@ -596,6 +601,22 @@ export const wholeFeatures: Arr.NonEmptyReadonlyArray<WholeFeature> = [
  * at type 1; at type 0 its parent's expressions are of two types, which One type alone refuses.
  */
 const lawful = (doc: Doc, type: Type): ReadonlyArray<Op> => [{ kind: "unit", doc, type }]
+
+/**
+ * An expression written at a node that stood before, outside Expressed's selection: a document written whole and a
+ * node of kind 0 below its second child, also of kind 0; then the child's expression removed, which no rule refuses;
+ * then the expression of the node below it, whose parent is no expression's now, which Rooted refuses. Expressed's
+ * containment proves nothing of the node, which its selection does not hold, so the whole judge reads the expression
+ * written where no expression stood (analysis/theory/unit.ts proofsOf).
+ */
+const writtenAtStanding: Gen<Schedule> = shaped((s) => {
+	const doc = s.draw(docGen)
+	return [
+		[...lawful(doc, 1), { kind: "node", doc, start: 3, parent: 2, nodeKind: 0 }],
+		[{ kind: "unexpr", doc, start: 2 }],
+		[{ kind: "expr", doc, start: 3, type: s.draw(element(types)) }]
+	]
+})
 
 /** The aims: a case constructed to reach each rare situation, its document drawn. */
 const aims: ReadonlyArray<readonly [WholeFeature, Gen<Schedule>]> = [
@@ -746,16 +767,10 @@ const aims: ReadonlyArray<readonly [WholeFeature, Gen<Schedule>]> = [
 			]
 		})
 	],
+	["an expression written at a node that stood before", writtenAtStanding],
 	[
-		"an expression written at a node that stood before",
-		shaped((s) => {
-			const doc = s.draw(docGen)
-			return [
-				[...lawful(doc, 1), { kind: "node", doc, start: 3, parent: 2, nodeKind: 0 }],
-				[{ kind: "unexpr", doc, start: 2 }],
-				[{ kind: "expr", doc, start: 3, type: s.draw(element(types)) }]
-			]
-		})
+		"Rooted refusing an expression written at a node outside Expressed's selection that stood before",
+		writtenAtStanding
 	],
 	[
 		"an expression removed under its member",
@@ -999,6 +1014,17 @@ const standing = (
 		(found) => found[0]?.[0] === true
 	)
 
+/** The kind of the node a write names, as the session holds it; none where no node stands there. */
+const kindAt = (
+	session: RawSession,
+	table: string,
+	at: { readonly doc: Doc; readonly start: Start }
+) =>
+	Effect.map(
+		session.values(`SELECT kind FROM ${table} WHERE doc = ${at.doc} AND start = ${at.start}`, []),
+		(rows) => Option.fromUndefinedOr(rows[0]?.[0]).pipe(Option.filter((k) => typeof k === "number"))
+	)
+
 /** The units one transaction's writes reach, by the documents they write. */
 const unitsOf = (ops: ReadonlyArray<Op>): ReadonlySet<Doc> =>
 	new Set(Arr.flatMap(ops, (op) => (op.kind === "judge" ? [] : [op.doc])))
@@ -1056,13 +1082,24 @@ export const runEquivalence = (
 			})
 			let ended = false
 			let judgedOnce = false
+			/** Whether this transaction wrote an expression at a node that stood before outside Expressed's selection. */
+			let outsideSelection = false
+			/** The refusal of the transaction by `rule`, noted with what the transaction wrote. */
+			const noteRefused = (rule: RuleName): void => {
+				c.note(refusedBy[rule])
+				if (rule === "Rooted" && outsideSelection) {
+					c.note(
+						"Rooted refusing an expression written at a node outside Expressed's selection that stood before"
+					)
+				}
+			}
 			/** The nodes this transaction wrote, each by its document and start. */
 			const nodesWritten = new Set<string>()
 			for (const op of ops) {
 				if (op.kind === "judge") {
 					const refused = yield* both
 					if (refused !== undefined) {
-						c.note(refusedBy[refused])
+						noteRefused(refused)
 						for (const side of sides) {
 							yield* side.session.rollback
 						}
@@ -1081,10 +1118,13 @@ export const runEquivalence = (
 				if (
 					op.kind === "expr" &&
 					!nodesWritten.has(`${op.doc}:${op.start}`) &&
-					(yield* standing(whole.session, wholeTables.node, op)) &&
 					!(yield* standing(whole.session, wholeTables.expr, op))
 				) {
-					c.note("an expression written at a node that stood before")
+					const kind = yield* kindAt(whole.session, wholeTables.node, op)
+					if (Option.isSome(kind)) {
+						c.note("an expression written at a node that stood before")
+						outsideSelection ||= !Arr.contains<number>(expressedKinds, kind.value)
+					}
 				}
 				if (op.kind === "node" || op.kind === "renode") {
 					nodesWritten.add(`${op.doc}:${op.start}`)
@@ -1122,7 +1162,7 @@ export const runEquivalence = (
 				}
 				c.note("committed")
 			} else {
-				c.note(refusedBy[refused])
+				noteRefused(refused)
 				for (const side of sides) {
 					yield* side.session.rollback
 				}
