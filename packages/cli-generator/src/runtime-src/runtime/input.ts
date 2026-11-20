@@ -13,6 +13,7 @@ import {
 	Record as Rec,
 	Redacted,
 	Ref,
+	Result,
 	Schema,
 	type SchemaAST,
 	SchemaIssue,
@@ -24,6 +25,7 @@ import { Argument, CliError, Flag } from "effect/cli"
 import { Base64, Base64Url } from "effect/encoding"
 import { HttpBody } from "effect/http"
 import { UsageError } from "#domain/errors.ts"
+import { InvalidJsonText, type JsonReviver, parseJson, parseRevivedJson } from "#runtime/json.ts"
 import type { MediaDeclaration } from "#runtime/negotiate.ts"
 import * as Negotiate from "#runtime/negotiate.ts"
 import type { Secret } from "#runtime/redact.ts"
@@ -591,16 +593,6 @@ export type JsonNode =
 export type JsonObject = Record<string, JsonNode>
 
 /**
- * A `JSON.parse` reviver over operator JSON: each value, `null` as parsed and its children already
- * revived, and the source text of a primitive.
- */
-type Reviver = (
-	key: string,
-	value: JsonNode | null,
-	context: { readonly source?: string }
-) => JsonNode
-
-/**
  * Whether `value` is a revived JSON leaf: `JsonNull`, a boolean, a number, a string or a `JsonNumber`.
  */
 const isJsonLeaf = (value: unknown): boolean =>
@@ -631,8 +623,6 @@ const isJsonNode = (value: unknown): value is JsonNode => {
 
 	return true
 }
-
-const JsonNodeSchema = Schema.declare(isJsonNode)
 
 const int64Digits: Readonly<RegExp> = regex("^-?(?:0|[1-9]\\d*)$", "u")
 
@@ -770,9 +760,13 @@ const bare = (): JsonObject => {
 /**
  * A copy of `source` with no prototype.
  */
-const bareCopy = (source: JsonObject): JsonObject => Object.assign(bare(), source)
+const bareCopy = (source: object): JsonObject => Object.assign(bare(), source)
 
-const revive: Reviver = (_key, value, context) => {
+/**
+ * The reviver of operator JSON: `null` as `JsonNull`, a number whose digits `JSON.parse` would change as its source
+ * text, and an object, its members already revived, as a copy with no prototype.
+ */
+const revive: JsonReviver = (_key, value, context) => {
 	if (value === null) {
 		return jsonNull
 	}
@@ -783,7 +777,7 @@ const revive: Reviver = (_key, value, context) => {
 			: value
 	}
 
-	return isObject(value) ? bareCopy(value) : value
+	return Predicate.isObject(value) && !Arr.isArray(value) ? bareCopy(value) : value
 }
 
 /**
@@ -792,7 +786,7 @@ const revive: Reviver = (_key, value, context) => {
  * decodes to Infinity, which `JSON.stringify` would send as `null`; it throws here, and the
  * parse's failure turns that into a value-free one.
  */
-const reviveIntegers: Reviver = (key, value, context) => {
+const reviveIntegers: JsonReviver = (key, value, context) => {
 	if (Predicate.isNumber(value) && !Number.isFinite(value)) {
 		throw new RangeError("a JSON number is not finite")
 	}
@@ -805,16 +799,23 @@ const reviveIntegers: Reviver = (key, value, context) => {
 }
 
 /**
- * Decodes operator JSON text whose values `reviver` revives.
+ * Decodes operator JSON text whose values `reviver` revives, read as the revived node every level of it is.
  */
-const revivedDecoder = (reviver: Reviver) =>
-	Schema.decodeEffect(Schema.fromJsonString(JsonNodeSchema, { reviver }))
+const revivedDecoder =
+	(reviver: JsonReviver) =>
+	(text: string): Effect.Effect<JsonNode, InvalidJsonText> =>
+		Effect.fromResult(
+			parseRevivedJson(text, reviver).pipe(
+				Result.filterOrFail(isJsonNode, () => new InvalidJsonText())
+			)
+		)
 
 const decodeRevived = revivedDecoder(revive)
 
 const decodeIntegers = revivedDecoder(reviveIntegers)
 
-const decodePlain = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))
+const decodePlain = (text: string): Effect.Effect<unknown, InvalidJsonText> =>
+	Effect.fromResult(parseJson(text))
 
 /**
  * The one parse behind `jsonFlag` and `jsonArgument`: the decoded value, or the value-free error
@@ -1187,7 +1188,7 @@ const mergeSources = (
 			Option.toArray(Option.map(supplied(field), (value) => [pointer, value] as const))
 		)
 		const guarded =
-			<A>(decode: (text: string) => Effect.Effect<A, Schema.SchemaError>) =>
+			<A>(decode: (text: string) => Effect.Effect<A, InvalidJsonText>) =>
 			(text: string): Effect.Effect<A, UsageError> =>
 				Effect.mapError(decode(text), () => usage(flag, "is not valid JSON"))
 		const parse = guarded(decodeRevived)

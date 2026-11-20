@@ -156,8 +156,8 @@ export const fieldFlags = property.explore(aimed(caseGen, AIMS), {
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/input.ts",
-			original: "\treturn true\n}\n\nconst JsonNodeSchema = Schema.declare(isJsonNode)",
-			replacement: "\treturn false\n}\n\nconst JsonNodeSchema = Schema.declare(isJsonNode)",
+			original: "\treturn true\n}\n\nconst int64Digits",
+			replacement: "\treturn false\n}\n\nconst int64Digits",
 			why: "No parsed JSON value is a JSON node, so a deepObject parameter's JSON flag refuses every value, as m2-dpany's string flag did; the property fails (dpany's claim; its CATCH evidence 7011ca43c4 was this check before the walk became iterative)."
 		}
 	]
