@@ -387,10 +387,11 @@ export const isOperandBinding = (query: OperandSelect): boolean => {
 /**
  * A numeric value rounded once to the float carrier as IEEE 754 rounds, half to even: NaN is NaN; at or past the
  * rounding threshold (the midpoint between the greatest finite value and 2^128 or 2^1024) an infinity of its sign; at
- * or below half the least subnormal `zero`, the zero its caller states: the one zero, or an exact float sum's or mean's
- * of its rows' signs (lower/conservative/group aggregateExpr); any other value through float8in or float4in, which round
- * correctly and admit subnormals. PostgreSQL's own numeric-to-float cast raises past the range, so it is never reached
- * there.
+ * or below half the least subnormal `zero`, the zero its caller states: the zero of the value's sign, as IEEE 754
+ * rounds a nonzero value to zero (signedZeroOf), +0 for a value never below zero (parse-double.ts's magnitude), or an
+ * exact float sum's or mean's of its rows' signs (lower/conservative/group aggregateExpr); any other value through
+ * float8in or float4in, which round correctly and admit subnormals. PostgreSQL's own numeric-to-float cast raises past
+ * the range, so it is never reached there.
  */
 export const roundToFloat = (n: Expr, carrier: "float4" | "float8", zero: Expr): Expr => {
 	const { over, under, type } = thresholds[carrier]
@@ -409,6 +410,13 @@ export const roundToFloat = (n: Expr, carrier: "float4" | "float8", zero: Expr):
 		cast(n, type)
 	)
 }
+
+/**
+ * The zero a numeric value rounds to where it rounds to zero, as IEEE 754 rounds it: -0 below zero and `atOrAbove`
+ * otherwise, the zero of an exact zero, +0 for every value but a float sum's or mean's of zeros.
+ */
+export const signedZeroOf = (n: Expr, carrier: "float4" | "float8", atOrAbove: Expr): Expr =>
+	caseOf([[lt(n, numericInteger(0n)), floatLit(-0, carrier)]], atOrAbove)
 
 /** Whether a float operand is NaN or an infinity: not strictly between the infinities. */
 const special = (x: Expr, carrier: "float4" | "float8"): Expr =>
@@ -450,7 +458,9 @@ export const exactNumeric = (e: Expr, carrier: ExactCarrier): Expr => {
  * call among them, must.
  */
 const roundedOnce = (n: Expr, carrier: "float4" | "float8"): Expr =>
-	bindOperands([n], ([v]) => roundToFloat(v, carrier, floatLit(0, carrier)))
+	bindOperands([n], ([v]) =>
+		roundToFloat(v, carrier, signedZeroOf(v, carrier, floatLit(0, carrier)))
+	)
 
 /** A float operand's exact numeric value (exactNumeric), of a finite operand. */
 const exactOf = (x: Expr, carrier: "float4" | "float8"): Expr => exactNumeric(x, carrier)

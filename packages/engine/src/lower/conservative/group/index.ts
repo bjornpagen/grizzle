@@ -16,7 +16,11 @@ import {
 	nodeLabel
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import { exactNumeric, roundToFloat } from "#compiler/lower/conservative/expr/total.ts"
+import {
+	exactNumeric,
+	roundToFloat,
+	signedZeroOf
+} from "#compiler/lower/conservative/expr/total.ts"
 import {
 	type AggregateOverload,
 	callOverload,
@@ -127,8 +131,9 @@ const roundedSum = (
 
 /**
  * An exact mean: the exact total, its display scale trimmed because numeric_div reads it (registry.ts OperandReading),
- * over the count, rounded once to double precision as IEEE 754 rounds; a mean of a zero total of its rows' signs, cast
- * to double precision from a real's, and a mean below half the least subnormal of a nonzero total the one zero.
+ * over the count, rounded once to double precision as IEEE 754 rounds; one below half the least subnormal the zero of
+ * its sign, the total's, and a mean of a zero total, or of a positive one too small, its rows' signs' (cast to double
+ * precision from a real's), +0 wherever a row is nonzero (total.ts signedZeroOf).
  */
 const roundedMean = (
 	total: Expr,
@@ -136,20 +141,12 @@ const roundedMean = (
 	exact: "float4" | "float8",
 	arg: Expr,
 	window: WindowSpec | undefined
-): Expr => {
-	const zero: Expr = {
-		kind: "case",
-		operand: undefined,
-		whens: [
-			{
-				when: eq(total, lit.int(0, types.numeric)),
-				result: cast(signedZero(exact, arg, window), types.double)
-			}
-		],
-		else: zeroOf("float8", false)
-	}
-	return roundToFloat(binary("/", call("trim_scale", [total]), count), "float8", zero)
-}
+): Expr =>
+	roundToFloat(
+		binary("/", call("trim_scale", [total]), count),
+		"float8",
+		signedZeroOf(total, "float8", cast(signedZero(exact, arg, window), types.double))
+	)
 
 /**
  * An aggregate's SQL as its overload's lowering states it (scalar/aggregate.ts AggregateLowering): the one place an

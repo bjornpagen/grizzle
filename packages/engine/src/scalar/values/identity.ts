@@ -462,8 +462,10 @@ const canonicalTexts: CanonicalTexts = {
  * compares two facts of one key by their identity (ir/compare.ts factEq) and two keys by their key texts. Wherever an
  * operation may take one float of several equal ones, a set's member, a group's key, a union's row, a recursion's
  * state, a join variable's value, the merged zero is +0, so no plan picks one; min and max of floats order -0 below 0,
- * and a float sum or mean is -0 exactly when every value it sums is (check/merge.ts, scalar/aggregate.ts). This module
- * is the host side, per scalar carrier:
+ * and a float sum or mean whose exact value is zero is -0 exactly when every value it sums is; any other float that
+ * rounds to zero, a product, quotient, conversion or mean too small for its type, is the zero of its sign
+ * (check/merge.ts, scalar/aggregate.ts, lower/conservative/expr/total.ts roundToFloat). This module is the host side,
+ * per scalar carrier:
  *
  * - `parseValue` is the boundary: the exact parse of a host value as its carrier's, which refuses a value its column
  *   would store as another (a numeric past its scale, a double no binary32 value holds) and alters none: two spellings

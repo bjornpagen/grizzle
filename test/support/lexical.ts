@@ -111,6 +111,7 @@ export type Shape =
 	| "decimal fits"
 	| "decimal past typmod"
 	| "double finite"
+	| "double zero"
 	| "double special"
 	| "double past bound"
 	| "boolean"
@@ -129,6 +130,7 @@ export const shapes: Arr.NonEmptyReadonlyArray<Shape> = [
 	"decimal fits",
 	"decimal past typmod",
 	"double finite",
+	"double zero",
 	"double special",
 	"double past bound",
 	"boolean",
@@ -189,7 +191,10 @@ const decimalGen =
 		}
 	}
 
-/** A double: a mantissa of drawn digits with an optional exponent near the bound, or a special value. */
+/**
+ * A double: a mantissa of drawn digits with an optional exponent near the bound, a zero of either sign spelled with
+ * leading and trailing zeros and an exponent, or a special value.
+ */
 const doubleGen: Gen<Candidate> = oneOf<Candidate>([
 	map(element(["NaN", "INF", "-INF", "+INF", "nan", "Infinity"]), (text) => ({
 		target: { kind: "double" },
@@ -221,6 +226,20 @@ const doubleGen: Gen<Candidate> = oneOf<Candidate>([
 			member,
 			value: member ? Number(text) : undefined,
 			shape: member ? "double finite" : "double past bound"
+		}
+	},
+	(source) => {
+		const s = source.draw(sign)
+		const integer = Str.repeat(source.draw(int(1, 3)))("0")
+		const fraction = Str.repeat(source.draw(int(0, 3)))("0")
+		const exponent = source.draw(element([undefined, 0, -1, 293, -293]))
+		const text = `${s}${integer}${fraction.length > 0 ? `.${fraction}` : ""}${exponent === undefined ? "" : `e${exponent}`}`
+		return {
+			target: { kind: "double" },
+			text,
+			member: true,
+			value: Number(text),
+			shape: "double zero"
 		}
 	}
 ])
@@ -683,10 +702,6 @@ export const candidateOf =
 export const candidateGen: Gen<Candidate> = (source) =>
 	source.draw(candidateOf(source.draw(targetGen(candidateMaxPrecision))))
 
-/** Two values of a target's host type are one value: a Decimal by equals, a double by Object.is but for one zero. */
+/** Two values of a target's host type are one value: a Decimal by equals, a double by Object.is, -0 apart from 0. */
 export const sameValue = (a: unknown, b: unknown): boolean =>
-	a instanceof Decimal && b instanceof Decimal
-		? a.equals(b)
-		: typeof a === "number" && typeof b === "number"
-			? (Number.isNaN(a) && Number.isNaN(b)) || a === b
-			: a === b
+	a instanceof Decimal && b instanceof Decimal ? a.equals(b) : Object.is(a, b)

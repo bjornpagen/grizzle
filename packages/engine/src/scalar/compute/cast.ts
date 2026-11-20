@@ -140,7 +140,8 @@ const roundRational = (
 
 /**
  * An exact signed rational as a float of `width`, rounded once as IEEE 754 rounds: ±Infinity past the largest finite
- * value, the correctly rounded subnormal, and the one zero below half the least subnormal.
+ * value, the correctly rounded subnormal, and a zero of its sign at zero and below half the least subnormal, so a
+ * negative zero's text, `-0`, is -0, as PostgreSQL's float8in reads it.
  */
 export const toFloat = (
 	negative: boolean,
@@ -149,7 +150,7 @@ export const toFloat = (
 	width: "float4" | "float8"
 ): number => {
 	const magnitude = roundRational(num, den, width, "nearest")
-	return magnitude === 0 ? 0 : negative ? -magnitude : magnitude
+	return negative ? -magnitude : magnitude
 }
 
 /**

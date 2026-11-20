@@ -8,7 +8,7 @@
  *   (sign, digits either side of a point, exponent; year, month, day), and whether it is a member, and the value it
  *   names, follow from those parts alone: an integer in its carrier's range; a decimal's significant digits against
  *   the typmod; a double's value as ECMAScript's StringToNumber reads it, correctly rounded for the at most 20
- *   significant digits a candidate has; a double's text of any digits by the IEEE 754 conversion written from its
+ *   significant digits a candidate has, a zero's sign its own; a double's text of any digits by the IEEE 754 conversion written from its
  *   definition (test/support/oracle/evaluate/double-text.ts); a date's validity and day number as the proleptic
  *   Gregorian calendar of ECMAScript's Date gives them;
  * - **the inclusion walk's own refutation:** a pattern pair the walk calls included admits no walk of the inner
@@ -151,6 +151,12 @@ export const lexicalFormsEachFormsPatternAndItsScanAgreeOnEveryCandidateAndAMemb
 				original: '\t\ttext === "INF" ||\n\t\ttext === "-INF" ||',
 				replacement: '\t\ttext === "INF" ||\n\t\ttext === "+INF" ||\n\t\ttext === "-INF" ||',
 				why: 'doubleText\'s scan reads "+INF" as Infinity, which XML Schema 1.0 does not; the "+INF" candidate fails.'
+			},
+			{
+				file: "packages/engine/src/scalar/compute/cast.ts",
+				original: "\treturn negative ? -magnitude : magnitude\n",
+				replacement: "\treturn magnitude === 0 ? 0 : negative ? -magnitude : magnitude\n",
+				why: "The host rounds a negative rational to the one zero: a double's text of a negative zero, -0 or -000.0e-293, parses to 0, where ECMAScript, XML Schema's lexical mapping and PostgreSQL's float8in read -0."
 			}
 		]
 	})

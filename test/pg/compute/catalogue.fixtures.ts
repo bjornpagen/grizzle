@@ -104,7 +104,8 @@ const intBoundaries = (
 
 /**
  * The boundary classes of each carrier: its range's ends and their neighbours, zero and the units, NaN, for the floats
- * the infinities too (no numeric field holds one), the largest and smallest magnitudes, and the halves an integer cast
+ * the infinities too (no numeric field holds one), the largest and smallest magnitudes, a float's smallest of either
+ * sign, whose products, quotients and narrowings round to a zero of their sign, and the halves an integer cast
  * rounds. Every (entry, class) pair is a situation the search must reach: an agreement on a value, or a refusal the
  * operand's value justifies.
  */
@@ -133,6 +134,7 @@ const boundaries: { readonly [C in Gate]: Arr.NonEmptyReadonlyArray<Boundary> } 
 		{ name: "half", value: 2.5 },
 		{ name: "largest", value: Number.MAX_VALUE },
 		{ name: "least", value: 5e-324 },
+		{ name: "minus least", value: -5e-324 },
 		{ name: "2^63", value: 2 ** 63 },
 		{ name: "NaN", value: { float: "NaN" } },
 		{ name: "Infinity", value: { float: "Infinity" } },
@@ -145,6 +147,7 @@ const boundaries: { readonly [C in Gate]: Arr.NonEmptyReadonlyArray<Boundary> } 
 		{ name: "half", value: 2.5 },
 		{ name: "largest", value: 3.4028234663852886e38 },
 		{ name: "least", value: 1.401298464324817e-45 },
+		{ name: "minus least", value: -1.401298464324817e-45 },
 		{ name: "NaN", value: { float: "NaN" } },
 		{ name: "Infinity", value: { float: "Infinity" } },
 		{ name: "-Infinity", value: { float: "-Infinity" } }

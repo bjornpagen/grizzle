@@ -110,6 +110,13 @@ export const theComputeCatalogueAgainstPostgreSQL19AgreesWithPostgreSQLOnTheResu
 			kept: [],
 			kills: [
 				{
+					file: "packages/engine/src/lower/conservative/expr/total.ts",
+					original:
+						"\t\troundToFloat(v, carrier, signedZeroOf(v, carrier, floatLit(0, carrier)))\n",
+					replacement: "\t\troundToFloat(v, carrier, floatLit(0, carrier))\n",
+					why: "The exact path rounds a negative value below half the least subnormal to +0: the least magnitude's negative times the least, or over 2.5, is 0 in the SQL where the host's IEEE 754 arithmetic gives -0."
+				},
+				{
 					file: "packages/engine/src/scalar/compute/evaluate.ts",
 					original:
 						'const r = fn === "add" ? a + b : fn === "sub" ? a - b : fn === "mul" ? a * b : quotient(a, b)',
