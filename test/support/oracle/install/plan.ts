@@ -36,6 +36,7 @@ import type {
 import { regex } from "arkregex"
 import { noSpellings } from "#compiler/ir/pattern.ts"
 import { definitionDigest } from "#compiler/physical/ddl/domains.ts"
+import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import {
 	cosineNormMax,
 	cosineNormMin,
@@ -67,7 +68,7 @@ import type {
 	SchemaDesc,
 	AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import type { InstalledAt } from "#test/support/kernel/naming.ts"
+import { type InstalledAt, knownContractDomain } from "#test/support/kernel/naming.ts"
 import {
 	type ColumnType,
 	type InstallPlan,
@@ -185,20 +186,15 @@ const vectorNorm = (vectorSchema: string, column: string): Expr => ({
  * base type, `text COLLATE pg_catalog.pg_c_utf8` for a text base. Its CHECK is the base's pattern test, membership in
  * the pattern's language, where the base is refined text outside any contract, or none. A contract's name is its
  * type-level brand alone, so two contracts of one definition share one domain. A contract's predicate is a CHECK the
- * minimal installer neither installs nor states, so its domain cannot be named here, and it is refused.
+ * minimal installer neither installs nor states, so a contract with one is named here only where the test naming door
+ * knows its definition without an installation (kernel/naming.ts knownContractDomain: natural's, which every schema
+ * holds), and refused otherwise.
  */
 const contractDigest = (
 	field: Extract<FieldDesc, { readonly kind: "contract" }>,
 	base: ColumnType,
 	location: string
 ): DomainDigest => {
-	if (field.predicate !== undefined) {
-		return refuse(
-			"UnsupportedOperation",
-			location,
-			`oracle install: the contract ${field.name}'s predicate, which its domain's name digests and the minimal installer leaves out`
-		)
-	}
 	const inner = field.base
 	const pattern =
 		inner.kind === "text"
@@ -466,6 +462,10 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		})
 	}
 
+	/**
+	 * Each contract's domain by its name, as a field first resolves it: natural's first, which every schema holds and
+	 * installs, whether or not a field holds it (5757e399b: every query may count, and a count is a natural).
+	 */
 	const domains = new Map<string, { readonly identity: string; readonly domain: OracleDomain }>()
 	/** Each contract domain by its identifier: contracts of one physical definition share one domain. */
 	const definitionDomains = new Map<string, string>()
@@ -534,7 +534,16 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 					}
 				}
 				const base = resolve(field.base, location)
-				const named = door.contractDomain(contractDigest(field, base, location)).identifier
+				const named =
+					field.predicate === undefined
+						? door.contractDomain(contractDigest(field, base, location)).identifier
+						: Option.getOrElse(knownContractDomain(desc.name, planSchema, field.name), () =>
+								refuse(
+									"UnsupportedOperation",
+									location,
+									`oracle install: the contract ${field.name}'s predicate, which its domain's name digests and the minimal installer leaves out`
+								)
+							)
 				const shared = definitionDomains.get(named)
 				const name = shared ?? unwrap(schemaScope.claim(named, location))
 				definitionDomains.set(named, name)
@@ -599,6 +608,8 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			}
 		}
 	}
+
+	resolve(naturalDescriptor.desc, "contract natural")
 
 	for (const { value: r, location } of relations) {
 		if (r.kind !== "closedRelation") {

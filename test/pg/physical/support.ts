@@ -1,5 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -284,7 +284,10 @@ export const worldsGrants = (
 	)
 	/**
 	 * The domains a full role reads: every domain of the schema but a text domain whose every use is a closed
-	 * relation's field, which no table holds, the migration's validation of the closed facts alone casting to it.
+	 * relation's field, which no table holds, the migration's validation of the closed facts alone casting to it, and a
+	 * contract's domain no table's column is typed by, down a domain's base chain: natural's, which every schema
+	 * installs whether or not a field holds it (5757e399b), and which a role holds USAGE on only where a column of its
+	 * relations is typed by it (physical/ddl/roles.ts).
 	 */
 	const tables = new Set(Arr.map(catalog.tables, (t) => t.name))
 	const closedOnly = new Set<string>(
@@ -292,7 +295,24 @@ export const worldsGrants = (
 			Arr.some(d.uses, (u) => tables.has(u.table)) ? [] : [d.name]
 		)
 	)
-	const usedDomains = Arr.filter(catalog.domains, (d) => !closedOnly.has(d.name))
+	const domainBase = new Map(Arr.map(catalog.domains, (d) => [d.name, d.base.name] as const))
+	const chainOf = (name: string): ReadonlyArray<string> => {
+		const base = domainBase.get(name)
+		return base === undefined ? [] : [name, ...chainOf(base)]
+	}
+	const typing = new Set<string>(
+		Arr.flatMap(catalog.tables, (t) => Arr.flatMap(t.columns, (c) => chainOf(c.type.name)))
+	)
+	const unheldContracts = new Set<string>(
+		Arr.flatMap(Rec.keys(installation.owned.contracts), (contract) => {
+			const domain = installation.names.contractDomain(parsedName(contract)).name
+			return typing.has(domain) ? [] : [domain]
+		})
+	)
+	const usedDomains = Arr.filter(
+		catalog.domains,
+		(d) => !closedOnly.has(d.name) && !unheldContracts.has(d.name)
+	)
 	return projectedGrants([
 		...on("schema", installation.names.schema, [writer.login, writer.role, reader], ["USAGE"]),
 		...on("schema", writer.role, [writer.role], ["USAGE"]),

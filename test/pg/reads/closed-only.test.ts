@@ -19,11 +19,13 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
- * A schema of closed relations only installs with no law and no table, opens, and reads every roster's handles.
+ * A schema of closed relations only installs with natural's contract law alone and no table, opens, and reads every
+ * roster's handles. natural is every schema's (5757e399b): every query may count, and a count is a natural, so its law
+ * is stated whether or not a field holds it.
  *
  * Its pre-conversion budget: runs 24, coverage cases 24 (test/pg/reads/closed-only.test.ts at d8eed1786).
  */
-export const aSchemaOfClosedRelationsOnlyInstallsWithNoLawAndNoTableOpensAndReadsEveryRostersHandles =
+export const aSchemaOfClosedRelationsOnlyInstallsWithNaturalsLawAloneAndNoTableOpensAndReadsEveryRostersHandles =
 	property.explore(plansCaseGen, {
 		needs: { substrate: Substrate.installing },
 		situations: ["one handle", "every handle"] satisfies ReadonlyArray<Reached<ClosedFeature>>,
@@ -58,7 +60,13 @@ export const aSchemaOfClosedRelationsOnlyInstallsWithNoLawAndNoTableOpensAndRead
 							{},
 							{ label: "real", programs: { tiers, regions } }
 						)
-						assert.deepEqual(opened.installed.installation.laws.theory.laws, [])
+						assert.deepEqual(
+							Arr.map(opened.installed.installation.laws.theory.laws, (law) =>
+								law.detail.kind === "contract" ? `contract ${law.detail.contract}` : law.detail.kind
+							),
+							["contract natural"],
+							"natural's contract law alone, which every schema states"
+						)
 						assert.ok(
 							Rec.isEmptyRecord(opened.installed.plan.tables),
 							"a schema of rosters and closed relations stores no table"
@@ -91,7 +99,7 @@ export const aSchemaOfClosedRelationsOnlyInstallsWithNoLawAndNoTableOpensAndRead
 				),
 		oracle: {
 			kind: "specification",
-			name: "the schema restated: no law, no table, and each roster's handles as drawn, as a set"
+			name: "the schema restated: natural's law alone, no table, and each roster's handles as drawn, as a set"
 		},
 		budget: { runs: 24, steered: 24 },
 		kept: [],

@@ -37,11 +37,12 @@ import { bookkeepingTables } from "#compiler/deploy/ledger/ledger.ts"
 import {
 	descText,
 	type ExprDesc,
+	type FieldDesc,
 	type SchemaDesc as SrcSchemaDesc,
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 
-import { type Codebook, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
+import { type Codebook, codeOf, emptyCodebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { type NativeColumn, type NativeObject, type NativeOf } from "#compiler/ir/law.ts"
 import { installedSpellings } from "#compiler/ir/pattern.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -69,15 +70,16 @@ import { keyTermText } from "#compiler/physical/indexes/engine.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
-import type {
-	AnyRelation,
-	AnyRole,
-	AnyRoster,
-	AnySchema,
-	Statement
+import {
+	type AnyRelation,
+	type AnyRole,
+	type AnyRoster,
+	type AnySchema,
+	relation,
+	schema,
+	type Statement
 } from "#compiler/public/schema.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
-import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
@@ -89,9 +91,9 @@ import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"
 import type { AlternativesBase } from "#compiler/types/schema/statements.ts"
 import { allocatedLevels } from "#test/support/compile.ts"
 import type { AuthoredStatementDesc, SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, idDesc } from "#test/support/ids.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
-import { ownedInput, ownInput } from "#test/support/policy.ts"
+import { checking, ownedInput, ownInput } from "#test/support/policy.ts"
 
 /**
  * What a test names production identifiers of: a public schema value or a desc fixture, as the schema boundary
@@ -233,9 +235,35 @@ export const productionNames = (
 	return names
 }
 
-/** The contract a contract descriptor describes. */
-const contractInfoOf = (descriptor: unknown, name: string): ContractInfo => {
-	const info = describeFieldOrThrow(descriptor, SourceLoc(name, [])).scalar.contract
+/**
+ * The identifier of the domain of a contract productionNames knows without an installation (knownContracts: natural's,
+ * which every schema holds, and the tests' Id's) in the schema `at` names, by its definition's digest, CHECK and all, as
+ * the installation names it; none for any other contract, whose definition only an installation holds.
+ */
+export const knownContractDomain = (
+	declaredSchema: string,
+	at: InstalledAt,
+	contract: string
+): Option.Option<string> =>
+	knownContracts.has(contract)
+		? Option.some(
+				productionNames(declaredSchema, at, localVectorSchema, emptyCodebook).contractDomain(
+					parsedName(contract)
+				).name
+			)
+		: Option.none()
+
+/**
+ * A schema holding the contracts productionNames knows: natural, which every schema holds, and the tests' Id, which its
+ * one relation's key is: what types each as an installation's checked schema does, its predicate lowered into the table
+ * its domain's CHECK is drawn from (analysis/schema.ts CheckedSchema fieldType). A descriptor read alone is typed for
+ * its identity, its predicate left out, and named natural's domain as one of no CHECK, which no installation holds.
+ */
+const knownSchema = checking(schema("Known", [relation("Known", { id: Id }, ["id"])], []))
+
+/** The contract a contract descriptor describes, as knownSchema types it. */
+const contractInfoOf = (desc: FieldDesc, name: string): ContractInfo => {
+	const info = knownSchema.fieldType(desc, SourceLoc(name, [])).contract
 	if (info === undefined) {
 		throw new Error(`${name} is a contract`)
 	}
@@ -247,10 +275,10 @@ const contractInfoOf = (descriptor: unknown, name: string): ContractInfo => {
  * every installation holds (schema/own.ts), and the tests' Id (test/support/ids.ts).
  */
 const knownContracts: ReadonlyMap<string, ContractInfo> = new Map(
-	Arr.map([contractInfoOf(naturalDescriptor, "natural"), contractInfoOf(Id, "Id")], (info) => [
-		info.name,
-		info
-	])
+	Arr.map(
+		[contractInfoOf(naturalDescriptor.desc, "natural"), contractInfoOf(idDesc, "Id")],
+		(info) => [info.name, info]
+	)
 )
 
 /**
