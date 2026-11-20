@@ -125,7 +125,7 @@ export const domainModule = property.explore(caseGen, {
 			why: "The domain module's identifier map keeps no name, so every definition is refused as unnamed; the property fails (EOCG-EMIT's handoff from help-non-standard.test.ts, mutant b463d38258)."
 		},
 		{
-			file: "packages/generator/src/normalize/schemas.ts",
+			file: "packages/cli-generator/src/normalize/schemas.ts",
 			original: '\treturn defs === "$defs" && rest.length === 0 ? key : undefined',
 			replacement: '\treturn defs === "$defs" && rest.length === (-1) ? key : undefined',
 			why: "referenceKey reads no `#/$defs/<token>` reference as naming a definition, so the copy holds no definition a root references and every reference is refused as resolving nowhere; the property fails (CATCH's evidence, mutant 05368cc231)."

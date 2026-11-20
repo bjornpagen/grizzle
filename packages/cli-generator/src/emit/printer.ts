@@ -842,18 +842,6 @@ const canHug = (args: readonly Expr[]): boolean => {
 	return !(args.length > 1 && last._tag === "Array" && isNumberList(last.elements))
 }
 
-const opening = (expr: Expr): string => {
-	if (expr._tag !== "Arrow") {
-		return expr._tag === "Object" ? "{" : "["
-	}
-
-	if (expr.body._tag === "Object") {
-		return `${arrowHead(expr)} ({`
-	}
-
-	return expr.body._tag === "Array" ? `${arrowHead(expr)} [` : arrowHead(expr)
-}
-
 const renderMovedBody = (expr: ArrowExpr, indent: number, tail: number, render: Render) => {
 	const inner = indent + 2
 
@@ -888,6 +876,17 @@ const renderHugged = (expr: Expr, indent: number, render: Render): string => {
 	return `${renderMovedBody(expr, indent, 1, render)},\n${pad(indent)}`
 }
 
+/**
+ * Whether a call's arguments hugging their last one fit (measured): the hugged form's first line ends at or before
+ * column 100, and, where the last argument has nothing to break (an arrow whose body is `{}` or `[]`), the text after
+ * it on its line too. oxfmt then breaks the argument list one per line, as for any other argument that does not fit.
+ */
+const huggedFits = (hugged: string, place: Place): boolean =>
+	Option.match(Str.indexOf("\n")(hugged), {
+		onNone: () => fits(hugged, place),
+		onSome: (lineEnd) => place.column + textWidth(Str.slice(0, lineEnd)(hugged)) <= lineWidth
+	})
+
 const renderArgs = (args: readonly Expr[], place: Place, render: Render): string => {
 	const flats = Arr.map(args, flat)
 	const flatText = flatArgs(args)
@@ -902,8 +901,9 @@ const renderArgs = (args: readonly Expr[], place: Place, render: Render): string
 			Arr.map(leading, (text) => `${text}, `),
 			""
 		)}`
-		if (place.column + textWidth(prefix) + textWidth(opening(last)) <= lineWidth) {
-			return `${prefix}${renderHugged(last, place.indent, render)})`
+		const hugged = `${prefix}${renderHugged(last, place.indent, render)})`
+		if (huggedFits(hugged, place)) {
+			return hugged
 		}
 	}
 

@@ -177,10 +177,24 @@ export const printedModule = property.explore(moduleSpace, {
 			reason:
 				"a chain beside a long const name, `a.pipe()({})`, that does not fit after its `=` but whose argument list holding `{}` starts on that line: an empty object is no short argument, so the formatter breaks that list beside `=` rather than moving the chain below (found by the push gate's rotating stream at seed 0x46c01f85)",
 			since: "2026-11-18"
+		},
+		{
+			token: ReplayToken(
+				"packages/cli-generator/test/emit/printer.test.ts#printedModule:-:0.1.8.5.0.0.2.2.0.0.0.3.0.0.8.0.3.1.hy.0.1.a.2.2.1.3.0.7.1.0.0.0.0.5.0.4.0.1.4.0.0.0"
+			),
+			reason:
+				"a call statement of 101 columns whose last argument is an arrow with the body `({})`: nothing in the hugged arrow breaks, so the formatter breaks the argument list one per line, where the printer hugged the arrow on one line past column 100 (found by FIX01's rotating stream, red on eocg main)",
+			since: "2026-11-20"
 		}
 	],
 	budget: { runs: 300, steered: 1500 },
 	kills: [
+		{
+			file: "packages/cli-generator/src/emit/printer.ts",
+			original: "\t\tonNone: () => fits(hugged, place),",
+			replacement: "\t\tonNone: () => true,",
+			why: "A hugged last argument with nothing to break is measured to its first line alone, so a call ending in `=> ({}))` past column 100 stays on one line where the formatter breaks its argument list; the property fails."
+		},
 		{
 			file: "packages/cli-generator/src/emit/printer.ts",
 			original: "\tif (textWidth(inPlace) <= lineWidth) {",

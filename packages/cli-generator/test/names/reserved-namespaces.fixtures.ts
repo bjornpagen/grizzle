@@ -14,7 +14,6 @@ import {
 	type Gen,
 	oneOf
 } from "@bjornpagen/testing/gen"
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Effect, FileSystem, JsonPointer, Option, Order, Path, Stream } from "effect"
 import type { Schema } from "effect"
 import { generate } from "#generate.ts"
