@@ -5,12 +5,15 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
 
 /**
  * The declared-call program: the box of what a call of a declared function passes at an argument of a closed id, a
- * value argument of Kind's ids and a rows argument whose heading holds one, each argument form once, exhausted and
+ * value argument of Kind's ids and a rows argument whose heading holds one, each argument form once, and the functions
+ * a query calls none of, one that returns one row, one whose rows hold rows and one that takes one row, exhausted and
  * printed as one program the type batch checks.
  *
  * The oracle is the rule every term meets by: a closed id stands only where a value of its own roster does, as a term
  * of its roster's ids or as a name a handle of the roster has, so an argument of Kind's ids takes Kind's and no other
- * roster's, and a rows argument takes a query whose facts hold Kind's ids at the field.
+ * roster's, and a rows argument takes a query whose facts hold Kind's ids at the field; and the rule of what a query
+ * calls: a function of values and rows of values alone, since a query's sources and terms hold fields and no field
+ * holds a composite or an array of them.
  */
 
 /** What an argument of Kind's ids is passed: a term, a handle, a name, a code, or rows of a query. */
@@ -23,7 +26,10 @@ const forms = [
 	"a name no handle of its roster has",
 	"an integer code",
 	"rows of its roster's ids",
-	"rows of another roster's ids"
+	"rows of another roster's ids",
+	"rows of a function of one row",
+	"rows of a function whose rows hold rows",
+	"a value of a function taking one row"
 ] as const
 
 type Form = (typeof forms)[number]
@@ -38,7 +44,10 @@ const admitted: { readonly [F in Form]: boolean } = {
 	"a name no handle of its roster has": false,
 	"an integer code": false,
 	"rows of its roster's ids": true,
-	"rows of another roster's ids": false
+	"rows of another roster's ids": false,
+	"rows of a function of one row": false,
+	"rows of a function whose rows hold rows": false,
+	"a value of a function taking one row": false
 }
 
 /** The cells of callsBox, minted as a dictionary in its door (test/types/compute/calls.dictionary.ts). */
@@ -75,16 +84,27 @@ const statementOf = (form: Form, index: number): string => {
 			return rowsCell("kind", index)
 		case "rows of another roster's ids":
 			return rowsCell("other", index)
+		case "rows of a function of one row":
+			return `export const c${index} = Compute.rowsOf(oneKind, {})`
+		case "rows of a function whose rows hold rows":
+			return `export const c${index} = Compute.rowsOf(kindLists, {})`
+		case "a value of a function taking one row":
+			return `export const c${index} = query(Root).rule((r) => r.match(Thing, { kind, other }).find({ called: Compute.call(kindIn, { s: kind }) }))`
 	}
 }
 
+/** Why the types refuse a form: another roster's value, or a function a query calls none of, whose signature holds one
+ * row or rows that hold rows, which only another function's body passes or reads. */
+const refusedBecause = (form: Form): string =>
+	form === "rows of a function of one row" ||
+	form === "rows of a function whose rows hold rows" ||
+	form === "a value of a function taking one row"
+		? "a query calls a function of values and rows of values alone"
+		: `an argument of Kind's ids takes ${form} of no other roster`
+
 const caseBlock = (form: Form, index: number): ReadonlyArray<string> => [
 	`// ${form}`,
-	...(admitted[form]
-		? []
-		: [
-				`// @ts-expect-error -- refused: an argument of Kind's ids takes ${form} of no other roster`
-			]),
+	...(admitted[form] ? [] : [`// @ts-expect-error -- refused: ${refusedBecause(form)}`]),
 	...Str.split(statementOf(form, index), "\n"),
 	""
 ]
@@ -92,14 +112,19 @@ const caseBlock = (form: Form, index: number): ReadonlyArray<string> => [
 /** The program's prelude (test/support/programs/calls.ts). */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/calls.ts"))
 
-/** Kind and Other, two rosters; Thing, of an id of each; kindOf of a Kind, kindsOf of rows of one; and their schema. */
+/** Kind and Other, two rosters; Thing, of an id of each; kindOf of a Kind, kindsOf of rows of one; oneKind of one row
+ * of one, kindLists of rows that hold rows of one, kindIn taking one row of one; and their schema. */
 const callsHeader = `export const Kind = closed.ordered("Kind", ["a", "b"])
 export const Other = closed.ordered("Other", ["x", "y"])
 export const Thing = relation("Thing", { id: Id, kind: closedId(Kind), other: closedId(Other) }, ["id"])
 export const kindOf = fn("kindOf", { calls: [], args: { k: closedId(Kind) }, returns: closedId(Kind), volatility: "immutable", language: "sql", body: fn.body\`SELECT k\` })
 const Kinds = rows({ k: closedId(Kind) })
 export const kindsOf = fn("kindsOf", { calls: [], args: { ks: Kinds }, returns: Kinds, volatility: "immutable", language: "sql", body: fn.body\`SELECT * FROM unnest(ks)\` })
-export const Root = schema("Root", [Kind, Other, Thing, kindOf, kindsOf], [])
+export const oneKind = fn("oneKind", { calls: [], args: {}, returns: row(Kinds), volatility: "immutable", language: "sql", body: fn.body\`SELECT ROW(1)::\${Kinds}\` })
+const KindLists = rows({ ks: Kinds })
+export const kindLists = fn("kindLists", { calls: [], args: {}, returns: KindLists, volatility: "immutable", language: "sql", body: fn.body\`SELECT ARRAY[ROW(1)::\${Kinds}]\` })
+export const kindIn = fn("kindIn", { calls: [], args: { s: row(Kinds) }, returns: closedId(Kind), volatility: "immutable", language: "sql", body: fn.body\`SELECT (s).k\` })
+export const Root = schema("Root", [Kind, Other, Thing, kindOf, kindsOf, oneKind, kindLists, kindIn], [])
 const { kind, other } = v(Thing, "thing")
 export const kinds = query(Root).rule((r) => r.match(Thing, { kind }).find({ k: kind }))
 export const others = query(Root).rule((r) => r.match(Thing, { other }).find({ k: other }))

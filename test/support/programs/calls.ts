@@ -5,5 +5,5 @@
 export { Compute } from "#compiler/public/compute.ts"
 export { closedId, pg, uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
-export { closed, fn, relation, rows, schema } from "#compiler/public/schema.ts"
+export { closed, fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 export { Id } from "#test/support/ids.ts"
