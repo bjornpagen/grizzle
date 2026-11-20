@@ -21,17 +21,16 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option, Order, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import {
 	answered,
-	decodeErrorLine,
-	decodeJson,
 	expectedRendered,
 	expectedShown,
 	type Failure,
 	failureRun,
 	FAILURES,
 	failures,
+	keysOf,
 	MARKER,
 	operationOfRequest,
 	printedFixture,
@@ -45,10 +44,10 @@ import {
 	SHOWN_FEATURES,
 	shownFeatures,
 	TOKEN,
-	utf8,
 	verboseRequest
 } from "#test/generated/printed-requests.fixtures.ts"
 import { runBin } from "#test/support/cli-package.ts"
+import { errorLineOf, printedJson, printedText } from "#test/support/printed.ts"
 
 /**
  * The dry run prints what a send carries, the same with or without the credential, and verbose changes nothing else.
@@ -83,8 +82,8 @@ export const printedRequests = property.explore(requests, {
 				const bare = yield* run("--dry-run", {})
 				const verbose = yield* run("--verbose", { OM_TOKEN: TOKEN })
 				const sent = yield* Effect.fromOption(Arr.head(verbose.requests))
-				const dryRunStdout = utf8(dryRun.result.stdout)
-				const verboseStderr = utf8(verbose.result.stderr)
+				const dryRunStdout = printedText(dryRun.result.stdout)
+				const verboseStderr = printedText(verbose.result.stderr)
 				const printed = printedOf(dryRunStdout)
 				const verboseLines = Arr.filter(Str.split("\n")(verboseStderr), Str.isNonEmpty)
 				assert.deepEqual<Shown>(
@@ -92,23 +91,23 @@ export const printedRequests = property.explore(requests, {
 						dryRunRequestLine: printed.requestLine,
 						dryRunExit: dryRun.result.exitCode,
 						dryRunConnections: dryRun.connections.length + bare.connections.length,
-						dryRunStderr: utf8(dryRun.result.stderr),
-						withoutCredential: utf8(bare.result.stdout),
+						dryRunStderr: printedText(dryRun.result.stderr),
+						withoutCredential: printedText(bare.result.stdout),
 						verboseExit: verbose.result.exitCode,
 						verboseLinesOnly: Arr.every(
 							verboseLines,
 							(line) => Str.startsWith("> ")(line) || Str.startsWith("< ")(line)
 						),
 						verboseRequest: verboseRequest(verboseStderr),
-						verboseBody: decodeJson(utf8(verbose.result.stdout)),
+						verboseBody: printedJson(printedText(verbose.result.stdout)),
 						responseOnStderr: Str.includes(MARKER)(verboseStderr),
 						tokenShown: Arr.some(
 							[
 								dryRunStdout,
-								utf8(bare.result.stdout),
-								utf8(bare.result.stderr),
+								printedText(bare.result.stdout),
+								printedText(bare.result.stderr),
 								verboseStderr,
-								utf8(verbose.result.stdout)
+								printedText(verbose.result.stdout)
 							],
 							Str.includes(TOKEN)
 						),
@@ -165,32 +164,26 @@ export const jsonErrors = property.exhaust(failures, {
 						stdin: new Uint8Array(0)
 					})
 				)
-				const lines = Arr.filter(Str.split("\n")(utf8(observed.result.stderr)), Str.isNonEmpty)
-				const error = Option.map(
-					Arr.findFirst(lines, (line) => decodeErrorLine(line)),
-					(decoded) => decoded.error
+				const lines = Arr.filter(
+					Str.split("\n")(printedText(observed.result.stderr)),
+					Str.isNonEmpty
 				)
-				const field = <A>(name: string, refine: (value: string | number) => Option.Option<A>) =>
-					Option.flatMap(error, (fields) => Option.flatMap(Rec.get(fields, name), refine))
-				const asString = (value: string | number): Option.Option<string> =>
-					typeof value === "string" ? Option.some(value) : Option.none()
-				const asNumber = (value: string | number): Option.Option<number> =>
-					typeof value === "number" ? Option.some(value) : Option.none()
+				const error = Arr.findFirst(lines, errorLineOf)
 				assert.deepEqual<Rendered>(
 					{
 						exitCode: observed.result.exitCode,
 						connections: observed.connections.length,
-						stdout: utf8(observed.result.stdout),
+						stdout: printedText(observed.result.stdout),
 						lines: lines.length,
-						kind: field("kind", asString),
-						keys: Option.match(error, {
-							onNone: () => [],
-							onSome: (fields) => Arr.sort(Rec.keys(fields), Order.String)
-						}),
-						status: field("status", asNumber),
-						requestId: field("requestId", asString),
-						retryAfter: field("retryAfter", asNumber),
-						bodyHasMarker: Option.exists(field("body", asString), Str.includes(MARKER))
+						kind: Option.map(error, (fields) => fields.kind),
+						keys: Option.match(error, { onNone: () => [], onSome: keysOf }),
+						status: Option.flatMap(error, (fields) => fields.status),
+						requestId: Option.flatMap(error, (fields) => fields.requestId),
+						retryAfter: Option.flatMap(error, (fields) => fields.retryAfter),
+						bodyHasMarker: Option.exists(
+							Option.flatMap(error, (fields) => fields.body),
+							Str.includes(MARKER)
+						)
 					},
 					expectedRendered(failure),
 					"one JSON object with the error's keys, and the error's exit code"

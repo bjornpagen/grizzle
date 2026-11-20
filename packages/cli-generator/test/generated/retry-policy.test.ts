@@ -44,6 +44,7 @@ import {
 	sendArgs
 } from "#test/generated/retry-policy.fixtures.ts"
 import { runBin } from "#test/support/cli-package.ts"
+import { printedText } from "#test/support/printed.ts"
 
 /**
  * Every attempt, notice, exit code and JSON error is the one the retry rules give over the server's answers. Its
@@ -92,7 +93,7 @@ export const retryPolicy = property.explore(cases, {
 						stdin: isOneShot(c.send) ? octetBody() : new Uint8Array(0)
 					})
 				)
-				const lines = Str.split("\n")(Buffer.from(observed.result.stderr).toString("utf8"))
+				const lines = Str.split("\n")(printedText(observed.result.stderr))
 				assert.deepEqual<Outcome>(
 					{
 						exitCode: observed.result.exitCode,

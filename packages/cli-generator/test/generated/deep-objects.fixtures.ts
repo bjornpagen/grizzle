@@ -17,16 +17,8 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Option,
-	Order,
-	Record as Rec,
-	Schema,
-	String as Str
-} from "effect"
+import { Array as Arr, Duration, Effect, Option, Order, Record as Rec, String as Str } from "effect"
+import type { Json } from "#model/pointer.ts"
 import { readDescription } from "#runtime-src/runtime/describe.ts"
 import {
 	type CaptureServer,
@@ -113,12 +105,12 @@ const NUMBER = { type: "number" } as const
 const STRING = { type: "string" } as const
 
 /** An object schema with these properties. */
-const objectSchema = (properties: Readonly<Record<string, Schema.Json>>): Schema.Json => ({
+const objectSchema = (properties: Readonly<Record<string, Json>>): Json => ({
 	type: "object",
 	properties
 })
 
-const ACTIVE_FROM: Schema.Json = { anyOf: [NUMBER, { type: "string", enum: ["now"] }] }
+const ACTIVE_FROM: Json = { anyOf: [NUMBER, { type: "string", enum: ["now"] }] }
 
 /** A list with two deepObject query parameters, a create whose required field is a scalar union, and an update. */
 const spec = jsonText({
@@ -1102,8 +1094,6 @@ export const refusedNamesOf = (help: string): ReadonlyArray<string> =>
 	)
 
 export const decodeDescription = (text: string) => Effect.fromResult(readDescription(text))
-
-export const utf8 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("utf8")
 
 /** The suite's fixture under one config, once per worker: the capture server, the package built against it, and its commands. */
 const fixtureOf = (mode: Mode) =>

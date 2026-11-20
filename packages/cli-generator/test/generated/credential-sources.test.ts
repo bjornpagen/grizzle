@@ -44,6 +44,7 @@ import {
 	valueCases
 } from "#test/generated/credential-sources.fixtures.ts"
 import { runBin, runBinOnTerminal } from "#test/support/cli-package.ts"
+import { printedText } from "#test/support/printed.ts"
 
 /** Every scheme's simple credential goes where its scheme says from every source, and nowhere else. */
 export const credentialSources = property.exhaust(sourceCases, {
@@ -87,7 +88,7 @@ export const credentialFileHelp = property.exhaust(rootHelp, {
 			Effect.gen(function* () {
 				const { built } = yield* fixture
 				const help = yield* runBin(built, { args: [flag], env: {}, stdin: new Uint8Array(0) })
-				const lines = Arr.map(Str.split("\n")(new TextDecoder().decode(help.stdout)), Str.trim)
+				const lines = Arr.map(Str.split("\n")(printedText(help.stdout)), Str.trim)
 				assert.deepEqual(
 					Arr.map(SCHEMES, (scheme) =>
 						Arr.some(
@@ -207,7 +208,7 @@ export const credentialPrompt = property.explore(typedCases, {
 					{
 						exitCode: observed.result.exitCode,
 						requests: Arr.map(observed.requests, carriedOf),
-						leaked: Str.includes(Str.trim(text))(new TextDecoder().decode(observed.result.terminal))
+						leaked: Str.includes(Str.trim(text))(printedText(observed.result.terminal))
 					},
 					{ exitCode: 0, requests: [expectedCarried(scheme, text)], leaked: false },
 					"the value typed at the prompt goes where its scheme says and the terminal never shows it"

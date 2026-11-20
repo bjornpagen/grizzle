@@ -15,15 +15,8 @@ import {
 	option,
 	string
 } from "@bjornpagen/testing/gen"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Option,
-	Record as Rec,
-	Schema,
-	String as Str
-} from "effect"
+import { Array as Arr, Duration, Effect, Option, Record as Rec, String as Str } from "effect"
+import type { Json } from "#model/pointer.ts"
 import {
 	type CaptureServer,
 	captureServer,
@@ -37,6 +30,7 @@ import {
 } from "#test/support/cli-package.ts"
 import { type Pair, queryPairs } from "#test/support/form.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
+import { printedJson } from "#test/support/printed.ts"
 
 /** What the content-parameters properties (content-parameters.test.ts) draw and their fixture: the runs and faults. */
 
@@ -95,7 +89,7 @@ const wordText: Gen<string> = string(characterOf(["a", "Z", "0", "-", "_", ".", 
 const plain: Gen<string> = string(characterOf(["a", "Z", "0", "-", "_", "."]), { min: 1, max: 6 })
 
 /** A JSON leaf: a word, a whole number or a boolean. */
-const leaf: Gen<Schema.Json> = (source) => {
+const leaf: Gen<Json> = (source) => {
 	switch (source.draw(element<"word" | "number" | "boolean">(["word", "number", "boolean"]))) {
 		case "word":
 			return source.draw(wordText)
@@ -108,7 +102,7 @@ const leaf: Gen<Schema.Json> = (source) => {
 
 /** A JSON object whose members are drawn from `member`, under distinct short keys. */
 const objectOf =
-	(member: Gen<Schema.Json>): Gen<Readonly<Record<string, Schema.Json>>> =>
+	(member: Gen<Json>): Gen<Readonly<Record<string, Json>>> =>
 	(source) =>
 		Rec.fromEntries(
 			Arr.map(
@@ -117,12 +111,12 @@ const objectOf =
 						array(string(characterOf(["a", "b", "c"]), { min: 1, max: 3 }), { min: 0, max: 3 })
 					)
 				),
-				(key): readonly [string, Schema.Json] => [key, source.draw(member)]
+				(key): readonly [string, Json] => [key, source.draw(member)]
 			)
 		)
 
 /** A JSON object of leaves and of objects of leaves. */
-const object: Gen<Readonly<Record<string, Schema.Json>>> = objectOf((source) =>
+const object: Gen<Readonly<Record<string, Json>>> = objectOf((source) =>
 	source.draw(boolean) ? source.draw(leaf) : source.draw(objectOf(leaf))
 )
 
@@ -132,7 +126,7 @@ type Fault = "the required parameter missing" | "text that is not JSON"
 /** The values a run gives, each optional one given or not. */
 type Values = Readonly<{
 	kind: "values"
-	coordinates: Readonly<Record<string, Schema.Json>>
+	coordinates: Readonly<Record<string, Json>>
 	tags: Option.Option<ReadonlyArray<string>>
 	trace: Option.Option<string>
 	cookie: Option.Option<string>
@@ -155,7 +149,7 @@ const planted =
 const givenOf =
 	(
 		parts: Readonly<{
-			coordinates: Gen<Readonly<Record<string, Schema.Json>>>
+			coordinates: Gen<Readonly<Record<string, Json>>>
 			tags: Gen<Option.Option<ReadonlyArray<string>>>
 			trace: Gen<Option.Option<string>>
 			cookie: Gen<Option.Option<string>>
@@ -201,35 +195,31 @@ export const argsOf = (r: Run): ReadonlyArray<string> => {
 	}
 }
 
-/** What a request carried, as the oracle compares it: each query parameter's JSON, the header and the cookie. */
+/**
+ * What a request carried, as the oracle compares it: the JSON each value of a query parameter holds, none for a value
+ * that is no JSON text; the header and the cookie.
+ */
 type Carried = Readonly<{
-	coordinates: ReadonlyArray<Schema.Json>
-	tags: ReadonlyArray<Schema.Json>
+	coordinates: ReadonlyArray<Option.Option<Json>>
+	tags: ReadonlyArray<Option.Option<Json>>
 	trace: ReadonlyArray<string>
 	cookie: ReadonlyArray<string>
 }>
 
-const decodeJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Json))
-
 /** The JSON each value of a query parameter holds. */
-const jsonValues = (pairs: ReadonlyArray<Pair>, name: string) =>
-	Effect.forEach(
-		Arr.flatMap(pairs, ([key, value]) => (key === name ? [value] : [])),
-		(value) => decodeJson(value)
-	)
+const jsonValues = (pairs: ReadonlyArray<Pair>, name: string): ReadonlyArray<Option.Option<Json>> =>
+	Arr.flatMap(pairs, ([key, value]) => (key === name ? [printedJson(value)] : []))
 
 /** What a recorded request carried. */
-export const carriedOf = (request: WireRequest) =>
-	Effect.gen(function* () {
-		const pairs = queryPairs(request.target)
-		const carried: Carried = {
-			coordinates: yield* jsonValues(pairs, "coordinates"),
-			tags: yield* jsonValues(pairs, "tags"),
-			trace: valuesOf(request.headers, "x-trace"),
-			cookie: valuesOf(request.headers, "cookie")
-		}
-		return carried
-	})
+export const carriedOf = (request: WireRequest): Carried => {
+	const pairs = queryPairs(request.target)
+	return {
+		coordinates: jsonValues(pairs, "coordinates"),
+		tags: jsonValues(pairs, "tags"),
+		trace: valuesOf(request.headers, "x-trace"),
+		cookie: valuesOf(request.headers, "cookie")
+	}
+}
 
 /** What the oracle compares of a run. */
 export type Outcome = Readonly<{
@@ -247,8 +237,8 @@ export const expectedOf = (r: Run): Outcome => {
 				connections: 1,
 				requests: [
 					{
-						coordinates: [r.coordinates],
-						tags: Option.match(r.tags, { onNone: () => [], onSome: (tags) => [tags] }),
+						coordinates: [Option.some(r.coordinates)],
+						tags: Option.match(r.tags, { onNone: () => [], onSome: (tags) => [Option.some(tags)] }),
 						trace: Option.toArray(r.trace),
 						cookie: Option.match(r.cookie, {
 							onNone: () => [],

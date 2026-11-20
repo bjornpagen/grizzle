@@ -33,14 +33,13 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option, Record as Rec, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import {
 	bodyOf,
 	cutCases,
 	type CutFeature,
 	cutFeature,
 	errorData,
-	ErrorLine,
 	errorText,
 	kindOf,
 	expectedOf,
@@ -67,6 +66,7 @@ import {
 	writeBody,
 	writesOf
 } from "#test/generated/event-stream.fixtures.ts"
+import { errorLineOf } from "#test/support/printed.ts"
 
 /** Each stream's events are written exactly as sent, through the stop point its flags name. Its budget is the count
  * its suite stated before the conversion: 4 independent cases, and up to 16 steered while a situation is unreached.
@@ -82,7 +82,7 @@ export const streamFeed = property.explore(feeds, {
 					const server = yield* Server
 					yield* server.script([{ writes: writesOf(bodyOf(sent), sent.writes), close: sent.ends }])
 					const interrupted = sent.follow && !sent.ends
-					const expected = yield* expectedOf(sent)
+					const expected = expectedOf(sent)
 					const lastLine = Option.getOrElse(
 						Arr.last(Str.split("\n")(Str.trimEnd(expected))),
 						() => ""
@@ -163,7 +163,7 @@ export const streamFailure = property.exhaust(failureCases, {
 						],
 						Option.none()
 					)
-					const item = yield* lineOf(
+					const item = lineOf(
 						itemType,
 						failure.command === "post-page"
 							? ["{", '"key"', ":", "[", "]", "}"]
@@ -184,7 +184,7 @@ export const streamFailure = property.exhaust(failureCases, {
 									"}"
 								]
 					)
-					const error = yield* lineOf("error", [
+					const error = lineOf("error", [
 						"{",
 						'"error"',
 						":",
@@ -203,14 +203,14 @@ export const streamFailure = property.exhaust(failureCases, {
 						"}",
 						"}"
 					])
-					const last = yield* lineOf(failure.command === "post-page" ? "ready" : "end", ["{", "}"])
+					const last = lineOf(failure.command === "post-page" ? "ready" : "end", ["{", "}"])
 					const lastError = Option.getOrElse(
 						Arr.last(Str.split("\n")(Str.trim(run.stderr))),
 						() => ""
 					)
-					const printedError = Option.map(Schema.decodeOption(ErrorLine)(lastError), (line) => ({
-						kind: line.error.kind,
-						data: line.error.data
+					const printedError = Option.map(errorLineOf(lastError), (printed) => ({
+						kind: printed.kind,
+						data: printed.data
 					}))
 					const site = yield* Site
 					const digest = Rec.get(
@@ -241,7 +241,7 @@ export const streamFailure = property.exhaust(failureCases, {
 									stdout: `${item}${error}`,
 									printedError: Option.some({
 										kind: "StreamEventError",
-										data: errorData(failure.verdict)
+										data: Option.some(errorData(failure.verdict))
 									})
 								}
 					)
@@ -348,10 +348,10 @@ export const streamCut = property.exhaust(cutCases, {
 						],
 						Option.none()
 					)
-					const reset = yield* lineOf("reset", ["{", '"key"', ":", "[", "]", "}"])
-					const ready = yield* lineOf("ready", ["{", "}"])
-					const end = yield* lineOf("end", ["{", "}"])
-					const outcome = yield* lineOf("outcome", [
+					const reset = lineOf("reset", ["{", '"key"', ":", "[", "]", "}"])
+					const ready = lineOf("ready", ["{", "}"])
+					const end = lineOf("end", ["{", "}"])
+					const outcome = lineOf("outcome", [
 						"{",
 						'"outcome"',
 						":",

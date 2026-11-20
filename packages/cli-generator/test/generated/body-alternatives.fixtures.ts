@@ -16,16 +16,8 @@ import {
 
 /** What the body-alternatives property (body-alternatives.test.ts) draws and its fixture: the box's runs. */
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Option,
-	Order,
-	Record as Rec,
-	Schema,
-	String as Str
-} from "effect"
+import { Array as Arr, Duration, Effect, Option, Order, Record as Rec, String as Str } from "effect"
+import type { Json } from "#model/pointer.ts"
 import {
 	type CaptureServer,
 	captureServer,
@@ -40,6 +32,7 @@ import {
 import { formPairs, type Pair } from "#test/support/form.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
 import { boundaryOf, partsOf, partType } from "#test/support/multipart.ts"
+import { printedJson, printedText } from "#test/support/printed.ts"
 
 /** The operations of the box. */
 type Operation = "messages" | "uploads" | "events"
@@ -328,9 +321,9 @@ type ReadPart = Readonly<{
 	body: Uint8Array
 }>
 
-/** What a body says, read by its media type's own rules. */
+/** What a body says, read by its media type's own rules: a JSON body's value, none when it is no JSON text. */
 type Reading =
-	| Readonly<{ kind: "json"; value: Schema.Json }>
+	| Readonly<{ kind: "json"; value: Option.Option<Json> }>
 	| Readonly<{ kind: "form"; pairs: ReadonlyArray<Pair> }>
 	| Readonly<{ kind: "multipart"; parts: ReadonlyArray<ReadPart> }>
 	| Readonly<{ kind: "bytes"; bytes: Uint8Array; chunked: boolean }>
@@ -342,8 +335,6 @@ export type Outcome = Readonly<{
 	requests: ReadonlyArray<Readonly<{ mediaType: string; reading: Reading }>>
 }>
 
-const decodeJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Json))
-
 /** A content type's essence: the media type before any parameter. */
 const essenceOf = (contentType: string): string =>
 	Str.trim(Arr.headNonEmpty(Str.split(";")(contentType)))
@@ -352,49 +343,45 @@ const essenceOf = (contentType: string): string =>
 type Received = Readonly<{ mediaType: string; reading: Reading }>
 
 /** A recorded request's media type and its body read by that media type's rules. */
-export const receivedOf = (request: WireRequest): Effect.Effect<Received, Schema.SchemaError> => {
+export const receivedOf = (request: WireRequest): Received => {
 	const contentType = Option.getOrElse(
 		Arr.head(valuesOf(request.headers, "content-type")),
 		() => ""
 	)
 	const mediaType = essenceOf(contentType)
 	return Option.match(boundaryOf(contentType), {
-		onSome: (boundary): Effect.Effect<Received, Schema.SchemaError> =>
-			Effect.succeed({
-				mediaType,
-				reading: {
-					kind: "multipart",
-					parts: sortedParts(
-						Arr.map(partsOf(request.body, boundary), (part) => ({
-							name: part.name,
-							filename: part.filename,
-							contentType: partType(part),
-							body: part.body
-						}))
-					)
-				}
-			}),
-		onNone: (): Effect.Effect<Received, Schema.SchemaError> => {
+		onSome: (boundary): Received => ({
+			mediaType,
+			reading: {
+				kind: "multipart",
+				parts: sortedParts(
+					Arr.map(partsOf(request.body, boundary), (part) => ({
+						name: part.name,
+						filename: part.filename,
+						contentType: partType(part),
+						body: part.body
+					}))
+				)
+			}
+		}),
+		onNone: (): Received => {
 			if (mediaType === "application/json") {
-				return Effect.map(decodeJson(Buffer.from(request.body).toString("utf8")), (value) => ({
+				return {
 					mediaType,
-					reading: { kind: "json", value }
-				}))
+					reading: { kind: "json", value: printedJson(printedText(request.body)) }
+				}
 			}
 			if (mediaType === "application/x-www-form-urlencoded") {
-				return Effect.succeed({
-					mediaType,
-					reading: { kind: "form", pairs: formPairs(request.body) }
-				})
+				return { mediaType, reading: { kind: "form", pairs: formPairs(request.body) } }
 			}
-			return Effect.succeed({
+			return {
 				mediaType,
 				reading: {
 					kind: "bytes",
 					bytes: request.body,
 					chunked: Arr.contains(valuesOf(request.headers, "transfer-encoding"), "chunked")
 				}
-			})
+			}
 		}
 	})
 }
@@ -407,9 +394,9 @@ const sortedParts = (parts: ReadonlyArray<ReadPart>): ReadonlyArray<ReadPart> =>
 	)
 
 /** The JSON a message's fields make: each given field, and none that was not. */
-const messageJson = (given: MessageFields): Schema.Json =>
+const messageJson = (given: MessageFields): Json =>
 	Rec.fromEntries(
-		Arr.flatten<ReadonlyArray<ReadonlyArray<readonly [string, Schema.Json]>>>([
+		Arr.flatten<ReadonlyArray<ReadonlyArray<readonly [string, Json]>>>([
 			Option.match(given.content, { onNone: () => [], onSome: (value) => [["content", value]] }),
 			Arr.isReadonlyArrayNonEmpty(given.tags) ? [["tags", given.tags]] : [],
 			Arr.isReadonlyArrayNonEmpty(given.ids) ? [["ids", given.ids]] : []
@@ -435,7 +422,7 @@ export const expectedOf = (s: Send): Outcome => {
 		case "message as JSON":
 			return one({
 				mediaType: "application/json",
-				reading: { kind: "json", value: messageJson(s.fields) }
+				reading: { kind: "json", value: Option.some(messageJson(s.fields)) }
 			})
 		case "message as a form":
 			return one({
@@ -475,7 +462,7 @@ export const expectedOf = (s: Send): Outcome => {
 		case "upload by default":
 			return one({
 				mediaType: "application/json",
-				reading: { kind: "json", value: { purpose: s.purpose } }
+				reading: { kind: "json", value: Option.some({ purpose: s.purpose }) }
 			})
 		case "events as NDJSON":
 			return one({

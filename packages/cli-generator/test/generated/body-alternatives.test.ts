@@ -69,7 +69,7 @@ export const bodyAlternatives = property.explore(cases, {
 						stdin: invoked.stdin
 					})
 				)
-				const requests = yield* Effect.forEach(observed.requests, receivedOf)
+				const requests = Arr.map(observed.requests, receivedOf)
 				assert.deepEqual<Outcome>(
 					{
 						exitCode: observed.result.exitCode,

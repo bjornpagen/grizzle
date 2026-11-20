@@ -31,6 +31,7 @@ import {
 } from "#test/generated/content-parameters.fixtures.ts"
 import { runBin } from "#test/support/cli-package.ts"
 import { metavarOf } from "#test/support/help.ts"
+import { printedText } from "#test/support/printed.ts"
 
 /** Each JSON content flag shows `json` as its value in the command's `--help`. */
 export const contentHelp = property.exhaust(jsonFlags, {
@@ -50,7 +51,7 @@ export const contentHelp = property.exhaust(jsonFlags, {
 				assert.deepEqual<Readonly<{ exitCode: number; shown: Option.Option<string> }>>(
 					{
 						exitCode: help.exitCode,
-						shown: metavarOf(Buffer.from(help.stdout).toString("utf8"), flag)
+						shown: metavarOf(printedText(help.stdout), flag)
 					},
 					{ exitCode: 0, shown: Option.some("json") },
 					"a JSON content flag takes json"
@@ -91,7 +92,7 @@ export const contentParameters = property.explore(runs, {
 						stdin: new Uint8Array(0)
 					})
 				)
-				const requests = yield* Effect.forEach(observed.requests, carriedOf)
+				const requests = Arr.map(observed.requests, carriedOf)
 				assert.deepEqual<Outcome>(
 					{
 						exitCode: observed.result.exitCode,

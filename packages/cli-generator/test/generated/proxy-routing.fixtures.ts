@@ -23,6 +23,7 @@ import {
 	workerFixture
 } from "#test/support/cli-package.ts"
 import { type Head, valuesOf, type WireRequest } from "#test/support/http.ts"
+import { printedText } from "#test/support/printed.ts"
 import { type RecordingProxy, recordingProxy } from "#test/support/recording-proxy.ts"
 import { latin1Bytes } from "#test/support/wire.ts"
 
@@ -246,9 +247,7 @@ export const proxiedOf = (heads: ReadonlyArray<Head>): ReadonlyArray<Proxied> =>
 /** The warning lines a run printed. */
 export const warningsPrinted = (stderr: Uint8Array): number =>
 	Arr.length(
-		Arr.filter(Str.split("\n")(new TextDecoder().decode(stderr)), (line) =>
-			Str.startsWith("Warning:")(line)
-		)
+		Arr.filter(Str.split("\n")(printedText(stderr)), (line) => Str.startsWith("Warning:")(line))
 	)
 
 /** The landing response: an empty JSON object. */

@@ -1,3 +1,4 @@
+import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { dictionary, word } from "@bjornpagen/testing/dictionary"
 import {
 	aimed,
@@ -18,20 +19,32 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer"
 import {
 	Array as Arr,
 	Context,
+	Data,
 	Effect,
 	FileSystem,
 	Layer,
 	Option,
 	Path,
-	Record as Rec,
 	Ref,
-	Schema,
+	Result,
 	Stream,
 	String as Str
 } from "effect"
 import { Headers, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
+import type { Json } from "#model/pointer.ts"
+import { parseJson } from "#runtime/json.ts"
+import {
+	array as arrayOf,
+	member,
+	members,
+	type ReadIssues,
+	type Reader,
+	record,
+	string
+} from "#runtime/read.ts"
 import { generateFixture, workerFixture } from "#test/support/cli-package.ts"
+import { printedChunks } from "#test/support/printed.ts"
 
 /** What the event-stream properties (event-stream.test.ts) draw and their fixture: the package and its server. */
 
@@ -75,35 +88,43 @@ const siteLayer = Layer.effect(Site)(
 		if (built !== 0) {
 			return yield* Effect.die(`the generated package does not build: tsc exited ${built}`)
 		}
-		const declared = yield* Schema.decodeEffect(WireDigests)(spec)
-		return {
-			bin: path.join(generated.dir, "dist", "src", "bin.js"),
-			dir: generated.dir,
-			wire: Rec.map(declared.paths, (item) =>
-				Arr.join(
-					Arr.map(item.post.parameters, (parameter) => parameter.schema.const),
-					""
-				)
+		const wire = yield* Effect.fromResult(
+			Result.flatMap(parseJson(spec), (document) =>
+				Result.mapError(wireDigests(document), (issues) => new WireDigestsUnreadable({ issues }))
 			)
-		}
+		)
+		return { bin: path.join(generated.dir, "dist", "src", "bin.js"), dir: generated.dir, wire }
 	})
 )
 
-/** The `grizzle-wire` digest each operation of the fixture declares as its one header value. */
-const WireDigests = Schema.fromJsonString(
-	Schema.Struct({
-		paths: Schema.Record(
-			Schema.String,
-			Schema.Struct({
-				post: Schema.Struct({
-					parameters: Schema.Array(
-						Schema.Struct({ schema: Schema.Struct({ const: Schema.String }) })
-					)
-				})
-			})
-		)
-	})
-)
+/** A parameter's `const`, the one value its schema admits. */
+const constOf: Reader<string> = (value) =>
+	Result.flatMap(members(value), (schema) => member(schema, "const", string))
+
+/** A parameter's digest: its schema's `const`. */
+const parameterDigest: Reader<string> = (value) =>
+	Result.flatMap(members(value), (parameter) => member(parameter, "schema", constOf))
+
+/** An operation's digest: its parameters' digests, joined in order. */
+const postDigest: Reader<string> = (value) =>
+	Result.flatMap(members(value), (post) =>
+		Result.map(member(post, "parameters", arrayOf(parameterDigest)), Arr.join(""))
+	)
+
+/** A path item's digest: its one POST's. */
+const itemDigest: Reader<string> = (value) =>
+	Result.flatMap(members(value), (item) => member(item, "post", postDigest))
+
+/** The `grizzle-wire` digest each operation of the fixture declares as its one header value, by path. */
+const wireDigests: Reader<Readonly<Record<string, string>>> = (value) =>
+	Result.flatMap(members(value), (document) =>
+		member(document, "paths", record(string, itemDigest))
+	)
+
+/** The fixture document, where an operation does not declare its digest as its parameters' one value: every place. */
+class WireDigestsUnreadable extends Data.TaggedError("WireDigestsUnreadable")<{
+	readonly issues: ReadIssues
+}> {}
 
 /** One scripted response: the writes of its body, and whether the server then closes it or holds it open. */
 type Scripted = Readonly<{ writes: ReadonlyArray<string>; close: boolean }>
@@ -189,7 +210,7 @@ export const runCli = (args: ReadonlyArray<string>, interruptAt: Option.Option<s
 			)
 			const stdout = yield* Ref.make("")
 			const interrupted = yield* Ref.make(false)
-			const watch = Stream.runForEach(Stream.decodeText(handle.stdout), (text) =>
+			const watch = Stream.runForEach(printedChunks(handle.stdout), (text) =>
 				Effect.gen(function* () {
 					const seen = yield* Ref.updateAndGet(stdout, (before) => `${before}${text}`)
 					const due = Option.exists(interruptAt, (marker) => Str.includes(marker)(seen))
@@ -200,7 +221,7 @@ export const runCli = (args: ReadonlyArray<string>, interruptAt: Option.Option<s
 				})
 			)
 			const [, stderr, exitCode] = yield* Effect.all(
-				[watch, Stream.mkString(Stream.decodeText(handle.stderr)), handle.exitCode],
+				[watch, Stream.mkString(printedChunks(handle.stderr)), handle.exitCode],
 				{ concurrency: "unbounded" }
 			)
 			const run: Run = { exitCode, stderr, stdout: yield* Ref.get(stdout) }
@@ -387,21 +408,18 @@ export const writesOf = (body: string, writes: number): ReadonlyArray<string> =>
 	)
 }
 
-const quoted = Schema.encodeEffect(Schema.fromJsonString(Schema.String))
-
 /** One event's line, as the contract states it: its JSON data compacted, then its type. */
-export const lineOf = (type: string, tokens: ReadonlyArray<string>) =>
-	Effect.map(quoted(type), (name) => `{"data":${Arr.join(tokens, "")},"event":${name}}\n`)
+export const lineOf = (type: string, tokens: ReadonlyArray<string>): string =>
+	`{"data":${Arr.join(tokens, "")},"event":${jsonText(type)}}\n`
 
 /** The lines a run prints: the items, `ready`; under `--follow` the live items and `end`. */
-export const expectedOf = (sent: Feed) =>
-	Effect.gen(function* () {
-		const before = yield* Effect.forEach(sent.before, (event) => lineOf(event.type, event.tokens))
-		const ready = yield* lineOf("ready", readyEvent.tokens)
-		const after = yield* Effect.forEach(sent.after, (event) => lineOf(event.type, event.tokens))
-		const end = sent.ends ? [yield* lineOf("end", ["{", "}"])] : []
-		return Arr.join([...before, ready, ...(sent.follow ? [...after, ...end] : [])], "")
-	})
+export const expectedOf = (sent: Feed): string => {
+	const before = Arr.map(sent.before, (event) => lineOf(event.type, event.tokens))
+	const ready = lineOf("ready", readyEvent.tokens)
+	const after = Arr.map(sent.after, (event) => lineOf(event.type, event.tokens))
+	const end = sent.ends ? [lineOf("end", ["{", "}"])] : []
+	return Arr.join([...before, ready, ...(sent.follow ? [...after, ...end] : [])], "")
+}
 
 /** The features a feed reaches. */
 export type FeedFeature =
@@ -477,14 +495,8 @@ export const firstItem = (command: FailureCase["command"]): readonly [string, st
 		? ["reset", 'event: reset\ndata: {"key":[]}\n\n']
 		: ["outcome", 'event: outcome\ndata: {"outcome":{"kind":"unchanged","reads":{}}}\n\n']
 
-export const ErrorLine = Schema.fromJsonString(
-	Schema.Struct({
-		error: Schema.Struct({ kind: Schema.String, data: Schema.optionalKey(Schema.Json) })
-	})
-)
-
 /** The error event's data as a JSON value, which `--error-format json` prints as `data`. */
-export const errorData = (verdict: string): Schema.Json => ({
+export const errorData = (verdict: string): Json => ({
 	error: { kind: kindOf(verdict), retry: verdict, message: "try again" }
 })
 

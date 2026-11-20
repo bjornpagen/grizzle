@@ -18,15 +18,8 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Option,
-	Record as Rec,
-	Schema,
-	String as Str
-} from "effect"
+import { Array as Arr, Duration, Effect, Option, Record as Rec, String as Str } from "effect"
+import type { Json } from "#model/pointer.ts"
 import {
 	type CaptureServer,
 	captureServer,
@@ -41,6 +34,7 @@ import {
 } from "#test/support/cli-package.ts"
 import { metavarOf } from "#test/support/help.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
+import { printedText } from "#test/support/printed.ts"
 
 /** What the object-parameters properties (object-parameters.test.ts) draw and their fixture: the box's runs. */
 
@@ -155,7 +149,7 @@ const spec = jsonText({
 	info: { title: "Object parameters", version: "1.0.0" },
 	paths: {
 		...Rec.fromEntries(
-			Arr.map(PATH_TARGETS, (target): readonly [string, Schema.Json] => [
+			Arr.map(PATH_TARGETS, (target): readonly [string, Json] => [
 				`/${target.operation}/{o}`,
 				{
 					get: {
@@ -1125,7 +1119,7 @@ export const shownOf = ({ built, commands }: Opened, operation: string, left: st
 			operation,
 			left,
 			exitCode: help.exitCode,
-			metavar: metavarOf(Buffer.from(help.stdout).toString("utf8"), left)
+			metavar: metavarOf(printedText(help.stdout), left)
 		}
 		return shown
 	})

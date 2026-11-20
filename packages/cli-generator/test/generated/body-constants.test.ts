@@ -20,13 +20,12 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, String as Str } from "effect"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import {
 	argsOf,
 	type ConstantFeature,
 	constantsFixture,
 	constantsLine,
-	decodeBody,
 	done,
 	expectedOf,
 	FEATURES,
@@ -35,6 +34,7 @@ import {
 	runs
 } from "#test/generated/body-constants.fixtures.ts"
 import { runBin } from "#test/support/cli-package.ts"
+import { printedJson, printedText } from "#test/support/printed.ts"
 
 /** The constants have no flag and are listed under CONSTANTS, and the refined string keeps its string flag. */
 export const constantsHelp = property.exhaust(helpPage, {
@@ -51,7 +51,7 @@ export const constantsHelp = property.exhaust(helpPage, {
 					env: {},
 					stdin: new Uint8Array(0)
 				})
-				const lines = Arr.map(Str.split("\n")(new TextDecoder().decode(help.stdout)), Str.trim)
+				const lines = Arr.map(Str.split("\n")(printedText(help.stdout)), Str.trim)
 				const flagNames = Arr.flatMap(lines, (line) =>
 					Str.startsWith("--")(line) ? [Arr.headNonEmpty(Str.split(" ")(line))] : []
 				)
@@ -108,13 +108,13 @@ export const bodyConstants = property.explore(runs, {
 						stdin: new Uint8Array(0)
 					})
 				)
-				const bodies = yield* Effect.forEach(observed.requests, (request) =>
-					decodeBody(new TextDecoder().decode(request.body))
+				const bodies = Arr.map(observed.requests, (request) =>
+					printedJson(printedText(request.body))
 				)
 				assert.deepEqual(
 					{ exitCode: observed.result.exitCode, bodies },
 					expected.kind === "sent"
-						? { exitCode: 0, bodies: [expected.body] }
+						? { exitCode: 0, bodies: [Option.some(expected.body)] }
 						: { exitCode: 2, bodies: [] },
 					"the body holds every constant and the drawn values, or the run is refused before any connection"
 				)

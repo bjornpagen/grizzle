@@ -12,8 +12,8 @@
  *   to the bound origin and none on a hop to the unbound one, no trace propagation header on any hop, and exit 0 once
  *   the chain lands.
  */
-import { jsonText, utf8Text } from "@bjornpagen/grizzle-text/utf8"
-import { assert, defined } from "@bjornpagen/testing/assert"
+import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -30,6 +30,7 @@ import {
 	runOf
 } from "#test/generated/redirect-chains.fixtures.ts"
 import { runBin } from "#test/support/cli-package.ts"
+import { printedText } from "#test/support/printed.ts"
 import { chainScript } from "#test/support/redirect-model.ts"
 
 /**
@@ -86,7 +87,7 @@ export const redirectChains = property.explore(chains, {
 						stdin: new Uint8Array(0)
 					})
 				)
-				const stderr = defined(utf8Text(observed.result.stderr), "the run's stderr is UTF-8 text")
+				const stderr = printedText(observed.result.stderr)
 				assert.deepEqual<typeof expected>(
 					{
 						hops: Arr.map(observed.requests, hopOf),

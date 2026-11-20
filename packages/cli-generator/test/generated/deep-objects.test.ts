@@ -44,10 +44,10 @@ import {
 	refusedNamesOf,
 	sorted,
 	type Surface,
-	UPDATE,
-	utf8
+	UPDATE
 } from "#test/generated/deep-objects.fixtures.ts"
 import { runBin } from "#test/support/cli-package.ts"
+import { printedText } from "#test/support/printed.ts"
 
 /** A config's kill of its surface: the refusal its switches leave in place, taken away. */
 const surfaceKill = (mode: Mode): Kill =>
@@ -85,7 +85,7 @@ export const deepObjectSurfaces = family(
 							const described = yield* run(["--describe"])
 							const updateHelp = yield* run(Arr.append(commands.update, "--help"))
 							const listHelp = yield* run(Arr.append(commands.list, "--help"))
-							const description = yield* decodeDescription(utf8(described.stdout))
+							const description = yield* decodeDescription(printedText(described.stdout))
 							const entryOf = (pointer: string) =>
 								Arr.findFirst(description.commands, (command) => command.pointer === pointer)
 							const flagsAt = (pointer: string, location: string, field: "name" | "wireName") =>
@@ -107,8 +107,8 @@ export const deepObjectSurfaces = family(
 										onSome: (command) => command.refusedFields
 									}),
 									listFlags: sorted(flagsAt(LIST, "query", "wireName")),
-									updateRefused: sorted(refusedNamesOf(utf8(updateHelp.stdout))),
-									listRefused: sorted(refusedNamesOf(utf8(listHelp.stdout)))
+									updateRefused: sorted(refusedNamesOf(printedText(updateHelp.stdout))),
+									listRefused: sorted(refusedNamesOf(printedText(listHelp.stdout)))
 								},
 								expectedSurface(mode),
 								"the commands, flags and refusals are those the switches give the schemas"
@@ -156,7 +156,7 @@ export const deepObjectValues = family(
 									stdin: new Uint8Array(0)
 								})
 							)
-							const stderr = utf8(observed.result.stderr)
+							const stderr = printedText(observed.result.stderr)
 							assert.deepEqual<Outcome>(
 								{
 									exitCode: observed.result.exitCode,

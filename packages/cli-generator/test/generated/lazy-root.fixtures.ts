@@ -3,13 +3,13 @@ import { constant, element, finite, type FiniteSpace, type Gen, int } from "@bjo
 import { regex } from "arkregex"
 import {
 	Array as Arr,
+	Data,
 	Duration,
 	Effect,
 	FileSystem,
 	Option,
 	Order,
 	Path,
-	Schema,
 	String as Str
 } from "effect"
 import {
@@ -24,6 +24,7 @@ import {
 	runBin,
 	workerFixture
 } from "#test/support/cli-package.ts"
+import { printedText } from "#test/support/printed.ts"
 
 /** What the lazy-root properties (lazy-root.test.ts) exhaust and their fixture: the package and its eager oracle. */
 
@@ -42,10 +43,10 @@ export const root = <E, R, C>(
 `
 
 /** A generated module that does not hold exactly one occurrence of the text the oracle rewrites. */
-class OracleRewriteFailed extends Schema.TaggedError<
-	OracleRewriteFailed,
-	{ readonly brand: unique symbol }
->()("OracleRewriteFailed", { module: Schema.String, text: Schema.String }) {}
+class OracleRewriteFailed extends Data.TaggedError("OracleRewriteFailed")<{
+	readonly module: string
+	readonly text: string
+}> {}
 
 /** The rewrites that make the eager oracle: each copies a generated module with one import pointed elsewhere. */
 const REWRITES: ReadonlyArray<Readonly<{ from: string; to: string; text: string; into: string }>> =
@@ -111,7 +112,7 @@ export const lazyFixture = workerFixture(
 					const text = yield* fs.readFileString(path.join(generated.dir, rewrite.from))
 					const pieces = Str.split(rewrite.text)(text)
 					if (pieces.length !== 2) {
-						return yield* OracleRewriteFailed.make({ module: rewrite.from, text: rewrite.text })
+						return yield* new OracleRewriteFailed({ module: rewrite.from, text: rewrite.text })
 					}
 					yield* fs.writeFileString(
 						path.join(generated.dir, rewrite.to),
@@ -156,14 +157,12 @@ export const lazyFixture = workerFixture(
 /** What a run printed, as the differential compares it. */
 export type Printed = Readonly<{ exitCode: number; stdout: string; stderr: string }>
 
-const utf8 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("utf8")
-
 /** Runs a build's bin with these arguments and no environment, and what it printed. */
 export const printedBy = (built: BuiltPackage, args: ReadonlyArray<string>) =>
 	Effect.map(runBin(built, { args, env: {}, stdin: new Uint8Array(0) }), (run): Printed => ({
 		exitCode: run.exitCode,
-		stdout: utf8(run.stdout),
-		stderr: utf8(run.stderr)
+		stdout: printedText(run.stdout),
+		stderr: printedText(run.stderr)
 	}))
 
 /** A specifier the built root imports by `import()`. */

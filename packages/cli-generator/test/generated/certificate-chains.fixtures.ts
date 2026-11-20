@@ -1,6 +1,6 @@
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { aimed, boolean, constant, element, type Gen } from "@bjornpagen/testing/gen"
-import { Array as Arr, Duration, Effect, Option, Path, Schema, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Option, Path, String as Str } from "effect"
 import {
 	type ScriptedResponse,
 	type TlsCaptureServer,
@@ -13,6 +13,7 @@ import {
 	generateFixture,
 	workerFixture
 } from "#test/support/cli-package.ts"
+import { errorLineOf, type PrintedError, printedText } from "#test/support/printed.ts"
 import type { Finished } from "#test/support/process.ts"
 import { followChain, type Redirect, redirectsOf } from "#test/support/redirect-model.ts"
 import { latin1Bytes } from "#test/support/wire.ts"
@@ -264,11 +265,11 @@ export const noticesOf = (stderr: Uint8Array): number =>
 
 /** The non-empty lines of an output. */
 export const linesOf = (output: Uint8Array): ReadonlyArray<string> =>
-	Arr.filter(Str.split("\n")(new TextDecoder().decode(output)), Str.isNonEmpty)
+	Arr.filter(Str.split("\n")(printedText(output)), Str.isNonEmpty)
 
 /** Which of the given paths a run's stdout or stderr names. */
 export const leaksOf = (run: Finished, paths: ReadonlyArray<string>): ReadonlyArray<string> => {
-	const output = `${new TextDecoder().decode(run.stdout)}${new TextDecoder().decode(run.stderr)}`
+	const output = `${printedText(run.stdout)}${printedText(run.stderr)}`
 	return Arr.filter(paths, (path) => Str.includes(path)(output))
 }
 
@@ -326,17 +327,9 @@ export const stopEnv = (stop: Stop, env: Environments): Readonly<Record<string, 
 	}
 }
 
-/** One error line a run writes under `MTLS_ERROR_FORMAT=json`. */
-const ErrorLine = Schema.fromJsonString(
-	Schema.Struct({ error: Schema.Struct({ kind: Schema.String, message: Schema.String }) })
-)
-
-/** The errors among a run's stderr lines. */
-export const errorsOf = (stderr: Uint8Array) =>
-	Effect.map(
-		Effect.forEach(linesOf(stderr), (line) => Effect.option(Schema.decodeEffect(ErrorLine)(line))),
-		(decoded) => Arr.map(Arr.getSomes(decoded), (line) => line.error)
-	)
+/** The errors among a run's stderr lines, each a line it writes under `MTLS_ERROR_FORMAT=json`. */
+export const errorsOf = (stderr: Uint8Array): ReadonlyArray<PrintedError> =>
+	Arr.getSomes(Arr.map(linesOf(stderr), errorLineOf))
 
 /** The certificate settings a scheme carries, which an error names when one of them needs fixing. */
 const SETTINGS: ReadonlyArray<string> = ["MTLS_CLIENT_CA", "MTLS_CLIENT_CERT", "MTLS_CLIENT_KEY"]

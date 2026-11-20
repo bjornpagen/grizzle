@@ -151,7 +151,7 @@ export const certificateStops = property.explore(stops, {
 						stdin: new Uint8Array(0)
 					})
 				)
-				const errors = yield* errorsOf(observed.result.stderr)
+				const errors = errorsOf(observed.result.stderr)
 				const notices =
 					c.stop === "a dry run" && c.run.start.kind === "bound" ? Option.some(0) : Option.none()
 				assert.deepEqual<StopObservation>(

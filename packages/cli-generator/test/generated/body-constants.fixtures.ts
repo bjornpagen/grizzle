@@ -13,7 +13,8 @@ import {
 	option,
 	string
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Duration, Effect, Option, Schema } from "effect"
+import { Array as Arr, Duration, Effect, Option } from "effect"
+import type { Json } from "#model/pointer.ts"
 import {
 	type CaptureServer,
 	captureServer,
@@ -29,7 +30,7 @@ import {
 /** What the body-constants properties (body-constants.test.ts) draw and their fixture: the runs of the one POST. */
 
 /** The body's members that admit one value, by RFC 6901 pointer, each with that value. */
-const CONSTANTS: ReadonlyArray<readonly [string, Schema.Json]> = [
+const CONSTANTS: ReadonlyArray<readonly [string, Json]> = [
 	["/kind", "widget"],
 	["/version", 2],
 	["/flag", true],
@@ -189,7 +190,7 @@ const runOf: Gen<Run> = (source) =>
 	source.draw(boolean) ? source.draw(fieldsOf(anyFields)) : source.draw(wholeOf(boolean))
 
 /** The body holding every constant, the meta object's note beside its tag. */
-const constantsWith = (note: string): Readonly<Record<string, Schema.Json>> => ({
+const constantsWith = (note: string): Readonly<Record<string, Json>> => ({
 	kind: "widget",
 	version: 2,
 	flag: true,
@@ -220,7 +221,7 @@ export const argsOf = (r: Run): ReadonlyArray<string> => {
 }
 
 /** What a run should do: send this body, or refuse before any connection. */
-export type Expected = Readonly<{ kind: "sent"; body: Schema.Json }> | Readonly<{ kind: "refused" }>
+export type Expected = Readonly<{ kind: "sent"; body: Json }> | Readonly<{ kind: "refused" }>
 
 export const expectedOf = (r: Run): Expected => {
 	if (r.kind === "whole") {
@@ -246,9 +247,6 @@ export const expectedOf = (r: Run): Expected => {
 		}
 	}
 }
-
-/** A request's body, read as JSON. */
-export const decodeBody = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Json))
 
 /** An empty `200`. */
 export const done: ScriptedResponse = {

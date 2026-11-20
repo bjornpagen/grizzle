@@ -33,6 +33,7 @@ import {
 	workerFixture
 } from "#test/support/cli-package.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
+import { printedText } from "#test/support/printed.ts"
 import { latin1Bytes } from "#test/support/wire.ts"
 
 /** What the credential-sources properties (credential-sources.test.ts) draw and their fixture: the box's runs. */
@@ -486,7 +487,7 @@ export const checkRun = Effect.fn("credentialSources.check")(function* (c: Case,
 			stdin: c.source === "stdin" ? new TextEncoder().encode(written) : new Uint8Array(0)
 		})
 	)
-	const printed = `${new TextDecoder().decode(observed.result.stdout)}${new TextDecoder().decode(observed.result.stderr)}`
+	const printed = `${printedText(observed.result.stdout)}${printedText(observed.result.stderr)}`
 	assert.deepEqual<Outcome>(
 		{
 			exitCode: observed.result.exitCode,

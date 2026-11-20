@@ -10,16 +10,7 @@ import {
 	option,
 	weighted
 } from "@bjornpagen/testing/gen"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	FileSystem,
-	Option,
-	Path,
-	Record as Rec,
-	Schema
-} from "effect"
+import { Array as Arr, Duration, Effect, FileSystem, Option, Path, Record as Rec } from "effect"
 import {
 	type CaptureServer,
 	captureServer,
@@ -32,6 +23,7 @@ import {
 	workerFixture
 } from "#test/support/cli-package.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
+import { errorLineOf } from "#test/support/printed.ts"
 import { latin1Bytes } from "#test/support/wire.ts"
 
 /** An object answer. */
@@ -360,28 +352,13 @@ export const expectedOf = (c: Case): Outcome => {
 	}
 }
 
-const ErrorLine = Schema.fromJsonString(
-	Schema.Struct({
-		error: Schema.Struct({
-			kind: Schema.String,
-			status: Schema.optionalKey(Schema.Int),
-			retryAfter: Schema.optionalKey(Schema.Int)
-		})
-	})
-)
-
-const decodeErrorLine = Schema.decodeUnknownOption(ErrorLine)
-
 /** The one JSON error object stderr holds, none when no line is one. */
 export const errorOf = (lines: ReadonlyArray<string>): Option.Option<ErrorObject> =>
-	Option.map(
-		Arr.findFirst(lines, (line) => decodeErrorLine(line)),
-		({ error }) => ({
-			kind: error.kind,
-			status: Option.fromNullishOr(error.status),
-			retryAfter: Option.fromNullishOr(error.retryAfter)
-		})
-	)
+	Option.map(Arr.findFirst(lines, errorLineOf), (error) => ({
+		kind: error.kind,
+		status: error.status,
+		retryAfter: error.retryAfter
+	}))
 
 /** A recorded attempt as the oracle compares it. */
 export const attemptOf =

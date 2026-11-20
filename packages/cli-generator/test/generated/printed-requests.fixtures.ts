@@ -15,16 +15,8 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Option,
-	Order,
-	Record as Rec,
-	Schema,
-	String as Str
-} from "effect"
+import { Array as Arr, Duration, Effect, Option, Order, Record as Rec, String as Str } from "effect"
+import type { Json } from "#model/pointer.ts"
 import {
 	type CaptureServer,
 	captureServer,
@@ -38,6 +30,7 @@ import {
 } from "#test/support/cli-package.ts"
 import { listen } from "#test/support/connection.ts"
 import type { WireRequest } from "#test/support/http.ts"
+import { type PrintedError, printedText } from "#test/support/printed.ts"
 import { latin1Bytes } from "#test/support/wire.ts"
 
 /** What the printed-requests properties (printed-requests.test.ts) draw and their fixture: the requests and failures. */
@@ -218,7 +211,7 @@ export type Shown = Readonly<{
 	verboseExit: number
 	verboseLinesOnly: boolean
 	verboseRequest: ReadonlyArray<string>
-	verboseBody: Option.Option<Schema.Json>
+	verboseBody: Option.Option<Json>
 	responseOnStderr: boolean
 	tokenShown: boolean
 	printedHeaders: ReadonlyArray<string>
@@ -249,7 +242,7 @@ export const expectedShown = (
 		tokenShown: false,
 		printedHeaders: sentLinesOf(sent),
 		sentNames: Arr.sort(expectedNames(request), Order.String),
-		printedBody: Buffer.from(sent.body).toString("utf8")
+		printedBody: printedText(sent.body)
 	}
 }
 
@@ -396,15 +389,26 @@ export type Rendered = Readonly<{
 	bodyHasMarker: boolean
 }>
 
-const ErrorLine = Schema.fromJsonString(
-	Schema.Struct({
-		error: Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Finite]))
-	})
-)
-
-export const decodeErrorLine = Schema.decodeUnknownOption(ErrorLine)
-
-export const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Json))
+/** The members a JSON error line holds, by name in code point order: its kind and message, and each optional one given. */
+export const keysOf = (error: PrintedError): ReadonlyArray<string> =>
+	Arr.sort(
+		Arr.appendAll(
+			["kind", "message"],
+			Arr.flatMap(
+				[
+					["body", error.body],
+					["data", error.data],
+					["matched", error.matched],
+					["operation", error.operation],
+					["requestId", error.requestId],
+					["retryAfter", error.retryAfter],
+					["status", error.status]
+				] as const,
+				([key, value]) => (Option.isSome(value) ? [key] : [])
+			)
+		),
+		Order.String
+	)
 
 /** The run each failure gives. */
 export const expectedRendered = (failure: Failure): Rendered => {
@@ -506,8 +510,6 @@ export const printedFixture = workerFixture(
 		return opened
 	})
 )
-
-export const utf8 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("utf8")
 
 /** The arguments and environment of each failure, and the server's answer. */
 export const failureRun = (

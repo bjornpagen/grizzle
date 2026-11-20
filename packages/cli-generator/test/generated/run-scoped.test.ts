@@ -42,6 +42,7 @@ import {
 } from "#test/generated/run-scoped.fixtures.ts"
 import { runBin } from "#test/support/cli-package.ts"
 import { valuesOf } from "#test/support/http.ts"
+import { printedText } from "#test/support/printed.ts"
 
 /** Each error renders once in the run's format, before any connection, showing no secret. */
 export const errorRendering = property.exhaust(errorCases, {
@@ -90,7 +91,7 @@ export const errorRendering = property.exhaust(errorCases, {
 						stdin: new Uint8Array(0)
 					})
 				)
-				const stderr = Buffer.from(observed.result.stderr).toString("utf8")
+				const stderr = printedText(observed.result.stderr)
 				assert.deepEqual<ErrorOutcome>(
 					{
 						exitCode: observed.result.exitCode,
@@ -153,7 +154,7 @@ export const warnsOnce = property.exhaust(retryCounts, {
 						})
 					)
 				)
-				const stderr = Buffer.from(observed.result.result.stderr).toString("utf8")
+				const stderr = printedText(observed.result.result.stderr)
 				assert.deepEqual<WarningOutcome>(
 					{
 						exitCode: observed.result.result.exitCode,

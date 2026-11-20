@@ -1,6 +1,6 @@
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { element, finite, type FiniteSpace, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, Duration, Effect, Option, Schema, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Option, String as Str } from "effect"
 import {
 	type CaptureServer,
 	captureServer,
@@ -12,6 +12,7 @@ import {
 	generateFixture,
 	workerFixture
 } from "#test/support/cli-package.ts"
+import { errorLineOf } from "#test/support/printed.ts"
 import { type RecordingProxy, recordingProxy } from "#test/support/recording-proxy.ts"
 import { latin1Bytes } from "#test/support/wire.ts"
 
@@ -121,18 +122,12 @@ export const expectedError = (c: Case): ErrorOutcome => ({
 	showsSecret: false
 })
 
-const ErrorLine = Schema.fromJsonString(
-	Schema.Struct({ error: Schema.Struct({ kind: Schema.String }) })
-)
-
-const decodeErrorLine = Schema.decodeUnknownOption(ErrorLine)
-
 /** How stderr rendered the error: each line that is one `{"error":{...}}` object, and any `Error:` or `ERROR` line. */
 export const renderedOf = (stderr: string): Rendered => {
 	const lines = Str.split("\n")(stderr)
 	return {
 		jsonKinds: Arr.flatMap(lines, (line) =>
-			Option.toArray(Option.map(decodeErrorLine(line), (decoded) => decoded.error.kind))
+			Option.toArray(Option.map(errorLineOf(line), (error) => error.kind))
 		),
 		text: Arr.some(lines, (line) => Str.startsWith("Error:")(line) || line === "ERROR")
 	}
