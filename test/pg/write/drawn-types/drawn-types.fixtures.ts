@@ -119,6 +119,16 @@ const TallIssued = relation(
 const TallNumber = relation("TallNumber", { test: pg.integer, number: Tall }, ["test"])
 const tallHeld = select(TallIssued, (i) => i.and(i.eq(i.series, "test"), i.eq(i.issue, "held")))
 
+/**
+ * A family over the carrier-bounded contract whose members a put moves between groups: each member keyed by its own
+ * id, its group `g` its caller's, so a put that changes `g` re-places it, and the family's statement draws the group it
+ * joins in SQL, past the members stored there.
+ */
+const MoveOwner = relation("MoveOwner", { g: pg.integer, n: drawn(Tall) }, ["g"])
+const MoveMember = relation("MoveMember", { id: pg.integer, g: pg.integer, at: drawn(Tall) }, [
+	"id"
+])
+
 export const Drawn = schema(
 	"drawn_types",
 	[
@@ -141,7 +151,9 @@ export const Drawn = schema(
 		WideNumber,
 		TallSeries,
 		TallIssued,
-		TallNumber
+		TallNumber,
+		MoveOwner,
+		MoveMember
 	],
 	[
 		mutable(NaturalSeries),
@@ -173,7 +185,10 @@ export const Drawn = schema(
 		ordered(on(TallIssued, "series", "number"), fin(TallSeries, "issued")),
 		key(on(TallNumber, "number")),
 		contained(on(TallNumber, "number"), on(tallHeld, "number")),
-		contained(on(tallHeld, "number"), on(TallNumber, "number"))
+		contained(on(tallHeld, "number"), on(TallNumber, "number")),
+		mutable(MoveOwner),
+		mutable(MoveMember),
+		ordered(on(MoveMember, "g", "at"), fin(MoveOwner, "n"))
 	]
 )
 
@@ -246,6 +261,8 @@ const reads = Object.freeze({
 
 /** Each kind's write: its series with its issued numbers nested, and its tests, its issued numbers read back. */
 const programs = Object.freeze({
+	moveOwners: ChangeSet.empty(Drawn).insert(MoveOwner, []),
+	moveMembers: ChangeSet.empty(Drawn).put(MoveMember, []),
 	Natural: ChangeSet.empty(Drawn)
 		.insert(NaturalSeries, [])
 		.insert(NaturalNumber, [])
@@ -363,3 +380,28 @@ export const situations = [
 	"a held number in each direction of the containments",
 	"a series of no numbers"
 ] as const satisfies ReadonlyArray<Reached<DrawnFeature>>
+
+/**
+ * A move: owner 1's group of two members and owner 2's of `full` members, each member's id its place in the call, and
+ * `moved` of owner 1's members put into owner 2's group, which the family's statement draws past its stored members:
+ * owner 2's count is `full + moved`, past the carrier's 32,767 where it is greater.
+ */
+export interface Move {
+	readonly full: number
+	readonly moved: 1 | 2
+}
+
+/** Owner 2's group at the carrier's bound less one or at it, one or two of owner 1's members moved into it. */
+export const moveGen: Gen<Move> = (source) => ({
+	full: source.draw(int(kinds.Tall.carrier - 1, kinds.Tall.carrier)),
+	moved: source.draw(element([1, 2] as const))
+})
+
+export type MoveFeature =
+	| "a group drawn to its carrier's bound"
+	| "a group drawn past its carrier's bound, refused"
+
+export const moveSituations = [
+	"a group drawn to its carrier's bound",
+	"a group drawn past its carrier's bound, refused"
+] as const satisfies ReadonlyArray<Reached<MoveFeature>>

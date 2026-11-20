@@ -18,6 +18,7 @@
  * numbers, the containments in each direction.
  */
 import { assert } from "@bjornpagen/testing/assert"
+import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
@@ -39,6 +40,9 @@ import {
 	issuingGen,
 	type Kind,
 	kinds,
+	type MoveFeature,
+	moveGen,
+	moveSituations,
 	situations,
 	Big,
 	Small,
@@ -348,6 +352,149 @@ export const aFamilyDrawnOverAContractOverAnIntegerCountsAndIndexesByItsTypeAndI
 				original: '\tcarrier === "int2" || carrier === "int4" ? Number(value) : value',
 				replacement: "\tvalue",
 				why: "pred's 0 and 1 are bigints whatever the drawn type: a family over a contract over smallint or integer reads its last member at a literal its type refuses, so the schema installs no template and no case runs."
+			}
+		]
+	})
+
+/**
+ * A put that moves members into a group the family's statement draws in SQL, past its stored members, is refused on the
+ * drawn contract where the group's count passes its carrier, and accepted where it meets it.
+ *
+ * Owner 1 holds two members and owner 2 32,766 or 32,767, each inserted fresh, which the host draws; then one put moves
+ * one or two of owner 1's members into owner 2's group, a re-placement the family's statement draws past owner 2's
+ * stored members (write/family/additions.ts appendScan). Property: where owner 2's count stays within smallint's
+ * 32,767, the put is accepted and each group's indexes are 0 to its count less one; past it, the put is `refused` on
+ * the contract DrawnTall, the statement's guard raising its refusal before PostgreSQL would narrow the count into the
+ * column (22003), and the tables hold what they held. No count is wrapped, and no call fails otherwise. Oracle: the
+ * family's rule, a group's indexes 0 … n − 1 and its count n, against smallint's carrier.
+ */
+export const aPutThatMovesMembersIntoAGroupPastItsCarriersBoundIsRefusedOnTheDrawnContractNeverNarrowed =
+	property.exhaust(finite(moveGen), {
+		box: "owner 2's group of 32,766 or 32,767 members, one or two of owner 1's two members put into it",
+		needs: { fixture: Substrate.seat(drawnTemplate) },
+		situations: moveSituations,
+		check:
+			({ fixture }, k: Case<MoveFeature>) =>
+			(move) =>
+				Effect.flatMap(fixture, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const s = yield* Substrate
+							const o = yield* openedIn(Drawn, {}, drawnInstall, taken)
+							const names = o.installed.installation.names
+							return yield* Effect.gen(function* () {
+								const db = yield* Db.open(o.served.login.roles.app, {})
+								/** Each group's count, and each member's group and index, as PostgreSQL stores them. */
+								const stored = Effect.gen(function* () {
+									const owners = yield* s.admin.queryValues(
+										`SELECT ${quoteIdent(names.column("MoveOwner", "g"))}::text, ${quoteIdent(names.column("MoveOwner", "n"))}::text FROM ${printObjectName(names.relation("MoveOwner"))}`,
+										[]
+									)
+									const members = yield* s.admin.queryValues(
+										`SELECT ${quoteIdent(names.column("MoveMember", "g"))}::text, ${quoteIdent(names.column("MoveMember", "at"))}::text FROM ${printObjectName(names.relation("MoveMember"))}`,
+										[]
+									)
+									const pairs = (rows: ReadonlyArray<ReadonlyArray<unknown>>) =>
+										Arr.map(
+											rows,
+											(row) => [BigInt(String(row[0])), BigInt(String(row[1]))] as const
+										)
+									const groupOf = (g: bigint) => ({
+										count: Arr.flatMap(pairs(owners), ([o, n]) => (o === g ? [n] : [])),
+										at: Arr.sort(
+											Arr.flatMap(pairs(members), ([m, at]) => (m === g ? [at] : [])),
+											Order.BigInt
+										)
+									})
+									return { one: groupOf(1n), two: groupOf(2n) }
+								})
+								/** A group of `n` members as the family's rule holds it: its count n, its indexes 0 … n − 1. */
+								const groupOf = (n: number) => ({
+									count: [BigInt(n)],
+									at: Array.from({ length: n }, (_, i) => BigInt(i))
+								})
+								const inserted = yield* answered(
+									db.workload.moveOwners.once({
+										params: {},
+										facts: {
+											insert: {
+												MoveOwner: [
+													{ g: 1, n: [{ id: 1 }, { id: 2 }] },
+													{ g: 2, n: Array.from({ length: move.full }, (_, i) => ({ id: 3 + i })) }
+												]
+											}
+										}
+									})
+								)
+								assert.equal(inserted.kind, "accepted", "the two groups are inserted fresh")
+								const before = yield* stored
+								assert.deepEqual(
+									before,
+									{ one: groupOf(2), two: groupOf(move.full) },
+									"each fresh group holds its members at 0 … n − 1"
+								)
+								const answer = yield* answered(
+									db.workload.moveMembers.once({
+										params: {},
+										facts: {
+											put: {
+												MoveMember: Array.from({ length: move.moved }, (_, i) => ({
+													id: 1 + i,
+													g: 2
+												}))
+											}
+										}
+									})
+								)
+								const after = yield* stored
+								const count = move.full + move.moved
+								if (count > kinds.Tall.carrier) {
+									k.note("a group drawn past its carrier's bound, refused")
+									assert.equal(
+										answer.kind,
+										"refused",
+										`a move into a group of ${move.full} past ${kinds.Tall.carrier} is refused, not ${Formatter.format(answer)}`
+									)
+									if (answer.kind === "refused") {
+										assert.ok(
+											Arr.some(
+												answer.refused.laws,
+												(l) => l.law.kind === "contract" && l.law.contract === contractOf.Tall
+											),
+											`the refusal names the contract ${contractOf.Tall}: ${Formatter.format(answer.refused)}`
+										)
+									}
+									assert.deepEqual(after, before, "a refused move leaves both groups as they were")
+									return
+								}
+								k.note("a group drawn to its carrier's bound")
+								assert.equal(
+									answer.kind,
+									"accepted",
+									`a move into a group of ${move.full} to ${count} is accepted, not ${Formatter.format(answer)}`
+								)
+								assert.deepEqual(
+									after,
+									{ one: groupOf(2 - move.moved), two: groupOf(count) },
+									"each group holds its members at 0 … n − 1 after the move"
+								)
+							}).pipe(Effect.scoped, withLayer(o.served.layer))
+						}).pipe(Effect.scoped),
+						Substrate,
+						taken.substrate
+					)
+				),
+		oracle: {
+			kind: "specification",
+			name: "the family's rule, a group's indexes 0 … n − 1 and its count n, against smallint's carrier: a count past it refused on the contract"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/write/family/additions.ts",
+				original: "\t\t\t{ when: refuse, result: count }\n\t\t],",
+				replacement: "\t\t],",
+				why: "The family's statement narrows a count past its carrier unguarded: a move into a group of 32,767 fails with PostgreSQL's 22003 instead of the contract's refusal."
 			}
 		]
 	})
