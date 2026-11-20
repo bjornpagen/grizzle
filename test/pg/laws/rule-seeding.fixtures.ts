@@ -810,6 +810,13 @@ const statementsOf = (seat: Seat, op: Op): ReadonlyArray<string> => {
 	const insertLink = (r: Link, id: number, up: number, value: number) =>
 		`INSERT INTO ${t(r)} (${c(r, "id")}, ${c(r, "up")}, ${c(r, "v")}) VALUES (${id}, ${up}, ${value}) ON CONFLICT DO NOTHING`
 	const remove = (r: Table, id: number) => `DELETE FROM ${t(r)} WHERE ${c(r, "id")} = ${id}`
+	/**
+	 * The link `id` of `r` replaced by one of parent `up` and value `value`, each over the deleted row `"gone"`: a link is
+	 * immutable, its table refusing every UPDATE that changes a row (physical/ddl/immutable.ts), so a changed link is its
+	 * row deleted and the new one inserted, in one statement.
+	 */
+	const replaced = (r: Link, id: number, up: string, value: string) =>
+		`WITH "gone" AS (DELETE FROM ${t(r)} WHERE ${c(r, "id")} = ${id} RETURNING ${c(r, "id")}, ${c(r, "up")}, ${c(r, "v")}) INSERT INTO ${t(r)} (${c(r, "id")}, ${c(r, "up")}, ${c(r, "v")}) SELECT "gone".${c(r, "id")}, ${up}, ${value} FROM "gone"`
 	switch (op.kind) {
 		case "chain":
 			return [
@@ -830,13 +837,9 @@ const statementsOf = (seat: Seat, op: Op): ReadonlyArray<string> => {
 			return [remove(op.upper, op.id), `DELETE FROM ${t(lower)} WHERE ${c(lower, "up")} = ${op.id}`]
 		}
 		case "relink":
-			return [
-				`UPDATE ${t(op.table)} SET ${c(op.table, "up")} = ${op.up} WHERE ${c(op.table, "id")} = ${op.id}`
-			]
+			return [replaced(op.table, op.id, `${op.up}`, `"gone".${c(op.table, "v")}`)]
 		case "revalue":
-			return [
-				`UPDATE ${t(op.table)} SET ${c(op.table, "v")} = ${op.value} WHERE ${c(op.table, "id")} = ${op.id}`
-			]
+			return [replaced(op.table, op.id, `"gone".${c(op.table, "up")}`, `${op.value}`)]
 	}
 }
 

@@ -36,7 +36,8 @@
  * - **Equivalence:** one search per shape, each with the budget of its own, so a shape added takes none of another's;
  *   each case draws a history of direct SQL transactions at SERIALIZABLE over keys 1 and 2
  *   and ids 1 to 3: chains of three links, marks, blocks, deletes of one row or of a link and its children at once,
- *   and updates of a link's parent or value. Each transaction, before its triggers run, runs the rule's whole violation
+ *   and replacements of a link's parent or value, its row deleted and inserted again in one statement, since a link is
+ *   immutable and its table refuses an UPDATE that changes a row. Each transaction, before its triggers run, runs the rule's whole violation
  *   query lowered by the oracle baseline (deploy/snapshot/violation.ts baselineRuleChecks), read whole and never
  *   seeded: that oracle judges the state the transaction leaves, and the rule's check over every row, the judge's
  *   statements over the transaction that writes every row, which the migration that adds the rule runs (lawChecks),
