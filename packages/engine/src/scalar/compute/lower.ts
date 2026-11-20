@@ -122,7 +122,7 @@ import {
 	type LexicalTarget,
 	parseTargetOf
 } from "#compiler/scalar/lexical.ts"
-import { type MatchAdmission, matchSourceAt } from "#compiler/scalar/regex/admit.ts"
+import { type MatchAdmission, matchValueAt } from "#compiler/scalar/regex/admit.ts"
 import { bytesWithin, formIncludes, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
@@ -958,7 +958,7 @@ class Lowering<R extends Refs> {
 				"a pattern of at least one value: the closed relation it reads holds no row, so the match could never be stated"
 			)
 		}
-		return patternTableOf(mapNonEmpty(admitted, (a) => unwrap(matchSourceAt(a, at))))
+		return patternTableOf(mapNonEmpty(admitted, (a) => unwrap(matchValueAt(a, at))))
 	}
 
 	/**
@@ -970,7 +970,7 @@ class Lowering<R extends Refs> {
 	readAdmissions(read: PatternRead): ReadonlyArray<MatchAdmission> {
 		switch (read.kind) {
 			case "admitted":
-				return [{ kind: "admitted", source: read.source }]
+				return [{ kind: "admitted", source: read.value.spelling, value: read.value }]
 			case "closedAt":
 				return this.payloadAdmissions(read.relation, read.field, read.at)
 			case "other":

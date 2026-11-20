@@ -643,6 +643,8 @@ export const inputText = (literal: TypedLiteral, type: ScalarType, codes: Codebo
 			return `[${literal.start},${literal.end})`
 		case "vector":
 			return literal.value[canonicalTag]().payload
+		case "pattern":
+			throw new Error("a value has no pattern literal: only a match reads one")
 	}
 }
 

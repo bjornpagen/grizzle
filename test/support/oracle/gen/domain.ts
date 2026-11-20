@@ -483,6 +483,8 @@ export const typedLiteralDesc = (literal: TypedLiteral, type: ScalarType): Liter
 			return { handles: literal.handles }
 		case "span":
 			return { span: { start: literal.start, end: literal.end } }
+		case "pattern":
+			return literal.value
 	}
 }
 

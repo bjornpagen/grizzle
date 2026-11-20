@@ -349,6 +349,8 @@ export const hostOfLiteral = (carrier: Carrier, literal: TypedLiteral): HostValu
 			return spanHost(carrier, literal)
 		case "vector":
 			return Vector.fromValue(literal.value)
+		case "pattern":
+			return literal.value.spelling
 	}
 }
 

@@ -32,6 +32,7 @@ import {
 	type GuardDesc,
 	type LiteralDesc,
 	type Located,
+	literalPattern,
 	type Refs,
 	type Spelled
 } from "#compiler/ir/desc.ts"
@@ -49,6 +50,7 @@ import {
 	withArgs
 } from "#compiler/ir/expr.ts"
 import { instantInputText, isInstantType } from "#compiler/ir/instant.ts"
+import { matchFlags, type PatternValue } from "#compiler/ir/pattern.ts"
 import type { Exact, Fact, NativeProof, OperationProof, Precondition } from "#compiler/ir/proof.ts"
 import {
 	baseOf,
@@ -153,8 +155,7 @@ import { binary64Digits } from "#compiler/scalar/lexical.ts"
 import { lexicalTargetOf } from "#compiler/scalar/lexical.ts"
 import { binary64Precision } from "#compiler/scalar/lexical.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { admitMatch, type MatchAdmission, matchSourceAt } from "#compiler/scalar/regex/admit.ts"
-import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
+import type { MatchAdmission } from "#compiler/scalar/regex/admit.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import {
 	type CharMap,
@@ -536,13 +537,14 @@ export type ProofObligation =
 	  }
 
 /**
- * What a part of a Compute.matches pattern reads (PatternPart), where it stands: a literal's source, admitted here, as
- * a str.regex pattern is (scalar/regex/admit.ts admitMatch), since its value is the description's own; a closed
+ * What a part of a Compute.matches pattern reads (PatternPart), where it stands: a pattern literal's value, admitted
+ * where it was made or decoded, as a str.regex pattern is (ir/pattern.ts admitSpelling), since its value is the
+ * description's own; a closed
  * relation's payload field C.at reads, whose values the lowering batch admitted; or another kind of term, which can be
  * any text, which the lowering refuses.
  */
 export type PatternRead =
-	| { readonly kind: "admitted"; readonly source: string }
+	| { readonly kind: "admitted"; readonly value: PatternValue }
 	| {
 			readonly kind: "closedAt"
 			readonly relation: string
@@ -958,6 +960,7 @@ const literalNumber = (
 		case "handles":
 		case "span":
 		case "vector":
+		case "pattern":
 			return undefined
 	}
 }
@@ -1565,7 +1568,7 @@ export const closedHeadingOf = (
 
 /**
  * What each part of the Compute.matches pattern `desc` reads (patternParts), each where it stands, the branches of the
- * Compute.cond it stands in below `at`; a literal's source admitted, its refusal placed at the pattern, `at`.
+ * Compute.cond it stands in below `at`.
  */
 const patternReads = <R extends Refs>(
 	desc: ExprDesc<Located, R>,
@@ -1574,25 +1577,23 @@ const patternReads = <R extends Refs>(
 	patternParts(desc).map((part) =>
 		patternRead(
 			part,
-			part.branches.reduce((loc, branch) => childLoc(loc, branch), at),
-			at
+			part.branches.reduce((loc, branch) => childLoc(loc, branch), at)
 		)
 	)
 
-/** What one part of a Compute.matches pattern `pattern` reads, standing at `at`. */
-const patternRead = <R extends Refs>(
-	part: PatternPart<R>,
-	at: SourceLoc,
-	pattern: SourceLoc
-): PatternRead => {
+/** What one part of a Compute.matches pattern reads, standing at `at`. */
+const patternRead = <R extends Refs>(part: PatternPart<R>, at: SourceLoc): PatternRead => {
 	switch (part.kind) {
-		case "literal":
-			return typeof part.desc.value === "string"
-				? {
-						kind: "admitted",
-						source: unwrap(matchSourceAt(admitMatch(part.desc.value), pattern))
-					}
-				: stop("MalformedDescription", at, "a text literal as matches's pattern")
+		case "literal": {
+			const value = literalPattern(part.desc.value)
+			return value === undefined
+				? stop(
+						"MalformedDescription",
+						at,
+						"a pattern literal as matches's pattern, its pattern value (Compute.pattern): a text literal is no pattern"
+					)
+				: { kind: "admitted", value }
+		}
 		case "closedAt":
 			return { kind: "closedAt", relation: part.desc.relation, field: part.desc.field, at }
 		case "other":
@@ -2267,12 +2268,15 @@ class Typing<R extends Refs> {
 		return [a, this.textOperand(fn, a, second, at)]
 	}
 
-	/** The second operand of a text operation over the text term `a`: a text term, or a bare literal of text. */
-	textOperand(fn: string, a: Typed, second: ExprDesc<Located, R>, at: SourceLoc): Typed {
+	/** The first operand of a text operation, `a`, refused where it is no text term. */
+	textSubject(fn: string, a: Typed, at: SourceLoc): void {
 		if (baseOf(a.actual).carrier !== "text") {
-			return stop("MalformedDescription", at, `a text term for ${fn}, not ${typeLabel(a.nominal)}`)
+			stop("MalformedDescription", at, `a text term for ${fn}, not ${typeLabel(a.nominal)}`)
 		}
-		const b = this.operand(second, a, "operand", childLoc(at, 1))
+	}
+
+	/** An operand of a text operation, `b`, refused where it is no text. */
+	textValue(fn: string, b: Typed, at: SourceLoc): Typed {
 		if (baseOf(b.actual).carrier !== "text") {
 			return stop(
 				"MalformedDescription",
@@ -2281,6 +2285,12 @@ class Typing<R extends Refs> {
 			)
 		}
 		return b
+	}
+
+	/** The second operand of a text operation over the text term `a`: a text term, or a bare literal of text. */
+	textOperand(fn: string, a: Typed, second: ExprDesc<Located, R>, at: SourceLoc): Typed {
+		this.textSubject(fn, a, at)
+		return this.textValue(fn, this.operand(second, a, "operand", childLoc(at, 1)), at)
 	}
 
 	/**
@@ -2554,9 +2564,36 @@ class Typing<R extends Refs> {
 		return this.matchesOver(this.term(subjectDesc, childLoc(at, 0)), patternDesc, at)
 	}
 
+	/**
+	 * The pattern operand of a Compute.matches over the text term `subject`, standing at `here`, as patternParts reads
+	 * its parts: a pattern literal, its pattern value (ir/pattern.ts PatternValue), a text of no refinement that only a
+	 * match reads; a Compute.cond, its predicate and each branch a pattern operand in turn; any other a text operand, a
+	 * closed read among them, whose values patternReads reads. `at` is the match's place, where a refusal of no text is.
+	 */
+	patternOperand(
+		subject: Typed,
+		desc: ExprDesc<Located, R>,
+		here: SourceLoc,
+		at: SourceLoc
+	): Typed {
+		const value =
+			desc.kind === "literal" && desc.type === undefined ? literalPattern(desc.value) : undefined
+		if (value !== undefined) {
+			return this.literalNode({ kind: "pattern", value }, wildcardText, undefined)
+		}
+		if (desc.kind !== "cond") {
+			return this.textValue("matches", this.operand(desc, subject, "operand", here), at)
+		}
+		const p = this.predicate(desc.pred, childLoc(here, "cond"))
+		const onTrue = this.patternOperand(subject, desc.onTrue, childLoc(here, "cond", "then"), at)
+		const onFalse = this.patternOperand(subject, desc.onFalse, childLoc(here, "cond", "else"), at)
+		return this.conditional(p, onTrue, onFalse, here)
+	}
+
 	/** Compute.matches over a subject already typed: a guard's (whenScope), or a call's (matches). */
 	matchesOver(subject: Typed, patternDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
-		const pattern = this.textOperand("matches", subject, patternDesc, at)
+		this.textSubject("matches", subject, at)
+		const pattern = this.patternOperand(subject, patternDesc, childLoc(at, 1), at)
 		const op = this.overload("matches", [subject.actual, pattern.actual], at)
 		if (op.partial) {
 			throw defect("textregexeq, which the registry defines on every text and pattern")
@@ -3452,7 +3489,7 @@ class Typing<R extends Refs> {
 		const own = regexRefOf(subject.nominal)
 		const type = this.textWithin(
 			appendNonEmpty(own === undefined ? [] : own.patterns, {
-				source: guard.pattern,
+				source: guard.pattern.spelling,
 				flags: matchFlags
 			}),
 			own === undefined ? undefined : textInfoBounds(own)?.bytes,

@@ -174,6 +174,7 @@ const restatedLiteral = (
 		case "date":
 		case "span":
 		case "vector":
+		case "pattern":
 			return value
 	}
 }
