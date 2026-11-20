@@ -370,13 +370,13 @@ const byteNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<ByteNote> 
  * value enters its column at its carrier and the column's domain judges its pattern, the pantry's declaration among
  * them; a digest cast into a text type whose language holds every digest, admitted with no guard; one cast into a type
  * whose language lacks a digest, a decided language, which the types admit since a pattern is no type; and the digest
- * of a text, which both refuse, since Compute.sha256 reads bytes alone.
+ * of a text, the SHA-256 of its UTF-8 bytes, which both admit.
  */
 const digestNotes = [
 	"a digest stored uncast",
 	"a digest cast into a type that holds it",
 	"a digest cast into a type that lacks it",
-	"a digest of a text refused"
+	"a digest of a text"
 ] as const
 type DigestNote = (typeof digestNotes)[number]
 
@@ -448,7 +448,7 @@ const digestNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<DigestNo
 		return []
 	}
 	if (spec.operand !== "content") {
-		return verdict.kind === "refused" ? ["a digest of a text refused"] : []
+		return verdict.kind === "admitted" ? ["a digest of a text"] : []
 	}
 	if (!spec.cast) {
 		return verdict.kind === "admitted" ? ["a digest stored uncast"] : []
@@ -4056,8 +4056,9 @@ const expressionOf = (rendering: Rendering, spec: CaseSpec): string => {
 
 /**
  * The situations the drawn cases reach beside the verdicts, Refusals, decisions and inferences: every construct, each
- * admitted but a literal standing first, and each refused but the byte guard, whose casts the types always admit; and
- * a column read through a heading both ways. The kept cases reach the rest (computeKeptRequired).
+ * admitted but a literal standing first, and each refused but the byte guard, whose casts the types always admit, and
+ * the digest, Compute.sha256 reading a text as it reads bytes, so a digest is admitted or its cast's language decided;
+ * and a column read through a heading both ways. The kept cases reach the rest (computeKeptRequired).
  */
 const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
 	...computeFeatures,
@@ -4073,7 +4074,7 @@ const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
 		(f) => [f, "admitted"] as const
 	),
 	...Arr.map(
-		Arr.filter(computeFeatures, (f) => f !== "byte guard"),
+		Arr.filter(computeFeatures, (f) => f !== "byte guard" && f !== "digest"),
 		(f) => [f, "refused"] as const
 	)
 ]
@@ -4186,25 +4187,25 @@ const rootedAt =
  * @scope the steered phase of the drawn Compute agreement's search, aimed by computeAimed, its windows of 150 cases
  *   (typeWindow), on the steered stream its property's identity fixes; the phase ends once every required situation is
  *   reached
- * @evidence ~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/compute-steered-run8.txt: toolchain-test run
+ * @evidence ~/.cache/grizzle-release/REDFIX-logs/compute-steered-run-at-3000.txt: toolchain-test run
  *   test/types/compute/compute.test.ts#compute with this limit set to 3000, its report line naming the steered cases the
- *   search ran
- * @observed 2026-11-16, 04:17 to 04:20 UTC
- * @environment cassowary, Ubuntu 26.04 arm64, 64 cores, Node 26.13.1, toolchain 31fa236 (property.batched over an aimed
- *   space), grizzle 4ca3036a with the GZ-TYPES conversion and 546f2b80's compute.ts; load average 200 to 470 from other
- *   sessions
+ *   search ran; compute-steered-run-at-900.txt beside it, the same search at the limit before
+ * @observed 2026-11-20, 01:36 to 01:41 UTC
+ * @environment cassowary, Ubuntu 26.04 arm64, 64 cores, Node 26.13.1, toolchain d3a4a60, grizzle baca0c86b with the
+ *   digest of a text admitted (Compute.sha256 over a text since b9cf96fa9); load average 7 to 30 from other sessions
  * @workload the drawn Compute agreement over computeAimed (each requirement naming a construct aimed at its roots,
  *   every other at any root), 287 required situations, batches of 150 cases
- * @result every required situation reached after 750 steered cases, five windows of 150; the same search capped at 300
- *   (compute-steered-run5-at-300.txt, toolchain 487b28e with batched aims patched in) left 19 unreached. A coverage
- *   simulation of the same aims over six seeds needed 450 to 750
- * @decision 900, the 750 the search needs and one window of 150 more: the steered stream is fixed by the property's
+ * @result every required situation reached after 1050 steered cases, seven windows of 150; capped at 900, the search
+ *   left "refused: no order" and a refused CASE of a plain branch first beside an exact one unreached, where on
+ *   2026-11-16 (TESTSYS/GZ-TYPES/measure/compute-steered-run8.txt, 287 situations of that day) it needed 750: the
+ *   turns its windows give each pending situation moved when the digest's refusal left the required situations
+ * @decision 1200, the 1050 the search needs and one window of 150 more: the steered stream is fixed by the property's
  *   identity, so the need is the same on every run seed, and a window the search does not need never runs, so the margin
  *   costs nothing while every situation is reached
  * @revalidate the Compute generator, its aims or its required situations change; typeWindow or the runner's steering
  *   changes; a run that fails unreached under this limit
  */
-export const computeSteeredCases = 900
+export const computeSteeredCases = 1200
 
 /**
  * The drawn cases aimed at the required situations: a case whose turn aims at a requirement naming a construct is
@@ -4273,7 +4274,7 @@ const mapKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind: "ter
  * One digest case per digest note, so the floor reaches each by construction, whatever its draws: the pantry's
  * declaration, its digest of an Entry's bytes stored uncast into `^[0-9a-f]{64}$`, which both admit; that digest cast
  * into its own type, which compilation proves with no guard; cast into uppercase hex, which the engine refuses by the
- * digest's language while the types admit it; and the digest of a text, which both refuse.
+ * digest's language while the types admit it; and the digest of a text stored uncast, which both admit.
  */
 const digestKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind: "digest" }>> = [
 	{ kind: "digest", operand: "content", target: lowerHex, cast: false },
