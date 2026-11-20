@@ -495,6 +495,12 @@ export const rekeyedOrder = property.explore(aimed(rekeyGen, rekeyAims), {
 			why: "The folds over a kept index run in member-key order."
 		},
 		{
+			file: "test/support/install-migrate.ts",
+			original: "\t\t\t\ttimestamp: draftedAt(at.step),\n",
+			replacement: "\t\t\t\ttimestamp: draftedAt(at.step + 1),\n",
+			why: "The history drafts each version a second late on the tests' clock: the refusal is in the re-key's folder, drafted at ordinal 2, which the property no longer finds at ordinal 1."
+		},
+		{
 			file: "packages/engine/src/deploy/diff/declared.ts",
 			original: "\t\t\t\t\t\tfieldTaken(d.relation, f) ||\n\t\t\t\t\t\tdrawnAnew(d.relation, f))",
 			replacement: "\t\t\t\t\t\tfieldTaken(d.relation, f))",

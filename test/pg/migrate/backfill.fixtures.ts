@@ -72,7 +72,7 @@ import {
 import { Id } from "#test/support/ids.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { asDrafted, compile, noDeclarations } from "#test/support/migrate/kit.ts"
+import { asDrafted, compile, draftedAt, noDeclarations } from "#test/support/migrate/kit.ts"
 import type { Placeholder } from "#test/support/migrate/review.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -1697,6 +1697,13 @@ export const rekeyAims: ReadonlyArray<Aim<Rekey, RekeyFeature>> = [
  * owner's kept indices are 0 … n − 1, and otherwise the re-key's folder refused naming a broken family's law or its
  * fold's.
  */
+/**
+ * The instant the re-key's folder is drafted at, its name's timestamp: the history's version 1 at ordinal 1 of the tests'
+ * one clock (test/support/migrate/kit.ts draftedAt, install-migrate.ts draftVersion), where its install is version 0.
+ * The history names every version's folder by its clock alone, so the instant tells the re-key's folder apart.
+ */
+const rekeyFolderAt = draftedAt(1)
+
 export const rekeyed = (r: Rekey) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
@@ -1747,8 +1754,8 @@ export const rekeyed = (r: Rekey) =>
 				})
 			)
 			assert.ok(
-				Option.exists(refusedIn(failure), Str.endsWith("_step_2")),
-				`the refusal names the re-key's folder: ${failure.message}`
+				Option.exists(refusedIn(failure), Str.startsWith(rekeyFolderAt)),
+				`the refusal names the re-key's folder, drafted at ${rekeyFolderAt}: ${failure.message}`
 			)
 			assert.ok(
 				Option.exists(refusedLaw(failure), (law) => laws.has(law)),
