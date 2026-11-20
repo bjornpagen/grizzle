@@ -50,6 +50,10 @@ export const theFillOrderOnTheClusterAnAdmittedSchemaWhoseGeneratedFieldsReadFie
 /**
  * The fill order on the cluster an admitted schema installs, and its instance's first insert stores the reference writer's rows.
  *
+ * A tree's root texts are of no byte bound (test/support/families/fill.ts rootText), so an ordered or counted family a
+ * tree's node owns groups its members by texts its owner axis carries by each member's copy of their images, which the
+ * walk and the scan write and the family's CHECK holds to the member's own images of the texts: a wrong copy is refused.
+ *
  * Its pre-conversion budget: runs 16, coverage cases 60 (test/pg/write/fill-order/fill-order.test.ts at d8eed1786).
  */
 export const theFillOrderOnTheClusterAnAdmittedSchemaInstallsAndItsInstancesFirstInsertStoresTheReferenceWritersRows =
@@ -151,6 +155,21 @@ export const theFillOrderOnTheClusterAnAdmittedSchemaInstallsAndItsInstancesFirs
 					since: "2026-11-19"
 				}
 			],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/runtime/write/fill.ts",
+					original: "\t\treturn new AdmittedBytes(textDigest(wellFormed(value)))",
+					replacement: '\t\treturn new AdmittedBytes(textDigest(wellFormed(value + ".")))',
+					why: "The walk writes a member's copy of its group text's image as another text's digest: the family's CHECK refuses the first insert of a tree owning an ordered or counted family (23514)."
+				},
+				{
+					file: "packages/engine/src/write/family/scan.ts",
+					original:
+						"\t\t\treturn built(textDigestForm(lowering.names.library, value(columnKey(rule.of))))",
+					replacement:
+						'\t\t\treturn built(textDigestForm(lowering.names.library, binary("||", value(columnKey(rule.of)), lit.text(".", types.text))))',
+					why: "The scan draws an appended member's copy of its group text's image as another text's digest: the family's CHECK refuses a follow-up's append under a stored tree node (23514)."
+				}
+			]
 		}
 	)

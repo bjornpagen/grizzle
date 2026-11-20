@@ -32,6 +32,7 @@ import {
 	type Family,
 	type FamilyFold,
 	type FoldPlane,
+	type GroupImage,
 	type MemberShape,
 	orderOf,
 	type TreeMembers
@@ -39,12 +40,14 @@ import {
 import {
 	columnKey,
 	type FamilyId,
+	type FieldWriting,
 	type LawField,
 	type NativeColumn,
 	type RelationInfo,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import { monoidSpecs } from "#compiler/ir/monoid.ts"
+import { keyImageOf } from "#compiler/schema/representability.ts"
 
 /**
  * Families and their axes, as the theory resolves them.
@@ -67,7 +70,10 @@ import { monoidSpecs } from "#compiler/ir/monoid.ts"
  * A family as its statement resolves it, before the containments it carries and the folds over it (ir/family.ts), its
  * owner and member the ordinary relations the checked schema typed.
  */
-export interface FamilyShape extends Omit<Family, "axes" | "folds" | "owner" | "member"> {
+export interface FamilyShape extends Omit<
+	Family,
+	"axes" | "folds" | "images" | "owner" | "member"
+> {
 	readonly owner: RelationInfo
 	readonly member: RelationInfo
 }
@@ -343,6 +349,71 @@ export const treeShape = (
 		}),
 		copy: drawnColumn("copy", id, law)
 	})
+}
+
+/** Whether a field's value is fixed once its row is inserted: its caller's, or generated from them, a place or an
+ * instant; never one grizzle draws or accumulates again, or a retirement. */
+const fixedAtInsert = (writing: FieldWriting): boolean => {
+	switch (writing.kind) {
+		case "caller":
+		case "generated":
+		case "place":
+		case "instant":
+			return true
+		case "drawn":
+		case "accumulated":
+		case "retirement":
+			return false
+	}
+}
+
+/**
+ * The images a family's owner axis carries in the place of the member's fields it rewrites ON UPDATE CASCADE (Family
+ * `images`), each of a field whose owner field a key holds by its image (schema/representability.ts keyImageOf), its
+ * column named at the naming door: each group field, whose owner field is a key's text no write rewrites, then each
+ * field a pair of the axis carries from an immutable owner's field fixed at its insert, which no write rewrites either,
+ * so the cascade rewrites each copy with the image it holds; in that order, each field once. A copy of any other owner
+ * field the cascade would rewrite with another image and leave the text, so it carries none (laws/model/plan.ts refuses
+ * the axis). A tree's owner axis takes no action, so it carries none.
+ */
+export const familyImages = (
+	shape: FamilyShape,
+	owner: ReadonlyArray<AxisPair>
+): ReadonlyArray<GroupImage> => {
+	if (shape.shape.kind === "tree") {
+		return []
+	}
+	const { id, law } = shape
+	const carried = owner.flatMap(
+		(p): ReadonlyArray<{ readonly member: LawField; readonly owner: LawField }> =>
+			!shape.owner.mutable &&
+			p.from.kind === "field" &&
+			p.to.kind === "field" &&
+			fixedAtInsert(p.to.field.writing)
+				? [{ member: p.from.field, owner: p.to.field }]
+				: []
+	)
+	const images = new Map<string, GroupImage>()
+	for (const { member, owner: target } of [...shape.group, ...carried]) {
+		const image = keyImageOf(target.desc)
+		if (image !== undefined && !images.has(member.name)) {
+			images.set(member.name, {
+				member,
+				image,
+				column: identifierOf(
+					identity.lawColumn({
+						kind: "imageCopy",
+						owner: id.owner,
+						count: id.count,
+						family: law,
+						field: member.name,
+						image
+					})
+				)
+			})
+		}
+	}
+	return Object.freeze([...images.values()])
 }
 
 /** Whether a family's shape is a tree's. */

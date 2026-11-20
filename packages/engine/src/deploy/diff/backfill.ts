@@ -371,6 +371,7 @@ export const fillReadsOf = (installation: Installation): FillReads => {
 				return layout.position.kind === "member" ? [at(layout.position.family.owner, rule.to)] : []
 			case "given":
 			case "self":
+			case "image":
 			case "base":
 			case "index":
 			case "copy":

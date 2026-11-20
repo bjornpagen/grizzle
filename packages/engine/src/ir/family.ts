@@ -9,6 +9,7 @@
  * shape rides it, its pairs joining the axis's, so a family adds one foreign key per axis whatever its laws.
  */
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { KeyImage } from "#compiler/core/identity.ts"
 import type { ColumnIdent, Identifier, LawId } from "#compiler/core/ids.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
@@ -38,9 +39,26 @@ export interface Family {
 	readonly shape: MemberShape
 	/** ‹n›, the owner's count on each member: a drawn law column. */
 	readonly copy: ColumnIdent
+	/**
+	 * The images of the member's fields its owner axis carries in their place (analysis/theory/families.ts
+	 * familyImages), each a field whose owner field a key holds by its image (laws/model/plan.ts keyedAs): its group
+	 * fields and its copies of an immutable owner's fields fixed at its insert. Each is a drawn law column the walk
+	 * writes and the axis's ON UPDATE CASCADE rewrites, which PostgreSQL refuses into a generated column, held to its
+	 * field's digest by a CHECK; the cascade rewrites it with the image it holds, the owner field being one no write
+	 * rewrites, so the member's text and its copy of the image never part. None for a tree, whose owner axis takes no
+	 * action and reads the member's own generated images.
+	 */
+	readonly images: ReadonlyArray<GroupImage>
 	/** What each axis carries beyond its key: the formers' pairs and every containment merged into it. */
 	readonly axes: { readonly [A in AxisKind]: ReadonlyArray<AxisPair> }
 	readonly folds: ReadonlyArray<FamilyFold>
+}
+
+/** A member field's image a family's owner axis carries (Family `images`): the field, its image, and its column. */
+export interface GroupImage {
+	readonly member: LawField
+	readonly image: KeyImage
+	readonly column: ColumnIdent
 }
 
 /**

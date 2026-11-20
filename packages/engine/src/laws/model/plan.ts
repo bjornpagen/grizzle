@@ -238,10 +238,28 @@ const plannedField = (c: PlannedColumn): LawField => {
  * hold: it is counted at its roster's handles, the fewest codes the roster can have, so the count refuses only an entry
  * certainly past the bound.
  */
-const plannedDatum = (c: PlannedColumn): DatumBound | undefined =>
-	c.kind === "law" && c.column.kind === "image"
-		? keyImageDatum[c.column.image]
-		: fieldDatum(plannedField(c))
+const plannedDatum = (c: PlannedColumn): DatumBound | undefined => {
+	const image = c.kind === "law" ? heldImage(c.column) : undefined
+	return image === undefined ? fieldDatum(plannedField(c)) : keyImageDatum[image]
+}
+
+/**
+ * The image a law column holds the digests of, where it holds one: a key's image (`keyedAs`), or the drawn copy of a group
+ * field's image a family's owner axis carries (ir/family.ts GroupImage); none for any other, which holds its field's
+ * values.
+ */
+export const heldImage = (c: LawColumnPlan): KeyImage | undefined => {
+	switch (c.kind) {
+		case "image":
+			return c.image
+		case "drawn":
+			return c.draws.kind === "imageCopy" ? c.draws.image : undefined
+		case "constant":
+		case "term":
+		case "indexPred":
+			return undefined
+	}
+}
 
 /** A planned column as a refusal names it: a field by its name, a law column by what it holds, an image as the column
  * it stands in the place of. */
@@ -315,10 +333,10 @@ interface BoundedColumn<C extends PlannedColumn> {
  * below that only refuses an entry certainly past the limit. A reverse index is chosen to fit (`btreeRun`,
  * `plannedPeriodReverse`), so its run reads this bound from above: the index engine never refuses the run it picks.
  */
-const createdDatum = (c: PlannedColumn): DatumBound | undefined =>
-	c.kind === "law" && c.column.kind === "image"
-		? keyImageDatum[c.column.image]
-		: datumBound(plannedField(c).desc)
+const createdDatum = (c: PlannedColumn): DatumBound | undefined => {
+	const image = c.kind === "law" ? heldImage(c.column) : undefined
+	return image === undefined ? datumBound(plannedField(c).desc) : keyImageDatum[image]
+}
 
 /** The columns of `columns` whose datum is bounded in an index the engine creates (`createdDatum`), in their order. */
 const boundedColumns = <C extends PlannedColumn>(
@@ -574,6 +592,12 @@ export type CheckLeaf =
 export interface CheckPredicate {
 	readonly predicate: ExprDesc
 	readonly leaves: ReadonlyMap<string, CheckLeaf>
+	/**
+	 * The CHECK's image equalities beside its predicate: each drawn copy of a group field's image a family's owner axis
+	 * carries (ir/family.ts GroupImage) equal to the row's own generated image of the field, bytea's equality over the two
+	 * law columns, which no term of the scalar language states.
+	 */
+	readonly images: ReadonlyArray<{ readonly copy: LawColumnPlan; readonly image: LawColumnPlan }>
 }
 
 /**
@@ -1780,6 +1804,7 @@ class RowConditions {
 	readonly relation: RelationInfo
 	readonly #leaves = new Map<string, CheckLeaf>()
 	readonly #conjuncts: Array<ExprDesc> = []
+	readonly #images: Array<{ readonly copy: LawColumnPlan; readonly image: LawColumnPlan }> = []
 
 	constructor(relation: RelationInfo) {
 		this.relation = relation
@@ -1801,6 +1826,11 @@ class RowConditions {
 		this.#conjuncts.push(conjunct)
 	}
 
+	/** A drawn copy of a group field's image held equal to the row's own image of it (CheckPredicate `images`). */
+	addImage(copy: LawColumnPlan, image: LawColumnPlan): void {
+		this.#images.push({ copy, image })
+	}
+
 	native(): NativePlan | undefined {
 		const [first, ...rest] = this.#conjuncts
 		return first === undefined
@@ -1808,7 +1838,11 @@ class RowConditions {
 			: {
 					kind: "GeneratedCheck",
 					relation: this.relation,
-					check: { predicate: and([first, ...rest]), leaves: new Map(this.#leaves) }
+					check: {
+						predicate: and([first, ...rest]),
+						leaves: new Map(this.#leaves),
+						images: [...this.#images]
+					}
 				}
 	}
 
@@ -1824,6 +1858,9 @@ class RowConditions {
 
 /** The type of the values a law column holds: its field's, or an image's, a digest's bytea. */
 const heldType = (column: LawColumnPlan): ScalarType => {
+	if (heldImage(column) !== undefined) {
+		return bytesType
+	}
 	switch (column.kind) {
 		case "constant":
 		case "drawn":
@@ -2801,6 +2838,9 @@ class FamilyPlanner {
 	readonly #owner: RelationInfo
 	/** Each drawn law column of the family, by its identifier. */
 	readonly #drawn = new Map<ColumnIdent, LawColumnPlan>()
+	/** Each image a member's group field's owner axis carries (ir/family.ts GroupImage), its drawn column, by the
+	 * field's name. */
+	readonly #copies = new Map<string, LawColumnPlan>()
 	/** Each hidden fold accumulator's start, its plane's identity, by its identifier. */
 	readonly #hidden = new Map<ColumnIdent, CopyStart>()
 	readonly #conditions = new Map<LawId, Map<string, RowConditions>>()
@@ -2819,6 +2859,25 @@ class FamilyPlanner {
 		const member = this.#member
 		const owner = this.#owner
 		const tree = f.shape.kind === "tree" ? f.shape : undefined
+		for (const image of f.images) {
+			this.#copies.set(
+				image.member.name,
+				this.#draw(
+					image.column,
+					member,
+					image.member,
+					{ kind: "imageCopy", family: f.id, field: image.member.name, image: image.image },
+					{
+						kind: "imageCopy",
+						owner: f.id.owner,
+						count: f.id.count,
+						family: f.law,
+						field: image.member.name,
+						image: image.image
+					}
+				)
+			)
+		}
 		const copy = lawColumn(
 			this.#draw(f.copy, member, f.count, { kind: "copy", family: f.id }, this.#familyNamed("copy"))
 		)
@@ -2948,8 +3007,29 @@ class FamilyPlanner {
 
 		const numbering = keyedColumns(member, familyKeyColumns)
 		const successors = keyedColumns(member, successorKey)
+		/** Each group image's drawn copy held to the member's own generated image of its field, in the family's CHECK. */
+		const imaged = f.images.map((image) => {
+			const generatedImage: LawColumnPlan = {
+				kind: "image",
+				relation: member,
+				of: fieldColumn(image.member),
+				image: image.image
+			}
+			const copied = defined(this.#copies.get(image.member.name), "a group image's drawn column")
+			this.#conditionsFor(this.#law.id, member).addImage(copied, generatedImage)
+			return lawColumn(generatedImage)
+		})
 		const natives: ReadonlyArray<NativePlan> = [
-			...lawColumns([copy, index, pred, ...group, lastPred, ...numbering, ...successors]),
+			...lawColumns([
+				copy,
+				index,
+				pred,
+				...group,
+				lastPred,
+				...numbering,
+				...successors,
+				...imaged
+			]),
 			{
 				kind: "Unique",
 				relation: member,
@@ -2999,6 +3079,18 @@ class FamilyPlanner {
 		const column: LawColumnPlan = { kind: "drawn", relation, field, draws, named }
 		this.#drawn.set(ident, column)
 		return column
+	}
+
+	/**
+	 * A column of the member an owner axis's ON UPDATE CASCADE writes: a group field's image as the family's drawn copy
+	 * of it (Family `images`), which PostgreSQL writes where a generated image it refuses to; any other as it is.
+	 */
+	#written(c: PlannedColumn): PlannedColumn {
+		if (c.kind !== "law" || c.column.kind !== "image" || c.column.of.kind !== "field") {
+			return c
+		}
+		const copy = this.#copies.get(c.column.of.field.name)
+		return copy === undefined ? c : lawColumn(copy)
 	}
 
 	/** A drawn column of the family that is no fold's, at the naming door. */
@@ -3175,7 +3267,7 @@ class FamilyPlanner {
 		onUpdate: OnUpdate,
 		deferral: ForeignKeyDeferral
 	): AxisPlan {
-		const { columns, targetColumns } = keyedReference(
+		const keyed = keyedReference(
 			source.relation,
 			extendNonEmpty(
 				source.base,
@@ -3187,10 +3279,20 @@ class FamilyPlanner {
 				pairs.map((p) => p.to)
 			)
 		)
+		const columns =
+			onUpdate === "cascade" ? mapNonEmpty(keyed.columns, (c) => this.#written(c)) : keyed.columns
+		const targetColumns = keyed.targetColumns
 		const reverseColumns = mapNonEmpty(source.keyed, (_, i) =>
 			defined(columns[i], "a source column per keyed column, which its base leads with")
 		)
 		const generated = columns.find(isGenerated)
+		if (onUpdate === "cascade" && generated?.kind === "law" && generated.column.kind === "image") {
+			return refuse(
+				"UnsupportedLawFamily",
+				this.#loc,
+				`a family's owner axis that carries a text of no byte bound in its group, or as a copy of an immutable owner's field its insert fixes: its ON UPDATE CASCADE rewrites any other copy where the owner's field changes, and a key holds such a text by its image alone, so the cascade would rewrite the copy's image and leave its text; the owner axis of ${familyText(this.#shape())} carries ${plannedText(generated)}: bound the text (str.bytes), or copy a field of an immutable owner its caller writes`
+			)
+		}
 		if (onUpdate === "cascade" && generated !== undefined) {
 			return refuse(
 				"UnsupportedLawFamily",

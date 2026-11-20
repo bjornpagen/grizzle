@@ -531,6 +531,13 @@ export const generatedLaw = (relation: StoredRelationName, field: string): Gener
 export type Drawn =
 	| { readonly kind: "copy" | "index"; readonly family: FamilyId }
 	| {
+			/** A group field's image the family's owner axis carries (ir/family.ts GroupImage), the digest of `field`. */
+			readonly kind: "imageCopy"
+			readonly family: FamilyId
+			readonly field: string
+			readonly image: KeyImage
+	  }
+	| {
 			readonly kind: "before" | "after"
 			readonly family: FamilyId
 			readonly fold: number

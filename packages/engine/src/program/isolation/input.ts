@@ -84,6 +84,15 @@ const byRelation = <V>(
 }
 
 /**
+ * A native column of a relation by its text (ir/law.ts columnKey), a field's image by the field it compares
+ * (laws/model/model.ts fieldImages), any other law column by its identifier.
+ */
+const columnText = (model: LawModel): ((relation: string, c: NativeColumn) => string) => {
+	const compared = fieldImages(model.natives).compared
+	return (relation, c) => compared(relation, c)?.name ?? columnKey(c)
+}
+
+/**
  * The declared keys of each relation by its declared name, each by its columns' texts (ir/law.ts columnKey): its
  * primary key's native and each UNIQUE native, a field's image by the field it compares (laws/model/model.ts
  * fieldImages), any other law column by its identifier, so a key a law adds over law columns (an
@@ -92,10 +101,7 @@ const byRelation = <V>(
  * columns is a point read of.
  */
 const nativeKeys = (model: LawModel): ReadonlyMap<string, ReadonlyArray<ReadonlyArray<string>>> => {
-	const compared = fieldImages(model.natives).compared
-	/** A key's column by its text, a field's image by the field it compares. */
-	const text = (relation: string, c: NativeColumn): string =>
-		compared(relation, c)?.name ?? columnKey(c)
+	const text = columnText(model)
 	return byRelation(
 		model.natives.flatMap(({ object }): ReadonlyArray<readonly [string, ReadonlyArray<string>]> =>
 			object.kind === "PrimaryKey" || object.kind === "Unique"
@@ -121,16 +127,17 @@ const countedGroups = (
 /**
  * The references of each relation by its declared name: every foreign key it holds, deferrable or not, a native one, a
  * lowered containment's and a PERIOD key's alike, by the relation it references, that relation's columns it references
- * by their texts in the order of its key, a law column by its identifier as the relation's keys name it, and its ON
+ * by their texts in the order of its key, as the relation's keys name them (columnText), and its ON
  * UPDATE action. A PERIOD key's span is left out, which its check reads by overlap, and its action is NO ACTION.
  */
-const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Reference>> =>
-	byRelation(
+const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Reference>> => {
+	const text = columnText(model)
+	return byRelation(
 		model.natives.flatMap(({ object }): ReadonlyArray<readonly [string, Reference]> => {
 			if (object.kind === "ForeignKey") {
 				const reference: Reference = {
 					relation: object.target.name,
-					columns: object.targetColumns.map(columnKey),
+					columns: object.targetColumns.map((c) => text(object.target.name, c)),
 					onUpdate: object.onUpdate
 				}
 				return [[object.relation.name, reference]]
@@ -138,7 +145,7 @@ const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Re
 			if (object.kind === "PeriodForeignKey") {
 				const reference: Reference = {
 					relation: object.target.name,
-					columns: object.targetColumns.map(columnKey),
+					columns: object.targetColumns.map((c) => text(object.target.name, c)),
 					onUpdate: "noAction"
 				}
 				return [[object.relation.name, reference]]
@@ -146,6 +153,7 @@ const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Re
 			return []
 		})
 	)
+}
 
 /** The relations of every retirable unit of the model's owned schema, its header and its bodies, by declared name. */
 const unitRelations = (model: LawModel): ReadonlySet<string> =>

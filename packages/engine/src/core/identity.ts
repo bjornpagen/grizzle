@@ -996,6 +996,16 @@ export type LawColumnStatement =
 			readonly plane: 0 | 1
 	  }
 	| { readonly kind: "image"; readonly image: KeyImage; readonly of: ImageOf }
+	| {
+			/** The image of a member's group field its family's owner axis carries, which its cascade writes. */
+			readonly kind: "imageCopy"
+			readonly owner: string
+			readonly count: string
+			/** The family's own law. */
+			readonly family: Identifier<"law">
+			readonly field: string
+			readonly image: KeyImage
+	  }
 
 /** What each drawn law column of a family is, in its display. */
 const drawnWords = {
@@ -1166,6 +1176,14 @@ export const identity = Object.freeze({
 					[column.kind, column.family, column.fold, `${column.plane}`],
 					[column.kind, ...nameSegments(column.count), `${column.plane}`],
 					`the accumulator ${column.kind} plane ${column.plane} of the fold ${column.fold} over the family ${column.owner}.${column.count}`,
+					hashed
+				)
+			case "imageCopy":
+				return mint(
+					"lawColumn",
+					[column.kind, column.family, column.field, column.image],
+					["imagecopy", ...nameSegments(column.field)],
+					`the ${column.image} image of ${column.field} the family ${column.owner}.${column.count} carries onto its members`,
 					hashed
 				)
 			case "image": {

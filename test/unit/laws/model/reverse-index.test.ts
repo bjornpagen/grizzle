@@ -116,9 +116,10 @@ export const aContainmentsReverseIndexIsABTreeOverTheLongestLeadingBoundedRunTha
 		kills: [
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
-				original: "\t\t? keyImageDatum[c.column.image]\n\t\t: datumBound(plannedField(c).desc)\n",
+				original:
+					"\treturn image === undefined ? datumBound(plannedField(c).desc) : keyImageDatum[image]\n",
 				replacement:
-					"\t\t? keyImageDatum[c.column.image]\n\t\t: plannedDatum(c) ?? datumBound(plannedField(c).desc)\n",
+					"\treturn image === undefined ? (plannedDatum(c) ?? datumBound(plannedField(c).desc)) : keyImageDatum[image]\n",
 				why: "The reverse run is chosen by the law model's bound from below for a set, its roster's handles, so a run holding a set fits by it and the index engine refuses it at the most codes a roster numbers: the containment of A0(c0 uuid, c1 set) is refused."
 			},
 			{

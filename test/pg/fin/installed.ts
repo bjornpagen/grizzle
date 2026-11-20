@@ -118,6 +118,8 @@ const lawColumnRole = (
 		case "before":
 		case "after":
 			return `‹${d.kind} ${d.fold}.${d.plane}›`
+		case "imageCopy":
+			return `‹image ${d.field}›`
 	}
 }
 

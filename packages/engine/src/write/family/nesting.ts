@@ -325,6 +325,7 @@ const stampedSource = (
 			case "end":
 			case "after":
 			case "generated":
+			case "image":
 				return []
 		}
 	})()
@@ -356,6 +357,7 @@ const fillingLaw = (
 		case "start":
 		case "end":
 		case "generated":
+		case "image":
 			throw defect(
 				`a ${rule.kind} column ${column.name} reading a stamped one, which its stamps carry or no rule of its reads`
 			)

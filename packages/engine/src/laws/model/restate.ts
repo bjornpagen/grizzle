@@ -675,6 +675,15 @@ const lawColumnStatement = (
 						fold: law(named.fold),
 						plane: named.plane
 					}
+				case "imageCopy":
+					return {
+						kind: named.kind,
+						owner,
+						count,
+						family,
+						field: spell.field(plan.relation.name, named.field),
+						image: named.image
+					}
 			}
 		}
 	}

@@ -40,6 +40,7 @@ import {
 	type Identity,
 	identity,
 	type KeyColumnName,
+	type KeyImage,
 	type KeySide
 } from "#compiler/core/identity.ts"
 import {
@@ -1631,7 +1632,11 @@ class Specializer {
 		const desc = plain.ok ? check.predicate : baseLeaves(check.predicate, typeOf)
 		const region = ext.scan(r, r.fields, [])
 		const lowered = unwrap(attempt(desc, (spec) => ext.expr(spec), region.id)).expr
-		return { filter: ext.filter(region, lowered), predicate: lowered }
+		const read = (column: LawColumnPlan): ScalarExpr =>
+			ext.expr(storedColumn(region.id, this.#lawColumn(column), bytesType))
+		const [first, ...rest] = check.images.map((i) => ext.op("eq", [read(i.copy), read(i.image)]))
+		const predicate = first === undefined ? lowered : ext.op("and", [lowered, first, ...rest])
+		return { filter: ext.filter(region, predicate), predicate }
 	}
 
 	#materialize(
@@ -1875,15 +1880,26 @@ const isKeyLaw = (law: TheoryLaw): boolean =>
  */
 const heldValues = (c: LawColumnPlan): LawColumnValues => {
 	const nullable = mayHoldNull(c)
+	const of = (field: LawField): LawColumnValues => ({
+		type: field.type,
+		desc: field.desc,
+		nullable
+	})
+	const digest = (image: KeyImage): LawColumnValues => ({
+		type: bytesType,
+		desc: { kind: "digest", image },
+		nullable
+	})
 	switch (c.kind) {
-		case "constant":
-		case "drawn":
-		case "indexPred":
-			return { type: c.field.type, desc: c.field.desc, nullable }
-		case "term":
-			return { type: c.term.column.type, desc: c.term.column.desc, nullable }
 		case "image":
-			return { type: bytesType, desc: { kind: "digest", image: c.image }, nullable }
+			return digest(c.image)
+		case "drawn":
+			return c.draws.kind === "imageCopy" ? digest(c.draws.image) : of(c.field)
+		case "constant":
+		case "indexPred":
+			return of(c.field)
+		case "term":
+			return of(c.term.column)
 	}
 }
 
