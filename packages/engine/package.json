@@ -21,6 +21,7 @@
 		"./internal/plan/common.ts": "./src/plan/common.ts",
 		"./internal/plan/decode.ts": "./src/plan/decode.ts",
 		"./internal/plan/migration.ts": "./src/plan/migration.ts",
+		"./internal/plan/openapi.ts": "./src/plan/openapi.ts",
 		"./internal/plan/read.ts": "./src/plan/read.ts",
 		"./internal/plan/runtime.ts": "./src/plan/runtime.ts",
 		"./internal/plan/serve.ts": "./src/plan/serve.ts",

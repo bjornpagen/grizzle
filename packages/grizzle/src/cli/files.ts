@@ -1,3 +1,4 @@
+import { openApiDirectory, openApiPath } from "@bjornpagen/grizzle-openapi/openapi"
 import {
 	Array as Arr,
 	Effect,
@@ -19,12 +20,7 @@ import {
 	TreeRefused,
 	TreeUnread
 } from "#cli/errors.ts"
-import {
-	metaFileName,
-	type MigrationFolder,
-	openApiDirectory,
-	openApiPath
-} from "#compiler/plan/migration.ts"
+import { metaFileName, type MigrationFolder } from "#compiler/plan/migration.ts"
 import {
 	manifestFileName,
 	servedDirectory,
@@ -41,8 +37,8 @@ import {
  * migration, each with its `meta.json` and its `NN-<phase>.sql` files, and two directories of one `<login>.json` per
  * login of the configuration over the schema (loginFiles): `served/`, the login's workload compiled under the snapshot
  * (adapter/served/compile.ts), which its application serves, and `openapi/`, the login's OpenAPI document, read off
- * its served file (live/openapi.ts). The command line owns this filesystem work; the compiler and the apply runner
- * only ever see texts.
+ * its served file (packages/openapi/src/openapi.ts). The command line owns this filesystem work; the compiler and the
+ * apply runner only ever see texts.
  *
  * Reading is strict, because a draft continues exactly the committed chain: a schema directory holds the snapshot's two
  * files, both or neither, and migration folders, a folder holds meta.json and its SQL files, and anything else is
@@ -71,8 +67,8 @@ export interface SchemaTree {
 
 /**
  * The files generate writes beside the snapshot, one per login, by kind: a login's served file (served/forms.ts
- * servedPath) and its OpenAPI document (live/openapi.ts openApiPath), each in its own directory, each refused there
- * as the fault its kind names when that directory holds anything else.
+ * servedPath) and its OpenAPI document (packages/openapi/src/openapi.ts openApiPath), each in its own directory, each
+ * refused there as the fault its kind names when that directory holds anything else.
  */
 export const loginFiles = {
 	served: { directory: servedDirectory, path: servedPath, stray: "strayServed" },

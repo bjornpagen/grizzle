@@ -16,6 +16,9 @@
 			"path": "../engine"
 		},
 		{
+			"path": "../openapi"
+		},
+		{
 			"path": "../text"
 		}
 	],

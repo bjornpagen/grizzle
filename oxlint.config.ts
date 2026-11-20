@@ -301,7 +301,7 @@ export default defineConfig(
 		restrictedProperties: [],
 		unassignedImports: [],
 		environment: {
-			library: ["packages/engine/src", "packages/grizzle/src"],
+			library: ["packages/engine/src", "packages/grizzle/src", "packages/openapi/src"],
 			/**
 			 * The connection's one reader of the environment, which refuses the variables node-postgres would send at a
 			 * session's startup; and the command line's module, which its bin loads, and which reads its own arguments and
@@ -493,7 +493,8 @@ export default defineConfig(
 		},
 		overrides: [
 			{
-				files: ["packages/engine/**"],
+				/** The engine, and grizzle-openapi, which reads it: no Effect at run time, no Node module, no clock, randomness or I/O. */
+				files: ["packages/engine/**", "packages/openapi/**"],
 				rules: active({
 					"eslint/no-restricted-globals": ["error", ...ENGINE_GLOBALS, TEXT_DECODER],
 					"eslint/no-restricted-imports": engineImports("no Node module", []),
@@ -564,7 +565,7 @@ export default defineConfig(
 			},
 			{
 				/** No declaration of the source a consumer compiles is named like a React hook (HOOK_FREE_NAME). */
-				files: ["packages/engine/src/**", "packages/grizzle/src/**"],
+				files: ["packages/engine/src/**", "packages/grizzle/src/**", "packages/openapi/src/**"],
 				rules: active({
 					"eslint/id-match": [
 						"error",

@@ -24,6 +24,7 @@
  * stored item states, or a put of stored items as stored, so the label-fixed streams reach both.
  */
 
+import { openApiText } from "@bjornpagen/grizzle-openapi/openapi"
 import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
@@ -37,7 +38,6 @@ import { handlerClient } from "#client/handler.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { ListEvent, SetEvent } from "#compiler/live/events.ts"
 import { fold, opening } from "#compiler/live/fold.ts"
-import { openApiText } from "#compiler/live/openapi.ts"
 import { httpHandler } from "#http/index.ts"
 import {
 	aims,

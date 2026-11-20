@@ -1355,18 +1355,19 @@ None of it is a trigger or a policy you keep in step by hand. Migrations are pla
 
 You need PostgreSQL 19, Node 26 or later, and Effect 4.1. grizzle is tested on the official PostgreSQL 19.0 release, unpatched, as hosted providers build it; [PostgreSQL known issues](#postgresql-known-issues) says what 19 costs it. PostgreSQL 19.0 was released on 2026-11-19; until hosted providers offer 19, run the server yourself.
 
-grizzle is not a package: you take this repository as a git submodule, pinned by commit, and add its three packages to your pnpm workspace: `@bjornpagen/grizzle`, the engine it re-exports, `@bjornpagen/grizzle-engine`, and the text package both depend on, `@bjornpagen/grizzle-text`. Node runs grizzle's TypeScript source directly, so there is no build step, and `@bjornpagen/grizzle` and its subpaths resolve to the source with no export condition, in Node, TypeScript, Vite and Vitest alike.
+grizzle is not a package: you take this repository as a git submodule, pinned by commit, and add its four packages to your pnpm workspace: `@bjornpagen/grizzle`, the engine it re-exports, `@bjornpagen/grizzle-engine`, the writer and reader of a login's OpenAPI document it loads, `@bjornpagen/grizzle-openapi`, and the text package all three depend on, `@bjornpagen/grizzle-text`. Node runs grizzle's TypeScript source directly, so there is no build step, and `@bjornpagen/grizzle` and its subpaths resolve to the source with no export condition, in Node, TypeScript, Vite and Vitest alike.
 
 ```sh
 git submodule add https://github.com/bjornpagen/grizzle.git vendor/grizzle
 ```
 
-In `pnpm-workspace.yaml`, list the three packages, and give the catalog the versions their `catalog:` dependencies name (grizzle's own `pnpm-workspace.yaml` has the versions it is tested with):
+In `pnpm-workspace.yaml`, list the four packages, and give the catalog the versions their `catalog:` dependencies name (grizzle's own `pnpm-workspace.yaml` has the versions it is tested with):
 
 ```yaml
 packages:
   - vendor/grizzle/packages/engine
   - vendor/grizzle/packages/grizzle
+  - vendor/grizzle/packages/openapi
   - vendor/grizzle/packages/text
 catalog:
   "@effect/platform-node": 4.1.2
@@ -5156,6 +5157,7 @@ Every generated suite draws from one seed, `TEST_SEED`, which a run prints first
 
 - `packages/text/`: `@bjornpagen/grizzle-text`, the text primitives and the one regex engine the engine and grizzle stand on, dependency-free and browser-safe.
 - `packages/engine/`: `@bjornpagen/grizzle-engine`, the compiler: schemas, roles, rules, queries and ChangeSets to SQL, the migration drafter and the snapshot.
+- `packages/openapi/`: `@bjornpagen/grizzle-openapi`, a login's OpenAPI 3.2 document, the one owner of its format: its writer, which `grizzle generate` and `grizzle check` run over the login's served file, and its reader, browser-safe, which the client reads the login's wire back from.
 - `packages/grizzle/`: `@bjornpagen/grizzle`, which re-exports the engine's API and adds:
     - `src/adapter/`: the runtime over node-postgres in pipeline mode: `Db.open`, a member's `once` and `watch`, reads, writes, windows, `migrate` and `drift`.
     - `src/cli/`: the `grizzle` command line.

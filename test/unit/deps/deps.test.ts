@@ -40,7 +40,7 @@ import {
 /** Src/ has no RegExp and no arkregex runtime: the audit of every src/ module finds no RegExp construction or match, no eval or Function constructor, no arkregex or @ark at runtime. */
 export const srcHasNoRegExpAndNoArkregexRuntimeAuditsEverySrcModuleNoRegExpConstructionOrMatchNoEvalOrFunctionConstructorNoArkregexOrArkAtRuntime =
 	property.exhaust(finite(word(srcModules)), {
-		box: "every TypeScript module under packages/engine/src and packages/grizzle/src",
+		box: "every TypeScript module under packages/engine/src, packages/grizzle/src and packages/openapi/src",
 		needs: { checkout: Checkout.dir },
 		situations: [],
 		check: (resources) => (file) =>

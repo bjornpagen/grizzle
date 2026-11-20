@@ -10,7 +10,7 @@
  * longer than a reference to it, is the component named by its digest (sharedName), referenced from every place it
  * stood, so a type's schema, a role's witness or a heading two relations share is one component; and the wire every
  * operation and role carries for a client (`x-grizzle-wire`) holds each node it shares once, in the root's table, as
- * live/document.ts reads it. Every reference is the document's own, from its root.
+ * document.ts reads it. Every reference is the document's own, from its root.
  */
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
@@ -19,41 +19,48 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { toEcma } from "@bjornpagen/grizzle-text/regex/print"
 import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
-import { canonicalEquals, type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
-import { compareStrings } from "#compiler/core/order.ts"
-import { isList } from "#compiler/core/record.ts"
-import { sha256Base32 } from "#compiler/core/sha256.ts"
-import { type Parts, type SharingFormat, shareRepeated } from "#compiler/core/share.ts"
-import { octetsOf, regexRefOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { referenceKey, wireExtension, wireReference } from "#compiler/live/document.ts"
 import {
+	canonicalEquals,
+	type CompileError,
+	compareStrings,
 	type EventDescriptor,
 	events,
-	type Retry,
-	type Role,
-	wireHeader,
-	wireRefusals
-} from "#compiler/live/events.ts"
-import {
-	memberShape,
-	roleWitness,
-	type ServedLeaf,
-	type ServedWire,
-	wireScalarOf
-} from "#compiler/live/member.ts"
-import {
 	inputSchema,
+	isList,
+	type Json,
 	type MemberShape,
+	memberShape,
+	octetsOf,
+	type Parts,
+	type Retry,
+	regexRefOf,
+	type Role,
 	type RoleWitness,
+	roleWitness,
+	type ScalarType,
+	type SchemaGap,
 	type SchemaReference,
+	type ServedFile,
+	type ServedLeaf,
+	type ServedMember,
+	type ServedRoleForm,
+	type ServedWire,
+	type SharingFormat,
+	scalarSchema,
+	sha256Base32,
+	shareRepeated,
 	slotSchemas,
 	type WireFacts,
 	type WireInput,
-	type WireParam
-} from "#compiler/live/shape.ts"
-import { type SchemaGap, scalarSchema, type WireSchema, withGaps } from "#compiler/live/wire.ts"
-import type { ServedFile, ServedMember, ServedRoleForm } from "#compiler/served/forms.ts"
+	type WireParam,
+	type WireSchema,
+	wireHeader,
+	wireRefusals,
+	wireScalarOf,
+	withGaps,
+	writeCanonicalJson
+} from "#compiler/plan/openapi.ts"
+import { referenceKey, wireExtension, wireReference } from "#openapi/document.ts"
 
 /** The OpenAPI version the document states, 3.2.0, whose `itemSchema` describes each event of a stream. */
 const openApiVersion = "3.2.0"
@@ -607,7 +614,7 @@ const schemaSharing: SharingFormat = {
 
 /**
  * The document's wire as its sharing reads it (core/share.ts): every record and array of it, each member or item a
- * slot; a shared node is an entry of the root's table, referenced by its index (live/document.ts wireReference). A
+ * slot; a shared node is an entry of the root's table, referenced by its index (document.ts wireReference). A
  * wire record holds no `$ref` of its own, which a reference alone holds.
  */
 const wireSharing: SharingFormat = {

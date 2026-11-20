@@ -39,6 +39,19 @@
 				"patterns": ["packages/text/**"]
 			},
 			{
+				// @bjornpagen/grizzle-openapi's reader of a login's wire off its OpenAPI document
+				// (packages/openapi/src/document.ts), which the browser client loads: browser-safe, over the engine's client
+				// facade alone.
+				"name": "openapi-document",
+				"patterns": ["packages/openapi/src/document.ts"]
+			},
+			{
+				// @bjornpagen/grizzle-openapi: a login's OpenAPI document, its writer and its reader, the format's one owner. It
+				// reads the engine through the engine's facades for it, and no zone of the engine imports it.
+				"name": "openapi",
+				"patterns": ["packages/openapi/**"]
+			},
+			{
 				// Experiments on main, each run by hand until its verdict deletes it (owner, 2026-11-15): no package imports one.
 				"name": "experiments",
 				"patterns": ["packages/experiments/**"]
@@ -303,23 +316,21 @@
 			},
 			{
 				// The wire's spelling of every served value (live/wire.ts), its regular languages (live/pattern.ts), a served
-				// program's wire shape (live/shape.ts), its codecs (live/codec.ts) and its reading off a login's OpenAPI
-				// document (live/document.ts): runtime-free and browser-safe, the one table the server, the client and the
-				// OpenAPI document read.
+				// program's wire shape (live/shape.ts) and its codecs (live/codec.ts): runtime-free and browser-safe, the one
+				// table the server, the client and the OpenAPI document read.
 				"name": "live-wire",
 				"patterns": [
 					"packages/engine/src/live/wire.ts",
 					"packages/engine/src/live/pattern.ts",
 					"packages/engine/src/live/shape.ts",
-					"packages/engine/src/live/codec.ts",
-					"packages/engine/src/live/document.ts"
+					"packages/engine/src/live/codec.ts"
 				]
 			},
 			{
 				// A served member's wire shape read off its served form (live/member.ts), which generate writes into the
-				// served file, and the OpenAPI document of a login (live/openapi.ts).
+				// served file and the OpenAPI document states.
 				"name": "live-served",
-				"patterns": ["packages/engine/src/live/member.ts", "packages/engine/src/live/openapi.ts"]
+				"patterns": ["packages/engine/src/live/member.ts"]
 			},
 			{
 				// Liveness's one grammar and plan (live/notify.ts): a write's route keys, their payload text and its parser,
@@ -331,6 +342,11 @@
 				// The engine's client facade: every engine value @bjornpagen/grizzle/client loads, from browser-safe modules alone.
 				"name": "plan-client",
 				"patterns": ["packages/engine/src/plan/client.ts"]
+			},
+			{
+				// The engine's OpenAPI facade: every engine name @bjornpagen/grizzle-openapi's writer reads.
+				"name": "plan-openapi",
+				"patterns": ["packages/engine/src/plan/openapi.ts"]
 			},
 			{
 				// The engine's runtime facade: every engine value the runtime shell loads, each from a module that loads no
@@ -389,6 +405,31 @@
 				"allow": []
 			},
 			{
+				// The document's reader is the browser client's: it reads the engine through the client facade alone, its
+				// browser-safe core and the wire's types.
+				"from": "openapi-document",
+				"allow": ["browser-core", "grizzle-text", "plan-client"],
+				"allowTypeOnly": ["live-wire"]
+			},
+			{
+				// The document's writer reads the engine through its OpenAPI facade (plan/openapi.ts), and the document's
+				// reader for the format they share; the served file it reads off by type alone. No engine zone's rule names
+				// either openapi zone, so the engine imports nothing of the package.
+				"from": "openapi",
+				"allow": [
+					"browser-core",
+					"core",
+					"grizzle-text",
+					"ir",
+					"live-model",
+					"live-served",
+					"live-wire",
+					"openapi-document",
+					"plan-openapi"
+				],
+				"allowTypeOnly": ["served"]
+			},
+			{
 				// Browser-safe by construction: no zone here imports one that reaches a Node module.
 				"from": "browser-core",
 				"allow": ["grizzle-text"],
@@ -416,6 +457,7 @@
 					"grizzle-text",
 					"live-model",
 					"live-wire",
+					"openapi-document",
 					"plan-client",
 					"values"
 				],
@@ -509,6 +551,7 @@
 					"live-served",
 					"logical",
 					"lower",
+					"openapi",
 					"physical",
 					"plan",
 					"program",
@@ -974,6 +1017,12 @@
 				]
 			},
 			{
+				// The OpenAPI facade re-exports what the document's writer reads: the served file, the live event model, the
+				// wire's shapes and scalar table, canonical JSON, digests and sharing.
+				"from": "plan-openapi",
+				"allow": ["browser-core", "core", "ir", "live-model", "live-served", "live-wire", "served"]
+			},
+			{
 				"from": "runtime-entry",
 				"allow": ["adapter-runtime", "grizzle-text"]
 			},
@@ -1041,6 +1090,7 @@
 					"install",
 					"ir",
 					"live-served",
+					"openapi",
 					"physical",
 					"plan",
 					"program",

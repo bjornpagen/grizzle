@@ -1,3 +1,4 @@
+import { openApiText } from "@bjornpagen/grizzle-openapi/openapi"
 import { Array as Arr, Effect, Option } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import {
@@ -32,7 +33,6 @@ import {
 } from "#compiler/plan/common.ts"
 import {
 	compileWorkload,
-	openApiText,
 	type ProgramFootprints,
 	servedText,
 	type UnservedMember,
@@ -174,8 +174,9 @@ const compileServed = Effect.fn("compileServed")(function* (
 /**
  * A login's served file, as generate writes it to `served/<login>.json`: its login's declared name, the served file its
  * compile is (compileServed, then adapter/served/project.ts servedFileOf), and that value's canonical text
- * (served/json.ts servedText); and the login's OpenAPI document, read off that file alone (live/openapi.ts
- * openApiText), which generate writes to `openapi/<login>.json`. check compares both byte for byte.
+ * (served/json.ts servedText); and the login's OpenAPI document, read off that file alone
+ * (packages/openapi/src/openapi.ts openApiText), which generate writes to `openapi/<login>.json`. check compares both
+ * byte for byte.
  */
 export interface ServedEntry {
 	readonly login: string

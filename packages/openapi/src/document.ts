@@ -1,5 +1,5 @@
 /**
- * A login's wire as its OpenAPI document carries it (live/openapi.ts), read back for a client: each role's witness
+ * A login's wire as its OpenAPI document carries it (openapi.ts), read back for a client: each role's witness
  * (live/shape.ts RoleWitness) under the document's root `x-grizzle-wire`, and each operation's wire (OperationWire)
  * under its own `x-grizzle-wire`, every node the document shares written once in the root's table, `shared`, and
  * referenced everywhere else as a JSON Reference into it, `{"$ref": "#/x-grizzle-wire/shared/<index>"}`
@@ -8,10 +8,14 @@
  * Runtime-free and browser-safe: a client reads the document once, trusting it as grizzle's own file.
  */
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { isList, isPlainRecord } from "#compiler/core/record.ts"
-import { trusted } from "#compiler/core/trusted.ts"
-import type { MemberWire, RoleWitness } from "#compiler/live/shape.ts"
-import type { WireScalar } from "#compiler/live/wire.ts"
+import {
+	isList,
+	isPlainRecord,
+	type MemberWire,
+	type RoleWitness,
+	trusted,
+	type WireScalar
+} from "#compiler/plan/client.ts"
 
 /** The extension a document carries its wire under, at its root and in each operation. */
 export const wireExtension = "x-grizzle-wire"

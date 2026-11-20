@@ -1,13 +1,14 @@
 /**
  * The client plan: every engine name @bjornpagen/grizzle/client loads, each re-exported from the one module that holds
- * it. Every module it re-exports is browser-safe: it loads no Node module, no Effect, no compiler and no runtime of a
- * served layer, only the live event model, the wire codecs and the exact values they decode into. .fallowrc.json's
+ * it, and those of the reader of a login's OpenAPI document it loads (@bjornpagen/grizzle-openapi/document). Every
+ * module it re-exports is browser-safe: it loads no Node module, no Effect, no compiler and no runtime of a served
+ * layer, only the live event model, the wire codecs and the exact values they decode into. .fallowrc.json's
  * plan-client zone holds the facade to that.
  */
 export { defect } from "@bjornpagen/grizzle-text/base/invariant"
+export { isList, isPlainRecord } from "#compiler/core/record.ts"
 export { trusted, trustedJson } from "#compiler/core/trusted.ts"
 export { encodeInput, slotDecoders, wireText } from "#compiler/live/codec.ts"
-export { documentWire } from "#compiler/live/document.ts"
 export {
 	type CallError,
 	type CallErrorKind,

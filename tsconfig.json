@@ -321,6 +321,9 @@
 			"path": "packages/grizzle"
 		},
 		{
+			"path": "packages/openapi"
+		},
+		{
 			"path": "packages/text"
 		}
 	],

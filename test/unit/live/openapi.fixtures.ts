@@ -1,5 +1,6 @@
 /** What the properties of openapi.test.ts read: its spaces, models and helpers. */
 
+import { documentWire } from "@bjornpagen/grizzle-openapi/document"
 import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, type Gen } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
@@ -21,7 +22,6 @@ import { sha256Base32 } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { documentWire } from "#compiler/live/document.ts"
 import {
 	type EventDescriptor,
 	events,

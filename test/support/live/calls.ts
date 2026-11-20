@@ -1,3 +1,4 @@
+import { openApiText } from "@bjornpagen/grizzle-openapi/openapi"
 import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Record as Rec, Redacted, Ref, Result, Stream } from "effect"
 import { HttpClient } from "effect/http"
@@ -20,7 +21,6 @@ import {
 	type ReadState,
 	RowKey
 } from "#compiler/live/index.ts"
-import { openApiText } from "#compiler/live/openapi.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { type HttpConfigRefused, type HttpHandler, httpHandler } from "#http/index.ts"
 import { readStream } from "#test/support/event-stream.ts"
@@ -279,9 +279,9 @@ const handlerUrl = (): URL => new URL("http://live.test/")
 
 /**
  * The calls of `role` of the served login `file` over HTTP: the client's untyped door (client/client.ts clientCalls)
- * over the login's OpenAPI document as generate writes it (live/openapi.ts openApiText), its every request answered by
- * `handler` in process (client/handler.ts handlerClient), each call sending `token`; a read's watch yields each value
- * the client's fold holds at a ready.
+ * over the login's OpenAPI document as generate writes it (packages/openapi/src/openapi.ts openApiText), its every
+ * request answered by `handler` in process (client/handler.ts handlerClient), each call sending `token`; a read's
+ * watch yields each value the client's fold holds at a ready.
  */
 const httpCalls = (
 	handler: HttpHandler,

@@ -5,7 +5,7 @@ import { Effect } from "effect"
 import { entryListing, srcListing } from "#test/unit/deps/deps.fixtures.ts"
 
 /**
- * Every TypeScript module under both packages' src, by its path from the repository's root: the tree the audit holds
+ * Every TypeScript module under the packages' src, by its path from the repository's root: the tree the audit holds
  * to its rules. The repository's own files are the domain, never cases a person chose.
  */
 export const srcModules = dictionary(

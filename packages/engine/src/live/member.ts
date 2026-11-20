@@ -7,7 +7,7 @@
  * server, the client and the document read one shape.
  *
  * Each leaf is a ServedLeaf: the codecs' WireScalar, and the scalar types its column holds, whose refinements the
- * document's schema states (live/openapi.ts); memberWire keeps the WireScalars alone.
+ * document's schema states (packages/openapi/src/openapi.ts); memberWire keeps the WireScalars alone.
  */
 import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"

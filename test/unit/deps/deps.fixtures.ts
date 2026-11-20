@@ -26,13 +26,15 @@ import {
 	packageOf
 } from "#test/unit/deps/audit.ts"
 
-/** Every TypeScript module under both packages' src, by its path from the root, sorted (audit.ts modulesIn). */
+/** Every TypeScript module under the packages' src, by its path from the root, sorted (audit.ts modulesIn). */
 export const srcListing = Effect.gen(function* () {
 	const fs = yield* FileSystem.FileSystem
-	const modules = yield* Effect.forEach(["packages/engine/src", "packages/grizzle/src"], (dir) =>
-		Effect.map(fs.readDirectory(`${repoRoot}${dir}`, { recursive: true }), (entries) =>
-			modulesIn(entries, dir)
-		)
+	const modules = yield* Effect.forEach(
+		Arr.map(packageDirectories, (dir) => `packages/${dir}/src`),
+		(dir) =>
+			Effect.map(fs.readDirectory(`${repoRoot}${dir}`, { recursive: true }), (entries) =>
+				modulesIn(entries, dir)
+			)
 	)
 	return Arr.flatten(modules)
 })

@@ -1,9 +1,9 @@
 /**
- * A login's OpenAPI document (live/openapi.ts), over logins drawn as `grizzle generate` compiles them, with no database
- * (test/support/served-login.ts compiledLogin): roles reading a generated schema's queries, an ordered one read whole or
- * paged, writing relations through ChangeSets whose facts each call supplies, perhaps through a query entry that reads a
- * context; and writers of generated write schemas running one drawn ChangeSet, its array members the call's, its
- * read-backs delivered in its outcome.
+ * A login's OpenAPI document (packages/openapi/src/openapi.ts), over logins drawn as `grizzle generate` compiles them,
+ * with no database (test/support/served-login.ts compiledLogin): roles reading a generated schema's queries, an ordered
+ * one read whole or paged, writing relations through ChangeSets whose facts each call supplies, perhaps through a query
+ * entry that reads a context; and writers of generated write schemas running one drawn ChangeSet, its array members
+ * the call's, its read-backs delivered in its outcome.
  *
  * Properties, of each login's document, read off its served file alone as generate writes it (ServedEntry openapi):
  * - Valid: it validates against the official OpenAPI 3.2 schema, vendored with its SHA-256, and against the OAS base
@@ -11,8 +11,9 @@
  * - Canonical: its text is its value's canonical JSON, a final newline after it, so check compares bytes.
  * - One operation per program: its paths are exactly `/<login>/<role>/<program>` of each member of each role, each with
  *   one POST, its operationId `<role>.<program>` and its tags the role alone, its `grizzle-wire` header the one value of
- *   its wire's digest, and its `x-grizzle-wire`, as the client reads it (live/document.ts documentWire), its served
- *   wire; and the document's root `x-grizzle-wire` holds each role's served witness, by the role's name.
+ *   its wire's digest, and its `x-grizzle-wire`, as the client reads it (packages/openapi/src/document.ts
+ *   documentWire), its served wire; and the document's root `x-grizzle-wire` holds each role's served witness, by the
+ *   role's name.
  * - Each shape once: no Schema Object stands at two places in the document (every position JSON Schema 2020-12 reads a
  *   schema at, from each component, each request body, each event stream's item schema and each parameter's schema)
  *   unless its canonical text is no longer than the reference to the component of its digest
@@ -115,20 +116,20 @@ export const aLoginsOpenAPIDocumentValidatesIsCanonicalAndHoldsOneOperationPerPr
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/live/openapi.ts",
+				file: "packages/openapi/src/openapi.ts",
 				original: "\t\tevents[shape.shape]",
 				replacement: '\t\tevents[shape.shape === "list" ? "set" : shape.shape]',
 				why: "An ordered program's upsert is drawn from the set shape's events, with no `after`."
 			},
 			{
-				file: "packages/engine/src/live/openapi.ts",
+				file: "packages/openapi/src/openapi.ts",
 				original:
 					'\t\t\t\t["x-stream", descriptor.next === undefined ? { role } : { role, next: descriptor.next }]',
 				replacement: '\t\t\t\t["x-stream", { role }]',
 				why: "An instant read's ready does not say that `end` follows it."
 			},
 			{
-				file: "packages/engine/src/live/openapi.ts",
+				file: "packages/openapi/src/openapi.ts",
 				original: '\t\t\t\t? "A set read at the call\'s instant"',
 				replacement: '\t\t\t\t? "A live set read at the call\'s instant"',
 				why: "An instant read's summary says live."
@@ -140,25 +141,25 @@ export const aLoginsOpenAPIDocumentValidatesIsCanonicalAndHoldsOneOperationPerPr
 				why: "The event model gives a refresh a ChangeSet's refusing outcome too."
 			},
 			{
-				file: "packages/engine/src/live/openapi.ts",
+				file: "packages/openapi/src/openapi.ts",
 				original: "\t\tappendAll(operations, own)",
 				replacement: `\t\tappendAll(operations, own.length > 0 ? [...own, { ...own[0], path: \`/\${file.login}/\${role.name}\` }] : own)`,
 				why: "An operation for each role beside its programs'."
 			},
 			{
-				file: "packages/engine/src/live/openapi.ts",
+				file: "packages/openapi/src/openapi.ts",
 				original: `\t\t\t: [\`It \${deed.kind} \${listed(deed.relations)}.\`]),`,
 				replacement: `\t\t\t: [\`It \${deed.kind} \${listed(deed.relations.slice(0, -1))}.\`]),`,
 				why: "An operation's description names all its written relations but its last."
 			},
 			{
-				file: "packages/engine/src/live/openapi.ts",
+				file: "packages/openapi/src/openapi.ts",
 				original: `\t\t\tdescription: \`The digest of the program's wire form, as x-grizzle-wire states it: a call naming none is answered \${wireRefusals.absent}, and one naming another form \${wireRefusals.other}, so no client decodes by a form the server no longer serves.\`,`,
 				replacement: `\t\t\tdescription: \`The digest of the program's wire form, as x-grizzle-wire states it: a call naming none is answered \${wireRefusals.absent}, and one naming another form refused, so no client decodes by a form the server no longer serves.\`,`,
 				why: "The `grizzle-wire` header's description names no stale answer."
 			},
 			{
-				file: "packages/engine/src/live/openapi.ts",
+				file: "packages/openapi/src/openapi.ts",
 				original: "\tfile.roles.some(readsContext)",
 				replacement: "\tfile.roles.some(readsContext) || file.roles.length > 0",
 				why: "The bearer scheme is declared for every login."
@@ -170,7 +171,7 @@ export const aLoginsOpenAPIDocumentValidatesIsCanonicalAndHoldsOneOperationPerPr
 				why: "Every error event admits every kind, as before."
 			},
 			{
-				file: "packages/engine/src/live/openapi.ts",
+				file: "packages/openapi/src/openapi.ts",
 				original:
 					"\t\t\t\t\tpost: operationJson(o, operationSchemas(at), rootAt(wires.roots, file.roles.length + at))",
 				replacement:
@@ -178,7 +179,7 @@ export const aLoginsOpenAPIDocumentValidatesIsCanonicalAndHoldsOneOperationPerPr
 				why: "Each request body is written as its operation built it, every schema in it inline."
 			},
 			{
-				file: "packages/engine/src/live/openapi.ts",
+				file: "packages/openapi/src/openapi.ts",
 				original:
 					"\t\t\t\t\tpost: operationJson(o, operationSchemas(at), rootAt(wires.roots, file.roles.length + at))",
 				replacement: "\t\t\t\t\tpost: operationJson(o, operationSchemas(at), o.wire.member)",
@@ -314,19 +315,19 @@ export const aLoginsOpenAPIDocumentIsShortEachTextDependingOnWhatItMayDependOnAl
 				why: "The aim's second document draws a login of its own, so no witness sees a role's tag again but by the tape's luck; the property fails on its unreached tag's description seen again."
 			},
 			{
-				file: "packages/engine/src/live/openapi.ts",
+				file: "packages/openapi/src/openapi.ts",
 				original: '\t\t\treturn "A write"',
 				replacement: `\t\t\treturn member.wire.member.shape === "write" && member.wire.member.outcome.kind === "change"\n\t\t\t\t? \`A write of \${listed(member.wire.member.outcome.relations)}\`\n\t\t\t\t: "A write"`,
 				why: "A write's summary names the relations it writes."
 			},
 			{
-				file: "packages/engine/src/live/openapi.ts",
+				file: "packages/openapi/src/openapi.ts",
 				original: `\t\treturn count === 0 ? [] : [\`\${count} \${deedWords[kind]}\`]`,
 				replacement: `\t\treturn count === 0\n\t\t\t? []\n\t\t\t: [\n\t\t\t\t\t\`\${count} \${deedWords[kind]} \${listed(\n\t\t\t\t\t\tprograms.flatMap((program) =>\n\t\t\t\t\t\t\tprogram.deed.kind === kind && program.deed.kind !== "reads" ? program.deed.relations : []\n\t\t\t\t\t\t)\n\t\t\t\t\t)}\`\n\t\t\t\t]`,
 				why: "A role's description names the relations its programs write."
 			},
 			{
-				file: "packages/engine/src/live/openapi.ts",
+				file: "packages/openapi/src/openapi.ts",
 				original: `\t\t\treturn \`The call's input: \${params}; \${factsWords(input.facts)}.\``,
 				replacement: `\t\t\treturn \`The call's input: \${params}; \${factsWords(input.facts)}, \${listed(input.facts.map((f) => f.relation))}.\``,
 				why: "A body's description names the relations of its facts."

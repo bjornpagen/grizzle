@@ -1,0 +1,30 @@
+{
+	"name": "@bjornpagen/grizzle-openapi",
+	"private": true,
+	"description": "A login's OpenAPI 3.2 document, the one owner of its format: its writer, which reads a login's served file and whose text `grizzle generate` writes as openapi/<login>.json and `grizzle check` compares, and its reader, a client's reading of the login's wire back from it (x-grizzle-wire), browser-safe",
+	"license": "0BSD",
+	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>",
+	"type": "module",
+	"engines": {
+		"node": ">=26"
+	},
+	"imports": {
+		"#openapi/*": "./src/*",
+		"#compiler/*": "@bjornpagen/grizzle-engine/internal/*"
+	},
+	"exports": {
+		"./document": "./src/document.ts",
+		"./openapi": "./src/openapi.ts",
+		"./package.json": "./package.json"
+	},
+	"sideEffects": false,
+	"scripts": {
+		"typecheck": "toolchain-typecheck -b",
+		"typecheck:full": "rm -rf types && toolchain-typecheck -p tsconfig.json",
+		"oxlint": "toolchain-oxlint"
+	},
+	"dependencies": {
+		"@bjornpagen/grizzle-engine": "workspace:*",
+		"@bjornpagen/grizzle-text": "workspace:*"
+	}
+}

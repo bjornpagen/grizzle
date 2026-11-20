@@ -60,6 +60,7 @@
 		"@aws-sdk/rds-signer": "catalog:",
 		"@bjornpagen/devtools": "link:vendor/toolchain/packages/devtools",
 		"@bjornpagen/grizzle": "link:packages/grizzle",
+		"@bjornpagen/grizzle-openapi": "link:packages/openapi",
 		"@bjornpagen/grizzle-text": "link:packages/text",
 		"@bjornpagen/testing": "link:vendor/toolchain/packages/testing",
 		"@clerk/backend": "catalog:",

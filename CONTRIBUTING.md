@@ -2,13 +2,13 @@
 
 The code and the tests are the specification. A behaviour is defined by what the packages' sources do and what
 `test/` checks against PostgreSQL. A change that alters a documented behaviour changes the test that pins it in the same
-commit. A consumer takes three packages, `@bjornpagen/grizzle`, `@bjornpagen/grizzle-engine` and `@bjornpagen/grizzle-text`,
-from the repository itself; none is published.
+commit. A consumer takes four packages, `@bjornpagen/grizzle`, `@bjornpagen/grizzle-engine`, `@bjornpagen/grizzle-openapi`
+and `@bjornpagen/grizzle-text`, from the repository itself; none is published.
 
 ## Layout
 
-The repository is a pnpm workspace of the three packages a consumer takes, a text package, an engine and a shell, the
-local cluster's package, the dev tools and the testing library, with the tests, benches and scripts at its root:
+The repository is a pnpm workspace of the four packages a consumer takes, a text package, an engine, the OpenAPI
+document's package and a shell, the local cluster's package, the dev tools and the testing library, with the tests, benches and scripts at its root:
 
 - **`packages/text`** (`@bjornpagen/grizzle-text`) is grizzle's text primitives and its one regex engine,
   dependency-free and browser-safe: code point order, UTF-8, XML's whiteSpace collapse and replace, the regex IR, its
@@ -20,6 +20,12 @@ local cluster's package, the dev tools and the testing library, with the tests, 
   in it is async. Absence is `T | undefined`, or a named variant where the absence means something; never a sentinel.
   A pass's expected failure is the engine's Result (`packages/engine/src/core/result.ts`), and the public builders
   throw the one plain `CompileError`.
+- **`packages/openapi`** (`@bjornpagen/grizzle-openapi`) is a login's OpenAPI 3.2 document, the one owner of its
+  format: its writer (`src/openapi.ts`), which reads the login's served file and whose text `grizzle generate` writes
+  as `openapi/<login>.json` and `grizzle check` compares, and its reader (`src/document.ts`), the client's reading of
+  the login's wire back from the document's `x-grizzle-wire`, browser-safe. It reads the engine through the engine's
+  facades, `plan/openapi.ts` and `plan/client.ts`, holds to the engine's rules (no runtime Effect, no Node module), and
+  the shell depends on it; the engine imports nothing of it.
 - **`packages/grizzle`** (`@bjornpagen/grizzle`) is the Effect shell: the adapter (`src/adapter`: the Db, the
   DbLayer, which compiles the login's workloads once at startup and checks their access paths against the snapshot,
   the wire, admission, the migration runner), the command line (`src/cli`), and `src/index.ts`, which
@@ -37,8 +43,9 @@ local cluster's package, the dev tools and the testing library, with the tests, 
   Effect-free package and its packs; the plugin's names for grizzle, and every lint rule's exceptions, are
   `oxlint.config.ts`'s. A fix to either goes to the toolchain repository, and grizzle takes it by moving the
   submodule.
-- **`test/`, `bench/` and `scripts/`** reach both packages' modules through the root's `#` subpath imports: `#compiler/*`
-  is the engine's `src`, `#adapter/*` and `#cli/*` the shell's, `#index.ts` the shell's entry point.
+- **`test/`, `bench/` and `scripts/`** reach the engine's and the shell's modules through the root's `#` subpath
+  imports: `#compiler/*` is the engine's `src`, `#adapter/*` and `#cli/*` the shell's, `#index.ts` the shell's entry
+  point; the text package and the OpenAPI document's package they import by their names.
 - **`.agents/skills/`** is the one agent skills folder: `.claude/skills` and `.cursor/skills` link to it, its `grizzle`
   links the shell's shipped skill, its `indefensible-numbers` the toolchain's
   (`vendor/toolchain/packages/devtools/skills/indefensible-numbers`), pnpm links approved dependencies' skills into it (`skills.dirs` and `permissions` in
@@ -58,7 +65,7 @@ through (the toolchain's `vendor/toolchain/packages/devtools/bin/gate.sh`): a co
   and no package: Node runs each package's `src/*.ts` directly through type stripping, and every package's `exports`
   and `bin` name its `src/` modules, so the repository, its tests and scripts, and every consumer resolve
   `@bjornpagen/grizzle` and its subpaths to the source, under no condition. grizzle is not published: a consumer takes
-  the repository as a git submodule and adds `packages/engine`, `packages/grizzle` and `packages/text` to its pnpm workspace, so each
+  the repository as a git submodule and adds `packages/engine`, `packages/grizzle`, `packages/openapi` and `packages/text` to its pnpm workspace, so each
   module's real path lies outside `node_modules`, where Node strips types, and pnpm links the `grizzle` bin to
   `src/cli/bin.ts`. A package's `tsconfig.json` extends only the repository's own `tsconfig.base.json`, by relative
   path, because a consumer's Vite reads the nearest tsconfig of every module it transforms, and a consumer installs

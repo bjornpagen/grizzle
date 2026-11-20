@@ -300,8 +300,8 @@ export type PackageJson = {
 	readonly bin?: Readonly<Record<string, string>>
 }
 
-/** The workspace packages, by their directory under packages/: the engine and the shell. */
-export const packageDirectories: ReadonlyArray<string> = ["engine", "grizzle"]
+/** The workspace packages, by their directory under packages/: the engine, the shell and the OpenAPI document's. */
+export const packageDirectories: ReadonlyArray<string> = ["engine", "grizzle", "openapi"]
 
 /**
  * One package's entry points, from its package.json: every export and bin names a module of its src/, the TypeScript

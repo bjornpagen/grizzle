@@ -8,7 +8,7 @@ import { toolchain } from "@bjornpagen/devtools/config"
 const experiments = { rule: "effect-plugin-block", files: ["packages/experiments/"] } as const
 
 /**
- * grizzle's toolchain: the rules and diagnostics it rejects, the workspace gate's exceptions, its Effect-free package
+ * grizzle's toolchain: the rules and diagnostics it rejects, the workspace gate's exceptions, its Effect-free packages
  * and its packs. The grizzle pack's names, and every lint rule's exceptions, are oxlint.config.ts's.
  */
 export default toolchain({
@@ -122,6 +122,6 @@ export default toolchain({
 		{ rule: "ts-only-extensions", files: ["upstream/v8-unicode-end-anchor-astral-class/repro.js"] },
 		experiments
 	],
-	effectFree: ["packages/engine", "packages/text"],
+	effectFree: ["packages/engine", "packages/openapi", "packages/text"],
 	packs: { grizzle: true }
 })

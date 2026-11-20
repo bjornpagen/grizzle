@@ -1,3 +1,4 @@
+import { documentWire } from "@bjornpagen/grizzle-openapi/document"
 import type * as Arr from "effect/Array"
 import * as Data from "effect/Data"
 import type * as Effect from "effect/Effect"
@@ -11,7 +12,6 @@ import { type ClientMember, memberCalls, type ShapedCalls, type Token } from "#c
 import {
 	type CallError,
 	defect,
-	documentWire,
 	type EventOf,
 	type InputCheck,
 	type InstantShape,

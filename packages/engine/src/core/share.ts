@@ -1,7 +1,7 @@
 /**
  * Each repeated shape of a JSON value defined once and referenced: the one sharing every file grizzle writes for a
- * login holds to (served/json.ts for the served file, live/openapi.ts for the OpenAPI document), over the format that
- * file reads its nodes by (SharingFormat).
+ * login holds to (served/json.ts for the served file, packages/openapi/src/openapi.ts for the OpenAPI document), over
+ * the format that file reads its nodes by (SharingFormat).
  *
  * A format names, for a container node, the positions a reference may stand at (its slots) and what besides them makes
  * the node the node it is (its frame). Two nodes of one frame and the same nodes in their slots are one node. A node
