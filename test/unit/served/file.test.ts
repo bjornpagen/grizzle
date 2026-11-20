@@ -21,8 +21,7 @@
  *   members but its rosters, the codebook's own form a load reads first, and its table's entries; within each, a
  *   record's members but its `~` marker, a revived array's items, a Map's keys and values, a Set's members) unless its
  *   canonical text is no longer than a reference to the table's next entry (`"~s:<n>"`). A file is of grizzle's
- *   format (core/format.ts artifactFormat) or no served file: without its format, as every grizzle before formats wrote
- *   it, or of another, it is refused at `format` before anything of it is read. And the table is read whole or not at
+ *   format (core/format.ts artifactFormat) or no served file: without its format, or of another, it is refused at `format` before anything of it is read. And the table is read whole or not at
  *   all: the file without its table is refused as a malformed served file at `shared` (MalformedArtifact), and with its table cut short of its last entry, which only its members reference,
  *   is refused so too, never read with a reference standing for nothing.
  * - A member dropped: one member of the file's JSON value, drawn among all of them, left out; the file read back differs from the
@@ -115,7 +114,7 @@ export const aServedFileReadsBackEveryDrawnLoginsFileAsTheRuntimeReadsItAndNoMem
 					file: "packages/engine/src/served/json.ts",
 					original: "\tif (!isArtifactFormat(format)) {",
 					replacement: "\tif (false) {",
-					why: "A served file of no format, as a grizzle before formats wrote it, or of another is read as this grizzle's; the format refusals fail."
+					why: "A served file of no format, or of another, is read as this grizzle's; the format refusals fail."
 				},
 				{
 					file: "packages/engine/src/served/json.ts",

@@ -3806,16 +3806,16 @@ deploy.
   the record to the one the schemas compile to.
 - **Every file grizzle reads back records its format**: `snapshot.json` and each served file as their `format`
   member, and `manifest.json`'s seal digests both snapshot files under it. A pair whose `snapshot.json` records another
-  format, or none, as a grizzle before formats wrote, is read no further: `check` reports it with the format it
-  records and the one this grizzle reads and writes, and `generate`, `migrate`, `drift` and `names` refuse it at stage
-  `format`, writing nothing. An installation's committed snapshot moves to a new format once, by the converter its
-  release ships beside grizzle; a served file is written again by `grizzle generate`, and an application refuses one,
-  or a `snapshot.json`, of another format where it loads it, `ArtifactFormat`.
+  format, or none, is read no further: `check` reports it with the format it records and the one this grizzle reads
+  and writes, and `generate`, `migrate`, `drift` and `names` refuse it at stage `format`, writing nothing. No grizzle
+  converts another format's records: an installation whose committed snapshot holds one is drafted afresh, from an
+  empty migrations directory into an empty database. A served file is written again by `grizzle generate`, and an
+  application refuses one, or a `snapshot.json`, of another format where it loads it, `ArtifactFormat`.
 - **Plain SQL you may edit**, as long as the database ends where the snapshot says, and the drift check after the apply
   judges every edit by the catalog it reaches. Any text tool may read and write a drafted file back: every constant
   whose value holds a control character or a line or paragraph separator is written as an escape string (`E'\r'`, a
   function body as one continued line by line), which PostgreSQL reads as the same value, so no line ending a tool
-  rewrites sits inside a value, and a file spelled otherwise before installs the same constants. What the schema drops is
+  rewrites sits inside a value. What the schema drops is
   dropped in the same migration, as declared. A declared rename happens in place, as does a type change of a field its
   caller writes by a cast; any other type change sets the field aside, filled by the value you write at a
   `-- grizzle: placeholder` marker in its table's fill, which may join other tables, once every new column holds its
@@ -3888,8 +3888,7 @@ deploy.
   give up the stored order, declare it: `--drop Line.at` while the schema still declares `Line.at` drops the stored
   index, and the migration draws the target's anew in member-key order. Only an index new to the migration, or one
   whose family changes owner, count or kind, is drawn anew undeclared. A tree's interval is kept as its index is, so a
-  tree re-keyed by its root (a root field added, renamed or replaced, or an id-keyed tree's root and parent replaced by
-  the keyed form) keeps every row's `at`, `start` and `end`, and its `parent`, drawn anew, is drawn from them: each
+  tree re-keyed by its root (a root field added, renamed or replaced) keeps every row's `at`, `start` and `end`, and its `parent`, drawn anew, is drawn from them: each
   row's parent is the row of its own root value whose interval holds its own most tightly. Your data step fills the
   new root fields before the backfill; Validate proves the kept intervals each new root's one tree, so a data step that
   maps two stored trees onto one root value, or splits one across two, is refused by the tree's key or its laws. A

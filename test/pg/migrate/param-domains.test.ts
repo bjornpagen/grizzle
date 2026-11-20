@@ -1,37 +1,34 @@
 /**
- * Parameters' pattern domains migrated across a change of their definition, on PostgreSQL 19.
+ * Parameters' pattern domains migrated as the stored fields that share their patterns come and go, on PostgreSQL 19.
  *
  * A parameter's pattern domain is named by its place and the digest of its whole definition, a domain over its
- * pattern's structural text domain (physical/ddl/domains.ts paramDomainIdentity). So a domain of one name has one
- * definition, and a migration never changes one in place: a changed definition is another domain, created in Setup, the
- * old one dropped at the end of the migration. The base-type refusal of a domain stored columns use (deploy/diff/diff.ts
- * domainObject) is unreachable for them.
+ * pattern's structural text domain (physical/ddl/domains.ts paramDomainIdentity), which the installation creates for the
+ * parameter where no stored field holds the pattern. So a domain of one name has one definition, and a migration never
+ * changes one in place; the base-type refusal of a domain stored columns use (deploy/diff/diff.ts domainObject) is
+ * unreachable for them.
  *
- * The box: the frozen first version (test/support/migrate/param-domains.ts), installed as grizzle installed it before
- * parameter domains were named by their whole definition, `code`'s domain over Code's text domain and `slug`'s with a
- * CHECK of its own, each named by its pattern's definition alone; then a draft by the current compiler to a target drawn
- * by which of the two patterns it stores (versionOf), Coded dropped where it no longer stores Code:
+ * The box: a first version storing Code alone (test/support/migrate/param-domains.ts), drafted from nothing and
+ * installed, then a draft to a target drawn by which of the two patterns it stores (versionOf), Coded dropped where it
+ * no longer stores Code:
  *
- * - `slug`'s own CHECK becomes a domain over a text domain: one created for the parameters where the target stores no
- *   Slug, the shape pantry's three domains held at fa30bb28 met by main, or the one Tagged's field stores;
  * - `code`'s domain stays over Code's text domain, whose stored field the target keeps or drops, the text domain then
- *   staying for the parameter alone.
+ *   staying for the parameter alone;
+ * - `slug`'s domain stays over Slug's text domain, which a stored field of the target comes to hold or none does.
  *
  * Properties, for every case:
  *
  * - the draft is drafted, no domain refused;
  * - it alters no domain, creates each parameter domain the target holds that the first version does not, and drops each
  *   the first version holds that the target does not;
- * - no two domains of the target installation share a CHECK body;
+ * - every parameter domain holds no CHECK of its own, and no two domains of the target installation share a CHECK body;
  * - the first version's folder and the draft, reviewed, apply under the installed-catalog checker, and the catalog is a
  *   fresh install's of the target.
  *
- * Oracle: PostgreSQL, which refuses a domain created under a taken name or dropped while a domain stands over it; the
- * installed-catalog checker against the target snapshot; and a fresh install's catalog.
+ * Oracle: PostgreSQL, which refuses a domain created under a taken name, over a missing base or dropped while a domain
+ * stands over it; the installed-catalog checker against the target snapshot; and a fresh install's catalog.
  *
- * Features: a parameter domain's own CHECK moved over a text domain created for the parameters, and over a stored text
- * domain; a text domain under a parameter that stays stored, and one staying for the parameter once its stored field is
- * dropped.
+ * Features: a text domain under a parameter that stays stored, and one staying for the parameter once its stored field
+ * is dropped; a parameter's text domain a stored field comes to hold, and one no stored field holds.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -73,10 +70,10 @@ import {
 	generate,
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
-import { frozenFirst, versionOf } from "#test/support/migrate/param-domains.ts"
+import { firstStored, versionOf } from "#test/support/migrate/param-domains.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Parameters' pattern domains across a change of their definition the frozen first version migrates to every target: no domain refused or altered, each changed definition another domain, the catalog a fresh install's. */
+/** Parameters' pattern domains as the stored fields that share their patterns come and go the first version migrates to every target: no domain refused or altered, every parameter domain over its text domain, the catalog a fresh install's. */
 export const paramDomains = property.exhaust(finite(caseGen), {
 	needs: { caseSubstrate: Substrate.installing },
 	situations: required satisfies ReadonlyArray<Reached<Feature>>,
@@ -86,20 +83,33 @@ export const paramDomains = property.exhaust(finite(caseGen), {
 			Effect.provideServiceEffect(
 				Effect.gen(function* () {
 					const substrate = yield* Substrate
-					const first = yield* frozenFirst
-					yield* Effect.addFinalizer(() =>
-						Effect.orDie(
-							substrate.admin.query(`DROP SCHEMA IF EXISTS "${first.snapshot.schema}" CASCADE`, [])
-						)
+					const allocated = yield* substrate.schema({ create: false, label: "param_domains" })
+					const over = (value: ReturnType<typeof versionOf>) =>
+						compile(value, {
+							...asDrafted,
+							schema: atName(allocated),
+							extensions: [servedParams(value)]
+						})
+					const first = succeeded(
+						generate({
+							previous: fromEmpty,
+							installation: over(versionOf(firstStored)),
+							name: "first",
+							timestamp: draftedAt(1),
+							workload: noWorkload,
+							declared: noDeclarations
+						}),
+						"the first version drafts from nothing"
 					)
 					const m = yield* openMigrator(substrate, substrate.owner)
-					yield* apply(m, { snapshot: first.snapshot, folders: [first.folder] }, noFurther)
+					yield* apply(
+						m,
+						{ snapshot: first.snapshot, folders: [reviewedSource(first, kept)] },
+						noFurther
+					)
 					const value = versionOf(t)
 					const declared = declaredFor(t)
-					const installation = compile(value, {
-						...asDrafted,
-						extensions: [servedParams(value)]
-					})
+					const installation = over(value)
 					const g = succeeded(
 						generate({
 							previous: fromSnapshot(first.snapshot),
@@ -109,7 +119,7 @@ export const paramDomains = property.exhaust(finite(caseGen), {
 							workload: noWorkload,
 							declared
 						}),
-						"the target drafts from the frozen first version"
+						"the target drafts from the first version"
 					)
 					const statements = Arr.flatMap(g.plan.steps, (s) =>
 						s.draft.kind === "statement" ? [s.draft.statement] : []
@@ -155,15 +165,11 @@ export const paramDomains = property.exhaust(finite(caseGen), {
 									Arr.some(st.columns, (c) => c.type.kind === "named" && c.type.name === base)
 							)
 						)
-						const ownBefore = Arr.some(
-							[...before],
-							([n, b]) => ofParam("slug")(n) && b.constraints.length > 0
-						)
-						if (ofParam("slug")(name) && ownBefore) {
+						if (ofParam("slug")(name)) {
 							k.note(
 								stored
-									? "an own CHECK moved over a stored text domain"
-									: "an own CHECK moved over a text domain created for the parameters"
+									? "a parameter's text domain a stored field comes to hold"
+									: "a parameter's text domain no stored field holds"
 							)
 						}
 						if (ofParam("code")(name)) {
@@ -188,7 +194,7 @@ export const paramDomains = property.exhaust(finite(caseGen), {
 						m,
 						{
 							snapshot: g.snapshot,
-							folders: [first.folder, reviewedSource(g, kept)]
+							folders: [reviewedSource(first, kept), reviewedSource(g, kept)]
 						},
 						checkedAdmission(installation, substrate.admin)
 					)
@@ -223,15 +229,14 @@ export const paramDomains = property.exhaust(finite(caseGen), {
 		kind: "postgresql",
 		name: "PostgreSQL applies the draft; the installed-catalog checker matches the target snapshot; the catalog is a fresh install's"
 	},
-	box: "the frozen first version, `code` over Code's text domain and `slug` with its own CHECK, each named by its pattern alone, drafted to a version storing Code or not and Slug or not",
+	box: "a first version storing Code alone, drafted to a version storing Code or not and Slug or not",
 	kept: [],
 	kills: [
 		{
 			file: "packages/engine/src/physical/ddl/domains.ts",
-			original:
-				"\t\tdefinitionDigest(paramDomainDefinition(textDomainIdentity(regex), digestedTypes))",
-			replacement: "\t\tdefinitionDigest(textDomainDefinition(regex.check))",
-			why: "A parameter's domain named by its place and its pattern's definition alone, as the first version was named, so `slug`'s domain keeps its name across the change of its base, and the draft is refused as UnsupportedOperation, changing the base type of a domain."
+			original: "\t\tconst created =\n\t\t\tknown === undefined\n",
+			replacement: "\t\tconst created =\n\t\t\tfalse\n",
+			why: "A parameter's text domain no stored field holds is never created, so its parameter domain stands over no base and the install fails."
 		}
 	]
 })

@@ -30,8 +30,8 @@
  *   swapped with another field, renamed along a chain or dropped, its column standing until the migration's removals:
  *   every fate migrates and draws every value the reference states over the stored lines in that key's order.
  *
- * - **The keyed tree:** pantry's Node drafted from the old-form tree's frozen snapshot (test/support/migrate/keyed-tree.ts),
- *   whose derivations meet Node's rows at its new primary key: the backfill owes that key's check, and runs it ahead of
+ * - **The keyed tree:** pantry's Node drafted from a tree rooted at its document, its root replaced
+ *   (test/support/migrate/keyed-tree.ts), whose derivations meet Node's rows at its new primary key: the backfill owes that key's check, and runs it ahead of
  *   every UPDATE (test/support/migrate/probes.ts owedKeyChecks, missingKeyChecks). Its rows are
  *   test/pg/migrate/cutover.test.ts's to judge, and its cost test/pg/migrate/backfill-cost.test.ts's.
  * - **Every draft's backfill** reads no row once per row, recurs nowhere, and writes each table by one UPDATE

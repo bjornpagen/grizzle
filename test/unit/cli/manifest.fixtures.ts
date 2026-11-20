@@ -11,16 +11,16 @@ import { joinedSnapshot, snapshotSeal } from "#compiler/deploy/snapshot/build.ts
 import { succeeded } from "#test/support/assert.ts"
 
 /**
- * What a case commits beside the first draft's other file: a snapshot.json that records no format, as every grizzle
- * before formats wrote, or that records the format before this grizzle's or the one after it; a manifest.json sealed under the
- * domain those grizzles sealed in (`manifest`); a record sealed again over an edit no draft reads, so it reads but is
+ * What a case commits beside the first draft's other file: a snapshot.json that records no format, or that records the
+ * format before this grizzle's or the one after it; a manifest.json sealed under a domain that names no format
+ * (`manifest`); a record sealed again over an edit no draft reads, so it reads but is
  * not the record the schemas compile to; or that edit under the draft's seal, a hand edit.
  */
 const commits = [
 	"format none",
 	"the format before",
 	"the format after",
-	"an earlier format's seal",
+	"a seal naming no format",
 	"a record not the compile's",
 	"a hand edit"
 ] as const
@@ -62,8 +62,8 @@ const joinedContent = (snapshot: string, manifest: string): Readonly<Record<stri
 		"the pair joins"
 	).content
 
-/** manifest.json sealed as a grizzle before formats sealed it: the digest of both files under the domain `manifest`. */
-export const earlierSealed = (snapshot: string, manifest: string): string =>
+/** manifest.json sealed under a domain that names no format: the digest of both files under the domain `manifest`. */
+export const formatlessSealed = (snapshot: string, manifest: string): string =>
 	jsonText({
 		...recordOf(manifest),
 		seal: succeeded(

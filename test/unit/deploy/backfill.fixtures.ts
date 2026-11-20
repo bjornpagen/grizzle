@@ -54,7 +54,7 @@ import {
 	modelInstant,
 	type State
 } from "#test/support/migrate/interpret.ts"
-import { keyedTreeOf } from "#test/support/migrate/keyed-tree.ts"
+import { docTree, keyedTreeOf } from "#test/support/migrate/keyed-tree.ts"
 import {
 	asDrafted,
 	compile,
@@ -66,7 +66,6 @@ import {
 	installedStatements,
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
-import { oldFormTree } from "#test/support/migrate/old-form-tree.ts"
 import {
 	missingKeyChecks,
 	owedKeyChecks,
@@ -1436,14 +1435,14 @@ const keyOrderSlots = (
 	)
 
 /**
- * The keyed tree drafted from the old-form tree's frozen snapshot (test/support/migrate/old-form-tree.ts), as edullm's
- * identity migration drafts it: its parent drawn anew from the kept intervals, its copies and folds drawn after it, its
- * old id and document dropped. Its derivations meet Node's rows at Node's new primary key, (package, path, start), whose
- * law the old snapshot does not record and none of whose columns the backfill draws: the one draft of the box that owes
+ * The keyed tree drafted from the stored tree rooted at its document (test/support/migrate/keyed-tree.ts docTree): its
+ * root replaced, so its parent is drawn anew from the kept intervals, its copies and folds drawn after it, its document
+ * dropped. Its derivations meet Node's rows at Node's new primary key, (package, path, start), whose
+ * law the previous snapshot does not record and none of whose columns the backfill draws: the one draft of the box that owes
  * a key check.
  */
 const keyedTree = (() => {
-	const tree = oldFormTree()
+	const tree = docTree()
 	const installation = compile(keyedTreeOf(), asDrafted)
 	return Object.freeze({
 		previous: tree.snapshot.theory,
@@ -1457,13 +1456,10 @@ const keyedTree = (() => {
 				workload: noWorkload,
 				declared: {
 					renames: [],
-					drops: [
-						{ kind: "field", relation: parsedName("Node"), field: parsedName("id") },
-						{ kind: "field", relation: parsedName("Node"), field: parsedName("doc") }
-					]
+					drops: [{ kind: "field", relation: parsedName("Node"), field: parsedName("doc") }]
 				}
 			}),
-			"the keyed tree drafts from the old-form tree"
+			"the keyed tree drafts from the stored tree"
 		)
 	})
 })()

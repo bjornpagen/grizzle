@@ -593,8 +593,8 @@ export class SnapshotUnreadable extends Data.TaggedError("SnapshotUnreadable")<{
 
 /**
  * The snapshot.json of `schema` in `directory` records another format than this grizzle's, `expected`, or none:
- * `recorded`, what it records (build.ts joinedSnapshot, ArtifactFormat). Nothing else of the pair is read; the
- * installation's release converts it (core/format.ts formatRefusal).
+ * `recorded`, what it records (build.ts joinedSnapshot, ArtifactFormat). Nothing else of the pair is read, and no
+ * grizzle converts it: the installation is drafted afresh (core/format.ts formatRefusal).
  */
 export class SnapshotFormat extends Data.TaggedError("SnapshotFormat")<{
 	readonly schema: string

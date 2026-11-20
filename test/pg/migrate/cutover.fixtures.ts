@@ -87,10 +87,12 @@ import {
 	keyedFields,
 	keyedRows,
 	keyedTreeOf,
-	type OldDocument,
-	oldInsert,
-	oldRows,
+	docTree,
+	nodeTable,
 	q,
+	type StoredDocument,
+	storedInsert,
+	storedRows,
 	textLiteral,
 	type TreeCase,
 	treeDataStep,
@@ -110,7 +112,6 @@ import {
 	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
-import { oldFormTree } from "#test/support/migrate/old-form-tree.ts"
 import {
 	missingKeyChecks,
 	perRowReads,
@@ -1632,7 +1633,7 @@ export const history = (c: Cutover, note: (f: Feature) => void) =>
 		})
 	)
 
-const oldDocumentGen: Gen<OldDocument> = (source) => {
+const storedDocumentGen: Gen<StoredDocument> = (source) => {
 	const parents = source.draw(parentsGen({ min: 1, max: 6 }))
 	return { parents, kinds: Arr.map(indices(parents.length + 1), () => source.draw(int(0, 3))) }
 }
@@ -1640,11 +1641,11 @@ const oldDocumentGen: Gen<OldDocument> = (source) => {
 /** One to three documents, each mapped to its own new root, or, as a named case at a weight of its own, the second
  * mapped onto the first's root. */
 const treeCaseGen: Gen<TreeCase> = (source) => {
-	const documents = source.draw(arrayGen(oldDocumentGen, { min: 1, max: 3 }))
+	const documents = source.draw(arrayGen(storedDocumentGen, { min: 1, max: 3 }))
 	const own = Arr.map(documents, (_, d) => d)
 	const merged = documents.length > 1 && source.draw(int(0, 3)) === 0
 	return {
-		documents: nonEmpty(documents, "an old forest's documents"),
+		documents: nonEmpty(documents, "a stored forest's documents"),
 		roots: nonEmpty(
 			merged ? Arr.map(own, (d) => (d === 1 ? 0 : d)) : own,
 			"the new root of each document"
@@ -1695,7 +1696,7 @@ const shapesOf = (parents: ReadonlyArray<number>): ReadonlyArray<TreeShape> => {
  * children; or a root over two children, each over at least one of the further nodes, so one level holds nodes of two
  * parents. */
 const shapedDocumentGen =
-	(shape: TreeShape): Gen<OldDocument> =>
+	(shape: TreeShape): Gen<StoredDocument> =>
 	(source) => {
 		const parents = ((): ReadonlyArray<number> => {
 			switch (shape) {
@@ -1725,17 +1726,18 @@ const steeredTreeGen =
 	(pending: ReadonlySet<TreeFeature>): Gen<TreeCase> =>
 	(source) => {
 		const shapes = Arr.filter(treeShapes, (shape) => pending.has(shape))
-		const merge = shapes.length === 0 && pending.has("two old trees mapped onto one root, refused")
+		const merge =
+			shapes.length === 0 && pending.has("two stored trees mapped onto one root, refused")
 		const shaped = Arr.map(shapes, (shape) => source.draw(shapedDocumentGen(shape)))
 		const documents =
 			shaped.length === 0 ||
 			merge ||
-			(shaped.length === 1 && pending.has("several old trees, each its own root"))
-				? [...shaped, source.draw(oldDocumentGen), source.draw(oldDocumentGen)]
+			(shaped.length === 1 && pending.has("several stored trees, each its own root"))
+				? [...shaped, source.draw(storedDocumentGen), source.draw(storedDocumentGen)]
 				: shaped
 		const own = Arr.map(documents, (_, d) => d)
 		return {
-			documents: nonEmpty(documents, "an old forest's documents"),
+			documents: nonEmpty(documents, "a stored forest's documents"),
 			roots: nonEmpty(
 				merge ? Arr.map(own, (d) => (d === 1 ? 0 : d)) : own,
 				"the new root of each document"
@@ -1749,23 +1751,23 @@ const mergesTrees = (c: TreeCase): boolean => new Set(c.roots).size < c.roots.le
 /** Whether a case's turns fold selects a member: a node whose parent's kind is not its grandparent's. */
 const turnsSelect = (c: TreeCase): boolean =>
 	Arr.some(c.documents, (doc, d) => {
-		const rows = oldRows(d, doc)
+		const rows = storedRows(d, doc)
 		return Arr.some(rows, turnsOf(rows).selected)
 	})
 
 /** Whether a case's anchor family carries some node's count from another node's `sites`. */
 const anchorsElsewhere = (c: TreeCase): boolean =>
 	Arr.some(c.documents, (doc, d) => {
-		const rows = oldRows(d, doc)
+		const rows = storedRows(d, doc)
 		const { anchor } = anchorsOf(rows)
 		return Arr.some(rows, (row) => anchor(row) !== row.start)
 	})
 
 export type TreeFeature =
-	| "an old-form tree keyed by its root and start"
+	| "a tree re-rooted at a package and a path"
 	| "a tree of three levels or more"
-	| "several old trees, each its own root"
-	| "two old trees mapped onto one root, refused"
+	| "several stored trees, each its own root"
+	| "two stored trees mapped onto one root, refused"
 	| "a fold over copies along the parent, one hop and two, selecting a member"
 	| "a tree's count carried along another family's owner axis from another node"
 	| "a copy from the sibling before, along the tree's predecessor axis"
@@ -1773,10 +1775,10 @@ export type TreeFeature =
 
 /** What the tree property must reach. */
 export const treeFeatures: Arr.NonEmptyReadonlyArray<TreeFeature> = [
-	"an old-form tree keyed by its root and start",
+	"a tree re-rooted at a package and a path",
 	"a tree of three levels or more",
-	"several old trees, each its own root",
-	"two old trees mapped onto one root, refused",
+	"several stored trees, each its own root",
+	"two stored trees mapped onto one root, refused",
 	"a fold over copies along the parent, one hop and two, selecting a member",
 	"a tree's count carried along another family's owner axis from another node",
 	"a copy from the sibling before, along the tree's predecessor axis",
@@ -1799,8 +1801,8 @@ const treeKeyLaw = (installation: Installation): string =>
 	).law.id
 
 /**
- * A tree case on PostgreSQL: the old-form tree installed from its frozen first migration, its rows written directly,
- * then the keyed tree drafted from its snapshot, every old field it no longer holds declared dropped, reviewed with the
+ * A tree case on PostgreSQL: the stored tree, rooted at its document, drafted from nothing and installed, its rows
+ * written directly, then the keyed tree drafted from its snapshot, its document declared dropped, reviewed with the
  * data step, checked, and applied under the rewrite observer. A merge of two trees onto one root is refused at migrate
  * by the backfill's check of the keyed tree's primary key, a violation check raising SQLSTATE 23000 under that law's
  * identity, before any derivation runs; any other case migrates to a fresh install's catalog, rewriting each table at
@@ -1810,7 +1812,7 @@ export const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
-			const tree = oldFormTree()
+			const tree = docTree()
 			yield* Effect.addFinalizer(() =>
 				Effect.orDie(
 					substrate.admin.query(`DROP SCHEMA IF EXISTS ${q(tree.snapshot.schema)} CASCADE`, [])
@@ -1819,8 +1821,8 @@ export const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 			const observer = yield* rewriteObserver(substrate)
 			const m = yield* openMigrator(substrate, substrate.owner)
 			yield* apply(m, { snapshot: tree.snapshot, folders: [tree.folder] }, noFurther)
-			yield* transaction(substrate.admin, [oldInsert(tree, c)])
-			note("an old-form tree keyed by its root and start")
+			yield* transaction(substrate.admin, [storedInsert(tree, c)])
+			note("a tree re-rooted at a package and a path")
 			if (Arr.some(c.documents, (doc) => Arr.some(doc.parents, (p) => p > 0))) {
 				note("a tree of three levels or more")
 			}
@@ -1835,10 +1837,7 @@ export const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 					workload: noWorkload,
 					declared: {
 						renames: [],
-						drops: [
-							{ kind: "field", relation: parsedName("Node"), field: parsedName("id") },
-							{ kind: "field", relation: parsedName("Node"), field: parsedName("doc") }
-						]
+						drops: [{ kind: "field", relation: parsedName("Node"), field: parsedName("doc") }]
 					}
 				}),
 				"the keyed tree drafts"
@@ -1884,13 +1883,13 @@ export const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 						reason.failure._tag === "ServerError" &&
 						reason.failure.sqlstate === "23000" &&
 						reason.failure.constraint === key,
-					`two old trees mapped onto one root are refused otherwise than by the backfill's check of the keyed tree's primary key, ${key}: ${Formatter.format(reason)}`
+					`two stored trees mapped onto one root are refused otherwise than by the backfill's check of the keyed tree's primary key, ${key}: ${Formatter.format(reason)}`
 				)
-				note("two old trees mapped onto one root, refused")
+				note("two stored trees mapped onto one root, refused")
 				return
 			}
 			if (c.documents.length > 1) {
-				note("several old trees, each its own root")
+				note("several stored trees, each its own root")
 			}
 			const { rewrites } = yield* run
 			for (const [table, times] of rewrites) {
@@ -1913,7 +1912,7 @@ export const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 				`SELECT ${Arr.join(
 					Arr.map(keyedFields, (f) => `${column(f)}::"pg_catalog"."text"`),
 					", "
-				)} FROM ${q(tree.snapshot.schema)}.${q(tree.columns.table)}`,
+				)} FROM ${nodeTable(tree.snapshot)}`,
 				[]
 			)
 			const byRow = Order.mapInput(Order.String, (row: ReadonlyArray<string>) =>
@@ -1941,7 +1940,7 @@ export const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 					note(shape)
 				}
 			}
-			if (Arr.some(c.documents, (doc, d) => Arr.some(oldRows(d, doc), (row) => row.at > 0))) {
+			if (Arr.some(c.documents, (doc, d) => Arr.some(storedRows(d, doc), (row) => row.at > 0))) {
 				note("a copy from the sibling before, along the tree's predecessor axis")
 			}
 			const again = succeeded(

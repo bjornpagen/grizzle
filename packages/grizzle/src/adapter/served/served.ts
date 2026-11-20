@@ -38,8 +38,8 @@ import type { ServedLive } from "#compiler/plan/serve.ts"
  *
  * served reads the file once, through the one reader of a served file's JSON value (served/json.ts servedFile), which
  * rebuilds every value JSON cannot hold and takes every other member as it is: no code reads the file's JSON form but
- * that reader. A value that reader refuses, one no `grizzle generate` wrote or one of grizzle's earlier format, is
- * thrown as its CompileError (MalformedArtifact), as every public builder throws its refusal. The login holds the file read, whose roles' names are each a token Db.open takes, each with the level
+ * that reader. A value that reader refuses, one no `grizzle generate` wrote or one of another format, is thrown as its
+ * CompileError (MalformedArtifact, ArtifactFormat), as every public builder throws its refusal. The login holds the file read, whose roles' names are each a token Db.open takes, each with the level
  * generate certified its writes at, whose login's PostgreSQL role names its credential (roleNameOf), and whose live
  * source names the installation's decoder login; DbLayer.make loads the rest from it, once, when the layer is built.
  */

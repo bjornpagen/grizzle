@@ -1006,7 +1006,8 @@ export const checkDrift = Effect.fn("checkDrift")(function* (
 /**
  * The proofs a drift check that found no drift found (DriftVerdict proofs), recorded under the apply lock in a
  * transaction of their own: every row deleted and the check's rows written, where the check's rows are not the ones it
- * read; nothing where they are, or where the installation holds no proofs, as a snapshot drafted before them does not.
+ * read; nothing where they are, or where the snapshot holds no proofs table, as the empty snapshot of a schema with no
+ * committed migration does not.
  */
 const recordProofs = (
 	session: MigrationSession,

@@ -4,8 +4,8 @@
  * again with them, drafting no folder and leaving manifest.json and the fingerprint as they were.
  *
  * A case takes the committed directory of one schema's first draft and makes the facts its snapshot.json records stale
- * (Staling), every way over the members the draft records: the `derived` member removed, as a snapshot.json laid out
- * before its facts were derived holds none; or any of its members left out, every one of them included; or the closed
+ * (Staling), every way over the members the draft records: the `derived` member removed; or any of its members left
+ * out, every one of them included; or the closed
  * facts holding one of a relation the schema does not declare beside their own. The oracle is the first draft itself:
  * check finds exactly the one stale-facts finding; generate exits 0, writes no folder, leaves manifest.json byte for
  * byte, and writes snapshot.json back to the very bytes the first draft wrote; and check then passes. DbLayer.make's

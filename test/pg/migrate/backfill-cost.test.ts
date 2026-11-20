@@ -1,6 +1,6 @@
 /**
- * The cost of a tree's backfill grows linearly with the stored forest, on PostgreSQL 19: the keyed tree edullm's
- * identity migration drafts from the old-form tree (test/support/migrate/keyed-tree.ts), its backfill run over old
+ * The cost of a tree's backfill grows linearly with the stored forest, on PostgreSQL 19: the keyed tree drafted from a
+ * tree rooted at its document, its root replaced (test/support/migrate/keyed-tree.ts), its backfill run over stored
  * forests of one shape at three sizes, n, 2n and 4n nodes a tree.
  *
  * Property, for each shape: the rows the backfill's UPDATEs touch (bench/harness/explain.ts rowsTouched: every row each
@@ -15,19 +15,19 @@
  * a root over n − 1 children, each its own document mapped onto its own root, one case a shape at all three sizes, so
  * the law reads one case's costs, every node's kind its start's residue
  * modulo four, so the turns fold selects members at every size. Each size's backfill runs in one transaction on a fresh
- * old-form install: its folder's statements in order up to the backfill's, each backfill UPDATE under EXPLAIN (ANALYZE,
+ * install of the stored tree: its folder's statements in order up to the backfill's, each backfill UPDATE under EXPLAIN (ANALYZE,
  * BUFFERS, SETTINGS, FORMAT JSON), then rolled back. The oracle of the cost is the law itself, the definition of linear
  * growth.
  *
  * And each size's backfill draws the reference's rows (keyed-tree.ts keyedRows, the direct pre-order numbering of the
- * old forest), read in its transaction right after it, over rows every one of which the data step moved before it: the
+ * stored forest), read in its transaction right after it, over rows every one of which the data step moved before it: the
  * data step updates every row of the table in the same transaction, which gives each a new version at a new tid, and
  * the suite reads each row's tid before the data step and again before the backfill and requires them to differ. The
  * backfill meets its rows at their tids (deploy/diff/backfill.ts rowColumn), so a tid carried from before a row moved
  * would meet no row, and the row would keep its placeholder.
  *
- * Each case runs in a database of its own (Substrate.fresh): the old-form tree installs under its own fixed schema name,
- * old_tree, one size after another.
+ * Each case runs in a database of its own (Substrate.fresh): the stored tree installs under its own fixed schema name,
+ * forest, one size after another.
  */
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"

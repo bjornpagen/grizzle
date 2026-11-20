@@ -37,8 +37,8 @@ interface LevelJson {
 }
 
 /** The members of snapshot.json the layer reads (ServedSnapshot), as `grizzle generate` writes them: each roster's
- * codes by its declared name among them, and the derived runtime facts, which a snapshot.json generate has not written
- * since they joined it does not hold whole (servedDerived). */
+ * codes by its declared name among them, and the derived runtime facts, which a snapshot.json generate did not write
+ * may not hold whole (servedDerived). */
 interface ServedJson {
 	readonly fingerprint: SchemaFingerprint
 	readonly levels: ReadonlyArray<LevelJson>
@@ -47,8 +47,8 @@ interface ServedJson {
 	readonly derived: unknown
 }
 
-/** A snapshot.json without the derived runtime facts the layer reads, whole: one grizzle generate has not written since
- * they joined it, which it writes again with no migration. */
+/** A snapshot.json without the derived runtime facts the layer reads, whole: one grizzle generate did not write, which it
+ * writes again with no migration. */
 const underived = (at: Path): CompileError =>
 	malformedArtifact(
 		"snapshot",
@@ -175,8 +175,8 @@ export type InstalledIndexes = ReadonlyMap<string, ReadonlyMap<string, SnapshotI
 
 /**
  * The indexes snapshot.json records the installation holds (InstalledIndexes), read from the JSON value an import of
- * snapshot.json yields, its derived facts read as servedSnapshot reads them: refused where it records none, as one
- * generate has not written since they joined it. An index's name is one within its table's schema, and a relation's
+ * snapshot.json yields, its derived facts read as servedSnapshot reads them: refused where it records none, as no
+ * snapshot.json generate writes does. An index's name is one within its table's schema, and a relation's
  * table or view lives in one schema, so a relation and an index name name one index.
  */
 export const snapshotIndexes = (json: unknown): Result.Result<InstalledIndexes, CompileError> => {

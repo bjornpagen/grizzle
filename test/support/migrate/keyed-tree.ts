@@ -1,17 +1,21 @@
 /**
- * The keyed tree an old-form tree becomes (test/support/migrate/old-form-tree.ts), which edullm's identity migration
- * drafts, and the old-form forest a migration suite stores before drafting it: pantry's Node's shape (keyedTreeOf), the
- * old rows of each document's tree as a direct writer inserts them (oldInsert), and the reviewer's data step that maps
- * each document onto its new root (treeDataStep), placed where the draft's own SET CONSTRAINTS ALL IMMEDIATE says
- * (withDataStep). test/pg/migrate/cutover.test.ts migrates drawn forests and judges every row; test/unit/deploy/
- * backfill.test.ts drafts the keyed tree, whose backfill owes a check of the key its derivations meet rows at; and
- * test/pg/migrate/backfill-cost.test.ts prices its backfill over forests of growing size.
+ * A tree re-rooted: the stored tree, keyed by its document and start and rooted at its document (docTreeOf), which a
+ * migration suite drafts from nothing and stores before drafting the keyed tree it becomes, rooted at a package and a
+ * path, pantry's Node's shape (keyedTreeOf); the stored rows of each document's tree as a direct writer inserts them
+ * (storedInsert), and the reviewer's data step that maps each document onto its new root (treeDataStep), placed where
+ * the draft's own SET CONSTRAINTS ALL IMMEDIATE says (withDataStep). test/pg/migrate/cutover.test.ts migrates drawn
+ * forests and judges every row; test/unit/deploy/backfill.test.ts drafts the keyed tree, whose backfill owes a check of
+ * the key its derivations meet rows at; and test/pg/migrate/backfill-cost.test.ts prices its backfill over forests of
+ * growing size.
  */
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, String as Str } from "effect"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
+import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -26,10 +30,18 @@ import {
 	predBuilder,
 	treeBuilder
 } from "#compiler/schema/statements.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { type KeyedRow, numbered, treeOfParents } from "#test/support/families/tree.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
-import type { OldFormTree } from "#test/support/migrate/old-form-tree.ts"
-import type { Placeholder } from "#test/support/migrate/review.ts"
+import {
+	asDrafted,
+	compile,
+	draftedAt,
+	fromEmpty,
+	generate,
+	noDeclarations
+} from "#test/support/migrate/kit.ts"
+import { type Placeholder, review } from "#test/support/migrate/review.ts"
 
 /** A quoted identifier. */
 export const q = quoteIdent
@@ -52,18 +64,18 @@ export const valuesOf = (rows: Arr.NonEmptyReadonlyArray<ReadonlyArray<string>>)
 /** The statement the draft makes every data step follow (the slot structure.immediate), as it spells it. */
 const immediate = "SET CONSTRAINTS ALL IMMEDIATE;"
 
-/** One old document's tree: its parents as the testing library draws them and each node's kind. */
-export interface OldDocument {
+/** One stored document's tree: its parents as the testing library draws them and each node's kind. */
+export interface StoredDocument {
 	readonly parents: ReadonlyArray<number>
 	readonly kinds: ReadonlyArray<number>
 }
 
 /**
- * A tree case: the old-form forest, one tree per document, and the new root each document maps onto, which the data step
+ * A tree case: the stored forest, one tree per document, and the new root each document maps onto, which the data step
  * fills: each document its own, or two documents onto one, which no keyed tree holds.
  */
 export interface TreeCase {
-	readonly documents: Arr.NonEmptyReadonlyArray<OldDocument>
+	readonly documents: Arr.NonEmptyReadonlyArray<StoredDocument>
 	readonly roots: Arr.NonEmptyReadonlyArray<number>
 }
 
@@ -73,32 +85,104 @@ const rootWidth = 40
 /** A root text of the keyed tree, any text up to its width in UTF-8 bytes. */
 const rootText = str.bytes(rootWidth, str.regex("^.*$", "su"))
 
-/** A document's old tree in pre-order (families/tree.ts numbered), under its document's index as its root value. */
-export const oldRows = (d: number, doc: OldDocument): ReadonlyArray<KeyedRow> =>
+/** A document's stored tree in pre-order (families/tree.ts numbered), under its document's index as its root value. */
+export const storedRows = (d: number, doc: StoredDocument): ReadonlyArray<KeyedRow> =>
 	numbered([{ root: [String(d)], tree: treeOfParents(doc.parents, doc.kinds) }])
-
-/** A uuid of the old forest's: its kind (a document's or a document's node's), then its serial, distinct for every
- * serial below 2^32. */
-const forestUuid = (kind: number, serial: number): string =>
-	`00000000-0000-4000-8000-${Str.padStart(4, "0")(kind.toString(16))}${Str.padStart(8, "0")(serial.toString(16))}`
-
-/** The uuid of an old document, and of the node at `start` in it. */
-const documentId = (d: number): string => forestUuid(0, d)
-const nodeId = (d: number, start: number): string => forestUuid(d + 1, start)
 
 /** A new root's package and path, each its texts. */
 const packageOf = (root: number): string => `package-${root}`
 const pathOf = (root: number): string => `path/${root}.xml`
 
+/** The schema both trees are installed under, by its declared name; and their one table, quoted and qualified. */
+const forest = "Forest"
+export const nodeTable = (snapshot: DeploySnapshot): string =>
+	`${q(snapshot.schema)}.${q(identifierOf(identity.table(parsedName("Node"))))}`
+
 /**
- * The old tree's rows as a direct writer inserts them at SERIALIZABLE, every drawn value stated as the old form's laws
- * fix it: a root its own parent at slot 0, ‹n› the parent's count (a root's own), ‹ps› the parent's start (a root's,
- * 0), the parent's kind (a root's own), and the count fold over each node's children: `before` its slot, `after` one
- * more, `total` its count.
+ * The stored tree: Node keyed by its document and start, rooted at `doc`, its parent the parent's start, its count
+ * fold over each node's children, and its parent's kind copied along the parent axis, as the keyed tree holds them under
+ * its other root.
  */
-export const oldInsert = (tree: OldFormTree, c: TreeCase): string => {
+const docTreeOf = () => {
+	const Node = relation(
+		"Node",
+		{
+			doc: natural,
+			parent: drawnField(natural),
+			at: drawnField(natural),
+			children: drawnField(natural),
+			start: drawnField(natural),
+			end: drawnField(natural),
+			kind: pg.integer,
+			parentKind: accumulated(pg.integer, 0),
+			before: accumulated(natural, 0n),
+			after: accumulated(natural, 0n),
+			total: accumulated(natural, 0n)
+		},
+		["doc", "start"],
+		[]
+	)
+	const nodes = treeBuilder(onBuilder(Node, ["parent", "at"]), finBuilder(Node, "children"), {
+		root: ["doc"]
+	})
+	return schema(
+		forest,
+		[Node],
+		[
+			nodes,
+			foldBuilder(
+				nodes,
+				monoids.count,
+				onBuilder(Node, ["doc", "parent", "before", "after"]),
+				onBuilder(Node, ["doc", "start", "total"])
+			),
+			containedBuilder(
+				onBuilder(
+					select(Node, (n) => n.gt(n.start, 0n)),
+					["doc", "parent", "parentKind"]
+				),
+				onBuilder(Node, ["doc", "start", "kind"])
+			)
+		]
+	)
+}
+
+/** The stored tree's installation as its first migration reaches it: that migration's snapshot and folder. */
+export interface DocTree {
+	readonly snapshot: DeploySnapshot
+	readonly folder: FolderTexts
+}
+
+/** The stored tree drafted from nothing, as `grizzle generate` drafts a first migration, and its folder as written. */
+export const docTree = (): DocTree => {
+	const g = succeeded(
+		generate({
+			previous: fromEmpty,
+			installation: compile(docTreeOf(), asDrafted),
+			name: "first",
+			timestamp: draftedAt(0),
+			workload: noWorkload,
+			declared: noDeclarations
+		}),
+		"the stored tree drafts from nothing"
+	)
+	return {
+		snapshot: g.snapshot,
+		folder: {
+			name: g.folder.name,
+			metaText: g.folder.metaText,
+			files: review(g, { losses: "written", value: treePlaceholder }).files
+		}
+	}
+}
+
+/**
+ * The stored tree's rows as a direct writer inserts them at SERIALIZABLE, every drawn value stated as its laws fix it:
+ * a root its own parent at slot 0, the parent's kind (a root's own 0), and the count fold over each node's children:
+ * `before` its slot, `after` one more, `total` its count.
+ */
+export const storedInsert = (tree: DocTree, c: TreeCase): string => {
 	const fields = [
-		"id",
 		"doc",
 		"parent",
 		"at",
@@ -112,12 +196,11 @@ export const oldInsert = (tree: OldFormTree, c: TreeCase): string => {
 		"total"
 	]
 	const rows = Arr.flatMap(c.documents, (doc, d) =>
-		Arr.map(oldRows(d, doc), (row) =>
+		Arr.map(storedRows(d, doc), (row) =>
 			Arr.join(
 				[
-					uuidLiteral(nodeId(d, row.start)),
-					uuidLiteral(documentId(d)),
-					uuidLiteral(nodeId(d, row.parent)),
+					int8Literal(String(d)),
+					int8Literal(String(row.parent)),
 					int8Literal(String(row.at)),
 					int8Literal(String(row.children)),
 					int8Literal(String(row.start)),
@@ -126,27 +209,22 @@ export const oldInsert = (tree: OldFormTree, c: TreeCase): string => {
 					`${row.parentKind}::"pg_catalog"."int4"`,
 					int8Literal(String(row.at)),
 					int8Literal(String(row.at + 1)),
-					int8Literal(String(row.children)),
-					int8Literal(String(row.copy)),
-					int8Literal(String(row.parent))
+					int8Literal(String(row.children))
 				],
 				", "
 			)
 		)
 	)
-	return `INSERT INTO ${q(tree.snapshot.schema)}.${q(tree.columns.table)} (${Arr.join(
-		[...Arr.map(fields, column), q(tree.columns.copy), q(tree.columns.parentStart)],
-		", "
-	)}) VALUES ${Arr.join(
+	return `INSERT INTO ${nodeTable(tree.snapshot)} (${Arr.join(Arr.map(fields, column), ", ")}) VALUES ${Arr.join(
 		Arr.map(rows, (row) => `(${row})`),
 		", "
 	)}`
 }
 
 /**
- * The keyed tree the old one becomes: rooted at (package, path), keyed by them and its start, its count fold kept, and
- * pantry's Node's shape over its parent copies (edullm's identity migration): its parent's kind copied along the parent
- * axis, as the old tree copied it, now under the keyed tree's law, so the migration draws it anew, and its grandparent's
+ * The keyed tree the stored one becomes: rooted at (package, path), keyed by them and its start, its count fold kept,
+ * and pantry's Node's shape over its parent copies: its parent's kind copied along the parent axis, as the stored tree
+ * copied it, now under the keyed tree's root, so the migration draws it anew, and its grandparent's
  * kind, the parent's own copy, both the root's own; and a count fold over each node's children whose selection reads
  * both copies, the children whose parent's kind is not their grandparent's (`turns`, its planes named), which the
  * migration draws after the copies it reads. And pantry's Instance's shape (tests.ts, `children` held to its
@@ -186,7 +264,7 @@ export const keyedTreeOf = () => {
 		root: ["package", "path"]
 	})
 	return schema(
-		"OldTree",
+		forest,
 		[Node],
 		[
 			nodes,
@@ -281,19 +359,20 @@ export const treePlaceholder = (p: Placeholder): string =>
 		? "0"
 		: "''"
 
-/** The data step of the tree's migration: each node's new root from its old document's uuid, by the case's map, and
- * each node's anchor and sites from its old id (anchorsOf). */
-export const treeDataStep = (tree: OldFormTree, c: TreeCase): ReadonlyArray<string> => {
-	const table = `${q(tree.snapshot.schema)}.${q(tree.columns.table)}`
+/** The data step of the tree's migration: each node's new root from its document, by the case's map, and each node's
+ * anchor and sites (anchorsOf). */
+export const treeDataStep = (tree: DocTree, c: TreeCase): ReadonlyArray<string> => {
+	const table = nodeTable(tree.snapshot)
 	const rows = Arr.map(c.documents, (_, d) => {
 		const root = defined(c.roots[d], "a document's new root")
-		return [uuidLiteral(documentId(d)), textLiteral(packageOf(root)), textLiteral(pathOf(root))]
+		return [int8Literal(String(d)), textLiteral(packageOf(root)), textLiteral(pathOf(root))]
 	})
 	const nodes = Arr.flatMap(c.documents, (doc, d) => {
-		const old = oldRows(d, doc)
-		const { anchor } = anchorsOf(old)
-		return Arr.map(old, (row) => [
-			uuidLiteral(nodeId(d, row.start)),
+		const stored = storedRows(d, doc)
+		const { anchor } = anchorsOf(stored)
+		return Arr.map(stored, (row) => [
+			int8Literal(String(d)),
+			int8Literal(String(row.start)),
 			int8Literal(String(anchor(row))),
 			int8Literal(String(row.children))
 		])
@@ -301,10 +380,10 @@ export const treeDataStep = (tree: OldFormTree, c: TreeCase): ReadonlyArray<stri
 	return [
 		`UPDATE ${table} AS "t" SET ${column("package")} = "m"."k0", ${column("path")} = "m"."k1" FROM ${valuesOf(
 			nonEmpty(rows, "the documents' roots")
-		)} AS "m" ("old", "k0", "k1") WHERE "t".${column("doc")} = "m"."old";`,
+		)} AS "m" ("doc", "k0", "k1") WHERE "t".${column("doc")} = "m"."doc";`,
 		`UPDATE ${table} AS "t" SET ${column("anchor")} = "m"."a", ${column("sites")} = "m"."s" FROM ${valuesOf(
 			nonEmpty(nodes, "the documents' nodes")
-		)} AS "m" ("old", "a", "s") WHERE "t".${column("id")} = "m"."old";`
+		)} AS "m" ("doc", "start", "a", "s") WHERE "t".${column("doc")} = "m"."doc" AND "t".${column("start")} = "m"."start";`
 	]
 }
 
@@ -381,13 +460,13 @@ const wasOf = (rows: ReadonlyArray<KeyedRow>, row: KeyedRow): number =>
 			).kind
 		: 0
 
-/** The model's rows of the keyed tree: each old row under its document's new root, its parent the old parent's start,
- * every slot, count, interval, kind and count fold value as the old tree held it, its copies and turns fold as the
+/** The model's rows of the keyed tree: each stored row under its document's new root, its parent the stored parent's
+ * start, every slot, count, interval, kind and count fold value as the stored tree held it, its copies and turns fold as the
  * direct numbering states them (turnsOf), and its anchor, its sites (its own count) and its uses (anchorsOf). */
 export const keyedRows = (c: TreeCase): ReadonlyArray<ReadonlyArray<string>> =>
 	Arr.flatMap(c.documents, (doc, d) => {
 		const root = defined(c.roots[d], "a document's new root")
-		const rows = oldRows(d, doc)
+		const rows = storedRows(d, doc)
 		const turns = turnsOf(rows)
 		const anchors = anchorsOf(rows)
 		return Arr.map(rows, (row) =>

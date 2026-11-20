@@ -1562,9 +1562,9 @@ export const writeRuntimeSnapshot = (
 
 /**
  * Whether the derived runtime facts snapshot.json records, as read (JoinedSnapshot.derived), are `computed`, the facts the
- * compile derives (derivedOf): their canonical texts are equal (derivedForm). A member missing, as in a snapshot.json
- * laid out before its facts were derived, or another compile's facts, are not; `grizzle check` refuses them and
- * `grizzle generate` writes snapshot.json again, with no migration, since no fact is part of the fingerprinted content.
+ * compile derives (derivedOf): their canonical texts are equal (derivedForm). A member missing, or another compile's
+ * facts, are not; `grizzle check` refuses them and `grizzle generate` writes snapshot.json again, with no migration,
+ * since no fact is part of the fingerprinted content.
  */
 export const derivedHolds = (recorded: unknown, computed: SnapshotDerived): boolean =>
 	canonicalEquals(recorded, derivedForm(computed))

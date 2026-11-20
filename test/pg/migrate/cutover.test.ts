@@ -62,10 +62,10 @@
  * it refused; and a version with all six deltas.
  * Each is aimed at by a steered case, drawn over a world that holds every structure, never by filtering draws.
  *
- * The seventh delta, a property of its own over TREEKEY's frozen old-form tree (test/support/migrate/old-form-tree.ts):
- * an id-keyed tree, its parent the parent's id and its root one document field, as grizzle installed trees before
- * da713e04, becomes a keyed tree rooted at a package and a path, its parent drawn as the parent's start, with pantry's
- * Node's shape over its parent copies, which edullm's identity migration drafts: the parent's kind copied along the
+ * The seventh delta, a property of its own over a tree rooted at one document field and keyed by it and its start
+ * (test/support/migrate/keyed-tree.ts docTreeOf), drafted from nothing: its root replaced, it becomes a keyed tree
+ * rooted at a package and a path, its parent drawn anew from its kept intervals, with pantry's Node's shape over its
+ * parent copies: the parent's kind copied along the
  * parent axis under the keyed tree's law, so drawn anew, the grandparent's kind copied from the parent's copy, and a
  * count fold over each node's children whose selection reads both copies, which the backfill draws only after the
  * copies (backfill.ts ordered); and pantry's Instance's shape, the tree's own count `children` also carried along a
@@ -73,10 +73,10 @@
  * from the anchor's `sites`), which the backfill draws as the tree's count alone (backfill.ts familyCells); and
  * pantry's Node `was`, each member's copy of the kind of the sibling before it along the tree's predecessor axis, the
  * base at slot 0 and on the root, which no predecessor meets (backfill.ts copyUpdate). One to three documents' trees,
- * each drawn by its parents, are written directly with every drawn value the old form's laws fix; the keyed tree is
- * drafted from the frozen snapshot, `--drop`ping the old id and document, reviewed with the data step that fills each
- * node's new root from its document's uuid, and applied. Each document mapped to its own root keeps every slot,
- * count, interval and fold value, each parent the old parent's start, and holds every copy and turns fold value the
+ * each drawn by its parents, are written directly with every drawn value the stored tree's laws fix; the keyed tree is
+ * drafted from its snapshot, `--drop`ping the document, reviewed with the data step that fills each node's new root
+ * from its document, and applied. Each document mapped to its own root keeps every slot, count, interval and fold
+ * value, each parent the stored parent's start, and holds every copy and turns fold value the
  * keyed tree's laws fix over the same facts, which a fresh install holds (families/tree.ts numbered, the direct
  * pre-order numbering, and turnsOf over it), at a fresh install's catalog, every table rewritten at most once, nothing
  * left to generate; two documents mapped onto one root, a named case of its own weight, are
@@ -85,8 +85,8 @@
  * duplicates every join of them would multiply the rows. The parent drawn anew is read off each root's intervals sorted
  * (backfill.ts parentDerivation), so every statement of the draft's backfill is judged on its SQL AST to read no row once
  * per row of another, neither a subquery reading a row outside it nor a LATERAL source, to recur nowhere, and each table
- * is written by one UPDATE (test/support/migrate/probes.ts). Its features: the old tree
- * keyed, a tree of three levels or more, several old trees each its own root, the refused merge, a fold over the copies
+ * is written by one UPDATE (test/support/migrate/probes.ts). Its features: the tree re-rooted, a tree of three levels
+ * or more, several stored trees each its own root, the refused merge, a fold over the copies
  * selecting a member, a node whose parent's kind is not its grandparent's, a tree's count carried along the anchor
  * family's owner axis from another node, a copy from the sibling before along the predecessor axis, and the shapes
  * whose depths and levels the parent's backfill numbers: a single-node tree, a chain four levels deep, three siblings
@@ -138,11 +138,11 @@ export const theMigratorUnderTheIdentityCutoversDeltasEveryMigrationOfACutoverHi
 	})
 
 /**
- * The migrator under the identity cutover's deltas an old-form tree becomes the keyed tree: every parent the old parent's start, every slot, interval and fold value kept, at a fresh install's catalog with each table rewritten at most once, and two trees mapped onto one root refused by the backfill's check of the keyed tree's primary key.
+ * The migrator under the identity cutover's deltas a tree re-rooted at a package and a path becomes the keyed tree: every parent the stored parent's start, every slot, interval and fold value kept, at a fresh install's catalog with each table rewritten at most once, and two trees mapped onto one root refused by the backfill's check of the keyed tree's primary key.
  *
  * Its pre-conversion budget: runs 2, coverage cases 16 (test/pg/migrate/cutover.test.ts at d8eed1786).
  */
-export const theMigratorUnderTheIdentityCutoversDeltasAnOldFormTreeBecomesTheKeyedTreeEveryParentTheOldParentsStartEverySlotIntervalAndFoldValueKeptAtAFreshInstallsCatalogWithEachTableRewrittenAtMostOnceAndTwoTreesMappedOntoOneRootRefusedByTheBackfillsCheckOfTheKeyedTreesPrimaryKey =
+export const theMigratorUnderTheIdentityCutoversDeltasATreeReRootedAtAPackageAndAPathBecomesTheKeyedTreeEveryParentTheStoredParentsStartEverySlotIntervalAndFoldValueKeptAtAFreshInstallsCatalogWithEachTableRewrittenAtMostOnceAndTwoTreesMappedOntoOneRootRefusedByTheBackfillsCheckOfTheKeyedTreesPrimaryKey =
 	property.explore(steered(treeSteered), {
 		needs: { substrate: Substrate.fresh },
 		situations: treeFeatures satisfies ReadonlyArray<Reached<TreeFeature>>,
@@ -156,7 +156,7 @@ export const theMigratorUnderTheIdentityCutoversDeltasAnOldFormTreeBecomesTheKey
 				),
 		oracle: {
 			kind: "second-implementation",
-			name: "the direct pre-order numbering of each old tree under its new root, judged by PostgreSQL's rows, a fresh install's catalog and its table_rewrite events"
+			name: "the direct pre-order numbering of each stored tree under its new root, judged by PostgreSQL's rows, a fresh install's catalog and its table_rewrite events"
 		},
 		budget: { runs: 2, steered: 16 },
 		kept: [],

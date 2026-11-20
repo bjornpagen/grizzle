@@ -19,12 +19,12 @@ import {
 } from "#test/support/migrate/param-domains.ts"
 
 export type Feature =
-	| "an own CHECK moved over a text domain created for the parameters"
-	| "an own CHECK moved over a stored text domain"
 	| "a text domain staying for a parameter once its stored field is dropped"
 	| "a text domain under a parameter that stays stored"
+	| "a parameter's text domain a stored field comes to hold"
+	| "a parameter's text domain no stored field holds"
 
-/** The target drawn: which of the two patterns it stores (Stored), the frozen first version storing Code alone. */
+/** The target drawn: which of the two patterns it stores (Stored), the first version storing Code alone. */
 export const caseGen: Gen<Stored> = (source) => ({
 	code: source.draw(boolean),
 	slug: source.draw(boolean)
@@ -65,8 +65,8 @@ export const bodyOf = (d: CreateDomain) => ({
 })
 
 export const required: Arr.NonEmptyReadonlyArray<Reached<Feature>> = [
-	"an own CHECK moved over a text domain created for the parameters",
-	"an own CHECK moved over a stored text domain",
 	"a text domain staying for a parameter once its stored field is dropped",
-	"a text domain under a parameter that stays stored"
+	"a text domain under a parameter that stays stored",
+	"a parameter's text domain a stored field comes to hold",
+	"a parameter's text domain no stored field holds"
 ]

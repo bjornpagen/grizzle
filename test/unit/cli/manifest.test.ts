@@ -1,10 +1,10 @@
 /**
  * A committed snapshot's two files as `grizzle check`, `grizzle generate` and `grizzle names` read them: a snapshot.json
- * of another format than this grizzle's (core/format.ts artifactFormat), one that records none, as every grizzle before
- * formats wrote, or the format before this grizzle's or the one after it, is check's snapshotFormat finding alone, carrying the format
- * it records and this grizzle's, its fix the release's converter, and generate and names refuse it at the stage format,
- * writing nothing (cli/committed.ts SnapshotFormat, the one refusal every command reads); a manifest.json sealed under
- * the earlier formats' domain, and one edited by hand under its seal, read as no snapshot, check's unreadableSnapshot
+ * of another format than this grizzle's (core/format.ts artifactFormat), one that records none, or the format before
+ * this grizzle's or the one after it, is check's snapshotFormat finding alone, carrying the format it records and this
+ * grizzle's, its fix the installation drafted afresh, and generate and names refuse it at the stage format, writing
+ * nothing (cli/committed.ts SnapshotFormat, the one refusal every command reads); a manifest.json sealed under a domain
+ * that names no format, and one edited by hand under its seal, read as no snapshot, check's unreadableSnapshot
  * finding alone, which generate refuses at the stage snapshot; and a sealed record that is not the one the schemas
  * compile to is check's manifestRecord finding, which generate writes back as the record, drafting no folder and
  * leaving snapshot.json as it was.
@@ -32,14 +32,14 @@ import { at, baseNeed, config, schemaDir } from "#test/unit/cli/derived.fixtures
 import {
 	type Commit,
 	commitSpace,
-	earlierSealed,
+	formatlessSealed,
 	editedManifest,
 	formatCommits,
 	formatted
 } from "#test/unit/cli/manifest.fixtures.ts"
 
-/** A snapshot.json of another format is check's format finding, carrying the formats, which generate and names refuse at the stage format writing nothing; an earlier seal and a hand edit read as no snapshot; and a record not the compile's is check's finding, which generate writes back drafting no folder. */
-export const aSnapshotOfAnotherFormatIsItsOwnFindingAnEarlierSealOrAHandEditReadsAsNoSnapshotAndARecordNotTheCompilesIsWrittenBack =
+/** A snapshot.json of another format is check's format finding, carrying the formats, which generate and names refuse at the stage format writing nothing; a seal naming no format and a hand edit read as no snapshot; and a record not the compile's is check's finding, which generate writes back drafting no folder. */
+export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEditReadsAsNoSnapshotAndARecordNotTheCompilesIsWrittenBack =
 	property.exhaust(commitSpace, {
 		box: "snapshot.json of no format, of the format before this grizzle's and of the one after it, manifest.json under the earlier seal's domain, a record sealed again over an edit, and that edit under the draft's seal",
 		needs: { baseNeed },
@@ -47,7 +47,7 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingAnEarlierSealOrAHandEditRead
 			"format none",
 			"the format before",
 			"the format after",
-			"an earlier format's seal",
+			"a seal naming no format",
 			"a record not the compile's",
 			"a hand edit"
 		] satisfies ReadonlyArray<Reached<Commit>>,
@@ -69,8 +69,8 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingAnEarlierSealOrAHandEditRead
 							case "the format before":
 							case "the format after":
 								return { snapshot: formatted(snapshot, formatCommits[commit]), manifest }
-							case "an earlier format's seal":
-								return { snapshot, manifest: earlierSealed(snapshot, manifest) }
+							case "a seal naming no format":
+								return { snapshot, manifest: formatlessSealed(snapshot, manifest) }
 							case "a record not the compile's":
 								return { snapshot, manifest: editedManifest(snapshot, manifest, true) }
 							case "a hand edit":
@@ -162,7 +162,7 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingAnEarlierSealOrAHandEditRead
 				file: "packages/engine/src/deploy/snapshot/build.ts",
 				original: `\tdigest(\`manifest-\${artifactFormat}\`, value, everyProperty)`,
 				replacement: '\tdigest("manifest", value, everyProperty)',
-				why: "The seal is digested under the domain earlier formats sealed in, so a manifest.json sealed by an earlier grizzle reads as this format's record."
+				why: "The seal is digested under a domain that names no format, so a manifest.json sealed so reads as this format's record."
 			},
 			{
 				file: "packages/engine/src/deploy/snapshot/build.ts",

@@ -1,10 +1,10 @@
 /**
  * The format of every file grizzle writes and reads back: a committed snapshot's two files (snapshot.json records it,
- * and the seal manifest.json carries digests under it) and a served file. A file of any other format, or of none, as
- * every grizzle before this one wrote, is refused before anything of it is read, never read in part or converted: an
- * installation's committed snapshot moves to this format once, by the converter its release ships beside grizzle, and a
- * served file is written again by `grizzle generate`. A change of what any of those files holds is a change of this
- * format, and nothing reads the format before it.
+ * and the seal manifest.json carries digests under it) and a served file. A file of any other format, or of none, is
+ * refused before anything of it is read, never read in part or converted: grizzle reads exactly this format, so an
+ * installation whose committed snapshot holds another is drafted afresh, and a served file is written again by
+ * `grizzle generate`. A change of what any of those files holds is a change of this format, and nothing reads the
+ * format before it.
  *
  * @formatConstant grizzle's artifact format: 3, whose described laws state a Compute.matches pattern as its pattern
  * value, identified by its language, and whose theory records the installation's spelling of each language it installs
@@ -21,8 +21,8 @@ export const isArtifactFormat = (recorded: unknown): boolean => recorded === art
 export type FormattedFile = "snapshot" | "served"
 
 /**
- * What a file records of its format, as read and never trusted: none, as every grizzle before formats wrote, or a
- * value, by its JSON text (`0`, `2`, any value a hand edit left there).
+ * What a file records of its format, as read and never trusted: none, where it holds no format member, or a value, by
+ * its JSON text (`0`, `2`, any value a hand edit left there).
  */
 export type RecordedFormat =
 	| Readonly<{ kind: "none" }>
@@ -38,15 +38,16 @@ export const servedFileFix = "run grizzle generate, which writes the served file
 /**
  * Each formatted file's refusal of a format other than this grizzle's, and its fix: the one text the engine's readers
  * refuse by (deploy/snapshot/build.ts joinedSnapshot and served.ts servedSnapshot for a snapshot, served/json.ts
- * servedFile for a served file) and the command line prints (the shell's cli/refusals.ts). A committed snapshot moves to
- * this format by its release's converter, never by hand; a served file is written again.
+ * servedFile for a served file) and the command line prints (the shell's cli/refusals.ts). No grizzle converts a
+ * committed snapshot of another format: its installation is drafted afresh by this grizzle; a served file is written
+ * again.
  */
 export const formatRefusal: {
 	readonly [F in FormattedFile]: Readonly<{ problem: string; fix: string }>
 } = {
 	snapshot: {
 		problem: "snapshot.json records another format than this grizzle's",
-		fix: "convert the installation's committed snapshot with the converter its release ships beside grizzle"
+		fix: "draft the installation afresh with this grizzle, from an empty migrations directory into an empty database: no grizzle reads another format's records"
 	},
 	served: {
 		problem: "the served file records another format than this grizzle's",
@@ -56,4 +57,4 @@ export const formatRefusal: {
 
 /** What a refused file records of its format, against the format this grizzle reads and writes, in words. */
 export const recordedFormatText = (recorded: RecordedFormat, expected: number): string =>
-	`${recorded.kind === "none" ? "it records none, as every grizzle before formats wrote" : `it records format ${recorded.text}`}, where this grizzle reads and writes format ${expected}`
+	`${recorded.kind === "none" ? "it records none" : `it records format ${recorded.text}`}, where this grizzle reads and writes format ${expected}`

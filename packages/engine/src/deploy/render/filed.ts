@@ -13,8 +13,7 @@ import { type Lexeme, lexemesOf } from "#compiler/sql/lexer.ts"
  *
  * - A string constant whose value holds one is E'<value>', escaped as PostgreSQL's escape strings read it, its quotes
  *   doubled, on one line. PostgreSQL parses it into the same constant as the raw spelling, and deparses that constant
- *   raw whatever its spelling (ruleutils.c simple_quote_literal), so an installation drafted before this spelling is the
- *   one drafted now: no constant it holds differs, and no migration rewrites one.
+ *   raw whatever its spelling (ruleutils.c simple_quote_literal), so either spelling installs one constant.
  * - A dollar-quoted body whose value holds one other than a line feed, which is its own layout, is the same value as an
  *   escape string continued line by line, one piece per line of the body, each but the last ending in \n: a string
  *   constant continued across a newline is one constant (scan.l quotecontinue), each piece read as the first is. Its

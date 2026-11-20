@@ -18,19 +18,21 @@ import { succeeded } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import {
 	column,
+	type DocTree,
+	docTree,
 	keyedFields,
 	keyedRows,
 	keyedTreeOf,
-	type OldDocument,
-	oldInsert,
+	nodeTable,
 	q,
+	type StoredDocument,
+	storedInsert,
 	type TreeCase,
 	treeDataStep,
 	treePlaceholder,
 	withDataStep
 } from "#test/support/migrate/keyed-tree.ts"
 import { asDrafted, compile, draftedAt, fromSnapshot, generate } from "#test/support/migrate/kit.ts"
-import { oldFormTree } from "#test/support/migrate/old-form-tree.ts"
 import { review } from "#test/support/migrate/review.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -64,7 +66,7 @@ export const smallest = 200
 
 /** A document of `shape` with `size` nodes, each node's kind its start's residue modulo four (treeOfParents numbers a
  * node's parent before it, the root 0). */
-const documentOf = (shape: Shape, size: number): OldDocument => {
+const documentOf = (shape: Shape, size: number): StoredDocument => {
 	const below = indices(size - 1)
 	return {
 		parents: shape === "a chain" ? below : Arr.map(below, () => 0),
@@ -107,35 +109,32 @@ const rowColumn = "ctid"
 /** Rows of texts in one order, each compared whole. */
 const byRow = Order.mapInput(Order.String, (row: ReadonlyArray<string>) => Arr.join(row, "\u0000"))
 
-/** The keyed tree drafted from the old-form tree, its old id and document dropped. */
-const keyedDraft = () =>
+/** The keyed tree drafted from the stored tree (keyed-tree.ts docTree), its document dropped. */
+const keyedDraft = (tree: DocTree) =>
 	succeeded(
 		generate({
-			previous: fromSnapshot(oldFormTree().snapshot),
+			previous: fromSnapshot(tree.snapshot),
 			installation: compile(keyedTreeOf(), asDrafted),
 			name: "keyed",
 			timestamp: draftedAt(1),
 			workload: noWorkload,
 			declared: {
 				renames: [],
-				drops: [
-					{ kind: "field", relation: parsedName("Node"), field: parsedName("id") },
-					{ kind: "field", relation: parsedName("Node"), field: parsedName("doc") }
-				]
+				drops: [{ kind: "field", relation: parsedName("Node"), field: parsedName("doc") }]
 			}
 		}),
 		"the keyed tree drafts"
 	)
 
 /**
- * One size's cost: the old-form tree installed, its forest of one document of `shape` stored, then the keyed tree's
+ * One size's cost: the stored tree installed, its forest of one document of `shape` stored, then the keyed tree's
  * reviewed folder run in one transaction up to its backfill, each backfill UPDATE explained, and rolled back.
  */
 export const costAt = (shape: Shape, size: number) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
-			const tree = oldFormTree()
+			const tree = docTree()
 			yield* Effect.addFinalizer(() =>
 				Effect.orDie(
 					substrate.admin.query(`DROP SCHEMA IF EXISTS ${q(tree.snapshot.schema)} CASCADE`, [])
@@ -144,8 +143,8 @@ export const costAt = (shape: Shape, size: number) =>
 			const m = yield* openMigrator(substrate, substrate.owner)
 			yield* apply(m, { snapshot: tree.snapshot, folders: [tree.folder] }, noFurther)
 			const c: TreeCase = { documents: [documentOf(shape, size)], roots: [0] }
-			yield* transaction(substrate.admin, [oldInsert(tree, c)])
-			const g = keyedDraft()
+			yield* transaction(substrate.admin, [storedInsert(tree, c)])
+			const g = keyedDraft(tree)
 			const backfill = backfillTexts(g)
 			const reviewed = review(withDataStep(g, treeDataStep(tree, c)), {
 				losses: "written",
@@ -162,12 +161,21 @@ export const costAt = (shape: Shape, size: number) =>
 				Arr.findFirstIndex(statements, (s) => dataStep.has(normalized(s))),
 				() => new Error("the reviewed folder holds the data step")
 			)
-			const table = `${q(tree.snapshot.schema)}.${q(tree.columns.table)}`
+			const table = nodeTable(tree.snapshot)
 			const pinned = yield* substrate.admin.pin
-			/** Each row's tid by its old id, as the transaction sees it. */
+			/** Each row's tid by its stored key, its start in its document, as the transaction sees it. */
 			const tids = Effect.map(
-				pinned.queryValues(`SELECT ${column("id")}::text, ${rowColumn}::text FROM ${table}`, []),
-				(rows) => new Map(Arr.map(rows, ([id, tid]) => [String(id), String(tid)] as const))
+				pinned.queryValues(
+					`SELECT ${column("doc")}::text, ${column("start")}::text, ${rowColumn}::text FROM ${table}`,
+					[]
+				),
+				(rows) =>
+					new Map(
+						Arr.map(rows, ([doc, start, tid]): readonly [string, string] => [
+							`${String(doc)}:${String(start)}`,
+							String(tid)
+						])
+					)
 			)
 			yield* pinned.query("BEGIN", [])
 			const run = Effect.gen(function* () {

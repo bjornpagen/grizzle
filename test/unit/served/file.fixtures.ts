@@ -330,7 +330,7 @@ const readsBackWhole = (dir: ScratchDir, file: ServedFile, pick: number, printed
 		assert.deepEqual(
 			formatRefusalOf(without(json, ["format"]), "the file without its format", printed),
 			{ at: ["format"], recorded: { kind: "none" }, expected: artifactFormat },
-			`the file without its format, as a grizzle before formats wrote it, is refused at its format, recording none\n${printed()}`
+			`the file without its format is refused at its format, recording none\n${printed()}`
 		)
 		assert.deepEqual(
 			formatRefusalOf(
