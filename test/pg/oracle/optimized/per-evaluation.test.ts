@@ -37,29 +37,39 @@ export const perEvaluation = differentialProperty(
 		budget: { runs: 1250, steered: 1250 },
 		kept: [
 			{
-				token: ReplayToken("test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:1"),
+				token: ReplayToken(
+					"test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:1.0.0.0.0.0.0.0.0.1.0"
+				),
 				reason:
 					"an occurrence binding a variable another binds too, whose source the other's constant reads",
 				since: "2026-11-04"
 			},
 			{
-				token: ReplayToken("test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:2"),
+				token: ReplayToken(
+					"test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:2.0.0.0.0.0.0.0.0.1.0"
+				),
 				reason: "an occurrence binding nothing, whose source another occurrence's constant reads",
 				since: "2026-11-04"
 			},
 			{
-				token: ReplayToken("test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:3"),
+				token: ReplayToken(
+					"test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:3.0.0.0.0.0.0.0.0.1.0"
+				),
 				reason: "a semi-join of a group with itself on two of its grouping columns",
 				since: "2026-11-04"
 			},
 			{
-				token: ReplayToken("test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:4"),
+				token: ReplayToken(
+					"test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:4.0.0.0.0.0.0.0.0.1.0"
+				),
 				reason:
 					"page/generated-optimized, TEST_SEED=28094260: a nested key set over children keyed within one parent only",
 				since: "2026-11-11"
 			},
 			{
-				token: ReplayToken("test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:5"),
+				token: ReplayToken(
+					"test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:5.0.0.0.0.0.0.0.0.1.0"
+				),
 				reason:
 					"TEST_SEED=1951254937, case 107, shrunk by hand: a fold attached on two pairs that name one key of it",
 				since: "2026-11-14"

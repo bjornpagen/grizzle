@@ -19,7 +19,7 @@ export const thePageRuntimeCutsGeneratedOrderedQueriesIntoWindowsThroughTheConse
 	generatedProperty("conservative", [
 		{
 			token: ReplayToken(
-				"test/pg/page/generated-conservative.test.ts#thePageRuntimeCutsGeneratedOrderedQueriesIntoWindowsThroughTheConservativeArtifact:-:1"
+				"test/pg/page/generated-conservative.test.ts#thePageRuntimeCutsGeneratedOrderedQueriesIntoWindowsThroughTheConservativeArtifact:-:1.0.0.0.0.0.0.0.0.1.0"
 			),
 			reason:
 				"page/generated-optimized, TEST_SEED=28094260: a nested key set over children keyed within one parent only, read without DISTINCT (generated.ts recordedPageCases)",

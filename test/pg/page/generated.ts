@@ -1311,7 +1311,7 @@ type PageArtifactName = "optimized" | "conservative"
  * page delivers both parents whose children, a take of one row each, share the key a = 0 of the attachment nested below
  * them. The optimized artifact read that attachment's key set without DISTINCT, as if a key within one parent held
  * across parents, and its statement delivered each child of 0 twice, rows the reader refused. Each artifact's property
- * keeps it by its token, `:-:1`.
+ * keeps it by its token, `:-:1` and the unperturbed, once-rotated conditions its case draws after it.
  */
 const recordedPageCases: Arr.NonEmptyReadonlyArray<OrderedCase> = [
 	{
