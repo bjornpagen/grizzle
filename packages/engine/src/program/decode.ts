@@ -44,7 +44,7 @@ import type { Heading } from "#compiler/ir/rel.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import { domainRefusal } from "#compiler/program/evaluate.ts"
 import { familyInsertsOf } from "#compiler/program/preview.ts"
-import { builtLawModel, parseBuiltSchema } from "#compiler/program/schema.ts"
+import { compiledSchema, parseBuiltSchema } from "#compiler/program/schema.ts"
 import { additionSplitter, type NestingLevels } from "#compiler/runtime/write/addition.ts"
 import { type DecodedInput, recordDecoded } from "#compiler/runtime/write/decoded.ts"
 import { levelNormalizer, nestedReader } from "#compiler/runtime/write/nesting.ts"
@@ -177,10 +177,10 @@ export const factsDecoderOver = <S extends AnySchema>(
 	answer: PublicResult
 ): Result.Result<FactsDecoder<S>, CompileError> =>
 	Result.map(
-		Result.flatMap(parseBuiltSchema(schema, captureLoc("factsDecoder", [])), builtLawModel),
-		(model) => {
-			const judge = judgeOf(closedTableOf(model.checked), new CompilePatterns())
-			const inserts = familyInsertsOf(schema, model)
+		Result.flatMap(parseBuiltSchema(schema, captureLoc("factsDecoder", [])), compiledSchema),
+		(state) => {
+			const judge = judgeOf(closedTableOf(state.model.checked), new CompilePatterns())
+			const inserts = familyInsertsOf(schema, state)
 			/** The decoder of `relation`'s rows (RowsDecoder), from its member's input in its families' insert, or the
 			 * CompileError that insert refuses by. */
 			const decoderOf = (relation: string): Result.Result<RowsDecoder, CompileError> =>

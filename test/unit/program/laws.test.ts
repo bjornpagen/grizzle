@@ -50,8 +50,10 @@
  * lawsOf(schema) gives each law an id of its own, and every law the installation's map reports, under every id it
  * reports it by, is one of them with that id: a refusal's RefusedLaw.id finds its law there.
  *
- * Every reader of one schema value reads one law model, compiled once (program/schema.ts builtLawModel): lawsOf, constraintNamesOf, rowEvaluator and insertPreview of the same value compile its laws once between them, the
- * count work, never time (kernel/calls.ts callCounts).
+ * Every reader of one schema value reads one compiled state of it (program/schema.ts compiledSchema): lawsOf,
+ * constraintNamesOf, lawsByStatement, rowEvaluator and two insertPreviews of the same value compile its laws once between
+ * them, derive its laws once and compile its family inserts once, the count work, never time (kernel/calls.ts
+ * callCounts).
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -146,11 +148,13 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 						lawsByStatement(subject)
 						rowEvaluator(subject)
 						previewOver(subject, inForce(bindFrame))
+						previewOver(subject, inForce(bindFrame))
 						return listed
 					}),
 					{
 						models: { file: "packages/engine/src/laws/model/model.ts", name: "dischargedLaws" },
-						laws: { file: "packages/engine/src/program/laws.ts", name: "derivedLaws" }
+						laws: { file: "packages/engine/src/program/laws.ts", name: "derivedLaws" },
+						inserts: { file: "packages/engine/src/program/preview.ts", name: "familyInsertsMade" }
 					}
 				)
 				assert.equal(
@@ -162,6 +166,11 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 					compiles.laws,
 					1,
 					"lawsOf, constraintNamesOf and lawsByStatement of one schema value derive its laws once"
+				)
+				assert.equal(
+					compiles.inserts,
+					1,
+					"two insertPreviews of one schema value compile its family inserts once"
 				)
 				const laws = Arr.map(ids, (l) => l.law)
 				const installation = installationOf(subject, { kind: "declared" })
@@ -514,22 +523,34 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 		kills: [
 			{
 				file: "packages/engine/src/program/laws.ts",
-				original: '\tschemaLaws(lawModelOf(schema, "lawsOf")).laws',
+				original: '\tschemaLaws(schema, "lawsOf").laws',
 				replacement:
-					'\tschemaLaws(lawModelOf(schema, "lawsOf")).laws.flatMap((l, i) => (i === 0 ? [l, l] : [l]))',
+					'\tschemaLaws(schema, "lawsOf").laws.flatMap((l, i) => (i === 0 ? [l, l] : [l]))',
 				why: "lawsOf lists its first law twice."
 			},
 			{
 				file: "packages/engine/src/program/laws.ts",
-				original: '\tschemaLaws(lawModelOf(schema, "lawsOf")).laws',
-				replacement: '\tschemaLaws(lawModelOf(schema, "lawsOf")).laws.slice(1)',
+				original: '\tschemaLaws(schema, "lawsOf").laws',
+				replacement: '\tschemaLaws(schema, "lawsOf").laws.slice(1)',
 				why: "lawsOf drops its first law."
 			},
 			{
 				file: "packages/engine/src/program/laws.ts",
-				original: "\tconst known = derived.get(model)",
-				replacement: "\tconst known: SchemaLaws | undefined = undefined",
+				original: "\treturn compiled.laws.read(() => derivedLaws(compiled.model))",
+				replacement: "\treturn derivedLaws(compiled.model)",
 				why: "Each of lawsOf, constraintNamesOf and lawsByStatement derives a schema's laws from its model again."
+			},
+			{
+				file: "packages/engine/src/program/preview.ts",
+				original: "\tcompiled.inserts.read(() => familyInsertsMade(schema, compiled.model))",
+				replacement: "\tfamilyInsertsMade(schema, compiled.model)",
+				why: "Each insertPreview of a schema value compiles its family inserts again, every set of families' insert with them."
+			},
+			{
+				file: "packages/engine/src/core/lazy.ts",
+				original: "\t\tthis.#held ??= { value: compute() }",
+				replacement: "\t\tthis.#held = { value: compute() }",
+				why: "A lazy value is computed at every read, so a schema value's laws and family inserts are made again by each reader."
 			},
 			{
 				file: "packages/engine/src/schema/statements.ts",
@@ -541,8 +562,9 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 			},
 			{
 				file: "packages/engine/src/program/schema.ts",
-				original: "\tconst known = builtModels.get(built.value)",
-				replacement: "\tconst known: Result.Result<LawModel, CompileError> | undefined = undefined",
+				original: "\tconst known = built.get(schema.value)",
+				replacement:
+					"\tconst known: Result.Result<CompiledSchema, CompileError> | undefined = undefined",
 				why: "Each reader of a schema value compiles its law model again, so lawsOf, constraintNamesOf, rowEvaluator and insertPreview of one schema compile its laws four times."
 			}
 		]

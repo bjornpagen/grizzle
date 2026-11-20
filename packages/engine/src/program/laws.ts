@@ -6,7 +6,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { fieldPatternLaws, patternLawId, planTextDomains } from "#compiler/physical/ddl/domains.ts"
-import { builtLawModel, parseBuiltSchema } from "#compiler/program/schema.ts"
+import { builtLawModel, compiledSchema, parseBuiltSchema } from "#compiler/program/schema.ts"
 import { malformed, orThrow } from "#compiler/schema/protocol.ts"
 import { statementTextsOf } from "#compiler/schema/statements.ts"
 import type { IdentifiedLaw, OwnLaw } from "#compiler/types/changeset/changeset.ts"
@@ -30,7 +30,7 @@ interface CheckName {
  * that order, none for a statement that states no law, and each check law with the name of every constraint or trigger
  * that discharges it. The one derivation lawsOf, lawsByStatement and constraintNamesOf read.
  */
-interface SchemaLaws {
+export interface SchemaLaws {
 	readonly laws: ReadonlyArray<IdentifiedLaw<OwnLaw>>
 	readonly byStatement: ReadonlyMap<string, ReadonlyArray<PlacedLaw>>
 	readonly checks: ReadonlyArray<CheckName>
@@ -48,23 +48,16 @@ export const lawModel = (
 ): Result.Result<LawModel, CompileError> =>
 	Result.flatMap(parseBuiltSchema(schema, captureLoc(operation, [])), builtLawModel)
 
-/** The law model of a schema (lawModel), its CompileError thrown, as lawsOf and its siblings document. */
-const lawModelOf = (schema: AnySchema, operation: string): LawModel =>
-	orThrow(lawModel(schema, operation))
-
-/** Each law model's laws (`schemaLaws`), derived once per model, as a built schema's model is made once
- * (program/schema.ts builtLawModel). */
-const derived = new WeakMap<LawModel, SchemaLaws>()
-
-/** A law model's laws (`derivedLaws`), derived where the model's laws are first read and held for it (`derived`). */
-const schemaLaws = (model: LawModel): SchemaLaws => {
-	const known = derived.get(model)
-	if (known !== undefined) {
-		return known
-	}
-	const made = derivedLaws(model)
-	derived.set(model, made)
-	return made
+/**
+ * A schema's laws (`derivedLaws`), derived where its compiled state's laws are first read and held there
+ * (program/schema.ts CompiledSchema `laws`), its CompileError thrown, refused at `operation`, as lawsOf and its
+ * siblings document.
+ */
+const schemaLaws = (schema: AnySchema, operation: string): SchemaLaws => {
+	const compiled = orThrow(
+		Result.flatMap(parseBuiltSchema(schema, captureLoc(operation, [])), compiledSchema)
+	)
+	return compiled.laws.read(() => derivedLaws(compiled.model))
 }
 
 /**
@@ -142,7 +135,7 @@ const derivedLaws = (model: LawModel): SchemaLaws => {
  * schema's laws are compiled once, where any of lawsOf, lawsByStatement and constraintNamesOf first reads them.
  */
 export const lawsOf = (schema: AnySchema): ReadonlyArray<IdentifiedLaw<OwnLaw>> =>
-	schemaLaws(lawModelOf(schema, "lawsOf")).laws
+	schemaLaws(schema, "lawsOf").laws
 
 /** What a statement given to lawsByStatement's lookup must be. */
 const aStatedStatement =
@@ -185,7 +178,7 @@ const placedOf = (
 export const lawsByStatement = <S extends AnySchema>(
 	schema: S
 ): ((statement: StatementsOf<S>[number]) => ReadonlyArray<OwnLaw>) => {
-	const { byStatement } = schemaLaws(lawModelOf(schema, "lawsByStatement"))
+	const { byStatement } = schemaLaws(schema, "lawsByStatement")
 	return (statement) =>
 		Object.freeze([
 			...new Map(
@@ -213,7 +206,7 @@ export const lawsByStatement = <S extends AnySchema>(
 export const constraintNamesOf = (
 	schema: AnySchema
 ): ((law: Extract<OwnLaw, { readonly kind: "check" }>) => string) => {
-	const { checks } = schemaLaws(lawModelOf(schema, "constraintNamesOf"))
+	const { checks } = schemaLaws(schema, "constraintNamesOf")
 	return (law) => {
 		const [name, ...others] = new Set(
 			checks.flatMap((c) => (sameContent(c.law, law) ? [c.name] : []))

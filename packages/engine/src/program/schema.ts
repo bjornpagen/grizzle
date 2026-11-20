@@ -11,6 +11,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription, type RoleAccess } from "#compiler/core/errors.ts"
 import { type DeclaredName, type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
+import { Lazy } from "#compiler/core/lazy.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
@@ -44,6 +45,8 @@ import {
 	type PlanBasis,
 	planInstallation
 } from "#compiler/physical/install/plan.ts"
+import type { SchemaLaws } from "#compiler/program/laws.ts"
+import type { FamilyInserts } from "#compiler/program/preview.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { unheldOf } from "#compiler/schema/level.ts"
@@ -364,23 +367,44 @@ const plannedModel = (owned: Owned): Result.Result<LawModel, CompileError> =>
 	compileLaws(owned, everySlice(owned), { kind: "planned" })
 
 /**
- * Every built schema's law model (plannedModel), by its schema value: compiled where the value is first read and kept
- * with it, a built schema being immutable, so every reader of one schema value in a process, insertPreview,
- * rowEvaluator, lawsOf and its siblings and the schema's artifacts, reads one model. A WeakMap holds nothing alive and is
- * never enumerated: it is the schema value's state.
+ * What the program layer holds of a built schema value whose law model compiles: the model (plannedModel), and the
+ * family inserts every preview and facts decoder of the value reads (program/preview.ts FamilyInserts) and its laws as
+ * lawsOf and its siblings read them (program/laws.ts SchemaLaws), each computed where it is first read (core/lazy.ts).
  */
-const builtModels = new WeakMap<object, Result.Result<LawModel, CompileError>>()
+export interface CompiledSchema {
+	readonly model: LawModel
+	readonly inserts: Lazy<FamilyInserts>
+	readonly laws: Lazy<SchemaLaws>
+}
 
-/** The law model of a built schema (builtModels): its owned schema's (ownBuilt) over every slice, planned. */
-export const builtLawModel = (built: BuiltSchema): Result.Result<LawModel, CompileError> => {
-	const known = builtModels.get(built.value)
+/**
+ * The one place program state attaches to a schema value: each built schema value's CompiledSchema, or its CompileError,
+ * by the value, made where the value is first read, a built schema being immutable, so every reader of one schema value
+ * in a process (insertPreview, factsDecoder, rowEvaluator, lawsOf and its siblings, the schema's artifacts) reads one
+ * model, one set of family inserts and one set of laws. A schema value is made in schema/, which names no law model,
+ * so the program layer holds its state by the value, as schema/protocol.ts `owned` holds every built value's entry: a
+ * WeakMap holds nothing alive and is never enumerated.
+ */
+const built = new WeakMap<object, Result.Result<CompiledSchema, CompileError>>()
+
+/** The compiled state of a built schema (`built`): its owned schema's (ownBuilt) law model over every slice, planned. */
+export const compiledSchema = (
+	schema: BuiltSchema
+): Result.Result<CompiledSchema, CompileError> => {
+	const known = built.get(schema.value)
 	if (known !== undefined) {
 		return known
 	}
-	const made = Result.flatMap(ownBuilt(built), plannedModel)
-	builtModels.set(built.value, made)
+	const made = Result.map(Result.flatMap(ownBuilt(schema), plannedModel), (model): CompiledSchema =>
+		Object.freeze({ model, inserts: new Lazy<FamilyInserts>(), laws: new Lazy<SchemaLaws>() })
+	)
+	built.set(schema.value, made)
 	return made
 }
+
+/** The law model of a built schema, the one its compiled state holds (compiledSchema). */
+export const builtLawModel = (schema: BuiltSchema): Result.Result<LawModel, CompileError> =>
+	Result.map(compiledSchema(schema), (c) => c.model)
 
 /**
  * The artifacts of a schema under the target identifiers: those of the Owned the schema owns to, over its law model, a

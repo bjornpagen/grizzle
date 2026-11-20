@@ -8,6 +8,7 @@ import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
+import { once } from "#compiler/core/lazy.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 /**
  * insertPreview(schema): the host half of an insertion, `ChangeSet.empty(S).insertAll(rows)`, as the first write of an
@@ -41,7 +42,7 @@ import { noClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { type FieldWriting, columnKeyOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { builtLawModel, parseBuiltSchema } from "#compiler/program/schema.ts"
+import { type CompiledSchema, compiledSchema, parseBuiltSchema } from "#compiler/program/schema.ts"
 import { bindRows, type HostBinding, type InsertedRow } from "#compiler/runtime/write/bind.ts"
 import type { CountedFamily } from "#compiler/runtime/write/binding.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
@@ -259,15 +260,6 @@ export const previewWriteOf = (frontend: WriteFrontend, host: HostBinding): Prev
 	)
 })
 
-/** A value computed where it is first read, then read from its memo. */
-const once = <A>(compute: () => A): (() => A) => {
-	let computed: { readonly value: A } | undefined
-	return () => {
-		computed ??= { value: compute() }
-		return computed.value
-	}
-}
-
 /**
  * The value an inserted row holds at a stored field PostgreSQL does not generate, as the write stores it: a
  * retirement field's is false, every insert writing its header open, which only its group's retirement sets true; every
@@ -426,18 +418,17 @@ export interface FamilyInserts {
 }
 
 /**
- * Each built schema's family inserts (FamilyInserts), by the law model its value holds (program/schema.ts
- * builtLawModel), one model to a schema value: what every reader of one schema value in a process compiles of its
- * families' inserts, once. A WeakMap holds nothing alive and is never enumerated: it is the schema value's state.
+ * The family inserts of `schema`, whose compiled state is `compiled`: made where a reader of the schema value first
+ * writes its families and held in its compiled state (program/schema.ts CompiledSchema `inserts`), so every reader of
+ * one schema value in a process, a preview's call (`previewOver`) and a facts decoder's (program/decode.ts) alike,
+ * compiles its families' inserts once.
  */
-const familyInserts = new WeakMap<LawModel, FamilyInserts>()
+export const familyInsertsOf = (schema: AnySchema, compiled: CompiledSchema): FamilyInserts =>
+	compiled.inserts.read(() => familyInsertsMade(schema, compiled.model))
 
-/** The family inserts of `schema`, whose law model is `model` (`familyInserts`). */
-export const familyInsertsOf = (schema: AnySchema, model: LawModel): FamilyInserts => {
-	const known = familyInserts.get(model)
-	if (known !== undefined) {
-		return known
-	}
+/** The family inserts of `schema`, whose law model is `model`: each set of families' insert compiled where a call first
+ * writes it, and held for every later call. */
+const familyInsertsMade = (schema: AnySchema, model: LawModel): FamilyInserts => {
 	const insertable: ReadonlyArray<string> = insertableNamesOf(schema)
 	const compile: PreviewCompile = {
 		schema,
@@ -467,7 +458,6 @@ export const familyInsertsOf = (schema: AnySchema, model: LawModel): FamilyInser
 			return write
 		}
 	}
-	familyInserts.set(model, made)
 	return made
 }
 
@@ -484,8 +474,9 @@ export const previewOver = (
 	transport: Transport
 ): Result.Result<(rows: unknown) => PreviewAnswer, CompileError> =>
 	Result.map(
-		Result.flatMap(parseBuiltSchema(schema, captureLoc("insertPreview", [])), builtLawModel),
-		(model) => previewThrough(schema, model, transport, familyInsertsOf(schema, model).writeOf)
+		Result.flatMap(parseBuiltSchema(schema, captureLoc("insertPreview", [])), compiledSchema),
+		(compiled) =>
+			previewThrough(schema, compiled.model, transport, familyInsertsOf(schema, compiled).writeOf)
 	)
 
 /**

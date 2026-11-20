@@ -40,6 +40,7 @@ import { rowNode } from "#compiler/check/generated.ts"
 import { checkDefinition } from "#compiler/check/index.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { once } from "#compiler/core/lazy.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { PublicResult } from "#compiler/core/public-result.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
@@ -441,15 +442,6 @@ const admissions = new WeakMap<object, Admission>()
 /** The one site of the fact "this value is an admitted row of R": admit made it, which its state records. */
 const isAdmittedRow = <R>(value: { readonly row: EvaluatedRow<R> }): value is AdmittedRow<R> =>
 	admissions.has(value)
-
-/** A value computed where it is first read, then read from its memo. */
-const once = <A>(compute: () => A): (() => A) => {
-	let computed: { readonly value: A } | undefined
-	return () => {
-		computed ??= { value: compute() }
-		return computed.value
-	}
-}
 
 /**
  * The items of a row admitted to `relation` (Items), in one pass over the row's reading: each generated field's value,
