@@ -29,6 +29,7 @@ import {
 } from "#compiler/core/canonical.ts"
 import { clockUnits } from "#compiler/core/clock.ts"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
+import { type IdentityDigest, identityDigest } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredLanguage,
 	declaredLanguages,
@@ -3775,6 +3776,13 @@ const identityOptions: EncodeOptions = { omit: omitSourceLocs }
 /** The canonical identity text: the canonical serialization without source locations. */
 export const descText = (desc: unknown): Result.Result<WellFormedText, CompileError> =>
 	encode(desc, identityOptions)
+
+/**
+ * The identity digest of `desc` (core/fingerprint.ts identityDigest): one exactly when descText is one, computed once
+ * for each part the Description shares, where descText is the size of the tree its sharing expands into.
+ */
+export const descIdentity = (desc: unknown): Result.Result<IdentityDigest, CompileError> =>
+	identityDigest(desc, identityOptions)
 
 /**
  * The canonical identity text of `desc`, a plain record each of whose members `written` holds has the identity text it

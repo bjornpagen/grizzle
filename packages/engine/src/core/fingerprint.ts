@@ -7,11 +7,15 @@ import {
 import { nominal } from "#compiler/core/brand.ts"
 import {
 	arrayText,
+	type CanonicalObject,
 	canonicalFormat,
+	canonicalOf,
+	catchRefusal,
 	type EncodeOptions,
 	encode,
 	encodeOver,
 	ownedText,
+	unwrap,
 	withoutSourceLocs
 } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
@@ -41,6 +45,75 @@ export const digest = (
 	}
 	return Result.map(encode(value, options), (text) => framedDigest(domain, text))
 }
+
+declare const identityDigestBrand: unique symbol
+
+/** A value's identity digest (`identityDigest`), 64 lowercase hex characters. */
+export type IdentityDigest = string & { readonly [identityDigestBrand]: true }
+
+const mintIdentityDigest = nominal<string, IdentityDigest>()
+
+/**
+ * A value's identity digest under `options`, built Merkle-style: SHA-256 of its canonical text (`encode`) in which each
+ * array and plain record it holds is written as that container's own identity digest, a tagged string no plain string
+ * writes as (canonical.ts escapes a plain string's leading "~"). Two values have one identity digest exactly when their
+ * canonical texts are one, SHA-256 colliding aside, and each container is digested once however many times the value
+ * holds it: a Description shares the queries it imports by reference, and its identity is linear in its distinct
+ * parts, where its canonical text is the size of the tree that sharing expands into.
+ */
+export const identityDigest = (
+	value: unknown,
+	options: EncodeOptions
+): Result.Result<IdentityDigest, CompileError> =>
+	catchRefusal(() => {
+		/** Each container's text as a member of another, its digest tagged, by the container. */
+		const tokens = new Map<object, WellFormedText>()
+		/** A member's text in its container's: a container's token, or a scalar's canonical text. */
+		const memberText = (member: unknown): WellFormedText => {
+			const read = canonicalOf(member)
+			if (typeof read !== "object" || (read.kind !== "array" && read.kind !== "record")) {
+				return unwrap(encode(member, options))
+			}
+			const container = read.kind === "array" ? read.items : read.record
+			const known = tokens.get(container)
+			if (known !== undefined) {
+				return known
+			}
+			const token = wellFormed(`"~${identityTag}:${sha256Hex(containerText(read))}"`)
+			tokens.set(container, token)
+			return token
+		}
+		/** A container's own text: its scalars as `encode` writes them, its containers as their tokens. */
+		const containerText = (
+			read: Extract<CanonicalObject, { readonly kind: "array" | "record" }>
+		): WellFormedText => {
+			if (read.kind === "array") {
+				return arrayText(read.items.map(memberText))
+			}
+			const written = new Map<string, WellFormedText>()
+			for (const key of Object.keys(read.record)) {
+				const member = read.record[key]
+				const at = canonicalOf(member)
+				if (
+					typeof at === "object" &&
+					(at.kind === "array" || at.kind === "record") &&
+					!options.omit(key, member, [])
+				) {
+					written.set(key, memberText(member))
+				}
+			}
+			return unwrap(encodeOver(read.record, options, written))
+		}
+		const read = canonicalOf(value)
+		return mintIdentityDigest(
+			typeof read === "object" && (read.kind === "array" || read.kind === "record")
+				? sha256Hex(containerText(read))
+				: sha256Hex(unwrap(encode(value, options)))
+		)
+	})
+
+/** The tag of a container's identity digest in its container's text (`identityDigest`). */
+const identityTag = "identity"
 
 /** The first line of every digest's frame, the canonical format's, and the newline that ends a domain's. */
 const formatLine = wellFormed(`${canonicalFormat}\n`)

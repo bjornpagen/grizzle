@@ -33,6 +33,7 @@ import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import {
 	type ChangeSetDesc,
+	descIdentity,
 	descText,
 	memberParamNames,
 	type QueryDesc,
@@ -992,6 +993,12 @@ const canonOf = (c: ModelChangeSet): Canon => ({
 	)
 })
 
+/** The identity digest of a Description, by which a stratum orders its described members. */
+const identityOf = (desc: unknown): string => {
+	const d = descIdentity(desc)
+	return d.ok ? d.value : assert.fail(`a Description's identity: ${d.error.message}`)
+}
+
 /** The canonical identity text of a Description. */
 const textOf = (desc: unknown): string => {
 	const t = descText(desc)
@@ -1056,7 +1063,7 @@ const kindRank = { array: 0, stream: 1, query: 2, equal: 3, computed: 4 } as con
 
 /**
  * The real value read back into the canonical form, and held to the invariants the form does not show: members sorted
- * by relation, operation, kind and query text, read-backs by name and bindings by name; each array or Stream member at
+ * by relation, operation, kind and query identity digest (ir/desc.ts descIdentity), read-backs by name and bindings by name; each array or Stream member at
  * the slot its place names, its input there and nothing else; every input's facts frozen; and every binding one the
  * members or read-backs use, with its value carried.
  */
@@ -1092,11 +1099,11 @@ const readBackValue = (
 			relation: m.relation,
 			op: m.op,
 			kind: kindRank[m.member.kind],
-			text:
+			identity:
 				m.member.kind === "query" || m.member.kind === "computed"
-					? textOf(m.member.query)
+					? identityOf(m.member.query)
 					: m.member.kind === "equal"
-						? textOf(m.member.fields)
+						? identityOf(m.member.fields)
 						: ""
 		}))
 		assert.deepEqual(
@@ -1107,10 +1114,10 @@ const readBackValue = (
 					Order.mapInput(Order.String, (k: (typeof sortKeys)[number]) => k.relation),
 					Order.mapInput(Order.String, (k: (typeof sortKeys)[number]) => k.op),
 					Order.mapInput(Order.Number, (k: (typeof sortKeys)[number]) => k.kind),
-					Order.mapInput(Order.String, (k: (typeof sortKeys)[number]) => k.text)
+					Order.mapInput(Order.String, (k: (typeof sortKeys)[number]) => k.identity)
 				])
 			),
-			"members by relation, operation, kind and text"
+			"members by relation, operation, kind and identity digest"
 		)
 		return Arr.map(
 			runsOf(

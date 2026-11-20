@@ -2,7 +2,8 @@
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Record as Rec, Stream } from "effect"
-import { type ChangeSetDesc, decodeDesc, descText } from "#compiler/ir/desc.ts"
+import type { IdentityDigest } from "#compiler/core/fingerprint.ts"
+import { type ChangeSetDesc, decodeDesc, descIdentity } from "#compiler/ir/desc.ts"
 import { queryOver as query, queryValueDesc, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import {
@@ -188,17 +189,17 @@ const decodedWhole = (desc: ChangeSetDesc): ChangeSetDesc => {
 	return decoded.value
 }
 
-const textOf = (desc: unknown): string => {
-	const text = descText(desc)
-	if (!text.ok) {
-		throw text.error
+const identityOf = (desc: unknown): IdentityDigest => {
+	const identity = descIdentity(desc)
+	if (!identity.ok) {
+		throw identity.error
 	}
-	return text.value
+	return identity.value
 }
 
 /**
  * The old path's checks: the assembled Description equals the whole decode's, its keys in the same order, frozen
- * throughout; and each query member's text is its query's, which the old path encoded again at every step.
+ * throughout; and each query member's identity digest is its query's, which the old path computed again at every step.
  */
 export const asTheOldPath = (value: ChangeSetValue): void => {
 	const desc = descOf(value)
@@ -212,7 +213,7 @@ export const asTheOldPath = (value: ChangeSetValue): void => {
 	)
 	for (const m of defined(changeSetState(value), "a ChangeSet's state").strata.flat()) {
 		if (m.kind === "query") {
-			assert.equal(m.text, textOf(m.query), "a query member's text is its query's")
+			assert.equal(m.identity, identityOf(m.query), "a query member's identity is its query's")
 		}
 	}
 }

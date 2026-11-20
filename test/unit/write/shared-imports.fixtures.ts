@@ -150,3 +150,15 @@ export const chainWriteOf = (depth: number): unknown =>
 			return r.match(top, { k, v: x }).find({ session, k, v: x })
 		})
 	)
+
+/** One insert of the top of a chain of `depth` levels, its rows those whose v is at least 2: a member no chain of
+ * `chainWriteOf` equals. */
+export const chainVariantWriteOf = (depth: number): unknown =>
+	ChangeSet.empty(Shared).insert(
+		outs[0][0],
+		query(Shared).rule((r) => {
+			const top = chainOf(depth).bind({ session })
+			const { k, v: x } = v(top, "top")
+			return r.match(top, { k, v: x }).where(r.ge(x, 2n)).find({ session, k, v: x })
+		})
+	)

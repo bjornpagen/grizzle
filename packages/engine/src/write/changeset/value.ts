@@ -13,6 +13,7 @@ import {
 	type Outside
 } from "#compiler/core/canonical.ts"
 import { attachment, merge, type RecordField, type RowDecoder } from "#compiler/core/decoder.ts"
+import type { IdentityDigest } from "#compiler/core/fingerprint.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { captureLoc, labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Order from "#compiler/core/order.ts"
@@ -22,7 +23,7 @@ import { type TextsId, TextsMap, textsId } from "#compiler/core/text.ts"
 import {
 	type ChangeSetDesc,
 	decodeDesc,
-	descText,
+	descIdentity,
 	type EqualedDesc,
 	equalParamNames,
 	type MemberDesc,
@@ -93,8 +94,8 @@ type MemberState =
 			readonly op: WriteOp
 			readonly relation: string
 			readonly query: QueryDesc
-			/** The canonical identity text of the query, which orders and deduplicates query members. */
-			readonly text: string
+			/** The identity digest of the query (ir/desc.ts descIdentity), which orders and deduplicates query members. */
+			readonly identity: IdentityDigest
 			readonly params: ReadonlySet<string>
 			readonly desc: MemberDesc
 	  }
@@ -104,8 +105,8 @@ type MemberState =
 			readonly relation: string
 			/** Each field it selects by, and the parameter or literal the field equals. */
 			readonly fields: Readonly<Record<string, EqualedDesc>>
-			/** The canonical identity text of its fields, which orders and deduplicates field-equality members. */
-			readonly text: string
+			/** The identity digest of its fields, which orders and deduplicates field-equality members. */
+			readonly identity: IdentityDigest
 			readonly params: ReadonlySet<string>
 			readonly desc: MemberDesc
 	  }
@@ -116,8 +117,8 @@ type MemberState =
 			/** The fields its stratum's host rows of its relation leave out, one rule finding each one's value
 			 * (ir/desc.ts ComputedSourceDesc). */
 			readonly query: QueryDesc
-			/** The canonical identity text of the query, which orders and deduplicates computed records. */
-			readonly text: string
+			/** The identity digest of the query, which orders and deduplicates computed records. */
+			readonly identity: IdentityDigest
 			readonly params: ReadonlySet<string>
 			readonly desc: MemberDesc
 	  }
@@ -333,10 +334,10 @@ const kindRank: Readonly<Record<MemberState["kind"], number>> = {
 }
 
 /** A member its statement reads the facts of, a query or a field-equality member, or an insert's computed fields, held
- * by its canonical text. */
+ * by its identity digest. */
 type Described = Extract<MemberState, { readonly kind: "query" | "equal" | "computed" }>
 
-/** Whether a member is described, so ordered and deduplicated by its text. */
+/** Whether a member is described, so ordered and deduplicated by its identity digest. */
 const isDescribed = (m: MemberState): m is Described =>
 	m.kind === "query" || m.kind === "equal" || m.kind === "computed"
 
@@ -349,13 +350,14 @@ const relationOrder = Order.mapInput(
 	(m: { readonly relation: string }) => m.relation
 )
 
-/** The order of a canonical stratum's members: by relation, operation and kind, then a described member by its text. */
+/** The order of a canonical stratum's members: by relation, operation and kind, then a described member by its identity
+ * digest, a total order over the digests. */
 const memberOrder: Order.Comparator<MemberState> = Order.combineAll([
 	relationOrder,
 	Order.mapInput(Order.compareStrings, (m: MemberState) => m.op),
 	Order.mapInput(Order.compareNumbers, (m: MemberState) => kindRank[m.kind]),
 	(a: MemberState, b: MemberState) =>
-		isDescribed(a) && isDescribed(b) ? Order.compareStrings(a.text, b.text) : 0
+		isDescribed(a) && isDescribed(b) ? Order.compareStrings(a.identity, b.identity) : 0
 ])
 
 /** The canonical form of one stratum's members (see `ChangeSetValue`).
@@ -363,7 +365,7 @@ const memberOrder: Order.Comparator<MemberState> = Order.combineAll([
  * A stable sort: Streams of one group keep their order. */
 const canonicalStratum = (members: ReadonlyArray<MemberState>): ReadonlyArray<MemberState> => {
 	const arrays = new Map<string, Extract<MemberState, { kind: "array" }>>()
-	/** Equal described members are one: the first of each operation, relation, kind and text. */
+	/** Equal described members are one: the first of each operation, relation, kind and identity digest. */
 	const described: Array<Described> = []
 	const texts = new TextsMap<true>()
 	const streams: Array<MemberState> = []
@@ -384,9 +386,9 @@ const canonicalStratum = (members: ReadonlyArray<MemberState>): ReadonlyArray<Me
 			case "query":
 			case "equal":
 			case "computed": {
-				const text = textsId([m.kind, group, m.text])
-				if (!texts.has(text)) {
-					texts.set(text, true)
+				const identity = textsId([m.kind, group, m.identity])
+				if (!texts.has(identity)) {
+					texts.set(identity, true)
 					described.push(m)
 				}
 			}
@@ -423,7 +425,7 @@ const withMember = (
 			stratum.with(low - 1, { ...before, facts: Object.freeze([...before.facts, ...m.facts]) })
 		)
 	}
-	if (sameGroup && isDescribed(before) && isDescribed(m) && before.text === m.text) {
+	if (sameGroup && isDescribed(before) && isDescribed(m) && before.identity === m.identity) {
 		return stratum
 	}
 	let earlier = 0
@@ -482,7 +484,7 @@ const queryMemberDesc = (
 	Object.freeze({ op, relation, member: Object.freeze({ kind: "query", query }), loc })
 
 /** A field-equality member of `op` on `relation`, its fields decoded parts and its location kept: its Description and
- * the canonical text of its fields, which order and deduplicate it. */
+ * the identity digest of its fields, which order and deduplicate it. */
 const equalState = (
 	op: WriteOp,
 	relation: string,
@@ -493,7 +495,7 @@ const equalState = (
 	op,
 	relation,
 	fields,
-	text: identityText(fields),
+	identity: identityOf(fields),
 	params: equalParamNames(fields),
 	desc: Object.freeze({ op, relation, member: Object.freeze({ kind: "equal", fields }), loc })
 })
@@ -634,7 +636,7 @@ const renameMember = (m: MemberState, rename: ReadonlyMap<string, string>): Memb
 	return {
 		...m,
 		query,
-		text: identityText(query),
+		identity: identityOf(query),
 		params: queryParamNames(query),
 		desc: queryMemberDesc(m.op, m.relation, query, m.desc.loc)
 	}
@@ -857,13 +859,13 @@ const frozenFact = (fact: unknown): unknown =>
 const heldFacts = (facts: ReadonlyArray<unknown>): ReadonlyArray<unknown> =>
 	isDecoded(facts) ? facts : Object.freeze(facts.map(frozenFact))
 
-/** The canonical identity text of a decoded part of a member's Description: a query, or a field-equality member's fields. */
-const identityText = (desc: QueryDesc | Readonly<Record<string, EqualedDesc>>): string => {
-	const text = descText(desc)
-	if (!text.ok) {
-		throw text.error
+/** The identity digest of a decoded part of a member's Description: a query, or a field-equality member's fields. */
+const identityOf = (desc: QueryDesc | Readonly<Record<string, EqualedDesc>>): IdentityDigest => {
+	const identity = descIdentity(desc)
+	if (!identity.ok) {
+		throw identity.error
 	}
-	return text.value
+	return identity.value
 }
 
 /** The member state of `facts` as a member of `op` into `name` in the last stratum: an array of facts, a Stream of
@@ -916,13 +918,13 @@ const memberState = (
 		}
 		requireLevel(built.schema.over, state.over, label)
 		const query = publicDesc(built, label)
-		const text = identityText(query)
+		const identity = identityOf(query)
 		return {
 			kind: "query",
 			op,
 			relation: name,
 			query,
-			text,
+			identity,
 			params: queryParamNames(query),
 			desc: queryMemberDesc(op, name, query, keptLoc(loc))
 		}
@@ -956,7 +958,7 @@ const addMember = <S, P, W extends string, Rd, Done extends Strata, Last extends
 	return make(state.over, scope.strata, scope.reads, scope.bound, decoder)
 }
 
-/** An insert's computed fields on `relation`, its query and its location kept: its state, its canonical text ordering
+/** An insert's computed fields on `relation`, its query and its location kept: its state, its identity digest ordering
  * and deduplicating it. */
 const computedState = (
 	relation: string,
@@ -967,7 +969,7 @@ const computedState = (
 	op: "insert",
 	relation,
 	query,
-	text: identityText(query),
+	identity: identityOf(query),
 	params: queryParamNames(query),
 	desc: Object.freeze({
 		op: "insert",
