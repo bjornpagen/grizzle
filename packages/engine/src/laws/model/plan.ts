@@ -87,7 +87,7 @@ import {
 	entryImages,
 	imageDatum,
 	indexMaxKeys,
-	isTextDesc
+	imagedOf
 } from "#compiler/schema/representability.ts"
 
 /** A refusal deep inside recognition is a core Refusal, which the model's boundary returns (`catchRefusal`). */
@@ -522,9 +522,10 @@ const imagesOf = (
 		"key",
 		columns.map((c) => ({
 			datum: plannedDatum(c),
-			text:
-				!(c.kind === "law" && (c.column.kind === "image" || c.column.kind === "indexPred")) &&
-				isTextDesc(plannedField(c).desc),
+			imaged:
+				c.kind === "law" && (c.column.kind === "image" || c.column.kind === "indexPred")
+					? undefined
+					: imagedOf(plannedField(c).desc),
 			nullable: mayBeNull(c)
 		}))
 	)

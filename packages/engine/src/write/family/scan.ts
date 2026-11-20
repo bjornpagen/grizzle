@@ -59,7 +59,7 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { ColumnMap, Env } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
-import { textDigestForm } from "#compiler/lower/conservative/expr/ops.ts"
+import { keyImageForm } from "#compiler/lower/conservative/expr/ops.ts"
 import type {
 	Cte,
 	Expr,
@@ -661,7 +661,7 @@ const columnOf = (
 		case "copy":
 			return built(col(at, layout.count))
 		case "image":
-			return built(textDigestForm(lowering.names.library, value(columnKey(rule.of))))
+			return built(keyImageForm(lowering.names.library, rule.image, value(columnKey(rule.of))))
 		case "ownerCopy":
 			return built(
 				ownValue(

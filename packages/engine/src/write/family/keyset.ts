@@ -24,7 +24,7 @@ import {
 import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import type { Family, TreeShape } from "#compiler/ir/family.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
-import { textDigestForm } from "#compiler/lower/conservative/expr/ops.ts"
+import { keyImageForm } from "#compiler/lower/conservative/expr/ops.ts"
 import type {
 	Cte,
 	Expr,
@@ -187,9 +187,9 @@ export const heldAmong = (
 				)
 			: amongHeld(
 					supply,
-					col(hop.alias, image),
+					col(hop.alias, image.column),
 					held.cte,
-					(h) => textDigestForm(w.names.library, readAt(value, h)),
+					(h) => keyImageForm(w.names.library, image.image, readAt(value, h)),
 					undefined
 				)
 	}

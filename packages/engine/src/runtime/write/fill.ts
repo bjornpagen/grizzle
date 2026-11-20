@@ -942,8 +942,11 @@ const ownerOf = (row: Row): Row => {
 }
 
 /**
- * Each image as the host writes it (FillRule `image`), by its kind: a text's digest, the SHA-256 of its UTF-8
- * (core/sha256.ts textDigest), the bytes the key's image column holds, as an admitted bytes value.
+ * Each image as the host writes it (FillRule `image`), by its kind, the bytes the key's image column holds, as an
+ * admitted bytes value: a text's digest, the SHA-256 of its UTF-8 (core/sha256.ts textDigest); and a numeric's, the
+ * digest of its one text, a Decimal's own (scalar/values/decimal.ts Decimal.text) and an integer numeric's bigint's
+ * decimal digits, each numeric_out of trim_scale of the value, as PostgreSQL computes it (lower/conservative/expr/ops.ts
+ * keyImageForm).
  */
 const imagesOf: { readonly [K in KeyImage]: (value: unknown) => AdmittedBytes } = {
 	textDigest: (value) => {
@@ -951,6 +954,15 @@ const imagesOf: { readonly [K in KeyImage]: (value: unknown) => AdmittedBytes } 
 			throw defect(`a text, the column a digest image is of; the walk holds ${typeof value}`)
 		}
 		return new AdmittedBytes(textDigest(wellFormed(value)))
+	},
+	numericDigest: (value) => {
+		if (value instanceof Decimal) {
+			return new AdmittedBytes(textDigest(wellFormed(value.text)))
+		}
+		if (typeof value !== "bigint") {
+			throw defect(`a numeric, the column a digest image is of; the walk holds ${typeof value}`)
+		}
+		return new AdmittedBytes(textDigest(wellFormed(value.toString())))
 	}
 }
 

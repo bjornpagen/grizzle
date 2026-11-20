@@ -54,7 +54,7 @@ import {
 	gistEntryBytes,
 	type DatumBound,
 	imageDatum,
-	isTextDesc,
+	imagedOf,
 	keyDatums,
 	lookupEntry
 } from "#compiler/schema/representability.ts"
@@ -1404,12 +1404,12 @@ const heldKeys = (
 		"lookup",
 		keys.map((k) => {
 			if (k.column.kind === "image") {
-				return { datum: imageDatum.md5, text: false, nullable: false }
+				return { datum: imageDatum.md5, imaged: undefined, nullable: false }
 			}
 			const f = field(readColumn(k.column))
 			return {
 				datum: f.desc.kind === "bytes" ? undefined : datumBound(f.desc),
-				text: k.column.kind === "bound" && isTextDesc(f.desc),
+				imaged: k.column.kind === "bound" ? imagedOf(f.desc) : undefined,
 				nullable: f.nullable
 			}
 		})
@@ -1502,7 +1502,7 @@ const createIndex = (
 							datum: d.datum,
 							nullable: field.nullable,
 							role: roleOf(k),
-							text: k.column.kind !== "image" && isTextDesc(field.desc)
+							imaged: k.column.kind === "image" ? undefined : imagedOf(field.desc)
 						}
 					})
 				)

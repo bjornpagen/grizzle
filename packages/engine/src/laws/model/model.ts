@@ -188,14 +188,20 @@ export type NamedNative =
 	| { readonly object: DomainNative; readonly namespace: "domain" }
 	| { readonly object: NativeOf<"RosterDomain" | "ReverseIndex">; readonly namespace: "unnamed" }
 
+/** An image column a key installs a field over: the law column, and the image it holds (core/identity.ts KeyImage). */
+export interface ImageColumn {
+	readonly column: ColumnIdent
+	readonly image: KeyImage
+}
+
 /**
  * The image law columns a key installs fields over in their place (plan.ts keyedAs), each one per field: every native
  * over a field's image names one column, its identity the field's and its image's.
  */
 export interface FieldImages {
-	/** The image column of a field of `relation`, by the field's name; none for a field no key, UNIQUE or reference
-	 * holds by its image. */
-	readonly columnOf: (relation: string, field: string) => ColumnIdent | undefined
+	/** The image column of a field of `relation`, by the field's name, with the image it holds; none for a field no key,
+	 * UNIQUE or reference holds by its image. */
+	readonly columnOf: (relation: string, field: string) => ImageColumn | undefined
 	/**
 	 * The field a native column of `relation` compares, by its arm: a field itself, or the field whose image a law column
 	 * is, two rows agreeing at the image exactly where they agree at the field; none for any other law column, a term's,
@@ -206,7 +212,7 @@ export interface FieldImages {
 
 /** The image law columns of fields among `natives` (`FieldImages`). */
 export const fieldImages = (natives: ReadonlyArray<NamedNative>): FieldImages => {
-	const columns = new Map<string, Map<string, ColumnIdent>>()
+	const columns = new Map<string, Map<string, ImageColumn>>()
 	const fields = new Map<string, Map<ColumnIdent, LawField>>()
 	for (const n of natives) {
 		if (n.namespace !== "column" || n.plan.kind !== "image" || n.plan.of.kind !== "field") {
@@ -216,7 +222,10 @@ export const fieldImages = (natives: ReadonlyArray<NamedNative>): FieldImages =>
 		const field = n.plan.of.field
 		columns.set(
 			relation,
-			(columns.get(relation) ?? new Map<string, ColumnIdent>()).set(field.name, n.object.column)
+			(columns.get(relation) ?? new Map<string, ImageColumn>()).set(field.name, {
+				column: n.object.column,
+				image: n.plan.image
+			})
 		)
 		fields.set(
 			relation,

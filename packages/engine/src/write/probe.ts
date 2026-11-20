@@ -21,7 +21,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { PrimaryKeyObject, UniqueObject } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env, LowerContext } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import { textDigestForm } from "#compiler/lower/conservative/expr/ops.ts"
+import { keyImageForm } from "#compiler/lower/conservative/expr/ops.ts"
 import type {
 	DrivenColumn,
 	Expr,
@@ -121,7 +121,7 @@ const delivered = (
 /**
  * A field of `relation` bound to `value`, compared at its type: through the extension's operator over a vector; and,
  * where a key installs the field over its image (WriteContext image, laws/model/plan.ts keyedAs), first that image's
- * column bound to the value's image, the digest the column holds (lower/conservative/expr/ops.ts textDigestForm): the
+ * column bound to the value's image, the digest the column holds (lower/conservative/expr/ops.ts keyImageForm): the
  * key's index holds the image in the field's place, so PostgreSQL reaches the row by it, and the field's own equality
  * decides beside it.
  */
@@ -139,7 +139,14 @@ export const bound = (
 	const image = w.image(relation, f.name)
 	return image === undefined
 		? [own]
-		: [{ column: image, value: textDigestForm(w.names.library, value), schema: undefined }, own]
+		: [
+				{
+					column: image.column,
+					value: keyImageForm(w.names.library, image.image, value),
+					schema: undefined
+				},
+				own
+			]
 }
 
 /**
@@ -158,7 +165,9 @@ export const imagesAt = (
 		return image === undefined ? [] : [{ image, f }]
 	})
 	return (inner) =>
-		images.map(({ image, f }) => eq(col(inner, image), textDigestForm(w.names.library, value(f))))
+		images.map(({ image, f }) =>
+			eq(col(inner, image.column), keyImageForm(w.names.library, image.image, value(f)))
+		)
 }
 
 /** `fields` of `relation` bound to their values (`bound`), with no further condition. */
@@ -601,9 +610,9 @@ export const keyedAmong = (
 				)
 			: amongHeld(
 					supply,
-					col(alias, image),
+					col(alias, image.column),
 					held,
-					(h) => textDigestForm(w.names.library, col(h, k.column)),
+					(h) => keyImageForm(w.names.library, image.image, col(h, k.column)),
 					undefined
 				)
 	})

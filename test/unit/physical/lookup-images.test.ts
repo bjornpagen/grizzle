@@ -22,7 +22,7 @@
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Order } from "effect"
+import { Array as Arr, Effect, Option, Order } from "effect"
 import { refused, succeeded } from "#test/support/assert.ts"
 import {
 	fieldName,
@@ -33,9 +33,13 @@ import {
 	lookupSchema,
 	lookupVerdict
 } from "#test/unit/physical/lookup-images.fixtures.ts"
+import { isTextSketch } from "#test/unit/schema/representability.fixtures.ts"
 
-/** The image each kind of entry holds a text by, restated from why: a key's must resist collisions, a lookup's must be leakproof. */
-const kindImage = { key: "textDigest", lookup: "md5" } as const
+/**
+ * The image each kind of entry holds a column by, restated from why: a key's must resist collisions, SHA-256 of a text's
+ * bytes or of a numeric's one text; a lookup's must be leakproof, md5 of a text, and no lookup holds a numeric by one.
+ */
+const kindImage = { key: { text: "textDigest", numeric: "numericDigest" }, lookup: "md5" } as const
 
 /** A lookup's index and a key hold their texts by the one rule of every B-tree entry, each by its own kind's image, and every image a lookup's index holds is one its relation's statements state. Its budget is the runner's: a new property, with no suite before it to carry a count from. */
 export const aLookupsEntryHoldsTheTextsItBindsByEqualityByItsMd5WhereItCouldOutgrowAnEntryItsOrderedTextsAsThemselvesAndAKeyByItsDigest =
@@ -110,14 +114,28 @@ export const aLookupsEntryHoldsTheTextsItBindsByEqualityByItsMd5WhereItCouldOutg
 					installation.indexes,
 					(x) => x.relation === "R" && x.index.kind === "created"
 				)
-				const keyImages: ReadonlyArray<string> = Arr.flatMap(installation.laws.natives, (n) =>
-					n.namespace === "column" && n.object.relation.name === "R" && n.plan.kind === "image"
-						? [n.plan.image]
-						: []
+				const keyImages: ReadonlyArray<readonly [string, string]> = Arr.flatMap(
+					installation.laws.natives,
+					(n) =>
+						n.namespace === "column" &&
+						n.object.relation.name === "R" &&
+						n.plan.kind === "image" &&
+						n.plan.of.kind === "field"
+							? [[n.plan.of.field.name, n.plan.image] as const]
+							: []
 				)
 				assert.ok(
-					Arr.every(keyImages, (image) => image === kindImage.key),
-					"a key holds each text by its kind's image, SHA-256's digest"
+					Arr.every(keyImages, ([field, image]) =>
+						Option.match(
+							Arr.findFirst(s.fields, (_, i) => fieldName(i) === field),
+							{
+								onNone: () => false,
+								onSome: (sketch) =>
+									image === (isTextSketch(sketch) ? kindImage.key.text : kindImage.key.numeric)
+							}
+						)
+					),
+					"a key holds each text and each numeric by its kind's image, SHA-256's digest of its bytes or its one text"
 				)
 				if (keyImages.length > 0) {
 					c.note("a key holding a text by its digest")
@@ -208,9 +226,9 @@ export const aLookupsEntryHoldsTheTextsItBindsByEqualityByItsMd5WhereItCouldOutg
 			{
 				file: "packages/engine/src/core/identity.ts",
 				original:
-					'export const entryImage = Object.freeze({ key: "textDigest", lookup: "md5" } as const satisfies {',
+					'\tkey: Object.freeze({ text: "textDigest", numeric: "numericDigest" } as const),\n\tlookup: Object.freeze({ text: "md5", numeric: undefined } as const)',
 				replacement:
-					'export const entryImage = Object.freeze({ key: "md5", lookup: "textDigest" } as const satisfies {',
+					'\tkey: Object.freeze({ text: "md5", numeric: "numericDigest" } as const),\n\tlookup: Object.freeze({ text: "textDigest", numeric: undefined } as const)',
 				why: "The two images swapped: a key holds its texts by md5, whose collisions are constructible, and a lookup by SHA-256, which no leakproof function reads from a text, so a role's query entry reads the lookup's every row."
 			},
 			{

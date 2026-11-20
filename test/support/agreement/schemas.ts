@@ -1515,13 +1515,13 @@ const fieldTypeOf = (
 	return draw()
 }
 /**
- * Whether a key may hold a field of this type: a value an index entry bounds, never a set, a vector, a span, a float or
- * numeric of no typmod, whose widest value no B-tree entry holds.
+ * Whether a key may hold a field of this type: a value an index entry bounds or holds by its image, a numeric of no
+ * typmod among them, never a set, a vector, a span or a float.
  */
 const keyable = (t: FieldType, contracts: ReadonlyArray<ContractSpec>): boolean => {
 	switch (t.kind) {
 		case "pg":
-			return !Arr.contains(["numeric", "real", "double precision", "money"] as const, t.spelling)
+			return !Arr.contains(["real", "double precision", "money"] as const, t.spelling)
 		case "uuid":
 		case "date":
 		case "natural":

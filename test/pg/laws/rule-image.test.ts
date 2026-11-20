@@ -56,8 +56,8 @@ export const aProbeOfATextOfNoByteBoundReadsItsRowsAsAPointLookup = property.exp
 		},
 		{
 			file: "packages/engine/src/schema/representability.ts",
-			original: "(!fits && imageable(c, image) ? image : undefined)",
-			replacement: "(!fits && c.datum === undefined ? image : undefined)",
+			original: "(fits ? undefined : imageIn(kind, c))",
+			replacement: "(fits || c.datum !== undefined ? undefined : imageIn(kind, c))",
 			why: "Only a text of no byte bound held by its image, as every index held before: the probe of a deleted attribute asks for an index over (package, item), its 2,700-byte item past its package, which no B-tree entry holds, refused as UnrepresentableKey where the template installs."
 		},
 		{

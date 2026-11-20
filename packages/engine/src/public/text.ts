@@ -4,7 +4,7 @@ import { baseOf } from "#compiler/ir/scalar.ts"
 import { formSource, type LexicalTarget, lexicalTargetOf } from "#compiler/scalar/lexical.ts"
 import { Pattern } from "#compiler/scalar/regex/pattern.ts"
 import { describeDeclared } from "#compiler/schema/relation.ts"
-import { textBytesBeside } from "#compiler/schema/representability.ts"
+import { keyLayout, textBytesBeside } from "#compiler/schema/representability.ts"
 import { type RegexText, regexField } from "#compiler/text/field.ts"
 import type { Field, FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
 
@@ -103,6 +103,25 @@ export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<stri
  * generated field among them. It throws CompileError (UnrepresentableKey) for fields of no byte bound, such as an
  * unbounded text, for more fields than an index holds beside a text, and for fields that leave a text no byte.
  */
+/**
+ * keyFits(fields): whether a key over `fields`, in that order, holds every value they admit, each field as itself or by
+ * its image (a text or a numeric wider than its image, in a key that could outgrow a B-tree entry,
+ * schema/representability.ts entryImages): its B-tree entry within PostgreSQL's limit (BTMaxItemSize), at most
+ * INDEX_MAX_KEYS columns, no bytes field and at most one span, a span key's GiST entry within a GiST page. It is the
+ * verdict a relation keyed by them meets (UnrepresentableKey where it is false), as a value, never thrown, so a caller
+ * weighs a key's fields before it declares one. A field of a relation is read as its declared type
+ * (schema/relation.ts describeDeclared), a drawn index or a generated field among them.
+ */
+export const keyFits = (fields: ReadonlyArray<FieldBase | GeneratedField<FieldBase>>): boolean => {
+	const loc = captureLoc("keyFits", [])
+	return keyLayout(
+		fields.map((field, i) => ({
+			field: `fields[${i}]`,
+			desc: describeDeclared(field, childLoc(loc, i)).desc
+		}))
+	).ok
+}
+
 export const keyTextBytes = (
 	fields: ReadonlyArray<FieldBase | GeneratedField<FieldBase>>
 ): number => {

@@ -662,9 +662,9 @@ export type LengthFeature =
 	| "mirrored"
 
 /**
- * A key field as drawn, over pg_type's sizes and alignments: a fixed-width type, numeric(p, s), text of a bounded
- * pattern (ASCII, or any code point), the wildcard, or a contract over the wildcard bounding char_length or
- * octet_length.
+ * A key field as drawn, over pg_type's sizes and alignments: a fixed-width type, numeric(p, s), numeric of no typmod,
+ * text of a bounded pattern (ASCII, or any code point), the wildcard, or a contract over the wildcard bounding
+ * char_length or octet_length.
  */
 type FixedType =
 	| "smallint"
@@ -680,6 +680,7 @@ type FixedType =
 export type KeyFieldSketch =
 	| { readonly kind: "fixed"; readonly type: FixedType }
 	| { readonly kind: "numeric"; readonly precision: number; readonly scale: number }
+	| { readonly kind: "bare numeric" }
 	| { readonly kind: "ascii text"; readonly length: number }
 	| { readonly kind: "any text"; readonly length: number }
 	| { readonly kind: "wildcard" }
@@ -709,18 +710,33 @@ const fixedDatum: Readonly<Record<FixedType, Datum>> = {
 /** A varlena datum with its 4-byte header, int-aligned. */
 const varlena = (bytes: number): Datum => ({ bytes: 4 + bytes, align: 4, fixed: false })
 
+/** numeric_maximum_size of `digits` significant digits: NUMERIC_HDRSZ (8) and a NumericDigit (2 bytes) per base-10000 digit. */
+const numericDatum = (digits: number): Datum => ({
+	bytes: 8 + 2 * Math.floor((digits + 6) / 4),
+	align: 4,
+	fixed: false
+})
+
+/**
+ * The digits of numeric of no typmod at its widest: 131,072 before the point and 16,383 after it, PostgreSQL's
+ * documented limits (datatype.sgml "up to 131072 digits before the decimal point; up to 16383 digits after").
+ */
+const bareNumericDigits = 131072 + 16383
+
 /**
  * The widest datum a key's index entry holds for a field: numeric(p, s) is at most numeric_maximum_size, NUMERIC_HDRSZ
- * (8) plus a NumericDigit (2 bytes) for each of (p + 2 * (DEC_DIGITS - 1)) / DEC_DIGITS base-10000 digits (numeric.c);
- * text is its bytes, four per code point unless pinned to ASCII; a text nothing bounds is held by its image, the
- * SHA-256 of its UTF-8, a bytea of 32 bytes.
+ * (8) plus a NumericDigit (2 bytes) for each of (p + 2 * (DEC_DIGITS - 1)) / DEC_DIGITS base-10000 digits (numeric.c),
+ * numeric of no typmod the same over every digit numeric holds; text is its bytes, four per code point unless pinned to
+ * ASCII; a text nothing bounds is held by its image, the SHA-256 of its UTF-8, a bytea of 32 bytes.
  */
 export const datumOf = (f: KeyFieldSketch): Datum | undefined => {
 	switch (f.kind) {
 		case "fixed":
 			return fixedDatum[f.type]
 		case "numeric":
-			return { bytes: 8 + 2 * Math.floor((f.precision + 6) / 4), align: 4, fixed: false }
+			return numericDatum(f.precision)
+		case "bare numeric":
+			return numericDatum(bareNumericDigits)
 		case "ascii text":
 			return varlena(f.length)
 		case "any text":
@@ -733,17 +749,24 @@ export const datumOf = (f: KeyFieldSketch): Datum | undefined => {
 	}
 }
 
-/** Whether a key field is a text, which a key that would outgrow its entry holds by its image where it is wider. */
+/** Whether a key field is a text, which a lookup holds by its image where it is wider. */
 export const isTextSketch = (f: KeyFieldSketch): boolean =>
-	f.kind !== "fixed" && f.kind !== "numeric"
+	f.kind !== "fixed" && f.kind !== "numeric" && f.kind !== "bare numeric"
+
+/**
+ * Whether a key field is one a key that would outgrow its entry holds by its image where it is wider: a text, by its
+ * bytes' digest, or a numeric, by its one text's.
+ */
+const imageableSketch = (f: KeyFieldSketch): boolean => f.kind !== "fixed"
 
 /** A text's image in an index entry: SHA-256's 32 bytes, a varlena, as md5's 32 hexadecimal digits are. */
 export const textImageDatum = varlena(32)
 
 /**
- * The datums a key's index entry holds for its fields, in key order, each with whether it is a text's image: every field
- * as itself (`datumOf`) where every one is bounded and their entry fits BTMaxItemSize, otherwise each text wider than
- * its image (the wildcard among them) by its image and every other field as itself.
+ * The datums a key's index entry holds for its fields, in key order, each with whether it is an image: every field as
+ * itself (`datumOf`) where every one is bounded and their entry fits BTMaxItemSize, otherwise each text and each
+ * numeric wider than its image (the wildcard and numeric of no typmod among them) by its image, a digest's 32 bytes,
+ * and every other field as itself.
  */
 export const keyedDatums = (
 	fields: ReadonlyArray<KeyFieldSketch>
@@ -753,7 +776,9 @@ export const keyedDatums = (
 	const fits = bounded.length === own.length && btreeTupleBytes(bounded) <= postgresBtreeMaxItem
 	return Arr.map(fields, (f, i) => {
 		const datum = own[i]
-		return !fits && isTextSketch(f) && (datum === undefined || datum.bytes > textImageDatum.bytes)
+		return !fits &&
+			imageableSketch(f) &&
+			(datum === undefined || datum.bytes > textImageDatum.bytes)
 			? { datum: textImageDatum, imaged: true }
 			: { datum: defined(datum, "a bounded field"), imaged: false }
 	})
@@ -815,6 +840,8 @@ export const keyFieldDescriptor = (f: KeyFieldSketch, i: number): FieldBase => {
 			return fixedDescriptor(f.type)
 		case "numeric":
 			return rawPg.numericOf(f.precision, f.scale)
+		case "bare numeric":
+			return rawPg.numeric
 		case "ascii text":
 			return regex(`^[a-z]{0,${f.length}}$`, "u")
 		case "any text":
@@ -866,6 +893,16 @@ export const keyFieldGen: Gen<KeyFieldSketch> = weighted([
 	[1, constant<KeyFieldSketch>({ kind: "wildcard" })],
 	[2, map(int(0, 700), (length): KeyFieldSketch => ({ kind: "bounded contract", length }))],
 	[2, map(int(0, 2800), (bytes): KeyFieldSketch => ({ kind: "octet contract", bytes }))]
+])
+
+/**
+ * A key field as a key's own entry draws it: any key field, or numeric of no typmod, whose widest value no B-tree entry
+ * holds, so a key holds it by its image wherever it stands. A lookup's request draws the rest alone (keyFieldGen): its
+ * entry holds no numeric by an image, so one beside it is refused for its bytes whatever else it holds.
+ */
+export const keyedFieldGen: Gen<KeyFieldSketch> = weighted([
+	[14, keyFieldGen],
+	[1, constant<KeyFieldSketch>({ kind: "bare numeric" })]
 ])
 
 export interface KeySizeSketch {

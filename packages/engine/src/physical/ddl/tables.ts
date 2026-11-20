@@ -30,7 +30,7 @@ import {
 import { fieldColumnType, lawColumnType } from "#compiler/ir/physical.ts"
 import { baseOf, spanOf } from "#compiler/ir/scalar.ts"
 import type { NamedPrimaryKey } from "#compiler/laws/model/model.ts"
-import { textDigestForm } from "#compiler/lower/conservative/expr/ops.ts"
+import { keyImageForm } from "#compiler/lower/conservative/expr/ops.ts"
 import { addColumnChecks, columnChecks } from "#compiler/physical/ddl/column-checks.ts"
 import { closedMembership, planSides } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
@@ -808,7 +808,7 @@ const lawColumnGeneration = (
 	label: string
 ): ColumnGeneration => {
 	const term = lowerWrittenRow(b, o.relation, value.term, label)
-	const expr = value.kind === "image" ? textDigestForm(b.names.library, term) : term
+	const expr = value.kind === "image" ? keyImageForm(b.names.library, value.image, term) : term
 	const guard = value.guard.map((g) => lowerWrittenRow(b, o.relation, g, label))
 	return isNonEmpty(guard)
 		? { kind: "partial", when: guard.length === 1 ? guard[0] : and(guard), expr }

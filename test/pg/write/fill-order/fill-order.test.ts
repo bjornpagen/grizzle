@@ -173,9 +173,9 @@ export const theFillOrderOnTheClusterAnAdmittedSchemaInstallsAndItsInstancesFirs
 				{
 					file: "packages/engine/src/write/family/scan.ts",
 					original:
-						"\t\t\treturn built(textDigestForm(lowering.names.library, value(columnKey(rule.of))))",
+						"\t\t\treturn built(keyImageForm(lowering.names.library, rule.image, value(columnKey(rule.of))))",
 					replacement:
-						'\t\t\treturn built(textDigestForm(lowering.names.library, binary("||", value(columnKey(rule.of)), lit.text(".", types.text))))',
+						'\t\t\treturn built(keyImageForm(lowering.names.library, rule.image, binary("||", value(columnKey(rule.of)), lit.text(".", types.text))))',
 					why: "The scan draws an appended member's copy of its group text's image as another text's digest: the family's CHECK refuses a follow-up's append under a stored tree node (23514)."
 				}
 			]

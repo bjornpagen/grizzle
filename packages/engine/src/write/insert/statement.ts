@@ -1,11 +1,6 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import type {
-	ColumnIdent,
-	ConstraintName,
-	EntryName,
-	StoredRelationName
-} from "#compiler/core/ids.ts"
+import type { ConstraintName, EntryName, StoredRelationName } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { columnReads } from "#compiler/ir/expr.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
@@ -14,6 +9,7 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl, StatementRole } from "#compiler/ir/products.ts"
 import type { Heading, KeySet, ValidDag } from "#compiler/ir/rel.ts"
 import { baseOf, regexOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import type { ImageColumn } from "#compiler/laws/model/model.ts"
 import {
 	type ColumnMap,
 	type Env,
@@ -249,7 +245,7 @@ export interface WriteContext {
 	readonly generation: (relation: string) => TableGeneration
 	/** The image column a key installs a field of a relation over (laws/model/model.ts fieldImages), which a statement
 	 * reaching the relation's rows by the field's equality reaches them by (write/probe.ts reachedBy). */
-	readonly image: (relation: string, field: string) => ColumnIdent | undefined
+	readonly image: (relation: string, field: string) => ImageColumn | undefined
 }
 
 /** A statement of its own numbers its relations from r0 and its columns from c1. */
@@ -268,7 +264,7 @@ interface WriteContextOptions {
 	readonly share: StatementShare
 	readonly level: Isolation
 	readonly generation: (relation: string) => TableGeneration
-	readonly image: (relation: string, field: string) => ColumnIdent | undefined
+	readonly image: (relation: string, field: string) => ImageColumn | undefined
 }
 
 export const writeContext = (dag: ValidDag, options: WriteContextOptions): WriteContext => {

@@ -926,35 +926,68 @@ const entryRoleRoster = ["equality", "order", "prefix"] as const
 export type EntryRole = (typeof entryRoleRoster)[number]
 
 /**
- * The images a B-tree entry holds a text column by in its place, where the entry cannot hold the column's own values
- * (schema/representability.ts entryImages), one for each kind of entry, each the one PostgreSQL leaves it:
- * - `textDigest`, a key's: the SHA-256 digest of the text's UTF-8, its 32 bytes (physical/ddl/library.ts textDigest), in
- *   a bytea column STORED from the row. A key decides two rows' equality by its image alone, so its image must resist
- *   collisions: two texts of one MD5 digest are constructible, and under md5 they would be one key, the second
- *   text's write refused as a duplicate. SHA-256 has no known collision, the premise every fingerprint grizzle keys by
- *   rests on.
- * - `md5`, a lookup's: `pg_catalog.md5(text)`, its 32 hexadecimal digits, in the index's expression (sql/image.ts
- *   imageOf). A lookup rechecks the text's own equality on every row its image finds, so a collision reads a row more
- *   and decides nothing; and its condition, the image of a probe's or a joined table's column, must pass into a role's
- *   query entry, a security-barrier view, which PostgreSQL admits only for a condition no function that is not
+ * What an image stands for in a B-tree entry, where the entry cannot hold a column's own values
+ * (schema/representability.ts entryImages): a `text`, by its bytes, which texteq under pg_c_utf8 compares; or a
+ * `numeric`, by its one text, numeric_out of trim_scale(x), "NaN", "Infinity" or "-Infinity", which equal numerics
+ * share (1.5 and 1.50 alike) and no two unequal ones do, NaN equal to NaN as numeric's B-tree orders it.
+ */
+const imagedRoster = ["text", "numeric"] as const
+export type Imaged = (typeof imagedRoster)[number]
+
+/**
+ * The images a B-tree entry holds a column by in its place, each the one PostgreSQL leaves it:
+ * - `textDigest`, a key's of a text: the SHA-256 digest of the text's UTF-8, its 32 bytes (physical/ddl/library.ts
+ *   textDigest), in a bytea column STORED from the row. A key decides two rows' equality by its image alone, so its
+ *   image must resist collisions: two texts of one MD5 digest are constructible, and under md5 they would be one key,
+ *   the second text's write refused as a duplicate. SHA-256 has no known collision, the premise every fingerprint
+ *   grizzle keys by rests on.
+ * - `numericDigest`, a key's of a numeric: the textDigest of its one text, `textDigest(trim_scale(x)::text)`
+ *   (lower/conservative/expr/ops.ts keyImageForm), IMMUTABLE as trim_scale and numeric_out are, so a STORED column holds
+ *   it, and a digest of the one text of its value, so two rows agree there exactly where their numerics are equal.
+ * - `md5`, a lookup's of a text: `pg_catalog.md5(text)`, its 32 hexadecimal digits, in the index's expression
+ *   (sql/image.ts imageOf). A lookup rechecks the text's own equality on every row its image finds, so a collision reads
+ *   a row more and decides nothing; and its condition, the image of a probe's or a joined table's column, must pass into
+ *   a role's query entry, a security-barrier view, which PostgreSQL admits only for a condition no function that is not
  *   leakproof reads a column under (REL_19_0 src/backend/optimizer/util/clauses.c contain_leaked_vars_walker: "If node
  *   contains a leaky function call, and there's any Var or Var-representative node underneath it, reject"). md5 is
  *   the one function of a text that is leakproof and IMMUTABLE (src/include/catalog/pg_proc.dat: md5(text) `proleakproof
  *   => 't'`); sha256 is leakproof but reads bytea, and every function that takes a text to its bytes is not (convert_to
  *   and textsend, both STABLE; encode and decode). Nor can grizzle declare its textDigest LEAKPROOF: "only superuser can
  *   define a leakproof function" (src/backend/commands/functioncmds.c, CREATE and ALTER FUNCTION), and an installation's
- *   owner on Amazon RDS is rds_superuser, never a superuser.
+ *   owner on Amazon RDS is rds_superuser, never a superuser. No lookup holds a numeric by an image: a numeric's one text
+ *   is numeric_out's, which is not leakproof (pg_proc.dat numeric_out, trim_scale), so no image of one passes into a
+ *   role's query entry; a lookup's entry a numeric overfills is refused where its index is built.
  */
-const textImageRoster = ["textDigest", "md5"] as const
-export type TextImage = (typeof textImageRoster)[number]
+const entryImageRoster = ["textDigest", "numericDigest", "md5"] as const satisfies ReadonlyArray<
+	EntryImages[IndexEntryKind]
+>
+export type EntryImage = (typeof entryImageRoster)[number]
 
-/** The image each kind of entry holds a text by (TextImage): a key's digest, a lookup's md5. */
-export const entryImage = Object.freeze({ key: "textDigest", lookup: "md5" } as const satisfies {
-	readonly [K in IndexEntryKind]: TextImage
+/** The images each kind of entry holds a column by: a key's digests, a lookup's md5. */
+interface EntryImages {
+	readonly key: "textDigest" | "numericDigest"
+	readonly lookup: "md5"
+}
+
+/** The image an entry of kind K holds an imaged column by, where it holds one. */
+export type EntryImageOf<K extends IndexEntryKind> = EntryImages[K]
+
+/**
+ * The image each kind of entry holds each imaged column by (EntryImage): a key's digest of a text's bytes or of a
+ * numeric's one text; a lookup's md5 of a text, and none of a numeric.
+ */
+export const entryImage = Object.freeze({
+	key: Object.freeze({ text: "textDigest", numeric: "numericDigest" } as const),
+	lookup: Object.freeze({ text: "md5", numeric: undefined } as const)
+} as const satisfies {
+	readonly [K in IndexEntryKind]: { readonly [I in Imaged]: EntryImageOf<K> | undefined }
 })
 
-/** The image a key installs a text column over in its place: `textDigest`, in the column a law adds (ir/law.ts). */
-export type KeyImage = (typeof entryImage)["key"]
+/**
+ * The images a key installs a column over in its place: `textDigest` of a text, `numericDigest` of a numeric, in the
+ * column a law adds (ir/law.ts).
+ */
+export type KeyImage = EntryImageOf<"key">
 
 /** What a key's image is the image of: a field of the relation, by its name, or a law column, by its identity. */
 export type ImageOf =

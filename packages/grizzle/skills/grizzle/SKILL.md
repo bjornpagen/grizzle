@@ -769,7 +769,8 @@ The command line's own refusals, by stage:
   sent, nothing ran, and grizzle never splits it into more round trips: split the input across calls.
 - A numeric field declares its precision and scale, `pg.numeric(p, s)`, or is `pg.numeric`, PostgreSQL's numeric of
   no typmod, a `Decimal` passed as it is: type a declared function that `returns numeric` `returns: pg.numeric`, never
-  a typmod it does not state, which rounds its value. No key holds a `pg.numeric`. A sum, a mean or an operation's
+  a typmod it does not state, which rounds its value. A key holds a numeric wider than its image by the digest of its
+  one text; no lookup does, so a lookup a numeric could overfill is refused. A sum, a mean or an operation's
   numeric result carries the digits its computation proves, and one past 131,072 integer digits is `ResourceBound`,
   but over a `pg.numeric` operand, where PostgreSQL's own limit refuses a value past it (22003). Convert an integer, money or a float to numeric with `Num.numeric(x)`, never a cast to
   a typmod you do not mean.

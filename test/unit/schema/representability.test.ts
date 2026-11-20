@@ -68,7 +68,7 @@ import {
 	installed,
 	keyFeatures,
 	keyFieldDescriptor,
-	keyFieldGen,
+	keyedFieldGen,
 	type KeySizeFeature,
 	type KeySizeSketch,
 	holdsImage,
@@ -352,7 +352,7 @@ export const keyTextBytesIsTheMostBytesATextHoldsAsItselfBesideItsFieldsInEveryI
 export const bTreeEntriesNbtreeHBTMaxItemSizeHoldATextNoPatternBoundsByItsDigestAndRefuseAKeyWhoseWorstCaseEntryIsAboveTheItemLimitAndAdmitEveryOther =
 	property.explore(
 		(source) => ({
-			fields: source.draw(nonEmptyOf(keyFieldGen, 4)),
+			fields: source.draw(nonEmptyOf(keyedFieldGen, 4)),
 			primary: source.draw(boolean),
 			boundary: source.draw(
 				weighted([
@@ -434,8 +434,8 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeHoldATextNoPatternBoundsByItsDigest
 				},
 				{
 					file: "packages/engine/src/schema/representability.ts",
-					original: "(!fits && imageable(c, image) ? image : undefined)",
-					replacement: "(fits && imageable(c, image) ? image : undefined)",
+					original: "(fits ? undefined : imageIn(kind, c))",
+					replacement: "(fits ? imageIn(kind, c) : undefined)",
 					why: "A key that fits holds its texts by their digests and one that would outgrow its entry holds them as themselves: a key past the limit refused, one within it imaged."
 				},
 				{

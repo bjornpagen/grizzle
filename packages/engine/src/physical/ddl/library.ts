@@ -1096,9 +1096,13 @@ export const libraryCalls = (model: LawModel): ReadonlyArray<LibraryFn> => {
 	return [...called].toSorted(compareStrings)
 }
 
-/** The library function each key image is computed by: a text's digest by textDigest. */
+/**
+ * The library function each key image is computed by: a text's digest and a numeric's, the digest of its one text, by
+ * textDigest (lower/conservative/expr/ops.ts keyImageForm).
+ */
 const imageFunctions: { readonly [I in KeyImage]: LibraryFn } = Object.freeze({
-	textDigest: "textDigest"
+	textDigest: "textDigest",
+	numericDigest: "textDigest"
 })
 
 /** A library function's CREATE in the schema `schema`: an installation's, or a session's pg_temp. */
