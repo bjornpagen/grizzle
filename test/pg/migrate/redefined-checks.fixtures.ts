@@ -169,7 +169,7 @@ export const migratedOver = (stored: Stored) =>
 		const s = yield* Substrate
 		let schemaName = ""
 		const m = yield* migrated({
-			label: "redefined-checks",
+			label: "redefined",
 			schemaName: { kind: "unique" },
 			first: (name) => {
 				schemaName = name
