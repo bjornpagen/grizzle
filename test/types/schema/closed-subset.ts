@@ -4,16 +4,18 @@ import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
 import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 
 /**
- * The closed-subset program: a closed id of a subset of its roster's handles, stated as `{ only }` (its handles listed
- * out of the roster's order) and as `{ except }`, beside a closed id of the whole roster, each a relation's key, written
- * at every handle of the roster, read back by a query, met by an equality and contained into the whole roster's key,
- * exhausted and printed as one program the type batch checks.
+ * The closed-subset programs: a closed id of a subset of its roster's handles, stated as `{ only }` (its handles listed
+ * out of the roster's order) and as `{ except }`, beside a closed id of the whole roster, each a relation's key, read
+ * back by a query, met by an equality and contained into the whole roster's key, and at every handle of the roster one
+ * use of the program's: an addition, an equality with the handle in a query and in a row check, or a containment of the
+ * key in a set of it over the roster, exhausted and printed as one program the type batch checks.
  *
  * The oracle is the subset as the declaration states it, computed here apart from the types: `only`'s handles, or every
  * handle of the roster but `except`'s. A handle is a value of a subset's field exactly when the subset holds it: an
  * addition at it is admitted, at any other refused, and a query's column of the field is the subset's handles. The
- * whole roster's field admits every handle, and a subset's field meets it in an equality and a containment, its domain
- * the roster's.
+ * field's domain and language are the roster's, so it meets the whole roster's field in an equality and a containment,
+ * a parameter of the whole roster's closed id, and every handle of the roster in an equality and a set. A selection by
+ * a handle outside the subset stays refused: no row of the source delivers it.
  */
 
 /** The roster's handles, in its order. */
@@ -43,6 +45,9 @@ interface SubsetCell {
 	readonly relation: Subset | "Whole"
 	readonly handle: Handle
 }
+
+/** What a program does with each cell's handle: write it, equate the key to it, or hold the key in a set of it. */
+export type Use = "addition" | "equality" | "containment"
 
 /** The cells of closedSubsetBox, minted as a dictionary in its door (test/types/schema/closed-subset.dictionary.ts). */
 export const closedSubsetBoxItems: Arr.NonEmptyReadonlyArray<SubsetCell> = Arr.flatMap(
@@ -91,6 +96,13 @@ const closedSubsetHeader = (): ReadonlyArray<string> => [
 		"\t\t.match(Whole, { mark: whole.mark, n: whole.n })",
 		"\t\t.where(r.eq(held.mark, whole.mark))",
 		"\t\t.find({ mark: held.mark, n: whole.n })",
+		"})",
+		`export const param${s} = query(Marks).rule((r) => {`,
+		`\tconst held = v(${s}, "held")`,
+		`\treturn r`,
+		`\t\t.match(${s}, { mark: held.mark, n: held.n })`,
+		'\t\t.where(r.eq(held.mark, r.param("k", closedId(Mark))))',
+		"\t\t.find({ n: held.n })",
 		"})"
 	]),
 	"export type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
@@ -98,33 +110,58 @@ const closedSubsetHeader = (): ReadonlyArray<string> => [
 	""
 ]
 
-/** A cell's lines: an addition at its handle, admitted exactly where its relation holds the handle. */
-const cellLines = (c: SubsetCell, at: number): ReadonlyArray<string> => [
-	`// ${c.relation}, at ${c.handle}: ${holds(c) ? "held" : "outside"}`,
-	...(holds(c)
-		? []
-		: [
-				`// @ts-expect-error -- refused: ${jsonText(c.handle)} is no handle ${c.relation}'s subset holds`
-			]),
-	`export const w${at}: Addition<typeof ${c.relation}> = { mark: ${jsonText(c.handle)}, n: ${at} }`,
-	""
-]
+/** A cell's lines under `use`: an addition at its handle, admitted exactly where its relation holds the handle; and an
+ * equality with it and a containment in a set of it, each admitted at every handle of the roster. */
+const cellLines = (use: Use, c: SubsetCell, at: number): ReadonlyArray<string> => {
+	const handle = jsonText(c.handle)
+	const lines = ((): ReadonlyArray<string> => {
+		switch (use) {
+			case "addition":
+				return [
+					...(holds(c)
+						? []
+						: [
+								`// @ts-expect-error -- refused: ${handle} is no handle ${c.relation}'s subset holds`
+							]),
+					`export const w${at}: Addition<typeof ${c.relation}> = { mark: ${handle}, n: ${at} }`
+				]
+			case "equality":
+				return [
+					`export const e${at} = query(Marks).rule((r) => {`,
+					`\tconst held = v(${c.relation}, "held")`,
+					`\treturn r.match(${c.relation}, { mark: held.mark, n: held.n }).where(r.eq(held.mark, ${handle})).find({ n: held.n })`,
+					"})",
+					`export const k${at} = check("k${at}", ${c.relation}, (o) => o.ne(o.mark, ${handle}))`
+				]
+			case "containment":
+				return [
+					`export const c${at} = query(Marks).rule((r) => {`,
+					`\tconst held = v(${c.relation}, "held")`,
+					`\treturn r`,
+					`\t\t.match(${c.relation}, { mark: held.mark, n: held.n })`,
+					`\t\t.where(r.eq(Compute.subset(Compute.singleton(held.mark), Bits.of(Mark, [${handle}])), true))`,
+					"\t\t.find({ n: held.n })",
+					"})"
+				]
+		}
+	})()
+	return [`// ${c.relation}, at ${c.handle}: ${holds(c) ? "held" : "outside"}`, ...lines, ""]
+}
 
 /** The program's prelude (test/support/programs/closed-subset.ts). */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/closed-subset.ts"))
 
-/** The program over a batch's cells, its imports read through its prelude as `entry` reaches it. */
-export const closedSubsetProgram = (
-	cells: Arr.NonEmptyReadonlyArray<SubsetCell>,
-	entry: Entry
-): Program => [
-	preludeModule(
-		"index.ts",
-		"// Generated by test/types/schema/closed-subset.ts: a closed id of a subset of its roster, written at every handle.",
-		preludeFrom(prelude, entry),
-		[
-			{ owner: batchOwned, lines: closedSubsetHeader() },
-			...Arr.map(cells, (c, at) => ({ owner: caseOwned(at), lines: cellLines(c, at) }))
-		]
-	)
-]
+/** The program of `use` over a batch's cells, its imports read through its prelude as `entry` reaches it. */
+export const closedSubsetProgram =
+	(use: Use) =>
+	(cells: Arr.NonEmptyReadonlyArray<SubsetCell>, entry: Entry): Program => [
+		preludeModule(
+			"index.ts",
+			`// Generated by test/types/schema/closed-subset.ts: a closed id of a subset of its roster, at every handle by ${use}.`,
+			preludeFrom(prelude, entry),
+			[
+				{ owner: batchOwned, lines: closedSubsetHeader() },
+				...Arr.map(cells, (c, at) => ({ owner: caseOwned(at), lines: cellLines(use, c, at) }))
+			]
+		)
+	]

@@ -17,7 +17,7 @@ export const closedSubset = boxAgreement(finite(word(closedSubsetBox)), {
 	situations: [],
 	notes: () => [],
 	checking: "disarmed",
-	program: closedSubsetProgram,
+	program: closedSubsetProgram("addition"),
 	oracle: {
 		kind: "specification",
 		name: "the subset as its declaration states it: only's handles, or every handle but except's"
@@ -45,3 +45,59 @@ export const closedSubset = boxAgreement(finite(word(closedSubsetBox)), {
 		}
 	]
 })
+
+/** A closed id of a subset equates to every handle of its roster, in a query and in a row check. */
+export const aClosedIdOfASubsetEquatesToEveryHandleOfItsRoster = boxAgreement(
+	finite(word(closedSubsetBox)),
+	{
+		box: "a relation keyed by a closed id of `only` a subset, one of every handle `except` one, and one of the whole roster, each equated to every handle of the roster in a query and a row check",
+		situations: [],
+		notes: () => [],
+		checking: "disarmed",
+		program: closedSubsetProgram("equality"),
+		oracle: {
+			kind: "specification",
+			name: "the roster as the field's language: an equality with any of its handles is admitted, whatever the subset"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/types/fields/field.ts",
+				original: "\tFacts,\n\tHandleOf<C>\n> {\n\treadonly roster: C",
+				replacement: "\tFacts,\n\tS\n> {\n\treadonly roster: C",
+				why: "A closed id of a subset typed by its subset's handles opposite a value: its equality with a handle outside the subset is refused; the program fails."
+			},
+			{
+				file: "packages/engine/src/types/schema/statements.ts",
+				original: '\t\tLanguageOf<V["heading"][K]>\n\t>\n} & ScalarHelpers',
+				replacement: '\t\tFactOfFields<V["heading"]>[K]\n\t>\n} & ScalarHelpers',
+				why: "A row check's scalar of a subset's field typed by its subset: its inequality with a handle outside the subset is refused; the program fails."
+			}
+		]
+	}
+)
+
+/** A closed id of a subset is contained in a set over its roster. */
+export const aClosedIdOfASubsetIsContainedInASetOverItsRoster = boxAgreement(
+	finite(word(closedSubsetBox)),
+	{
+		box: "a relation keyed by a closed id of `only` a subset, one of every handle `except` one, and one of the whole roster, each key's singleton held in a set over the roster of each handle",
+		situations: [],
+		notes: () => [],
+		checking: "disarmed",
+		program: closedSubsetProgram("containment"),
+		oracle: {
+			kind: "specification",
+			name: "the roster as the field's language: the key's singleton meets a set over the roster, whatever the subset"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/types/fields/field.ts",
+				original: "\tFacts,\n\tHandleOf<C>\n> {\n\treadonly roster: C",
+				replacement: "\tFacts,\n\tS\n> {\n\treadonly roster: C",
+				why: "A closed id of a subset typed by its subset's handles: its singleton is a set over the subset, which no set over the roster meets; the program fails."
+			}
+		]
+	}
+)

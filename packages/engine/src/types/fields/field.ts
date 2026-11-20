@@ -111,10 +111,21 @@ export type NamedId<F> =
 		? Refusal<'say whose id this is: contract("ClerkUserId", uuid)'>
 		: unknown
 
-export interface Field<out Host, out Sql extends SqlTag, out D = Host, out F extends Facts = Facts>
+/**
+ * A field descriptor: its host type, what its column delivers and a write takes; its SQL type; its domain, the identity
+ * it meets other types by; its facts; and its language, every value a JavaScript value standing at it or opposite its
+ * term is one of, its host type's but for a closed id of a subset, whose language is its roster's (ClosedIdField).
+ */
+export interface Field<
+	out Host,
+	out Sql extends SqlTag,
+	out D = Host,
+	out F extends Facts = Facts,
+	out L = Host
+>
 	extends FieldBase, Proving<F> {
 	readonly [domain]?: D | undefined
-	readonly [language]?: Host | undefined
+	readonly [language]?: L | undefined
 	readonly sql: Sql
 	readonly column: Column<Host>
 }
@@ -328,16 +339,19 @@ export type SpanWidthOf<E> = [BaseOf<E>] extends [CalendarDate] ? number : BaseO
 /**
  * A closed reference: one of the roster's handles, stored as its code under the roster's domain, whose domain is its
  * handles under the roster's identity (Rostered), so two rosters of one member set never meet, and, an unordered
- * roster's, under Unordered too, which no ordered operation reads (RosterBrands). Its host type and language are S, the
- * handles it holds: every handle of the roster, or the subset closedId(C, { only }) or closedId(C, { except }) states
- * (SubsetHandles). Its domain is the roster's whatever S is, so a closed id of a subset meets one of the whole roster, in
- * a comparison, a join and a containment, as two refined texts meet as text; a value it holds is a handle of the
- * roster, and a handle outside S is no value of its type.
+ * roster's, under Unordered too, which no ordered operation reads (RosterBrands). Its host type is S, the handles it
+ * holds, what its column delivers and an addition writes: every handle of the roster, or the subset closedId(C, { only })
+ * or closedId(C, { except }) states (SubsetHandles). Its domain and its language are the roster's whatever S is, so a
+ * closed id of a subset meets the whole roster: a closed id of it in a comparison, a join and a containment, as two
+ * refined texts meet as text, and a handle of it in an equality, a selection and a set over the roster, which holds no
+ * row where the handle is outside S.
  */
 export interface ClosedIdField<out C, out S = HandleOf<C>> extends Field<
 	S,
 	"code",
-	HandleOf<C> & RosterBrands<RosterName<C>, OrderOf<C>>
+	HandleOf<C> & RosterBrands<RosterName<C>, OrderOf<C>>,
+	Facts,
+	HandleOf<C>
 > {
 	readonly roster: C
 }

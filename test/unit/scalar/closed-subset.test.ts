@@ -13,7 +13,8 @@ import { finite } from "@bjornpagen/testing/gen"
  * every handle being the whole roster's closed id; a handle written twice and an `except` of every handle refused by
  * the rule, and every untyped value refused as a malformed description. Each admitted field is installed as a
  * relation's column: a field of a subset has exactly one CHECK, holding its column to its subset's codes in the codes
- * the installation drafted, and a field of every handle has none.
+ * the installation drafted, and a field of every handle has none; and a query equates either to every handle of the
+ * roster, since a literal compared with a closed id is any of its roster's, whatever its subset.
  */
 import { property, type Case } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -21,6 +22,7 @@ import { closedId } from "#compiler/public/fields.ts"
 import { closedIdOf } from "#compiler/schema/relation.ts"
 import { throwsRefused } from "#test/support/assert.ts"
 import {
+	handles,
 	installedOf,
 	Mark,
 	type Statement,
@@ -76,6 +78,7 @@ export const aClosedIdsSubsetIsTheOneItsStatementStatesAndItsColumnsCheckHoldsIt
 							"a closed id of every handle describes no subset"
 						)
 						assert.deepEqual(installed.checks, [], "and its column carries no subset CHECK")
+						assert.deepEqual(installed.compared, handles, "and a query equates it to every handle")
 						return
 					}
 					case "subset": {
@@ -93,6 +96,11 @@ export const aClosedIdsSubsetIsTheOneItsStatementStatesAndItsColumnsCheckHoldsIt
 							installed.checks,
 							[installed.checkOf(stated.held)],
 							"its column carries one CHECK, of its subset's codes"
+						)
+						assert.deepEqual(
+							installed.compared,
+							handles,
+							"a query equates it to every handle of its roster, whatever its subset"
 						)
 						return
 					}
@@ -129,6 +137,14 @@ export const aClosedIdsSubsetIsTheOneItsStatementStatesAndItsColumnsCheckHoldsIt
 				original: 'if (typeof handle !== "string" || !live.has(handle)) {',
 				replacement: 'if (typeof handle !== "string") {',
 				why: "A handle off the roster is admitted and ignored, where the statement is refused as malformed."
+			},
+			{
+				file: "packages/engine/src/scalar/literal.ts",
+				original:
+					'\t\tcase "code":\n\t\t\treturn typeof value === "string" && base.roster.handles.includes(value)\n',
+				replacement:
+					'\t\tcase "code":\n\t\t\treturn typeof value === "string" && (base.only ?? base.roster.handles).includes(value)\n',
+				why: "A literal compared with a closed id of a subset is held to the subset, so a query equating it to a handle of its roster outside the subset is refused."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/column-checks.ts",

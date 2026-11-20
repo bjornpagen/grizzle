@@ -6,6 +6,7 @@ import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
 	DomainOf,
 	Headed,
+	LanguageOf,
 	Origin,
 	Refusal,
 	Repeats,
@@ -586,7 +587,7 @@ export type Statement =
 
 /**
  * Each field of the source V shows as a Scalar of its field's domain and SQL type, whose language is the field's
- * values, beside the comparison and boolean helpers of Compute: a relation shows its own name and heading, and a
+ * (LanguageOf): its values, but a closed id of a subset's, its roster's handles, beside the comparison and boolean helpers of Compute: a relation shows its own name and heading, and a
  * builder passes what it inferred of its argument (Shows), so a row of a generic source is typed by the heading its
  * relations share. A bytes field's scalar is one no comparison or operation but Compute.sha256 takes (FirstTerm), since
  * a bytes value has no equality, so a row check, selection or generated field reads it only through its digest.
@@ -599,7 +600,7 @@ export type RowScalars<V extends Shows<string, unknown>> = {
 		FieldTypeOf<V["heading"], K> extends readonly [unknown, infer Sql extends SqlTag]
 			? Sql
 			: SqlTag,
-		FactOfFields<V["heading"]>[K]
+		LanguageOf<V["heading"][K]>
 	>
 } & ScalarHelpers
 

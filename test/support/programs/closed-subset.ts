@@ -3,7 +3,8 @@
  * the program imports these alone, each through this module.
  */
 export type { Addition } from "#compiler/public/changeset.ts"
-export { closedId, pg } from "#compiler/public/fields.ts"
+export { Compute } from "#compiler/public/compute.ts"
+export { Bits, closedId, pg } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export type { HeadOf } from "#compiler/public/query.ts"
-export { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
+export { check, closed, contained, on, relation, schema } from "#compiler/public/schema.ts"

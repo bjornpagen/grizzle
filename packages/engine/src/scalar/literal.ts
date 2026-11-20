@@ -41,14 +41,20 @@ export const literalDescFor = (
 /**
  * The value PostgreSQL's assignment of a literal into a column of base type `base` stores: a numeric rounded half away
  * from zero to its typmod's scale and refused past its precision or infinite (decimal.ts normalizeNumeric), a real
- * rounded to binary32 and refused where it overflows or underflows (float.ts toReal), every other literal itself.
+ * rounded to binary32 and refused where it overflows or underflows (float.ts toReal), a handle refused where the column
+ * holds a subset of its roster without it (codeSubset, the column's subset CHECK), every other literal itself.
  */
 const assigned = (base: PlainType, literal: LiteralDesc): Result.Result<LiteralDesc, ValueFault> =>
 	base.carrier === "numeric" && literal instanceof Decimal
 		? normalizeNumeric(literal, base.typmod)
 		: base.carrier === "float4" && typeof literal === "number"
 			? toReal(literal)
-			: Result.ok(literal)
+			: base.carrier === "code" &&
+				  typeof literal === "string" &&
+				  base.only !== undefined &&
+				  !base.only.includes(literal)
+				? Result.err("codeSubset")
+				: Result.ok(literal)
 
 /**
  * A caller's value written into a field of type `t` as a literal, a closed relation's fact or an accumulated field's
@@ -116,14 +122,10 @@ const hostLiteral = (base: PlainType, value: unknown): Result.Result<LiteralDesc
 			return validateText(value)
 		case "bytes":
 			return Result.err("bytesLiteral")
-		case "code": {
-			if (typeof value !== "string" || !base.roster.handles.includes(value)) {
-				return Result.err("codeHandle")
-			}
-			return base.only === undefined || base.only.includes(value)
+		case "code":
+			return typeof value === "string" && base.roster.handles.includes(value)
 				? Result.ok(value)
-				: Result.err("codeSubset")
-		}
+				: Result.err("codeHandle")
 		case "bits":
 			return bitsLiteral(value, base.roster)
 		case "range4":

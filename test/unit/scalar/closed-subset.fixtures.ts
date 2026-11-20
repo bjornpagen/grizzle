@@ -2,12 +2,15 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { constant, type Gen, int, map, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
+import { checkQuery } from "#compiler/check/index.ts"
 import { identifierOf, identity, parseDeclaredName } from "#compiler/core/identity.ts"
 import { codeOf, firstCodebook } from "#compiler/ir/codes.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { queryInput } from "#compiler/program/compile.ts"
 import { type ClosedIdField, type ClosedSubset, pg } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
@@ -15,9 +18,10 @@ import type { Expr } from "#compiler/sql/ast.ts"
 import { isIn, lit, tableCol, types } from "#compiler/sql/build.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { checking, checkOptions } from "#test/support/policy.ts"
 
 /** The roster's handles, in its order. */
-const handles = ["p", "q", "r", "s"] as const
+export const handles = ["p", "q", "r", "s"] as const
 
 /** A handle of the roster. */
 export type Handle = (typeof handles)[number]
@@ -146,8 +150,9 @@ export const statedBy = (subset: ClosedSubset<typeof Mark> | undefined): Stated 
 
 /**
  * What the installation of a relation T keyed by an integer `k` with `field` as its column `mark` holds of it: the
- * field's description, the predicate of each CHECK T's CREATE TABLE declares under mark's subsetCheck name, and the
- * predicate a CHECK holding mark to `held` is, in the roster's codes the installation drafted.
+ * field's description, the predicate of each CHECK T's CREATE TABLE declares under mark's subsetCheck name, the
+ * predicate a CHECK holding mark to `held` is, in the roster's codes the installation drafted, and the roster's handles
+ * a query over T may equate mark to, as its check admits them.
  */
 export const installedOf = (field: ClosedIdField<typeof Mark, Handle>) => {
 	const T = relation("T", { k: pg.integer, mark: field }, ["k"])
@@ -184,9 +189,26 @@ export const installedOf = (field: ClosedIdField<typeof Mark, Handle>) => {
 			: []
 	)
 	const column = tableCol(installation.names.column("T", "mark"))
+	/** Whether a query equating mark to `handle` checks, as a template's compile checks it. */
+	const compares = (handle: Handle): boolean =>
+		checkQuery(
+			checking(S),
+			succeeded(
+				queryInput(
+					query(S).rule((r) => {
+						const { k, mark } = v(T, "t")
+						return r.match(T, { k, mark }).where(r.eq(mark, handle)).find({ k })
+					})
+				),
+				"the query's input"
+			).desc,
+			checkOptions("query")
+		).ok
+	const compared: ReadonlyArray<Handle> = Arr.filter(handles, compares)
 	return {
 		described,
 		checks,
+		compared,
 		checkOf: (held: NonEmptyReadonlyArray<Handle>): Expr =>
 			isIn(
 				column,
