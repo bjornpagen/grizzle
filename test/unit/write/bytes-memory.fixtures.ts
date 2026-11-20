@@ -5,14 +5,22 @@ import type { Need } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
-import { messageMaxBytes } from "#compiler/core/wire.ts"
 import { bytes, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { inForce, type Transport } from "#compiler/runtime/write/transport.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 
-/** The one value every fact of a case holds: 64 MiB, so sixteen facts of one column pass a message. */
-export const valueLength = 64 * 1024 * 1024
+/** The one value every fact of a case holds: 1 MiB. */
+export const valueLength = 1024 * 1024
+
+/**
+ * The transport the cases bind under: the one in force (runtime/write/transport.ts inForce) but for its message, which
+ * holds sixteen values, so sixteen facts of one column pass it, as sixteen of 64 MiB pass PostgreSQL's longest
+ * message. The bound is the transport's, read by every check of a member's bytes (runtime/write/normalize.ts), so a
+ * case copies at most one such message, 16 MiB, where at PostgreSQL's own a bound member copied up to 960 MiB.
+ */
+export const transport: Transport = { ...inForce(bindFrame), messageBytes: 16 * valueLength }
 
 export const One = relation("One", { id: pg.integer, body: bytes }, ["id"])
 
@@ -35,7 +43,7 @@ export type Feature = "a member refused from its lengths" | "a member bound" | "
 
 /** The bytes the member's write statement carries at least: its fixed fields, its placeholders, its binary arrays. */
 export const carried = (d: Drawn): number => {
-	const frame = bindFrame
+	const { frame } = transport
 	const array = byteaHeaderBytes(d.facts) + d.facts * byteaElementBytes(valueLength)
 	return frame.statement + (d.columns + 1) * frame.parameter + d.columns * array
 }
@@ -50,7 +58,7 @@ export const copied = (d: Drawn): number => d.columns * d.facts * valueLength
 export const slack = valueLength
 
 export const notes = (d: Drawn): ReadonlyArray<Feature> => [
-	carried(d) > messageMaxBytes ? "a member refused from its lengths" : "a member bound",
+	carried(d) > transport.messageBytes ? "a member refused from its lengths" : "a member bound",
 	...(d.columns === 2 ? (["two bytes columns"] as const) : [])
 ]
 

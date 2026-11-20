@@ -3,13 +3,14 @@
  * whose binary arrays no Bind message carries is refused from its values' lengths alone (ir/products.ts MessageBound),
  * before any of its bytes is read or copied, and a member that fits is copied once, into its columns' binary arrays,
  * which its every placeholder carries (ir/products.ts KeyedFacts). A case writes a member of facts that all hold one
- * caller's array of 64 MiB in each of their bytes columns, so the caller holds 64 MiB however many facts there are,
- * and the bind's allocation is read as the growth of the process's ArrayBuffer memory across it: a copy the bind
- * holds when it returns, an admission's or an array's, is still allocated then, since nothing runs between.
+ * caller's array of 1 MiB in each of their bytes columns, so the caller holds 1 MiB however many facts there are,
+ * under a transport whose message holds sixteen of them (bytes-memory.fixtures.ts transport), and the bind's allocation
+ * is read as the growth of the process's ArrayBuffer memory across it: a copy the bind holds when it returns, an
+ * admission's or an array's, is still allocated then, since nothing runs between.
  *
  * Oracle: the specification: a member whose arrays' bytes, counted from its values' lengths with each statement's own
- * fields and placeholders (runtime/write/transport.ts inForce), pass the longest message PostgreSQL reads is refused, and
- * allocates under one value's length; any other binds, and allocates its arrays' bytes once, within a 64 MiB slack,
+ * fields and placeholders (runtime/write/transport.ts Transport), pass the transport's longest message is refused, and
+ * allocates under one value's length; any other binds, and allocates its arrays' bytes once, within a 1 MiB slack,
  * each of its admitted values the caller's array itself. The memory read bounds what a bind holds from above, so a
  * collection of an earlier case's garbage meanwhile can hide a copy, never invent one; the admitted values' identity
  * holds whatever the collector does. The slack is no number of its own: it is one value's length, the least a second
@@ -23,11 +24,8 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
-import { bindFrame } from "#adapter/wire/batch.ts"
-import { messageMaxBytes } from "#compiler/core/wire.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
-import { inForce } from "#compiler/runtime/write/transport.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -45,6 +43,7 @@ import {
 	One,
 	reality,
 	slack,
+	transport,
 	Two,
 	valueLength,
 	valueNeed
@@ -89,10 +88,10 @@ export const aWriteOfLargeBytesValuesRefusesAMemberPastTheMessageFromItsLengthsA
 					const bound = bindWrite(write, {
 						members,
 						params: {},
-						transport: inForce(bindFrame)
+						transport
 					})
 					const grown = process.memoryUsage().arrayBuffers - before
-					if (carried(d) > messageMaxBytes) {
+					if (carried(d) > transport.messageBytes) {
 						assert.ok(
 							!bound.ok && bound.error._tag === "MessageBound",
 							"a member past the message is refused as its MessageBound"
@@ -109,7 +108,7 @@ export const aWriteOfLargeBytesValuesRefusesAMemberPastTheMessageFromItsLengthsA
 						write.prepared.groups,
 						{ fill: write.prepared.fill, codes: write.codes, columns: write.prepared.columns },
 						members,
-						inForce(bindFrame)
+						transport
 					)
 					if (!normalized.ok || normalized.value.kind !== "normalized") {
 						return assert.fail("a member within the message normalizes")
