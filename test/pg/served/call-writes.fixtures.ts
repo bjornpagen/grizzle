@@ -1,7 +1,7 @@
 /** What the property of call-writes.test.ts reads: its schema, its ChangeSet, its space and its oracle. */
 
-import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Order, String as Str } from "effect"
+import { array, element, type Gen, int, map, oneOf, type Steered } from "@bjornpagen/testing/gen"
+import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -157,7 +157,7 @@ export interface GradingCase {
 
 const sessions = [1, 2, 3] as const
 
-export const caseGen: Gen<GradingCase> = (source) => {
+const caseGen: Gen<GradingCase> = (source) => {
 	const held = Arr.filter(sessions, () => source.draw(element([true, false] as const)))
 	return {
 		sessions: Arr.map(held, (session) => ({ session, shift: source.draw(int(-2, 2)) })),
@@ -179,6 +179,59 @@ export type GradingFeature =
 	| "no such session"
 	| "an open session of no line"
 	| "values of several lines"
+
+/** The session a steered case answers: the drawn one where it is a session, session 1 where it answers none. */
+const answeredOf = (c: GradingCase): number =>
+	Arr.contains(sessions, c.answered) ? c.answered : Arr.headNonEmpty(sessions)
+
+/** The case answering the session `answered`, held (at shift 0 where it holds no row of it) and closed by no Attempt. */
+const openAt = (c: GradingCase, answered: number): GradingCase => ({
+	...c,
+	sessions: Arr.some(c.sessions, (s) => s.session === answered)
+		? c.sessions
+		: Arr.append(c.sessions, { session: answered, shift: 0 }),
+	closed: Arr.filter(c.closed, (s) => s !== answered),
+	answered
+})
+
+/**
+ * A case answering an open session of several lines (openAt): its lines, with lines at positions 0 and 1 beside them
+ * where it holds none there. A drawn case meets this too rarely: it must hold the answered session, leave it open and
+ * draw two lines of it, each by a draw of its own.
+ */
+const openOfSeveralLines = (c: GradingCase): GradingCase => {
+	const answered = answeredOf(c)
+	const own = Arr.filter(c.lines, (l) => l.session === answered)
+	const added = Arr.map(
+		Arr.filter([0, 1], (pos) => !Arr.some(own, (l) => l.pos === pos)),
+		(pos): LineFact => ({ session: answered, pos, txt: "ab" })
+	)
+	return { ...openAt(c, answered), lines: Arr.appendAll(c.lines, added) }
+}
+
+/** A case answering an open session of no line (openAt): every line of the answered session left out. */
+const openOfNoLine = (c: GradingCase): GradingCase => {
+	const answered = answeredOf(c)
+	return { ...openAt(c, answered), lines: Arr.filter(c.lines, (l) => l.session !== answered) }
+}
+
+/** The rare situations a steered case is aimed at, each with the case it makes of a drawn one. */
+const aims: ReadonlyArray<readonly [GradingFeature, (c: GradingCase) => GradingCase]> = [
+	["values of several lines", openOfSeveralLines],
+	["an open session of no line", openOfNoLine]
+]
+
+/**
+ * The cases a witness checks: drawn ones (caseGen), or, while a rare situation is pending (Pending `names`: values of
+ * several lines, an open session of no line), as many again of the drawn one aimed at each pending one (aims), so
+ * each witness the steered phase draws may reach it. Unsteered (the rotating stream), a plain draw.
+ */
+export const steeredGrading: Steered<GradingCase, GradingFeature>["under"] = (steering) => {
+	const arms = Arr.flatMap(aims, ([feature, aimed]) =>
+		Option.exists(steering, (pending) => pending.names(feature)) ? [map(caseGen, aimed)] : []
+	)
+	return Arr.isReadonlyArrayNonEmpty(arms) ? oneOf([caseGen, ...arms]) : caseGen
+}
 
 /** The features a case reaches by its draw. */
 export const drawnFeatures = (c: GradingCase): ReadonlyArray<GradingFeature> => {

@@ -16,17 +16,18 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
+import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { memberExplains, onceCalls } from "#adapter/db/handles.ts"
 import {
-	caseGen,
 	drawnFeatures,
 	expectedOf,
 	factsOf,
 	type GradingFeature,
 	gradingTemplate,
 	programsOf,
+	steeredGrading,
 	worldOf,
 	writtenOf
 } from "#test/pg/served/call-writes.fixtures.ts"
@@ -46,7 +47,7 @@ const features = [
 /** One stratum's writes from one call of a declared function, guarded by a derived relation, call it once and write the
  * guarded rows alone. */
 export const writesFromACallGuardedByADerivedRelationCallItOnceAndWriteTheGuardedRows =
-	property.explore(caseGen, {
+	property.explore(steered(steeredGrading), {
 		needs: Substrate.oneOf({ grading: gradingTemplate }, Substrate.seat),
 		situations: features,
 		budget: { runs: 16, steered: features.length },
