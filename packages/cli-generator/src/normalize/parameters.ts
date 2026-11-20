@@ -104,7 +104,7 @@ export type StyleName = (typeof styleNames)[number]
 /**
  * Whether a value is one of the {@link styleNames}.
  */
-const isStyleName = (value: unknown): value is StyleName =>
+export const isStyleName = (value: unknown): value is StyleName =>
 	Arr.some(styleNames, (name) => name === value)
 
 /**

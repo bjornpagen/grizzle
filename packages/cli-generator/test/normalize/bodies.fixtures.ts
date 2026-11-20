@@ -12,27 +12,17 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import type { ScratchDir } from "@bjornpagen/testing/resources"
-import {
-	Array as Arr,
-	Cause,
-	Effect,
-	Exit,
-	FileSystem,
-	Option,
-	Order,
-	Path,
-	Record as Rec,
-	Schema
-} from "effect"
+import { Array as Arr, Effect, FileSystem, Option, Order, Path, Record as Rec } from "effect"
 import { Digest } from "effect/crypto"
 import { checkSpecText } from "#check/index.ts"
-import { generate, GenerateRefused } from "#generate.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { generate } from "#generate.ts"
 import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { hintDiscriminators, normalizeBody } from "#normalize/bodies.ts"
 import {
+	configUri,
 	documentAt,
+	entryUri,
 	lineGen,
 	normalizedAt,
 	openapiOf,
@@ -62,8 +52,25 @@ type MediaKey =
 	| "Application/X-WWW-Form-Urlencoded; charset=utf-8"
 	| "not a type"
 
-/** An alternative's schema: none, an object in place or by reference, an array of objects, or a string. */
-type SchemaKind = "none" | "object" | "component" | "array" | "string"
+/**
+ * An alternative's schema: none, an object in place or by reference, an array of objects, a string, or an object in
+ * place one of whose properties has a name that is no wire name, empty or holding a control character.
+ */
+type SchemaKind =
+	| "none"
+	| "object"
+	| "component"
+	| "array"
+	| "string"
+	| "empty name"
+	| "control name"
+
+/** The misnamed property of each misnamed schema kind. */
+const misnamed = { "empty name": "", "control name": "na\u0007me" } as const
+
+/** Whether a schema kind is an object with a misnamed property. */
+const isMisnamed = (kind: SchemaKind): kind is keyof typeof misnamed =>
+	kind === "empty name" || kind === "control name"
 
 /** One media type of a body: its key, its schema, and the fields a request body ignores there. */
 type Alternative = Readonly<{
@@ -106,6 +113,7 @@ export type BodyFeature =
 	| "referenced body"
 	| "required body refused raises its operation"
 	| "several alternatives"
+	| "part name that is no wire name refused"
 
 const mediaKey: Gen<MediaKey> = weighted([
 	[
@@ -181,14 +189,24 @@ const codecOf = (key: MediaKey): Option.Option<string> => {
 	}
 }
 
-/** The schemas a key's codec takes: a form body an object or none, a multipart one an object, an array (positional on 3.2 only for mixed) or none. */
+/** An object one of whose properties is misnamed. */
+const misnamedKind: Gen<SchemaKind> = oneOf([
+	constant<SchemaKind>("empty name"),
+	constant<SchemaKind>("control name")
+])
+
+/**
+ * The schemas a key's codec takes: a form body an object, a misnamed object or none, a multipart one an object, a
+ * misnamed object, an array (positional on 3.2 only for mixed) or none.
+ */
 const schemaFor = (key: MediaKey, line: SpecLine): Gen<SchemaKind> => {
 	const codec = codecOf(key)
 	if (Option.exists(codec, (each) => each === "form")) {
 		return oneOf([
 			constant<SchemaKind>("none"),
 			constant<SchemaKind>("object"),
-			constant<SchemaKind>("component")
+			constant<SchemaKind>("component"),
+			misnamedKind
 		])
 	}
 	if (Option.exists(codec, (each) => each === "multipart")) {
@@ -196,6 +214,7 @@ const schemaFor = (key: MediaKey, line: SpecLine): Gen<SchemaKind> => {
 			constant<SchemaKind>("none"),
 			constant<SchemaKind>("object"),
 			constant<SchemaKind>("component"),
+			misnamedKind,
 			...(key === "multipart/mixed" && line !== "3.2" ? [] : [constant<SchemaKind>("array")])
 		])
 	}
@@ -340,6 +359,23 @@ export const bodySpace = aimed<BodySketch, BodyFeature>(drawnBody, [
 			],
 			{ referenced: true }
 		)
+	],
+	[
+		"part name that is no wire name refused",
+		reaching(
+			() => (source) => [
+				{
+					key: oneOf([
+						constant<MediaKey>("multipart/form-data"),
+						constant<MediaKey>("application/x-www-form-urlencoded")
+					])(source),
+					schema: misnamedKind(source),
+					encoding: false,
+					description: false
+				}
+			],
+			{}
+		)
 	]
 ])
 
@@ -359,6 +395,12 @@ const schemaJson = (kind: Exclude<SchemaKind, "none">): Json => {
 			return { items: objectSchema, type: "array" }
 		case "string":
 			return { type: "string" }
+		case "empty name":
+		case "control name":
+			return {
+				properties: { name: { type: "string" }, [misnamed[kind]]: { type: "string" } },
+				type: "object"
+			}
 	}
 }
 
@@ -461,8 +503,15 @@ const judged = (
 	if (each.key === "multipart/form-data" && each.schema === "array") {
 		return [Option.none(), [["MED-26/array-form-data", "refusal", []]]]
 	}
-	if (each.key === "multipart/mixed" && (each.schema === "object" || each.schema === "component")) {
+	if (
+		each.key === "multipart/mixed" &&
+		(each.schema === "object" || each.schema === "component" || isMisnamed(each.schema))
+	) {
 		return [Option.none(), [["MED-25/unnamed-parts", "refusal", [`${site}/schema`]]]]
+	}
+	if (encodes(each.key) && isMisnamed(each.schema)) {
+		const property = `${site}/schema/properties/${token(misnamed[each.schema])}`
+		return [Option.none(), [["ENC-41/invalid-part-name", "refusal", [property]]]]
 	}
 	const opaque = codec.value === "xml"
 	const schema = !opaque && each.schema !== "none"
@@ -637,7 +686,8 @@ export const bodyFeatures = (sketch: BodySketch, model: BodyModel): ReadonlyArra
 		[codes.has("MED-09/description-ignored"), "3.2 media description ignored"],
 		[sketch.referenced && model.outcome.kind === "implemented", "referenced body"],
 		[model.operation === "raised", "required body refused raises its operation"],
-		[kept.length > 1, "several alternatives"]
+		[kept.length > 1, "several alternatives"],
+		[codes.has("ENC-41/invalid-part-name"), "part name that is no wire name refused"]
 	]
 	return Arr.map(
 		Arr.filter(facts, ([holds]) => holds),
@@ -1075,9 +1125,10 @@ const invalidKeyDocument = (sketch: InvalidKeySketch): Json =>
 export const invalidKeyExpected = (sketch: InvalidKeySketch): number =>
 	Arr.reduce(sketch.keys, 0, (total, keys) => total + keys.length)
 
-const isRefused = Schema.is(GenerateRefused)
-
-/** How many MED-24 refusals `generate` reports for the sketch's document, written into the case's directory. */
+/**
+ * How many MED-24 refusals `generate` reports for the sketch's document, written into the case's directory: the
+ * diagnostics of the generation, or of its refusal. Any other failure fails the case.
+ */
 export const invalidKeyActual = (
 	scratch: ScratchDir,
 	digest: typeof Digest.Digest.Service,
@@ -1093,25 +1144,18 @@ export const invalidKeyActual = (
 			config,
 			textOf({ binName: "example", package: { name: "example-cli", version: "1.0.0" } })
 		)
-		const decode = Schema.decodeEffect(DocumentUri)
-		const exit = yield* Effect.exit(
-			generate(
-				{
-					document: yield* decode("file:///fixture/openapi.json"),
-					outDir: path.join(scratch, "out"),
-					source: { _tag: "File", path: spec },
-					strict: false
-				},
-				{ document: yield* decode("file:///fixture/author-config.json"), path: config }
-			).pipe(Effect.provideService(Digest.Digest, digest))
+		const diagnostics = yield* generate(
+			{
+				document: yield* entryUri,
+				outDir: path.join(scratch, "out"),
+				source: { _tag: "File", path: spec },
+				strict: false
+			},
+			{ document: yield* configUri, path: config }
+		).pipe(
+			Effect.provideService(Digest.Digest, digest),
+			Effect.map((result) => result.diagnostics),
+			Effect.catchTag("GenerateRefused", (refused) => Effect.succeed(refused.diagnostics))
 		)
-		const diagnostics = Exit.match(exit, {
-			onSuccess: (result) => result.diagnostics,
-			onFailure: (cause) =>
-				Option.match(Cause.findErrorOption(cause), {
-					onNone: () => [],
-					onSome: (error) => (isRefused(error) ? error.diagnostics : [])
-				})
-		})
 		return Arr.filter(diagnostics, (each) => each.code === "MED-24/invalid-media-type").length
 	})

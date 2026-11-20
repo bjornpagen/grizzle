@@ -9,17 +9,25 @@ import {
 	pipe,
 	Predicate,
 	Record,
+	Result,
 	Schema,
 	String as Str,
 	Struct,
 	UndefinedOr
 } from "effect"
-import { HeaderName, MediaRange, stripUnsafeText } from "#model/brands.ts"
+import {
+	fixedMediaRange,
+	isHeaderName,
+	isMediaRange,
+	isWireName,
+	stripUnsafeText
+} from "#model/brands.ts"
+import type { HeaderName, MediaRange, WireName } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
 import { Body, EncodingRule } from "#model/entities.ts"
-import type { DiscriminatorHint } from "#model/entities.ts"
-import { childPointer, formatPointer, isPointerWithin } from "#model/pointer.ts"
+import type { DiscriminatorHint, Origin, RowId } from "#model/entities.ts"
+import { childPointer, formatPointer, isPointerWithin, ownPointer } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { docsOf } from "#normalize/docs.ts"
@@ -38,11 +46,11 @@ import {
 	compound,
 	deepObjectExplodeText,
 	formStyleRefusal,
+	isStyleName,
 	partHeader,
 	PartHeaderOutcome,
 	scalarChoiceCode,
 	scalarCover,
-	styleNames,
 	typeNames
 } from "#normalize/parameters.ts"
 import type { ScalarCover, StyleName } from "#normalize/parameters.ts"
@@ -51,6 +59,7 @@ import { keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
 import { allOfReferrers, implicitComponent } from "#resolve/index.ts"
 import type { Resolution, ResolvedReference } from "#resolve/index.ts"
+import * as Read from "#runtime-src/runtime/read.ts"
 import { mediaEssence } from "#runtime-src/runtime/sequential.ts"
 
 /**
@@ -87,104 +96,209 @@ export const BodyOutcome = Data.taggedEnum<BodyOutcome>()
  * The site is not a Request Body Object the earlier stages could have passed: validation or
  * resolution should have stopped it.
  */
-export class BodyNotReadable extends Schema.TaggedError<
-	BodyNotReadable,
-	{ readonly brand: unique symbol }
->()("BodyNotReadable", {
-	pointer: Schema.String,
-	reason: Schema.Literals(["media-type-not-an-object", "not-a-request-body"])
-}) {}
+export class BodyNotReadable extends Data.TaggedError("BodyNotReadable")<{
+	readonly pointer: string
+	readonly reason: "media-type-not-an-object" | "not-a-request-body"
+}> {}
 
-const ObjectValue = Schema.Record(Schema.String, Schema.Unknown)
+/**
+ * An optional member of a node read by `reader`, as the node types below hold it: `undefined` when
+ * the member is absent.
+ */
+const optional = <A>(
+	object: Read.Members,
+	name: string,
+	reader: Read.Reader<A>
+): Result.Result<A | undefined, Read.ReadIssues> =>
+	Result.map(Read.optionalMember(object, name, reader), Option.getOrUndefined)
 
-const isObjectValue = Schema.is(ObjectValue)
+/**
+ * What the part rules read of a part header: nothing but that it is an object whose `required`,
+ * when present, is a boolean.
+ */
+interface HeaderNode {
+	readonly required: boolean | undefined
+}
 
-const decodeMediaRange = Schema.decodeUnknownOption(MediaRange)
-
-const decodeHeaderName = Schema.decodeUnknownOption(HeaderName)
-
-const HeaderObject = Schema.Struct({ required: Schema.optionalKey(Schema.Boolean) })
+const headerObject: Read.Reader<HeaderNode> = (value) =>
+	Result.flatMap(Read.members(value), (object) =>
+		Read.struct(object, { required: optional(object, "required", Read.boolean) }, Read.anything)
+	)
 
 interface EncodingNode {
-	readonly allowReserved?: boolean
-	readonly contentType?: string
-	readonly encoding?: Readonly<Record<string, EncodingNode>>
-	readonly explode?: boolean
-	readonly headers?: Readonly<Record<string, typeof HeaderObject.Type>>
-	readonly itemEncoding?: EncodingNode
-	readonly prefixEncoding?: readonly EncodingNode[]
-	readonly style?: StyleName
+	readonly allowReserved: boolean | undefined
+	readonly contentType: string | undefined
+	readonly encoding: Readonly<Record<string, EncodingNode>> | undefined
+	readonly explode: boolean | undefined
+	readonly headers: Readonly<Record<string, HeaderNode>> | undefined
+	readonly itemEncoding: EncodingNode | undefined
+	readonly prefixEncoding: ReadonlyArray<EncodingNode> | undefined
+	readonly style: StyleName | undefined
 }
 
 /**
- * Encoding Objects nest, so the codec is recursive; the rules cap the depth at one level.
+ * An Encoding Object, each member it does not name ignored. Encoding Objects nest, so the reader
+ * is recursive; the rules cap the depth at one level.
  */
-const EncodingObject: Schema.Codec<EncodingNode> = Schema.Struct({
-	allowReserved: Schema.optionalKey(Schema.Boolean),
-	contentType: Schema.optionalKey(Schema.String),
-	encoding: Schema.optionalKey(
-		Schema.Record(
-			Schema.String,
-			Schema.suspend((): Schema.Codec<EncodingNode> => EncodingObject)
+const encodingObject: Read.Reader<EncodingNode> = (value) =>
+	Result.flatMap(Read.members(value), (object) =>
+		Read.struct(
+			object,
+			{
+				allowReserved: optional(object, "allowReserved", Read.boolean),
+				contentType: optional(object, "contentType", Read.string),
+				encoding: optional(object, "encoding", Read.record(Read.string, encodingObject)),
+				explode: optional(object, "explode", Read.boolean),
+				headers: optional(object, "headers", Read.record(Read.string, headerObject)),
+				itemEncoding: optional(object, "itemEncoding", encodingObject),
+				prefixEncoding: optional(object, "prefixEncoding", Read.array(encodingObject)),
+				style: optional(object, "style", Read.refine(Read.string, isStyleName, "a style name"))
+			},
+			Read.anything
 		)
-	),
-	explode: Schema.optionalKey(Schema.Boolean),
-	headers: Schema.optionalKey(Schema.Record(Schema.String, HeaderObject)),
-	itemEncoding: Schema.optionalKey(
-		Schema.suspend((): Schema.Codec<EncodingNode> => EncodingObject)
-	),
-	prefixEncoding: Schema.optionalKey(
-		Schema.Array(Schema.suspend((): Schema.Codec<EncodingNode> => EncodingObject))
-	),
-	style: Schema.optionalKey(Schema.Literals(styleNames))
-})
-
-const RequestBodyObject = Schema.Struct({
-	content: ObjectValue,
-	description: Schema.optionalKey(Schema.String),
-	required: Schema.optionalKey(Schema.Boolean)
-})
-
-const MediaTypeObject = Schema.Struct({
-	description: Schema.optionalKey(Schema.String),
-	encoding: Schema.optionalKey(Schema.Record(Schema.String, EncodingObject)),
-	itemEncoding: Schema.optionalKey(EncodingObject),
-	itemSchema: Schema.optionalKey(Schema.Unknown),
-	prefixEncoding: Schema.optionalKey(Schema.Array(EncodingObject)),
-	schema: Schema.optionalKey(Schema.Unknown)
-})
-
-type MediaNode = typeof MediaTypeObject.Type
+	)
 
 /**
- * Only what the part rules read of a schema; a boolean schema decodes to nothing. `required` and
- * the compositions are `Unknown` so a malformed value never hides the node's other members.
+ * The Encoding Object of a part that declares none.
  */
-const SchemaNode = Schema.Struct({
-	additionalProperties: Schema.optionalKey(Schema.Unknown),
-	allOf: Schema.optionalKey(Schema.Array(Schema.Unknown)),
-	anyOf: Schema.optionalKey(Schema.Unknown),
-	contentEncoding: Schema.optionalKey(Schema.String),
-	dependentRequired: Schema.optionalKey(Schema.Unknown),
-	dependentSchemas: Schema.optionalKey(Schema.Unknown),
-	format: Schema.optionalKey(Schema.String),
-	if: Schema.optionalKey(Schema.Unknown),
-	items: Schema.optionalKey(Schema.Unknown),
-	not: Schema.optionalKey(Schema.Unknown),
-	oneOf: Schema.optionalKey(Schema.Unknown),
-	prefixItems: Schema.optionalKey(Schema.Array(Schema.Unknown)),
-	properties: Schema.optionalKey(ObjectValue),
-	required: Schema.optionalKey(Schema.Unknown),
-	type: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String)]))
-})
+const noEncoding: EncodingNode = {
+	allowReserved: undefined,
+	contentType: undefined,
+	encoding: undefined,
+	explode: undefined,
+	headers: undefined,
+	itemEncoding: undefined,
+	prefixEncoding: undefined,
+	style: undefined
+}
 
-const decodeSchemaNode = Schema.decodeUnknownOption(SchemaNode)
+interface RequestBodyNode {
+	readonly content: Read.Members
+	readonly description: string | undefined
+	readonly required: boolean | undefined
+}
 
-type SchemaNodeValue = typeof SchemaNode.Type
+const requestBodyObject: Read.Reader<RequestBodyNode> = (value) =>
+	Result.flatMap(Read.members(value), (object) =>
+		Read.struct(
+			object,
+			{
+				content: Read.member(object, "content", Read.members),
+				description: optional(object, "description", Read.string),
+				required: optional(object, "required", Read.boolean)
+			},
+			Read.anything
+		)
+	)
+
+interface MediaNode {
+	readonly description: string | undefined
+	readonly encoding: Readonly<Record<string, EncodingNode>> | undefined
+	readonly itemEncoding: EncodingNode | undefined
+	readonly itemSchema: unknown
+	readonly prefixEncoding: ReadonlyArray<EncodingNode> | undefined
+	readonly schema: unknown
+}
+
+const mediaTypeObject: Read.Reader<MediaNode> = (value) =>
+	Result.flatMap(Read.members(value), (object) =>
+		Read.struct(
+			object,
+			{
+				description: optional(object, "description", Read.string),
+				encoding: optional(object, "encoding", Read.record(Read.string, encodingObject)),
+				itemEncoding: optional(object, "itemEncoding", encodingObject),
+				itemSchema: optional(object, "itemSchema", Read.anything),
+				prefixEncoding: optional(object, "prefixEncoding", Read.array(encodingObject)),
+				schema: optional(object, "schema", Read.anything)
+			},
+			Read.anything
+		)
+	)
+
+/**
+ * Only what the part rules read of a schema; a boolean schema reads as `noSchemaNode`. `required`
+ * and the compositions are any value so a malformed one never hides the node's other members.
+ */
+interface SchemaNodeValue {
+	readonly additionalProperties: unknown
+	readonly allOf: ReadonlyArray<unknown> | undefined
+	readonly anyOf: unknown
+	readonly contentEncoding: string | undefined
+	readonly dependentRequired: unknown
+	readonly dependentSchemas: unknown
+	readonly format: string | undefined
+	readonly if: unknown
+	readonly items: unknown
+	readonly not: unknown
+	readonly oneOf: unknown
+	readonly prefixItems: ReadonlyArray<unknown> | undefined
+	readonly properties: Read.Members | undefined
+	readonly required: unknown
+	readonly type: string | ReadonlyArray<string> | undefined
+}
+
+const schemaObject: Read.Reader<SchemaNodeValue> = (value) =>
+	Result.flatMap(Read.members(value), (object) =>
+		Read.struct(
+			object,
+			{
+				additionalProperties: optional(object, "additionalProperties", Read.anything),
+				allOf: optional(object, "allOf", Read.array(Read.anything)),
+				anyOf: optional(object, "anyOf", Read.anything),
+				contentEncoding: optional(object, "contentEncoding", Read.string),
+				dependentRequired: optional(object, "dependentRequired", Read.anything),
+				dependentSchemas: optional(object, "dependentSchemas", Read.anything),
+				format: optional(object, "format", Read.string),
+				if: optional(object, "if", Read.anything),
+				items: optional(object, "items", Read.anything),
+				not: optional(object, "not", Read.anything),
+				oneOf: optional(object, "oneOf", Read.anything),
+				prefixItems: optional(object, "prefixItems", Read.array(Read.anything)),
+				properties: optional(object, "properties", Read.members),
+				required: optional(object, "required", Read.anything),
+				type: optional(
+					object,
+					"type",
+					Read.union<string | ReadonlyArray<string>>([Read.string, Read.array(Read.string)])
+				)
+			},
+			Read.anything
+		)
+	)
+
+/**
+ * The schema node a node that is no readable schema object reads as: it declares nothing.
+ */
+const noSchemaNode: SchemaNodeValue = {
+	additionalProperties: undefined,
+	allOf: undefined,
+	anyOf: undefined,
+	contentEncoding: undefined,
+	dependentRequired: undefined,
+	dependentSchemas: undefined,
+	format: undefined,
+	if: undefined,
+	items: undefined,
+	not: undefined,
+	oneOf: undefined,
+	prefixItems: undefined,
+	properties: undefined,
+	required: undefined,
+	type: undefined
+}
 
 const formUrlencoded = "application/x-www-form-urlencoded"
 
-const octetStream = "application/octet-stream"
+/**
+ * The part types the encoding table defaults to (ENC-17 to ENC-26), `text/plain` also the type of
+ * a form-pairs part (ENC-40).
+ */
+const octetStream = fixedMediaRange("application/octet-stream")
+
+const textPlain = fixedMediaRange("text/plain")
+
+const applicationJson = fixedMediaRange("application/json")
 
 type Codec =
 	| "binary"
@@ -323,7 +437,7 @@ const fieldRefusal = (entry: CanonicalKey, finding: Finding, wire: string): Find
 		: { ...field, related: [finding.at, ...(finding.related ?? [])] }
 }
 
-const sorted = (rows: readonly string[]): readonly string[] =>
+const sorted = (rows: ReadonlyArray<RowId>): ReadonlyArray<RowId> =>
 	Arr.sort(Arr.dedupe(rows), Order.String)
 
 interface Located {
@@ -333,9 +447,8 @@ interface Located {
 
 const nodeAt = (resolution: Resolution, at: CanonicalKey): Effect.Effect<SchemaNodeValue> =>
 	nodeIn(resolution, at).pipe(
-		Effect.map((json) => decodeSchemaNode(json)),
-		Effect.map(Option.getOrElse((): SchemaNodeValue => ({}))),
-		Effect.orElseSucceed((): SchemaNodeValue => ({}))
+		Effect.map((json) => Result.getOrElse(schemaObject(json), () => noSchemaNode)),
+		Effect.orElseSucceed(() => noSchemaNode)
 	)
 
 /**
@@ -459,7 +572,11 @@ interface Requirement {
  */
 const unresolved = ["anyOf", "dependentRequired", "dependentSchemas", "if", "not", "oneOf"] as const
 
-const requiredStrings = Schema.decodeUnknownOption(Schema.Array(Schema.String))
+/**
+ * The property names a schema's `required` lists: none when it is absent or no array of strings.
+ */
+const requiredNames = (node: SchemaNodeValue): ReadonlyArray<string> =>
+	Result.getOrElse(Read.array(Read.string)(node.required), (): ReadonlyArray<string> => [])
 
 const requirementOf = Effect.fnUntraced(function* requirementOf(
 	walk: Walk,
@@ -482,7 +599,7 @@ const requirementOf = Effect.fnUntraced(function* requirementOf(
 			done.add(key)
 
 			const node = yield* nodeAt(walk.resolution, at)
-			for (const name of Option.getOrElse(requiredStrings(node.required), () => [])) {
+			for (const name of requiredNames(node)) {
 				names.add(name)
 			}
 
@@ -547,8 +664,8 @@ const factsOf = Effect.fnUntraced(function* facts(
 })
 
 interface Default {
-	readonly row: string
-	readonly type: string
+	readonly row: RowId
+	readonly type: MediaRange
 }
 
 const absentDefault = (line: SpecLine): Default => ({
@@ -565,7 +682,7 @@ const stringDefault = (line: SpecLine, facts: Facts): Default => {
 		return { row: "ENC-19", type: octetStream }
 	}
 
-	return { row: "ENC-20", type: "text/plain" }
+	return { row: "ENC-20", type: textPlain }
 }
 
 const scalarDefault = (line: SpecLine, name: string, facts: Facts): Default =>
@@ -573,10 +690,10 @@ const scalarDefault = (line: SpecLine, name: string, facts: Facts): Default =>
 		Match.when("string", (): Default => stringDefault(line, facts)),
 		Match.whenOr("number", "integer", "boolean", (): Default => ({
 			row: "ENC-21",
-			type: "text/plain"
+			type: textPlain
 		})),
-		Match.when("object", (): Default => ({ row: "ENC-22", type: "application/json" })),
-		Match.when("null", (): Default => ({ row: "ENC-25", type: "text/plain" })),
+		Match.when("object", (): Default => ({ row: "ENC-22", type: applicationJson })),
+		Match.when("null", (): Default => ({ row: "ENC-25", type: textPlain })),
 		Match.orElse((): Default => absentDefault(line))
 	)
 
@@ -600,7 +717,7 @@ const defaultOfTypes = (line: SpecLine, facts: Facts, arrayDefault: ArrayDefault
 	return decided.length === 1 && only !== undefined ? only : absentDefault(line)
 }
 
-const nestedArrayDefault: ArrayDefault = () => ({ row: "ENC-23", type: "application/json" })
+const nestedArrayDefault: ArrayDefault = () => ({ row: "ENC-23", type: applicationJson })
 
 /**
  * An array is typed by its items (ENC-23), except in 3.2, where an array is `application/json`
@@ -614,7 +731,7 @@ const arrayDefault =
 			return { row: "ENC-23", type: items }
 		}
 
-		return { row: "ENC-24", type: byName ? items : "application/json" }
+		return { row: "ENC-24", type: byName ? items : applicationJson }
 	}
 
 /**
@@ -625,7 +742,7 @@ const defaultFor = (line: SpecLine, facts: Facts, input: RuleInput): Default =>
 
 type Target =
 	| { readonly kind: "position"; readonly index: number }
-	| { readonly kind: "property"; readonly name: string }
+	| { readonly kind: "property"; readonly name: WireName }
 
 interface PlainSerialization {
 	allowReserved?: boolean
@@ -635,7 +752,7 @@ interface PlainSerialization {
 
 interface PlainHeader {
 	readonly deprecated: boolean
-	readonly name: string
+	readonly name: HeaderName
 	readonly required: boolean
 	readonly schema: { readonly key: string }
 	readonly sensitive?: true
@@ -643,7 +760,7 @@ interface PlainHeader {
 }
 
 interface PlainNested {
-	readonly contentType: readonly string[]
+	readonly contentType: ReadonlyArray<MediaRange>
 	readonly headers: readonly PlainHeader[]
 	serialization?: PlainSerialization
 	readonly target: Target
@@ -655,9 +772,15 @@ interface PlainRule extends PlainNested {
 	nestedItem?: PlainNested
 	nonStandard?: "deepObjectBrackets"
 	nonStandardScalars?: "deepObjectScalars"
-	readonly origin: { readonly document: string; readonly pointer: string }
-	readonly rows: readonly string[]
+	readonly origin: Origin
+	readonly rows: ReadonlyArray<RowId>
 }
+
+/**
+ * The origin of the element at `key`, whose pointer the generator built.
+ */
+const originOf = (key: CanonicalKey): Effect.Effect<Origin> =>
+	Effect.map(ownPointer(key.pointer), (pointer): Origin => ({ document: key.document, pointer }))
 
 interface RuleResult {
 	readonly findings: readonly Finding[]
@@ -694,11 +817,10 @@ const quoted = (text: string): string => pipe(text, stripUnsafeText, JSON.string
 const targetLabel = (target: Target): string =>
 	target.kind === "property" ? target.name : `position ${target.index}`
 
-const contentTypes = (text: string): Option.Option<readonly string[]> => {
+const contentTypes = (text: string): Option.Option<ReadonlyArray<MediaRange>> => {
 	const parts = Arr.map(Str.split(text, ","), (part) => Str.trim(part))
-	const decoded = Arr.map(parts, (part) => decodeMediaRange(part))
 
-	return Arr.every(decoded, (part) => Option.isSome(part)) ? Option.some(parts) : Option.none()
+	return Arr.every(parts, isMediaRange) ? Option.some(parts) : Option.none()
 }
 
 const explicitStyle = (node: EncodingNode): PlainSerialization => {
@@ -718,10 +840,10 @@ const explicitStyle = (node: EncodingNode): PlainSerialization => {
 	return given
 }
 
-const styleRows = (style: PlainSerialization): readonly string[] => [
-	...(style.style === undefined ? [] : ["ENC-04"]),
-	...(style.explode === undefined ? [] : ["ENC-05"]),
-	...(style.allowReserved === undefined ? [] : ["ENC-06"]),
+const styleRows = (style: PlainSerialization): ReadonlyArray<RowId> => [
+	...(style.style === undefined ? [] : (["ENC-04"] as const)),
+	...(style.explode === undefined ? [] : (["ENC-05"] as const)),
+	...(style.allowReserved === undefined ? [] : (["ENC-06"] as const)),
 	"ENC-13"
 ]
 
@@ -738,8 +860,6 @@ export const sendsFormPairs = (serialization: {
 }): boolean =>
 	(serialization.style === undefined || serialization.style === "form") &&
 	serialization.explode !== false
-
-const formPairsType = "text/plain"
 
 const unsupportedPartStyleCode = "ENC-40/unsupported-part-style"
 
@@ -827,10 +947,10 @@ const isObjectPart = Effect.fnUntraced(function* isObjectPart(
 })
 
 interface Typing {
-	readonly contentType: readonly string[]
+	readonly contentType: ReadonlyArray<MediaRange>
 	readonly findings: readonly Finding[]
 	readonly refused: boolean
-	readonly rows: readonly string[]
+	readonly rows: ReadonlyArray<RowId>
 	readonly serialization: PlainSerialization | undefined
 }
 
@@ -977,7 +1097,7 @@ const headersOf = Effect.fnUntraced(function* headersOf(
 		}
 
 		declares = true
-		if (Option.isNone(decodeHeaderName(name))) {
+		if (!isHeaderName(name)) {
 			findings.push(
 				dropping(
 					plainRefusal(
@@ -1038,6 +1158,31 @@ const headersOf = Effect.fnUntraced(function* headersOf(
 	return { declares, findings, headers: kept }
 })
 
+/**
+ * ENC-41: a part or a form field goes on the wire under its property's name, so a property or
+ * encoding key that is no wire name (empty, or holding a control character; validation refuses a
+ * lone surrogate) names nothing the body can send, and its alternative is refused.
+ */
+const invalidPartName = (name: string, at: CanonicalKey): Finding =>
+	dropping(
+		plainRefusal(
+			"ENC-41/invalid-part-name",
+			"media-type-encoding",
+			"Part name",
+			`The part name ${quoted(name)} is empty or contains control characters or lone surrogates.`,
+			at
+		)
+	)
+
+/**
+ * The target of the rule of the property `name`, whose rule sits at `at`: ENC-41 when the name is
+ * no wire name.
+ */
+const namedTarget = (name: string, at: CanonicalKey): Result.Result<Target, Finding> =>
+	isWireName(name)
+		? Result.succeed({ kind: "property", name })
+		: Result.fail(invalidPartName(name, at))
+
 interface NestedEntry {
 	readonly actual: CanonicalKey
 	readonly node: EncodingNode | undefined
@@ -1060,31 +1205,39 @@ const nestedEntries = (
 	node: EncodingNode,
 	actual: CanonicalKey,
 	members: Members
-): readonly NestedEntry[] => {
+): Result.Result<ReadonlyArray<NestedEntry>, Finding> => {
 	const byName = node.encoding
 	const declared = new Set(Arr.map(members.properties, ([name]) => name))
 	const properties =
 		byName === undefined
 			? []
-			: Arr.map(members.properties, ([name, schema]): NestedEntry => {
+			: Arr.map(members.properties, ([name, schema]) => {
 					const explicit = Option.getOrUndefined(Record.get(byName, name))
+					const at = explicit === undefined ? schema : childKey(actual, "encoding", name)
 
-					return {
-						actual: explicit === undefined ? schema : childKey(actual, "encoding", name),
+					return Result.map(namedTarget(name, at), (target): NestedEntry => ({
+						actual: at,
 						node: explicit,
-						target: { kind: "property", name }
-					}
+						target
+					}))
 				})
 	const undeclared = Arr.map(
 		Arr.filter(Record.toEntries(byName ?? {}), ([name]) => !declared.has(name)),
-		([name, child]): NestedEntry => ({
-			actual: childKey(actual, "encoding", name),
-			node: child,
-			target: { kind: "property", name }
-		})
+		([name, child]) => {
+			const at = childKey(actual, "encoding", name)
+
+			return Result.map(namedTarget(name, at), (target): NestedEntry => ({
+				actual: at,
+				node: child,
+				target
+			}))
+		}
 	)
 
-	return [...properties, ...undeclared, ...positionalEntries(node, actual)]
+	return Result.map(Result.all([...properties, ...undeclared]), (named) => [
+		...named,
+		...positionalEntries(node, actual)
+	])
 }
 
 const toNested = (rule: PlainRule): PlainNested => {
@@ -1115,7 +1268,7 @@ interface Nesting {
 	readonly item: PlainNested | undefined
 	readonly nested: readonly PlainNested[]
 	readonly refused: boolean
-	readonly rows: readonly string[]
+	readonly rows: ReadonlyArray<RowId>
 }
 
 const refuseNesting = (finding: Finding): Nesting => ({
@@ -1134,10 +1287,10 @@ interface Batch {
 
 type BuildAll = (ctx: Context, inputs: readonly RuleInput[]) => Effect.Effect<Batch>
 
-const nestedRows = (node: EncodingNode): readonly string[] => [
-	...(node.encoding === undefined ? [] : ["ENC-07"]),
-	...(node.prefixEncoding === undefined ? [] : ["ENC-08"]),
-	...(node.itemEncoding === undefined ? [] : ["ENC-09"])
+const nestedRows = (node: EncodingNode): ReadonlyArray<RowId> => [
+	...(node.encoding === undefined ? [] : (["ENC-07"] as const)),
+	...(node.prefixEncoding === undefined ? [] : (["ENC-08"] as const)),
+	...(node.itemEncoding === undefined ? [] : (["ENC-09"] as const))
 ]
 
 /**
@@ -1170,7 +1323,11 @@ const nestingOf = Effect.fnUntraced(function* nestingOf(
 			? noMembers
 			: yield* membersOf(ctx.walk, input.schema)
 	const entries = nestedEntries(node, input.actual, children)
-	const inputs = Arr.map(entries, (entry): RuleInput => ({
+	if (Result.isFailure(entries)) {
+		return refuseNesting(entries.failure)
+	}
+
+	const inputs = Arr.map(entries.success, (entry): RuleInput => ({
 		actual: entry.actual,
 		depth: 1,
 		formData: false,
@@ -1198,8 +1355,8 @@ const nestingOf = Effect.fnUntraced(function* nestingOf(
 
 	return {
 		findings: built.findings,
-		item: item === undefined ? undefined : rules[entries.length],
-		nested: rules.slice(0, entries.length),
+		item: item === undefined ? undefined : rules[inputs.length],
+		nested: rules.slice(0, inputs.length),
 		refused: built.refused,
 		rows: nestedRows(node)
 	}
@@ -1208,12 +1365,12 @@ const nestingOf = Effect.fnUntraced(function* nestingOf(
 interface TransferResult {
 	readonly encoding: "base64" | undefined
 	readonly finding: Finding | undefined
-	readonly row: string | undefined
+	readonly row: RowId | undefined
 }
 
 const noTransfer: TransferResult = { encoding: undefined, finding: undefined, row: undefined }
 
-const base64Transfer = (row: string): TransferResult => ({
+const base64Transfer = (row: RowId): TransferResult => ({
 	encoding: "base64",
 	finding: undefined,
 	row
@@ -1307,10 +1464,30 @@ const transferOf = (ctx: Context, input: RuleInput, facts: Facts): TransferResul
 	}
 }
 
-const TransferHeaderSchema = Schema.Struct({
-	const: Schema.optionalKey(Schema.Unknown),
-	enum: Schema.optionalKey(Schema.Array(Schema.Unknown))
-})
+/**
+ * What ENC-39 reads of a Content-Transfer-Encoding header's schema: its `const` and its `enum`.
+ */
+interface TransferSchemaNode {
+	readonly const: unknown
+	readonly enum: ReadonlyArray<unknown> | undefined
+}
+
+const transferSchema: Read.Reader<TransferSchemaNode> = (value) =>
+	Result.flatMap(Read.members(value), (object) =>
+		Read.struct(
+			object,
+			{
+				const: optional(object, "const", Read.anything),
+				enum: optional(object, "enum", Read.array(Read.anything))
+			},
+			Read.anything
+		)
+	)
+
+/**
+ * The schema of a header whose schema is no readable object: it rules nothing out.
+ */
+const noTransferSchema: TransferSchemaNode = { const: undefined, enum: undefined }
 
 const transferHeaderOf = (node: EncodingNode): string | undefined =>
 	Option.getOrUndefined(
@@ -1337,8 +1514,8 @@ const transferConflict = Effect.fnUntraced(function* transferConflict(
 	const header = follow(ctx.resolution, childKey(input.actual, "headers", name))
 	const at = follow(ctx.resolution, childKey(header, "schema"))
 	const schema = yield* nodeIn(ctx.resolution, at).pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(TransferHeaderSchema)),
-		Effect.orElseSucceed((): typeof TransferHeaderSchema.Type => ({}))
+		Effect.map((json) => Result.getOrElse(transferSchema(json), () => noTransferSchema)),
+		Effect.orElseSucceed(() => noTransferSchema)
 	)
 	const declared = {
 		const: pipe(
@@ -1393,7 +1570,7 @@ const buildRule = Effect.fnUntraced(function* buildRule(
 	input: RuleInput,
 	buildAll: BuildAll
 ): Effect.fn.Return<RuleResult> {
-	const node: EncodingNode = input.node ?? {}
+	const node = input.node ?? noEncoding
 	const facts = yield* factsOf(ctx.walk, input.schema, 0)
 	const typing = yield* partTypingOf(ctx, input, node, facts)
 	if (typing.refused) {
@@ -1435,15 +1612,15 @@ const buildRule = Effect.fnUntraced(function* buildRule(
 	}
 
 	const rule: PlainRule = {
-		contentType: pairs ? [formPairsType] : typing.contentType,
+		contentType: pairs ? [textPlain] : typing.contentType,
 		headers: headers.headers,
-		origin: input.actual,
+		origin: yield* originOf(input.actual),
 		rows: sorted([
 			...typing.rows,
 			...nesting.rows,
-			...(headers.declares ? ["ENC-03"] : []),
+			...(headers.declares ? (["ENC-03"] as const) : []),
 			...(transfer.row === undefined ? [] : [transfer.row]),
-			...(styled === undefined ? [] : ["ENC-40"])
+			...(styled === undefined ? [] : (["ENC-40"] as const))
 		]),
 		target: input.target
 	}
@@ -1489,11 +1666,11 @@ interface PlainAlternative {
 	readonly encoding: readonly PlainRule[]
 	itemEncoding?: PlainRule
 	itemSchema?: { readonly key: string }
-	readonly mediaType: string
-	readonly origin: { readonly document: string; readonly pointer: string }
+	readonly mediaType: MediaRange
+	readonly origin: Origin
 	readonly prefixEncoding: readonly PlainRule[]
-	refusedFields?: readonly string[]
-	readonly rows: readonly string[]
+	refusedFields?: ReadonlyArray<WireName>
+	readonly rows: ReadonlyArray<RowId>
 	schema?: { readonly key: string }
 }
 
@@ -1591,10 +1768,10 @@ const readMedia = (
 	const home = follow(resolution, mediaSite)
 
 	return nodeIn(resolution, home).pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(MediaTypeObject)),
+		Effect.flatMap((json) => Effect.fromResult(mediaTypeObject(json))),
 		Effect.mapBoth({
 			onFailure: () =>
-				BodyNotReadable.make({ pointer: mediaSite.pointer, reason: "media-type-not-an-object" }),
+				new BodyNotReadable({ pointer: mediaSite.pointer, reason: "media-type-not-an-object" }),
 			onSuccess: (node) => ({ home, node })
 		})
 	)
@@ -1606,16 +1783,16 @@ const alternativeRows = (
 	node: MediaNode,
 	schema: boolean,
 	itemSchema: boolean
-): readonly string[] =>
+): ReadonlyArray<RowId> =>
 	sorted([
 		"MED-01",
-		...(schema ? ["MED-02"] : []),
-		...(itemSchema ? ["MED-03"] : []),
-		...(node.encoding === undefined ? [] : ["MED-06"]),
-		...(node.prefixEncoding === undefined ? [] : ["MED-07"]),
-		...(node.itemEncoding === undefined ? [] : ["MED-08"]),
-		...(schema || itemSchema ? [] : [line === "3.0" ? "RQB-10" : "RQB-09"]),
-		...(codec === "form" ? [line === "3.2" ? "ENC-28" : "ENC-27", "ENC-29"] : [])
+		...(schema ? (["MED-02"] as const) : []),
+		...(itemSchema ? (["MED-03"] as const) : []),
+		...(node.encoding === undefined ? [] : (["MED-06"] as const)),
+		...(node.prefixEncoding === undefined ? [] : (["MED-07"] as const)),
+		...(node.itemEncoding === undefined ? [] : (["MED-08"] as const)),
+		...(schema || itemSchema ? [] : ([line === "3.0" ? "RQB-10" : "RQB-09"] as const)),
+		...(codec === "form" ? ([line === "3.2" ? "ENC-28" : "ENC-27", "ENC-29"] as const) : [])
 	])
 
 interface Parts {
@@ -1627,7 +1804,7 @@ interface Parts {
 	/**
 	 * The properties refused at `field` scope, in property order (design 8.5).
 	 */
-	readonly refusedFields: readonly string[]
+	readonly refusedFields: ReadonlyArray<WireName>
 }
 
 const noParts: Parts = {
@@ -1652,7 +1829,7 @@ const extraFields = (ctx: Context, schema: CanonicalKey): Effect.Effect<readonly
 	flatten(ctx.walk, schema).pipe(
 		Effect.map((nodes) => {
 			const found = firstLocated(nodes, (node) =>
-				isObjectValue(node.additionalProperties) ? true : undefined
+				Predicate.isObject(node.additionalProperties) ? true : undefined
 			)
 
 			return found === undefined
@@ -1742,22 +1919,25 @@ const propertyInputs = (
 	members: Members,
 	honorsStyle: boolean,
 	formData: boolean
-): readonly RuleInput[] => {
+): Result.Result<ReadonlyArray<RuleInput>, Finding> => {
 	const byName = media.node.encoding ?? {}
 
-	return Arr.map(members.properties, ([name, schema]): RuleInput => {
-		const explicit = Option.getOrUndefined(Record.get(byName, name))
+	return Result.all(
+		Arr.map(members.properties, ([name, schema]) => {
+			const explicit = Option.getOrUndefined(Record.get(byName, name))
+			const actual = explicit === undefined ? schema : childKey(media.home, "encoding", name)
 
-		return {
-			actual: explicit === undefined ? schema : childKey(media.home, "encoding", name),
-			depth: 0,
-			formData,
-			honorsStyle,
-			node: explicit,
-			schema,
-			target: { kind: "property", name }
-		}
-	})
+			return Result.map(namedTarget(name, actual), (target): RuleInput => ({
+				actual,
+				depth: 0,
+				formData,
+				honorsStyle,
+				node: explicit,
+				schema,
+				target
+			}))
+		})
+	)
 }
 
 interface PartInputs {
@@ -1780,14 +1960,14 @@ const partInputs = (
 	media: Media,
 	members: Members,
 	options: { readonly formData: boolean; readonly honorsStyle: boolean; readonly mixed: boolean }
-): PartInputs => {
+): Result.Result<PartInputs, Finding> => {
 	const { home, node } = media
 	const { formData, honorsStyle, mixed } = options
 	const prefix = line === "3.2" ? (node.prefixEncoding ?? []) : []
 	const item = line === "3.2" ? node.itemEncoding : undefined
 	const positional = line === "3.2" && mixed
 	const count = positional ? Math.max(prefix.length, members.prefixItems.length) : prefix.length
-	const properties = propertyInputs(media, members, honorsStyle, formData)
+	const named = propertyInputs(media, members, honorsStyle, formData)
 	const positions = Array.from({ length: count }, (_, index): RuleInput => {
 		const entry = prefix[index]
 		const schema = members.prefixItems[index]
@@ -1825,7 +2005,10 @@ const partInputs = (
 					}
 				]
 
-	return { inputs: [...properties, ...positions, ...remaining], prefixCount: count }
+	return Result.map(named, (properties) => ({
+		inputs: [...properties, ...positions, ...remaining],
+		prefixCount: count
+	}))
 }
 
 /**
@@ -1881,7 +2064,7 @@ const isObjectBody = Effect.fnUntraced(function* isObjectBody(
 interface PartStyles {
 	readonly drops: boolean
 	readonly findings: readonly Finding[]
-	readonly refusedFields: readonly string[]
+	readonly refusedFields: ReadonlyArray<WireName>
 }
 
 /**
@@ -1896,11 +2079,11 @@ const partStyles = Effect.fnUntraced(function* partStyles(
 	findings: readonly Finding[]
 ): Effect.fn.Return<PartStyles> {
 	const named = new Map(
-		Arr.flatMap(inputs, (input): readonly (readonly [string, string])[] =>
+		Arr.flatMap(inputs, (input): ReadonlyArray<readonly [string, WireName]> =>
 			input.target.kind === "property" ? [[keyOf(input.actual), input.target.name]] : []
 		)
 	)
-	const nameOf = (finding: Finding): Option.Option<string> =>
+	const nameOf = (finding: Finding): Option.Option<WireName> =>
 		finding.code === unsupportedPartStyleCode
 			? Option.fromUndefinedOr(named.get(keyOf(finding.at)))
 			: Option.none()
@@ -1962,11 +2145,16 @@ const multipartParts = Effect.fnUntraced(function* multipartParts(
 		return refusedParts([...extra, ...keys.findings])
 	}
 
-	const { inputs, prefixCount } = partInputs(line, media, members, {
+	const named = partInputs(line, media, members, {
 		formData: base === "multipart/form-data",
 		honorsStyle: base === "multipart/form-data" && line !== "3.0",
 		mixed: base === "multipart/mixed"
 	})
+	if (Result.isFailure(named)) {
+		return refusedParts([...extra, ...keys.findings, named.failure])
+	}
+
+	const { inputs, prefixCount } = named.success
 	const built = yield* buildAll(ctx, inputs)
 	if (built.refused) {
 		return refusedParts([...extra, ...keys.findings, ...built.findings])
@@ -2079,7 +2267,7 @@ const isNested = Effect.fnUntraced(function* isNested(
 
 	const members = Arr.flatMap(nodes, ({ at, node }) => [
 		...Arr.map(Record.keys(node.properties ?? {}), (name) => childKey(at, "properties", name)),
-		...(isObjectValue(node.additionalProperties) ? [childKey(at, "additionalProperties")] : [])
+		...(Predicate.isObject(node.additionalProperties) ? [childKey(at, "additionalProperties")] : [])
 	])
 	for (const member of members) {
 		const reached = yield* flatten(walk, member)
@@ -2234,7 +2422,7 @@ const formRule = Effect.fnUntraced(function* formRule(
 	ctx: Context,
 	input: RuleInput
 ): Effect.fn.Return<RuleResult> {
-	const node: EncodingNode = input.node ?? {}
+	const node = input.node ?? noEncoding
 	const typing = yield* typingOf(ctx, input, node, factsOf(ctx.walk, input.schema, 0))
 	if (typing.refused) {
 		return { findings: typing.findings, rule: undefined }
@@ -2274,12 +2462,12 @@ const formRule = Effect.fnUntraced(function* formRule(
 	const rule: PlainRule = {
 		contentType: typing.contentType,
 		headers: [],
-		origin: input.actual,
+		origin: yield* originOf(input.actual),
 		rows: sorted([
 			...typing.rows,
 			...(fallback === undefined ? [] : [fallback.row]),
-			...(typing.serialization === undefined ? [] : ["ENC-12"]),
-			...(ctx.line === "3.0" ? ["ENC-14"] : [])
+			...(typing.serialization === undefined ? [] : (["ENC-12"] as const)),
+			...(ctx.line === "3.0" ? (["ENC-14"] as const) : [])
 		]),
 		target: input.target
 	}
@@ -2362,11 +2550,16 @@ const formParts = Effect.fnUntraced(function* formParts(
 	}
 
 	const findings: Finding[] = [...keys.findings, ...formPositional(media)]
+	const inputs = propertyInputs(media, members, true, false)
+	if (Result.isFailure(inputs)) {
+		return refusedFormParts([...findings, inputs.failure])
+	}
+
 	const rules: PlainRule[] = []
-	const refusedFields: string[] = []
-	const entries = new Map<Finding, { readonly at: CanonicalKey; readonly name: string }>()
+	const refusedFields: WireName[] = []
+	const entries = new Map<Finding, { readonly at: CanonicalKey; readonly name: WireName }>()
 	let requirement: Requirement | undefined
-	for (const input of propertyInputs(media, members, true, false)) {
+	for (const input of inputs.success) {
 		const result = yield* formRule(ctx, input)
 		for (const finding of result.findings) {
 			findings.push(finding)
@@ -2437,7 +2630,7 @@ const normalizeAlternative = Effect.fnUntraced(function* normalizeAlternative(
 ): Effect.fn.Return<AlternativeResult, BodyNotReadable> {
 	const { line, resolution } = ctx
 	const mediaSite = childKey(body, "content", key)
-	if (Option.isNone(decodeMediaRange(key))) {
+	if (!isMediaRange(key)) {
 		return stopAlternative([])
 	}
 
@@ -2467,7 +2660,7 @@ const normalizeAlternative = Effect.fnUntraced(function* normalizeAlternative(
 		codec,
 		encoding: parts.encoding,
 		mediaType: key,
-		origin: home,
+		origin: yield* originOf(home),
 		prefixEncoding: parts.prefixEncoding,
 		rows: alternativeRows(
 			line,
@@ -2575,24 +2768,47 @@ const emptyContent = (line: SpecLine, at: CanonicalKey): Finding =>
 		at
 	)
 
-const Discriminated = Schema.Struct({
-	anyOf: Schema.optionalKey(Schema.Array(Schema.Unknown)),
-	discriminator: Schema.Struct({
-		mapping: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
-		propertyName: Schema.NonEmptyString
-	}),
-	oneOf: Schema.optionalKey(Schema.Array(Schema.Unknown))
-})
+/**
+ * What a discriminator hint reads of a schema: its compositions and its Discriminator Object, whose
+ * `propertyName` is never empty.
+ */
+interface Discriminated {
+	readonly anyOf: ReadonlyArray<unknown> | undefined
+	readonly discriminator: {
+		readonly mapping: Readonly<Record<string, unknown>> | undefined
+		readonly propertyName: string
+	}
+	readonly oneOf: ReadonlyArray<unknown> | undefined
+}
 
-const EntryComponents = Schema.Struct({
-	components: Schema.optionalKey(
-		Schema.Struct({ schemas: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)) })
+const discriminatorObject: Read.Reader<Discriminated["discriminator"]> = (value) =>
+	Result.flatMap(Read.members(value), (object) =>
+		Read.struct(
+			object,
+			{
+				mapping: optional(object, "mapping", Read.record(Read.string, Read.anything)),
+				propertyName: Read.member(
+					object,
+					"propertyName",
+					Read.check(Read.string, Str.isNonEmpty, "a non-empty string")
+				)
+			},
+			Read.anything
+		)
 	)
-})
 
-const decodeDiscriminated = Schema.decodeUnknownOption(Discriminated)
-
-const decodeEntryComponents = Schema.decodeUnknownOption(EntryComponents)
+const discriminated: Read.Reader<Discriminated> = (value) =>
+	Result.flatMap(Read.members(value), (object) =>
+		Read.struct(
+			object,
+			{
+				anyOf: optional(object, "anyOf", Read.array(Read.anything)),
+				discriminator: Read.member(object, "discriminator", discriminatorObject),
+				oneOf: optional(object, "oneOf", Read.array(Read.anything))
+			},
+			Read.anything
+		)
+	)
 
 type Hint = typeof DiscriminatorHint.Encoded
 
@@ -2624,10 +2840,12 @@ interface Component {
  * The entry's component schemas, in document key order.
  */
 const entrySchemas = (resolution: Resolution): readonly Component[] => {
-	const names = Option.match(decodeEntryComponents(resolution.value), {
-		onNone: (): readonly string[] => [],
-		onSome: (root) => Record.keys(root.components?.schemas ?? {})
-	})
+	const names = pipe(
+		Read.members(resolution.value),
+		Result.flatMap((root) => Read.member(root, "components", Read.members)),
+		Result.flatMap((components) => Read.member(components, "schemas", Read.members)),
+		Result.match({ onFailure: (): ReadonlyArray<string> => [], onSuccess: Record.keys })
+	)
 
 	return Arr.map(names, (name) => ({
 		key: { document: resolution.document, pointer: formatPointer(["components", "schemas", name]) },
@@ -2662,7 +2880,7 @@ const allOfChildren = (
 /**
  * The composition that lists the branches itself: `oneOf` wins over `anyOf`.
  */
-const listedKeyword = (node: typeof Discriminated.Type): "anyOf" | "oneOf" | undefined => {
+const listedKeyword = (node: Discriminated): "anyOf" | "oneOf" | undefined => {
 	if ((node.oneOf ?? []).length > 0) {
 		return "oneOf"
 	}
@@ -2681,7 +2899,7 @@ const hintAt = (
 ): Hint | undefined => {
 	const root = settle(resolution, site)
 	const node = Option.getOrUndefined(
-		decodeDiscriminated(Option.getOrUndefined(nodeOption(resolution, root)))
+		Option.flatMap(nodeOption(resolution, root), (json) => Result.getSuccess(discriminated(json)))
 	)
 	if (node === undefined || discriminatorRefused(checkFindings, root)) {
 		return undefined
@@ -2777,9 +2995,9 @@ export const normalizeBody = Effect.fnUntraced(function* normalizeBody(
 	const reference = referenceIn(resolution, use)
 	const target = follow(resolution, use)
 	const node = yield* nodeIn(resolution, target).pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(RequestBodyObject)),
-		Effect.mapError(() =>
-			BodyNotReadable.make({ pointer: site.pointer, reason: "not-a-request-body" })
+		Effect.flatMap((json) => Effect.fromResult(requestBodyObject(json))),
+		Effect.mapError(
+			() => new BodyNotReadable({ pointer: site.pointer, reason: "not-a-request-body" })
 		)
 	)
 	const walk: Walk = { resolution, site }
@@ -2808,7 +3026,7 @@ export const normalizeBody = Effect.fnUntraced(function* normalizeBody(
 	const body = yield* Schema.decodeEffect(Body)({
 		alternatives,
 		docs: docsOf(reference?.description ?? node.description, reference?.summary),
-		origin: { document: resolution.document, pointer: site.pointer },
+		origin: yield* originOf(use),
 		required,
 		rows: ["RQB-01", "RQB-03", "RQB-04"]
 	}).pipe(Effect.orDie)

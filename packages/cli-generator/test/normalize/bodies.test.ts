@@ -4,9 +4,10 @@
  * key that is no media type is dropped (the grammar check reports it), an empty content map leaves nothing to send and
  * is refused; a schema is keyed by its component name or its canonical pointer, an XML body is opaque and carries none;
  * a multipart body without a schema is refused before 3.2, a form-data array and an object on another multipart type
- * are refused at the media type; Encoding Objects on a media type that reads none and a 3.2 media type description are
- * ignored with a notice; a referenced body's diagnostics stand at its use site with the place in its target related;
- * and a refused required body raises its operation.
+ * are refused at the media type, as a form or form-data body with a property whose name is no wire name is (ENC-41);
+ * Encoding Objects on a media type that reads none and a 3.2 media type description are ignored with a notice; a
+ * referenced body's diagnostics stand at its use site with the place in its target related; and a refused required
+ * body raises its operation.
  *
  * Oracle: design 6.3's alternative rules and codec table, applied to the drawn body.
  */
@@ -63,7 +64,8 @@ export const bodyAlternatives = property.explore(bodySpace, {
 		"3.2 media description ignored",
 		"referenced body",
 		"required body refused raises its operation",
-		"several alternatives"
+		"several alternatives",
+		"part name that is no wire name refused"
 	] satisfies ReadonlyArray<Reached<BodyFeature>>,
 	check: (_, c: Case<BodyFeature>) => (sketch) =>
 		Effect.gen(function* () {
@@ -121,9 +123,18 @@ export const bodyAlternatives = property.explore(bodySpace, {
 		},
 		{
 			file: "packages/cli-generator/src/model/brands.ts",
-			original: "Schema.String.pipe(Schema.check(Schema.isPattern(regExp)))",
-			replacement: "Schema.String",
-			why: "A brand built on a pattern checks none, so a content key that is no media type becomes an alternative; the property fails (CATCH's evidence, mutant 679dac1427)."
+			original:
+				"export const isMediaRange = (text: string): text is MediaRange => mediaRangePattern.test(text)",
+			replacement:
+				"export const isMediaRange = (text: string): text is MediaRange => !Str.isEmpty(text)",
+			why: "Every non-empty text is a media range, so a content key that is no media type becomes an alternative; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/normalize/bodies.ts",
+			original:
+				'\tisWireName(name)\n\t\t? Result.succeed({ kind: "property", name })\n\t\t: Result.fail(invalidPartName(name, at))',
+			replacement: '\tResult.succeed({ kind: "property", name })',
+			why: "A form or multipart property whose name is no wire name becomes a part, so the alternative design 6.3 refuses with ENC-41 is kept (or dies on its name); the property fails."
 		},
 		{
 			file: "packages/cli-generator/src/model/pointer.ts",
