@@ -14,11 +14,13 @@ import { closed, relation } from "#compiler/public/dynamic.ts"
 import { bits, closedId } from "#compiler/public/fields.ts"
 import { login, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
+import { queryOver, varsOver } from "#compiler/query/build/query.ts"
+import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { admitValue, type HostValue } from "#compiler/scalar/values/identity.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { compileTemplateOver, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
@@ -64,7 +66,10 @@ export interface CompiledCase {
 
 /**
  * The schema of a drawn roster `Graders` and a relation `Graded` of a closed id of it and a set over it, compiled as
- * `grizzle generate` compiles it: its artifacts and its installation.
+ * `grizzle generate` compiles it: its artifacts and its installation, and a read of every handle of the roster and one
+ * of none, each as a query template, its lowering checked by the kernel's verification (oracle/verify checkedLowering),
+ * the SQL audit's among it: over the empty roster both reads, and over every roster the read of none, are the empty
+ * VALUES source over a closed id, which stands on placeholder rows (lower/conservative/closed/index.ts).
  */
 export const compiledCase = (drawn: RosterCase): CompiledCase => {
 	const Graders =
@@ -78,6 +83,22 @@ export const compiledCase = (drawn: RosterCase): CompiledCase => {
 	const app = role(value, "app", { Graders, Graded }, { write: ["Graded"] })
 	const grade = changeSetOver.empty(app).insert(Graded, [])
 	const artifacts = succeeded(testArtifacts(value, testCompile), "the registry's artifacts")
+	const everyHandle = queryOver(value).rule((r: RuleValue) => {
+		const g = varsOver(Graders, "g")
+		return r.match(Graders, g).find(g)
+	})
+	const noHandle = queryOver(value).rule((r: RuleValue) => {
+		const g = varsOver(Graders, "g")
+		return r.match(Graders, g).where(r.or()).find(g)
+	})
+	succeeded(
+		compileTemplateOver(everyHandle, value, artifacts, testCompile),
+		"the read of every handle of the roster"
+	)
+	succeeded(
+		compileTemplateOver(noHandle, value, artifacts, testCompile),
+		"the read of none of the roster's handles, `.where(r.or())`"
+	)
 	succeeded(
 		compileInstallation(owning(value), {
 			...installOptions(owning(value)),

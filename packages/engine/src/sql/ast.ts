@@ -224,9 +224,9 @@ declare const finiteFloatBrand: unique symbol
  *   float input function reads as exactly that double;
  * - text: any value spelled by its type's input function: text, uuid, ranges, money, vectors;
  * - bits: a bit string as its hex digits (core/hex.ts), whole digits in 0-9 and A-F, printed `X'<digits>'` and cast:
- *   the one spelling of every bit string grizzle writes, a set's literal and a constant's alike;
- * - null: NULL of its type, printed `NULL::type`: the value of a type that holds none, a closed id over an empty roster
- *   among them, which every domain admits.
+ *   the one spelling of every bit string grizzle writes, a set's literal and a constant's alike.
+ *
+ * No literal is NULL: grizzle writes no NULL for a value (the SQL audit's null rule).
  */
 export type LiteralValue =
 	| { readonly kind: "bool"; readonly value: boolean }
@@ -236,7 +236,6 @@ export type LiteralValue =
 	| { readonly kind: "floatSpecial"; readonly value: FloatSpecialName }
 	| { readonly kind: "text"; readonly value: string }
 	| { readonly kind: "bits"; readonly hex: string }
-	| { readonly kind: "null" }
 
 const binaryOperators = [
 	"=",

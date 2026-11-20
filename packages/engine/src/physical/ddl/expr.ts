@@ -74,8 +74,6 @@ export const persistentText = (
 			return v.value
 		case "bits":
 			return bitInputText(v.hex)
-		case "null":
-			throw defect("a typed literal lowers to a value, never to NULL")
 	}
 }
 

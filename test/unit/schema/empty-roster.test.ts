@@ -13,6 +13,9 @@
  *   over the empty roster; a set's exactly where each member is one, the empty set always.
  * - The roster's facts, what a read of it delivers, are its handles, none for the empty roster, and the served file
  *   `grizzle generate` writes for a login writing the relation, read back as a layer loads it, holds exactly them.
+ * - A read of every handle of the roster and one of none compile, each lowering keeping every promise its construction
+ *   makes (compiledCase): the empty VALUES source a read of an empty roster's handles is, or a read of none, holds a
+ *   closed id's placeholder, which is no NULL, which grizzle writes for no value.
  *
  * Oracle: the specification, the roster's handles as drawn.
  */
@@ -103,6 +106,13 @@ export const aRosterOfAnyNumberOfHandlesNoneAmongThemTypesItsClosedIdsItsSetsIts
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/closed/index.ts",
+				original: '\t\tcase "code":\n\t\t\treturn lit.int(0n, cx.baseTypeRef(base))',
+				replacement:
+					'\t\tcase "code":\n\t\t\treturn lowerLiteral(cx.names, { kind: "handle", handle: base.roster.handles[0] }, base)',
+				why: "An empty VALUES source's closed id stands on its roster's first handle's code, which the empty roster has none of, so a read of the empty roster dies lowering its placeholder rows (codes.ts codeOf's defect), as every read over it did before 7c9726ba7."
+			},
 			{
 				file: "packages/engine/src/served/json.ts",
 				original:

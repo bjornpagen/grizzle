@@ -21,7 +21,12 @@ import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import type { Expr, FromItem, Select } from "#compiler/sql/ast.ts"
 import { lit } from "#compiler/sql/build.ts"
 
-/** A value of every admitted type, for the one row an empty VALUES source stands on; WHERE false discards it. */
+/**
+ * A value of each column type's SQL type, for the rows an empty VALUES source stands on, which WHERE false discards
+ * before any is read (see lowerClosed): its zero, which its type's facts need not admit. A closed id's is the code 0 of
+ * its roster's domain, which the domain refuses where 0 is a hole and over the empty roster, whose domain admits no
+ * value at all, so no handle's code need stand for it.
+ */
 const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 	const base = baseOf(type)
 	switch (base.carrier) {
@@ -48,7 +53,7 @@ const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 		case "bytes":
 			return lit.text("\\x", cx.baseTypeRef(base))
 		case "code":
-			return lit.null(cx.baseTypeRef(base))
+			return lit.int(0n, cx.baseTypeRef(base))
 		case "bits":
 			return lowerLiteral(cx.names, { kind: "handles", handles: [] }, base)
 		case "range4":

@@ -811,8 +811,6 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 				}
 				case "bits":
 					return castTo({ kind: "bits", value: textOfHex(e.value.hex) }, e.type, scope)
-				case "null":
-					return undefined
 				case "decimal":
 				case "float":
 				case "floatSpecial":

@@ -108,7 +108,6 @@ const literalBytes = (value: LiteralValue): number => {
 		case "int":
 		case "float":
 		case "floatSpecial":
-		case "null":
 			return 0
 	}
 }

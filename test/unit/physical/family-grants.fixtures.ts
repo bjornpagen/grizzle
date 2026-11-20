@@ -518,7 +518,6 @@ const literalOf = (e: Expr): string | undefined => {
 		case "bits":
 		case "float":
 		case "floatSpecial":
-		case "null":
 			return undefined
 	}
 }
