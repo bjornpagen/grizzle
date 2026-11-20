@@ -154,7 +154,16 @@ export const theCheckersParameterMemberAndBoundRulesTypeEachQuerysOwnParametersB
 			name: "the parameter rule restated over the drawn query (test/unit/check/params.ts)"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/types.ts",
+				original:
+					"\tif (spanOf(a)?.width !== spanOf(b)?.width || exactDigitsOf(a) !== exactDigitsOf(b)) {",
+				replacement:
+					"\tif (spanOf(a)?.width === spanOf(b)?.width || exactDigitsOf(a) !== exactDigitsOf(b)) {",
+				why: "Operator mutant e3bc5ac29a at packages/engine/src/scalar/compute/types.ts:286 in sameMeaning: `!==` becomes `===`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /** The checker's parameter, member and bound rules hold a member's head to its relation's heading for its op, every column entering its field at the field's own type, one heading and no attachment, refused at the member or the attachment. Its budget is its suite's before it was a property (test/unit/check/semantics.test.ts at 4ca3036a): 300 runs and 600 steered cases. */
@@ -356,5 +365,12 @@ export const theCheckersParameterMemberAndBoundRulesBindANegatedMatchsParameterW
 			name: "the items no Tag holds at the item and the bound label"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/analysis/schema.ts",
+				original: "this.closedReads = closedReads(readable)",
+				replacement: "{}",
+				why: "Operator mutant 14ac793b0a at packages/engine/src/analysis/schema.ts:474 in <module>: `this.closedReads = closedReads(readable)` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})

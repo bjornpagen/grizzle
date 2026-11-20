@@ -163,6 +163,15 @@ export const theContractLiteralCheckChecksALiteralOppositeAContractsTermAgainstI
 				name: "README: a value opposite a term is a value of its type, so the contract judges it wherever it stands"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/ir/shape.ts",
+					original:
+						"\tfor (const key of keys) {\n\t\tconst child = key === skip ? undefined : value[key]\n\t\tif (child === undefined) {",
+					replacement:
+						"\tfor (const key of keys) {\n\t\tconst child = key !== skip ? undefined : value[key]\n\t\tif (child === undefined) {",
+					why: "Operator mutant 22ac258f7b at packages/engine/src/ir/shape.ts:950 in readRequired: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+				}
+			]
 		}
 	)

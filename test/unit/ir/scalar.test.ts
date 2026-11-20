@@ -387,7 +387,14 @@ export const moneyAndVectorValuesAgreeWithTheOwnedMoneyCarrier = property.explor
 			name: "the IR's money payload grammar beside the Money carrier that wrote it"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/identity.ts",
+				original: `if (typeof part === "string") {\n\t\treturn \`\${part.length}:\${part}\`\n\t}`,
+				replacement: "{}",
+				why: `Operator mutant 796b83318f at packages/engine/src/core/identity.ts:173 in encodePart: \`if (typeof part === "string") {   return \`\${part.length}:\${part}\`  }\` becomes \`{}\`; the property fails (the census, lane TESTPOLICY2).`
+			}
+		]
 	}
 )
 

@@ -168,7 +168,14 @@ export const computesTranslateAndLowerAsciiTranslateAndLowerAsciiAgreeWithTheMap
 			name: "the map applied by hand, character by character, and the reference evaluator"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/charset.ts",
+				original: "[\n\tObject.freeze([minScalar, surrogateLo - 1] as const),\n\t",
+				replacement: "[",
+				why: "Operator mutant fd95941c1e at packages/text/src/regex/charset.ts:36 in <module>: `[  Object.freeze([minScalar, surrogateLo - 1] as const),  ` becomes `[`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /** Compute's translate and lowerAscii types a translation as text of exactly the image of its operand's language. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 400 runs and 400 steered cases. */

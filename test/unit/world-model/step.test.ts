@@ -94,7 +94,14 @@ export const theWorldsModelsStepKeepsEveryInvariantOnEveryBranchAndAgreesWithIts
 		},
 		budget: { runs: 150, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/subset.ts",
+				original: `subset.kind === "done"\n\t\t? "done"\n\t\t: \`\${subset.initial ? "i" : "n"}\${[...subset.states].toSorted((a, b) => a - b).join(",")}\``,
+				replacement: `subset.kind === "done" ? \`\${subset.initial ? "i" : "n"}\${[...subset.states].toSorted((a, b) => a - b).join(",")}\` : "done"`,
+				why: `Operator mutant 8d79a8a065 at packages/text/src/regex/subset.ts:75 in subsetKey: \`subset.kind === "done"   ? "done"   : \`\${subset.initial ? "i" : "n"}\${[...subset.states].toSorted((a, b) => a - b).join(",")}\`\` becomes \`subset.kind === "done" ? \`\${subset.initial ? "i" : "n"}\${[...subset.states].toSorted((a, b) => a - b).join(",")}\` : "done"\`; the property fails (the census, lane TESTPOLICY2).`
+			}
+		]
 	})
 
 /**

@@ -144,7 +144,14 @@ export const generatedQueryCasesHonorAConfigurationThatLeavesFormsOut = family({
 		},
 		budget: { runs: 300, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/categories.generated.ts",
+				original: ',\n\t"Sc"',
+				replacement: "",
+				why: 'Operator mutant 79172ed58c at packages/text/src/regex/categories.generated.ts:28 in <module>: `,  "Sc"` becomes ``; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	}),
 	acyclic: property.explore(queryCaseGen(acyclic), {
 		needs: {},

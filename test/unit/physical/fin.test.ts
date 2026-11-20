@@ -107,7 +107,15 @@ export const aFaultPlantedInAValidSlottedDeclarationAdmitsAValidDeclarationAndRe
 			name: "the planted fault: its rule's reason at the relation and slot the rule names"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/base/tuple-map.ts",
+				original:
+					'if (\n\t\t\tx !== y &&\n\t\t\t!(typeof x === "number" && typeof y === "number" && Number.isNaN(x) && Number.isNaN(y))\n\t\t) {\n\t\t\treturn false\n\t\t}',
+				replacement: "{}",
+				why: 'Operator mutant fe4ffa61b6 at packages/text/src/base/tuple-map.ts:39 in sameFrom: `if (    x !== y &&    !(typeof x === "number" && typeof y === "number" && Number.isNaN(x) && Number.isNaN(y))   ) {    return false   }` becomes `{}`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})
 
 /** A cell read as an integer refuses a payload space exactly when its codes are past the greatest integer, naming the constant, the bound and the codes. Its budget is its suite's before it was a property (test/unit/physical/fin.test.ts at 4ca3036a): 200 runs and 100 steered cases. */
@@ -200,5 +208,12 @@ export const aCellReadAsAnIntegerPlansADeclaredRelationExactlyWhenTheProductOfIt
 			name: "a payload space holds the product of its rosters' sizes, at most 2^31 - 1"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original: "this.#scope = scope",
+				replacement: "{}",
+				why: "Operator mutant 1870d7a524 at packages/engine/src/scalar/compute/typing.ts:1612 in <module>: `this.#scope = scope` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})

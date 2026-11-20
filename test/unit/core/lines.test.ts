@@ -194,7 +194,14 @@ export const theTextBoundATextPastJavaScriptsLongestStringIsRefusedWithItsLength
 				name: "the text's length, counted, past maxStringLength"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/text/src/utf8.ts",
+					original: "text.isWellFormed()",
+					replacement: "false",
+					why: "Operator mutant 2caaf16d6a at packages/text/src/utf8.ts:25 in isWellFormedText: `text.isWellFormed()` becomes `false`; the property fails (the census, lane TESTPOLICY2)."
+				}
+			]
 		}
 	)
 

@@ -68,5 +68,12 @@ export const thePackageAsASubmoduleConsumerTakesItTypechecksTheREADMEsAndSKILLmd
 			name: "TypeScript's own checker, under a consumer's tsconfig"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/builders.ts",
+				original: "this.types.length - 1",
+				replacement: "1 - this.types.length",
+				why: "Operator mutant ada527ba97 at packages/engine/src/scalar/compute/builders.ts:284 in <module>: `this.types.length - 1` becomes `1 - this.types.length`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})

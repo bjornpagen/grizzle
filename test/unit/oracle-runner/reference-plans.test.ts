@@ -112,7 +112,17 @@ export const theReferenceEvaluatorsPlansAgreeWithItsNestedLoopsWhereJoinsAndMerg
 					maxPalette: 1
 				}
 			}),
-			{ budget: { runs: 480, steered: 0 }, kills: [] }
+			{
+				budget: { runs: 480, steered: 0 },
+				kills: [
+					{
+						file: "packages/text/src/regex/parse.ts",
+						original: "\t\t\tvalue = Math.min(value * 10 + (c - 0x30), Number.MAX_SAFE_INTEGER)",
+						replacement: "\t\t\tvalue = Math.min(value * 10 + (0x30 - c), Number.MAX_SAFE_INTEGER)",
+						why: "Operator mutant 19928abb4c at packages/text/src/regex/parse.ts:453 in <module>: `c - 0x30` becomes `0x30 - c`; the property fails (the census, lane TESTPOLICY2)."
+					}
+				]
+			}
 		)
 	})
 
@@ -125,7 +135,14 @@ export const theReferenceEvaluatorsPlansAgreeWithItsNestedLoopsWhereJoinsAndMerg
 export const theReferenceEvaluatorsPlansAgreeWithItsNestedLoopsOnRecursions = family({
 	recursive: agree(recursiveCaseGen(defaultRecursiveLimits), {
 		budget: { runs: 480, steered: 0 },
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/term.ts",
+				original: '\tif (entry === undefined && built in value && "expr" in value) {',
+				replacement: '\tif (entry !== undefined && built in value && "expr" in value) {',
+				why: "Operator mutant aca9e1f9f6 at packages/engine/src/scalar/compute/term.ts:219 in registeredOf: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	}),
 	fixedLength: agree(fixedLengthCaseGen(defaultGraphLimits), {
 		budget: { runs: 480, steered: 0 },

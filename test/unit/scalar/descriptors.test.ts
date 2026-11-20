@@ -97,7 +97,14 @@ export const twoSpellingsAreTwoDescriptorsOfTwoTypes = property.exhaust(finite(p
 		name: "the SQL type each spelling names, which the catalog suite holds PostgreSQL to"
 	},
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/text/src/regex/ir.ts",
+			original: '\t\tif (body.kind === "never") {',
+			replacement: '\t\tif (body.kind !== "never") {',
+			why: "Operator mutant 2f8934ec20 at packages/text/src/regex/ir.ts:605 in <module>: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+		}
+	]
 })
 
 /**

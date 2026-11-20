@@ -140,7 +140,14 @@ export const aQuerysContractsAreOneDescriptorPerNameAcrossTheQueryAndItsSchemaAN
 			name: "one name, one descriptor, restated over the drawn declarations (test/unit/check/contracts.ts)"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/ir.ts",
+				original: 'if (typeof piece !== "string") {\n\t\t\treturn piece\n\t\t}',
+				replacement: "{}",
+				why: 'Operator mutant b363c73c35 at packages/text/src/regex/ir.ts:403 in settle: `if (typeof piece !== "string") {    return piece   }` becomes `{}`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})
 
 /** A fault planted in a generated query is refused with its reason at the location it determines, and the query without it is admitted. Its budget is its suite's before it was a property (test/unit/check/reasons.test.ts at 4ca3036a): 200 runs and 400 steered cases. */

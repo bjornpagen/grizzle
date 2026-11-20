@@ -92,7 +92,14 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsGeneratedCasesEveryNodeDed
 			name: "the fragment evaluator: what each node's plain SQL delivers"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/ids.ts",
+				original: "\t\tcounts[kind] += 1",
+				replacement: "\t\tcounts[kind] += 0",
+				why: "Operator mutant b0e061e231 at packages/engine/src/core/ids.ts:243 in next: `1` becomes `0`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /**
@@ -183,7 +190,16 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsTheCounterexampleRootsProj
 			name: "the fragment evaluator: what each node's plain SQL delivers"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/rel.ts",
+				original:
+					'{\n\t\t\tconst input: S["node"] = yield n.input\n\t\t\tconst out = n.out.map((o) => ({ name: o.name, expr: m.expr(o.expr) }))\n\t\t\treturn { ...n, input, out, meta: m.meta(n.meta) }\n\t\t}\n\t\tcase "SemiJoin": {\n\t\t\tconst left: S["node"] = yield n.left\n\t\t\tconst right: S["node"] = yield n.right\n\t\t\treturn { ...n, left, right: keptRight(right), meta: m.meta(n.meta) }\n\t\t}',
+				replacement:
+					'{    const left: S["node"] = yield n.left    const right: S["node"] = yield n.right    return { ...n, left, right: keptRight(right), meta: m.meta(n.meta) }   }   case "SemiJoin": {    const input: S["node"] = yield n.input    const out = n.out.map((o) => ({ name: o.name, expr: m.expr(o.expr) }))    return { ...n, input, out, meta: m.meta(n.meta) }   }',
+				why: 'Operator mutant ce9b2811c1 at packages/engine/src/ir/rel.ts:1060 in mapNode: `{    const input: S["node"] = yield n.input    const out = n.out.map((o) => ({ name: o.name, expr: m.expr(o.expr) }))    return { ...n, input, out, meta: m.meta(n.meta) }   }   case "SemiJoin": {    const left: S["node"] = yield n.left    const right: S["node"] = yield n.right    return { ...n, left, right: keptRight(right), meta: m.meta(n.meta) }   }` becomes `{    const left: S["node"] = yield n.left    const right: S["node"] = yield n.right    return { ...n, left, right: keptRight(right), meta: m.meta(n.meta) }   }   case "SemiJoin": {    const input: S["node"] = yield n.input    const out = n.out.map((o) => ({ name: o.name, expr: m.expr(o.expr) }))    return { ...n, input, out, meta: m.meta(n.meta) }   }`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})
 
 /**
@@ -207,7 +223,14 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsNoninjectiveKeyExpressions
 			name: "the fragment evaluator: what each node's plain SQL delivers"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/ir.ts",
+				original: '\t\tif (max !== "unbounded" && max < min) {',
+				replacement: '\t\tif (max !== "unbounded" && max >= min) {',
+				why: "Operator mutant bb62591850 at packages/text/src/regex/ir.ts:596 in <module>: `<` becomes `>=`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	}
 )
 

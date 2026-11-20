@@ -99,7 +99,14 @@ export const declaredRenamesAndDropsDropAFieldGrizzleDrawsAgainWithNoDeclaration
 			},
 			box: "a caller's field and a generated one dropped, each declared or not",
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/core/lines.ts",
+					original: `needed > limit\n\t\t? Result.err(resourceBound(at, { kind: "stringLength", limit, needed }))\n\t\t: Result.ok(\`\${open}\${parts.join(separator)}\${close}\`)`,
+					replacement: `needed > limit ? Result.ok(\`\${open}\${parts.join(separator)}\${close}\`) : Result.err(resourceBound(at, { kind: "stringLength", limit, needed }))`,
+					why: `Operator mutant 62cfe33fcc at packages/engine/src/core/lines.ts:107 in enclosedWithin: \`needed > limit   ? Result.err(resourceBound(at, { kind: "stringLength", limit, needed }))   : Result.ok(\`\${open}\${parts.join(separator)}\${close}\`)\` becomes \`needed > limit ? Result.ok(\`\${open}\${parts.join(separator)}\${close}\`) : Result.err(resourceBound(at, { kind: "stringLength", limit, needed }))\`; the property fails (the census, lane TESTPOLICY2).`
+				}
+			]
 		}
 	)
 

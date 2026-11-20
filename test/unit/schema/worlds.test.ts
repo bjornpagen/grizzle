@@ -227,7 +227,14 @@ export const roleAdmissionRefusesEveryPlantedBreachOfARolesRulesByThatRuleAtTheB
 			name: "the role rules: whole entries of the base under their names, parameterless flat Query entries over it, writes of ordinary relations and writable entries once per relation, refreshes of derived ones"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/schema/world.ts",
+				original: '\t\tif (draft !== undefined || kind === "relation" || kind === "closed") {',
+				replacement: '\t\tif (draft === undefined || kind === "relation" || kind === "closed") {',
+				why: "Operator mutant 23023a52cc at packages/engine/src/schema/world.ts:334 in admitRole: `!==` becomes `===`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /** Query entry totality admits every definition a program admits as a query entry, and lowers a query reading it. Its budget is its suite's before it was a property (test/unit/schema/worlds.test.ts at 4ca3036a): 40 runs and 100 steered cases. */
@@ -359,5 +366,14 @@ export const loginAdmissionRefusesEachLoginAtItsFirstRoleBreakingALoginRuleByTha
 			name: "each role over the login's base, named apart from it, in one login"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/literal.ts",
+				original:
+					'return typeof value === "bigint" ? Result.ok(value) : Result.err("integerType")\n\t\tcase "numeric":\n\t\t\tif (typeof value === "number") {\n\t\t\t\treturn Result.err("decimalNumber")\n\t\t\t}\n\t\t\treturn Decimal.parse(value)',
+				replacement:
+					'if (typeof value === "number") {     return Result.err("decimalNumber")    }    return Decimal.parse(value)   case "numeric":    return typeof value === "bigint" ? Result.ok(value) : Result.err("integerType")',
+				why: 'Operator mutant 74ae3ef517 at packages/engine/src/scalar/literal.ts:83 in hostLiteral: `return typeof value === "bigint" ? Result.ok(value) : Result.err("integerType")   case "numeric":    if (typeof value === "number") {     return Result.err("decimalNumber")    }    return Decimal.parse(value)` becomes `if (typeof value === "number") {     return Result.err("decimalNumber")    }    return Decimal.parse(value)   case "numeric":    return typeof value === "bigint" ? Result.ok(value) : Result.err("integerType")`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})

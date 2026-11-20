@@ -176,7 +176,14 @@ export const admission = boxAgreement(admissionBox, {
 		name: "the engine's compilation of each cell's statement"
 	},
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/engine/src/check/checker.ts",
+			original: 'k === c.name && h.kind === "parent" && h.column === c.parent',
+			replacement: "true",
+			why: 'Operator mutant 21a6720246 at packages/engine/src/check/checker.ts:3856 in <module>: `k === c.name && h.kind === "parent" && h.column === c.parent` becomes `true`; the property fails (the census, lane TESTPOLICY2).'
+		}
+	]
 })
 
 /**
@@ -212,5 +219,12 @@ export const reordered = property.explore(oneOf([agreementCases, faultCases]), {
 		name: "a rule's filters are a conjunction, whose order is no part of it"
 	},
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/engine/src/query/build/rule.ts",
+			original: "!isPlainRecord(head)",
+			replacement: "isPlainRecord(head)",
+			why: "Operator mutant deee5fdd24 at packages/engine/src/query/build/rule.ts:470 in ruleValue: `!isPlainRecord(head)` becomes `isPlainRecord(head)`; the property fails (the census, lane TESTPOLICY2)."
+		}
+	]
 })

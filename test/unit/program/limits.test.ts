@@ -104,5 +104,13 @@ export const postgreSQLsLimitsCompileAQueryWhoseLiteralIsDrawnPast2MiBEachStatem
 			name: "a statement's length is bounded by messageMaxBytes alone"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/registry.ts",
+				original:
+					'(typeof value === "object" || typeof value === "function") && value !== null && owned.has(value)',
+				replacement: '(typeof value === "object" || typeof value === "function") && value !== null',
+				why: 'Operator mutant 6c8a36999c at packages/engine/src/scalar/registry.ts:260 in isOwnedDescriptor: `(typeof value === "object" || typeof value === "function") && value !== null && owned.has(value)` becomes `(typeof value === "object" || typeof value === "function") && value !== null`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})

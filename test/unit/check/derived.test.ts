@@ -132,7 +132,14 @@ export const aGeneratedFieldsRuleAndWhereAClosedReadStandsRefusesEachGeneratedFi
 		},
 		box: "two fields, each written or generated from up to two items in order: a read of either field, one of the five inputs beyond a row, or a parameter nested one level down",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/canonical.ts",
+				original: 'this.#close(frame.value, "array")',
+				replacement: "{}",
+				why: 'Operator mutant b9e6483c98 at packages/engine/src/core/canonical.ts:764 in <module>: `this.#close(frame.value, "array")` becomes `{}`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})
 
 /** A generated field's rule and where a closed read stands refuses a generated field's closed read of a closed relation above its level, and admits one at or below it. */
@@ -148,7 +155,14 @@ export const aGeneratedFieldsRuleAndWhereAClosedReadStandsRefusesAGeneratedField
 		oracle: { kind: "specification", name: "the level rule (expectedOfLevels)" },
 		box: "the reading relation and the closed relations each at the root level or its extension, read by C.at or C.row, bare or under an operation",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/text/refinement.ts",
+				original: "!head.ok",
+				replacement: "head.ok",
+				why: "Operator mutant f0a4f60831 at packages/engine/src/text/refinement.ts:271 in analyzeEach: `!head.ok` becomes `head.ok`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /** A generated field's rule and where a closed read stands admits a closed read in a rule's filter and refuses one in a head, a binding, an aggregate or a producer. */
@@ -174,5 +188,12 @@ export const aGeneratedFieldsRuleAndWhereAClosedReadStandsAdmitsAClosedReadInARu
 		oracle: { kind: "specification", name: "a closed read stands in a filter only" },
 		box: "C.at and C.row at each of the five places a query states a term",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/categories.generated.ts",
+				original: ',\n\t"Cs"',
+				replacement: "",
+				why: 'Operator mutant 9ce7149535 at packages/text/src/regex/categories.generated.ts:36 in <module>: `,  "Cs"` becomes ``; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})

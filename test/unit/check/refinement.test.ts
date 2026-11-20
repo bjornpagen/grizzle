@@ -179,7 +179,14 @@ export const unionPropagationTypesAUnionsColumnAsTheCommonGuaranteesOfItsArmsWhi
 			},
 			box: "every ordered pair of the deliverers: the slug and state languages, each spelled twice, the wildcard, three numeric typmods, three contracts and a plain bigint",
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/ir/expr.ts",
+					original: `if (carrier !== "code") {\n\t\t\t\treturn \`a handle literal is not a \${carrier} value\`\n\t\t\t}\n\t\t\treturn type.roster.handles.includes(literal.handle)\n\t\t\t\t? undefined\n\t\t\t\t: \`\${JSON.stringify(literal.handle)} is not a handle of \${type.roster.closed}\`\n\t\tcase "handles":\n\t\t\tif (carrier !== "bits") {\n\t\t\t\treturn \`a set literal is not a \${carrier} value\`\n\t\t\t}\n\t\t\treturn handlesProblem(literal.handles, type.roster.handles, type.roster.closed)`,
+					replacement: `if (carrier !== "bits") {     return \`a set literal is not a \${carrier} value\`    }    return handlesProblem(literal.handles, type.roster.handles, type.roster.closed)   case "handles":    if (carrier !== "code") {     return \`a handle literal is not a \${carrier} value\`    }    return type.roster.handles.includes(literal.handle)     ? undefined     : \`\${JSON.stringify(literal.handle)} is not a handle of \${type.roster.closed}\``,
+					why: `Operator mutant 2f364c397a at packages/engine/src/ir/expr.ts:976 in literalProblem: \`if (carrier !== "code") {     return \`a handle literal is not a \${carrier} value\`    }    return type.roster.handles.includes(literal.handle)     ? undefined     : \`\${JSON.stringify(literal.handle)} is not a handle of \${type.roster.closed}\`   case "handles":    if (carrier !== "bits") {     return \`a set literal is not a \${carrier} value\`    }    return handlesProblem(literal.handles, type.roster.handles, type.roster.closed)\` becomes \`if (carrier !== "bits") {     return \`a set literal is not a \${carrier} value\`    }    return handlesProblem(literal.handles, type.roster.handles, type.roster.closed)   case "handles":    if (carrier !== "code") {     return \`a handle literal is not a \${carrier} value\`    }    return type.roster.handles.includes(literal.handle)     ? undefined     : \`\${JSON.stringify(literal.handle)} is not a handle of \${type.roster.closed}\`\`; the property fails (the census, lane TESTPOLICY2).`
+				}
+			]
 		}
 	)
 

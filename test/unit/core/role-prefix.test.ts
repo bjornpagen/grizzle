@@ -74,5 +74,12 @@ export const theRolePrefixUsedVerbatimParsesADrawnTextAsAPrefixExactlyWhenItIsAL
 			name: "[a-z_][a-z0-9_]*, no __, not led by pg_, at most 63 - 2 - |__aside_<digest>| bytes"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/ir.ts",
+				original: 'return node.items\n\t\tcase "alt":\n\t\t\treturn node.arms',
+				replacement: 'return node.arms   case "alt":    return node.items',
+				why: 'Operator mutant ef922c6804 at packages/text/src/regex/ir.ts:271 in childrenOf: `return node.items   case "alt":    return node.arms` becomes `return node.arms   case "alt":    return node.items`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})

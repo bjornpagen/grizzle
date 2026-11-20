@@ -91,7 +91,14 @@ export const eachRewritePassPreservesTheDeliveredResultOnGeneratedCasesEveryPass
 				name: "the reference evaluator's delivery of the query before the passes"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/logical/props.ts",
+					original: "\t\twhile (edge !== undefined) {",
+					replacement: "\t\twhile (edge === undefined) {",
+					why: "Operator mutant dc818727b1 at packages/engine/src/logical/props.ts:1244 in evert: `!==` becomes `===`; the property fails (the census, lane TESTPOLICY2)."
+				}
+			]
 		}
 	)
 
@@ -136,7 +143,14 @@ export const eachRewritePassPreservesTheDeliveredResultOnGeneratedCasesTheCompos
 		evidence: "transaction",
 		situations: [],
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/dfa.ts",
+				original: "\t\tthis.#marked[b] = at(this.#marked, b) + 1",
+				replacement: "\t\tthis.#marked[b] = at(this.#marked, b) + 2",
+				why: "Operator mutant c78ce76fd9 at packages/text/src/regex/dfa.ts:238 in <module>: `1` becomes `2`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /**
@@ -222,7 +236,14 @@ export const theComposedRewritePhasesPreserveTheDeliveredResultTheSameInATransac
 		situations: [],
 		aims: [],
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/schema/own.ts",
+				original: 'r.kind === "derived" && level === 0',
+				replacement: "level === 0",
+				why: 'Operator mutant 192e2aba66 at packages/engine/src/schema/own.ts:1331 in <module>: `r.kind === "derived" && level === 0` becomes `level === 0`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})
 
 /**
@@ -234,17 +255,111 @@ export const theComposedRewritePhasesPreserveTheDeliveredResultTheSameInATransac
 export const theMutantSuitesCounterexampleShapes = family(
 	Rec.map(
 		{
-			projectionsThatDropKeys: projectRoot,
-			keyedJoins: keyedJoinRoot,
-			fanoutJoins: fanoutJoinRoot,
-			existentialWitnesses: witnessRoot,
-			groups: groupRoot,
-			projectionsBeforeAFold: projectGroupRoot,
-			taggedUnions: taggedUnionRoot,
-			untaggedUnions: untaggedUnionRoot,
-			boundsUnderEXISTS: existsOverTakeRoot
+			projectionsThatDropKeys: {
+				root: projectRoot,
+				kills: [
+					{
+						file: "packages/text/src/base/nonempty.ts",
+						original: "[...appendNonEmpty(rest.slice(0, cut), head), ",
+						replacement: "[",
+						why: "Operator mutant 046d37f796 at packages/text/src/base/nonempty.ts:53 in sortNonEmpty: `[...appendNonEmpty(rest.slice(0, cut), head), ` becomes `[`; the property fails (the census, lane TESTPOLICY2)."
+					}
+				]
+			},
+			keyedJoins: {
+				root: keyedJoinRoot,
+				kills: [
+					{
+						file: "packages/text/src/regex/partition.ts",
+						original: "\t\t\tif (listed[atom] !== s) {",
+						replacement: "\t\t\tif (listed[atom] === s) {",
+						why: "Operator mutant b006bb2f7e at packages/text/src/regex/partition.ts:108 in partitionOf: `!==` becomes `===`; the property fails (the census, lane TESTPOLICY2)."
+					}
+				]
+			},
+			fanoutJoins: {
+				root: fanoutJoinRoot,
+				kills: [
+					{
+						file: "packages/text/src/regex/ir.ts",
+						original: "\t!((p & passesEnd) !== 0 && (q & consumes) !== 0)",
+						replacement: "\t!((p & passesEnd) !== 1 && (q & consumes) !== 0)",
+						why: "Operator mutant f0334a50e2 at packages/text/src/regex/ir.ts:169 in canFollow: `0` becomes `1`; the property fails (the census, lane TESTPOLICY2)."
+					}
+				]
+			},
+			existentialWitnesses: {
+				root: witnessRoot,
+				kills: [
+					{
+						file: "packages/engine/src/sql/naming.ts",
+						original:
+							'\toperand.kind === "core" ? renameCore(operand, heading) : renameSelect(operand, heading)',
+						replacement:
+							'\toperand.kind !== "core" ? renameCore(operand, heading) : renameSelect(operand, heading)',
+						why: "Operator mutant a9c352994a at packages/engine/src/sql/naming.ts:263 in renameOperand: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+					}
+				]
+			},
+			groups: {
+				root: groupRoot,
+				kills: [
+					{
+						file: "packages/engine/src/ir/shape.ts",
+						original: "keys.every((key) => Object.hasOwn(o, key))",
+						replacement: "false",
+						why: "Operator mutant 2b4beb9152 at packages/engine/src/ir/shape.ts:931 in complete: `keys.every((key) => Object.hasOwn(o, key))` becomes `false`; the property fails (the census, lane TESTPOLICY2)."
+					}
+				]
+			},
+			projectionsBeforeAFold: {
+				root: projectGroupRoot,
+				kills: [
+					{
+						file: "packages/engine/src/schema/representability.ts",
+						original:
+							"\tconst gist = span === undefined ? Result.ok(undefined) : spanKeyGist(datums, span)",
+						replacement:
+							"\tconst gist = span !== undefined ? Result.ok(undefined) : spanKeyGist(datums, span)",
+						why: "Operator mutant a8c3c62e50 at packages/engine/src/schema/representability.ts:1063 in keyLayout: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+					}
+				]
+			},
+			taggedUnions: {
+				root: taggedUnionRoot,
+				kills: [
+					{
+						file: "packages/engine/src/sql/transform.ts",
+						original: 'return this.setOp(b)\n\t\t\tcase "select":\n\t\t\t\treturn this.select(b)',
+						replacement: 'return this.select(b)    case "select":     return this.setOp(b)',
+						why: 'Operator mutant 01b09889e6 at packages/engine/src/sql/transform.ts:634 in <module>: `return this.setOp(b)    case "select":     return this.select(b)` becomes `return this.select(b)    case "select":     return this.setOp(b)`; the property fails (the census, lane TESTPOLICY2).'
+					}
+				]
+			},
+			untaggedUnions: {
+				root: untaggedUnionRoot,
+				kills: [
+					{
+						file: "packages/pg/src/pin.ts",
+						original: 'line === "" || Str.startsWith("#")(line)',
+						replacement: 'Str.startsWith("#")(line)',
+						why: 'Operator mutant 1ca3593b90 at packages/pg/src/pin.ts:71 in assignments: `line === "" || Str.startsWith("#")(line)` becomes `Str.startsWith("#")(line)`; the property fails (the census, lane TESTPOLICY2).'
+					}
+				]
+			},
+			boundsUnderEXISTS: {
+				root: existsOverTakeRoot,
+				kills: [
+					{
+						file: "packages/engine/src/ir/fold.ts",
+						original: "\t\t\tif (next.done === true) {",
+						replacement: "\t\t\tif (next.done !== true) {",
+						why: "Operator mutant 2b80db5b5f at packages/engine/src/ir/fold.ts:46 in <module>: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+					}
+				]
+			}
 		},
-		(root) =>
+		({ root, kills }) =>
 			exploreCases({
 				budget: { runs: 120, steered: 0 },
 				cases: rootedCaseGen(root, defaultGenConfig),
@@ -252,7 +367,7 @@ export const theMutantSuitesCounterexampleShapes = family(
 				evidence: "snapshot",
 				situations: [],
 				kept: [],
-				kills: []
+				kills
 			})
 	)
 )

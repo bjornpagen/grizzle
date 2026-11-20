@@ -661,5 +661,12 @@ export const lawIdentitiesMakeEquivalentDeclarationsOneLawOfOneStatementHoweverM
 		},
 		box: "one to three declarations, each a containment either way or mirrors in either spelling",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/shape.ts",
+				original: "out.push(yield* path.at(i, item.parse(child, path)))",
+				replacement: "{}",
+				why: "Operator mutant 24f5fcff87 at packages/engine/src/ir/shape.ts:660 in itemsOf: `out.push(yield* path.at(i, item.parse(child, path)))` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})

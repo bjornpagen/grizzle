@@ -348,7 +348,15 @@ export const closedRecordsARostersHandlesInDeclaredOrderTypesEachHandleAsACodeOf
 				name: "the roster's handles in declared order, each a code of its roster"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/text/src/regex/subset.ts",
+					original:
+						'subset.kind === "done" ||\n\t\t\tclosure(\n\t\t\t\tthis.nfa,\n\t\t\t\tsubset.states,\n\t\t\t\t{ atStart: subset.initial, atEnd: true },\n\t\t\t\tthis.#mark,\n\t\t\t\tthis.#stamp++\n\t\t\t).includes(this.nfa.accept)',
+					replacement: 'subset.kind === "done"',
+					why: 'Operator mutant 5e0a3b3402 at packages/text/src/regex/subset.ts:175 in <module>: `subset.kind === "done" ||    closure(     this.nfa,     subset.states,     { atStart: subset.initial, atEnd: true },     this.#mark,     this.#stamp++    ).includes(this.nfa.accept)` becomes `subset.kind === "done"`; the property fails (the census, lane TESTPOLICY2).'
+				}
+			]
 		}
 	)
 
@@ -775,7 +783,15 @@ export const statementsOnNamesANonemptyListOfDistinctTermsOfTheHeadingInTheOrder
 				name: "the terms of the heading in the order written"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/scalar/compute/registry.ts",
+					original:
+						'\t\tfn: cmp,\n\t\toperands: positional([carrier, carrier]),\n\t\tresult: "bool",',
+					replacement: '\t\tfn: cmp,\n\t\toperands: positional([carrier]),\n\t\tresult: "bool",',
+					why: "Operator mutant 675580b5a2 at packages/engine/src/scalar/compute/registry.ts:582 in comparison: `[carrier, ` becomes `[`; the property fails (the census, lane TESTPOLICY2)."
+				}
+			]
 		}
 	)
 

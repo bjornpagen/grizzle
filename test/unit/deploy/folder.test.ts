@@ -268,7 +268,14 @@ export const migrationFoldersGeneratedNamesADraftAfterItsFirstChangeAClosedRelat
 			name: "the derived name's rule: its change's verb and words, or update, in the folder grammar's words"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/deploy/diff/diff.ts",
+				original: '\t\t\tif (w.kind !== "lawColumn") {',
+				replacement: '\t\t\tif (w.kind === "lawColumn") {',
+				why: "Operator mutant aa27faabf2 at packages/engine/src/deploy/diff/diff.ts:1091 in <module>: `!==` becomes `===`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /** Meta.json, generated reads back exactly what it writes, byte for byte, its declarations and every decision, and refuses a value short of the format or its proof. Its budget is its suite's before it was a property (test/unit/deploy/folder.test.ts at 4ca3036a): 400 runs and 400 steered cases. */

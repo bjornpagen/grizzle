@@ -167,7 +167,14 @@ export const aDraftedMigrationsBitStringsWritesEveryBitStringOfADraftedMigration
 			name: "the one spelling: X'…' of whole hex digits, cast, at the bits domain's width, nothing else"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/scalar.ts",
+				original: '\treturn b.carrier === "code" || b.carrier === "bits" ? b.roster : undefined',
+				replacement: '\treturn b.carrier === "code" ? b.roster : undefined',
+				why: 'Operator mutant fa5a114568 at packages/engine/src/ir/scalar.ts:750 in rosterOf: `b.carrier === "code" || b.carrier === "bits"` becomes `b.carrier === "code"`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})
 
 /** A closed constant's hex literal decodes to its constant, is the oracle's hex of its padded bits, reads back printed, and refuses every changed digit. Its budget is its suite's before it was a property (test/unit/physical/literal.test.ts at 4ca3036a): 300 runs and 300 steered cases. */

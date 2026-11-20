@@ -86,7 +86,14 @@ export const theSchemaAQueryCompilesAgainstIsTheNamedSchemaWhereTheQuerysOwnIsOn
 			},
 			box: "every ordered pair of Work, Reports, Payroll and Reporting, a query over the first named against the second",
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/scalar/span.ts",
+					original: '\t\tif (carrier === "int4" || carrier === "int8" || carrier === "date") {',
+					replacement: '\t\tif (carrier === "int4" || carrier !== "int8" || carrier === "date") {',
+					why: "Operator mutant d7d7f8bc4a at packages/engine/src/scalar/span.ts:50 in spanColumn: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+				}
+			]
 		}
 	)
 
@@ -153,7 +160,15 @@ export const theArtifactsOfASchemaAreOneValueWhicheverInputReachesTheSchemaUnder
 			},
 			box: "each fixture schema through every ordered pair of its built value, its Owned and its description",
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/physical/ddl/names.ts",
+					original:
+						'if (o.kind !== "LawColumn" || o.value.kind !== "generated") {\n\t\t\tcontinue\n\t\t}',
+					replacement: "{}",
+					why: 'Operator mutant 0f245547af at packages/engine/src/physical/ddl/names.ts:121 in selectionKeysOf: `if (o.kind !== "LawColumn" || o.value.kind !== "generated") {    continue   }` becomes `{}`; the property fails (the census, lane TESTPOLICY2).'
+				}
+			]
 		}
 	)
 

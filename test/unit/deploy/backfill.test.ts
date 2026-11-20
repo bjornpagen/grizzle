@@ -155,7 +155,14 @@ export const backfillingAFamilyAddedToStoredRowsGeneratedRemovingAFamilyKeepsEve
 			name: "the catalog model of PostgreSQL running each migration, against the first schema's fresh catalog and the stored rows"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/ir.ts",
+				original: 'if (typeof piece !== "string") {\n\t\t\treturn piece\n\t\t}',
+				replacement: "{}",
+				why: 'Operator mutant b363c73c35 at packages/text/src/regex/ir.ts:403 in settle: `if (typeof piece !== "string") {    return piece   }` becomes `{}`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})
 
 /** A place a migration adds to stored rows numbers each group by its `by` from 0, and each column a containment carries from it into stored rows takes the value of the row the previous containment named, with no placeholder, ending at the catalog its target installs from nothing. */

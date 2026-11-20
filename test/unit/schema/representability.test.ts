@@ -542,7 +542,14 @@ export const giSTEntriesForSpanKeysGistCGistSplitLaysASpanKeyOutOverBtreeGistsSc
 					since: "2026-10-29"
 				}
 			],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/core/canonical.ts",
+					original: "\t\tif (i === frame.value.length) {",
+					replacement: "\t\tif (i !== frame.value.length) {",
+					why: "Operator mutant 86f785722d at packages/engine/src/core/canonical.ts:763 in <module>: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+				}
+			]
 		}
 	)
 
@@ -670,5 +677,12 @@ export const aVectorFieldIsAKeyFieldLikeAnyOtherEveryVectorHasOneFormSoItsEquali
 			name: "the B-tree entry of a vector key, restated, and btree_gist's refusal of a vector beside a span"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/charset.ts",
+				original: "\t\t\thi = mid - 1",
+				replacement: "\t\t\thi = mid - 0",
+				why: "Operator mutant cd0910928b at packages/text/src/regex/charset.ts:108 in has: `1` becomes `0`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})

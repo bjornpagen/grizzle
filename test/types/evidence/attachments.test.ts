@@ -96,5 +96,12 @@ export const readBackDelivery = property.explore(attachCases, {
 		name: "a read-back reads only what the engine proves in the transaction context"
 	},
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/engine/src/scalar/compute/evaluate.ts",
+			original: "!member.value",
+			replacement: "member.value",
+			why: "Operator mutant bc066f6b77 at packages/engine/src/scalar/compute/evaluate.ts:1357 in refined: `!member.value` becomes `member.value`; the property fails (the census, lane TESTPOLICY2)."
+		}
+	]
 })

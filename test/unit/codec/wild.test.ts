@@ -130,7 +130,15 @@ export const theEncodersNameTheSlotAndTheWordInATemplateSlotsRefusalNeverTheValu
 		},
 		budget: { runs: 500, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/subset.ts",
+				original:
+					'subset.kind === "done" ||\n\t\t\tclosure(\n\t\t\t\tthis.nfa,\n\t\t\t\tsubset.states,\n\t\t\t\t{ atStart: subset.initial, atEnd: true },\n\t\t\t\tthis.#mark,\n\t\t\t\tthis.#stamp++\n\t\t\t).includes(this.nfa.accept)',
+				replacement: 'subset.kind === "done"',
+				why: 'Operator mutant 5e0a3b3402 at packages/text/src/regex/subset.ts:175 in <module>: `subset.kind === "done" ||    closure(     this.nfa,     subset.states,     { atStart: subset.initial, atEnd: true },     this.#mark,     this.#stamp++    ).includes(this.nfa.accept)` becomes `subset.kind === "done"`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})
 
 /**

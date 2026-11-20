@@ -161,7 +161,14 @@ export const workloadSchemaProgramsCompilesAChangeSetOverASchemaOfTheSameContent
 		},
 		budget: { runs: 10, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/laws/model/names.ts",
+				original: "===",
+				replacement: "!==",
+				why: "Operator mutant a062e05d86 at packages/engine/src/laws/model/names.ts:14 in keyOf: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /**
@@ -324,5 +331,12 @@ export const workloadSSignatureRefusesAProgramsRecordOrAProgramWhoseReadingThrow
 		},
 		budget: { runs: 40, steered: 16 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/contract.ts",
+				original: "!domain.ok",
+				replacement: "domain.ok",
+				why: "Operator mutant 66abd32500 at packages/engine/src/scalar/contract.ts:200 in contractParts: `!domain.ok` becomes `domain.ok`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})

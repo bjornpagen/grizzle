@@ -103,5 +103,14 @@ export const describeQueryQueryFromDescriptionAndLowerQueryCheckADescriptionAgai
 			name: "a Description is checked against the schema it is given: a relation it lacks is refused"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/print.ts",
+				original:
+					'return setText(dialect, atom.node.set)\n\t\t\t\tcase "anchor":\n\t\t\t\t\treturn dialect.anchors[atom.anchor]',
+				replacement:
+					'return dialect.anchors[atom.anchor]     case "anchor":      return setText(dialect, atom.node.set)',
+				why: 'Operator mutant 72e8ee7434 at packages/text/src/regex/print.ts:204 in atomText: `return setText(dialect, atom.node.set)     case "anchor":      return dialect.anchors[atom.anchor]` becomes `return dialect.anchors[atom.anchor]     case "anchor":      return setText(dialect, atom.node.set)`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})

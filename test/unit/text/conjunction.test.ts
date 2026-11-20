@@ -398,5 +398,14 @@ export const aConjunctionsCHECKPrintsInNoMoreBytesThanItsMembersOwnTestsJoinedBy
 			name: "the sum of the members' own tests and their joins"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/canonical.ts",
+				original:
+					"\t#close(value: object, kind: ContainerKind): void {\n\t\tthis.#frames.pop()\n\t\tthis.#ancestors.delete(value)",
+				replacement:
+					"\t#close(value: object, kind: ContainerKind): void {\n\t\t{}\n\t\tthis.#ancestors.delete(value)",
+				why: "Operator mutant 8dfa3f6c6a at packages/engine/src/core/canonical.ts:811 in <module>: `this.#frames.pop()` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})

@@ -108,7 +108,16 @@ export const derivedRelationRefusalsRefuseAStatementWritingADerivedRelationsRows
 			name: "a statement naming rows grizzle writes is refused at every entry; a rule over a definition that aggregates is owned and refused where the laws compile"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/analysis/schema.ts",
+				original:
+					'desc.kind === "closed"\n\t\t\t\t\t? []\n\t\t\t\t\t: desc.slots.map((slot) => this.#slot(slot, primaryFields, loc, patterns))',
+				replacement:
+					'desc.kind === "closed" ? desc.slots.map((slot) => this.#slot(slot, primaryFields, loc, patterns)) : []',
+				why: 'Operator mutant d6c6cf24b9 at packages/engine/src/analysis/schema.ts:822 in <module>: `desc.kind === "closed"      ? []      : desc.slots.map((slot) => this.#slot(slot, primaryFields, loc, patterns))` becomes `desc.kind === "closed" ? desc.slots.map((slot) => this.#slot(slot, primaryFields, loc, patterns)) : []`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})
 
 /**

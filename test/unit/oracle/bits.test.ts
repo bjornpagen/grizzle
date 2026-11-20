@@ -31,6 +31,15 @@ export const theReferenceEvaluatorsSetAlgebraAgreesWithAModelOfSetsOfCodes = pro
 		oracle: { kind: "second-implementation", name: "a Set<number> model of the codes" },
 		box: "every pair of subsets of a roster of five handles",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/ir.ts",
+				original:
+					'return listed(`{"kind":"seq","items":[`, node.items)\n\t\tcase "alt":\n\t\t\treturn listed(`{"kind":"alt","arms":[`, node.arms)',
+				replacement:
+					'return listed(`{"kind":"alt","arms":[`, node.arms)   case "alt":    return listed(`{"kind":"seq","items":[`, node.items)',
+				why: 'Operator mutant dd852114e7 at packages/text/src/regex/ir.ts:344 in writtenPieces: `return listed(`{"kind":"seq","items":[`, node.items)   case "alt":    return listed(`{"kind":"alt","arms":[`, node.arms)` becomes `return listed(`{"kind":"alt","arms":[`, node.arms)   case "alt":    return listed(`{"kind":"seq","items":[`, node.items)`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	}
 )

@@ -328,7 +328,14 @@ export const conflictingDeclarationsRefusesANameClaimedTwiceWithConflictingMeani
 				name: "one declaration per meaning, a conflicting claim refused"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/text/src/regex/ir.ts",
+					original: '\t\tif (item.kind === "never") {',
+					replacement: '\t\tif (item.kind !== "never") {',
+					why: "Operator mutant c954b1fc63 at packages/text/src/regex/ir.ts:241 in seq: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+				}
+			]
 		}
 	)
 
@@ -647,7 +654,14 @@ export const statementsOverADerivedRelationOwnsAKeyCheckContainmentEitherWayAndM
 		},
 		box: "every statement kind over a derived relation, from a description and from the builders",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/base/nonempty.ts",
+				original: "\tisNonEmpty(xs) ? [xs[0], ...xs.slice(1), last] : [last]",
+				replacement: "\tisNonEmpty(xs) ? [xs[0], ...xs.slice(1)] : [last]",
+				why: "Operator mutant f2f6277bf3 at packages/text/src/base/nonempty.ts:30 in appendNonEmpty: `, last` becomes ``; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /** Scope and structure refuses a description naming what no level declares or breaking a structural rule, each by its documented reason. Its budget is its suite's before it was a property (test/unit/schema/own.test.ts at 4ca3036a): 400 runs and 400 steered cases. */

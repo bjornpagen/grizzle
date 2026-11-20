@@ -33,7 +33,16 @@ export const vocabulary = agreement(vocabularyCases, {
 	program: vocabularyProgram,
 	oracle: { kind: "specification", name: "membership in the drawn vocabulary" },
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/engine/src/scalar/compute/typing.ts",
+			original:
+				"exact === undefined\n\t\t\t\t? operands\n\t\t\t\t: operands.map((a) => this.widenTo(a, meetingType(a.nominal, exact.nominal), at))",
+			replacement:
+				"exact === undefined ? operands.map((a) => this.widenTo(a, meetingType(a.nominal, exact.nominal), at)) : operands",
+			why: "Operator mutant 61b29d26cb at packages/engine/src/scalar/compute/typing.ts:3252 in <module>: `exact === undefined     ? operands     : operands.map((a) => this.widenTo(a, meetingType(a.nominal, exact.nominal), at))` becomes `exact === undefined ? operands.map((a) => this.widenTo(a, meetingType(a.nominal, exact.nominal), at)) : operands`; the property fails (the census, lane TESTPOLICY2)."
+		}
+	]
 })
 
 /**
