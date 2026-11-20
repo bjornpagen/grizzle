@@ -6,7 +6,7 @@ import { type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
-import { callShares, eachShare, valueBytes } from "#adapter/apply/shares.ts"
+import { callShares, eachShare, sendsAlone, valueBytes } from "#adapter/apply/shares.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { counted, fin, on, ordered, relation, schema, tree } from "#compiler/public/schema.ts"
@@ -301,7 +301,12 @@ export const runGrouped = (c: Grouped, k: Case<GroupedFeature>) =>
 		const whole = insertedRows(
 			bindWrite(write, { members: membersOf, params: {}, transport: inForce(bindFrame) })
 		)
-		const drawn = callShares(write, call, c.bytes, false)
+		const none = new Map(Arr.map(write.binding.members, (m) => [m.slot, []] as const))
+		const empty = bindWrite(write, { members: none, params: {}, transport: inForce(bindFrame) })
+		if (!empty.ok || empty.value.kind !== "bound") {
+			return yield* Effect.die(new Error("a call of no facts binds"))
+		}
+		const drawn = callShares(write, call, c.bytes, sendsAlone(write, empty.value.skip))
 		if (drawn === undefined) {
 			return { whole, shared: whole, shares: 1 }
 		}

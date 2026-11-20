@@ -14,7 +14,7 @@ import {
 	readsRow,
 	riddenRows
 } from "#adapter/apply/readback.ts"
-import { callShares } from "#adapter/apply/shares.ts"
+import { callShares, sendsAlone } from "#adapter/apply/shares.ts"
 import {
 	type ApplyError,
 	CommitUnknown,
@@ -544,8 +544,12 @@ export const drawnCall = <R>(
 		if (empty.kind !== "bound") {
 			return undefined
 		}
-		const sendsAlone = empty.bound.skip.size < entry.program.statements.length
-		const shares = callShares(entry.program, call, writeBatching.bytes, sendsAlone)
+		const shares = callShares(
+			entry.program,
+			call,
+			writeBatching.bytes,
+			sendsAlone(entry.program, empty.bound.skip)
+		)
 		return shares === undefined ? undefined : { shares, empty }
 	})
 

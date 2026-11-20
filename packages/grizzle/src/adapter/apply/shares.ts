@@ -11,9 +11,10 @@
  * nodes, with it. So every count, end, slot and fresh group the host draws reads the facts of one share, as it reads
  * the call's. A group past a share's bytes is a share of its own.
  *
- * Only a write every statement of which its facts feed is drawn so: a call of no facts sends no statement (the bind's
- * own `needs`, ir/needs.ts), its members insert, its one stratum, and no relation parameter, so a share's statements
- * are the call's statements over that share's facts alone. Every other write is bound whole.
+ * Only a write every statement of which its facts feed is drawn so: a call of no facts sends no statement but its family
+ * statements, which over no member and no nested row insert and recount nothing (`sendsAlone`; the bind's own `needs`,
+ * ir/needs.ts), its members insert, its one stratum, and no relation parameter, so a share's statements are the call's
+ * statements over that share's facts alone. Every other write is bound whole.
  */
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import type { HostCall } from "#adapter/apply/run.ts"
@@ -98,9 +99,18 @@ const familySlots = (program: FlightWrite): ReadonlyArray<FamilySlots> => {
 	)
 }
 
-/** Whether a write's facts may be drawn in shares (see the header), the empty call's statements given by `sendsAlone`. */
-const drawable = (program: FlightWrite, sendsAlone: boolean): boolean =>
-	!sendsAlone &&
+/**
+ * Whether a write's call of no facts, its statements but `skip` sent, sends a statement its facts do not feed: any but a
+ * family statement, which an insert's members and nested rows alone feed, so over none it inserts and recounts nothing
+ * (write/family/additions.ts), though the flight sends it with every call. A statement of a query member, which reads
+ * stored rows and no fact of the call, is one, and would run once a share.
+ */
+export const sendsAlone = (program: FlightWrite, skip: ReadonlySet<number>): boolean =>
+	Arr.some(program.statements, (s) => !skip.has(s.index) && s.step.kind !== "familyWrite")
+
+/** Whether a write's facts may be drawn in shares (see the header), `alone` whether its call of no facts sends a statement. */
+const drawable = (program: FlightWrite, alone: boolean): boolean =>
+	!alone &&
 	program.binding.members.length > 0 &&
 	Arr.every(program.binding.members, (m) => m.op === "insert" && m.kind === "array") &&
 	new Set(Arr.map(program.binding.members, (m) => m.stratum)).size === 1 &&
@@ -135,15 +145,15 @@ type ShareFacts = Map<string, Array<unknown>>
 /**
  * The call's facts as shares of whole groups within `bytes` each (see the header), in the members' order and each
  * slot's facts' order, the family groups first; or none where the write is no drawable one or its facts fit one share,
- * which the call binds whole. `sendsAlone` says whether the write's call of no facts sends a statement.
+ * which the call binds whole. `alone` says whether the write's call of no facts sends a statement (`sendsAlone`).
  */
 export const callShares = (
 	program: FlightWrite,
 	call: HostCall,
 	bytes: number,
-	sendsAlone: boolean
+	alone: boolean
 ): Iterable<HostCall> | undefined => {
-	if (!drawable(program, sendsAlone)) {
+	if (!drawable(program, alone)) {
 		return undefined
 	}
 	const slots = Arr.map(program.binding.members, (m) => m.slot)
