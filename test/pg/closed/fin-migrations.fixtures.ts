@@ -240,10 +240,10 @@ const declaredAt = (h: History, stages: ReadonlyArray<Stage>, v: number): Declar
 	}
 }
 
-/** What a version reads: the functions each probe's CHECK depends on, each probe's verdicts, and Step's rows. */
+/** What a version reads: the functions each probe's CHECK reads, each probe's verdicts, and Step's rows. */
 interface Observed {
 	readonly step: ReadonlyArray<string>
-	/** Each function Step's CHECK depends on, by its name, beside the digest of its body. */
+	/** Each function Step's CHECK reads, by its name, beside the digest of its definition. */
 	readonly stepBodies: ReadonlyArray<readonly [string, string]>
 	readonly stepProduct: ReadonlyArray<string>
 	readonly verdicts: ReadonlyArray<readonly [Option.Option<string>, Option.Option<string>]>
@@ -296,19 +296,23 @@ export const finCase = (h: History, c: Case<FinFeature>) =>
 				Effect.gen(function* () {
 					const schemaIdent = identifierOf(identity.schema(parsedSchemaName(schemaName)))
 					const table = (r: string) => `${quoteIdent(schemaIdent)}.${quoteIdent(tableOf(r))}`
+					/**
+					 * The functions a relation's CHECK reads, each with `what` of it: the ones its constraints depend on, and
+					 * those each of them reads, an SQL body's by its dependencies and a PL/pgSQL body's, a row function's
+					 * (physical/ddl/row-functions.ts), by the calls its source names, since PostgreSQL resolves a PL/pgSQL
+					 * body's names as it runs and records no dependency of them.
+					 */
+					const reached = (r: string, what: string) =>
+						`WITH RECURSIVE reached(oid) AS (SELECT d.refobjid FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_depend AS d ON d.classid = 'pg_catalog.pg_constraint'::regclass AND d.objid = c.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass WHERE c.conrelid = '${table(r)}'::regclass AND c.contype = 'c' UNION SELECT q.oid FROM reached AS f JOIN pg_catalog.pg_proc AS p ON p.oid = f.oid JOIN pg_catalog.pg_proc AS q ON q.pronamespace = p.pronamespace WHERE pg_catalog.strpos(p.prosrc, '"' || q.proname || '"(') > 0 OR EXISTS (SELECT FROM pg_catalog.pg_depend AS e WHERE e.classid = 'pg_catalog.pg_proc'::regclass AND e.objid = p.oid AND e.refclassid = 'pg_catalog.pg_proc'::regclass AND e.refobjid = q.oid)) SELECT ${what} FROM reached AS f JOIN pg_catalog.pg_proc AS p ON p.oid = f.oid ORDER BY 1`
 					const reads = (r: string) =>
-						Effect.map(
-							values(
-								owner,
-								`SELECT p.proname::text FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_depend AS d ON d.classid = 'pg_catalog.pg_constraint'::regclass AND d.objid = c.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass JOIN pg_catalog.pg_proc AS p ON p.oid = d.refobjid WHERE c.conrelid = '${table(r)}'::regclass AND c.contype = 'c' ORDER BY 1`
-							),
-							(rows) => Arr.map(rows, (row) => String(row[0]))
+						Effect.map(values(owner, reached(r, "p.proname::text")), (rows) =>
+							Arr.map(rows, (row) => String(row[0]))
 						)
 					const bodies = (r: string) =>
 						Effect.map(
 							values(
 								owner,
-								`SELECT p.proname::text, pg_catalog.md5(p.prosrc) FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_depend AS d ON d.classid = 'pg_catalog.pg_constraint'::regclass AND d.objid = c.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass JOIN pg_catalog.pg_proc AS p ON p.oid = d.refobjid WHERE c.conrelid = '${table(r)}'::regclass AND c.contype = 'c' ORDER BY 1`
+								reached(r, "p.proname::text, pg_catalog.md5(pg_catalog.pg_get_functiondef(p.oid))")
 							),
 							(rows) => Arr.map(rows, (row) => [String(row[0]), String(row[1])] as const)
 						)

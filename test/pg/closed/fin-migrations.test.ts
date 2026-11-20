@@ -11,11 +11,12 @@
  * (parent, position) pairs to insert into both probes.
  *
  * Oracle, against PostgreSQL's catalog and verdicts:
- * - content addressing: the functions Step's CHECK depends on stand exactly when Last's rows, as codes, and Model's
- *   counts stand, and a function that keeps its name keeps its body, since a constant is named by its content and never
- *   redefined in place (two contents may spell one body: a body's hex pads its cells to whole digits). So a changed
- *   count replaces at least its counts' constant and its rows', and the owners' bases only where they move; a rename
- *   keeps every code, so it replaces none of them.
+ * - content addressing: the functions Step's CHECK reads, its row function and the constants the row function's body
+ *   calls (physical/ddl/row-functions.ts), stand exactly when Last's rows, as codes, and Model's counts stand, and a
+ *   function that keeps its name keeps its definition, since a constant is named by its content, a row function by its
+ *   definition, and neither is redefined in place (two contents may spell one body: a body's hex pads its cells to whole
+ *   digits). So a changed count replaces at least its counts' constant and its rows', and the owners' bases only where
+ *   they move; a rename keeps every code, so it replaces none of them.
  *   Beside a rename, StepProduct's stand exactly when the rows and Position's size stand: a grown roster replaces the
  *   product's and no dependent space's.
  * - verdicts: a probe is admitted into both exactly when its pair is a row of Last, refused with 23514 otherwise.
