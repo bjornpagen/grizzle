@@ -1,11 +1,10 @@
 {
 	"typecheck": {
-		"total": 1010,
+		"total": 955,
 		"files": {
 			"packages/cli-generator/src/emit/api.ts": 124,
 			"packages/cli-generator/src/emit/cli.ts": 122,
 			"packages/cli-generator/src/emit/entry.ts": 7,
-			"packages/cli-generator/src/emit/readme.ts": 55,
 			"packages/cli-generator/src/model/author-config.ts": 11,
 			"packages/cli-generator/src/model/entities.ts": 14,
 			"packages/cli-generator/src/names/reserved.ts": 1,
@@ -41,7 +40,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 784,
+		"total": 766,
 		"files": {
 			"packages/cli-generator/corpus/tools/coverage.ts": 1,
 			"packages/cli-generator/corpus/tools/exercise.ts": 1,
@@ -60,7 +59,6 @@
 			"packages/cli-generator/src/emit/escape.ts": 1,
 			"packages/cli-generator/src/emit/package.ts": 1,
 			"packages/cli-generator/src/emit/printer.ts": 1,
-			"packages/cli-generator/src/emit/readme.ts": 17,
 			"packages/cli-generator/src/generate.ts": 1,
 			"packages/cli-generator/src/load/document-set.ts": 1,
 			"packages/cli-generator/src/load/index.ts": 1,
@@ -187,7 +185,6 @@
 			"packages/cli-generator/test/support/cli-package.ts": 2,
 			"packages/cli-generator/test/support/connection.ts": 1,
 			"packages/cli-generator/test/support/normalizing.ts": 1,
-			"packages/cli-generator/test/support/openapi-gen.ts": 1,
 			"packages/cli-generator/test/support/send.ts": 1,
 			"packages/cli-generator/test/validate/diagnostics.test.ts": 10,
 			"packages/cli-generator/test/validate/locations.test.ts": 1,

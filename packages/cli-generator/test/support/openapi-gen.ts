@@ -31,7 +31,9 @@ import {
 	weighted,
 	type Weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option, Record, Schema, String as Str } from "effect"
+import { Array as Arr, Option, Record, String as Str } from "effect"
+import type { JsonObject } from "#model/json-tree.ts"
+import type { Json } from "#model/pointer.ts"
 
 /** The OpenAPI lines the generator reads, each written with its latest patch version. */
 export type Line = "3.0" | "3.1" | "3.2"
@@ -62,7 +64,7 @@ export type PropertySketch = Readonly<{
 	readOnly: boolean
 	deprecated: boolean
 	description: Option.Option<string>
-	defaultValue: Option.Option<Schema.Json>
+	defaultValue: Option.Option<Json>
 }>
 
 /** A named schema under `components/schemas`, always an object so a `$ref` to it may recur through it. */
@@ -308,13 +310,11 @@ const PROPERTY_NAMES: Arr.NonEmptyReadonlyArray<string> = [
 	"nickName"
 ]
 
-const defaultFor = (schema: SchemaSketch): Gen<Option.Option<Schema.Json>> =>
+const defaultFor = (schema: SchemaSketch): Gen<Option.Option<Json>> =>
 	schema.kind === "string" && schema.format._tag === "None"
-		? option(
-				element<Schema.Json>(Arr.isReadonlyArrayNonEmpty(schema.values) ? schema.values : ["x"])
-			)
+		? option(element<Json>(Arr.isReadonlyArrayNonEmpty(schema.values) ? schema.values : ["x"]))
 		: schema.kind === "integer"
-			? option(map(int(0, 10), (value): Schema.Json => value))
+			? option(map(int(0, 10), (value): Json => value))
 			: () => Option.none()
 
 const propertyOf =
@@ -1218,22 +1218,20 @@ export const documentGen: Gen<DocumentSketch> = (s) => {
 }
 
 /** An object of the members that are present. */
-const members = (
-	entries: ReadonlyArray<readonly [string, Option.Option<Schema.Json>]>
-): Schema.JsonObject =>
+const members = (entries: ReadonlyArray<readonly [string, Option.Option<Json>]>): JsonObject =>
 	Record.fromEntries(
 		Arr.getSomes(
 			Arr.map(entries, ([key, value]) => Option.map(value, (inner) => [key, inner] as const))
 		)
 	)
 
-const when = (holds: boolean, value: Schema.Json): Option.Option<Schema.Json> =>
+const when = (holds: boolean, value: Json): Option.Option<Json> =>
 	holds ? Option.some(value) : Option.none()
 
-const componentRef = (name: string): Schema.JsonObject => ({ $ref: `#/components/schemas/${name}` })
+const componentRef = (name: string): JsonObject => ({ $ref: `#/components/schemas/${name}` })
 
 /** A schema as its line writes it: `nullable` on 3.0, a type list after. */
-const schemaOf = (line: Line, schema: SchemaSketch): Schema.JsonObject => {
+const schemaOf = (line: Line, schema: SchemaSketch): JsonObject => {
 	switch (schema.kind) {
 		case "string":
 			return members([
@@ -1272,13 +1270,13 @@ const isReference = (schema: SchemaSketch): boolean =>
 
 /** A property's schema with the annotations help reads; 3.0 ignores siblings of `$ref`, so a reference carries none
  * there. */
-const propertySchema = (line: Line, property: PropertySketch): Schema.JsonObject => {
+const propertySchema = (line: Line, property: PropertySketch): JsonObject => {
 	const schema = schemaOf(line, property.schema)
 	return line === "3.0" && isReference(property.schema)
 		? schema
 		: Record.fromEntries([
-				...Record.toEntries<string, Schema.Json>(schema),
-				...Record.toEntries<string, Schema.Json>(
+				...Record.toEntries<string, Json>(schema),
+				...Record.toEntries<string, Json>(
 					members([
 						["description", property.description],
 						["readOnly", when(property.readOnly, true)],
@@ -1293,7 +1291,7 @@ const objectOf = (
 	line: Line,
 	properties: ReadonlyArray<PropertySketch>,
 	closed: boolean
-): Schema.JsonObject =>
+): JsonObject =>
 	members([
 		["type", Option.some("object")],
 		[
@@ -1320,7 +1318,7 @@ const objectOf = (
 		["additionalProperties", when(closed, false)]
 	])
 
-const parameterOf = (line: Line, parameter: ParameterSketch): Schema.Json => {
+const parameterOf = (line: Line, parameter: ParameterSketch): Json => {
 	const { serialization } = parameter
 	return members([
 		["name", Option.some(parameter.name)],
@@ -1345,7 +1343,7 @@ const parameterOf = (line: Line, parameter: ParameterSketch): Schema.Json => {
 	])
 }
 
-const headerOf = (header: Readonly<{ required: boolean; deprecated: boolean }>): Schema.Json =>
+const headerOf = (header: Readonly<{ required: boolean; deprecated: boolean }>): Json =>
 	members([
 		["required", when(header.required, true)],
 		["deprecated", when(header.deprecated, true)],
@@ -1354,18 +1352,18 @@ const headerOf = (header: Readonly<{ required: boolean; deprecated: boolean }>):
 
 const headersOf = (
 	headers: ReadonlyArray<Readonly<{ name: string; required: boolean; deprecated: boolean }>>
-): Option.Option<Schema.Json> =>
+): Option.Option<Json> =>
 	when(
 		Arr.isReadonlyArrayNonEmpty(headers),
 		Record.fromEntries(Arr.map(headers, (header) => [header.name, headerOf(header)] as const))
 	)
 
-const sequenceOf = (line: Line, item: SchemaSketch): Schema.Json =>
+const sequenceOf = (line: Line, item: SchemaSketch): Json =>
 	line === "3.2" ? { itemSchema: schemaOf(line, item) } : { schema: schemaOf(line, item) }
 
-const BINARY: Schema.Json = { type: "string", format: "binary" }
+const BINARY: Json = { type: "string", format: "binary" }
 
-const mediaOf = (line: Line, alternative: AlternativeSketch): Schema.Json => {
+const mediaOf = (line: Line, alternative: AlternativeSketch): Json => {
 	switch (alternative.kind) {
 		case "json":
 			return { schema: schemaOf(line, alternative.schema) }
@@ -1457,7 +1455,7 @@ const mediaOf = (line: Line, alternative: AlternativeSketch): Schema.Json => {
 	}
 }
 
-const MIXED_SCHEMAS: Readonly<Record<MixedPart, Schema.Json>> = {
+const MIXED_SCHEMAS: Readonly<Record<MixedPart, Json>> = {
 	json: { type: "object", properties: { name: { type: "string" } } },
 	binary: { type: "string", contentMediaType: "application/octet-stream" },
 	text: { type: "string" }
@@ -1479,13 +1477,13 @@ const RESPONSE_MEDIA: Readonly<Record<ContentKind, string>> = {
 	"json-seq": "application/json-seq"
 }
 
-const PROBLEM: Schema.JsonObject = {
+const PROBLEM: JsonObject = {
 	type: "object",
 	properties: { type: { type: "string" }, title: { type: "string" }, status: { type: "integer" } }
 }
 
 /** An SSE event as 3.2 types an event stream's items. */
-const EVENT: Schema.JsonObject = {
+const EVENT: JsonObject = {
 	type: "object",
 	properties: {
 		data: { type: "string" },
@@ -1495,7 +1493,7 @@ const EVENT: Schema.JsonObject = {
 	}
 }
 
-const responseMediaOf = (line: Line, content: ResponseContent): Schema.Json => {
+const responseMediaOf = (line: Line, content: ResponseContent): Json => {
 	switch (content.kind) {
 		case "json":
 			return { schema: schemaOf(line, content.schema) }
@@ -1513,7 +1511,7 @@ const responseMediaOf = (line: Line, content: ResponseContent): Schema.Json => {
 	}
 }
 
-const responseOf = (line: Line, response: ResponseSketch): Schema.Json =>
+const responseOf = (line: Line, response: ResponseSketch): Json =>
 	members([
 		["description", Option.some(response.description)],
 		[
@@ -1531,14 +1529,14 @@ const responseOf = (line: Line, response: ResponseSketch): Schema.Json =>
 		["headers", headersOf(response.headers)]
 	])
 
-const requirementsOf = (requirements: ReadonlyArray<Requirement>): Schema.Json =>
+const requirementsOf = (requirements: ReadonlyArray<Requirement>): Json =>
 	Arr.map(requirements, (requirement) =>
 		Record.fromEntries(Arr.map(requirement, ([scheme, scopes]) => [scheme, scopes] as const))
 	)
 
 const pathOf = (operation: OperationSketch): string => `/${Arr.join(operation.segments, "/")}`
 
-const operationOf = (line: Line, operation: OperationSketch): Schema.Json =>
+const operationOf = (line: Line, operation: OperationSketch): Json =>
 	members([
 		["tags", when(Arr.isReadonlyArrayNonEmpty(operation.tags), operation.tags)],
 		["summary", operation.summary],
@@ -1615,7 +1613,7 @@ const FLOW_URLS: Readonly<Record<Flow, ReadonlyArray<string>>> = {
 	deviceAuthorization: ["deviceAuthorizationUrl", "tokenUrl"]
 }
 
-const schemeOf = (scheme: SchemeSketch): Schema.Json => {
+const schemeOf = (scheme: SchemeSketch): Json => {
 	const { kind } = scheme
 	const deprecated = when(scheme.deprecated, true)
 	switch (kind.type) {
@@ -1681,13 +1679,13 @@ const schemeOf = (scheme: SchemeSketch): Schema.Json => {
 	}
 }
 
-const serverOf = (url: string): Schema.Json =>
+const serverOf = (url: string): Json =>
 	Str.includes("{region}")(url)
 		? { url, variables: { region: { default: "us", enum: ["us", "eu"] } } }
 		: { url }
 
 /** The document a sketch describes, in its line's own spelling. */
-export const documentOf = (sketch: DocumentSketch): Schema.JsonObject => {
+export const documentOf = (sketch: DocumentSketch): JsonObject => {
 	const { line } = sketch
 	return members([
 		["openapi", Option.some(VERSIONS[line])],
@@ -1818,7 +1816,7 @@ export const configGen =
 const ADDED_SCHEME = "authorToken"
 
 /** The author config a sketch describes. */
-export const configOf = (config: ConfigSketch): Schema.JsonObject =>
+export const configOf = (config: ConfigSketch): JsonObject =>
 	members([
 		["package", Option.some({ name: `${config.binName}-cli`, version: "1.0.0" })],
 		["binName", Option.some(config.binName)],
@@ -1840,7 +1838,7 @@ export const configOf = (config: ConfigSketch): Schema.JsonObject =>
 				Arr.isReadonlyArrayNonEmpty(config.environments) || Option.isSome(config.added),
 				Record.fromEntries([
 					...Arr.map(config.environments, ([scheme, env]) => [scheme, { env }] as const),
-					...Record.toEntries<string, Schema.Json>(
+					...Record.toEntries<string, Json>(
 						members([
 							[
 								"add",
@@ -1870,4 +1868,4 @@ export const configOf = (config: ConfigSketch): Schema.JsonObject =>
 	])
 
 /** A JSON value's text, as a document or config file holds it. */
-export const textOf = (value: Schema.Json): string => jsonText(value)
+export const textOf = (value: Json): string => jsonText(value)
