@@ -4,10 +4,12 @@ import { ExprId } from "#compiler/core/ids.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import {
 	builtExpr,
+	type EqualityKey,
 	type ExprOf,
 	type ExprSpec,
 	type LiveArgs,
 	mapArgs,
+	nativeEqualityKey,
 	outsideSpec,
 	predicateTable,
 	type ScalarExpr,
@@ -37,10 +39,12 @@ import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.
  * - a split of `e` on a subterm `s` that `e` reads more than once, that is evaluated on every evaluation of `e`
  *   (#anticipates), that is never NULL there (#nonNullAt), that raises nothing, and whose values the compiler knows,
  *   finitely many (#valuesOf): a boolean, a closed relation's payload read at a key (its column's values over the
- *   relation's rows), a literal, or a conditional of them. `e` is then `CASE s WHEN v THEN e[s:=v] ... END`, one arm per
- *   value, each arm `e` with `s` replaced by the value and folded (#substituted), the arm most values share the ELSE:
- *   as a conditional chain of equalities of `s` to a literal, which lowerScalar prints as one simple CASE over `s`
- *   (equalityChain), or, for a boolean, the conditional on `s` itself;
+ *   relation's rows), a literal, or a conditional of them. `e` is then `CASE s WHEN v THEN e[s:=v] ... END`, each arm `e`
+ *   with `s` replaced by a value and folded (#substituted), the arm most values share the ELSE: as a conditional chain
+ *   of equalities of `s` to a literal, which lowerScalar prints as one simple CASE over `s` (equalityChain), or, for a
+ *   boolean, the conditional on `s` itself. A test of `s = v` holds at every value of v's class under `=`, so the chain
+ *   has one arm per class, and a split is taken only where every value of a class gives one arm: a float's -0 and 0,
+ *   which `=` holds equal, give two where `e` tells them apart, `greatest(s, s)` among them, and no split takes them;
  * - arm factoring: `cond(c, C[a], C[b])` is `C[cond(c, a, b)]` where the two arms differ at one pair of subterms
  *   (anti-unification), and where one arm is the other with a subterm of known values at one of its values, as
  *   `lexical` is `sw(preserve)` of `sw(x) = CASE x WHEN collapse THEN … WHEN replace THEN … ELSE lexical END`.
@@ -600,7 +604,8 @@ class Sharing {
 
 	/**
 	 * `e` split on `s` (the module's first rewrite), `s` itself rewritten where it is evaluated, each arm rewritten where
-	 * its value holds; undefined where `s`'s values are unknown or its carrier has no equality.
+	 * its value holds; undefined where `s`'s values are unknown, its carrier has no equality, or two of its values that
+	 * `=` holds equal give two arms.
 	 */
 	#split(e: ScalarExpr, s: ScalarExpr, facts: Facts): ScalarExpr | undefined {
 		const subject = this.#rewrite(s, facts)
@@ -619,13 +624,23 @@ class Sharing {
 		if (values === undefined) {
 			return undefined
 		}
-		const arms = values.map((v) => {
+		/** The arm of each class of `=`, by its first value: the chain tests `s = v`, which every value of v's class meets. */
+		const classes = new Map<
+			EqualityKey,
+			{ readonly literal: ScalarExpr; readonly arm: ScalarExpr }
+		>()
+		for (const v of values) {
 			const literal = this.#literal(v, s)
-			return {
-				literal,
-				arm: this.#rewrite(this.#substituted(e, new Map([[s, literal]])), facts)
+			const arm = this.#rewrite(this.#substituted(e, new Map([[s, literal]])), facts)
+			const key = nativeEqualityKey(v)
+			const held = classes.get(key)
+			if (held === undefined) {
+				classes.set(key, { literal, arm })
+			} else if (held.arm !== arm) {
+				return undefined
 			}
-		})
+		}
+		const arms = [...classes.values()]
 		const shared = new Map<ScalarExpr, number>()
 		for (const a of arms) {
 			shared.set(a.arm, (shared.get(a.arm) ?? 0) + 1)

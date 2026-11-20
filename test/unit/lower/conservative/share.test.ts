@@ -7,10 +7,13 @@
  * (share.fixtures.ts ShareShape): a predicate never NULL in two conditionals, a closed read of a flag compared to
  * literals in a chain, or in two conditionals, bare where Pick holds no row at the row's kind and under that presence,
  * two arms of one context, a chain guarded by Pick's presence whose ELSE arm is the chain at a flag Pick holds (shape
- * D's), or a drawn term. Beside it, h generates the shared subterm alone, so its SQL is the subterm's as the site prints it.
+ * D's), the extremum of a closed read of a double Pick holds as 0 at one kind and -0 at another with itself, or a drawn
+ * term.
+ * Beside it, h generates the shared subterm alone, so its SQL is the subterm's as the site prints it.
  *
  * - Meaning: the host evaluates g's expression and its rewrite, every rewrite a split or a factoring may take accepted
- *   (a size that never refuses), to one result at every row, a value, NULL or no value alike (scalar/compute/evaluate.ts).
+ *   (a size that never refuses), to one result at every row, a value, NULL or no value alike, a float's zero by its
+ *   sign (scalar/compute/evaluate.ts).
  * - Work: in g's installed column, the shared predicate of "a boolean twice" and the flag of "a flag compared twice"
  *   occur once in the text, so on every path they are evaluated at most once, where unshared they are read twice
  *   (where a drawn arm reads the subterm itself, that read is the arm's own, and the case claims nothing of it).
@@ -64,6 +67,10 @@ import {
 	valueArmGen
 } from "#test/unit/lower/conservative/share.fixtures.ts"
 
+/** A host value as text, a float's -0 apart from 0, which Formatter.format prints alike. */
+const valueText = (value: unknown): string =>
+	Object.is(value, -0) ? "-0" : Formatter.format(value)
+
 /** What the host evaluates `expr` to at row `id`, as text: its value, NULL, or why it has none. */
 const hostAt =
 	(expr: ScalarExpr, closed: EvalLeaves["closed"]) =>
@@ -76,7 +83,7 @@ const hostAt =
 		return value.ok
 			? value.value === sqlNull
 				? "NULL"
-				: Formatter.format(value.value)
+				: valueText(value.value)
 			: `no value: ${Formatter.format(value.error)}`
 	}
 
@@ -91,6 +98,7 @@ export const aTermsSharedSubtermsAreEvaluatedOnceItsRewriteKeepsItsValueAtEveryR
 			"a guarded flag",
 			"two arms of one context",
 			"a guarded chain",
+			"a float read twice",
 			"a drawn term",
 			"a shared subterm printed once",
 			"a NULL shared read",
@@ -181,6 +189,12 @@ export const aTermsSharedSubtermsAreEvaluatedOnceItsRewriteKeepsItsValueAtEveryR
 				replacement:
 					"\t\t\t\t\t\t\tholdsFirst ? this.#cond(c, k, x, x) : this.#cond(c, x, k, x),\n",
 				why: "A factoring of an arm that is the other at a constant puts the constant on the wrong side: the guarded chain reads the flag `k` where Pick holds the row and the row's own flag where it holds none."
+			},
+			{
+				file: "packages/engine/src/lower/conservative/expr/share.ts",
+				original: "\t\t\t} else if (held.arm !== arm) {\n",
+				replacement: "\t\t\t} else if (held.arm !== arm && false) {\n",
+				why: "A split takes a float's two zeros as one class of `=`: greatest(x, x) over Pick's 0 and -0 tests x = 0 for both and gives one zero at the other's row."
 			},
 			{
 				file: "packages/engine/src/lower/conservative/expr/index.ts",

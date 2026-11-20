@@ -63,6 +63,10 @@ import { ownedInput } from "#test/support/policy.ts"
  *   (lower/conservative/expr/share.ts): its ELSE arm is the chain at the flag `k` Pick holds at the first kind, beside
  *   v1 and v2, so a factoring makes the chain's subject `cond(Pick.has(kind), f, k)`; Pick holds v1 at the second kind,
  *   which a row reads;
+ * - "a float read twice": `cond(Pick.has(kind), greatest(x, x), z)` or least's, a double precision term, `x` Pick's
+ *   double at the row's kind, which Pick holds as 0 at one of the first two kinds and as -0 at the other, in a drawn
+ *   order, and rows read both: `=` holds the two zeros equal, so a split's test of `x = 0` meets both, where the
+ *   extremum is 0 at one and -0 at the other;
  * - "a drawn term": a term of the language, which reads a subterm twice only by chance.
  */
 export type ShareShape =
@@ -72,6 +76,7 @@ export type ShareShape =
 	| "a guarded flag"
 	| "two arms of one context"
 	| "a guarded chain"
+	| "a float read twice"
 	| "a drawn term"
 
 /**
@@ -87,14 +92,15 @@ export type ShareFeature =
 	| "a value"
 	| "several rows"
 
-/** A case's shared subterm: a predicate or a term of a flag. */
+/** A case's shared subterm: a predicate, a term of a flag, or a term of a double. */
 export type Shared =
 	| { readonly kind: "pred"; readonly pred: Pred }
 	| { readonly kind: "flag"; readonly term: Term }
+	| { readonly kind: "float"; readonly term: Term }
 
 /**
  * A case: its world, one to five rows, its shape, its shared subterm, the drawn terms the shape's conditionals choose
- * between, and the generated field's integer term over them.
+ * between, and the generated field's term over them with its sort, an integer's or a double's.
  */
 export interface ShareCase {
 	readonly world: World
@@ -102,6 +108,7 @@ export interface ShareCase {
 	readonly shape: ShareShape
 	readonly shared: Shared
 	readonly arms: ReadonlyArray<Term>
+	readonly sort: "int" | "f8"
 	readonly term: Term
 }
 
@@ -209,6 +216,7 @@ export const caseGen: Gen<ShareCase> = (s) => {
 		"a flag compared twice",
 		"a guarded flag",
 		"two arms of one context",
+		"a float read twice",
 		"a drawn term"
 	]
 	const shapes: NonEmptyReadonlyArray<ShareShape> =
@@ -227,6 +235,7 @@ export const caseGen: Gen<ShareCase> = (s) => {
 				world,
 				items,
 				shape,
+				sort: "int",
 				shared: { kind: "pred", pred: b },
 				arms: leaves,
 				term: both({ t: "cond", p: b, a: lx, b: ly }, { t: "cond", p: b, a: lz, b: lw })
@@ -237,6 +246,7 @@ export const caseGen: Gen<ShareCase> = (s) => {
 				world,
 				items,
 				shape,
+				sort: "int",
 				shared: flag,
 				arms: [x, y, z],
 				term: {
@@ -262,6 +272,7 @@ export const caseGen: Gen<ShareCase> = (s) => {
 				},
 				items: [...items, { ...s.draw(item), kind: absent }],
 				shape,
+				sort: "int",
 				shared: flag,
 				arms: [lit(5), lit(2), lit(3), lit(4)],
 				term: both(
@@ -275,6 +286,7 @@ export const caseGen: Gen<ShareCase> = (s) => {
 				world,
 				items,
 				shape,
+				sort: "int",
 				shared: flag,
 				arms,
 				term: {
@@ -292,6 +304,7 @@ export const caseGen: Gen<ShareCase> = (s) => {
 				world,
 				items,
 				shape,
+				sort: "int",
 				shared: flag,
 				arms,
 				term: {
@@ -329,6 +342,7 @@ export const caseGen: Gen<ShareCase> = (s) => {
 				},
 				items: [...items, { ...s.draw(item), kind: 1 }],
 				shape,
+				sort: "int",
 				shared: flag,
 				arms: [lit(1), lit(2), lit(3)],
 				term: {
@@ -339,11 +353,46 @@ export const caseGen: Gen<ShareCase> = (s) => {
 				}
 			}
 		}
+		case "a float read twice": {
+			const kinds = Math.max(2, world.kinds)
+			const first = s.draw(boolean) ? -0 : 0
+			const zeros = [first, Object.is(first, -0) ? 0 : -0] as const
+			const x: Term = { t: "at", field: "x", key: { k: "own" } }
+			return {
+				world: {
+					...world,
+					kinds,
+					pick: Array.from({ length: kinds }, (_, kind) => {
+						const zero = zeros[kind]
+						const held = world.pick[kind]
+						return zero === undefined
+							? held
+							: { ...(held ?? { flag: 0, n: 0, d: 0, t: "", b: false, x: 0, y: 0 }), x: zero }
+					}),
+					allowed: [
+						...world.allowed,
+						...Array.from({ length: kinds - world.kinds }, (): ReadonlyArray<number> => [])
+					]
+				},
+				items: [...items, { ...s.draw(item), kind: 0 }, { ...s.draw(item), kind: 1 }],
+				shape,
+				sort: "f8",
+				shared: { kind: "float", term: x },
+				arms: [],
+				term: {
+					t: "cond",
+					p: { p: "has", key: { rel: "pick", key: { k: "own" } } },
+					a: { t: "extremum", op: s.draw(element(["greatest", "least"] as const)), a: x, b: x },
+					b: s.draw(termGen(world, "f8", 1, "check"))
+				}
+			}
+		}
 		case "a drawn term":
 			return {
 				world,
 				items,
 				shape,
+				sort: "int",
 				shared: flag,
 				arms: [],
 				term: s.draw(termGen(world, "int", 3, "check"))
@@ -351,34 +400,45 @@ export const caseGen: Gen<ShareCase> = (s) => {
 	}
 }
 
-/** What a case's schema is built of: its world, its term and its shared subterm. */
-type Built = Pick<ShareCase, "world" | "term" | "shared">
+/** What a case's schema is built of: its world, its term and its sort, and its shared subterm. */
+type Built = Pick<ShareCase, "world" | "term" | "shared" | "sort">
+
+/** A shared subterm alone as a stored sort and a term: a flag's or a double's read, a predicate's conditional of 1 and 0. */
+const sharedAlone = (
+	shared: Shared
+): { readonly sort: "int" | "code" | "f8"; readonly term: Term } => {
+	switch (shared.kind) {
+		case "pred":
+			return {
+				sort: "int",
+				term: {
+					t: "cond",
+					p: shared.pred,
+					a: { t: "lit", literal: { sort: "int", value: 1 } },
+					b: { t: "lit", literal: { sort: "int", value: 0 } }
+				}
+			}
+		case "flag":
+			return { sort: "code", term: shared.term }
+		case "float":
+			return { sort: "f8", term: shared.term }
+	}
+}
 
 /**
  * The schema of a case: its world's closed relations, and Gen, the rows' fields with the generated field g of the
- * case's term and h of its shared subterm alone: a flag's read, or a predicate's conditional of 1 and 0.
+ * case's term and h of its shared subterm alone (sharedAlone).
  */
 const builtOf = (sc: Built) => {
 	const c = closedOf(sc.world)
+	const alone = sharedAlone(sc.shared)
 	const Gen = generatedRelation(
 		"Gen",
 		itemFields(c),
 		["id"],
 		(r) => ({
-			g: generatedField(storedField(c, "int"), buildTerm(c, r, sc.term), []),
-			h:
-				sc.shared.kind === "pred"
-					? generatedField(
-							storedField(c, "int"),
-							buildTerm(c, r, {
-								t: "cond",
-								p: sc.shared.pred,
-								a: { t: "lit", literal: { sort: "int", value: 1 } },
-								b: { t: "lit", literal: { sort: "int", value: 0 } }
-							}),
-							[]
-						)
-					: generatedField(storedField(c, "code"), buildTerm(c, r, sc.shared.term), [])
+			g: generatedField(storedField(c, sc.sort), buildTerm(c, r, sc.term), []),
+			h: generatedField(storedField(c, alone.sort), buildTerm(c, r, alone.term), [])
 		}),
 		[]
 	)
@@ -427,15 +487,24 @@ export const generatedSql = (installation: Installation, field: "g" | "h"): stri
 }
 
 /**
- * The SQL text of a case's shared subterm as the installation prints it: h's column, a flag's read itself, or a
- * predicate's `CASE WHEN <predicate> THEN 1 ELSE 0 END`, the predicate's text before its last THEN; undefined where the
- * rewrite folded the predicate away, as it folds `has(k) AND NOT has(k)` to false, so no row evaluates it.
+ * The SQL text of a case's shared subterm as the installation prints it: h's column, a flag's or a double's read
+ * itself, or a predicate's `CASE WHEN <predicate> THEN 1 ELSE 0 END`, the predicate's text before its last THEN;
+ * undefined where the rewrite folded the predicate away, as it folds `has(k) AND NOT has(k)` to false, so no row
+ * evaluates it.
  */
 export const sharedSql = (installation: Installation, sc: ShareCase): string | undefined => {
 	const h = generatedSql(installation, "h")
-	if (sc.shared.kind === "flag") {
-		return h
+	switch (sc.shared.kind) {
+		case "flag":
+		case "float":
+			return h
+		case "pred":
+			return predicateText(h)
 	}
+}
+
+/** A predicate's text in h's `CASE WHEN <predicate> THEN 1 ELSE 0 END`, before its last THEN (sharedSql). */
+const predicateText = (h: string): string | undefined => {
 	const lead = "CASE WHEN "
 	const then = Option.getOrUndefined(Str.lastIndexOf(" THEN ")(h))
 	return Str.startsWith(lead)(h) && then !== undefined && then > lead.length
@@ -484,9 +553,12 @@ export const countedWorld = (kinds: number, flags: number): World => ({
 	allowed: Array.from({ length: kinds }, () => [])
 })
 
-/** The installation of a work case's world and term as g, h Pick's flag at the row's kind, which no work case reads. */
+/**
+ * The installation of a work case's world and integer term as g, h Pick's flag at the row's kind, which no work case
+ * reads.
+ */
 export const installationOfTerm = (world: World, term: Term): Installation =>
-	installationOfCase({ world, term, shared: { kind: "flag", term: flagRead } })
+	installationOfCase({ world, term, sort: "int", shared: { kind: "flag", term: flagRead } })
 
 /** Pick's integer at the row's own kind: in a countedWorld, one of as many values as the world has kinds. */
 const countRead: Term = { t: "at", field: "n", key: { k: "own" } }
