@@ -7,7 +7,7 @@ import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
-import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { Decimal, integerOfDecimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
@@ -88,14 +88,21 @@ export const hostAnswer = (c: Case): string => {
 
 /**
  * The numeric(p, s) codec's answer: the value its encoder writes for the literal, read back as its one text, or
- * "refused".
+ * "refused". The literal is given as the type's host value: a Decimal, but numeric(p, 0)'s bigint, an integer type's
+ * (codec/scalar.ts carrierSpecOf, ir/carriers.ts isIntegerTypmod), whose caller holds no fraction, so a literal with one
+ * is refused there before the encoder.
  */
 export const codecAnswer = (c: Case): string => {
 	const codec = scalarCodec(
 		scalarOf({ kind: "numeric", precision: c.p, scale: c.s }, {}),
 		emptyCodebook
 	)
-	const encoded = codec.encode(succeeded(Decimal.fromString(c.v)))
+	const literal = succeeded(Decimal.fromString(c.v))
+	const host = c.s === 0 ? integerOfDecimal(literal) : literal
+	if (host === undefined) {
+		return "refused"
+	}
+	const encoded = codec.encode(host)
 	return encoded.ok ? Decimal.fromOutput(encoded.value).toString() : "refused"
 }
 

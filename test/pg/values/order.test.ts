@@ -4,7 +4,8 @@
  * comparison puts it in, under both of the orders its closed ids rank by (ir/codes.ts HandleOrder): a codec's spec,
  * whose closed ids rank by the installation's codes, as a reader's merge and a page's fetch order read it, and the
  * evaluator's (scalar/compute/evaluate.ts evaluatorOrder), whose rank by their roster's declaration, as a contract literal's
- * check, constant folding, a fill's selection and the witness read it.
+ * check, constant folding, a fill's selection and the witness read it, over each value as the evaluator computes with it
+ * (scalar/values/identity.ts evaluatedValue): numeric(p, 0)'s bigint as its Decimal.
  *
  * Each case is a carrier and a batch of up to 100 of its values: every carrier the codec round trip sends (numeric
  * with NaN and the infinities, real and double precision with NaN, the infinities and -0, money, text of every plane,
@@ -25,7 +26,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { evaluatorOrder } from "#compiler/scalar/compute/evaluate.ts"
-import { compareValues } from "#compiler/scalar/values/identity.ts"
+import { compareValues, evaluatedValue } from "#compiler/scalar/values/identity.ts"
 import { roundTripRuns } from "#test/pg/codec/scalar.fixtures.ts"
 import {
 	batchGen,
@@ -37,6 +38,7 @@ import {
 	orderSetup,
 	postgresOrder
 } from "#test/pg/values/order.fixtures.ts"
+import { at } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"
 
@@ -69,22 +71,25 @@ export const theHostsComparisonOfValuesOrdersEveryCarriersValuesAsPostgreSQLsOrd
 						`${batch.label}: the codec's order is PostgreSQL's`
 					)
 					const evaluator = evaluatorOrder(carrier.type)
+					const evaluated = Arr.map(values, (v) => evaluatedValue(carrier.type, v))
 					switch (carrier.ordered) {
 						case "ordered":
 							assert.deepEqual(
-								orderOf(values, (a, b) => compareValues(evaluator, a, b)),
+								orderOf(evaluated, (a, b) => compareValues(evaluator, a, b)),
 								postgres,
 								`${batch.label}: the evaluator's order is PostgreSQL's`
 							)
 							break
 						case "equality":
 							for (const [i, a] of values.entries()) {
-								for (const b of values.slice(i + 1)) {
-									assert.equal(
-										compareValues(evaluator, a, b) === 0,
-										compareValues(codec, a, b) === 0,
-										`${batch.label}: the evaluator's equality is PostgreSQL's`
-									)
+								for (const [j, b] of values.entries()) {
+									if (j > i) {
+										assert.equal(
+											compareValues(evaluator, at(evaluated, i), at(evaluated, j)) === 0,
+											compareValues(codec, a, b) === 0,
+											`${batch.label}: the evaluator's equality is PostgreSQL's`
+										)
+									}
 								}
 							}
 							break
