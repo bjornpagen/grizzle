@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * Every world function is index-served: an existence test bound to its arguments, judged by PostgreSQL's serving judge
  * (world-serving.ts, serving.ts), over generated role schemas, each case's population of a drawn small size.
@@ -39,6 +38,7 @@ import { assert } from "@bjornpagen/testing/assert"
  *
  * Features: every situation the witnesses reach by construction (see above).
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"

@@ -1,4 +1,3 @@
-import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * Every fold's end and running values as the README's family semantics state them ("Families": fold), a host model that
  * never runs grizzle's filler: each owner's end is its members' step values combined by the monoid from its identity,
@@ -23,6 +22,7 @@ import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
  * relation per monoid. Values are exact: an integer in its own unit, numeric(8, 2) in hundredths, money in cents, a
  * closed id as its code and a set as the bit mask of its codes, text as itself.
  */
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, int, string, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"

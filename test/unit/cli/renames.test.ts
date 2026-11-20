@@ -1,4 +1,3 @@
-import { assert, deepEquals } from "@bjornpagen/testing/assert"
 /**
  * The rename declaration reader (packages/grizzle/src/cli/renames.ts) against D9's grammar, stated as a checker that
  * shares no code with it but the naming door's rule of a declared name (core/identity.ts parseDeclaredName) and its
@@ -30,6 +29,7 @@ import { assert, deepEquals } from "@bjornpagen/testing/assert"
  * Features: each side's form, admitted and refused, a split two ways, a handle renamed to itself under its roster
  * spelled apart, swaps, chains, repeats and merges, and a roster respelled alike or lacking.
  */
+import { assert, deepEquals } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"

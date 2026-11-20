@@ -1,21 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
-import { oneOf } from "@bjornpagen/testing/gen"
-import { property, ReplayToken } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
-import { admissionProgram } from "#test/support/agreement/admission.ts"
-import { argumentProgram } from "#test/support/agreement/arguments.ts"
-import {
-	agreementCases,
-	agreementReached,
-	evidencePrelude,
-	evidenceProgram,
-	evidenceRequired,
-	faultCases,
-	faultProgram,
-	faultsRequired,
-	reorderedVerdicts
-} from "#test/support/agreement/queries.ts"
-import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * The type/engine agreements over drawn queries (test/support/agreement/queries.ts), each a program a batch checks
  * disarmed:
@@ -54,6 +36,24 @@ import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
  * space every fault refused and each whose site may hold a valid value admitted, so neither program is vacuous; the
  * admission and argument boxes hold every position, kind, shape and form by construction.
  */
+import { assert } from "@bjornpagen/testing/assert"
+import { oneOf } from "@bjornpagen/testing/gen"
+import { property, ReplayToken } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import { admissionProgram } from "#test/support/agreement/admission.ts"
+import { argumentProgram } from "#test/support/agreement/arguments.ts"
+import {
+	agreementCases,
+	agreementReached,
+	evidencePrelude,
+	evidenceProgram,
+	evidenceRequired,
+	faultCases,
+	faultProgram,
+	faultsRequired,
+	reorderedVerdicts
+} from "#test/support/agreement/queries.ts"
+import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
 import { argumentBox, admissionBox } from "#test/types/evidence/agreement.dictionary.ts"
 
 /**

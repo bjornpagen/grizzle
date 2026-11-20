@@ -1,3 +1,7 @@
+/**
+ * What the property of codec-text.test.ts reads: the carriers a value's text is of, the fields of every kind codecText
+ * reads one through, a batch, the installations it is stored under, and PostgreSQL's reading of it there.
+ */
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
@@ -7,10 +11,6 @@ import { hostText } from "#compiler/codec/scalar.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-/**
- * What the property of codec-text.test.ts reads: the carriers a value's text is of, the fields of every kind codecText
- * reads one through, a batch, the installations it is stored under, and PostgreSQL's reading of it there.
- */
 import { int8Max } from "#compiler/ir/carriers.ts"
 import { type Codebook, declaredOrder, firstCodebook } from "#compiler/ir/codes.ts"
 import { type Carrier, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"

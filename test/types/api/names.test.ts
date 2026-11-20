@@ -1,5 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
 /**
  * A relation's name (test/types/api/names.ts): over the box of every constructor that names a relation by every
  * spelling of the name it is handed, a call is refused exactly when the name's type is no one string literal, at the
@@ -7,6 +5,8 @@ import { finite } from "@bjornpagen/testing/gen"
  * level's inputs. Each call is a cell of the box; a batch's cells are one program, checked disarmed. Oracle: the box's
  * own typing of each name.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
 import { namesBox } from "#test/types/api/names.dictionary.ts"
 import { namesProgram } from "#test/types/api/names.ts"
 import { boxAgreement } from "#test/types/batch/agreement.ts"

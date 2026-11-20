@@ -1,4 +1,3 @@
-import type * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The runtime protocols the schema builders read and write.
  *
@@ -26,6 +25,7 @@ import type * as Result from "@bjornpagen/grizzle-text/base/result"
  *   is frozen, carries its Description under a non-enumerable `desc`, and is registered here, so ownership trusts
  *   exactly the values the builders made and a JavaScript look-alike is decoded strictly.
  */
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"

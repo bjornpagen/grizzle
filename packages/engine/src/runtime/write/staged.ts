@@ -1,11 +1,11 @@
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * A statement's executions in the call's one flight: its one, inline, or, where its nested rows' arrays are past one
  * Bind message, its staged form's, its carriers created and filled chunk by chunk and the staged statement
  * (write/program/staged.ts, which compiles the staged form and says why).
  */
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
 import { literalAlone } from "#compiler/codec/recordset.ts"

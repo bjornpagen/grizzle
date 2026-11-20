@@ -1,4 +1,3 @@
-import { nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * The cost of a tree's backfill grows linearly with the stored forest, on PostgreSQL 19: the keyed tree edullm's
  * identity migration drafts from the old-form tree (test/support/migrate/keyed-tree.ts), its backfill run over old
@@ -30,6 +29,7 @@ import { nonEmpty } from "@bjornpagen/testing/assert"
  * Each case runs in a database of its own (Substrate.fresh): the old-form tree installs under its own fixed schema name,
  * old_tree, one size after another.
  */
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

@@ -1,4 +1,3 @@
-import { costGate } from "#test/types/batch/measured.ts"
 /**
  * The ChangeSet members' type cost against the schema they write (changeset/budget/members.ts): for each op, a delete,
  * a put, an insert or an insertAll's key, and each member kind, a query or an array of facts, and for a deleteWhere's
@@ -19,6 +18,7 @@ import { costGate } from "#test/types/batch/measured.ts"
  * holding a field named `params`, as pantry's Reference does. Oracle: the compiler's own counts and diagnostics
  * (test/types/batch/measured.ts), compared across the two schemas.
  */
+import { costGate } from "#test/types/batch/measured.ts"
 import { memberForms } from "#test/types/changeset/budget/members.dictionary.ts"
 import { memberCost, memberFormName } from "#test/types/changeset/budget/members.ts"
 

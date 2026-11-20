@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Compute.parseDouble on PostgreSQL 19: over drawn decimal texts of doubles (test/support/lexical.ts doubleTextGen),
  * weighted at every point binary64's rounding turns on (the greatest finite double and the overflow threshold past it,
@@ -19,6 +18,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  *
  * Features: each rounding point and spelling the form admits.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, recorded } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"

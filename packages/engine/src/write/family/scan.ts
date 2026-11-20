@@ -1,5 +1,3 @@
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * A family's members drawn in SQL, in slot order, inside the statement that writes them: the values the host once drew
  * from a read of the stored group, computed by PostgreSQL from the group as the statement finds it. A migration's
@@ -34,6 +32,8 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-tex
  * Every drawn column is cast to its type's base, so no domain's CHECK runs before the write that stores the value, which
  * judges it there.
  */
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import { columnReads, fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Family, FamilyFold } from "#compiler/ir/family.ts"

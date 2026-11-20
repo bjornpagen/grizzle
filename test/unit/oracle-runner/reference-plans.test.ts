@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The reference evaluator's faster paths against its nested loops (test/support/oracle/reference/evaluate.ts).
  *
@@ -20,6 +19,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * feature of its own is required. indexIdentity's features: one identity, two, none for another carrier, none outside
  * the roster.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, family, property } from "@bjornpagen/testing/property"

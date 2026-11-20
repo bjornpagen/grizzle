@@ -1,4 +1,3 @@
-import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * `grizzle check` reports every finding at once, one per entry, never stopping at the first, generated: a committed
  * directory of one schema (its first draft, `init`, and a custom folder after it, `seed`) with a drawn set of faults
@@ -19,6 +18,7 @@ import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
  * Features: each finding's kind, a stray entry alone, four findings at once, and a later folder off the chain the walk
  * never reaches.
  */
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"

@@ -1,5 +1,5 @@
-import { assert } from "@bjornpagen/testing/assert"
 /** What the property of orphan.test.ts reads: its forms and their space, the throwaway postmaster, and one case's run. */
+import { assert } from "@bjornpagen/testing/assert"
 import { boolean, type Space } from "@bjornpagen/testing/gen"
 import { liveMillis, liveSleep } from "@bjornpagen/testing/live"
 import { clientCheckInterval, type Platform } from "@bjornpagen/testing/pg"

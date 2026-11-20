@@ -1,4 +1,3 @@
-import { growthGate } from "#test/types/batch/measured.ts"
 /**
  * The query facade's type cost by dimension (query/budget/scaling.ts): rules with attachments, ChangeSet members of
  * each kind, an insertAll over every relation, contexts, and relations with their rules and members, each program
@@ -9,6 +8,7 @@ import { growthGate } from "#test/types/batch/measured.ts"
  * no more than the first, so no unit costs more for the units before it. Its types, which the checker interns, are not
  * judged by the law (test/types/batch/measured.ts). Oracle: the compiler's own counts, compared step against step.
  */
+import { growthGate } from "#test/types/batch/measured.ts"
 import { queryDimensions } from "#test/types/query/budget/scaling.dictionary.ts"
 
 /**

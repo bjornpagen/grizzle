@@ -1,28 +1,3 @@
-import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import {
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "@bjornpagen/grizzle-text/base/nonempty"
-import { refuse } from "#compiler/analysis/theory/build.ts"
-import {
-	type LeafRewrite,
-	mapBindings,
-	mapLeaves,
-	varRef
-} from "#compiler/analysis/theory/leaves.ts"
-import {
-	type LawSide,
-	queryOf,
-	type RelationRead,
-	type ReplacedRead,
-	ruleDesc,
-	type RuleLaw,
-	type WholeRule
-} from "#compiler/analysis/theory/query.ts"
-import { canonicalEquals } from "#compiler/core/canonical.ts"
-import type { SourceLoc } from "#compiler/core/loc.ts"
 /**
  * Unit-local rules: a rule over a query every fact of whose violation lies within one unit, a value of the key every
  * relation it reads leads with, each of them immutable (ir/unit.ts), which the judge reads whole over the units a
@@ -59,6 +34,31 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
  * key fields of the rows that side holds. The restriction is one function for every whole rule, and it is the query's
  * own text, which the checker and the lowering read as they read any query.
  */
+import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { refuse } from "#compiler/analysis/theory/build.ts"
+import {
+	type LeafRewrite,
+	mapBindings,
+	mapLeaves,
+	varRef
+} from "#compiler/analysis/theory/leaves.ts"
+import {
+	type LawSide,
+	queryOf,
+	type RelationRead,
+	type ReplacedRead,
+	ruleDesc,
+	type RuleLaw,
+	type WholeRule
+} from "#compiler/analysis/theory/query.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
+import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import {
 	type ExprDesc,

@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * How the runner runs a case that never finishes (the runner's inline evaluator, which a search nested in a case runs
  * on, and which evaluates a case as a worker of the pool does): when the search itself is interrupted, every case it
@@ -14,6 +13,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * runner.ts workerCluster), as every nested search does; its property needs none, so no cluster is reached. Features: the hanging case
  * first, and after finished cases.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { inlineRun, searchInline } from "@bjornpagen/testing/inline"

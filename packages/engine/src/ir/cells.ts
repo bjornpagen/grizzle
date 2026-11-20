@@ -1,7 +1,3 @@
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { type ReadonlyTupleMap, TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 /**
  * The cells encoder: the one encoding of a closed relation as a string of cells, which every constant, domain and
  * lookup of a closed relation reads.
@@ -18,6 +14,10 @@ import { type ReadonlyTupleMap, TupleMap } from "@bjornpagen/grizzle-text/base/t
  *
  * Sizes, indexes and payload codes are bigints, exact over any space. A bound on them is the caller's.
  */
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { type ReadonlyTupleMap, TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.ts"
 import {

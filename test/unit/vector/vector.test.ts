@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The cosine domain of a vector field (scalar/values/vector.ts, ir/expr.ts): the float32 buffers of the field's
  * dimensions, every component finite, whose norm lies in [cosineNormMin, cosineNormMax].
@@ -15,6 +14,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * equal, small, or one component at a bound. Oracle: the specification, the domain's verdict on the float32 buffer.
  * Features: each verdict, a bound, an underflowing component, -0, and a buffer zeroed after its check.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"

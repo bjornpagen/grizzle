@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Edits of stored bytes values on PostgreSQL 19, which the host knows only by their SHA-256 digests: a write returns
  * a bytes column's digest (write/insert/statement.ts returnedColumn), the outcome nets its rows by it, and a member's
@@ -16,6 +15,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  *
  * Features: the vocabulary Feature below, each kind of put and delete the model counts.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Layer, Option } from "effect"

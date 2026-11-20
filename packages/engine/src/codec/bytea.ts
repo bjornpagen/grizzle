@@ -1,5 +1,3 @@
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The binary arrays of bytes and text columns, a hot path: a member's bytes values travel in PostgreSQL's binary format,
  * never as their hex text, so a value of n bytes sends n bytes and its length, and the server reads them with
@@ -8,6 +6,8 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
  * with format code 1 and every other parameter as text, each by its own format code, so one statement mixes the two
  * (pg-protocol's serializer, `writeValues`).
  */
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { utf8Length, writeUtf8 } from "@bjornpagen/grizzle-text/utf8"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { nominal } from "#compiler/core/brand.ts"

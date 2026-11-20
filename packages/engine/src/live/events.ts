@@ -1,4 +1,3 @@
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * The live event model as data: every event of a call's answer and every error that ends one is a descriptor here, its
  * name and the slots its payload holds, from which the TypeScript types below, the SSE frames and the OpenAPI schema
@@ -14,6 +13,7 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  * fails before it answered, its input refused at the door or by PostgreSQL as it binds it among them, answers its error
  * alone: no `reset` opened an answer it never gave.
  */
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import type { ParamPlace } from "#compiler/core/identity.ts"
 import type { Sqlstate } from "#compiler/core/sqlstate.ts"

@@ -1,4 +1,3 @@
-import { conservativeAgreement } from "#test/pg/oracle/conservative.fixtures.ts"
 /**
  * The conservative lowering against the brute-force reference evaluator on PostgreSQL 19.
  *
@@ -17,6 +16,7 @@ import { conservativeAgreement } from "#test/pg/oracle/conservative.fixtures.ts"
  *
  * Features: the situations below, every operator kind among them, and each decline of the reference, rated.
  */
+import { conservativeAgreement } from "#test/pg/oracle/conservative.fixtures.ts"
 import { denseQueryCaseGen } from "#test/pg/oracle/support.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 

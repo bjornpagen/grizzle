@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The leader's stream deadline (packages/grizzle/src/adapter/live/leader.ts deadlined), the replication session's own
  * wal_sender_timeout as its setting's text states it (engine live/replication.ts parseSenderDeadline), under a test
@@ -12,6 +11,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * Features: a stream silent from its start, a message one millisecond short of the deadline, a stream standing one
  * millisecond short of it, a stream heard several times before its end, and a timeout of 0.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Clock, Deferred, Duration, Effect, Exit, Fiber, Option } from "effect"

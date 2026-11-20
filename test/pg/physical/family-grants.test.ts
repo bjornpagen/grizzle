@@ -1,4 +1,3 @@
-import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 /**
  * A member writer's hold on its family's owner, on PostgreSQL 19 (physical/ddl/roles.ts, rows-first): a role that
  * writes a family's member and not its owner O holds column SELECT on O's key, count, ends and copies, column UPDATE on
@@ -27,6 +26,7 @@ import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
  *
  * Features: each role's probes of each statement kind on the owners, admitted and refused, and each apply outcome.
  */
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Array as Arr, Option, Order } from "effect"

@@ -1,10 +1,10 @@
-import { aimed, type Gen, recorded } from "@bjornpagen/testing/gen"
 /**
  * What the per-evaluation population must reach: a take correlated per outer row, a region reading an outer column, an
  * attachment nested below another's child, a per-parent take over an attachment, a correlated child under a nested
  * attachment, a parent key set read without DISTINCT, whose parent rows the differential holds to its claim, and a fold
  * attached by a key the attachment pairs with two parent columns, which each evaluation of the fold restricts to both.
  */
+import { aimed, type Gen, recorded } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
 import { type TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"

@@ -1,12 +1,12 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * A query's bound (test/types/query/take.ts): over Ordered.take(k) and a search's take by every spelling of the bound,
  * a call typechecks exactly when the engine admits its bound, and is refused under its site's refusal otherwise. Each
  * call is a cell of the box; a batch's cells are one program, checked disarmed. Oracle: the engine's build and compile
  * of each literal bound.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 import { takeBox } from "#test/types/query/take.dictionary.ts"
 import { takeProgram } from "#test/types/query/take.ts"
 

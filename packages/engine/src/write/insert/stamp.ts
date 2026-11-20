@@ -1,4 +1,3 @@
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 /**
  * An insert's stamps (ir/instant.ts): the fields its rows leave out, each stamped from its head at the row's child:
  * an instant with the call's instant of its clock, `greatest(c, h + 1)`, c the call's reading of the database's clock
@@ -29,6 +28,7 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
  * Under SERIALIZABLE, two calls that stamp one group's place each read the other's head or are refused, so no two
  * commit one place.
  */
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	concatNonEmpty,
 	mapNonEmpty,

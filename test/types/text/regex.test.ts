@@ -1,3 +1,11 @@
+/**
+ * str.regex's host types are sound (test/types/text/contained.ts): every value ECMAScript accepts of an admitted
+ * pattern, drawn from a family's strings and walks of the pattern's own NFA, inhabits `Infer` of its str.regex, and
+ * every value two admitted patterns of one family both accept inhabits `Infer` of their str.and; and so does every
+ * handwritten pattern's and every kept pattern's, each a box checked whole on every run. Each case is a block of one
+ * program a batch checks armed, which must raise no diagnostic. Oracle: ECMAScript's own matcher. The witnesses
+ * reach every family with a member, and the empty string as a member of a handwritten pattern.
+ */
 import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
 import {
 	containedCases,
@@ -7,14 +15,6 @@ import {
 	handwrittenProgram,
 	keptProgram
 } from "#test/types/text/contained.ts"
-/**
- * str.regex's host types are sound (test/types/text/contained.ts): every value ECMAScript accepts of an admitted
- * pattern, drawn from a family's strings and walks of the pattern's own NFA, inhabits `Infer` of its str.regex, and
- * every value two admitted patterns of one family both accept inhabits `Infer` of their str.and; and so does every
- * handwritten pattern's and every kept pattern's, each a box checked whole on every run. Each case is a block of one
- * program a batch checks armed, which must raise no diagnostic. Oracle: ECMAScript's own matcher. The witnesses
- * reach every family with a member, and the empty string as a member of a handwritten pattern.
- */
 import { keptPatterns, handwrittenPatterns } from "#test/types/text/regex.dictionary.ts"
 
 /** Infers a host type that contains every accepted value, of a pattern and of two patterns' conjunction. */

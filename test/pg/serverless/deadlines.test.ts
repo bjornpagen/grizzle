@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * No server-side deadlines (README "No server-side timeouts"): grizzle sets no statement_timeout or lock_timeout, nor
  * PostgreSQL 19's other server-side deadlines, idle_in_transaction_session_timeout and transaction_timeout, per
@@ -19,6 +18,7 @@ import { assert } from "@bjornpagen/testing/assert"
  *
  * Features: each opening in each surrounding.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { attachDatabasePool } from "@vercel/functions/db-connections"

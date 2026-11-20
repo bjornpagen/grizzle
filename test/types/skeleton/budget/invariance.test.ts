@@ -1,5 +1,3 @@
-import { boxAgreement } from "#test/types/batch/agreement.ts"
-import { skeletonProgram } from "#test/types/skeleton/budget/generate.ts"
 /**
  * Write inference at scale (skeleton/budget/generate.ts): the growing-schema ChangeSet program at its largest size,
  * beside its twin, the same declarations over the first and the last relation's neighbourhoods alone, each probe a cell
@@ -11,6 +9,8 @@ import { skeletonProgram } from "#test/types/skeleton/budget/generate.ts"
  * relation, and a query's rows inserted into another relation, raise exactly the diagnostics, codes and refusals, they
  * raise over the twin. Oracle: the twin, a program at the smallest scale the probes read.
  */
+import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { skeletonProgram } from "#test/types/skeleton/budget/generate.ts"
 import { skeletonProbes } from "#test/types/skeleton/budget/invariance.dictionary.ts"
 
 /**

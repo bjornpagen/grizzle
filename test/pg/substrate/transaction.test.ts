@@ -1,4 +1,3 @@
-import { assert, containsText } from "@bjornpagen/testing/assert"
 /**
  * A case on the worker's held transaction session (substrate.ts Substrate.transaction) leaves nothing to the next case
  * by construction: every case runs inside one owner transaction on the worker's own clone of the base template, each
@@ -17,6 +16,7 @@ import { assert, containsText } from "@bjornpagen/testing/assert"
  *
  * Features: each planting.
  */
+import { assert, containsText } from "@bjornpagen/testing/assert"
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
 import { inlineRun, searchInline } from "@bjornpagen/testing/inline"

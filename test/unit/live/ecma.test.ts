@@ -1,8 +1,3 @@
-import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
-import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
-import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
-import { toEcma } from "@bjornpagen/grizzle-text/regex/print"
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * A refined text's patterns reach its JSON Schema as ECMA-262 patterns printed from their IR (scalar/regex/print.ts toEcma
  * toEcma), and a schema's `pattern` is read under the `u` flag, unanchored, as JSON Schema 2020-12 reads one: every
@@ -20,6 +15,11 @@ import { assert } from "@bjornpagen/testing/assert"
  * astral code point: the live test phase's counterexample at 729f76a6, `/.$/su` and the text U+10FFFF, which V8's
  * search judged unmatched while the pattern was printed unanchored at its start (scalar/regex/print.ts toEcma).
  */
+import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
+import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { toEcma } from "@bjornpagen/grizzle-text/regex/print"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

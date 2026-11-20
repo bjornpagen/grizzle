@@ -1,13 +1,3 @@
-import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import {
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "@bjornpagen/grizzle-text/base/nonempty"
-import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
-import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { factFieldEq, typedEq } from "#compiler/ir/compare.ts"
 /**
  * A stratum's family removals as one statement: every member its edits remove or update in place, each group they
  * touch redrawn from its least changed slot, and every owner whose count or ends they change and no later statement
@@ -46,6 +36,16 @@ import { factFieldEq, typedEq } from "#compiler/ir/compare.ts"
  * PostgreSQL finishes it before any slot it freed is taken again. Immediate foreign keys and the owner axis's cascade
  * act at the statement's end.
  */
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
+import { factFieldEq, typedEq } from "#compiler/ir/compare.ts"
 import { fieldReads } from "#compiler/ir/expr.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"

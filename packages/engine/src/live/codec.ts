@@ -1,5 +1,3 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The codecs of a served program's wire shape (live/shape.ts MemberWire) and its role's witness (RoleWitness): the
  * server's encode of its rows, keys, outcomes and errors and its exact parse of a caller's input, and the client's
@@ -12,6 +10,8 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
  *
  * Runtime-free and browser-safe, as live/wire.ts is.
  */
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { canonicalEquals, type Path } from "#compiler/core/canonical.ts"
 import { type TransientTag, transientTags } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"

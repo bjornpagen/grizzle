@@ -1,5 +1,3 @@
-import { indices } from "@bjornpagen/grizzle-text/base/array"
-import { assert, failureOf } from "@bjornpagen/testing/assert"
 /**
  * The wire's flights (adapter/wire/batch.ts) on pg in pipeline mode, observed on the protocol through the tap
  * (test/support/wire-tap.ts), one session to a schema of the test's own with a write's frame.
@@ -19,6 +17,8 @@ import { assert, failureOf } from "@bjornpagen/testing/assert"
  * Interruption of a flight is test/pg/adapter/flight.test.ts's and interrupt.test.ts's; a lease's wait for a pooled
  * session is test/pg/serverless/pool.test.ts's.
  */
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, failureOf } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

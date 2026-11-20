@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * A login's served file is one text whichever compile reaches it. `grizzle generate` and `grizzle check` compile every
  * login's ChangeSets once, in the draft's workload plan (cli/generate.ts plannedLogins): a login over the configured
@@ -15,6 +14,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * Reports, a drawn set of the same menu and a read of Reports' TaskCount. The oracle is the snapshot-only compile of
  * each login, under the snapshot.json text the draft lays out.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"

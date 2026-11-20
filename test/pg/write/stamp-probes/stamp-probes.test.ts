@@ -1,5 +1,3 @@
-import { indices } from "@bjornpagen/grizzle-text/base/array"
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * A stamping insert reads its clock's head once per child it stamps, on PostgreSQL 19: an insert of Log's rows, Log(child,
  * at, note) keyed (child, at, note), its at a clock of child `child`, each row leaving at out, so the insert stamps
@@ -18,6 +16,8 @@ import { assert } from "@bjornpagen/testing/assert"
  *
  * Features: one child and several, one row a child and several, a stored head and none.
  */
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"

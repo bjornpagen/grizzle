@@ -1,4 +1,3 @@
-import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * Schemas of families and the copies that ride their axes, drawn for the fill order's suites
  * (test/unit/write/fill-order.test.ts and test/pg/write/fill-order/fill-order.test.ts): a schema's specification, the
@@ -34,6 +33,7 @@ import { defined, nonEmpty } from "@bjornpagen/testing/assert"
  * refuses only a refill of an immutable relation's rows; the instance a follow-up leaves (`followUpRows`) is the
  * reference writer's to fill, every refilled value among it.
  */
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"

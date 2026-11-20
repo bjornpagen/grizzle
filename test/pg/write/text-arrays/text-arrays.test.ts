@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * A text column's array parameter, which travels as a binary text[] of its values' UTF-8 bytes (codec/bytea.ts
  * textArray), on PostgreSQL 19: every text a write's insert, put and delete slots carry, and every text a read's
@@ -22,6 +21,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * The oracle is the literal path the binary array replaced (codec/recordset.ts textArrayParam): each read gives exactly
  * the texts PostgreSQL stores from the text array literal of the texts written, compared as JavaScript strings.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Array as Arr, String as Str } from "effect"

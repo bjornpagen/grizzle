@@ -1,11 +1,11 @@
-import { defined } from "@bjornpagen/testing/assert"
-import { Array as Arr, Formatter, Option, Result } from "effect"
 /**
  * A closed id as its column stores it: its handle's code under the installation's codes, the smallint its roster's
  * domain admits, never the handle's text. A test whose model holds handles (a host's facts, a fixture's rows) spells
  * each handle it writes in SQL as its code, and reads each code a column returns back as its handle, through the
  * installation's own codebook, which no schema alone determines.
  */
+import { defined } from "@bjornpagen/testing/assert"
+import { Array as Arr, Formatter, Option, Result } from "effect"
 import { quoteString } from "#compiler/core/text.ts"
 import { codecOf, codeOf } from "#compiler/ir/codes.ts"
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"

@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Each role's isolation level is decided once, in the draft's workload plan, from the statements its served writes
  * send (program/isolation/certification.ts), and reaches everything that runs by it alike: the role's served file
@@ -26,6 +25,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  *   writing a relation a SERIALIZABLE role writes too is SERIALIZABLE. Kept: an inserter of Tag beside a direct
  *   inserter of Tag, which certified READ COMMITTED while Tag kept its guard.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"

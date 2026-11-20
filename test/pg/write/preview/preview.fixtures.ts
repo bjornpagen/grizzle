@@ -1,5 +1,3 @@
-import type * as Engine from "@bjornpagen/grizzle-text/base/result"
-import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * What the property of preview.test.ts reads: a case's schema, every relation of a drawn schema of families
  * (test/support/families/fill.ts, the fill order's and the fresh groups' specifications) beside a palette of closed ids
@@ -7,6 +5,8 @@ import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
  * roster's codes; an instance of it, a fault aimed at each refusal; and one case's check, the preview against what the
  * same insertAll stores in a fresh installation and in a migrated one.
  */
+import type * as Engine from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	boolean,

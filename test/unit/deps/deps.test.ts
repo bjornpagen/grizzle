@@ -1,4 +1,3 @@
-import { assert, defined, like, matchers } from "@bjornpagen/testing/assert"
 /**
  * The production dependency audit: no RegExp construction, .test or .exec, no arkregex runtime import, and no eval or
  * Function constructor under src/.
@@ -19,6 +18,7 @@ import { assert, defined, like, matchers } from "@bjornpagen/testing/assert"
  * The layering (which areas a module may import) is fallow's boundaries (.fallowrc.json), and the packages an area may
  * load are oxlint's no-restricted-imports (oxlint.config.ts).
  */
+import { assert, defined, like, matchers } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"

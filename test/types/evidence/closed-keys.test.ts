@@ -1,12 +1,12 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * A closed relation's keys (test/types/evidence/closed-keys.ts): over a closed relation whose one key is its declared
  * key of two closed ids, pinned on each set of its columns, the types give each query the card the engine proves, at
  * most one row exactly where the pinned columns hold the key. Each pinning is a cell of the box; a batch's cells are one
  * program, checked disarmed. Oracle: the engine's verdict on each cell's query.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 import { closedKeysBox } from "#test/types/evidence/closed-keys.dictionary.ts"
 import { closedKeysProgram } from "#test/types/evidence/closed-keys.ts"
 

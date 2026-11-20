@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * PostgreSQL as the second oracle of the SQL generator and of the structural audit (test/support/oracle/verify/sql.ts).
  *
@@ -19,6 +18,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * Features: each statement kind it plans, each Wild operator of a mirrored rule PostgreSQL refuses, the LATERAL
  * rewrite planned, each zero-width form planned, and the shape of every statement it plans.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, String as Str } from "effect"

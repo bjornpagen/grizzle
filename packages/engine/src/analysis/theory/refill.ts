@@ -1,9 +1,3 @@
-import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { DerivedReader } from "#compiler/core/causes.ts"
-import { fieldReads } from "#compiler/ir/expr.ts"
-import { type AxisPair, type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 /**
  * What a write changes on rows already stored, and the families whose drawn values read such a change, which grizzle
  * draws again by refilling their groups (write/family/refill.ts).
@@ -30,6 +24,12 @@ import { type AxisPair, type Family, isSequence, isTreeOf } from "#compiler/ir/f
  * The refills a write needs close over the changes the refills make in turn. A refill whose own changes reach it again
  * is a cycle no order of the refills draws.
  */
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { DerivedReader } from "#compiler/core/causes.ts"
+import { fieldReads } from "#compiler/ir/expr.ts"
+import { type AxisPair, type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import {
 	columnKey,
 	familyKey,

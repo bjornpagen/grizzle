@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The page compiler and the page runtime template are total on generated ordered queries, without a database.
  *
@@ -19,6 +18,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * Features: a page of heading groups, a page with attachments, and a page whose attachment takes its other form per
  * execution.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"

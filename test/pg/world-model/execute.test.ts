@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The executor's leak scan, the oracle every worlds suite's "no hidden value" rests on, held to real refusals with a
  * planted hidden value: a value a refusal does spell, named hidden, is reported as a leak in the field that spells it,
@@ -15,6 +14,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * The table, the key value or the id is the planted value: a scan that stopped reading a field, or read it under
  * another name, would let a real leak pass every suite unseen.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Option } from "effect"

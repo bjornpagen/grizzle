@@ -1,4 +1,3 @@
-import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * A role that writes nothing runs the read-backs its login serves: Learning Commons' reader (edullm
  * packages/data/learning-commons logins.ts), one role over every relation whole and writing none, serves its reads as
@@ -20,6 +19,7 @@ import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
  * Features: no parent, a parent with a tag and a badge, a parent with neither, a parent with one of them, a tag of no
  * parent.
  */
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"

@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * A set compared with a set value in a row check, on PostgreSQL 19: `Compute.disjoint` and `Compute.subset` take a
  * set value of the first operand's roster (Bits.of) as their second operand, a literal that takes the set's type, so its
@@ -13,6 +12,7 @@ import { assert } from "@bjornpagen/testing/assert"
  *
  * Features: a row accepted, and a row breaking each check alone and with others.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"

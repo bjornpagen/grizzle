@@ -1,4 +1,3 @@
-import { deepEquals } from "@bjornpagen/testing/assert"
 /**
  * A family of the fin suites as grizzle lowers it: an owner `Owner(id, n)` counting a member relation `Member(member,
  * g, at)` grouped by `g`, ordered (`at` its drawn index) or counted (its index the hidden law column ‹i›), installed
@@ -11,6 +10,7 @@ import { deepEquals } from "@bjornpagen/testing/assert"
  * `closure`, with i the index (`at` or ‹i›). The owner's own keys are no constraint of the model, which never writes two
  * owners of one key.
  */
+import { deepEquals } from "@bjornpagen/testing/assert"
 import { Array as Arr, Data, Effect, Formatter, Option, type Scope } from "effect"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { counted, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"

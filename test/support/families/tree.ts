@@ -1,4 +1,3 @@
-import { deepEquals } from "@bjornpagen/testing/assert"
 /**
  * The keyed tree as grizzle lowers it, and the direct pre-order numbering every test judges its rows by.
  *
@@ -23,6 +22,7 @@ import { deepEquals } from "@bjornpagen/testing/assert"
  * (`numbered`), and the forest a state's rows describe, read off their keys, parent links and slots alone (`forestOf`),
  * so a state is lawful exactly when it is the numbering of the forest it describes (`lawful`).
  */
+import { deepEquals } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Order } from "effect"
 import type { TreeRow } from "#test/pg/substrate/tree.ts"
 

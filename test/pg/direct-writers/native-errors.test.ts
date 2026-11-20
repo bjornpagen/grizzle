@@ -1,4 +1,3 @@
-import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * A direct SQL writer meets PostgreSQL's native errors for the two kinds of object the generated direct-writer
  * populations do not draw. The direct-writer model (model.ts) owns keys, candidate keys, foreign keys at the statement
@@ -24,6 +23,7 @@ import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
  *
  * The contract's CHECK is the one the installation names for it.
  */
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, array, element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

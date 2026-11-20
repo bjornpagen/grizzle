@@ -1,6 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
-import { configProgram } from "#test/support/agreement/dbconfig.ts"
 /**
  * The DbConfig agreement (test/support/agreement/dbconfig.ts): over the reader's every setting left out and given a
  * stranger, and every password, verify and driver channel, the types take exactly what DbLayer.make's reader admits,
@@ -8,6 +5,9 @@ import { configProgram } from "#test/support/agreement/dbconfig.ts"
  * the box; a batch's cells are one program, checked disarmed. Oracle: the reader itself (connection/config.ts,
  * pool/served.ts), over the settings its own rosters name.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
+import { configProgram } from "#test/support/agreement/dbconfig.ts"
 import { configBox } from "#test/types/api/config.dictionary.ts"
 import { boxAgreement } from "#test/types/batch/agreement.ts"
 

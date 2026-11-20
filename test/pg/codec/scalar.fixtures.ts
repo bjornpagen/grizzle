@@ -1,3 +1,4 @@
+/** What the properties of scalar.test.ts read: the carriers' cases, their spaces, a case's setup and its round trip. */
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import {
@@ -20,7 +21,6 @@ import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { positionalColumns } from "#compiler/codec/recordset.ts"
 import type { ScalarCodec } from "#compiler/codec/scalar.ts"
 import { int4Max } from "#compiler/core/canonical.ts"
-/** What the properties of scalar.test.ts read: the carriers' cases, their spaces, a case's setup and its round trip. */
 import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"

@@ -1,5 +1,3 @@
-import { boxAgreement } from "#test/types/batch/agreement.ts"
-import { statementProgram } from "#test/types/schema/budget/generate.ts"
 /**
  * schema(...), role(...) and the lookups by name at scale (schema/budget/generate.ts): the statement-scale program at
  * its largest size, beside its twin, the same declarations over the first and the last relation's neighbourhoods and
@@ -12,6 +10,8 @@ import { statementProgram } from "#test/types/schema/budget/generate.ts"
  * declares, a relation under another name and a role's entry of a stranger raise exactly the diagnostics, codes and
  * refusals, they raise over the twin. Oracle: the twin, a program at the smallest scale the probes read.
  */
+import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { statementProgram } from "#test/types/schema/budget/generate.ts"
 import { statementProbes } from "#test/types/schema/budget/invariance.dictionary.ts"
 
 /**

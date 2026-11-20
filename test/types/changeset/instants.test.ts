@@ -1,6 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * An instant's types (test/types/changeset/instants.ts): over every way a caller may write, state or compare an
  * instant, a cell typechecks exactly where the rule admits it, an instant being the database's alone, and a refused one
@@ -8,6 +5,9 @@ import { boxAgreement } from "#test/types/batch/agreement.ts"
  * its comparison. Each statement is a cell of the box; a batch's cells are one program, checked disarmed. Oracle: the
  * rule, stated per cell.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 import { instantsBox } from "#test/types/changeset/instants.dictionary.ts"
 import { instantsProgram } from "#test/types/changeset/instants.ts"
 

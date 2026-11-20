@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * A backfill's UPDATE of a table of many stored generated columns holds memory flat in the rows it writes, on
  * PostgreSQL 19: Member, 48 generated fields over `x` and one over `cheap`, counted under Owner, then folded by sum of
@@ -22,6 +21,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * (test/support/installed.ts migrated), the third's Structure file holding the probe's trigger around the fold's
  * backfill UPDATE (generated-fill-memory.fixtures.ts heldAt).
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

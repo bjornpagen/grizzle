@@ -1,6 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * A child query a function builds over its parent's field (test/types/evidence/parameter.ts): the function takes the
  * field as an input term, `Term<Uuid, unknown, InputOrigin, "uuid">`, and over every schema and delivery of its box:
@@ -21,6 +18,9 @@ import { boxAgreement } from "#test/types/batch/agreement.ts"
  * `<D extends Meets<Uuid, "uuid">>`, defers the equality's evidence until the call and proves neither option nor one, a
  * known limit of the types, which no contract promises either way.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 import { parameterBox } from "#test/types/evidence/parameter.dictionary.ts"
 import { parameterProgram } from "#test/types/evidence/parameter.ts"
 

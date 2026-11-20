@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The hand-written scanners that replaced RegExp in the adapter when their packages met the dependency gate (no RegExp
  * construction, .test or .exec under src/): each is held to the regex it replaces over generated texts. Tests may use
@@ -12,6 +11,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * those ranges (the neighbours of 0-9 and A-Z, a lowercase letter, an underscore, a space, a non-ASCII digit, a
  * fullwidth capital); a code a character short or long; and any text. Features: each kind, and a code read.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"

@@ -1,10 +1,10 @@
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * Field descriptors as a JavaScript caller builds them: the public contract and span over the admission cores
  * (scalar/contract.ts contractParts, scalar/span.ts spanParts), every argument unknown, so a test passes what the
  * public types forbid and meets the refusals the admission cores raise. Each defines its descriptor through the
  * registry (scalar/registry.ts defineField), so the schema builders admit it as a builder-made descriptor.
  */
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { brandColumn } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"

@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * A retirable unit served whole, as den serves its runs: a worker role that inserts every relation of the unit and an
  * application's audits beside it, and a retirer role of its own that retires runs (ChangeSet.retire), each certified
@@ -20,6 +19,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * Features: a run admitted, a step claimed, a step audited, a run retired whole, a retirement of nothing open; a
  * retired run admitted again, a retired run's step claimed, a retirement an audit refuses, each refused.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order, Result } from "effect"

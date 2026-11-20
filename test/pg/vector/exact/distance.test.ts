@@ -1,4 +1,3 @@
-import { assert, contains, defined, lacks } from "@bjornpagen/testing/assert"
 /**
  * Exact cosine distance on PostgreSQL 19 and the pinned pgvector.
  *
@@ -21,6 +20,7 @@ import { assert, contains, defined, lacks } from "@bjornpagen/testing/assert"
  *
  * Features: each probe kind, a tie ordered by the key, each width and pair kind, each side of each norm bound.
  */
+import { assert, contains, defined, lacks } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"

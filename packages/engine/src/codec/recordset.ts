@@ -1,9 +1,9 @@
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * A relation input's encoding, a hot path: every execution that binds a relation input normalizes it and writes each
  * of its facts here, so the per-fact work is native loops with no closure or Option per element.
  */
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import {
 	byteaElementBytes,

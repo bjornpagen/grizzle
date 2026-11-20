@@ -1,5 +1,5 @@
-import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 /** What the properties of generated-key.test.ts read: the Keys and Labels schemas and templates, their spaces, and each case. */
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	constant,

@@ -1,6 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * A semi-join's right side (test/types/ir/semi-join.ts): over every node kind of the IR's roster, built, and the
  * editor's cell, a node's constructor takes a semi-join over the right side semiJoinRight minted, refuses one over the
@@ -10,6 +7,9 @@ import { boxAgreement } from "#test/types/batch/agreement.ts"
  * right side; the analysis reads a column the right side fixes as fixed per evaluation of the semi-join
  * (logical/props.ts), which a right side reading its left would break.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 import { semiJoinBox } from "#test/types/ir/semi-join.dictionary.ts"
 import { semiJoinProgram } from "#test/types/ir/semi-join.ts"
 

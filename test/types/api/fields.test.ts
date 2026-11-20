@@ -1,5 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
 /**
  * The term-is-no-field program (test/types/api/fields.ts): every public reader that takes a field, a relation's and a
  * generated relation's heading, accumulated's, generated's and a contract's type, and codecText's, lexicalForm's and
@@ -7,6 +5,8 @@ import { finite } from "@bjornpagen/testing/gen"
  * field registry made. Each reader is a cell of the box; a batch's cells are one program, checked armed. Oracle: the
  * specification, a term is never a field.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
 import { fieldsBox } from "#test/types/api/fields.dictionary.ts"
 import { fieldsProgram } from "#test/types/api/fields.ts"
 import { boxAgreement } from "#test/types/batch/agreement.ts"

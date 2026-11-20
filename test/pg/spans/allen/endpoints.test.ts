@@ -1,5 +1,3 @@
-import { finite } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
 /**
  * Endpoint spellings of span relations on PostgreSQL 19: the optimized artifact's normal form of a predicate over
  * spans' endpoints (lower, upper, a computed span, the window parameter) selects exactly what PostgreSQL selects for the
@@ -15,6 +13,8 @@ import { type Case, property } from "@bjornpagen/testing/property"
  *
  * Features: each type rewritten, and selecting every fact, none and some; each tree shape above.
  */
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Array as Arr } from "effect"
 import {
 	pairsTemplate,

@@ -1,12 +1,12 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * Tree inserts typed by member types of any depth (test/types/changeset/nesting.ts): over the exhaustive box of forms,
  * chains of member types, back edges and excess fields, an insert is admitted exactly when no type it declares states a
  * field beyond its nesting's, at whatever depth its types recur, and refused otherwise. Each case is a cell of the box;
  * a batch's cells are one program, checked disarmed. Oracle: the box's rule over the types each case declares.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 import { nestingBox } from "#test/types/changeset/nesting.dictionary.ts"
 import { nestingProgram } from "#test/types/changeset/nesting.ts"
 

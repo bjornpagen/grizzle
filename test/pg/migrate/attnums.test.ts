@@ -1,8 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
-import type { Reached } from "@bjornpagen/testing/features"
-import { finite, int } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option } from "effect"
 /**
  * A table's attribute numbers on PostgreSQL 19, around the bound: PostgreSQL never reuses a dropped
  * column's attribute number, and refuses a table past 1600 of them, live and dropped together, with 54011 (heap.c,
@@ -18,6 +13,11 @@ import { Array as Arr, Effect, Option } from "effect"
  *
  * Features: an addition ending below the bound, on it, one past it and further past it.
  */
+import { assert } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { finite, int } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import {

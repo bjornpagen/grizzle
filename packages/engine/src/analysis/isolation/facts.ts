@@ -1,9 +1,9 @@
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * What the isolation certifier reads of an installation (certify.ts): plain facts, drawn from the representation by
  * those who own it (each role's grant plan, the law model's discharge of each relation's laws, each compiled change
  * member's statements), so the certifier reads no compiled artifact and a search can draw the facts themselves.
  */
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Witness } from "#compiler/analysis/theory/query.ts"
 import type { NoFormWhy } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"

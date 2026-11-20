@@ -1,5 +1,3 @@
-import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { nominal } from "#compiler/core/brand.ts"
 /**
  * The replication protocol commands the leader of an installation's live source sends on its decoder login's
  * replication connection (`replication=database`), each printed once at generate into the login's served file
@@ -11,6 +9,8 @@ import { nominal } from "#compiler/core/brand.ts"
  * (deploy/render/variables.ts resolveVariables), the one door of every drafted role-spaced text, reads the SQL lexer,
  * which no runtime module loads, so no drafted text with a variable reaches the runtime.
  */
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { nominal } from "#compiler/core/brand.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { LiveTextRefused } from "#compiler/live/notify.ts"
 

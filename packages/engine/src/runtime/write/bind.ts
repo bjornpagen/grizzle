@@ -1,3 +1,8 @@
+/**
+ * Binding one application of a write before any SQL is sent (`bindWrite`): its declared parameters admitted, its
+ * members normalized, each statement's placeholder values encoded, and its statements' executions in its one flight,
+ * from the write's loaded flight and binding alone.
+ */
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
@@ -5,11 +10,6 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-/**
- * Binding one application of a write before any SQL is sent (`bindWrite`): its declared parameters admitted, its
- * members normalized, each statement's placeholder values encoded, and its statements' executions in its one flight,
- * from the write's loaded flight and binding alone.
- */
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import {
 	type NormalizedRelation,

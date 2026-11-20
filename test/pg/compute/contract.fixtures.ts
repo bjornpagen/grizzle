@@ -1,5 +1,5 @@
-import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 /** What the properties of contract.test.ts read: its contracts, their values and each contract's property. */
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	array,

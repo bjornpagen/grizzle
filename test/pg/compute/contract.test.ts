@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * Contract predicates against PostgreSQL 19 domains: a contract over each base (bigint, integer, numeric, double
  * precision and text), its predicate the installed domain's CHECK.
@@ -14,6 +13,7 @@ import { assert } from "@bjornpagen/testing/assert"
  *
  * Features: a value the domain admits and one it refuses, for each contract.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { family, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"

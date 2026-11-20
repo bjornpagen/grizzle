@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Compute.lowerAscii on PostgreSQL 19: ASCII's case fold, which PostgreSQL computes as lower under the C collation,
  * collated back to pg_c_utf8 (scalar/compute/registry.ts textLowerAscii), one SQL node in a query, a CHECK and a
@@ -24,6 +23,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  *
  * Features: each byte class, letter and length the searches name, and each way a tag stands to its attribute's text.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"

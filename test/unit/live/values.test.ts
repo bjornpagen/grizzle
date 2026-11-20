@@ -1,5 +1,3 @@
-import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The live model's values (packages/engine/src/live): keys, the values a read's events build, and the evaluators over
  * them. Rows are drawn as specs, a key's index in a dictionary of key values and a payload's index in one of payloads,
@@ -23,6 +21,8 @@ import { assert } from "@bjornpagen/testing/assert"
  * Features: removes of present and absent keys, upserts new, in place and moving, re-sent upserts, whole-row keys,
  * unchanged rows moved, and every lifecycle path.
  */
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { assert } from "@bjornpagen/testing/assert"
 import { word } from "@bjornpagen/testing/dictionary"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"

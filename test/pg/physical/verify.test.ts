@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * The catalog verifiers against drift on PostgreSQL 19: the erasure verifier (test/support/catalog/verify.ts), the
  * installed checker (test/support/catalog/installed.ts) and the manifest projection (test/support/catalog/expected.ts),
@@ -16,6 +15,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  *
  * Features: each drift kind, named and conferring nothing, and each foreign key.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

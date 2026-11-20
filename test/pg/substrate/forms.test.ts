@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The forms a grizzle case's database takes (test/support/substrate/substrate.ts): a clone of an installed template a
  * case (Substrate.freshOf), the worker's own clone of it held across cases and reset after each (Substrate.seat), and
@@ -7,6 +6,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * login of the installation logging in with the credentials the case derives from the member's owner password. A case's
  * substrate opens its barriers' observer only when a barrier first polls through it.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Effect, Fiber, Option } from "effect"

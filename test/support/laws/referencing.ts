@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * Every foreign key an installation drafts is served on its referencing side, read off the drafted DDL alone: some
  * index of its relation leads with exactly the referencing columns that pair with a key of its target, in any order,
@@ -20,6 +19,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * of no bound is indexed by the longest leading run of the columns an entry holds (test/support/laws/reverse.ts
  * expectedOf), which test/unit/laws/model/reverse-index.test.ts states for a containment.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr } from "effect"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type { ColumnDef, ObjectName, SqlStatement, TableConstraint } from "#compiler/sql/ast.ts"

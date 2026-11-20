@@ -1,4 +1,3 @@
-import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * Refinement validation sites on PostgreSQL 19.
  *
@@ -25,6 +24,7 @@ import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
  * - closed payloads are validated by PostgreSQL at installation, and the migration generate drafts and the snapshot
  *   admission derives hold the same validation; a refined query literal is validated wherever it is delivered.
  */
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"

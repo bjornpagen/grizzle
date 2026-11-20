@@ -1,6 +1,3 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import { naturals } from "@bjornpagen/grizzle-text/regex/words"
 /**
  * What one served program takes and answers on the wire, as data over its scalars (live/wire.ts), and the walks of it:
  * a program's input (its parameters, its facts and a page's window), its rows, its keys and its write's outcome, each
@@ -13,6 +10,9 @@ import { naturals } from "@bjornpagen/grizzle-text/regex/words"
  * Runtime-free and browser-safe, as live/wire.ts is: an Option is built and read through the caller's vocabulary
  * (WireOptions), so the engine loads no Effect.
  */
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { naturals } from "@bjornpagen/grizzle-text/regex/words"
 import type { Option } from "effect"
 import type { Json, Path } from "#compiler/core/canonical.ts"
 import type { Delivery } from "#compiler/core/decoder.ts"

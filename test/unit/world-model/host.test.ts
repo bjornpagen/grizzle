@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * evaluateRules, the worlds model's meaning of a rule set, over rules drawn over the documents base: the reference
  * evaluator, run on the checked DAG of the same rules built as an application builds them (execute/describe.ts
@@ -26,6 +25,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * reading the host's answer shows to matter, a union both rules feed, rows and none; a member and a non-member; a key
  * and no key.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, Predicate, Record as Rec, Result } from "effect"

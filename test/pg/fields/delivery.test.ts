@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * A statement's delivery against PostgreSQL 19 at chunk boundaries (lower/delivery.ts deliveredRows): rows of two
  * bytes columns and a text column, each value at a length about a boundary of a small chunk length, stored by db.apply
@@ -12,6 +11,7 @@ import { assert } from "@bjornpagen/testing/assert"
  *
  * Features: the vocabulary Feature below, each boundary a value's length meets.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Layer, Order, Result } from "effect"

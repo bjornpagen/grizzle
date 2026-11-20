@@ -1,4 +1,3 @@
-import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 /**
  * Explain on PostgreSQL 19: a served member's explain (adapter/served/explain.ts, through its handle's operations,
  * adapter/db/handles.ts memberExplains) plans exactly the named prepared statements the call it explains would send,
@@ -45,6 +44,7 @@ import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
  * analyzed read runs READ ONLY, so no state here witnesses it: test/pg/adapter/round-trips.test.ts, which reads each
  * explain's transaction off the wire, catches it.
  */
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result as EffectResult } from "effect"

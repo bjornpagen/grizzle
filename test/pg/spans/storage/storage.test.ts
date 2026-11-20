@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Span storage on PostgreSQL 19: what a span column admits and stores, and how a span parameter binds.
  *
@@ -12,6 +11,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * - Parameters: a span parameter binds as its canonical text, and lower, upper and width read every stored span the
  *   window meets, exactly, a width past bigint's range among them; an empty or reversed window is refused by its codec.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Array as Arr, Order } from "effect"

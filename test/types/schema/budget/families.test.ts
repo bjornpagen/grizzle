@@ -1,5 +1,3 @@
-import { boxAgreement } from "#test/types/batch/agreement.ts"
-import { growthGate } from "#test/types/batch/measured.ts"
 /**
  * Families, trees, folds and nested additions at scale (schema/budget/families.ts).
  *
@@ -15,6 +13,8 @@ import { growthGate } from "#test/types/batch/measured.ts"
  *   identical to the twin's; and an ordered member written alone and a counted member nested under its owner raise
  *   exactly the diagnostics, codes and refusals, they raise over the twin. Oracle: the twin.
  */
+import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { growthGate } from "#test/types/batch/measured.ts"
 import { familyDimensions, familyProbes } from "#test/types/schema/budget/families.dictionary.ts"
 import { familyProgram } from "#test/types/schema/budget/families.ts"
 

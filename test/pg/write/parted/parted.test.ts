@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * A single statement's shapes write, judge and capture as its whole statement does, and an empty part fires nothing
  * (runtime/write/parted.ts), on PostgreSQL 19: a call sends the parts its inputs may give rows, and the rows it
@@ -22,6 +21,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * Features: a part left out, every part sent, no sidecar sent, a rider keeping S1 whose parameter is empty, a refusal
  * at COMMIT.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

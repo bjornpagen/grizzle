@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The live registry (packages/grizzle/src/adapter/live/subscriptions.ts) over a change source and a read of the
  * test's own: a model table of rows keyed by id, each in a group, which reads registered on the registry watch whole
@@ -26,6 +25,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * table key, a pull after several commits, a refused run run again, a batch removing a row, and a marked subscription
  * whose value the commits left as it was; for expiry, a change sent before it and none.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, boolean, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

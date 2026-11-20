@@ -1,4 +1,3 @@
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * The SET list of every UPDATE grizzle emits, an ON CONFLICT DO UPDATE's and a MERGE's UPDATE among them: it assigns at
  * least one column some stored generated column of its table reads, wherever the UPDATE may assign such a column.
@@ -25,6 +24,7 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-tex
  * Delete this module, and Assignments with it, once production runs a PostgreSQL release whose ExecInitGenerated keeps
  * the array, or a flag that nothing is needed, when no stored generated column needs computing.
  */
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { nominal } from "#compiler/core/brand.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { Assignment, Expr } from "#compiler/sql/ast.ts"

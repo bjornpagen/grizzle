@@ -1,11 +1,3 @@
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import {
-	appendNonEmpty,
-	concatNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "@bjornpagen/grizzle-text/base/nonempty"
-import { factFieldEq, operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 /**
  * A write statement's reads of stored relations, each driven by rows the statement holds: a probe of a key or a group
  * (sql/ast.ts FromSource `probe`), or the row an arbitration met (`met`). These are the only reads of a stored table a
@@ -14,6 +6,14 @@ import { factFieldEq, operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
  * lowering builds, never one of these. A family write's removals and a unit delete reach stored rows through keyed
  * reads instead (write/family/keyset.ts): joins from the rows they hold, each at an access path an index serves.
  */
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	appendNonEmpty,
+	concatNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { factFieldEq, operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import { columnReads } from "#compiler/ir/expr.ts"
 import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"

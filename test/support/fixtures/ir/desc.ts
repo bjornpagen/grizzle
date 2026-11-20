@@ -1,5 +1,3 @@
-import type * as Result from "@bjornpagen/grizzle-text/base/result"
-import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 /**
  * Description-boundary vocabulary for the IR fixtures (packages/engine/src/ir/desc.ts).
  *
@@ -10,6 +8,8 @@ import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
  * alternatives helper expands to both containments per arm, each carrying the origin marker, and a relation used in key
  * position stands for its primary key.
  */
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import { Array as Arr, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {

@@ -1,12 +1,3 @@
-import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
-import { toEcma } from "@bjornpagen/grizzle-text/regex/print"
-import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
-import { canonicalEquals, type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
 /**
  * A login's OpenAPI 3.2 document, read off its served file alone (served/forms.ts ServedFile): one operation per program
  * of each of its roles, `POST /<login>/<role>/<program>`, whose request body is the program's input and whose answer is
@@ -21,6 +12,15 @@ import type { CompileError } from "#compiler/core/errors.ts"
  * operation and role carries for a client (`x-grizzle-wire`) holds each node it shares once, in the root's table, as
  * live/document.ts reads it. Every reference is the document's own, from its root.
  */
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { toEcma } from "@bjornpagen/grizzle-text/regex/print"
+import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
+import { canonicalEquals, type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isList } from "#compiler/core/record.ts"
 import { sha256Base32 } from "#compiler/core/sha256.ts"

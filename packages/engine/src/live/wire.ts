@@ -1,10 +1,3 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
-import { RegexBuilder, type RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
-import { literal } from "@bjornpagen/grizzle-text/regex/words"
-import { int4Max } from "#compiler/core/canonical.ts"
 /**
  * The JSON wire's spelling of every scalar grizzle serves, as one table over the carriers (`carrierWire`): for each, the
  * JSON Schema of its spellings, its `encode` (a host value the server holds to JSON), its `parse` (the server's exact
@@ -20,6 +13,13 @@ import { int4Max } from "#compiler/core/canonical.ts"
  *
  * The module is runtime-free and browser-safe: it imports the value core and core leaves alone.
  */
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
+import { RegexBuilder, type RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
+import { literal } from "@bjornpagen/grizzle-text/regex/words"
+import { int4Max } from "#compiler/core/canonical.ts"
 import {
 	floatSpecialNameOf,
 	floatSpecialNames,

@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The host's one comparison of values (scalar/values/identity.ts compareValues) against PostgreSQL 19 and the pinned
  * pgvector: a batch of values of every carrier, ordered by ORDER BY at the carrier's type, is in the order the host's
@@ -21,6 +20,7 @@ import { assert } from "@bjornpagen/testing/assert"
  *
  * Features: "orders <carrier>", every case's.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"

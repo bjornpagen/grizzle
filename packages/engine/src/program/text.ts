@@ -1,11 +1,11 @@
-import type { Result as Public } from "effect"
-import { hostText } from "#compiler/codec/scalar.ts"
-import type { CodecFault } from "#compiler/core/errors.ts"
-import { captureLoc } from "#compiler/core/loc.ts"
 /**
  * The one text of a value of a field's type, a function of its host value alone (codecText, the shell's, packages/grizzle
  * adapter/public/host.ts): the one public reading of a host value as text.
  */
+import type { Result as Public } from "effect"
+import { hostText } from "#compiler/codec/scalar.ts"
+import type { CodecFault } from "#compiler/core/errors.ts"
+import { captureLoc } from "#compiler/core/loc.ts"
 import type { PublicResult } from "#compiler/core/public-result.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import { describeDeclared } from "#compiler/schema/relation.ts"

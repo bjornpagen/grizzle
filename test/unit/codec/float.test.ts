@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * Float text forms: the exact decimal-to-binary32 reading of real and vector component texts, which never double-rounds
  * a float32 midpoint, both the library's trusting conversion (values/float.ts) and the kernel's strict reading
@@ -17,6 +16,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * random decimal; the grammar's admissions, refusals, specials and strtod spellings; a finite double, zero and a
  * special.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

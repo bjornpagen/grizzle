@@ -1,7 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
-import { Checkout } from "@bjornpagen/testing/checkout"
-import { property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
 /**
  * README.md's and packages/grizzle/skills/grizzle/SKILL.md's ```ts blocks are checked code. Each block is mirrored, line
  * for line and in order, in a fixture of test/types/examples: README.md in fixtures/readme.ts, SKILL.md in
@@ -11,6 +7,10 @@ import { Effect } from "effect"
  * block alone fails here, and an edit that breaks a mirrored line fails the typecheck. Oracle: the documentation's
  * fixture, the program the documented lines stand in.
  */
+import { assert } from "@bjornpagen/testing/assert"
+import { Checkout } from "@bjornpagen/testing/checkout"
+import { property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import { documentedBlocks } from "#test/types/examples/blocks.dictionary.ts"
 import { blockMismatches } from "#test/types/examples/blocks.fixtures.ts"
 

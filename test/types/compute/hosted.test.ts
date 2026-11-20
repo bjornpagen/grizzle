@@ -1,5 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
 /**
  * A term the host evaluates (test/types/compute/hosted.ts): over the box of every Compute function computeSpecs marks
  * check false, widthBucket apart, and abs, each at every position a term stands in a schema, a cell is refused exactly
@@ -8,6 +6,8 @@ import { finite } from "@bjornpagen/testing/gen"
  * check of a derived relation and a selection, which read it in SQL. Each call is a cell of the box; a batch's cells are
  * one program, checked disarmed. Oracle: the roster the compiler refuses a check's operation by.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
 import { boxAgreement } from "#test/types/batch/agreement.ts"
 import { hostedBox } from "#test/types/compute/hosted.dictionary.ts"
 import { hostedProgram } from "#test/types/compute/hosted.ts"

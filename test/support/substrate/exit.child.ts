@@ -1,4 +1,3 @@
-import { defined } from "@bjornpagen/testing/assert"
 /**
  * A process's whole life over the test substrate, run as a child by test/pg/substrate/exit.test.ts: it builds
  * Substrate.lentLayer in a scope, in the place the case that runs it lent it (its database, its member, its permits), installs a schema of one relation in it and opens `dbs` Dbs over it one after
@@ -9,6 +8,7 @@ import { defined } from "@bjornpagen/testing/assert"
  *
  * Its case is its one argument, JSON: `{ "dbs": 0 | 1 | 2, "read": boolean }`.
  */
+import { defined } from "@bjornpagen/testing/assert"
 import { Effect, Layer } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"

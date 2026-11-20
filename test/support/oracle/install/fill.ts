@@ -1,4 +1,3 @@
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The stored rows of a fact set's family relations, filled as grizzle's own host fill fills a nested insert
  * (runtime/write/fill.ts filler). A fact is a written row (rows-first): its caller's fields, never a
@@ -13,6 +12,7 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
  * families, and a tree, are each refused, as a member no owner fact holds is. A member of several families of which the
  * facts state no row has no row to fill, so its owners' counts are each family's own count of none.
  */
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"

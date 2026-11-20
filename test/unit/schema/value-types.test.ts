@@ -1,4 +1,3 @@
-import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * A value type is a descriptor, and every admission of one takes the same first step (schema/relation.ts refuseWritten):
  * a field a field builder made, drawn, accumulated or retirement, is no value type, refused by the admission's own
@@ -11,6 +10,7 @@ import { assert, nonEmpty } from "@bjornpagen/testing/assert"
  *
  * Features: every admission at every written field.
  */
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

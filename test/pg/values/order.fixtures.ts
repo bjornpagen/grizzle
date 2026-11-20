@@ -1,5 +1,5 @@
-import { nonEmpty } from "@bjornpagen/testing/assert"
 /** What the properties of order.test.ts read: the carriers' cases, a case's batch and PostgreSQL's order of it. */
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"

@@ -1,3 +1,4 @@
+/** What the properties of float.test.ts read: their spaces, PostgreSQL's answers, and the order property's builder. */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
@@ -10,7 +11,6 @@ import {
 	map,
 	weighted
 } from "@bjornpagen/testing/gen"
-/** What the properties of float.test.ts read: their spaces, PostgreSQL's answers, and the order property's builder. */
 import { property } from "@bjornpagen/testing/property"
 import type { Case } from "@bjornpagen/testing/property"
 import { double, float } from "@bjornpagen/testing/values"

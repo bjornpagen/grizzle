@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * A text's bytes have one proof in every mode (scalar/compute/typing.ts textBytes): its type's byte bound, or the
  * Compute.when whose guard bounds Compute.octetLength of it, at every occurrence of the text in the guard's branch. A
@@ -15,6 +14,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  *
  * Features: a match held and failed within the bound, and a text past it.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"

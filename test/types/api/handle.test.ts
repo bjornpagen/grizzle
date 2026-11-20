@@ -1,5 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
 /**
  * The member-handle program (test/types/api/handle.ts): a function over MemberHandle<typeof p> takes exactly the handle
  * of its own program, over a role of the program's level and over a role of an extension of it, for every kind of
@@ -7,6 +5,8 @@ import { finite } from "@bjornpagen/testing/gen"
  * each explain; a batch's cells are one program, checked armed. Oracle: whether the handle is of the function's own
  * program.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
 import { handleBox } from "#test/types/api/handle.dictionary.ts"
 import { handleProgram } from "#test/types/api/handle.ts"
 import { boxAgreement } from "#test/types/batch/agreement.ts"

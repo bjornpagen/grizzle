@@ -1,5 +1,5 @@
-import { assert } from "@bjornpagen/testing/assert"
 /** What the properties of rosters.test.ts read: its spaces, models and helpers. */
+import { assert } from "@bjornpagen/testing/assert"
 import {
 	accepted,
 	type Answer,

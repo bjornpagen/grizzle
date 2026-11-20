@@ -1,5 +1,3 @@
-import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
-import { nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * Mutations of families as the statements a writer sends, the model of what PostgreSQL does with each transaction of
  * them, and programs of mutations as a state machine over the families they leave (`@bjornpagen/testing/commands`).
@@ -39,6 +37,8 @@ import { nonEmpty } from "@bjornpagen/testing/assert"
  * count its owner has once the mutation is done, which is what the host writes. Inserted members are new, numbered
  * after every member of the state, and moved members keep their numbers.
  */
+import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	accepting,
 	type Command,

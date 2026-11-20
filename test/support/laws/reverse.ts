@@ -1,5 +1,3 @@
-import { indices } from "@bjornpagen/grizzle-text/base/array"
-import { defined } from "@bjornpagen/testing/assert"
 /**
  * The containments the reverse-index suites draw, and the rule their reverse index is planned by, restated: the law
  * model's plan (test/unit/laws/model/reverse-index.test.ts) and PostgreSQL's plan of the reverse probe
@@ -15,6 +13,8 @@ import { defined } from "@bjornpagen/testing/assert"
  * counted as the index engine counts it in an index it creates, at the most codes a roster numbers: its roster's codes
  * are the installation's, holes included, and grow.
  */
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { bits } from "#compiler/public/fields.ts"

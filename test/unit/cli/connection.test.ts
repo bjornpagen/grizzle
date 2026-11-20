@@ -1,4 +1,3 @@
-import { assert, lacksText } from "@bjornpagen/testing/assert"
 /**
  * Where `grizzle migrate` and `grizzle drift` connect, generated: the configuration's connection, and nothing else.
  *
@@ -27,6 +26,7 @@ import { assert, lacksText } from "@bjornpagen/testing/assert"
  *
  * Features: the connection's tricky shapes, each role fault, each thrown value, and each environment's verdict.
  */
+import { assert, lacksText } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

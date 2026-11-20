@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * The worlds model's oracle on a write's compile phase alone, with no PostgreSQL: over an installation of the documents
  * base built through the public builders, a lawful reality and a Db of one of its roles (a writing one where the
@@ -18,6 +17,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * The oracle is a second implementation: the worlds model's compile rules against grizzle's compile of the write the
  * executor serves.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { element } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"

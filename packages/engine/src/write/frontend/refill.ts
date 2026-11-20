@@ -1,3 +1,10 @@
+/**
+ * A stratum's refills as its family statements draw them (analysis/theory/refill.ts): the closure of the changes its
+ * writes make on stored rows, refused where grizzle cannot draw a stale value again, and every way a change of the
+ * stratum reaches a refilled family's members, which the statement of the write it starts from draws: a put of a plain
+ * relation, read from its facts by its refilled members' removals statement, or an edit of a family's member relation,
+ * whose own removals or additions statement the refilled members ride (write/family/removals.ts, additions.ts).
+ */
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
@@ -23,13 +30,6 @@ import { CompileError, type RoleAccess } from "#compiler/core/errors.ts"
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { Family } from "#compiler/ir/family.ts"
-/**
- * A stratum's refills as its family statements draw them (analysis/theory/refill.ts): the closure of the changes its
- * writes make on stored rows, refused where grizzle cannot draw a stale value again, and every way a change of the
- * stratum reaches a refilled family's members, which the statement of the write it starts from draws: a put of a plain
- * relation, read from its facts by its refilled members' removals statement, or an edit of a family's member relation,
- * whose own removals or additions statement the refilled members ride (write/family/removals.ts, additions.ts).
- */
 import { columnKey, familyKey, type RelationInfo } from "#compiler/ir/law.ts"
 
 /** One of a stratum's writes as its refills start from it: its change, where it is, and where a put's rows come from. */

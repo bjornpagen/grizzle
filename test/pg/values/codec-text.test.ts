@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * A value's one text, a function of its host value alone (codec/scalar.ts hostText, program/text.ts codecText), against
  * PostgreSQL 19 and the pinned pgvector: a batch of values of every carrier with a text, the cases of order.test.ts but
@@ -20,6 +19,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  *
  * Features: "texts <carrier>", a carrier's case's; "reads <kind>", a field's case's.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"

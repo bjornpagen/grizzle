@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The type oracle (test/support/oracle/verify/types.ts) judges each part of a statement of tagged parts as lowered,
  * before its executable form casts its columns to texts, and not only through the rows the differential compares: over
@@ -11,6 +10,7 @@ import { assert } from "@bjornpagen/testing/assert"
  *
  * Features: an attachment's part planted, and each part passed.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"

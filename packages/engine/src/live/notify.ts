@@ -1,6 +1,3 @@
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
 /**
  * Liveness's one grammar: what a committed write changed, as the route keys a live program's runtime routes it by,
  * the text that spells each, and the sealed batches of those texts the fan-out channel carries. The side that reads a
@@ -9,6 +6,9 @@ import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
  * notifications by their plaintext keys. A session without the secret, which any role of the database can LISTEN as,
  * reads nothing of a payload but its arrival, and makes none that opens.
  */
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
 import { utf8, utf8Length, utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"

@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The SQL kernel's test vocabulary: the query and statement generators (test/support/kernel/sqlgen.ts), the shape
  * (test/support/kernel/shape.ts) and the one-hole walker, each over generated SQL.
@@ -14,6 +13,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * Features: the clauses the query generator has; every statement kind and every construct an audit rule watches; a
  * relation alias renamed; each statement kind the root hole sees.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

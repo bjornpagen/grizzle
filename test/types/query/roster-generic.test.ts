@@ -1,6 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * A source generic over a closed id's roster (test/types/query/roster-generic.ts): one helper written over closed
  * relations whose headings differ only in a closed id's roster, ordered or unordered, is admitted, and at each
@@ -8,6 +5,9 @@ import { boxAgreement } from "#test/types/batch/agreement.ts"
  * roster. Each relation is a cell of the box; a batch's cells are one program, checked disarmed. Oracle: the join
  * written by hand over each relation.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 import { rosterGenericBox } from "#test/types/query/roster-generic.dictionary.ts"
 import { rosterGenericProgram } from "#test/types/query/roster-generic.ts"
 

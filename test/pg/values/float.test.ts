@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * Real and double precision against PostgreSQL 19: the host's floats (scalar/values/float.ts) are PostgreSQL's.
  *
@@ -17,6 +16,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * Features: "admitted"; "overflow" and "underflow", an edge value on each side PostgreSQL refuses; "NaN" and "signed
  * zero" in an order batch.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

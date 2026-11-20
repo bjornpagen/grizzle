@@ -1,10 +1,10 @@
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * The README's refusals at the public API (test/types/examples/fixtures/readme.ts), the one sanctioned example code: its
  * blocks are the documentation, mirrored line for line (blocks.test.ts), and `pnpm typecheck` checks the fixtures as
  * they stand. Here the README's fixture is checked disarmed, whole: each refusal it states fails with the claim its
  * directive names, and nothing else fails. Oracle: the refusals the documentation states.
  */
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 import { statedRefusals } from "#test/types/examples/examples.dictionary.ts"
 import { readmeProgram } from "#test/types/examples/examples.fixtures.ts"
 

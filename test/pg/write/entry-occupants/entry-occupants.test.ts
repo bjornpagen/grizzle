@@ -1,9 +1,9 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * A query entry's write meets every unique object of its target a stored fact at any unique object, inside the entry or outside it, is that object's law with the submitted key.
  *
  * Its pre-conversion budget: runs 60, coverage cases 60 (test/pg/write/entry-occupants/entry-occupants.test.ts at 8e0978628).
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"

@@ -1,6 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * The executor's boundary (test/types/executor/boundary.ts): over every source a harness has handed baseArtifacts by
  * every door a compiled program passes on its way to a run (a role's, a slice's, a layer's and a bench gate's compiled
@@ -10,6 +7,9 @@ import { boxAgreement } from "#test/types/batch/agreement.ts"
  * the box; a batch's cells are one program, checked disarmed. Oracle: the box's own source kind, and whether a door
  * minted the entry.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 import { boundaryBox } from "#test/types/executor/boundary.dictionary.ts"
 import { boundaryProgram } from "#test/types/executor/boundary.ts"
 

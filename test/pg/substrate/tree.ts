@@ -1,5 +1,3 @@
-import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
-import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * The tree relation of trees.md as hand-written DDL, the rows a writer sends, the model of what PostgreSQL does with
  * each transaction of them, the theorem's own checker, and the boxes of states, mutations and writes the substrate
@@ -30,6 +28,8 @@ import { defined, nonEmpty } from "@bjornpagen/testing/assert"
  * start, one representation. Every count, index and interval is the `natural` domain over int8, and every column
  * grizzle generates or copies is int8, its base type, as G2's are.
  */
+import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import type { Moment } from "#test/support/families/mutate.ts"

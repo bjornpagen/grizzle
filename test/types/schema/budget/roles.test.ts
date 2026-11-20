@@ -1,4 +1,3 @@
-import { costGate } from "#test/types/batch/measured.ts"
 /**
  * A role's type cost against the base its level extends (schema/budget/roles.ts): the derived relations of the level
  * a full role is over, and the laws over them, each program checked alone over a base of `small` relations and over
@@ -17,6 +16,7 @@ import { costGate } from "#test/types/batch/measured.ts"
  * every program typechecks with no diagnostic. Oracle: the compiler's own counts and diagnostics
  * (test/types/batch/measured.ts), compared across the two bases.
  */
+import { costGate } from "#test/types/batch/measured.ts"
 import { roleDimensions } from "#test/types/schema/budget/roles.dictionary.ts"
 import { roleCost, roleDimensionName } from "#test/types/schema/budget/roles.ts"
 

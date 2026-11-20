@@ -1,10 +1,3 @@
-import {
-	appendNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "@bjornpagen/grizzle-text/base/nonempty"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The classifier of a schema's instants (ir/instant.ts): every instant field a clock or a reference, read off the
  * theory's containments, built once when the schema compiles, its refusals a clock outside its primary key or first in
@@ -30,6 +23,13 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
  * group's and the field's, else it is refused as `byUnknown`, `byItself` or `byUnkeyed`, naming the key the group and
  * the field would be. An unordered place states no order, so it has no such rule.
  */
+import {
+	appendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { PlaceRule } from "#compiler/core/causes.ts"
 import { CompileError } from "#compiler/core/errors.ts"

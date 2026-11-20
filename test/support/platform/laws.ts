@@ -1,11 +1,3 @@
-import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import {
-	type ReadonlyTupleMap,
-	type ReadonlyTupleSet,
-	TupleMap,
-	TupleSet
-} from "@bjornpagen/grizzle-text/base/tuple-map"
-import { defined } from "@bjornpagen/testing/assert"
 /**
  * The platform's laws on the host: every law the platform fixture (test/support/fixtures/api/platform.ts) declares,
  * stated in words over a platform's facts and sharing nothing with grizzle, and what a write does to a state under
@@ -44,6 +36,14 @@ import { defined } from "@bjornpagen/testing/assert"
  * owner's bound are refused there by that law; every other law is checked on the state the transaction leaves, at
  * COMMIT or at SET CONSTRAINTS ALL IMMEDIATE.
  */
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import {
+	type ReadonlyTupleMap,
+	type ReadonlyTupleSet,
+	TupleMap,
+	TupleSet
+} from "@bjornpagen/grizzle-text/base/tuple-map"
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Formatter, Order, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { contained, on, type Statement, select } from "#compiler/public/schema.ts"

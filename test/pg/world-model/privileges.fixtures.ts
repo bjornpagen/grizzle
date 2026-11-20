@@ -1,7 +1,7 @@
+/** What the properties of privileges.test.ts read: its installations, its expected privileges and its rules. */
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached, type Situations } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
-/** What the properties of privileges.test.ts read: its installations, its expected privileges and its rules. */
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record, Result } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"

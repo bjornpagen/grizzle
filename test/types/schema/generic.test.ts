@@ -1,7 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
-import { genericProgram } from "#test/support/agreement/generic-sources.ts"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * The generic-source agreement (test/support/agreement/generic-sources.ts): over every statement builder written generic
  * over each shape of its sources, the types admit exactly what the engine compiles over every relation a shared heading
@@ -9,6 +5,10 @@ import { boxAgreement } from "#test/types/batch/agreement.ts"
  * batch's cells are one program, checked disarmed. Oracle: the engine's compile of the statement over each relation of
  * the shape.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
+import { genericProgram } from "#test/support/agreement/generic-sources.ts"
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 import { genericBox } from "#test/types/schema/generic.dictionary.ts"
 
 /**

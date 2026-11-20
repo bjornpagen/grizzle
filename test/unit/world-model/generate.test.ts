@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The worlds generators' small box (test/support/worlds/generate), against the harness's own rules, which judge what a
  * generator drew without the generator's help: from every reality of the box, after drawn steps, the box's actions in
@@ -10,6 +9,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * moves its judge with it; only the feature that every action kind is reached notices a kind it drops. Features: the
  * box's kinds.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"

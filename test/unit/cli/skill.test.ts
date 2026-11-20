@@ -1,4 +1,3 @@
-import { containsText } from "@bjornpagen/testing/assert"
 /**
  * The agent skill: one file, packages/grizzle/skills/grizzle/SKILL.md, shipped in the package (package.json `files`).
  *
@@ -10,6 +9,7 @@ import { containsText } from "@bjornpagen/testing/assert"
  *
  * Features: none; the box is every text.
  */
+import { containsText } from "@bjornpagen/testing/assert"
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"

@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Compute.parseDecimal on PostgreSQL 19: over drawn pairs of decimal texts (test/support/lexical.ts decimalTextGen),
  * each part's count of digits at an edge the parse turns on (256 integer and 255 fraction digits, the widest
@@ -20,6 +19,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  *
  * Features: each digit-count edge and each relation of a pair's second text to its first.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, recorded } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"

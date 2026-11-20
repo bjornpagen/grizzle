@@ -1,5 +1,3 @@
-import { Refusal } from "#compiler/core/canonical.ts"
-import type { InstantRule, PlaceRule } from "#compiler/core/causes.ts"
 /**
  * How a ChangeSet's writes meet the schema's instants (ir/instant.ts): each action's rows, as its source delivers them,
  * state some instant fields and leave the others out, and every refusal of how a write writes an instant is made here,
@@ -24,6 +22,8 @@ import type { InstantRule, PlaceRule } from "#compiler/core/causes.ts"
  *
  * What a stratum's statements stamp together is the plan's to keep in one statement (write/schedule/plan.ts).
  */
+import { Refusal } from "#compiler/core/canonical.ts"
+import type { InstantRule, PlaceRule } from "#compiler/core/causes.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { WriteOp } from "#compiler/ir/desc.ts"

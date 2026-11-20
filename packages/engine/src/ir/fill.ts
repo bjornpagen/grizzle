@@ -1,4 +1,3 @@
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 /**
  * The fill order of a schema's families: every column grizzle writes on a row a family reaches, how it is filled, what
  * of its own row it reads, and when a write fills it. The analysis builds it once, when the schema compiles
@@ -14,6 +13,7 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
  * families fill independently of one another, each from the row as the walk left it: a column one counted family
  * fills is read by no other family's fill and by nothing the walk fills.
  */
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import { type Family, type FamilyFold, isSequence } from "#compiler/ir/family.ts"

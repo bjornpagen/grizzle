@@ -1,4 +1,3 @@
-import { costGate } from "#test/types/batch/measured.ts"
 /**
  * The matched sources' type cost against the schema they are over (query/budget/sources.ts): for each kind of source a
  * rule matches, a relation, a roster, a query over the schema and a derived relation over one, the program of `rules`
@@ -14,6 +13,7 @@ import { costGate } from "#test/types/batch/measured.ts"
  * typechecks with no diagnostic. Oracle: the compiler's own counts and diagnostics (test/types/batch/measured.ts),
  * compared across the two schemas.
  */
+import { costGate } from "#test/types/batch/measured.ts"
 import { matchedSources } from "#test/types/query/budget/sources.dictionary.ts"
 import { matchCost, sourceKindName } from "#test/types/query/budget/sources.ts"
 

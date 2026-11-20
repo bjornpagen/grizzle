@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The generators' claims about PostgreSQL 19, checked on PostgreSQL 19.
  *
@@ -17,6 +16,7 @@ import { assert } from "@bjornpagen/testing/assert"
  *
  * Features: an aggregate typed as PostgreSQL types it and one declined and defined, and facts loaded.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

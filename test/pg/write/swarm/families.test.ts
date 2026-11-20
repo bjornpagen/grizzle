@@ -1,9 +1,9 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * The family writer under a swarm every lawful ChangeSet stores the reference's rows, every unlawful one is refused by a law it breaks, and every refusal when it compiles is one the oracle states.
  *
  * Its pre-conversion budget: runs 24, coverage cases 160 (test/pg/write/swarm/families.test.ts at d8eed1786).
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed, recorded } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"

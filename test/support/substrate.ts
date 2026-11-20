@@ -1,4 +1,3 @@
-import { Array as Arr, Effect, Option, Result } from "effect"
 /**
  * The substrate proofs' one door to a transaction and its verdict (test/pg/substrate): each proof writes the RFC's
  * lowering templates by hand, sends a transaction of them to PostgreSQL 19, and judges what PostgreSQL did against
@@ -9,6 +8,7 @@ import { Array as Arr, Effect, Option, Result } from "effect"
  * constraint PostgreSQL names among several a state breaks depends on an order of rows and checks it does not promise,
  * so a model states the set PostgreSQL may name, and a judge requires the named one to be in it.
  */
+import { Array as Arr, Effect, Option, Result } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"

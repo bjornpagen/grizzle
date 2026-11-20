@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Generated alternatives schemas, over a single key and over a composite key (test/support/laws/boxes.ts), every law
  * native: per arm relation, a forward containment into the parent selected by its handles, and per armed handle, a
@@ -10,6 +9,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * (fin.md §7), the specification: a run of an armed handle beside its payload's row keeps every law of the expansion.
  * Features: a handle of a payload relation shared, and one of a relation of its own.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"

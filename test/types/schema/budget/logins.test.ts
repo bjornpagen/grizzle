@@ -1,4 +1,3 @@
-import { growthGate } from "#test/types/batch/measured.ts"
 /**
  * A login, its workloads and a ChangeSet over its role, over a schema of qti-pie's size and shape, at scale
  * (schema/budget/logins.ts).
@@ -10,6 +9,7 @@ import { growthGate } from "#test/types/batch/measured.ts"
  * first, so the role, the login and the ChangeSet over the role cost no more per relation at a larger schema. Oracle:
  * the compiler's own counts, compared step against step.
  */
+import { growthGate } from "#test/types/batch/measured.ts"
 import { loginDimensions } from "#test/types/schema/budget/logins.dictionary.ts"
 
 /**

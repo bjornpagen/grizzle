@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * A committed snapshot's two files as `grizzle check`, `grizzle generate` and `grizzle names` read them: a snapshot.json
  * of another format than this grizzle's (core/format.ts artifactFormat), one that records none, as every grizzle before
@@ -19,6 +18,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  *
  * Features: each commit.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"

@@ -1,4 +1,3 @@
-import { defined } from "@bjornpagen/testing/assert"
 /**
  * The ChangeSets of the family swarm search (test/pg/write/swarm/families.test.ts), built over an installed schema from
  * a case's steps (oracle.ts Step): the facts of an instance's rows, top facts with their sequences nested, a stored
@@ -10,6 +9,7 @@ import { defined } from "@bjornpagen/testing/assert"
  * appends to, whose further facts join its array member's; and, for each owner whose facts it so joins, the same
  * strata with that owner's further facts from queries, which the served compile refuses (Queried).
  */
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { ParamMap } from "#compiler/plan/common.ts"
 import { query, v } from "#compiler/public/query.ts"

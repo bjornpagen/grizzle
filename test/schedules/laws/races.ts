@@ -1,5 +1,3 @@
-import { indices } from "@bjornpagen/grizzle-text/base/array"
-import { defined } from "@bjornpagen/testing/assert"
 /**
  * The generated law races of a family (raceSuite), on PostgreSQL 19: every interleaving of a drawn race over a
  * schema of the family's box, from a drawn lawful state, is a history the history oracle passes
@@ -12,6 +10,8 @@ import { defined } from "@bjornpagen/testing/assert"
  * Features: each population's required situations (its threats, writers, put forms, planted writers below
  * SERIALIZABLE, its write skew), each paired with its mode. The test of each family runs this suite.
  */
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import type { Situations } from "@bjornpagen/testing/features"
 import { array, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { pctSchedule } from "@bjornpagen/testing/interleave"

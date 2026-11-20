@@ -1,4 +1,3 @@
-import { costGate } from "#test/types/batch/measured.ts"
 /**
  * schema.extend's type cost against the base it extends (schema/budget/extension.ts): the derived relations an
  * extension lists, and the laws it states over derived relations, each program checked alone over a base of `small`
@@ -21,6 +20,7 @@ import { costGate } from "#test/types/batch/measured.ts"
  * members, a cost of using it anywhere (extension.ts). And every program typechecks with no diagnostic. Oracle: the
  * compiler's own counts and diagnostics (test/types/batch/measured.ts), compared across the two bases.
  */
+import { costGate } from "#test/types/batch/measured.ts"
 import { extensionDimensions } from "#test/types/schema/budget/extension.dictionary.ts"
 import { extensionCost, extensionDimensionName } from "#test/types/schema/budget/extension.ts"
 

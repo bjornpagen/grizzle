@@ -1,3 +1,10 @@
+/**
+ * The schema agreement (test/support/agreement/schemas.ts), a program a batch checks disarmed, each case a module of
+ * its own: over drawn schemas and probes, the types infer what the engine describes, each field's host, fact and keys,
+ * and refuse exactly what it refuses, naming its refusal. Oracle: the engine's description of each drawn schema. The
+ * witnesses reach every construct, every fault and every refusal it names. Beside it, the kept faults no drawn probe
+ * plants, each alone on one base.
+ */
 import { ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr } from "effect"
 import {
@@ -7,13 +14,6 @@ import {
 	schemaRequired
 } from "#test/support/agreement/schemas.ts"
 import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
-/**
- * The schema agreement (test/support/agreement/schemas.ts), a program a batch checks disarmed, each case a module of
- * its own: over drawn schemas and probes, the types infer what the engine describes, each field's host, fact and keys,
- * and refuse exactly what it refuses, naming its refusal. Oracle: the engine's description of each drawn schema. The
- * witnesses reach every construct, every fault and every refusal it names. Beside it, the kept faults no drawn probe
- * plants, each alone on one base.
- */
 import { schemaKeptBox } from "#test/types/schema/agreement.dictionary.ts"
 
 /**

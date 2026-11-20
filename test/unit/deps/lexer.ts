@@ -1,4 +1,3 @@
-import { regex } from "arkregex"
 /**
  * A JavaScript tokenizer for the dependency audit. It reads the erased JavaScript that Node's type stripping
  * produces from each src/ module, so it needs no TypeScript syntax: types are blanked to spaces, positions
@@ -15,6 +14,7 @@ import { regex } from "arkregex"
  * of input. A function expression's `}` is read as a block's, so a division right after one reads as a regex: an
  * extra finding or a lexing error, never a missed regex.
  */
+import { regex } from "arkregex"
 import { Array as Arr, Data, Option, String as Str } from "effect"
 export type TokenKind =
 	| "ident"

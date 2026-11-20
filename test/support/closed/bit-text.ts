@@ -1,4 +1,3 @@
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * The test oracles of a bit string's text: a closed relation's installed constant, a set over a roster, and the hex
  * spelling grizzle writes either in.
@@ -9,6 +8,7 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
  * encoder's literal, or a set's wire text against (testing doctrine, rule 3). Each rounds a string up to whole hex digits
  * by its own arithmetic: four bits a digit, the bits past the last cell or code 0.
  */
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, String as Str } from "effect"
 import type { CompileBound } from "#compiler/core/errors.ts"
 import type { Constant } from "#compiler/ir/cells.ts"

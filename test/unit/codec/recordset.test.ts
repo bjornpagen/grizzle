@@ -1,5 +1,3 @@
-import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Relation inputs: the host codec owns the set property and the null ban, deduplicating by fact identity after native
  * coercion and encoding canonically as one array literal per column. The host collects a Stream member whole before it
@@ -21,6 +19,8 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * once and a fact spelled again; a column of no row, and a row of an empty cell; the bound far within, at, one past and
  * far past.
  */
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"

@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * A guarded float form binds its compound operands once per row, never in a SubPlan PostgreSQL runs again for every
  * row (lower/conservative/expr/lateral.ts), and computes what the reference evaluator computes.
@@ -24,6 +23,7 @@ import { assert } from "@bjornpagen/testing/assert"
  *
  * Features: every position a statement evaluates the tree in, and each float width and cast.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"

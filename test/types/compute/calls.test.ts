@@ -1,5 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
 /**
  * A call of a declared function passes a closed id of its argument's own roster alone, and a query calls a function of
  * values and rows of values alone (test/types/compute/calls.ts):
@@ -8,6 +6,8 @@ import { finite } from "@bjornpagen/testing/gen"
  * no handle has or a code. Each form is a cell of the box; a batch's cells are one program, checked disarmed. Oracle:
  * the rule every term meets by, a closed id standing only where a value of its own roster does.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
 import { boxAgreement } from "#test/types/batch/agreement.ts"
 import { callsBox } from "#test/types/compute/calls.dictionary.ts"
 import { callsProgram } from "#test/types/compute/calls.ts"

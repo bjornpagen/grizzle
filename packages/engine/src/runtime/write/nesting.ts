@@ -1,11 +1,11 @@
-import { defect, defined, invariant } from "@bjornpagen/grizzle-text/base/invariant"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * A nested write as binding runs it, from its data (`NestingData`): each fact split along its families, each level's own
  * fields admitted, the whole nesting filled in one walk by the write's filler (runtime/write/fill.ts), and its rows cut
  * into each relation its family statements write, every relation's rows one set across the stratum's nested writes.
  */
+import { defect, defined, invariant } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { slotPlace } from "#compiler/codec/fault.ts"
 import {

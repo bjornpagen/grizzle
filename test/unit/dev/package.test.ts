@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The package as a git submodule consumer takes it (consumer.ts): the README's and SKILL.md's programs, mirrored line
  * for line in test/types/examples/fixtures, typecheck as a consumer's, against the package's source reached through its
@@ -10,6 +9,7 @@ import { assert } from "@bjornpagen/testing/assert"
  *
  * Oracle: TypeScript's own checker. Box: each mirrored program, SKILL.md's with the README's it imports.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, FileSystem, Path, String as Str } from "effect"

@@ -1,4 +1,3 @@
-import { defined } from "@bjornpagen/testing/assert"
 /**
  * The family swarm's oracle (test/pg/write/swarm/families.test.ts), independent of grizzle's writer:
  *
@@ -16,6 +15,7 @@ import { defined } from "@bjornpagen/testing/assert"
  *   installs NOT DEFERRABLE, `immediateKeysOf`), or a family's count between its owner's and its member's statements
  *   (`justified`).
  */
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"

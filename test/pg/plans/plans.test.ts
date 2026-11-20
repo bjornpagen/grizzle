@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * Plan properties of the optimized lowering on PostgreSQL 19 (the R04, R17, R20 and R22 mechanisms).
  *
@@ -32,6 +31,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * each query under each plan cache mode. The lateral take and the relation parameter's probe hold for every drawn
  * input; a drawn input's shape is no situation of theirs.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, finite, increasing, int, element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

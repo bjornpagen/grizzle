@@ -1,4 +1,3 @@
-import { assert, containsText } from "@bjornpagen/testing/assert"
 /**
  * The oracle runner wins every kill search of the mutant roster (invalid.dictionary.ts), each nested in a case of its
  * own and run on its witnesses alone, the floor and steered cases its identity fixes, so a kill holds on every run seed:
@@ -26,6 +25,7 @@ import { assert, containsText } from "@bjornpagen/testing/assert"
  *
  * Features: each invalid mutant killed, and I1 told apart by the reference.
  */
+import { assert, containsText } from "@bjornpagen/testing/assert"
 import { word } from "@bjornpagen/testing/dictionary"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"

@@ -1,3 +1,7 @@
+/**
+ * Flights, a hot path: every statement of every Db call is planned, written and answered here, so the per-statement
+ * work is native loops with no Option, tuple or closure per statement, and Effect stays at the flight's boundary.
+ */
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import type * as Arr from "effect/Array"
 import type * as Brand from "effect/Brand"
@@ -9,10 +13,6 @@ import * as Exit from "effect/Exit"
 import * as Function from "effect/Function"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
-/**
- * Flights, a hot path: every statement of every Db call is planned, written and answered here, so the per-statement
- * work is native loops with no Option, tuple or closure per statement, and Effect stays at the flight's boundary.
- */
 import {
 	defect,
 	type ExplainText,

@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The add-wins calculator (test/support/oracle/addwins.ts applyAddWins), the write oracle's model of a ChangeSet,
  * against independent references, over small-domain Task facts (an id of 0 to 3, an account of 0 or 1, a kind of the
@@ -19,6 +18,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * member of several facts; a put displacing an occupant and one into an empty key; multi-stratum counts and counts
  * that differ from the pooled reading.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"

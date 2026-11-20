@@ -1,4 +1,3 @@
-import { defined } from "@bjornpagen/testing/assert"
 /**
  * The cases the family swarm search draws (test/pg/write/swarm/families.test.ts): a schema (spec.ts), then its
  * ChangeSets, each drawn from the state the ones before it leave where they are accepted: the first inserts an
@@ -10,6 +9,7 @@ import { defined } from "@bjornpagen/testing/assert"
  * delete of everything. A case that keeps unlawful writes breaks a law in its last ChangeSet: a pure set's needed value
  * deleted, a referrer naming no row, two facts at one key, or a counted member naming no owner.
  */
+import { defined } from "@bjornpagen/testing/assert"
 import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { keep, type Swarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option } from "effect"

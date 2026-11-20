@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * A member that binds a parameter to the database's clock (workload clocked) is its program served with that one input
  * read by the server: generated logins over the clock box, each drawn program served twice, once with the call's `now`
@@ -16,6 +15,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * - Liveness: a clocked read is served as an instant read, with no footprint, and the snapshot's live plan holds a
  *   relation exactly where a read served live reads it.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Effect, Record as Rec, String as Str } from "effect"

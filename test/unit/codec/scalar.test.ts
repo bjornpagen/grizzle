@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * Text-mode scalar codecs: each carrier's written text, admission at the encoder, and the null ban; the strict reading of
  * PostgreSQL's output text (the kernel's, test/support/kernel/strict.ts), and the library's trusting conversion agreeing
@@ -18,6 +17,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * Features: every form each carrier reaches (FormFeature); a span's syntax refusal beside a span; a vector in the cosine
  * domain, one lifted into it, and a subnormal component.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

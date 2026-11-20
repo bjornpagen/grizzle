@@ -1,4 +1,3 @@
-import { defined } from "@bjornpagen/testing/assert"
 /**
  * The schemas the family swarm search draws (test/pg/write/swarm/families.test.ts): a family core of relations R0 …
  * Rn−1 as the reference writer specifies them (test/support/families/fill.ts FillSpec: trees, ordered and counted
@@ -19,6 +18,7 @@ import { defined } from "@bjornpagen/testing/assert"
  * extra fold end `e<f>`, the plain relations `P<j>`, the check `C<i>`, and a naming relation's copy of family `f`'s
  * group `o<f>` (the shared-field column) beside the named row's id `m<f>` and `v` `w<f>`.
  */
+import { defined } from "@bjornpagen/testing/assert"
 import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm, swarmChoice, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"

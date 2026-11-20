@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The generators' scalar types, value domains and spelling rule (test/support/oracle/gen/domain.ts): every generated
  * type's value classes hold only values the type stores exactly, one value per class and two classes two values by
@@ -14,6 +13,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * every carrier the claims single out, edge classes, a type that is its own key type, a computed numeric; a canonical
  * and a twin spelling.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

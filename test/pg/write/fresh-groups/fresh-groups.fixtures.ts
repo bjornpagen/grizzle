@@ -1,9 +1,9 @@
-import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * What the property of fresh-groups.test.ts reads: schemas of counted families over relations every ChangeSet inserts
  * at its top level, each relation mutable, an instance of each, the instance's writes by depth, and each table's rows,
  * every column, as PostgreSQL stores them.
  */
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { aimed, boolean, constant, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order } from "effect"
 import { printObjectName } from "#compiler/sql/print.ts"

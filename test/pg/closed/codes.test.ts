@@ -1,5 +1,3 @@
-import { assert, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
-import { type Reached } from "@bjornpagen/testing/features"
 /**
  * Closed ids as codes on PostgreSQL 19: a roster's smallint domain, its names constant, the decoded column of a role
  * view, and a set's bit string, each judged against A8's model of the roster's history (test/support/closed/generate.ts),
@@ -47,6 +45,8 @@ import { type Reached } from "@bjornpagen/testing/features"
  * one and more; the VALIDATE search's named tables; the bits histories' growth past and within a hex digit, a removal
  * refused until its data step, and two migrations.
  */
+import { assert, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
+import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"

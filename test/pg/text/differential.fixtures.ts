@@ -1,3 +1,4 @@
+/** What the properties of differential.test.ts read: the families' cases and agreement, and the edges of the limits. */
 import * as RegexIr from "@bjornpagen/grizzle-text/regex/ir"
 import { buildNfa, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
@@ -23,7 +24,6 @@ import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
 import { domainDigest } from "#compiler/core/fingerprint.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-/** What the properties of differential.test.ts read: the families' cases and agreement, and the edges of the limits. */
 import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { createDomain } from "#compiler/physical/ddl/domains.ts"

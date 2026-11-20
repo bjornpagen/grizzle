@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * The checker's parameter, member and bound rules (check/), each against its rule restated over drawn inputs:
  *
@@ -20,6 +19,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * Features: each declaration kind, each parameter situation admitted, each member rule and op, each kind of take
  * bound, and an item tagged at the label or at another.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	type Aimed,

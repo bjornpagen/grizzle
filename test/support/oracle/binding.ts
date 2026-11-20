@@ -1,10 +1,10 @@
-import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * The law model's own judgments of a compiled write's binding (runtime/write/binding.ts Binding), read off the write's
  * front end and its law model as binding read them on every application before they were decided at compile time: the
  * oracle a binding is judged against (test/unit/write/program/binding.test.ts). Each judgment is stated here from the law
  * model's meaning, never through write/program/decide.ts.
  */
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, String as Str } from "effect"
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { type Family, isSequence } from "#compiler/ir/family.ts"

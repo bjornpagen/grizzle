@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The wire's one table (live/wire.ts carrierWire): each carrier's JSON Schema, encode, exact parse and trusting decode
  * agree, over drawn specs of every carrier and drawn values of each spec's type.
@@ -24,6 +23,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * by Object.is to the 0 the wire spells it as; and at 9ef5c380, zero of a computed numeric below one and "0" read as a
  * numeric(1, 2), whose parse raised 10 to a negative power.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"

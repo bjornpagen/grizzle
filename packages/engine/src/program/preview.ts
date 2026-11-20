@@ -1,15 +1,3 @@
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
-import { closedTableOf } from "#compiler/analysis/schema.ts"
-import { derivedAnalysis } from "#compiler/analysis/schema.ts"
-import { lawDescription } from "#compiler/analysis/theory/description.ts"
-import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
-import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
-import { hostRead } from "#compiler/core/host.ts"
-import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { once } from "#compiler/core/lazy.ts"
-import { captureLoc } from "#compiler/core/loc.ts"
 /**
  * insertPreview(schema): the host half of an insertion, `ChangeSet.empty(S).insertAll(rows)`, as the first write of an
  * installation holding no row stores it, closed relations aside, with no SQL sent.
@@ -36,6 +24,18 @@ import { captureLoc } from "#compiler/core/loc.ts"
  * call does not insert is refused (OwnerAbsent),
  * since its family's statement would draw it past a stored owner no such installation holds.
  */
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { closedTableOf } from "#compiler/analysis/schema.ts"
+import { derivedAnalysis } from "#compiler/analysis/schema.ts"
+import { lawDescription } from "#compiler/analysis/theory/description.ts"
+import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
+import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
+import { hostRead } from "#compiler/core/host.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
+import { once } from "#compiler/core/lazy.ts"
+import { captureLoc } from "#compiler/core/loc.ts"
 import type { PublicResult } from "#compiler/core/public-result.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import { noClock } from "#compiler/ir/clock.ts"

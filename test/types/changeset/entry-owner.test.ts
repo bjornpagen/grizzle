@@ -1,6 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * A family's owner written through a query entry (test/types/changeset/entry-owner.ts): over every declared case of the
  * entry-owner box (test/support/families/entry-owner.ts), a write through the entry is admitted exactly when its fact
@@ -8,6 +5,9 @@ import { boxAgreement } from "#test/types/batch/agreement.ts"
  * batch's cells are one program, checked disarmed. Oracle: the box's rule, which the engine meets
  * (test/unit/write/entry-owner.test.ts).
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 import { entryOwnerBox } from "#test/types/changeset/entry-owner.dictionary.ts"
 import { entryOwnerProgram } from "#test/types/changeset/entry-owner.ts"
 

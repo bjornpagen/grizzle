@@ -1,6 +1,3 @@
-import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
-import { Array as Arr, Option, String as Str } from "effect"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
 /**
  * The keyed tree an old-form tree becomes (test/support/migrate/old-form-tree.ts), which edullm's identity migration
  * drafts, and the old-form forest a migration suite stores before drafting it: pantry's Node's shape (keyedTreeOf), the
@@ -10,6 +7,9 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
  * backfill.test.ts drafts the keyed tree, whose backfill owes a check of the key its derivations meet rows at; and
  * test/pg/migrate/backfill-cost.test.ts prices its backfill over forests of growing size.
  */
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
+import { Array as Arr, Option, String as Str } from "effect"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"

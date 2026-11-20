@@ -1,5 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
 /**
  * A served login's decoder type (test/types/api/decoder.ts): over a box of logins, one for each kind of member the
  * decision of a login's live reads reads, ServedLogin<typeof L>["decoder"] is exactly the arm L's real served file
@@ -8,6 +6,8 @@ import { finite } from "@bjornpagen/testing/gen"
  * program, checked armed. Oracle: the decoder of each login's served file, compiled as generate compiles it and read
  * off the served value.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
 import { decoderBox } from "#test/types/api/decoder.dictionary.ts"
 import { decoderProgram } from "#test/types/api/decoder.ts"
 import { boxAgreement } from "#test/types/batch/agreement.ts"

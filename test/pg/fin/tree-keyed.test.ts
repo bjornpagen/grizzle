@@ -1,4 +1,3 @@
-import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 /**
  * A tree keyed by its root fields then its drawn start, on PostgreSQL 19, written whole through grizzle's own write
  * and read back: three relations of root arity 1, 2 and 3 over text, integer and uuid root fields, each folded by the
@@ -27,6 +26,7 @@ import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
  * PostgreSQL must commit exactly the states the theorem as a checker calls lawful (test/support/families/tree.ts
  * lawful): the numbering of the forest the state's keys and parent links describe.
  */
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Layer } from "effect"

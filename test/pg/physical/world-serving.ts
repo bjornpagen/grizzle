@@ -1,16 +1,3 @@
-import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { assert, defined } from "@bjornpagen/testing/assert"
-import { Array as Arr, Effect, Option, Record as Rec, Result, type Scope } from "effect"
-import { collectInputs } from "#adapter/apply/collect.ts"
-import { bindFrame } from "#adapter/wire/batch.ts"
-import {
-	type Explained,
-	explainStatementWith,
-	type PlanNode,
-	parsePlan,
-	planNodes
-} from "#bench/harness/explain.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
 /**
  * Every world function judged by PostgreSQL's serving judge (serving.ts): the filter functions, key and unique
  * probes, policy predicates and write prechecks a writable query entry installs (physical/ddl/roles.ts writePlan,
@@ -70,6 +57,19 @@ import type { CompileError } from "#compiler/core/errors.ts"
  * reads the relation's index with no index condition on every call, which the judge names at any size: a body's
  * arguments are its statement's parameters, so every relation it reads is a probe of their values.
  */
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
+import { Array as Arr, Effect, Option, Record as Rec, Result, type Scope } from "effect"
+import { collectInputs } from "#adapter/apply/collect.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
+import {
+	type Explained,
+	explainStatementWith,
+	type PlanNode,
+	parsePlan,
+	planNodes
+} from "#bench/harness/explain.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"

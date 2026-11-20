@@ -1,4 +1,3 @@
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * The one Family IR: every family, ordered, counted or a tree, by its owner, its count, its members, its index and the
  * three axes every lemma, fold copy and tree law rides.
@@ -9,6 +8,7 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  * predecessor (each member to the one before it) and last (the owner to its last member). A containment of an axis's
  * shape rides it, its pairs joining the axis's, so a family adds one foreign key per axis whatever its laws.
  */
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ColumnIdent, Identifier, LawId } from "#compiler/core/ids.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"

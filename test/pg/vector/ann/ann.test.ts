@@ -1,4 +1,3 @@
-import { assert, contains, defined } from "@bjornpagen/testing/assert"
 /**
  * approximateNearest on PostgreSQL 19 over the approximate-retrieval fixture (support.ts): a population drawn anew in
  * every run, installed with the HNSW index its workload requests and the fixed search policy stored as its login's
@@ -31,6 +30,7 @@ import { assert, contains, defined } from "@bjornpagen/testing/assert"
  * superseding, and a negated tag excluded. Whether PostgreSQL serves a search from the HNSW index is the planner's
  * choice, never grizzle's contract, so it is a feature a search must reach, not an assertion.
  */
+import { assert, contains, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"

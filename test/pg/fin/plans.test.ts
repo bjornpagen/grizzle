@@ -1,4 +1,3 @@
-import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 /**
  * The reads of families and trees through grizzle's installed indexes, on PostgreSQL 19 (fin.md §11, "Plan audits",
  * trees.md §3, §5): the export, every subtree's descendants and every family's members are an index or range scan of
@@ -27,6 +26,7 @@ import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
  *   (installed.ts), never by an allocated name; and each read's rows against the tree's parent links
  *   (families/tree.ts descendantsOf) or the family as written, a second implementation that reads no interval.
  */
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { explain, explainServerStatement, type PlanMode } from "#bench/harness/explain.ts"

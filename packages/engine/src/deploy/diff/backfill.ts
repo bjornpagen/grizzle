@@ -1,12 +1,3 @@
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import {
-	appendNonEmpty,
-	dedupeNonEmpty,
-	flatMapNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * The backfill of the families a migration adds to relations that may hold rows: grizzle draws every
  * value a family holds (each index, count, copy and accumulator), so a family new to stored rows takes its values from
@@ -80,6 +71,15 @@ import {
  * its rows' sort, whatever the depth of a tree or the length of a family; a chain's costs a round for each slot of its
  * longest family, or each level of its deepest tree.
  */
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	appendNonEmpty,
+	dedupeNonEmpty,
+	flatMapNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import type { Identifier } from "#compiler/core/ids.ts"

@@ -1,3 +1,9 @@
+/**
+ * Scalar types for tests, each the one the registry builds (scalar/registry.ts scalarTypeOf): no test states a
+ * ScalarType as a literal, so every capability set a test meets is production's. Beside them, what only tests read of
+ * scalar types and text refinements: a predicate table's normal form, the plain carriers, the refinement-dropping
+ * widening, and a refinement's host NFA membership and language.
+ */
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
@@ -24,12 +30,6 @@ import {
 	wildcardText,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
-/**
- * Scalar types for tests, each the one the registry builds (scalar/registry.ts scalarTypeOf): no test states a
- * ScalarType as a literal, so every capability set a test meets is production's. Beside them, what only tests read of
- * scalar types and text refinements: a predicate table's normal form, the plain carriers, the refinement-dropping
- * widening, and a refinement's host NFA membership and language.
- */
 import type { PlainCarrier } from "#compiler/scalar/native.ts"
 import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import type { TextRefinement } from "#compiler/text/refinement.ts"

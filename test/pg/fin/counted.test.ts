@@ -1,7 +1,3 @@
-import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
-import { finite } from "@bjornpagen/testing/gen"
-import { type Case, family, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 /**
  * Counted swap-with-last through grizzle's lowering, on PostgreSQL 19 (fin.md §4.2, §11, "Counted swap-with-last
  * with the deferred closure FK"): a counted family hides its index ‹i› and its fold's accumulators, so removing a
@@ -26,6 +22,10 @@ import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "
  * would check it and rolled back, or ended by a real COMMIT whose rows are then cleared, as the case draws its end on
  * its tape (installed.ts endGen; folds.ts judgedFold): the box holds every case under both ends.
  */
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, family, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	byMember,

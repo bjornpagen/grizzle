@@ -1,4 +1,3 @@
-import { assert, defined, lacks } from "@bjornpagen/testing/assert"
 /**
  * Generated query cases: the conservative-oracle gate's case population.
  *
@@ -17,6 +16,7 @@ import { assert, defined, lacks } from "@bjornpagen/testing/assert"
  * feature: which forms the population reaches is the gate's own required features, as above. Features of the
  * configuration properties: a closure under the acyclic configuration.
  */
+import { assert, defined, lacks } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, family, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, Record } from "effect"

@@ -1,3 +1,7 @@
+/**
+ * Sessions over pg, a hot path: every query of every flight is written, and every cell of every row it answers is
+ * checked, here, in native loops with no Option or closure per row.
+ */
 import { Buffer } from "node:buffer"
 import { isIP } from "node:net"
 import { type ConnectionOptions, checkServerIdentity, connect as tlsConnect } from "node:tls"
@@ -14,10 +18,6 @@ import * as Predicate from "effect/Predicate"
 import * as Redacted from "effect/Redacted"
 import * as Result from "effect/Result"
 import type * as Scope from "effect/Scope"
-/**
- * Sessions over pg, a hot path: every query of every flight is written, and every cell of every row it answers is
- * checked, here, in native loops with no Option or closure per row.
- */
 import {
 	defect,
 	flightMaxBytes,

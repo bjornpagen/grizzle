@@ -1,4 +1,3 @@
-import { growthGate } from "#test/types/batch/measured.ts"
 /**
  * The schema builders' type cost by dimension (schema/budget/scaling.ts): relations, a full role's entries, a write
  * list's names, a roster's and a set's handles, laws per relation, roles per schema and fields per relation, each
@@ -9,6 +8,7 @@ import { growthGate } from "#test/types/batch/measured.ts"
  * checker interns, are not judged by the law: test/types/batch/measured.ts): the second step adds no more than the first, so no
  * unit costs more for the units before it. Oracle: the compiler's own counts, compared step against step.
  */
+import { growthGate } from "#test/types/batch/measured.ts"
 import { schemaDimensions } from "#test/types/schema/budget/scaling.dictionary.ts"
 
 /**

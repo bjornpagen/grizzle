@@ -1,5 +1,3 @@
-import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * The compile-target catalog against its compositions on PostgreSQL 19 (R26-R31, R41, R42).
  *
@@ -24,6 +22,8 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * only zero of its group, whose canonical zero the native form must take as the composition's merged head does; each
  * fraction class.
  */
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { floatLiteral } from "#compiler/ir/carriers.ts"

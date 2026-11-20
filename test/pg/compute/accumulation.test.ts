@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The aggregate order arm: every sum and mean is a function of its arguments' multiset (scalar/aggregate.ts), whatever
  * the order the rows are stored and scanned in, the plan, a parallel worker's partial aggregate, a window frame or a
@@ -20,6 +19,7 @@ import { assert } from "@bjornpagen/testing/assert"
  *
  * Features: the order situations below, each computed from the drawn values, and forced parallel plans.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"

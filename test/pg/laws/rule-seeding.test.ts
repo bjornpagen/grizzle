@@ -1,6 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
-import { type Reached } from "@bjornpagen/testing/features"
-import { aimed } from "@bjornpagen/testing/gen"
 /**
  * The seeding of a rule over a query's probes on PostgreSQL 19: each probe of the set judge (physical/ddl/rules.ts
  * addRules) is the rule's violation restricted to the rows the transaction wrote, its region, and those its chain
@@ -65,6 +62,9 @@ import { aimed } from "@bjornpagen/testing/gen"
  * of a block alone, which adds the facts it held out, and never by an unwind or an inserted block, so key's and
  * tagged's searches require the first refusal only.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
+import { type Reached } from "@bjornpagen/testing/features"
+import { aimed } from "@bjornpagen/testing/gen"
 import { family, property, type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { cleared } from "#test/pg/fin/installed.ts"

@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * A case's substrate allocations stopped wherever they stand leave nothing behind: once the stopped allocations are
  * awaited, the case's database (Substrate.fresh) holds nothing a clean one does not (shared.ts leftovers), and no role
@@ -21,6 +20,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * Features: each stop once a plan stood, an allocation stopped mid-allocation, a session open as a role at the stop,
  * allocations stopped together, and allocations released before the stop.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"

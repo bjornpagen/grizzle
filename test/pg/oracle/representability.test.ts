@@ -1,4 +1,3 @@
-import { indices } from "@bjornpagen/grizzle-text/base/array"
 /**
  * The key representability bound against PostgreSQL 19: every key the compiler accepts fits a B-tree index entry,
  * at the computed maximum, with the widest values its fields admit.
@@ -22,6 +21,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
  *
  * Features: a key the compiler accepts, and one sized within a word of the item limit.
  */
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"

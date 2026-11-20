@@ -1,6 +1,3 @@
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * A nested write: an insert of an owner, or of a tree's roots, with every family it owns nested at its count fields,
  * to any depth.
@@ -34,6 +31,9 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
  * each of its rows' children and fills every row that carries it from that one stamp (write/family/additions.ts), so
  * every member carries exactly its owner's stamp, never one read again.
  */
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { FillAxis } from "#compiler/core/causes.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { LawId, StoredRelationName } from "#compiler/core/ids.ts"

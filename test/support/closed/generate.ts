@@ -1,4 +1,3 @@
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * Rosters with holes and growth, built by construction, and the named invalid codes, handles and declarations that a
  * roster's codec, domain and draft must refuse.
@@ -25,6 +24,7 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  * spellings are what an array literal, an identifier or a name's byte bound must quote or keep: `NULL`, a comma, a
  * quote, a backslash, braces, spaces, a multibyte name of exactly `handleMaxBytes` bytes.
  */
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	accepted,
 	type Machine,

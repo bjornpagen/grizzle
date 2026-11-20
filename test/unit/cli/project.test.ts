@@ -1,4 +1,3 @@
-import { runProgram } from "@bjornpagen/testing/commands"
 /**
  * The loop a person runs over a project, without a database, as a state machine over the command line: edit the
  * schemas in code, `grizzle generate`, review what it drafts, and `grizzle check`, each command run through `runCli`
@@ -38,6 +37,7 @@ import { runProgram } from "@bjornpagen/testing/commands"
  *
  * Features: every command of the loop, each edit, each refusal, each finding, and a hidden entry ignored.
  */
+import { runProgram } from "@bjornpagen/testing/commands"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"

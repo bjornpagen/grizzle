@@ -1,5 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
 /**
  * A builder's list or record holding a member typed any (test/types/api/untyped.ts): over the box of every builder that
  * captures a list or a record, by every typing of what it captures, and the kept Object.values leak, a call is refused
@@ -7,6 +5,8 @@ import { finite } from "@bjornpagen/testing/gen"
  * other call is admitted with a schema's nestings kept. Each call is a cell of the box; a batch's cells are one
  * program, checked disarmed. Oracle: the box's own typing of each captured list and record.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
 import { untypedBox } from "#test/types/api/untyped.dictionary.ts"
 import { untypedProgram } from "#test/types/api/untyped.ts"
 import { boxAgreement } from "#test/types/batch/agreement.ts"

@@ -1,4 +1,3 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * A containment's reverse index never refuses it: its reverse probe binds every referencing column by equality, and an
  * index over a leading run of them serves it, PostgreSQL rechecking the rest. The law model plans a B-tree over the
@@ -19,6 +18,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * covered by a declared key; a selected source; into a superkey; a set, and a run it cuts short; a key led by a prefix
  * of the referencing columns.
  */
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"

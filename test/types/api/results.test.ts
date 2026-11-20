@@ -1,5 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
 /**
  * The public-Result program (test/types/api/results.ts): every answer a public reader gives that can refuse with a
  * value, codecText's, rowEvaluator's and each of its items, insertPreview's and a preview's, factsDecoder's and a
@@ -8,6 +6,8 @@ import { finite } from "@bjornpagen/testing/gen"
  * Err) is assignable to it, so a caller reads one Result. Each answer is a cell of the box; a batch's cells are one
  * program, checked armed. Oracle: the specification, one public Result.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
 import { resultsBox } from "#test/types/api/results.dictionary.ts"
 import { resultsProgram } from "#test/types/api/results.ts"
 import { boxAgreement } from "#test/types/batch/agreement.ts"

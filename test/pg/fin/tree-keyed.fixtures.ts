@@ -1,5 +1,5 @@
-import { defined } from "@bjornpagen/testing/assert"
 /** What the properties of tree-keyed.test.ts read: its spaces, models and helpers. */
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	constant,
 	element,

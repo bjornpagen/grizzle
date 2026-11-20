@@ -1,4 +1,3 @@
-import { assert, assertVariant, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * readCallError and applyCallError (packages/grizzle/src/adapter/live/call-error.ts): a statement's refusal, on a read
  * or a write, read as the call error a live answer ends with, through the shell's own classification of the server's
@@ -58,6 +57,7 @@ import { assert, assertVariant, unorderedEqual } from "@bjornpagen/testing/asser
  *
  * Features: every reason, `failed`, and every path.
  */
+import { assert, assertVariant, unorderedEqual } from "@bjornpagen/testing/assert"
 import { word } from "@bjornpagen/testing/dictionary"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"

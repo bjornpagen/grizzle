@@ -1,4 +1,3 @@
-import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * A fresh group of a counted family, its owner inserted by the call and none of its members stored, is drawn whole by
  * the host (runtime/write/bind.ts freshOwners) and its members inserted as drawn, where the family's scan (write/family/
@@ -32,6 +31,7 @@ import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
  *
  * Features: each of `features`, noted where the case reaches it.
  */
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"

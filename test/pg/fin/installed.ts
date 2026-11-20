@@ -1,7 +1,3 @@
-import { constant, type Gen, type Weight, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
-import type { CompileError } from "#compiler/core/errors.ts"
-import type { LawId } from "#compiler/core/ids.ts"
 /**
  * The fin suites' seat: a schema of families installed through grizzle's own lowering, its first migration, beside the
  * physical names a direct writer addresses its rows by and its catalog's constraints, each described by the roles of
@@ -15,6 +11,10 @@ import type { LawId } from "#compiler/core/ids.ts"
  * its columns' roles in key order, a foreign key also by its target's, with its deferral and its update action as the
  * catalog states them, and the law the installation's constraint map says it reports.
  */
+import { constant, type Gen, type Weight, weighted } from "@bjornpagen/testing/gen"
+import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
+import type { CompileError } from "#compiler/core/errors.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"

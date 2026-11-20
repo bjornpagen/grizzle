@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * A connection that fails is classified, and every class states its own reason, the same through `grizzle migrate` and
  * through a Db's call, never with a password (packages/grizzle/src/adapter/errors/failures.ts ConnectRefusal).
@@ -25,6 +24,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * Features: every failure through each path, a wrong password, nothing listening and a CA that is not the server's among
  * them.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, String as Str } from "effect"

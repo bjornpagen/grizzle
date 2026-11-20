@@ -1,4 +1,3 @@
-import { deepEquals } from "@bjornpagen/testing/assert"
 /**
  * The folds of the fin suites as grizzle lowers them: one schema per (monoid, carrier), an owner `Owner(id, n, …ends)`
  * and its ordered family `Member(member, g, at, x, …accumulators)` folded by `fold(family, Monoid.m, step, end)`, with
@@ -12,6 +11,7 @@ import { deepEquals } from "@bjornpagen/testing/assert"
  * an end `empty family`; the member-to-owner foreign key the owner axis, owner-to-member the last axis, member-to-member
  * the predecessor axis.
  */
+import { deepEquals } from "@bjornpagen/testing/assert"
 import { Array as Arr, Data, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { FoldPlane } from "#compiler/ir/family.ts"

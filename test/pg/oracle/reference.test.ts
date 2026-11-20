@@ -1,5 +1,3 @@
-import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * The reference side of the oracle discriminates the structure of a program: the reference derives the delivered
  * statements from the IR, so a lowering that drops an attachment's part, delivers one under another name, or reports a
@@ -19,6 +17,8 @@ import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
  *
  * Features: each fault planted where the program offers it.
  */
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"

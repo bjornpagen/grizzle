@@ -1,6 +1,3 @@
-import { word } from "@bjornpagen/testing/dictionary"
-import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * ChangeSet#deleteWhere's types (test/types/changeset/delete-where.ts): over every case of the deleteWhere box
  * (test/support/agreement/delete-where.ts), each relation a key may name with each selection shape, a deleteWhere
@@ -8,6 +5,9 @@ import { boxAgreement } from "#test/types/batch/agreement.ts"
  * selection breaks. Each case is a cell of the box; a batch's cells are one program, checked disarmed. Oracle: the
  * engine's build and compile of each case.
  */
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 import { deleteWhereBox } from "#test/types/changeset/delete-where.dictionary.ts"
 import { deleteWhereProgram } from "#test/types/changeset/delete-where.ts"
 

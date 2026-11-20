@@ -1,8 +1,8 @@
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * A group's key texts on the host, as a write's statements carry them: each key field's value admitted in its type's
  * carrier under the installation's codes.
  */
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { carrierSpecOf, paramOfText } from "#compiler/codec/scalar.ts"
 import { type TextsKey, textsKey } from "#compiler/core/text.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"

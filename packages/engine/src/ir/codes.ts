@@ -1,5 +1,3 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * A roster's codes as an installation holds them.
  *
@@ -10,6 +8,8 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
  * only its roster's live handles in its order (ir/scalar.ts Roster) and stays the same type in a fresh installation and
  * a migrated one.
  */
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { bitInputText, hexText, setBit, wholeDigitBits, zeroDigits } from "#compiler/core/hex.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"

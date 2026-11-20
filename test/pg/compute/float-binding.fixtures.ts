@@ -1,5 +1,5 @@
-import { defined } from "@bjornpagen/testing/assert"
 /** What the properties of float-binding.test.ts read: its terms, its ledger and the judgments of each lowering. */
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,

@@ -1,4 +1,3 @@
-import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * Privileges as a migration changes them: one privilege of one grantee on one object at a time.
  *
@@ -8,6 +7,7 @@ import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text
  * and the target does not, each such unit alone (HeldPrivilege), so a grant both hold is neither revoked nor granted,
  * whatever else either states beside it, and a statement that changes one object's grants touches that object alone.
  */
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type {
 	FunctionName,

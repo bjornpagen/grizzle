@@ -1,8 +1,3 @@
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
-import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 /**
  * The host's fills of a nested write: every column of every row a nesting writes that grizzle writes itself, by
  * the schema's fill order (ir/fill.ts), which the analysis built and checked when the schema compiled
@@ -34,6 +29,11 @@ import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
  * members the columns that wait on it; on settling it, its settling columns. The fill order states each column's stage
  * and admits no column whose source a later stage fills, so every column a rule reads is filled when it is read.
  */
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import { encodeFailure } from "#compiler/codec/fault.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"

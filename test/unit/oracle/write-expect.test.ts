@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * The write oracle's judgement against planted realization mutants, on the one side the three-way harness cannot check
  * against PostgreSQL: its strictness. An expectation that accepts too much (an extra law among the acceptable
@@ -35,6 +34,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * The oracle is the specification: the faithful realization the expectation states passes the judge, and each mutant,
  * a planted fault of a realization, fails it. Features: every faithful outcome and every mutant above.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Result } from "effect"

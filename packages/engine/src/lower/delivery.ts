@@ -1,8 +1,8 @@
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 /**
  * The one SQL form of a statement's delivered rows (codec/delivery.ts): every outermost select grizzle sends whose rows
  * the host reads, a query's, an attachment's, a write's RETURNING, is built here from its columns' delivery, so a bytes column is never cast to a text, and the host's reader reads exactly the form sent.
  */
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { type CellKind, type Delivery, deliveryOf } from "#compiler/codec/delivery.ts"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"

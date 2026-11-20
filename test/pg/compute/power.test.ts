@@ -1,4 +1,3 @@
-import { assert } from "@bjornpagen/testing/assert"
 /**
  * Compute.power on PostgreSQL 19.
  *
@@ -13,6 +12,7 @@ import { assert } from "@bjornpagen/testing/assert"
  * Features: value agreement, a refusal at compilation, an underflow to zero, each side of exp(6000), a guarded power
  * refused and proved, and each float refusal.
  */
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, recorded } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
