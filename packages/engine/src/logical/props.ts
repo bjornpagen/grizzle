@@ -84,8 +84,10 @@ import {
 	attributesOver,
 	type Bits,
 	bitsAt,
+	addTo,
 	bitsOf,
 	copyBits,
+	dropFrom,
 	holdsAt,
 	isEmpty,
 	intersect,
@@ -1312,6 +1314,16 @@ type Subject = Pick<Props, "node" | "reading" | "attachment" | "outer">
  * factors of one alternative each, never 2^k proofs, however many projections, joins and views a parent closes their
  * key over: a dependency a parent closes over the product of the factors' keys determines what each factor's own
  * dependencies reach, and joins no two of them.
+ *
+ * A factor's columns that determine one another, given the key columns of the factors before it, are a class of its
+ * own (determinationClasses): each in the other's closure, as a reference's key, path and document copied at each place
+ * it is typed are, never equal but each the others' image. A minimal key holds at most one column of a class, and
+ * another of it in its place gives another. A class no other columns of the factor determine is in every key of it, so
+ * it is a factor of its own, given the factors before: its first column its key and each other column alone an
+ * alternative, and the rest of the factor is searched given that column as well. k such classes of s columns each over
+ * a key of their first columns are k factors of s - 1 alternatives each, found with k·s closures, where the factor
+ * searched whole had s^k minimal keys and found each one. The keys stated are the same: each class's choices times the
+ * rest's keys, the first of them each class's first column with the rest's first key, the whole search's first key.
  */
 /**
  * The keys of a constant relation's rows: every minimal set of its columns, by index in ascending order, whose value
@@ -1503,6 +1515,38 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 		const closes = (cs: Bits, given: Bits): Closure<never> =>
 			closure(deps, union(cs, given), namesNothing)
 		/**
+		 * The classes of a factor's delivered columns `delivered` that determine one another given the key columns
+		 * `before` of the factors before it, each in heading order, of two columns or more: p and q are one class when
+		 * each is in the other's closure with those. One closure per column, none for a factor of one column.
+		 */
+		const determinationClasses = (
+			delivered: Bits,
+			before: Bits
+		): ReadonlyArray<NonEmptyReadonlyArray<number>> => {
+			const at = positions(delivered)
+			if (at.length < 2) {
+				return []
+			}
+			const reached = at.map((p) => ({
+				p,
+				reached: closes(bitsAt(attributes, [p]), before).reached
+			}))
+			const grouped: Array<[(typeof reached)[number], ...Array<(typeof reached)[number]>]> = []
+			for (const column of reached) {
+				const into = grouped.find(
+					([first]) => holdsAt(column.reached, first.p) && holdsAt(first.reached, column.p)
+				)
+				if (into === undefined) {
+					grouped.push([column])
+				} else {
+					into.push(column)
+				}
+			}
+			return grouped.flatMap((members) =>
+				members.length > 1 ? [mapNonEmpty(members, (m) => m.p)] : []
+			)
+		}
+		/**
 		 * Another minimal key of a factor, with its derivation of every attribute of the factor from it and the key columns
 		 * `before` of the factors before it that the derivation reads: none for a factor no dependency of an earlier one
 		 * reaches. So a parent closing over it reaches what the factor's key does.
@@ -1517,22 +1561,32 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 				derivation(closes(other, intersect(before, read)), positions(factor))
 			)
 		}
-		const chosen = noBits(attributes)
-		const found: Array<KeyFactor> = []
-		for (const factor of factors) {
-			const before = copyBits(chosen)
-			const delivered = intersect(factor, heading)
-			const [first, ...others] = minimalKeys(
-				delivered,
-				[delivered],
+		/**
+		 * The minimal keys among `among`, columns of a factor, given `before`: its keys over those columns, the first its key in
+		 * the proof's key.
+		 */
+		const keysAmong = (among: Bits, factor: Bits, before: Bits): ReadonlyArray<Bits> =>
+			minimalKeys(
+				among,
+				[among],
 				(cs) => (covers(closes(cs, before), factor) ? true : undefined),
 				stated.flatMap((x) => {
 					const to = x.to.filter((c) => holdsAt(factor, c))
 					return to.length === 0 ? [] : [{ from: x.from, to: bitsAt(attributes, to) }]
 				})
 			).map((k) => k.key)
+		const chosen = noBits(attributes)
+		const found: Array<KeyFactor> = []
+		/** A factor's keys `keys` among its columns, given `before`: the first chosen, the others its alternatives. */
+		const choose = (
+			keys: ReadonlyArray<Bits>,
+			fallback: Bits,
+			factor: Bits,
+			before: Bits
+		): void => {
+			const [first, ...others] = keys
 			/** Every factor's delivered columns determine it, so its search finds a key: the first, or those columns. */
-			const key = first ?? delivered
+			const key = first ?? fallback
 			orInto(chosen, key)
 			const named = attributeNames(attributes, key)
 			if (isNonEmpty(named)) {
@@ -1543,6 +1597,32 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 					)
 				)
 			}
+		}
+		for (const factor of factors) {
+			const before = copyBits(chosen)
+			const delivered = intersect(factor, heading)
+			const remaining = copyBits(delivered)
+			const given = copyBits(before)
+			for (const members of determinationClasses(delivered, before)) {
+				const others = copyBits(delivered)
+				for (const m of members) {
+					dropFrom(others, m)
+				}
+				if (!holdsAt(closes(others, before).reached, members[0])) {
+					const ofClass = bitsAt(attributes, members)
+					choose(
+						members.map((m) => bitsAt(attributes, [m])),
+						ofClass,
+						ofClass,
+						before
+					)
+					for (const m of members) {
+						dropFrom(remaining, m)
+					}
+					addTo(given, members[0])
+				}
+			}
+			choose(keysAmong(remaining, factor, given), remaining, factor, given)
 		}
 		const key = attributeNames(attributes, intersect(chosen, heading))
 		return rowsKey(

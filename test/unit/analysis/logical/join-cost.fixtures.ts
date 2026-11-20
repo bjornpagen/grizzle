@@ -1,6 +1,7 @@
 /** What the properties of join-cost.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Array as Arr } from "effect"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
@@ -61,4 +62,80 @@ export const productOf = (k: number): ValidDag => {
 	])
 }
 
+/**
+ * k relations S0.. of s columns x, y0.., each column alone its key, and a relation R keyed by its column id and by its k
+ * columns a0.. together, matched in one region joining each R.a<i> to S<i>.x and delivering every variable but id, in
+ * heading order a0, y0_0, .., a1, ..: each a<i> and the y<i>_<j> are a class of s columns that determine one another and
+ * are never equal, and R's id, which the region hides, ties the k classes into one factor of the region's keys, every
+ * choice of one column per class a minimal key, s^k of them.
+ */
+export const classesOf = (k: number, s: number): ValidDag => {
+	const b = new DagBuilder(makeIdSupply())
+	const base = (
+		relation: string,
+		columns: ReadonlyArray<string>,
+		primaryKey: string,
+		keys: ReadonlyArray<NonEmptyReadonlyArray<string>>
+	) =>
+		b.node({
+			kind: "Base",
+			relation,
+			occurrence: b.ids.occurrence(),
+			primaryKey: [primaryKey],
+			keys,
+			relationKind: "relation",
+			heading: Arr.map(columns, (name) => ({ name, type: int4 })),
+			loc: undefined,
+			meta: conservativeMeta
+		})
+	const variable = (name: string): VarDecl => ({ id: b.ids.var(), name, type: int4 })
+	const classes = Arr.map(indices(k), (i) => ({
+		a: variable(`a${i}`),
+		ys: Arr.map(indices(s - 1), (j) => variable(`y${i}_${j}`))
+	}))
+	const shared: NonEmptyReadonlyArray<string> = [
+		"a0",
+		...Arr.map(indices(k - 1), (i) => `a${i + 1}`)
+	]
+	const r = {
+		id: b.ids.occurrence(),
+		source: base("R", ["id", ...shared], "id", [shared]),
+		bindings: Arr.map(classes, (c, i) => ({ column: `a${i}`, var: c.a })),
+		constants: []
+	}
+	const ss = Arr.map(classes, (c, i) => {
+		const ys = Arr.map(indices(s - 1), (j) => `y${j}`)
+		return {
+			id: b.ids.occurrence(),
+			source: base(
+				`S${i}`,
+				["x", ...ys],
+				"x",
+				Arr.map(ys, (y) => [y] as const)
+			),
+			bindings: [
+				{ column: "x", var: c.a },
+				...Arr.map(c.ys, (v, j) => ({ column: `y${j}`, var: v }))
+			],
+			constants: []
+		}
+	})
+	const vars = Arr.flatMap(classes, (c) => [c.a, ...c.ys])
+	return b.build([
+		b.node({
+			kind: "MatchRegion",
+			scope: b.ids.scope(),
+			vars,
+			occurrences: [r, ...ss],
+			equalities: [],
+			correlated: [],
+			heading: Arr.map(vars, (v) => ({ name: v.name, type: v.type })),
+			loc: undefined,
+			meta: conservativeMeta
+		})
+	])
+}
+
 export type Point = "from k = 4" | "from k = 6"
+
+export type ClassPoint = "classes of two columns" | "classes of three columns"
