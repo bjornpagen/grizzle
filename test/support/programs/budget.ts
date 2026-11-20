@@ -45,6 +45,7 @@ export type {
 	ParamType
 } from "#compiler/public/query.ts"
 export {
+	check,
 	closed,
 	contained,
 	context,

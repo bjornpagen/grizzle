@@ -1141,8 +1141,13 @@ export type VConstructor = <R extends VSource, const N extends string, F extends
 	name: ScopeName<N>
 ) => ShownVars<HeadingIn<R>, F, RN, ShownOrigins<R, N, RN, F>>
 
-/** The records a query, ordered query or finished arm delivers: its rows decoder's. */
-export type HeadOf<Q> = Q extends { readonly rows: RowDecoder<infer H> } ? H : never
+/**
+ * The records a query, ordered query or finished arm delivers: its rows decoder's, read by key. A match of the query
+ * against `{ rows: RowDecoder<infer H> }` instantiates it whole, the schema it is over with it, so a derived relation's
+ * check of its definition's head cost every relation of the level below it (types/derived/derived.ts DefinitionShape).
+ */
+export type HeadOf<Q> = DecodedBy<Q["rows" & keyof Q]>
+type DecodedBy<D> = D extends RowDecoder<infer H> ? H : never
 /** Readers of a query's phantoms. */
 export type EvidenceOfQuery<Q> =
 	Q extends Phantom<infer B>

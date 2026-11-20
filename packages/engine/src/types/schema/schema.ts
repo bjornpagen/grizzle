@@ -2,16 +2,13 @@ import type { Built, Phantom, phantom } from "#compiler/core/phantom.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type { Identical } from "#compiler/types/core/identical.ts"
 import type {
-	Carriers,
-	Headed,
 	Invariant,
 	IsOneLiteral,
 	MembersTyped,
 	PhantomOf,
 	Refusal
 } from "#compiler/types/core/phantom.ts"
-import type { AnyDerived, Derived } from "#compiler/types/derived/derived.ts"
-import type { QueryOver } from "#compiler/types/query/query.ts"
+import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type {
 	AnyClosed,
 	AnyClosedRelation,
@@ -513,9 +510,23 @@ type RefusalOver<
 		: "a statement names a relation no level of the schema declares"
 	: "two relations of one name across a schema's levels"
 
-/** A derived relation whose definition is a query over one of the levels L. */
-export type DerivedAt<L> = L extends unknown
-	? Derived<string, QueryOver<L> & Headed<Carriers>>
+/**
+ * A derived relation whose definition is a query over one of the levels L: its view's level is the key of one of them
+ * (LevelKeyOf), read off the relation's phantom by key, never off its definition, which its type does not hold
+ * (types/derived/derived.ts Derived).
+ */
+export type DerivedAt<L> = AnyDerived & Phantom<{ readonly level: LevelKeyOf<L> }>
+
+/**
+ * A level as a derived relation's view names it (types/derived/derived.ts DefinitionView), each of a union its own: a
+ * schema or a role by its kind and its name, read by key, one string, which no two levels of an installation share (the
+ * run time refuses a derived relation over a schema no level of its base is, whatever its name); a fragment, which has
+ * no name, by itself.
+ */
+export type LevelKeyOf<L> = L extends unknown
+	? KindStated<L> extends "fragment"
+		? L
+		: `${KindStated<L> & string}:${NameStated<L>}`
 	: never
 
 /**
@@ -1003,9 +1014,11 @@ export type OwnKeysOf<R> = R extends { readonly primaryKey: infer P }
 		? readonly ["id"]
 		: R extends AnyClosedRelation
 			? R["key"]
-			: R extends { readonly kind: "derived" | "world" }
-				? DefinitionKeysOf<R["definition" & keyof R]>
-				: never
+			: R extends { readonly kind: "derived" }
+				? DefinitionKeysOf<R>
+				: R extends { readonly kind: "world" }
+					? DefinitionKeysOf<R["definition" & keyof R]>
+					: never
 
 /**
  * The candidate keys of every relation of S, each relation's under its name and none under any other name. Relation

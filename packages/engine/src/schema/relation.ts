@@ -98,7 +98,14 @@ import { mint, record } from "#compiler/schema/record.ts"
 import { rowScalars } from "#compiler/schema/terms.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import type { Minted } from "#compiler/types/core/phantom.ts"
-import type { DefinitionQuery, Derived } from "#compiler/types/derived/derived.ts"
+import type {
+	DefinitionKeys,
+	DefinitionLevel,
+	DefinitionQuery,
+	DefinitionView,
+	Derived,
+	RuleReadOf
+} from "#compiler/types/derived/derived.ts"
 import type {
 	AccumulatedField,
 	Bits,
@@ -1124,7 +1131,11 @@ const derivedOf =
 		name: Name,
 		definition: Q,
 		extra: ReadonlyArray<unknown>
-	): Derived<Name, Q, St> => {
+	): Derived<
+		Name,
+		DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
+		St
+	> => {
 		const draft = admitDerived(name, definition, storage, extra)
 		const heading: Q["heading"] = definition.heading
 		return ownValue({

@@ -1,7 +1,13 @@
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { Built, Phantom } from "#compiler/core/phantom.ts"
 import type { DerivedStorage } from "#compiler/ir/desc.ts"
-import type { Carriers, Headed, Refusal } from "#compiler/types/core/phantom.ts"
+import type {
+	Carriers,
+	Headed,
+	Invariant,
+	PhantomOf,
+	Refusal
+} from "#compiler/types/core/phantom.ts"
 import type {
 	ContextsOf,
 	HeadOf,
@@ -12,6 +18,7 @@ import type {
 } from "#compiler/types/query/query.ts"
 import type { Producer } from "#compiler/types/query/terms.ts"
 import type { FactOfFields, RelationName } from "#compiler/types/schema/relation.ts"
+import type { LevelKeyOf } from "#compiler/types/schema/schema.ts"
 
 /** A definition: a query holding its heading of carriers. */
 export type DefinitionQuery = QueryBase & Headed<Carriers>
@@ -64,12 +71,8 @@ type KeysOfCarrier<C, X> = {
 }[keyof C]
 
 /** The refusals of the arms of Q's definition, or never where every arm joins, selects and projects. */
-type ArmsRefusals<Q> =
-	Q extends Phantom<infer B>
-		? B extends { readonly arms: infer Arms extends UnionArms }
-			? ArmRefusal<Arms[number]>
-			: never
-		: never
+type ArmsRefusals<Q> = ArmsRefusalsIn<PhantomOf<Q>["arms" & keyof PhantomOf<Q>]>
+type ArmsRefusalsIn<Arms> = Arms extends UnionArms ? ArmRefusal<Arms[number]> : never
 
 /**
  * Whether a rule may read a derived relation over the definition Q: `true`, or its arms' refusals (RuleRead). Its check
@@ -107,23 +110,71 @@ export interface AnyLive extends AnyDerived {
  *
  * The fields are a phantom, its definition's heading, which RelationFieldsOf reads; the heading is a real member too,
  * which v mints variables over, and `fact` decodes the facts of that heading.
+ *
+ * Its type holds what is read of its definition, V (DefinitionView), read once where the relation is made, and never
+ * the definition's query: a query holds the level it is over whole, every relation of it, and the checker instantiates
+ * a type's every argument again wherever a type holding it is instantiated, a level's record of relations among them,
+ * so a level of n derived relations over a base of m relations cost n × m wherever its type was read again (a
+ * parameter of `ReturnType<typeof levelOf>`: TS2589 at edullm's DeliveryLevel, a Delivery over 711 relations). The
+ * definition is still the relation's value, a query of its heading (test/types/schema/budget/levels).
  */
 export interface Derived<
 	Name extends string,
-	Q extends DefinitionQuery,
+	V extends AnyDefinitionView,
 	St extends DerivedStorage = DerivedStorage
 >
-	extends AnyDerived, Phantom<{ readonly fields: Q["heading"] }>, RuleRead<RuleReadOf<Q>> {
+	extends
+		AnyDerived,
+		Phantom<{
+			readonly fields: V["heading"]
+			readonly evidence: V["evidence"]
+			readonly level: V["level"]
+		}>,
+		RuleRead<V["ruleRead"]> {
 	readonly kind: "derived"
 	readonly name: Name
-	readonly definition: Q
-	readonly heading: Q["heading"]
+	readonly definition: QueryBase & Headed<V["heading"]>
+	readonly heading: V["heading"]
 	readonly storage: St
-	readonly fact: RowDecoder<FactOfFields<Q["heading"]>>
+	readonly fact: RowDecoder<FactOfFields<V["heading"]>>
 }
 
+/**
+ * What a derived relation's type holds of its definition (Derived): its heading of carriers H, its keys K, a union of
+ * each key's fields (schema.ts OwnKeysOf reads them), whether a rule may read it RR (RuleReadOf), and the level it is
+ * over Lv, told by its kind and name (LevelKeyOf), against which schema.extend reads it as a relation of a level of its
+ * base (schema.ts DerivedAt). Each is read off the definition where the relation is made (DerivedConstructor).
+ *
+ * Every part is a type of its own, evaluated where the relation is made and holding nothing of the query: never a type
+ * an alias makes over the query (ViewOf<Q> = DefinitionView<…>, a reference the checker defers with Q in its mapper, or
+ * any alias instance, which keeps Q in its arguments), never a part bound by `Q extends Phantom<infer B>` or matched
+ * against the query whole (a match instantiates it, its level with it), but each read off the query's phantom by key
+ * (PhantomOf) and passed here as its own argument, DerivedConstructor naming the view inline. A part that keeps the
+ * query keeps the whole level below, and every instantiation of a level of n such relations walks that level n times.
+ */
+export interface DefinitionView<out H extends Carriers, out K, out RR, out Lv> {
+	readonly heading: H
+	readonly evidence: { readonly keys: ReadonlyArray<K> }
+	readonly ruleRead: RR
+	readonly level: Lv
+}
+
+/** Any definition's view. */
+export type AnyDefinitionView = DefinitionView<Carriers, unknown, unknown, unknown>
+
+/** The keys a definition Q's evidence proves, each one key's fields, read off its phantom by key. */
+export type DefinitionKeys<Q> = EvidenceKeys<PhantomOf<Q>["evidence" & keyof PhantomOf<Q>]>
+type EvidenceKeys<Ev> = Ev["keys" & keyof Ev] extends ReadonlyArray<infer K> ? K : never
+
+/** The level a definition Q is over (LevelKeyOf), its schema S read off its phantom's Invariant<S>. */
+export type DefinitionLevel<Q> = SchemaLevel<PhantomOf<Q>["schema" & keyof PhantomOf<Q>]>
+type SchemaLevel<I> = I extends Invariant<infer S> ? LevelKeyOf<S> : never
+
+/** Whether the definition Q reads no parameter, decided off its parameters alone, never by a test of Q. */
+type ReadsNoParams<Q> = keyof ParamsOf<Q> extends never ? true : false
+
 /** The definition reads no parameter. */
-export type NoParams<Q> = keyof ParamsOf<Q> extends never ? Q : never
+export type NoParams<Q> = ReadsNoParams<Q> extends true ? Q : never
 
 /** The fields of every arm of a union head, against the fields common to all of them. */
 type AnyKeyOf<H> = H extends unknown ? keyof H : never
@@ -138,7 +189,7 @@ type AnyKeyOf<H> = H extends unknown ? keyof H : never
  * definition costs the checker instantiations that grow with the schema the definition reads.
  */
 export type DefinitionShape<Q> =
-	NoParams<Q> extends never
+	ReadsNoParams<Q> extends false
 		? never
 		: keyof HeadOf<Q> extends never
 			? Refusal<"a derived definition has at least one field">
@@ -156,6 +207,13 @@ export type DefinitionCheck<Q> =
 		: Refusal<"a derived definition reads no context: a materialized view holds no session">
 
 /**
+ * A definition Q as derived takes it, refused where DefinitionCheck refuses it. An alias of its own, so the checker reads a
+ * signature's definition as another's by the alias's argument: derived's view (public/schema.ts) is checked against
+ * DerivedConstructor with Q the one definition, never the definition intersected with its own check.
+ */
+export type CheckedDefinition<Q> = Q & DefinitionCheck<Q>
+
+/**
  * A derived relation is a named query: fields from the query's head, keys from its evidence. It is declared in an
  * extension of the schema its definition reads. `derived(name, q)` stores nothing: a query matching it and a rule over
  * it read its definition. `derived.materialized(name, q)` is the same relation stored as a materialized view, which a
@@ -163,10 +221,18 @@ export type DefinitionCheck<Q> =
  */
 export type DerivedConstructor = (<const Name extends string, Q extends DefinitionQuery>(
 	name: RelationName<Name>,
-	definition: Q & DefinitionCheck<Q>
-) => Derived<Name, Q, "live">) & {
+	definition: CheckedDefinition<Q>
+) => Derived<
+	Name,
+	DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
+	"live"
+>) & {
 	readonly materialized: <const Name extends string, Q extends DefinitionQuery>(
 		name: RelationName<Name>,
-		definition: Q & DefinitionCheck<Q>
-	) => Derived<Name, Q, "materialized">
+		definition: CheckedDefinition<Q>
+	) => Derived<
+		Name,
+		DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
+		"materialized"
+	>
 }

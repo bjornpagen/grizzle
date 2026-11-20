@@ -3,9 +3,13 @@ import {
 	materializedDerived as materializedBuilder
 } from "#compiler/schema/relation.ts"
 import type {
-	DefinitionCheck,
+	CheckedDefinition,
 	DefinitionQuery,
+	DefinitionKeys,
+	DefinitionLevel,
+	DefinitionView,
 	Derived,
+	RuleReadOf,
 	DerivedConstructor
 } from "#compiler/types/derived/derived.ts"
 import type { RelationName } from "#compiler/types/schema/relation.ts"
@@ -179,15 +183,23 @@ export const derived: DerivedConstructor = Object.freeze(
 	Object.assign(
 		<const Name extends string, Q extends DefinitionQuery>(
 			name: RelationName<Name>,
-			definition: Q & DefinitionCheck<Q>,
+			definition: CheckedDefinition<Q>,
 			...extra: ReadonlyArray<unknown>
-		): Derived<Name, Q, "live"> => derivedBuilder<Name, Q>(name, definition, extra),
+		): Derived<
+			Name,
+			DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
+			"live"
+		> => derivedBuilder<Name, Q>(name, definition, extra),
 		{
 			materialized: <const Name extends string, Q extends DefinitionQuery>(
 				name: RelationName<Name>,
-				definition: Q & DefinitionCheck<Q>,
+				definition: CheckedDefinition<Q>,
 				...extra: ReadonlyArray<unknown>
-			): Derived<Name, Q, "materialized"> => materializedBuilder<Name, Q>(name, definition, extra)
+			): Derived<
+				Name,
+				DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
+				"materialized"
+			> => materializedBuilder<Name, Q>(name, definition, extra)
 		}
 	)
 )
