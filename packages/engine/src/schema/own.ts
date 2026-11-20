@@ -1885,7 +1885,7 @@ class Owner {
 	/**
 	 * A statement reaches an ordinary relation of a level below its own only where no write of that level changes: as
 	 * one side of a containment whose other side is a relation of its own level or above, the lower side's terms fields of
-	 * no span, selected or not, and a lower target a side that holds a key (`#keyOf`), which PostgreSQL holds as a
+	 * no span, selected or not, into a target, below or not, that holds a key (`#keyOf`), which PostgreSQL holds as a
 	 * deferred foreign key judged at COMMIT, its law columns, a selection's or a fixed field's, generated columns
 	 * PostgreSQL computes on the row however it is written, into a UNIQUE the key implies, which refuses nothing the key
 	 * admits, or by the rule judge at COMMIT, so no write of the lower level is compiled or drawn otherwise and each meets
@@ -1897,7 +1897,7 @@ class Owner {
 	 * level holds none of the levels above it and compiles its writes alone, so every other reach is LevelRefused: a key,
 	 * mutable, a family, tree, fold or alternatives over a lower relation, and a containment with both sides on lower
 	 * relations, whose foreign key would order the lower level's own statements, reaching one by a pred or span term, or
-	 * into a lower target no key holds. A roster's, a closed relation's and a derived relation's rows no write changes.
+	 * into a target no key holds. A roster's, a closed relation's and a derived relation's rows no write changes.
 	 */
 	#checkLevels(s: StatementEntry): void {
 		const lower = (relation: string): RelationEntry | undefined => {
@@ -1931,10 +1931,17 @@ class Owner {
 				}
 				const source = lower(d.left.relation)
 				const target = lower(d.right.relation)
-				if (source !== undefined && (target !== undefined || !fieldSide(d.left, source))) {
+				if (source === undefined && target === undefined) {
+					return
+				}
+				const keyed = this.#keyOf(d.right, target ?? this.#statementRelation(d.right.relation, s))
+				if (
+					source !== undefined &&
+					(target !== undefined || !fieldSide(d.left, source) || !keyed)
+				) {
 					refuse(d.left.relation, source)
 				}
-				if (target !== undefined && !this.#keyOf(d.right, target)) {
+				if (target !== undefined && !keyed) {
 					refuse(d.right.relation, target)
 				}
 				return

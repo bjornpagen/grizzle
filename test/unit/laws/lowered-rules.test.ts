@@ -146,9 +146,9 @@ export const aContainmentAcrossLevelsReachesARelationOfTheOtherLevelExactlyThrou
 		kills: [
 			{
 				file: "packages/engine/src/schema/own.ts",
-				original: "(target !== undefined || !fieldSide(d.left, source))",
+				original: "(target !== undefined || !fieldSide(d.left, source) || !keyed)",
 				replacement:
-					"(target !== undefined || d.right.selection.conjuncts.length > 0 || !fieldSide(d.left, source))",
+					"(target !== undefined || d.right.selection.conjuncts.length > 0 || !fieldSide(d.left, source) || !keyed)",
 				why: "A source on the level below refused into a selected target, its constants columns of the lower table (schema/own.ts checkLevels); the level rule's box fails."
 			}
 		]

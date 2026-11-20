@@ -114,22 +114,22 @@ export const aLevelsLawsOverTheLevelsBelowItReachALowerRelationOnlyByAContainmen
 			},
 			{
 				file: "packages/engine/src/schema/own.ts",
-				original: "(target !== undefined || !fieldSide(d.left, source))",
+				original: "(target !== undefined || !fieldSide(d.left, source) || !keyed)",
 				replacement:
-					"(target !== undefined || d.left.selection.conjuncts.length > 0 || !fieldSide(d.left, source))",
+					"(target !== undefined || d.left.selection.conjuncts.length > 0 || !fieldSide(d.left, source) || !keyed)",
 				why: "A selected lower source refused as LevelRefused, as it was before a level could select a lower side."
 			},
 			{
 				file: "packages/engine/src/schema/own.ts",
-				original: "(target !== undefined || !fieldSide(d.left, source))",
-				replacement: "!fieldSide(d.left, source)",
+				original: "(target !== undefined || !fieldSide(d.left, source) || !keyed)",
+				replacement: "(!fieldSide(d.left, source) || !keyed)",
 				why: "A containment between two lower relations admitted, its foreign key ordering the lower level's own statements."
 			},
 			{
 				file: "packages/engine/src/schema/own.ts",
-				original: "if (target !== undefined && !this.#keyOf(d.right, target)) {",
+				original: "if (target !== undefined && !keyed) {",
 				replacement:
-					"if (target !== undefined && (d.right.selection.conjuncts.length > 0 || !this.#keyOf(d.right, target))) {",
+					"if (target !== undefined && (d.right.selection.conjuncts.length > 0 || !keyed)) {",
 				why: "A lower target selected beyond constants refused as LevelRefused."
 			}
 		]
