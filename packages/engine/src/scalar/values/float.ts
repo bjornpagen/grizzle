@@ -300,8 +300,11 @@ export const convertReal = (text: string): number => {
 }
 
 /**
- * A vector_out component text, text[from, to): its binary32 value exactly, -0 as +0 (pgvector writes finite components
+ * A vector_out component text, text[from, to): its binary32 value exactly, -0 as +0, since a vector component's -0 is a
+ * spelling of 0 (scalar/values/vector.ts), where a real's is a value of its own (pgvector writes finite components
  * only).
  */
-export const convertComponent = (text: string, from: number, to: number): number =>
-	finiteBinary32(text, from, to)
+export const convertComponent = (text: string, from: number, to: number): number => {
+	const x = finiteBinary32(text, from, to)
+	return x === 0 ? 0 : x
+}

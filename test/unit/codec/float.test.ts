@@ -182,6 +182,14 @@ export const exactBinary32ReadingAgreesWithAnIndependentRationalReadingOnRandomD
 					case "zero":
 						assert.ok(Object.is(succeeded(strictReal(text)), Number(text)), text)
 						assert.ok(Object.is(convertReal(text), Number(text)), text)
+						assert.ok(
+							Object.is(succeeded(strictComponent(text)), 0),
+							`${text} as a vector component`
+						)
+						assert.ok(
+							Object.is(convertComponent(`[${text}]`, 1, text.length + 1), 0),
+							`${text} as a vector component`
+						)
 						return
 					case "normal":
 					case "subnormal":
@@ -208,6 +216,12 @@ export const exactBinary32ReadingAgreesWithAnIndependentRationalReadingOnRandomD
 				original: "\treturn negative ? -magnitude : magnitude\n}",
 				replacement: "\treturn negative && magnitude !== 0 ? -magnitude : magnitude\n}",
 				why: "A real's text of a negative zero is read as +0, its sign dropped."
+			},
+			{
+				file: "packages/engine/src/scalar/values/float.ts",
+				original: "\tconst x = finiteBinary32(text, from, to)\n\treturn x === 0 ? 0 : x",
+				replacement: "\treturn finiteBinary32(text, from, to)",
+				why: "A vector component's -0 is read as -0, a value of its own, as a real's is, where it is a spelling of 0: a vector stored as [1,-0,-0] is delivered with its zeros' signs (the public property's floor case 2, a nested attachment's vector)."
 			}
 		]
 	})

@@ -339,9 +339,12 @@ export const strictReal = (text: string): Result.Result<number, StrictFault> => 
 	return special !== undefined ? Result.succeed(special) : finiteBinary32(text)
 }
 
-/** A vector component text: finite only (pgvector refuses NaN and infinity). */
+/**
+ * A vector component text: finite only (pgvector refuses NaN and infinity), -0 as +0, a vector component's -0 a spelling
+ * of 0 where a real's is a value of its own.
+ */
 export const strictComponent = (text: string): Result.Result<number, StrictFault> =>
-	finiteBinary32(text)
+	Result.map(finiteBinary32(text), (x) => (x === 0 ? 0 : x))
 
 /**
  * range_out of a nonempty bounded half-open range, "[start,end)": its two endpoint texts, the text between "[" and its
