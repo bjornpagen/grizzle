@@ -86,25 +86,25 @@ export const previewedCredentials = property.exhaust(previews, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/auth.ts",
 			original: "const first = allowsAnonymous(requirement) ? [] : (requirement[0] ?? [])",
 			replacement: "const first = requirement[0] ?? []",
 			why: "A requirement whose {} allows anonymous access shows its first alternative's placeholders when nothing is configured; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/auth.ts",
 			original: "\t\t\tif (alternative.length === 0) {\n\t\t\t\tcontinue\n\t\t\t}",
 			replacement: "\t\t\tif (alternative.length === 0) {\n\t\t\t\treturn Option.some([])\n\t\t\t}",
 			why: "A {} before a configured alternative is chosen, so the dry run shows an anonymous request where the real run sends the credential; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/auth.ts",
 			original: "return { credentials: configured.value, placeholders: configured.value }",
 			replacement: "return { credentials: configured.value, placeholders: [] }",
 			why: "A configured alternative's placeholders are never written, so the dry run hides where its credentials go; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: "const chosen = dryRun",
 			replacement: "const chosen = !dryRun",
 			why: "The dry run evaluates the requirement as a real run does, so it prompts on a terminal and fails for a missing credential; the property fails."
@@ -154,7 +154,7 @@ export const refusedLikeTheRealRun = property.exhaust(refusals, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/auth.ts",
 			original:
 				"value === undefined ? Effect.void : Effect.asVoid(attachOne(request, { ...entry, value }))",
 			replacement: "Effect.void",
@@ -207,7 +207,7 @@ export const printedBodies = property.explore(aimedBodies, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original:
 				'return line(printsAsText(mediaType) ? "<body from stdin>" : "<binary body from stdin>")',
 			replacement:
@@ -215,37 +215,37 @@ export const printedBodies = property.explore(aimedBodies, {
 			why: "A text body from stdin prints as a binary one and a binary one as text; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: "if (body.contentLength === undefined) {",
 			replacement: "if (false) {",
 			why: "A body from stdin is read to print it, or summarized with no size; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: `this.summary = \`file \${filename}\``,
 			replacement: "this.summary = undefined",
 			why: "A multipart file part's content prints where its summary belongs; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: 'this.summary = "binary part"',
 			replacement: "this.summary = undefined",
 			why: "A multipart binary part's bytes print where its summary belongs; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: "(scrubber, chunk: Uint8Array) => [scrubber, scrubber.push(chunk)] as const",
 			replacement: "(scrubber, chunk: Uint8Array) => [scrubber, [chunk]] as const",
 			why: "A streamed text body prints unscrubbed, so the recorded value and the credential show; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: "out.push(...this.text.push(bytes))",
 			replacement: "out.push(bytes)",
 			why: "A multipart text part prints unscrubbed, so the recorded value and the credential show; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: "? line(scrubValues(new TextDecoder().decode(body.body), recorded))",
 			replacement: "? line(new TextDecoder().decode(body.body))",
 			why: "A text body in memory prints unscrubbed, so a recorded secret-file value shows; the property fails."
@@ -279,31 +279,31 @@ export const printedRedactedNames = property.explore(aimedDecorations, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/auth.ts",
 			original: "return forms.has(value) ? value : redactedPlaceholder()",
 			replacement: "return value",
 			why: "A value under a redacted header name prints as it is; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/auth.ts",
 			original: "onNone: () => redactedPlaceholder(),",
 			replacement: "onNone: () => pair,",
 			why: "A Cookie pair with no = prints as it is; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/auth.ts",
 			original: "written.has(Str.slice(equals + 1)(pair))",
 			replacement: "true",
 			why: "Every Cookie pair is kept, its value no placeholder of the run's; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: "\t\tif (Redacted.isRedacted(value)) {\n\t\t\treturn redactedPlaceholder()",
 			replacement: "\t\tif (Redacted.isRedacted(value)) {\n\t\t\treturn Redacted.value(value)",
 			why: "A Redacted query value prints as it is; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: "UrlParams.isRedactedName(decodedQueryName(part.slice(0, equals)), names)",
 			replacement: "false",
 			why: "A query value under a redacted name prints as it is; the property fails."
@@ -384,13 +384,13 @@ export const oneCharacterCredential = property.exhaust(oneCharacters, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/runtime-src/runtime/redact.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/redact.ts",
 			original: "\t\t\t\tinsideToken(start, start + form.length)\n\t\t\t\t\t? Result.failVoid",
 			replacement: "\t\t\t\tfalse\n\t\t\t\t\t? Result.failVoid",
 			why: "A placeholder the run already printed is scrubbed again, so a one-character credential is spelled out inside it; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/response.ts",
 			original:
 				'\t\tisSuccess(response.status)\n\t\t\t? Effect.succeed(response)\n\t\t\t: Effect.fail(toApiResponseError(table, response, "", scrubbed, Option.none()))',
 			replacement:
@@ -427,7 +427,7 @@ export const echoedInsidePlaceholders = property.exhaust(echoes, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/runtime-src/runtime/redact.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/redact.ts",
 			original: "Arr.dedupe([redactedPlaceholder(), ...Arr.map(entries, placeholderOf)])",
 			replacement:
 				"Arr.dedupe([redactedPlaceholder(), ...Arr.map(entries, placeholderOf), ...Arr.map(Arr.fromIterable(text.matchAll(/<redacted:[^>]*>/gu)), (match) => match[0])])",

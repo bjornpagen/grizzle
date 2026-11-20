@@ -20,13 +20,13 @@ import {
 	Order,
 	Predicate,
 	Record,
-	Schema,
 	String as Str
 } from "effect"
 import { Command } from "effect/cli"
 import * as BaseUrl from "#runtime-src/runtime/base-url.ts"
 import * as Describe from "#runtime-src/runtime/describe.ts"
 import * as Groups from "#runtime-src/runtime/groups.ts"
+import { parseJson } from "#runtime-src/runtime/json.ts"
 import { printed, recordingConsole } from "#test/support/console.ts"
 
 /** A group table row as drawn: the header fields a stub carries. */
@@ -681,12 +681,11 @@ export const expectedDescription = (drawn: Tree): typeof Describe.Description.Ty
 	describeVersion: 1
 })
 
-/** The printed document, decoded by its own codec. */
-export const decodeDescription = Schema.decodeUnknownEffect(
-	Schema.fromJsonString(Describe.Description)
-)
-
-const decodeTree = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))
+/**
+ * The printed document's value, read through the one JSON door: the property holds it to the expected description
+ * whole, so its every member is checked by that comparison, and none by a reader of the test's own.
+ */
+export const decodeDescription = (text: string) => Effect.fromResult(parseJson(text))
 
 const keysSorted = (value: unknown): boolean => {
 	if (Arr.isArray(value)) {
@@ -703,4 +702,4 @@ const keysSorted = (value: unknown): boolean => {
 }
 
 /** Whether every object of the printed text lists its fields in alphabetical order. */
-export const fieldsAlphabetical = (text: string) => Effect.map(decodeTree(text), keysSorted)
+export const fieldsAlphabetical = (text: string) => Effect.map(decodeDescription(text), keysSorted)
