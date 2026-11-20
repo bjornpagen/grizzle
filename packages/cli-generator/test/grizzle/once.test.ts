@@ -58,13 +58,38 @@ import {
 	Option,
 	Queue,
 	Record as Rec,
-	Schema,
 	Stream,
 	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
-import { called, type Event, lastOf, store, type Twins, twinsNeed } from "#test/grizzle/twins.ts"
+import type { Json } from "#model/pointer.ts"
+import {
+	anything,
+	array,
+	member,
+	object,
+	optionalMember,
+	property as propertyOf,
+	type Reader,
+	record,
+	string
+} from "#runtime/read.ts"
+import {
+	type CallError,
+	called,
+	endsSafeAgain,
+	errorData,
+	type Event,
+	json,
+	lastOf,
+	readText,
+	readValue,
+	store,
+	type Twins,
+	twinsNeed
+} from "#test/grizzle/twins.ts"
 import { runBin } from "#test/support/cli-package.ts"
+import { chunkText, streamText } from "#test/support/stdio.ts"
 
 /** An item as the wire spells it: an int4 key, an int8, a numeric(12, 2), a money, a boolean, a float4, a name, a date, bytes, a uuid. */
 type Item = Readonly<{
@@ -527,7 +552,7 @@ const orderedReadFrom: { readonly [K in Anchor["kind"]]: Feature } = {
 }
 
 /** A call's whole request body. */
-const bodyOf = (call: Call): Schema.Json => {
+const bodyOf = (call: Call): Json => {
 	switch (call.program) {
 		case "atLeast":
 			return { params: { floor: call.floor }, facts: {} }
@@ -568,39 +593,47 @@ const fieldArgs = (call: Call): ReadonlyArray<string> => {
 const argsOf = (call: Call, by: By): ReadonlyArray<string> =>
 	by === "fields" ? fieldArgs(call) : [`--body=${jsonText(bodyOf(call))}`]
 
-const CallErrorJson = Schema.StructWithRest(
-	Schema.Struct({ kind: Schema.String, retry: Schema.String }),
-	[Schema.Record(Schema.String, Schema.Json)]
+/** B's answer to one call: a read's rows in its order, a write's outcome, or its CallError, as its events give them. */
+type Answer =
+	| Readonly<{ kind: "rows"; rows: ReadonlyArray<Json> }>
+	| Readonly<{ kind: "outcome"; outcome: Json }>
+	| Readonly<{ kind: "error"; error: CallError }>
+
+/** One line the CLI prints per event: its data and its name. */
+const printedLine: Reader<Event> = object(
+	(line) => ({ data: member(line, "data", json), event: member(line, "event", string) }),
+	anything
 )
 
-/** B's answer to one call: a read's rows in its order, a write's outcome, or its CallError, as its events give them. */
-const Answer = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("rows"), rows: Schema.Array(Schema.Json) }),
-	Schema.Struct({ kind: Schema.Literal("outcome"), outcome: Schema.Json }),
-	Schema.Struct({ kind: Schema.Literal("error"), error: CallErrorJson })
-])
-type Answer = typeof Answer.Type
+/** A `reset` event's data: the key fields of the rows that follow. */
+const resetKey: Reader<ReadonlyArray<string>> = propertyOf("key", array(string))
 
-/** One line the CLI prints per event. */
-const Printed = Schema.fromJsonString(Schema.Struct({ data: Schema.Json, event: Schema.String }))
-type Printed = typeof Printed.Type
+/** An `upsert` event's data: its row, and the key of the row it follows where the read is ordered. */
+const upsertData = object(
+	(data) => ({ row: member(data, "row", json), after: optionalMember(data, "after", json) }),
+	anything
+)
 
-const ResetData = Schema.Struct({ key: Schema.Array(Schema.String) })
-const UpsertData = Schema.Struct({ row: Schema.Json, after: Schema.optionalKey(Schema.Json) })
-const OutcomeData = Schema.Struct({ outcome: Schema.Json })
-const ErrorData = Schema.Struct({ error: CallErrorJson })
-const isErrorData = Schema.is(ErrorData)
-const OutcomeKind = Schema.Struct({ kind: Schema.String })
-const RowFields = Schema.Record(Schema.String, Schema.Json)
+/** A `remove` event's data: the key of the row it takes out. */
+const removeKey: Reader<Json> = propertyOf("key", json)
 
-/** Each event line of a run's stdout, decoded; a line that is no event fails the case. */
+/** An `outcome` event's data: the outcome. */
+const outcomeData: Reader<Json> = propertyOf("outcome", json)
+
+/** An outcome's kind. */
+const outcomeKind: Reader<string> = propertyOf("kind", string)
+
+/** A row's fields, by name. */
+const rowFields = record(string, json)
+
+/** Each event line of a run's stdout, read; a line that is no event fails the case. */
 const printedOf = (stdout: string) =>
 	Effect.forEach(Arr.filter(Str.split("\n")(stdout), Str.isNonEmpty), (line) =>
-		Schema.decodeEffect(Printed)(line)
+		readText("a line the CLI printed", printedLine, line)
 	)
 
 /** What one CLI run left: its exit code, each event it printed, and its stderr. */
-type Ran = Readonly<{ exitCode: number; printed: ReadonlyArray<Printed>; stderr: string }>
+type Ran = Readonly<{ exitCode: number; printed: ReadonlyArray<Event>; stderr: string }>
 
 /**
  * Whether a run ended at a CallError the server says is safe to make again (live/events.ts callErrors `retry`): nothing
@@ -608,12 +641,7 @@ type Ran = Readonly<{ exitCode: number; printed: ReadonlyArray<Printed>; stderr:
  * after its connection was lost. Such an answer is no answer of the call's: the property makes the call again, as
  * `--retries` does, until the server answers it.
  */
-const saysAgain = (ran: Ran): boolean =>
-	ran.exitCode === 1 &&
-	Option.exists(
-		Arr.last(ran.printed),
-		(line) => line.event === "error" && isErrorData(line.data) && line.data.error.retry === "safe"
-	)
+const saysAgain = (ran: Ran): boolean => ran.exitCode === 1 && endsSafeAgain(ran.printed)
 
 type Feature =
 	| "field flags"
@@ -637,7 +665,7 @@ type Feature =
 	| "a call the server said to make again, made again"
 
 /** The events' names, in order. */
-const eventsOf = (printed: ReadonlyArray<Printed>): ReadonlyArray<string> =>
+const eventsOf = (printed: ReadonlyArray<Event>): ReadonlyArray<string> =>
 	Arr.map(printed, (line) => line.event)
 
 /** A difference, or none, as one call's check reports it. */
@@ -648,34 +676,28 @@ const agree: Difference = Option.none()
 const differ = (text: string): Difference => Option.some(text)
 
 /** The values of `row` at `fields`, in order: the row's key under the reset's key fields. */
-const keyOf = (fields: ReadonlyArray<string>, row: Schema.Json) =>
-	Effect.map(Schema.decodeUnknownEffect(RowFields)(row), (record) =>
-		Arr.map(fields, (field): Schema.Json => Option.getOrElse(Rec.get(record, field), () => null))
+const keyOf = (fields: ReadonlyArray<string>, row: Json) =>
+	Effect.map(readValue("an upserted row", rowFields, row), (fieldsOfRow) =>
+		Arr.map(fields, (field): Json => Option.getOrElse(Rec.get(fieldsOfRow, field), () => null))
 	)
-
-const RemoveData = Schema.Struct({ key: Schema.Json })
 
 /**
  * The rows a read's events leave, in order: each upsert's row taken out where its key stood, then put after the row
  * its `after` key names, first for null, where the read is ordered, and last where it is a set; each remove's key taken
  * out. None where an `after` names no row the read holds.
  */
-const folded = (
-	fields: ReadonlyArray<string>,
-	printed: ReadonlyArray<Printed>,
-	isOrdered: boolean
-) =>
+const folded = (fields: ReadonlyArray<string>, printed: ReadonlyArray<Event>, isOrdered: boolean) =>
 	Effect.gen(function* () {
-		let rows: ReadonlyArray<Readonly<{ key: Schema.Json; row: Schema.Json }>> = []
+		let rows: ReadonlyArray<Readonly<{ key: Json; row: Json }>> = []
 		for (const line of printed) {
 			if (line.event === "remove") {
-				const { key } = yield* Schema.decodeUnknownEffect(RemoveData)(line.data)
+				const key = yield* readValue("a remove's data", removeKey, line.data)
 				rows = Arr.filter(rows, (entry) => Option.isSome(exact(entry.key, key)))
 			}
 			if (line.event === "upsert") {
-				const upsert = yield* Schema.decodeUnknownEffect(UpsertData)(line.data)
+				const upsert = yield* readValue("an upsert's data", upsertData, line.data)
 				const key = yield* keyOf(fields, upsert.row)
-				const after = Option.getOrElse(Option.fromUndefinedOr(upsert.after), () => null)
+				const after = Option.getOrElse(upsert.after, () => null)
 				const kept = Arr.filter(rows, (entry) => Option.isSome(exact(entry.key, key)))
 				const at = !isOrdered
 					? Option.some(kept.length)
@@ -689,7 +711,7 @@ const folded = (
 					Arr.insertAt(kept, index, { key, row: upsert.row })
 				)
 				if (Option.isNone(inserted)) {
-					return Option.none<ReadonlyArray<Schema.Json>>()
+					return Option.none<ReadonlyArray<Json>>()
 				}
 				rows = inserted.value
 			}
@@ -698,20 +720,20 @@ const folded = (
 	})
 
 /** The key fields a read's `reset` names, none where it printed no reset first. */
-const resetFields = (printed: ReadonlyArray<Printed>) =>
+const resetFields = (printed: ReadonlyArray<Event>) =>
 	Option.match(Arr.head(printed), {
 		onNone: () => Effect.succeed<ReadonlyArray<string>>([]),
 		onSome: (line) =>
 			line.event === "reset"
-				? Effect.map(Schema.decodeUnknownEffect(ResetData)(line.data), (data) => data.key)
+				? readValue("a reset's data", resetKey, line.data)
 				: Effect.succeed<ReadonlyArray<string>>([])
 	})
 
 /** The rows `printed` leaves compared with `rows`: as a list where the read is ordered, as a set otherwise. */
 const sameRows = (
 	fields: ReadonlyArray<string>,
-	printed: ReadonlyArray<Printed>,
-	rows: ReadonlyArray<Schema.Json>,
+	printed: ReadonlyArray<Event>,
+	rows: ReadonlyArray<Json>,
 	isOrdered: boolean
 ) =>
 	Effect.map(folded(fields, printed, isOrdered), (left) =>
@@ -728,7 +750,8 @@ const past53 = (big: string): boolean => {
 	return digits.length > 16 || (digits.length === 16 && digits > "9007199254740992")
 }
 
-const BigOf = Schema.Struct({ big: Schema.String })
+/** A row's int8. */
+const rowBig: Reader<string> = propertyOf("big", string)
 
 /**
  * Whether the CLI's run answers what B answered (see the header), and the features it reached: none, or the
@@ -757,9 +780,9 @@ const judged = (call: Call, ran: Ran, answer: Answer) =>
 				}
 				const fields = yield* resetFields(ran.printed)
 				const bigsSeen = yield* Effect.forEach(answer.rows, (row) =>
-					Schema.decodeUnknownEffect(BigOf)(row)
+					readValue("a row grizzle's door answered", rowBig, row)
 				)
-				if (Arr.some(bigsSeen, (row) => past53(row.big))) {
+				if (Arr.some(bigsSeen, past53)) {
 					reached.push("an int8 past 2^53")
 				}
 				switch (call.program) {
@@ -797,10 +820,12 @@ const judged = (call: Call, ran: Ran, answer: Answer) =>
 				}
 				const [line] = ran.printed
 				const printed =
-					line === undefined
-						? null
-						: (yield* Schema.decodeUnknownEffect(OutcomeData)(line.data)).outcome
-				const kind = (yield* Schema.decodeUnknownEffect(OutcomeKind)(answer.outcome)).kind
+					line === undefined ? null : yield* readValue("an outcome's data", outcomeData, line.data)
+				const kind = yield* readValue(
+					"the outcome grizzle's door answered",
+					outcomeKind,
+					answer.outcome
+				)
 				reached.push(
 					call.program === "clear"
 						? "a deletion"
@@ -836,7 +861,7 @@ const judged = (call: Call, ran: Ran, answer: Answer) =>
 					}
 				}
 				const line = yield* Effect.fromOption(Arr.last(ran.printed))
-				const printed = (yield* Schema.decodeUnknownEffect(ErrorData)(line.data)).error
+				const printed = yield* readValue("an error's data", errorData, line.data)
 				if (input) {
 					reached.push("an input the server refuses")
 				}
@@ -864,14 +889,14 @@ const answerOf = (call: Call, events: ReadonlyArray<Event>) =>
 	Effect.gen(function* () {
 		const refused = Arr.findFirst(events, (event) => event.event === "error")
 		if (Option.isSome(refused)) {
-			const { error } = yield* Schema.decodeUnknownEffect(ErrorData)(refused.value.data)
+			const error = yield* readValue("an error's data", errorData, refused.value.data)
 			const answer: Answer = { kind: "error", error }
 			return answer
 		}
 		const outcome = Arr.findFirst(events, (event) => event.event === "outcome")
 		if (Option.isSome(outcome)) {
-			const data = yield* Schema.decodeUnknownEffect(OutcomeData)(outcome.value.data)
-			const answer: Answer = { kind: "outcome", outcome: data.outcome }
+			const answered = yield* readValue("an outcome's data", outcomeData, outcome.value.data)
+			const answer: Answer = { kind: "outcome", outcome: answered }
 			return answer
 		}
 		const fields = yield* resetFields(events)
@@ -882,8 +907,6 @@ const answerOf = (call: Call, events: ReadonlyArray<Event>) =>
 		const answer: Answer = { kind: "rows", rows }
 		return answer
 	})
-
-const decoder = new TextDecoder()
 
 /**
  * `effect`, which says on stderr what it was doing when it is interrupted, as a case is at its hang guard: the report
@@ -900,7 +923,7 @@ const commandOf = (twins: Twins, program: Program) =>
 const differs = (
 	what: string,
 	difference: string,
-	printed: ReadonlyArray<Printed>,
+	printed: ReadonlyArray<Event>,
 	stderr: string,
 	answer: Answer
 ) =>
@@ -938,12 +961,10 @@ export const grizzleOnce = property.explore(
 										stdin: new Uint8Array(0)
 									})
 								)
-								const printed = yield* printedOf(decoder.decode(run.stdout))
-								const ran: Ran = {
-									exitCode: run.exitCode,
-									printed,
-									stderr: decoder.decode(run.stderr)
-								}
+								const stdout = yield* chunkText(run.stdout)
+								const printed = yield* printedOf(stdout)
+								const stderr = yield* chunkText(run.stderr)
+								const ran: Ran = { exitCode: run.exitCode, printed, stderr }
 								return ran
 							}),
 							{
@@ -993,11 +1014,11 @@ export const grizzleOnce = property.explore(
 						)
 						const lines = yield* Queue.unbounded<string, Cause.Done>()
 						yield* Effect.forkScoped(
-							Stream.runForEach(Stream.splitLines(Stream.decodeText(handle.stdout)), (line) =>
+							Stream.runForEach(Stream.splitLines(streamText(handle.stdout)), (line) =>
 								Queue.offer(lines, line)
 							).pipe(Effect.ensuring(Queue.end(lines)))
 						)
-						const seen: Array<Printed> = []
+						const seen: Array<Event> = []
 						/** The followed CLI's events through its next `ready`, false where its stream ended first. */
 						const throughReady = during(
 							`the CLI following ${follow.read.program} by ${follow.by}`,
@@ -1007,7 +1028,11 @@ export const grizzleOnce = property.explore(
 									if (Option.isNone(line)) {
 										return false
 									}
-									const printed = yield* Schema.decodeEffect(Printed)(line.value)
+									const printed = yield* readText(
+										"a line the followed CLI printed",
+										printedLine,
+										line.value
+									)
 									seen.push(printed)
 									if (printed.event === "ready") {
 										return true
@@ -1088,7 +1113,14 @@ export const grizzleOnce = property.explore(
 		},
 		kept: [],
 		budget: { runs: 16, steered: 32 },
-		kills: []
+		kills: [
+			{
+				file: "packages/cli-generator/src/runtime-src/runtime/sse.ts",
+				original: '\tFlag.map((follow): StopAt => (follow ? "terminal" : "ready"))',
+				replacement: '\tFlag.map((follow): StopAt => (follow ? "ready" : "ready"))',
+				why: "--follow stops at the first ready as an unfollowed read does, so the CLI exits before the put made once it printed ready reaches it, and a live change never reaches a followed read; the property fails."
+			}
+		]
 	}
 )
 

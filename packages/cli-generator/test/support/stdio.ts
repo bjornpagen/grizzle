@@ -1,5 +1,5 @@
 import { utf8Chunks, utf8Text } from "@bjornpagen/grizzle-text/utf8"
-import { Array as Arr, Effect, Option, Sink } from "effect"
+import { Array as Arr, Data, Effect, Option, Sink, Stream } from "effect"
 
 /** A reading of UTF-8 bytes as text, or a defect where they are none: a harness reading a stream as text has no other. */
 const decoded = (text: string | undefined): Effect.Effect<string> =>
@@ -42,4 +42,25 @@ const receiving = (onText: (text: string) => void) => () =>
 export const appendingTo = (into: Array<string>) =>
 	receiving((text) => {
 		into.push(text)
+	})
+
+/** A live stream whose bytes are no UTF-8 text, which ends its reading. */
+export class StreamNotUtf8 extends Data.TaggedError("StreamNotUtf8") {}
+
+/**
+ * The text a live stream's bytes carry, read as they arrive: decoded across chunk boundaries, so a character two
+ * chunks split reads whole (utf8Chunks), and failing with StreamNotUtf8 where the bytes are no UTF-8 text. For a stream
+ * a test cannot collect whole, such as a live read that never ends; a whole buffer goes through chunkText.
+ */
+export const streamText = <E, R>(
+	bytes: Stream.Stream<Uint8Array, E, R>
+): Stream.Stream<string, E | StreamNotUtf8, R> =>
+	Stream.suspend(() => {
+		const reader = utf8Chunks()
+		const read = (text: string | undefined): Effect.Effect<string, StreamNotUtf8> =>
+			Effect.mapError(Effect.fromNullishOr(text), () => new StreamNotUtf8())
+		return Stream.concat(
+			Stream.mapEffect(bytes, (chunk) => read(reader.chunk(chunk))),
+			Stream.fromEffect(Effect.suspend(() => read(reader.end())))
+		)
 	})

@@ -35,6 +35,7 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer"
 import {
 	Array as Arr,
 	Context,
+	Data,
 	Effect,
 	FileSystem,
 	Formatter,
@@ -43,7 +44,7 @@ import {
 	Path,
 	Record as Rec,
 	Redacted,
-	Schema,
+	Result,
 	type Scope,
 	Stream,
 	String as Str
@@ -51,10 +52,25 @@ import {
 import { Digest } from "effect/crypto"
 import { HttpBody, type HttpClient, HttpClientRequest, HttpEffect, HttpServer } from "effect/http"
 import { ChildProcess } from "effect/process"
+import { isJson } from "#model/json-tree.ts"
+import type { Json } from "#model/pointer.ts"
+import { type InvalidJsonText, parseJson } from "#runtime/json.ts"
+import {
+	anything,
+	member,
+	property,
+	type Reader,
+	type ReadIssues,
+	record,
+	refine,
+	string,
+	struct
+} from "#runtime/read.ts"
 import { type Cluster, connectionTo, unboundedMillis } from "#test/grizzle/connection.ts"
 import type { Server } from "#test/grizzle/world.ts"
 import { buildPackage, type BuiltPackage, generateFixture } from "#test/support/cli-package.ts"
 import { finished } from "#test/support/process.ts"
+import { chunkText, streamText } from "#test/support/stdio.ts"
 
 /** The login's name, as world.ts declares it and `grizzle generate` names its files. */
 const loginName = "server"
@@ -66,7 +82,73 @@ const schemaFolder = "items"
 const configFile = `${import.meta.dirname}/grizzle.config.ts`
 
 /** One event of a call's answer, as grizzle's handler frames it and the CLI prints it: its name and its data. */
-export type Event = Readonly<{ event: string; data: Schema.Json }>
+export type Event = Readonly<{ event: string; data: Json }>
+
+/**
+ * A value grizzle's handler or the CLI answered that the tier cannot read: what it was, and why, its text no JSON text
+ * or the places it breaks the tier's reader of it.
+ */
+export class Unreadable extends Data.TaggedError("Unreadable")<{
+	readonly what: string
+	readonly why: InvalidJsonText | ReadIssues
+}> {
+	override get message(): string {
+		return `${this.what}: ${Formatter.format(this.why)}`
+	}
+}
+
+/** `value` read by `reader`, or Unreadable naming `what` and every place it breaks the reader. */
+export const readValue = <A>(what: string, reader: Reader<A>, value: unknown) =>
+	Effect.mapError(Effect.fromResult(reader(value)), (why) => new Unreadable({ what, why }))
+
+/** JSON text's value read by `reader`, or Unreadable naming `what`, where the text is no JSON text or breaks the reader. */
+export const readText = <A>(what: string, reader: Reader<A>, text: string) =>
+	Effect.mapError(
+		Effect.fromResult(Result.flatMap(parseJson(text), reader)),
+		(why) => new Unreadable({ what, why })
+	)
+
+/** A JSON value, as JSON text parses to one. */
+export const json: Reader<Json> = refine(anything, isJson, "a JSON value")
+
+/**
+ * A CallError as an `error` event's data holds it: its kind and its retry, which the tier reads, beside every other
+ * member it states, kept as the JSON it is.
+ */
+export type CallError = Readonly<{ kind: string; retry: string }> & {
+	readonly [member: string]: Json
+}
+
+/** An `error` event's CallError (CallError). */
+const callError: Reader<CallError> = (value) =>
+	Result.flatMap(record(string, json)(value), (error) =>
+		Result.map(
+			struct(
+				error,
+				{ kind: member(error, "kind", string), retry: member(error, "retry", string) },
+				anything
+			),
+			(read): CallError => ({ ...error, ...read })
+		)
+	)
+
+/** An `error` event's data: the CallError it holds. */
+export const errorData: Reader<CallError> = property("error", callError)
+
+/**
+ * Whether events end at a CallError safe to make again (live/events.ts callErrors `retry`): nothing committed, and the
+ * failure is not the call's, which is no answer of the call's.
+ */
+export const endsSafeAgain = (events: ReadonlyArray<Event>): boolean =>
+	Option.exists(
+		Arr.last(events),
+		(event) =>
+			event.event === "error" &&
+			Result.match(errorData(event.data), {
+				onFailure: () => false,
+				onSuccess: (error) => error.retry === "safe"
+			})
+	)
 
 /** One installation of the login, served by grizzle's handler, called in process through `client`. */
 export type Twin = Readonly<{ handler: HttpHandler; client: HttpClient.HttpClient }>
@@ -93,19 +175,14 @@ const stepOf = <A, E, R>(doing: string, effect: Effect.Effect<A, E, R>) =>
 	Effect.mapError(effect, setupFailed(doing))
 
 /** A case's items that a twin did not store: its put or its deletion did not answer an outcome. */
-class Unstored extends Schema.TaggedError<Unstored, { readonly brand: unique symbol }>()(
-	"Unstored",
-	{ text: Schema.String }
-) {
+class Unstored extends Data.TaggedError("Unstored")<{ readonly text: string }> {
 	override get message(): string {
 		return this.text
 	}
 }
 
 /** The grizzle command line's entry, as its manifest's `bin` names it. */
-const GrizzleManifest = Schema.fromJsonString(
-	Schema.Struct({ bin: Schema.Struct({ grizzle: Schema.String }) })
-)
+const grizzleEntry: Reader<string> = property("bin", property("grizzle", string))
 
 /** The grizzle command line, run from its source, as its manifest names it. */
 const grizzleBin = stepOf(
@@ -117,8 +194,8 @@ const grizzleBin = stepOf(
 			new URL(import.meta.resolve("@bjornpagen/grizzle/package.json"))
 		)
 		const manifestText = yield* fs.readFileString(manifestPath)
-		const manifest = yield* Schema.decodeEffect(GrizzleManifest)(manifestText)
-		return path.join(path.dirname(manifestPath), manifest.bin.grizzle)
+		const entry = yield* readText("grizzle's manifest", grizzleEntry, manifestText)
+		return path.join(path.dirname(manifestPath), entry)
 	})
 )
 
@@ -139,12 +216,12 @@ const grizzle = (bin: string, command: string, env: Readonly<Record<string, stri
 				})
 			)
 		)
-		if (run.exitCode !== 0) {
-			const decoder = new TextDecoder()
-			return yield* setupFailed(`grizzle ${command} exited ${run.exitCode}`)(
-				`${decoder.decode(run.stdout)}${decoder.decode(run.stderr)}`
-			)
+		if (run.exitCode === 0) {
+			return
 		}
+		const stdout = yield* chunkText(run.stdout)
+		const stderr = yield* chunkText(run.stderr)
+		return yield* setupFailed(`grizzle ${command} exited ${run.exitCode}`)(`${stdout}${stderr}`)
 	})
 
 /**
@@ -190,7 +267,7 @@ const drafted = (bin: string) =>
 			"reading what grizzle generate wrote",
 			Effect.gen(function* () {
 				const fileText = yield* fs.readFileString(path.join(folder, "served", `${loginName}.json`))
-				const file = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Json))(fileText)
+				const file = yield* Effect.fromResult(parseJson(fileText))
 				const document = yield* fs.readFileString(path.join(folder, "openapi", `${loginName}.json`))
 				const result: Drafted = { migrations, file, document }
 				return result
@@ -280,9 +357,6 @@ const twinOf = (
 		return twin
 	})
 
-/** The data of one event as its `data:` line spells it. */
-const decodeData = Schema.decodeEffect(Schema.fromJsonString(Schema.Json))
-
 /** A frame being read: the event its `event:` line named, and the data its `data:` line held, until its blank line. */
 type Framing = Readonly<{ event: Option.Option<string>; data: Option.Option<string> }>
 
@@ -293,7 +367,7 @@ const noFrame: Framing = { event: Option.none(), data: Option.none() }
  * the blank line that dispatches them, beside heartbeat comment lines, which are skipped.
  */
 const eventsOf = <E, R>(body: Stream.Stream<Uint8Array, E, R>) =>
-	Stream.decodeText(body).pipe(
+	streamText(body).pipe(
 		Stream.splitLines,
 		Stream.mapAccum(
 			() => noFrame,
@@ -313,7 +387,10 @@ const eventsOf = <E, R>(body: Stream.Stream<Uint8Array, E, R>) =>
 							: [frame, []]
 		),
 		Stream.mapEffect(([event, data]) =>
-			Effect.map(decodeData(data), (value): Event => ({ event, data: value }))
+			Effect.map(readText(`the data of a ${event} event`, json, data), (value): Event => ({
+				event,
+				data: value
+			}))
 		)
 	)
 
@@ -326,7 +403,7 @@ export const called = (
 	twins: Twins,
 	twin: Twin,
 	program: string,
-	body: Schema.Json,
+	body: Json,
 	last: (event: Event) => boolean
 ) =>
 	Effect.gen(function* () {
@@ -354,30 +431,21 @@ export const lastOf =
 	(event: Event): boolean =>
 		program === "past" || program === "put" || program === "clear" ? ended(event) : readied(event)
 
-/** An `error` event's data whose CallError is safe to make again: nothing committed, and the failure is not the call's. */
-const isSafeAgain = Schema.is(
-	Schema.Struct({ error: Schema.Struct({ retry: Schema.Literal("safe") }) })
-)
-
-/** Whether a call's answer ended at a CallError safe to make again, which is no answer of the call's. */
-const saysAgain = (events: ReadonlyArray<Event>): boolean =>
-	Option.exists(Arr.last(events), (event) => event.event === "error" && isSafeAgain(event.data))
-
 /**
  * The outcome `program` of `twin` answers `body`, which must be one, the call made again while it answers a CallError
  * safe to make again.
  */
-const written = (twins: Twins, twin: Twin, program: string, body: Schema.Json) =>
+const written = (twins: Twins, twin: Twin, program: string, body: Json) =>
 	Effect.flatMap(
-		Effect.repeat(called(twins, twin, program, body, ended), { while: saysAgain }),
+		Effect.repeat(called(twins, twin, program, body, ended), { while: endsSafeAgain }),
 		(events) =>
 			Arr.some(events, (event) => event.event === "outcome")
 				? Effect.void
-				: Unstored.make({ text: `${program} answers ${Formatter.format(events)}` })
+				: Effect.fail(new Unstored({ text: `${program} answers ${Formatter.format(events)}` }))
 	)
 
 /** Each twin's items replaced by `stored`: every item deleted, then `stored` put. */
-export const store = (twins: Twins, stored: ReadonlyArray<Schema.Json>) =>
+export const store = (twins: Twins, stored: ReadonlyArray<Json>) =>
 	Effect.forEach([twins.a, twins.b], (twin) =>
 		Effect.andThen(
 			written(twins, twin, "clear", { params: {}, facts: {} }),
@@ -395,7 +463,7 @@ export const store = (twins: Twins, stored: ReadonlyArray<Schema.Json>) =>
  */
 const warm = (twins: Twins, twin: Twin) =>
 	Effect.repeat(called(twins, twin, "atLeast", { params: { floor: "0" }, facts: {} }, readied), {
-		while: saysAgain
+		while: endsSafeAgain
 	})
 
 /**
@@ -420,22 +488,21 @@ const servedOverHttp = (handler: HttpHandler) =>
 	})
 
 /** An operation of the login's document: the digest of its `x-grizzle-wire`. */
-const Operation = Schema.Struct({ "x-grizzle-wire": Schema.Struct({ digest: Schema.String }) })
+const operationDigest: Reader<string> = property("x-grizzle-wire", property("digest", string))
 
-/** The login's OpenAPI document, as far as the tier reads it: each path's POST operation. */
-const LoginDocument = Schema.fromJsonString(
-	Schema.Struct({
-		paths: Schema.Record(Schema.String, Schema.Struct({ post: Operation }))
-	})
+/** The login's OpenAPI document, as far as the tier reads it: each path's POST operation's digest, by the path. */
+const loginDocument: Reader<Readonly<Record<string, string>>> = property(
+	"paths",
+	record(string, property("post", operationDigest))
 )
 
 /** Each program's digest, by the program's name: the last segment of its operation's path. */
 const digestsOf = (document: string) =>
-	Effect.map(Schema.decodeEffect(LoginDocument)(document), (decoded) => {
+	Effect.map(readText("the login's OpenAPI document", loginDocument, document), (paths) => {
 		const digests: ReadonlyMap<string, string> = new Map(
-			Arr.map(Rec.toEntries(decoded.paths), ([route, item]) => [
+			Arr.map(Rec.toEntries(paths), ([route, digest]) => [
 				Option.getOrElse(Arr.last(Str.split("/")(route)), () => route),
-				item.post["x-grizzle-wire"].digest
+				digest
 			])
 		)
 		return digests
