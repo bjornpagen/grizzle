@@ -26,16 +26,13 @@ const starts = [0, 1, 2] as const
 type Start = (typeof starts)[number]
 const values = [0, 1, 2] as const
 type Value = (typeof values)[number]
-const types = [0, 1] as const
-type Type = (typeof types)[number]
 
 /**
- * A case: the shape of the whole judge it runs on, the type of its document's expressions, and the UPDATE the table's
- * owner runs over the stored document, of `target` at the row at start `at`, to `value`.
+ * A case: the shape of the whole judge it runs on, and the UPDATE the table's owner runs over the stored document, of
+ * `target` at the row at start `at`, to `value`.
  */
 export interface Rewrite {
 	readonly shape: ShapeKey
-	readonly type: Type
 	readonly target: Target
 	readonly at: Start
 	readonly value: Value
@@ -43,7 +40,6 @@ export interface Rewrite {
 
 export const rewriteGen: Gen<Rewrite> = (s) => ({
 	shape: s.draw(element(shapeKeys)),
-	type: s.draw(element(types)),
 	target: s.draw(element(targets)),
 	at: s.draw(element(starts)),
 	value: s.draw(element(values))
@@ -56,9 +52,9 @@ export type RewriteFeature =
 	| "an UPDATE that changes no row runs"
 
 /**
- * The value the row at start `at` of document 1, written whole (rule-whole.fixtures.ts statementsOf `unit`), holds at
- * `target`: its nodes at starts 0, 1 and 2 of kinds 2, 1 and 0, each its parent 0, and its expressions of the
- * document's type but the one at start 1, of type 1.
+ * The value the row at start `at` of document 1, written whole and lawful (rule-whole.fixtures.ts statementsOf `unit`
+ * at type 1, which keeps every rule; at type 0 One type refuses it), holds at `target`: its nodes at starts 0, 1 and 2
+ * of kinds 2, 1 and 0, each its parent 0, and its expressions each of type 1.
  */
 const stored = (r: Rewrite): number => {
 	switch (r.target) {
@@ -71,7 +67,7 @@ const stored = (r: Rewrite): number => {
 		case "node doc":
 			return 1
 		case "expr type":
-			return r.at === 1 ? 1 : r.type
+			return 1
 	}
 }
 
@@ -111,7 +107,7 @@ export const runRewrite = (
 	Effect.gen(function* () {
 		const tables = tablesOf(installed, r.shape)
 		yield* session.begin
-		for (const sql of statementsOf(tables, { kind: "unit", doc: 1, type: r.type })) {
+		for (const sql of statementsOf(tables, { kind: "unit", doc: 1, type: 1 })) {
 			yield* session.query(sql, [])
 		}
 		yield* session.commit

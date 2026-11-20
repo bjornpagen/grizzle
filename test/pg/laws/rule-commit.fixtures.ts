@@ -15,26 +15,23 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 
 const judges = ["whole", "probed"] as const
 type Judge = (typeof judges)[number]
-const types = [0, 1] as const
-
 const docs = [1, 2] as const
 
 /**
  * A case: the judge and the unit shape it runs on, and its session's transactions, each a write of one document: both
- * documents written whole, the first standing up the session's deltas and the second writing into deltas that stand,
- * then one of them dropped, which writes the sides of the rows it removes.
+ * documents written whole and lawful (rule-whole.fixtures.ts statementsOf `unit` at type 1, which keeps every rule; at
+ * type 0 One type refuses it), the first standing up the session's deltas and the second writing into deltas that
+ * stand, then one of them dropped, which writes the sides of the rows it removes.
  */
 export interface Commits {
 	readonly judge: Judge
 	readonly shape: ShapeKey
-	readonly type: (typeof types)[number]
 	readonly dropped: (typeof docs)[number]
 }
 
 export const commitsGen: Gen<Commits> = (s) => ({
 	judge: s.draw(element(judges)),
 	shape: s.draw(element(shapeKeys)),
-	type: s.draw(element(types)),
 	dropped: s.draw(element(docs))
 })
 
@@ -75,7 +72,7 @@ export const runCommits = (
 		const tables = tablesOf(installed, k.shape)
 		c.note(k.judge === "whole" ? "a whole judge's deltas" : "a probed judge's deltas")
 		const ops = [
-			...Arr.map(docs, (doc) => ({ kind: "unit", doc, type: k.type }) as const),
+			...Arr.map(docs, (doc) => ({ kind: "unit", doc, type: 1 }) as const),
 			{ kind: "drop", doc: k.dropped } as const
 		]
 		for (const op of ops) {
