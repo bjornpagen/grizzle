@@ -41,7 +41,7 @@ export interface SchemeNormalization {
 	 */
 	readonly supplied:
 		| {
-				readonly document: typeof DocumentUri.Type
+				readonly document: DocumentUri
 				readonly requirement: readonly Readonly<Record<string, readonly string[]>>[]
 		  }
 		| undefined
@@ -64,7 +64,7 @@ interface Finding {
 	/**
 	 * The document the finding points into when it is not the spec (an author config finding).
 	 */
-	readonly document?: typeof DocumentUri.Type
+	readonly document?: DocumentUri
 	readonly element: string
 	readonly hint?: string
 	readonly message: string
@@ -73,7 +73,7 @@ interface Finding {
 	 * Each related site; one without a document points into the spec.
 	 */
 	readonly related?: readonly {
-		readonly document?: typeof DocumentUri.Type
+		readonly document?: DocumentUri
 		readonly pointer: string
 	}[]
 	/**
@@ -343,7 +343,7 @@ const kindOf = (
  * scheme points into the config.
  */
 interface Site {
-	readonly document: typeof DocumentUri.Type
+	readonly document: DocumentUri
 	readonly line: SpecLine
 	readonly pointer: string
 	readonly source: SecurityScheme["source"]
@@ -462,7 +462,7 @@ const buildScheme = (resolution: Resolution, name: string, pointer: string): Bui
  */
 export interface AuthorSecurity {
 	readonly config: AuthorConfig
-	readonly configDocument: typeof DocumentUri.Type
+	readonly configDocument: DocumentUri
 }
 
 const addRequirementPointer = "/security/add/requirement"

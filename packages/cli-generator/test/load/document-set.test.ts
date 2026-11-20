@@ -83,9 +83,9 @@ export const documentPairs = property.explore(pairLoads, {
 		{
 			file: "packages/cli-generator/src/load/document-set.ts",
 			original:
-				'Effect.fnUntraced(\n\tfunction* readMember(\n\t\tpair: DocumentPair,\n\t\tdocument: Document,\n\t\tread: ReadPair\n\t): Effect.fn.Return<SetMember, LoadRefusal, FileSystem.FileSystem | Digest.Digest> {\n\t\tconst bytes = yield* read(pair, document)\n\t\tconst loaded = yield* loadBytes(bytes, { document })\n\t\tconst sha256 = yield* sha256Hex(bytes)\n\n\t\treturn { ...loaded, path: pair.path, sha256 }\n\t},\n\t(effect, pair) => effect.pipe(Effect.catchTag("LoadRefusal", withPathOf(pair.path)))\n)',
+				'Effect.fnUntraced(\n\tfunction* readMember(\n\t\tpair: DocumentPair,\n\t\tdocument: DocumentUri,\n\t\tread: ReadPair\n\t): Effect.fn.Return<SetMember, LoadRefusal, FileSystem.FileSystem | Digest.Digest> {\n\t\tconst bytes = yield* read(pair, document)\n\t\tconst loaded = yield* loadBytes(bytes, { document })\n\t\tconst sha256 = yield* sha256Hex(bytes)\n\n\t\treturn { ...loaded, path: pair.path, sha256 }\n\t},\n\t(effect, pair) => effect.pipe(Effect.catchTag("LoadRefusal", withPathOf(pair.path)))\n)',
 			replacement:
-				"Effect.fnUntraced(function* readMember(\n\t\tpair: DocumentPair,\n\t\tdocument: Document,\n\t\tread: ReadPair\n\t): Effect.fn.Return<SetMember, LoadRefusal, FileSystem.FileSystem | Digest.Digest> {\n\t\tconst bytes = yield* read(pair, document)\n\t\tconst loaded = yield* loadBytes(bytes, { document })\n\t\tconst sha256 = yield* sha256Hex(bytes)\n\n\t\treturn { ...loaded, path: pair.path, sha256 }\n\t})",
+				"Effect.fnUntraced(function* readMember(\n\t\tpair: DocumentPair,\n\t\tdocument: DocumentUri,\n\t\tread: ReadPair\n\t): Effect.fn.Return<SetMember, LoadRefusal, FileSystem.FileSystem | Digest.Digest> {\n\t\tconst bytes = yield* read(pair, document)\n\t\tconst loaded = yield* loadBytes(bytes, { document })\n\t\tconst sha256 = yield* sha256Hex(bytes)\n\n\t\treturn { ...loaded, path: pair.path, sha256 }\n\t})",
 			why: "A pair's refusal while reading no longer names the pair's path; the property fails (CATCH's evidence, mutant 1e6204a91f)."
 		},
 		{

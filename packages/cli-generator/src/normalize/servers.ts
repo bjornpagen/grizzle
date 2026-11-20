@@ -3,7 +3,7 @@ import { Array as Arr, Option, Order, Record, Result, Schema, String as Str } fr
 import { Url } from "effect/http"
 import type { AuthorConfig } from "#model/author-config.ts"
 import {
-	DocumentUri as DocumentUriSchema,
+	DocumentUri,
 	JsonPointer as JsonPointerSchema,
 	SafeText,
 	ServerTemplate
@@ -58,8 +58,6 @@ export interface BoundOrigins {
 	readonly diagnostics: readonly Diagnostic[]
 	readonly origins: readonly DocumentUri[]
 }
-
-type DocumentUri = typeof DocumentUriSchema.Type
 
 type JsonPointer = typeof JsonPointerSchema.Type
 
@@ -195,7 +193,7 @@ const diagnose = (context: ServersContext, code: RuleCode, site: Site): Diagnost
 		row: RowId.make(Arr.headNonEmpty(Str.split(code, "/"))),
 		scope: rule.scope,
 		severity: "refusal",
-		specSection: DocumentUriSchema.make(
+		specSection: DocumentUri.make(
 			`https://spec.openapis.org/oas/v${context.openapi}.html#server-url`
 		)
 	})
@@ -250,7 +248,7 @@ const fill = (template: string, valueOf: (name: string) => string): string =>
 const originSpan = (template: string): Option.Option<string> =>
 	Option.map(Str.match(authoritySpan)(template), (found) => found[0])
 
-const isDocumentUri = Schema.is(DocumentUriSchema)
+const isDocumentUri = Schema.is(DocumentUri)
 
 /**
  * Judges one concrete origin text against the baked-default rules and returns its origin as the
@@ -444,7 +442,7 @@ const isSafeText = Schema.is(SafeText)
 
 const isServerTemplate = Schema.is(ServerTemplate)
 
-const nameOf = (raw: RawServer, line32: boolean): Option.Option<typeof SafeText.Type> =>
+const nameOf = (raw: RawServer, line32: boolean): Option.Option<SafeText> =>
 	line32 ? Option.filter(Option.fromUndefinedOr(raw.name), isSafeText) : Option.none()
 
 const build = (

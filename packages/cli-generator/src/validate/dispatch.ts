@@ -57,7 +57,7 @@ const declare = "Declare a 3.0.x, 3.1.x or 3.2.x version."
  */
 export const versionRefusal = (
 	error: UnsupportedOpenApiVersion,
-	document: typeof DocumentUri.Type
+	document: DocumentUri
 ): Effect.Effect<Diagnostic, Schema.SchemaError> => {
 	const declared = Option.fromUndefinedOr(error.openapi)
 	const line = Option.getOrElse(

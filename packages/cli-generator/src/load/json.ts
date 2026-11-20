@@ -7,8 +7,6 @@ import type { DocumentUri } from "#model/brands.ts"
 import { formatPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
 
-type Document = typeof DocumentUri.Type
-
 const nameMapKeys: ReadonlySet<string> = new Set([
 	"$defs",
 	"callbacks",
@@ -294,11 +292,11 @@ const locate = (text: string, index: number, byteBase: number): Position => {
  */
 export const parseStrictJson: (
 	text: string,
-	document: Document,
+	document: DocumentUri,
 	byteBase: number
 ) => Effect.Effect<Json, LoadRefusal> = Effect.fnUntraced(function* strictJson(
 	text: string,
-	document: Document,
+	document: DocumentUri,
 	byteBase: number
 ) {
 	const value = yield* decodeJson(text).pipe(

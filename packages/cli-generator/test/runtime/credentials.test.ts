@@ -553,8 +553,8 @@ export const authHelp = property.explore(authHelps, {
 		},
 		{
 			file: "packages/cli-generator/src/model/brands.ts",
-			original: "!==",
-			replacement: "===",
+			original: '(method: string) => method !== "CONNECT"',
+			replacement: '(method: string) => method === "CONNECT"',
 			why: "The CONNECT check of a method token is inverted, so GET is refused and the operation never decodes; the property fails (CATCH's evidence, mutant e9d5044ef1)."
 		}
 	]

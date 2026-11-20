@@ -1,5 +1,5 @@
 import { regex } from "arkregex"
-import { Array as Arr, Schema, String as Str } from "effect"
+import { Array as Arr, Brand, Schema, String as Str } from "effect"
 import { pointerPattern } from "#model/pointer.ts"
 
 const token = "[!#$%&'*+.^_`|~0-9A-Za-z-]+"
@@ -124,7 +124,7 @@ export const SafeText = pattern(safeTextPattern).pipe(Schema.brand("SafeText"))
  * Source text made safe whatever its length: removes exactly the characters of the categories
  * `SafeText` rejects, so the result is always `SafeText`.
  */
-export const stripUnsafeText = (text: string): typeof SafeText.Type =>
+export const stripUnsafeText = (text: string): SafeText =>
 	SafeText.make(Str.replaceAll(unsafeCharacter, "")(text))
 
 /**
@@ -159,3 +159,90 @@ export const componentNamePattern = regex("^[a-zA-Z0-9.\\-_]+$", "u")
  * A Components Object key that matches the component-name pattern.
  */
 export const ComponentName = pattern(componentNamePattern)
+
+/**
+ * A parameter, property or field name exactly as the specification spells it: no control and no lone surrogate.
+ */
+export type WireName = string & Brand.Brand<"WireName">
+
+/** Whether a text is a WireName. */
+export const isWireName = (text: string): text is WireName => wireNamePattern.test(text)
+
+/** An RFC 9110 header field name: a token. */
+export type HeaderName = string & Brand.Brand<"HeaderName">
+
+/** Whether a text is a HeaderName. */
+export const isHeaderName = (text: string): text is HeaderName => tokenPattern.test(text)
+
+/** An RFC 6265 cookie name: a token. */
+export type CookieName = string & Brand.Brand<"CookieName">
+
+/** Whether a text is a CookieName. */
+export const isCookieName = (text: string): text is CookieName => tokenPattern.test(text)
+
+/** An RFC 9110 8.3.1 media type, parameters allowed, no wildcards. */
+export type MediaType = string & Brand.Brand<"MediaType">
+
+/** Whether a text is a MediaType. */
+export const isMediaType = (text: string): text is MediaType => mediaTypePattern.test(text)
+
+/** An RFC 9110 8.3.1 media range, wildcards allowed. */
+export type MediaRange = string & Brand.Brand<"MediaRange">
+
+/** Whether a text is a MediaRange. */
+export const isMediaRange = (text: string): text is MediaRange => mediaRangePattern.test(text)
+
+/**
+ * An OpenAPI 3.2.1 path template: absolute, with balanced non-empty expressions, no dot segments and no empty segment
+ * except the last.
+ */
+export type PathTemplate = string & Brand.Brand<"PathTemplate">
+
+/** Whether a text is a PathTemplate. */
+export const isPathTemplate = (text: string): text is PathTemplate =>
+	pathPattern.test(text) && hasValidSegments(text)
+
+/** A server URL template with balanced non-empty variables. */
+export type ServerTemplate = string & Brand.Brand<"ServerTemplate">
+
+/** Whether a text is a ServerTemplate. */
+export const isServerTemplate = (text: string): text is ServerTemplate => serverPattern.test(text)
+
+/**
+ * An RFC 9110 method token a request is sent with, exactly as spelled: any token but `CONNECT`, which asks for a tunnel
+ * instead of a response.
+ */
+export type MethodToken = string & Brand.Brand<"MethodToken">
+
+/** Whether a text is a MethodToken. */
+export const isMethodToken = (text: string): text is MethodToken =>
+	tokenPattern.test(text) && text !== "CONNECT"
+
+/**
+ * Help-safe plain text: no controls except LF and TAB, no format, separator or lone surrogate characters.
+ */
+export type SafeText = string & Brand.Brand<"SafeText">
+
+/** Whether a text is SafeText. */
+export const isSafeText = (text: string): text is SafeText => safeTextPattern.test(text)
+
+/** An absolute URI with ASCII characters only. */
+export type DocumentUri = string & Brand.Brand<"DocumentUri">
+
+/** Whether a text is a DocumentUri. */
+export const isDocumentUri = (text: string): text is DocumentUri => uriPattern.test(text)
+
+/**
+ * A DocumentUri the code writes as a literal, unchecked: the literal is the proof. Text from anywhere else goes through
+ * isDocumentUri.
+ */
+export const fixedDocumentUri: (literal: string) => DocumentUri = Brand.nominal<DocumentUri>()
+
+/** A text with at least one character, where the specification requires one. */
+export type NonEmptyText = string & Brand.Brand<"NonEmptyText">
+
+/** Whether a text is NonEmptyText. */
+export const isNonEmptyText = (text: string): text is NonEmptyText => !Str.isEmpty(text)
+
+/** Whether a text is a Components Object key: it matches the component-name pattern. */
+export const isComponentName = (text: string): boolean => componentNamePattern.test(text)

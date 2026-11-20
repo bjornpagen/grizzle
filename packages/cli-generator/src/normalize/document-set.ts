@@ -31,7 +31,7 @@ const nodeInResult = (
 	const value = resolution.documents.get(key.document)
 
 	return value === undefined
-		? Result.fail(PointerMemberNotFound.make({ pointer: key.pointer, token: key.document }))
+		? Result.fail(new PointerMemberNotFound({ pointer: key.pointer, token: key.document }))
 		: evaluatePointerResult(value, key.pointer)
 }
 

@@ -92,7 +92,7 @@ const TEXT_CHARS: Arr.NonEmptyReadonlyArray<string> = [
 const textGen: Gen<string> = string(characterOf(TEXT_CHARS), { min: 1, max: 8 })
 
 /** Text the model already holds as safe: sanitized at normalization, LF and TAB kept. */
-const safeText: Gen<typeof SafeText.Type> = map(textGen, stripUnsafeText)
+const safeText: Gen<SafeText> = map(textGen, stripUnsafeText)
 
 const WIRE_CHARS: Arr.NonEmptyReadonlyArray<string> = [
 	"a",

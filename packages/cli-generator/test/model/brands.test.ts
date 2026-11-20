@@ -1,6 +1,6 @@
 /**
- * The model's branded codecs (WireName, HeaderName, CookieName, MediaType, MediaRange, PathTemplate, ServerTemplate,
- * MethodToken, SafeText, DocumentUri, JsonPointer) admit exactly what their grammars admit, decided by recognizers
+ * The model's brands' narrowing predicates (WireName, HeaderName, CookieName, MediaType, MediaRange, PathTemplate,
+ * ServerTemplate, MethodToken, SafeText, DocumentUri, JsonPointer) admit exactly what their grammars admit, decided by recognizers
  * written from RFC 9110, RFC 3986, RFC 6901, OpenAPI's templates and the help-safe text categories over text built from
  * the pieces each grammar turns on: dot and empty path segments, percent-encodings, brace expressions, wildcards,
  * quoted parameters, `CONNECT`, controls, format characters, separators and lone surrogates. No brand admits a number,
@@ -79,9 +79,8 @@ export const brandMembership = property.explore(brandSpace, {
 		},
 		{
 			file: "packages/cli-generator/src/model/brands.ts",
-			original:
-				'pattern(tokenPattern).pipe(\n\tSchema.check(Schema.makeFilter((method: string) => method !== "CONNECT")),\n\tSchema.brand("MethodToken")\n)',
-			replacement: 'pattern(tokenPattern).pipe(Schema.brand("MethodToken"))',
+			original: 'tokenPattern.test(text) && text !== "CONNECT"',
+			replacement: "tokenPattern.test(text)",
 			why: "MethodToken admits CONNECT, which asks for a tunnel instead of a response; the property fails (CATCH's evidence, mutant 564f9cca57)."
 		},
 		{
@@ -92,15 +91,44 @@ export const brandMembership = property.explore(brandSpace, {
 		},
 		{
 			file: "packages/cli-generator/src/model/brands.ts",
-			original: "Schema.String.pipe(Schema.check(Schema.isPattern(regExp)))",
-			replacement: "Schema.String",
-			why: "A brand built on a pattern checks none, so every text decodes as a WireName, HeaderName, MediaType, SafeText or URI; the property fails (CATCH's evidence, mutant 679dac1427)."
+			original: "text is WireName => wireNamePattern.test(text)",
+			replacement: "text is WireName => true",
+			why: "WireName checks no pattern, so a name holding a control decodes; the property fails (CATCH's evidence, mutant 679dac1427, on the predicate)."
 		},
 		{
 			file: "packages/cli-generator/src/model/brands.ts",
-			original:
-				'Schema.String.pipe(\n\tSchema.check(Schema.isPattern(pointerPattern)),\n\tSchema.brand("JsonPointer")\n)',
-			replacement: 'Schema.String.pipe(Schema.brand("JsonPointer"))',
+			original: "text is HeaderName => tokenPattern.test(text)",
+			replacement: "text is HeaderName => true",
+			why: "HeaderName checks no token, so a header name holding a separator decodes; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/model/brands.ts",
+			original: "text is MediaType => mediaTypePattern.test(text)",
+			replacement: "text is MediaType => true",
+			why: "MediaType checks no pattern, so a wildcard or a bare token decodes as a media type; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/model/brands.ts",
+			original: "text is ServerTemplate => serverPattern.test(text)",
+			replacement: "text is ServerTemplate => true",
+			why: "ServerTemplate checks no pattern, so an unbalanced variable decodes; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/model/brands.ts",
+			original: "text is SafeText => safeTextPattern.test(text)",
+			replacement: "text is SafeText => true",
+			why: "SafeText checks no category, so a control or a lone surrogate reaches help text; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/model/brands.ts",
+			original: "text is DocumentUri => uriPattern.test(text)",
+			replacement: "text is DocumentUri => true",
+			why: "DocumentUri checks no pattern, so a relative or non-ASCII reference decodes as an absolute URI; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/model/pointer.ts",
+			original: "text is JsonPointer => pointerPattern.test(text)",
+			replacement: "text is JsonPointer => true",
 			why: "JsonPointer checks no pattern, so a text without its leading slash or with a bare `~` decodes; the property fails (CATCH's evidence, mutant 59d8a9970a)."
 		}
 	]

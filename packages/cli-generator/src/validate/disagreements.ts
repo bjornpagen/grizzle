@@ -9,8 +9,6 @@ import { specSectionUrl } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import type { ErrorGroup, ErrorUnit } from "#validate/locations.ts"
 
-type Uri = typeof DocumentUri.Type
-
 /**
  * One place where an official schema rejects what the text allows (design 10.4 D-OC1). Keyed by
  * inventory row and diagnostic code; `research` names the provenance ids, which are not keys.
@@ -130,7 +128,7 @@ export const matchDisagreement = (
  * `openapi` value it declares.
  */
 export interface Where {
-	readonly document: Uri
+	readonly document: DocumentUri
 	readonly line: SpecLine
 	readonly openapi: string
 }

@@ -4,8 +4,6 @@ import type { DocumentUri } from "#model/brands.ts"
 import type { DiagnosticInput } from "#model/diagnostic.ts"
 import { Diagnostic, makeDiagnostic } from "#model/diagnostic.ts"
 
-type Document = typeof DocumentUri.Type
-
 const messages = {
 	"DOC-14/duplicate-key": "An object repeats a key.",
 	"DOC-14/invalid-encoding": "The document is not valid UTF-8.",
@@ -57,7 +55,7 @@ export interface RefusalSite {
 export const wholeInput: RefusalSite = { pointer: "", position: Option.none() }
 
 const diagnosticFields = (
-	document: Document,
+	document: DocumentUri,
 	code: LoadCode,
 	pointer: string
 ): DiagnosticInput => ({
@@ -76,7 +74,7 @@ const diagnosticFields = (
  * Fails with a `LoadRefusal` whose diagnostic is a `DOC-14` document-scope refusal.
  */
 export const refuse = (
-	document: Document,
+	document: DocumentUri,
 	code: LoadCode,
 	site: RefusalSite
 ): Effect.Effect<never, LoadRefusal> => {
@@ -101,7 +99,7 @@ export const refuse = (
  */
 export const readStreamBytes = (
 	stream: Stream.Stream<Uint8Array, PlatformError.PlatformError>,
-	document: Document
+	document: DocumentUri
 ): Effect.Effect<Uint8Array, LoadRefusal> =>
 	stream.pipe(
 		Stream.runCollect,
@@ -144,7 +142,7 @@ const handleStream = (
 
 const checkRegular = (
 	info: FileSystem.File.Info,
-	document: Document
+	document: DocumentUri
 ): Effect.Effect<void, LoadRefusal> =>
 	info.type === "File" ? Effect.void : refuse(document, "DOC-14/unreadable", wholeInput)
 
@@ -175,7 +173,7 @@ type VerifyAgainst = (
  */
 const readOpened = Effect.fnUntraced(function* readOpened(
 	path: string,
-	document: Document,
+	document: DocumentUri,
 	verify: VerifyAgainst
 ): Effect.fn.Return<Uint8Array, LoadRefusal, FileSystem.FileSystem | Scope.Scope> {
 	const fs = yield* FileSystem.FileSystem
@@ -209,7 +207,7 @@ const readOpened = Effect.fnUntraced(function* readOpened(
  */
 export const readOperatorFile = Effect.fnUntraced(function* readOperatorFile(
 	path: string,
-	document: Document
+	document: DocumentUri
 ): Effect.fn.Return<Uint8Array, LoadRefusal, FileSystem.FileSystem> {
 	const fs = yield* FileSystem.FileSystem
 	const real = yield* fs
@@ -229,7 +227,7 @@ export const readOperatorFile = Effect.fnUntraced(function* readOperatorFile(
  */
 export const readMemberFile = (
 	path: string,
-	document: Document,
+	document: DocumentUri,
 	verify: VerifyOpened
 ): Effect.Effect<Uint8Array, LoadRefusal, FileSystem.FileSystem> =>
 	readOpened(path, document, (_before, opened) => verify(opened))

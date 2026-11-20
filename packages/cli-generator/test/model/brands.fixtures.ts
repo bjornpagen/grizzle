@@ -16,21 +16,9 @@ import {
 	type Space,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option, Schema, String as Str } from "effect"
-import {
-	CookieName,
-	DocumentUri,
-	HeaderName,
-	JsonPointer,
-	MediaRange,
-	MediaType,
-	MethodToken,
-	PathTemplate,
-	SafeText,
-	ServerTemplate,
-	stripUnsafeText,
-	WireName
-} from "#model/brands.ts"
+import { Array as Arr, Option, String as Str } from "effect"
+import * as Brands from "#model/brands.ts"
+import { isJsonPointer } from "#model/pointer.ts"
 
 export type BrandName =
 	| "WireName"
@@ -345,29 +333,30 @@ const admits: Readonly<Record<BrandName, (text: string) => boolean>> = {
 	JsonPointer: isPointer
 }
 
-const codecs = {
-	WireName,
-	HeaderName,
-	CookieName,
-	MediaType,
-	MediaRange,
-	PathTemplate,
-	ServerTemplate,
-	MethodToken,
-	SafeText,
-	DocumentUri,
-	JsonPointer
-} as const
+/** Each brand's own narrowing predicate, the one place its brand is minted. */
+const predicates: Readonly<Record<BrandName, (text: string) => boolean>> = {
+	WireName: Brands.isWireName,
+	HeaderName: Brands.isHeaderName,
+	CookieName: Brands.isCookieName,
+	MediaType: Brands.isMediaType,
+	MediaRange: Brands.isMediaRange,
+	PathTemplate: Brands.isPathTemplate,
+	ServerTemplate: Brands.isServerTemplate,
+	MethodToken: Brands.isMethodToken,
+	SafeText: Brands.isSafeText,
+	DocumentUri: Brands.isDocumentUri,
+	JsonPointer: isJsonPointer
+}
 
 /** What a brand answers for a case: whether it admits the input, and for SafeText the text its stripper leaves. */
 export type Answer = Readonly<{ admitted: boolean; stripped: Option.Option<string> }>
 
-/** The brand's own codec and stripper. */
+/** The brand's own predicate and stripper: a predicate reads text, so a number is admitted by none. */
 export const actualOf = (c: BrandCase): Answer => ({
-	admitted: Schema.is(codecs[c.brand])(c.input.kind === "text" ? c.input.text : c.input.value),
+	admitted: c.input.kind === "text" && predicates[c.brand](c.input.text),
 	stripped:
 		c.brand === "SafeText" && c.input.kind === "text"
-			? Option.some(stripUnsafeText(c.input.text))
+			? Option.some(Brands.stripUnsafeText(c.input.text))
 			: Option.none()
 })
 

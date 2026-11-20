@@ -70,30 +70,9 @@ export const pointerEvaluation = property.explore(pointerSpace, {
 		{
 			file: "packages/cli-generator/src/model/pointer.ts",
 			original:
-				'[\n\t\t"missing-leading-slash",\n\t\t"invalid-escape",\n\t\t"invalid-percent-escape",\n\t\t"missing-hash"\n\t]',
-			replacement: '["missing-leading-slash", "invalid-escape", "missing-hash"]',
-			why: "PointerSyntaxError no longer admits invalid-percent-escape, so a broken fragment's error cannot be built; the property fails (CATCH's evidence, mutant 59e18e686b)."
-		},
-		{
-			file: "packages/cli-generator/src/model/pointer.ts",
-			original:
-				'[\n\t\t"missing-leading-slash",\n\t\t"invalid-escape",\n\t\t"invalid-percent-escape",\n\t\t"missing-hash"\n\t]',
-			replacement: '["missing-leading-slash", "invalid-percent-escape", "missing-hash"]',
-			why: "PointerSyntaxError no longer admits invalid-escape, so a bad escape's error cannot be built; the property fails (CATCH's evidence, mutant 68c52c5033)."
-		},
-		{
-			file: "packages/cli-generator/src/model/pointer.ts",
-			original:
-				'[\n\t\t"missing-leading-slash",\n\t\t"invalid-escape",\n\t\t"invalid-percent-escape",\n\t\t"missing-hash"\n\t]',
-			replacement: '["invalid-escape", "invalid-percent-escape", "missing-hash"]',
-			why: "PointerSyntaxError no longer admits missing-leading-slash, so a relative text's error cannot be built; the property fails (CATCH's evidence, mutant 423d6a4698)."
-		},
-		{
-			file: "packages/cli-generator/src/model/pointer.ts",
-			original:
-				'Result.try({\n\t\tcatch: () => PointerSyntaxError.make({ pointer: fragment, reason: "invalid-percent-escape" }),\n\t\ttry: () => decodeURIComponent(Str.slice(1)(fragment))\n\t}).pipe(\n\t\tResult.flatMap((decoded) =>\n\t\t\tResult.mapError(parsePointerResult(decoded), (failure) =>\n\t\t\t\tPointerSyntaxError.make({ pointer: fragment, reason: failure.reason })\n\t\t\t)\n\t\t)\n\t)',
+				'Result.try({\n\t\tcatch: () => new PointerSyntaxError({ pointer: fragment, reason: "invalid-percent-escape" }),\n\t\ttry: () => decodeURIComponent(Str.slice(1)(fragment))\n\t}).pipe(\n\t\tResult.flatMap((decoded) =>\n\t\t\tResult.mapError(\n\t\t\t\tparsePointerResult(decoded),\n\t\t\t\t(failure) => new PointerSyntaxError({ pointer: fragment, reason: failure.reason })\n\t\t\t)\n\t\t)\n\t)',
 			replacement:
-				'Result.try({\n\t\tcatch: () => PointerSyntaxError.make({ pointer: fragment, reason: "invalid-percent-escape" }),\n\t\ttry: () => decodeURIComponent(Str.slice(1)(fragment))\n\t})',
+				'Result.try({\n\t\tcatch: () => new PointerSyntaxError({ pointer: fragment, reason: "invalid-percent-escape" }),\n\t\ttry: () => decodeURIComponent(Str.slice(1)(fragment))\n\t})',
 			why: "A fragment is percent-decoded but never parsed as a pointer, so its tokens are wrong; the property fails (CATCH's evidence, mutant a7fdf4a4db)."
 		},
 		{
@@ -105,15 +84,15 @@ export const pointerEvaluation = property.explore(pointerSpace, {
 		{
 			file: "packages/cli-generator/src/model/pointer.ts",
 			original:
-				'invalidEscape.test(token)\n\t\t? Result.fail(PointerSyntaxError.make({ pointer: token, reason: "invalid-escape" }))\n\t\t: Result.succeed(JsonPointer.unescapeToken(token))',
+				'invalidEscape.test(token)\n\t\t? Result.fail(new PointerSyntaxError({ pointer: token, reason: "invalid-escape" }))\n\t\t: Result.succeed(JsonPointer.unescapeToken(token))',
 			replacement:
-				'invalidEscape.test(token) ? Result.succeed(JsonPointer.unescapeToken(token)) : Result.fail(PointerSyntaxError.make({ pointer: token, reason: "invalid-escape" }))',
+				'invalidEscape.test(token) ? Result.succeed(JsonPointer.unescapeToken(token)) : Result.fail(new PointerSyntaxError({ pointer: token, reason: "invalid-escape" }))',
 			why: "Unescaping fails every sound token and passes every bad escape; the property fails (CATCH's evidence, mutant ec2c5d7c2a)."
 		},
 		{
 			file: "packages/cli-generator/src/model/pointer.ts",
 			original:
-				"if (Arr.isArray<Json>(current)) {\n\t\treturn Result.fromOption(\n\t\t\tarrayIndex.test(token) ? Arr.get(current, Number(token)) : Option.none(),\n\t\t\t() => PointerIndexOutOfRange.make({ pointer, token })\n\t\t)\n\t}",
+				"if (Arr.isArray<Json>(current)) {\n\t\treturn Result.fromOption(\n\t\t\tarrayIndex.test(token) ? Arr.get(current, Number(token)) : Option.none(),\n\t\t\t() => new PointerIndexOutOfRange({ pointer, token })\n\t\t)\n\t}",
 			replacement: "{}",
 			why: "An array is read as an object, so a non-canonical index or `-` is a missing member and the failure is misnamed; the property fails (CATCH's evidence, mutant 41318bc6f6)."
 		},

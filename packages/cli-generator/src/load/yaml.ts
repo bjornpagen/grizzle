@@ -16,8 +16,6 @@ import type { DocumentUri } from "#model/brands.ts"
 import { formatPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
 
-type Document = typeof DocumentUri.Type
-
 interface Failure {
 	readonly code: LoadCode
 	/**
@@ -254,7 +252,7 @@ const locate = (
  */
 export const parseStrictYaml = (
 	text: string,
-	document: Document,
+	document: DocumentUri,
 	byteBase: number
 ): Effect.Effect<Json, LoadRefusal> => {
 	const lineCounter = new LineCounter()

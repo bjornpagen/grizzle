@@ -25,7 +25,7 @@ import type { Resolution } from "#resolve/index.ts"
 export interface NormalizeContext {
 	readonly checkFindings: readonly Diagnostic[]
 	readonly config: AuthorConfig
-	readonly configDocument: typeof DocumentUri.Type
+	readonly configDocument: DocumentUri
 }
 
 /**

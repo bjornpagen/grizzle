@@ -9,14 +9,12 @@ import type { Json } from "#model/pointer.ts"
 
 export { LoadRefusal } from "#load/read.ts"
 
-type Document = typeof DocumentUri.Type
-
 export interface LoadOptions {
-	readonly document: Document
+	readonly document: DocumentUri
 }
 
 export interface Loaded {
-	readonly document: Document
+	readonly document: DocumentUri
 	readonly format: "json" | "yaml"
 	readonly value: Json
 }

@@ -19,8 +19,7 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Exit, Option, Record, Result, Schema, String as Str } from "effect"
-import { JsonPointer as JsonPointerBrand } from "#model/brands.ts"
+import { Array as Arr, Effect, Exit, Option, Record, Result, String as Str } from "effect"
 import { defsKeyOf } from "#model/defs-ref.ts"
 import { isSpecificationExtension } from "#model/extension.ts"
 import {
@@ -31,6 +30,7 @@ import {
 	evaluateTokens,
 	evaluateTokensResult,
 	formatPointer,
+	isJsonPointer,
 	isPointerWithin,
 	type Json,
 	PointerIndexOutOfRange,
@@ -260,15 +260,15 @@ export type Evaluation = Readonly<{
 	>
 }>
 
-/** The schema class a failure is an instance of, by its own schema's test, never by its tag. */
+/** The error class a failure is an instance of, by its class, never by its tag. */
 const classOf = (error: PointerSyntaxError | PointerEvalError): string =>
-	Schema.is(PointerSyntaxError)(error)
+	error instanceof PointerSyntaxError
 		? "PointerSyntaxError"
-		: Schema.is(PointerMemberNotFound)(error)
+		: error instanceof PointerMemberNotFound
 			? "PointerMemberNotFound"
-			: Schema.is(PointerIndexOutOfRange)(error)
+			: error instanceof PointerIndexOutOfRange
 				? "PointerIndexOutOfRange"
-				: Schema.is(PointerNotContainer)(error)
+				: error instanceof PointerNotContainer
 					? "PointerNotContainer"
 					: "an instance of no pointer error class"
 
@@ -318,7 +318,7 @@ export const actualOf = (c: PointerCase): Effect.Effect<Evaluation> =>
 			parsed: Result.mapError(parsed, failureOf),
 			evaluated: Result.mapError(evaluated, failureOf),
 			effects: { parsed: resultOfExit(parsedExit), evaluated: resultOfExit(evaluatedExit) },
-			branded: Schema.is(JsonPointerBrand)(text),
+			branded: isJsonPointer(text),
 			formatted: Result.isSuccess(parsed)
 				? Option.some(formatPointer(parsed.success))
 				: Option.none(),

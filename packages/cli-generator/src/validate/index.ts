@@ -273,7 +273,7 @@ interface Matched {
  */
 export const diagnoseDocument = Effect.fn("validate.diagnoseDocument")(function* diagnoseDocument(
 	document: Json,
-	uri: typeof DocumentUri.Type
+	uri: DocumentUri
 ): Effect.fn.Return<
 	Diagnosis,
 	| InvalidInstanceLocation

@@ -2,14 +2,12 @@ import { Schema, String as Str } from "effect"
 import { ComponentName } from "#model/brands.ts"
 import type { DocumentUri } from "#model/brands.ts"
 
-type Document = typeof DocumentUri.Type
-
 /**
  * The canonical identity of a node in the document set: a document URI and an RFC 6901 pointer
  * (design 3.3). Every `$ref` target and use site is named this way, never by the reference text.
  */
 export interface CanonicalKey {
-	readonly document: Document
+	readonly document: DocumentUri
 	readonly pointer: string
 }
 
@@ -29,7 +27,7 @@ const isComponentName = Schema.is(ComponentName)
  * which starts with `/` and so never equals a component name. A component name outside the CMP-13
  * pattern also uses its pointer, so two targets never share a key.
  */
-export const defsKey = (entry: Document, key: CanonicalKey): string => {
+export const defsKey = (entry: DocumentUri, key: CanonicalKey): string => {
 	if (key.document !== entry) {
 		return keyOf(key)
 	}

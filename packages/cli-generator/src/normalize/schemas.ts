@@ -35,8 +35,6 @@ import type { CanonicalKey } from "#resolve/canonical.ts"
 import type { ReferenceKind, Resolution } from "#resolve/index.ts"
 import { isJsonFamily } from "#runtime-src/runtime/sequential.ts"
 
-type Document = typeof DocumentUri.Type
-
 /**
  * The design 2.2 `Shape` facts of one stored schema, which flattening and serialization read: the
  * declared type set, property names in source order, `required`, whether items are declared, the
@@ -389,8 +387,8 @@ const targetKinds: Readonly<Partial<Record<ReferenceKind, Kind>>> = {
  * The layout of each other document of the set, walked from the objects references reach there,
  * so only the schema roots a reference brings into the entry's operations are stored.
  */
-const memberLayouts = (resolution: Resolution): ReadonlyMap<Document, Layout> => {
-	const layouts = new Map<Document, Layout>()
+const memberLayouts = (resolution: Resolution): ReadonlyMap<DocumentUri, Layout> => {
+	const layouts = new Map<DocumentUri, Layout>()
 	for (const { kind, target } of resolution.references.values()) {
 		const start = targetKinds[kind]
 		const value = resolution.documents.get(target.document)
@@ -536,7 +534,7 @@ const jsonContentSites = (node: Json, at: CanonicalKey): ReadonlyArray<Canonical
  * above already store.
  */
 const sitesOf = (resolution: Resolution): ReadonlyMap<string, CanonicalKey> => {
-	const entry: Document = resolution.document
+	const entry: DocumentUri = resolution.document
 	const layout = layoutOf(resolution.value)
 	const members = memberLayouts(resolution)
 	const roots = [

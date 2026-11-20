@@ -18,8 +18,6 @@ import { Diagnostic, makeDiagnostic } from "#model/diagnostic.ts"
 import { sha256Hex } from "#model/digest.ts"
 import { retrievalBase } from "#model/uri.ts"
 
-type Document = typeof DocumentUri.Type
-
 /**
  * One `--document <uri>=<path>` pair: the retrieval URI the operator gives and the file that holds
  * the document.
@@ -41,7 +39,7 @@ export interface SetMember extends Loaded {
  * The documents `$ref` may resolve over, keyed by retrieval URI (design 3.3).
  */
 export interface DocumentSet {
-	readonly documents: ReadonlyMap<Document, SetMember>
+	readonly documents: ReadonlyMap<DocumentUri, SetMember>
 }
 
 const messages = {
@@ -119,8 +117,8 @@ const withPathOf = (path: string) => (refusal: LoadRefusal) => withPath(refusal,
  * The members loaded so far and the entry's retrieval URI, when the caller names it.
  */
 interface Loading {
-	readonly documents: Map<Document, SetMember>
-	readonly entry: Document | undefined
+	readonly documents: Map<DocumentUri, SetMember>
+	readonly entry: DocumentUri | undefined
 }
 
 /**
@@ -134,7 +132,7 @@ const sameResource = (uri: string, known: string): boolean =>
  * `uri` collides with a member, or spells the entry's URI differently. A member under the entry's
  * exact URI is left to `setMembers`, which accepts it only when it is the entry's own file.
  */
-const isDuplicate = ({ documents, entry }: Loading, uri: Document): boolean =>
+const isDuplicate = ({ documents, entry }: Loading, uri: DocumentUri): boolean =>
 	(entry !== undefined && uri !== entry && sameResource(uri, entry)) ||
 	Arr.some(Arr.fromIterable(documents.keys()), (known) => sameResource(uri, known))
 
@@ -144,7 +142,7 @@ const isDuplicate = ({ documents, entry }: Loading, uri: Document): boolean =>
  */
 type ReadPair = (
 	pair: DocumentPair,
-	document: Document
+	document: DocumentUri
 ) => Effect.Effect<Uint8Array, LoadRefusal, FileSystem.FileSystem>
 
 const readOperatorPair: ReadPair = (pair, document) => readOperatorFile(pair.path, document)
@@ -160,7 +158,7 @@ const readAdmittedPair =
 const readMember = Effect.fnUntraced(
 	function* readMember(
 		pair: DocumentPair,
-		document: Document,
+		document: DocumentUri,
 		read: ReadPair
 	): Effect.fn.Return<SetMember, LoadRefusal, FileSystem.FileSystem | Digest.Digest> {
 		const bytes = yield* read(pair, document)
@@ -204,7 +202,7 @@ export interface DocumentSetOptions {
 	 * The entry document's retrieval URI: a member under the same URI is the entry itself, and a
 	 * member spelling it differently is a duplicate.
 	 */
-	readonly entry?: Document
+	readonly entry?: DocumentUri
 	/**
 	 * A directory whose JSON and YAML files are preloaded (`--ref-root`, design 3.3, P10).
 	 */

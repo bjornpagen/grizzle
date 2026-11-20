@@ -73,7 +73,7 @@ export type {
  */
 export interface PlanOptions {
 	readonly config: AuthorConfig
-	readonly configDocument: typeof DocumentUri.Type
+	readonly configDocument: DocumentUri
 	readonly strict: boolean
 }
 

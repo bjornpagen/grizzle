@@ -32,8 +32,6 @@ import { resolve } from "#resolve/index.ts"
 import { lineOf } from "#validate/dispatch.ts"
 import { diagnoseDocument } from "#validate/index.ts"
 
-type Document = typeof DocumentUri.Type
-
 /**
  * A run that has already printed everything it has to say on stderr and exits 1 (design 8.1).
  */
@@ -81,7 +79,7 @@ const exit = (lines: readonly string[]): Effect.Effect<never, GeneratorExit, Std
 	printLines(lines).pipe(Effect.andThen(Effect.fail(GeneratorExit.make())))
 
 interface Spec {
-	readonly document: Document
+	readonly document: DocumentUri
 	readonly source: SpecSource
 }
 
@@ -200,7 +198,7 @@ const loadRefused = (refusal: LoadRefusal) => exit([humanLine(refusal.diagnostic
  * spelling its retrieval URI differently is refused at load.
  */
 const documentSetOf = (
-	entry: Document,
+	entry: DocumentUri,
 	documents: readonly string[],
 	refRoot: Option.Option<string>
 ) =>
@@ -214,7 +212,7 @@ const documentSetOf = (
 
 const runGenerate = (
 	input: GenerateInput,
-	config: { readonly document: Document; readonly path: string }
+	config: { readonly document: DocumentUri; readonly path: string }
 ) => generate(input, config)
 
 /**

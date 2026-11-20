@@ -90,17 +90,15 @@ export interface HelpInput {
 export interface OperationHelp {
 	readonly arguments: Readonly<Record<string, string>>
 	/** The command's own help: the operation's description, else its summary. */
-	readonly description: SafeTextValue
+	readonly description: SafeText
 	readonly flags: Readonly<Record<string, string>>
 	readonly sections: readonly (readonly [string, string])[]
 	/**
 	 * The one line a command table shows for the command, which is what OpenAPI's summary is: the summary, else the
 	 * description's first sentence, else nothing.
 	 */
-	readonly summary: SafeTextValue
+	readonly summary: SafeText
 }
-
-type SafeTextValue = typeof SafeText.Type
 
 /**
  * The runs of LF and TAB a single-line field folds to one space.

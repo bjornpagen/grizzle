@@ -237,7 +237,7 @@ const classifyKey = (text: string): Key => {
 	return isSpecificationExtension(text) ? "extension" : "invalid"
 }
 
-type Codec = (typeof MediaAlternative.Type)["codec"]
+type Codec = MediaAlternative["codec"]
 
 // The codec follows the media type alone, never the schema (design 2.2). A range, or a type no
 // other family claims, is bytes.

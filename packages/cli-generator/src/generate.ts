@@ -62,8 +62,6 @@ import { writeFiles } from "#write/index.ts"
 import type { WriteNotice, WriteRefused } from "#write/index.ts"
 import type { RunLockHeld, RunLockUnavailable } from "#write/lock.ts"
 
-type Document = typeof DocumentUri.Type
-
 /**
  * Where the specification's bytes come from: a file, or a byte stream such as stdin. Either is
  * read through the loader's byte limit.
@@ -80,7 +78,7 @@ export type SpecSource =
  * over, the output directory and `--strict`.
  */
 export interface GenerateInput {
-	readonly document: Document
+	readonly document: DocumentUri
 	/**
 	 * The document set (`--document`, `--ref-root`; design 3.3). Absent, the set is the entry alone.
 	 */
@@ -94,7 +92,7 @@ export interface GenerateInput {
  * The author config file and the URI its diagnostics name.
  */
 export interface GenerateConfig {
-	readonly document: Document
+	readonly document: DocumentUri
 	readonly path: string
 }
 
@@ -163,7 +161,7 @@ const refused =
  * every other document refusal.
  */
 export const versionRefused =
-	(document: Document) =>
+	(document: DocumentUri) =>
 	(error: UnsupportedOpenApiVersion): Effect.Effect<never, GenerateRefused | Schema.SchemaError> =>
 		versionRefusal(error, document).pipe(
 			Effect.flatMap((diagnostic) => Effect.fail(refused("document")([diagnostic])))
@@ -201,7 +199,7 @@ const readConfig = (
 	)
 
 /** The set's documents other than the entry, in set order, each with the hash of the bytes it parsed. */
-const memberInputs = (entry: Document, documents: DocumentSet | undefined) =>
+const memberInputs = (entry: DocumentUri, documents: DocumentSet | undefined) =>
 	Arr.flatMap([...(documents?.documents ?? [])], ([document, member]) =>
 		document === entry ? [] : [{ document, sha256: member.sha256 }]
 	)
@@ -222,7 +220,7 @@ const realPathOf = (path: string) =>
  * it differently, is refused as `REF-16/duplicate-uri`, never chosen between.
  */
 export const setMembers = (
-	entry: { readonly document: Document; readonly source: SpecSource },
+	entry: { readonly document: DocumentUri; readonly source: SpecSource },
 	documents: DocumentSet | undefined
 ): Effect.Effect<readonly ResolveMember[], LoadRefusal, FileSystem.FileSystem | Path.Path> =>
 	Effect.gen(function* members() {
@@ -502,7 +500,7 @@ const acceptedServers = (api: Api): readonly string[] => {
 interface Analysis {
 	readonly api: Api
 	readonly diagnostics: readonly Diagnostic[]
-	readonly order: readonly Document[]
+	readonly order: readonly DocumentUri[]
 	readonly resolution: Resolution
 }
 
@@ -514,7 +512,7 @@ const analyze = (
 	input: GenerateInput,
 	bytes: Uint8Array,
 	config: AuthorConfig,
-	configDocument: Document
+	configDocument: DocumentUri
 ) =>
 	Effect.gen(function* analyzeGen() {
 		const { document } = input

@@ -114,9 +114,9 @@ export const bodyAlternatives = property.explore(bodySpace, {
 		{
 			file: "packages/cli-generator/src/model/pointer.ts",
 			original:
-				'invalidEscape.test(token)\n\t\t? Result.fail(PointerSyntaxError.make({ pointer: token, reason: "invalid-escape" }))\n\t\t: Result.succeed(JsonPointer.unescapeToken(token))',
+				'invalidEscape.test(token)\n\t\t? Result.fail(new PointerSyntaxError({ pointer: token, reason: "invalid-escape" }))\n\t\t: Result.succeed(JsonPointer.unescapeToken(token))',
 			replacement:
-				'invalidEscape.test(token) ? Result.succeed(JsonPointer.unescapeToken(token)) : Result.fail(PointerSyntaxError.make({ pointer: token, reason: "invalid-escape" }))',
+				'invalidEscape.test(token) ? Result.succeed(JsonPointer.unescapeToken(token)) : Result.fail(new PointerSyntaxError({ pointer: token, reason: "invalid-escape" }))',
 			why: "A pointer token is refused exactly when its escapes are valid, so no pointer into the document reads; the property fails (CATCH's evidence, mutant ec2c5d7c2a)."
 		},
 		{

@@ -32,15 +32,13 @@ import type { CanonicalKey } from "#resolve/canonical.ts"
 
 export type { CanonicalKey } from "#resolve/canonical.ts"
 
-type Document = typeof DocumentUri.Type
-
 /**
  * A document of the set other than the entry, under its retrieval URI. `line` is the line its base
  * URIs follow, the entry's when absent. A member without an `openapi` field is a fragment: its root
  * may be the target of a reference, and it has no `$self`.
  */
 export interface ResolveMember {
-	readonly document: Document
+	readonly document: DocumentUri
 	readonly line?: SpecLine
 	readonly value: Json
 }
@@ -50,7 +48,7 @@ export interface ResolveMember {
  * (design 3.3); with no members the set is the entry alone.
  */
 export interface ResolveInput {
-	readonly document: Document
+	readonly document: DocumentUri
 	readonly line: SpecLine
 	readonly members?: readonly ResolveMember[]
 	readonly value: Json
@@ -106,8 +104,8 @@ export interface Resolution {
 	readonly base: string
 	readonly defs: ReadonlyMap<string, string>
 	readonly diagnostics: readonly Diagnostic[]
-	readonly document: Document
-	readonly documents: ReadonlyMap<Document, Json>
+	readonly document: DocumentUri
+	readonly documents: ReadonlyMap<DocumentUri, Json>
 	readonly line: SpecLine
 	readonly operationIds: ReadonlyMap<string, CanonicalKey>
 	readonly references: ReadonlyMap<string, ResolvedReference>
@@ -286,7 +284,7 @@ type DocumentCode = CodeOf<{ readonly scope: "document" }>
 
 interface Finding {
 	readonly code: Code
-	readonly document: Document
+	readonly document: DocumentUri
 	readonly pointer: string
 	readonly related?: CanonicalKey
 }
@@ -525,7 +523,7 @@ interface Edge {
 	readonly to: string
 }
 
-const rootKey = (document: Document): string => keyOf({ document, pointer: "" })
+const rootKey = (document: DocumentUri): string => keyOf({ document, pointer: "" })
 
 /**
  * The pointer of the node that holds the node at `pointer`; the root holds itself.
@@ -558,7 +556,7 @@ const ownerOf = (key: CanonicalKey, targets: ReadonlySet<string>): string => {
  */
 interface Member {
 	readonly base: string
-	readonly document: Document
+	readonly document: DocumentUri
 	readonly line: SpecLine
 	readonly openapi: boolean
 	readonly value: Json
@@ -736,7 +734,7 @@ class Resolver {
 	readonly added = new Set<string>()
 	readonly all: readonly Member[]
 	readonly anchors = new Map<string, Place>()
-	readonly byDocument: ReadonlyMap<Document, Member>
+	readonly byDocument: ReadonlyMap<DocumentUri, Member>
 	readonly defs = new Map<string, string>()
 	/**
 	 * Every resource URI a member is known by (its retrieval URI and its base) to that member.
@@ -765,7 +763,7 @@ class Resolver {
 	constructor(entry: Member, others: readonly Member[]) {
 		this.entry = entry
 		this.all = [entry, ...others]
-		const byDocument = new Map<Document, Member>()
+		const byDocument = new Map<DocumentUri, Member>()
 		for (const member of this.all) {
 			if (!byDocument.has(member.document)) {
 				byDocument.set(member.document, member)

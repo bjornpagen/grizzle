@@ -62,8 +62,6 @@ type DiagnosticOperationValue = typeof DiagnosticOperation.Type
 
 type Level = "operation" | "pathItem"
 
-type Method = typeof MethodToken.Type
-
 interface Located {
 	readonly node: Json
 	readonly pointer: string
@@ -202,14 +200,14 @@ interface RawOperation {
 	readonly node: JsonObject
 	readonly itemFields: typeof ItemFields.Type
 	readonly itemPointer: string
-	readonly method: Method
-	readonly path: typeof PathTemplate.Type
+	readonly method: MethodToken
+	readonly path: PathTemplate
 	readonly pointer: string
 }
 
 const operationsOfItem = (
 	resolution: Resolution,
-	path: typeof PathTemplate.Type,
+	path: PathTemplate,
 	item: Located,
 	itemFields: typeof ItemFields.Type,
 	itemNode: Record<string, Json>

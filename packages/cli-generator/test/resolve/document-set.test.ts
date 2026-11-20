@@ -10,13 +10,11 @@ import type { CanonicalKey } from "#resolve/canonical.ts"
 import { implicitComponent, referenceAt, resolve } from "#resolve/index.ts"
 import type { Resolution, ResolvedReference, ResolveMember } from "#resolve/index.ts"
 
-type Document = typeof DocumentUri.Type
-
-const uri = (value: string): Document => Schema.decodeUnknownSync(DocumentUri)(value)
+const uri = (value: string): DocumentUri => Schema.decodeUnknownSync(DocumentUri)(value)
 
 const entry = uri("file:///spec/openapi.json")
 
-const fixture = (name: string, document: Document): Json => {
+const fixture = (name: string, document: DocumentUri): Json => {
 	const bytes = new Uint8Array(
 		readFileSync(new URL(`../fixtures/resolve/multi/${name}`, import.meta.url))
 	)
@@ -242,9 +240,9 @@ describe("budgets span the document set", () => {
 
 	test("a chain alternating between documents follows every hop, past any count", () => {
 		const hops = 200
-		const link = (index: number, here: Document): Json =>
+		const link = (index: number, here: DocumentUri): Json =>
 			index === hops ? { in: "query", name: "p" } : { $ref: `${here === a ? b : a}#/P${index + 1}` }
-		const doc = (here: Document) =>
+		const doc = (here: DocumentUri) =>
 			Object.fromEntries(
 				Array.from({ length: hops + 1 }, (_, index) => [`P${index}`, link(index, here)])
 			)
@@ -259,7 +257,7 @@ describe("budgets span the document set", () => {
 
 	test("a schema cycle across two documents resolves", () => {
 		const levels = 2000
-		const schemas = (here: Document) =>
+		const schemas = (here: DocumentUri) =>
 			Object.fromEntries(
 				Array.from({ length: levels }, (_, index) => [
 					`S${index}`,

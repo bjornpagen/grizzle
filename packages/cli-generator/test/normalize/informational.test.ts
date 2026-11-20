@@ -85,7 +85,7 @@ export const informationalAccounting = property.explore(informationalSpace, {
 		{
 			file: "packages/cli-generator/src/model/pointer.ts",
 			original:
-				"if (Arr.isArray<Json>(current)) {\n\t\treturn Result.fromOption(\n\t\t\tarrayIndex.test(token) ? Arr.get(current, Number(token)) : Option.none(),\n\t\t\t() => PointerIndexOutOfRange.make({ pointer, token })\n\t\t)\n\t}",
+				"if (Arr.isArray<Json>(current)) {\n\t\treturn Result.fromOption(\n\t\t\tarrayIndex.test(token) ? Arr.get(current, Number(token)) : Option.none(),\n\t\t\t() => new PointerIndexOutOfRange({ pointer, token })\n\t\t)\n\t}",
 			replacement: "{}",
 			why: "A pointer into an array names no node, so a record under a tag, a server or a parameter points at nothing; the property fails (CATCH's evidence, mutant 41318bc6f6)."
 		},
