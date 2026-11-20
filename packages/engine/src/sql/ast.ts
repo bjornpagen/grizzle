@@ -945,8 +945,10 @@ export interface ContextColumn {
  * - `certified`: the physical analysis proved its plain form unique, which the plan's multiplicity certificate states.
  * - `input`: it reads relation inputs' arrays, which the host codec made sets, through every column, or a staged member
  *   slot's carrier, which holds those arrays' rows (write/program/slot-carriers.ts).
+ * - `facts`: grouped by each of its targets and each float target's being -0, so it delivers no fact twice: a set of
+ *   facts by their identity (ir/compare.ts factSet), where -0 and +0 at otherwise equal targets are two rows.
  */
-export type RowsProof = "oneRow" | "grouped" | "keyed" | "certified" | "input"
+export type RowsProof = "oneRow" | "grouped" | "keyed" | "certified" | "input" | "facts"
 
 /** What every core holds besides its projection. An empty FROM or GROUP BY is none, an undefined WHERE or HAVING none. */
 interface CoreFrame {

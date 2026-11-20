@@ -11,6 +11,7 @@ import {
 	type SelectCore,
 	type SqlStatement
 } from "#compiler/sql/ast.ts"
+import { negativeZero } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 
@@ -225,6 +226,22 @@ const groupedShape = (c: SelectCore): boolean => {
 	return c.groupBy.length > 0 && Arr.every(c.groupBy, (g) => targets.has(printExpr(g)))
 }
 
+/**
+ * Whether a core claiming its facts (sql/ast.ts RowsProof `facts`) is grouped by each of its targets and by nothing but a
+ * target or a target's being -0 (sql/build.ts negativeZero), of either float carrier.
+ */
+const factsShape = (c: SelectCore): boolean => {
+	const targets = Arr.map(c.targets, (t) => printExpr(t.expr))
+	const signs = Arr.flatMap(c.targets, (t) =>
+		Arr.map(["float4", "float8"] as const, (carrier) => printExpr(negativeZero(t.expr, carrier)))
+	)
+	const grouped = new Set(Arr.map(c.groupBy, printExpr))
+	return (
+		Arr.every(targets, (t) => grouped.has(t)) &&
+		Arr.every(c.groupBy, (g) => targets.includes(printExpr(g)) || signs.includes(printExpr(g)))
+	)
+}
+
 /** A FROM source read by a reader that needs a set or takes rows that may repeat. */
 interface Read {
 	readonly need: "set" | "operand"
@@ -305,6 +322,11 @@ export const rowsViolations = (statement: SqlStatement): ReadonlyArray<string> =
 			}
 			if (c.distinct === false && c.rows === "grouped" && !groupedShape(c)) {
 				out.push("a core claims its groups, and a GROUP BY expression is none of its targets")
+			}
+			if (c.distinct === false && c.rows === "facts" && !factsShape(c)) {
+				out.push(
+					"a core claims its facts, and it is not grouped by each of its targets and by nothing but them and their zeros' signs"
+				)
 			}
 			return c
 		},

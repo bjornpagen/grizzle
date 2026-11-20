@@ -200,7 +200,7 @@ export const factSet = (
 		return distinctCore(targets, from, where)
 	}
 	return {
-		...provedCore("grouped", targets, from, where),
+		...provedCore("facts", targets, from, where),
 		groupBy: [...targets.map((t) => t.expr), ...signs]
 	}
 }
