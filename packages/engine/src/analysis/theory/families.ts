@@ -47,6 +47,8 @@ import {
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import { monoidSpecs } from "#compiler/ir/monoid.ts"
+import { compatible } from "#compiler/scalar/compute/types.ts"
+import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import { entryImages, keyedField } from "#compiler/schema/representability.ts"
 
 /**
@@ -178,8 +180,18 @@ const drawnField = (r: TheoryRelation, f: LawField, role: string, loc: SourceLoc
 		: refuse(
 				"MalformedDescription",
 				loc,
-				`a family's ${role} is a drawn natural grizzle draws; ${r.name}.${f.name} is written by ${f.writing.kind}`
+				`a family's ${role} is a drawn field grizzle draws; ${r.name}.${f.name} is written by ${f.writing.kind}`
 			)
+
+/**
+ * An ordered family's index, refused unless it is of its count's identity (scalar/compute/types.ts compatible), a rule
+ * the types name too: the family's law pairs them, its last member's index its owner's pred(n), and draws them as one
+ * count from 0, so a contract over an integer counts and indexes alike, its CHECK bounding both.
+ */
+const indexOfCount = (index: LawField, count: LawField, loc: SourceLoc): LawField =>
+	compatible(index.type, count.type)
+		? index
+		: refuseNamed(loc, "an ordered family's index is of its count's type")
 
 /**
  * Each member group field with the owner key field it pairs with, in key order: the member side's first terms. The
@@ -254,8 +266,20 @@ export const familyShape = (
 	const last = s.member.terms[width - 1]
 	const indexField =
 		s.order === "ordered" && last !== undefined
-			? drawnField(member, fieldTerm(member, last, "an ordered family's index", loc), "index", loc)
+			? indexOfCount(
+					drawnField(
+						member,
+						fieldTerm(member, last, "an ordered family's index", loc),
+						"index",
+						loc
+					),
+					count,
+					loc
+				)
 			: undefined
+	if (indexField === undefined && !isNaturalDesc(count.desc)) {
+		return refuseNamed(loc, "a counted family's count is a drawn natural, as its hidden index is")
+	}
 	const law = familyLaw({
 		id,
 		member: member.name,
@@ -296,11 +320,12 @@ export const treeShape = (
 		return refuseNamed(loc, familySides.tree)
 	}
 	/**
-	 * A field grizzle draws for the tree, its parent, its index or its interval, refused as the tree's shape where it is
-	 * none, as the types refuse it (types/schema/statements.ts SelfFamily).
+	 * A field grizzle draws for the tree, its parent, its index, its count or its interval, a drawn natural, refused as
+	 * the tree's shape where it is none, as the types refuse it (types/schema/statements.ts SelfFamily): a tree's interval
+	 * is natural's arithmetic, which its parent, index and count pair with.
 	 */
 	const drawnOfTree = (f: LawField | undefined): LawField =>
-		f?.writing.kind === "drawn" ? f : refuseNamed(loc, familySides.tree)
+		f?.writing.kind === "drawn" && isNaturalDesc(f.desc) ? f : refuseNamed(loc, familySides.tree)
 	/** A tree's interval field by its name, drawn by its one depth-first walk. */
 	const interval = (name: "start" | "end"): LawField =>
 		drawnOfTree(t.fields.find((g) => g.name === name))
@@ -321,7 +346,7 @@ export const treeShape = (
 	const parent = drawnOfTree(fieldTerm(t, parentTerm, "a tree's side", loc))
 	const at = drawnOfTree(fieldTerm(t, atTerm, "a tree's side", loc))
 	const id: FamilyId = { owner: t.name, count: s.slots.count }
-	const count = drawnField(t, fieldOf(t, s.slots.count, loc), "count", loc)
+	const count = drawnOfTree(drawnField(t, fieldOf(t, s.slots.count, loc), "count", loc))
 	const group: TreeFamilyShape["group"] = appendNonEmpty(
 		mapNonEmpty(root, (r) => ({ member: r, owner: r })),
 		{ member: parent, owner: start }

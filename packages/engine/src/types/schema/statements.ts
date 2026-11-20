@@ -16,7 +16,6 @@ import type {
 import type {
 	AccumulatedField,
 	BitsField,
-	DrawnField,
 	NaturalDomain,
 	FieldBase,
 	HandleOf,
@@ -280,10 +279,27 @@ type SetIn<C> = { [K in keyof C]-?: C[K] extends BitsField<unknown> ? K : never 
 /** The heading of R: the record of carriers its facts are made of. */
 type HeadingOf<R> = R extends Headed<infer C> ? C : never
 
-/** The fields of the heading C a family or tree draws: its drawn naturals. */
-type DrawnIn<C> = { [K in keyof C]-?: C[K] extends DrawnField ? K : never }[keyof C] & string
+/** The fields of the heading C a family or tree draws: its drawn fields, each a natural or a contract over an integer. */
+type DrawnIn<C> = {
+	[K in keyof C]-?: C[K] extends { readonly writing: "drawn" } ? K : never
+}[keyof C] &
+	string
 
-/** The fields of R its family or tree draws: its drawn naturals, read off its heading. */
+/**
+ * The fields of the heading C a tree draws and a counted family counts by: its drawn naturals, a tree's interval and
+ * a counted family's hidden index being natural's, which they pair with.
+ */
+type DrawnNaturalIn<C> = {
+	[K in keyof C]-?: C[K] extends {
+		readonly writing: "drawn"
+		readonly field: { readonly natural: true }
+	}
+		? K
+		: never
+}[keyof C] &
+	string
+
+/** The fields of R its family or tree draws: its drawn fields, read off its heading. */
 export type DrawnFieldOf<R> = DrawnIn<HeadingOf<R>>
 
 /**
@@ -330,6 +346,37 @@ export type OrderedMember<C, T, OC, K> = T extends readonly [
 		: Refusal<"an ordered family's side is its owner's key, then its drawn index">
 	: Refusal<"an ordered family's side is its owner's key, then its drawn index">
 
+/**
+ * An ordered family's index, the last of its side's terms T over the heading C, is of the type of its slots Fi's count
+ * over its owner's heading OC: the family's law pairs them, its last member's index pred(n), so they are of one
+ * identity.
+ */
+export type IndexOfCount<C, T, OC, Fi> = [Fi] extends [{ readonly count: infer N }]
+	? IndexOfCountField<C, T, OC, N>
+	: unknown
+
+/** IndexOfCount over the count field N of the owner's heading OC. */
+type IndexOfCountField<C, T, OC, N> = T extends readonly [
+	...ReadonlyArray<AnyTerm>,
+	infer I extends AnyTerm
+]
+	? [FieldTypeOf<C, I>] extends [FieldTypeOf<OC, N>]
+		? [FieldTypeOf<OC, N>] extends [FieldTypeOf<C, I>]
+			? unknown
+			: Refusal<"an ordered family's index is of its count's type">
+		: Refusal<"an ordered family's index is of its count's type">
+	: unknown
+
+/**
+ * A counted family's count, its slots Fi's over its owner's heading OC, is a drawn natural, as the hidden index it pairs
+ * with is.
+ */
+export type CountedCount<OC, Fi> = [Fi] extends [{ readonly count: infer N }]
+	? [N] extends [DrawnNaturalIn<OC>]
+		? unknown
+		: Refusal<"a counted family's count is a drawn natural, as its hidden index is">
+	: unknown
+
 /** A counted family's side, the terms T over the heading C, is its owner's key: the owner's heading OC and key K. */
 export type CountedMember<C, T, OC, K> =
 	GroupOfOwner<C, T, OC, K> extends true
@@ -362,7 +409,7 @@ export type SelfFamily<C, K, T, N, Root> = T extends readonly [
 	infer I extends AnyTerm
 ]
 	? RootThenStart<K, Root> extends true
-		? [P | I | N | "start" | "end"] extends [DrawnIn<C>]
+		? [P | I | N | "start" | "end"] extends [DrawnNaturalIn<C>]
 			? unknown
 			: Refusal<"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end">
 		: Refusal<"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end">
@@ -604,9 +651,16 @@ export type RowScalars<V extends Shows<string, unknown>> = {
 	>
 } & ScalarHelpers
 
-/** The fields of the heading C that are natural (types/fields NaturalField), the fields pred reads. */
+/**
+ * The fields of the heading C that are natural (types/fields NaturalField), a drawn natural among them (DrawnField),
+ * the fields pred reads.
+ */
 type NaturalIn<C> = {
-	[K in keyof C]-?: C[K] extends { readonly natural: true } ? K : never
+	[K in keyof C]-?: C[K] extends
+		| { readonly natural: true }
+		| { readonly writing: "drawn"; readonly field: { readonly natural: true } }
+		? K
+		: never
 }[keyof C] &
 	string
 

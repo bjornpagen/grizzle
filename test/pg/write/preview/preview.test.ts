@@ -108,8 +108,8 @@ export const thePreviewsRowsAreTheRowsTheSameInsertAllStoresFreshAndMigratedAndI
 			},
 			{
 				file: "packages/engine/src/runtime/write/fill.ts",
-				original: "\t\t\treturn Result.ok(BigInt(treeOf(row).end))",
-				replacement: "\t\t\treturn Result.ok(BigInt(treeOf(row).end + 1))",
+				original: "\t\t\treturn drawnValue(row, column, treeOf(row).end)",
+				replacement: "\t\t\treturn drawnValue(row, column, treeOf(row).end + 1)",
 				why: "A tree node's end is one past its interval's; the preview gives it and PostgreSQL refuses the tree."
 			},
 			{

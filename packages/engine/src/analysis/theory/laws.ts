@@ -2520,7 +2520,7 @@ const sideRows = (
 		[...terms.map((t) => t.column), ...general.flatMap((c) => c.reads)],
 		conjuncts.flatMap((c) => (c.kind === "fixed" ? [c.selector] : []))
 	)
-	const guarded = mapNonEmpty(terms, guardedTerm)
+	const guarded = mapNonEmpty(terms, (t) => guardedTerm(t, t.column.type))
 	const leaf = rowLeaf(r, region)
 	const guards = [
 		...general.map((c) => lowerTotal(b, env, c.predicate, loc, leaf)),
@@ -2708,7 +2708,7 @@ const clashes = (
 			const c = join.pair(field)[row]
 			return storedColumn(join.node.id, c.name, c.type)
 		})
-	const guarded = mapNonEmpty(side.terms, guardedTerm)
+	const guarded = mapNonEmpty(side.terms, (t) => guardedTerm(t, t.column.type))
 	const holdsAt = (row: "left" | "right"): ReadonlyArray<ScalarExpr> => [
 		...side.selection.conjuncts.map((c) => lowerTotal(b, env, c.predicate, loc, over(row))),
 		...guarded.flatMap((t) => t.guard.map((g) => lowerTotal(b, env, g, loc, over(row))))
@@ -2736,7 +2736,7 @@ const projectedKeyViolation = (
 	return b.project(
 		filtered,
 		mapNonEmpty(side.terms, (t) => {
-			const term = guardedTerm(t).term
+			const term = guardedTerm(t, t.column.type).term
 			return [termText(t), lowerTermTotal(b, env, term, loc, rowLeaf(r, filtered))] as const
 		})
 	)

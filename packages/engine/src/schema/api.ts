@@ -127,6 +127,8 @@ import type {
 	Mutable,
 	NoSetKey,
 	OrderedFamily,
+	IndexOfCount,
+	CountedCount,
 	OrderedMember,
 	OverSlots,
 	OwnerRelationOf,
@@ -678,7 +680,7 @@ export const ordered = <
 			| Side<AnyRelation>
 			| Refusal<"a family's member side is a relation, never a selection: its members are every fact of the relation">
 		) &
-		OverSlots<Kind, OrderedMember<C, F["terms"], OC, OK>>,
+		OverSlots<Kind, OrderedMember<C, F["terms"], OC, OK> & IndexOfCount<C, F["terms"], OC, Fi>>,
 	slots: Fi & FinShows<ON, OC, OK, Kind> & FamilySlots<Kind>
 ): OrderedFamily<F, Fi> => orderedBuilder<F, Fi>(family, slots)
 
@@ -699,7 +701,7 @@ export const counted = <
 			| Side<AnyRelation>
 			| Refusal<"a family's member side is a relation, never a selection: its members are every fact of the relation">
 		) &
-		OverSlots<Kind, CountedMember<C, F["terms"], OC, OK>>,
+		OverSlots<Kind, CountedMember<C, F["terms"], OC, OK> & CountedCount<OC, Fi>>,
 	slots: Fi & FinShows<ON, OC, OK, Kind> & FamilySlots<Kind>
 ): Counted<F, Fi> => countedBuilder<F, Fi>(family, slots)
 

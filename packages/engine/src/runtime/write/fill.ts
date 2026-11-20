@@ -65,7 +65,7 @@ import {
 	type SqlValue,
 	sqlNull
 } from "#compiler/scalar/compute/evaluate.ts"
-import { hostOfLiteral } from "#compiler/scalar/compute/literal.ts"
+import { hostOfLiteral, integerHostOf } from "#compiler/scalar/compute/literal.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import { AdmittedBytes, isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
@@ -160,12 +160,12 @@ export type HostEvaluator = (
  * Why a fill has no value for a column, the nesting's walk and a family's edit alike: an expression the host cannot
  * evaluate over its row, a fold's selection among them (its stop, as the evaluator gives it); a generated field the fill
  * reads that is NULL, a closed read at a key its relation holds no row at, by the field's law, which its column's NOT
- * NULL refuses; or a fold's after or a copy outside its column's carrier, which PostgreSQL would refuse.
+ * NULL refuses; or a value it draws, a fold's after or a copy outside its column's carrier, which PostgreSQL would refuse.
  */
 export type FillStop =
 	| { readonly kind: "evaluation"; readonly stop: EvalStop }
 	| { readonly kind: "null"; readonly law: GeneratedLaw }
-	| { readonly kind: "range"; readonly family: FamilyId }
+	| { readonly kind: "range" }
 
 /**
  * Why a nesting cannot be filled (`FillStop`), at its row, by the path of count fields and member positions from the
@@ -677,7 +677,6 @@ export const closedLeaf =
  */
 const stepped = (
 	fold: { readonly monoid: MonoidName },
-	family: FamilyId,
 	plane: 0 | 1,
 	befores: ReadonlyArray<unknown>,
 	x: unknown,
@@ -685,10 +684,28 @@ const stepped = (
 ): Result.Result<unknown, FillStop> => {
 	const after = combineHost(fold, plane, befores, x, spec)
 	if (after === undefined) {
-		return Result.err({ kind: "range", family })
+		return Result.err(outsideCarrier)
 	}
 	const stored = storedValue(spec, after)
-	return stored.ok ? Result.ok(stored.value) : Result.err({ kind: "range", family })
+	return stored.ok ? Result.ok(stored.value) : Result.err(outsideCarrier)
+}
+
+/** A value a fill draws or combines outside its column's carrier, which PostgreSQL would refuse (22003). */
+const outsideCarrier: FillStop = Object.freeze({ kind: "range" })
+
+/**
+ * A value grizzle draws, an index, a count or a copy of one, or a tree's start or end, at its column's carrier as
+ * PostgreSQL would store it: a JavaScript integer for smallint and integer, a bigint for bigint, a drawn type's own
+ * (scalar/natural.ts isDrawnType). One past the carrier is refused before any statement is sent, where PostgreSQL would
+ * refuse its row (22003); one past a contract's bound within it is its CHECK's to refuse.
+ */
+const drawnValue = (
+	row: Row,
+	column: Column,
+	value: number
+): Result.Result<unknown, FillRefusal> => {
+	const stored = storedValue(column.spec, integerHostOf(column.spec.carrier, BigInt(value)))
+	return stored.ok ? Result.ok(stored.value) : Result.err(refusalAt(row, column, outsideCarrier))
 }
 
 /** One step of a fold's combine on host values (ir/monoid.ts combine), plane `plane`'s after, at the after's carrier, a
@@ -988,23 +1005,23 @@ const ruleValue = (
 		case "base":
 			return Result.ok(rule.base)
 		case "index":
-			return Result.ok(BigInt(row.place.kind === "member" ? row.place.at : 0))
+			return drawnValue(row, column, row.place.kind === "member" ? row.place.at : 0)
 		case "copy":
 			switch (row.place.kind) {
 				case "top":
 					throw defect(`a row of ${row.layout.relation.name} in a family`)
 				case "entered":
 				case "root":
-					return Result.ok(BigInt(row.counts.get(row.place.family) ?? 0))
+					return drawnValue(row, column, row.counts.get(row.place.family) ?? 0)
 				case "member":
-					return Result.ok(BigInt(row.place.owner.counts.get(row.place.family) ?? 0))
+					return drawnValue(row, column, row.place.owner.counts.get(row.place.family) ?? 0)
 			}
 		case "count":
-			return Result.ok(BigInt(row.counts.get(rule.family) ?? 0))
+			return drawnValue(row, column, row.counts.get(rule.family) ?? 0)
 		case "start":
-			return Result.ok(BigInt(treeOf(row).start))
+			return drawnValue(row, column, treeOf(row).start)
 		case "end":
-			return Result.ok(BigInt(treeOf(row).end))
+			return drawnValue(row, column, treeOf(row).end)
 		case "predecessor":
 			return row.place.kind !== "member" || row.place.predecessor === undefined
 				? Result.ok(rule.base)
@@ -1040,7 +1057,7 @@ const ruleValue = (
 			if (!x.ok) {
 				return x
 			}
-			const after = stepped(rule.fold, rule.family, rule.plane, befores, x.value, column.spec)
+			const after = stepped(rule.fold, rule.plane, befores, x.value, column.spec)
 			return after.ok ? after : Result.err(refusalAt(row, column, after.error))
 		}
 		case "generated": {

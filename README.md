@@ -2058,7 +2058,8 @@ Every field has one writer. An insert or a put takes exactly the fields its call
   `relation.generated(name, written, primaryKey, (r) => ({ f: generated(type, term) }))`, or a search document PostgreSQL
   parses from the row's texts, `searchDocument(configuration, [weight, text], ...)` ([Full text search](#full-text-search)).
 - **grizzle, drawn:** `drawn(natural)`, a family's count or index, and a tree's `start` and `end`
-  ([Families](#families)).
+  ([Families](#families)); or `drawn(c)`, c a contract over `pg.smallint`, `pg.integer` or `pg.bigint`, whose column
+  is c's and whose CHECK bounds every value grizzle draws into it.
 - **grizzle, accumulated:** `accumulated(type, start)`, a fold's end or accumulator, or a copy along a family's axis,
   `start` its value where the axis begins.
 - **Its group's retirement:** `retirement`, a retirable header's boolean, false when its row is inserted and true once
@@ -2558,6 +2559,15 @@ definition too.
 
 A family is a rule over rows the caller writes: each owner's members, counted by a drawn field of the owner.
 `fin(O, "n")`, a family's second argument, is the slots of O's drawn count `n`, never a side or a table.
+
+A family's count and an ordered family's index are of one type: `drawn(natural)`, or `drawn(c)` for c a contract over
+an integer, `contract("TestNumber", pg.integer, (n) => Logic.and(Logic.ge(n, 0), Logic.le(n, 2147483647)))`, which
+stores them in c's column, an int4 here, so a field of c elsewhere is contained in the indexes and they in it. An index
+and a count of two types are refused when the schema compiles (`an ordered family's index is of its count's type`), and
+`drawn` of any other type is a type error. A count past c's bound is `refused` on c's contract: past its CHECK by the
+CHECK, and past its carrier, smallint's 32,767 or integer's 2,147,483,647, by the family's statement where it draws a
+stored group, and as its input (`integerRange`) before any statement where the host draws a fresh one. No drawn value is
+ever wrapped. pred reads a natural alone.
 
 - **`ordered(on(F, g…, "at"), fin(O, "n"))`**: each owner's members, their group `g…` paired with O's primary key,
   indexed by their drawn `at` exactly 0 … n − 1, in order.

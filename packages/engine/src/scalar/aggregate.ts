@@ -21,8 +21,8 @@ import {
 	valueType
 } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { naturalDescriptor } from "#compiler/scalar/natural.ts"
-import { describeFieldOrThrow, numericValue } from "#compiler/scalar/registry.ts"
+import { naturalType } from "#compiler/scalar/natural.ts"
+import { numericValue } from "#compiler/scalar/registry.ts"
 import { numericMaxIntegerDigits, resultDigits } from "#compiler/scalar/values/fault.ts"
 
 export type AggregateName = "count" | "sum" | "mean" | "min" | "max"
@@ -403,9 +403,6 @@ export const countOverload = (): CountOverload => ({
 	result: naturalType,
 	lowering: native
 })
-
-/** natural's type, a count's (countOverload). */
-const naturalType = describeFieldOrThrow(naturalDescriptor, SourceLoc("natural", [])).scalar
 
 /** The overload of an aggregate of one argument of type `arg`, refused where PostgreSQL defines none. */
 export const unaryOverload = (

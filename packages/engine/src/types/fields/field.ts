@@ -398,9 +398,40 @@ export interface UnwrittenField {
 	readonly writing: WritingTag
 }
 
-/** A natural grizzle draws: a family's index or count, or a tree's start or end. In a Fact, never in an Addition. */
-export interface DrawnField extends NaturalField, UnwrittenField {
+/**
+ * The refusal of a type grizzle draws no value of, nothing for one it does (DrawnField): natural, or a contract whose
+ * base is an integer, int2, int4 or int8, whose own CHECK bounds every value drawn into it.
+ */
+export type DrawnType<F> = [F] extends [NaturalField]
+	? unknown
+	: [F] extends [
+				{
+					readonly name: string
+					readonly base: FieldBase
+					readonly sql: "smallint" | "integer" | "bigint"
+				}
+		  ]
+		? unknown
+		: Refusal<"drawn(type): natural or a contract over an integer, the types a family's index and count are of">
+
+/**
+ * A value of the type F grizzle draws, natural or a contract over an integer (DrawnType): a family's index or count, or
+ * a tree's start or end. Its column, SQL type, domain, facts and language are F's, so a contract's is read and paired
+ * as every field of the contract is, and `field` is F, a natural's telling a field pred reads (NaturalIn). In a Fact,
+ * never in an Addition.
+ */
+export interface DrawnField<out F extends FieldBase = NaturalField>
+	extends
+		Built,
+		FieldMarked,
+		UnwrittenField,
+		Domained<DomainOf<F>>,
+		Proving<FactsOf<F>>,
+		Languaged<LanguageOf<F>> {
 	readonly writing: "drawn"
+	readonly field: F
+	readonly column: F["column"]
+	readonly sql: F["sql"]
 }
 
 /**

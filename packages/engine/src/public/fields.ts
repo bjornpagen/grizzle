@@ -60,6 +60,7 @@ import type {
 	Contract,
 	DateField,
 	DrawnField,
+	DrawnType,
 	Field,
 	FieldBase,
 	GeneratedField,
@@ -104,6 +105,7 @@ export type {
 	Contract,
 	DateField,
 	DrawnField,
+	DrawnType,
 	Field,
 	FieldBase,
 	GeneratedField,
@@ -344,11 +346,14 @@ export const retirement: RetirementField = retirementField(pgDescriptors.boolean
  */
 export const instant: InstantField = instantDescriptor
 
-/** drawn(natural): a natural grizzle draws from the nested arrays its caller writes (schema/relation.ts drawnField). */
-export const drawn: DrawnConstructor = (
-	type: NaturalField,
+/**
+ * drawn(type): a value of `type`, natural or a contract over an integer, grizzle draws from the nested arrays its caller
+ * writes (schema/relation.ts drawnField).
+ */
+export const drawn: DrawnConstructor = <const F extends FieldBase>(
+	type: F & DrawnType<F>,
 	...extra: ReadonlyArray<never>
-): DrawnField => drawnField(type, extra)
+): DrawnField<F> => drawnField<F>(type, extra)
 
 /**
  * place: a row's place in its group, its primary key's fields before it, a natural the insert that adds the row stamps

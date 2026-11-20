@@ -23,11 +23,11 @@ import type {
 	ClosedSubset,
 	Contract,
 	DrawnField,
+	DrawnType,
 	Field,
 	FieldBase,
 	GeneratedField,
 	Infer,
-	NaturalField,
 	NamedId,
 	NoWriting,
 	NotInstant,
@@ -172,8 +172,11 @@ export type BitsConstructor = <C extends AnyRoster>(
 	roster: C & { readonly handles: ReadonlyArray<HandleOf<C>> }
 ) => BitsField<C>
 
-/** drawn(natural): a natural grizzle draws, a family's index or count or a tree's start or end. */
-export type DrawnConstructor = (type: NaturalField) => DrawnField
+/**
+ * drawn(type): a value grizzle draws, a family's index or count or a tree's start or end, of `type`, natural or a
+ * contract over an integer (DrawnType).
+ */
+export type DrawnConstructor = <const F extends FieldBase>(type: F & DrawnType<F>) => DrawnField<F>
 
 /**
  * An accumulated field is of a value type: no span, no vector, and no field of a writing of its own; and no bytes, which

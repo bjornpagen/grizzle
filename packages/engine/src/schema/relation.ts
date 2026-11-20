@@ -66,7 +66,7 @@ import {
 import { termExpr } from "#compiler/scalar/compute/term.ts"
 import { storedLiteral } from "#compiler/scalar/literal.ts"
 import { unnamedIdRefusal } from "#compiler/scalar/minted.ts"
-import { isNaturalDesc, naturalDescriptor } from "#compiler/scalar/natural.ts"
+import { drawnTypes, isDrawnType, naturalDescriptor } from "#compiler/scalar/natural.ts"
 import {
 	carrierSql,
 	type Described,
@@ -110,7 +110,6 @@ import type {
 	GeneratedField,
 	Field,
 	HandleOf,
-	NaturalField,
 	RetirementField
 } from "#compiler/types/fields/field.ts"
 import type {
@@ -236,22 +235,26 @@ export const writingOf = (value: unknown): Writing => {
 const callerWriting: Writing = Object.freeze({ kind: "caller" })
 
 /**
- * drawn(type): a natural grizzle draws from the nested arrays its caller writes, a family's index or count or a
- * tree's start or end. The value carries the natural's column and SQL type, so it is read as every natural is.
+ * drawn(type): a value of `type` grizzle draws from the nested arrays its caller writes, a family's index or count or a
+ * tree's start or end: natural, or a contract over an integer (scalar/natural.ts isDrawnType). The value carries its
+ * type, its column and its SQL type, so it is read as every field of its type is.
  */
-export const drawnField = (type: NaturalField, extra: ReadonlyArray<unknown>): DrawnField => {
+export const drawnField = <F extends FieldBase>(
+	type: F,
+	extra: ReadonlyArray<unknown>
+): DrawnField<F> => {
 	if (extra.length > 0) {
 		throw malformed("drawn", "drawn(type): one argument")
 	}
-	const described = describedField(type, "drawn type")
-	if (!isNaturalDesc(described.desc) || fieldEntryOf(type)?.kind === "written") {
-		throw malformed("drawn", "natural, the one type a family's index and count are of")
+	const described = valueTypeOf(type, "drawn type", () => builderRefusal("drawn", drawnTypes))
+	if (!isDrawnType(described.desc, described.scalar)) {
+		throw builderRefusal("drawn", drawnTypes)
 	}
-	const value: DrawnField = Object.freeze({
+	const value: DrawnField<F> = Object.freeze({
 		...builtMark,
 		...fieldMark,
 		writing: "drawn",
-		natural: true,
+		field: type,
 		column: type.column,
 		sql: type.sql
 	})

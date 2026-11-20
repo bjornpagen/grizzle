@@ -62,6 +62,8 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
+import { contractLawIdentity } from "#compiler/analysis/theory/theory.ts"
+import { identifierOf } from "#compiler/core/identity.ts"
 import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { AppendStart, FillColumn } from "#compiler/ir/fill.ts"
@@ -92,6 +94,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import type { LaidLayout } from "#compiler/runtime/write/nesting.ts"
+import { drawnNarrowing } from "#compiler/scalar/natural.ts"
 import type {
 	Assignment,
 	Cte,
@@ -121,6 +124,7 @@ import {
 	exists,
 	firstNonNull,
 	join,
+	le,
 	lit,
 	ne,
 	not,
@@ -129,6 +133,7 @@ import {
 	operandUnionAll,
 	or,
 	provedCore,
+	qualifiedCall,
 	select,
 	simpleSelect,
 	target,
@@ -220,7 +225,7 @@ import {
 	probeKey,
 	storedAt
 } from "#compiler/write/probe.ts"
-import { refusalGuard, refusalRank } from "#compiler/write/refusal.ts"
+import { raised, refusalFunctionName, refusalGuard, refusalRank } from "#compiler/write/refusal.ts"
 
 /**
  * Where a member relation's appended rows come from:
@@ -1171,6 +1176,51 @@ const unionOf = (
  * CTE pushed onto `ctes`. Where the family's appends draw its groups whole (`start`, ir/fill.ts AppendStart), each
  * group's stored members stand before its appended rows at their own slots, drawn from slot 0 (`wholeRows`).
  */
+/**
+ * A family's new count as its statement draws it, `count`, a bigint, for the group its member's `group` values name,
+ * narrowed into its count field's carrier: where that carrier is below bigint, smallint or integer, a drawn
+ * contract's (scalar/natural.ts isDrawnType), a count past the carrier's greatest value refuses the statement on the
+ * count's contract, the one law a count past the bound breaks, raised under the owner's key before PostgreSQL would
+ * narrow the count into the column and raise 22003, as the contract's CHECK refuses a count past its bound within the
+ * carrier. A count of a bigint carrier is drawn in its own carrier, as it was.
+ */
+const drawnCount = (
+	w: WriteContext,
+	family: Family,
+	group: ReadonlyArray<Expr>,
+	count: Expr
+): Expr => {
+	const narrowing = drawnNarrowing(family.count.type)
+	if (narrowing === undefined) {
+		return count
+	}
+	const law = identifierOf(contractLawIdentity(narrowing.contract))
+	const refusal = raised({
+		kind: "law",
+		law,
+		relation: family.owner.name,
+		key: family.group.map((p, i) => ({
+			field: p.owner.name,
+			expr: defined(group[i], "a group value"),
+			type: p.owner.type
+		}))
+	})
+	const refuse = qualifiedCall(w.names.schema, refusalFunctionName, [
+		lit.text(refusal.state, types.text),
+		lit.text(law, types.text),
+		refusal.detail
+	])
+	return {
+		kind: "case",
+		operand: undefined,
+		whens: [
+			{ when: le(count, lit.int(narrowing.greatest, types.bigint)), result: count },
+			{ when: refuse, result: count }
+		],
+		else: count
+	}
+}
+
 const appendScan = (
 	w: WriteContext,
 	supply: NameSupply,
@@ -1666,7 +1716,15 @@ const appendScan = (
 										rows.slot
 									),
 									targetAs(kept, rows.first),
-									targetAs(cast(binary("+", kept, countOver(aGroup)), bigint), rows.count),
+									targetAs(
+										drawnCount(
+											w,
+											family,
+											aGroup,
+											cast(binary("+", kept, countOver(aGroup)), bigint)
+										),
+										rows.count
+									),
 									...[...appended.columns].map(([k, c]) => targetAs(col(a, c), columnAt(rows, k))),
 									...[...rows.owner].map(([k, c]) =>
 										targetAs(col(g2, defined(groups.owner.get(k), "a group owner column")), c)
@@ -1898,8 +1956,8 @@ const wholeRows = (
 		undefined
 	)
 	const uGroup = mapNonEmpty(u.group, (c) => col(u.alias, c))
-	/** The group's new count: its stored members and its appended rows. */
-	const count = (): Expr => cast(countOver(uGroup), bigint)
+	/** The group's new count: its stored members and its appended rows, within its count's carrier (drawnCount). */
+	const count = (): Expr => drawnCount(w, family, uGroup, cast(countOver(uGroup), bigint))
 	const atRow: Read = (key) => {
 		if (key === countKey) {
 			return count()

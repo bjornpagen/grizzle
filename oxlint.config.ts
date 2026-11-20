@@ -68,6 +68,7 @@ const DICTIONARY_MINTS = [
 	"test/types/schema/budget/scaling.dictionary.ts",
 	"test/types/schema/generic.dictionary.ts",
 	"test/types/schema/generic-base.dictionary.ts",
+	"test/types/schema/drawn-types.dictionary.ts",
 	"test/types/skeleton/budget/invariance.dictionary.ts",
 	"test/types/text/regex.dictionary.ts",
 	"test/unit/bench/harness.dictionary.ts",

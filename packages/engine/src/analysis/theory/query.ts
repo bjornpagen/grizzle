@@ -38,7 +38,7 @@ import type {
 import { connectiveExpr, exprChildren, mapExpr, refusalCondition } from "#compiler/ir/desc.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
 import type { Unit } from "#compiler/ir/unit.ts"
-import { guardedTerm } from "#compiler/scalar/natural.ts"
+import { type GuardedTerm, guardedTerm, naturalType } from "#compiler/scalar/natural.ts"
 
 /**
  * Rules over queries: a rule whose side reads a derived relation, judged on its definition, live.
@@ -681,6 +681,9 @@ export const headingOf = (
 		: [field, ...fields]
 }
 
+/** A rule's side's term as a row expression: a field, or pred of a natural, the one type a side's pred reads. */
+const sideTerm = (term: TermDesc): GuardedTerm => guardedTerm(term, naturalType)
+
 /**
  * The arms of a side over the derived relation whose live arms are `arms`: each arm with the side's selection, its
  * conjuncts over the heading read at the arm's head, among its conditions, each term's guard (pred(x) above zero)
@@ -699,7 +702,7 @@ export const derivedSideArms = (
 				arm.head[f] ??
 				refuse("MalformedDescription", loc, `a side reading fields of its relation; ${f} is none`)
 		}
-		const guarded = mapNonEmpty(terms, guardedTerm)
+		const guarded = mapNonEmpty(terms, sideTerm)
 		return {
 			...arm,
 			where: [
@@ -743,7 +746,7 @@ export const storedSideArm = (
 	const id = (f: string): string => `${prefix}${f}`
 	const leaves: LeafRewrite = { var: () => undefined, field: (f) => varRef(id(f)) }
 	const bound = Object.fromEntries(fields.map((f) => [f, varRef(id(f))] as const))
-	const guarded = mapNonEmpty(terms, guardedTerm)
+	const guarded = mapNonEmpty(terms, sideTerm)
 	return {
 		vars: fields.map((f) => ({ id: id(f), origin: { relation, field: f }, loc })),
 		matches: [{ relation, bindings: bound, loc }],
@@ -1201,7 +1204,7 @@ const wholeSide = (
 	const id = (f: string): string => `${prefix}${f}`
 	const leaves: LeafRewrite = { var: () => undefined, field: (f) => varRef(id(f)) }
 	const bound = Object.fromEntries(fields.map((f) => [f, varRef(id(f))] as const))
-	const guarded = mapNonEmpty(side.terms, guardedTerm)
+	const guarded = mapNonEmpty(side.terms, sideTerm)
 	return {
 		vars: fields.map((f) => ({ id: id(f), origin: { relation: side.relation, field: f }, loc })),
 		match: { source: liveSource(side.relation, definition), bindings: bound, loc },

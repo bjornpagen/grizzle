@@ -305,6 +305,13 @@ const spanHost = (
 }
 
 /**
+ * An integer's host value at a carrier: a JavaScript integer for smallint and integer, a bigint for every other, as a
+ * column of the carrier reads it and a literal opposite a term of it is written.
+ */
+export const integerHostOf = (carrier: Carrier, value: bigint): number | bigint =>
+	carrier === "int2" || carrier === "int4" ? Number(value) : value
+
+/**
  * The host value of a typed literal at its type's carrier `carrier`, the codec's own (scalar/values/identity.ts
  * CarrierHost): what the evaluator holds a literal as, a fill writes a literal start as and a closed relation's cell is
  * read as. A literal over smallint or integer is a JavaScript integer and over bigint a bigint, a numeric a Decimal,
@@ -326,7 +333,7 @@ const integerOfLiteral = (d: Decimal): bigint => {
 export const hostOfLiteral = (carrier: Carrier, literal: TypedLiteral): HostValue => {
 	switch (literal.kind) {
 		case "int":
-			return carrier === "int2" || carrier === "int4" ? Number(literal.value) : literal.value
+			return integerHostOf(carrier, literal.value)
 		case "numeric": {
 			const d = Decimal.fromValue(literal.value)
 			return carrier === "exactInteger" ? integerOfLiteral(d) : d

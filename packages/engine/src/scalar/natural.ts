@@ -1,10 +1,16 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { Column } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
+import { integerRanges } from "#compiler/ir/carriers.ts"
 import { descText, type ExprDesc, type FieldDesc, type TermDesc } from "#compiler/ir/desc.ts"
+import { isInstantType } from "#compiler/ir/instant.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
+import { integerHostOf } from "#compiler/scalar/compute/literal.ts"
 import { contractParts } from "#compiler/scalar/contract.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
-import { defineField } from "#compiler/scalar/registry.ts"
+import { defineField, describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 
 /**
  * natural's admission: the contract `natural` over pg.bigint, whose values are never below zero, which it declares it
@@ -40,6 +46,12 @@ export const naturalDescriptor = defineField(
 	parts.env
 )
 
+/** natural's type, a count's (scalar/aggregate.ts countOverload) and every pred a side's caller writes. */
+export const naturalType: ScalarType = describeFieldOrThrow(
+	naturalDescriptor,
+	SourceLoc("natural", [])
+).scalar
+
 /** A field descriptor's canonical text, its identity. A decoded descriptor always has one, so a failure is a defect. */
 const fieldText = (desc: FieldDesc): string => {
 	const text = descText(desc)
@@ -61,6 +73,51 @@ const naturalText = fieldText(parts.desc)
 export const isNaturalDesc = (desc: FieldDesc): boolean => fieldText(desc) === naturalText
 
 /**
+ * What drawn refuses a type for: grizzle draws a natural, or a value of a contract over an integer, whose own CHECK
+ * bounds every value drawn into it.
+ */
+export const drawnTypes: Refused =
+	"drawn(type): natural or a contract over an integer, the types a family's index and count are of"
+
+/**
+ * Whether grizzle draws values of a type, its descriptor and its scalar type: natural (isNaturalDesc), or a contract
+ * whose base is an integer, int2, int4 or int8, but instant, the database's clock's. A drawn value is exact, counted
+ * from 0, and enters its column as every value does: the column's carrier and the contract's CHECK refuse one they do
+ * not hold.
+ */
+export const isDrawnType = (desc: FieldDesc, scalar: ScalarType): boolean => {
+	if (isNaturalDesc(desc)) {
+		return true
+	}
+	const carrier = baseOf(scalar).carrier
+	return (
+		scalar.contract !== undefined &&
+		!isInstantType(scalar) &&
+		(carrier === "int2" || carrier === "int4" || carrier === "int8")
+	)
+}
+
+/**
+ * Where a drawn type's values, drawn exactly in bigint, are narrowed into a carrier below bigint, smallint's or
+ * integer's (isDrawnType): its greatest value, and the contract whose law a value past it breaks, the type's own; none
+ * for a type of bigint's carrier, natural's among them, whose values are drawn in their own carrier.
+ */
+export interface DrawnNarrowing {
+	readonly greatest: bigint
+	readonly contract: string
+}
+
+export const drawnNarrowing = (type: ScalarType): DrawnNarrowing | undefined => {
+	const carrier = baseOf(type).carrier
+	return carrier === "int2" || carrier === "int4"
+		? {
+				greatest: integerRanges[carrier][1],
+				contract: defined(type.contract, "a drawn type below bigint is a contract").name
+			}
+		: undefined
+}
+
+/**
  * A law side's term as a row expression over its relation's own fields: its value, and the guard it is defined under,
  * conjuncts that all hold where it is. A field is itself, defined on every row. pred(x), natural's destructor, is
  * `x - 1` under `x > 0`, computed at the field's own type: above zero the difference is a natural, so it never leaves
@@ -72,17 +129,32 @@ export interface GuardedTerm {
 	readonly term: ExprDesc
 }
 
-/** pred(x) over the natural field `field` (`GuardedTerm`). */
-const predTerm = (field: string): GuardedTerm => {
+/**
+ * pred(x) over the field `field` of `type`, a drawn type (isDrawnType): its 0 and its 1 written as a value of its
+ * carrier is, so they meet x at x's own type (`GuardedTerm`).
+ */
+const predTerm = (field: string, type: ScalarType): GuardedTerm => {
 	const x: ExprDesc = { kind: "field", field }
+	const integer = (value: bigint): ExprDesc => ({
+		kind: "literal",
+		value: integerHostOf(baseOf(type).carrier, value)
+	})
 	return {
-		guard: [{ kind: "compare", op: "gt", left: x, right: { kind: "literal", value: 0n } }],
-		term: { kind: "compute", fn: "sub", args: [x, { kind: "literal", value: 1n }] }
+		guard: [{ kind: "compare", op: "gt", left: x, right: integer(0n) }],
+		term: { kind: "compute", fn: "sub", args: [x, integer(1n)] }
 	}
 }
 
-/** A side's term as a row expression (`GuardedTerm`): a field's own value, or pred's. */
-export const guardedTerm = (term: TermDesc): GuardedTerm =>
-	term.kind === "field"
-		? { guard: [], term: { kind: "field", field: term.field } }
-		: predTerm(term.field)
+/**
+ * A side's term as a row expression (`GuardedTerm`), the term's field of `type`: a field's own value, or pred's. A
+ * side's pred, which its caller writes, reads a natural alone (schema/statements.ts admitOn); a family's law reads pred
+ * of its index and its count, a drawn type's.
+ */
+export const guardedTerm = (term: TermDesc, type: ScalarType): GuardedTerm =>
+	term.kind === "field" ? valueTerm(term.field) : predTerm(term.field, type)
+
+/** A field's own value as a side's term, defined on every row (`GuardedTerm`). */
+export const valueTerm = (field: string): GuardedTerm => ({
+	guard: [],
+	term: { kind: "field", field }
+})

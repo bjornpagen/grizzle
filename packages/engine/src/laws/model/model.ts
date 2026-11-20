@@ -123,7 +123,7 @@ import { type RelationLaws, relationLaws } from "#compiler/laws/model/uniques.ts
 import { lowerPredicate, lowerTerm } from "#compiler/scalar/compute/lower.ts"
 import { bytesType } from "#compiler/scalar/compute/types.ts"
 import { type ClosedRelations, type LeafDesc, noParams } from "#compiler/scalar/compute/typing.ts"
-import { guardedTerm } from "#compiler/scalar/natural.ts"
+import { guardedTerm, valueTerm } from "#compiler/scalar/natural.ts"
 import { ProgramPatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import type { Slice } from "#compiler/schema/reach.ts"
@@ -952,7 +952,7 @@ class ColumnLowering {
 					term: this.#ext.typed(plan.value, plan.field.type)
 				}
 			case "term": {
-				const own = guardedTerm(plan.term)
+				const own = guardedTerm(plan.term, plan.term.column.type)
 				return {
 					kind: "generated",
 					guard: [
@@ -964,7 +964,7 @@ class ColumnLowering {
 			}
 			case "indexPred": {
 				const index = this.#identifier(plan.index)
-				const own = guardedTerm({ kind: "pred", field: index })
+				const own = guardedTerm({ kind: "pred", field: index }, plan.field.type)
 				const env = this.#env(row, loc, new Map([[index, plan.field.type]]))
 				return {
 					kind: "generated",
@@ -987,8 +987,7 @@ class ColumnLowering {
 	): Extract<LawColumnValue, { readonly kind: "image" }> {
 		const of = plan.of
 		const read = (field: string, lawColumns: ReadonlyMap<string, ScalarType>): ScalarExpr =>
-			unwrap(lowerTerm(guardedTerm({ kind: "field", field }).term, this.#env(row, loc, lawColumns)))
-				.expr
+			unwrap(lowerTerm(valueTerm(field).term, this.#env(row, loc, lawColumns))).expr
 		const value = ((): Pick<
 			Extract<LawColumnValue, { readonly kind: "image" }>,
 			"guard" | "term"

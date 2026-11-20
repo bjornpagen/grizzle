@@ -142,10 +142,8 @@ export const theNativeConstraintsGrizzleInstallsAcceptEveryStateOfARulesBoxExact
 				},
 				{
 					file: "packages/engine/src/scalar/natural.ts",
-					original:
-						'\t\tguard: [{ kind: "compare", op: "gt", left: x, right: { kind: "literal", value: 0n } }],',
-					replacement:
-						'\t\tguard: [{ kind: "compare", op: "ge", left: x, right: { kind: "literal", value: 0n } }],',
+					original: '\t\tguard: [{ kind: "compare", op: "gt", left: x, right: integer(0n) }],',
+					replacement: '\t\tguard: [{ kind: "compare", op: "ge", left: x, right: integer(0n) }],',
 					why: "pred(x) is guarded by x >= 0 (scalar/natural.ts predTerm), so pred(0) is −1 where it is NULL; the fin box and the fin programs fail, the closure refusing slot 0, as do the box, the explored schemas, grizzle's own families and the pairs."
 				}
 			]
@@ -207,10 +205,8 @@ export const theNativeConstraintsGrizzleInstallsAcceptADrawnSchemasStatesExactly
 			},
 			{
 				file: "packages/engine/src/scalar/natural.ts",
-				original:
-					'\t\tguard: [{ kind: "compare", op: "gt", left: x, right: { kind: "literal", value: 0n } }],',
-				replacement:
-					'\t\tguard: [{ kind: "compare", op: "ge", left: x, right: { kind: "literal", value: 0n } }],',
+				original: '\t\tguard: [{ kind: "compare", op: "gt", left: x, right: integer(0n) }],',
+				replacement: '\t\tguard: [{ kind: "compare", op: "ge", left: x, right: integer(0n) }],',
 				why: "pred(x) is guarded by x >= 0 (scalar/natural.ts predTerm), so pred(0) is −1 where it is NULL; the fin box and the fin programs fail, the closure refusing slot 0, as do the box, the explored schemas, grizzle's own families and the pairs."
 			}
 		]
@@ -250,10 +246,8 @@ export const theNativeConstraintsGrizzleInstallsHoldTheFinLemmasLawsExactlyAsThe
 		kills: [
 			{
 				file: "packages/engine/src/scalar/natural.ts",
-				original:
-					'\t\tguard: [{ kind: "compare", op: "gt", left: x, right: { kind: "literal", value: 0n } }],',
-				replacement:
-					'\t\tguard: [{ kind: "compare", op: "ge", left: x, right: { kind: "literal", value: 0n } }],',
+				original: '\t\tguard: [{ kind: "compare", op: "gt", left: x, right: integer(0n) }],',
+				replacement: '\t\tguard: [{ kind: "compare", op: "ge", left: x, right: integer(0n) }],',
 				why: "pred(x) is guarded by x >= 0 (scalar/natural.ts predTerm), so pred(0) is −1 where it is NULL; the fin box and the fin programs fail, the closure refusing slot 0, as do the box, the explored schemas, grizzle's own families and the pairs."
 			}
 		]
@@ -305,10 +299,8 @@ export const theNativeConstraintsGrizzleInstallsHoldTheFinLemmasLawsOnEveryState
 		kills: [
 			{
 				file: "packages/engine/src/scalar/natural.ts",
-				original:
-					'\t\tguard: [{ kind: "compare", op: "gt", left: x, right: { kind: "literal", value: 0n } }],',
-				replacement:
-					'\t\tguard: [{ kind: "compare", op: "ge", left: x, right: { kind: "literal", value: 0n } }],',
+				original: '\t\tguard: [{ kind: "compare", op: "gt", left: x, right: integer(0n) }],',
+				replacement: '\t\tguard: [{ kind: "compare", op: "ge", left: x, right: integer(0n) }],',
 				why: "pred(x) is guarded by x >= 0 (scalar/natural.ts predTerm), so pred(0) is −1 where it is NULL; the fin box and the fin programs fail, the closure refusing slot 0, as do the box, the explored schemas, grizzle's own families and the pairs."
 			}
 		]
@@ -341,10 +333,8 @@ export const theNativeConstraintsGrizzleInstallsHoldGrizzlesOwnFamiliesOrderedAn
 		kills: [
 			{
 				file: "packages/engine/src/scalar/natural.ts",
-				original:
-					'\t\tguard: [{ kind: "compare", op: "gt", left: x, right: { kind: "literal", value: 0n } }],',
-				replacement:
-					'\t\tguard: [{ kind: "compare", op: "ge", left: x, right: { kind: "literal", value: 0n } }],',
+				original: '\t\tguard: [{ kind: "compare", op: "gt", left: x, right: integer(0n) }],',
+				replacement: '\t\tguard: [{ kind: "compare", op: "ge", left: x, right: integer(0n) }],',
 				why: "pred(x) is guarded by x >= 0 (scalar/natural.ts predTerm), so pred(0) is −1 where it is NULL; the fin box and the fin programs fail, the closure refusing slot 0, as do the box, the explored schemas, grizzle's own families and the pairs."
 			},
 			{
@@ -491,10 +481,8 @@ export const theNativeConstraintsGrizzleInstallsKeepTwoLawsOverSelectionsOfOneRe
 			},
 			{
 				file: "packages/engine/src/scalar/natural.ts",
-				original:
-					'\t\tguard: [{ kind: "compare", op: "gt", left: x, right: { kind: "literal", value: 0n } }],',
-				replacement:
-					'\t\tguard: [{ kind: "compare", op: "ge", left: x, right: { kind: "literal", value: 0n } }],',
+				original: '\t\tguard: [{ kind: "compare", op: "gt", left: x, right: integer(0n) }],',
+				replacement: '\t\tguard: [{ kind: "compare", op: "ge", left: x, right: integer(0n) }],',
 				why: "pred(x) is guarded by x >= 0 (scalar/natural.ts predTerm), so pred(0) is −1 where it is NULL; the fin box and the fin programs fail, the closure refusing slot 0, as do the box, the explored schemas, grizzle's own families and the pairs."
 			}
 		]

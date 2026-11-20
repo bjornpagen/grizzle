@@ -1,0 +1,387 @@
+/**
+ * A family drawn over a contract over an integer, on PostgreSQL 19: `drawn(c)`, c natural or a contract whose base is
+ * int2, int4 or int8, types an ordered family's count and its index by c, its column c's domain over c's base, so a
+ * field of c elsewhere, metis's test number, is contained in the family's held numbers and they in it under the
+ * containment's one identity rule. Each kind of the box (drawn-types.fixtures.ts) is a series, its issued numbers and
+ * the tests that hold the held ones: natural; a contract from 0 to 3 over smallint, integer and bigint; metis's
+ * contract over integer from 0 to 2,147,483,647; and a contract over smallint from 0, bounded by its carrier alone.
+ *
+ * Property, per case: a first call issues numbers to a fresh series, which the host draws, and a second appends to the
+ * stored series, which the family's statement draws past its stored numbers, each call stating a test for every held
+ * number it issues. Each call is accepted exactly where its series' count stays within the kind's greatest, its
+ * contract's bound or its carrier's, and then the series counts every number, each number reads back as its place from
+ * 0, a JavaScript integer over smallint and integer and a bigint over bigint, as the column's carrier is read; past it,
+ * the call is `refused` on the kind's contract, the one law a count past the bound breaks, and the tables hold what
+ * they held. No value is ever wrapped, and no call fails otherwise. Oracle: the model (expectedOf), every value
+ * compared as an integer.
+ *
+ * Features: each kind, a count at its contract's and at its carrier's bound, a call past each refused, the
+ * containments in each direction, an append to a stored series.
+ */
+import { assert } from "@bjornpagen/testing/assert"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
+import { Db } from "#adapter/public/db.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
+import type { CallError, CallErrorOf } from "#compiler/live/index.ts"
+import type { WriteOutcome } from "#compiler/live/program.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
+import { openedIn } from "#test/pg/reads/support.ts"
+import {
+	contractOf,
+	Drawn,
+	type DrawnFeature,
+	drawnInstall,
+	drawnTemplate,
+	type Expected,
+	expectedOf,
+	type Issues,
+	type Issuing,
+	issuingGen,
+	type Kind,
+	kinds,
+	situations,
+	Big,
+	Small,
+	Tall,
+	Whole,
+	Wide
+} from "#test/pg/write/drawn-types/drawn-types.fixtures.ts"
+import { answered, type WriteAnswer } from "#test/support/calls.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
+import { withLayer } from "#test/support/with-layer.ts"
+
+/** The features a case reaches, by the model's answers to its two calls. */
+const featuresOf = (
+	c: Issuing,
+	first: Expected,
+	second: Expected | undefined
+): ReadonlyArray<DrawnFeature> => {
+	const kind: Readonly<Record<Kind, DrawnFeature>> = {
+		Natural: "natural",
+		Small: "a contract over smallint",
+		Whole: "a contract over integer",
+		Big: "a contract over bigint",
+		Wide: "metis's test number",
+		Tall: "a contract over smallint"
+	}
+	const { most, carrier } = kinds[c.kind]
+	const answers = [first, ...(second === undefined ? [] : [second])]
+	const counts = Arr.flatMap(answers, (e) => (e.kind === "accepted" ? [e.count] : []))
+	const reached: ReadonlyArray<readonly [boolean, DrawnFeature]> = [
+		[true, kind[c.kind]],
+		[counts.includes(most), "a count at its contract's bound"],
+		[counts.includes(carrier), "a count at its carrier's bound"],
+		[first.kind === "refused", "a first call past its contract's bound, refused"],
+		[first.kind === "input", "a fresh series past its carrier's bound, refused"],
+		[
+			second?.kind === "refused" && c.first.length + c.second.length > carrier,
+			"an append past its carrier's bound, refused"
+		],
+		[
+			second?.kind === "refused" && c.first.length + c.second.length <= carrier,
+			"an append past its contract's bound, refused"
+		],
+		[second?.kind === "accepted" && c.second.length > 0, "an append to a stored series"],
+		[
+			Arr.some(
+				answers,
+				(e) => e.kind === "accepted" && Arr.some(e.numbers, (n) => n.issue === "held")
+			),
+			"a held number in each direction of the containments"
+		]
+	]
+	return Arr.flatMap(reached, ([holds, feature]) => (holds ? [feature] : []))
+}
+
+/**
+ * A call's answer as the property reads it, whatever its kind: accepted, with the numbers its read-back decodes; refused,
+ * with the contracts whose laws the refusal names; or any other answer, which no case meets.
+ */
+type Answer =
+	| {
+			readonly kind: "accepted"
+			readonly rows: ReadonlyArray<{ readonly number: number | bigint; readonly issue: string }>
+	  }
+	| { readonly kind: "refused"; readonly contracts: ReadonlyArray<string>; readonly text: string }
+	| { readonly kind: "input"; readonly text: string }
+	| { readonly kind: "other"; readonly text: string }
+
+/** A call's answer (answerOf), its input refused before any statement among them, every other failure still its own. */
+const answerOfCall = (
+	write: Effect.Effect<WriteOutcome<Issued>, CallError>
+): Effect.Effect<Answer, CallError> =>
+	Effect.catchIf(Effect.map(answered(write), answerOf), isInput, (error) =>
+		Effect.succeed<Answer>({ kind: "input", text: error.message })
+	)
+
+/** Whether a call's failure is its input's refusal, before any statement. */
+const isInput = (error: CallError): error is CallErrorOf<"input"> => error.kind === "input"
+
+/** The read-back of a kind's call: each issued number as the query decodes it, and whether a test holds it. */
+type Issued = {
+	readonly issued: ReadonlyArray<{ readonly number: number | bigint; readonly issue: string }>
+}
+
+const answerOf = (answer: WriteAnswer<WriteOutcome<Issued>>): Answer => {
+	switch (answer.kind) {
+		case "accepted":
+			return {
+				kind: "accepted",
+				rows: Arr.map(answer.reads.issued, (row) => ({ number: row.number, issue: row.issue }))
+			}
+		case "refused":
+			return {
+				kind: "refused",
+				contracts: Arr.flatMap(answer.refused.laws, (l) =>
+					l.law.kind === "contract" ? [l.law.contract] : []
+				),
+				text: Formatter.format(answer.refused)
+			}
+		case "unchanged":
+		case "outsideWorld":
+			return { kind: "other", text: Formatter.format(answer) }
+	}
+}
+
+/** A drawn family over a contract over an integer counts and indexes by the contract, refused past its bound. */
+export const aFamilyDrawnOverAContractOverAnIntegerCountsAndIndexesByItsTypeAndIsRefusedPastItsBound =
+	property.explore(issuingGen, {
+		needs: { fixture: Substrate.seat(drawnTemplate) },
+		situations,
+		check:
+			({ fixture }, k: Case<DrawnFeature>) =>
+			(c) =>
+				Effect.flatMap(fixture, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const s = yield* Substrate
+							const o = yield* openedIn(Drawn, {}, drawnInstall, taken)
+							const names = o.installed.installation.names
+							return yield* Effect.gen(function* () {
+								const db = yield* Db.open(o.served.login.roles.app, {})
+								/**
+								 * The kind's member called with `issues` nested under the series, and a test of each number of
+								 * `held`: its answer, its read-back's numbers as the query decodes them.
+								 */
+								const issuing = (issues: Issues, held: ReadonlyArray<number>) => {
+									const series = [
+										{ series: "test" as const, issued: Arr.map(issues, (issue) => ({ issue })) }
+									]
+									switch (c.kind) {
+										case "Natural":
+											return answerOfCall(
+												db.workload.Natural.once({
+													params: {},
+													facts: {
+														insert: {
+															NaturalSeries: series,
+															NaturalNumber: Arr.map(held, (n) => ({
+																test: n + 1,
+																number: BigInt(n)
+															}))
+														}
+													}
+												})
+											)
+										case "Small":
+											return answerOfCall(
+												db.workload.Small.once({
+													params: {},
+													facts: {
+														insert: {
+															SmallSeries: series,
+															SmallNumber: Arr.map(held, (n) => ({
+																test: n + 1,
+																number: Small(n)
+															}))
+														}
+													}
+												})
+											)
+										case "Whole":
+											return answerOfCall(
+												db.workload.Whole.once({
+													params: {},
+													facts: {
+														insert: {
+															WholeSeries: series,
+															WholeNumber: Arr.map(held, (n) => ({
+																test: n + 1,
+																number: Whole(n)
+															}))
+														}
+													}
+												})
+											)
+										case "Big":
+											return answerOfCall(
+												db.workload.Big.once({
+													params: {},
+													facts: {
+														insert: {
+															BigSeries: series,
+															BigNumber: Arr.map(held, (n) => ({
+																test: n + 1,
+																number: Big(BigInt(n))
+															}))
+														}
+													}
+												})
+											)
+										case "Wide":
+											return answerOfCall(
+												db.workload.Wide.once({
+													params: {},
+													facts: {
+														insert: {
+															WideSeries: series,
+															WideNumber: Arr.map(held, (n) => ({ test: n + 1, number: Wide(n) }))
+														}
+													}
+												})
+											)
+										case "Tall":
+											return answerOfCall(
+												db.workload.Tall.once({
+													params: {},
+													facts: {
+														insert: {
+															TallSeries: series,
+															TallNumber: Arr.map(held, (n) => ({ test: n + 1, number: Tall(n) }))
+														}
+													}
+												})
+											)
+									}
+								}
+								/** The series' count and its numbers as PostgreSQL stores them, each an integer. */
+								const stored = Effect.gen(function* () {
+									const series = yield* s.admin.queryValues(
+										`SELECT ${quoteIdent(names.column(`${c.kind}Series`, "issued"))}::text FROM ${printObjectName(names.relation(`${c.kind}Series`))}`,
+										[]
+									)
+									const numbers = yield* s.admin.queryValues(
+										`SELECT ${quoteIdent(names.column(`${c.kind}Issued`, "number"))}::text FROM ${printObjectName(names.relation(`${c.kind}Issued`))} ORDER BY 1`,
+										[]
+									)
+									return {
+										count: Arr.map(series, (row) => BigInt(String(row[0]))),
+										numbers: Arr.map(numbers, (row) => BigInt(String(row[0])))
+									}
+								})
+								/** One call issuing `issues` after `before` numbers, held to the model's answer. */
+								const call = (before: Expected & { readonly kind: "accepted" }, issues: Issues) =>
+									Effect.gen(function* () {
+										const expected = expectedOf(c.kind, before.numbers, issues)
+										const held = Arr.flatMap(issues, (issue, i) =>
+											issue === "held" ? [before.numbers.length + i] : []
+										)
+										const answer = yield* issuing(issues, held)
+										const after = yield* stored
+										if (expected.kind === "refused" || expected.kind === "input") {
+											assert.equal(
+												answer.kind,
+												expected.kind,
+												`${c.kind}: a count of ${before.numbers.length + issues.length} past ${Math.min(kinds[c.kind].most, kinds[c.kind].carrier)} is ${expected.kind}, not ${answer.kind}: ${answer.kind === "accepted" ? "accepted" : answer.text}`
+											)
+											if (answer.kind === "refused") {
+												assert.ok(
+													answer.contracts.includes(contractOf[c.kind]),
+													`${c.kind}: the refusal names the contract ${contractOf[c.kind]}: ${answer.text}`
+												)
+											}
+											assert.deepEqual(
+												after.numbers,
+												Arr.map(before.numbers, (n) => BigInt(n.number)),
+												`${c.kind}: a refused call leaves the numbers stored`
+											)
+											return before
+										}
+										if (answer.kind !== "accepted") {
+											return assert.fail(
+												`${c.kind}: a count of ${expected.count} within its bounds is accepted, not ${answer.text}`
+											)
+										}
+										assert.deepEqual(
+											after.count,
+											[BigInt(expected.count)],
+											`${c.kind}: the series counts its ${expected.count} numbers`
+										)
+										assert.deepEqual(
+											after.numbers,
+											Arr.map(expected.numbers, (n) => BigInt(n.number)),
+											`${c.kind}: each number is its place from 0`
+										)
+										const read = Arr.sort(
+											answer.rows,
+											Order.mapInput(Order.BigInt, (row: (typeof answer.rows)[number]) =>
+												BigInt(row.number)
+											)
+										)
+										assert.ok(
+											Arr.every(read, (row) => typeof row.number === kinds[c.kind].host),
+											`${c.kind}: every number reads back as a ${kinds[c.kind].host}`
+										)
+										assert.deepEqual(
+											Arr.map(read, (row) => ({ number: BigInt(row.number), issue: row.issue })),
+											Arr.map(expected.numbers, (n) => ({
+												number: BigInt(n.number),
+												issue: n.issue
+											})),
+											`${c.kind}: the numbers read back by value`
+										)
+										return expected
+									})
+								const empty = { kind: "accepted", count: 0, numbers: [] } as const
+								const first = expectedOf(c.kind, [], c.first)
+								const afterFirst = yield* call(empty, c.first)
+								const second =
+									first.kind === "accepted"
+										? expectedOf(c.kind, first.numbers, c.second)
+										: undefined
+								if (first.kind === "accepted") {
+									yield* call(afterFirst, c.second)
+								}
+								k.noteAll(featuresOf(c, first, second))
+							}).pipe(Effect.scoped, withLayer(o.served.layer))
+						}).pipe(Effect.scoped),
+						Substrate,
+						taken.substrate
+					)
+				),
+		oracle: {
+			kind: "specification",
+			name: "each number its place from 0 and the count their number, compared as integers; refused on the contract past the kind's greatest count"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/write/family/additions.ts",
+				original: "\t\t\t{ when: refuse, result: count }\n\t\t],",
+				replacement: "\t\t],",
+				why: "The family's statement narrows a count past its carrier unguarded: an append that takes a tall series past 32,767 fails with PostgreSQL's 22003 instead of the contract's refusal."
+			},
+			{
+				file: "packages/engine/src/runtime/write/fill.ts",
+				original:
+					"\tconst stored = storedValue(column.spec, integerHostOf(column.spec.carrier, BigInt(value)))",
+				replacement: "\tconst stored = Result.ok(BigInt(value))",
+				why: "The host draws every value as a bigint, natural's host type, whatever its column: a series over smallint or integer is refused as its input, its count no JavaScript integer, instead of accepted."
+			},
+			{
+				file: "packages/engine/src/schema/relation.ts",
+				original:
+					'\tfieldEntries.set(value, { kind: "written", type, writing: { kind: "drawn" } })',
+				replacement:
+					'\tfieldEntries.set(value, { kind: "written", type: naturalDescriptor, writing: { kind: "drawn" } })',
+				why: "drawn(c) is installed as natural, an int8 column of natural's domain whatever c: a test of a contract's number is refused in a containment with the drawn numbers, the sides' field types differing, so the schema installs no template and no case runs."
+			},
+			{
+				file: "packages/engine/src/scalar/compute/literal.ts",
+				original: '\tcarrier === "int2" || carrier === "int4" ? Number(value) : value',
+				replacement: "\tvalue",
+				why: "pred's 0 and 1 are bigints whatever the drawn type: a family over a contract over smallint or integer reads its last member at a literal its type refuses, so the schema installs no template and no case runs."
+			}
+		]
+	})

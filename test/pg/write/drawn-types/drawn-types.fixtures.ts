@@ -1,0 +1,387 @@
+/**
+ * What the property of drawn-types.test.ts reads: its schema, the series of each drawn type, its programs, its space and
+ * its model.
+ */
+import type { Reached } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { Array as Arr } from "effect"
+import { ChangeSet } from "#compiler/public/changeset.ts"
+import { Logic } from "#compiler/public/compute.ts"
+import { closedId, contract, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import {
+	closed,
+	contained,
+	fin,
+	key,
+	mutable,
+	on,
+	ordered,
+	relation,
+	schema,
+	select
+} from "#compiler/public/schema.ts"
+import { fixtureTemplate } from "#test/pg/reads/support.ts"
+
+/** The one series, and whether a test holds an issued number. */
+const Series = closed.unordered("DrawnSeries", ["test"])
+const Issue = closed.unordered("DrawnIssue", ["held", "unused"])
+
+/** A count from 0 to 3 over each integer width, which a family of four members passes. */
+export const Small = contract("DrawnSmall", pg.smallint, (n) =>
+	Logic.and(Logic.ge(n, 0), Logic.le(n, 3))
+)
+export const Whole = contract("DrawnWhole", pg.integer, (n) =>
+	Logic.and(Logic.ge(n, 0), Logic.le(n, 3))
+)
+export const Big = contract("DrawnBig", pg.bigint, (n) =>
+	Logic.and(Logic.ge(n, 0n), Logic.le(n, 3n))
+)
+/** metis's test number: every int4 from 0, its bound its carrier's. */
+export const Wide = contract("DrawnWide", pg.integer, (n) =>
+	Logic.and(Logic.ge(n, 0), Logic.le(n, 2147483647))
+)
+/** A count over int2 bounded by its carrier alone, 32767, which no CHECK states. */
+export const Tall = contract("DrawnTall", pg.smallint, (n) => Logic.ge(n, 0))
+
+/**
+ * Each drawn type's series: an owner counting its issued numbers, `issued`, the numbers an ordered family indexes by
+ * `number`, each held or unused, and the tests holding the held ones, `number` of the drawn type, contained in the held
+ * numbers and they in it, as metis's catalog states its test numbers.
+ */
+const NaturalSeries = relation(
+	"NaturalSeries",
+	{ series: closedId(Series), issued: drawn(natural) },
+	["series"]
+)
+const NaturalIssued = relation(
+	"NaturalIssued",
+	{ series: closedId(Series), number: drawn(natural), issue: closedId(Issue) },
+	["series", "number"]
+)
+const NaturalNumber = relation("NaturalNumber", { test: pg.integer, number: natural }, ["test"])
+const naturalHeld = select(NaturalIssued, (i) =>
+	i.and(i.eq(i.series, "test"), i.eq(i.issue, "held"))
+)
+
+const SmallSeries = relation("SmallSeries", { series: closedId(Series), issued: drawn(Small) }, [
+	"series"
+])
+const SmallIssued = relation(
+	"SmallIssued",
+	{ series: closedId(Series), number: drawn(Small), issue: closedId(Issue) },
+	["series", "number"]
+)
+const SmallNumber = relation("SmallNumber", { test: pg.integer, number: Small }, ["test"])
+const smallHeld = select(SmallIssued, (i) => i.and(i.eq(i.series, "test"), i.eq(i.issue, "held")))
+
+const WholeSeries = relation("WholeSeries", { series: closedId(Series), issued: drawn(Whole) }, [
+	"series"
+])
+const WholeIssued = relation(
+	"WholeIssued",
+	{ series: closedId(Series), number: drawn(Whole), issue: closedId(Issue) },
+	["series", "number"]
+)
+const WholeNumber = relation("WholeNumber", { test: pg.integer, number: Whole }, ["test"])
+const wholeHeld = select(WholeIssued, (i) => i.and(i.eq(i.series, "test"), i.eq(i.issue, "held")))
+
+const BigSeries = relation("BigSeries", { series: closedId(Series), issued: drawn(Big) }, [
+	"series"
+])
+const BigIssued = relation(
+	"BigIssued",
+	{ series: closedId(Series), number: drawn(Big), issue: closedId(Issue) },
+	["series", "number"]
+)
+const BigNumber = relation("BigNumber", { test: pg.integer, number: Big }, ["test"])
+const bigHeld = select(BigIssued, (i) => i.and(i.eq(i.series, "test"), i.eq(i.issue, "held")))
+
+const WideSeries = relation("WideSeries", { series: closedId(Series), issued: drawn(Wide) }, [
+	"series"
+])
+const WideIssued = relation(
+	"WideIssued",
+	{ series: closedId(Series), number: drawn(Wide), issue: closedId(Issue) },
+	["series", "number"]
+)
+const WideNumber = relation("WideNumber", { test: pg.integer, number: Wide }, ["test"])
+const wideHeld = select(WideIssued, (i) => i.and(i.eq(i.series, "test"), i.eq(i.issue, "held")))
+
+const TallSeries = relation("TallSeries", { series: closedId(Series), issued: drawn(Tall) }, [
+	"series"
+])
+const TallIssued = relation(
+	"TallIssued",
+	{ series: closedId(Series), number: drawn(Tall), issue: closedId(Issue) },
+	["series", "number"]
+)
+const TallNumber = relation("TallNumber", { test: pg.integer, number: Tall }, ["test"])
+const tallHeld = select(TallIssued, (i) => i.and(i.eq(i.series, "test"), i.eq(i.issue, "held")))
+
+export const Drawn = schema(
+	"drawn_types",
+	[
+		Series,
+		Issue,
+		NaturalSeries,
+		NaturalIssued,
+		NaturalNumber,
+		SmallSeries,
+		SmallIssued,
+		SmallNumber,
+		WholeSeries,
+		WholeIssued,
+		WholeNumber,
+		BigSeries,
+		BigIssued,
+		BigNumber,
+		WideSeries,
+		WideIssued,
+		WideNumber,
+		TallSeries,
+		TallIssued,
+		TallNumber
+	],
+	[
+		mutable(NaturalSeries),
+		ordered(on(NaturalIssued, "series", "number"), fin(NaturalSeries, "issued")),
+		key(on(NaturalNumber, "number")),
+		contained(on(NaturalNumber, "number"), on(naturalHeld, "number")),
+		contained(on(naturalHeld, "number"), on(NaturalNumber, "number")),
+		mutable(SmallSeries),
+		ordered(on(SmallIssued, "series", "number"), fin(SmallSeries, "issued")),
+		key(on(SmallNumber, "number")),
+		contained(on(SmallNumber, "number"), on(smallHeld, "number")),
+		contained(on(smallHeld, "number"), on(SmallNumber, "number")),
+		mutable(WholeSeries),
+		ordered(on(WholeIssued, "series", "number"), fin(WholeSeries, "issued")),
+		key(on(WholeNumber, "number")),
+		contained(on(WholeNumber, "number"), on(wholeHeld, "number")),
+		contained(on(wholeHeld, "number"), on(WholeNumber, "number")),
+		mutable(BigSeries),
+		ordered(on(BigIssued, "series", "number"), fin(BigSeries, "issued")),
+		key(on(BigNumber, "number")),
+		contained(on(BigNumber, "number"), on(bigHeld, "number")),
+		contained(on(bigHeld, "number"), on(BigNumber, "number")),
+		mutable(WideSeries),
+		ordered(on(WideIssued, "series", "number"), fin(WideSeries, "issued")),
+		key(on(WideNumber, "number")),
+		contained(on(WideNumber, "number"), on(wideHeld, "number")),
+		contained(on(wideHeld, "number"), on(WideNumber, "number")),
+		mutable(TallSeries),
+		ordered(on(TallIssued, "series", "number"), fin(TallSeries, "issued")),
+		key(on(TallNumber, "number")),
+		contained(on(TallNumber, "number"), on(tallHeld, "number")),
+		contained(on(tallHeld, "number"), on(TallNumber, "number"))
+	]
+)
+
+/** A drawn type of the box, by the name its relations are prefixed with. */
+export type Kind = "Natural" | "Small" | "Whole" | "Big" | "Wide" | "Tall"
+
+/**
+ * Each kind's greatest counts: its contract's bound, the greatest its CHECK holds, and its carrier's, the greatest its
+ * column holds, natural's and a bigint's past every case; and how a value of it is read, a JavaScript integer for
+ * smallint and integer, a bigint for bigint.
+ */
+export const kinds: {
+	readonly [K in Kind]: {
+		readonly most: number
+		readonly carrier: number
+		readonly host: "number" | "bigint"
+	}
+} = {
+	Natural: { most: Number.MAX_SAFE_INTEGER, carrier: Number.MAX_SAFE_INTEGER, host: "bigint" },
+	Small: { most: 3, carrier: 32767, host: "number" },
+	Whole: { most: 3, carrier: 2147483647, host: "number" },
+	Big: { most: 3, carrier: Number.MAX_SAFE_INTEGER, host: "bigint" },
+	Wide: { most: 2147483647, carrier: 2147483647, host: "number" },
+	Tall: { most: Number.MAX_SAFE_INTEGER, carrier: 32767, host: "number" }
+}
+
+/** The contract each kind's values are of, by its name; natural for natural's. */
+export const contractOf: { readonly [K in Kind]: string } = {
+	Natural: "natural",
+	Small: "DrawnSmall",
+	Whole: "DrawnWhole",
+	Big: "DrawnBig",
+	Wide: "DrawnWide",
+	Tall: "DrawnTall"
+}
+
+/** Each kind's issued numbers as a query reads them back: each number and whether a test holds it. */
+const reads = Object.freeze({
+	Natural: () =>
+		query(Drawn).rule((r) => {
+			const { series, number, issue } = v(NaturalIssued, "i")
+			return r.match(NaturalIssued, { series, number, issue }).find({ number, issue })
+		}),
+	Small: () =>
+		query(Drawn).rule((r) => {
+			const { series, number, issue } = v(SmallIssued, "i")
+			return r.match(SmallIssued, { series, number, issue }).find({ number, issue })
+		}),
+	Whole: () =>
+		query(Drawn).rule((r) => {
+			const { series, number, issue } = v(WholeIssued, "i")
+			return r.match(WholeIssued, { series, number, issue }).find({ number, issue })
+		}),
+	Big: () =>
+		query(Drawn).rule((r) => {
+			const { series, number, issue } = v(BigIssued, "i")
+			return r.match(BigIssued, { series, number, issue }).find({ number, issue })
+		}),
+	Wide: () =>
+		query(Drawn).rule((r) => {
+			const { series, number, issue } = v(WideIssued, "i")
+			return r.match(WideIssued, { series, number, issue }).find({ number, issue })
+		}),
+	Tall: () =>
+		query(Drawn).rule((r) => {
+			const { series, number, issue } = v(TallIssued, "i")
+			return r.match(TallIssued, { series, number, issue }).find({ number, issue })
+		})
+})
+
+/** Each kind's write: its series with its issued numbers nested, and its tests, its issued numbers read back. */
+const programs = Object.freeze({
+	Natural: ChangeSet.empty(Drawn)
+		.insert(NaturalSeries, [])
+		.insert(NaturalNumber, [])
+		.read("issued", reads.Natural),
+	Small: ChangeSet.empty(Drawn)
+		.insert(SmallSeries, [])
+		.insert(SmallNumber, [])
+		.read("issued", reads.Small),
+	Whole: ChangeSet.empty(Drawn)
+		.insert(WholeSeries, [])
+		.insert(WholeNumber, [])
+		.read("issued", reads.Whole),
+	Big: ChangeSet.empty(Drawn).insert(BigSeries, []).insert(BigNumber, []).read("issued", reads.Big),
+	Wide: ChangeSet.empty(Drawn)
+		.insert(WideSeries, [])
+		.insert(WideNumber, [])
+		.read("issued", reads.Wide),
+	Tall: ChangeSet.empty(Drawn)
+		.insert(TallSeries, [])
+		.insert(TallNumber, [])
+		.read("issued", reads.Tall)
+})
+
+export const drawnInstall = Object.freeze({ label: "drawn_types", programs })
+
+/** Drawn installed as `grizzle generate` drafts it, once per member: the template every case clones. */
+export const drawnTemplate = fixtureTemplate(import.meta, Drawn, drawnInstall)
+
+/** One call's issued numbers, in order: whether a test holds each. */
+export type Issues = ReadonlyArray<"held" | "unused">
+
+/**
+ * A case: a kind, the numbers its first call issues to a fresh series, which the host draws, and those a second call
+ * appends to the stored series, which the family's statement draws past them, each held or unused. A tall series' first
+ * call issues 32,765 to 32,768 numbers, all unused, so its count meets its carrier's bound.
+ */
+export interface Issuing {
+	readonly kind: Kind
+	readonly first: Issues
+	readonly second: Issues
+}
+
+const issuesGen =
+	(min: number, max: number, held: boolean): Gen<Issues> =>
+	(source) =>
+		Array.from({ length: source.draw(int(min, max)) }, () =>
+			held ? source.draw(element(["held", "unused"] as const)) : "unused"
+		)
+
+export const issuingGen: Gen<Issuing> = (source) => {
+	const kind = source.draw(element(["Natural", "Small", "Whole", "Big", "Wide", "Tall"] as const))
+	return kind === "Tall"
+		? {
+				kind,
+				first: source.draw(issuesGen(32765, 32768, false)),
+				second: source.draw(issuesGen(0, 3, true))
+			}
+		: {
+				kind,
+				first: source.draw(issuesGen(0, 5, true)),
+				second: source.draw(issuesGen(0, 5, true))
+			}
+}
+
+/**
+ * What one call answers, by the model: accepted, its series' count and its numbers; refused on the kind's contract, a
+ * count past its bound, or one past its carrier the family's statement draws over a stored series; or its input refused
+ * before any statement, a count past its carrier the host draws for a fresh series.
+ */
+export type Expected =
+	| {
+			readonly kind: "accepted"
+			readonly count: number
+			readonly numbers: ReadonlyArray<{
+				readonly number: number
+				readonly issue: "held" | "unused"
+			}>
+	  }
+	| { readonly kind: "refused" }
+	| { readonly kind: "input" }
+
+/**
+ * The model of a call issuing `issues` after `stored` numbers, of kind `kind`: each number its place, from 0, the
+ * count their number, every value compared as an integer, whatever its host type. A count past the carrier is no
+ * value of the column, never wrapped into one: the host refuses it as the call's input where it draws a fresh series,
+ * and the family's statement refuses it on the contract over a stored one; a count within the carrier past the
+ * contract's bound is the contract's CHECK's to refuse.
+ */
+export const expectedOf = (
+	kind: Kind,
+	stored: ReadonlyArray<{ readonly number: number; readonly issue: "held" | "unused" }>,
+	issues: Issues
+): Expected => {
+	const count = stored.length + issues.length
+	const { most, carrier } = kinds[kind]
+	return count > carrier
+		? { kind: stored.length === 0 ? "input" : "refused" }
+		: count > most
+			? { kind: "refused" }
+			: {
+					kind: "accepted",
+					count,
+					numbers: [
+						...stored,
+						...Arr.map(issues, (issue, i) => ({ number: stored.length + i, issue }))
+					]
+				}
+}
+
+export type DrawnFeature =
+	| "a contract over smallint"
+	| "a contract over integer"
+	| "a contract over bigint"
+	| "natural"
+	| "metis's test number"
+	| "a count at its contract's bound"
+	| "a first call past its contract's bound, refused"
+	| "an append past its contract's bound, refused"
+	| "a count at its carrier's bound"
+	| "an append past its carrier's bound, refused"
+	| "a fresh series past its carrier's bound, refused"
+	| "a held number in each direction of the containments"
+	| "an append to a stored series"
+
+export const situations = [
+	"a contract over smallint",
+	"a contract over integer",
+	"a contract over bigint",
+	"natural",
+	"metis's test number",
+	"a count at its contract's bound",
+	"a first call past its contract's bound, refused",
+	"an append past its contract's bound, refused",
+	"a count at its carrier's bound",
+	"an append past its carrier's bound, refused",
+	"a fresh series past its carrier's bound, refused",
+	"a held number in each direction of the containments",
+	"an append to a stored series"
+] as const satisfies ReadonlyArray<Reached<DrawnFeature>>
