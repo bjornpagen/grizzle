@@ -1208,16 +1208,21 @@ const unionMembers = (type: TypeExpr): readonly TypeExpr[] =>
 	type._tag === "TypeUnion" ? Arr.flatMap(type.members, unionMembers) : [type]
 
 /**
- * A union of one type reference and `null` alone, which the formatter keeps on its line however long it is (measured);
- * a keyword, literal or array beside `null` does not hug.
+ * A union of one type reference beside `null` alone, once or more and in any order, which the formatter keeps on its
+ * line however long it is (measured with oxfmt: `null | a<x>`, `a<x> | null`, `null | null | a<x>`); a keyword,
+ * literal or array beside `null`, or a second reference, does not hug.
  */
 const isHuggedUnion = (type: TypeExpr): boolean => {
 	const members = unionMembers(type)
+	const others = Arr.filter(
+		members,
+		(part) => !(part._tag === "TypeKeyword" && part.keyword === "null")
+	)
 
 	return (
-		members.length === 2 &&
-		Arr.some(members, (part) => part._tag === "TypeKeyword" && part.keyword === "null") &&
-		Arr.some(members, (part) => part._tag === "TypeRef")
+		members.length > others.length &&
+		others.length === 1 &&
+		Arr.every(others, (part) => part._tag === "TypeRef")
 	)
 }
 
