@@ -1,24 +1,26 @@
-import { Schema } from "effect"
+import { regex } from "arkregex"
+import { Effect, String as Str } from "effect"
 import { describe, expect, test } from "vitest"
-import { isDiagnostic } from "#model/diagnostic.ts"
+import { type DiagnosticInput, makeDiagnostic } from "#model/diagnostic.ts"
 import { humanLine, sanitizeField } from "#report/human.ts"
 
-const base = {
+const base: DiagnosticInput = {
 	code: "PRM-27/compound-nested",
 	document: "file:///spec.json",
 	element: "Parameter style deepObject",
 	message: "deepObject value has nested objects",
 	openapi: "3.0.3",
 	pointer: "/paths/~1v1~1charges/get/parameters/3",
-	row: "PRM-27",
 	scope: "operation",
 	severity: "refusal",
 	specSection: "https://spec.openapis.org/oas/v3.0.4.html#style-values"
-} as const
+}
 
-const make = (
-	fields: Partial<Readonly<Record<keyof typeof base, string>>> & { readonly operation?: object }
-) => Schema.decodeUnknownSync(Schema.declare(isDiagnostic))({ ...base, ...fields })
+const make = (fields: Partial<DiagnosticInput>) =>
+	Effect.runSync(makeDiagnostic({ ...base, ...fields }))
+
+/** A character a terminal would act on or hide: a control, a format character, a line or paragraph separator. */
+const unsafeCharacter = regex("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]", "u")
 
 const operation = { method: "GET", operationId: "list-charges", path: "/v1/charges" } as const
 
@@ -30,9 +32,9 @@ describe("humanLine", () => {
 	})
 
 	test("a notice leads with its severity word", () => {
-		expect(humanLine(make({ scope: "element", severity: "notice" })).startsWith("notice ")).toBe(
-			true
-		)
+		expect(
+			Str.startsWith("notice ")(humanLine(make({ scope: "element", severity: "notice" })))
+		).toBe(true)
 	})
 
 	test("without operation or operationId the parenthesis is omitted cleanly", () => {
@@ -62,10 +64,12 @@ describe("humanLine", () => {
 			})
 		)
 
-		const between = line.slice(head.length, line.indexOf(tail))
+		const [beforeTail, ...afterTail] = Str.split(line, tail)
+		const between = Str.slice(head.length)(beforeTail)
 
-		expect(line.startsWith(head)).toBe(true)
-		expect(line.indexOf(tail)).toBeGreaterThan(head.length)
+		expect(Str.startsWith(head)(line)).toBe(true)
+		expect(afterTail.length).toBeGreaterThan(0)
+		expect(beforeTail.length).toBeGreaterThan(head.length)
 		expect(between).toContain("a/b~c")
 		expect(between).toContain("application/x-www-form-urlencoded")
 	})
@@ -75,7 +79,9 @@ describe("humanLine", () => {
 		const line = humanLine(make({ element: "Request body field", pointer, scope: "field" }))
 
 		expect(
-			line.startsWith(`refused PRM-27/compound-nested at #${pointer} field "Request body field": `)
+			Str.startsWith(`refused PRM-27/compound-nested at #${pointer} field "Request body field": `)(
+				line
+			)
 		).toBe(true)
 	})
 
@@ -88,7 +94,7 @@ describe("humanLine", () => {
 			})
 		)
 
-		expect(line).not.toMatch(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u)
+		expect(line).not.toMatch(unsafeCharacter)
 	})
 
 	test("a hostile pointer, message and path render as one inert line", () => {
@@ -100,8 +106,8 @@ describe("humanLine", () => {
 				pointer: "/a\nb\u001B[31m"
 			})
 		)
-		expect(line).not.toMatch(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u)
-		expect(line.startsWith("refused PRM-27/compound-nested at #/a")).toBe(true)
+		expect(line).not.toMatch(unsafeCharacter)
+		expect(Str.startsWith("refused PRM-27/compound-nested at #/a")(line)).toBe(true)
 	})
 })
 

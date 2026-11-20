@@ -11,9 +11,11 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
 import {
 	Array as Arr,
+	Context,
 	Effect,
 	Exit,
 	FileSystem,
+	Layer,
 	Path,
 	Ref,
 	Sink,
@@ -85,7 +87,7 @@ export const filePart = property.explore(fileSpace, {
 				)
 			)
 			const exit = yield* Effect.exit(
-				Output.finalCatch([])(read).pipe(
+				Output.finalCatch([], { envPrefix: "EXAMPLE" })(read).pipe(
 					Effect.provideServiceEffect(
 						Output.RunRecord,
 						Ref.make<Output.RunRecordState>({ format: run.format })
@@ -100,7 +102,10 @@ export const filePart = property.explore(fileSpace, {
 							stdin: Stream.make(STDIN)
 						})
 					),
-					Effect.provide(Input.stdinClaimLayer)
+					Effect.provideServiceEffect(
+						Input.StdinClaim,
+						Effect.map(Layer.build(Input.stdinClaimLayer), Context.get(Input.StdinClaim))
+					)
 				)
 			)
 			const printedOut = latin1(Buffer.concat(stdout))

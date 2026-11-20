@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import type { EmittedFile } from "#emit/package.ts"
 import {
 	arr,
@@ -26,12 +26,19 @@ import type { AuthorConfig } from "#model/author-config.ts"
 import type { SecurityScheme } from "#model/entities.ts"
 import { envPrefixOf } from "#names/plan.ts"
 
-const named = (from: string, names: readonly string[], typeOnly = false): Import => ({
-	_tag: "Named",
-	from: fixedModuleSpecifier(from),
-	names: names.map((name) => fixedIdentifier(name)),
-	typeOnly
-})
+/** A named import: of values (`named`) or of types alone (`namedTypes`). */
+const namedImport =
+	(typeOnly: boolean) =>
+	(from: string, names: readonly string[]): Import => ({
+		_tag: "Named",
+		from: fixedModuleSpecifier(from),
+		names: Arr.map(names, (name) => fixedIdentifier(name)),
+		typeOnly
+	})
+
+const named = namedImport(false)
+
+const namedTypes = namedImport(true)
 
 const namespace = (from: string, name: string): Import => ({
 	_tag: "Namespace",
@@ -48,12 +55,19 @@ const stringParam = (name: string): Param => ({
 const piped = (head: Expr, ...steps: readonly Expr[]): Expr =>
 	call(member(head, fixedMemberName("pipe")), steps)
 
-const constant = (name: string, value: Expr, exported = false): Statement => ({
-	_tag: "Const",
-	exported,
-	name: fixedIdentifier(name),
-	value
-})
+/** A `const` statement: module-local (`constant`) or exported (`exportedConstant`). */
+const declaration =
+	(exported: boolean) =>
+	(name: string, value: Expr): Statement => ({
+		_tag: "Const",
+		exported,
+		name: fixedIdentifier(name),
+		value
+	})
+
+const constant = declaration(false)
+
+const exportedConstant = declaration(true)
 
 /**
  * `main.ts` (design 4.1 Lazy root, 14 D5): reads the arguments from `Stdio`, builds the root with
@@ -91,7 +105,7 @@ const mainModule = (config: AuthorConfig): Module => {
 			namespace("./runtime/output.ts", "Output")
 		],
 		statements: [
-			constant(
+			exportedConstant(
 				"run",
 				call(member(args, fixedMemberName("pipe")), [
 					fn("Effect.flatMap", path("root")),
@@ -104,8 +118,7 @@ const mainModule = (config: AuthorConfig): Module => {
 					),
 					path("Output.exitForHelp"),
 					fn("Output.finalCatch", arr([]), obj([["envPrefix", str(envPrefixOf(config))]]))
-				]),
-				true
+				])
 			)
 		]
 	}
@@ -126,7 +139,7 @@ const mainModule = (config: AuthorConfig): Module => {
  * because a client that always presents the certificate presents it to every host (I3).
  */
 const clientCertificateStatements = (): readonly Statement[] => {
-	// `parts` are joined: the printer has no nested `+` (printer.ts `check`, `Plus`).
+	/** `parts` are joined: the printer has no nested `+` (printer.ts `check`, `Plus`). */
 	const unreadable = arrow(
 		[
 			{
@@ -404,7 +417,7 @@ const binModule = (config: AuthorConfig, mutualTls: boolean): Module => {
 			namespace("@effect/platform-node/NodeRuntime", "NodeRuntime"),
 			namespace("@effect/platform-node/NodeServices", "NodeServices"),
 			named("@effect/platform-node/Undici", ["Agent", "EnvHttpProxyAgent"]),
-			named("@effect/platform-node/Undici", ["Dispatcher"], true),
+			namedTypes("@effect/platform-node/Undici", ["Dispatcher"]),
 			named(
 				"effect",
 				mutualTls
@@ -458,7 +471,7 @@ export const emitEntryFiles = (
 		printModule(
 			binModule(
 				config,
-				securitySchemes.some((scheme) => scheme.kind.type === "mutualTls")
+				Arr.some(securitySchemes, (scheme) => scheme.kind.type === "mutualTls")
 			)
 		),
 		printModule(mainModule(config))
