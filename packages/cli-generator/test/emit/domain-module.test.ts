@@ -13,7 +13,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { syntaxDiagnosticsOf } from "@bjornpagen/testing/syntax"
 import { Array as Arr, Cause, Effect, Exit, Option, Order, String as Str } from "effect"
 import { format } from "oxfmt"
@@ -96,9 +96,24 @@ export const domainModule = property.explore(caseGen, {
 		kind: "specification",
 		name: "TypeScript's parser and oxfmt as judges, and exactly the reachable definitions under the identifier map's names, each after what it reads"
 	},
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken(
+				"packages/cli-generator/test/emit/domain-module.test.ts#domainModule:-:0.5.4.0.0.0.0.3.0.0.3.5.0.0.3.0.0.0.0.7.0.1.0.7.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"a type alias past column 100 of a union hugging null, `ReadonlyArray<User> | null`: the formatter moves it under the `=` as it moves `ReadonlyArray<User>`, where the module printed it on the `=` line (found by the rotating stream at TEST_SEED=1484871236)",
+			since: "2026-11-20"
+		}
+	],
 	budget: { runs: 200, steered: 800 },
 	kills: [
+		{
+			file: "packages/cli-generator/src/emit/domain.ts",
+			original: 'if (type._tag === "Union" && !hugsUnion(type.members)) {',
+			replacement: 'if (type._tag === "Union") {',
+			why: "A type alias of a union hugging null opens it on the `=` line, so a long `ReadonlyArray<X> | null` stays there where the formatter moves it under the `=`; the property fails (its kept case)."
+		},
 		{
 			file: "packages/cli-generator/src/emit/domain.ts",
 			original: '[name, group(["<", indent([softline, join([",", line], args)]), softline, ">"])]',

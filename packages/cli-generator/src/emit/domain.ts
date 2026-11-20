@@ -963,13 +963,16 @@ const typeDoc: PrintType = (type, context) =>
 	})
 
 /**
- * A union opens on the `=` line, broken under it or hugging `null`. Any other type opens on that
+ * A union that hugs nothing opens on the `=` line, broken under it. Any other type opens on that
  * line when it fits up to its first line break, otherwise under the `=` (the formatter's fluid
- * assignment layout).
+ * assignment layout), a union hugging `null` among them, laid out as the type it hugs is
+ * (measured with oxfmt 0.79: `ReadonlyArray<X> | null` moves under the `=` as `ReadonlyArray<X>`
+ * does, `Readonly<Record<K, V>> | null` breaks inside its `<>` on that line, `{ ... } | null`
+ * opens its braces there).
  */
 const typeAliasDoc = (name: string, type: Ty): Doc => {
 	const head = `export type ${name} =`
-	if (type._tag === "Union") {
+	if (type._tag === "Union" && !hugsUnion(type.members)) {
 		return [head, " ", typeDoc(type, "position")]
 	}
 
