@@ -10,10 +10,10 @@
  * `closure`, with i the index (`at` or ‹i›). The owner's own keys are no constraint of the model, which never writes two
  * owners of one key.
  */
-import { deepEquals } from "@bjornpagen/testing/assert"
+import { deepEquals, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Data, Effect, Formatter, Option, type Scope } from "effect"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
-import { counted, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import { counted, fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import {
 	type Catalogued,
 	constraintText,
@@ -30,6 +30,8 @@ import {
 	seededSeatTemplate
 } from "#test/pg/fin/installed.ts"
 import { canonical, emptyStored, sqlstateOf } from "#test/pg/substrate/fin.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import type { Moment, Settled, MutationStatement } from "#test/support/families/mutate.ts"
 import type { Constraint, FamilyRow, Shape, Stored } from "#test/support/families/theorem.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -53,19 +55,57 @@ const OrderedMember = relation(
 
 const CountedMember = relation("Member", { member: pg.integer, g: pg.integer }, ["member"])
 
-/** The ordered family: each owner's members indexed by their drawn `at`. */
+/**
+ * The ordered family: each owner's members indexed by their drawn `at`. Owner and Member are declared mutable: the
+ * families model's direct writer rewrites an owner's count and an ordered member's index in place (its `count` and
+ * `move`), which the immutable default's guard refuses for each field it holds fixed (physical/ddl/immutable.ts);
+ * these suites judge the family's laws under those writes, and every seat holds its schema to that (heldSchema).
+ */
 const OrderedFamily = schema(
 	"fin_ordered",
 	[Owner, OrderedMember],
-	[ordered(on(OrderedMember, "g", "at"), fin(Owner, "n"))]
+	[ordered(on(OrderedMember, "g", "at"), fin(Owner, "n")), mutable(Owner), mutable(OrderedMember)]
 )
 
-/** The counted family: each owner's members indexed by the hidden ‹i›. */
+/** The counted family: each owner's members indexed by the hidden ‹i›, its relations mutable as the ordered one's. */
 const CountedFamily = schema(
 	"fin_counted",
 	[Owner, CountedMember],
-	[counted(on(CountedMember, "g"), fin(Owner, "n"))]
+	[counted(on(CountedMember, "g"), fin(Owner, "n")), mutable(Owner), mutable(CountedMember)]
 )
+
+/**
+ * The fields the families model's direct writer rewrites in place, by relation and shape: an owner's count, and an
+ * ordered member's index, a drawn field; a counted member's index is the hidden law column ‹i›, which no guard holds.
+ */
+const rewrittenInPlace = (shape: Shape): ReadonlyArray<readonly [string, string]> =>
+	shape === "ordered"
+		? [
+				["Owner", "n"],
+				["Member", "at"]
+			]
+		: [["Owner", "n"]]
+
+/**
+ * Each shape's schema held to the families model's writes: every field it rewrites in place (rewrittenInPlace) is one
+ * the schema changes in place (ir/law.ts RelationInfo `inPlace`), or the seat is refused, naming it, where a write would
+ * meet the immutability guard's 42501 instead of the family's laws.
+ */
+const heldSchema = (shape: Shape) => {
+	const relations = succeeded(
+		testArtifacts(familySchema(shape), testCompile),
+		`the ${shape} family's schema`
+	).derived.schema.relations
+	for (const [relation, field] of rewrittenInPlace(shape)) {
+		const { inPlace } = defined(relations.get(relation), `the ${shape} family's ${relation}`)
+		if (!Arr.contains(inPlace, field)) {
+			throw new Error(
+				`the ${shape} family's ${relation}.${field} is rewritten in place, which its schema holds fixed`
+			)
+		}
+	}
+	return familySchema(shape)
+}
 
 const FAMILY_RELATIONS = ["Owner", "Member"] as const
 
@@ -97,7 +137,7 @@ const familyOf = (shape: Shape, seat: Seat, label: string): Effect.Effect<Family
  * shape, which a case seats (familySeatIn).
  */
 export const familyTemplate = (declaredIn: ImportMeta, shape: Shape, label: string): SeatTemplate =>
-	seatTemplate(declaredIn, familySchema(shape), `${label} ${shape}`)
+	seatTemplate(declaredIn, heldSchema(shape), `${label} ${shape}`)
 
 /**
  * A shape's family installed once per member with what every case reads written right after the install (installed.ts
@@ -110,12 +150,8 @@ export const seededFamilyTemplate = <E>(
 	label: string,
 	seed: (family: FamilySeat) => Effect.Effect<void, E, Substrate | Scope.Scope>
 ): SeatTemplate =>
-	seededSeatTemplate(
-		declaredIn,
-		familySchema(shape),
-		FAMILY_RELATIONS,
-		`${label} ${shape}`,
-		(seat) => Effect.flatMap(familyOf(shape, seat, `${label} ${shape}`), seed)
+	seededSeatTemplate(declaredIn, heldSchema(shape), FAMILY_RELATIONS, `${label} ${shape}`, (seat) =>
+		Effect.flatMap(familyOf(shape, seat, `${label} ${shape}`), seed)
 	)
 
 /**

@@ -56,13 +56,13 @@ import { parsedTarget, statementRows, type TextTarget } from "#test/pg/migrate/s
 import {
 	Assignment,
 	assignmentColumns,
+	assignmentFields,
 	assignmentOf,
 	assignmentWorker,
 	backendOf,
-	ValidatedBadge,
 	Desk,
 	deskColumns,
-	validatedDomainCheck,
+	deskFields,
 	type ForeignKeyLaw,
 	issuedDesk,
 	judgeRacing,
@@ -75,15 +75,19 @@ import {
 	racingGen,
 	refusalName,
 	type Refusing,
+	rewrittenRow,
 	staffed,
 	staffing,
 	storedWorker,
 	succeededStep,
 	tightened,
+	ValidatedBadge,
+	validatedDomainCheck,
 	violatingRuns,
 	violationsGen,
 	Worker,
 	workerColumns,
+	workerFields,
 	workerName
 } from "#test/schedules/migrate/validate.fixtures.ts"
 import { lawIdOf, lawNamesOf } from "#test/support/kernel/naming.ts"
@@ -190,13 +194,23 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
 									law: lawIdOf(next, workerName),
 									over: "rows",
 									reports: reportsLaw(lawIdOf(next, workerName)),
-									fix: `UPDATE ${worker} SET ${names.column(Worker, "name")} = '${renamed}' WHERE ${names.column(Worker, "id")} = ${second}`
+									fix: rewrittenRow(
+										worker,
+										workerFields(names),
+										{ column: names.column(Worker, "id"), value: `${second}` },
+										{ column: names.column(Worker, "name"), value: `'${renamed}'` }
+									)
 								},
 								{
 									law: lawIdOf(next, nonNegative),
 									over: "rows",
 									reports: reportsLaw(lawIdOf(next, nonNegative)),
-									fix: `UPDATE ${names.table(Assignment)} SET ${names.column(Assignment, "hours")} = ${positive} WHERE ${names.column(Assignment, "id")} = ${negativeAssignment}`
+									fix: rewrittenRow(
+										names.table(Assignment),
+										assignmentFields(names),
+										{ column: names.column(Assignment, "id"), value: `${negativeAssignment}` },
+										{ column: names.column(Assignment, "hours"), value: `${positive}` }
+									)
 								},
 								{
 									law: lawIdOf(next, assignmentWorker),
@@ -215,14 +229,24 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
 									over: "rows",
 									reports: (server, place) =>
 										validatedDomainCheck(rateDomain)(server) && !inPayloadFile(place),
-									fix: `UPDATE ${names.table(Assignment)} SET ${names.column(Assignment, "rate")} = 100 WHERE ${names.column(Assignment, "id")} = ${orphanAssignment}`
+									fix: rewrittenRow(
+										names.table(Assignment),
+										assignmentFields(names),
+										{ column: names.column(Assignment, "id"), value: `${orphanAssignment}` },
+										{ column: names.column(Assignment, "rate"), value: "100" }
+									)
 								},
 								{
 									law: codeLaw,
 									over: "rows",
 									reports: (server, place) =>
 										validatedDomainCheck(codeDomain)(server) && !inPayloadFile(place),
-									fix: `UPDATE ${names.table(Desk)} SET ${names.column(Desk, "code")} = 'abc' WHERE ${names.column(Desk, "id")} = ${coded}`
+									fix: rewrittenRow(
+										names.table(Desk),
+										deskFields(names),
+										{ column: names.column(Desk, "id"), value: `${coded}` },
+										{ column: names.column(Desk, "code"), value: "'abc'" }
+									)
 								}
 							]
 							const payloads = Arr.map(x.target.folders, (f): FolderTexts =>

@@ -332,6 +332,36 @@ export const assignmentColumns = (names: Names) =>
 export const deskColumns = (names: Names) =>
 	`${names.column(Desk, "id")}, ${names.column(Desk, "code")}`
 
+/**
+ * A person's change of one field of one stored row, the reviewer's data step between a refused migration's attempts:
+ * the row deleted and inserted again with the field's new value, in one statement, as an immutable relation's rows
+ * change, whose guard refuses an UPDATE outside a migration's bracketed data steps (README, Migrations). `columns` is
+ * the relation's every stored field, `key` its key column's value, `set` the field and its value's SQL.
+ */
+export const rewrittenRow = (
+	table: string,
+	columns: ReadonlyArray<string>,
+	key: { readonly column: string; readonly value: string },
+	set: { readonly column: string; readonly value: string }
+): string => {
+	const listed = Arr.join(columns, ", ")
+	const selected = Arr.join(
+		Arr.map(columns, (c) => (c === set.column ? set.value : c)),
+		", "
+	)
+	return `WITH gone AS (DELETE FROM ${table} WHERE ${key.column} = ${key.value} RETURNING ${listed}) INSERT INTO ${table} (${listed}) SELECT ${selected} FROM gone`
+}
+
+/** Each relation's stored fields' columns, in declared order: what a row deleted and inserted again carries. */
+export const workerFields = (names: Names): ReadonlyArray<string> =>
+	Arr.map(["id", "name"] as const, (c) => names.column(Worker, c))
+
+export const assignmentFields = (names: Names): ReadonlyArray<string> =>
+	Arr.map(["id", "worker", "active", "hours", "rate"] as const, (c) => names.column(Assignment, c))
+
+export const deskFields = (names: Names): ReadonlyArray<string> =>
+	Arr.map(["id", "code"] as const, (c) => names.column(Desk, c))
+
 /** A refusal by a domain's CHECK as a cast to the domain judges a value: the domain and its constraint, at 23514. */
 export const validatedDomainCheck =
 	(domain: ColumnTextDomain) =>

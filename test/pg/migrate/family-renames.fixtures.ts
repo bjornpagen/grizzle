@@ -65,6 +65,7 @@ import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	asDrafted,
 	compile,
+	customDataStep,
 	draftCodes,
 	draftedAt,
 	fromEmpty,
@@ -763,8 +764,10 @@ const store = (schemaName: string, installation: Installation, stored: ReadonlyA
 /**
  * A history migrated on PostgreSQL: each version drafted from the snapshot before it under its declarations, reviewed,
  * and applied with the drift check and the installed-catalog checker; the rows stored after the first; each step's data
- * step, `dataStep`'s SQL for it, run in one SERIALIZABLE transaction before it applies, as a custom migration's would;
- * `observe` run after each step with its index. A refused apply fails the history with migrate's error.
+ * step, `dataStep`'s SQL for it, a custom migration over the snapshot before it (test/support/migrate/kit.ts
+ * customDataStep), drafted at the ordinal its version's folder leaves before it on the tests' one clock and applied with
+ * it, so the runner brackets it with every immutability guard (adapter/migrate/apply.ts guardBracket); `observe` run
+ * after each step with its index. A refused apply fails the history with migrate's error.
  */
 const migrateHistory = <A>(
 	label: string,
@@ -796,17 +799,20 @@ const migrateHistory = <A>(
 						previous,
 						installation,
 						name: `step_${i + 1}`,
-						timestamp: draftedAt(i + 1),
+						timestamp: draftedAt(2 * (i + 1)),
 						workload: noWorkload,
 						declared: version.declared
 					}),
 					`step ${i + 1} drafts`
 				)
-				folders.push(reviewedSource(g, kept))
 				const steps = dataStep(i, name)
 				if (Arr.isReadonlyArrayNonEmpty(steps)) {
-					yield* Effect.orDie(transaction(substrate.admin, steps))
+					if (previous.kind !== "snapshot") {
+						return yield* Effect.die("a data step follows an applied version")
+					}
+					folders.push(customDataStep(previous.snapshot, 2 * i + 1, steps))
 				}
+				folders.push(reviewedSource(g, kept))
 				yield* apply(
 					m,
 					{ snapshot: g.snapshot, folders: [...folders] },
@@ -1224,7 +1230,6 @@ const regroupSteps = (
 	const schemaIdent = quoteIdent(identifierOf(identity.schema(parsedSchemaName(schemaName))))
 	const column = (name: string) => quoteIdent(identifierOf(identity.column(parsedName(name))))
 	return [
-		"SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
 		`UPDATE ${schemaIdent}.${quoteIdent(identifierOf(identity.table(parsedName("Member"))))} AS "t" SET ${column("h")} = "v"."h" FROM (VALUES ${Arr.join(values, ", ")}) AS "v" ("member", "h") WHERE "t".${column("member")} = "v"."member"`
 	]
 }
