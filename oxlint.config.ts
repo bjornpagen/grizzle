@@ -296,7 +296,12 @@ const ASSERTIONS_MESSAGE =
 /** grizzle's lists for the shared standard; everything else comes from the dev tools' preset. */
 export default defineConfig(
 	lintConfig({
-		ignorePatterns: ["packages/*/types/**", "test/types/**/.*-??????/**", "vendor/**"],
+		ignorePatterns: [
+			"packages/*/types/**",
+			"test/types/**/.*-??????/**",
+			"vendor/**",
+			"packages/cli-generator/test/fixtures/**"
+		],
 		restrictedImports: LIBRARY_IMPORTS,
 		restrictedGlobals: [TEXT_DECODER],
 		restrictedProperties: [],
@@ -313,10 +318,22 @@ export default defineConfig(
 				"packages/grizzle/src/cli/main.ts"
 			]
 		},
-		ceremony: ["test/**", "bench/**", "scripts/**", "packages/pg/**"],
+		ceremony: [
+			"test/**",
+			"bench/**",
+			"scripts/**",
+			"packages/pg/**",
+			"packages/cli-generator/test/**",
+			"packages/cli-generator/scripts/**",
+			"packages/cli-generator/corpus/tools/**"
+		],
 		plugin: {
 			"bearer-owners": {
-				owners: ["packages/grizzle/src/client/call.ts", "test/pg/live/errors.test.ts"]
+				owners: [
+					"packages/grizzle/src/client/call.ts",
+					"test/pg/live/errors.test.ts",
+					"packages/cli-generator/src/runtime-src/runtime/auth.ts"
+				]
 			},
 			"side-effect-free": {
 				modules: [
@@ -466,6 +483,11 @@ export default defineConfig(
 						file: "test/pg/fin/installed.ts",
 						reason:
 							"seatPool makes its seats one at a time: two installations migrating at once into one database fail, one of them with XX000 (tuple concurrently updated) in its publish step."
+					},
+					{
+						file: "packages/cli-generator/test/support/connection.ts",
+						reason:
+							"A listener's observations take turns (makeSessions' observe): its one port serves the current observation's state, so a connection it accepts is served under the observation that made it; two observations at once would serve one's connections under the other's state."
 					}
 				]
 			},
@@ -490,9 +512,16 @@ export default defineConfig(
 			rules: TEST_RULES,
 			modules: MODULE_RULES,
 			everyFile: EVERY_FILE_RULES,
-			clock: { files: ["test/**"], rules: CLOCK_RULES }
+			clock: { files: ["test/**", "packages/cli-generator/test/**"], rules: CLOCK_RULES }
 		},
 		overrides: [
+			{
+				files: ["packages/cli-generator/test/support/capture-server.ts"],
+				rules: active({
+					/** The capture server plays its script: a scripted response's delay and each chunk's delay are what the property drew for the server to do (an idle stream, a late answer), the behaviour the generated CLI is checked against, never a wait for a fact. */
+					"testing/no-sleep-wait": "off"
+				})
+			},
 			{
 				/** The engine, and grizzle-openapi, which reads it: no Effect at run time, no Node module, no clock, randomness or I/O. */
 				files: ["packages/engine/**", "packages/openapi/**"],

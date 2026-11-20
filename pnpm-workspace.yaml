@@ -6,6 +6,8 @@ packages:
   - packages/openapi
   - packages/pg
   - packages/text
+  # The CLI generator: OpenAPI documents, grizzle's or any other, to standalone Effect CLIs. Nothing imports it.
+  - packages/cli-generator
   - "packages/experiments/*"
   # The toolchain, the submodule pinned at its commit: its dev tools and testing library join the workspace and run from
   # source, with their own gate, none of grizzle's.
@@ -54,6 +56,7 @@ catalog:
   turbo: 2.11.13
   typescript: 7.1.0-beta
   vitest: 5.1.1
+  yaml: 2.9.1
 permissions:
   fallow:
     skills: true

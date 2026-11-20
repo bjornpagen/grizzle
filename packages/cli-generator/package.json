@@ -1,54 +1,56 @@
 {
-	"name": "effect-openapi-cli-generator-workspace",
+	"name": "@bjornpagen/grizzle-cli-generator",
+	"version": "0.0.0",
 	"private": true,
+	"description": "Generate Effect-native CLIs from OpenAPI specifications: one directory per pipeline stage under src/, the generated CLIs' runtime under src/runtime-src/, the pinned corpus under corpus/.",
+	"license": "MIT",
 	"type": "module",
 	"imports": {
-		"#oxlint.config.ts": "./oxlint.config.ts",
-		"#ratchet.json": "./packages/generator/ratchet.json",
-		"#toolchain.config.ts": "./toolchain.config.ts"
+		"#package.json": "./package.json",
+		"#tsconfig.json": "./tsconfig.json",
+		"#test/*": "./test/*",
+		"#corpus/*": "./corpus/*",
+		"#scripts/*": "./scripts/*",
+		"#runtime/*": "./src/runtime-src/runtime/*",
+		"#domain/*": "./src/runtime-src/domain/*",
+		"#*": "./src/*"
 	},
-	"packageManager": "pnpm@12.21.0",
-	"devEngines": {
-		"runtime": {
-			"name": "node",
-			"version": ">=26",
-			"onFail": "error"
-		}
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"bin": {
+		"grizzle-cli-generator": "./src/bin.ts"
+	},
+	"engines": {
+		"node": ">=26"
 	},
 	"scripts": {
-		"prepare": "effect-tsgo patch",
-		"check": "turbo run typecheck runtime-gate benchmark oxlint format dead-code architecture dedupe workspace-gate load --filter=./packages/* --filter=// --continue=dependencies-successful",
-		"check:full": "turbo run typecheck --filter=./packages/* --filter=// --continue=dependencies-successful --force -- --incremental false; typecheck=$?; turbo run runtime-gate benchmark oxlint format dead-code architecture dedupe workspace-gate load --filter=./packages/* --filter=// --continue=dependencies-successful --force && exit $typecheck",
-		"types": "turbo run typecheck --filter=./packages/* --filter=//",
-		"lint": "turbo run oxlint dead-code architecture workspace-gate --filter=./packages/* --filter=//",
-		"test": "turbo run test --filter=./packages/*",
-		"test:properties": "pnpm --filter effect-openapi-cli-generator run test:properties",
-		"corpus": "turbo run corpus --filter=./packages/*",
-		"fuzz": "node vendor/toolchain/packages/testing/scripts/fuzz.ts",
-		"format:write": "oxfmt . && turbo run oxlint --filter=./packages/* --filter=// -- --fix && oxfmt .",
-		"typecheck": "toolchain-typecheck",
-		"workspace-gate": "workspace-gate",
-		"oxlint": "toolchain-oxlint-root",
-		"format": "oxfmt --check .",
-		"dead-code": "node packages/generator/scripts/ratchet.ts dead-code",
-		"architecture": "fallow architecture",
-		"dedupe": "pnpm dedupe --check",
-		"ratchet:lower": "pnpm --filter effect-openapi-cli-generator run ratchet:lower && node packages/generator/scripts/ratchet.ts dead-code --lower"
+		"typecheck": "node scripts/ratchet.ts typecheck -- -b",
+		"typecheck:full": "node scripts/ratchet.ts typecheck -- -p tsconfig.json --incremental false",
+		"oxlint": "node scripts/ratchet.ts oxlint",
+		"test": "vitest run",
+		"runtime-gate": "node scripts/runtime-gate.ts",
+		"benchmark": "node corpus/tools/benchmark.ts",
+		"corpus": "scripts/memguard.sh 6144 -- node corpus/tools/run.ts --check",
+		"ratchet:lower": "node scripts/ratchet.ts typecheck --lower -- -p tsconfig.json --incremental false && node scripts/ratchet.ts oxlint --lower"
+	},
+	"dependencies": {
+		"@bjornpagen/grizzle-text": "workspace:*",
+		"@effect/platform-node": "catalog:",
+		"@hyperjump/json-schema": "catalog:",
+		"@types/node": "catalog:",
+		"arkregex": "catalog:",
+		"effect": "catalog:",
+		"typescript": "catalog:",
+		"yaml": "catalog:"
 	},
 	"devDependencies": {
 		"@bjornpagen/devtools": "workspace:*",
+		"@bjornpagen/grizzle": "workspace:*",
 		"@bjornpagen/testing": "workspace:*",
-		"@effect/tsgo": "catalog:",
-		"@types/node": "catalog:",
-		"effect": "catalog:",
-		"fallow": "catalog:",
-		"lefthook": "catalog:",
+		"@types/pg": "catalog:",
 		"oxfmt": "catalog:",
-		"oxlint": "catalog:",
-		"tsrs": "catalog:",
-		"turbo": "catalog:",
-		"typescript": "catalog:",
-		"vite": "catalog:",
+		"pg": "catalog:",
 		"vitest": "catalog:"
 	}
 }

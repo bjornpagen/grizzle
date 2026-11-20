@@ -4919,6 +4919,17 @@ export const RdsEtlLayer = DbLayer.make({
 })
 ```
 
+## CLIs for logins
+
+`grizzle generate` writes one OpenAPI 3.2 document per login, `openapi/<login>.json` beside `served/` in each migration folder: every program of each of the login's roles as one operation, its input and its events as their schemas, and the wire form each carries (`x-grizzle-wire`). `packages/cli-generator` turns that document, or any OpenAPI 3.0, 3.1 or 3.2 document, into the source of a standalone command-line application on Effect and Node 26, one command per operation:
+
+```sh
+node packages/cli-generator/src/bin.ts generate migrations/<folder>/openapi/app.json --config acme-app.json --out acme-app
+cd acme-app && pnpm install && pnpm build
+```
+
+A login's CLI is `acme-app <role> <program>`: its input's members are flags, or the whole input is `--body`; a call prints one JSON line per event, a read its `reset`, an `upsert` per row and `ready`, and `--follow` keeps it reading the live changes. The document names no server, so the base URL is `--base-url` or `<PREFIX>_BASE_URL`, and a role's bearer token is sent only to an origin the author config binds. The generated package depends on no grizzle package: it calls the login's server over HTTP as any client does. Its properties hold a generated CLI to what grizzle's own HTTP handler answers the same calls, over a login installed on the local cluster (`packages/cli-generator/test/grizzle`). [packages/cli-generator/README.md](packages/cli-generator/README.md) has the author config, the generated package and what the generator refuses.
+
 ## Direct SQL access
 
 psql, scripts and other services may write grizzle's tables directly, under the same rules and roles as the app. Log in
@@ -5146,6 +5157,7 @@ pnpm pg start                     # make and start the local cluster on port 544
 pnpm pg doctor                    # the go/no-go check of the cluster
 pnpm test                         # the unit and types tiers, which need no network
 pnpm test:network                 # the pg and schedules tiers, against the local cluster
+pnpm test:cli-generator           # the CLI generator's properties, its grizzle tier against the local cluster
 pnpm test:properties <file | id>  # some modules or properties
 pnpm types                        # after every edit: the incremental typecheck, which the hooks run too
 pnpm check                        # before a release (turbo, cached): typecheck, workspace gate, oxlint, format, fallow, dedupe
@@ -5177,6 +5189,7 @@ Every generated suite draws from one seed, `TEST_SEED`, which a run prints first
 - `test/`: the unit, pg, schedules and types tiers, and their support in `test/support/`.
 - `bench/`: performance gates.
 - `scripts/pg/`: the pinned PostgreSQL's pin, source and build, whose commands the `grizzle-pg` bin runs.
+- `packages/cli-generator/`: `@bjornpagen/grizzle-cli-generator`, the CLI generator: an OpenAPI 3.0, 3.1 or 3.2 document, a login's among them, to a standalone Effect CLI ([CLIs for logins](#clis-for-logins)). Nothing imports it.
 - `packages/pg/`: `@bjornpagen/grizzle-pg`, the TypeScript those commands run: the pin, as a typed value, and the postmasters that run an installed build.
 - `pg.config.ts`: the local cluster the tests and benchmarks reach, its port, template and sizes, which the testing library makes and runs.
 - `scripts/dev/`: the mutation tester and the profiler.

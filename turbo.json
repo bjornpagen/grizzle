@@ -41,6 +41,28 @@
 				"$TURBO_ROOT$/vendor/toolchain/packages/testing/src/oxlint/**"
 			]
 		},
+		"runtime-gate": {
+			"description": "The CLI generator's runtime gate (packages/cli-generator/scripts/runtime-gate.ts): it generates the runtime-gate fixture, whose operations reach every module of the runtime a generated CLI carries, into a scratch directory, typechecks the generated package against the installed dependencies and lints its sources with the shared lint's import and property bans, which the repository's lint never reads, since the emitter writes each module a generated CLI imports as a string.",
+			"dependsOn": ["^source"]
+		},
+		"benchmark": {
+			"description": "The CLI generator's benchmark (packages/cli-generator/corpus/tools/benchmark.ts): it generates every corpus specification whose bytes are committed, builds each package against the installed dependencies, compares its verdict byte for byte and runs every command's --help and --dry-run against what its document describes.",
+			"dependsOn": ["^source"]
+		},
+		"corpus": {
+			"description": "The CLI generator's corpus (pnpm --filter @bjornpagen/grizzle-cli-generator corpus): it fetches each pinned public specification, generates and builds its package and compares its verdict byte for byte. It reads the network and its cache of the specifications, so it never caches, and it runs by hand, outside pnpm check.",
+			"cache": false,
+			"passThroughEnv": [
+				"HTTP_PROXY",
+				"HTTPS_PROXY",
+				"NO_PROXY",
+				"ALL_PROXY",
+				"http_proxy",
+				"https_proxy",
+				"no_proxy",
+				"all_proxy"
+			]
+		},
 		"//#typecheck": {
 			"description": "The tooling project (test, bench, scripts) builds after both packages' projects, which toolchain-typecheck -b then finds up to date; its build info is tsconfig.tsbuildinfo, beside its tsconfig. A root task's inputs are the whole repository, the packages and the toolchain included; the root checks but format read no Markdown, so theirs leave it out.",
 			"dependsOn": ["@bjornpagen/grizzle-engine#typecheck", "@bjornpagen/grizzle#typecheck"],

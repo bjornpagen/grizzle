@@ -25,6 +25,11 @@
 		"test/pg/cli/.ws-*/**",
 		".probe-*/**",
 		"upstream/**",
-		"vendor/**"
+		"vendor/**",
+		"packages/cli-generator/src/validate/schemas/*.json",
+		"packages/cli-generator/test/fixtures/**",
+		"packages/cli-generator/corpus/fixtures/**",
+		"packages/cli-generator/corpus/specs/**",
+		"packages/cli-generator/corpus/verdicts/**"
 	]
 }

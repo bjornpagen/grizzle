@@ -20,7 +20,15 @@
 		"oxlint.ast.config.ts",
 		// The runner config, which toolchain-test loads by its path at the package root, and the test modules it includes.
 		"test.config.ts",
-		"test/**/*.test.ts"
+		"test/**/*.test.ts",
+		// The CLI generator's: its runner's test modules, the grizzle tier's config, which twins.ts hands grizzle's command
+		// line by path, the runtime it writes into each package it emits, read as files, and its scripts and corpus tools.
+		"packages/cli-generator/test/**/*.test.ts",
+		"packages/cli-generator/test/**/fixtures/**/*.ts",
+		"packages/cli-generator/test/grizzle/grizzle.config.ts",
+		"packages/cli-generator/src/runtime-src/**/*.ts",
+		"packages/cli-generator/scripts/*.ts",
+		"packages/cli-generator/corpus/tools/*.ts"
 	],
 	"ignorePatterns": [
 		"!packages/engine/src/query/build/**",
@@ -396,6 +404,81 @@
 				// @bjornpagen/grizzle/client: the browser client, which loads the engine through its client facade alone.
 				"name": "client",
 				"patterns": ["packages/grizzle/src/client/**", "packages/grizzle/src/client.ts"]
+			},
+			{
+				// The CLI generator's grizzle tier (test/grizzle): one login installed through grizzle's command line and served
+				// through grizzle's public entries (its index, runtime, client and http), which a generated CLI is held to.
+				"name": "cli-generator-grizzle-tier",
+				"patterns": ["packages/cli-generator/test/grizzle/**"]
+			},
+			{
+				// The CLI generator's suites and their support: they read the generator's every stage, its corpus and scripts.
+				"name": "cli-generator-suites",
+				"patterns": ["packages/cli-generator/test/**", "packages/cli-generator/vitest.config.ts"]
+			},
+			{
+				"name": "cli-generator-corpus",
+				"patterns": ["packages/cli-generator/corpus/**"]
+			},
+			{
+				"name": "cli-generator-scripts",
+				"patterns": ["packages/cli-generator/scripts/**"]
+			},
+			{
+				// The generated CLIs' runtime, which the generator writes verbatim into every package it emits: it imports nothing but
+				// its siblings, so no zone of grizzle's reaches a generated CLI.
+				"name": "cli-generator-runtime",
+				"patterns": ["packages/cli-generator/src/runtime-src/**"]
+			},
+			{
+				"name": "cli-generator-model",
+				"patterns": ["packages/cli-generator/src/model/**"]
+			},
+			{
+				"name": "cli-generator-load",
+				"patterns": ["packages/cli-generator/src/load/**"]
+			},
+			{
+				"name": "cli-generator-validate",
+				"patterns": ["packages/cli-generator/src/validate/**"]
+			},
+			{
+				"name": "cli-generator-resolve",
+				"patterns": ["packages/cli-generator/src/resolve/**"]
+			},
+			{
+				"name": "cli-generator-check",
+				"patterns": ["packages/cli-generator/src/check/**"]
+			},
+			{
+				"name": "cli-generator-normalize",
+				"patterns": ["packages/cli-generator/src/normalize/**"]
+			},
+			{
+				"name": "cli-generator-names",
+				"patterns": ["packages/cli-generator/src/names/**"]
+			},
+			{
+				"name": "cli-generator-emit",
+				"patterns": ["packages/cli-generator/src/emit/**"]
+			},
+			{
+				"name": "cli-generator-write",
+				"patterns": ["packages/cli-generator/src/write/**"]
+			},
+			{
+				"name": "cli-generator-report",
+				"patterns": ["packages/cli-generator/src/report/**"]
+			},
+			{
+				// The generator's entry points, its bin, library entry and command: what packages/cli-generator is. No zone of grizzle's
+				// allows any cli-generator zone, so nothing outside the package imports it.
+				"name": "cli-generator",
+				"patterns": [
+					"packages/cli-generator/src/{bin,generate,index,main}.ts",
+					"packages/cli-generator/package.json",
+					"packages/cli-generator/tsconfig.json"
+				]
 			}
 		],
 		"rules": [
@@ -1109,6 +1192,214 @@
 			{
 				"from": "index",
 				"allow": ["adapter", "adapter-runtime", "engine-index", "grizzle-text"]
+			},
+			{
+				// grizzle's public entries, as fallow reads an import of one: the zones each re-exports from (the index's engine
+				// authoring API and shell, the runtime entry's served layer, the client and http entries), and the suites' support.
+				"from": "cli-generator-grizzle-tier",
+				"allow": [
+					"grizzle-text",
+					"cli-generator",
+					"cli-generator-suites",
+					"index",
+					"runtime-entry",
+					"client",
+					"http",
+					"adapter",
+					"adapter-runtime",
+					"public",
+					"schema",
+					"program",
+					"query",
+					"text"
+				]
+			},
+			{
+				// Every stage of the generator, its corpus and scripts, and the grizzle tier's support.
+				"from": "cli-generator-suites",
+				"allow": [
+					"grizzle-text",
+					"cli-generator",
+					"cli-generator-corpus",
+					"cli-generator-scripts",
+					"cli-generator-model",
+					"cli-generator-runtime",
+					"cli-generator-load",
+					"cli-generator-validate",
+					"cli-generator-resolve",
+					"cli-generator-check",
+					"cli-generator-normalize",
+					"cli-generator-names",
+					"cli-generator-emit",
+					"cli-generator-write",
+					"cli-generator-report",
+					"cli-generator-grizzle-tier"
+				]
+			},
+			{
+				"from": "cli-generator-corpus",
+				"allow": [
+					"grizzle-text",
+					"cli-generator",
+					"cli-generator-model",
+					"cli-generator-runtime",
+					"cli-generator-load",
+					"cli-generator-validate",
+					"cli-generator-resolve",
+					"cli-generator-check",
+					"cli-generator-normalize",
+					"cli-generator-names",
+					"cli-generator-emit",
+					"cli-generator-write",
+					"cli-generator-report"
+				]
+			},
+			{
+				"from": "cli-generator-scripts",
+				"allow": [
+					"grizzle-text",
+					"cli-generator-model",
+					"cli-generator-runtime",
+					"cli-generator-load",
+					"cli-generator-validate",
+					"cli-generator-resolve",
+					"cli-generator-check",
+					"cli-generator-normalize",
+					"cli-generator-names",
+					"cli-generator-emit",
+					"cli-generator-write",
+					"cli-generator-report"
+				]
+			},
+			{
+				"from": "cli-generator-runtime",
+				"allow": []
+			},
+			{
+				"from": "cli-generator-model",
+				"allow": ["grizzle-text", "cli-generator-runtime"]
+			},
+			{
+				// A stage imports the model, the runtime and the stages before it, in pipeline order.
+				"from": "cli-generator-load",
+				"allow": ["grizzle-text", "cli-generator-model", "cli-generator-runtime"]
+			},
+			{
+				"from": "cli-generator-validate",
+				"allow": [
+					"grizzle-text",
+					"cli-generator-model",
+					"cli-generator-runtime",
+					"cli-generator-load"
+				]
+			},
+			{
+				"from": "cli-generator-resolve",
+				"allow": [
+					"grizzle-text",
+					"cli-generator-model",
+					"cli-generator-runtime",
+					"cli-generator-load",
+					"cli-generator-validate"
+				]
+			},
+			{
+				"from": "cli-generator-check",
+				"allow": [
+					"grizzle-text",
+					"cli-generator-model",
+					"cli-generator-runtime",
+					"cli-generator-load",
+					"cli-generator-validate",
+					"cli-generator-resolve"
+				]
+			},
+			{
+				"from": "cli-generator-normalize",
+				"allow": [
+					"grizzle-text",
+					"cli-generator-model",
+					"cli-generator-runtime",
+					"cli-generator-load",
+					"cli-generator-validate",
+					"cli-generator-resolve",
+					"cli-generator-check"
+				]
+			},
+			{
+				"from": "cli-generator-names",
+				"allow": [
+					"grizzle-text",
+					"cli-generator-model",
+					"cli-generator-runtime",
+					"cli-generator-load",
+					"cli-generator-validate",
+					"cli-generator-resolve",
+					"cli-generator-check",
+					"cli-generator-normalize"
+				]
+			},
+			{
+				"from": "cli-generator-emit",
+				"allow": [
+					"grizzle-text",
+					"cli-generator-model",
+					"cli-generator-runtime",
+					"cli-generator-load",
+					"cli-generator-validate",
+					"cli-generator-resolve",
+					"cli-generator-check",
+					"cli-generator-normalize",
+					"cli-generator-names"
+				]
+			},
+			{
+				"from": "cli-generator-write",
+				"allow": [
+					"grizzle-text",
+					"cli-generator-model",
+					"cli-generator-runtime",
+					"cli-generator-load",
+					"cli-generator-validate",
+					"cli-generator-resolve",
+					"cli-generator-check",
+					"cli-generator-normalize",
+					"cli-generator-names",
+					"cli-generator-emit"
+				]
+			},
+			{
+				"from": "cli-generator-report",
+				"allow": [
+					"grizzle-text",
+					"cli-generator-model",
+					"cli-generator-runtime",
+					"cli-generator-load",
+					"cli-generator-validate",
+					"cli-generator-resolve",
+					"cli-generator-check",
+					"cli-generator-normalize",
+					"cli-generator-names",
+					"cli-generator-emit",
+					"cli-generator-write"
+				]
+			},
+			{
+				"from": "cli-generator",
+				"allow": [
+					"grizzle-text",
+					"cli-generator-model",
+					"cli-generator-runtime",
+					"cli-generator-load",
+					"cli-generator-validate",
+					"cli-generator-resolve",
+					"cli-generator-check",
+					"cli-generator-normalize",
+					"cli-generator-names",
+					"cli-generator-emit",
+					"cli-generator-write",
+					"cli-generator-report"
+				]
 			}
 		],
 		"coverage": {

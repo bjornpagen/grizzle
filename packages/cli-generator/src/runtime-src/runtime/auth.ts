@@ -1,0 +1,1181 @@
+import { regex } from "arkregex"
+import type { FileSystem, Stdio, Stream } from "effect"
+import {
+	Array as Arr,
+	Config,
+	Context,
+	Effect,
+	Layer,
+	Option,
+	Path,
+	pipe,
+	Record as Rec,
+	Redacted,
+	Result,
+	String as Str,
+	Terminal
+} from "effect"
+import { Flag, GlobalFlag, Prompt, TerminalCapabilities } from "effect/cli"
+import { Headers, HttpClientRequest, Url, UrlParams } from "effect/http"
+import { CredentialMissing, UsageError } from "#domain/errors.ts"
+import type { Provenance } from "#runtime/base-url.ts"
+import {
+	StdinClaim,
+	decodeUtf8,
+	printStderr,
+	readAll,
+	stdinOrFile,
+	stripLineEnd
+} from "#runtime/input.ts"
+import { labelledPlaceholder, loneSurrogate, redactedPlaceholder } from "#runtime/redact.ts"
+import { cookieOctets, headerValueBreaks } from "#runtime/serialize.ts"
+
+/**
+ * A scheme's security requirement list: alternatives in document order, each the scheme names that
+ * must all be satisfied. `[]` is no requirement and `[]` inside the list is anonymous.
+ */
+export type SecurityRequirement = readonly (readonly string[])[]
+
+/**
+ * One OAuth flow as help-only data: its URLs when the spec gives them and its scopes by name. No
+ * URL here is ever a request target (design 9 I3).
+ */
+export interface OAuthFlow {
+	readonly authorizationUrl?: string
+	readonly deviceAuthorizationUrl?: string
+	readonly refreshUrl?: string
+	readonly scopes: readonly { readonly description: string; readonly name: string }[]
+	readonly tokenUrl?: string
+}
+
+/**
+ * The flows of an `oauth2` scheme by flow kind, for help only.
+ */
+export interface OAuthFlows {
+	readonly authorizationCode?: OAuthFlow
+	readonly clientCredentials?: OAuthFlow
+	readonly deviceAuthorization?: OAuthFlow
+	readonly implicit?: OAuthFlow
+	readonly password?: OAuthFlow
+}
+
+/**
+ * A scheme the runtime sends. `env` overrides the default environment name `<PREFIX>_<SCHEME>`;
+ * `deprecated` marks a 3.2 scheme the runtime names on stderr when it sends it. An `oauth2` or
+ * `openIdConnect` scheme is operator-supplied token pass-through (design 6.5, D-SEC1): the token is
+ * sent as `Authorization: Bearer`, and no token is acquired, no discovery is run, and no scope or
+ * role is sent; their `flows` and `openIdConnectUrl` are help-only data the runtime never reads to
+ * send (design 9 I3). A `mutualTLS` scheme is a client certificate (design 6.5, D-SEC3): its paths
+ * are read from `Config` by the names it carries, `certEnv`, `keyEnv` and `caEnv`, which the name
+ * plan derives once (design 4.4) and the runtime never folds itself; it is never a header.
+ */
+export type SecurityScheme =
+	| {
+			readonly deprecated?: true
+			readonly env?: string | undefined
+			readonly in: "cookie" | "header" | "query"
+			readonly kind: "apiKey"
+			readonly name: string
+	  }
+	| {
+			readonly deprecated?: true
+			readonly env?: string | undefined
+			readonly kind: "http"
+			readonly scheme: "basic" | "bearer"
+	  }
+	| {
+			readonly deprecated?: true
+			readonly env?: string | undefined
+			readonly flows?: OAuthFlows
+			readonly kind: "oauth2"
+	  }
+	| {
+			readonly deprecated?: true
+			readonly env?: string | undefined
+			readonly kind: "openIdConnect"
+			readonly openIdConnectUrl?: string
+	  }
+	| {
+			readonly caEnv: string
+			readonly certEnv: string
+			readonly deprecated?: true
+			readonly keyEnv: string
+			readonly kind: "mutualTLS"
+	  }
+
+/**
+ * A `mutualTLS` scheme: a client certificate, not a header credential.
+ */
+export type MutualTlsScheme = Extract<SecurityScheme, { readonly kind: "mutualTLS" }>
+
+/**
+ * The emitted `api/security.ts`: every scheme the operations name, by component name.
+ */
+export interface SecurityTable {
+	readonly schemes: Readonly<Record<string, SecurityScheme>>
+}
+
+/**
+ * A configured credential and the scheme it answers.
+ */
+export interface Credential {
+	readonly definition: SecurityScheme
+	readonly scheme: string
+	readonly value: Redacted.Redacted
+}
+
+/**
+ * The global setting `--<scheme>-file <path|->` of one scheme.
+ */
+type FileSetting = GlobalFlag.Setting<string, Option.Option<string>>
+
+/**
+ * The security table, the environment prefix and the credential file settings the root registered,
+ * provided once by the root `services` layer.
+ */
+export class Schemes extends Context.Service<
+	Schemes,
+	{
+		readonly envPrefix: string
+		readonly files: readonly FileSetting[]
+		readonly table: SecurityTable
+	}
+>()("@bjornpagen/grizzle-cli-generator/runtime-src/runtime/auth/Schemes") {}
+
+/**
+ * The `Schemes` service. `files` are the very settings the root registers as global flags, so a
+ * scheme's file flag and its evaluation read one service key.
+ */
+export const layer = (
+	table: SecurityTable,
+	envPrefix: string,
+	files: readonly FileSetting[]
+): Layer.Layer<Schemes> => Layer.succeed(Schemes)({ envPrefix, files, table })
+
+/**
+ * A lower-case letter or digit before an upper-case letter: a camel-case word boundary.
+ */
+const camelBoundary = regex("(?<head>[a-z0-9])(?<tail>[A-Z])", "gu")
+
+/**
+ * A run of characters a slug cannot hold.
+ */
+const slugBreak = regex("[^A-Za-z0-9]+", "gu")
+
+/**
+ * A dash at either end of a slug.
+ */
+const edgeDash = regex("^-|-$", "gu")
+
+/**
+ * The flag spelling of a scheme name: `bearerAuth` is `bearer-auth`.
+ */
+export const schemeSlug = (scheme: string): string =>
+	pipe(
+		scheme,
+		Str.replaceAll(camelBoundary, "$<head>-$<tail>"),
+		Str.replaceAll(slugBreak, "-"),
+		Str.replaceAll(edgeDash, ""),
+		Str.toLowerCase
+	)
+
+/**
+ * An identifier in `SCREAMING_SNAKE` form: upper case, with `-` as `_`.
+ */
+export const screamingSnake = (name: string): string =>
+	Str.replaceAll("-", "_")(Str.toUpperCase(name))
+
+/**
+ * The environment name of a token scheme's credential: the scheme's own `env`, else
+ * `<PREFIX>_<SCHEME>`. A `mutualTLS` scheme has no single credential name: the runtime reads its
+ * `certEnv`, `keyEnv` and `caEnv` instead and never calls this for one.
+ */
+export const envName = (envPrefix: string, scheme: string, definition: SecurityScheme): string =>
+	("env" in definition ? definition.env : undefined) ??
+	`${envPrefix}_${screamingSnake(schemeSlug(scheme))}`
+
+/**
+ * The name of a scheme's credential file flag: `bearerAuth` is `bearer-auth-file`.
+ */
+const fileFlagName = (scheme: string): string => `${schemeSlug(scheme)}-file`
+
+/**
+ * A fresh root global setting `--<scheme>-file <path|->`, its help naming the scheme whose credential it reads. Each
+ * call mints its own service key, so the root mints each scheme's setting once and hands that same setting to `layer`.
+ */
+export const credentialFileSetting = (scheme: string): FileSetting => {
+	const name = fileFlagName(scheme)
+
+	return GlobalFlag.Setting(name)({
+		flag: Flag.String(name).pipe(
+			Flag.withMetavar("path|-"),
+			Flag.withDescription(
+				`Read the ${scheme} credential from <path>, or from stdin when <path> is -`
+			),
+			Flag.optional
+		)
+	})
+}
+
+const usage = (scheme: string, message: string): UsageError =>
+	UsageError.make({ flag: `${schemeSlug(scheme)}-file`, message })
+
+const credentialFromSource = (
+	scheme: string,
+	source: Stream.Stream<Uint8Array, unknown>
+): Effect.Effect<string, UsageError> =>
+	readAll(source).pipe(
+		Effect.catchTag("ReadFailed", () =>
+			Effect.fail(usage(scheme, `cannot read the credential for ${scheme}`))
+		),
+		Effect.flatMap((joined) =>
+			decodeUtf8(joined, usage(scheme, `the credential for ${scheme} is not valid UTF-8`))
+		),
+		Effect.map(stripLineEnd)
+	)
+
+const fromFile = (
+	scheme: string,
+	path: string
+): Effect.Effect<string, UsageError, FileSystem.FileSystem | Stdio.Stdio | StdinClaim> =>
+	stdinOrFile(`${schemeSlug(scheme)}-file`, path, (fs) => Effect.succeed(fs.stream(path))).pipe(
+		Effect.flatMap((source) => credentialFromSource(scheme, source))
+	)
+
+const fromEnv = (
+	scheme: string,
+	name: string
+): Effect.Effect<Option.Option<Redacted.Redacted>, UsageError> =>
+	Config.option(Config.Redacted(name)).pipe(
+		Effect.mapBoth({
+			onFailure: () => usage(scheme, `cannot read ${name} for ${scheme}`),
+			onSuccess: Option.filter((value) => Redacted.value(value) !== "")
+		})
+	)
+
+/**
+ * The configured client-certificate paths of one `mutualTLS` scheme.
+ */
+export interface ClientCertificatePaths {
+	readonly ca: Option.Option<string>
+	readonly cert: string
+	readonly key: string
+}
+
+/**
+ * One certificate path variable; an empty variable is unset, as for every other credential.
+ */
+const certificatePath = (name: string): Config.Config<Option.Option<string>> =>
+	Config.option(Config.String(name)).pipe(Config.map(Option.filter((path) => path !== "")))
+
+/**
+ * The `Config` descriptor of a `mutualTLS` scheme's three paths, read by exactly the names the
+ * scheme carries: some when both `certEnv` and `keyEnv` are set, the CA optional, none otherwise.
+ * `bin.ts` reads it to build the certificate init; `evaluate` reads it to decide satisfaction.
+ */
+export const clientCertificatePaths = (
+	definition: MutualTlsScheme
+): Config.Config<Option.Option<ClientCertificatePaths>> =>
+	Config.all({
+		ca: certificatePath(definition.caEnv),
+		cert: certificatePath(definition.certEnv),
+		key: certificatePath(definition.keyEnv)
+	}).pipe(
+		Config.map(({ ca, cert, key }) =>
+			Option.map(Option.all({ cert, key }), (paths) => ({ ca, ...paths }))
+		)
+	)
+
+/**
+ * A satisfied `mutualTLS` scheme is a credential whose value is the certificate path, held
+ * redacted: never sent, and scrubbed like any other credential if a response echoes it.
+ */
+const certificateOf = (
+	scheme: string,
+	definition: MutualTlsScheme
+): Effect.Effect<Option.Option<Credential>, UsageError> =>
+	clientCertificatePaths(definition).pipe(
+		Effect.mapBoth({
+			onFailure: () =>
+				UsageError.make({
+					message: `cannot read ${definition.certEnv} or ${definition.keyEnv} for ${scheme}`
+				}),
+			onSuccess: Option.map((paths) => ({ definition, scheme, value: Redacted.make(paths.cert) }))
+		})
+	)
+
+const credentialOf = (
+	scheme: string,
+	definition: SecurityScheme,
+	envPrefix: string,
+	files: readonly FileSetting[]
+): Effect.Effect<
+	Option.Option<Credential>,
+	UsageError,
+	FileSystem.FileSystem | Stdio.Stdio | StdinClaim
+> =>
+	Effect.gen(function* readCredential() {
+		if (definition.kind === "mutualTLS") {
+			return yield* certificateOf(scheme, definition)
+		}
+
+		const name = fileFlagName(scheme)
+		const setting = Arr.findFirst(files, (each) => each.id === name)
+		const given: Option.Option<Option.Option<string>> = Option.isSome(setting)
+			? yield* Effect.serviceOption(setting.value)
+			: Option.none()
+		const file = Option.flatten(given)
+		const value = Option.isSome(file)
+			? yield* fromFile(scheme, file.value).pipe(
+					Effect.filterOrFail(
+						(text) => text !== "",
+						() => usage(scheme, `the credential for ${scheme} is empty`)
+					),
+					Effect.map((text) => Option.some(Redacted.make(text)))
+				)
+			: yield* fromEnv(scheme, envName(envPrefix, scheme, definition))
+
+		return value.pipe(
+			Option.map((credential) => ({
+				definition,
+				scheme,
+				value: credential
+			}))
+		)
+	})
+
+/**
+ * What a scheme name loses before a terminal sees it: it comes from the generated table, but a
+ * terminal must never see a control character.
+ */
+const unsafeName: Readonly<RegExp> = regex("[\\p{Cc}\\p{Cf}\\p{Cs}\\u2028\\u2029]", "gu")
+
+const safeName = Str.replaceAll(unsafeName, "")
+
+/**
+ * The one stderr notice for a chosen deprecated scheme: it names the scheme and never a value.
+ */
+const noticeDeprecated = (
+	credentials: readonly Credential[]
+): Effect.Effect<void, never, Stdio.Stdio> =>
+	Effect.gen(function* notify() {
+		for (const { definition, scheme } of credentials) {
+			if (definition.deprecated === true) {
+				yield* printStderr(`Notice: the security scheme ${safeName(scheme)} is deprecated`)
+			}
+		}
+	})
+
+interface PromptServices {
+	readonly path: Path.Path
+	readonly terminal: Terminal.Terminal
+}
+
+/**
+ * The prompt's services. `Terminal` and `Path` are read optionally, so `evaluate` adds no
+ * requirement: `Command.run` provides both, and without them the prompt is skipped as off a TTY.
+ */
+const promptServices: Effect.Effect<Option.Option<PromptServices>> = Effect.gen(
+	function* promptServicesOf() {
+		const { canPrompt } = yield* TerminalCapabilities.TerminalCapabilities
+		const terminal = yield* Effect.serviceOption(Terminal.Terminal)
+		const path = yield* Effect.serviceOption(Path.Path)
+
+		return canPrompt && Option.isSome(terminal) && Option.isSome(path)
+			? Option.some({ path: path.value, terminal: terminal.value })
+			: Option.none()
+	}
+)
+
+/**
+ * Ask for one scheme's credential with `Prompt.Password`, which masks the input and returns it
+ * `Redacted`. An empty answer is no credential; a quit prompt interrupts the run.
+ */
+const ask = (
+	scheme: string,
+	{ path, terminal }: PromptServices
+): Effect.Effect<Option.Option<Redacted.Redacted>, never, FileSystem.FileSystem> =>
+	Prompt.run(Prompt.Password({ message: `Credential for ${safeName(scheme)}` })).pipe(
+		Effect.provideService(Terminal.Terminal, terminal),
+		Effect.provideService(Path.Path, path),
+		Effect.map(Option.liftPredicate((value) => Redacted.value(value) !== "")),
+		Effect.catchTag("QuitError", () => Effect.interrupt)
+	)
+
+/**
+ * The prompt reads stdin, so it takes the one stdin claim; `false` when a `-` consumer holds it.
+ */
+const claimStdin = (scheme: string): Effect.Effect<boolean, never, StdinClaim> =>
+	Effect.flatMap(Effect.service(StdinClaim), (stdin) =>
+		stdin.claim(`${schemeSlug(scheme)}-file`)
+	).pipe(
+		Effect.as(true),
+		Effect.orElseSucceed(() => false)
+	)
+
+const describeAlternative = (
+	envPrefix: string,
+	table: SecurityTable,
+	alternative: readonly string[]
+): string =>
+	Arr.join(
+		Arr.map(alternative, (scheme) => {
+			const definition = table.schemes[scheme]
+			if (definition?.kind === "mutualTLS") {
+				return `${scheme} (env ${definition.certEnv} + ${definition.keyEnv})`
+			}
+
+			const env = definition === undefined ? "" : `, env ${envName(envPrefix, scheme, definition)}`
+
+			return `${scheme} (--${schemeSlug(scheme)}-file${env})`
+		}),
+		" + "
+	)
+
+/**
+ * The alternative the prompt fills: the first, in document order, whose schemes are all defined
+ * and whose every `mutualTLS` scheme is configured, because a certificate path is never asked for.
+ */
+const promptTarget = <R>(
+	table: SecurityTable,
+	requirement: SecurityRequirement,
+	resolve: (scheme: string) => Effect.Effect<Option.Option<Credential>, UsageError, R>
+): Effect.Effect<Option.Option<readonly string[]>, UsageError, R> =>
+	Effect.gen(function* findPromptTarget() {
+		for (const alternative of requirement) {
+			if (!Arr.every(alternative, (scheme) => Rec.has(table.schemes, scheme))) {
+				continue
+			}
+
+			const certificates = Arr.filter(
+				alternative,
+				(scheme) => table.schemes[scheme]?.kind === "mutualTLS"
+			)
+			const configured = yield* Effect.forEach(certificates, (scheme) => resolve(scheme))
+			if (Arr.every(configured, Option.isSome)) {
+				return Option.some(alternative)
+			}
+		}
+
+		return Option.none()
+	})
+
+/**
+ * A per-evaluation credential reader: each scheme is resolved once, so stdin is claimed at most
+ * once. A scheme the table does not define cannot be configured.
+ */
+const resolver = (envPrefix: string, table: SecurityTable, files: readonly FileSetting[]) => {
+	const resolved = new Map<string, Option.Option<Credential>>()
+
+	return Effect.fnUntraced(function* resolveScheme(scheme: string) {
+		const known = resolved.get(scheme)
+		if (known !== undefined) {
+			return known
+		}
+
+		const definition = table.schemes[scheme]
+		const found =
+			definition === undefined
+				? Option.none()
+				: yield* credentialOf(scheme, definition, envPrefix, files)
+		resolved.set(scheme, found)
+
+		return found
+	})
+}
+
+/**
+ * The first alternative, in document order, that names a scheme and whose every scheme has a
+ * configured credential (design 6.5 Run-time choice). `{}` never qualifies here.
+ */
+const configuredAlternative = <R>(
+	requirement: SecurityRequirement,
+	resolve: (scheme: string) => Effect.Effect<Option.Option<Credential>, UsageError, R>
+): Effect.Effect<Option.Option<readonly Credential[]>, UsageError, R> =>
+	Effect.gen(function* findConfigured() {
+		for (const alternative of requirement) {
+			if (alternative.length === 0) {
+				continue
+			}
+
+			const credentials: Credential[] = []
+			for (const scheme of alternative) {
+				const credential = yield* resolve(scheme)
+				if (Option.isNone(credential)) {
+					break
+				}
+
+				credentials.push(credential.value)
+			}
+
+			if (credentials.length === alternative.length) {
+				return Option.some(credentials)
+			}
+		}
+
+		return Option.none()
+	})
+
+/**
+ * No requirement, or a `{}` alternative: sending no credentials is allowed.
+ */
+const allowsAnonymous = (requirement: SecurityRequirement): boolean =>
+	requirement.length === 0 || Arr.some(requirement, (alternative) => alternative.length === 0)
+
+/**
+ * Choose the credentials one operation sends (design 6.5 Run-time choice): the first alternative,
+ * in document order, that names a scheme and whose every scheme has a configured credential. A `{}`
+ * alternative, or no requirement at all, sends no credentials and is used only when no credentialed
+ * alternative qualifies. Otherwise `CredentialMissing`. A scheme the table does not define cannot
+ * be configured. A chosen deprecated scheme is named once on stderr before the request. Each scheme
+ * is resolved once, so stdin is claimed at most once, shared with the body flags through
+ * `StdinClaim`.
+ *
+ * The TTY prompt is the last credential source (design 6.5, D-SEC5: file flag > env > prompt).
+ * It is asked only when no alternative qualifies from the file flags and the environment and no
+ * `{}` allows anonymous access, so a configured alternative is never preceded by a prompt. It
+ * fills the first alternative, in document order, whose schemes are all defined, asking for each
+ * scheme with no configured credential. It runs only when stdin and stdout are TTYs
+ * (`TerminalCapabilities.canPrompt`, the check `Flag.withFallbackPrompt` makes) and stdin is
+ * unclaimed: the prompt reads stdin, so it takes the one stdin claim (design 4.5), and a `-`
+ * consumer that holds it skips the prompt. Every file flag is read before the first prompt, so a
+ * `--<scheme>-file -` keeps stdin. A skipped or unanswered prompt is `CredentialMissing`.
+ */
+export const evaluate = (
+	operation: string,
+	requirement: SecurityRequirement
+): Effect.Effect<
+	readonly Credential[],
+	CredentialMissing | UsageError,
+	Schemes | FileSystem.FileSystem | Stdio.Stdio | StdinClaim
+> =>
+	Effect.gen(function* evaluateRequirement() {
+		const { envPrefix, files, table } = yield* Schemes
+		const resolve = resolver(envPrefix, table, files)
+
+		const chosen = yield* configuredAlternative(requirement, resolve)
+		if (Option.isSome(chosen)) {
+			yield* noticeDeprecated(chosen.value)
+
+			return chosen.value
+		}
+
+		if (allowsAnonymous(requirement)) {
+			return []
+		}
+
+		const target = yield* promptTarget(table, requirement, resolve)
+		const services = Option.isNone(target) ? Option.none() : yield* promptServices
+		if (Option.isSome(target) && Option.isSome(services)) {
+			const configured: (readonly [string, Option.Option<Credential>])[] = []
+			for (const scheme of target.value) {
+				const found = yield* resolve(scheme)
+				configured.push([scheme, found])
+			}
+
+			const credentials: Credential[] = []
+			let claimed = false
+			for (const [scheme, found] of configured) {
+				const definition = table.schemes[scheme]
+				if (Option.isSome(found)) {
+					credentials.push(found.value)
+				} else if (definition !== undefined) {
+					if (!claimed) {
+						claimed = yield* claimStdin(scheme)
+					}
+
+					if (!claimed) {
+						break
+					}
+
+					const answer = yield* ask(scheme, services.value)
+					if (Option.isNone(answer)) {
+						break
+					}
+
+					credentials.push({ definition, scheme, value: answer.value })
+				}
+			}
+
+			if (credentials.length === target.value.length) {
+				yield* noticeDeprecated(credentials)
+
+				return credentials
+			}
+		}
+
+		return yield* CredentialMissing.make({
+			alternatives: Arr.map(requirement, (alternative) =>
+				describeAlternative(envPrefix, table, alternative)
+			),
+			operation
+		})
+	})
+
+/**
+ * A scheme `--dry-run` shows as `<redacted:<scheme>>`. A configured scheme carries its value, which
+ * is checked as `attach` checks it but never written; an unconfigured one carries none.
+ */
+export type Placeholder = Pick<Credential, "definition" | "scheme"> &
+	Partial<Pick<Credential, "value">>
+
+/**
+ * What `--dry-run` shows (design 4.6, D-OUT3): the configured credentials of the chosen
+ * alternative, and the schemes whose placeholders the printed request carries.
+ */
+export interface Preview {
+	readonly credentials: readonly Credential[]
+	readonly placeholders: readonly Placeholder[]
+}
+
+/**
+ * The requirement evaluated for `--dry-run`: the alternative `evaluate` would choose from the file
+ * flags and the environment, else none when `{}` or no requirement allows anonymous access, else
+ * the first alternative's schemes, unconfigured. It never raises `CredentialMissing` and never
+ * prompts: the TTY prompt source is skipped under `--dry-run`.
+ */
+export const preview = (
+	requirement: SecurityRequirement
+): Effect.Effect<Preview, UsageError, Schemes | FileSystem.FileSystem | Stdio.Stdio | StdinClaim> =>
+	Effect.gen(function* previewRequirement() {
+		const { envPrefix, files, table } = yield* Schemes
+		const configured = yield* configuredAlternative(requirement, resolver(envPrefix, table, files))
+		if (Option.isSome(configured)) {
+			yield* noticeDeprecated(configured.value)
+
+			return { credentials: configured.value, placeholders: configured.value }
+		}
+
+		const first = allowsAnonymous(requirement) ? [] : (requirement[0] ?? [])
+		const placeholders = Arr.flatMap(first, (scheme): Placeholder[] => {
+			const definition = table.schemes[scheme]
+
+			return definition === undefined ? [] : [{ definition, scheme }]
+		})
+
+		return { credentials: [], placeholders }
+	})
+
+/**
+ * `--allow-credentials-for-base-url` lets credentials reach an operator-chosen base URL whose
+ * origin is not bound (design 6.5, D-SEC2). It never extends to a server-table base.
+ */
+export const allowCredentialsForBaseUrl = GlobalFlag.Setting("allow-credentials-for-base-url")({
+	flag: Flag.Boolean("allow-credentials-for-base-url").pipe(
+		Flag.withDescription("Send credentials to an unbound --base-url or <PREFIX>_BASE_URL origin"),
+		Flag.withDefault(false)
+	)
+})
+
+/**
+ * What the credential gate reads: the bound origin set, the chosen base's origin and provenance,
+ * and the flag.
+ */
+export interface CredentialGate {
+	readonly allowUnboundBase: boolean
+	readonly baseOrigin: string
+	readonly boundOrigins: readonly string[]
+	readonly provenance: Provenance
+}
+
+const originOf = (raw: string): Option.Option<string> =>
+	Result.match(Url.fromString(raw), {
+		onFailure: () => Option.none(),
+		onSuccess: ({ origin }) => (origin === "null" ? Option.none() : Option.some(origin))
+	})
+
+/**
+ * The origins that may carry credentials for one run (design 6.5, D-SEC2): the bound origin set,
+ * plus the chosen base's origin only when the operator chose it (`--base-url`,
+ * `<PREFIX>_BASE_URL`) and gave `--allow-credentials-for-base-url`. A server-table base adds
+ * nothing, and the flag never widens to a redirect target. Entries that do not parse are dropped,
+ * so a malformed origin can only withhold a credential.
+ */
+export const credentialOrigins = (gate: CredentialGate): readonly string[] => {
+	const base = gate.provenance === "operator" && gate.allowUnboundBase ? [gate.baseOrigin] : []
+
+	return Arr.dedupe(
+		Arr.flatMap([...gate.boundOrigins, ...base], (raw) => Option.toArray(originOf(raw)))
+	)
+}
+
+/**
+ * Whether a URL's origin is one of `origins`. An unparsable URL or origin is never bound.
+ */
+const isBound = (url: string, origins: readonly string[]): boolean => {
+	const origin = originOf(url)
+	const allowed = new Set(Arr.flatMap(origins, (raw) => Option.toArray(originOf(raw))))
+
+	return Option.isSome(origin) && allowed.has(origin.value)
+}
+
+/**
+ * Whether a hop presents the client certificate (design 6.5 Origin binding; MIND): exactly when
+ * `url`'s origin is in the operation's bound origin set. It takes the bound origins alone, never
+ * `credentialOrigins`, because `--allow-credentials-for-base-url` never extends to the
+ * certificate. A hop decided no is sent without the certificate, not refused.
+ */
+export const presentsCertificate = (url: string, boundOrigins: readonly string[]): boolean =>
+	isBound(url, boundOrigins)
+
+/**
+ * The certificate clause of the R1 withheld notice (design 6.4; m3.md P19): it names
+ * `--allow-credentials-for-base-url` only to say the flag does not extend to the certificate,
+ * and never names a path or certificate material.
+ */
+export const withheldCertificateClause =
+	"not presenting the mutualTLS client certificate to an unbound base URL; " +
+	"--allow-credentials-for-base-url does not extend to it"
+
+/**
+ * The credentials to attach and the origins that may carry them (`credentialOrigins`).
+ */
+export interface Attachment {
+	readonly credentials: readonly Credential[]
+	readonly origins: readonly string[]
+}
+
+const apiKeyNames = (table: SecurityTable, place: "cookie" | "header" | "query"): Set<string> =>
+	new Set(
+		Arr.flatMap(Rec.values(table.schemes), (definition) =>
+			definition.kind === "apiKey" && definition.in === place ? [definition.name] : []
+		)
+	)
+
+/**
+ * Every kind but `apiKey` and `mutualTLS` sends `Authorization`.
+ */
+const hasAuthorizationScheme = (table: SecurityTable): boolean =>
+	Arr.some(
+		Rec.values(table.schemes),
+		(definition) => definition.kind !== "apiKey" && definition.kind !== "mutualTLS"
+	)
+
+export const cookiePairs = (cookie: string): readonly string[] =>
+	Arr.filter(Arr.map(Str.split(";")(cookie), Str.trim), (pair) => pair !== "")
+
+/**
+ * The request with `name=value` appended to its `Cookie` header's existing pairs.
+ */
+const appendCookie = (
+	request: HttpClientRequest.HttpClientRequest,
+	name: string,
+	value: string
+): HttpClientRequest.HttpClientRequest => {
+	const existing = Option.getOrElse(Headers.get(request.headers, "cookie"), () => "")
+
+	return HttpClientRequest.setHeader(
+		request,
+		"cookie",
+		Arr.join([...cookiePairs(existing), `${name}=${value}`], "; ")
+	)
+}
+
+const cookieName = (pair: string): string => Arr.headNonEmpty(Str.split("=")(pair))
+
+/**
+ * `url` without the query pairs `names` name: the query runs from the first `?` to the fragment's
+ * `#` or the end, and the pairs it keeps stay in order.
+ */
+const stripUrlQuery = (url: string, names: ReadonlySet<string>): string =>
+	Option.match(Str.indexOf("?")(url), {
+		onNone: () => url,
+		onSome: (mark) => {
+			const after = Str.slice(mark + 1)(url)
+			const end = Option.getOrElse(Str.indexOf("#")(after), () => after.length)
+			const kept = Arr.filter(
+				Str.split("&")(Str.slice(0, end)(after)),
+				(pair) => !names.has(new URLSearchParams(pair).keys().next().value ?? "")
+			)
+
+			return `${Str.slice(0, mark)(url)}${kept.length === 0 ? "" : `?${Arr.join(kept, "&")}`}${Str.slice(end)(after)}`
+		}
+	})
+
+/**
+ * Remove every managed credential the table can name: `Authorization` when any `http`, `oauth2` or
+ * `openIdConnect` scheme is declared, each `apiKey` header, query name and cookie name.
+ */
+const strip = (
+	table: SecurityTable,
+	request: HttpClientRequest.HttpClientRequest
+): HttpClientRequest.HttpClientRequest => {
+	const queryNames = apiKeyNames(table, "query")
+	const cookieNames = apiKeyNames(table, "cookie")
+	const headerNames = [
+		...apiKeyNames(table, "header"),
+		...(hasAuthorizationScheme(table) ? ["authorization"] : [])
+	]
+	const headers = Headers.removeMany(request.headers, headerNames)
+
+	const cookies = Option.match(Headers.get(headers, "cookie"), {
+		onNone: () => headers,
+		onSome: (cookie) => {
+			const kept = Arr.filter(cookiePairs(cookie), (pair) => !cookieNames.has(cookieName(pair)))
+
+			return kept.length === 0
+				? Headers.remove(headers, "cookie")
+				: Headers.set(headers, "cookie", Arr.join(kept, "; "))
+		}
+	})
+
+	return HttpClientRequest.makeWith(
+		request.method,
+		stripUrlQuery(request.url, queryNames),
+		UrlParams.transform(UrlParams.fromInput(request.urlParams), (params) =>
+			Arr.filter(params, ([name]) => !queryNames.has(name))
+		),
+		request.hash,
+		cookies,
+		request.body
+	)
+}
+
+/**
+ * A credential value no header can carry: it also refuses any edge `trim` removes, where a header
+ * parameter refuses only a tab or space edge (serialize.ts `edgeSpace`). The two rules drift and
+ * stay as they are.
+ */
+const unsafeHeaderValue = (value: string): boolean =>
+	headerValueBreaks(value) || value !== Str.trim(value)
+
+/**
+ * An RFC 6265 cookie-name: an RFC 9110 token.
+ */
+const cookieNameToken: Readonly<RegExp> = regex("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$", "u")
+
+const controlCharacter: Readonly<RegExp> = regex("\\p{Cc}", "u")
+
+const refuse = (scheme: string, rule: string): Effect.Effect<never, UsageError> =>
+	Effect.fail(usage(scheme, `the credential for ${scheme} ${rule}`))
+
+const headerValue = (scheme: string, value: string): Effect.Effect<string, UsageError> =>
+	unsafeHeaderValue(value)
+		? refuse(
+				scheme,
+				"has a CR, LF, NUL, leading or trailing whitespace or a code point above U+00FF"
+			)
+		: Effect.succeed(value)
+
+const basicParts = (
+	scheme: string,
+	value: string
+): Effect.Effect<readonly [string, string], UsageError> =>
+	Option.match(Str.indexOf(":")(value), {
+		onNone: () => refuse(scheme, "must be <user-id>:<password>"),
+		onSome: (colon) => {
+			if (loneSurrogate.test(value)) {
+				return refuse(scheme, "has a lone surrogate")
+			}
+
+			if (controlCharacter.test(value)) {
+				return refuse(scheme, "has a control character")
+			}
+
+			return Effect.succeed([Str.slice(0, colon)(value), Str.slice(colon + 1)(value)] as const)
+		}
+	})
+
+/**
+ * One credential written onto a request. A `mutualTLS` certificate is presented by the hop's
+ * transport (`presentsCertificate`), never as a header.
+ */
+const attachOne = (
+	request: HttpClientRequest.HttpClientRequest,
+	{ definition, scheme, value }: Credential
+): Effect.Effect<HttpClientRequest.HttpClientRequest, UsageError> => {
+	if (definition.kind === "mutualTLS") {
+		return Effect.succeed(request)
+	}
+
+	const secret = Redacted.value(value)
+	if (definition.kind === "oauth2" || definition.kind === "openIdConnect") {
+		return Effect.map(headerValue(scheme, secret), (token) =>
+			HttpClientRequest.bearerToken(request, token)
+		)
+	}
+
+	if (definition.kind === "http") {
+		return definition.scheme === "bearer"
+			? Effect.map(headerValue(scheme, secret), (token) =>
+					HttpClientRequest.bearerToken(request, token)
+				)
+			: Effect.map(basicParts(scheme, secret), ([user, password]) =>
+					HttpClientRequest.basicAuth(request, user, password)
+				)
+	}
+
+	if (definition.in === "header") {
+		return Effect.map(headerValue(scheme, secret), (text) =>
+			HttpClientRequest.setHeader(request, definition.name, text)
+		)
+	}
+
+	if (definition.in === "query") {
+		return Effect.succeed(HttpClientRequest.setUrlParam(request, definition.name, value))
+	}
+
+	if (!cookieNameToken.test(definition.name)) {
+		return refuse(scheme, "has a cookie name that is not a token")
+	}
+
+	if (!cookieOctets.test(secret)) {
+		return refuse(scheme, "is not a valid cookie value")
+	}
+
+	return Effect.succeed(appendCookie(request, definition.name, secret))
+}
+
+/**
+ * Strip every managed credential, then write each entry with `one` only when the request's origin
+ * is in `origins`.
+ */
+const attachWith = <C, E>(
+	table: SecurityTable,
+	entries: readonly C[],
+	origins: readonly string[],
+	request: HttpClientRequest.HttpClientRequest,
+	one: (
+		request: HttpClientRequest.HttpClientRequest,
+		entry: C
+	) => Effect.Effect<HttpClientRequest.HttpClientRequest, E>
+): Effect.Effect<HttpClientRequest.HttpClientRequest, E> => {
+	const clean = strip(table, request)
+
+	return isBound(clean.url, origins)
+		? Effect.reduce(entries, () => clean, one)
+		: Effect.succeed(clean)
+}
+
+/**
+ * The one attach transform (design 6.5 Origin binding). It strips every managed credential from
+ * the request, then attaches the configured credentials only when the request's origin is in
+ * `origins`. The redirect loop runs it on every hop, so no hop inherits a credential. A credential
+ * value that cannot be sent safely is a `UsageError` naming the scheme, raised only when it would
+ * be attached. A basic credential is `<user-id>:<password>`, split at the first colon.
+ */
+export const attach =
+	(table: SecurityTable, attachment: Attachment) =>
+	(
+		request: HttpClientRequest.HttpClientRequest
+	): Effect.Effect<HttpClientRequest.HttpClientRequest, UsageError> =>
+		attachWith(table, attachment.credentials, attachment.origins, request, attachOne)
+
+/**
+ * The placeholder `--dry-run` writes for a scheme's credential (design 7.5).
+ */
+export const placeholder = (scheme: string): string => labelledPlaceholder(scheme)
+
+/**
+ * Write the placeholder where the credential would go, with the scheme's prefix (`Bearer`,
+ * `Basic`); the value, if any, is never written.
+ */
+const writePlaceholder = (
+	request: HttpClientRequest.HttpClientRequest,
+	{ definition, scheme }: Placeholder
+): Effect.Effect<HttpClientRequest.HttpClientRequest> => {
+	const text = placeholder(scheme)
+	if (definition.kind === "mutualTLS") {
+		return Effect.succeed(request)
+	}
+
+	if (definition.kind !== "apiKey") {
+		const prefix = definition.kind === "http" && definition.scheme === "basic" ? "Basic" : "Bearer"
+
+		return Effect.succeed(
+			HttpClientRequest.setHeader(request, "authorization", `${prefix} ${text}`)
+		)
+	}
+
+	if (definition.in === "header") {
+		return Effect.succeed(HttpClientRequest.setHeader(request, definition.name, text))
+	}
+
+	if (definition.in === "query") {
+		return Effect.succeed(HttpClientRequest.setUrlParam(request, definition.name, text))
+	}
+
+	return Effect.succeed(appendCookie(request, definition.name, text))
+}
+
+/**
+ * A configured value gets the check `attach` applies (`attachOne`, its request discarded), so the
+ * preview fails where the real run would (M3-DR1); then the placeholder is written.
+ */
+const placeholderOne = (
+	request: HttpClientRequest.HttpClientRequest,
+	entry: Placeholder
+): Effect.Effect<HttpClientRequest.HttpClientRequest, UsageError> => {
+	const { value } = entry
+	const checked =
+		value === undefined ? Effect.void : Effect.asVoid(attachOne(request, { ...entry, value }))
+
+	return Effect.andThen(checked, () => writePlaceholder(request, entry))
+}
+
+/**
+ * The value of a header whose name output redacts, as `--dry-run` and `--verbose` print it (design 4.6, 7.5): kept only
+ * when it is exactly a placeholder of `written` as `writePlaceholder` writes it in a header (bare, or after the
+ * `Bearer` or `Basic` prefix), else `<redacted>`; a `Cookie` keeps each pair whose value is exactly one of `written`
+ * and redacts the value of every other pair. `written` holds the placeholders of the run's own credentials, so no
+ * other value that looks like one is shown.
+ */
+export const shownRedactedValue = (
+	name: string,
+	value: string,
+	written: ReadonlySet<string>
+): string => {
+	if (Str.toLowerCase(name) !== "cookie") {
+		const forms = new Set(
+			Arr.flatMap(Arr.fromIterable(written), (text) => [text, `Bearer ${text}`, `Basic ${text}`])
+		)
+
+		return forms.has(value) ? value : redactedPlaceholder()
+	}
+
+	return Arr.join(
+		Arr.map(cookiePairs(value), (pair) =>
+			Option.match(Str.indexOf("=")(pair), {
+				onNone: () => redactedPlaceholder(),
+				onSome: (equals) =>
+					written.has(Str.slice(equals + 1)(pair))
+						? pair
+						: `${Str.slice(0, equals)(pair)}=${redactedPlaceholder()}`
+			})
+		),
+		"; "
+	)
+}
+
+/**
+ * The placeholder mode of the one attach transform, for `--dry-run` (design 7.5, CO-24): the same
+ * strip and origin binding as `attach`, writing `<redacted:<scheme>>` (`placeholder`) for each
+ * scheme of the chosen alternative instead of its value. A configured value `attach` would refuse
+ * is the same `UsageError` here; an unconfigured scheme is never refused.
+ */
+export const attachPlaceholders =
+	(table: SecurityTable, placeholders: readonly Placeholder[], origins: readonly string[]) =>
+	(
+		request: HttpClientRequest.HttpClientRequest
+	): Effect.Effect<HttpClientRequest.HttpClientRequest, UsageError> =>
+		attachWith(table, placeholders, origins, request, placeholderOne)
+
+/**
+ * The headers that carry a credential, whatever route set them. Output redacts each one by name,
+ * and the redirect loop drops each one on an origin change.
+ */
+export const credentialHeaders = ["authorization", "proxy-authorization", "cookie"] as const
+
+/**
+ * A request header name that reads as a credential, by operator policy: it contains, in any case,
+ * one of these words. Output redacts such a header beside `credentialHeaders`; the wire never
+ * changes.
+ */
+export const credentialLikeName: Readonly<RegExp> = regex.as(
+	"token|secret|password|passwd|api-key|apikey|api_key|auth|session|credential|signature",
+	"iu"
+)
+
+/**
+ * The response headers `--verbose` prints though their names are credential-like, by operator
+ * policy: the `WWW-Authenticate` and `Proxy-Authenticate` challenges, which carry no secret and
+ * are the main clue when authentication fails, and `Access-Control-Allow-Credentials`, which is
+ * only ever `true`. `Authentication-Info` and `Proxy-Authentication-Info` carry digest values and
+ * are not exempt.
+ */
+export const credentialLikeExemptions = [
+	"www-authenticate",
+	"proxy-authenticate",
+	"access-control-allow-credentials"
+] as const
+
+/**
+ * A response header name `--verbose` redacts by operator policy: a credential-like name
+ * (`credentialLikeName`) that `credentialLikeExemptions` does not list.
+ */
+export const credentialLikeResponseName: Readonly<RegExp> = regex.as(
+	`^(?!(?:${Arr.join(credentialLikeExemptions, "|")})$).*(?:${credentialLikeName.source})`,
+	"iu"
+)
+
+/**
+ * The request header names `--dry-run` and `--verbose` redact on top of `redactedNames`: every
+ * credential-like name (`credentialLikeName`) and each header the operation declares sensitive
+ * (`format: password`, an array of password strings, or `x-sensitive: true`, which the generator
+ * writes as `sensitiveHeaders`). They apply to the request's headers and its multipart part
+ * headers; a response's headers get `credentialLikeResponseName`.
+ */
+export const sensitiveHeaderNames = (
+	sensitive: readonly string[] | undefined
+): readonly (string | RegExp)[] => [credentialLikeName, ...(sensitive ?? [])]
+
+/**
+ * Extend `Headers.CurrentRedactedNames` with every credential header name and every `apiKey`
+ * header name, and `UrlParams.CurrentRedactedNames` with every `apiKey` query name, keeping
+ * Effect's defaults (design 7.5). A cookie name needs no entry: the whole `Cookie` header is
+ * redacted.
+ */
+export const redactedNames = (table: SecurityTable) =>
+	Layer.mergeAll(
+		Layer.effect(Headers.CurrentRedactedNames)(
+			Effect.map(Effect.service(Headers.CurrentRedactedNames), (current) => [
+				...current,
+				...credentialHeaders,
+				...apiKeyNames(table, "header")
+			])
+		),
+		Layer.effect(UrlParams.CurrentRedactedNames)(
+			Effect.map(Effect.service(UrlParams.CurrentRedactedNames), (current) => [
+				...current,
+				...apiKeyNames(table, "query")
+			])
+		)
+	)
+
+const dottedLoopback: Readonly<RegExp> = regex("^127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$", "u")
+
+const mappedLoopback: Readonly<RegExp> = regex("^\\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\\]$", "u")
+
+const trailingDot: Readonly<RegExp> = regex("\\.$", "u")
+
+/**
+ * The one loopback predicate (design 6.5 Loopback hosts). Its input is a WHATWG `URL.hostname`:
+ * lowercase, IPv6 in brackets, IPv4 in dotted form. Loopback is `localhost` or a `.localhost`
+ * name (one trailing dot allowed), a dotted IPv4 address in `127.0.0.0/8`, `[::1]`, and an
+ * IPv4-mapped address in `127.0.0.0/8`, which `URL` writes in hex (`[::ffff:7f00:1]`).
+ */
+export const isLoopbackHost = (hostname: string): boolean => {
+	const name = Str.replace(trailingDot, "")(hostname)
+
+	return (
+		name === "localhost" ||
+		Str.endsWith(".localhost")(name) ||
+		name === "[::1]" ||
+		dottedLoopback.test(name) ||
+		mappedLoopback.test(name)
+	)
+}
+
+/**
+ * The one stderr line for credentials sent over plaintext `http:` (design 13.1 R3, D-SEC2): when
+ * `--allow-credentials-for-base-url` let credentials reach the base URL, and that URL is `http:` on
+ * a host `isLoopbackHost` rejects. A loopback host gets none, because its requests go direct and
+ * never reach a proxy (design 6.5 Loopback hosts); `https:`, an unparsable URL and a run without
+ * the flag get none. The line names the flag and the host, never userinfo or a credential.
+ * Printing it once per run is the caller's.
+ */
+export const plaintextWarning = (baseUrl: string, allowed: boolean): Option.Option<string> => {
+	if (!allowed) {
+		return Option.none()
+	}
+
+	return Result.match(Url.fromString(baseUrl), {
+		onFailure: () => Option.none(),
+		onSuccess: ({ host, hostname, protocol }) =>
+			protocol === "http:" && !isLoopbackHost(hostname)
+				? Option.some(
+						`Warning: --allow-credentials-for-base-url sends credentials to ${host} over plaintext http`
+					)
+				: Option.none()
+	})
+}

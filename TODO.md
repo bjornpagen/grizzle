@@ -7,6 +7,12 @@ The one plan: only work still to do. A finished item is deleted, not ticked.
 1.0.0-beta.1 is on npm (2026-11-08), tagged v1.0.0-beta.1 at 2e979b3c. Main carries the README rewrite and the
 post-beta swarm's fixes for the next release.
 
+### The CLI generator (packages/cli-generator)
+
+- **The writer leaves the empty directories a failed run created:** Effect's FileSystem has no remove-if-empty (rmdir).
+  Once it has one (an upstream patch with a repro under `upstream/`), the writer removes exactly the directories it
+  created, and only while they are empty.
+
 ### After the 1,000-children goal (the owner's pinned goal, 2026-11-10)
 - **A read-back over a delta no one statement makes is refused (CARRIER, 2026-11-11):** a read-back runs inside the
   one statement that makes its delta, whose rows exist nowhere else, and no delta carrier is left, so

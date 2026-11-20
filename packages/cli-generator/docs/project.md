@@ -215,42 +215,33 @@ Label: operator default. These defaults apply until the project owner decides ot
 
 ## Clean break
 
-The current line starts from `main`. An earlier implementation exists on another branch. It survives only where a review kept it, element by element, with the reason recorded.
+The current line started from effect-openapi-cli-generator's `main`, whose history this package carries. An earlier implementation existed on another branch of that repository; nothing of it survives but what a review kept, element by element, with the reason recorded.
 
-## Repository layout
+## Package layout
 
-The generator itself has one directory per pipeline stage, a model directory, the generated runtime's source, a library entry and a generator CLI. The layout below is the target after the first milestone. Some paths do not exist yet.
+The generator is grizzle's package `packages/cli-generator`: one directory per pipeline stage, a model directory, the generated runtime's source, a library entry and a generator CLI. Its checks, lint, architecture and runner are grizzle's, at the workspace root. Some paths do not exist yet.
 
 ```text
-.agents/skills/                  # repository skills
-AGENTS.md  README.md
-docs/
-  project.md                     # this file
-  printer.md                     # the deterministic printer's short spec
-package.json  pnpm-lock.yaml  pnpm-workspace.yaml  tsconfig.json  turbo.json  lefthook.yml
-oxlint.config.ts  oxlint.ast.config.ts  toolchain.config.ts  .oxfmtrc.json  .fallowrc.json
-vendor/
-  toolchain/                     # the shared dev tools and testing library, a git submodule
-packages/
-  json/                          # superstarter's JSON door, vendored
-  generator/
-    package.json  tsconfig.json  vitest.config.ts  ratchet.json
-    src/
-      index.ts                   # library entry: generate(input, config)
-      main.ts                    # generator CLI: generate, validate, verdict (effect/cli commands)
-      bin.ts                     # shebang, NodeServices, NodeRuntime.runMain
-      load/  validate/  resolve/  check/  normalize/  names/  emit/  write/  report/   # one per pipeline stage
-      model/                     # branded values, entities, diagnostic and verdict codecs, author config
-      runtime-src/               # the generated runtime's source, emitted verbatim and tested directly
-        domain/errors.ts         #   the CLI's tagged error classes, which runtime/ imports
-        runtime/*.ts             #   serialize, input, auth, client, output, multipart, describe,
+packages/cli-generator/
+  package.json  tsconfig.json  LICENSE  README.md
+  docs/
+    project.md                   # this file
+    printer.md                   # the deterministic printer's short spec
+  src/
+    index.ts                     # library entry: generate(input, config)
+    main.ts                      # generator CLI: generate, validate, verdict (effect/cli commands)
+    bin.ts                       # shebang, NodeServices, NodeRuntime.runMain
+    load/  validate/  resolve/  check/  normalize/  names/  emit/  write/  report/   # one per pipeline stage
+    model/                       # branded values, entities, diagnostic and verdict readers, author config
+    runtime-src/                 # the generated runtime's source, emitted verbatim and tested directly
+      domain/errors.ts           #   the CLI's tagged error classes, which runtime/ imports
+      runtime/*.ts               #   serialize, input, auth, client, output, multipart, describe,
                                  #   base-url, negotiate, response, sequential, sse
-    scripts/
-      embed-runtime.ts           # runtime-src/ to a git-ignored string module
-      ratchet.ts                 # the gate's finding ratchet while the generator is cleaned
-      memguard.sh                # memory ceiling for the corpus run
-    test/                        # the suites, by the stage they cover
-    corpus/                      # pinned corpus specifications, configs, verdicts and tools
+  scripts/
+    runtime-gate.ts              # the generated runtime's typecheck and lint bans, in pnpm check
+    memguard.sh                  # memory ceiling for the corpus run
+  test/                          # the properties, by the stage they cover; test/grizzle, the grizzle tier
+  corpus/                        # pinned corpus specifications, configs, verdicts and tools
 ```
 
 `runtime-src/` mirrors the generated package's `src/` subtree, so relative imports hold in both places. `runtime/describe.ts` is the only home of the `--describe` codec; the coverage checker imports it from there, never from `model/`.
