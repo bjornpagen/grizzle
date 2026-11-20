@@ -91,7 +91,8 @@ export const helpExit = property.explore(helpExits, {
 	check: (_, c: Case<HelpExitFeature>) => (exit) =>
 		Effect.gen(function* () {
 			c.noteAll(helpExitFeatures(exit))
-			assert.deepEqual(yield* helpExitOf(exit), expectedHelpExit(exit))
+			const exited = yield* helpExitOf(exit)
+			assert.deepEqual(exited, expectedHelpExit(exit))
 		}),
 	oracle: {
 		kind: "specification",

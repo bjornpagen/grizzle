@@ -58,7 +58,9 @@ export const documentRead = property.explore(deliveries, {
 		(delivery) =>
 			Effect.gen(function* () {
 				c.noteAll(deliveryFeatures(delivery))
-				assert.deepEqual(yield* actualOf(yield* dir, delivery), expectedOf(delivery))
+				const scratch = yield* dir
+				const actual = yield* actualOf(scratch, delivery)
+				assert.deepEqual(actual, expectedOf(delivery))
 			}),
 	oracle: {
 		kind: "specification",
@@ -116,7 +118,9 @@ export const memberRead = property.explore(members, {
 		(member) =>
 			Effect.gen(function* () {
 				c.noteAll(memberFeatures(member))
-				assert.deepEqual(yield* actualMember(yield* dir, member), expectedMember(member))
+				const scratch = yield* dir
+				const actual = yield* actualMember(scratch, member)
+				assert.deepEqual(actual, expectedMember(member))
 			}),
 	oracle: {
 		kind: "specification",

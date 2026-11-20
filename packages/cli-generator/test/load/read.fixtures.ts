@@ -742,7 +742,9 @@ export const refusalFields = (refusal: LoadRefusal) => ({
 	ownOffset: "offset" in refusal
 })
 
-export const askedFields = (asked: Asked) => ({
+type RefusalFields = ReturnType<typeof refusalFields>
+
+export const askedFields = (asked: Asked): RefusalFields => ({
 	tag: "LoadRefusal",
 	instance: true,
 	code: asked.code,
