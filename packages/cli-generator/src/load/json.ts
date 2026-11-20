@@ -1,11 +1,13 @@
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Option, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Predicate, Result, String as Str } from "effect"
 import { byteOffset } from "#load/offset.ts"
 import { refuse, wholeInput } from "#load/read.ts"
 import type { LoadRefusal, Position } from "#load/read.ts"
 import type { DocumentUri } from "#model/brands.ts"
+import { isJson } from "#model/json-tree.ts"
 import { formatPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
+import { parseJson } from "#runtime/json.ts"
 
 const nameMapKeys: ReadonlySet<string> = new Set([
 	"$defs",
@@ -34,21 +36,21 @@ const opaqueKeys: ReadonlySet<string> = new Set(["example", "examples"])
 const largestSafeValue = 2 ** 53
 
 /**
- * Decodes the text of a JSON document.
+ * The JSON value of a text, or none where `JSON.parse` refuses it.
  */
-const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Json))
-
-/**
- * Decodes one quoted JSON string literal.
- */
-const decodeKey = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.String))
+const jsonValueOf = (text: string): Option.Option<Json> =>
+	Option.filter(Result.getSuccess(parseJson(text)), isJson)
 
 /**
  * The key a raw (still escaped) member name denotes. A key's decoding matters only once
  * `JSON.parse` has accepted the text, so every raw key is then a valid JSON string body; on
  * malformed text the raw spelling stands in.
  */
-const unescapeKey = (raw: string): string => Option.getOrElse(decodeKey(`"${raw}"`), () => raw)
+const unescapeKey = (raw: string): string =>
+	Option.getOrElse(
+		Option.filter(Result.getSuccess(parseJson(`"${raw}"`)), Predicate.isString),
+		() => raw
+	)
 
 const numberToken = regex(
 	"^-?(?<int>[0-9]+)(?:\\.(?<frac>[0-9]+))?(?:[eE](?<exp>[+-]?[0-9]+))?$",
@@ -299,9 +301,10 @@ export const parseStrictJson: (
 	document: DocumentUri,
 	byteBase: number
 ) {
-	const value = yield* decodeJson(text).pipe(
-		Effect.catchTag("SchemaError", () => refuse(document, "DOC-14/invalid-json", wholeInput))
-	)
+	const value = yield* Option.match(jsonValueOf(text), {
+		onNone: () => refuse(document, "DOC-14/invalid-json", wholeInput),
+		onSome: Effect.succeed
+	})
 	const finding = scan(text)
 
 	if (finding !== undefined) {
