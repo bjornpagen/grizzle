@@ -15,6 +15,7 @@ import type {
 	Cte,
 	Expr,
 	FromItem,
+	FromSource,
 	Insert,
 	OnConflict,
 	Select,
@@ -31,6 +32,7 @@ import {
 	continuedAll,
 	cte,
 	cteRef,
+	cteRefAs,
 	eq,
 	join,
 	lit,
@@ -753,17 +755,41 @@ export const buildInsert = (
 			cv: string
 		): { readonly classified: string; readonly met: SetCore } => {
 			const primary = objects.arbiter
-			const metRows = () =>
-				metRowsOf(w, supply, {
-					insert: r2,
-					proposed: from.name,
-					columns: mapNonEmpty(all, (f) => ({ column: from.columns.of(f), returned: retCol(f) })),
-					key: mapNonEmpty(pk, (f) => ({
-						field: f,
-						column: from.columns.of(f),
-						returned: retCol(f)
-					}))
-				})
+			/**
+			 * The met rows found once (sql/ast.ts FromSource `metRows`), into a MATERIALIZED CTE of their own, which the
+			 * classes and the delivered stored facts each read: the window sorts the proposed and returned rows once for
+			 * the statement, where each reader's own met rows sorted them again, every column of every proposed row twice.
+			 */
+			const searched = metRowsOf(w, supply, {
+				insert: r2,
+				proposed: from.name,
+				columns: mapNonEmpty(all, (f) => ({ column: from.columns.of(f), returned: retCol(f) })),
+				key: mapNonEmpty(pk, (f) => ({
+					field: f,
+					column: from.columns.of(f),
+					returned: retCol(f)
+				}))
+			})
+			const rm = supply.relation(internal("met rows found"))
+			ctes.push({
+				...cte(
+					rm,
+					all.map((f) => from.columns.of(f)),
+					select(
+						provedCore(
+							"keyed",
+							mapNonEmpty(all, (f) => target(col(searched.alias, from.columns.of(f)))),
+							[searched.source],
+							undefined
+						)
+					)
+				),
+				materialized: "MATERIALIZED"
+			})
+			const metRows = (): { readonly source: FromSource; readonly alias: string } => {
+				const alias = supply.relation(internal("met rows"))
+				return { alias, source: cteRefAs(rm, alias) }
+			}
 			const met = metRows()
 			const metValue = (f: LawField): Expr => col(met.alias, from.columns.of(f))
 			const found = (access: MetAccess, equal: ReadonlyArray<Equal>): Expr =>
