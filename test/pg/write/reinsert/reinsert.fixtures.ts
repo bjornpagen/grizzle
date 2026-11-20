@@ -531,7 +531,8 @@ const aimedSpecGen =
 
 /**
  * A case aimed at a pending situation: the aimed schema, every count at its most, and one insert again with the
- * aim's differences, one at its target where the instance admits it and drawn otherwise.
+ * aim's differences, one at its target where the instance admits it and drawn otherwise; a replace's difference one the
+ * replace writes, drawn among every target's that does, and drawn otherwise.
  */
 const aimedGen =
 	(aim: Aim): Gen<ReinsertCase> =>
@@ -563,8 +564,21 @@ const aimedGen =
 					switch (aim.change) {
 						case "none":
 							return []
-						case "a difference":
-							return [source.draw(drawnAt(rows))]
+						case "a difference": {
+							/** Each target's difference whose replace writes rows other than the stored ones, which the
+							 * property notes as accepted: a drawn one meets that only now and then. */
+							const left = unitDelete(spec, rows, units).left
+							const accepted = Arr.flatMap(targetsOf(spec, rows, keys), (t) => {
+								const d = source.draw(differenceAt(spec, rows, keys, t))
+								const v = againVerdict(spec, left, differed(spec, rows, d))
+								return v.kind === "written" && !sameWritten(spec, rows, v.rows) ? [d] : []
+							})
+							return [
+								source.draw(
+									Arr.isReadonlyArrayNonEmpty(accepted) ? element(accepted) : drawnAt(rows)
+								)
+							]
+						}
 						case "a unit dropped":
 							return Arr.match(units, {
 								onEmpty: () => [],
@@ -578,10 +592,18 @@ const aimedGen =
 	}
 
 /**
- * The case a witness runs, drawn under its steering: while a situation is pending, a case aimed at one drawn among them;
- * otherwise a drawn one. The generator draws it, so it is the case the search runs, prints and keeps.
+ * The case a witness runs, drawn under its steering: a case aimed at the situation the steering's turn aims at
+ * (features.ts Pending `aimed`), so every pending situation is drawn at its own turns; else, while a situation is
+ * pending, a case aimed at one drawn among them; otherwise a drawn one. The generator draws it, so it is the case the
+ * search runs, prints and keeps.
  */
 export const reinsertCases: Steered<ReinsertCase, Situation>["under"] = (steering) => {
+	const turn = Arr.findFirst(aims, ([situation]) =>
+		Option.exists(steering, (pending) => pending.aimed(situation))
+	)
+	if (Option.isSome(turn)) {
+		return aimedGen(turn.value[1])
+	}
 	const open = Arr.filter(aims, ([situation]) =>
 		Option.exists(steering, (pending) => pending.has(situation))
 	)
