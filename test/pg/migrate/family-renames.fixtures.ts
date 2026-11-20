@@ -1153,17 +1153,17 @@ export const changeAims: ReadonlyArray<Aim<ChangeCase, ChangeFeature>> = [
 const shapeBefore = (c: ChangeCase): Shape =>
 	c.change === "fold added" ? { ...c.shape, fold: "none", selection: "every" } : c.shape
 
-/** What a reshaping history's third version reads. */
-const changedReading = (change: Change): Reading => {
+/** What a reshaping history's third version reads: what its second, `before`, reads, with `change` made. */
+const changedReading = (change: Change, before: Reading): Reading => {
 	switch (change) {
 		case "fold step":
-			return { ...firstReading, step: "second" }
+			return { ...before, step: "second" }
 		case "copy target":
-			return { ...firstReading, copied: "tag2" }
+			return { ...before, copied: "tag2" }
 		case "group":
-			return { ...firstReading, group: "h" }
+			return { ...before, group: "h" }
 		case "fold added":
-			return firstReading
+			return before
 	}
 }
 
@@ -1278,7 +1278,7 @@ export const changeCase = (c: ChangeCase, k: Case<ChangeFeature>) =>
 			versionOf(name, c.shape, {
 				kind: "family",
 				naming: asFirst,
-				reading: changedReading(c.change)
+				reading: changedReading(c.change, firstReading)
 			})
 		let schemaName = ""
 		const outcome = yield* Effect.result(
@@ -1637,7 +1637,7 @@ export const redrawCase = (r: RedrawCase, k: Case<RedrawFeature>) =>
 							versionOf(name, c.shape, {
 								kind: "family",
 								naming: asFirst,
-								reading: { ...changedReading(c.change), step: first.step }
+								reading: changedReading(c.change, first)
 							}),
 						declared: noDeclarations
 					}
