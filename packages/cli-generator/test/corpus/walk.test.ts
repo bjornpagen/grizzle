@@ -51,25 +51,25 @@ export const outlineWalk = property.explore(documentSpace, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/resolve/index.ts",
+			file: "packages/cli-generator/src/resolve/index.ts",
 			original: '"pathItem",\n\t"requestBody",\n\t"response",',
 			replacement: '"pathItem",\n\t"response",',
 			why: "A request body is no kind a reference stands for, so a referenced body's media types are never reached; the property fails (TESTPOLICY2's census, mutant 1d0c253431)."
 		},
 		{
-			file: "packages/generator/corpus/tools/walk.ts",
+			file: "packages/cli-generator/corpus/tools/walk.ts",
 			original: "servers: itemServers ?? rootServers",
 			replacement: "servers: itemServers",
 			why: "An operation of a path item with no servers inherits none of the root's; the property fails."
 		},
 		{
-			file: "packages/generator/corpus/tools/walk.ts",
+			file: "packages/cli-generator/corpus/tools/walk.ts",
 			original: "? Str.toLowerCase(left.name) === Str.toLowerCase(right.name)",
 			replacement: "? left.name === right.name",
 			why: "A header an operation names in another case is taken for another parameter, so the path item's is inherited beside it; the property fails."
 		},
 		{
-			file: "packages/generator/corpus/tools/walk.ts",
+			file: "packages/cli-generator/corpus/tools/walk.ts",
 			original:
 				'defaultServer: above.servers === undefined && Option.isNone(memberOf(node, "servers"))',
 			replacement: 'defaultServer: Option.isNone(memberOf(node, "servers"))',

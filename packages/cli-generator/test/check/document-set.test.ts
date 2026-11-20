@@ -45,13 +45,13 @@ export const parametersAcrossDocuments = property.exhaust(parameterSpace, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/check/path-items.ts",
+			file: "packages/cli-generator/src/check/path-items.ts",
 			original: "resolution.documents.get(target.document)",
 			replacement: "resolution.documents.get(resolution.document)",
 			why: "A reference's target is read in the entry document whatever document it names, so a parameter held by the second document is read as nothing and its repeat is not found; the property fails."
 		},
 		{
-			file: "packages/generator/src/check/structure.ts",
+			file: "packages/cli-generator/src/check/structure.ts",
 			original: "[...fixed, ...additional]",
 			replacement: "[...additional]",
 			why: "No path item's fixed operations are read, so no operation's parameters are checked and no repeat is found; the property fails (TESTPOLICY2's census, mutant 5c6f6c1ce8)."
@@ -82,13 +82,13 @@ export const branchesAcrossDocuments = property.exhaust(branchSpace, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/check/path-items.ts",
+			file: "packages/cli-generator/src/check/path-items.ts",
 			original: "resolution.documents.get(target.document)",
 			replacement: "resolution.documents.get(resolution.document)",
 			why: "A reference's target is read in the entry document whatever document it names, so a branch held by the second document is read as nothing; the property fails."
 		},
 		{
-			file: "packages/generator/src/check/grammar.ts",
+			file: "packages/cli-generator/src/check/grammar.ts",
 			original: 'name === undefined || required || resolution.line === "3.2"',
 			replacement: 'name === undefined || resolution.line === "3.2"',
 			why: "Every branch is found not to require the discriminator's property, the branches that require it among them; the property fails."

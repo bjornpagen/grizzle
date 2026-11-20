@@ -54,19 +54,19 @@ export const documentBases = property.exhaust(documentSpace, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/resolve/base-uri.ts",
+			file: "packages/cli-generator/src/resolve/base-uri.ts",
 			original: 'line === "3.2" ? stringMember(root, "$self") : undefined',
 			replacement: 'stringMember(root, "$self")',
 			why: "A 3.0 or 3.1 document's $self is read as its base, a member neither line has; the property fails."
 		},
 		{
-			file: "packages/generator/src/resolve/base-uri.ts",
+			file: "packages/cli-generator/src/resolve/base-uri.ts",
 			original: "Option.map(resolveUri(self, normalized), stripFragment)",
 			replacement: "resolveUri(self, normalized)",
 			why: "A $self keeps its fragment, so the base names no resource; the property fails."
 		},
 		{
-			file: "packages/generator/src/model/uri.ts",
+			file: "packages/cli-generator/src/model/uri.ts",
 			original: "Option.getOrElse(resolveUri(retrieval, retrieval), () => retrieval)",
 			replacement: "retrieval",
 			why: "A retrieval URI is taken as written, its dot segments kept, so one document is two resources; the property fails."
@@ -97,13 +97,13 @@ export const schemaBases = property.exhaust(schemaSpace, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/resolve/base-uri.ts",
+			file: "packages/cli-generator/src/resolve/base-uri.ts",
 			original: 'line === "3.0" ? undefined : stringMember(schema, "$id")',
 			replacement: 'stringMember(schema, "$id")',
 			why: "A 3.0 schema's $id is read as its base, a keyword 3.0's Schema Object does not have; the property fails."
 		},
 		{
-			file: "packages/generator/src/resolve/base-uri.ts",
+			file: "packages/cli-generator/src/resolve/base-uri.ts",
 			original: "Option.map(resolveUri(id, enclosing), stripFragment)",
 			replacement: "resolveUri(id, enclosing)",
 			why: "An $id keeps its fragment, so the schema's base names no resource; the property fails."
@@ -135,13 +135,13 @@ export const fragments = property.exhaust(referenceSpace, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/model/uri.ts",
+			file: "packages/cli-generator/src/model/uri.ts",
 			original: 'Str.indexOf("#")(uri)',
 			replacement: 'Str.lastIndexOf("#")(uri)',
 			why: "A reference splits at its last #, so a fragment holding # loses its head to the resource; the property fails."
 		},
 		{
-			file: "packages/generator/src/model/uri.ts",
+			file: "packages/cli-generator/src/model/uri.ts",
 			original: "Str.slice(hash + 1)(uri)",
 			replacement: "Str.slice(hash)(uri)",
 			why: "A fragment keeps the # that starts it; the property fails."

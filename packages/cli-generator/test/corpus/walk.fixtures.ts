@@ -22,7 +22,7 @@ import { Array as Arr, Effect, Option, Order, Record, String as Str } from "effe
 import { walk } from "#corpus/tools/walk.ts"
 import type { WalkElement } from "#corpus/tools/walk.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
+import { formatPointer, type Json } from "#model/pointer.ts"
 import { resolve } from "#resolve/index.ts"
 
 /** How a component is written where it is used: in place, or as a `$ref` to its copy under `components`. */
@@ -167,18 +167,16 @@ export type Feature =
 	| "the same name in two locations"
 	| "a webhook or a callback"
 
-/** A pointer token escaped as RFC 6901 section 3 writes it: `~` as `~0`, then `/` as `~1`. */
-const escaped = (token: string): string =>
-	Str.replaceAll("/", "~1")(Str.replaceAll("~", "~0")(token))
+/** A use site's place in the document, as the tokens its pointer is formatted from. */
+type Tokens = ReadonlyArray<string>
 
-const under = (pointer: string, ...tokens: ReadonlyArray<string>): string =>
-	Arr.reduce(tokens, pointer, (at, token) => `${at}/${escaped(token)}`)
+const under = (owner: Tokens, ...tokens: ReadonlyArray<string>): Tokens => [...owner, ...tokens]
 
 /** A character no component name may hold (OpenAPI 3.1.1 section 4.8.7.1: `^[a-zA-Z0-9\.\-_]+$`). */
 const unnamable = regex("[^A-Za-z0-9._-]", "gu")
 
 /** The name a referenced component is held under: its use site's pointer, read as a component name. */
-const componentName = (use: string): string => Str.replaceAll(unnamable, "_")(use)
+const componentName = (use: Tokens): string => Str.replaceAll(unnamable, "_")(formatPointer(use))
 
 /** A built document: its value, and the components its `$ref`s point at, by group and name. */
 type Built = Readonly<{
@@ -186,7 +184,7 @@ type Built = Readonly<{
 	components: ReadonlyArray<readonly [group: string, name: string, value: Json]>
 }>
 
-const written = (group: string, use: string, form: Form, value: Json): Built => {
+const written = (group: string, use: Tokens, form: Form, value: Json): Built => {
 	switch (form) {
 		case "inline":
 			return { value, components: [] }
@@ -205,7 +203,7 @@ const all = (built: ReadonlyArray<Built>): Built => ({
 	components: Arr.flatMap(built, (each) => each.components)
 })
 
-const parametersBuilt = (owner: string, parameters: ReadonlyArray<ParameterSketch>): Built =>
+const parametersBuilt = (owner: Tokens, parameters: ReadonlyArray<ParameterSketch>): Built =>
 	all(
 		Arr.map(parameters, (parameter, index) =>
 			written("parameters", under(owner, "parameters", String(index)), parameter.form, {
@@ -230,7 +228,7 @@ const optionally = <A>(
 ): Record<string, Json> =>
 	Option.match(held, { onNone: () => ({}), onSome: (present) => ({ [key]: value(present) }) })
 
-const operationBuilt = (owner: string, operation: OperationSketch): Built => {
+const operationBuilt = (owner: Tokens, operation: OperationSketch): Built => {
 	const parameters = parametersBuilt(owner, operation.parameters)
 	const body = Option.map(operation.body, (sketch) =>
 		written("requestBodies", under(owner, "requestBody"), sketch.form, {
@@ -268,7 +266,7 @@ const operationBuilt = (owner: string, operation: OperationSketch): Built => {
 }
 
 const pathItemBuilt = (item: PathItemSketch): Built => {
-	const owner = under("/paths", item.path)
+	const owner: Tokens = ["paths", item.path]
 	const parameters = parametersBuilt(owner, item.parameters)
 	const operations = Arr.map(item.operations, (operation) => ({
 		method: operation.method,
@@ -332,10 +330,10 @@ export const walkedOf = (sketch: DocumentSketch): Effect.Effect<ReadonlyArray<Wa
 		Effect.orDie
 	)
 
-const at = (pointer: string) => ({ document: entry, pointer })
+const at = (tokens: Tokens) => ({ document: entry, pointer: formatPointer(tokens) })
 
 const parameterElements = (
-	owner: string,
+	owner: Tokens,
 	parameters: ReadonlyArray<ParameterSketch>
 ): ReadonlyArray<WalkElement> =>
 	Arr.map(parameters, (parameter, index) => ({
@@ -345,7 +343,7 @@ const parameterElements = (
 		name: parameter.name
 	}))
 
-const securityElements = (owner: string, security: Security): ReadonlyArray<WalkElement> =>
+const securityElements = (owner: Tokens, security: Security): ReadonlyArray<WalkElement> =>
 	Arr.map(
 		Option.getOrElse(security, () => []),
 		(schemes, index) => ({
@@ -355,7 +353,7 @@ const securityElements = (owner: string, security: Security): ReadonlyArray<Walk
 		})
 	)
 
-const serverElements = (owner: string, servers: Servers): ReadonlyArray<WalkElement> =>
+const serverElements = (owner: Tokens, servers: Servers): ReadonlyArray<WalkElement> =>
 	Arr.map(
 		Option.getOrElse(servers, () => []),
 		(url, index) => ({
@@ -374,10 +372,11 @@ const sameParameter = (left: ParameterSketch, right: ParameterSketch): boolean =
 
 /** The pointers of the elements a level's list holds, by index under its owner. */
 const pointersOf = (
-	owner: string,
+	owner: Tokens,
 	key: string,
 	list: ReadonlyArray<unknown>
-): ReadonlyArray<string> => Arr.map(list, (_, index) => under(owner, key, String(index)))
+): ReadonlyArray<string> =>
+	Arr.map(list, (_, index) => formatPointer(under(owner, key, String(index))))
 
 /**
  * Design 8.3's outline of an operation: the operation, which inherits the path item's parameters it does not override
@@ -390,25 +389,25 @@ const operationElements = (
 	item: PathItemSketch,
 	operation: OperationSketch
 ): ReadonlyArray<WalkElement> => {
-	const itemOwner = under("/paths", item.path)
+	const itemOwner: Tokens = ["paths", item.path]
 	const owner = under(itemOwner, operation.method)
 	const shared = Arr.getSomes(
 		Arr.map(item.parameters, (parameter, index) =>
 			Arr.some(operation.parameters, (own) => sameParameter(own, parameter))
 				? Option.none()
-				: Option.some(under(itemOwner, "parameters", String(index)))
+				: Option.some(formatPointer(under(itemOwner, "parameters", String(index))))
 		)
 	)
 	const security = Option.isNone(operation.security)
 		? pointersOf(
-				"",
+				[],
 				"security",
 				Option.getOrElse(document.security, () => [])
 			)
 		: []
 	const above = Option.orElse(
 		Option.map(item.servers, (servers) => pointersOf(itemOwner, "servers", servers)),
-		() => Option.map(document.servers, (servers) => pointersOf("", "servers", servers))
+		() => Option.map(document.servers, (servers) => pointersOf([], "servers", servers))
 	)
 	const servers = Option.isNone(operation.servers) ? Option.getOrElse(above, () => []) : []
 	return [
@@ -444,12 +443,12 @@ export const expectedOf = (sketch: DocumentSketch): ReadonlyArray<WalkElement> =
 	Arr.sort(
 		[
 			...Arr.flatMap(sketch.paths, (item) => [
-				...parameterElements(under("/paths", item.path), item.parameters),
+				...parameterElements(["paths", item.path], item.parameters),
 				...Arr.flatMap(item.operations, (operation) => operationElements(sketch, item, operation)),
-				...serverElements(under("/paths", item.path), item.servers)
+				...serverElements(["paths", item.path], item.servers)
 			]),
-			...securityElements("", sketch.security),
-			...serverElements("", sketch.servers)
+			...securityElements([], sketch.security),
+			...serverElements([], sketch.servers)
 		],
 		Order.mapInput(Order.String, (listed: WalkElement) => listed.pointer)
 	)
