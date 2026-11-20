@@ -144,7 +144,7 @@ type SqlForm =
 				| "lowerAscii"
 				| "utf16Length"
 	  }
-	| { readonly kind: "floatBits"; readonly bits: 32 | 64 }
+	| { readonly kind: "floatBits"; readonly from: "float4" | "float8" }
 	| { readonly kind: "library"; readonly fn: LibraryFn }
 
 /**
@@ -939,22 +939,21 @@ const bytesDigest: FixedOverload = frozen({
 })
 
 /**
- * A float's identity image: the bits of its IEEE 754 encoding, most significant first, read as a signed integer of
- * their width, a double's as bigint and a real's as integer, NaN's in one form, the quiet NaN of no payload
- * (canonicalNanBits), as Java's doubleToLongBits and floatToIntBits read them: `CASE WHEN x = 'NaN' THEN <NaN's bits>
- * ELSE ('x' || encode(float8send(x), 'hex'))::bit(64)::bigint END`, float4send and bit(32) for a real
- * (lower/conservative/expr/ops.ts floatBitsForm). Two floats have one image exactly when they are one value: -0 and 0
- * differ, every NaN is one, and each infinity is its own, where `=` holds -0 equal to 0; so a key over the image holds
- * both zeros, and a read by `=` on the float finds either. Every function it reads is IMMUTABLE and defined on every
- * float, and the text-to-bit(n) input reads exactly the hex digits float8send's bytes write, so the image stands in a
- * generated column, a check and a query.
+ * A float's identity image: float8send's 8 bytes, the bits of its IEEE 754 binary64 encoding most significant first,
+ * read as a signed bigint, a real widened exactly to double precision first, NaN's in one form (float.ts
+ * canonicalNanBits), as Java's doubleToLongBits reads them: `CASE WHEN x = 'NaN' THEN <NaN's bits> ELSE ('x' ||
+ * encode(float8send(x), 'hex'))::bit(64)::bigint END` (lower/conservative/expr/ops.ts floatBitsForm). Two floats have
+ * one image exactly when they are one value: -0 and 0 differ, every NaN is one, and each infinity and subnormal is its
+ * own, where `=` holds -0 equal to 0; so a key over the image holds both zeros, and a read by `=` on the float finds
+ * either. Every function it reads is IMMUTABLE and defined on every float, and the text-to-bit(64) input reads exactly
+ * the hex digits float8send's bytes write, so the image stands in a generated column, a check and a query.
  */
 const floatBitsOf = (carrier: "float4" | "float8"): FixedOverload =>
 	frozen({
 		fn: "floatBits",
 		operands: positional([carrier]),
-		result: carrier === "float8" ? "int8" : "int4",
-		sql: { kind: "floatBits", bits: carrier === "float8" ? 64 : 32 },
+		result: "int8",
+		sql: { kind: "floatBits", from: carrier },
 		catalog: { kind: "construct", uses: [] },
 		volatility: "immutable",
 		totality: total,

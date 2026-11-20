@@ -5,8 +5,8 @@
  * (test/support/oracle/evaluate/catalog.ts identityBits).
  *
  * Property: over drawn doubles and reals, finite ones and the specials (NaN, ±Infinity, -0) and both zeros often, the
- * host's image and the reference's agree, two values have one image exactly when they are one IEEE 754 value with every
- * NaN one, and the image of a double is a bigint and of a real an integer of its width.
+ * host's image and the reference's agree, a bigint, a real's that of the double it widens to, and two values have one
+ * image exactly when they are one IEEE 754 value with every NaN one.
  *
  * Oracle: the reference evaluator's reading of the encoding, and IEEE 754 identity (Object.is).
  */
@@ -93,18 +93,14 @@ export const computeFloatBitsOnTheHostIsTheReferencesReadingOfAFloatsEncodingOne
 							`the reference evaluates ${Formatter.format(v)}`
 						)
 						assert.equal<unknown>(
-							typeof host === "number" ? BigInt(host) : host,
+							host,
 							reference.success,
 							`the host's image of ${Formatter.format(v)} is the reference's`
 						)
 						return host
 					}
 					const [ix, iy] = [image(x), image(y)]
-					assert.equal(
-						typeof ix,
-						real ? "number" : "bigint",
-						"a real's image is an integer and a double's a bigint"
-					)
+					assert.equal(typeof ix, "bigint", "the image is a bigint")
 					const same = Object.is(x, y) || (Number.isNaN(x) && Number.isNaN(y))
 					assert.equal(
 						ix === iy,
@@ -133,21 +129,21 @@ export const computeFloatBitsOnTheHostIsTheReferencesReadingOfAFloatsEncodingOne
 		kills: [
 			{
 				file: "packages/engine/src/scalar/compute/float.ts",
-				original: "\t64: 0x7ff8_0000_0000_0000n",
-				replacement: "\t64: 0x7ff0_0000_0000_0001n",
+				original: "export const canonicalNanBits = 0x7ff8_0000_0000_0000n",
+				replacement: "export const canonicalNanBits = 0x7ff0_0000_0000_0001n",
 				why: "A double's NaN's image is a signalling NaN's bits, not the quiet NaN of no payload the reference reads every NaN as."
 			},
 			{
 				file: "packages/engine/src/scalar/compute/float.ts",
-				original: "\t32: 0x7fc0_0000n,",
-				replacement: "\t32: 0x7f80_0001n,",
-				why: "A real's NaN's image is a signalling NaN's bits, not the quiet NaN of no payload the reference reads every NaN as."
+				original: "\tview.setFloat64(0, value)",
+				replacement: "\tview.setFloat64(0, value + 0)",
+				why: "The host's image folds -0 into 0, so the two zeros share one image."
 			},
 			{
 				file: "packages/engine/src/scalar/compute/float.ts",
-				original: "\t\tview.setFloat64(0, value)",
-				replacement: "\t\tview.setFloat64(0, value + 0)",
-				why: "The host's image folds -0 into 0, so the two zeros share one image."
+				original: "\tview.setFloat64(0, value)",
+				replacement: "\tview.setFloat64(0, value, true)",
+				why: "The host writes the double little-endian and reads it big-endian, so its image is the bytes reversed, not the reference's."
 			}
 		]
 	})

@@ -30,7 +30,6 @@ import {
 	arithmeticSql,
 	divisorSql,
 	type EndpointSql,
-	floatBitsSql,
 	type FloatSql,
 	type IntegralSql,
 	type NumericSql,
@@ -1267,8 +1266,7 @@ export const compute = Object.freeze({
 	parseDouble: (x: unknown) => plain(checks.parseDouble(x, []), "double precision"),
 	parseDecimal: (x: unknown) => plain(checks.parseDecimal(x, []), "numeric"),
 	sha256: (x: unknown) => plain(checks.sha256(x, []), "text"),
-	floatBits: <S extends FloatSql>(x: OfSql<S>) =>
-		plain(checks.floatBits(x, []), floatBitsSql[x.sql]),
+	floatBits: <S extends FloatSql>(x: OfSql<S>) => plain(checks.floatBits(x, []), "bigint"),
 	pattern: admittedPattern,
 	xsdPattern: xsdAdmittedPattern,
 	matches: <T, S extends SqlTag>(subject: TermCarrier<T, S>, pattern: unknown) =>

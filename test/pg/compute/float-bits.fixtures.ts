@@ -9,11 +9,10 @@ import type { Case } from "@bjornpagen/testing/property"
 import { doubleOrSpecial } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Compute, floatBits } from "#compiler/public/compute.ts"
 import { generated, pg } from "#compiler/public/fields.ts"
 import { check, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { floatBits } from "#compiler/scalar/compute/float.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -66,27 +65,41 @@ export const bagTemplate = migratedTemplate({
 	}
 })
 
-/** A float a multiple holds: both zeros, NaN and the infinities often, else any double. */
+/** The doubles at the subnormal range's ends, each sign: the least, and the greatest below the least normal. */
+const subnormals = [
+	Number.MIN_VALUE,
+	-Number.MIN_VALUE,
+	2.2250738585072009e-308,
+	-2.2250738585072009e-308
+] as const
+
+/** A float a multiple holds: both zeros, NaN and the infinities often, subnormals now and then, else any double. */
 const valueGen: Gen<number> = weighted<number>([
 	[2, element([0, -0] as const)],
+	[1, element(subnormals)],
 	[3, doubleOrSpecial(-4, 4)]
 ])
 
 /** One case: a multiple's values in the order written, and the values tallied, each named by identity or not. */
 export interface Drawn {
 	readonly values: ReadonlyArray<number>
+	/** A value written with another's image, which the law refuses: the value, and the one whose image it states. */
+	readonly mismatched: readonly [number, number]
 	readonly tallied: ReadonlyArray<number>
 	readonly shape: "seq" | "index"
 }
 
 export const drawnGen: Gen<Drawn> = (s) => ({
 	values: s.draw(array(valueGen, { min: 1, max: 8 })),
+	mismatched: [s.draw(valueGen), s.draw(valueGen)],
 	tallied: s.draw(array(valueGen, { min: 0, max: 4 })),
 	shape: s.draw(boolean) ? "seq" : "index"
 })
 
 export type BitsFeature =
 	| "both zeros held, two rows"
+	| "a value written with another's image refused"
+	| "a subnormal held"
 	| "a NaN held"
 	| "an infinity held"
 	| "a tally of -0 refused where only 0 is held"
@@ -130,12 +143,12 @@ export const runBag = (
 		yield* connection.query("SET CONSTRAINTS ALL IMMEDIATE", [])
 		const counts = new Map<bigint, { readonly value: number; readonly count: number }>()
 		for (const value of drawn.values) {
-			const image = floatBits(value, 64)
+			const image = floatBits(value)
 			counts.set(image, { value, count: (counts.get(image)?.count ?? 0) + 1 })
 		}
 		for (const { value, count } of counts.values()) {
 			yield* connection.query(
-				`INSERT INTO ${bag} (${b("variable")}, ${b("bits")}, ${b("value")}, ${b("count")}) VALUES ('v', ${floatBits(value, 64)}, ${literal(value)}::float8, ${count})`,
+				`INSERT INTO ${bag} (${b("variable")}, ${b("bits")}, ${b("value")}, ${b("count")}) VALUES ('v', ${floatBits(value)}, ${literal(value)}::float8, ${count})`,
 				[]
 			)
 		}
@@ -154,8 +167,27 @@ export const runBag = (
 			),
 			`one row per identity, the host's image and the model's count: ${where}`
 		)
-		if (counts.has(floatBits(0, 64)) && counts.has(floatBits(-0, 64))) {
+		if (counts.has(floatBits(0)) && counts.has(floatBits(-0))) {
 			c.note("both zeros held, two rows")
+		}
+		if (Arr.some(drawn.values, (x) => Arr.contains(subnormals, x))) {
+			c.note("a subnormal held")
+		}
+		const [value, other] = drawn.mismatched
+		if (floatBits(value) !== floatBits(other)) {
+			yield* connection.query("SAVEPOINT mismatch", [])
+			const refused = yield* refusalOf(
+				connection.query(
+					`INSERT INTO ${bag} (${b("variable")}, ${b("bits")}, ${b("value")}, ${b("count")}) VALUES ('w', ${floatBits(other)}, ${literal(value)}::float8, 1)`,
+					[]
+				)
+			)
+			yield* connection.query("ROLLBACK TO SAVEPOINT mismatch", [])
+			assert.ok(
+				Option.isSome(refused) && refused.value.code === "23514",
+				`the law refuses ${literal(value)} written with ${literal(other)}'s image: ${where}`
+			)
+			c.note("a value written with another's image refused")
 		}
 		if (Arr.some(drawn.values, Number.isNaN)) {
 			c.note("a NaN held")
@@ -203,7 +235,7 @@ export const runBag = (
 					[]
 				)
 			)
-			const held = counts.has(floatBits(value, 64))
+			const held = counts.has(floatBits(value))
 			if (Option.isNone(refused)) {
 				assert.ok(
 					held,
@@ -218,7 +250,7 @@ export const runBag = (
 				!held,
 				`a tally of ${literal(value)} refused (${refused.value.code}) where the bag holds its identity: ${where}`
 			)
-			if (Object.is(value, -0) && counts.has(floatBits(0, 64))) {
+			if (Object.is(value, -0) && counts.has(floatBits(0))) {
 				c.note("a tally of -0 refused where only 0 is held")
 			}
 		}

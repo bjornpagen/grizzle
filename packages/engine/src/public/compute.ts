@@ -95,6 +95,8 @@ const catalogue: ComputeApi = {
  */
 export const Compute: ComputeApi = Object.freeze(catalogue)
 
+export { floatBits } from "#compiler/scalar/compute/float.ts"
+
 export type { AvgSql, PlainHost, QuotientSql, SumSql } from "#compiler/scalar/compute/tables.ts"
 export type { BaseOf, Facts, Meets, Predicate, Term } from "#compiler/types/core/phantom.ts"
 export type { Scalar } from "#compiler/types/compute/scalar.ts"

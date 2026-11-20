@@ -369,23 +369,16 @@ const substring = (text: string, start: bigint, count: bigint): CatalogResult =>
 }
 
 /**
- * A float's identity image as IEEE 754 defines its encoding, read another way than the engine's DataView: the value's
- * own bits in memory, a Float64Array (Float32Array) viewed as a BigInt64Array (Int32Array), which holds the same
- * encoding whatever the platform's byte order; every NaN the quiet NaN of sign 0 and no payload, its exponent all ones
- * and the fraction's top bit alone set.
+ * A float's identity image as IEEE 754 defines its encoding, read another way than the engine's DataView: the double's
+ * own bits in memory, a Float64Array viewed as a BigInt64Array, which holds the same encoding whatever the platform's
+ * byte order; a real is the double it widens to; every NaN the quiet NaN of sign 0 and no payload, its exponent all
+ * ones and the fraction's top bit alone set.
  */
-const identityBits = (value: number, width: 32 | 64): bigint => {
-	const fractionBits = width === 64 ? 52n : 23n
-	const exponentOnes = width === 64 ? 0x7ffn : 0xffn
+const identityBits = (value: number): bigint => {
 	if (Number.isNaN(value)) {
-		return (exponentOnes << fractionBits) | (1n << (fractionBits - 1n))
+		return (0x7ffn << 52n) | (1n << 51n)
 	}
-	if (width === 64) {
-		const memory = new Float64Array([value])
-		return defined(new BigInt64Array(memory.buffer)[0], "a double's bits")
-	}
-	const memory = new Float32Array([value])
-	return BigInt(defined(new Int32Array(memory.buffer)[0], "a real's bits"))
+	return defined(new BigInt64Array(new Float64Array([value]).buffer)[0], "a double's bits")
 }
 
 const lastCharacters = (text: string, n: bigint): string => {
@@ -799,9 +792,7 @@ const catalogApply = (
 		case "right":
 			return isString(a) && isBigint(b) ? Result.succeed(lastCharacters(a, b)) : mismatch(op)
 		case "floatBits":
-			return typeof a === "number"
-				? Result.succeed(identityBits(a, firstOperand(op.operands) === "float4" ? 32 : 64))
-				: mismatch(op)
+			return typeof a === "number" ? Result.succeed(identityBits(a)) : mismatch(op)
 		case "substring": {
 			const count = args[2]
 			return isString(a) && isBigint(b) && isBigint(count) ? substring(a, b, count) : mismatch(op)

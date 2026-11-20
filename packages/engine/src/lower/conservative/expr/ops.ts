@@ -4,7 +4,7 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { parseDoubleForm } from "#compiler/lower/conservative/expr/parse-double.ts"
 import { exactForm, ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
-import { canonicalNanBits, type FloatWidth } from "#compiler/scalar/compute/float.ts"
+import { canonicalNanBits } from "#compiler/scalar/compute/float.ts"
 import {
 	admitsArity,
 	type NativeOp,
@@ -190,30 +190,27 @@ const textInfix = (args: ReadonlyArray<Expr>): Expr | undefined => {
 
 /**
  * A float's identity image (scalar/compute/registry.ts floatBitsOf): NaN's one form (canonicalNanBits) where the float
- * is NaN, which `=` holds equal to every NaN, else its IEEE 754 bits, `('x' || encode(float8send(x), 'hex'))::bit(64)`
- * read as a signed bigint, float4send, bit(32) and integer for a real. NULL reaches the ELSE, so the image is NULL there.
+ * is NaN, which `=` holds equal to every NaN, else its IEEE 754 binary64 bits, `('x' || encode(float8send(x),
+ * 'hex'))::bit(64)` read as a signed bigint, a real widened to double precision first, which is exact. NULL reaches the
+ * ELSE, so the image is NULL there.
  */
-const floatBitsForm = (bits: FloatWidth, args: ReadonlyArray<Expr>): Expr | undefined => {
+const floatBitsForm = (from: "float4" | "float8", args: ReadonlyArray<Expr>): Expr | undefined => {
 	const [x] = args
 	if (args.length !== 1 || x === undefined) {
 		return undefined
 	}
-	const float = bits === 64 ? types.double : types.real
-	const integer = bits === 64 ? types.bigint : types.integer
-	const encoded = call("encode", [
-		call(bits === 64 ? "float8send" : "float4send", [x]),
-		lit.text("hex", types.text)
-	])
+	const double = from === "float8" ? x : cast(x, types.double)
+	const encoded = call("encode", [call("float8send", [double]), lit.text("hex", types.text)])
 	return {
 		kind: "case",
 		operand: undefined,
 		whens: [
 			{
-				when: binary("=", x, lit.float(Number.NaN, float)),
-				result: lit.int(canonicalNanBits[bits], integer)
+				when: binary("=", double, lit.float(Number.NaN, types.double)),
+				result: lit.int(canonicalNanBits, types.bigint)
 			}
 		],
-		else: cast(cast(binary("||", lit.text("x", types.text), encoded), types.bit(bits)), integer)
+		else: cast(cast(binary("||", lit.text("x", types.text), encoded), types.bit(64)), types.bigint)
 	}
 }
 
@@ -360,7 +357,7 @@ const registryForm = (
 		case "infixAt":
 			return textInfix(args)
 		case "floatBits":
-			return floatBitsForm(sql.bits, args)
+			return floatBitsForm(sql.from, args)
 		case "collapse":
 			return collapseText(args)
 		case "lowerAscii":

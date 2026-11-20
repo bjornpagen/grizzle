@@ -12,36 +12,28 @@ export const totalFloat = {
 	sign: (a: number): number => (a > 0 ? 1 : a < 0 ? -1 : 0)
 } as const
 
-/** The widths a float's IEEE 754 encoding has: a real's binary32 and a double's binary64. */
-export type FloatWidth = 32 | 64
-
 /**
- * NaN's one form in a float's identity image (registry.ts floatBitsOf), by its encoding's width: the quiet NaN of sign
- * 0 and no payload, binary32's 0x7fc00000 and binary64's 0x7ff8000000000000, the NaN PostgreSQL's float input reads
- * 'NaN' as and Java's floatToIntBits and doubleToLongBits give every NaN.
+ * NaN's one form in a float's identity image (registry.ts floatBitsOf): the quiet NaN of sign 0 and no payload,
+ * binary64's 0x7ff8000000000000, the NaN PostgreSQL's float input reads 'NaN' as and Java's doubleToLongBits gives
+ * every NaN.
  *
- * @formatConstant IEEE 754 binary32 and binary64: the default quiet NaN
+ * @formatConstant IEEE 754 binary64: the default quiet NaN
  */
-export const canonicalNanBits: { readonly [W in FloatWidth]: bigint } = Object.freeze({
-	32: 0x7fc0_0000n,
-	64: 0x7ff8_0000_0000_0000n
-})
+export const canonicalNanBits = 0x7ff8_0000_0000_0000n
 
 /**
- * A float's identity image on the host: the bits of its IEEE 754 encoding of `width`, most significant first, as a
- * signed integer, NaN's canonicalNanBits, as PostgreSQL's floatBits form computes it (registry.ts floatBitsOf): a big-
- * endian DataView of the value's own width, so a real, which the host holds as the double it rounds to exactly, writes
- * its binary32.
+ * A float's identity image, the one implementation the host reads (scalar/compute/evaluate.ts) and exports for an
+ * application's own code, which states a key over a float's identity as a field this computes: the bits of the value's
+ * IEEE 754 binary64 encoding, float8send's 8 bytes, read as a signed big-endian 64-bit integer, NaN's canonicalNanBits,
+ * as PostgreSQL's floatBits form computes it (registry.ts floatBitsOf). A real is the double it widens to exactly, which
+ * is the number the host holds for it. Two floats have one image exactly when they are one value: -0 and 0 differ,
+ * every NaN is one, and each infinity and subnormal its own.
  */
-export const floatBits = (value: number, width: FloatWidth): bigint => {
+export const floatBits = (value: number): bigint => {
 	if (Number.isNaN(value)) {
-		return canonicalNanBits[width]
+		return canonicalNanBits
 	}
-	const view = new DataView(new ArrayBuffer(width / 8))
-	if (width === 64) {
-		view.setFloat64(0, value)
-		return view.getBigInt64(0)
-	}
-	view.setFloat32(0, value)
-	return BigInt(view.getInt32(0))
+	const view = new DataView(new ArrayBuffer(8))
+	view.setFloat64(0, value)
+	return view.getBigInt64(0)
 }

@@ -4,8 +4,10 @@
  * the value and held to `Compute.floatBits(value)` by a check, with a count; and a tally whose image is a generated
  * column under a key, referencing the bag over (variable, image).
  *
- * - One transaction writes a multiple's values, one row per value by identity with its count: every insert is accepted,
- *   the check holding, -0 and 0 two rows and every NaN one, each row's image the host's and its count the model's. A read
+ * - One transaction writes a multiple's values, one row per value by identity with its count, each `bits` the exported
+ *   host function's `floatBits(value)`: every insert is accepted, the check holding, so the host and PostgreSQL agree on
+ *   every drawn double, subnormals and the specials among them, and a value written with another's image is refused
+ *   by the check (23514); -0 and 0 two rows and every NaN one, each row's image the host's and its count the model's. A read
  *   by the image finds exactly its row, under an index scan and under a sequential one, and a read by `=` on the value
  *   finds every row `=` holds equal. A tally is accepted exactly where the bag holds its value's identity, so a tally of
  *   -0 is refused where the bag holds 0 alone.
@@ -33,6 +35,8 @@ export const aBagKeyedByAFloatsIdentityImageHoldsBothZerosAsTwoRowsAndEveryNaNAs
 		needs: { substrate: Substrate.rolledBack(bagTemplate) },
 		situations: [
 			"both zeros held, two rows",
+			"a value written with another's image refused",
+			"a subnormal held",
 			"a NaN held",
 			"an infinity held",
 			"a tally of -0 refused where only 0 is held",
@@ -55,16 +59,17 @@ export const aBagKeyedByAFloatsIdentityImageHoldsBothZerosAsTwoRowsAndEveryNaNAs
 		kills: [
 			{
 				file: "packages/engine/src/lower/conservative/expr/ops.ts",
-				original: '\t\tcall(bits === 64 ? "float8send" : "float4send", [x]),',
+				original:
+					'\tconst encoded = call("encode", [call("float8send", [double]), lit.text("hex", types.text)])',
 				replacement:
-					'\t\tcall(bits === 64 ? "float8send" : "float4send", [binary("+", x, lit.float(0, float))]),',
+					'\tconst encoded = call("encode", [call("float8send", [binary("+", double, lit.float(0, types.double))]), lit.text("hex", types.text)])',
 				why: "The image is computed over x + 0, which folds -0 into 0, so a bag holding both zeros collides on its key."
 			},
 			{
 				file: "packages/engine/src/scalar/compute/float.ts",
-				original: "\t\tview.setFloat64(0, value)",
-				replacement: "\t\tview.setFloat64(0, value + 0)",
-				why: "The host's image folds -0 into 0, so it disagrees with the image PostgreSQL stores for -0."
+				original: "\tview.setFloat64(0, value)",
+				replacement: "\tview.setFloat64(0, value, true)",
+				why: "The host writes the double little-endian and reads it big-endian, so its image is the bytes reversed, which the law refuses beside the value."
 			}
 		]
 	})

@@ -665,13 +665,12 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 		case "sha256":
 			return (args) => Result.ok(hostOf("bytes", a(args)).digest)
 		case "floatBits": {
-			const carrier = baseOf(defined(argTypes[0], "floatBits's operand")).carrier
-			const width = carrier === "float4" ? 32 : 64
+			const carrier =
+				baseOf(defined(argTypes[0], "floatBits's operand")).carrier === "float4"
+					? "float4"
+					: "float8"
 			const host = integerHost(type)
-			return (args) =>
-				Result.ok(
-					host(floatBits(hostOf(carrier === "float4" ? "float4" : "float8", a(args)), width))
-				)
+			return (args) => Result.ok(host(floatBits(hostOf(carrier, a(args)))))
 		}
 		case "replace":
 		case "btrim":

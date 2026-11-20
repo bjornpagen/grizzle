@@ -261,7 +261,7 @@ export type BinaryOperator = (typeof binaryOperators)[number]
 /**
  * PostgreSQL builtin functions grizzle emits, printed qualified by pg_catalog. Compute's catalogue, the text functions
  * a double's parse reads its text by (lower/conservative/expr/parse-double.ts), the aggregates, window and ordered-set
- * functions of the compile-target catalog, a float's identity image (float8send and float4send, ops.ts floatBitsForm), the exact value of a double's bits (float8send and
+ * functions of the compile-target catalog, a float's identity image (float8send, ops.ts floatBitsForm), the exact value of a double's bits (float8send and
  * get_byte, build.ts exactNumericOfDouble), the span functions, the attachment transport, a bytes value's chunks
  * (lower/delivery.ts), the runtime probes, the rule judge's reads of its session tables in the catalog
  * (physical/ddl/rules.ts judged), a text's image an index holds (sql/image.ts), the database default's
@@ -300,7 +300,6 @@ export const builtinFunctions = {
 	min_scale: { reach: "row" },
 	trim_scale: { reach: "row" },
 	float8send: { reach: "row" },
-	float4send: { reach: "row" },
 	get_byte: { reach: "row" },
 	width_bucket: { reach: "row" },
 	round: { reach: "row" },

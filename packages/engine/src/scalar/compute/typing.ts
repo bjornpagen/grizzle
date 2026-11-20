@@ -2822,9 +2822,9 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Compute.floatBits(x): a float's identity image (registry.ts floatBitsOf), the bits of its IEEE 754 encoding as a
-	 * signed integer of their width, a double's a bigint and a real's an integer, NaN's in one form: a total node, of
-	 * every value of its integer type, which a key, a reference and an arbiter read natively.
+	 * Compute.floatBits(x): a float's identity image (registry.ts floatBitsOf), the bits of its IEEE 754 binary64
+	 * encoding as a signed bigint, a real widened exactly first, NaN's in one form: a total node, of every bigint, which
+	 * a key, a reference and an arbiter read natively.
 	 */
 	floatBits(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
 		const x = this.term(subjectDesc, at)
@@ -2836,7 +2836,7 @@ class Typing<R extends Refs> {
 				`a real or double precision term for floatBits, not ${typeLabel(x.nominal)}`
 			)
 		}
-		const type = plainType(carrier === "float8" ? "int8" : "int4")
+		const type = plainType("int8")
 		return this.native(
 			this.overload("floatBits", [x.actual], at),
 			[x],
