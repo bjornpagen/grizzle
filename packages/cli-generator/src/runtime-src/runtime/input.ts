@@ -30,6 +30,7 @@ import type { MediaDeclaration } from "#runtime/negotiate.ts"
 import * as Negotiate from "#runtime/negotiate.ts"
 import type { Secret } from "#runtime/redact.ts"
 import { RunCredentials, encoder } from "#runtime/redact.ts"
+import { utf8Text } from "#runtime/utf8.ts"
 
 /**
  * Writes one line to stderr and ignores a failure to write it: a diagnostic never fails the run.
@@ -150,16 +151,14 @@ export const readAll = (
 	Stream.mkUint8Array(source.pipe(Stream.mapError(() => new ReadFailed())))
 
 /**
- * Decodes `bytes` as UTF-8, failing with `invalid` when they are not.
+ * Decodes `bytes` as UTF-8 by the runtime's one codec (`#runtime/utf8.ts`, grizzle-text's): bytes that are no UTF-8 fail
+ * with `invalid`, and a byte order mark stays a character.
  */
 export const decodeUtf8 = (
 	bytes: Uint8Array,
 	invalid: UsageError
 ): Effect.Effect<string, UsageError> =>
-	Effect.try({
-		catch: () => invalid,
-		try: () => new TextDecoder("utf-8", { fatal: true }).decode(bytes)
-	})
+	Effect.fromOption(Option.fromUndefinedOr(utf8Text(bytes)), () => invalid)
 
 /**
  * The source behind a `--<flag> <path|->` value: stdin for `-`, after claiming it for `flag`, or

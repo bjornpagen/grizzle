@@ -45,44 +45,44 @@ export const groupedLocations = property.explore(groupSpace, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/validate/locations.ts",
+			file: "packages/cli-generator/src/validate/locations.ts",
 			original: 'Str.startsWith("#*")(instanceLocation) ? 2 : 1',
 			replacement: "1",
 			why: "A property name's location keeps its `*`, so it is refused as no pointer; the property fails."
 		},
 		{
-			file: "packages/generator/src/validate/locations.ts",
+			file: "packages/cli-generator/src/validate/locations.ts",
 			original: "try: () => decodeURIComponent(fragmentOf(instanceLocation))",
 			replacement: "try: () => fragmentOf(instanceLocation)",
 			why: "A location is never percent-decoded, so `a%20b` names another member and a broken escape passes; the property fails."
 		},
 		{
-			file: "packages/generator/src/validate/locations.ts",
+			file: "packages/cli-generator/src/validate/locations.ts",
 			original:
 				"(other) => other.pointer !== item.pointer && isPointerWithin(item.pointer, other.pointer)",
 			replacement: "(other) => isPointerWithin(item.pointer, other.pointer)",
 			why: "Every location lies within itself, so none is deepest and no error is grouped; the property fails."
 		},
 		{
-			file: "packages/generator/src/validate/locations.ts",
+			file: "packages/cli-generator/src/validate/locations.ts",
 			original: "Arr.sort(Arr.dedupeWith(deepestItems, samePointer), byPointer)",
 			replacement: "Arr.dedupeWith(deepestItems, samePointer)",
 			why: "Leaves come out in report order, not pointer order; the property fails."
 		},
 		{
-			file: "packages/generator/src/validate/locations.ts",
+			file: "packages/cli-generator/src/validate/locations.ts",
 			original: "Arr.findFirst(leaves,",
 			replacement: "Arr.findLast(leaves,",
 			why: "A context error belongs to the last leaf below it, not the first; the property fails."
 		},
 		{
-			file: "packages/generator/src/validate/locations.ts",
+			file: "packages/cli-generator/src/validate/locations.ts",
 			original: "(item) => !deepestItems.has(item) && Option.exists",
 			replacement: "(item) => Option.exists",
 			why: "A deepest error is also its own group's context; the property fails."
 		},
 		{
-			file: "packages/generator/src/model/pointer.ts",
+			file: "packages/cli-generator/src/model/pointer.ts",
 			original: "pointer === ancestor ||",
 			replacement: "pointer !== ancestor ||",
 			why: "isPointerWithin counts every other pointer as within, so the deepest locations and their contexts are wrong; the property fails (CATCH's evidence, mutant c38cb8519b)."

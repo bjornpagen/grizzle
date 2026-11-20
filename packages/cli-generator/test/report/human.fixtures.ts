@@ -19,7 +19,7 @@ import {
 	type Size,
 	string
 } from "@bjornpagen/testing/gen"
-import { jsonTextOf } from "@superstarter/json"
+import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Option, Record, String as Str } from "effect"
 import type { DiagnosticInput } from "#model/diagnostic.ts"
 import { formatPointer } from "#model/pointer.ts"
@@ -307,8 +307,8 @@ export const lineInputOf = (sketch: LineSketch): DiagnosticInput => ({
 /** The field part's text: the Encoding entry's name as JSON text and its media type, or the element as JSON text. */
 const fieldTextOf = (sketch: LineSketch): string =>
 	sketch.place.kind === "entry"
-		? `${jsonTextOf(sketch.place.name)} in ${sketch.place.media}`
-		: jsonTextOf(sketch.element)
+		? `${jsonText(sketch.place.name)} in ${sketch.place.media}`
+		: jsonText(sketch.element)
 
 /**
  * The model of design 8.1's line: `<refused|notice> <code> at #<pointer>[ (<METHOD> <path>[, <operationId>])][ field
