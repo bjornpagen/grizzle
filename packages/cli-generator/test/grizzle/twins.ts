@@ -1,4 +1,3 @@
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 /**
  * The grizzle tier's installations (once.test.ts): the login of world.ts installed twice on the generator's local
  * cluster (pg.config.ts, made by the testing library at grizzle's pinned build), as an
@@ -18,6 +17,7 @@ import { jsonText } from "@bjornpagen/grizzle-text/utf8"
  * Every case the worker runs is given the same twins: each case first stores its own items in both (`store`, every item
  * deleted, then the case's put), so no case reads another's.
  */
+import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { handlerClient } from "@bjornpagen/grizzle/client"
 import { type HttpHandler, httpHandler } from "@bjornpagen/grizzle/http"
 import {

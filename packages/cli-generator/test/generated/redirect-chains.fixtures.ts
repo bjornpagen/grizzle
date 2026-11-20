@@ -224,12 +224,9 @@ export const expectedOf = (c: Chain, run: ModelRun<PlainOrigin>): Expected => ({
 /** The reason a refused redirect names on stderr, `redirect from <origin> to <origin> refused: <reason>`. */
 const REFUSED = regex("redirect from \\S+ to \\S+ refused: ([A-Za-z]+)", "u")
 
-/** The refusal reason the CLI's stderr bytes name, if any. */
-export const refusedOf = (stderr: Uint8Array): Option.Option<string> =>
-	Option.map(
-		Option.fromNullishOr(REFUSED.exec(new TextDecoder().decode(stderr))),
-		([, reason]) => reason
-	)
+/** The refusal reason the CLI's stderr names, if any. */
+export const refusedOf = (stderr: string): Option.Option<string> =>
+	Option.map(Option.fromNullishOr(REFUSED.exec(stderr)), ([, reason]) => reason)
 
 export type ChainFeature =
 	| "no redirect"

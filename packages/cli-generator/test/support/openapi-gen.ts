@@ -1,4 +1,3 @@
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 /**
  * OpenAPI documents and their author configs, valid by construction. A document is drawn as a sketch: its line (3.0,
  * 3.1 or 3.2), servers, tags, components, security schemes, webhooks and operations, each operation with path
@@ -16,6 +15,7 @@ import { jsonText } from "@bjornpagen/grizzle-text/utf8"
  * alternatives share its fields, so a field is one flag; no field, part or parameter shares a flag; and a security
  * requirement uses at most one scheme that writes the Authorization header. A suite that needs a refusal plants it.
  */
+import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import {
 	array,
 	boolean,

@@ -1,4 +1,3 @@
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 /**
  * A generated CLI calling a live grizzle server over HTTP answers what grizzle's own HTTP door answers the same call.
  *
@@ -35,6 +34,7 @@ import { jsonText } from "@bjornpagen/grizzle-text/utf8"
  * made again, as `--retries` makes it, until it is answered. Its budget is the count the suite stated before it was
  * converted to a property: 16 independent cases, and up to 32 steered while a situation is unreached.
  */
+import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import {

@@ -1,4 +1,3 @@
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 /**
  * A generated CLI follows redirects as its contract says, and sends credentials only to its bound origin.
  *
@@ -13,7 +12,8 @@ import { jsonText } from "@bjornpagen/grizzle-text/utf8"
  *   to the bound origin and none on a hop to the unbound one, no trace propagation header on any hop, and exit 0 once
  *   the chain lands.
  */
-import { assert } from "@bjornpagen/testing/assert"
+import { jsonText, utf8Text } from "@bjornpagen/grizzle-text/utf8"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -86,14 +86,15 @@ export const redirectChains = property.explore(chains, {
 						stdin: new Uint8Array(0)
 					})
 				)
+				const stderr = defined(utf8Text(observed.result.stderr), "the run's stderr is UTF-8 text")
 				assert.deepEqual<typeof expected>(
 					{
 						hops: Arr.map(observed.requests, hopOf),
 						exitCode: observed.result.exitCode,
-						refused: refusedOf(observed.result.stderr)
+						refused: refusedOf(stderr)
 					},
 					expected,
-					"each hop is the one the loop's contract sends, credentials only on the bound origin"
+					`each hop is the one the loop's contract sends, credentials only on the bound origin; the run's stderr: ${stderr}`
 				)
 			}),
 	oracle: {
