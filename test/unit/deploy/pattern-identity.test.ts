@@ -158,7 +158,8 @@ export const aDeclaredFieldRenameRenamesTheLawColumnsOverItByTheirDefinitions = 
 		kills: [
 			{
 				file: "packages/engine/src/deploy/diff/declared.ts",
-				original: '\t\t\t\t\t\tcanonicalEquals({ ...d, name: "" }, { ...definition, name: "" })',
+				original:
+					'\t\t\t\t\t\tcanonicalEquals({ ...readThrough(d), name: "" }, { ...definition, name: "" })',
 				replacement: "\t\t\t\t\t\tfalse",
 				why: "A generated law column is not found by its definition, so one a declared rename names otherwise is dropped and drawn again, a rewrite of its table, where it is renamed."
 			}

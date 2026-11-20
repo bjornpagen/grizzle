@@ -48,7 +48,7 @@
 
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	changeAims,
@@ -100,7 +100,16 @@ export const declaredRenames = property.explore(renameCaseGen, {
 		kind: "postgresql",
 		name: "a rename changes no stored byte and builds nothing: relfilenodes, xmins, attribute numbers, values and constraint and index OIDs, judged by PostgreSQL's catalog"
 	},
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken(
+				"test/pg/migrate/family-renames.test.ts#declaredRenames:140512.a:0.0.0.0.1.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"A counted family's member and the spare relation swapped: the member's predecessor, generated from its index, which the swap renames, was added again STORED, a rewrite of the member's table (32618b388's pairing of generated law columns by their definitions as held)",
+			since: "2026-11-20"
+		}
+	],
 	kills: [
 		{
 			file: "packages/engine/src/deploy/diff/declared.ts",
@@ -109,6 +118,20 @@ export const declaredRenames = property.explore(renameCaseGen, {
 			replacement:
 				"\t\t\t\t\treturn undefined && restatedLawColumn(plan, laws, names, installation.laws.theory.relations)",
 			why: "A declared rename restates no law column, so the family's law columns are dropped and drawn again; the rename's no-stored-byte oracle fails."
+		},
+		{
+			file: "packages/engine/src/deploy/diff/declared.ts",
+			original: "\t\t\t\tnew Transform(ownColumnHooks((c) => into.get(c) ?? c)).columnDef(d)",
+			replacement: "\t\t\t\td",
+			why: "A held generated column compared as it reads its columns before the renames: a predecessor whose index a declaration renames is found as no held column, and is dropped and added again STORED, a rewrite of its table; the kept swap's relfilenode moves."
+		},
+		{
+			file: "packages/engine/src/deploy/diff/declared.ts",
+			original:
+				"\t\t\t\t...natives.filter((n) => !generates(n)),\n\t\t\t\t...natives.filter(generates)\n",
+			replacement:
+				"\t\t\t\t...natives.filter(generates),\n\t\t\t\t...natives.filter((n) => !generates(n))\n",
+			why: "Generated law columns found before the columns they read: a predecessor is compared before its index is found, reads it by its held name, and is added again STORED; the kept swap's relfilenode moves."
 		}
 	]
 })

@@ -900,6 +900,12 @@ const lawColumnDefinitions = (
 	return out
 }
 
+/** A law column the installation plans on a table: its name and its plan. */
+interface PlannedLawColumn {
+	readonly column: string
+	readonly plan: LawColumnPlan
+}
+
 /** A law column of a target table, and its previous name (restatedLawColumn), none where it is new. */
 interface TargetLawColumn {
 	readonly column: string
@@ -910,19 +916,22 @@ interface TargetLawColumn {
  * The law columns the previous snapshot holds carried to the target's under the declarations, and the previous snapshot
  * as it stands after.
  *
- * A law column is named by what it holds (core/identity.ts LawColumnStatement), its relations, fields, handles and
- * laws among them, so a declaration that renames any of them, or a canonical text that states them otherwise, renames
- * the column. A target column the previous snapshot holds under its own name is that column. Any other holds exactly the
- * values of the previous column it is found as (heldAs): a column PostgreSQL generates, the previous generated column of
- * its table of its definition, which reads the declared renames' names, whatever either is named; a column grizzle draws,
- * the column its statement, restated under the previous snapshot's names (laws/model/restate.ts restatedLawColumn),
- * names. The migration renames that column to the target's name, with ALTER TABLE ... RENAME COLUMN, so it neither
- * drops nor draws it again and rewrites no row. A previous
- * column that holds a target column's name but is not that column under the declarations (its name is reused for
- * something else) is first renamed aside, and the diff drops it there. Every column goes through its aside name
- * (identity.aside), so a swap or a chain of renames meets no name another holds. The previous snapshot then names each
- * column as the database holds it once the renames ran, in its object's identity and statements, wherever a definition
- * names it (withColumns), and in every edge.
+ * A law column is named by what it holds (core/identity.ts LawColumnStatement), its relations, fields, handles and laws
+ * among them, so a declaration that renames any of them, or a canonical text that states them otherwise, renames the
+ * column. A target column the previous snapshot holds under its own name is that column. Any other holds exactly the
+ * values of the previous column it is found as (heldAs): a column grizzle draws, the column its statement, restated
+ * under the previous snapshot's names (laws/model/restate.ts restatedLawColumn), names; a column PostgreSQL generates,
+ * the previous generated column of its table whose definition is its own once each column it reads is named by the
+ * target column it was found as, whatever either is named. A table's columns PostgreSQL does not generate are found
+ * before those it does, and a generation reads no generated column (PostgreSQL refuses one that does, 42P17), so every
+ * law column a generation reads is found before it: a generated column over a law column a declaration renames, as a
+ * family's predecessor reads its index, is found. The migration renames that column to the target's name, with ALTER
+ * TABLE ... RENAME COLUMN, so it neither drops nor draws it again and rewrites no row. A previous column that holds a
+ * target column's name but is not that column under the declarations (its name is reused for something else) is first
+ * renamed aside, and the diff drops it there. Every column goes through its aside name (identity.aside), so a swap or a
+ * chain of renames meets no name another holds. The previous snapshot then names each column as the database holds it
+ * once the renames ran, in its object's identity and statements, wherever a definition names it (withColumns), and in
+ * every edge.
  */
 const lawColumnRenames = (
 	previous: DeploySnapshot,
@@ -941,7 +950,7 @@ const lawColumnRenames = (
 		NameKey,
 		{
 			readonly table: ObjectName
-			readonly natives: Array<{ readonly column: string; readonly plan: LawColumnPlan }>
+			readonly natives: Array<PlannedLawColumn>
 		}
 	>()
 	for (const n of installation.laws.natives) {
@@ -960,31 +969,43 @@ const lawColumnRenames = (
 	const columnsOf = new Map(
 		[...targets].map(([key, { table, natives }]) => {
 			const holds = held.get(key) ?? new Map<string, ColumnDef>()
+			const definitions = defined.get(key) ?? new Map<string, ColumnDef>()
 			const taken = new Set(natives.map((n) => n.column))
-			const claimed = new Set<string>()
-			const heldAs = (column: string, plan: LawColumnPlan): string | undefined => {
+			/** Each held column paired so far, by the target column it is: what a held generation reads it as. */
+			const into = new Map<string, string>()
+			const readThrough = (d: ColumnDef): ColumnDef =>
+				new Transform(ownColumnHooks((c) => into.get(c) ?? c)).columnDef(d)
+			const heldAs = ({ column, plan }: PlannedLawColumn): string | undefined => {
 				if (holds.has(column)) {
 					return column
 				}
-				const definition = defined.get(key)?.get(column)
+				const definition = definitions.get(column)
 				if (definition === undefined) {
 					throw defect(`the installation adds the law column ${column} it plans`)
 				}
 				if (definition.generated === undefined) {
 					return restatedLawColumn(plan, laws, names, installation.laws.theory.relations)
 				}
-				const found = [...holds].find(
+				return [...holds].find(
 					([c, d]) =>
 						!taken.has(c) &&
-						!claimed.has(c) &&
+						!into.has(c) &&
 						d.generated !== undefined &&
-						canonicalEquals({ ...d, name: "" }, { ...definition, name: "" })
-				)
-				if (found === undefined) {
-					return undefined
+						canonicalEquals({ ...readThrough(d), name: "" }, { ...definition, name: "" })
+				)?.[0]
+			}
+			const generates = (n: PlannedLawColumn): boolean =>
+				definitions.get(n.column)?.generated !== undefined
+			const was = new Map<string, string | undefined>()
+			for (const native of [
+				...natives.filter((n) => !generates(n)),
+				...natives.filter(generates)
+			]) {
+				const found = heldAs(native)
+				was.set(native.column, found)
+				if (found !== undefined) {
+					into.set(found, native.column)
 				}
-				claimed.add(found[0])
-				return found[0]
 			}
 			return [
 				key,
@@ -992,7 +1013,7 @@ const lawColumnRenames = (
 					table,
 					columns: natives.map((n): TargetLawColumn => ({
 						column: n.column,
-						was: heldAs(n.column, n.plan)
+						was: was.get(n.column)
 					}))
 				}
 			] as const
