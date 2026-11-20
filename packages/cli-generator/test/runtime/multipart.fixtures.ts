@@ -762,7 +762,10 @@ export const formDataFeatures = (form: FormDataCase): ReadonlyArray<FormDataFeat
 	])
 }
 
-/** A form aimed at what plain draws reach rarely: a base64 file in uneven chunks, and a positional part with no item rule past its positions. */
+/**
+ * A form aimed at what plain draws reach rarely: a base64 file in uneven chunks, a chosen part with a header line sent
+ * and one refused, and a positional part with no item rule past its positions.
+ */
 export const formDataSpace = aimed<FormDataCase, FormDataFeature>(formDataDrawn, [
 	[
 		"base64 across chunks",
@@ -784,6 +787,31 @@ export const formDataSpace = aimed<FormDataCase, FormDataFeature>(formDataDrawn,
 								)(source)
 							}
 						]
+					}
+				]
+			],
+			required: true,
+			fault: "none"
+		})
+	],
+	[
+		"chosen part with header lines",
+		(source) => ({
+			parts: [
+				[
+					"photo",
+					{
+						kind: "chosen",
+						contentType: Option.some("image/png"),
+						headers: [
+							{
+								name: "X-Trace",
+								value: element(["trace-1", "a b", "0"])(source),
+								explode: false,
+								required: false
+							}
+						],
+						values: [{ kind: "text", value: "x" }]
 					}
 				]
 			],
@@ -1477,5 +1505,24 @@ export const assertFeatures = (form: AssertCase): ReadonlyArray<AssertFeature> =
 	])
 }
 
-/** A form assertion as drawn. */
-export const assertSpace: Gen<AssertCase> = assertDrawn
+/** A form assertion, aimed at a repeated part of several valid items, which a plain draw reaches rarely. */
+export const assertSpace = aimed<AssertCase, AssertFeature>(assertDrawn, [
+	[
+		"repeated part asserted whole",
+		(source) => ({
+			parts: [
+				{
+					kind: "tags",
+					name: "tags",
+					optional: boolean(source),
+					values: array(
+						map(text, (value): LeafValue => ({ kind: "text", value })),
+						{ min: 2, max: 3 }
+					)(source)
+				}
+			],
+			required: boolean(source),
+			choices: []
+		})
+	]
+])

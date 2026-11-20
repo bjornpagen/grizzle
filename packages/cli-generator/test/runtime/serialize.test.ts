@@ -103,6 +103,7 @@ export const pathExpansion = property.explore(pathSpace, {
 		"label",
 		"matrix",
 		"list exploded",
+		"matrix list of several items exploded",
 		"object exploded",
 		"list joined",
 		"object joined",

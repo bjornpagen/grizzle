@@ -1,4 +1,5 @@
 import {
+	aimed,
 	array,
 	bytes,
 	characterOf,
@@ -158,7 +159,7 @@ const answerStatus: Gen<number> = element([200, 201, 204, 400, 401, 403, 404, 40
  * An invocation: mostly the update command with its id and well-formed items, so most runs send a request; otherwise
  * any command path with items of any shape, the deliberate faults.
  */
-export const invocation: Gen<Invocation> = (source) => ({
+const invocation: Gen<Invocation> = (source) => ({
 	argv: source.draw(
 		weighted<Argv>([
 			[
@@ -232,4 +233,34 @@ export const admittedOf = (requests: number, status: number): ReadonlyArray<Mean
 	return status === 401 || status === 403 ? ["credential"] : ["non-2xx"]
 }
 
-export type ExitFeature = Exclude<Meaning, "defect"> | "a request sent"
+export type ExitFeature =
+	| Exclude<Meaning, "defect">
+	| "a request sent"
+	| "a body that is no JSON text"
+
+/** Bodies that are no JSON text, which the generated runtime refuses with a UsageError before any request. */
+const NOT_JSON: Arr.NonEmptyReadonlyArray<string> = ["{", '{"name":', "[1,", "nope"]
+
+/** Whether an invocation gives the update command a body of NOT_JSON. */
+export const bodyNotJson = (c: Invocation): boolean =>
+	c.argv.kind === "update" &&
+	Arr.some(
+		c.argv.items,
+		(item, index) =>
+			item === "--body" &&
+			Option.exists(Arr.get(c.argv.items, index + 1), (next) => Arr.contains(NOT_JSON, next))
+	)
+
+/**
+ * Invocations, aimed at a body that is no JSON text, the usage error the runtime raises (errors.ts UsageError) where
+ * every other usage exit is the parser's.
+ */
+export const invocations = aimed<Invocation, ExitFeature>(invocation, [
+	[
+		"a body that is no JSON text",
+		(source) => ({
+			...invocation(source),
+			argv: { kind: "update", id: text(source), items: ["--body", element(NOT_JSON)(source)] }
+		})
+	]
+])

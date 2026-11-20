@@ -463,6 +463,9 @@ export type DomainFeature =
 /** Schema keys in the order a document lists them. */
 export type DomainCase = ReadonlyArray<string>
 
+/** A key's Pascal fold, Definition when it folds to nothing. */
+const domainFoldOf = (key: string): string => Option.getOrElse(pascalOf(key), () => "Definition")
+
 /**
  * Design 4.4's domain names: the keys once each in code-point order, each its Pascal fold (Definition when it folds to
  * nothing), a fold held or taken getting the first free numeric suffix from 2.
@@ -471,7 +474,7 @@ export const expectedDomainOf = (keys: DomainCase): ReadonlyArray<readonly [stri
 	const assigned = new Set<string>()
 	const taken = (name: string): boolean => HELD.has(name) || assigned.has(name)
 	return Arr.map(Arr.sort(Arr.dedupe(keys), Order.String), (key) => {
-		const base = Option.getOrElse(pascalOf(key), () => "Definition")
+		const base = domainFoldOf(key)
 		const free = Option.getOrElse(
 			Arr.findFirst(
 				Array.from({ length: keys.length + HELD.size + 1 }, (_, index) => index + 2),
@@ -502,10 +505,10 @@ export const actualDomainOf = (
 
 export const domainFeaturesOf = (keys: DomainCase): ReadonlyArray<DomainFeature> => {
 	const unique = Arr.dedupe(keys)
-	const folds = Arr.map(unique, (key) => Option.getOrElse(pascalOf(key), () => "Definition"))
+	const folds = Arr.map(unique, domainFoldOf)
 	const when = (holds: boolean, feature: DomainFeature): ReadonlyArray<DomainFeature> =>
 		holds ? [feature] : []
-	const names = Arr.map(expectedDomainOf(keys), ([, name]) => name)
+	const assigned = expectedDomainOf(keys)
 	return [
 		...when(Arr.dedupe(folds).length < folds.length, "keys folding alike"),
 		...when(
@@ -522,15 +525,15 @@ export const domainFeaturesOf = (keys: DomainCase): ReadonlyArray<DomainFeature>
 		),
 		...when(Arr.some(unique, Str.startsWith("/")), "an inline pointer key"),
 		...when(
-			Arr.some(names, (name, index) =>
-				Arr.some(
-					folds,
-					(fold) =>
-						fold !== Arr.getUnsafe(folds, index) &&
-						Str.startsWith(fold)(name) &&
-						name !== fold &&
-						Arr.contains(folds, name)
-				)
+			Arr.some(
+				assigned,
+				([key, name]) =>
+					name !== domainFoldOf(key) &&
+					Arr.some(
+						assigned,
+						([other, otherName]) =>
+							otherName === domainFoldOf(key) && domainFoldOf(other) !== domainFoldOf(key)
+					)
 			),
 			"a suffixed name already taken"
 		)

@@ -54,6 +54,7 @@ export type Variant =
 	| "an int64 property"
 	| "an undeclared name beside a declared one"
 	| "a 3.2 undeclared name"
+	| "a tag folding to servers"
 
 export type Feature = Family | Variant
 
@@ -780,28 +781,31 @@ const undeclaredPlant =
 	}
 
 /**
- * A group whose tag folds to a file segment a fixed api module holds (api/root.ts, api/security.ts, api/servers.ts) is
- * refused by the names plan at the tag (TAG-02), and its operation has no command.
+ * A group whose tag, one of `tags`, folds to a file segment a fixed api module holds (api/root.ts, api/security.ts,
+ * api/servers.ts) is refused by the names plan at the tag (TAG-02), and its operation has no command; a tag folding to
+ * servers, whose module would overwrite the servers table, is a variant of its own.
  */
-const reservedTagPlant: Gen<Plant> = (s) => {
-	const tag = s.draw(element(["servers", "security", "root", "Servers"]))
-	const path = "/planted-reserved"
-	const operation = operationPointer(path, "get")
-	return {
-		path,
-		method: "get",
-		operation: { operationId: "reserved-list", tags: [tag], responses: ok },
-		schemas: [],
-		schemes: [],
-		family: "a tag folding to a fixed api module",
-		variants: [],
-		facts: [
-			{ code: "TAG-02/reserved-segment", scope: "operation", pointer: `${operation}/tags/0` }
-		],
-		commanded: false,
-		emitted: []
+const reservedTagPlant =
+	(tags: Gen<string>): Gen<Plant> =>
+	(s) => {
+		const tag = s.draw(tags)
+		const path = "/planted-reserved"
+		const operation = operationPointer(path, "get")
+		return {
+			path,
+			method: "get",
+			operation: { operationId: "reserved-list", tags: [tag], responses: ok },
+			schemas: [],
+			schemes: [],
+			family: "a tag folding to a fixed api module",
+			variants: Str.toLowerCase(tag) === "servers" ? ["a tag folding to servers"] : [],
+			facts: [
+				{ code: "TAG-02/reserved-segment", scope: "operation", pointer: `${operation}/tags/0` }
+			],
+			commanded: false,
+			emitted: []
+		}
 	}
-}
 
 const NUMERIC_KINDS: Gen<NumericKind> = element<NumericKind>(["integer", "number", "int64"])
 
@@ -837,7 +841,7 @@ const familyPlant = (family: Family, line: Line, config: ConfigSketch): Gen<Plan
 		case "an undeclared requirement name":
 			return undeclaredPlant(line, boolean)
 		case "a tag folding to a fixed api module":
-			return reservedTagPlant
+			return reservedTagPlant(element(["servers", "security", "root", "Servers"]))
 	}
 }
 
@@ -970,6 +974,10 @@ export const AIMS: ReadonlyArray<readonly [Feature, Space<ConstructCase>]> = [
 	[
 		"a 3.2 undeclared name",
 		aimedAt(Option.some("3.2"), asDrawn, (line) => undeclaredPlant(line, boolean))
+	],
+	[
+		"a tag folding to servers",
+		aimedAt(Option.none(), asDrawn, () => reservedTagPlant(element(["servers", "Servers"])))
 	]
 ]
 

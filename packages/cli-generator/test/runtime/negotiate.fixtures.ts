@@ -63,8 +63,9 @@ const negotiationDrawn: Gen<NegotiationCase> = (source) => ({
 })
 
 /**
- * A negotiation aimed at what plain draws reach rarely: several request keys, with JSON not first or with none; a
- * range key the operator names a type inside, and an exact key beside its range; responses repeating a key.
+ * A negotiation aimed at what plain draws reach rarely: several request keys, with JSON not first (the second of two
+ * among them) or with none; a range key the operator names a type inside, and an exact key beside its range; responses
+ * repeating a key.
  */
 export const negotiationSpace = aimed<NegotiationCase, NegotiationFeature>(negotiationDrawn, [
 	[
@@ -75,6 +76,17 @@ export const negotiationSpace = aimed<NegotiationCase, NegotiationFeature>(negot
 				"image/png",
 				element(["application/json", "application/vnd.api+json"])(source),
 				"application/json"
+			],
+			contentType: Option.none()
+		})
+	],
+	[
+		"JSON second of two keys chosen by default",
+		(source) => ({
+			...negotiationDrawn(source),
+			request: [
+				element(["image/png", "text/csv"])(source),
+				element(["application/json", "application/vnd.api+json"])(source)
 			],
 			contentType: Option.none()
 		})
@@ -272,6 +284,7 @@ export const dispatchModel = (media: NegotiationCase): Option.Option<string> =>
 export type NegotiationFeature =
 	| "one key used as declared"
 	| "JSON key chosen by default"
+	| "JSON second of two keys chosen by default"
 	| "first key by default"
 	| "type chosen among keys"
 	| "range key with a type inside it"
@@ -310,6 +323,14 @@ export const negotiationFeatures = (media: NegotiationCase): ReadonlyArray<Negot
 			chosen.kind === "chosen" &&
 				Option.isNone(media.contentType) &&
 				media.request.length > 1 &&
+				!Option.exists(Arr.head(media.request), isJsonMedia) &&
+				isJsonMedia(chosen.value.key)
+		],
+		[
+			"JSON second of two keys chosen by default",
+			chosen.kind === "chosen" &&
+				Option.isNone(media.contentType) &&
+				media.request.length === 2 &&
 				!Option.exists(Arr.head(media.request), isJsonMedia) &&
 				isJsonMedia(chosen.value.key)
 		],

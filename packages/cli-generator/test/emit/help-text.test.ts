@@ -117,7 +117,7 @@ export const helpFacts = property.explore(helpInputGen, {
 	kept: [
 		{
 			token: ReplayToken(
-				"test/emit/help-text.test.ts#helpFacts:-:4.0.0.0.0.0.1.1.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.3.1.0.0.0.1.0.0.1.1.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.4.1.0.0.0.0.0.0.0.0.0.0.0.0.1.1.6.0.0.0.0.0.0"
+				"packages/cli-generator/test/emit/help-text.test.ts#helpFacts:-:4.0.0.0.0.0.1.1.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.3.1.0.0.0.1.0.0.1.1.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.4.1.0.0.0.0.0.0.0.0.0.0.0.0.1.1.6.0.0.0.0.0.0"
 			),
 			reason:
 				"a description of one sentence ending at its stop, with no summary: the command table's line keeps the stop (firstSentence's slice; the floor draws no such description)",

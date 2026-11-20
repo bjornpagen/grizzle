@@ -222,6 +222,18 @@ const prompted: Gen<World> = map(world, (drawn) => ({
 	stdoutTty: true
 }))
 
+/** A world whose one credential file, the bearer scheme's, holds `content`, which the choice refuses. */
+const fileRefusedBy = (content: FileContent): Gen<World> =>
+	constant<World>({
+		requirement: [["bearerAuth"]],
+		sources: [["bearerAuth", { env: Option.none(), file: Option.some(content) }]],
+		stdin: "",
+		claimedByBody: false,
+		stdinTty: false,
+		stdoutTty: false,
+		answer: { kind: "typed", text: "" }
+	})
+
 /** Worlds, with constructed cases for the situations a plain draw reaches rarely. */
 export const worlds = {
 	space: world,
@@ -266,18 +278,18 @@ export const worlds = {
 		sources: [["apiKey", { env: Option.none(), file: Option.some("stdin") }]],
 		claimedByBody: false
 	})),
-	fileRefused: map(
-		element([{ kind: "text", text: "\n" }, { kind: "unreadable" }, { kind: "notUtf8" }] as const),
-		(content): World => ({
-			requirement: [["bearerAuth"]],
-			sources: [["bearerAuth", { env: Option.none(), file: Option.some(content) }]],
-			stdin: "",
-			claimedByBody: false,
-			stdinTty: false,
-			stdoutTty: false,
-			answer: { kind: "typed", text: "" }
-		})
-	),
+	emptyFile: fileRefusedBy({ kind: "text", text: "\n" }),
+	unreadableFile: fileRefusedBy({ kind: "unreadable" }),
+	notUtf8File: fileRefusedBy({ kind: "notUtf8" }),
+	noRequirement: map(world, (drawn): World => ({ ...drawn, requirement: [] })),
+	skippedAlternative: map(world, (drawn): World => ({
+		...drawn,
+		requirement: [["apiKey", "bearerAuth"], ["basicAuth"]],
+		sources: [
+			["apiKey", { env: Option.some("key-value"), file: Option.none() }],
+			["basicAuth", { env: Option.some("user:pa55"), file: Option.none() }]
+		]
+	})),
 	override: map(world, (drawn): World => ({
 		...drawn,
 		requirement: [["other"]],
@@ -472,6 +484,7 @@ export type ChoiceFeature =
 	| "an alternative not all configured skipped"
 	| "an AND alternative"
 	| "anonymous allowed"
+	| "no requirement, anonymous"
 	| "a variable override"
 	| "the file beats the variable"
 	| "a credential read from stdin"
@@ -519,6 +532,10 @@ export const choiceFeatures = (drawn: World): ReadonlyArray<ChoiceFeature> => {
 		],
 		[credentials.length > 1, "an AND alternative"],
 		[outcome.kind === "credentials" && credentials.length === 0, "anonymous allowed"],
+		[
+			outcome.kind === "credentials" && Arr.isReadonlyArrayEmpty(drawn.requirement),
+			"no requirement, anonymous"
+		],
 		[Arr.some(credentials, ([scheme]) => scheme === "other"), "a variable override"],
 		[
 			Arr.some(
@@ -972,6 +989,14 @@ export const placements = {
 		cookies: [],
 		params: [],
 		credentials: [["basicAuth", text]]
+	})),
+	sibling: map(placement, (drawn): Placement => ({
+		...drawn,
+		target: "sibling",
+		credentials: [
+			["apiKey", "k"],
+			["bearerAuth", "tok-4"]
+		]
 	})),
 	serverBase: map(placement, (drawn): Placement => ({
 		...drawn,
@@ -1617,6 +1642,14 @@ export const callArms = {
 		requirement: [["bearerAuth"]],
 		env: [["bearerAuth", "tok-AU1-BEARER"]]
 	})),
+	fallsThrough: map(calls, (drawn): Call => ({
+		...drawn,
+		requirement: [["oauthAuth", "apiKey"], ["bearerAuth"]],
+		env: [
+			["oauthAuth", "tok-oauthAuth-SECRET"],
+			["bearerAuth", "tok-bearerAuth-SECRET"]
+		]
+	})),
 	away: map(calls, (drawn): Call => ({
 		...drawn,
 		base: "server",
@@ -1974,6 +2007,30 @@ export const authHelps: Gen<AuthHelp> = (drawn) => ({
 	alternatives: array(subset(HELP_NAMES, { min: 0, max: 2 }), { min: 0, max: 3 })(drawn),
 	declared: boolean(drawn)
 })
+
+/** AUTH help cases constructed for each situation: a scheme deprecated or current, `{}`, an undefined name, none. */
+export const authArms = {
+	deprecated: map(authHelps, (drawn): AuthHelp => ({
+		...drawn,
+		schemes: [["old", true]],
+		alternatives: [["old"], ...drawn.alternatives]
+	})),
+	current: map(authHelps, (drawn): AuthHelp => ({
+		...drawn,
+		schemes: [["current", false]],
+		alternatives: [["current"], ...drawn.alternatives]
+	})),
+	anonymous: map(authHelps, (drawn): AuthHelp => ({
+		...drawn,
+		alternatives: [[], ...drawn.alternatives]
+	})),
+	undefinedName: map(authHelps, (drawn): AuthHelp => ({
+		...drawn,
+		schemes: Arr.filter(drawn.schemes, ([name]) => name !== "legacyKey"),
+		alternatives: [["legacyKey"], ...drawn.alternatives]
+	})),
+	none: map(authHelps, (drawn): AuthHelp => ({ ...drawn, alternatives: [] }))
+} as const
 
 const origin = { document: "file:///spec.json", pointer: "/paths/~1x/get" } as const
 

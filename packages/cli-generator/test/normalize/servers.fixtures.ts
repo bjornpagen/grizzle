@@ -1,6 +1,7 @@
 /** What the property of servers.test.ts reads: its server sketches and the servers and origins design 6.4 states. */
 
 import {
+	aimed,
 	array,
 	boolean,
 	constant,
@@ -243,7 +244,7 @@ const acceptedOrigin: Gen<AcceptedOrigin> = oneOf([
 ])
 
 /** An operation's levels and an author config over them. */
-export const serversSpace: Gen<ServersSketch> = (source) => ({
+const serversDrawn: Gen<ServersSketch> = (source) => ({
 	line: oneOf([constant<"3.1">("3.1"), constant<"3.2">("3.2")])(source),
 	root: option(level)(source),
 	pathItem: boolean(source) ? option(level)(source) : Option.none(),
@@ -260,6 +261,60 @@ export const serversSpace: Gen<ServersSketch> = (source) => ({
 	)(source),
 	acceptedOrigins: subarray([acceptedOrigin(source), acceptedOrigin(source)])(source)
 })
+
+/** A host label that is a variable over `members`, its enum, defaulting to the first. */
+const enumeratedLabel = (members: Arr.NonEmptyReadonlyArray<Label>): Part<Label> => ({
+	kind: "variable",
+	members,
+	enumerated: true,
+	fallback: Arr.headNonEmpty(members)
+})
+
+/** A sketch whose one server, at the root and accepted by its URL, is written in `form`. */
+const serverOf =
+	(form: Form): Gen<ServersSketch> =>
+	(source) => ({
+		...serversDrawn(source),
+		root: Option.some<Level>({
+			kind: "list",
+			entries: [{ kind: "server", form, named: false, accepted: "url" }]
+		}),
+		pathItem: Option.none(),
+		operation: Option.none()
+	})
+
+/** An https host of these labels, with no path. */
+const hostOf = (labels: Arr.NonEmptyReadonlyArray<Part<Label>>): Form => ({
+	kind: "absolute",
+	scheme: { kind: "literal", value: "https" },
+	userinfo: false,
+	labels,
+	path: { kind: "none" },
+	tail: ""
+})
+
+/**
+ * An operation's levels and an author config over them, aimed at a host variable's enum expanded, at two variables
+ * expanded together, and at a relative template's path value that opens a second authority, which plain draws reach
+ * rarely.
+ */
+export const serversSpace = aimed<ServersSketch, ServersFeature>(serversDrawn, [
+	["enumerated host expanded", serverOf(hostOf([enumeratedLabel(["api", "eu"])]))],
+	[
+		"two variables expanded",
+		serverOf(hostOf([enumeratedLabel(["api", "eu", "us"]), enumeratedLabel(["eu", "us"])]))
+	],
+	[
+		"value leaves the authority",
+		(source) => ({
+			...serverOf({
+				kind: "relative",
+				path: { kind: "variable", members: ["v1", "/evil.com"], fallback: "v1" }
+			})(source),
+			retrievalUri: Option.some("https://docs.example.com/specs/openapi.json")
+		})
+	]
+])
 
 /** The members a part may take: its enum then its default, each once. */
 const domainOf = <A>(value: Part<A>): ReadonlyArray<A> =>

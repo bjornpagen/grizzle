@@ -432,6 +432,7 @@ const KINDS: ReadonlyArray<Kind> = [
 export type FailingFeature =
 	| `${Kind}, ${"text" | "json"}`
 	| "a retry hint"
+	| "no retry hint after a request not idempotent"
 	| "a capped Retry-After"
 	| "a request id"
 	| "a recorded value in the body"
@@ -440,8 +441,9 @@ export const failingFeatures = (failing: Failing): ReadonlyArray<FailingFeature>
 	const { raised } = failing
 	const format = Option.contains(failing.rendering.format, "json") ? "json" : "text"
 	const api = raised.kind === "ApiResponseError" ? Option.some(raised) : Option.none()
+	const exchange = raised.kind === "ApiResponseError" || raised.kind === "TransportError"
 	const hint =
-		(raised.kind === "ApiResponseError" || raised.kind === "TransportError") &&
+		exchange &&
 		Option.exists(
 			failing.rendering.sent,
 			(sent) => sent.idempotencyKey || Arr.contains(IDEMPOTENT, sent.method)
@@ -449,6 +451,9 @@ export const failingFeatures = (failing: Failing): ReadonlyArray<FailingFeature>
 	return [
 		`${raised.kind}, ${format}`,
 		...(hint ? (["a retry hint"] as const) : []),
+		...(exchange && !hint && Option.isSome(failing.rendering.sent)
+			? (["no retry hint after a request not idempotent"] as const)
+			: []),
 		...(Option.exists(api, (one) => Option.isSome(one.retryAfter))
 			? (["a capped Retry-After"] as const)
 			: []),
@@ -467,6 +472,7 @@ export const failingFeatures = (failing: Failing): ReadonlyArray<FailingFeature>
 export const FAILING_SITUATIONS: ReadonlyArray<FailingFeature> = [
 	...Arr.flatMap(KINDS, (kind) => [`${kind}, text` as const, `${kind}, json` as const]),
 	"a retry hint",
+	"no retry hint after a request not idempotent",
 	"a capped Retry-After",
 	"a request id",
 	"a recorded value in the body"
@@ -494,6 +500,20 @@ export const aimedFailings: Aimed<Failing, FailingFeature> = aimed(failings, [
 				sent: Option.some({ method: "GET", idempotencyKey: false })
 			}
 		}))
+	],
+	[
+		"no retry hint after a request not idempotent",
+		(s) =>
+			map(
+				withKind(s.draw(element(["ApiResponseError", "TransportError"] as const)), "text"),
+				(failing): Failing => ({
+					...failing,
+					rendering: {
+						...failing.rendering,
+						sent: Option.some({ method: "POST", idempotencyKey: false })
+					}
+				})
+			)(s)
 	],
 	[
 		"a capped Retry-After",

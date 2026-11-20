@@ -6,11 +6,12 @@
  *
  * - Invocations: mostly the update operation's command with an id and well-formed fields, body, timeout, error format
  *   and switches, so most runs send a request; otherwise any of the package's command paths, from the generation
- *   report, with flags and values of any shape and words it does not know, the deliberate faults; each with or without
- *   a bearer token, against the capture server as its base, which answers every request with a status and body bytes
- *   drawn per case. The package is generated and built once through cli-package.ts, as every generated-CLI suite
- *   builds its own. Oracles: never-crashes, and determinism: a second run of the same invocation exits with the same
- *   code and prints the same bytes.
+ *   report, with flags and values of any shape and words it does not know, the deliberate faults; and, aimed, the
+ *   update command given a body that is no JSON text, a usage error the runtime raises itself (errors.ts UsageError)
+ *   rather than its parser; each with or without a bearer token, against the capture server as its base, which answers
+ *   every request with a status and body bytes drawn per case. The package is generated and built once through
+ *   cli-package.ts, as every generated-CLI suite builds its own. Oracles: never-crashes, and determinism: a second run
+ *   of the same invocation exits with the same code and prints the same bytes.
  */
 import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
@@ -19,9 +20,10 @@ import { Array as Arr, Duration, Effect, Option } from "effect"
 import {
 	admittedOf,
 	argvOf,
+	bodyNotJson,
 	type ExitFeature,
 	goldenFixture,
-	invocation,
+	invocations,
 	meaningOf
 } from "#test/support/built-package.fixtures.ts"
 import type { ScriptedResponse } from "#test/support/capture-server.ts"
@@ -32,9 +34,9 @@ import { runBin } from "#test/support/cli-package.ts"
  * and exits and prints the same way twice. Its budget is the count its suite stated before the conversion: 12
  * independent cases, and up to 24 steered while a situation is unreached.
  */
-export const builtExits = property.explore(invocation, {
+export const builtExits = property.explore(invocations, {
 	needs: { fixture: goldenFixture, checkout: Checkout.dir },
-	situations: ["success", "non-2xx", "usage", "a request sent"],
+	situations: ["success", "non-2xx", "usage", "a request sent", "a body that is no JSON text"],
 	check:
 		({ fixture }, k: Case<ExitFeature>) =>
 		(c) =>
@@ -60,6 +62,9 @@ export const builtExits = property.explore(invocation, {
 				}
 				if (first.requests.length > 0) {
 					k.note("a request sent")
+				}
+				if (bodyNotJson(c)) {
+					k.note("a body that is no JSON text")
 				}
 				assert.deepEqual(
 					Arr.intersection([meaning], admittedOf(first.requests.length, c.status)),

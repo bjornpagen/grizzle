@@ -38,6 +38,7 @@ export const bodyFlags = property.explore(bodySpace, {
 		"a field through a reference",
 		"an allOf merged into fields",
 		"a base64 file flag",
+		"a multipart text part",
 		"a file part",
 		"a repeated file part",
 		"a password part",

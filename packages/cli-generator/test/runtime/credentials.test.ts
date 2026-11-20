@@ -22,6 +22,7 @@ import {
 	actualCalled,
 	actualWarned,
 	type AuthFeature,
+	authArms,
 	authFeatures,
 	authHelps,
 	type CallFeature,
@@ -63,8 +64,11 @@ export const credentialChoice = property.explore(
 		["a variable override", worlds.override],
 		["an AND alternative", worlds.andAlternative],
 		["a credential read from stdin", worlds.fromStdin],
-		["an empty file refused", worlds.fileRefused],
-		["an unreadable file refused", worlds.fileRefused],
+		["an empty file refused", worlds.emptyFile],
+		["an unreadable file refused", worlds.unreadableFile],
+		["a file not UTF-8 refused", worlds.notUtf8File],
+		["an alternative not all configured skipped", worlds.skippedAlternative],
+		["no requirement, anonymous", worlds.noRequirement],
 		["a stdin file before the prompt", worlds.stdinBeforePrompt],
 		["two stdin readers refused", worlds.twoStdin],
 		["stdin held by the body", worlds.bodyHoldsStdin],
@@ -78,6 +82,7 @@ export const credentialChoice = property.explore(
 			"an alternative not all configured skipped",
 			"an AND alternative",
 			"anonymous allowed",
+			"no requirement, anonymous",
 			"a variable override",
 			"the file beats the variable",
 			"a credential read from stdin",
@@ -219,7 +224,8 @@ export const credentialPlacement = property.explore(
 		["a bearer token", placements.schemesOnBound],
 		["an origin matched by origin, not case or port", placements.upperCase],
 		["a header value refused", placements.headerRefused],
-		["the gate ignores a server base", placements.serverBase]
+		["the gate ignores a server base", placements.serverBase],
+		["a sibling host carries nothing", placements.sibling]
 	]),
 	{
 		needs: {},
@@ -442,7 +448,8 @@ export const sentCredentials = property.explore(
 		["an echoed credential scrubbed", callArms.echoed],
 		["a same-origin redirect keeps the token", callArms.sameOrigin],
 		["the allow flag sends to an unbound base", callArms.allowed],
-		["a redirect off origin strips the token", callArms.away]
+		["a redirect off origin strips the token", callArms.away],
+		["an alternative falls through", callArms.fallsThrough]
 	]),
 	{
 		needs: {},
@@ -523,39 +530,48 @@ export const sentCredentials = property.explore(
  * example cases (deprecated-scheme.test.ts's help); its budget is 4 drawn operations, its floor one, and up to 12
  * steered while a situation is unreached.
  */
-export const authHelp = property.explore(authHelps, {
-	needs: {},
-	situations: [
-		"a deprecated scheme marked",
-		"a current scheme unmarked",
-		"an anonymous alternative",
-		"an undefined scheme named",
-		"no alternatives"
-	] satisfies ReadonlyArray<Reached<AuthFeature>>,
-	check: (_, c: Case<AuthFeature>) => (drawn) =>
-		Effect.gen(function* () {
-			c.noteAll(authFeatures(drawn))
-			const line = yield* actualAuth(drawn)
-			assert.equal(line, expectedAuth(drawn))
-		}),
-	oracle: {
-		kind: "specification",
-		name: "the AUTH line: alternatives joined by or, uses by and, `no authentication` for `{}`, `[deprecated]` on a deprecated scheme"
-	},
-	kept: [],
-	budget: { runs: 4, steered: 12 },
-	kills: [
-		{
-			file: "packages/cli-generator/src/emit/help.ts",
-			original: "\t\t\talternative.uses.length === 0",
-			replacement: "\t\t\talternative.uses.length !== 0",
-			why: "An anonymous alternative is shown as its uses and a scheme alternative as no authentication; the property fails (CATCH's evidence, mutant 26864832de)."
+export const authHelp = property.explore(
+	aimed(authHelps, [
+		["a deprecated scheme marked", authArms.deprecated],
+		["a current scheme unmarked", authArms.current],
+		["an anonymous alternative", authArms.anonymous],
+		["an undefined scheme named", authArms.undefinedName],
+		["no alternatives", authArms.none]
+	]),
+	{
+		needs: {},
+		situations: [
+			"a deprecated scheme marked",
+			"a current scheme unmarked",
+			"an anonymous alternative",
+			"an undefined scheme named",
+			"no alternatives"
+		] satisfies ReadonlyArray<Reached<AuthFeature>>,
+		check: (_, c: Case<AuthFeature>) => (drawn) =>
+			Effect.gen(function* () {
+				c.noteAll(authFeatures(drawn))
+				const line = yield* actualAuth(drawn)
+				assert.equal(line, expectedAuth(drawn))
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the AUTH line: alternatives joined by or, uses by and, `no authentication` for `{}`, `[deprecated]` on a deprecated scheme"
 		},
-		{
-			file: "packages/cli-generator/src/model/brands.ts",
-			original: '(method: string) => method !== "CONNECT"',
-			replacement: '(method: string) => method === "CONNECT"',
-			why: "The CONNECT check of a method token is inverted, so GET is refused and the operation never decodes; the property fails (CATCH's evidence, mutant e9d5044ef1)."
-		}
-	]
-})
+		kept: [],
+		budget: { runs: 4, steered: 12 },
+		kills: [
+			{
+				file: "packages/cli-generator/src/emit/help.ts",
+				original: "\t\t\talternative.uses.length === 0",
+				replacement: "\t\t\talternative.uses.length !== 0",
+				why: "An anonymous alternative is shown as its uses and a scheme alternative as no authentication; the property fails (CATCH's evidence, mutant 26864832de)."
+			},
+			{
+				file: "packages/cli-generator/src/model/brands.ts",
+				original: '(method: string) => method !== "CONNECT"',
+				replacement: '(method: string) => method === "CONNECT"',
+				why: "The CONNECT check of a method token is inverted, so GET is refused and the operation never decodes; the property fails (CATCH's evidence, mutant e9d5044ef1)."
+			}
+		]
+	}
+)

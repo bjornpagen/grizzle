@@ -45,6 +45,7 @@ export const mediaNegotiation = property.explore(negotiationSpace, {
 	situations: [
 		"one key used as declared",
 		"JSON key chosen by default",
+		"JSON second of two keys chosen by default",
 		"first key by default",
 		"type chosen among keys",
 		"range key with a type inside it",

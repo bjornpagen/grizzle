@@ -165,13 +165,18 @@ const NUMBERS: Arr.NonEmptyReadonlyArray<number> = [
 	Number.NEGATIVE_INFINITY
 ]
 
-/** A digit text a `JsonNumber` carries: past 2^53, a trailing zero, an exponent, and texts that are no JSON number. */
-const DIGITS: Arr.NonEmptyReadonlyArray<string> = [
+/** A digit text that is a JSON number a `JsonNumber` keeps: past 2^53, a trailing zero, an exponent, a negative zero. */
+const NUMBER_DIGITS: Arr.NonEmptyReadonlyArray<string> = [
 	"9007199254740993",
 	"1.50",
 	"1e2",
 	"-0",
-	"12345678901234567890",
+	"12345678901234567890"
+]
+
+/** A digit text a `JsonNumber` carries: a JSON number's, and texts that are no JSON number. */
+const DIGITS: Arr.NonEmptyReadonlyArray<string> = [
+	...NUMBER_DIGITS,
 	"1&x=2",
 	"01",
 	"",
@@ -1130,7 +1135,7 @@ const LITERALS: Arr.NonEmptyReadonlyArray<string> = ["users", "a", "", ".", ".."
  * nothing goes wrong), and now and then a fault: a placeholder naming no parameter, a parameter no placeholder names,
  * or a second parameter under a name already bound.
  */
-export const pathSpace: Gen<PathCase> = (source) => {
+const pathDrawn: Gen<PathCase> = (source) => {
 	const named = array(pathParameter(element(PATH_NAMES)), { min: 0, max: 2 })(source)
 	const parameters = Arr.dedupeWith(named, (left, right) => left.name === right.name)
 	const fault = weighted<PathFault>([
@@ -1174,12 +1179,32 @@ export const pathSpace: Gen<PathCase> = (source) => {
 	}
 }
 
+/** A path, aimed at a matrix parameter's exploded list of several items, which a plain draw reaches rarely. */
+export const pathSpace = aimed<PathCase, PathFeature>(pathDrawn, [
+	[
+		"matrix list of several items exploded",
+		(source) => ({
+			segments: [[{ kind: "placeholder", name: "id" }]],
+			parameters: [
+				{
+					style: "matrix",
+					name: "id",
+					value: array(element(["a", "b", "x y", "1"]), { min: 2, max: 3 })(source),
+					explode: true,
+					allowReserved: false
+				}
+			]
+		})
+	]
+])
+
 /** The situations a path reaches. */
 export type PathFeature =
 	| "simple"
 	| "label"
 	| "matrix"
 	| "list exploded"
+	| "matrix list of several items exploded"
 	| "object exploded"
 	| "list joined"
 	| "object joined"
@@ -1232,6 +1257,13 @@ const parameterFeatures = (parameter: PathParameterCase): ReadonlyArray<PathFeat
 	return holding<PathFeature>([
 		[parameter.style, sent],
 		["list exploded", sent && kind === "list" && parameter.explode],
+		[
+			"matrix list of several items exploded",
+			sent &&
+				parameter.style === "matrix" &&
+				parameter.explode &&
+				Option.exists(texts, (held) => held.kind === "list" && held.items.length > 1)
+		],
 		["object exploded", sent && kind === "object" && parameter.explode],
 		["list joined", sent && kind === "list" && !parameter.explode],
 		["object joined", sent && kind === "object" && !parameter.explode],
@@ -1567,8 +1599,36 @@ export const headerFeatures = (parameter: HeaderCase): ReadonlyArray<HeaderFeatu
 	])
 }
 
-/** A header parameter as drawn. */
-export const headerSpace: Gen<HeaderCase> = headerDrawn
+/**
+ * A header parameter, aimed at latin-1 text sent as it is, at text no header line carries, and at a comma inside an
+ * item or member, each of which a plain draw reaches rarely.
+ */
+export const headerSpace = aimed<HeaderCase, HeaderFeature>(headerDrawn, [
+	[
+		"latin-1 text sent",
+		(source) => ({
+			...headerDrawn(source),
+			name: "X-Test",
+			value: `${element(["caf", "na", ""])(source)}${element(["\u00E9", "\u0080"])(source)}x`
+		})
+	],
+	[
+		"unsafe text refused",
+		(source) => ({
+			...headerDrawn(source),
+			name: "X-Test",
+			value: `x${element(["\r\n", "\n", "\u0000", "\u20AC"])(source)}y`
+		})
+	],
+	[
+		"comma refused",
+		(source) => ({
+			...headerDrawn(source),
+			name: "X-Test",
+			value: element<Nested>([["a,b", "c"], { k: "a,b" }])(source)
+		})
+	]
+])
 
 /** Names a cookie is drawn under: a token, and ones that are none. */
 const COOKIE_NAMES: Arr.NonEmptyReadonlyArray<string> = ["c", "a b", "a;b"]
@@ -1601,8 +1661,9 @@ const octets: Gen<string> = string(characterOf(["a", "b", "0", "/", "=", "%", "!
 })
 
 /**
- * A cookie parameter, aimed at a 3.2 cookie-style list and object (whose member names must be tokens) and at a 3.2
- * cookie refused for its `explode: false` alone.
+ * A cookie parameter, aimed at a 3.2 cookie-style list and object (whose member names must be tokens), at 3.2
+ * cookie-style text refused for a character no cookie-octet admits, and at a 3.2 cookie refused for its `explode: false`
+ * alone.
  */
 export const cookieSpace = aimed<CookieCase, CookieFeature>(cookieDrawn, [
 	[
@@ -1636,6 +1697,17 @@ export const cookieSpace = aimed<CookieCase, CookieFeature>(cookieDrawn, [
 			line: "3.2",
 			explode: false,
 			value: octets(source)
+		})
+	],
+	[
+		"cookie style text refused",
+		(source) => ({
+			...cookieDrawn(source),
+			name: "c",
+			style: "cookie",
+			line: "3.2",
+			explode: true,
+			value: `${octets(source)}${characterOf([" ", ";", ",", '"', "\\"])(source)}${octets(source)}`
 		})
 	],
 	[
@@ -1990,7 +2062,7 @@ export const requestSpace: Gen<RequestCase> = (source) => ({
 	method: element(["GET", "POST", "PATCH", "PURGE"])(source),
 	path: weighted([
 		[4, plainPath],
-		[1, pathSpace]
+		[1, pathDrawn]
 	])(source),
 	query: array(
 		weighted<QueryCase>([
@@ -2166,8 +2238,21 @@ const bodyDrawn: Gen<BodyCase> = (source) => ({
 	])(source)
 })
 
-/** A request body, aimed at text holding half a surrogate pair under text media. */
+/**
+ * A request body, aimed at a JSON number kept as its digit text, and at text holding half a surrogate pair under text
+ * media.
+ */
 export const bodySpace = aimed<BodyCase, BodyFeature>(bodyDrawn, [
+	[
+		"digit text kept",
+		(source) => ({
+			mediaType: "application/json",
+			payload: {
+				kind: "json",
+				value: { count: new JsonNumber(element(NUMBER_DIGITS)(source)) }
+			}
+		})
+	],
 	[
 		"lone surrogate in text refused",
 		(source) => ({

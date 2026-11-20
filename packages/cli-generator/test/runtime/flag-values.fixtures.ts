@@ -675,6 +675,7 @@ export type SettingFeature =
 	| "leading zeros taken"
 	| "past the safe integers refused"
 	| "a sign refused"
+	| "a negative number refused"
 	| "a fraction refused"
 	| "zero idle seconds refused"
 	| "a variable refused"
@@ -698,7 +699,22 @@ export const settings: Gen<Setting> = (source) => ({
 	raw: wholeText(source)
 })
 
-/** Settings aimed at a whole number of seconds with leading zeros, and at zero idle seconds. */
+/** A setting whose text is a whole number behind a sign, which no setting takes. */
+const signed: Gen<Setting> = (source) => ({
+	...settings(source),
+	raw: `${element(["-", "+"] as const)(source)}${int(0, 99)(source)}`
+})
+
+/** A setting of a source that takes zero, its text a negative whole number, which a digits check alone refuses. */
+const negativeTimed: Gen<Setting> = (source) => ({
+	source: element(["--timeout", "--retries", "ACME_TIMEOUT"] as const)(source),
+	raw: `-${int(1, 99)(source)}`
+})
+
+/**
+ * Settings aimed at a whole number of seconds with leading zeros, zero idle seconds, a text past the safe integers, a
+ * fraction, a signed number, and a negative number where zero is taken.
+ */
 export const settingArms = {
 	leadingZeros: map(int(1, 99), (n): Setting => ({ source: "--timeout", raw: `00${n}` })),
 	zeroIdle: map(element(["--idle-timeout", "ACME_IDLE_TIMEOUT"] as const), (source): Setting => ({
@@ -706,10 +722,16 @@ export const settingArms = {
 		raw: "0"
 	})),
 	pastSafe: map(settings, (drawn): Setting => ({ ...drawn, raw: "9007199254740992" })),
-	fraction: map(settings, (drawn): Setting => ({ ...drawn, raw: "1.5" }))
+	fraction: map(settings, (drawn): Setting => ({ ...drawn, raw: "1.5" })),
+	sign: signed,
+	negative: negativeTimed
 } as const
 
 const maxSafe = 9_007_199_254_740_991n
+
+/** Whether a source is an idle timeout, which takes 1 or more. */
+const isIdle = (source: Source): boolean =>
+	source === "--idle-timeout" || source === "ACME_IDLE_TIMEOUT"
 
 /** The model's whole number: ASCII digits only, at most the largest safe integer, and 1 or more for an idle timeout. */
 const wholeOf = (setting: Setting): Option.Option<number> => {
@@ -718,8 +740,7 @@ const wholeOf = (setting: Setting): Option.Option<number> => {
 		return Option.none()
 	}
 	const value = Number(setting.raw)
-	const idle = setting.source === "--idle-timeout" || setting.source === "ACME_IDLE_TIMEOUT"
-	return idle && value < 1 ? Option.none() : Option.some(value)
+	return isIdle(setting.source) && value < 1 ? Option.none() : Option.some(value)
 }
 
 const messages: Readonly<Record<Source, string>> = {
@@ -774,6 +795,10 @@ export const settingFeatures = (setting: Setting): ReadonlyArray<SettingFeature>
 		[
 			refused && (Str.startsWith("-")(setting.raw) || Str.startsWith("+")(setting.raw)),
 			"a sign refused"
+		],
+		[
+			refused && Str.startsWith("-")(setting.raw) && !isIdle(setting.source),
+			"a negative number refused"
 		],
 		[refused && Str.includes(".")(setting.raw), "a fraction refused"],
 		[refused && setting.raw === "0", "zero idle seconds refused"],

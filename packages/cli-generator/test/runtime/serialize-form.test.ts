@@ -36,6 +36,7 @@ export const formBody = property.explore(formSpace, {
 		"digit text kept",
 		"null property omitted",
 		"styled list joined",
+		"form style list with no explode repeats its name",
 		"styled object exploded",
 		"delimited style",
 		"deepObject members",

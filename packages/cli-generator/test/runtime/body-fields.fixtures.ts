@@ -354,6 +354,28 @@ export const mergeArms = {
 		required: false,
 		schema: "unknown"
 	})),
+	verbatim: map(map(objectTree, writeTree), (text): Merge => ({
+		source: { kind: "body", text },
+		fields: [],
+		required: false,
+		schema: "unknown"
+	})),
+	fileStdin: map(element(["base64", "base64url"] as const), (encoding): Merge => ({
+		source: { kind: "none" },
+		fields: [
+			{
+				segments: ["avatar"],
+				sketch: {
+					kind: "file",
+					encoding,
+					bytes: { kind: "small", bytes: [251, 255] },
+					from: "stdin"
+				}
+			}
+		],
+		required: false,
+		schema: "unknown"
+	})),
 	badNumber: withField({ segments: ["count"], sketch: { kind: "jsonNumber", text: "1.5x" } }),
 	keptNumber: map(element(["12345678901234567890", "1.50", "1e2"]), (text): Merge => ({
 		source: { kind: "body", text: `{"count":${text},"name":"Ada"}` },

@@ -56,7 +56,9 @@ export const namePlan = property.explore(planSpace, {
 	},
 	kept: [
 		{
-			token: ReplayToken("test/names/plan.test.ts#namePlan:-:1.0.0.0.0.1.2.0.1.0.0.1.1.0.0.0"),
+			token: ReplayToken(
+				"packages/cli-generator/test/names/plan.test.ts#namePlan:-:1.0.0.0.0.1.2.0.1.0.0.1.1.0.0.0"
+			),
 			reason:
 				"a group's command whose identifier folds to `group`, the command its module exports: it is suffixed, as the group module holds the name, where the laws held the name for no module and called the suffix one for nothing (found by the push gate's rotating stream at TEST_SEED=3990536058)",
 			since: "2026-11-19"

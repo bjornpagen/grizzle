@@ -131,7 +131,7 @@ export const printedModule = property.explore(moduleSpace, {
 	kept: [
 		{
 			token: ReplayToken(
-				"test/emit/printer.test.ts#printedModule:-:0.1.0.1.0.1.0.0.0.4.1.6.0.7.b.7.5.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+				"packages/cli-generator/test/emit/printer.test.ts#printedModule:-:0.1.0.1.0.1.0.0.0.4.1.6.0.7.b.7.5.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
 			),
 			reason:
 				"a conditional beside a long key whose test, a chain of a call holding an argument and an empty one, does not fit whole but whose first argument list starts on the key's line: the formatter breaks that list and keeps the conditional beside its key (found by the push gate's rotating stream at TEST_SEED=559022411)",
@@ -139,7 +139,7 @@ export const printedModule = property.explore(moduleSpace, {
 		},
 		{
 			token: ReplayToken(
-				"test/emit/printer.test.ts#printedModule:-:0.1.8.0.1.0.0.1.4.1.6.0.1.7.5.0.5.0.0.0.1.0.0.6.b.1.0"
+				"packages/cli-generator/test/emit/printer.test.ts#printedModule:-:0.1.8.0.1.0.0.1.4.1.6.0.1.7.5.0.5.0.0.0.1.0.0.6.b.1.0"
 			),
 			reason:
 				"a chain beside a long key whose one argument is a string of sixteen wide characters, 18 code units but 34 columns, past the quarter line the formatter calls a short argument: the formatter breaks the chain's argument list beside the key rather than moving the chain below it (found by the push gate's rotating stream at seed 0x848d5dc6)",
@@ -147,7 +147,7 @@ export const printedModule = property.explore(moduleSpace, {
 		},
 		{
 			token: ReplayToken(
-				"test/emit/printer.test.ts#printedModule:-:0.1.0.0.2.7.0.0.7.4.1.1.0.0.0.1.4.0.1.0.0"
+				"packages/cli-generator/test/emit/printer.test.ts#printedModule:-:0.1.0.0.2.7.0.0.7.4.1.1.0.0.0.1.4.0.1.0.0"
 			),
 			reason:
 				"a chain beside a long const name, `a.pipe()({})`, that does not fit after its `=` but whose argument list holding `{}` starts on that line: an empty object is no short argument, so the formatter breaks that list beside `=` rather than moving the chain below (found by the push gate's rotating stream at seed 0x46c01f85)",

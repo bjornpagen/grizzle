@@ -73,7 +73,8 @@ export const constructs = property.explore(aimed(caseGen, AIMS), {
 		"a base64 contentEncoding",
 		"an int64 property",
 		"an undeclared name beside a declared one",
-		"a 3.2 undeclared name"
+		"a 3.2 undeclared name",
+		"a tag folding to servers"
 	] satisfies ReadonlyArray<Reached<Feature>>,
 	check:
 		({ dir, digest }, k: Case<Feature>) =>

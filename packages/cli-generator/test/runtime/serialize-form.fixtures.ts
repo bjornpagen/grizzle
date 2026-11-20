@@ -409,6 +409,7 @@ export type FormFeature =
 	| "digit text kept"
 	| "null property omitted"
 	| "styled list joined"
+	| "form style list with no explode repeats its name"
 	| "styled object exploded"
 	| "delimited style"
 	| "deepObject members"
@@ -529,6 +530,18 @@ export const formFeatures = (form: FormCase): ReadonlyArray<FormFeature> => {
 						value.length > 1 &&
 						style(encoding) === "form" &&
 						encoding.explode === false
+				)
+		],
+		[
+			"form style list with no explode repeats its name",
+			sent &&
+				Arr.some(
+					styled,
+					([, value, encoding]) =>
+						isJsonList(value) &&
+						value.length > 1 &&
+						style(encoding) === "form" &&
+						encoding.explode === undefined
 				)
 		],
 		[
@@ -748,8 +761,8 @@ const oneProperty =
 	})
 
 /**
- * A form, aimed at a non-exploded styled list, a bracketed deepObject value, and an exploded object one of whose
- * members is named like a declared property.
+ * A form, aimed at a non-exploded styled list, a form-style list whose explode defaults, a bracketed deepObject value,
+ * and an exploded object one of whose members is named like a declared property.
  */
 export const formSpace = aimed<FormCase, FormFeature>(formDrawn, [
 	[
@@ -757,6 +770,15 @@ export const formSpace = aimed<FormCase, FormFeature>(formDrawn, [
 		(source) =>
 			oneProperty(
 				{ style: "form", explode: false, allowReserved: boolean(source) },
+				array(plainText, { min: 2, max: 3 }),
+				[]
+			)(source)
+	],
+	[
+		"form style list with no explode repeats its name",
+		(source) =>
+			oneProperty(
+				{ style: "form", allowReserved: boolean(source) },
 				array(plainText, { min: 2, max: 3 }),
 				[]
 			)(source)
@@ -783,13 +805,7 @@ export const formSpace = aimed<FormCase, FormFeature>(formDrawn, [
 		"styled object exploded",
 		(source) =>
 			oneProperty(
-				{
-					style: weighted<QueryStyle>([
-						[2, constant("form")],
-						[1, constant("deepObject")]
-					])(source),
-					explode: true
-				},
+				{ style: "form", explode: true },
 				(inner) => ({ R: plainText(inner), "G B": plainText(inner) }),
 				[]
 			)(source)

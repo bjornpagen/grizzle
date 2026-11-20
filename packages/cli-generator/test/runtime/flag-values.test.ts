@@ -186,7 +186,9 @@ export const wholeNumbers = property.explore(
 		["leading zeros taken", settingArms.leadingZeros],
 		["zero idle seconds refused", settingArms.zeroIdle],
 		["past the safe integers refused", settingArms.pastSafe],
-		["a fraction refused", settingArms.fraction]
+		["a fraction refused", settingArms.fraction],
+		["a sign refused", settingArms.sign],
+		["a negative number refused", settingArms.negative]
 	]),
 	{
 		needs: {},
@@ -195,6 +197,7 @@ export const wholeNumbers = property.explore(
 			"leading zeros taken",
 			"past the safe integers refused",
 			"a sign refused",
+			"a negative number refused",
 			"a fraction refused",
 			"zero idle seconds refused",
 			"a variable refused",

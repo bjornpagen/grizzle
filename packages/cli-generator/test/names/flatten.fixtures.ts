@@ -14,6 +14,7 @@ import {
 	element,
 	type Gen,
 	int,
+	map,
 	option,
 	type Space,
 	weighted
@@ -681,6 +682,7 @@ export type Feature =
 	| "a field through a reference"
 	| "an allOf merged into fields"
 	| "a base64 file flag"
+	| "a multipart text part"
 	| "a file part"
 	| "a repeated file part"
 	| "a password part"
@@ -758,6 +760,10 @@ export const featuresOf = (c: BodyCase): ReadonlyArray<Feature> => {
 			"an allOf merged into fields"
 		),
 		...when(!multipart && Arr.some(fields, (f) => f.kind === "file"), "a base64 file flag"),
+		...when(
+			multipart && Arr.some(fields, (f) => f.kind === "string" && !f.repeated),
+			"a multipart text part"
+		),
 		...when(multipart && Arr.some(fields, (f) => f.kind === "file" && !f.repeated), "a file part"),
 		...when(
 			multipart && Arr.some(fields, (f) => f.kind === "file" && f.repeated),
@@ -833,6 +839,31 @@ const codecOf = (codec: Codec): Gen<BodyCase> => caseGen(constant(codec), anyLin
 
 const json = caseGen(element<Codec>(["json", "form"]), anyLine)
 
+/** A multipart body of one plain string part, neither binary nor encoded: a text part, never a file. */
+const multipartText: Space<BodyCase> = map(
+	caseGen(constant("multipart"), anyLine),
+	(c): BodyCase => ({
+		...c,
+		root: [
+			{
+				name: "note",
+				node: {
+					tag: "scalar",
+					type: "string",
+					format: Option.none(),
+					encoding: Option.none(),
+					mediaType: false,
+					readOnly: false,
+					constant: false
+				},
+				required: false
+			}
+		],
+		refused: [],
+		base64Parts: []
+	})
+)
+
 /** Bodies, aimed at every flag kind, every codec and every rule that keeps, drops or reshapes a field. */
 export const bodySpace: Aimed<BodyCase, Feature> = aimed(caseGen(anyCodec, anyLine), [
 	["a string flag", reaching("a string flag", json)],
@@ -845,6 +876,7 @@ export const bodySpace: Aimed<BodyCase, Feature> = aimed(caseGen(anyCodec, anyLi
 	["a field through a reference", reaching("a field through a reference", json)],
 	["an allOf merged into fields", reaching("an allOf merged into fields", json)],
 	["a base64 file flag", reaching("a base64 file flag", json)],
+	["a multipart text part", multipartText],
 	["a file part", reaching("a file part", codecOf("multipart"))],
 	["a repeated file part", reaching("a repeated file part", codecOf("multipart"))],
 	["a password part", reaching("a password part", codecOf("multipart"))],

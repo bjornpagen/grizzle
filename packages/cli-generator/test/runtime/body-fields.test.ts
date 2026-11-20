@@ -41,7 +41,9 @@ export const bodyMerge = property.explore(
 		["a non-object body under fields refused", mergeArms.nonObject],
 		["a field number refused", mergeArms.badNumber],
 		["invalid JSON refused", mergeArms.invalidJson],
-		["a number kept as its text", mergeArms.keptNumber]
+		["a number kept as its text", mergeArms.keptNumber],
+		["a verbatim body", mergeArms.verbatim],
+		["a file from stdin", mergeArms.fileStdin]
 	]),
 	{
 		needs: { dir: Scratch.dir },
