@@ -81,9 +81,26 @@ export const baseTemplate: DatabaseTemplate = Template.database({
 })
 
 /**
+ * An origin's part of a template's identity (identityText): the cluster's base, a fresh database's locale, as the
+ * toolchain's originKey writes it (`fresh <locale>`), or the identity of the template it is built from.
+ */
+const originText = (
+	origin: DatabaseTemplate["from"]
+): Effect.Effect<string, NeedFailed, ModuleClosure> => {
+	switch (origin.kind) {
+		case "cluster":
+			return Effect.succeed("cluster")
+		case "fresh":
+			return Effect.succeed(`fresh ${origin.locale}`)
+		case "database-template":
+			return identityText(origin)
+	}
+}
+
+/**
  * What a template's identity holds, as the toolchain's (resources/template.ts identify) holds it: its name, its
- * content's canonical text, its declaring module's import-closure hash and its origin's, the cluster's base for none,
- * each part its length and itself, so two identities share a text only when they share every part.
+ * content's canonical text, its declaring module's import-closure hash and its origin's (originText), each part its
+ * length and itself, so two identities share a text only when they share every part.
  */
 const identityText = (
 	template: DatabaseTemplate
@@ -91,7 +108,7 @@ const identityText = (
 	Effect.gen(function* () {
 		const closures = yield* ModuleClosure
 		const closure = yield* closures.hashOf(template.declaredIn)
-		const origin = template.from.kind === "cluster" ? "cluster" : yield* identityText(template.from)
+		const origin = yield* originText(template.from)
 		return Arr.join(
 			Arr.map(
 				[template.name, template.content, closure, origin],
