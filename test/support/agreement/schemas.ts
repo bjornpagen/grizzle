@@ -314,7 +314,7 @@ const schemaFaults = [
 	"monoidMismatch",
 	"endPlanes",
 	"treeSideWritten",
-	"drawnNotNatural",
+	"drawnUndrawable",
 	"accumulatedWriting",
 	"accumulatedStart",
 	"rowMissingField",
@@ -580,7 +580,9 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 	treeSideWritten: named(
 		"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end"
 	),
-	drawnNotNatural: structural({ tag: "MalformedDescription" }, "a drawn field is a natural"),
+	drawnUndrawable: named(
+		"drawn(type): natural or a contract over an integer, the types a family's index and count are of"
+	),
 	accumulatedWriting: named(
 		"an accumulated field is of a value type: no span, vector or field of a writing of its own"
 	),
@@ -4958,7 +4960,7 @@ const fieldProbe = (d: Drawing, base: Base): Probe => {
 	const forms: Arr.NonEmptyReadonlyArray<Planted> = [
 		{ fault: undefined, call: { kind: "drawn", type: { kind: "natural" } } },
 		{
-			fault: "drawnNotNatural",
+			fault: "drawnUndrawable",
 			call: {
 				kind: "drawn",
 				type: { kind: "pg", spelling: d.from(["integer", "bigint"] as const) }

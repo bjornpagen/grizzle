@@ -1534,7 +1534,7 @@ export type RelationDesc<L = Located> = L &
 				readonly kind: "closed"
 				readonly name: string
 				readonly handles: ReadonlyArray<string>
-				readonly order: "unordered"
+				readonly order: StatedRosterOrder
 		  }
 		| {
 				readonly kind: "closedRelation"
@@ -1572,6 +1572,14 @@ export type DerivedStorage = (typeof derivedStorages)[number]
 
 /** A closed relation's row: a value of each of its fields. */
 export type ClosedRow = Readonly<Record<string, LiteralDesc>>
+
+/**
+ * The orders a roster's Description states: an unordered roster's, whose handles' order is no order of theirs. An
+ * ordered roster's handles are its order, which it states by stating none (RelationDesc), so its canonical form is its
+ * name and handles alone. The Description's type and its decoder (relationDescShape's `closed`) both read this one list.
+ */
+const statedRosterOrders = ["unordered"] as const satisfies ReadonlyArray<RosterOrder>
+type StatedRosterOrder = (typeof statedRosterOrders)[number]
 
 /** A roster's Description: an ordered roster's, or an unordered one's, which states its order. */
 export type RosterDesc<L = Located> = Extract<RelationDesc<L>, { readonly kind: "closed" }>
@@ -2966,7 +2974,12 @@ const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
 			keyOverOwnFields
 		)
 	),
-	closed: S.located(S.structWith({ name, handles: S.nonEmptyUniqueStrings("handles") }, loc)),
+	closed: S.located(
+		S.structWith(
+			{ name, handles: S.nonEmptyUniqueStrings("handles") },
+			{ ...loc, order: S.literalsShape(statedRosterOrders) }
+		)
+	),
 	closedRelation: S.located(
 		S.refine(
 			S.structWith(

@@ -300,7 +300,7 @@ export const aFamilyDrawnOverAContractOverAnIntegerCountsAndIndexesByItsTypeAndI
 										}
 										if (answer.kind !== "accepted") {
 											return assert.fail(
-												`${c.kind}: a count of ${expected.count} within its bounds is accepted, not ${answer.text}`
+												`${c.kind}: a count of ${expected.count} within its bounds is accepted, not ${answer.text}; the series stores ${Formatter.format(after)}`
 											)
 										}
 										assert.deepEqual(
