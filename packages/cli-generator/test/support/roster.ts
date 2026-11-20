@@ -82,6 +82,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/runtime/redact.test.ts",
 	"test/runtime/response-headers.test.ts",
 	"test/runtime/response.test.ts",
+	"test/runtime/send-servers.test.ts",
 	"test/runtime/sequential-media-parity.test.ts",
 	"test/runtime/sequential.test.ts",
 	"test/runtime/serialize-form.test.ts",

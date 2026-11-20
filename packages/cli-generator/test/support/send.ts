@@ -39,8 +39,8 @@ export type Wire = Readonly<{
 /**
  * One run of a generated CLI's send, as the generated entry runs it (Output.send inside finalCatch): the operation and
  * the request built for it, the root servers and security tables, the environment, the values the run recorded, how
- * the server answers each request it receives, whether stdin and stdout are terminals, `--verbose`, `--dry-run`, and
- * `--output` with `--force`, written in the case's own directory.
+ * the server answers each request it receives, whether stdin and stdout are terminals, `--verbose`, `--dry-run`,
+ * `--server`, and `--output` with `--force`, written in the case's own directory.
  */
 export type SendWorld = Readonly<{
 	operation: Output.OperationMeta
@@ -53,10 +53,14 @@ export type SendWorld = Readonly<{
 	tty: boolean
 	verbose: boolean
 	dryRun: boolean
+	server: Option.Option<string>
 	output: Option.Option<Readonly<{ name: string; force: boolean; dir: ScratchDir }>>
 }>
 
-/** A world's defaults: one server bound to its origin, no scheme, no environment, a 200 with an empty JSON array. */
+/**
+ * A world's defaults: one server bound to its origin, no scheme, no environment, a 200 with an empty JSON array, and no
+ * flag.
+ */
 export const plainWorld = (
 	operation: Output.OperationMeta,
 	request: HttpClientRequest.HttpClientRequest
@@ -75,6 +79,7 @@ export const plainWorld = (
 	tty: false,
 	verbose: false,
 	dryRun: false,
+	server: Option.none(),
 	output: Option.none()
 })
 
@@ -174,7 +179,7 @@ export const sendIn = (world: SendWorld) =>
 						Option.exists(world.output, (target) => target.force)
 					),
 					Layer.succeed(BaseUrl.baseUrlSetting, Option.none()),
-					Layer.succeed(BaseUrl.serverSetting, Option.none()),
+					Layer.succeed(BaseUrl.serverSetting, world.server),
 					Layer.succeed(BaseUrl.serverVariableSetting, []),
 					Layer.succeed(Auth.allowCredentialsForBaseUrl, false),
 					Layer.succeed(Client.verboseSetting, world.verbose),

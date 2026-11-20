@@ -1,268 +1,106 @@
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
-import * as NodePath from "@effect/platform-node/NodePath"
+/**
+ * Each operation of a generated CLI sends by the servers table of its own level (design 6.4): the generator emits an
+ * operation's own servers when they are not the root's (its own, else its path item's), with the bound origin set of
+ * that level's accepted servers, and the runtime sends to the level's chosen server with the credential, refuses a
+ * `--server` entry whose origin the level does not bind, and on a redirect sends the credential only to an origin the
+ * level binds, so no document-wide set lets a credential follow an override to the root's host or another override's.
+ */
+
+import { assert } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import {
-	ConfigProvider,
-	Effect,
-	Exit,
-	FileSystem,
-	Layer,
-	Option,
-	Path,
-	Schema,
-	Sink,
-	Stdio
-} from "effect"
-import { HttpClient, HttpClientResponse } from "effect/http"
-/* oxlint-disable unicorn/no-array-for-each -- Sink.forEach is the Effect sink, not Array#forEach */
-import { describe, expect, test } from "vitest"
-import { generate } from "#generate.ts"
-import { DocumentUri } from "#model/brands.ts"
-import * as Auth from "#runtime-src/runtime/auth.ts"
-import * as BaseUrl from "#runtime-src/runtime/base-url.ts"
-import { Transport } from "#runtime-src/runtime/client.ts"
-import * as Input from "#runtime-src/runtime/input.ts"
-import * as Output from "#runtime-src/runtime/output.ts"
-import { runCredentialsLayer } from "#runtime-src/runtime/redact.ts"
-import * as Serialize from "#runtime-src/runtime/serialize.ts"
+	expectedOf,
+	observedOf,
+	type SendFeature,
+	sendFeatures,
+	sends,
+	sentOf,
+	serversFixture
+} from "#test/runtime/send-servers.fixtures.ts"
 
-// Each operation's bound origin set comes from its own effective servers (operation, else path
-// item, else root). The bound sets below are read from what `generate` emits for this spec, so a
-// document-wide set would let a credential follow `a` to the root host or to `b`'s host.
-
-const SECRET = "tok-SRV-SECRET"
-
-const ok = { "200": { description: "ok" } } as const
-
-const bearer = [{ bearerAuth: [] }] as const
-
-const spec = {
-	components: { securitySchemes: { bearerAuth: { scheme: "bearer", type: "http" } } },
-	info: { title: "servers", version: "1" },
-	openapi: "3.1.0",
-	paths: {
-		"/a": {
-			get: {
-				operationId: "a-get",
-				responses: ok,
-				security: bearer,
-				// The second entry is not accepted: its origin is accepted only at the root.
-				servers: [{ url: "https://a.example.com/v1" }, { url: "https://api.example.com/v2" }]
-			}
-		},
-		"/b": {
-			get: { operationId: "b-get", responses: ok, security: bearer },
-			servers: [{ url: "https://b.example.com" }]
-		},
-		"/r": { get: { operationId: "r-get", responses: ok, security: bearer } }
+/**
+ * Each send shows its level's emitted table, goes where the level's table says, and carries the credential only to an
+ * origin that table binds. It replaces seven example cases over three of its operations; the exhaustion proves it over
+ * every operation, server choice and redirect of its document.
+ */
+export const boundSends = property.exhaust(sends, {
+	box: "every operation of the document (servers of its own, of its path item, its own over its path item's, the root's, and its own with none accepted), with no --server or each server of its level, answered by a 200 or by a 302 to each origin the document names and to one it does not",
+	needs: { fixture: serversFixture },
+	situations: [
+		"an operation's own servers",
+		"a path item's servers",
+		"the root's servers",
+		"its own servers over its path item's",
+		"a level that accepts no server",
+		"the accepted default",
+		"no accepted default",
+		"a --server entry the level binds",
+		"a --server entry only another level binds",
+		"a --server entry no level binds",
+		"a redirect within the bound set",
+		"a redirect to an origin only another level binds",
+		"a redirect to an origin no level binds"
+	] satisfies ReadonlyArray<Reached<SendFeature>>,
+	check:
+		({ fixture }, c: Case<SendFeature>) =>
+		(sendCase) =>
+			Effect.gen(function* () {
+				c.noteAll(sendFeatures(sendCase))
+				const emitted = yield* fixture
+				const sent = yield* sentOf(sendCase, emitted)
+				const expected = expectedOf(sendCase)
+				assert.deepEqual<typeof expected>(observedOf(sendCase, emitted, sent), expected)
+			}),
+	oracle: {
+		kind: "specification",
+		name: "design 6.4: each level's table binds the origins of its accepted servers, a --server entry outside it is a usage error, and a hop carries the credential only to an origin it binds"
 	},
-	servers: [{ url: "https://api.example.com/v1" }]
-} as const
-
-const config = {
-	binName: "x",
-	envPrefix: "X",
-	package: { name: "x-cli", version: "1.0.0" },
-	servers: {
-		accepted: ["https://api.example.com/v1", "https://a.example.com/v1", "https://b.example.com"]
-	}
-} as const
-
-const decodeUri = Schema.decodeUnknownSync(DocumentUri)
-
-// Generates the spec into a scoped temp directory and returns the emitted api modules.
-const emitted: Readonly<{ root: string; servers: string }> = await Effect.runPromise(
-	Effect.scoped(
-		Effect.gen(function* emit() {
-			const fs = yield* FileSystem.FileSystem
-			const path = yield* Path.Path
-			const dir = yield* fs.makeTempDirectoryScoped({ prefix: "srv-" })
-			const specPath = path.join(dir, "openapi.json")
-			const configPath = path.join(dir, "author-config.json")
-			const out = path.join(dir, "out")
-			yield* fs.writeFileString(specPath, JSON.stringify(spec))
-			yield* fs.writeFileString(configPath, JSON.stringify(config))
-			yield* generate(
-				{
-					document: decodeUri("file:///servers/openapi.json"),
-					outDir: out,
-					source: { _tag: "File", path: specPath },
-					strict: false
-				},
-				{ document: decodeUri("file:///servers/author-config.json"), path: configPath }
-			)
-
-			return {
-				root: yield* fs.readFileString(path.join(out, "src/api/root.ts")),
-				servers: yield* fs.readFileString(path.join(out, "src/api/servers.ts"))
-			}
-		})
-	).pipe(
-		Effect.provide(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest))
-	)
-)
-
-// The `boundOrigins` strings of the exported const `name` in an emitted module.
-const boundOf = (module: string, name: string): readonly string[] => {
-	const start = module.indexOf(`export const ${name}`)
-	const block = module.slice(start, module.indexOf("\n};", start))
-	const items = /boundOrigins: \[(?<items>[^\]]*)\]/u.exec(block)?.groups?.items ?? ""
-
-	return [...items.matchAll(/"(?<origin>[^"]*)"/gu)].map((match) => match.groups?.origin ?? "")
-}
-
-const rootTable: BaseUrl.ServersTable = {
-	boundOrigins: boundOf(emitted.servers, "servers"),
-	defaultServer: 0,
-	servers: [{ url: "https://api.example.com/v1" }]
-}
-
-const security: Auth.SecurityTable = {
-	schemes: { bearerAuth: { kind: "http", scheme: "bearer" } }
-}
-
-const base: Output.OperationMeta = {
-	media: { request: [], responses: { "200": [] } },
-	method: "GET",
-	pathTemplate: "/r",
-	security: [["bearerAuth"]]
-}
-
-// An operation's meta with its override table, bound as `generate` emitted its `name` const.
-const overriding = (
-	pathTemplate: string,
-	name: string,
-	servers: readonly BaseUrl.ServerEntry[]
-): Output.OperationMeta => ({
-	...base,
-	pathTemplate,
-	servers: { boundOrigins: boundOf(emitted.root, name), defaultServer: 0, servers }
-})
-
-const aMeta = overriding("/a", "aGetMeta", [
-	{ url: "https://a.example.com/v1" },
-	{ url: "https://api.example.com/v2" }
-])
-
-const bMeta = overriding("/b", "bGetMeta", [{ url: "https://b.example.com" }])
-
-const rMeta = base
-
-interface Seen {
-	readonly authorization: string | undefined
-	readonly url: string
-}
-
-interface World {
-	readonly redirectTo?: string
-	readonly server?: string
-}
-
-const sink = () => Sink.forEach(() => Effect.void)
-
-// Sends `meta` once against a recording client; with `redirectTo`, the first hop answers 302.
-const run = async (meta: Output.OperationMeta, world: World = {}) => {
-	const seen: Seen[] = []
-	const client = HttpClient.make((sent, url) =>
-		Effect.sync(() => {
-			seen.push({ authorization: sent.headers.authorization, url: url.href })
-
-			const hop = world.redirectTo !== undefined && seen.length === 1
-
-			return HttpClientResponse.fromWeb(
-				sent,
-				new Response(
-					null,
-					hop ? { headers: { location: world.redirectTo ?? "" }, status: 302 } : { status: 200 }
-				)
-			)
-		})
-	)
-	const environment = Layer.mergeAll(
-		BaseUrl.layer(rootTable, "X"),
-		Auth.layer(security, "X", []),
-		ConfigProvider.layer(ConfigProvider.fromEnvRecord({ X_BEARER_AUTH: SECRET })),
-		FileSystem.layerNoop({}),
-		Path.layer,
-		Stdio.layerTest({ stderr: sink, stdout: sink, stdoutIsTerminal: Effect.succeed(false) }),
-		Input.stdinClaimLayer,
-		runCredentialsLayer,
-		Layer.succeed(Transport, {
-			certified: Option.none(),
-			plain: { direct: client, environment: client }
-		}),
-		Layer.succeed(Output.ClientPolicy, {
-			binName: "x",
-			version: "1.0.0"
-		}),
-		Layer.succeed(Output.OutputPath, Option.none()),
-		Layer.succeed(Output.Force, false),
-		Layer.succeed(BaseUrl.baseUrlSetting, Option.none()),
-		Layer.succeed(BaseUrl.serverSetting, Option.fromNullishOr(world.server)),
-		Layer.succeed(BaseUrl.serverVariableSetting, []),
-		Layer.succeed(Auth.allowCredentialsForBaseUrl, false)
-	)
-	const request = Serialize.request("GET", {
-		headers: [],
-		path: Serialize.path(meta.pathTemplate, []),
-		query: []
-	})
-	const exit = await Effect.runPromise(
-		Effect.exit(request.pipe(Effect.flatMap(Output.send(meta)))).pipe(Effect.provide(environment))
-	)
-
-	return { exit, seen }
-}
-
-const credential = `Bearer ${SECRET}`
-
-describe("generated bound sets", () => {
-	test("each table binds the origins of its own accepted servers", () => {
-		expect(rootTable.boundOrigins).toEqual(["https://api.example.com"])
-		expect(aMeta.servers?.boundOrigins).toEqual(["https://a.example.com"])
-		expect(bMeta.servers?.boundOrigins).toEqual(["https://b.example.com"])
-	})
-})
-
-describe("Output.send with an operation's servers", () => {
-	test("an operation override sends to its host with the credential", async () => {
-		const { seen } = await run(aMeta)
-
-		expect(seen).toEqual([{ authorization: credential, url: "https://a.example.com/v1/a" }])
-	})
-
-	test("a path-item override sends to its host with the credential", async () => {
-		const { seen } = await run(bMeta)
-
-		expect(seen).toEqual([{ authorization: credential, url: "https://b.example.com/b" }])
-	})
-
-	test("a redirect from an override to the root host drops the credential", async () => {
-		const { seen } = await run(aMeta, { redirectTo: "https://api.example.com/v1/a" })
-
-		expect(seen.map((hop) => hop.url)).toEqual([
-			"https://a.example.com/v1/a",
-			"https://api.example.com/v1/a"
-		])
-		expect(seen.map((hop) => hop.authorization)).toEqual([credential, undefined])
-	})
-
-	test("a redirect from an override to another operation's host drops the credential", async () => {
-		const { seen } = await run(aMeta, { redirectTo: "https://b.example.com/b" })
-
-		expect(seen.map((hop) => hop.authorization)).toEqual([credential, undefined])
-	})
-
-	test("a redirect from the root host to an operation's host drops the credential", async () => {
-		const { seen } = await run(rMeta, { redirectTo: "https://a.example.com/v1/a" })
-
-		expect(seen.map((hop) => hop.authorization)).toEqual([credential, undefined])
-	})
-
-	test("--server naming an entry whose origin is accepted only at the root sends no credential", async () => {
-		const { exit, seen } = await run(aMeta, { server: "1" })
-
-		expect(Exit.isFailure(exit)).toBe(true)
-		expect(seen.filter((hop) => hop.authorization !== undefined)).toEqual([])
-	})
+	kept: [],
+	kills: [
+		{
+			file: "packages/cli-generator/src/generate.ts",
+			original: "boundOrigins: (servers) => boundOrigins(servers, serversContext).origins,",
+			replacement: "boundOrigins: () => bound.origins,",
+			why: "Every table the generator emits binds the root's origins, a document-wide set, so an override's table binds none of its own servers' origins and the credential follows a redirect to the root's host; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/emit/api.ts",
+			original: 'if (operation.servers.some((server) => server.level !== "root")) {',
+			replacement: 'if (operation.servers.some((server) => server.level === "operation")) {',
+			why: "An operation whose servers are its path item's emits no table of its own, so it sends to the root's server by the root's set; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/emit/api.ts",
+			original: "if (accepted !== -1) {",
+			replacement: "if (accepted > 0) {",
+			why: "A table whose first server is accepted emits no default, so a run with no --server is refused where it sends to that server; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
+			original: "const servers = meta.servers ?? rootServers",
+			replacement: "const servers = rootServers",
+			why: "Every send goes by the root's table, so an override's operation sends to the root's server and its --server entries are the root's; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
+			original: "boundOrigins: servers.boundOrigins,",
+			replacement: "boundOrigins: rootServers.boundOrigins,",
+			why: "The credential goes by the root's bound set whatever the operation's level, so an override's own host gets none and a redirect from it to the root's host carries it; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/runtime-src/runtime/base-url.ts",
+			original:
+				"if (!Arr.some(table.boundOrigins, (bound) => normalizeOrigin(bound) === origin)) {",
+			replacement: "if (Arr.isReadonlyArrayEmpty(table.boundOrigins)) {",
+			why: "A --server entry outside a level's bound set is sent unless the level binds nothing, so a-get's entry that only the root binds is sent, not refused as a usage error; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/normalize/servers.ts",
+			original: "\tif (declares(levels.operation)) {",
+			replacement: "\tif (declares(levels.operation) && !declares(levels.pathItem)) {",
+			why: "An operation that declares servers over its path item's takes the path item's, so d-get sends to b's host and binds it; the property fails."
+		}
+	]
 })
