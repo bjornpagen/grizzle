@@ -1,225 +1,114 @@
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
-import * as NodePath from "@effect/platform-node/NodePath"
-import { jsonTextOf } from "@superstarter/json"
-import { Array as Arr, Effect, FileSystem, Layer, Path, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { generate } from "#generate.ts"
-import { DocumentUri, JsonPointer } from "#model/brands.ts"
-import { formatPointer, type Json } from "#model/pointer.ts"
-import type { CommandNameSource, GroupNameSource } from "#names/plan.ts"
-import { CommandName, GenerationReport } from "#report/index.ts"
+/**
+ * The generation report's `commandNames` (design 8.1): over up to three operations, each named by one source (Fern's or
+ * Forge's extensions, a tag and its operationId, the author config, an operationId alone, its route), with up to two
+ * `x-forge-aliases` entries, each in a group of its own or beside its primary, named by Forge or Fern, or at the root by
+ * an operationId of its own, and some with a request body emitCli cannot express, the report generate writes lists
+ * every emitted command in design 8.3's command order (the groups in first-use order, each group's commands before its
+ * child groups, then the root's), each with its visible path, its operation's use site, the source of its group's and
+ * its command's name and an alias's index; an operation emitCli refuses is refused once, as `EMT-1/unsupported-body`
+ * at its pointer, and none of its names is listed; and a scheme the author config adds is listed under
+ * `authorSuppliedSchemes` by its config key, which is absent when it adds none.
+ */
+import { assert } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Scratch } from "@bjornpagen/testing/resources"
+import { Effect } from "effect"
+import { Digest } from "effect/crypto"
+import {
+	expectedOf,
+	featuresOf,
+	type NamesFeature,
+	namesSpace,
+	outcomeOf
+} from "#test/report/command-names.fixtures.ts"
+import { digestService } from "#test/support/digest.ts"
 
-const document = DocumentUri.make("file:///names/openapi.json")
-
-const configDocument = DocumentUri.make("file:///names/author-config.json")
-
-const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest)
-
-const decodeReport = Schema.decodeEffect(Schema.fromJsonString(GenerationReport))
-
-type CommandName = typeof CommandName.Type
-
-const ok = { responses: { "200": { description: "ok" } } } as const
-
-const baseConfig = {
-	binName: "example",
-	package: { name: "example-cli", version: "1.0.0" }
-} as const
-
-const spec = (paths: { readonly [path: string]: Json }): Json => ({
-	info: { title: "names", version: "1" },
-	openapi: "3.1.1",
-	paths
-})
-
-/** One operation per naming source, plus one with two aliases and one emitCli refuses. */
-const curated = spec({
-	"/fern": {
-		get: {
-			...ok,
-			operationId: "fernOp",
-			"x-fern-sdk-group-name": "billing",
-			"x-fern-sdk-method-name": "getInvoice"
-		}
+/**
+ * The report lists the emitted commands, its refusals and its added schemes as design 8.1 states them. It replaces four
+ * example cases, so its rotating stream is four drawn cases; its floor and steered phase reach each of its 19 situations
+ * by an aimed case. The suite's fifth case, two runs printing equal bytes, is determinism.test.ts's, over every file
+ * generate writes, and could state no kill here.
+ */
+export const commandNames = property.explore(namesSpace, {
+	needs: { dir: Scratch.dir, digest: digestService },
+	situations: [
+		"a command named by config",
+		"a command named by operationId",
+		"a command named by route",
+		"a command named by x-fern",
+		"a command named by x-forge",
+		"a group named by config",
+		"a group named by none",
+		"a group named by tag",
+		"a group named by x-fern",
+		"a group named by x-forge",
+		"a nested group",
+		"an alias in a group of its own",
+		"an alias at the root",
+		"an alias beside its primary",
+		"a second alias",
+		"a group's commands before its child group",
+		"a root command before a group's in plan order",
+		"an operation emitCli refuses",
+		"an author-supplied scheme"
+	] satisfies ReadonlyArray<Reached<NamesFeature>>,
+	check:
+		({ dir, digest }, k: Case<NamesFeature>) =>
+		(c) =>
+			Effect.gen(function* () {
+				k.noteAll(featuresOf(c))
+				const scratch = yield* dir
+				const service = yield* digest
+				const outcome = yield* Effect.provideService(outcomeOf(c, scratch), Digest.Digest, service)
+				assert.deepEqual(outcome, expectedOf(c))
+			}),
+	oracle: {
+		kind: "specification",
+		name: "design 8.1's commandNames in design 8.3's command order, its EMT-1 refusals and authorSuppliedSchemes"
 	},
-	"/forge": {
-		get: {
-			...ok,
-			operationId: "forgeOp",
-			"x-fern-sdk-method-name": "ignored",
-			"x-forge-group-name": "accounts.members",
-			"x-forge-method-name": "list"
-		}
-	},
-	"/notes": {
-		post: {
-			...ok,
-			operationId: "notesCreate",
-			requestBody: {
-				content: { "text/event-stream": { schema: { type: "string" } } },
-				required: true
-			},
-			tags: ["notes"],
-			"x-forge-aliases": [{ "x-forge-group-name": "memo", "x-forge-method-name": "add" }]
-		}
-	},
-	"/routes/{id}": {
-		get: {
-			...ok,
-			parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }]
-		}
-	},
-	"/tagged": { get: { ...ok, operationId: "listTagged", tags: ["things"] } },
-	"/widgets": { get: { ...ok, operationId: "listWidgets", tags: ["widgets"] } },
-	"/zones": {
-		patch: {
-			...ok,
-			operationId: "editZone",
-			"x-forge-aliases": [
-				{ "x-forge-group-name": "dns", "x-forge-method-name": "edit-zone" },
-				{ "x-fern-sdk-group-name": "legacy", "x-fern-sdk-method-name": "updateZone" }
-			],
-			"x-forge-group-name": "zones",
-			"x-forge-method-name": "edit"
-		}
-	}
-})
-
-const curatedConfig = {
-	...baseConfig,
-	naming: { operations: { listWidgets: { command: "show-all", group: "inventory" } } }
-} as const
-
-/** Tags, operationIds and routes only. */
-const plain = spec({
-	"/health": { get: ok },
-	"/pets": { get: { ...ok, operationId: "listPets", tags: ["pets"] } },
-	"/pets/{id}": {
-		get: {
-			...ok,
-			parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
-			tags: ["pets"]
-		}
-	},
-	"/version": { get: { ...ok, operationId: "getVersion" } }
-})
-
-/** The sources a spec without naming extensions can name a group or a command by. */
-const plainSources: ReadonlyArray<GroupNameSource | CommandNameSource> = [
-	"none",
-	"operationId",
-	"route",
-	"tag"
-]
-
-const added = {
-	...baseConfig,
-	security: {
-		add: {
-			requirement: [{ token: [] }],
-			schemes: { token: { scheme: "bearer", type: "http" } }
-		}
-	}
-} as const
-
-/** Runs `generate` in a scoped temp directory and answers the report file's bytes. */
-const reportText = Effect.fn("reportText")(function* (value: Json, config: Json) {
-	const fs = yield* FileSystem.FileSystem
-	const path = yield* Path.Path
-	const dir = yield* fs.makeTempDirectoryScoped({ prefix: "nmx4-" })
-	const specPath = path.join(dir, "openapi.json")
-	const configPath = path.join(dir, "author-config.json")
-	const out = path.join(dir, "out")
-	yield* fs.writeFileString(specPath, jsonTextOf(value))
-	yield* fs.writeFileString(configPath, jsonTextOf(config))
-	yield* generate(
+	kept: [],
+	budget: { runs: 4, steered: 40 },
+	kills: [
 		{
-			document,
-			outDir: out,
-			source: { _tag: "File", path: specPath },
-			strict: false
+			file: "packages/generator/src/generate.ts",
+			original: "refusedBy(refusals, entry.command.operation) ? [] : [commandName(entry)]",
+			replacement: "[commandName(entry)]",
+			why: "A refused operation's commands are listed beside the emitted ones; the property fails."
 		},
-		{ document: configDocument, path: configPath }
-	)
-
-	return yield* fs.readFileString(path.join(out, "generation-report.json"))
-}, Effect.scoped)
-
-const reportOf = (value: Json, config: Json) =>
-	Effect.flatMap(reportText(value, config), decodeReport)
-
-const pointerOf = (path: string, method: string): typeof JsonPointer.Type =>
-	JsonPointer.make(formatPointer(["paths", path, method]))
-
-const entry = (
-	path: ReadonlyArray<string>,
-	group: GroupNameSource,
-	command: CommandNameSource,
-	at: readonly [string, string]
-): CommandName => ({ command, document, group, path, pointer: pointerOf(...at) })
-
-const aliased = (alias: number, name: CommandName): CommandName => ({ alias, ...name })
-
-describe("generation report commandNames", () => {
-	test("lists every emitted command with the source of its group and command name", () =>
-		Effect.gen(function* () {
-			const report = yield* reportOf(curated, curatedConfig)
-
-			expect(report.commandNames).toEqual([
-				entry(["billing", "get-invoice"], "x-fern", "x-fern", ["/fern", "get"]),
-				entry(["accounts", "members", "list"], "x-forge", "x-forge", ["/forge", "get"]),
-				entry(["things", "list-tagged"], "tag", "operationId", ["/tagged", "get"]),
-				entry(["inventory", "show-all"], "config", "config", ["/widgets", "get"]),
-				entry(["zones", "edit"], "x-forge", "x-forge", ["/zones", "patch"]),
-				aliased(0, entry(["dns", "edit-zone"], "x-forge", "x-forge", ["/zones", "patch"])),
-				aliased(1, entry(["legacy", "update-zone"], "x-fern", "x-fern", ["/zones", "patch"])),
-				entry(["get-routes-by-id"], "none", "route", ["/routes/{id}", "get"])
-			])
-		}).pipe(Effect.provide(layer), Effect.runPromise))
-
-	test("an operation emitCli refuses is reported once and none of its names is listed", () =>
-		Effect.gen(function* () {
-			const report = yield* reportOf(curated, curatedConfig)
-			const refused = Arr.filter(report.refusals, (diagnostic) => diagnostic.row === "EMT-1")
-
-			expect(Arr.map(refused, ({ code, pointer }) => `${code} ${pointer}`)).toEqual([
-				`EMT-1/unsupported-body ${pointerOf("/notes", "post")}`
-			])
-			expect(
-				Arr.filter(report.commandNames, (name) => name.pointer === pointerOf("/notes", "post"))
-			).toEqual([])
-		}).pipe(Effect.provide(layer), Effect.runPromise))
-
-	test("a spec without naming extensions lists tag, none, operationId and route sources only", () =>
-		Effect.gen(function* () {
-			const report = yield* reportOf(plain, baseConfig)
-			const sources = Arr.flatMap(report.commandNames, (name) => [name.group, name.command])
-
-			expect(Arr.every(sources, (source) => Arr.contains(plainSources, source))).toBe(true)
-			expect(Arr.map(report.commandNames, ({ command, group }) => ({ command, group }))).toEqual([
-				{ command: "operationId", group: "tag" },
-				{ command: "route", group: "tag" },
-				{ command: "route", group: "none" },
-				{ command: "operationId", group: "none" }
-			])
-			expect(Arr.some(report.commandNames, (name) => "alias" in name)).toBe(false)
-		}).pipe(Effect.provide(layer), Effect.runPromise))
-
-	test("two runs print equal bytes", () =>
-		Effect.gen(function* () {
-			const first = yield* reportText(curated, curatedConfig)
-			const second = yield* reportText(curated, curatedConfig)
-
-			expect(first).toBe(second)
-		}).pipe(Effect.provide(layer), Effect.runPromise))
-
-	test("an author-supplied scheme reaches the written report", () =>
-		Effect.gen(function* () {
-			const report = yield* reportOf(plain, added)
-
-			expect(report.authorSuppliedSchemes).toEqual([
-				{ key: "security.add.schemes.token", name: "token" }
-			])
-		}).pipe(Effect.provide(layer), Effect.runPromise))
+		{
+			file: "packages/generator/src/generate.ts",
+			original: "\tif (command.alias !== undefined) {",
+			replacement: "\tif (command.alias === undefined) {",
+			why: "An alias command is listed with no alias index; the property fails."
+		},
+		{
+			file: "packages/generator/src/generate.ts",
+			original: "path: [...namesOf(group), command.name]",
+			replacement: "path: [group.name, command.name]",
+			why: "A command of a nested group is listed without its parent groups' names; the property fails."
+		},
+		{
+			file: "packages/generator/src/generate.ts",
+			original:
+				"\t\t...Arr.map(group.commands, (command) => ({ command, path: [...namesOf(group), command.name] })),\n\t\t...Arr.flatMap(\n\t\t\tArr.filter(plan.groups, (child) => child.parent === group.tag),\n\t\t\twalk\n\t\t)",
+			replacement:
+				"\t\t...Arr.flatMap(\n\t\t\tArr.filter(plan.groups, (child) => child.parent === group.tag),\n\t\t\twalk\n\t\t),\n\t\t...Arr.map(group.commands, (command) => ({ command, path: [...namesOf(group), command.name] }))",
+			why: "A group's child groups are walked before its own commands, so the order is not design 8.3's; the property fails."
+		},
+		{
+			file: "packages/generator/src/generate.ts",
+			original:
+				"\treturn [\n\t\t...Arr.flatMap(\n\t\t\tArr.filter(plan.groups, (group) => group.parent === undefined),\n\t\t\twalk\n\t\t),\n\t\t...Arr.map(plan.root, (command) => ({ command, path: [command.name] }))\n\t]",
+			replacement:
+				"\treturn [\n\t\t...Arr.map(plan.root, (command) => ({ command, path: [command.name] })),\n\t\t...Arr.flatMap(\n\t\t\tArr.filter(plan.groups, (group) => group.parent === undefined),\n\t\t\twalk\n\t\t)\n\t]",
+			why: "The root's commands are listed before the groups', so the order is not design 8.3's; the property fails."
+		},
+		{
+			file: "packages/generator/src/report/index.ts",
+			original: '(scheme) => scheme.source === "author-supplied"',
+			replacement: '(scheme) => scheme.source !== "author-supplied"',
+			why: "A scheme the author config adds is left out of authorSuppliedSchemes; the property fails."
+		}
+	]
 })
