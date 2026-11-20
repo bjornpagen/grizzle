@@ -1,5 +1,6 @@
 /** What the property of body-fields.test.ts reads: the body sources and field flags it draws, and the merge model. */
 
+import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import {
 	array,
 	boolean,
@@ -980,8 +981,6 @@ export type Observed =
 			echoes: ReadonlyArray<string>
 	  }>
 
-const decoder = new TextDecoder()
-
 const secretsIn = (entries: ReadonlyArray<ScrubEntry>): ReadonlyArray<readonly [string, string]> =>
 	Arr.flatMap(entries, (entry) =>
 		"kind" in entry ? [[entry.label, Redacted.value(entry.value)] as const] : []
@@ -1016,10 +1015,10 @@ export const observed = (dir: ScratchDir, drawn: Merge, entry: "merge" | "struct
 		const recorded = yield* Ref.make<ReadonlyArray<ScrubEntry>>([])
 		const read =
 			entry === "merge"
-				? Effect.map(Input.mergeBody(options), (body) =>
+				? Effect.flatMap(Input.mergeBody(options), (body) =>
 						body._tag === "Uint8Array"
-							? Option.some(decoder.decode(body.body))
-							: Option.none<string>()
+							? Effect.map(Effect.fromNullishOr(utf8Text(body.body)), Option.some<string>)
+							: Effect.succeed(Option.none<string>())
 					)
 				: Effect.map(Input.structuredBody(options), (value) =>
 						Option.map(Option.fromNullishOr(value), Input.jsonText)
