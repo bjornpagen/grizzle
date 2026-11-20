@@ -139,11 +139,24 @@ const statementCalls = (s: SqlStatement): ReadonlyArray<string> => {
 	return out
 }
 
-/** The tables whose installed statements call each function, by its name: a table's CREATE TABLE and every ALTER TABLE
- * of it a manifest holds, a CHECK's and a generated column's calls among them. */
+/**
+ * The tables whose installed statements run each function, by its name: a table's CREATE TABLE and every ALTER TABLE
+ * of it a manifest holds, a CHECK's and a generated column's calls among them, and every function a constant those
+ * call calls in its body, transitively: a CHECK hoisted into its row function (physical/ddl/row-functions.ts) calls the
+ * row function, whose body calls the constants the CHECK reads, and PostgreSQL checks EXECUTE on each as the body runs,
+ * against the writer.
+ */
 const tableCallers = (
 	manifest: Installation["manifest"]
 ): ReadonlyMap<string, ReadonlySet<string>> => {
+	const bodies = new Map<string, ReadonlyArray<string>>()
+	for (const o of manifest.objects) {
+		for (const s of o.ddl) {
+			if (s.kind === "createConstant") {
+				bodies.set(s.name.name, statementCalls(s))
+			}
+		}
+	}
 	const out = new Map<string, Set<string>>()
 	for (const o of manifest.objects) {
 		for (const s of o.ddl) {
@@ -152,7 +165,18 @@ const tableCallers = (
 			if (table === undefined) {
 				continue
 			}
-			for (const fn of statementCalls(s)) {
+			const pending = [...statementCalls(s)]
+			const reached = new Set<string>()
+			for (let fn = pending.pop(); fn !== undefined; fn = pending.pop()) {
+				if (reached.has(fn)) {
+					continue
+				}
+				reached.add(fn)
+				for (const called of bodies.get(fn) ?? []) {
+					pending.push(called)
+				}
+			}
+			for (const fn of reached) {
 				const known = out.get(fn)
 				if (known === undefined) {
 					out.set(fn, new Set([table]))

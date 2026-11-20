@@ -84,6 +84,13 @@ export const workedExamples = property.explore(steered(historySteered), {
 				"\t\tconst changed = plan.steps.length > 0 || snapshot.fingerprint !== previous.fingerprint",
 			replacement: "\t\tconst changed = plan.steps.length > 0 || snapshot !== previous",
 			why: "A version drafted again after itself reports a schema change: generate compares the finished snapshot with the previous one as objects, never by content."
+		},
+		{
+			file: "packages/engine/src/physical/ddl/context.ts",
+			original: "\t\t\tappendAll(pending, node.ddl)\n",
+			replacement:
+				'\t\t\tif (object.kind === "domain") {\n\t\t\t\tappendAll(pending, node.ddl)\n\t\t\t}\n',
+			why: "A role is granted EXECUTE on the constants its statements call and no constant a constant's body calls, so Reporting's clerk, which writes LevyLine, is refused the LevyRate constant its CHECK's row function calls as it runs (42501): the installed-catalog checker, which reads a table's CHECKs through their row functions' bodies, names it missing."
 		}
 	]
 })

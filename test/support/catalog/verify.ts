@@ -34,7 +34,7 @@ export type InstalledFunction =
 	| { readonly kind: "live"; readonly domain: string }
 	| {
 			/** A closed relation's constant, the relation's own when `declared`, read by the CHECKs and generated columns
-			 * of `tables`. */
+			 * of `tables`, directly or through the row functions and constants they call (installed.ts tableCallers). */
 			readonly kind: "closedConstant"
 			readonly declared: boolean
 			readonly tables: ReadonlyArray<string>
