@@ -6,7 +6,9 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { refuse } from "#compiler/analysis/theory/build.ts"
+import type { QueryColumns } from "#compiler/analysis/theory/columns.ts"
 import {
+	atColumn,
 	boundIn,
 	equal,
 	isBare,
@@ -39,8 +41,10 @@ import {
  *
  * Navigation re-associates the rule's conjunction; it changes no fact the rule derives. Each imported query the rule
  * matches is inlined, its variables renamed apart, its parameters replaced by what its bind map binds them to, and its
- * head equated with the terms the match binds it at (`#inline`); a variable then bound by no match is the term an
- * equality defines (`#defined`). The matches are then read in an order of their own (`#chain`): from the values the
+ * head equated with the terms the match binds it at (`#inline`), a bare literal of either, which stands for the
+ * import's column, typed at that column's descriptor (analysis/theory/columns.ts, leaves.ts atColumn); a variable then
+ * bound by no match is the term an equality defines (`#defined`), so a literal it replaces a variable by is a term of
+ * the variable's column, which stands wherever the variable stood, first among them. The matches are then read in an order of their own (`#chain`): from the values the
  * rule holds, its parameters and literals, each next match the one with the most columns keyed so far, bound to a
  * parameter or to a variable the steps placed bound, directly or by an equality with them, then the one with the most
  * columns bound at all, literals among them, the earliest declared among equals: a literal alone is no key, a constant
@@ -180,22 +184,6 @@ const conjunctions = (
 		return [arm]
 	})
 
-/**
- * A condition `#defined` leaves where it replaced a variable by a literal the variable was equated with, none where it
- * became an equality of a bare literal with itself, which holds: a selection of a derived relation at the literal its
- * rule fixes the field at leaves one, `select(ItemRefTarget, type = item)` over the rule whose type is item, and the
- * checker, which types two bare literals by neither, refuses it. Two bare literals of other values stay, refused as
- * before: whether they are equal is their field's type's to say, a fraction's scale, which navigation does not read.
- */
-const decided = (e: InferredExpr): ReadonlyArray<InferredExpr> =>
-	e.kind === "compare" &&
-	e.op === "eq" &&
-	isBare(e.left) &&
-	isBare(e.right) &&
-	canonicalEquals(e.left.value, e.right.value)
-		? []
-		: [e]
-
 /** A relational filter of a rule, a negation or an existence, navigated apart (`Navigator.#filtered`). */
 type Filtered = Extract<InferredExpr, { readonly kind: "absent" | "exists" }>
 
@@ -252,10 +240,12 @@ class Passing {
 /** Navigates rules, `loc` locating a refusal. */
 class Navigator {
 	readonly #loc: SourceLoc
+	readonly #columns: QueryColumns
 	#next = 0
 
-	constructor(loc: SourceLoc) {
+	constructor(loc: SourceLoc, columns: QueryColumns) {
 		this.#loc = loc
+		this.#columns = columns
 	}
 
 	#refuse(what: string): never {
@@ -366,12 +356,13 @@ class Navigator {
 			appendAll(region, inner.region.map(lifted))
 			appendAll(reads, inner.reads.map(lifted))
 			appendAll(where, inner.where.map(lift))
+			const columns = this.#columns(source.query)
 			for (const [field, outer] of Object.entries(m.bindings)) {
 				const head = inner.head[field]
 				if (head === undefined || head.kind === "aggregate" || head.kind === "producer") {
 					return this.#refuse(`an imported query whose head derives ${field}`)
 				}
-				where.push(equal(lift(head), outer))
+				where.push(equal(lift(atColumn(head, field, columns)), atColumn(outer, field, columns)))
 			}
 		}
 		return { vars, region, reads, where, head: rule.head }
@@ -379,7 +370,10 @@ class Navigator {
 
 	/**
 	 * `flat` with every variable no read binds replaced by the term an equality equates it with, and that equality
-	 * dropped: what an inlined import's head equated with a term only the import's match bound. A variable a read binds
+	 * dropped: what an inlined import's head equated with a term only the import's match bound. A bare literal, which has
+	 * no type of its own and takes the type of the term it meets, defines no variable, so a condition the rule states of
+	 * a variable at a literal, `kind = 1`, stays a condition of the term that defines it; the equations `#inline` states
+	 * hold no bare literal (leaves.ts atColumn), so every such variable has a term to be defined by. A variable a read binds
 	 * stays the read's own, so every relational filter and the head still read the row the chain delivers. Every variable left is
 	 * one a read binds.
 	 */
@@ -390,7 +384,7 @@ class Navigator {
 			)
 		)
 		const defines = (v: InferredExpr, term: InferredExpr): string | undefined => {
-			if (v.kind !== "var" || readsOf(term).has(v.var)) {
+			if (v.kind !== "var" || isBare(term) || readsOf(term).has(v.var)) {
 				return undefined
 			}
 			return bound.has(v.var) ? undefined : v.var
@@ -414,7 +408,7 @@ class Navigator {
 				vars: flat.vars.filter((v) => v.id !== name),
 				region: flat.region.map((r) => ({ ...r, bindings: mapBindings(r.bindings, leaves) })),
 				reads: flat.reads.map((r) => ({ ...r, bindings: mapBindings(r.bindings, leaves) })),
-				where: flat.where.flatMap((x, i) => (i === at ? [] : decided(mapLeaves(x, leaves)))),
+				where: flat.where.flatMap((x, i) => (i === at ? [] : [mapLeaves(x, leaves)])),
 				head: Object.fromEntries(
 					Object.entries(flat.head).map(([k, h]) => [
 						k,
@@ -621,6 +615,7 @@ class Navigator {
 				if (Object.keys(source.bind).length > 0 || stage.kind !== "rules") {
 					return this.#refuse("a filter of an imported query of rules binding no parameter")
 				}
+				const columns = this.#columns(source.query)
 				const navigated = mapNonEmpty(conjunctions(stage.arms), (arm) => {
 					const at: Array<InferredExpr> = []
 					for (const [field, outer] of Object.entries(a.bindings)) {
@@ -628,7 +623,9 @@ class Navigator {
 						if (head === undefined || head.kind === "aggregate" || head.kind === "producer") {
 							return this.#refuse(`a filtered query whose head derives ${field}`)
 						}
-						at.push(equal(head, passing.expr(outer)))
+						at.push(
+							equal(atColumn(head, field, columns), passing.expr(atColumn(outer, field, columns)))
+						)
 					}
 					return this.rule({ ...arm, where: [...arm.where, ...at] }, depth + 1)
 				})
@@ -662,36 +659,19 @@ class Navigator {
  * The rule `rule` navigated (module doc): the same facts, read as one chain of steps from the values it holds, its
  * negations chains of their own. `loc` locates a refusal, which only a rule `navigateQuery` does not hand it meets.
  */
-const navigate = (rule: InferredRule, loc: SourceLoc): InferredRule =>
-	new Navigator(loc).rule(rule, 0)
+const navigate = (rule: InferredRule, loc: SourceLoc, columns: QueryColumns): InferredRule =>
+	new Navigator(loc, columns).rule(rule, 0)
 
 /** Whether a scalar condition holds a relational filter anywhere below its top, where navigation reads none (`navigable`). */
 const filtersBelow = (e: InferredExpr): boolean =>
 	isFiltered(e) || exprChildren(e).some((c) => filtersBelow(c.term))
 
 /**
- * Whether a rule of an imported query, matched or negated at `bindings`, delivers a field of its head as a bare literal
- * that a bare literal binds: the equality navigation states of the two (`Navigator.#inline`, `#filtered`) types neither
- * side, which the checker refuses, and whether the two are equal is the field's type's to say, a numeric's scale or a
- * domain's, which navigation does not read.
- */
-const literalAtLiteral = (
-	rule: InferredRule,
-	bindings: Readonly<Record<string, InferredExpr>>
-): boolean =>
-	Object.entries(bindings).some(([field, term]) => {
-		const head = rule.head[field]
-		return head?.kind === "literal" && isBare(head) && isBare(term)
-	})
-
-/**
  * The stored and closed relations and the deltas `rule` reads once its imports are inlined (`Navigator.#inline`), or
  * undefined where navigation reads no such rule: one with interiors, attachments or a folded or produced head, a match of
  * anything but a stored or closed relation, a delta or an imported query of one such rule binding no parameter, a
  * relational filter below a scalar expression, a filter of anything but a stored or closed relation or an imported
- * query whose conjunctions (`conjunctions`) are such rules, or a match or a filter of an imported query that binds a
- * literal of its head at a literal
- * (`literalAtLiteral`). A filter, a negation or an existence, is no read the count holds: it keeps or drops a row the
+ * query whose conjunctions (`conjunctions`) are such rules. A filter, a negation or an existence, is no read the count holds: it keeps or drops a row the
  * reads deliver, so a rule that reads one relation beside a filter is one lookup, and a filter of a delta, which no step
  * reads by an index, leaves the rule as written, where PostgreSQL hashes the delta once per statement.
  */
@@ -714,11 +694,7 @@ const readsOfRule = (rule: InferredRule): number | undefined => {
 		}
 		const stage = source.query.stage
 		const inner =
-			stage.kind === "rules" &&
-			stage.arms.length === 1 &&
-			!literalAtLiteral(stage.arms[0], m.bindings)
-				? readsOfRule(stage.arms[0])
-				: undefined
+			stage.kind === "rules" && stage.arms.length === 1 ? readsOfRule(stage.arms[0]) : undefined
 		if (inner === undefined) {
 			return undefined
 		}
@@ -739,9 +715,7 @@ const readsOfRule = (rule: InferredRule): number | undefined => {
 			source.kind !== "query" ||
 			Object.keys(source.bind).length > 0 ||
 			source.query.stage.kind !== "rules" ||
-			conjunctions(source.query.stage.arms).some(
-				(arm) => readsOfRule(arm) === undefined || literalAtLiteral(arm, w.bindings)
-			)
+			conjunctions(source.query.stage.arms).some((arm) => readsOfRule(arm) === undefined)
 		) {
 			return undefined
 		}
@@ -781,22 +755,22 @@ const filtersJoin = (w: InferredExpr): boolean =>
  * where read as written PostgreSQL plans the join by its estimates of one unit's rows, a nested loop over a range of
  * the unit for each row of another, the unit's rows squared.
  */
-const navigatedRule = (rule: InferredRule, loc: SourceLoc): InferredRule => {
+const navigatedRule = (rule: InferredRule, loc: SourceLoc, columns: QueryColumns): InferredRule => {
 	if (joins(rule)) {
-		return navigate(rule, loc)
+		return navigate(rule, loc, columns)
 	}
 	const fixed = fixedTerms(rule)
 	const matches = rule.matches.map((m): InferredMatch => {
 		const source = m.source
 		if (source.kind === "step") {
-			const query = navigateQuery(source.query, loc)
+			const query = navigateQuery(source.query, loc, columns)
 			return query === source.query ? m : { ...m, source: { ...source, query } }
 		}
 		if (source.kind !== "query") {
 			return m
 		}
-		const inside = boundInside(source, m.bindings, fixed)
-		const query = navigateQuery(inside.query, loc)
+		const inside = boundInside(source, m.bindings, fixed, columns)
+		const query = navigateQuery(inside.query, loc, columns)
 		return query === source.query ? m : { ...m, source: { ...inside, query } }
 	})
 	return matches.every((m, i) => m === rule.matches[i]) ? rule : { ...rule, matches }
@@ -814,8 +788,8 @@ type Imported = Extract<InferredSource, { readonly kind: "query" }>
  * equality left the chain's first step a read of every row: a whole rule's aggregate over the operands' join, its
  * groups bound to the unit's channels at its match, read every expression of every unit once per unit
  * (known_operand_base_key). A binding stays the match's alone where the import cannot hold it: at a field a rule's head
- * aggregates or produces, at a bare literal a bare literal binds (`literalAtLiteral`), or reading a parameter the import
- * already reads as another term.
+ * aggregates or produces, or reading a parameter the import already reads as another term. A bare literal, the head's
+ * or the binding's, is typed at the import's column it stands for (leaves.ts atColumn).
  */
 /** Whether `e` reads no variable of its rule: a parameter, a channel, a literal or a term of them alone. */
 const isFixed = (e: InferredExpr): boolean => {
@@ -846,34 +820,34 @@ const fixedTerms = (rule: InferredRule): ((term: InferredExpr) => InferredExpr |
 const boundInside = (
 	source: Imported,
 	bindings: InferredBindings,
-	fixed: (term: InferredExpr) => InferredExpr | undefined
+	fixed: (term: InferredExpr) => InferredExpr | undefined,
+	columnsOf: QueryColumns
 ): Imported => {
 	const stage = source.query.stage
 	if (stage.kind !== "rules") {
 		return source
 	}
+	const columns = columnsOf(source.query)
 	const own = queryParamNames(source.query)
 	const bind: Record<string, Imported["bind"][string]> = { ...source.bind }
 	/** Each binding held inside: its term, and the term each rule's head binds it at, rule by rule. */
 	const held: Array<{ readonly term: InferredExpr; readonly heads: ReadonlyArray<InferredExpr> }> =
 		[]
 	for (const [field, bound] of Object.entries(bindings)) {
-		const term = fixed(bound)
-		if (term === undefined) {
+		const found = fixed(bound)
+		if (found === undefined) {
 			continue
 		}
+		const term = atColumn(found, field, columns)
 		const leaves = leavesOf(term)
 		const passed = leaves.params.flatMap((p) =>
 			p.kind === "param" ? [{ kind: "param", name: p.name, type: p.type } as const] : []
 		)
 		const heads = stage.arms.flatMap((arm) => {
 			const head = arm.head[field]
-			return head === undefined ||
-				head.kind === "aggregate" ||
-				head.kind === "producer" ||
-				literalAtLiteral(arm, { [field]: term })
+			return head === undefined || head.kind === "aggregate" || head.kind === "producer"
 				? []
-				: [head]
+				: [atColumn(head, field, columns)]
 		})
 		if (
 			passed.length < leaves.params.length ||
@@ -917,7 +891,11 @@ const boundInside = (
  * then is a chain of lookups from each choice or hottext, where read beside the union it was derived whole and
  * anti-joined to it by PostgreSQL's estimates of one unit.
  */
-export const navigateQuery = (query: InferredQuery, loc: SourceLoc): InferredQuery => {
+export const navigateQuery = (
+	query: InferredQuery,
+	loc: SourceLoc,
+	columns: QueryColumns
+): InferredQuery => {
 	const stage = query.stage
 	if (stage.kind !== "rules") {
 		return query
@@ -925,8 +903,8 @@ export const navigateQuery = (query: InferredQuery, loc: SourceLoc): InferredQue
 	const arms = flatMapNonEmpty(stage.arms, (rule): NonEmptyReadonlyArray<InferredRule> => {
 		const split = conjunctions([rule])
 		return split.length > 1 && split.some(joins)
-			? mapNonEmpty(split, (conjunction) => navigatedRule(conjunction, loc))
-			: [navigatedRule(rule, loc)]
+			? mapNonEmpty(split, (conjunction) => navigatedRule(conjunction, loc, columns))
+			: [navigatedRule(rule, loc, columns)]
 	})
 	return arms.length === stage.arms.length && arms.every((rule, i) => rule === stage.arms[i])
 		? query

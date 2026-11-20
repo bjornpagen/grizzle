@@ -1,7 +1,7 @@
-import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
-import { refuse, ViolationBuilder } from "#compiler/analysis/theory/build.ts"
+import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { type FieldClass, FieldClasses } from "#compiler/analysis/theory/classes.ts"
+import { definitionColumns } from "#compiler/analysis/theory/columns.ts"
 import { familyStated } from "#compiler/analysis/theory/families.ts"
 import { fillOrder } from "#compiler/analysis/theory/fill.ts"
 import { instantRoles } from "#compiler/analysis/theory/instants.ts"
@@ -30,7 +30,7 @@ import {
 	type Spelling,
 	spelledSlots
 } from "#compiler/analysis/theory/spelling.ts"
-import { checkDefinition, checkQuery } from "#compiler/check/index.ts"
+import { checkQuery } from "#compiler/check/index.ts"
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import {
@@ -53,7 +53,6 @@ import { type LabelledDag, LabelSupply } from "#compiler/ir/dag.ts"
 import {
 	type FieldDesc,
 	fieldTermsOf,
-	type InferredFieldDesc,
 	type InferredQuery,
 	type QueryDesc,
 	termText
@@ -505,31 +504,6 @@ class Builder {
 	}
 
 	/**
-	 * The descriptor each column of `query`, read as a definition of `relation`, is delivered at: its heading as the
-	 * checker types it against the checked schema, a bare head literal's column by its value or by its position in a
-	 * union, each column the inferred field's own descriptor (analysis/derived/fields.ts fieldDescOf), a computed
-	 * numeric's its bound, whatever its value, NaN, an infinity or one past numeric(p, s)'s limits included.
-	 */
-	#columnType(
-		relation: string,
-		query: InferredQuery,
-		loc: SourceLoc
-	): (column: string) => InferredFieldDesc {
-		const admitted = unwrap(checkDefinition(this.checked, `derived ${relation}`, query))
-		const heading = new Map(admitted.dag.roots[0].heading.map((c) => [c.name, c.type] as const))
-		return (column) => {
-			const type = heading.get(column)
-			if (type === undefined) {
-				return refuse("MalformedDescription", loc, `a column ${column} of ${relation}'s definition`)
-			}
-			const desc = fieldDescOf(type, this.owned.contracts)
-			return desc.ok
-				? desc.value
-				: refuse("MalformedDescription", loc, `a declared type of ${relation}.${column}`)
-		}
-	}
-
-	/**
 	 * What normalizing the schema's laws reads of it: its relations, each derived relation's definition and the types its
 	 * columns are delivered at, the naming door's law identities, and the typing environment its predicates and terms
 	 * lower in.
@@ -538,7 +512,7 @@ class Builder {
 		return {
 			...this.sides,
 			definition: (relation) => this.definitions.get(relation),
-			columnType: (relation, query, loc) => this.#columnType(relation, query, loc),
+			columnType: (relation, query, loc) => definitionColumns(this.checked, relation, query, loc),
 			named: lawIdentityOf,
 			regionFacts: this.regionFacts
 		}

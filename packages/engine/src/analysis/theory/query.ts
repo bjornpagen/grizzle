@@ -8,12 +8,13 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { refuse, refuseNamed } from "#compiler/analysis/theory/build.ts"
 import {
-	type BareLiteral,
+	type ColumnTypes,
 	equal,
 	isBare,
 	type LeafRewrite,
 	mapBindings,
 	mapLeaves,
+	typedAs,
 	varRef,
 	varsOf
 } from "#compiler/analysis/theory/leaves.ts"
@@ -24,7 +25,6 @@ import type { Refused } from "#compiler/core/refusals.ts"
 import type {
 	InferredBindings,
 	InferredExpr,
-	InferredFieldDesc,
 	InferredHead,
 	InferredMatch,
 	InferredQuery,
@@ -211,9 +211,6 @@ export interface LiveEnv {
 	readonly loc: SourceLoc
 }
 
-/** The type of each column of a query's heading a bare head literal takes (LiveEnv.columnType). */
-type ColumnTypes = (column: string) => InferredFieldDesc
-
 /**
  * What each kind of node reads beyond a definition's own row, by itself: a negation below a disjunction, a negation or a
  * scalar expression, where it is no filter of the rule (check/scan.ts splitWhere), a parameter, a parent's column or a
@@ -252,9 +249,6 @@ const foreignReads: { readonly [K in InferredExpr["kind"]]: string | undefined }
 const foreignLeaf = (e: InferredExpr): string | undefined =>
 	foreignReads[e.kind] ??
 	exprChildren(e).reduce<string | undefined>((found, c) => found ?? foreignLeaf(c.term), undefined)
-
-/** A bare literal under `type`, the type of the column it meets. */
-const typedAs = (e: BareLiteral, type: InferredFieldDesc): InferredExpr => ({ ...e, type })
 
 /** Whether a filter holds a negation as a filter of its rule: it is one, or a conjunction one of whose conjuncts does. */
 const holdsNegation = (e: InferredExpr): boolean =>
@@ -959,9 +953,10 @@ interface Met {
  *
  * Each arm is met at `terms`, the terms of the fact or tuple that meets it (`Met`), each term bound to the arm's term of
  * its pair. A probe is navigated before it is checked (physical/ddl/rules.ts compileProbe), which inlines each arm and
- * equates its head with the terms it is met at (analysis/theory/navigate.ts), so a union's arm whose literal differs
- * from the term's is a condition of two literals that differ: the arm read alone reads none of the facts the term
- * selects, and the union read by arm still judges what the whole check does.
+ * equates its head with the terms it is met at (analysis/theory/navigate.ts), each literal typed at its column, so a
+ * union's arm whose literal differs from the term's is a condition of two literals of the column's type that differ:
+ * the arm read alone reads none of the facts the term selects, and the union read by arm still judges what the whole
+ * check does.
  */
 const readAs = (
 	side: RuleSide,

@@ -156,8 +156,8 @@ export const aRulesCheckOverEveryRowReadsEachStoredTableNeverAViewInOneChainOfLo
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					'\t\tcheckQuery(b.checked, navigateQuery(query, loc), { read: "region", label, clock: noClock })',
-				replacement: '\t\tcheckQuery(b.checked, query, { read: "region", label, clock: noClock })',
+					"\t\tcheckQuery(b.checked, navigateQuery(query, loc, queryColumns(b.checked, loc)), {\n",
+				replacement: "\t\tcheckQuery(b.checked, query, {\n",
 				why: "The judge reads its queries as written, a join of every relation a probe reads, which PostgreSQL may plan as a product it filters; it fails the first box by its loose joins."
 			}
 		]
@@ -332,13 +332,13 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\tconst query = navigateQuery(inside.query, loc)",
+				original: "\t\tconst query = navigateQuery(inside.query, loc, columns)",
 				replacement: "\t\tconst query = inside.query",
 				why: "An aggregate's import is read as written, Known's join of Op and Item a core of three sources, which PostgreSQL joins by its estimates; it fails the key's case."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\tconst inside = boundInside(source, m.bindings, fixed)",
+				original: "\t\tconst inside = boundInside(source, m.bindings, fixed, columns)",
 				replacement: "\t\tconst inside = source",
 				why: "An aggregate's import is navigated apart from the unit its groups are bound to, the binding left outside the aggregate, so its chain's first step reads every Op row once per unit, as follow-up 4's known_operand_base_key read every expression once per document; it fails the key's case."
 			},
@@ -358,11 +358,9 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original:
-					"\t\t\t\twhere: flat.where.flatMap((x, i) => (i === at ? [] : decided(mapLeaves(x, leaves)))),",
-				replacement:
-					"\t\t\t\twhere: flat.where.flatMap((x, i) => (i === at ? [] : [mapLeaves(x, leaves)])),",
-				why: "Navigation leaves 1 = 1 where it replaced the selection's kind by the literal Two's first rule fixes it at, an equality of two bare literals the checker refuses, so the schema does not compile, as qti's \"Item ref target\" over select(ItemRefTarget, type = item) did not; it fails the containment's case."
+				original: '\t\t\tif (v.kind !== "var" || isBare(term) || readsOf(term).has(v.var)) {',
+				replacement: '\t\t\tif (v.kind !== "var" || readsOf(term).has(v.var)) {',
+				why: "A bare literal defines a variable: navigation replaces the selection's kind by the 1 its `kind = 1` states, so Two's own `kind = 1` reads 1 = 1, two bare literals the checker refuses, and the schema does not compile, as qti's \"Item ref target\" over select(ItemRefTarget, type = item) did not; it fails the containment's case."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",

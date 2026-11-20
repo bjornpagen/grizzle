@@ -8,6 +8,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import {
 	everyRowProbes,
@@ -210,7 +211,11 @@ const judgedStatement = (
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
 ): Compiled => {
 	const checked = unwrap(
-		checkQuery(b.checked, navigateQuery(query, loc), { read: "region", label, clock: noClock })
+		checkQuery(b.checked, navigateQuery(query, loc, queryColumns(b.checked, loc)), {
+			read: "region",
+			label,
+			clock: noClock
+		})
 	)
 	const requests = requestsOf(b, rule, checked.dag.roots[0])
 	const lowered = unwrap(

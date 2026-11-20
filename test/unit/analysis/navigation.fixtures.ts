@@ -2,6 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec, Result, Struct } from "effect"
+import { queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -64,7 +65,7 @@ const stepsOf = (q: InferredQuery): number =>
 export const judged = (c: ProgramCase, read: QueryRead, note: (f: Feature) => void): void => {
 	const built = buildSchema(c.schema)
 	const desc = succeeded(queryInput(buildRoot(built, built.schema, read.query))).desc
-	const navigated = navigateQuery(desc, loc)
+	const navigated = navigateQuery(desc, loc, queryColumns(checking(built.schema), loc))
 	if (navigated === desc) {
 		return
 	}
@@ -169,6 +170,9 @@ const N1 = relation("N1", { k: pg.integer }, ["k"])
 const N2 = relation("N2", { k: pg.integer }, ["k"])
 
 const Gates = schema("Gates", [A, B, N0, N1, N2], [])
+
+/** The columns of each query a gate case's navigation imports, over Gates. */
+export const gateColumns = queryColumns(checking(Gates), loc)
 
 /** A write member's query of a gate case: A at p joined to B by k, then each slot's negation, in slot order. */
 export const gateQueryOf = (c: GateCase): InferredQuery =>

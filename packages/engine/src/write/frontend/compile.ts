@@ -9,6 +9,7 @@ import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import { closedTableOf } from "#compiler/analysis/schema.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
+import { queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { editedBy } from "#compiler/analysis/theory/refill.ts"
@@ -1299,7 +1300,7 @@ const compile = (
 					{
 						op: "insert",
 						relation: computedHeading,
-						query: navigateQuery(m.member.query, loc),
+						query: navigateQuery(m.member.query, loc, queryColumns(checked, loc)),
 						loc
 					},
 					{ label: `insert ${relation.name}'s computed fields`, clock }
@@ -1501,7 +1502,12 @@ const compile = (
 			const query = unwrap(
 				checkMember(
 					checked,
-					{ op: member.op, relation: written, query: navigateQuery(describedQuery, loc), loc },
+					{
+						op: member.op,
+						relation: written,
+						query: navigateQuery(describedQuery, loc, queryColumns(checked, loc)),
+						loc
+					},
 					{ label: `${member.op} ${member.relation}`, clock }
 				)
 			)

@@ -1,6 +1,7 @@
 import {
 	type InferredBindings,
 	type InferredExpr,
+	type InferredFieldDesc,
 	mapBindingTerms,
 	mapExprChildren
 } from "#compiler/ir/desc.ts"
@@ -16,6 +17,21 @@ export type BareLiteral = Extract<InferredExpr, { readonly kind: "literal" }> & 
 /** Whether `e` is a bare literal, which takes the type of the term it meets and so never stands first. */
 export const isBare = (e: InferredExpr): e is BareLiteral =>
 	e.kind === "literal" && e.type === undefined
+
+/** The descriptor each column of a query is delivered at, as the checker types it (analysis/theory/columns.ts). */
+export type ColumnTypes = (column: string) => InferredFieldDesc
+
+/** A bare literal under `type`, the type of the column it stands for. */
+export const typedAs = (e: BareLiteral, type: InferredFieldDesc): InferredExpr => ({ ...e, type })
+
+/**
+ * `e` as a term of the column `column` of a query whose columns are `columns`: a bare literal, a head's term or a
+ * binding's, typed at the column it stands for, so wherever a substitution puts it, it is a term of that column's type,
+ * which stands first as any term does; any other term itself. A literal compared with a term of another type is then
+ * refused for the two types, never for its place.
+ */
+export const atColumn = (e: InferredExpr, column: string, columns: ColumnTypes): InferredExpr =>
+	isBare(e) ? typedAs(e, columns(column)) : e
 
 /**
  * `left` = `right` in the order the checker reads it: as written, but a bare literal second. A binding of a definition
