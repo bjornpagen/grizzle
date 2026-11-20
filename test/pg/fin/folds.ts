@@ -194,6 +194,36 @@ const sumNumeric = (() => {
 	)
 })()
 
+const sumPgNumeric = (() => {
+	const zero = Decimal.of("0")
+	const Owner = relation(
+		"Owner",
+		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.numeric, zero) },
+		["id"]
+	)
+	const Member = relation(
+		"Member",
+		{
+			member: pg.integer,
+			g: pg.integer,
+			at: drawn(natural),
+			x: pg.numeric,
+			before: accumulated(pg.numeric, zero),
+			after: accumulated(pg.numeric, zero)
+		},
+		["member"]
+	)
+	const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
+	return schema(
+		"fin_fold_sum_pg_numeric",
+		[Owner, Member],
+		[
+			family,
+			fold(family, Monoid.sum, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
+		]
+	)
+})()
+
 const orBits = (() => {
 	const empty = Bits.of(Tag, [])
 	const Owner = relation(
@@ -396,27 +426,39 @@ export const int4: Carrier = { ...integer, toHost: (v) => Number(v) }
 /** natural, whose host value is a bigint. */
 const naturals: Carrier = { ...integer, toHost: (v) => v }
 
-/** numeric(10, 2) in hundredths. */
-const hundredths: Carrier = {
-	write: (v) => `(${v}::numeric / 100)`,
-	read: (c) => `(${c} * 100)::int8::text`,
-	parse: (t) => BigInt(t),
-	junk: (v) => v + 1n,
-	toHost: (v) => {
-		const magnitude = v < 0n ? -v : v
-		return Decimal.of(
-			`${v < 0n ? "-" : ""}${magnitude / 100n}.${Str.padStart(2, "0")(String(magnitude % 100n))}`
-		)
-	},
-	fromHost: (h) => {
-		const text = String(h)
-		const negative = Str.startsWith("-")(text)
-		const [whole, fraction = ""] = Str.split(negative ? Str.slice(1)(text) : text, ".")
-		const hundredthsOf =
-			BigInt(whole) * 100n + BigInt(Str.padEnd(2, "0")(Str.slice(0, 2)(fraction)))
-		return negative ? -hundredthsOf : hundredthsOf
+/**
+ * A numeric in units of 10^-scale, each value written exactly as a numeric constant of that exponent and read back in
+ * its units, exactly at every magnitude.
+ */
+const decimalUnits = (scale: number): Carrier => {
+	const unit = 10n ** BigInt(scale)
+	return {
+		write: (v) => `(${v}e-${scale})`,
+		read: (c) => `trunc(${c} * ${unit})::text`,
+		parse: (t) => BigInt(t),
+		junk: (v) => v + 1n,
+		toHost: (v) => {
+			const magnitude = v < 0n ? -v : v
+			return Decimal.of(
+				`${v < 0n ? "-" : ""}${magnitude / unit}.${Str.padStart(scale, "0")(String(magnitude % unit))}`
+			)
+		},
+		fromHost: (h) => {
+			const text = String(h)
+			const negative = Str.startsWith("-")(text)
+			const [whole, fraction = ""] = Str.split(negative ? Str.slice(1)(text) : text, ".")
+			const units =
+				BigInt(whole) * unit + BigInt(Str.padEnd(scale, "0")(Str.slice(0, scale)(fraction)))
+			return negative ? -units : units
+		}
 	}
 }
+
+/** numeric(10, 2) in hundredths. */
+const hundredths = decimalUnits(2)
+
+/** pg.numeric in units of 10^-20, past what numeric(10, 2) holds at both ends. */
+const fineUnits = decimalUnits(20)
 
 /**
  * A set of codes 0 to 4 as its bit mask, written as the hex literal of the bit string whose position c is code c, its
@@ -525,6 +567,18 @@ export const FOLD_SPECS: Arr.NonEmptyReadonlyArray<FoldSpec> = [
 		shape: "ordered",
 		carrier: hundredths,
 		domain: [-150n, 1n, 25n, 100n, 275n],
+		selected: Option.none(),
+		x: Option.some("x"),
+		planes: named,
+		check: Option.none()
+	},
+	{
+		label: "sum of pg.numeric",
+		schema: sumPgNumeric,
+		monoid: { name: "sum", least: 0n },
+		shape: "ordered",
+		carrier: fineUnits,
+		domain: [-(3n * 10n ** 40n), 1n, 25n * 10n ** 18n, 10n ** 38n + 7n, 275n],
 		selected: Option.none(),
 		x: Option.some("x"),
 		planes: named,

@@ -9,7 +9,7 @@ import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { type MonoidName, monoidNames } from "#compiler/ir/desc.ts"
 import { literalProblem, type TypedLiteral } from "#compiler/ir/expr.ts"
 import { type CombineBuild, combine, type MonoidSpec, monoidSpecs } from "#compiler/ir/monoid.ts"
-import { Roster, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
+import { numericBoundOf, Roster, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import { succeeded, throwsDefect } from "#test/support/assert.ts"
@@ -300,8 +300,17 @@ export const constructs = (spec: MonoidSpec, carrier: ScalarType): boolean =>
 export const isNatural = (t: ScalarType): boolean =>
 	sameScalarType(t, scalarOf(naturalDescriptor.desc, {}))
 
-/** What admits answered of a monoid at a carrier. */
-export type AdmitsFeature = `${MonoidName} admits` | `${MonoidName} refuses`
+/**
+ * What admits answered of a monoid at a carrier, and sum admitting numeric of no typmod, pg.numeric's, as a field or a
+ * contract's base declares it.
+ */
+export type AdmitsFeature =
+	| `${MonoidName} admits`
+	| `${MonoidName} refuses`
+	| "sum admits pg.numeric"
+
+/** Whether a carrier is numeric of no typmod, pg.numeric or a contract over it (ir/scalar.ts numericBoundOf). */
+export const isPgNumeric = (t: ScalarType): boolean => numericBoundOf(t) !== undefined
 
 /** A monoid, and a declared type it may admit. */
 export type AdmitsCase = readonly [MonoidName, ScalarType]
@@ -310,12 +319,37 @@ export type AdmitsCase = readonly [MonoidName, ScalarType]
 export const admitsCaseGen: Gen<AdmitsCase> = (source) =>
 	[source.draw(element(monoidNames)), source.draw(declaredTypeGen)] as const
 
+/** pg.numeric, bare and as a contract's base: numeric of no typmod at numeric's own limits. */
+const pgNumericTypes: Arr.NonEmptyReadonlyArray<ScalarType> = [
+	scalarOf({ kind: "pg", type: "numeric" }, {}),
+	scalarOf(
+		{
+			kind: "contract",
+			name: "Amount",
+			base: { kind: "pg", type: "numeric" },
+			predicate: undefined,
+			facts: []
+		},
+		{}
+	)
+]
+
+/** A monoid over sets at a drawn set type. */
+const atSet =
+	(name: "or" | "twos"): Gen<AdmitsCase> =>
+	(source) =>
+		[name, source.draw(setTypeGen)] as const
+
+/** sum at pg.numeric, bare or a contract's base. */
+const sumAtPgNumeric: Gen<AdmitsCase> = (source) =>
+	["sum", source.draw(element(pgNumericTypes))] as const
+
 /**
- * The cases aimed at a monoid over sets admitting: the monoid at a drawn set type, the kind of carrier declaredTypeGen
- * draws least often.
+ * The cases aimed at the carriers declaredTypeGen draws least often: or and twos at a drawn set type, and sum at
+ * pg.numeric, one of nine pg types, about one case in 470 at sum.
  */
-export const setAdmitsAims: ReadonlyArray<readonly [AdmitsFeature, Gen<AdmitsCase>]> = Arr.map(
-	["or", "twos"] as const,
-	(name) =>
-		[`${name} admits`, (source): AdmitsCase => [name, source.draw(setTypeGen)] as const] as const
-)
+export const admitsAims: ReadonlyArray<readonly [AdmitsFeature, Gen<AdmitsCase>]> = [
+	["or admits", atSet("or")],
+	["twos admits", atSet("twos")],
+	["sum admits pg.numeric", sumAtPgNumeric]
+]

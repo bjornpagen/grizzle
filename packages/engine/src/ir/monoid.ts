@@ -166,19 +166,20 @@ const isNatural = (t: ScalarType): boolean => {
 
 /**
  * The carriers sum admits: an exact one, whose sums never round and whose combine a CHECK proves in exact arithmetic:
- * the integer types, natural and numeric(p, s), never a float. Money is none: its exact arithmetic is through its
- * STABLE cast to numeric, which no CHECK holds, and its own addition raises on overflow instead of failing the law, so
- * a sum of money is a numeric(p, s) or a bigint of its minor units.
+ * the integer types, natural and numeric, numeric(p, s) and pg.numeric alike, never a float. numeric's addition is exact
+ * at every typmod and at none, its NaN and infinities combining as numeric.c says (scalar/compute/numeric.ts add), and
+ * a sum past what its plane holds, numeric(p, s)'s precision or numeric's own limit, is refused with 22003 as an
+ * integer's past its width is. Money is none: its exact arithmetic is through its STABLE cast to numeric, which no
+ * CHECK holds, and its own addition raises on overflow instead of failing the law, so a sum of money is a numeric or a
+ * bigint of its minor units.
  */
 const summable = (t: ScalarType): boolean => {
-	const base = baseOf(t)
-	switch (base.carrier) {
+	switch (baseOf(t).carrier) {
 		case "int2":
 		case "int4":
 		case "int8":
-			return true
 		case "numeric":
-			return base.typmod !== undefined
+			return true
 		case "money":
 		case "float4":
 		case "float8":

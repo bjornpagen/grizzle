@@ -30,12 +30,13 @@ import { monoidSpecs } from "#compiler/ir/monoid.ts"
 import {
 	admitsCaseGen,
 	type AdmitsFeature,
+	admitsAims,
 	constructs,
 	isNatural,
+	isPgNumeric,
 	laws,
 	type LawCase,
-	patterns,
-	setAdmitsAims
+	patterns
 } from "#test/unit/ir/monoid.fixtures.ts"
 
 /** The closed monoids keep the monoid laws on every admitted carrier. */
@@ -76,13 +77,16 @@ export const theClosedMonoidsKeepTheMonoidLawsOnEveryAdmittedCarrier = property.
  * (test/unit/ir/monoid.test.ts:328 at 8cad5bce, its runs and its coverage's cases).
  */
 export const theClosedMonoidsAdmitExactlyTheCarriersWhoseIdentityAndCombineTheirValidatorsAdmitCountNaturalAlone =
-	property.explore(aimed(admitsCaseGen, setAdmitsAims), {
+	property.explore(aimed(admitsCaseGen, admitsAims), {
 		needs: {},
 		budget: { runs: 400, steered: 2000 },
-		situations: Arr.flatMap(monoidNames, (name): Arr.NonEmptyReadonlyArray<AdmitsFeature> => [
-			`${name} admits`,
-			`${name} refuses`
-		]) satisfies ReadonlyArray<Reached<AdmitsFeature>>,
+		situations: [
+			...Arr.flatMap(monoidNames, (name): Arr.NonEmptyReadonlyArray<AdmitsFeature> => [
+				`${name} admits`,
+				`${name} refuses`
+			]),
+			"sum admits pg.numeric"
+		] satisfies ReadonlyArray<Reached<AdmitsFeature>>,
 		check:
 			(_, c: Case<AdmitsFeature>) =>
 			([name, carrier]) =>
@@ -90,6 +94,9 @@ export const theClosedMonoidsAdmitExactlyTheCarriersWhoseIdentityAndCombineTheir
 					const spec = monoidSpecs[name]
 					const admitted = spec.admits(carrier)
 					c.note(`${name} ${admitted ? "admits" : "refuses"}`)
+					if (admitted && name === "sum" && isPgNumeric(carrier)) {
+						c.note("sum admits pg.numeric")
+					}
 					if (admitted) {
 						assert.ok(
 							constructs(spec, carrier) && (spec.step === "value" || isNatural(carrier)),
@@ -113,6 +120,14 @@ export const theClosedMonoidsAdmitExactlyTheCarriersWhoseIdentityAndCombineTheir
 				original: '\t\tcase "money":\n\t\t\treturn { kind: "money"',
 				replacement: '\t\tcase "money":\n\t\tcase "numeric":\n\t\t\treturn { kind: "money"',
 				why: "max admits a numeric, which has no least value to start from; `admits` disagrees with the validators."
+			},
+			{
+				file: "packages/engine/src/ir/monoid.ts",
+				original:
+					'const summable = (t: ScalarType): boolean => {\n\tswitch (baseOf(t).carrier) {\n\t\tcase "int2":\n\t\tcase "int4":\n\t\tcase "int8":\n\t\tcase "numeric":\n\t\t\treturn true',
+				replacement:
+					'const summable = (t: ScalarType): boolean => {\n\tconst base = baseOf(t)\n\tswitch (base.carrier) {\n\t\tcase "int2":\n\t\tcase "int4":\n\t\tcase "int8":\n\t\t\treturn true\n\t\tcase "numeric":\n\t\t\treturn base.typmod !== undefined',
+				why: "sum refuses numeric of no typmod, pg.numeric's, whose identity its literal validator and whose combine its CHECK admit: summable as it stood before pg.numeric was a declared type."
 			}
 		]
 	})
