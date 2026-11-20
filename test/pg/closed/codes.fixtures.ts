@@ -517,8 +517,18 @@ export const validateFeatures = (
 		: [])
 ]
 
-/** The names a bits history's handles take, in the order a growth adds them, never one again. */
-const bitsNames = ["Open", "Done", "Held", "Gone", "Late", "Kept", "Lost"] as const
+/** The handles one byte of a set's bit string holds: a growth of an installation of so many passes the byte. */
+const byteHandles = setWidth(1)
+
+/** The most migrations a bits history takes after its installation (bitsHistoryGen, pastByteHistoryGen). */
+const historyMigrations = 2
+
+/** The names a bits history's handles take, in the order a growth adds them, never one again: one for each handle the
+ * largest installation holds, a byte's, and one for each migration after it, each of which may be a growth. */
+const bitsNames: ReadonlyArray<string> = Array.from(
+	{ length: byteHandles + historyMigrations },
+	(_, i) => `Flag${i}`
+)
 
 /** A migration of a bits history: one handle added after the last code, or one live handle removed. */
 type BitsStep = { readonly kind: "grow" } | { readonly kind: "remove"; readonly handle: string }
@@ -590,18 +600,17 @@ const bitsHistoryFrom =
 		return { installed, steps }
 	}
 
-/** The handles one byte of a set's bit string holds: a growth of an installation of so many passes the byte. */
-const byteHandles = setWidth(1)
-
-/** A history whose every state keeps a live handle: one to a byte's handles installed, then one or two migrations. */
+/** A history whose every state keeps a live handle: one to a byte's handles installed, then one migration or more. */
 const bitsHistoryGen: Gen<BitsHistory> = (source) =>
-	source.draw(bitsHistoryFrom(installedOf(source.draw(int(1, byteHandles))), [], int(1, 2)))
+	source.draw(
+		bitsHistoryFrom(installedOf(source.draw(int(1, byteHandles))), [], int(1, historyMigrations))
+	)
 
-/** A history that grows past a byte: a byte's handles installed, a growth, then at most one more migration. */
-const pastDigitHistoryGen: Gen<BitsHistory> = bitsHistoryFrom(
+/** A history that grows past a byte: a byte's handles installed, a growth, then the migrations left after it. */
+const pastByteHistoryGen: Gen<BitsHistory> = bitsHistoryFrom(
 	installedOf(byteHandles),
 	[{ kind: "grow" }],
-	int(0, 1)
+	int(0, historyMigrations - 1)
 )
 
 export type BitsFeature =
@@ -616,7 +625,7 @@ export type BitsFeature =
  */
 export const bitsHistories = steered<BitsHistory, BitsFeature>((steering) =>
 	Option.exists(steering, (pending) => pending.has("a growth past a byte"))
-		? pastDigitHistoryGen
+		? pastByteHistoryGen
 		: bitsHistoryGen
 )
 
