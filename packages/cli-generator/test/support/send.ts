@@ -12,7 +12,6 @@ import {
 	Queue,
 	Record,
 	Ref,
-	Sink,
 	Stdio,
 	Stream,
 	Terminal
@@ -25,6 +24,7 @@ import * as Client from "#runtime-src/runtime/client.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
 import * as Output from "#runtime-src/runtime/output.ts"
 import { RunCredentials, type ScrubEntry } from "#runtime-src/runtime/redact.ts"
+import { receiving } from "#test/support/stdio.ts"
 
 /** The environment prefix every harness run's CLI reads its settings under. */
 export const PREFIX = "EXAMPLE"
@@ -83,7 +83,10 @@ export const plainWorld = (
 	output: Option.none()
 })
 
-/** What a run left: its exit, its failure, both streams, which stream each write went to, the requests sent and the prompts. */
+/**
+ * What a run left: its exit, its failure, both streams, which stream each text written to them went to, the requests sent
+ * and the prompts.
+ */
 export type Sent = Readonly<{
 	exit: Exit.Exit<unknown, unknown>
 	failure: Option.Option<unknown>
@@ -103,16 +106,11 @@ export const sendIn = (world: SendWorld) =>
 			const writes: Array<"stdout" | "stderr"> = []
 			const requests: Array<Wire> = []
 			const prompts = yield* Ref.make(0)
-			const decoder = new TextDecoder()
-			const capture = (into: Array<string>, stream: "stdout" | "stderr") => () =>
-				Sink.forEachArray((chunks: ReadonlyArray<string | Uint8Array>) =>
-					Effect.sync(() => {
-						for (const chunk of chunks) {
-							into.push(typeof chunk === "string" ? chunk : decoder.decode(chunk))
-							writes.push(stream)
-						}
-					})
-				)
+			const capture = (into: Array<string>, stream: "stdout" | "stderr") =>
+				receiving((text) => {
+					into.push(text)
+					writes.push(stream)
+				})
 			const client = HttpClient.make((sent, url) =>
 				Effect.sync(() => {
 					requests.push({
