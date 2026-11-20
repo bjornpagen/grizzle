@@ -36,10 +36,10 @@ const sidecars = 8
 /** The arms of `chosen`, metis's: a named test or a grade's pool, each with the gate bypassed or not. */
 const chosenArms = 6
 
-/** A union's arms, three periods of the sidecars a step: 24, 48 and 72 rules, from metis's 24 on. */
+/** A union's arms, six periods of the sidecars a step: 48, 96 and 144 rules, past metis's 24 twice over. */
 const armsDimension: UnionDimension = {
 	name: "the rules of a union a further rule negates",
-	steps: equalSteps(3 * sidecars),
+	steps: equalSteps(6 * sidecars),
 	shape: (rules) => ({ rules, members: 0 })
 }
 

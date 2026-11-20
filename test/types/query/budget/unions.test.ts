@@ -5,7 +5,8 @@
  * assign does (TS2590 over 25 inserts, TS2589 over 50, G27). Each program is checked alone at three sizes an equal
  * step apart, each step a whole number of its generator's period.
  *
- * Properties: every program typechecks with no diagnostic, and each step adds types and instantiations. A ChangeSet's
+ * Properties: every program typechecks with no diagnostic, a union of 144 rules among them, and each step adds types
+ * and instantiations. A ChangeSet's
  * members grow no faster than linearly (incrementsDoNotGrow): a member reads its own parameters and adds its map to the
  * program's flat intersection, never a map rebuilt over the members before it. A union's arms grow no faster than
  * quadratically (test/support/growth.ts incrementsAtMostDouble): each arm is judged beside every arm before it, as the
@@ -75,6 +76,14 @@ export const arms = costGate(unionArms, {
 				"export type UnionArmsOf<H> = H extends UnionHeading<infer C> ? (unknown extends C ? H : C) : H",
 			replacement: "export type UnionArmsOf<H> = H",
 			why: "A union's heading holds the union heading before it as one arm (UnionArmsOf reads every heading as its own one arm): a read of a key of the last walks every union before it, a type over a type over each arm, which the checker refuses as circular (TS5115 at ConstantsAt, metis's 24 rules) or too deep."
+		},
+		{
+			file: "packages/engine/src/types/evidence/evidence.ts",
+			original:
+				"\t\t\t\t\tValuesBefore<Ev1> | ValuesOf<Ev2>,\n\t\t\t\t\tkeyof H2 & string,\n\t\t\t\t\treadonly [...Before, ArmOf<Ev2>]\n\t\t\t\t>\n\t\t\t: never\ntype ValuesOf<Ev> =",
+			replacement:
+				"\t\t\t\t\tValuesAfter<Ev1, Ev2>,\n\t\t\t\t\tkeyof H2 & string,\n\t\t\t\t\treadonly [...Before, ArmOf<Ev2>]\n\t\t\t\t>\n\t\t\t: never\ntype ValuesAfter<Ev1, Ev2> = ValuesBefore<Ev1> | ValuesOf<Ev2>\ntype ValuesOf<Ev> =",
+			why: "A union's values are united by an alias over the evidence before them (ValuesAfter<Ev1, Ev2>): the union keeps the alias and its arguments, and the checker instantiates them with it, so each arm's values reach back through every union before it (TS2589 at 96 rules)."
 		},
 		{
 			file: "packages/engine/src/types/query/query.ts",

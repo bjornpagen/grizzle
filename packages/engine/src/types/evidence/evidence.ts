@@ -593,29 +593,34 @@ type NamedValues<St, K> = St extends Fixed<K & string, infer V> ? Named<V> : nev
  * arms (UnionArm). Arms of different headings, whose rows are of several heading groups, are evidence unknown: so is a
  * union whose earlier arms are, read by each record of H1 (HeadingsApart).
  *
- * A further arm costs what it adds, never what the arms before it cost again: it adds its values to the arms' values
- * (ValuesAfter) and its arm to the union's arms (ArmsAfter), each a flat union or a cell over the arms before it, and
- * the union's keys and the fields its arms fix alike, which every arm at once decides, are read where they are read
+ * A further arm costs what it adds, never what the arms before it cost again: it adds its values to the arms' values,
+ * a union of their records written where it is made, and its arm to the union's arms, a tuple in their order, and the
+ * union's keys and the fields its arms fix alike, which every arm at once decides, are read where they are read
  * (UnionEvidenceOf), so a union of n arms reads its arms once, where a union read its every earlier arm again at each
- * arm, every pair of them for its separators, and where the fields fixed alike were met one arm at a time, each meeting
- * a type over the one before it, so a read of the last walked every arm (TS2589 at 96 arms).
+ * arm, every pair of them for its separators. Neither is made by an alias of its own over the union before it: a type
+ * an alias makes keeps the alias and its arguments, and the checker instantiates them with it, so values an alias
+ * united over the evidence before them, or arms an alias consed onto the arms before them, reached back through every
+ * union before it at each arm, one more for each (TS2589 at 96 arms, metis's reconciliation split in two to stay below
+ * it); and the fields fixed alike are met over every arm at once, where they were met one arm at a time.
  */
 export type UnionEvidence<Ev1, Ev2, H1, H2> =
 	HeadingsApart<Ev1, H1, H2> extends true
 		? Evidence.Unknown
-		: UnionEvidenceOf<
-				FirstValuesOf<Ev1>,
-				ValuesAfter<Ev1, Ev2>,
-				keyof H2 & string,
-				ArmsAfter<Ev1, Ev2>
-			>
+		: ArmsBefore<Ev1> extends infer Before extends ReadonlyArray<AnyArm>
+			? UnionEvidenceOf<
+					FirstValuesOf<Ev1>,
+					ValuesBefore<Ev1> | ValuesOf<Ev2>,
+					keyof H2 & string,
+					readonly [...Before, ArmOf<Ev2>]
+				>
+			: never
 type ValuesOf<Ev> = Ev extends { readonly values: infer V } ? V : object
 /** The values the first arm of Ev1, an arm or a union, fixes its fields to: a union's own first, read by key. */
 type FirstValuesOf<Ev1> = "arms" extends keyof Ev1 ? Ev1["first" & keyof Ev1] : ValuesOf<Ev1>
-/** Every arm's values, the arms of Ev1, an arm or a union, and the arm Ev2: a union of the arms' records. */
-type ValuesAfter<Ev1, Ev2> =
-	| ("arms" extends keyof Ev1 ? Ev1["armValues" & keyof Ev1] : ValuesOf<Ev1>)
-	| ValuesOf<Ev2>
+/** Every arm's values of Ev1, an arm or a union: a union's own, read by key, a union of the arms' records. */
+type ValuesBefore<Ev1> = "arms" extends keyof Ev1 ? Ev1["armValues" & keyof Ev1] : ValuesOf<Ev1>
+/** The arms of Ev1, an arm or a union, in order: a union's own, read by key. */
+type ArmsBefore<Ev1> = "arms" extends keyof Ev1 ? Ev1["arms" & keyof Ev1] : readonly [ArmOf<Ev1>]
 /**
  * Whether some record of H1 and some record of H2 have different keys: a union's records all have its heading's,
  * keyof H1, so a union is read by its heading once, and any other H1 by each of its records.
@@ -646,26 +651,11 @@ interface UnionArm<out V, out K> {
 type ArmOf<Ev> = ArmWith<ValuesOf<Ev>, KeyMembers<Ev>>
 type ArmWith<V, K> = UnionArm<V, K>
 
-/**
- * A union's arms, the last added first, each a cell of its own that reads its arm and the arms before it by key: a walk
- * of them reads each cell once, as a walk that binds the arms after its first one by `infer` would not, instantiating
- * them all again at each step. A cell is an object type of its own alias, as the union's evidence is (UnionEvidenceOf),
- * never an interface named alone as an alias's body: the checker defers the type arguments of such a reference until
- * it is first read, so a union's arms, first arm and values would be read there through every union before it at once,
- * one cell deeper for each arm (TS2589 at 96 arms), where each is read as its rule adds its arm.
- */
-type ArmCons<A, Rest> = {
-	readonly more: true
-	readonly arm: A
-	readonly rest: Rest
-}
-interface NoArms {
-	readonly more: false
-}
-/** The arms of a union of Ev1, an arm or a union, with the arm Ev2. */
-type ArmsAfter<Ev1, Ev2> = "arms" extends keyof Ev1
-	? ArmCons<ArmOf<Ev2>, Ev1["arms" & keyof Ev1]>
-	: ArmCons<ArmOf<Ev2>, ArmCons<ArmOf<Ev1>, NoArms>>
+/** Any arm of a union, whatever its values and keys. */
+type AnyArm = UnionArm<unknown, unknown>
+/** The values an arm X of a union's arms fixes its fields to, and its keys, each read off the arm's own type. */
+type ArmValuesIn<X> = X extends AnyArm ? X["values"] : never
+type ArmKeysIn<X> = X extends AnyArm ? X["keys"] : never
 
 /**
  * The union's keys: its whole heading; the fields its arms do not all fix alike, since a union is a set whose rows agree
@@ -675,7 +665,7 @@ type ArmsAfter<Ev1, Ev2> = "arms" extends keyof Ev1
  */
 type UnionEvidenceOf<First, V, F extends string, Arms> = {
 	readonly keys: UnionKeys<
-		KeyOver<Exclude<F, keyof Alike<First, V>>> | KeysBeside<Arms, Kept<Arms>>,
+		KeyOver<Exclude<F, keyof Alike<First, V>>> | KeysBeside<Arms, Kept<Arms, V>>,
 		F
 	>
 	readonly card: [Exclude<F, keyof Alike<First, V>>] extends [never] ? "atMostOne" : "many"
@@ -711,24 +701,17 @@ type LiteralAt<V, K> = K extends keyof V
 		: never
 	: never
 
-/** The fields an arm's values fix to one literal each. */
-type LiteralFields<V> = {
-	[K in keyof V]-?: [LiteralAt<V, K>] extends [never] ? never : K
-}[keyof V] &
-	string
-
-/** The separators of a union: the fields every arm fixes to one literal, as the engine reads them. */
-type SeparatorsOf<Arms, S extends string> =
-	MoreOf<Arms> extends true ? SeparatorsOf<RestOf<Arms>, S & LiteralFields<ValuesAt<Arms>>> : S
 /**
- * Whether a union's arms hold one more arm, read by key: a test of the cell itself would instantiate it whole, every
- * arm after it, at each step of a walk.
+ * The separators of a union: the fields every arm fixes to one literal, as the engine reads them, V every arm's values
+ * read at once.
  */
-type MoreOf<Arms> = Arms["more" & keyof Arms]
-type RestOf<Arms> = Arms["rest" & keyof Arms]
-type FirstArm<Arms> = Arms["arm" & keyof Arms]
-type ValuesAt<Arms> = FirstArm<Arms>["values" & keyof FirstArm<Arms>]
-type KeysAt<Arms> = FirstArm<Arms>["keys" & keyof FirstArm<Arms>]
+type SeparatorsOf<V> = {
+	[K in keyof V & string]-?: true extends (
+		V extends unknown ? ([LiteralAt<V, K>] extends [never] ? true : false) : never
+	)
+		? never
+		: K
+}[keyof V & string]
 
 /**
  * The separators the engine keeps (logical/props.ts unionProps): of the separators in heading order, code unit order,
@@ -736,7 +719,7 @@ type KeysAt<Arms> = FirstArm<Arms>["keys" & keyof FirstArm<Arms>]
  * the last (Descending): a separator stays where the separators before it and those kept after it leave two arms that
  * agree on all of them.
  */
-type Kept<Arms> = KeptIn<Arms, Descending<SeparatorsOf<Arms, string>, "", readonly []>>
+type Kept<Arms, V> = KeptIn<Arms, Descending<SeparatorsOf<V>, "", readonly []>>
 type KeptIn<Arms, Ds extends ReadonlyArray<string>> =
 	Agree<Arms, Ds> extends true ? never : KeptFrom<Arms, Ds, readonly []>
 type KeptFrom<
@@ -751,17 +734,19 @@ type KeptFrom<
 
 /**
  * Whether two arms fix the separators Cs to the same literals: each arm's literals at them, a tuple in their order, met
- * against the tuples of the arms read before it, once each.
+ * against every other arm's tuple, the arms read once each in one mapped type over their tuple.
  */
-type Agree<Arms, Cs extends ReadonlyArray<string>> = AgreeFrom<Arms, Cs, never>
-type AgreeFrom<Arms, Cs extends ReadonlyArray<string>, Seen> =
-	MoreOf<Arms> extends true
-		? LiteralsAt<ValuesAt<Arms>, Cs> extends infer P
-			? [P] extends [Seen]
-				? true
-				: AgreeFrom<RestOf<Arms>, Cs, Seen | P>
-			: never
-		: false
+type Agree<Arms, Cs extends ReadonlyArray<string>> = AgreeAmong<{
+	readonly [I in keyof Arms]: LiteralsAt<ArmValuesIn<Arms[I]>, Cs>
+}>
+/** Whether two of the tuples Ts are one: each met against every other, at once. */
+type AgreeAmong<Ts> = true extends {
+	[I in keyof Ts]: [Ts[I]] extends [Ts[Exclude<PlacesOf<Ts>, I>]] ? true : false
+}[PlacesOf<Ts>]
+	? true
+	: false
+/** The places of a tuple, "0" to its last. */
+type PlacesOf<Ts> = Exclude<keyof Ts, keyof ReadonlyArray<unknown>>
 /** An arm's literals at the separators Cs, in their order. */
 type LiteralsAt<V, Cs extends ReadonlyArray<string>> = {
 	readonly [I in keyof Cs]: LiteralAt<V, Cs[I]>
@@ -802,14 +787,19 @@ type DescendingFrom<
 /** One key of each arm, together, with the kept separators T: a key of the union, every such combination. */
 type KeysBeside<Arms, T> = [T] extends [never]
 	? never
-	: CrossOf<Arms, readonly [never]> extends infer C
+	: CrossOf<{ readonly [I in keyof Arms]: ArmKeysIn<Arms[I]> }, readonly [never]> extends infer C
 		? C extends readonly [infer F]
 			? KeyOver<(F & string) | (T & string)>
 			: never
 		: never
-/** Every combination of one key of each arm, each the union of their fields, the arms read once each. */
-type CrossOf<Arms, Done> =
-	MoreOf<Arms> extends true ? CrossOf<RestOf<Arms>, CrossWith<Done, KeysAt<Arms>>> : Done
+/**
+ * Every combination of one key of each arm, each the union of their fields, Ks each arm's keys in a tuple of their own,
+ * read once each: a walk of the keys alone, which hold no arm, so binding the rest of them by `infer` instantiates no arm
+ * again.
+ */
+type CrossOf<Ks, Done> = Ks extends readonly [infer K, ...infer Rest]
+	? CrossOf<Rest, CrossWith<Done, K>>
+	: Done
 type CrossWith<Done, K> = Done extends readonly [infer G]
 	? K extends ReadonlyArray<infer F>
 		? readonly [F | G]
