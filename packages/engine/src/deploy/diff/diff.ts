@@ -211,13 +211,14 @@ const ownedAside = (a: Aside): string =>
 		? ", with each index and statistics object it owns, whose names a relation of its old name would take, renamed aside too"
 		: ""
 
-/** What a migration does to a column of a table it keeps (ColumnFates): kept as it is; revalued, kept with its values
- * changed in place, a field or law column the backfill draws again (FieldChange redrawn) or a generated column that
- * reads one (generatedOver), which PostgreSQL computes again on each row the backfill writes; converted in place, a
- * field whose type changes; redefined, a law column whose definition changes, a field rewritten (rewrittenOver), or one
- * the target no longer holds whose generation reads a column the migration replaces or revalues (generatedOver), dropped
- * before Structure's alteration and added again where the target holds it; or dropped, at the end of the migration, a
- * field or law column the target no longer holds.
+/** What a migration does to a column of a table it keeps (ColumnFates): kept, as it is or re-expressed by Structure's
+ * SET EXPRESSION (KeptTable reexpressed); revalued, kept with its values changed in place, a field or law column the
+ * backfill draws again (FieldChange redrawn) or a generated column that reads one (generatedOver), which PostgreSQL
+ * computes again on each row the backfill writes; converted in place, a field whose type changes; redefined, a law
+ * column whose definition changes, a field rewritten (rewrittenOver), or one the target no longer holds whose generation
+ * reads a column the migration replaces or revalues (generatedOver), dropped before Structure's alteration and added
+ * again where the target holds it; or dropped, at the end of the migration, a field or law column the target no longer
+ * holds.
  *
  * A revalued column keeps what is built over it wherever no state the backfill passes through can break it, and the
  * rest is taken away before the backfill and built again after it, as over a replaced column (takenByReplacement):
@@ -471,6 +472,12 @@ interface KeptTable {
 	readonly fates: ColumnFates
 	/** The change of each field both declarations hold, by name (fieldChangesOf). */
 	readonly changes: ReadonlyMap<string, FieldChange>
+	/** The columns Structure's alteration of the table re-expresses in place, by SET EXPRESSION: each field re-expressed
+	 * (FieldChange reexpressed) and each law column whose STORED generation alone changes (reexpressedLawColumn) that no
+	 * replacement takes. PostgreSQL computes each again on every row in that statement and rebuilds every constraint and
+	 * index over it there, checking each CHECK, key and foreign key over the rows as the statement leaves them, before
+	 * the backfill draws the columns it revalues (Differ.takenByReplacement). */
+	readonly reexpressed: ReadonlySet<string>
 }
 
 /** The fate of the column `column` of a table both install, the one every part of the previous table is built over
@@ -1116,9 +1123,9 @@ class Differ {
 			const lawColumns = (lawColumnsByTable.get(key) ?? []).map(({ object: p, column: w }) => {
 				const now = this.next.get(p.ident)
 				const target = now === undefined ? undefined : installed(now)
-				/** What the migration does to the column: keeps it, re-expresses it in place (Differ.lawColumn), which keeps
-				 * what is built over it but gives it other values to every fill that reads it, drops it, or drops it and
-				 * adds it again. */
+				/** What the migration does to the column: keeps it, re-expresses it in place (Differ.lawColumn), which
+				 * computes it again on every row, rebuilding what is built over it (KeptTable reexpressed), and gives it
+				 * other values to every fill that reads it, drops it, or drops it and adds it again. */
 				const change =
 					now === undefined
 						? "dropped"
@@ -1219,6 +1226,17 @@ class Differ {
 						const reads = generationColumns(b.generated)
 						return fate === undefined || !isNonEmpty(reads) ? [] : [{ column: b.name, reads, fate }]
 					})
+					const fates = generatedOver(fieldFates, [...generatedFields, ...removed, ...lawColumns])
+					/** A re-expressed column whose generation reads a column the migration replaces is dropped and added
+					 * again (generatedOver), and is no re-expression. */
+					const reexpressed = new Set(
+						[
+							...[...changes].flatMap(([column, change]) =>
+								change.kind === "reexpressed" ? [column] : []
+							),
+							...recorded.flatMap((c) => (c.change === "reexpressed" ? [c.column] : []))
+						].filter((column) => fates.get(column)?.kind !== "redefined")
+					)
 					return [
 						o.ident,
 						{
@@ -1226,8 +1244,9 @@ class Differ {
 							order,
 							old,
 							create,
-							fates: generatedOver(fieldFates, [...generatedFields, ...removed, ...lawColumns]),
-							changes
+							fates,
+							changes,
+							reexpressed
 						}
 					]
 				}
@@ -1643,8 +1662,9 @@ class Differ {
 	 * each with how and its own drop (Replaced): what is built over the column (objects.ts builtOver: a constraint, an
 	 * index, a statistics object, a law column computed from it or a rule trigger fired by its update), and each foreign
 	 * key referencing a key over one, which dropReplaced drops before the column is converted or dropped. Over a column
-	 * the backfill revalues in place, what a state the backfill passes through could break (ColumnFate revalued),
-	 * dropped before the backfill and built again after it as over a column dropped and added again. */
+	 * the backfill revalues in place, what a state the backfill passes through could break (ColumnFate revalued), and
+	 * over a column Structure re-expresses, what its SET EXPRESSION could break (KeptTable reexpressed), each dropped
+	 * before Structure and built again after it as over a column dropped and added again. */
 	takenByReplacement(): ReadonlyMap<string, Replaced> {
 		const out = new Map<string, Replaced>()
 		/** What this migration does to a column of `table`: only a table both hold has a column it replaces or
@@ -1704,23 +1724,30 @@ class Differ {
 		): boolean =>
 			!keptAsIs(o) ||
 			!(stable.get(nameKey(table)) ?? []).some((k) => k.every((c) => columns.includes(c)))
+		/** The key of the table the foreign key `fk` references over exactly the columns it references. */
+		const referencedKey = (fk: ForeignKey) => {
+			const referenced = fk.referencedColumns.map((k) => k.column)
+			return (keys.get(nameKey(fk.references)) ?? []).find(
+				(k) =>
+					k.columns.length === referenced.length && referenced.every((c) => k.columns.includes(c))
+			)
+		}
 		/** Whether a revaluation takes the foreign key `o`: unless the target keeps it as it is, every revalued column
 		 * it reads is on one table, which the backfill's one UPDATE of it writes whole before PostgreSQL checks the
 		 * foreign key at the end of that statement, and the key it references is kept. */
 		const takesForeignKey = (o: RecordedObject, fk: ForeignKey, table: ObjectName): boolean => {
-			const referenced = fk.referencedColumns.map((k) => k.column)
 			const from = revaluedAt(table, constraintColumns(fk))
-			const onto = revaluedAt(fk.references, referenced)
+			const onto = revaluedAt(
+				fk.references,
+				fk.referencedColumns.map((k) => k.column)
+			)
 			if (!keptAsIs(o) || (from && onto && nameKey(table) !== nameKey(fk.references))) {
 				return true
 			}
 			if (!onto) {
 				return false
 			}
-			const key = (keys.get(nameKey(fk.references)) ?? []).find(
-				(k) =>
-					k.columns.length === referenced.length && referenced.every((c) => k.columns.includes(c))
-			)
+			const key = referencedKey(fk)
 			return key === undefined || takesKey(key.object, fk.references, key.columns)
 		}
 		/** Whether a revaluation of a column `over` is built over takes `o` away (ColumnFate revalued). */
@@ -1743,6 +1770,52 @@ class Differ {
 					return takesForeignKey(o, v.constraint, v.table)
 			}
 		}
+		/** Whether Structure's alteration of `table` re-expresses one of `columns` in place (KeptTable reexpressed). */
+		const reexpressedAt = (table: ObjectName, columns: ReadonlyArray<string>): boolean => {
+			const kept = this.keptTables.get(tableIdent(table))
+			return kept !== undefined && columns.some((c) => kept.reexpressed.has(c))
+		}
+		/** Whether a re-expression of a column `over` is built over takes `o` away, `o` reading `sides`: its own table's
+		 * columns and a foreign key's referenced ones. SET EXPRESSION rebuilds every constraint and index over the column
+		 * in its statement and checks each CHECK, key and unique index over the rows as it leaves them, before the
+		 * backfill draws the columns it revalues. One stands only where the target holds it as it is and the backfill
+		 * revalues no column it reads, each then holding its final value; otherwise its previous definition, or a stale
+		 * column beside the re-expressed one, judges the new values, and PostgreSQL refuses rows the target admits. A
+		 * foreign key, validated there against the key it references, goes too with that key where the re-expression
+		 * takes it, the target defining it otherwise. An index, a statistics object and a rule trigger, which a rewrite
+		 * does not fire, stand; no law column reads a generated column. */
+		const reexpressionTakes = (
+			o: RecordedObject,
+			over: BuiltOver<RecordedObject>,
+			sides: ReadonlyArray<readonly [ObjectName, ReadonlyArray<string>]>
+		): boolean => {
+			const revalued = sides.some(([table, columns]) => revaluedAt(table, columns))
+			const v = over.part
+			switch (v.kind) {
+				case "index":
+				case "statistics":
+				case "lawColumn":
+				case "lawTrigger":
+					return false
+				case "uniqueIndex": {
+					const now = this.next.get(o.ident)
+					return now === undefined || !sameRecord(o, now) || revalued
+				}
+				case "check":
+				case "primaryKey":
+				case "unique":
+					return !keptAsIs(o) || revalued
+				case "foreignKey": {
+					const key = referencedKey(v.constraint)
+					return (
+						!keptAsIs(o) ||
+						revalued ||
+						key === undefined ||
+						(reexpressedAt(v.constraint.references, key.columns) && !keptAsIs(key.object))
+					)
+				}
+			}
+		}
 		for (const o of this.prev.values()) {
 			const over = builtOver(installed(o), (c) => keyOrCheckDefinition(c, this.prev))
 			if (over === undefined) {
@@ -1756,8 +1829,10 @@ class Differ {
 			const sides = [[over.table, over.columns] as const, ...referenced]
 			const how = strongestReplacement([
 				...sides.flatMap(([table, columns]) => replacedAt(table, columns)),
-				...(sides.some(([table, columns]) => revaluedAt(table, columns)) &&
-				revaluationTakes(o, over)
+				...((sides.some(([table, columns]) => revaluedAt(table, columns)) &&
+					revaluationTakes(o, over)) ||
+				(sides.some(([table, columns]) => reexpressedAt(table, columns)) &&
+					reexpressionTakes(o, over, sides))
 					? (["redefined"] as const)
 					: [])
 			])
@@ -3774,7 +3849,8 @@ type DrawnBefore = { readonly kind: "none" } | { readonly kind: "retirement" }
  * before and after:
  * - converted in place, its type changed, with what drew it before (DrawnBefore);
  * - re-expressed, a generated field whose generation expression changes and whose type does not, by SET EXPRESSION,
- *   which recomputes every row and keeps what is built over the column;
+ *   which recomputes every row and rebuilds what is built over the column, checking each constraint over it on the
+ *   rows as it leaves them (KeptTable reexpressed);
  * - redrawn, a field the target draws or accumulates whose values the migration draws again, its filler or what its
  *   fill reads changed (redrawn, keptTablesOf drawnAgain), and whose column is otherwise kept: the same column, its
  *   values drawn again in place by the backfill, which writes only the rows whose values change (backfill.ts passes),
@@ -3800,8 +3876,9 @@ type FieldChange =
  * column of the same type and collation, both STORED, one expression for another of the same meaning (its canonical
  * text moved, so PostgreSQL's operand order did), or a generated field it reads re-expressed. SET EXPRESSION rewrites
  * its table once with every other column the table's one ALTER TABLE re-expresses, and rebuilds the indexes and
- * constraints over it in that statement (PostgreSQL's tablecmds.c, AT_SetExpression), where a drop and an addition
- * would drop and build again everything over it. None for any other change.
+ * constraints over it in that statement (PostgreSQL's tablecmds.c, AT_SetExpression), checking each constraint over the
+ * rows as it leaves them, where a drop and an addition would drop and build again everything over it: what the
+ * re-expression could break is taken before it (Differ.takenByReplacement). None for any other change.
  */
 const reexpressedLawColumn = (
 	before: RecordedObject,

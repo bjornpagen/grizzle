@@ -3853,7 +3853,9 @@ deploy.
 - **A closed relation's change is a new constant.** Constants are named by their contents, so a change installs new
   ones, replaces and validates every CHECK that reads them, gives every generated field that reads them its new
   expression (`SET EXPRESSION`), and drops the old ones `RESTRICT`, so PostgreSQL refuses a migration that missed a
-  reader. A rule over closed relations alone, new or with changed closed rows, runs as its violation query at the start
+  reader. `SET EXPRESSION` checks every constraint over its field against the new values in its own statement, so a
+  CHECK, key or unique index over the field that the target defines otherwise, or that reads a field the backfill
+  draws again, is dropped before it and added again after it. A rule over closed relations alone, new or with changed closed rows, runs as its violation query at the start
   of the migration's first file, refusing the migration before it changes anything. A key holding slots reads its
   owners' counts, never its slot roster's size: a changed count replaces its counts' and rows' constants and its
   owners' bases where they move, and a grown or renamed slot roster replaces none.

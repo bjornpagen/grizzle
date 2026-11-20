@@ -276,7 +276,9 @@ breaking change may briefly break older application instances that are still run
   alone don't give is refused, naming it: copies that read each other, or a fold over a copy. A roster whose names changed has its domain's CHECK dropped and added `NOT VALID` against the new names constant,
   validated in Validate; a set over a roster that grew is converted to the new size's domain by its cast, the new
   handles absent. A table CHECK or generated field over a changed closed relation is replaced the same way, or takes its
-  new expression (`SET EXPRESSION`). A field whose type changes is converted by its cast, in place, with no
+  new expression (`SET EXPRESSION`), which checks every constraint over the field against its new values in that
+  statement: a CHECK, key or unique index over it that the target defines otherwise, or that reads a field the backfill
+  draws again, is dropped before it and added again after. A field whose type changes is converted by its cast, in place, with no
   placeholder, when the new type holds the old one's values (a pattern changed, a contract added, removed or swapped
   for another over the same base); otherwise it is set aside: its table's one ALTER TABLE adds a set-aside column of the
   new type, and once every placeholder column holds its value the table's fill sets it to the value you write at its

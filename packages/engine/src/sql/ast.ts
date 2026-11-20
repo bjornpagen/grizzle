@@ -1440,7 +1440,8 @@ export type AlterTableAction =
 			/**
 			 * ALTER COLUMN <column> SET EXPRESSION AS (...): a generated column's generation replaced by another STORED
 			 * one, which rewrites the table once for every column the statement re-expresses, and rebuilds the indexes and
-			 * constraints over the columns it re-expresses in that rewrite.
+			 * constraints over the columns it re-expresses in that rewrite, checking each CHECK, key and foreign key over
+			 * the rewritten rows.
 			 */
 			readonly kind: "setExpression"
 			readonly column: string
