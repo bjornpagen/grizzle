@@ -1,7 +1,8 @@
 /**
  * grizzle's library (ir/physical.ts LibraryFn): the SQL functions of its own a scalar operation's SQL calls, each a
- * constant of parameters (sql/ast.ts CreateConstant), `LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN <body>`, its body
- * this module's, named by its definition's digest (core/identity.ts libraryFunction), which an installation installs
+ * constant of parameters (sql/ast.ts LibraryConstant), `LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE RETURN <body>`,
+ * STRICT exactly where the host term over it is (strictOf), its body this module's, named by its definition's digest,
+ * its strictness among it (core/identity.ts libraryFunction), which an installation installs
  * where a persistent expression of its schema calls it (`libraryCalls`), after its schema and before every object that
  * calls it, as every constant is (physical/ddl/context.ts addConstant), and revoked from PUBLIC, so a role is granted
  * EXECUTE on it as on every constant it may call (physical/ddl/roles.ts).
@@ -24,15 +25,15 @@ import type { LawModel } from "#compiler/laws/model/model.ts"
 import { persistentExprs } from "#compiler/physical/ddl/constants.ts"
 import { constantRevoke, type InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement } from "#compiler/physical/obligations/graph.ts"
-import { libraryOf, nativeOp } from "#compiler/scalar/compute/registry.ts"
+import { libraryOf, nativeOp, nativeOps, nullRules } from "#compiler/scalar/compute/registry.ts"
 import type {
-	CreateConstant,
 	Expr,
 	FrameBound,
 	FromItem,
 	FromSource,
 	Cte,
 	FunctionParam,
+	LibraryConstant,
 	OperandSelect,
 	TypeRef
 } from "#compiler/sql/ast.ts"
@@ -72,11 +73,16 @@ import {
 	windowOf
 } from "#compiler/sql/build.ts"
 
-/** A library function's definition: its parameters, read by position in its body, its result type and its body. */
-interface LibraryDefinition {
+/** A library function's body: its parameters, read by position in it, its result type and its expression. */
+interface LibraryBody {
 	readonly params: ReadonlyArray<FunctionParam>
 	readonly returns: TypeRef
 	readonly body: Expr
+}
+
+/** A library function's definition: its body, and whether it is STRICT (strictOf). */
+interface LibraryDefinition extends LibraryBody {
+	readonly strict: boolean
 }
 
 const text = (value: string): Expr => lit.text(value, types.text)
@@ -316,7 +322,7 @@ const bothSides = (f: (side: Side) => Columns): Columns =>
  * or begins with `/`, or from its merge with the base's (§5.2.3): `/` and it where the base states an authority and an
  * empty path, else the base's up to its last `/` and it.
  */
-const resolveReferenceDefinition = (): LibraryDefinition => {
+const resolveReferenceDefinition = (): LibraryBody => {
 	const texts: { readonly [S in Side]: Expr } = {
 		b: param(1, types.text),
 		r: param(2, types.text)
@@ -783,7 +789,7 @@ const cp = (ch: string): number => ch.charCodeAt(0)
  * row: 10,001 code points of groups nested 2,000 deep take 114 ms, and 100,000 code points 2.2 s, on cassowary at a
  * load of 700.
  */
-const xsdPatternDefinition = (): LibraryDefinition => {
+const xsdPatternDefinition = (): LibraryBody => {
 	const pattern = param(1, types.text)
 	const width = xsdClasses.length
 	const nexts = xsdStates.flatMap((s) => xsdClasses.map((c) => placeOf(xsdStates, moveOf(s, c)[0])))
@@ -1012,7 +1018,6 @@ const xsdPatternDefinition = (): LibraryDefinition => {
 	}
 }
 
-/** Each library function's definition, made once. */
 /**
  * textDigest(text): the SHA-256 digest of a text's UTF-8 bytes, `sha256(convert_to($1, 'UTF8'))`, 32 bytes: the image a
  * text of no byte bound is keyed by (Crypto.sha256 over text writes it as lowercase hex). An installation's database is
@@ -1021,16 +1026,32 @@ const xsdPatternDefinition = (): LibraryDefinition => {
  * encoding, which a database never changes, and sha256 is IMMUTABLE, so the digest is one value of a text wherever it
  * stands, a generated column among them, and the function is declared IMMUTABLE as PostgreSQL's own digests are.
  */
-const textDigestDefinition = (): LibraryDefinition => ({
+const textDigestDefinition = (): LibraryBody => ({
 	params: [{ name: "text", type: types.text }],
 	returns: types.bytea,
 	body: call("sha256", [call("convert_to", [param(1, types.text), text("UTF8")])])
 })
 
+/**
+ * Whether the library function `fn` is STRICT: exactly where every native node that calls it (registry.ts libraryOf)
+ * meets a NULL operand by the strict rule (registry.ts nullRules), which the host evaluator applies to it, so a call of
+ * a NULL argument is NULL in PostgreSQL, which returns it without running the body, as it is on the host. One that is
+ * not meets a NULL as its body says, which must then be the host's rule.
+ */
+const strictOf = (fn: LibraryFn): boolean =>
+	nativeOps.every((op) => libraryOf(op.sql) !== fn || nullRules[op.fn] === "strict")
+
+/** `fn`'s definition: its body, and its strictness (strictOf). */
+const definedAs = (fn: LibraryFn, body: LibraryBody): LibraryDefinition => ({
+	...body,
+	strict: strictOf(fn)
+})
+
+/** Each library function's definition, made once. */
 const definitions: { readonly [F in LibraryFn]: LibraryDefinition } = {
-	isXsdPattern: xsdPatternDefinition(),
-	resolveReference: resolveReferenceDefinition(),
-	textDigest: textDigestDefinition()
+	isXsdPattern: definedAs("isXsdPattern", xsdPatternDefinition()),
+	resolveReference: definedAs("resolveReference", resolveReferenceDefinition()),
+	textDigest: definedAs("textDigest", textDigestDefinition())
 }
 
 /** Each library function's identity, by its name and its definition's digest, minted once. */
@@ -1081,7 +1102,7 @@ const imageFunctions: { readonly [I in KeyImage]: LibraryFn } = Object.freeze({
 })
 
 /** A library function's CREATE in the schema `schema`: an installation's, or a session's pg_temp. */
-export const libraryCreate = (schema: string, fn: LibraryFn): CreateConstant => ({
+export const libraryCreate = (schema: string, fn: LibraryFn): LibraryConstant => ({
 	kind: "createConstant",
 	language: "sql",
 	name: { schema, name: libraryIdentity(fn).identifier },

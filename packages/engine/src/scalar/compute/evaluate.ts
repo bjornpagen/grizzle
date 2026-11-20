@@ -39,6 +39,7 @@ import {
 	type NativeFn,
 	type NativeOp,
 	nativeOp,
+	nullRules,
 	type Undefined
 } from "#compiler/scalar/compute/registry.ts"
 import { decimalOfText, doubleOfText } from "#compiler/scalar/lexical.ts"
@@ -840,10 +841,10 @@ interface Operation {
 
 /**
  * The native operation `op` over operands of the types `argTypes`, of the type `type`, staged once (Operation): over
- * values alone, its application (applied); over a NULL operand, LEAST and GREATEST over their values that are no NULL,
- * NULL where none is; BETWEEN as `a >= low AND a <= high` and IN as the OR of its equalities, by Kleene's logic; and
- * every other operation, which is strict, NULL. Each operation states its NULL behaviour here, so a new one is a case
- * to decide.
+ * values alone, its application (applied); over a NULL operand, as its NULL rule says (registry.ts nullRules), the one
+ * statement of it, which grizzle's library functions are declared STRICT by too: LEAST and GREATEST over their values
+ * that are no NULL, NULL where none is; BETWEEN as `a >= low AND a <= high` and IN as the OR of its equalities, by
+ * Kleene's logic; AND, OR and a cast by their own nodes; and every strict operation NULL.
  */
 const operation = (
 	op: NativeOp,
@@ -851,32 +852,32 @@ const operation = (
 	type: ScalarType
 ): Operation => {
 	const present = applied(op, argTypes, type)
-	const fn = op.fn
-	switch (fn) {
+	const rule = nullRules[op.fn]
+	switch (rule) {
 		case "least":
 		case "greatest": {
-			const extreme = extremum(fn, argTypes)
+			const extreme = extremum(rule, argTypes)
 			return { present, absent: (values) => Result.ok(extreme(values)) }
 		}
 		case "between":
 		case "in": {
-			const compare = orderOf(defined(argTypes[0], `the operand type of ${fn}`))
+			const compare = orderOf(defined(argTypes[0], `the operand type of ${rule}`))
 			/** One comparison of `a` with `b` by `holds` over their order, NULL where either is NULL. */
 			const compared = (a: SqlValue, b: SqlValue, holds: (order: -1 | 0 | 1) => boolean): Truth =>
 				a === sqlNull || b === sqlNull ? sqlNull : holds(compare(a, b))
-			return fn === "between"
+			return rule === "between"
 				? {
 						present,
 						absent: ([a, low, high]) =>
 							Result.ok(
 								conjunction([
 									compared(
-										defined(a, `the first operand of ${fn}`),
+										defined(a, `the first operand of ${rule}`),
 										defined(low, "BETWEEN's low"),
 										(order) => order >= 0
 									),
 									compared(
-										defined(a, `the first operand of ${fn}`),
+										defined(a, `the first operand of ${rule}`),
 										defined(high, "BETWEEN's high"),
 										(order) => order <= 0
 									)
@@ -889,87 +890,21 @@ const operation = (
 							Result.ok(
 								disjunction(
 									items.map((item) =>
-										compared(defined(a, `the first operand of ${fn}`), item, (order) => order === 0)
+										compared(
+											defined(a, `the first operand of ${rule}`),
+											item,
+											(order) => order === 0
+										)
 									)
 								)
 							)
 					}
 		}
-		case "and":
-		case "or":
-		case "cast": {
-			const stop = unsupported(`${fn} evaluated by its node`)
+		case "node": {
+			const stop = unsupported(`${op.fn} evaluated by its node`)
 			return { present, absent: () => stop }
 		}
-		case "abs":
-		case "add":
-		case "adjoin":
-		case "btrim":
-		case "canonicalZero":
-		case "cardinality":
-		case "ceil":
-		case "charLength":
-		case "collapse":
-		case "complement":
-		case "concat":
-		case "cosineDistance":
-		case "searchPart":
-		case "searchConcat":
-		case "websearchMatches":
-		case "plainMatches":
-		case "websearchRank":
-		case "plainRank":
-		case "websearchRankCd":
-		case "plainRankCd":
-		case "difference":
-		case "disjoint":
-		case "div":
-		case "endsWith":
-		case "eq":
-		case "floor":
-		case "gcd":
-		case "ge":
-		case "gt":
-		case "intersection":
-		case "lcm":
-		case "le":
-		case "lower":
-		case "lowerAscii":
-		case "lt":
-		case "matches":
-		case "minScale":
-		case "mod":
-		case "mul":
-		case "ne":
-		case "neg":
-		case "not":
-		case "octetLength":
-		case "parseDecimal":
-		case "parseDouble":
-		case "power":
-		case "quot":
-		case "regexpCount":
-		case "rem":
-		case "replace":
-		case "resolveReference":
-		case "isXsdPattern":
-		case "right":
-		case "round":
-		case "sha256":
-		case "sign":
-		case "sqrt":
-		case "startsWith":
-		case "sub":
-		case "subset":
-		case "floatBits":
-		case "substring":
-		case "infixAt":
-		case "translate":
-		case "trunc":
-		case "union":
-		case "upper":
-		case "utf16Length":
-		case "widthBucket":
+		case "strict":
 			return { present, absent: () => nullValue }
 	}
 }

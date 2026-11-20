@@ -301,6 +301,96 @@ export type NativeFn =
 	| "canonicalZero"
 
 /**
+ * How a native node meets a NULL operand, as PostgreSQL applies it: the one statement of it, which the host evaluator
+ * applies (evaluate.ts operation) and every library function a node calls is declared by (physical/ddl/library.ts
+ * strictOf), so the host and PostgreSQL meet a NULL alike. `strict`: NULL wherever an operand is NULL. `least` and
+ * `greatest`: LEAST's and GREATEST's, over their operands that are no NULL, NULL where none is. `between`: BETWEEN's,
+ * as `a >= low AND a <= high` by Kleene's logic. `in`: IN's, as the OR of its equalities by Kleene's logic. `node`:
+ * AND's, OR's and a cast's, which their own nodes apply (evaluate.ts), never an operation's.
+ */
+export type NullRule = "strict" | "least" | "greatest" | "between" | "in" | "node"
+
+/** Every native node's NULL rule, total over NativeFn, so a new node states how it meets a NULL where it is added. */
+export const nullRules: { readonly [F in NativeFn]: NullRule } = Object.freeze({
+	add: "strict",
+	sub: "strict",
+	mul: "strict",
+	div: "strict",
+	mod: "strict",
+	neg: "strict",
+	quot: "strict",
+	rem: "strict",
+	abs: "strict",
+	sign: "strict",
+	round: "strict",
+	trunc: "strict",
+	ceil: "strict",
+	floor: "strict",
+	gcd: "strict",
+	lcm: "strict",
+	power: "strict",
+	sqrt: "strict",
+	least: "least",
+	greatest: "greatest",
+	widthBucket: "strict",
+	minScale: "strict",
+	lower: "strict",
+	upper: "strict",
+	charLength: "strict",
+	octetLength: "strict",
+	utf16Length: "strict",
+	regexpCount: "strict",
+	concat: "strict",
+	startsWith: "strict",
+	endsWith: "strict",
+	right: "strict",
+	substring: "strict",
+	infixAt: "strict",
+	matches: "strict",
+	translate: "strict",
+	lowerAscii: "strict",
+	collapse: "strict",
+	resolveReference: "strict",
+	isXsdPattern: "strict",
+	replace: "strict",
+	btrim: "strict",
+	parseDouble: "strict",
+	parseDecimal: "strict",
+	sha256: "strict",
+	floatBits: "strict",
+	cosineDistance: "strict",
+	searchPart: "strict",
+	searchConcat: "strict",
+	websearchMatches: "strict",
+	plainMatches: "strict",
+	websearchRank: "strict",
+	plainRank: "strict",
+	websearchRankCd: "strict",
+	plainRankCd: "strict",
+	eq: "strict",
+	ne: "strict",
+	lt: "strict",
+	le: "strict",
+	gt: "strict",
+	ge: "strict",
+	between: "between",
+	in: "in",
+	and: "node",
+	or: "node",
+	not: "strict",
+	union: "strict",
+	intersection: "strict",
+	difference: "strict",
+	complement: "strict",
+	cardinality: "strict",
+	subset: "strict",
+	disjoint: "strict",
+	adjoin: "strict",
+	cast: "node",
+	canonicalZero: "strict"
+})
+
+/**
  * What a scalar function is, one record each (computeSpecs): how many arguments it takes, a count or any number of
  * one or more (least and greatest); whether a contract predicate or a row check admits it, which is whether the host
  * evaluates its nodes for the ContractLiteral check (evaluate.ts), beside comparisons, boolean composition,
@@ -906,7 +996,7 @@ const textLowerAscii: FixedOverload = frozen({
  * A reference's target resolved against a base, RFC 3986 §5.2's strict transformation and §5.3's recomposition, as
  * @bjornpagen/grizzle-text's uri.ts resolveReference computes it on the host, Text.resolveReference wherever it
  * stands (compute/typing.ts resolveReference): a call of the installation's library function
- * (physical/ddl/library.ts), `<schema>.<fn>(base, reference)`, an IMMUTABLE, PARALLEL SAFE SQL function of the
+ * (physical/ddl/library.ts), `<schema>.<fn>(base, reference)`, an IMMUTABLE, STRICT, PARALLEL SAFE SQL function of the
  * reference's and the base's components and the target path's segments, which no RegExp reads, so no operand's
  * length is bounded and it is defined on every pair of texts, in a query, a CHECK and a generated field alike, its
  * result within their bytes and the delimiters it adds. It reads no catalog object a scalar operation is, so it uses
@@ -927,9 +1017,9 @@ const textResolveReference: FixedOverload = frozen({
  * Whether a text is a string of XML Schema 1.0's regExp production (Part 2, Appendix F), as @bjornpagen/grizzle-text's
  * regex/xsd.ts reader reads it on the host, Xml.isPattern wherever it stands (compute/typing.ts isXsdPattern): a
  * call of the installation's library function (physical/ddl/library.ts xsdPatternDefinition), `<schema>.<fn>(x)`, an
- * IMMUTABLE, PARALLEL SAFE SQL function whose recursive query reads the text's characters once each by a table of the
- * reader's moves, with no state budget and no bound on a count, so it is defined on every text, in a query, a CHECK and
- * a generated field alike. It reads no catalog object a scalar operation is, so it uses no entry here.
+ * IMMUTABLE, STRICT, PARALLEL SAFE SQL function whose recursive query reads the text's characters once each by a table
+ * of the reader's moves, with no state budget and no bound on a count, so it is defined on every text, in a query, a
+ * CHECK and a generated field alike. It reads no catalog object a scalar operation is, so it uses no entry here.
  */
 const textIsXsdPattern: FixedOverload = frozen({
 	fn: "isXsdPattern",
@@ -1058,9 +1148,9 @@ const floatBitsOf = (carrier: "float4" | "float8"): FixedOverload =>
 /**
  * A text's SHA-256 digest as 64 lowercase hex digits, the digest of its UTF-8 bytes, as Crypto.sha256 reads a bytes
  * value's: `encode(<schema>.<textDigest>(x), 'hex')`, the installation's library function (physical/ddl/library.ts
- * textDigest, `sha256(convert_to(x, 'UTF8'))`), IMMUTABLE and defined on every text, so it stands in a query, a CHECK
- * and a generated field alike, and the same digest a text's image is (a key over a text of no byte bound). Its text is
- * digestText's language (typing.ts sha256).
+ * textDigest, `sha256(convert_to(x, 'UTF8'))`), IMMUTABLE, STRICT and defined on every text, so it stands in a query,
+ * a CHECK and a generated field alike, and the same digest a text's image is (a key over a text of no byte bound). Its
+ * text is digestText's language (typing.ts sha256).
  */
 const textSha256: FixedOverload = frozen({
 	fn: "sha256",

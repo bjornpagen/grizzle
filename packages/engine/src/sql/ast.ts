@@ -2257,15 +2257,31 @@ export interface PackConstant {
  * CREATE FUNCTION <name>(<params>) RETURNS <type> <language's clauses> <body>: a constant, an IMMUTABLE PARALLEL SAFE
  * function named by its content's digest, its body `RETURN <body>` in its language (ConstantLanguage). Never OR
  * REPLACE: a domain's planned check keeps the constant it folded, so a function changed under it would go unseen, and
- * a new constant is a new name. A parameter is read by position, $n, as every grizzle SQL body reads.
+ * a new constant is a new name. A parameter is read by position, $n, as every grizzle SQL body reads. A function of
+ * grizzle's library is a constant of parameters that states how a NULL argument meets it (LibraryConstant); every
+ * other constant states none: one of no parameter, which no argument reaches, and a row function, whose body meets a
+ * NULL column by its own three-valued logic, as the CHECK or generation it stands for does.
  */
-export interface CreateConstant {
+export type CreateConstant = PlainConstant | LibraryConstant
+
+/** A constant that states no NULL behaviour: a closed relation's, a roster's or a dictionary's, or a row function. */
+export interface PlainConstant {
 	readonly kind: "createConstant"
 	readonly language: ConstantLanguage
 	readonly name: ObjectName
 	readonly params: ReadonlyArray<FunctionParam>
 	readonly returns: TypeRef
 	readonly body: Expr
+}
+
+/**
+ * A function of grizzle's library (physical/ddl/library.ts): an SQL constant of parameters, STRICT where `strict`
+ * holds, NULL wherever an argument is NULL, which PostgreSQL returns without running the body and folds where it plans
+ * a call of a NULL argument; it is exactly where the host term over it is strict (library.ts strictOf).
+ */
+export interface LibraryConstant extends PlainConstant {
+	readonly language: "sql"
+	readonly strict: boolean
 }
 
 /**

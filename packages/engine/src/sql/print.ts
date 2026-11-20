@@ -1890,8 +1890,15 @@ const constantHead = (
 ): string =>
 	`CREATE FUNCTION ${printObjectName(name)}(${params.map((p) => `${quoteIdent(p.name)} ${printType(p.type)}`).join(", ")}) RETURNS ${printType(returns)}`
 
-/** What every constant is: an SQL function PostgreSQL evaluates once and may run in parallel. */
-const constantClauses = "LANGUAGE sql IMMUTABLE PARALLEL SAFE"
+/**
+ * What every SQL constant is: a function PostgreSQL evaluates once and may run in parallel, STRICT where it is
+ * (sql/ast.ts LibraryConstant).
+ */
+const sqlConstantClauses = (strict: boolean): string =>
+	`LANGUAGE sql IMMUTABLE ${strict ? "STRICT " : ""}PARALLEL SAFE`
+
+/** A constant's clauses that states no NULL behaviour of its own, a literal pack's among them. */
+const constantClauses = sqlConstantClauses(false)
 
 /** A PL/pgSQL constant's clauses (sql/ast.ts ConstantLanguage): planned once per backend, under the closed path. */
 const plannedConstantClauses = `LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE SET search_path = ${printedSearchPath}`
@@ -2187,7 +2194,7 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 			out.line(constantHead(statement.name, statement.params, statement.returns))
 			switch (statement.language) {
 				case "sql":
-					out.line(constantClauses)
+					out.line(sqlConstantClauses("strict" in statement && statement.strict))
 					return out.line(`RETURN ${printExpr(statement.body)}`)
 				case "plpgsql":
 					out.line(plannedConstantClauses)
