@@ -9,7 +9,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { baseOf, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { type ScalarTerm, typedTermOf } from "#compiler/scalar/compute/term.ts"
 import { pgDescriptors as descriptors } from "#compiler/scalar/pg.ts"
 import {
@@ -21,7 +21,7 @@ import {
 	v
 } from "#test/unit/compute/support.ts"
 
-const Cents = testContract("Cents", testPg.bigint, (x) => Compute.ge(x, 0n))
+const Cents = testContract("Cents", testPg.bigint, (x) => computeCore.ge(x, 0n))
 
 const EpochDay = testContract("EpochDay", testPg.bigint, undefined)
 
@@ -60,7 +60,7 @@ export const throws = (f: () => unknown): CompileError => {
 /**
  * The typing rules of the builders (compute/builders.ts, compute/typing.ts), stated over operands of one base, bigint,
  * so no widening between integer types enters: two operands meet only when their nominal types are one (a contract its
- * own contract, a bare base its bare base, Compute.base the explicit way between them); LEAST, GREATEST and a
+ * own contract, a bare base its bare base, computeCore.base the explicit way between them); LEAST, GREATEST and a
  * conditional keep that type, a sum is exact, an exact integer one digit past its base's 19, and a comparison is
  * boolean. A conditional is typed by its first branch, a term, never a JavaScript literal or a parameter; the other
  * branch is a term or parameter of that type, or a JavaScript literal of its base's host kind (integer a number, bigint
@@ -82,7 +82,7 @@ export const operandTerms: { readonly [O in Operand]: ScalarTerm } = {
 	"other cents": v("cents2", Cents),
 	"epoch day": v("e", EpochDay),
 	bigint: plainBigint,
-	"based cents": Compute.base(cents)
+	"based cents": computeCore.base(cents)
 }
 
 export const nominalOf: { readonly [O in Operand]: TestField } = {
@@ -99,13 +99,13 @@ export type BinaryOp = "add" | "eq" | "least" | "greatest"
 export const binary: {
 	readonly [B in BinaryOp]: (a: ScalarTerm, b: ScalarTerm) => ScalarType | "predicate"
 } = {
-	add: (a, b) => typeOf(Compute.add(a, b)),
+	add: (a, b) => typeOf(computeCore.add(a, b)),
 	eq: (a, b) => {
-		Compute.eq(a, b)
+		computeCore.eq(a, b)
 		return "predicate"
 	},
-	least: (a, b) => typeOf(Compute.least(a, b)),
-	greatest: (a, b) => typeOf(Compute.greatest(a, b))
+	least: (a, b) => typeOf(computeCore.least(a, b)),
+	greatest: (a, b) => typeOf(computeCore.greatest(a, b))
 }
 
 type FirstBranch =
@@ -153,10 +153,10 @@ export const firstOf: {
 		readonly term: TestField | undefined
 	}
 } = {
-	"integer literal": { operand: Compute.literal(testPg.integer, 1), term: testPg.integer },
-	"bigint literal": { operand: Compute.literal(testPg.bigint, 1n), term: testPg.bigint },
+	"integer literal": { operand: computeCore.literal(testPg.integer, 1), term: testPg.integer },
+	"bigint literal": { operand: computeCore.literal(testPg.bigint, 1n), term: testPg.bigint },
 	"numeric literal": {
-		operand: Compute.literal(testPg.numeric, decimal("0.5")),
+		operand: computeCore.literal(testPg.numeric, decimal("0.5")),
 		term: testPg.numeric
 	},
 	"integer column": { operand: int, term: testPg.integer },
@@ -227,7 +227,7 @@ export type BuilderFeature =
 	| `span ${SpanFn} ${"typed" | "refused"}`
 
 /**
- * Where a JavaScript caller's value meets Compute: a literal's type and a cast's target, read as descriptors
+ * Where a JavaScript caller's value meets the scalar catalogue: a literal's type and a cast's target, read as descriptors
  * (compute/builders.ts describedField), and a literal's value, read by the registry's literal boundary (Call.literal).
  */
 type ComputeSite = "literal type" | "cast target" | "literal value"

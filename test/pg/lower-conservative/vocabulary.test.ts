@@ -120,7 +120,7 @@ export const theConservativeVocabularyOnPostgreSQL19LowersEveryFunctionByItsRegp
 			kind: "postgresql",
 			name: "pg_proc's function at the entry's regprocedure signature"
 		},
-		box: "every entry of the Compute registry",
+		box: "every entry of the scalar registry",
 		kept: [],
 		kills: [
 			{

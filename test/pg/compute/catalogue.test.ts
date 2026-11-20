@@ -1,5 +1,5 @@
 /**
- * The Compute catalogue against PostgreSQL 19: every operation Compute admits over the gate types (smallint, integer,
+ * The scalar catalogue against PostgreSQL 19: every operation grizzle admits over the gate types (smallint, integer,
  * bigint, numeric, double precision, real and money), and each admitted cast between them, at operands drawn at every
  * boundary the operation turns on and spelled as PostgreSQL may store them (a display scale past the least, a float
  * zero's sign).
@@ -40,7 +40,7 @@ import { caseChunk, compareAnswers, type PgAnswer, runCases } from "#test/pg/com
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * The Compute catalogue against PostgreSQL 19 agrees with PostgreSQL on the result type and value of every operation at every boundary, and refuses only what the values justify.
+ * The scalar catalogue against PostgreSQL 19 agrees with PostgreSQL on the result type and value of every operation at every boundary, and refuses only what the values justify.
  *
  * Its pre-conversion budget: runs casePerEntry, coverage cases casePerEntry (test/pg/compute/catalogue.test.ts at c568eb123).
  */

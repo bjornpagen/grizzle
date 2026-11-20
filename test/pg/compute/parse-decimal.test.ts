@@ -1,5 +1,5 @@
 /**
- * Compute.parseDecimal on PostgreSQL 19: over drawn pairs of decimal texts (test/support/lexical.ts decimalTextGen),
+ * Text.parseDecimal on PostgreSQL 19: over drawn pairs of decimal texts (test/support/lexical.ts decimalTextGen),
  * each part's count of digits at an edge the parse turns on (256 integer and 255 fraction digits, the widest
  * numeric(p, s) form's, and the form's own 16,384 bytes, numeric's 16,383 fraction digits among them), leading and
  * trailing zeros, signs, bare fractions, trailing points and zeros, the second of a pair the first's value spelled
@@ -44,7 +44,7 @@ import { canonicalDecimal, decimalOrder } from "#test/support/oracle/evaluate/de
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Compute.parseDecimal on PostgreSQL 19 the parse's SQL, a stored range, the host evaluator and XML Schema's decimal mapping agree exactly on every decimal text.
+ * Text.parseDecimal on PostgreSQL 19 the parse's SQL, a stored range, the host evaluator and XML Schema's decimal mapping agree exactly on every decimal text.
  *
  * Its pre-conversion budget: runs 100, coverage cases 40 (test/pg/compute/parse-decimal.test.ts at 22a8e17e9).
  */

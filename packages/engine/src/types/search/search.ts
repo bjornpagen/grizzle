@@ -45,7 +45,7 @@ export type SearchDocumentConstructor = <const C extends TextSearchConfiguration
 ) => GeneratedField<SearchDocumentField<C>>
 
 /**
- * A query of full text search, Compute.websearchQuery's or Compute.plainQuery's: its text and the parser that reads it,
+ * A query of full text search, Search.websearch's or Search.plain's: its text and the parser that reads it,
  * which a match or a rank parses under the document it meets. It is no term: no position but a match's or a rank's
  * takes one. P are the parameters its text needs, and O its text's origin.
  */

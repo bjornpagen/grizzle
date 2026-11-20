@@ -69,7 +69,7 @@ const integerCarriers: ReadonlySet<string> = new Set(["int2", "int4", "int8", "e
 /**
  * Whether a float term holds no -0, by its own form: its type holds no zero (scalar/compute/typing.ts excludesZero, a
  * contract whose predicate excludes it); it is a cast of an integer, whose one zero is +0; a literal other than -0; or
- * a Compute.cond whose two values hold none.
+ * a Logic.cond whose two values hold none.
  */
 const holdsNoNegativeZero = (e: ScalarExpr): boolean => {
 	if (excludesZero(e.type)) {

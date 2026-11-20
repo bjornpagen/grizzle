@@ -5,7 +5,7 @@ import { Array as Arr, Effect, Order, String as Str } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Fn } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, fn, relation, rows, schema } from "#compiler/public/schema.ts"
@@ -95,7 +95,7 @@ export const programsOf = (name: string) => {
 	})
 	const graded = query(level).rule((r) => {
 		const { session, shift } = v(Open, "open")
-		const run = Compute.rowsOf(grade, { program: linesOf.bind({ session }), shift })
+		const run = Fn.rows(grade, { program: linesOf.bind({ session }), shift })
 		const { pos, out } = v(run, "run")
 		return r
 			.match(Open, { session, shift })

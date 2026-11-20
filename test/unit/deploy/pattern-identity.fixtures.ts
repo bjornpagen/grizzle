@@ -91,7 +91,7 @@ export const spellingCases: Gen<SpellingCase> = (source) => {
 
 const t = field("t")
 
-/** Compute.matches(t, pattern), its pattern the literal of its pattern value. */
+/** Text.matches(t, pattern), its pattern the literal of its pattern value. */
 const matches = (pattern: PatternValue): ExprDesc => ({
 	kind: "compute",
 	fn: "matches",
@@ -99,7 +99,7 @@ const matches = (pattern: PatternValue): ExprDesc => ({
 })
 
 /**
- * Compute.when(Compute.matches(t, pattern), (p) => Compute.octetLength(p) >= 0, true): a guard of the pattern, its
+ * Logic.when(Text.matches(t, pattern), (p) => Text.octetLength(p) >= 0, true): a guard of the pattern, its
  * branch reading its parameter.
  */
 const guarded = (pattern: PatternValue): ExprDesc => ({

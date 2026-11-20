@@ -10,7 +10,7 @@ import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { clockedMember, workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Num, Type } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -75,7 +75,7 @@ const changes = {
 					r.and(
 						r.eq(step, r.param("step", pg.integer)),
 						r.eq(attempt, r.param("attempt", pg.integer)),
-						r.lt(Compute.add(Compute.base(at), ttl), Compute.base(r.param("now", Instant)))
+						r.lt(Num.add(Type.base(at), ttl), Type.base(r.param("now", Instant)))
 					)
 				)
 				.find({ step, attempt: r.param("next", pg.integer), at: r.param("now", Instant), ttl })

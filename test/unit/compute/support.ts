@@ -71,7 +71,7 @@ import { parsedName } from "#test/support/kernel/naming.ts"
 import { referencePatterns } from "#test/support/oracle/reference/evaluate.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 
-/** An operand as the Compute catalogue reads one: its SQL type, its column and its ScalarType. */
+/** An operand as the scalar catalogue reads one: its SQL type, its column and its ScalarType. */
 export interface TestOperand {
 	readonly sql: SqlTag
 	readonly column: Column<unknown>
@@ -155,10 +155,10 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 }
 
 /**
- * Shared helpers for the Compute tests.
+ * Shared helpers for the scalar tests.
  *
  * Field descriptors here carry the Description, the SQL type and the column every descriptor carries, which is all
- * the Compute catalogue reads from one, and the ScalarType the descriptor registry reads from the Description
+ * the scalar catalogue reads from one, and the ScalarType the descriptor registry reads from the Description
  * (scalar/registry.ts scalarTypeOf) in a schema's environment: the rosters declared here, every pattern as
  * written, and each contract's predicate table, built by contractPredicateTable as the checker builds it. renderSql
  * prints a lowered expression tree as PostgreSQL text through the SQL AST printer, so a test can run exactly what the
@@ -188,7 +188,7 @@ export const testPg = {
 		field({ kind: "numeric", precision, scale }, "numeric"),
 	/**
 	 * A computed numeric at numeric's own limits (types.ts anyNumeric): the type of an operand reaching every finite
-	 * value PostgreSQL's numeric holds, as a derived relation's inferred column or a Compute.numeric conversion does. No
+	 * value PostgreSQL's numeric holds, as a derived relation's inferred column or a Num.numeric conversion does. No
 	 * declaration states one, so it is an operand with no Description, never a field.
 	 */
 	computedNumeric: { sql: "numeric", column: plainColumns.numeric, scalar: anyNumeric },
@@ -267,7 +267,7 @@ export const param = (name: string, of: TestField): ScalarTerm =>
 	scalarTerm({ kind: "param", name, type: of.desc }, of.scalar, of)
 
 /**
- * An env's variables: each a column of node n0; a literal of a field's type, as Compute.literal makes one; or a bare
+ * An env's variables: each a column of node n0; a literal of a field's type, as Type.literal makes one; or a bare
  * literal, which states no type and so has the one its kind gives it, a Decimal's a computed numeric at numeric's own
  * limits (typing.ts bareLiteral). lowerWith lowers a literal binding as that literal (withLiterals).
  */
@@ -348,7 +348,7 @@ const leafName = (
 ): string => (desc.kind === "var" ? desc.var : desc.kind === "field" ? desc.field : desc.kind)
 
 /**
- * `e` with each leaf `vars` binds to a literal replaced by that literal, at its field's type, the node Compute.literal
+ * `e` with each leaf `vars` binds to a literal replaced by that literal, at its field's type, the node Type.literal
  * makes, or at none, a bare literal's, so the lowering types it as a literal, its bounds and facts its own value's, as
  * the product lowers every literal; a leaf bound to a column stays a leaf.
  */
@@ -612,9 +612,7 @@ const literalExpr = (literal: TypedLiteral, t: ScalarType, options: RenderOption
 			return { kind: "literal", value: { kind: "int", value: BigInt(code) }, type }
 		}
 		case "handles":
-			throw new Error(
-				"the compute suites render no set literal: bit(n) has no Compute operand here"
-			)
+			throw new Error("the compute suites render no set literal: bit(n) has no scalar operand here")
 		case "span":
 			return {
 				kind: "literal",

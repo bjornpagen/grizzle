@@ -172,7 +172,7 @@ const literalOfDesc = (value: LiteralDesc): ExprDesc => ({
 	value
 })
 
-/** A Compute operation's description. */
+/** A scalar operation's description. */
 const computed = (
 	fn: "union" | "intersection" | "difference" | "disjoint" | "singleton",
 	args: ReadonlyArray<ExprDesc>

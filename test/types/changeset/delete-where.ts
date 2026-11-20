@@ -71,7 +71,7 @@ const directiveOf = (c: DeleteWhereCase): string => {
 		case "literals":
 		case "a parameter of another type":
 		case "a typed constant":
-		case "a Compute term":
+		case "a scalar term":
 		case "a variable":
 			return `// @ts-expect-error -- refused: ${c.shape} is no parameter of its field's type nor a literal of it`
 	}

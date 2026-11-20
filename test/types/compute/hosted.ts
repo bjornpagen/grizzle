@@ -7,7 +7,7 @@ import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
 import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 
 /**
- * The hosted-operation program: the box of every Compute function the host does not evaluate (computeSpecs, check
+ * The hosted-operation program: the box of every scalar function the host does not evaluate (computeSpecs, check
  * false) and one it does, abs, at every position a term stands in a schema, exhausted and printed as one program the
  * type batch checks.
  *
@@ -19,7 +19,7 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * position alone. widthBucket is the one function of the roster left out: no term of it typechecks over a field.
  */
 
-/** The Compute functions of the box: every one computeSpecs marks check false but widthBucket, then abs. */
+/** The scalar functions of the box: every one computeSpecs marks check false but widthBucket, then abs. */
 const computeFunctions = [
 	"quot",
 	"rem",
@@ -37,8 +37,8 @@ const computeFunctions = [
 	"abs"
 ] as const satisfies ReadonlyArray<ComputeFn>
 
-/** The operations of the box: its Compute functions, then a call of a declared function, scale, which PostgreSQL alone
- * evaluates (Compute.call). */
+/** The operations of the box: its scalar functions, then a call of a declared function, scale, which PostgreSQL alone
+ * evaluates (Fn.call). */
 const functions = [...computeFunctions, "call"] as const
 
 type Fn = (typeof functions)[number]
@@ -79,76 +79,76 @@ const termOf: {
 } = {
 	quot: {
 		family: "dec",
-		term: (a) => `Compute.when(Compute.nonzero(${a}), (k) => Compute.quot(${a}, k), ${a})`,
+		term: (a) => `Logic.when(Num.nonzero(${a}), (k) => Num.quot(${a}, k), ${a})`,
 		stored: "pg.numeric(10, 2)"
 	},
 	rem: {
 		family: "dec",
-		term: (a) => `Compute.when(Compute.nonzero(${a}), (k) => Compute.rem(${a}, k), ${a})`,
+		term: (a) => `Logic.when(Num.nonzero(${a}), (k) => Num.rem(${a}, k), ${a})`,
 		stored: "pg.numeric(10, 2)"
 	},
 	round: {
 		family: "dec",
-		term: (a) => `Compute.when(Compute.isFinite(${a}), (k) => Compute.round(k), ${a})`,
+		term: (a) => `Logic.when(Num.isFinite(${a}), (k) => Num.round(k), ${a})`,
 		stored: "pg.numeric(10, 2)"
 	},
 	trunc: {
 		family: "dec",
-		term: (a) => `Compute.when(Compute.isFinite(${a}), (k) => Compute.trunc(k), ${a})`,
+		term: (a) => `Logic.when(Num.isFinite(${a}), (k) => Num.trunc(k), ${a})`,
 		stored: "pg.numeric(10, 2)"
 	},
 	ceil: {
 		family: "dec",
-		term: (a) => `Compute.when(Compute.isFinite(${a}), (k) => Compute.ceil(k), ${a})`,
+		term: (a) => `Logic.when(Num.isFinite(${a}), (k) => Num.ceil(k), ${a})`,
 		stored: "pg.numeric(10, 2)"
 	},
 	floor: {
 		family: "dec",
-		term: (a) => `Compute.when(Compute.isFinite(${a}), (k) => Compute.floor(k), ${a})`,
+		term: (a) => `Logic.when(Num.isFinite(${a}), (k) => Num.floor(k), ${a})`,
 		stored: "pg.numeric(10, 2)"
 	},
 	gcd: {
 		family: "int",
 		term: (a) =>
-			`Compute.when(Compute.within(Compute.gcd(${a}, ${a}), 0n, 1000n), (k) => Compute.cast(k, pg.bigint), 0n)`,
+			`Logic.when(Num.within(Num.gcd(${a}, ${a}), 0n, 1000n), (k) => Type.cast(k, pg.bigint), 0n)`,
 		stored: "pg.bigint"
 	},
 	lcm: {
 		family: "int",
 		term: (a) =>
-			`Compute.when(Compute.within(Compute.lcm(${a}, ${a}), 0n, 1000n), (k) => Compute.cast(k, pg.bigint), 0n)`,
+			`Logic.when(Num.within(Num.lcm(${a}, ${a}), 0n, 1000n), (k) => Type.cast(k, pg.bigint), 0n)`,
 		stored: "pg.bigint"
 	},
 	power: {
 		family: "dbl",
-		term: (a) => `Compute.when(Compute.positive(${a}), (k) => Compute.power(k, 2), 0)`,
+		term: (a) => `Logic.when(Num.positive(${a}), (k) => Num.power(k, 2), 0)`,
 		stored: 'pg["double precision"]'
 	},
 	sqrt: {
 		family: "dbl",
-		term: (a) => `Compute.sqrt(Compute.abs(${a}))`,
+		term: (a) => `Num.sqrt(Num.abs(${a}))`,
 		stored: 'pg["double precision"]'
 	},
 	minScale: {
 		family: "dec",
-		term: (a) => `Compute.when(Compute.isFinite(${a}), (k) => Compute.minScale(k), 0)`,
+		term: (a) => `Logic.when(Num.isFinite(${a}), (k) => Num.minScale(k), 0)`,
 		stored: "pg.integer"
 	},
-	numeric: { family: "int", term: (a) => `Compute.numeric(${a})`, stored: "pg.numeric(10, 2)" },
+	numeric: { family: "int", term: (a) => `Num.numeric(${a})`, stored: "pg.numeric(10, 2)" },
 	cosineDistance: {
 		family: "vec",
-		term: (a) => `Compute.cosineDistance(${a}, ${a})`,
+		term: (a) => `Distance.cosine(${a}, ${a})`,
 		stored: 'pg["double precision"]'
 	},
 	abs: {
 		family: "int",
 		term: (a) =>
-			`Compute.when(Compute.within(Compute.abs(${a}), 0n, 1000n), (k) => Compute.cast(k, pg.bigint), 0n)`,
+			`Logic.when(Num.within(Num.abs(${a}), 0n, 1000n), (k) => Type.cast(k, pg.bigint), 0n)`,
 		stored: "pg.bigint"
 	},
 	call: {
 		family: "int",
-		term: (a) => `Compute.call(scale, { x: ${a}, k: 2n })`,
+		term: (a) => `Fn.call(scale, { x: ${a}, k: 2n })`,
 		stored: "pg.bigint"
 	}
 }
@@ -183,7 +183,7 @@ const refusedCell = (c: HostedCase): boolean =>
 const statementOf = (c: HostedCase, index: number): string => {
 	const { family, term, stored } = termOf[c.fn]
 	const field = familyField[family]
-	const compared = (a: string) => `Compute.eq(${term(a)}, ${term(a)})`
+	const compared = (a: string) => `Logic.eq(${term(a)}, ${term(a)})`
 	switch (c.position) {
 		case "check":
 			return `check("C${index}", Cell, (r) => ${compared(`r.${field}`)})`
@@ -225,7 +225,7 @@ export const hostedProgram = (
 ): Program => [
 	preludeModule(
 		"index.ts",
-		"// Generated by test/types/compute/hosted.ts: each Compute function at each position a term stands in a schema.",
+		"// Generated by test/types/compute/hosted.ts: each scalar function at each position a term stands in a schema.",
 		preludeFrom(prelude, entry),
 		[
 			{ owner: batchOwned, lines: Str.split(hostedHeader, "\n") },

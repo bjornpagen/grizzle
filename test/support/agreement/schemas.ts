@@ -3591,7 +3591,7 @@ const definitionSource = (
 			"total: r.count()",
 			...Arr.map(extras, (x) =>
 				x.kind === "literal"
-					? `${x.name}: Cp.Compute.literal(Fi.pg.integer, 1)`
+					? `${x.name}: Cp.Type.literal(Fi.pg.integer, 1)`
 					: `${x.name}: r.${x.kind}(${x.field})`
 			)
 		],
@@ -4121,7 +4121,7 @@ const predicateProbe = (d: Drawing, base: Base): Probe => {
 			case "select":
 				return `Sc.select(${ids(r.name)}, (row) => row.eq(row.${field.name}, ${operand(ids, `row.${field.name}`)}))`
 			case "contract":
-				return `Fi.contract("Probe", ${ids(r.name)}.fields.${field.name}, (x) => Cp.Compute.eq(x, ${operand(ids, "x")}))`
+				return `Fi.contract("Probe", ${ids(r.name)}.fields.${field.name}, (x) => Cp.Logic.eq(x, ${operand(ids, "x")}))`
 		}
 	}
 	return {
@@ -4288,7 +4288,7 @@ const literalProbe = (d: Drawing, base: Base): Probe => {
 					}
 				case "contract":
 					return oneLine(
-						`export const ${own} = Fi.contract("Probe", ${field}, (x) => Cp.Compute.eq(x, ${literal.source}))`
+						`export const ${own} = Fi.contract("Probe", ${field}, (x) => Cp.Logic.eq(x, ${literal.source}))`
 					)
 			}
 		},
@@ -5238,7 +5238,7 @@ const closedDeclarations = (c: ClosedSpec, ids: Ids): ReadonlyArray<readonly [st
 						)})), flags: Fi.generated(Fi.bits(${ids(Arr.lastNonEmpty(c.key).name)}), ${ids("Rule")}.row(${Arr.join(
 							Arr.map(Arr.initNonEmpty(names), (name) => `r.${name}`),
 							", "
-						)})), next: Fi.generated(Fi.pg.bigint, Cp.Compute.cast(Cp.Compute.add(r.depth, 1), Fi.pg.bigint)) }))`
+						)})), next: Fi.generated(Fi.pg.bigint, Cp.Type.cast(Cp.Num.add(r.depth, 1), Fi.pg.bigint)) }))`
 					] as const
 				]
 			: []),
@@ -6446,14 +6446,14 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 	if (form === "refinedGenerated") {
 		d.note("refinedGenerated")
 	}
-	const successorSource = "Cp.Compute.cast(Cp.Compute.add(r.depth, 1), Fi.pg.bigint)"
+	const successorSource = "Cp.Type.cast(Cp.Num.add(r.depth, 1), Fi.pg.bigint)"
 	const nextSource = `Fi.generated(Fi.pg.bigint, ${successorSource})`
 	const callbackSource = (set: string, tally: string): string => {
 		switch (form) {
 			case "readsCaller":
-				return `{ g: Fi.generated(${set}, Cp.Compute.union(r.w, r.w)) }`
+				return `{ g: Fi.generated(${set}, Cp.Bits.union(r.w, r.w)) }`
 			case "refinedGenerated":
-				return `{ t: Fi.generated(Tx.str.regex(${jsonText(doubledPattern)}), Cp.Compute.concat(r.word, r.word)) }`
+				return `{ t: Fi.generated(Tx.str.regex(${jsonText(doubledPattern)}), Cp.Text.concat(r.word, r.word)) }`
 			case "generatedContract":
 				return `{ c: Fi.generated(${tally}, ${successorSource}) }`
 			case "generatedReadsGenerated":
@@ -7142,7 +7142,7 @@ const castProbe = (d: Drawing): Probe => {
 		refused: "castFits",
 		text: (_ids, own) =>
 			oneLine(
-				`export const ${own} = Sc.relation.generated("Cast", { id: Fi.Id, depth: Fi.pg.${from} }, ["id"], (r) => ({ next: Fi.generated(Fi.pg.${to}, Cp.Compute.cast(Cp.Compute.add(r.depth, ${from === "bigint" ? "1n" : "1"}), Fi.pg.${to})) }))`
+				`export const ${own} = Sc.relation.generated("Cast", { id: Fi.Id, depth: Fi.pg.${from} }, ["id"], (r) => ({ next: Fi.generated(Fi.pg.${to}, Cp.Type.cast(Cp.Num.add(r.depth, ${from === "bigint" ? "1n" : "1"}), Fi.pg.${to})) }))`
 			),
 		judge: () =>
 			compiling(() => {

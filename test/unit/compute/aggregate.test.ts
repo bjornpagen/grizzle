@@ -1,7 +1,7 @@
 /**
  * Aggregates over generated inputs. min and max, LEAST and GREATEST return one of their inputs, so what a head delivers
  * keeps the contract that input has, over a contract drawn over each type they are defined on: a column of the contract
- * and a parameter of it, which a rule reads as its base, deliver the contract, and Compute.base of a column the plain
+ * and a parameter of it, which a rule reads as its base, deliver the contract, and Type.base of a column the plain
  * value. The oracle is the compiled heading's type.
  *
  * - Conditional counts: sum(cond(p, 1, 0)) over literals of one carrier counts by FILTER, and every other shape stays
@@ -135,7 +135,7 @@ export const theOverloadRegistryNamesANodeForEveryWordOfTheDescriptionVocabulary
 			kind: "specification",
 			name: "the registry lists a node of every function it names"
 		},
-		box: "each node every Compute function lowers to, every comparison, every connective and the cast",
+		box: "each node every scalar function lowers to, every comparison, every connective and the cast",
 		kept: [],
 		kills: [
 			{

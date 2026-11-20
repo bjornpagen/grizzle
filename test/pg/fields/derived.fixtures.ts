@@ -44,7 +44,6 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { login } from "#compiler/program/workload/login.ts"
-import { Compute } from "#compiler/public/compute.ts"
 import { Bits, bits, closedId, generated, pg } from "#compiler/public/fields.ts"
 import {
 	type AnyClosed,
@@ -465,35 +464,35 @@ export const builtOf = (name: string, m: Model, declaration: Declaration): Built
 			const countOf = (expr: CountExpr) => {
 				switch (expr) {
 					case "|a|":
-						return Compute.cardinality(r.a)
+						return Bits.cardinality(r.a)
 					case "|b|":
-						return Compute.cardinality(r.b)
+						return Bits.cardinality(r.b)
 					case "|a ∪ b|":
-						return Compute.cardinality(Compute.union(r.a, r.b))
+						return Bits.cardinality(Bits.union(r.a, r.b))
 					case "|a ∩ b|":
-						return Compute.cardinality(Compute.intersection(r.a, r.b))
+						return Bits.cardinality(Bits.intersection(r.a, r.b))
 				}
 			}
 			const setOf = (expr: SetExpr) => {
 				switch (expr) {
 					case "a ∪ b":
-						return Compute.union(r.a, r.b)
+						return Bits.union(r.a, r.b)
 					case "a ∩ b":
-						return Compute.intersection(r.a, r.b)
+						return Bits.intersection(r.a, r.b)
 					case "a − b":
-						return Compute.difference(r.a, r.b)
+						return Bits.difference(r.a, r.b)
 					case "b − a":
-						return Compute.difference(r.b, r.a)
+						return Bits.difference(r.b, r.a)
 					case "a ∪ L":
-						return Compute.union(r.a, Bits.of(Tier, markedOf(m.tier)))
+						return Bits.union(r.a, Bits.of(Tier, markedOf(m.tier)))
 					case "a ∩ L":
-						return Compute.intersection(r.a, Bits.of(Tier, markedOf(m.tier)))
+						return Bits.intersection(r.a, Bits.of(Tier, markedOf(m.tier)))
 					case "a − L":
-						return Compute.difference(r.a, Bits.of(Tier, markedOf(m.tier)))
+						return Bits.difference(r.a, Bits.of(Tier, markedOf(m.tier)))
 					case "{tier}":
-						return Compute.singleton(r.tier)
+						return Bits.singleton(r.tier)
 					case "a ∪ {tier}":
-						return Compute.union(r.a, Compute.singleton(r.tier))
+						return Bits.union(r.a, Bits.singleton(r.tier))
 				}
 			}
 			const pairOf = (expr: PairExpr) => {
@@ -501,9 +500,9 @@ export const builtOf = (name: string, m: Model, declaration: Declaration): Built
 					case "Pair.row(tier)":
 						return Pair.row(r.tier)
 					case "Pair.row(tier) ∪ a":
-						return Compute.union(Pair.row(r.tier), r.a)
+						return Bits.union(Pair.row(r.tier), r.a)
 					case "Pair.row(tier) ∩ {tier}":
-						return Compute.intersection(Pair.row(r.tier), Compute.singleton(r.tier))
+						return Bits.intersection(Pair.row(r.tier), Bits.singleton(r.tier))
 				}
 			}
 			const weightOf = (expr: WeightExpr) => {

@@ -359,7 +359,7 @@ export const closedTableOf = (checked: Pick<CheckedSchema, "closed">): ClosedTab
  *   proved tautology is the canonical wildcard), and each contract's predicate as the total-fragment
  *   table its ContractLiteral check evaluates. Regex membership of a constant is the text package's
  *   NFA, never RegExp.
- * - Query descriptors. A query may carry descriptors of its own: a Compute.cast target, a Compute.literal type, a
+ * - Query descriptors. A query may carry descriptors of its own: a Type.cast target, a Type.literal type, a
  *   relation parameter's heading, a context's fields. A contract named there with a descriptor other than the schema's,
  *   or than another descriptor of the same query, reuses one name for two descriptors: DuplicateIdentity. A closedId
  *   over a roster the schema does not declare is MalformedDescription.
@@ -715,7 +715,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	/**
 	 * A generated field's writing: its expression, which keeps the generated-field rule (#ordinaryInfo checked it), typed
 	 * in "check" mode over its row, each field a column of `rowNode` of its written type, and the closed relations it may
-	 * apply, and held at its declared type. A Compute.base emits no node of its own, so where the node still carries the
+	 * apply, and held at its declared type. A Type.base emits no node of its own, so where the node still carries the
 	 * contract the term drops, the expression casts it, as a query's head does. A node that computes the type its column
 	 * enters a value at (ir/scalar.ts enteredType), the plain text of a refined text a computation's type states, is
 	 * stored as it is computed: the column's domain judges it, and the term's refinement, a translation's image, a

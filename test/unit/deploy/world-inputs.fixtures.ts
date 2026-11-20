@@ -11,7 +11,7 @@ import { draftCodebook, noPreviousRosters } from "#compiler/ir/codes.ts"
 import { noSpellings } from "#compiler/ir/pattern.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { generated, pg } from "#compiler/public/fields.ts"
 import { contained, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { installationsOf, ownLogin, rostersOf } from "#compiler/schema/own.ts"
@@ -43,7 +43,7 @@ export const turnGen: Gen<Turn> = (s) => ({
 const installationOf = (turn: Turn, keyed: boolean, step: bigint): Installation => {
 	const List = relation("List", { id: Id }, ["id"])
 	const Item = relation.generated("Item", { id: Id, list: Id, n: pg.bigint }, ["id"], (r) => ({
-		g: generated(pg.bigint, Compute.cond(Compute.gt(r.n, step), r.n, 0n))
+		g: generated(pg.bigint, Logic.cond(Logic.gt(r.n, step), r.n, 0n))
 	}))
 	const base = schema(
 		"WorldInputs",

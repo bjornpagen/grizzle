@@ -10,7 +10,7 @@ import {
 } from "#compiler/ir/codes.ts"
 import { noSpellings } from "#compiler/ir/pattern.ts"
 import { Roster, type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Type } from "#compiler/public/compute.ts"
 import { bits, closedId, contract, generated, pg } from "#compiler/public/fields.ts"
 import { check, type RowScalars, type Statement } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -146,8 +146,8 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 	)
 	const kindName = fresh("LawKind", taken)
 	const Kind = closedBuilder(kindName, live, level.order, [])
-	const Count = contract("LawCount", pg.integer, (x) => Compute.ge(x, level.least[0]))
-	const Tally = contract("LawTally", pg.integer, (x) => Compute.ge(x, level.least[1]))
+	const Count = contract("LawCount", pg.integer, (x) => Logic.ge(x, level.least[0]))
+	const Tally = contract("LawTally", pg.integer, (x) => Logic.ge(x, level.least[1]))
 	const holderName = fresh("LawHolder", taken)
 	const holderFields = { id: Id, code: closedId(Kind), marks: bits(Kind), count: Count }
 	const Holder =
@@ -164,7 +164,7 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 				counterFields,
 				["id"],
 				(r: RowScalars<Relation<string, typeof counterFields, readonly ["id"]>>) => ({
-					spare: generated(pg.integer, Compute.base(r.tally))
+					spare: generated(pg.integer, Type.base(r.tally))
 				}),
 				[]
 			)

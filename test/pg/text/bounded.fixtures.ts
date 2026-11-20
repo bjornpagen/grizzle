@@ -47,7 +47,7 @@ export const boundedCase: Gen<BoundedCase> = (source) => {
 }
 
 /**
- * Compute.when(Compute.within(Compute.octetLength(v), 0, bytes), () => Compute.matches(v, pattern), false): a match
+ * Logic.when(Num.within(Text.octetLength(v), 0, bytes), () => Text.matches(v, pattern), false): a match
  * guarded by the text's bytes, the program's answer false past them.
  */
 const guardedMatch = (pattern: string, bytes: number): ExprDesc => ({

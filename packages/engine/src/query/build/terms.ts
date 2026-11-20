@@ -109,14 +109,14 @@ const carriedTerm = <T, S extends SqlTag>(
  * member holding its expression (ir/open.ts OpenExpr), its type, when known, registered with it; a predicate has `predicate: true` and an
  * `expr`; a parameter is a term over `{ kind: "param", name, type }` of its descriptor's type. Every term and predicate made here is
  * registered by identity in that module's registry, which is what termExpr reads, so a copy of one is no term. A
- * variable or parent variable whose type the builder knows is a Compute term (Compute's scalarTerm), so Compute
+ * variable or parent variable whose type the builder knows is a scalar term (the builders' scalarTerm), so the catalogue
  * arithmetic, casts and comparisons compose with it and type their literal operands by it; one whose type the builder
  * cannot know (a field of a query whose head holds a parameter, or of a query rebuilt from its Description) is an
  * untyped term with the same comparisons, recorded as written for the checker to type.
  *
- * The comparisons, `between` and `membership` delegate to Compute whenever the first operand's type is known and the other
+ * The comparisons, `between` and `membership` delegate to Logic whenever the first operand's type is known and the other
  * operand is not an untyped term, so a JavaScript caller's mismatch that the TypeScript signatures forbid is refused at
- * construction, exactly as Compute refuses it. A literal never stands first; a literal
+ * construction, exactly as grizzle refuses it. A literal never stands first; a literal
  * opposite a term is a value of that term's base, checked for its host representation now and against
  * any contract or regex refinement by the checker (ContractLiteral). `r.not` is relational negation only;
  * a mask is an Allen mask over the thirteen basic relations, nonempty because the empty
@@ -233,7 +233,7 @@ const operand = (value: unknown, anchor: Typing, label: string): OpenExpr => {
  * A match's or negation's binding at a field typed `field`: an operand opposite it (operand). A variable the builder
  * typed binds only a field compatible with its type (types.ts compatible), the rule each later column it binds meets
  * (check/checker.ts #compatibleBinding) and the identity a comparison's operands meet by, so a contract binds no field
- * of its bare base, nor a base one of the contract, exactly where Compute.eq of the two is refused.
+ * of its bare base, nor a base one of the contract, exactly where Logic.eq of the two is refused.
  */
 export const fieldBinding = (value: unknown, field: Typing, label: string): OpenExpr => {
 	const term = termOf(value)
@@ -264,7 +264,7 @@ const firstTerm = (value: unknown, label: string): TermOf => {
 		}
 		throw malformed(
 			label,
-			"a term first: a variable, a parent variable, a parameter or a Compute term; a literal never stands first"
+			"a term first: a variable, a parent variable, a parameter or a scalar term; a literal never stands first"
 		)
 	}
 	if (term.expr.kind === "literal" && term.expr.type === undefined) {
@@ -273,7 +273,7 @@ const firstTerm = (value: unknown, label: string): TermOf => {
 	return term
 }
 
-/** Whether Compute can type this call: a typed first operand and no untyped term among the others. */
+/** Whether the scalar catalogue can type this call: a typed first operand and no untyped term among the others. */
 const computable = (first: unknown, others: ReadonlyArray<unknown>): boolean =>
 	termOf(first)?.typing.kind === "typed" &&
 	!others.some((o) => isUntypedTerm(o) || headValueOf(o) !== undefined)
@@ -326,7 +326,7 @@ export const predicateOperand = (value: unknown, label: string): OpenExpr => {
 	if (isTerm(value)) {
 		throw malformed(label, "a predicate: compare a boolean term with r.eq(flag, true)")
 	}
-	throw malformed(label, "a predicate built from comparisons, r.and, r.or, r.not or Compute")
+	throw malformed(label, "a predicate built from comparisons, r.and, r.or, r.not or Logic")
 }
 
 /** r.and and r.or, total: of no predicate the constant true and false, of one that predicate (connectiveExpr). */
@@ -464,7 +464,7 @@ export const pack = <T, S extends SqlTag>(
 
 /**
  * Aggregates: PostgreSQL's own result type over a typed argument, refused where PostgreSQL defines no such aggregate,
- * as the Compute builders refuse an undefined operation. Its Description, and its result type when the argument's is
+ * as the scalar builders refuse an undefined operation. Its Description, and its result type when the argument's is
  * known.
  */
 const aggregateHead = (fn: AggregateName, arg: unknown): HeadDesc => {
@@ -546,7 +546,7 @@ interface OfSql<S extends SqlTag> {
 /**
  * A head term, as find holds its head (schema/record.ts headRecord): a term (a parameter, a typed constant, or the
  * head literal of a JavaScript value, typically a discriminant, among them), an aggregate or a producer. A predicate
- * is not a head term: Compute.cond(p, flag, false) states a computed boolean.
+ * is not a head term: Logic.cond(p, flag, false) states a computed boolean.
  */
 export const headTerm = (value: unknown, label: string): HeadDesc => {
 	const head = headValueOf(value)
@@ -560,11 +560,11 @@ export const headTerm = (value: unknown, label: string): HeadDesc => {
 	if (predicateExpr(value) !== undefined) {
 		throw malformed(
 			label,
-			"a head term, not a predicate: Compute.cond(p, flag, false) is a computed boolean"
+			"a head term, not a predicate: Logic.cond(p, flag, false) is a computed boolean"
 		)
 	}
 	throw malformed(
 		label,
-		"a head term: a term, an aggregate, a producer or a JavaScript value; a roster's member is X.handle(m), any other typed constant Compute.literal(F, x)"
+		"a head term: a term, an aggregate, a producer or a JavaScript value; a roster's member is X.handle(m), any other typed constant Type.literal(F, x)"
 	)
 }

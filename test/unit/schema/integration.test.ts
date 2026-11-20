@@ -1,6 +1,6 @@
 /**
- * The schema vocabulary over the real field descriptors, str.regex and the Compute catalogue:
- * a row check's field terms are typed terms of the term protocol, so Compute arithmetic, casts and charLength compose
+ * The schema vocabulary over the real field descriptors, str.regex and the scalar catalogue:
+ * a row check's field terms are typed terms of the term protocol, so Num's arithmetic, casts and charLength compose
  * with them, and ownership accepts the result.
  *
  * The relations are built by the public, typed builders; the checks go through the builder's admission core, which
@@ -19,7 +19,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { bigint } from "@bjornpagen/testing/values"
 import { Effect } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num, Text } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { key, on, relation } from "#compiler/public/schema.ts"
 import { own } from "#compiler/schema/own.ts"
@@ -37,7 +37,7 @@ import {
 	type SamePairRow
 } from "#test/unit/schema/integration.fixtures.ts"
 
-/** Row checks over the field registry and Compute composes Compute arithmetic, casts and charLength with the row's field terms, and ownership accepts the result. Its budget is its suite's before it was a property (test/unit/schema/integration.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
+/** Row checks over the field registry and the scalar catalogue composes Num's arithmetic, casts and charLength with the row's field terms, and ownership accepts the result. Its budget is its suite's before it was a property (test/unit/schema/integration.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
 export const rowChecksOverTheFieldRegistryAndComputeComposesComputeArithmeticCastsAndCharLengthWithTheRowsFieldTermsAndOwnershipAcceptsTheResult =
 	property.explore(
 		(source) => ({
@@ -59,18 +59,13 @@ export const rowChecksOverTheFieldRegistryAndComputeComposesComputeArithmeticCas
 						c.note(composed)
 						const statement =
 							composed === "arithmetic"
-								? checkBuilder("headroom", Account, (r: Row) =>
-										Compute.ge(Compute.add(r.bal, n), n)
-									)
+								? checkBuilder("headroom", Account, (r: Row) => Logic.ge(Num.add(r.bal, n), n))
 								: composed === "a cast"
 									? checkBuilder("scaled", Account, (r: Row) =>
-											Compute.ge(Compute.numeric(r.bal), `${n}.5`)
+											Logic.ge(Num.numeric(r.bal), `${n}.5`)
 										)
 									: checkBuilder("short", Account, (r: Row) =>
-											Compute.and(
-												Compute.le(Compute.charLength(r.slug), bound),
-												r.ne(r.kind, handle)
-											)
+											Logic.and(Logic.le(Text.charLength(r.slug), bound), r.ne(r.kind, handle))
 										)
 						succeeded(
 							own(
@@ -95,7 +90,7 @@ export const rowChecksOverTheFieldRegistryAndComputeComposesComputeArithmeticCas
 		}
 	)
 
-/** Row checks over the field registry and Compute refuses a row field's literal of another host kind or roster, and two contracts of different identity. Its budget is its suite's before it was a property (test/unit/schema/integration.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
+/** Row checks over the field registry and the scalar catalogue refuses a row field's literal of another host kind or roster, and two contracts of different identity. Its budget is its suite's before it was a property (test/unit/schema/integration.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
 export const rowChecksOverTheFieldRegistryAndComputeRefusesARowFieldsLiteralOfAnotherHostKindOrRosterAndTwoContractsOfDifferentIdentity =
 	property.explore(
 		(source) => ({
@@ -125,7 +120,7 @@ export const rowChecksOverTheFieldRegistryAndComputeRefusesARowFieldsLiteralOfAn
 							switch (refused) {
 								case "a number for a bigint":
 									return checkBuilder("bad", Account, (r: LooseRow) =>
-										Compute.ge(Compute.add(r.bal, n), 0n)
+										Logic.ge(Num.add(r.bal, n), 0n)
 									)
 								case "a handle off the roster":
 									return checkBuilder("bad", Account, (r: LooseRow) => r.eq(r.kind, "c"))
@@ -135,7 +130,7 @@ export const rowChecksOverTheFieldRegistryAndComputeRefusesARowFieldsLiteralOfAn
 										"a"
 									])
 									return checkBuilder("mixed", Pair, (r: SamePairRow) =>
-										Compute.ge(Compute.add(r.a, r.b), 0n)
+										Logic.ge(Num.add(r.a, r.b), 0n)
 									)
 								}
 							}

@@ -5,7 +5,7 @@ import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
@@ -32,10 +32,10 @@ const build = (name: string) => {
 		const { grp, total } = v(totals, "totals")
 		return r.match(totals, { grp, total }).find({
 			grp,
-			total: Compute.when(
-				Compute.within(total, Money.of(least), Money.of(greatest)),
-				(t) => Compute.cast(t, pg.money),
-				Compute.literal(pg.money, Money.of(0n))
+			total: Logic.when(
+				Num.within(total, Money.of(least), Money.of(greatest)),
+				(t) => Type.cast(t, pg.money),
+				Type.literal(pg.money, Money.of(0n))
 			)
 		})
 	})

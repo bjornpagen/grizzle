@@ -239,8 +239,8 @@ const regexConstructor = <
 	regexField<RegexInfer<S, RegexFlagsOf<A>>>(source, flags)
 
 /**
- * str.pattern: a closed relation's text of Compute.matches patterns, each value a pattern of grizzle's grammar under the
- * flags "u", which `Compute.matches(x, R.at(field, k...))` reads by key. Each value is admitted once, where the relation
+ * str.pattern: a closed relation's text of Text.matches patterns, each value a pattern of grizzle's grammar under the
+ * flags "u", which `Text.matches(x, R.at(field, k...))` reads by key. Each value is admitted once, where the relation
  * is read (check/closed.ts), and the relation's constants carry each one's ARE beside it (physical/ddl/constants.ts),
  * so a match reads the ARE by the key its value is read by and translates nothing as it runs. A field of any other
  * relation refuses it, since only a closed relation's values are known where the schema compiles.

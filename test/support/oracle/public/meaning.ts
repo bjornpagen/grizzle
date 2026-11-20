@@ -358,8 +358,8 @@ class Translation {
 	}
 
 	/**
-	 * A Compute term lowered by src's Compute typing over `input`'s heading, whose columns are the term's variables, typed
-	 * as the builder types it (its nominal type): a Compute.base or a widening cast emits no node of its own, so where the
+	 * A scalar term lowered by src's scalar typing over `input`'s heading, whose columns are the term's variables, typed
+	 * as the builder types it (its nominal type): a Type.base or a widening cast emits no node of its own, so where the
 	 * node it reads still carries the contract or typmod the term drops, the column casts it.
 	 */
 	computed(
@@ -391,7 +391,7 @@ class Translation {
 		}
 		const lowered = lowerTerm(termDesc(t, name), env)
 		if (!lowered.ok) {
-			throw new Error(`a computed head key Compute refuses: ${lowered.error.message}`)
+			throw new Error(`a computed head key grizzle refuses: ${lowered.error.message}`)
 		}
 		const term = lowered.value
 		if (sameScalarType(term.expr.type, term.nominal)) {
@@ -1350,9 +1350,9 @@ const assemble = (
  *   bounds' comparisons, a set the disjunction of its values' equalities, an Allen atom the mask's formula of range
  *   operators (src's Allen table), a point membership the range's element containment, and each negation an anti-join
  *   with a region over the negated relation binding the same fields;
- * - a head of variables and Compute terms is a projection, each term lowered by src's Compute typing (as the
- *   reference shares src's Compute evaluator); a head with an aggregate is a group over every variable of the region,
- *   the distinct complete bindings, keyed by the head's variables, its Compute terms and, in a child, its correlation
+ * - a head of variables and scalar terms is a projection, each term lowered by src's scalar typing (as the
+ *   reference shares src's scalar evaluator); a head with an aggregate is a group over every variable of the region,
+ *   the distinct complete bindings, keyed by the head's variables, its scalar terms and, in a child, its correlation
  *   columns, so each parent folds its own children;
  * - arms of one heading are a union, `.orderBy(...).take(k)` a take over the total order it ranks by (takeOrder), a
  *   name nothing, an attachment an Attach node whose correlation pairs each parent column the child binds with the

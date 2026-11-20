@@ -135,7 +135,7 @@ const infinite: Edge = { kind: "infinite" }
  * bounds on the integer digits (|x| < 10^digits) and fractional digits of its finite values. It proves what rests on
  * magnitudes: that a numeric expression stays inside numeric's numericMaxIntegerDigits, that a narrowing cast's value fits, that
  * a domain cast's value satisfies a contract's atoms, power's range and width_bucket's bounds. A guard narrows it
- * inside Compute.when's branch. An interval whose low end lies above its high end, and that is not NaN, holds no
+ * inside Logic.when's branch. An interval whose low end lies above its high end, and that is not NaN, holds no
  * value: the branch of a guard that cannot hold. The integer digits are negative for a value below one by an order of
  * magnitude or more, as numeric(p, s) with s above p holds: |x| < 10^(p - s). They are never fewer than
  * -numericMaxFractionDigits, below which no numeric value but zero lies, nor more than one past
@@ -310,7 +310,7 @@ const inner = (
 }
 
 /**
- * What a Compute.when guard leaves its subject inside the guarded branch (Guard), or a contract predicate's comparison
+ * What a Logic.when guard leaves its subject inside the guarded branch (Guard), or a contract predicate's comparison
  * of VALUE with a literal leaves every value of the contract: never zero leaves the interval as it is (a fact, not an
  * interval, says it), never below zero cuts it at zero, above zero cuts it open at zero, finite drops the infinities and
  * NaN, and within [low, high] cuts it to that closed interval. A one-sided comparison cuts one side as PostgreSQL orders

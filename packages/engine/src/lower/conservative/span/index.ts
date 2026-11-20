@@ -141,8 +141,8 @@ const registryCarriersAgree = (
  * - span equality and ordering (`range_eq` .. `range_ge`), and `between`, `in`, `least` and `greatest` over spans, are
  *   the registry's range comparisons and constructs: shared span variables and span-value equality compare complete
  *   span values with `=`;
- * - `Compute.lower` and `Compute.upper` are `lower(s)` and `upper(s)` over the bounded, nonempty span, which never
- *   return NULL, and `Compute.width` is `upper(s) - lower(s)` in the endpoint's base type, its
+ * - `Range.lower` and `Range.upper` are `lower(s)` and `upper(s)` over the bounded, nonempty span, which never
+ *   return NULL, and `Range.width` is `upper(s) - lower(s)` in the endpoint's base type, its
  *   subtraction an ordinary integer node; in a contract predicate or a row check the checker casts both
  *   endpoints to numeric first, so a stored width check never overflows.
  *
@@ -189,6 +189,6 @@ export const lowerSpanOp = (
 	return refuseAt(
 		"UnsupportedOperation",
 		at,
-		`a span operation ${describeOp(expr.op)}: spans admit the Allen range operators, pointIn, span comparisons, and Compute.lower, upper and width`
+		`a span operation ${describeOp(expr.op)}: spans admit the Allen range operators, pointIn, span comparisons, and Range.lower, upper and width`
 	)
 }

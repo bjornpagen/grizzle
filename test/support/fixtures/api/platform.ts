@@ -1,6 +1,6 @@
 import { ALLEN } from "#compiler/public/allen.ts"
 import { type Addition, ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num, Range, Type } from "#compiler/public/compute.ts"
 import {
 	accumulated,
 	closedId,
@@ -39,9 +39,9 @@ import { paged, refresh, workload } from "#compiler/public/workload.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 
 export const Instant = contract("Instant", pg.bigint)
-export const Micros = contract("Micros", pg.bigint, (x) => Compute.ge(x, 0n))
-export const Tokens = contract("Tokens", pg.bigint, (x) => Compute.ge(x, 0n))
-export const Rate = contract("Rate", pg.bigint, (x) => Compute.ge(x, 0n))
+export const Micros = contract("Micros", pg.bigint, (x) => Logic.ge(x, 0n))
+export const Tokens = contract("Tokens", pg.bigint, (x) => Logic.ge(x, 0n))
+export const Rate = contract("Rate", pg.bigint, (x) => Logic.ge(x, 0n))
 export const DayNo = contract("DayNo", pg.integer)
 export const MonthNo = contract("MonthNo", pg.integer)
 
@@ -601,7 +601,7 @@ export const dailySpendDefinition = query(Platform).rule((r) => {
 		.match(EventCharge, { event, workspace, amount })
 		.match(UsageEvent, { id: event, during })
 		.match(Day, { day, during: span })
-		.where(r.pointIn(Compute.lower(during, Instant), span))
+		.where(r.pointIn(Range.lower(during, Instant), span))
 		.find({ workspace, day, amount: r.sum(amount) })
 })
 const DailySpend = derived.materialized("DailySpend", dailySpendDefinition)
@@ -655,9 +655,9 @@ export const eventCost = query(Platform).rule((r) => {
 	const { kind, tokens } = v(UsageCharge, "usageCharge")
 	const { id: card, during: inForce } = v(RateCard, "rateCard")
 	const { tier, rate } = v(RateTier, "rateTier")
-	const priced = Compute.sub(
-		Compute.least(Compute.base(Compute.upper(tier, Tokens)), Compute.base(tokens)),
-		Compute.base(Compute.lower(tier, Tokens))
+	const priced = Num.sub(
+		Logic.least(Type.base(Range.upper(tier, Tokens)), Type.base(tokens)),
+		Type.base(Range.lower(tier, Tokens))
 	)
 	return r
 		.match(UsageEvent, { id: r.param("event", Id), model, during })
@@ -665,17 +665,14 @@ export const eventCost = query(Platform).rule((r) => {
 		.match(RateCard, { id: card, model, kind, during: inForce })
 		.match(RateTier, { card, tier, rate })
 		.where(
-			r.pointIn(Compute.lower(during, Instant), inForce),
-			r.lt(Compute.lower(tier, Tokens), tokens)
+			r.pointIn(Range.lower(during, Instant), inForce),
+			r.lt(Range.lower(tier, Tokens), tokens)
 		)
 		.find({
 			kind,
 			tier,
 			tokens: priced,
-			amount: Compute.div(
-				Compute.add(Compute.mul(priced, Compute.base(rate)), 500_000n),
-				1_000_000n
-			)
+			amount: Num.div(Num.add(Num.mul(priced, Type.base(rate)), 500_000n), 1_000_000n)
 		})
 })
 
@@ -688,9 +685,9 @@ export const quote = query(Platform).rule((r) => {
 	const { kind, tokens } = v(usage, "usage")
 	const { id: card, during } = v(RateCard, "rateCard")
 	const { tier, rate } = v(RateTier, "rateTier")
-	const priced = Compute.sub(
-		Compute.least(Compute.base(Compute.upper(tier, Tokens)), Compute.base(tokens)),
-		Compute.base(Compute.lower(tier, Tokens))
+	const priced = Num.sub(
+		Logic.least(Type.base(Range.upper(tier, Tokens)), Type.base(tokens)),
+		Type.base(Range.lower(tier, Tokens))
 	)
 	return r
 		.match(usage, { kind, tokens })
@@ -698,14 +695,12 @@ export const quote = query(Platform).rule((r) => {
 		.match(RateTier, { card, tier, rate })
 		.where(
 			r.allen(during, holdsPoint, r.param("now", RateCard.fields.during)),
-			r.lt(Compute.lower(tier, Tokens), tokens)
+			r.lt(Range.lower(tier, Tokens), tokens)
 		)
 		.find({
 			kind,
 			tokens,
-			amount: r.sum(
-				Compute.div(Compute.add(Compute.mul(priced, Compute.base(rate)), 500_000n), 1_000_000n)
-			)
+			amount: r.sum(Num.div(Num.add(Num.mul(priced, Type.base(rate)), 500_000n), 1_000_000n))
 		})
 })
 
@@ -746,7 +741,7 @@ export const rateHistory = query(Platform).rule((r) => {
 			during: is
 		})
 		.where(r.allen(was, ALLEN.meets, is))
-		.find({ before, after, at: Compute.upper(was, Instant) })
+		.find({ before, after, at: Range.upper(was, Instant) })
 })
 
 /**
@@ -770,8 +765,8 @@ export const repricedInMonth = query(Platform).rule((r) => {
 		.match(UsageCharge, { event, kind })
 		.match(RateCard, { model, kind, during: card })
 		.where(
-			r.pointIn(Compute.lower(card, Instant), month),
-			r.gt(Compute.lower(card, Instant), Compute.lower(month, Instant))
+			r.pointIn(Range.lower(card, Instant), month),
+			r.gt(Range.lower(card, Instant), Range.lower(month, Instant))
 		)
 		.find({ event, kind })
 })
@@ -786,7 +781,7 @@ export const spendByDay = query(Platform).rule((r) => {
 		.match(UsageEvent, { id: event, during })
 		.match(Day, { day, during: span })
 		.where(
-			r.pointIn(Compute.lower(during, Instant), span),
+			r.pointIn(Range.lower(during, Instant), span),
 			r.allen(span, insideOf, r.param("window", Day.fields.during))
 		)
 		.find({ day, spend: r.sum(amount) })
@@ -830,7 +825,7 @@ export const nearCap = query(Platform).rule((r) => {
 		.match(Workspace, { id: workspace, org: r.param("org", Id) })
 		.match(monthSpend, { workspace, month: r.param("month", MonthNo), spend })
 		.match(WorkspaceLimit, { workspace, month: r.param("month", MonthNo), cap })
-		.where(r.ge(Compute.mul(spend, 10n), Compute.mul(Compute.numeric(Compute.base(cap)), 9n)))
+		.where(r.ge(Num.mul(spend, 10n), Num.mul(Num.numeric(Type.base(cap)), 9n)))
 		.find({ workspace, spend, cap })
 })
 
@@ -941,7 +936,7 @@ export const expiringGrants = query(Platform).rule((r) => {
 	const { id, amount, valid } = v(CreditGrant, "creditGrant")
 	return r
 		.match(CreditGrant, { id, org: r.param("org", Id), amount, valid })
-		.where(r.pointIn(Compute.upper(valid, Instant), r.param("window", CreditGrant.fields.valid)))
+		.where(r.pointIn(Range.upper(valid, Instant), r.param("window", CreditGrant.fields.valid)))
 		.find({ id, amount, valid })
 })
 
@@ -952,7 +947,7 @@ export const burnDown = query(Platform).rule((r) => {
 	return r
 		.match(CreditDebit, { grant: r.param("grant", Id), event, kind, amount, during })
 		.match(Day, { day, during: span })
-		.where(r.pointIn(Compute.lower(during, Instant), span))
+		.where(r.pointIn(Range.lower(during, Instant), span))
 		.find({ day, debited: r.sum(amount) })
 })
 
@@ -990,7 +985,7 @@ export const usageLog = query(Platform)
 		const { id, model, provider, during } = v(UsageEvent, "usageEvent")
 		return r
 			.match(UsageEvent, { id, key: r.param("key", Id), model, provider, during })
-			.find({ id, model, provider, during, start: Compute.lower(during, Instant) })
+			.find({ id, model, provider, during, start: Range.lower(during, Instant) })
 	})
 	.orderBy(["start", "desc"], ["id", "asc"])
 
@@ -1038,7 +1033,7 @@ export const rollupVersusLive = query(Billing)
 					.match(EventCharge, { event, workspace: d.workspace, amount })
 					.match(UsageEvent, { id: event, during })
 					.match(Day, { day: d.day, during: span })
-					.where(r.pointIn(Compute.lower(during, Instant), span))
+					.where(r.pointIn(Range.lower(during, Instant), span))
 					.find({ total: r.sum(amount) })
 			}),
 		"option"
@@ -1050,7 +1045,7 @@ export const invoices = query(Platform)
 		const { id, period, amount, state } = v(Invoice, "invoice")
 		return r
 			.match(Invoice, { id, org: r.param("org", Id), period, amount, state })
-			.find({ id, period, amount, state, start: Compute.lower(period, Instant) })
+			.find({ id, period, amount, state, start: Range.lower(period, Instant) })
 	})
 	.orderBy(["start", "desc"], ["id", "asc"])
 
@@ -1068,7 +1063,7 @@ export const overdueInvoices = query(Platform).rule((r) => {
 	const { id, period, amount } = v(Invoice, "invoice")
 	return r
 		.match(Invoice, { id, org: r.param("org", Id), period, amount, state: "open" })
-		.where(r.le(Compute.upper(period, Instant), r.param("cutoff", Instant)))
+		.where(r.le(Range.upper(period, Instant), r.param("cutoff", Instant)))
 		.find({ id, period, amount })
 })
 
@@ -1161,7 +1156,7 @@ export const refundable = query(Platform)
 		return r
 			.match(Invoice, { id, org: r.param("org", Id), amount, state: "paid" })
 			.where(r.not(Refund, { invoice: id }))
-			.find({ invoice: id, amount, refunded: Compute.literal(pg.numeric(1, 0), 0n) })
+			.find({ invoice: id, amount, refunded: Type.literal(pg.numeric(1, 0), 0n) })
 	})
 
 /** An organization's refunds in a window, per reason. */
@@ -1204,15 +1199,9 @@ export const prorationFor = query(Platform).rule((r) => {
 	const { org, period } = v(Invoice, "invoice")
 	const { id: subscription } = v(Subscription, "subscription")
 	const { during, monthlyPrice } = v(Segment, "segment")
-	const overlap = Compute.sub(
-		Compute.least(
-			Compute.base(Compute.upper(during, Instant)),
-			Compute.base(Compute.upper(period, Instant))
-		),
-		Compute.greatest(
-			Compute.base(Compute.lower(during, Instant)),
-			Compute.base(Compute.lower(period, Instant))
-		)
+	const overlap = Num.sub(
+		Logic.least(Type.base(Range.upper(during, Instant)), Type.base(Range.upper(period, Instant))),
+		Logic.greatest(Type.base(Range.lower(during, Instant)), Type.base(Range.lower(period, Instant)))
 	)
 	return r
 		.match(Invoice, { id: r.param("invoice", Id), org, period })
@@ -1223,14 +1212,11 @@ export const prorationFor = query(Platform).rule((r) => {
 			subscription,
 			during,
 			overlap,
-			prorated: Compute.round(
-				Compute.when(
-					Compute.nonzero(Compute.numeric(Compute.base(Compute.width(period, Instant)))),
+			prorated: Num.round(
+				Logic.when(
+					Num.nonzero(Num.numeric(Type.base(Range.width(period, Instant)))),
 					(width) =>
-						Compute.div(
-							Compute.mul(Compute.numeric(Compute.base(monthlyPrice)), Compute.numeric(overlap)),
-							width
-						),
+						Num.div(Num.mul(Num.numeric(Type.base(monthlyPrice)), Num.numeric(overlap)), width),
 					0n
 				)
 			)
@@ -1256,15 +1242,9 @@ export const recognizedIn = query(Platform).rule((r) => {
 	const { id: subscription } = v(Subscription, "subscription")
 	const { line, during, amount } = v(Allocation, "allocation")
 	const { during: month } = v(Month, "month")
-	const overlap = Compute.sub(
-		Compute.least(
-			Compute.base(Compute.upper(during, Instant)),
-			Compute.base(Compute.upper(month, Instant))
-		),
-		Compute.greatest(
-			Compute.base(Compute.lower(during, Instant)),
-			Compute.base(Compute.lower(month, Instant))
-		)
+	const overlap = Num.sub(
+		Logic.least(Type.base(Range.upper(during, Instant)), Type.base(Range.upper(month, Instant))),
+		Logic.greatest(Type.base(Range.lower(during, Instant)), Type.base(Range.lower(month, Instant)))
 	)
 	return r
 		.match(Subscription, { id: subscription, org: r.param("org", Id) })
@@ -1274,14 +1254,10 @@ export const recognizedIn = query(Platform).rule((r) => {
 		.find({
 			line,
 			during,
-			recognized: Compute.round(
-				Compute.when(
-					Compute.nonzero(Compute.numeric(Compute.base(Compute.width(during, Instant)))),
-					(width) =>
-						Compute.div(
-							Compute.mul(Compute.numeric(Compute.base(amount)), Compute.numeric(overlap)),
-							width
-						),
+			recognized: Num.round(
+				Logic.when(
+					Num.nonzero(Num.numeric(Type.base(Range.width(during, Instant)))),
+					(width) => Num.div(Num.mul(Num.numeric(Type.base(amount)), Num.numeric(overlap)), width),
 					0n
 				)
 			)

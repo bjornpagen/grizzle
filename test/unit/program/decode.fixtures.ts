@@ -26,7 +26,7 @@ import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import { noSpellings } from "#compiler/ir/pattern.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { previewOver } from "#compiler/program/preview.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Text } from "#compiler/public/compute.ts"
 import { closed } from "#compiler/public/dynamic.ts"
 import {
 	bits,
@@ -61,13 +61,11 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 const Tone = closed.ordered("Tone", ["low", "mid", "high"])
 
 /** A text of at most four characters, a contract the host judges, and a word of lower-case letters, a pattern. */
-const Short = contract("Short", str.regex("^.*$", "su"), (v) =>
-	Compute.le(Compute.charLength(v), 4)
-)
+const Short = contract("Short", str.regex("^.*$", "su"), (v) => Logic.le(Text.charLength(v), 4))
 const Word = str.regex("^[a-z]+$")
 
 /** A count of no fewer than none: an integer under a contract. */
-const Count = contract("Count", pg.integer, (v) => Compute.ge(v, 0))
+const Count = contract("Count", pg.integer, (v) => Logic.ge(v, 0))
 
 /** A relation inserted flat: a field of each carrier an export's rows hold, a contract, a pattern and a bytes field. */
 const Flat = relation(

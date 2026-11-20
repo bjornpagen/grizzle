@@ -248,7 +248,7 @@ const completions = (keys: ObjectName, key: ClosedKey, prefix: ReadonlyArray<Exp
 }
 
 /**
- * A closed read: C.at's payload field `field`, a str.pattern field's ARE at a full key, which Compute.matches reads
+ * A closed read: C.at's payload field `field`, a str.pattern field's ARE at a full key, which Text.matches reads
  * as its pattern, C.row's completions of a prefix, or a membership test at a full key.
  */
 export type ClosedRead =

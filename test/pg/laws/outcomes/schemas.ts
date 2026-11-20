@@ -1,5 +1,5 @@
 import type { LawId } from "#compiler/core/ids.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import {
 	check,
@@ -16,7 +16,7 @@ import { Id } from "#test/support/ids.ts"
 import { installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
 
 const Region = closed.ordered("Region", ["North", "South"])
-export const Seats = contract("Seats", pg.integer, (x) => Compute.le(x, 500))
+export const Seats = contract("Seats", pg.integer, (x) => Logic.le(x, 500))
 const code = str.regex("^.{1,20}$", "su")
 export const Club = relation(
 	"Club",

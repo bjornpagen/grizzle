@@ -10,7 +10,7 @@ import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { sameScalarType, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Text } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -40,11 +40,11 @@ const State = str.regex("^(?:draft|published)$")
 
 const Prose = str.regex("^.*$", "su")
 
-const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n))
+const Cents = contract("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
 
 const Brand = contract("Brand", pg.bigint)
 
-const Handle = contract("Handle", Slug, (x) => Compute.le(Compute.charLength(x), 20))
+const Handle = contract("Handle", Slug, (x) => Logic.le(Text.charLength(x), 20))
 
 const Tier = closed.ordered("Tier", ["Free", "Pro"])
 

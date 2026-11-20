@@ -21,7 +21,7 @@ import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
 import { pastCompileSpace } from "#compiler/ir/pattern-space.ts"
 import { languageKey, type RegexKey } from "#compiler/ir/scalar.ts"
 
-/** The flags every Compute.matches pattern is read under: str.regex's default. */
+/** The flags every Text.matches pattern is read under: str.regex's default. */
 export const matchFlags: RegexFlags = "u"
 
 /**
@@ -71,7 +71,7 @@ export const ownKey = (ir: RegexNode, known: Known): string => {
 }
 
 /**
- * A Compute.matches pattern as a value: its language, by the key of its own canonical key (ownKey, ir/scalar.ts
+ * A Text.matches pattern as a value: its language, by the key of its own canonical key (ownKey, ir/scalar.ts
  * languageKey), which is its identity, and its spelling, its source in grizzle's pattern grammar under matchFlags, which
  * typing, lowering, evaluation and admission read. The spelling is no part of its semantic identity (core/canonical.ts
  * omitSourceLocs), so two spellings of one language are one law, one check and one query; an installation keeps one
@@ -129,7 +129,7 @@ export const admitIr = (
 /**
  * The pattern value of `spelling`, admitted under matchFlags (admitIr), so its automaton is built only for a pattern
  * PostgreSQL compiles: its language's key, computed from the IR the admission parsed, and the spelling; or why the
- * admission refuses it. The door of every pattern value: Compute.pattern's admission, a lexical form's and a decode's.
+ * admission refuses it. The door of every pattern value: Text.pattern's admission, a lexical form's and a decode's.
  */
 export const admitSpelling = (spelling: string): Result.Result<PatternValue, PatternRefusal> =>
 	Result.map(admitIr(spelling, matchFlags), (ir) =>

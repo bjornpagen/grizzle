@@ -53,7 +53,7 @@ interface ContractCase {
 	readonly target: number
 }
 
-/** A contract predicate VALUE >= 0, as Compute's ge records it. */
+/** A contract predicate VALUE >= 0, as Logic.ge records it. */
 export const nonNegative: OpenExpr = {
 	kind: "compare",
 	op: "ge",

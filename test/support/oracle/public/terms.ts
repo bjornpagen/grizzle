@@ -28,8 +28,8 @@ const literalDesc = (literal: TypedLiteral, type: ScalarType): ExprDesc => ({
 })
 
 /**
- * A padding's Description (program.ts Padding): Compute.when(Compute.within(v, low, high), (v) =>
- * Compute.numeric(Compute.cast(v, pg.numeric(1000, scale))), Compute.numeric(v)), whose branch reads the guarded
+ * A padding's Description (program.ts Padding): Logic.when(Num.within(v, low, high), (v) =>
+ * Num.numeric(Type.cast(v, pg.numeric(1000, scale))), Num.numeric(v)), whose branch reads the guarded
  * subject, which is the variable.
  */
 const paddingDesc = (p: Padding, name: (v: Var) => string): ExprDesc => {
@@ -64,7 +64,7 @@ const paddingDesc = (p: Padding, name: (v: Var) => string): ExprDesc => {
 const argDesc = (a: ArgTerm, name: (v: Var) => string): ExprDesc =>
 	a.kind === "var" ? { kind: "var", var: name(a.var) } : paddingDesc(a.padding, name)
 
-/** A Compute term's Description over a node whose heading names each variable's declaration. */
+/** A scalar term's Description over a node whose heading names each variable's declaration. */
 export const termDesc = (t: ComputedTerm, name: (v: Var) => string): ExprDesc => {
 	switch (t.kind) {
 		case "base":
@@ -131,7 +131,7 @@ export const termDesc = (t: ComputedTerm, name: (v: Var) => string): ExprDesc =>
 }
 
 /**
- * The type the checker gives the term `desc` builds over its variables' fields: the nominal type of its Compute
+ * The type the checker gives the term `desc` builds over its variables' fields: the nominal type of its scalar
  * lowering, so a computed numeric is the bound the lowering proves of it. A program's heading types a computed column
  * by it, and an aggregate over a padding by the padding's, as the checker does, so the generator draws only the
  * aggregates the checker admits.
@@ -148,7 +148,7 @@ const loweredType = (desc: (name: (v: Var) => string) => ExprDesc): ScalarType =
 	const env: LowerEnv = {
 		mode: "query",
 		functions: () => undefined,
-		loc: SourceLoc("a generated Compute term", []),
+		loc: SourceLoc("a generated scalar term", []),
 		closed: noClosedRelations("a generated term reads no closed relation"),
 		emit: exprEmitter("g"),
 		leaf: (leaf, loc) => {
@@ -165,7 +165,7 @@ const loweredType = (desc: (name: (v: Var) => string) => ExprDesc): ScalarType =
 	}
 	const lowered = lowerTerm(expr, env)
 	if (!lowered.ok) {
-		throw new Error(`a generated Compute term the checker refuses: ${lowered.error.message}`)
+		throw new Error(`a generated scalar term the checker refuses: ${lowered.error.message}`)
 	}
 	return lowered.value.nominal
 }

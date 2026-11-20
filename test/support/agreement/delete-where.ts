@@ -3,7 +3,7 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Num } from "#compiler/public/compute.ts"
 import { Money, pg } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import { role } from "#compiler/public/schema.ts"
@@ -36,7 +36,7 @@ import { checking } from "#test/support/policy.ts"
  * deleteWhere key may name, each kind of delete among them (a plain relation, a tree's root, a family's owner, a
  * family's member, a member that owns a sequence, a world entry, a closed relation), each with each selection shape:
  * none, every field its delete's rows state as a parameter or as a literal, a field outside its rows, a parameter of
- * another type, a typed constant, a Compute term and a variable in place of a parameter. Each case's engine verdict is
+ * another type, a typed constant, a scalar term and a variable in place of a parameter. Each case's engine verdict is
  * the oracle: the JavaScript ChangeSet the case's text writes, built and compiled (deleteWhereVerdict).
  */
 
@@ -329,7 +329,7 @@ const shapes = [
 	"a field outside its rows",
 	"a parameter of another type",
 	"a typed constant",
-	"a Compute term",
+	"a scalar term",
 	"a variable"
 ] as const
 type Shape = (typeof shapes)[number]
@@ -373,15 +373,15 @@ const fieldsOf = (c: DeleteWhereCase): Option.Option<Fields> => {
 				[f.field, { text: `Kind.handle("Manual")`, value: () => Kind.handle("Manual") }] as const
 			])
 		}
-		case "a Compute term": {
+		case "a scalar term": {
 			const bigint = Arr.findFirst(row, (f) => f.field === "balance" || f.field === "id")
 			return c.subject === "Ledger"
 				? Option.map(bigint, (f) => [
 						[
 							f.field,
 							{
-								text: `Compute.add(param("q", pg.bigint), 1n)`,
-								value: () => Compute.add(param("q", pg.bigint), 1n)
+								text: `Num.add(param("q", pg.bigint), 1n)`,
+								value: () => Num.add(param("q", pg.bigint), 1n)
 							}
 						] as const
 					])

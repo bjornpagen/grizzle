@@ -1,6 +1,6 @@
 /**
  * A closed relation's str.pattern payload is admitted once for its description, however many checked schemas read it
- * (check/closed.ts payloadAdmissions): each distinct pattern its rows hold admitted as a Compute.matches pattern, its
+ * (check/closed.ts payloadAdmissions): each distinct pattern its rows hold admitted as a Text.matches pattern, its
  * parse, its automaton and its language (scalar/regex/admit.ts admitMatch), where the relation's description, one value
  * shared by every schema whose levels hold it, is first read, and read from it by every other checked schema. A
  * generate checks its installation's schemas many times, a level and a slice at a time, each reading the closed
@@ -21,7 +21,7 @@ import { element, type Gen, int, uniqueArray } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Text } from "#compiler/public/compute.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -33,7 +33,7 @@ import { admittedPatternOver, families } from "#test/unit/text/generators.ts"
 
 type AdmissionFeature = "one pattern" | "several patterns"
 
-/** One to five distinct patterns over one family's alphabet, each admitted by Compute.matches. */
+/** One to five distinct patterns over one family's alphabet, each admitted by Text.matches. */
 const patternsGen: Gen<Arr.NonEmptyReadonlyArray<string>> = (source) => {
 	const family = defined(families[source.draw(int(0, families.length - 1))], "a family")
 	const admitted = admittedPatternOver(family.alphabet)
@@ -59,12 +59,12 @@ const schemaOf = (patterns: Arr.NonEmptyReadonlyArray<string>) => {
 		["id"]
 	)
 	const lexical = check("Lexical", Value, (v) =>
-		Compute.matches(v.lexical, Pattern.at("pattern", v.domain))
+		Text.matches(v.lexical, Pattern.at("pattern", v.domain))
 	)
 	return schema("Patterns", [Domain, Pattern, Value], [lexical])
 }
 
-/** The admission of a Compute.matches pattern (scalar/regex/admit.ts admitMatch), counted. */
+/** The admission of a Text.matches pattern (scalar/regex/admit.ts admitMatch), counted. */
 const admissionSites = Object.freeze({
 	admitted: { file: "packages/engine/src/scalar/regex/admit.ts", name: "admitMatch" }
 })

@@ -39,7 +39,7 @@ import { type CorruptedFeature, corruptedFeature } from "@bjornpagen/testing/lsw
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { decodeDesc, descText, descToJson } from "#compiler/ir/desc.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { predicateExpr } from "#compiler/scalar/compute/term.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { refusalLoc, succeeded } from "#test/support/assert.ts"
@@ -641,7 +641,7 @@ export const descriptionsDecodesAnEmptyAndOrOrToTheConstantItsBuilderBuildsOfNoP
 				c.note(s.kind === "and" ? "an empty conjunction" : "an empty disjunction")
 				c.note(s.place)
 				const unit = succeeded(
-					decodeDesc("expr", predicateExpr(s.kind === "and" ? Compute.and() : Compute.or()))
+					decodeDesc("expr", predicateExpr(s.kind === "and" ? Logic.and() : Logic.or()))
 				)
 				assert.deepEqual<ExprDesc>(unit, {
 					kind: "literal",

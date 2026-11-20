@@ -49,18 +49,18 @@ const omitted = (relation: MemberRelation): string =>
 
 /**
  * The one way a member column of type `value` is written into a field of another type `field`: an exact value or a
- * computed numeric, a value's making which no field stores, by Compute.cast under a guard that proves it fits; a value
- * into or out of a contract by Compute.cast; any other value, of another numeric typmod or span width among them, by
- * Compute.cast into the field's type.
+ * computed numeric, a value's making which no field stores, by Type.cast under a guard that proves it fits; a value
+ * into or out of a contract by Type.cast; any other value, of another numeric typmod or span width among them, by
+ * Type.cast into the field's type.
  */
 const writtenOnly = (value: ScalarType, field: ScalarType): string => {
 	if (isExactValue(value) || isNumericValue(value)) {
-		return "an exact value or a computed numeric is written into a field only by Compute.cast under a guard that proves it fits"
+		return "an exact value or a computed numeric is written into a field only by Type.cast under a guard that proves it fits"
 	}
 	if (value.contract !== undefined || field.contract !== undefined) {
-		return "a value re-enters a contract only by Compute.cast"
+		return "a value re-enters a contract only by Type.cast"
 	}
-	return "a value is written into a field of another type only by Compute.cast"
+	return "a value is written into a field of another type only by Type.cast"
 }
 
 /**

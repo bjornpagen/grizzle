@@ -26,12 +26,12 @@ import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
 import { memberNode, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 
 /**
- * PostgreSQL's translate(x, from, to) as Compute.translate states it: its character map, its value over a text, and the
+ * PostgreSQL's translate(x, from, to) as Text.translate states it: its character map, its value over a text, and the
  * image of a text type's language under it.
  *
  * PostgreSQL reads translate by characters, code points in a UTF-8 database: each character of x that occurs in from is
  * replaced by the character of to at the position of its first occurrence in from, or deleted where to is shorter, and
- * every other character is copied (src/backend/utils/adt/oracle_compat.c translate). Compute.translate admits only a map
+ * every other character is copied (src/backend/utils/adt/oracle_compat.c translate). Text.translate admits only a map
  * that deletes nothing and reads every character of from once: from and to of one length, from holding each code point
  * once. A repeated character of from could only ever map to its first counterpart, so a repeat is refused rather than
  * read silently. A map of one length replaces each character by one character, so a text's image has its length in code
@@ -41,7 +41,7 @@ import { memberNode, type PatternAutomata } from "#compiler/scalar/regex/pattern
  */
 export type CharMap = ReadonlyMap<number, number>
 
-/** The map Compute.translate's from and to state, or the refusal of a pair it does not admit, in words. */
+/** The map Text.translate's from and to state, or the refusal of a pair it does not admit, in words. */
 export const charMapOf = (from: string, to: string): Result.Result<CharMap, string> => {
 	const sources = codePoints(from)
 	const targets = codePoints(to)

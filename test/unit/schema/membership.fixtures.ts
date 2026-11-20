@@ -10,7 +10,7 @@ import { admitLoginRoles, type StatementDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { lawsOf } from "#compiler/program/laws.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { check, closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { fullRoleDesc, installationsOf, ownLogin, rostersOf } from "#compiler/schema/own.ts"
@@ -21,8 +21,8 @@ import { ownValue } from "#test/unit/schema/own.fixtures.ts"
 const Kind = closed.ordered("Kind", ["a", "b", "c"])
 const Item = relation("Item", { id: pg.integer, kind: closedId(Kind), n: pg.integer }, ["id"])
 
-/** The surfaces a membership is written at: a row check's own helper, Compute's, and a side's selection's helper. */
-const surfaces = ["row helper", "Compute", "selection"] as const
+/** The surfaces a membership is written at: a row check's own helper, Logic's, and a side's selection's helper. */
+const surfaces = ["row helper", "Logic", "selection"] as const
 export type Surface = (typeof surfaces)[number]
 
 /** The fields a membership reads: a closed id, read against its roster's handles, and an integer. */
@@ -68,7 +68,7 @@ type Written = "in" | "eq"
 
 /**
  * The case's statement, its membership written as `written`: IN of the case's list, or the equality with its first
- * value; a check over Item at the row helper or Compute, or a key over the rows a selection keeps.
+ * value; a check over Item at the row helper or Logic, or a key over the rows a selection keeps.
  */
 const statementOf = (c: MembershipCase, written: Written) => {
 	const handles = handlesOf(c)
@@ -84,13 +84,13 @@ const statementOf = (c: MembershipCase, written: Written) => {
 				: check("Picked", Item, (r) =>
 						written === "in" ? r.in(r.n, integers) : r.eq(r.n, integer)
 					)
-		case "Compute":
+		case "Logic":
 			return c.field === "kind"
 				? check("Picked", Item, (r) =>
-						written === "in" ? Compute.in(r.kind, handles) : Compute.eq(r.kind, handle)
+						written === "in" ? Logic.in(r.kind, handles) : Logic.eq(r.kind, handle)
 					)
 				: check("Picked", Item, (r) =>
-						written === "in" ? Compute.in(r.n, integers) : Compute.eq(r.n, integer)
+						written === "in" ? Logic.in(r.n, integers) : Logic.eq(r.n, integer)
 					)
 		case "selection":
 			return c.field === "kind"

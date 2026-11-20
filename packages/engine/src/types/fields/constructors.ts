@@ -89,8 +89,8 @@ export interface Pg {
 
 /**
  * A nominal contract over a base descriptor, with an optional total predicate over one value. The predicate receives
- * the base's scalar, of the base's domain and SQL type, whose language is the base's host type, which Compute's
- * comparisons read: `contract("Cents", pg.bigint, (v) => Compute.ge(v, 0n))`.
+ * the base's scalar, of the base's domain and SQL type, whose language is the base's host type, which the scalar catalogue's
+ * comparisons read: `contract("Cents", pg.bigint, (v) => Logic.ge(v, 0n))`.
  * A contract is a value domain and lowers to a PostgreSQL domain, so its base is a value type: never a field of a
  * writing of its own (NoWriting), which grizzle or PostgreSQL writes.
  * The contract's column is the base's, branded by the contract's own constructor, which takes the unbranded host value:
@@ -98,7 +98,7 @@ export interface Pg {
  *
  * After the predicate, `{ proves: ["nonzero"] }` declares the facts it proves, which the contract's type then states
  * of its values, so a divisor of the contract needs no guard; compilation proves each from the predicate, else refuses
- * the declaration: `contract("Divisor", pg.bigint, (v) => Compute.ne(v, 0n), { proves: ["nonzero"] })`.
+ * the declaration: `contract("Divisor", pg.bigint, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`.
  */
 export type ContractConstructor = <
 	const Name extends string,

@@ -97,7 +97,7 @@ const splits: {
 const doubleOf = (v: Value): number =>
 	typeof v === "number" ? v : typeof v === "bigint" ? Number(v) : Number(asDecimal(v).text)
 
-/** The range operators an Allen atom lowers to; range_eq is also the span equality the Compute evaluator compares. */
+/** The range operators an Allen atom lowers to; range_eq is also the span equality the scalar evaluator compares. */
 const rangeAtoms: ReadonlySet<RangeOpCode> = new Set([
 	"range_overlaps",
 	"range_contains",
@@ -759,7 +759,7 @@ const isClosed = (root: RelNode): boolean => {
  *   checked on this one, which is one of them;
  * - Attach is its parent's set unchanged; its children are delivered per parent tuple (deliver.ts).
  *
- * Scalar expressions are oracle/evaluate/catalog.ts, the exact evaluator of the Compute catalogue, over the bindings
+ * Scalar expressions are oracle/evaluate/catalog.ts, the exact evaluator of the scalar catalogue, over the bindings
  * in scope: a node's input tuple, the outer tuples a correlated source reads, and the case's parameter values.
  *
  * Every closed node's set, one that reads no outer tuple and no recursion state it does not iterate itself, is settled
@@ -888,7 +888,7 @@ export class Reference {
 
 	/**
 	 * The value of a scalar expression, read where `scope` is in scope. An Allen atom, a range operator over two
-	 * spans, and a boolean connective over one are evaluated here from the endpoints; everything else by the Compute
+	 * spans, and a boolean connective over one are evaluated here from the endpoints; everything else by the scalar
 	 * evaluator.
 	 */
 	expr(e: ScalarExpr, scope: Bindings): Value {
@@ -904,7 +904,7 @@ export class Reference {
 	 * &< does not extend right of, &> does not extend left of, -|- adjacent, = equal; and of the point membership
 	 * `span @> point` over the half-open span. None for anything else.
 	 *
-	 * Left to right, stopping at the deciding operand, as the Compute evaluator folds AND and OR.
+	 * Left to right, stopping at the deciding operand, as the scalar evaluator folds AND and OR.
 	 */
 	allen(e: ScalarExpr, scope: Bindings): Option.Option<boolean> {
 		if (e.kind !== "op") {
@@ -984,11 +984,11 @@ export class Reference {
 	}
 
 	/**
-	 * The value of a term by the Compute evaluator, run once (reading): every value is in its one form, so the one run
+	 * The value of a term by the scalar evaluator, run once (reading): every value is in its one form, so the one run
 	 * is the term's value. A term the oracle declines (oracle/evaluate/catalog.ts declinedOps), or one reading a
 	 * declined term's value, is declined, its value PostgreSQL's for the term (termOf); the decline is observed by its
 	 * reason. A term that meets an operation where its precondition fails is a defect, since every partial operation
-	 * stands with its proof, and one the Compute evaluator does not evaluate is refused.
+	 * stands with its proof, and one the scalar evaluator does not evaluate is refused.
 	 *
 	 * A column read is the column's value as it is: a declined term's the same value.
 	 */
@@ -1016,7 +1016,7 @@ export class Reference {
 	}
 
 	/**
-	 * The outcome of a term by the Compute evaluator, run once over `scope` (values.ts outcomeOf), each parameter read as
+	 * The outcome of a term by the scalar evaluator, run once over `scope` (values.ts outcomeOf), each parameter read as
 	 * the case's scalar value.
 	 */
 	reading(expr: ScalarExpr, scope: Bindings): ReadingOutcome {
@@ -1045,7 +1045,7 @@ export class Reference {
 	 * A declined term's identity (values.ts Declined), the term as PostgreSQL computes it in `scope`: each operand the
 	 * reference states a value for is that value, after its type (statedTerm); a column holding a declined term's value
 	 * is that term; a conditional whose condition the reference states is the branch it takes; and every other operand,
-	 * which declines, or which read alone meets an operation where its precondition fails or one the Compute evaluator
+	 * which declines, or which read alone meets an operation where its precondition fails or one the scalar evaluator
 	 * does not evaluate (values.ts ReadingOutcome), is its kind, its type and what it applies (appliedAtoms), then its
 	 * operands' count and each operand's identity.
 	 * What remains is the declined operations over stated values, which PostgreSQL's value of the term is a function of.

@@ -1,7 +1,7 @@
 import { Struct } from "effect"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num, Range, Text, Type } from "#compiler/public/compute.ts"
 import {
 	accumulated,
 	closedId,
@@ -41,12 +41,12 @@ import { workload } from "#compiler/public/workload.ts"
 import { Cents, Instant } from "#test/support/fixtures/api/contracts.ts"
 import { Id } from "#test/support/ids.ts"
 
-export const Rate = contract("Rate", pg.numeric(7, 6), (x) => Compute.between(x, 0n, 1n))
-export const Micros = contract("Micros", pg.bigint, (x) => Compute.ge(x, 0n))
+export const Rate = contract("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
+export const Micros = contract("Micros", pg.bigint, (x) => Logic.ge(x, 0n))
 export const Week = contract("Week", pg.bigint)
 export const Ein = contract("Ein", str.regex("^[0-9]{2}-[0-9]{7}$"))
 export const LegalName = contract("LegalName", str.regex("^.+$", "su"), (x) =>
-	Compute.le(Compute.charLength(x), 300)
+	Logic.le(Text.charLength(x), 300)
 )
 
 const EmployeeCode = str.regex("^E[0-9]{6}$")
@@ -148,9 +148,9 @@ export const Shift = relation.generated(
 	(r) => ({
 		hours: generated(
 			pg.bigint,
-			Compute.when(
-				Compute.within(Compute.width(r.during, Instant), 0n, 9223372036854775807n),
-				(width) => Compute.cast(width, pg.bigint),
+			Logic.when(
+				Num.within(Range.width(r.during, Instant), 0n, 9223372036854775807n),
+				(width) => Type.cast(width, pg.bigint),
 				0n
 			)
 		)
@@ -383,7 +383,7 @@ export const Payroll = schema(
 			on(Timesheet, "employee", "week", "approvedHours")
 		),
 		check("ApprovedHoursWithinCeiling", Timesheet, (t) =>
-			t.le(t.approvedHours, Compute.base(t.ceiling))
+			t.le(t.approvedHours, Type.base(t.ceiling))
 		)
 	]
 )
@@ -607,8 +607,8 @@ export const ledgerBalance = query(Payroll).rule((r) => {
 		.match(PayLine, { id: line, run })
 		.where(r.eq(run, r.param("run", Id)))
 		.find({
-			debits: r.sum(Compute.cond(r.eq(side, "debit"), Compute.base(amount), 0n)),
-			credits: r.sum(Compute.cond(r.eq(side, "credit"), Compute.base(amount), 0n))
+			debits: r.sum(Logic.cond(r.eq(side, "debit"), Type.base(amount), 0n)),
+			credits: r.sum(Logic.cond(r.eq(side, "credit"), Type.base(amount), 0n))
 		})
 })
 
@@ -636,13 +636,13 @@ export const withholdingFor = query(Payroll).rule((r) => {
 			line: id,
 			levy,
 			employeeRate,
-			withheld: Compute.when(
-				Compute.within(
-					Compute.round(Compute.mul(Compute.numeric(gross), Compute.base(employeeRate))),
+			withheld: Logic.when(
+				Num.within(
+					Num.round(Num.mul(Num.numeric(gross), Type.base(employeeRate))),
 					0n,
 					9223372036854775807n
 				),
-				(cents) => Compute.cast(cents, Cents),
+				(cents) => Type.cast(cents, Cents),
 				0n
 			)
 		})
@@ -753,9 +753,9 @@ export const postingMember = query(Payroll)
 			line: id,
 			account: "Withholding",
 			side: "credit",
-			amount: Compute.when(
-				Compute.within(Compute.sub(gross, net), 0n, 9223372036854775807n),
-				(withheld) => Compute.cast(withheld, Cents),
+			amount: Logic.when(
+				Num.within(Num.sub(gross, net), 0n, 9223372036854775807n),
+				(withheld) => Type.cast(withheld, Cents),
 				0n
 			)
 		})

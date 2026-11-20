@@ -8,7 +8,7 @@ import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Crypto, Type } from "#compiler/public/compute.ts"
 import {
 	accumulated,
 	bytes,
@@ -124,14 +124,14 @@ const contentColumn: LeafBinding = {
 	type: field({ kind: "bytes" }, "bytea").scalar
 }
 
-/** Compute.sha256 of the variable v, as a Description states it. */
+/** Crypto.sha256 of the variable v, as a Description states it. */
 const digestDesc: ExprDesc = { kind: "compute", fn: "sha256", args: [{ kind: "var", var: "v" }] }
 
-/** The term Compute.sha256(v) lowers to as a check and as a query lower it. */
+/** The term Crypto.sha256(v) lowers to as a check and as a query lower it. */
 const lowered = (mode: "check" | "query"): Lowered =>
 	succeeded(
 		lowerWith(mode, digestDesc, { v: contentColumn }, false, baseParams),
-		`Compute.sha256 lowers in a ${mode}`
+		`Crypto.sha256 lowers in a ${mode}`
 	).root
 
 /** The digests' spelling, 64 lowercase hex digits, as encode's 'hex' writes 32 bytes: the stated language's oracle. */
@@ -183,8 +183,8 @@ export const Entry = relation.generated(
 	{ id: Id, content: bytes, pages: drawnField(natural) },
 	["id"],
 	(row) => ({
-		digest: generated(Digest, Compute.sha256(row.content)),
-		proved: generated(Digest, Compute.cast(Compute.sha256(row.content), Digest))
+		digest: generated(Digest, Crypto.sha256(row.content)),
+		proved: generated(Digest, Type.cast(Crypto.sha256(row.content), Digest))
 	})
 )
 
@@ -200,7 +200,7 @@ export const Media = schema(
 	[
 		ordered(on(Page, "entry", "at"), fin(Entry, "pages")),
 		contained(on(Page, "entry", "entryDigest"), on(Entry, "id", "digest")),
-		check("Digested", Entry, (row) => row.eq(row.digest, Compute.sha256(row.content)))
+		check("Digested", Entry, (row) => row.eq(row.digest, Crypto.sha256(row.content)))
 	]
 )
 
@@ -218,7 +218,7 @@ export const programs = Object.freeze({
 		const { id, content } = v(Entry, "e")
 		return r
 			.match(Entry, { id, content })
-			.find({ id, computed: Compute.cast(Compute.sha256(content), Digest) })
+			.find({ id, computed: Type.cast(Crypto.sha256(content), Digest) })
 	}),
 	pages: query(Media).rule((r) => {
 		const { id, entry, entryDigest } = v(Page, "p")

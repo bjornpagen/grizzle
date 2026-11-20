@@ -1,5 +1,5 @@
 /**
- * Compute.lowerAscii on PostgreSQL 19: ASCII's case fold, which PostgreSQL computes as lower under the C collation,
+ * Text.lowerAscii on PostgreSQL 19: ASCII's case fold, which PostgreSQL computes as lower under the C collation,
  * collated back to pg_c_utf8 (scalar/compute/registry.ts textLowerAscii), one SQL node in a query, a CHECK and a
  * generated field alike.
  *
@@ -47,7 +47,7 @@ import {
 } from "#test/pg/text/lower-ascii.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Compute.lowerAscii's one SQL, in a query and in a check, is translate's by the ASCII capitals and the host's ASCII case fold over every byte class, long texts included, and is collated pg_c_utf8. */
+/** Text.lowerAscii's one SQL, in a query and in a check, is translate's by the ASCII capitals and the host's ASCII case fold over every byte class, long texts included, and is collated pg_c_utf8. */
 export const lowerAsciisOneSqlInAQueryAndInACheckIsTranslatesByTheAsciiCapitalsAndTheHostsAsciiCaseFoldOverEveryByteClassLongTextsIncludedAndIsCollatedPgCUtf8 =
 	property.explore(textBatch, {
 		needs: { tx: Substrate.transaction },
@@ -125,7 +125,7 @@ export const lowerAsciisOneSqlInAQueryAndInACheckIsTranslatesByTheAsciiCapitalsA
 		]
 	})
 
-/** Compute.lowerAscii's one SQL, in a query and in a check, folds a text past every operand translate reads, whole, where translate refuses it. */
+/** Text.lowerAscii's one SQL, in a query and in a check, folds a text past every operand translate reads, whole, where translate refuses it. */
 export const lowerAsciisOneSqlInAQueryAndInACheckFoldsATextPastEveryOperandTranslateReadsWholeWhereTranslateRefusesIt =
 	property.explore(pastCase, {
 		needs: { tx: Substrate.transaction },
@@ -178,9 +178,9 @@ export const lowerAsciisOneSqlInAQueryAndInACheckFoldsATextPastEveryOperandTrans
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
 				original:
-					'\t\tconst op = this.overload("lowerAscii", [x.actual], at)\n\t\tconst node = this.native(op, [x], wildcardText, undefined, at, "Compute.lowerAscii")\n',
+					'\t\tconst op = this.overload("lowerAscii", [x.actual], at)\n\t\tconst node = this.native(op, [x], wildcardText, undefined, at, spelling.lowerAscii)\n',
 				replacement:
-					'\t\tconst f = this.literal("ABCDEFGHIJKLMNOPQRSTUVWXYZ", wildcardText, childLoc(at, 1))\n\t\tconst t = this.literal("abcdefghijklmnopqrstuvwxyz", wildcardText, childLoc(at, 2))\n\t\tconst node = this.native(this.overload("translate", [x.actual, f.actual, t.actual], at), [x, f, t], wildcardText, undefined, at, "Compute.translate")\n',
+					'\t\tconst f = this.literal("ABCDEFGHIJKLMNOPQRSTUVWXYZ", wildcardText, childLoc(at, 1))\n\t\tconst t = this.literal("abcdefghijklmnopqrstuvwxyz", wildcardText, childLoc(at, 2))\n\t\tconst node = this.native(this.overload("translate", [x.actual, f.actual, t.actual], at), [x, f, t], wildcardText, undefined, at, spelling.translate)\n',
 				why: "Every fold is translate, which refuses a text past translateMaxBytes with 54000: a read fails on a value."
 			}
 		]

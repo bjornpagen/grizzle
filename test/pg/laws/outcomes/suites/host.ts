@@ -14,7 +14,7 @@ import { type Case as PropertyCase } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, pipe, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Type } from "#compiler/public/compute.ts"
 import { closedId, contract, generated, pg, Uuid, Vector } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -50,7 +50,7 @@ const Rate = closed.relation(
 		{ tier: "silver", rate: 500 }
 	]
 )
-const Units = contract("Units", pg.integer, (x) => Compute.le(x, 1000))
+const Units = contract("Units", pg.integer, (x) => Logic.le(x, 1000))
 /** The pattern an account's code and its alias share, so one domain types both columns, each field its own law. */
 const codeSource = "^[a-z]{1,8}$"
 const Account = relation.generated(
@@ -68,7 +68,7 @@ const Account = relation.generated(
 	(r) => ({ rate: generated(pg.integer, Rate.at("rate", r.tier)) })
 )
 const positive = check("Positive", Account, (x) => x.gt(x.units, 0))
-const withinRate = check("WithinRate", Account, (x) => x.le(Compute.base(x.units), x.rate))
+const withinRate = check("WithinRate", Account, (x) => x.le(Type.base(x.units), x.rate))
 /** An account's two vectors differ: a row CHECK over vector fields, which the host judges by vector_cmp's order. */
 const distinct = check("Distinct", Account, (x) => x.ne(x.from, x.to))
 const Accounts = schema("Accounts", [Tier, Rate, Account], [positive, withinRate, distinct])

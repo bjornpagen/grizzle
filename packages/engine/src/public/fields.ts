@@ -4,7 +4,7 @@ import { nominal } from "#compiler/core/brand.ts"
 import { bitsColumn, brandColumn, type Columned, codeColumn } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { bytesDescriptor } from "#compiler/scalar/bytes.ts"
-import { searchDocumentTerm } from "#compiler/scalar/compute/builders.ts"
+import { compute, searchDocumentTerm } from "#compiler/scalar/compute/builders.ts"
 import { callerContractParts } from "#compiler/scalar/contract.ts"
 import { dateDescriptor } from "#compiler/scalar/date.ts"
 import { instantDescriptor } from "#compiler/scalar/instant.ts"
@@ -25,6 +25,7 @@ import {
 	retirementField,
 	slotField
 } from "#compiler/schema/relation.ts"
+import type { BitsApi } from "#compiler/types/compute/compute.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
 	ContractValueOrigin,
@@ -271,21 +272,33 @@ export const bits: BitsConstructor = <C extends AnyRoster>(
 	)
 }
 
-/**
- * Bits.of(roster, handles): the set of `handles`, each a handle of `roster`, each once; a fresh Set, branded by the
- * roster, which every boundary that admits it copies. A JavaScript caller's handle outside the roster, or a repeat, is MalformedDescription.
- */
-export const Bits: {
+/** The Bits namespace: Bits.of, a set value, and the set algebra over set terms (BitsApi). */
+type BitsNamespace = BitsApi & {
 	readonly of: <C extends AnyRoster, const H extends ReadonlyArray<HandleOf<C>>>(
 		roster: C,
 		handles: H & DistinctMembers<H>
 	) => BitsValue<C>
-} = Object.freeze({
+}
+
+/**
+ * Bits.of(roster, handles): the set of `handles`, each a handle of `roster`, each once; a fresh Set, branded by the
+ * roster, which every boundary that admits it copies. A JavaScript caller's handle outside the roster, or a repeat, is MalformedDescription.
+ * Beside it, the set algebra over set terms of one roster (types/compute/compute.ts BitsApi), the scalar catalogue's
+ * members over the bits type.
+ */
+export const Bits: BitsNamespace = Object.freeze<BitsNamespace>({
 	of: <C extends AnyRoster, const H extends ReadonlyArray<HandleOf<C>>>(
 		roster: C,
 		handles: H & DistinctMembers<H>,
 		...extra: ReadonlyArray<never>
-	): BitsValue<C> => bitsOf<C>(roster, handles, extra)
+	): BitsValue<C> => bitsOf<C>(roster, handles, extra),
+	union: (a, b) => compute.union(a, b),
+	intersection: (a, b) => compute.intersection(a, b),
+	difference: (a, b) => compute.difference(a, b),
+	cardinality: (a) => compute.cardinality(a),
+	subset: (a, b) => compute.subset(a, b),
+	disjoint: (a, b) => compute.disjoint(a, b),
+	singleton: (id) => compute.singleton(id)
 })
 
 /**
@@ -303,7 +316,7 @@ export const generated: GeneratedConstructor = <F extends FieldBase>(
  * `configuration`, one of pg_catalog's text search configurations, each text's positions labelled by its weight, A to
  * D, and the parts concatenated in their order: `setweight(to_tsvector(configuration, text), weight) || ...`, a
  * tsvector it stores and a GIN index serves the matches of. It stands in the record relation.generated's callback
- * returns, over the row's text fields; a query matches and ranks it with Compute.textMatches, textRank and textRankCd.
+ * returns, over the row's text fields; a query matches and ranks it with Search.matches, textRank and textRankCd.
  */
 export const searchDocument: SearchDocumentConstructor = <const C extends TextSearchConfiguration>(
 	configuration: C,

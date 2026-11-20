@@ -2,7 +2,7 @@
  * The type-level public API, whose shared phantom primitives this module declares.
  *
  * Each directory of types/ declares the full signatures of one area: core, schema, fields, compute, query, evidence,
- * db, changeset, derived, page and vector. The runtime values (relation, query, ChangeSet, Compute, ...) live in the
+ * db, changeset, derived, page and vector. The runtime values (relation, query, ChangeSet, Logic, ...) live in the
  * modules that implement them, and the public barrels (public/) bind them to these signatures; the shell types Db in
  * packages/grizzle/src/adapter/types/db.ts. An implementation may sharpen an approximation but keeps the shapes;
  * widening a type is always sound, narrowing one needs the evidence to be proved.
@@ -36,7 +36,7 @@
  *    one scope of each name, so a key's variables may be bound through other matches, a self-join's two scopes included:
  *    the head's keys are what its variables determine under every match's keys (HeadKeys), and the empty key, every head
  *    variable determined by the inputs, makes a keyed lookup and a keyed attachment atMostOne (evidence/evidence.ts). A
- *    Compute expression's origin is the variables it reads (ComputedOrigin), so a computed term is determined wherever
+ *    scalar expression's origin is the variables it reads (ComputedOrigin), so a computed term is determined wherever
  *    they are. The host type T of a term is invariant, so a contract never silently widens to its base in a join or
  *    comparison; a JavaScript value adopts the base (LiteralOf); a constant's T is its domain and its column its value.
  *    A scope's name keeps the declared-name rule in its type (DeclaredName), so a name the builder refuses never types.
@@ -184,13 +184,13 @@ export interface LiteralOrigin extends InputOrigin {
 	readonly literal: true
 }
 
-/** A typed constant, X.handle(member) or Compute.literal(F, x): an input of its stated type, which may stand first. */
+/** A typed constant, X.handle(member) or Type.literal(F, x): an input of its stated type, which may stand first. */
 export interface ConstantOrigin extends InputOrigin {
 	readonly constant: true
 }
 
 /**
- * A computation's origin, a Compute expression's or a predicate's: Operands is the union of its operands' origins
+ * A computation's origin, a scalar expression's or a predicate's: Operands is the union of its operands' origins
  * (OperandOrigin), so its value is a function of the variables they read, through computations too, and it is
  * determined wherever they are, as logical/props.ts reads a computed output from the columns it reads. A computation
  * over inputs alone reads no variable and is fixed per binding; one over an operand of unknown origin is
@@ -202,9 +202,9 @@ export interface ComputedOrigin<out Operands> {
 }
 
 /**
- * The origin of a computation by a Compute function the host does not evaluate (scalar/compute/registry.ts
+ * The origin of a computation by a scalar function the host does not evaluate (scalar/compute/registry.ts
  * computeSpecs, check false: quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric,
- * cosineDistance and full text search's matches and ranks), and of a declared function's call (Compute.call), which PostgreSQL alone evaluates: a
+ * cosineDistance and full text search's matches and ranks), and of a declared function's call (Fn.call), which PostgreSQL alone evaluates: a
  * ComputedOrigin of its operands, marked, so a term over it carries the mark through every
  * computation over it, and a contract predicate, a row check of a stored relation and a generated field, which the
  * host evaluates, refuse it (Hosted).
@@ -263,17 +263,17 @@ export interface TermBase extends Built {
  *   needs states never, the widest map (ParamNeeds).
  * - O, the origin, says where a term came from: `Origin<"Task", "id", "task">` for `v(Task, "task").id`,
  *   `InputOrigin` for a parent variable inside `attach`, `ParamOrigin` for a parameter, `ConstantOrigin` for a typed
- *   constant, `LiteralOrigin` for a JavaScript value in a head, `ComputedOrigin` of the variables a Compute expression
+ *   constant, `LiteralOrigin` for a JavaScript value in a head, `ComputedOrigin` of the variables a scalar expression
  *   or a predicate reads, and `unknown` when nothing is known.
  *
  * None of the three is a runtime member. Every phantom of the type vocabulary rides under one declared symbol that no
  * runtime value holds, as an optional member (Phantom): a runtime value that has a type's real members has the type,
  * and the member's type keeps the variance, `Invariant<T>` for an invariant domain. The real members stay required: a
  * term's `expr`, its `column` (the conversion of a cell into V, which a head reads it with) and its SQL type `sql`,
- * which Compute and aggregate result types are read off; a predicate's `predicate` and `expr`. A phantom is read
+ * which the scalar catalogue's and aggregate result types are read off; a predicate's `predicate` and `expr`. A phantom is read
  * through the bundle that holds it (TypeOfTerm, OriginOfTerm, ParamsOfTerm), never by inferring a term's parameters.
  *
- * A scalar term: a variable from `v`, a parameter, a constant, or a Compute expression. Its type is one descriptor,
+ * A scalar term: a variable from `v`, a parameter, a constant, or a scalar expression. Its type is one descriptor,
  * the type-level mirror of the engine's ScalarType (ir/scalar.ts): T, its identity, every component the checker's
  * `compatible` reads (scalar/compute/types.ts): a contract's brand, a roster's (Rostered), a vector's dimensions, a
  * span's endpoint, and the facts its values are proved to have (F); Sql, its carrier's SQL type; and V, the values its
@@ -309,7 +309,7 @@ export interface Term<
  * term meets the type (T, Sql) when its identity is exactly T, invariantly, and its SQL type is Sql, whatever its values
  * and language (a roster's variable delivers its handles unbranded, and a refined text's its pattern's language); and
  * an exact value meets the plain integers or money of its family and they it, exactly (ExactFamily), which the engine
- * widens into the exact carrier. A binding, an operand, a Compute operand, a conditional's branch, a span operand, a
+ * widens into the exact carrier. A binding, an operand, a scalar operand, a conditional's branch, a span operand, a
  * parent variable and a check's comparison each state the type they take through it, and a union's arms meet key by
  * key through it (ArmsMeet).
  */
@@ -321,7 +321,7 @@ type IsExactly<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : fals
 /**
  * The terms of the other side of an exact family a type (T, Sql) meets: an exact integer the plain integers and they
  * it, exact money plain money and it exact money, as values, exactly; a contract meets no exact value without
- * Compute.base.
+ * Type.base.
  */
 type ExactFamily<T, Sql extends SqlTag> = [Sql] extends ["exact integer"]
 	? | InputTerm<number, never, unknown, "smallint" | "integer">
@@ -946,7 +946,7 @@ export type Parameterless<X> = [keyof ParamsOfTerm<X>] extends [never]
 /**
  * A term or predicate the host evaluates: a contract predicate, a row check of a stored relation and a generated field
  * are evaluated on the host for the ContractLiteral check and the fill (scalar/compute/typing.ts compute), which admits
- * no Compute function computeSpecs marks check false, so a term computed by one anywhere inside (UnhostedOrigin) is
+ * no scalar function computeSpecs marks check false, so a term computed by one anywhere inside (UnhostedOrigin) is
  * refused; a query, a selection and a derived relation's check read it in SQL.
  */
 export type Hosted<X> =

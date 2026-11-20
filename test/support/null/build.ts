@@ -255,7 +255,7 @@ const listValue = (literal: ListLiteral): unknown => {
 /** A row as a builder reads its fields: a row check's, a generated field's or a query's variables. */
 export type Row = Readonly<Record<string, unknown>>
 
-/** A term built through grizzle's untyped Compute (a JavaScript caller's), over a row. */
+/** A term built through grizzle's untyped scalar (a JavaScript caller's), over a row. */
 export const buildTerm = (c: Closed, row: Row, term: NullTerm): unknown => {
 	const b = (t: NullTerm): unknown => buildTerm(c, row, t)
 	const pick: ClosedReads = c.Pick
@@ -336,7 +336,7 @@ const buildPresence = (c: Closed, row: Row, key: HasKey): unknown => {
 	}
 }
 
-/** A predicate built through grizzle's untyped Compute, over a row. */
+/** A predicate built through grizzle's untyped scalar, over a row. */
 export const buildPred = (c: Closed, row: Row, pred: Pred): unknown => {
 	switch (pred.p) {
 		case "cmp":

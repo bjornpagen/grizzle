@@ -12,7 +12,7 @@
  *   vocabulary (scalar/values/fault.ts), each class's one fault: a value of a class is refused with that fault, a
  *   parameter's with the parameter as its slot, with no frontend message sent and nothing stored; a wild value the
  *   codec admits is answered, never a defect (drawn as an arm of its own too, since a wild draw rarely lands on one).
- * - No Compute operation in a described member raises on a value: every one is total or stands with its proof, and a
+ * - No scalar operation in a described member raises on a value: every one is total or stands with its proof, and a
  *   narrowing into a column without one is refused at compilation (PartialOperation, test/unit/compute/totality.test.ts),
  *   so a member's computed value is never an ExecutionFailure.
  *

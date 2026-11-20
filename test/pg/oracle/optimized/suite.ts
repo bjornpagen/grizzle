@@ -116,7 +116,7 @@ const comparing: ReadonlySet<string> = new Set([
 ])
 
 /**
- * An operation that computes a value: one of the Compute catalogue's that is no comparison or connective. An
+ * An operation that computes a value: one of the scalar catalogue's that is no comparison or connective. An
  * operation outside the catalogue is a span's relation (an Allen predicate), which compares.
  */
 const computing = (op: OpId): boolean => {
@@ -124,7 +124,7 @@ const computing = (op: OpId): boolean => {
 	return native !== undefined && !comparing.has(native.fn)
 }
 
-/** Whether a query computes a value: a cast, a conditional, or an operation of the Compute catalogue. */
+/** Whether a query computes a value: a cast, a conditional, or an operation of the scalar catalogue. */
 const computes = (dag: RelDag): boolean =>
 	Arr.some(
 		queryExprs(dag),

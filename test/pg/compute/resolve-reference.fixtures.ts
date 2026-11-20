@@ -9,7 +9,7 @@ import { libraryCreate } from "#compiler/physical/ddl/library.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
@@ -47,10 +47,10 @@ const resolved: ExprDesc = {
 	]
 }
 
-/** Compute.resolveReference(b, r) as a check lowers it. */
+/** computeCore.resolveReference(b, r) as a check lowers it. */
 const term = succeeded(
 	lowerWith("check", resolved, { b: textColumn, r: textColumn }, false, baseParams),
-	"Compute.resolveReference lowers in a check over any texts"
+	"computeCore.resolveReference lowers in a check over any texts"
 ).root
 
 /** The library function's CREATE in the session's pg_temp, where the term's SQL calls it (support.ts temporaryLibrary). */
@@ -85,7 +85,7 @@ export const Links = relation.generated(
 	"Links",
 	{ id: Id, n: pg.integer, base: text, href: text },
 	["id"],
-	(r) => ({ target: generatedField(text, Compute.resolveReference(r.base, r.href), []) })
+	(r) => ({ target: generatedField(text, computeCore.resolveReference(r.base, r.href), []) })
 )
 
 export const links = schema("ResolveReference", [Links], [])

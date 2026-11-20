@@ -1,5 +1,5 @@
 /**
- * The Compute builders' typing (scalar/compute/builders.ts, scalar/compute/typing.ts) and the boundary where a JavaScript
+ * The scalar builders' typing (scalar/compute/builders.ts, scalar/compute/typing.ts) and the boundary where a JavaScript
  * caller's operands meet them.
  *
  * - Typing: every binary builder over every pair of operands, every conditional's two branches and every span function
@@ -20,7 +20,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { type ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { exactType } from "#compiler/scalar/compute/types.ts"
 import {
@@ -51,7 +51,7 @@ import {
 } from "#test/unit/compute/builders.fixtures.ts"
 import { testPg, testSpan, v } from "#test/unit/compute/support.ts"
 
-/** Compute builders type and refuse operands by the builders' typing rules. */
+/** scalar builders type and refuse operands by the builders' typing rules. */
 export const computeBuildersTypeAndRefuseOperandsByTheBuildersTypingRules = property.exhaust(
 	finite(
 		oneOf<BuilderCase>([
@@ -126,7 +126,7 @@ export const computeBuildersTypeAndRefuseOperandsByTheBuildersTypingRules = prop
 					case "cond": {
 						const [firstName, otherName] = [sketch.first, sketch.other]
 						const [first, other] = [firstOf[firstName], otherOf[otherName]]
-						const build = () => Compute.cond(flag, first.operand, other.operand)
+						const build = () => computeCore.cond(flag, first.operand, other.operand)
 						const meets =
 							first.term !== undefined &&
 							(other.meets.kind === "typed"
@@ -150,7 +150,7 @@ export const computeBuildersTypeAndRefuseOperandsByTheBuildersTypingRules = prop
 						const operand = sketch.operand === "span" ? v("s", testSpan(endpoint)) : cents
 						const descriptor =
 							sketch.descriptor === "own" ? endpoint : wrongEndpointOf[sketch.endpoint]
-						const build = () => Compute[sketch.fn](operand, descriptor)
+						const build = () => computeCore[sketch.fn](operand, descriptor)
 						if (sketch.operand === "no span" || sketch.descriptor === "other") {
 							c.note(`span ${sketch.fn} refused`)
 							assert.equal(throws(build).reason._tag, "MalformedDescription")
@@ -212,11 +212,11 @@ export const aJavaScriptCallersOperandsBuildFromADescriptorAndAnInt8LiteralAndRe
 					const build = (): ScalarTerm => {
 						switch (site) {
 							case "literal type":
-								return Compute.literal(x, 1n)
+								return computeCore.literal(x, 1n)
 							case "cast target":
-								return Compute.cast(int, x)
+								return computeCore.cast(int, x)
 							case "literal value":
-								return Compute.literal(testPg.bigint, x)
+								return computeCore.literal(testPg.bigint, x)
 						}
 					}
 					/**

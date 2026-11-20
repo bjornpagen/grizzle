@@ -3,7 +3,18 @@
  * the program imports these alone, each through this module.
  */
 export { ChangeSet } from "#compiler/public/changeset.ts"
-export { Compute } from "#compiler/public/compute.ts"
+export {
+	Crypto,
+	Distance,
+	Fn,
+	Logic,
+	Num,
+	Range,
+	Search,
+	Text,
+	Type,
+	Xml
+} from "#compiler/public/compute.ts"
 export { Money, pg } from "#compiler/public/fields.ts"
 export { param, query, v } from "#compiler/public/query.ts"
 export {

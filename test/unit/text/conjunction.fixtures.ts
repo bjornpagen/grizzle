@@ -13,7 +13,7 @@ import { Array as Arr, Option, String as Str } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { regexCheck } from "#compiler/ir/scalar.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Text, Type } from "#compiler/public/compute.ts"
 import { generated, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { formSource } from "#compiler/scalar/lexical.ts"
@@ -229,10 +229,10 @@ export const guardedParse = (subject: string, guard: string) =>
 			relation.generated("R", { id: Id, t: regexField<string>(subject, []) }, ["id"], (r) => ({
 				n: generated(
 					pg.smallint,
-					Compute.when(
-						Compute.matches(r.t, Compute.pattern(guard)),
-						(t) => Compute.cast(t, pg.smallint),
-						Compute.literal(pg.smallint, 0)
+					Logic.when(
+						Text.matches(r.t, Text.pattern(guard)),
+						(t) => Type.cast(t, pg.smallint),
+						Type.literal(pg.smallint, 0)
 					)
 				)
 			}))

@@ -9,8 +9,7 @@ import { type LawChecks, lawChecks } from "#compiler/deploy/snapshot/violation.t
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { Bits, closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -171,7 +170,7 @@ const schemaOf = (shape: Shape, version: "first" | "second") => {
 			contained(on(TierNext, "next"), on(TierRank, "tier")),
 			check("Capped", D3, (d) => d.le(d.b, Cap.at("cap", d.tier))),
 			check("Listed", D3, (d) => Cap.has(d.tier)),
-			check("Covered", D3, (d) => d.eq(Compute.subset(Compute.singleton(d.tier), Cap.row()), true))
+			check("Covered", D3, (d) => d.eq(Bits.subset(Bits.singleton(d.tier), Cap.row()), true))
 		]
 	)
 }

@@ -2,13 +2,13 @@
 
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import { Compute } from "#compiler/public/compute.ts"
+import { Fn } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 
 /**
- * A call of a declared function (Compute.rowsOf, Compute.rowOf) whose rows arguments are written over levels of one
+ * A call of a declared function (Fn.rows, Fn.row) whose rows arguments are written over levels of one
  * schema: Base holds Item(item, pos) and two functions of `n` rows arguments a0, a1, ..., each rows of Line (pos):
  * `merged`, which returns rows of Line, and `split`, which returns one row of Split, whose field `lines` holds rows of
  * Line. Upper and Aside each extend Base by a relation of their own, so Base is a level of each and neither is a level
@@ -166,7 +166,7 @@ export const levelsFor = (n: number) => {
 	/** The call's rows, a source, its arguments built each by its own query(S) call now. */
 	const source = (c: CallCase) => {
 		const args = Rec.fromEntries(Arr.map(c.args, (a, i) => [argName(i), argument(a)] as const))
-		return c.kind === "rowsOf" ? Compute.rowsOf(merged, args) : Compute.rowOf(split, args).lines
+		return c.kind === "rowsOf" ? Fn.rows(merged, args) : Fn.row(split, args).lines
 	}
 	/** A rule over `over` that matches the source and finds its rows. */
 	const matching = (over: LevelName, call: ReturnType<typeof source>) =>

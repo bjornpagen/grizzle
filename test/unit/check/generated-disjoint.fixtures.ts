@@ -10,7 +10,7 @@ import {
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Text } from "#compiler/public/compute.ts"
 import { generated } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -71,7 +71,7 @@ export const installedCase = (c: DisjointCase): Result.Result<Installation, Comp
 				relation.generated("Generated", { lex: c.stored.text, node: Id }, ["node"], (row) => ({
 					value: generated(
 						c.declared.text,
-						c.map === "lowerAscii" ? Compute.lowerAscii(row.lex) : row.lex
+						c.map === "lowerAscii" ? Text.lowerAscii(row.lex) : row.lex
 					)
 				}))
 			],

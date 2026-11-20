@@ -1,5 +1,5 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Type } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
@@ -20,7 +20,7 @@ import { Id } from "#test/support/ids.ts"
  * A clocked read's instant: a checked contract over bigint, milliseconds, never negative, whose domain the clocked
  * read's statement casts the clock's reading to; a field of Due types by it, so Shelf installs that domain.
  */
-const Instant = contract("Instant", pg.bigint, (m) => Compute.ge(m, 0n))
+const Instant = contract("Instant", pg.bigint, (m) => Logic.ge(m, 0n))
 
 const Item = relation("Item", { id: Id }, ["id"])
 const Due = relation("Due", { id: Id, at: Instant }, ["id"])
@@ -59,7 +59,7 @@ export const Clocked = login(Shelf, "clocked", [ClockedClerk], {
 					const { id } = v(Item, "item")
 					return r
 						.match(Item, { id })
-						.where(r.ge(r.param("now", Instant), Compute.literal(Instant, 0n)))
+						.where(r.ge(r.param("now", Instant), Type.literal(Instant, 0n)))
 						.find({ id })
 				}),
 				{ now: "millis" }

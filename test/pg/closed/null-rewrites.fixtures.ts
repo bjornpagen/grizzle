@@ -17,7 +17,7 @@ import { Array as Arr, Effect, Formatter, Option, Order, Result, String as Str }
 import { Db } from "#adapter/public/db.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num, Text, Type } from "#compiler/public/compute.ts"
 import { closedId, generated, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -316,7 +316,7 @@ interface Reads {
 	readonly pickAt: (handle: number) => TextTerm
 }
 
-/** A predicate over a row's reads, in Compute's vocabulary alone, so a check, a selection and a filter share it. */
+/** A predicate over a row's reads, in the scalar catalogue's vocabulary alone, so a check, a selection and a filter share it. */
 const predicateOf = (p: Pred, r: Reads): Predicate => {
 	const operand = (o: Operand): TextTerm => {
 		switch (o.kind) {
@@ -327,42 +327,42 @@ const predicateOf = (p: Pred, r: Reads): Predicate => {
 			case "pickAt":
 				return r.pickAt(o.handle)
 			case "literal":
-				return Compute.literal(Short, o.text)
+				return Type.literal(Short, o.text)
 		}
 	}
 	switch (p.kind) {
 		case "concat": {
-			const cat = Compute.concat(operand(p.head), p.tail)
+			const cat = Text.concat(operand(p.head), p.tail)
 			const whole = operand(p.whole)
 			return p.mirrored
 				? p.ne
-					? Compute.ne(whole, cat)
-					: Compute.eq(whole, cat)
+					? Logic.ne(whole, cat)
+					: Logic.eq(whole, cat)
 				: p.ne
-					? Compute.ne(cat, whole)
-					: Compute.eq(cat, whole)
+					? Logic.ne(cat, whole)
+					: Logic.eq(cat, whole)
 		}
 		case "startsWith":
-			return Compute.eq(Compute.startsWith(operand(p.a), operand(p.b)), true)
+			return Logic.eq(Text.startsWith(operand(p.a), operand(p.b)), true)
 		case "endsWith":
-			return Compute.eq(Compute.endsWith(operand(p.a), operand(p.b)), true)
+			return Logic.eq(Text.endsWith(operand(p.a), operand(p.b)), true)
 		case "matches":
-			return Compute.matches(
+			return Text.matches(
 				operand(p.subject),
-				p.pattern.kind === "literal" ? Compute.pattern(p.pattern.text) : operand(p.pattern)
+				p.pattern.kind === "literal" ? Text.pattern(p.pattern.text) : operand(p.pattern)
 			)
 		case "between":
-			return Compute.between(operand(p.a), operand(p.low), operand(p.high))
+			return Logic.between(operand(p.a), operand(p.low), operand(p.high))
 		case "in":
-			return Compute.in(operand(p.a), p.values)
+			return Logic.in(operand(p.a), p.values)
 		case "negative":
-			return Compute.lt(Compute.div(r.pickF, r.x), 0)
+			return Logic.lt(Num.div(r.pickF, r.x), 0)
 		case "and":
-			return Compute.and(predicateOf(p.args[0], r), predicateOf(p.args[1], r))
+			return Logic.and(predicateOf(p.args[0], r), predicateOf(p.args[1], r))
 		case "or":
-			return Compute.or(predicateOf(p.args[0], r), predicateOf(p.args[1], r))
+			return Logic.or(predicateOf(p.args[0], r), predicateOf(p.args[1], r))
 		case "not":
-			return Compute.not(predicateOf(p.arg, r))
+			return Logic.not(predicateOf(p.arg, r))
 	}
 }
 
@@ -410,7 +410,7 @@ const schemaOf = (c: RewriteCase) => {
 	const GenCond = relation.generated("GenCond", fields, ["id"], (r) => ({
 		g: generated(
 			pg.integer,
-			Compute.cond(
+			Logic.cond(
 				predicateOf(c.generated, readsOf(r.t, r.x, Pick.at("t", r.kind), Pick.at("f", r.kind))),
 				r.n,
 				r.m

@@ -98,8 +98,8 @@ export default defineConfig({
   one instant, and a clocked read answers `once` alone, never live. Bind a lease's, a timer's or a due instant's `now`
   so, never the host's clock; a reading lies in PostgreSQL's timestamptz range in its unit, so `now + delay`, the delay a
   contract its predicate bounds, casts into its field with no guard where those bounds fit (millis: into a bigint).
-  Rows an array or a Stream inserts take such a field from the call: `insertComputed(Claim, [], { until: Compute.cast(
-  Compute.add(Compute.base(param("now", Instant)), Compute.base(param("budget", Budget))), Instant) })`, its rows
+  Rows an array or a Stream inserts take such a field from the call: `insertComputed(Claim, [], { until: Type.cast(
+  Num.add(Type.base(param("now", Instant)), Type.base(param("budget", Budget))), Instant) })`, its rows
   leaving `until` out, the record evaluated once per call in the statement that writes the rows, a nested owner's
   members carrying a computed key field holding the owner's one value (README "Writes"). A
   reading is a value, a `bigint`, never an `instant`: a row records when it was written
@@ -327,7 +327,7 @@ breaking change may briefly break older application instances that are still run
   rolls the whole file back); the worlds: logins and roles, their memberships and settings, each role's schema of
   views (a security-barrier view for a query entry, a plain one for a whole entry, each closed id followed by its
   decoded `<field>_name`), its grants (EXECUTE on each constant its statements call among them, and on each declared function its served
-  programs call, `Compute.call`, `Compute.rowsOf` and `Compute.rowOf`, and no other), row-security policies
+  programs call, `Fn.call`, `Fn.rows` and `Fn.row`, and no other), row-security policies
   and filter functions; and last every object the schema no longer has, dropped: indexes, roles, statistics, views,
   functions (a constant by `DROP FUNCTION ... RESTRICT`, so PostgreSQL refuses a migration that left a reader of it
   standing), columns, tables, then types. A declared drop of a stored relation or field is drafted live. A world object
@@ -693,72 +693,72 @@ The command line's own refusals, by stage:
   inserts without reading them, either of which may be a stored one inserted again: never assume a key is there.
 - No read raises an arithmetic error on a row: never catch 22003, 22012 or 2201F around a query. Integer arithmetic is
   exact and delivers `bigint`, money arithmetic exact `Money`, and floats are IEEE 754 (`x / 0.0` is ±Infinity). A
-  partial operation needs its precondition proved, by a literal's type (`Compute.div(x, 7n)`), by a contract that
-  declares it (`contract("Divisor", pg.bigint, (v) => Compute.ne(v, 0n), { proves: ["nonzero"] })`) or by a guard:
-  `Compute.when(Compute.nonzero(b), (b) => Compute.div(a, b), 0n)`, the guards `Compute.nonzero`,
-  `Compute.nonnegative`, `Compute.positive`, `Compute.isFinite` and `Compute.within(x, low, high)`. A guard's subject
-  may be a parameter (`Compute.when(Compute.nonzero(d), (d) => Compute.div(x, d), 0n)` over `r.param("d",
+  partial operation needs its precondition proved, by a literal's type (`Num.div(x, 7n)`), by a contract that
+  declares it (`contract("Divisor", pg.bigint, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`) or by a guard:
+  `Logic.when(Num.nonzero(b), (b) => Num.div(a, b), 0n)`, the guards `Num.nonzero`,
+  `Num.nonnegative`, `Num.positive`, `Num.isFinite` and `Num.within(x, low, high)`. A guard's subject
+  may be a parameter (`Logic.when(Num.nonzero(d), (d) => Num.div(x, d), 0n)` over `r.param("d",
   pg.bigint)`), and a parameter of a contract that declares a fact has it, so
-  `Compute.div(x, Compute.base(r.param("d", Divisor)))` needs no guard. A parameter is a term of its declared type
+  `Num.div(x, Type.base(r.param("d", Divisor)))` needs no guard. A parameter is a term of its declared type
   everywhere, first operand included. An unproved
   divisor is a type error naming the guard; an unproved narrowing or power is `CompileError` reason
   `PartialOperation`, whose `guard` is the code to write. A contract's facts are exactly its `proves`: a fact its
   predicate implies but `proves` leaves out is refused, and the refusal names the declaration to add. Narrow an exact
   integer into an integer field with
-  `Compute.cast` under `Compute.within`, and a sum, a mean or numeric arithmetic into a `pg.numeric(p, s)` field the
+  `Type.cast` under `Num.within`, and a sum, a mean or numeric arithmetic into a `pg.numeric(p, s)` field the
   same way: a ChangeSet member writes each field at its own type, a numeric of another precision or scale included.
-- Test text with `Compute.matches(x, pattern)`, `Compute.startsWith` and `Compute.endsWith`, never a regex in your
-  code. A pattern is `str.regex`'s grammar under `"u"`, anchored by `^` and `$`: a `Compute.pattern(source)`, made once
-  as a module constant and admitted there (`const digits = Compute.pattern("^[0-9]+$")`), never a bare string; or a
-  closed relation's text payload, `Compute.matches(lexical, ValueDomain.at("pattern", domain))`, every value of which
-  the compiler measures; a pattern held in an ordinary field or a parameter is refused. A `Compute.pattern`'s match is a
-  guard: `Compute.when(Compute.matches(x, digits), (x) => …, otherwise)`. `Compute.concat` builds text in checks,
-  generated fields and folds; in a query, compare a text with a concatenation (`Compute.eq(t, Compute.concat(a, b))`)
+- Test text with `Text.matches(x, pattern)`, `Text.startsWith` and `Text.endsWith`, never a regex in your
+  code. A pattern is `str.regex`'s grammar under `"u"`, anchored by `^` and `$`: a `Text.pattern(source)`, made once
+  as a module constant and admitted there (`const digits = Text.pattern("^[0-9]+$")`), never a bare string; or a
+  closed relation's text payload, `Text.matches(lexical, ValueDomain.at("pattern", domain))`, every value of which
+  the compiler measures; a pattern held in an ordinary field or a parameter is refused. A `Text.pattern`'s match is a
+  guard: `Logic.when(Text.matches(x, digits), (x) => …, otherwise)`. `Text.concat` builds text in checks,
+  generated fields and folds; in a query, compare a text with a concatenation (`Logic.eq(t, Text.concat(a, b))`)
   and it is decided without building it, a concatenation nested in it read through as its parts
-  (`Compute.concat(Compute.concat(a, b), c)` is a, b and c, each read at its offset). Its first operand is a term: write a leading literal as
-  `Compute.literal(Prose, "item-")`. Normalize text with `Compute.translate(x, from, to)`, strings of one length with
-  each character of `from` once (`Compute.translate(title, "\t\n\r", "   ")` for `xs:normalizedString`), and fold
-  ASCII case with `Compute.lowerAscii(x)`, never a locale's `lower`. A translation is text of the image of `x`'s
-  pattern, so store it as `generated(T, Compute.cast(Compute.translate(…), T))` for any refined text `T` the image
+  (`Text.concat(Text.concat(a, b), c)` is a, b and c, each read at its offset). Its first operand is a term: write a leading literal as
+  `Type.literal(Prose, "item-")`. Normalize text with `Text.translate(x, from, to)`, strings of one length with
+  each character of `from` once (`Text.translate(title, "\t\n\r", "   ")` for `xs:normalizedString`), and fold
+  ASCII case with `Text.lowerAscii(x)`, never a locale's `lower`. A translation is text of the image of `x`'s
+  pattern, so store it as `generated(T, Type.cast(Text.translate(…), T))` for any refined text `T` the image
   lies in, which compilation proves; translate in a query only over a pattern that bounds its length, though a query
-  folds ASCII case (`Compute.lowerAscii`) over any text, so fold an unbounded attribute in the query rather than in a
-  stored copy of it. For XML Schema's whiteSpace facets use `Compute.replaceWhitespace(x)` (tab, LF and CR to spaces)
-  and `Compute.collapse(x)` (runs to one space, none at either end), never a regex of your own; cast a collapse into a
+  folds ASCII case (`Text.lowerAscii`) over any text, so fold an unbounded attribute in the query rather than in a
+  stored copy of it. For XML Schema's whiteSpace facets use `Text.replaceWhitespace(x)` (tab, LF and CR to spaces)
+  and `Text.collapse(x)` (runs to one space, none at either end), never a regex of your own; cast a collapse into a
   refined text the same way, such as `str.regex("^(?:[^ \\t\\n\\r]+(?: [^ \\t\\n\\r]+)*)?$", "su")` for any
   text. A collapse, a translation and a concatenation keep their operands' byte bound, a translation to wider
   characters by the most its image can take, so a `str.bytes` text normalized from one casts back into it:
-  `generated(Key, Compute.cast(Compute.lowerAscii(Compute.collapse(row.lang)), Key))` for `lang` a `Key`. A query's
-  `Compute.matches`, like its translate, needs a pattern that bounds the subject's length: PostgreSQL's regex engine
+  `generated(Key, Type.cast(Text.lowerAscii(Text.collapse(row.lang)), Key))` for `lang` a `Key`. A query's
+  `Text.matches`, like its translate, needs a pattern that bounds the subject's length: PostgreSQL's regex engine
   widens its subject fourfold. A collapse reads any text. Fold an ordered family's texts with `Monoid.concat`, naming
   its `(before, after)` pair, and write each member's separator into its own step value; type the accumulators by a
   bounded pattern, `str.regex("^.{0,64}$", "su")`, since the family's axes key each running text and an unbounded one
   is UnrepresentableKey. The step may be any text, a generated piece at a byte bound among them,
-  `generated(T, Compute.concat(…))` for a refined `T`: a generated field and each accumulator is of its type but for
+  `generated(T, Text.concat(…))` for a refined `T`: a generated field and each accumulator is of its type but for
   its own pattern and byte bound, which its domain checks, refusing a write whose value lies outside it.
 - Join patterns a text must all match, XML Schema's pattern facets among them, with
   `str.and(str.regex(p), str.regex(q))`, never one regex you intersect by hand: each pattern is held to PostgreSQL's
   limits alone and its domain tests each in turn, so a conjunction costs the sum of its patterns, never their product,
-  and its host type is theirs intersected. Inside `Compute.when(Compute.matches(x, p), (x) => …)` the branch's
+  and its host type is theirs intersected. Inside `Logic.when(Text.matches(x, p), (x) => …)` the branch's
   parameter is text of its own patterns and `p` together, so nested matches prove a cast into a conjunction.
-- Write a `str.regex` or `Compute.pattern` source in JavaScript's syntax under `u`, with no lookahead or lookbehind,
+- Write a `str.regex` or `Text.pattern` source in JavaScript's syntax under `u`, with no lookahead or lookbehind,
   `\p{…}` or `\P{…}`, `\s` or `\S`, `\b` or `\B`, backreference, named group, inline modifier, lazy quantifier or
   repetition bound above 255, and with some text it matches. TypeScript accepts each of these, but the relation,
-  contract or `Compute.pattern` built over the source refuses it as `UnsupportedOperation`, naming the construct and
+  contract or `Text.pattern` built over the source refuses it as `UnsupportedOperation`, naming the construct and
   its offset. Spell an explicit class instead of `\s` or `\p{…}`.
-- A set of a roster's handles, `bits(X)`, has the algebra `Compute.union`, `Compute.intersection`,
-  `Compute.difference`, `Compute.cardinality`, `Compute.subset`, `Compute.disjoint` and `Compute.singleton`, and no
-  complement. Test a closed id's membership in a set as `Compute.subset(Compute.singleton(id), set)`:
-  `Compute.singleton(id)` is the set of the id's one handle, and a NULL id gives a NULL set.
+- A set of a roster's handles, `bits(X)`, has the algebra `Bits.union`, `Bits.intersection`,
+  `Bits.difference`, `Bits.cardinality`, `Bits.subset`, `Bits.disjoint` and `Bits.singleton`, and no
+  complement. Test a closed id's membership in a set as `Bits.subset(Bits.singleton(id), set)`:
+  `Bits.singleton(id)` is the set of the id's one handle, and a NULL id gives a NULL set.
 - A closed relation read at a key no row holds: `C.at(field, k…)` is NULL there, which a check refuses, as does a
   generated field's NOT NULL, on `{ kind: "generated", relation, field }` (23502 on its column to a direct writer;
   grizzle refuses a nested write or a family fill that reads the field before any SQL, with the same outcome), and
   `C.has(k…)` is false there, so say what holds where the key is absent with `has`, never with a null-object row:
-  `Compute.or(Compute.not(C.has(k…)), φ(C.at(field, k…)))`, or a value there,
-  `Compute.cond(C.has(k…), C.at(field, k…), d)`. Every closed read is NULL where a key value is NULL.
+  `Logic.or(Logic.not(C.has(k…)), φ(C.at(field, k…)))`, or a value there,
+  `Logic.cond(C.has(k…), C.at(field, k…), d)`. Every closed read is NULL where a key value is NULL.
 - A `bytes` field, a `Uint8Array`, is written and read back whole and nothing more: never in a key, a rule's side, a
-  filter, a parameter, a contract, a generated or accumulated field, or a `Compute` call but `Compute.sha256(x)`, its
+  filter, a parameter, a contract, a generated or accumulated field, or a scalar term but `Crypto.sha256(x)`, its
   SHA-256 digest as 64 lowercase hex digits. Store a digest PostgreSQL computes from the bytes, never one the caller
-  sends: `generated(str.regex("^[0-9a-f]{64}$"), Compute.sha256(row.content))`. A value holds at most 1,073,741,819
+  sends: `generated(str.regex("^[0-9a-f]{64}$"), Crypto.sha256(row.content))`. A value holds at most 1,073,741,819
   bytes (`bytesMaxLength`), PostgreSQL's longest bytea, and is read back in chunks, one round trip still; a write reads
   back only its SHA-256 digest. grizzle copies a value once, as the call is sent; one changed
   before then is `bytesChanged`. An attachment whose rows hold one is a statement of its own, so under rows that read
@@ -768,17 +768,17 @@ The command line's own refusals, by stage:
   sent, nothing ran, and grizzle never splits it into more round trips: split the input across calls.
 - Every numeric field declares its precision and scale, `pg.numeric(p, s)`; there is no bare `pg.numeric`. A sum,
   a mean or an operation's numeric result carries the digits its computation proves, and one past 131,072 integer
-  digits is `ResourceBound`. Convert an integer, money or a float to numeric with `Compute.numeric(x)`, never a cast to
+  digits is `ResourceBound`. Convert an integer, money or a float to numeric with `Num.numeric(x)`, never a cast to
   a typmod you do not mean.
-- Parse an `xs:decimal` text with `Compute.parseDecimal(x)`, the exact numeric of any digits, never a cast into the
+- Parse an `xs:decimal` text with `Text.parseDecimal(x)`, the exact numeric of any digits, never a cast into the
   widest `pg.numeric(p, s)` with a lexical form, whose form ends at 256 integer and 255 fraction digits. Its text is
   `decimalText` within `decimalTextMaxBytes` (16,384) bytes: type it `str.bytes(16384, str.regex(decimalText.source))`, or
-  guard it, `Compute.when(Compute.matches(x, decimalText), (x) => Compute.when(Compute.within(Compute.octetLength(x),
-  0, 16384), () => Compute.parseDecimal(x), otherwise), otherwise)`. A double's text of any digits is
-  `Compute.parseDouble(x)` over `doubleText`. Never make an `otherwise` stand for a value, an infinity or a sentinel:
+  guard it, `Logic.when(Text.matches(x, decimalText), (x) => Logic.when(Num.within(Text.octetLength(x),
+  0, 16384), () => Text.parseDecimal(x), otherwise), otherwise)`. A double's text of any digits is
+  `Text.parseDouble(x)` over `doubleText`. Never make an `otherwise` stand for a value, an infinity or a sentinel:
   a rule over it then passes on a text that does not parse. State what the rule holds of such a text in the rule.
   Parse a padded value as XML Schema reads it, collapsed first:
-  `Compute.when(Compute.matches(Compute.collapse(x), doubleText), (x) => Compute.parseDouble(x), otherwise)`.
+  `Logic.when(Text.matches(Text.collapse(x), doubleText), (x) => Text.parseDouble(x), otherwise)`.
 - Each login is a PostgreSQL role, `roleNameOf(login, connection)`, and each role a PostgreSQL role that cannot log
   in, `roleNameOf(role, connection)`, with its schema of views, `schemaNameOf(role)`; the schema's own is
   `schemaNameOf(schema)`. Take every one from there, never spell or rebuild one: each is the name the installation

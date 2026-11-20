@@ -10,7 +10,7 @@
  * narrowing's range) is the bound domain's residue, admitted either way. A parameter is a term of its declared type,
  * whose value compilation never sees: a partial operation over a plain one is refused for exactly the fact it needs, and
  * over one of a contract declaring that fact (which its binding checks of every value) admitted. Over columns and
- * parameters, a Compute.when guard's branch is computed exactly where the guard holds and its other value elsewhere,
+ * parameters, a computeCore.when guard's branch is computed exactly where the guard holds and its other value elsewhere,
  * the host evaluator judging every row.
  *
  * Features: each operation over a literal, a parameter and a declaring parameter, admitted and refused; each guarded
@@ -24,7 +24,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Result } from "effect"
 import { ParamId } from "#compiler/core/ids.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { baseParams, lowerWith, param, spelledExpr, v } from "#test/unit/compute/support.ts"
 import {
@@ -58,10 +58,10 @@ export const totalityRefusesAPartialOperationOverLiteralsExactlyWhereTheirValues
 					 */
 					const needed =
 						source === "literal"
-							? Compute.literal(entry.field, entry.operand === 0 ? a : b)
+							? computeCore.literal(entry.field, entry.operand === 0 ? a : b)
 							: source === "parameter"
 								? param("p", entry.field)
-								: Compute.base(param("p", declaring(entry.field, entry.needs)))
+								: computeCore.base(param("p", declaring(entry.field, entry.needs)))
 					const expr = (
 						entry.operand === 0
 							? entry.build(needed, v("b", entry.field))
@@ -207,7 +207,7 @@ export const totalityComputesAGuardsBranchExactlyWhereTheGuardHoldsOverColumnsAn
 					file: "packages/engine/src/scalar/compute/typing.ts",
 					original: "\t\treturn this.conditional(guard.predicate, onTrue, onFalse, at)",
 					replacement: "\t\treturn this.conditional(guard.predicate, onFalse, onTrue, at)",
-					why: "A Compute.when lowers its branches swapped, so the guard's branch is computed where the guard fails; the guarded forms' property fails."
+					why: "A computeCore.when lowers its branches swapped, so the guard's branch is computed where the guard fails; the guarded forms' property fails."
 				}
 			]
 		}

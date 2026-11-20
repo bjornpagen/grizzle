@@ -404,8 +404,8 @@ const compare = (r: RuleValue, op: CompareOp, left: unknown, right: unknown): un
 }
 
 /**
- * A padding through Compute's admission cores: Compute.when(Compute.within(v, low, high), (v) =>
- * Compute.numeric(Compute.cast(v, pg.numeric(1000, scale))), Compute.numeric(v)).
+ * A padding through the catalogue's admission cores: Logic.when(Num.within(v, low, high), (v) =>
+ * Num.numeric(Type.cast(v, pg.numeric(1000, scale))), Num.numeric(v)).
  */
 const paddingTerm = (p: Padding, term: (v: Var) => unknown): unknown => {
 	const type = p.arg.field.type
@@ -421,7 +421,7 @@ const paddingTerm = (p: Padding, term: (v: Var) => unknown): unknown => {
 const argTermValue = (a: ArgTerm, term: (v: Var) => unknown): unknown =>
 	a.kind === "var" ? term(a.var) : paddingTerm(a.padding, term)
 
-/** The Compute term of a computed head key, through Compute's admission cores. */
+/** The scalar term of a computed head key, through the catalogue's admission cores. */
 const computedTerm = (r: RuleValue, t: ComputedTerm, term: (v: Var) => unknown): unknown => {
 	switch (t.kind) {
 		case "base":
@@ -707,9 +707,9 @@ export const buildMixed = (built: BuiltSchema, value: SchemaValue, root: MixedRo
  * attach (in the delivery each attachment states, arm(field, handle) for an arm) and a final orderBy, exactly as an
  * application chains them. A rule's derived sources are built where the match that reads them is: an earlier read's
  * query and its Query.bind, r.interior, r.relation and query(S).recursive; its filters are r.eq ... r.ge, r.between,
- * r.in, r.allen, r.pointIn and r.not in one where; its Compute terms Compute.base, Compute.cast, Compute.cond,
- * Compute.div, and Compute.when over Compute.within or Compute.nonnegative guarding a typmod's cast, Compute.sqrt and
- * Compute.power; its aggregates r.count, r.sum, r.mean, r.min and r.max, over a variable or a padding of one. The
+ * r.in, r.allen, r.pointIn and r.not in one where; its scalar terms Type.base, Type.cast, Logic.cond,
+ * Num.div, and Logic.when over Num.within or Num.nonnegative guarding a typmod's cast, Num.sqrt and
+ * Num.power; its aggregates r.count, r.sum, r.mean, r.min and r.max, over a variable or a padding of one. The
  * builders record Descriptions, and everything grizzle does with them (checking, lowering, running, decoding) is under
  * test. The shapes are known only at run time, so the builders are driven through their runtime as a JavaScript
  * caller drives them (queryOver, varsOver, changeSetOver, computeCore): the same values the typed facade returns,

@@ -321,7 +321,7 @@ export const closedRecordsARostersHandlesInDeclaredOrderTypesEachHandleAsACodeOf
 					assert.deepEqual(desc.handles, handles)
 					/**
 					 * handle(h) is h's literal at the roster's closed id, the one typed constant of a member: a code, whose
-					 * column delivers exactly h. A member off the roster is refused, and so is Compute.literal over the
+					 * column delivers exactly h. A member off the roster is refused, and so is Type.literal over the
 					 * roster's descriptor, the JavaScript caller's path the types cannot refuse.
 					 */
 					const rosterId = rawClosedId(K)
@@ -532,7 +532,7 @@ export const closedRecordsAClosedRelationsRowsOnePerKeyOfItsRosterAgainstItsFiel
 
 /**
  * A literal written opposite a field records the value PostgreSQL reads at each site: a comparison's, a selection's or a
- * check operand's, the value as written, as Compute records it (scalar/literal.ts literalDescFor), since PostgreSQL
+ * check operand's, the value as written, as the scalar catalogue records it (scalar/literal.ts literalDescFor), since PostgreSQL
  * resolves an untyped literal opposite the column at the literal's own value; a closed relation's fact, the value
  * PostgreSQL's assignment into the column stores (storedLiteral): a real rounded to binary32 and a numeric(p, s) to its
  * scale, half away from zero, refusing what the column refuses, NaN at numeric(p, 0) among it. Its budget is its suite's before it was a property

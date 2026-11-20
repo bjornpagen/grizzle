@@ -1,6 +1,6 @@
 /**
  * A set states its roster at every door a set enters: Bits.of(R, handles) over one of two rosters whose handles share
- * names, entered at a field over either roster as a Compute literal, a comparison's operand, a closed relation's fact
+ * names, entered at a field over either roster as a scalar literal, a comparison's operand, a closed relation's fact
  * (schema/literal.ts) and the codec a parameter or a written fact is encoded by (codec/scalar.ts), beside a plain Set of
  * the same names, which states no roster.
  *
@@ -44,7 +44,7 @@ export const aSetOverARosterIsAdmittedAtAFieldExactlyWhenItStatesThatFieldsRoste
 			field: source.draw(element<"Alpha" | "Beta">(["Alpha", "Beta"])),
 			door: source.draw(
 				element<Door>([
-					"a Compute literal",
+					"a scalar literal",
 					"a comparison's operand",
 					"a closed relation's fact",
 					"the codec"
@@ -54,8 +54,8 @@ export const aSetOverARosterIsAdmittedAtAFieldExactlyWhenItStatesThatFieldsRoste
 		{
 			needs: {},
 			situations: [
-				"a Compute literal admitted",
-				"a Compute literal refused",
+				"a scalar literal admitted",
+				"a scalar literal refused",
 				"a comparison's operand admitted",
 				"a comparison's operand refused",
 				"a closed relation's fact admitted",

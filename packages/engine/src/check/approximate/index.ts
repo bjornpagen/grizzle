@@ -24,7 +24,7 @@ import type { Heading, RelNode } from "#compiler/ir/rel.ts"
  *
  * - by names a column of the source's heading; anything else is MalformedDescription (the builder checks it too, but a
  *   JavaScript caller or a Description may not);
- * - eligible source and score provenance: the source is one rule whose `by` output traces to Compute.cosineDistance
+ * - eligible source and score provenance: the source is one rule whose `by` output traces to Distance.cosine
  *   between one stored vector of 1-2000 dimensions and one query vector (trace.ts). A score that is not such a
  *   distance, a union, an aggregate, a bound, a vector the rule does not read from a stored relation, or an indexed
  *   vector above HNSW's 2000 dimensions is UnsupportedOperation with a capability that begins `approximateNearest:` and

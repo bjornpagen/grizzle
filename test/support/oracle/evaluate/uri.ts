@@ -2,7 +2,7 @@
  * URI reference resolution read again from RFC 3986 by other means than @bjornpagen/grizzle-text's uri.ts: Appendix
  * B's own regular expression splits each reference into its components, §5.2.4's rules A to E rewrite the path by
  * their own patterns over its input buffer, and §5.2.2 and §5.3 transform and recompose the components. The second
- * implementation the uri property holds the host's resolver to, and the reference evaluator's Compute.resolveReference
+ * implementation the uri property holds the host's resolver to, and the reference evaluator's Text.resolveReference
  * (catalog.ts), which the library function's SQL is held to.
  *
  * @see {@link https://www.rfc-editor.org/rfc/rfc3986#section-5.2 | RFC 3986, §5.2 Relative Resolution}

@@ -4,7 +4,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Text } from "#compiler/public/compute.ts"
 import { accumulated, closedId, drawn, generated, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -104,7 +104,7 @@ const schemaOf = (change: Change, version: "first" | "second") => {
 		(r) => ({ g: generated(pg.integer, Cap.at("cap", r.tier)) })
 	)
 	const T2 = relation.generated("T2", { doc: pg.integer, s: Signed }, ["doc"], (r) => ({
-		h: generated(pg.boolean, Compute.startsWith(r.s, changed("generation") ? "+" : "-"))
+		h: generated(pg.boolean, Text.startsWith(r.s, changed("generation") ? "+" : "-"))
 	}))
 	const O = relation(
 		"O",

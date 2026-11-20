@@ -13,7 +13,7 @@
  */
 import { Option } from "effect"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
@@ -254,7 +254,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					const { id } = v(A, "a")
 					return r
 						.match(A, { id, kind: 1 })
-						.find({ id: Compute.greatest(id, Compute.literal(pg.integer, 0)) })
+						.find({ id: Logic.greatest(id, Type.literal(pg.integer, 0)) })
 				})
 			)
 			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])

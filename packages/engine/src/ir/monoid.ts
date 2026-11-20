@@ -22,7 +22,7 @@ import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
  * set's union, the greater of two values, and text's concatenation. */
 export type AccumulateFn = "add" | "union" | "greatest" | "concat"
 
-/** The Compute operations a combine applies: a plane's accumulation, and the meet twos's second plane steps by. */
+/** The scalar operations a combine applies: a plane's accumulation, and the meet twos's second plane steps by. */
 export type CombineFn = AccumulateFn | "intersection"
 
 /** What a fold's step reads of its member: nothing, the count's step of one, or a value. */
@@ -30,7 +30,7 @@ export type CombineStep<E> = { readonly kind: "one" } | { readonly kind: "value"
 
 /**
  * How a combine builds an expression of its caller's representation: the constant one a count adds, and an
- * application of one of the Compute operations to two operands.
+ * application of one of the scalar operations to two operands.
  */
 export interface CombineBuild<E> {
 	readonly one: E

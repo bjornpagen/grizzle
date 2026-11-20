@@ -2,7 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Formatter } from "effect"
-import { Compute } from "#compiler/public/compute.ts"
+import { Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema, select } from "#compiler/public/schema.ts"
@@ -63,21 +63,21 @@ const Selected = schema(
 		contained(
 			on(NumericOther, "id"),
 			on(
-				select(BNumeric, (b) => b.eq(b.x, Compute.literal(pg.numeric(10, 2), "1.25"))),
+				select(BNumeric, (b) => b.eq(b.x, Type.literal(pg.numeric(10, 2), "1.25"))),
 				"id"
 			)
 		),
 		contained(
 			on(NumericOtherExact, "id"),
 			on(
-				select(BNumeric, (b) => b.eq(b.x, Compute.literal(pg.numeric(10, 2), "1.30"))),
+				select(BNumeric, (b) => b.eq(b.x, Type.literal(pg.numeric(10, 2), "1.30"))),
 				"id"
 			)
 		),
 		contained(
 			on(NumericOwn, "id"),
 			on(
-				select(BNumeric, (b) => b.eq(b.x, Compute.literal(BNumeric.fields.x, "1.3"))),
+				select(BNumeric, (b) => b.eq(b.x, Type.literal(BNumeric.fields.x, "1.3"))),
 				"id"
 			)
 		),
@@ -91,21 +91,21 @@ const Selected = schema(
 		contained(
 			on(KeyedOtherExact, "id"),
 			on(
-				select(BKeyed, (b) => b.eq(b.x, Compute.literal(pg.numeric(10, 2), "1.30"))),
+				select(BKeyed, (b) => b.eq(b.x, Type.literal(pg.numeric(10, 2), "1.30"))),
 				"id"
 			)
 		),
 		contained(
 			on(TextOther, "id"),
 			on(
-				select(BText, (b) => b.eq(b.x, Compute.literal(Longer, "abcdef"))),
+				select(BText, (b) => b.eq(b.x, Type.literal(Longer, "abcdef"))),
 				"id"
 			)
 		),
 		contained(
 			on(TextOtherExact, "id"),
 			on(
-				select(BText, (b) => b.eq(b.x, Compute.literal(Longer, "abc"))),
+				select(BText, (b) => b.eq(b.x, Type.literal(Longer, "abc"))),
 				"id"
 			)
 		)
@@ -116,7 +116,7 @@ const Selected = schema(
 const numericAt = (value: string) =>
 	query(Selected).rule((r) => {
 		const { id } = v(BNumeric, "b")
-		return r.match(BNumeric, { id, x: Compute.literal(pg.numeric(10, 2), value) }).find({ id })
+		return r.match(BNumeric, { id, x: Type.literal(pg.numeric(10, 2), value) }).find({ id })
 	})
 
 /**
@@ -126,7 +126,7 @@ const numericAt = (value: string) =>
 const keyedAt = (value: string) =>
 	query(Selected).rule((r) => {
 		const { id } = v(BKeyed, "b")
-		return r.match(BKeyed, { id, x: Compute.literal(pg.numeric(10, 2), value) }).find({ id })
+		return r.match(BKeyed, { id, x: Type.literal(pg.numeric(10, 2), value) }).find({ id })
 	})
 
 const AtOther = derived("AtOther", numericAt("1.25"))

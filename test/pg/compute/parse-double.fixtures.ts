@@ -11,7 +11,7 @@ import {
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Text } from "#compiler/public/compute.ts"
 import { generated, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { doubleText } from "#compiler/public/text.ts"
@@ -161,7 +161,7 @@ const Keys = relation.generated(
 	"Keys",
 	{ id: pg.integer, key: regexField<string>(doubleText.source, []) },
 	["id"],
-	(r) => ({ value: generated(pg["double precision"], Compute.parseDouble(r.key)) })
+	(r) => ({ value: generated(pg["double precision"], Text.parseDouble(r.key)) })
 )
 
 const parsed = schema("ParseDouble", [Keys], [])

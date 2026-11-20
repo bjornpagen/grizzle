@@ -66,7 +66,7 @@ export type MemberOp = "insert" | "delete" | "put"
 /**
  * A described member's head term for one field: the source's field `column` read as it is, a field of the member
  * field's own type up to its text domain; the source's numeric field `column` of another typmod, read into the member
- * field's numeric kind `into` by Compute.cast under Compute.within of that kind's range (domain.ts typmodRange), and as
+ * field's numeric kind `into` by Type.cast under Num.within of that kind's range (domain.ts typmodRange), and as
  * the kind's first value (domain.ts typeInfo) outside it, since a member writes each field at its own type
  * (check/member.ts) and the cast rounds to the field's scale; or the parameter `param`.
  */
@@ -286,7 +286,7 @@ interface ReadSketch {
  *   immediate containment;
  * - "relation parameters": an insert and a deletion of the keyed relation, each a relation parameter's facts;
  * - "typmod cast": an insert into the rounded relation of a precise fact, its numeric(12, 4) read into numeric(5, 2)
- *   by Compute.cast under Compute.within of numeric(5, 2)'s range (HeadTerm cast) and rounded by the cast;
+ *   by Type.cast under Num.within of numeric(5, 2)'s range (HeadTerm cast) and rounded by the cast;
  * - "anchored deletion": a deletion of the keyed facts whose b a parameter names, described over the keyed relation
  *   itself, so the DELETE's target plays the member's match (write/delete/anchor.ts);
  * - "single statement": an insert into the parent relation of the keyed facts whose b a parameter names beside the

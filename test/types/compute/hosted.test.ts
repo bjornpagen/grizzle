@@ -1,5 +1,5 @@
 /**
- * A term the host evaluates (test/types/compute/hosted.ts): over the box of every Compute function computeSpecs marks
+ * A term the host evaluates (test/types/compute/hosted.ts): over the box of every scalar function computeSpecs marks
  * check false, widthBucket apart, and abs, each at every position a term stands in a schema, a cell is refused exactly
  * where the host evaluates its position (a contract predicate, a row check of a stored relation, a generated field)
  * and the roster marks its function, under the types' Refusal (types/core/phantom.ts Hosted), and admitted in a row
@@ -14,7 +14,7 @@ import { hostedProgram } from "#test/types/compute/hosted.ts"
 
 /** Over every unhosted function and abs at every position, refuses exactly the roster's cells, and admits the rest. */
 export const hosted = boxAgreement(finite(word(hostedBox)), {
-	box: "every Compute function computeSpecs marks check false but widthBucket, abs, and a declared function's call, each in a row check of a stored relation, a contract predicate, a generated field, a row check of a derived relation and a selection",
+	box: "every scalar function computeSpecs marks check false but widthBucket, abs, and a declared function's call, each in a row check of a stored relation, a contract predicate, a generated field, a row check of a derived relation and a selection",
 	situations: [],
 	notes: () => [],
 	checking: "disarmed",
@@ -41,7 +41,7 @@ export const hosted = boxAgreement(finite(word(hostedBox)), {
 			file: "packages/engine/src/types/fields/constructors.ts",
 			original: '\t\tv: Scalar<DomainOf<B>, unknown, ContractValueOrigin, B["sql"], Infer<B>>',
 			replacement: '\t\tv: Scalar<DomainOf<B>, unknown, unknown, B["sql"], Infer<B>>',
-			why: "A contract's value is of unknown origin, which a union of origins absorbs, so a guarded unhosted term over it (Compute.when's origin) loses its mark and its contract cell typechecks; the program fails."
+			why: "A contract's value is of unknown origin, which a union of origins absorbs, so a guarded unhosted term over it (Logic.when's origin) loses its mark and its contract cell typechecks; the program fails."
 		}
 	]
 })

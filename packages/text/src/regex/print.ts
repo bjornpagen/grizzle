@@ -18,7 +18,7 @@ import { regexMaxRepeat } from "#text/regex/parse.ts"
  *
  * The printer folds the IR children first (ir.ts folded), so a pattern of any depth prints without recursing. The
  * translation is total over the IR: every pattern grizzle admits has each dialect's spelling by construction. The empty
- * language, which a Compute.matches pattern may be (admit.ts admitMatch) and a computed text type's image may come to,
+ * language, which a Text.matches pattern may be (admit.ts admitMatch) and a computed text type's image may come to,
  * has an ARE (toAre) and a spelling in grizzle's own grammar (printSource), and no ECMA-262 one, since a refinement,
  * which an OpenAPI document states, holds a language with a member (text/refinement.ts languageOf).
  */
@@ -228,7 +228,7 @@ export const emptyLanguageAre = "\\Z."
 /**
  * The ARE spelling of a pattern's IR, the same Boolean membership over admitted text, the one question either engine is
  * asked: a pattern string, which text/refinement.ts places in a typed text literal, `VALUE ~ '<pattern>'::text`, and
- * a query's or a check's `~` reads (admit.ts matchAre). The empty language, a Compute.matches pattern no text matches,
+ * a query's or a check's `~` reads (admit.ts matchAre). The empty language, a Text.matches pattern no text matches,
  * is {@link emptyLanguageAre}.
  */
 export const toAre = (node: RegexNode): string =>

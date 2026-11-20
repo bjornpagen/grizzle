@@ -74,7 +74,7 @@ export const demand: (condition: boolean, reason: string) => asserts condition =
 export const required = <T>(value: T | undefined, reason: string): T => value ?? noMatch(reason)
 
 /**
- * The plain result types the Compute catalogue gives (scalar/compute/types.ts), so a type the target states is the
+ * The plain result types the scalar catalogue gives (scalar/compute/types.ts), so a type the target states is the
  * type the checker would have stated.
  */
 export const plain: { readonly [C in "int4" | "int8" | "float8" | "bool"]: ScalarType } = {

@@ -1,5 +1,5 @@
 /**
- * Compute.resolveReference, the target of a reference resolved against a base as RFC 3986 §5.2 defines it, typed and
+ * Text.resolveReference, the target of a reference resolved against a base as RFC 3986 §5.2 defines it, typed and
  * lowered as a check lowers it and evaluated on the host (scalar/compute/evaluate.ts) and by the reference evaluator
  * (test/support/oracle/evaluate/catalog.ts).
  *
@@ -83,7 +83,7 @@ const resolved: ExprDesc = {
 	args: [variable("b"), variable("r")]
 }
 
-/** Compute.resolveReference is RFC 3986's target of every reference against every base, within the bound its type states. */
+/** Text.resolveReference is RFC 3986's target of every reference against every base, within the bound its type states. */
 export const computeResolveReferenceIsRFC3986sTargetOfEveryReferenceAgainstEveryBaseWithinTheBoundItsTypeStates =
 	property.explore(resolveCase, {
 		needs: {},

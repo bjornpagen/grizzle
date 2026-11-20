@@ -4,7 +4,7 @@ import { type Case as PropertyCase } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Type } from "#compiler/public/compute.ts"
 import { accumulated, closedId, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import {
 	check,
@@ -110,12 +110,12 @@ const cellsNamed = (label: string, naming: Naming) =>
 			check(namings[naming].a, Cell, (x) => x.ge(x.a, 0)),
 			check(namings[naming].arity, Cell, (x) =>
 				x.and(
-					x.ge(Compute.base(x.n), Shape.at("min", x.kind)),
-					x.le(Compute.base(x.n), Shape.at("max", x.kind))
+					x.ge(Type.base(x.n), Shape.at("min", x.kind)),
+					x.le(Type.base(x.n), Shape.at("max", x.kind))
 				)
 			),
 			check(namings[naming].floor, Cell, (x) => x.ge(x.total, Shape.at("floor", x.kind))),
-			check(namings[naming].balance, Cell, (x) => x.gt(Compute.base(x.n), x.total)),
+			check(namings[naming].balance, Cell, (x) => x.gt(Type.base(x.n), x.total)),
 			cellParts,
 			cellTotal
 		]

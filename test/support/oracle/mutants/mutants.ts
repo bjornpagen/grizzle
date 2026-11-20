@@ -422,7 +422,7 @@ const isJoin = (n: RelNode): n is NodeOf<"MatchRegion"> =>
  * | V6 | Recursive UNION with plain seed and step SELECTs | the seed's and step's DISTINCT removed under recursive UNION |
  * | I1 | Drop base key | DISTINCT removed from a projection that keeps no key of its input |
  * | I2 | Keep only parent through fanout | DISTINCT removed from a join region with a source whose key is existential |
- * | I3 | Compute noninjective key expression | DISTINCT removed from a projection that keeps a key only through a function of it |
+ * | I3 | scalar noninjective key expression | DISTINCT removed from a projection that keeps a key only through a function of it |
  * | I5 | Project away group keys with equal aggregate outputs | DISTINCT removed from a projection of a group that drops a group key |
  * | I6 | Disjoint source IDs projected to equal values | UNION ALL for a union without disjoint arm tags |
  * | I7 | Remove DISTINCT before OFFSET 1 under EXISTS | every DISTINCT beneath an existence test removed, a bound included |
@@ -516,7 +516,7 @@ export const mutants: Readonly<Record<MutantId, Mutant>> = {
 	I3: {
 		id: "I3",
 		valid: false,
-		check: "Compute noninjective key expression",
+		check: "scalar noninjective key expression",
 		mutate: (program, c) => {
 			const strict = immediate(c.query.dag, neverDrops)
 			const loose = new KeyAnalysis(

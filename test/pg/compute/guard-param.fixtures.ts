@@ -3,7 +3,7 @@
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
@@ -45,9 +45,9 @@ export const guardedSql = (dividend: bigint): string => {
 	const lowered = lowerWith(
 		"query",
 		spelledExpr(
-			Compute.when(
-				Compute.nonzero(param("d", testPg.bigint)),
-				(d: ScalarTerm) => Compute.div(v("x", testPg.bigint), d),
+			computeCore.when(
+				computeCore.nonzero(param("d", testPg.bigint)),
+				(d: ScalarTerm) => computeCore.div(v("x", testPg.bigint), d),
 				0n
 			).expr
 		),

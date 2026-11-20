@@ -71,7 +71,7 @@ export const rawClosedId = (roster: AnyClosed) => admittedClosedId(roster)
 
 export const rawSpan = spanDescriptor
 
-/** A contract predicate bounding char_length(VALUE) above, as Compute.charLength(v).le(n) records it. */
+/** A contract predicate bounding char_length(VALUE) above, as Text.charLength(v).le(n) records it. */
 export const charLengthAtMost = (n: number): OpenExpr => ({
 	kind: "compare",
 	op: "le",
@@ -79,7 +79,7 @@ export const charLengthAtMost = (n: number): OpenExpr => ({
 	right: { kind: "literal", value: n }
 })
 
-/** A contract predicate bounding octet_length(VALUE) above, as Compute.octetLength(v).le(n) records it. */
+/** A contract predicate bounding octet_length(VALUE) above, as Text.octetLength(v).le(n) records it. */
 export const octetLengthAtMost = (n: number): OpenExpr => ({
 	kind: "compare",
 	op: "le",

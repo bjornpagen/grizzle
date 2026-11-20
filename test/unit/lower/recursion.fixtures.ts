@@ -9,7 +9,7 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Num, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
@@ -149,7 +149,7 @@ export const walkBelow = (below: number) =>
 				return r
 					.match(Vertex, { id })
 					.where(r.eq(id, r.param("start", Id)))
-					.find({ node: id, hops: Compute.literal(pg.integer, 0) })
+					.find({ node: id, hops: Type.literal(pg.integer, 0) })
 			}
 		],
 		rec: [
@@ -160,7 +160,7 @@ export const walkBelow = (below: number) =>
 					.match(self, { node, hops })
 					.match(Edge, { from: node, to })
 					.where(r.lt(hops, below))
-					.find({ node: to, hops: Compute.add(hops, Compute.literal(pg.integer, 1)) })
+					.find({ node: to, hops: Num.add(hops, Type.literal(pg.integer, 1)) })
 			}
 		]
 	})

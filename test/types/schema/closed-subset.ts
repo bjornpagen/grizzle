@@ -139,7 +139,7 @@ const cellLines = (use: Use, c: SubsetCell, at: number): ReadonlyArray<string> =
 					`\tconst held = v(${c.relation}, "held")`,
 					`\treturn r`,
 					`\t\t.match(${c.relation}, { mark: held.mark, n: held.n })`,
-					`\t\t.where(r.eq(Compute.subset(Compute.singleton(held.mark), Bits.of(Mark, [${handle}])), true))`,
+					`\t\t.where(r.eq(Bits.subset(Bits.singleton(held.mark), Bits.of(Mark, [${handle}])), true))`,
 					"\t\t.find({ n: held.n })",
 					"})"
 				]

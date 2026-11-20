@@ -17,7 +17,7 @@ import { CompileError } from "#compiler/core/errors.ts"
 import { int2Max, int2Min, int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
@@ -221,15 +221,15 @@ export const contractOver = (base: Base, keeps: Keeps): TestField => {
 		case "every value":
 			return testContract("Guarded", field, undefined)
 		case "ne":
-			return testContract("Guarded", field, (x) => Compute.ne(x, zero))
+			return testContract("Guarded", field, (x) => computeCore.ne(x, zero))
 		case "gt":
-			return testContract("Guarded", field, (x) => Compute.gt(x, zero))
+			return testContract("Guarded", field, (x) => computeCore.gt(x, zero))
 		case "ge":
-			return testContract("Guarded", field, (x) => Compute.ge(x, zero))
+			return testContract("Guarded", field, (x) => computeCore.ge(x, zero))
 		case "lt":
-			return testContract("Guarded", field, (x) => Compute.lt(x, zero))
+			return testContract("Guarded", field, (x) => computeCore.lt(x, zero))
 		case "le":
-			return testContract("Guarded", field, (x) => Compute.le(x, zero))
+			return testContract("Guarded", field, (x) => computeCore.le(x, zero))
 	}
 }
 
@@ -237,34 +237,34 @@ export const contractOver = (base: Base, keeps: Keeps): TestField => {
 const guardOver = (guard: GuardName, x: ScalarTerm): { readonly expr: OpenExpr } => {
 	switch (guard) {
 		case "nonzero":
-			return Compute.nonzero(x)
+			return computeCore.nonzero(x)
 		case "nonnegative":
-			return Compute.nonnegative(x)
+			return computeCore.nonnegative(x)
 		case "positive":
-			return Compute.positive(x)
+			return computeCore.positive(x)
 		case "isFinite":
-			return Compute.isFinite(x)
+			return computeCore.isFinite(x)
 	}
 }
 
 /**
- * Compute.when over a case's guard, its branch the operation that needs what the guard proves of the subject's
+ * computeCore.when over a case's guard, its branch the operation that needs what the guard proves of the subject's
  * value: a quotient by it for nonzero and positive, a square root for nonnegative, its least scale for isFinite.
  */
 const whenOver = (guard: GuardName, base: Base, x: ScalarTerm): { readonly expr: OpenExpr } => {
 	switch (guard) {
 		case "nonzero":
 		case "positive":
-			return Compute.when(guardOver(guard, x), (y: ScalarTerm) => Compute.div(y, y), 0n)
+			return computeCore.when(guardOver(guard, x), (y: ScalarTerm) => computeCore.div(y, y), 0n)
 		case "nonnegative":
-			return Compute.when(
+			return computeCore.when(
 				guardOver(guard, x),
 				(y: ScalarTerm) =>
-					Compute.sqrt(base.kind === "numeric" ? Compute.base(y) : Compute.numeric(y)),
+					computeCore.sqrt(base.kind === "numeric" ? computeCore.base(y) : computeCore.numeric(y)),
 				0n
 			)
 		case "isFinite":
-			return Compute.when(guardOver(guard, x), (y: ScalarTerm) => Compute.minScale(y), 0)
+			return computeCore.when(guardOver(guard, x), (y: ScalarTerm) => computeCore.minScale(y), 0)
 	}
 }
 

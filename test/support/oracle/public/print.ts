@@ -89,7 +89,7 @@ const operand = (o: Operand<ParentColumn>): string => {
 const padding = (p: Padding): string => {
 	const v = variable(p.arg)
 	const [low, high] = paddingBounds(p.arg.field.type)
-	return `Compute.when(Compute.within(${v}, ${literal(low)}, ${literal(high)}), (${v}) => Compute.numeric(Compute.cast(${v}, pg.numeric(1000, ${p.scale}))), Compute.numeric(${v}))`
+	return `Logic.when(Num.within(${v}, ${literal(low)}, ${literal(high)}), (${v}) => Num.numeric(Type.cast(${v}, pg.numeric(1000, ${p.scale}))), Num.numeric(${v}))`
 }
 
 const argTerm = (a: ArgTerm): string => (a.kind === "var" ? variable(a.var) : padding(a.padding))
@@ -97,23 +97,23 @@ const argTerm = (a: ArgTerm): string => (a.kind === "var" ? variable(a.var) : pa
 const computed = (t: ComputedTerm): string => {
 	switch (t.kind) {
 		case "base":
-			return `Compute.base(${variable(t.arg)})`
+			return `Type.base(${variable(t.arg)})`
 		case "cast numeric":
-			return `Compute.numeric(${variable(t.arg)})`
+			return `Num.numeric(${variable(t.arg)})`
 		case "cond":
-			return `Compute.cond(r.${t.op}(${variable(t.arg)}, ${literal(t.than)}), ${variable(t.arg)}, ${literal(t.otherwise)})`
+			return `Logic.cond(r.${t.op}(${variable(t.arg)}, ${literal(t.than)}), ${variable(t.arg)}, ${literal(t.otherwise)})`
 		case "padded":
 			return padding(t.padding)
 		case "div":
-			return `Compute.div(${argTerm(t.dividend)}, ${literal(t.divisor)})`
+			return `Num.div(${argTerm(t.dividend)}, ${literal(t.divisor)})`
 		case "sqrt": {
 			const a = argTerm(t.radicand)
-			return `Compute.when(Compute.nonnegative(${a}), (a) => Compute.sqrt(a), ${literal(unguarded)})`
+			return `Logic.when(Num.nonnegative(${a}), (a) => Num.sqrt(a), ${literal(unguarded)})`
 		}
 		case "power": {
 			const a = argTerm(t.base)
 			const [low, high] = powerBounds
-			return `Compute.when(Compute.within(${a}, ${literal(low)}, ${literal(high)}), (a) => Compute.power(a, ${literal(t.exponent)}), ${literal(unguarded)})`
+			return `Logic.when(Num.within(${a}, ${literal(low)}, ${literal(high)}), (a) => Num.power(a, ${literal(t.exponent)}), ${literal(unguarded)})`
 		}
 	}
 }

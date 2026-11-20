@@ -2,7 +2,7 @@
  * grizzle's library in an installation (physical/ddl/library.ts): a library function is installed exactly where a
  * persistent expression of the schema calls it, before every object that calls it, and every role may call it.
  *
- * The property: over a schema whose relation Links resolves an href against a base (Compute.resolveReference) in a
+ * The property: over a schema whose relation Links resolves an href against a base (Text.resolveReference) in a
  * generated field, a row check or its href's contract, or nowhere, and a login of a role that writes Links and a role
  * that reads it alone, the installation creates the library function, by the name its definition's digest gives it,
  * exactly where the schema calls it; it revokes it from PUBLIC and grants each role EXECUTE on it by its two text
@@ -26,7 +26,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Text } from "#compiler/public/compute.ts"
 import { contract } from "#compiler/public/fields.ts"
 import { check, login, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -39,7 +39,7 @@ import { printStatement } from "#compiler/sql/print.ts"
 import { Id } from "#test/support/ids.ts"
 import { owning } from "#test/support/policy.ts"
 
-/** Where the schema calls Compute.resolveReference. */
+/** Where the schema calls Text.resolveReference. */
 type Use = "a generated field" | "a row check" | "a contract's predicate" | "nowhere"
 
 const uses: Arr.NonEmptyReadonlyArray<Use> = [
@@ -55,11 +55,11 @@ const text = str.regex("^.*$", "su")
 const Unfragmented = contract(
 	"Unfragmented",
 	text,
-	(v) => Compute.eq(Compute.resolveReference(v, ""), v),
+	(v) => Logic.eq(Text.resolveReference(v, ""), v),
 	undefined
 )
 
-/** The schema, its Links relation calling Compute.resolveReference at `use`, and a login of a writer and a reader. */
+/** The schema, its Links relation calling Text.resolveReference at `use`, and a login of a writer and a reader. */
 const built = (use: Use) => {
 	const fields = {
 		id: Id,
@@ -69,16 +69,12 @@ const built = (use: Use) => {
 	const Links =
 		use === "a generated field"
 			? relation.generated("Links", fields, ["id"], (r) => ({
-					target: generatedField(text, Compute.resolveReference(r.base, r.href), [])
+					target: generatedField(text, Text.resolveReference(r.base, r.href), [])
 				}))
 			: relation("Links", fields, ["id"])
 	const statements =
 		use === "a row check"
-			? [
-					check("Resolved", Links, (r) =>
-						Compute.ne(Compute.resolveReference(r.base, r.href), r.base)
-					)
-				]
+			? [check("Resolved", Links, (r) => Logic.ne(Text.resolveReference(r.base, r.href), r.base))]
 			: []
 	const s = schema("Library", [Links], statements)
 	return login(s, "desk", [

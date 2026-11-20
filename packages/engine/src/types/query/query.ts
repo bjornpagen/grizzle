@@ -957,7 +957,7 @@ type SameKeys<A, B> = [keyof A] extends [keyof B]
 /**
  * Whether two arms' constants at a field tell their rows apart, as the checker compares the literals typed at the
  * field: unless each is one value the types carry, and the two are one value. A contract's constant is read as its
- * base's value (LiteralOf), so a Compute.literal of a contract, whose type is the whole branded base, is no one value.
+ * base's value (LiteralOf), so a Type.literal of a contract, whose type is the whole branded base, is no one value.
  */
 type Apart<X, Y> = [OneKnown<LiteralOf<X>>] extends [never]
 	? true
@@ -968,7 +968,7 @@ type Apart<X, Y> = [OneKnown<LiteralOf<X>>] extends [never]
 			: true
 /**
  * A constant's one value as the checker compares it, a number and a bigint by their spelling, which a field both
- * meet types alike; never where the types carry no one value: a Decimal, a Money, a typed Compute.literal's, a value
+ * meet types alike; never where the types carry no one value: a Decimal, a Money, a typed Type.literal's, a value
  * of a non-literal type.
  */
 type OneKnown<V> = [V] extends [UnionToIntersection<V>]

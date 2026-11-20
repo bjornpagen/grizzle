@@ -3,7 +3,7 @@
  *
  * Each case draws a base level `Base` holding Attribute (an integer key, an unbounded text `value` and an integer `n`),
  * its own row checks over Attribute, and a level `Media` over it whose list states row checks over Attribute too, each a
- * predicate over the row: `Compute.matches(value, pattern)` over a pattern drawn over one of the text generators'
+ * predicate over the row: `Text.matches(value, pattern)` over a pattern drawn over one of the text generators'
  * alphabets, `n` compared with a small literal, and NOT, AND and OR over them.
  *
  * 1. Through both levels' logins. The installation's history adds Media by a migration over the installed Base, the

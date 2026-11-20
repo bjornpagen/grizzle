@@ -19,7 +19,7 @@ import type { DeclaredFunction, FunctionType, Row, Rows } from "#compiler/types/
 import type { FactOfFields } from "#compiler/types/schema/relation.ts"
 
 /**
- * Compute.call(f, args), Compute.rowsOf(f, args) and Compute.rowOf(f, args) (query/build/call.ts): a call of a declared
+ * Fn.call(f, args), Fn.rows(f, args) and Fn.row(f, args) (query/build/call.ts): a call of a declared
  * function (schema/function.ts fn), the value of one that returns a value, a term; the rows of one that returns rows, a
  * source a rule matches; and the fields of the one row one returns, each that holds rows of values a source.
  */
@@ -124,8 +124,8 @@ type ReadFields<Fields> = {
 }[keyof Fields]
 
 /**
- * The fields of a call of a function of one row (Compute.rowOf), by name: each field of the row that holds rows of a
- * heading of values, the rows it holds a source of that heading, as Compute.rowsOf's rows are (CallSource), every one
+ * The fields of a call of a function of one row (Fn.row), by name: each field of the row that holds rows of a
+ * heading of values, the rows it holds a source of that heading, as Fn.rows's rows are (CallSource), every one
  * of them read from one evaluation of the call. A field of a value, of one row, or of rows whose heading holds rows or
  * a row is no source, which only another function's body reads.
  */

@@ -4,7 +4,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Effect, Equivalence, Formatter, Option, Order, Result } from "effect"
 import { rowEvaluator } from "#adapter/public/host.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Range } from "#compiler/public/compute.ts"
 import { contract, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -99,13 +99,13 @@ const orderingOf = (shape: Shape, name: string) => {
 		[
 			check("VisitAfterStart", AfterStart, (s) =>
 				strict
-					? s.gt(Compute.lower(s.during, Seconds), s.at)
-					: s.ge(Compute.lower(s.during, Seconds), s.at)
+					? s.gt(Range.lower(s.during, Seconds), s.at)
+					: s.ge(Range.lower(s.during, Seconds), s.at)
 			),
 			check("VisitBeforeEnd", BeforeEnd, (s) =>
 				strict
-					? s.lt(Compute.upper(s.during, Seconds), s.at)
-					: s.le(Compute.upper(s.during, Seconds), s.at)
+					? s.lt(Range.upper(s.during, Seconds), s.at)
+					: s.le(Range.upper(s.during, Seconds), s.at)
 			)
 		]
 	)
@@ -129,7 +129,7 @@ export const orderingTemplates: { readonly [S in Shape]: SeatTemplate } = {
 }
 
 /** A visit of a sitting, its span [start, end). */
-interface Span {
+interface VisitSpan {
 	readonly start: number
 	readonly end: number
 }
@@ -138,7 +138,7 @@ interface Span {
 interface State {
 	readonly began: ReadonlyMap<number, number>
 	readonly ended: ReadonlyMap<number, number>
-	readonly visits: ReadonlyArray<{ readonly sitting: number; readonly during: Span }>
+	readonly visits: ReadonlyArray<{ readonly sitting: number; readonly during: VisitSpan }>
 }
 
 const emptyState: State = { began: new Map(), ended: new Map(), visits: [] }
@@ -334,7 +334,7 @@ export const requiredOf = (shape: Shape): NonEmptyReadonlyArray<Feature> => [
 ]
 
 /** Whether two spans of one sitting share a point. */
-const overlaps = (a: Span, b: Span): boolean => a.start < b.end && b.start < a.end
+const overlaps = (a: VisitSpan, b: VisitSpan): boolean => a.start < b.end && b.start < a.end
 
 /** The visits of `sitting` in `s`, in the order they were written. */
 const visitsOf = (s: State, sitting: number) => Arr.filter(s.visits, (v) => v.sitting === sitting)
@@ -349,7 +349,7 @@ interface Resolved {
 const resolve = (seat: Seat, s: State, op: Op): Resolved | undefined => {
 	const t = (r: Table) => seat.table(r)
 	const c = (r: Table, f: string) => seat.column(r, f)
-	const range = (d: Span) => `int8range(${d.start}, ${d.end})`
+	const range = (d: VisitSpan) => `int8range(${d.start}, ${d.end})`
 	const point = (r: "Began" | "EndedAt", kind: "began" | "ended", sitting: number, at: number) =>
 		s[kind].has(sitting)
 			? undefined
@@ -427,7 +427,7 @@ const resolve = (seat: Seat, s: State, op: Op): Resolved | undefined => {
 /** A fact of AfterStart or BeforeEnd: a visit and the point beside it, and whether its check holds of it. */
 interface Joined {
 	readonly sitting: number
-	readonly during: Span
+	readonly during: VisitSpan
 	readonly at: number
 }
 

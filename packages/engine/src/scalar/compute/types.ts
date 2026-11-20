@@ -213,7 +213,7 @@ export const withoutSpanWidth = (t: PlainType): PlainType => {
 }
 
 /**
- * The scalar types the Compute catalogue produces, and the compatibility rule its operands obey.
+ * The scalar types the scalar catalogue produces, and the compatibility rule its operands obey.
  *
  * An operation's result is a plain native type: a contract operand contributes its base and arithmetic never yields
  * a contract. The capability set of each plain type is fixed carrier by carrier
@@ -341,7 +341,7 @@ export const isInteger = (t: ScalarType): boolean => {
 /**
  * The exact carrier a plain value of `t` widens into exactly, where it has one: an uncontracted integer into the exact
  * integers, uncontracted money into exact money. A contract keeps its identity, so it meets no exact value without
- * Compute.base.
+ * Type.base.
  */
 export const exactFamily = (t: ScalarType): "exactInteger" | "exactMoney" | undefined => {
 	if (t.contract !== undefined) {

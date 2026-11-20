@@ -14,15 +14,15 @@ export interface PredicateValue extends Built {
 }
 
 /**
- * The key a guard holds the term its Compute.when branch receives under: the branch's parameter, the guard's subject as
+ * The key a guard holds the term its Logic.when branch receives under: the branch's parameter, the guard's subject as
  * a guarded node of the guard (ir/desc.ts guardedExpr), the one term the guard refines inside the branch. The public
- * barrel exports no key, so only Compute.when hands it out, to its branch's function, and compilation proves its facts
+ * barrel exports no key, so only Logic.when hands it out, to its branch's function, and compilation proves its facts
  * only inside the branch: the subject read past the parameter keeps its own facts, and a copy of the parameter used
  * elsewhere is refused (PartialOperation).
  */
 export const guarded: unique symbol = Symbol("grizzle.guarded")
 
-/** A guard a Compute guard builder made: a predicate, and under `guarded` the term its branch receives. */
+/** A guard a scalar guard builder made: a predicate, and under `guarded` the term its branch receives. */
 export interface GuardValue<out S> extends PredicateValue {
 	readonly [guarded]: S
 }
@@ -43,8 +43,8 @@ export interface TermCarrier<out T = unknown, out S extends SqlTag = SqlTag> {
  * expression is open (ir/open.ts OpenExpr): a query variable, a parent variable or an interior stage in it is the builder's reference object until the
  * rule that uses it spells it, and a row check or a contract parses it into a Description's. This is the protocol the field
  * package's contract predicates (scalar/contract.ts), the query builder and the row checks build terms with, so a
- * Compute expression over a contract's VALUE is compared as any term is:
- * `contract("Body", text, (v) => Compute.le(Compute.charLength(v), 2000))`.
+ * scalar expression over a contract's VALUE is compared as any term is:
+ * `contract("Body", text, (v) => Logic.le(Text.charLength(v), 2000))`.
  *
  * Terms and predicates are admitted by identity, as queries and sources are. Every builder that makes one registers
  * the frozen value here with its expression and type (registerTerm, registerPredicate), and termExpr, termOf and
@@ -58,7 +58,7 @@ export interface TermCarrier<out T = unknown, out S extends SqlTag = SqlTag> {
  * be a Term of name's type over balance's expression. Such a copy is refused (MalformedDescription), and a value no
  * builder made, whatever its members, is no term.
  *
- * A term carries no comparison of its own: its comparisons are Compute's (Compute.eq), a row's helpers (row.eq) and a
+ * A term carries no comparison of its own: its comparisons are Logic's (Logic.eq), a row's helpers (row.eq) and a
  * rule's (r.eq).
  *
  * A typed term: its expression and its carrier, whose column delivers T; the ScalarType its literal operands adopt is
@@ -172,7 +172,7 @@ export const registerPredicate = <V extends Built>(value: V, expr: OpenExpr): V 
 /**
  * What a guard's branch knows of its parameter: what its builder's test establishes of the subject (GuardDesc), which
  * the parameter, a guarded node of that guard, holds; or nothing, the test of a match against a pattern term, whose
- * values hold no one language, whose parameter is the subject itself. Compute.when over the second is a conditional
+ * values hold no one language, whose parameter is the subject itself. Logic.when over the second is a conditional
  * over its test.
  */
 export type GuardTest =
@@ -180,7 +180,7 @@ export type GuardTest =
 	| { readonly kind: "tests" }
 
 /**
- * A guard a Compute guard builder made (Compute.nonzero and its kin): a predicate, `expr`, that Compute.when also reads
+ * A guard a scalar guard builder made (Num.nonzero and its kin): a predicate, `expr`, that Logic.when also reads
  * as its guard over `subject`, and `parameter`, the term its branch receives, the one the guard refines there.
  */
 export const registerGuard = <V extends Built>(

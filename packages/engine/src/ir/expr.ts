@@ -151,7 +151,7 @@ export const internedRangeOp = (
 export type OpId = CatalogOpId | RangeOpId
 
 /**
- * The identity of each float type's canonical zero, an operation no Compute function names (scalar/compute/registry.ts
+ * The identity of each float type's canonical zero, an operation no scalar function names (scalar/compute/registry.ts
  * canonicalZero): the value itself, its -0 written +0, the one zero a set delivers wherever it may merge -0 and +0
  * (check/merge.ts).
  */
@@ -248,7 +248,7 @@ type ExprKind = (typeof exprKinds)[number]
 declare const patternTableBrand: unique symbol
 
 /**
- * Every value a Compute.matches pattern operand can take, each its pattern value (ir/pattern.ts PatternValue), its
+ * Every value a Text.matches pattern operand can take, each its pattern value (ir/pattern.ts PatternValue), its
  * spelling admitted when the node was typed (scalar/regex/admit.ts admitMatch): at least one, each spelling once, by
  * its language's key and then its spelling in code point order, so one set of patterns has one table and its identity
  * is its languages. The host's automaton reads a spelling; only a lowering into SQL translates one into the PostgreSQL
@@ -291,7 +291,7 @@ export interface ColumnRef {
  * A typed literal ("every literal is a typed literal"). The kind fixes the host representation and the
  * expression's type fixes the native type, and the two agree (literalProblem). Decimal, Money and Vector values are
  * held parsed and spell their canonical tags from their parts: the owned Decimal and Money travel here unchanged, and a
- * Vector as the frozen snapshot of its components (Vector.canonical). A Compute.matches pattern is its pattern value
+ * Vector as the frozen snapshot of its components (Vector.canonical). A Text.matches pattern is its pattern value
  * (ir/pattern.ts PatternValue), a text whose identity is its language and whose spelling the lowering reads, and it
  * stands only where a match reads its pattern.
  */
@@ -456,7 +456,7 @@ export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 	  }
 	| {
 			/**
-			 * Compute.matches(text, pattern), PostgreSQL's textregexeq: its pattern operand's every value with the ARE
+			 * Text.matches(text, pattern), PostgreSQL's textregexeq: its pattern operand's every value with the ARE
 			 * PostgreSQL reads in its place (PatternTable), which the lowering spells for `~`.
 			 */
 			readonly kind: "op"
@@ -537,7 +537,7 @@ export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 	  }
 	| {
 			/**
-			 * Compute.call(f, args) of a declared function `function` that returns a value: its value at its arguments, one
+			 * Fn.call(f, args) of a declared function `function` that returns a value: its value at its arguments, one
 			 * per declared argument in declared order, each passed at its declared type's base (`params`), and its value
 			 * of its declared type, which the lowering casts it to. A NULL value is refused where it is returned, so the
 			 * value is never NULL (nonNull "returned"); PostgreSQL alone evaluates it, so no host evaluator reads one. Its
@@ -568,11 +568,11 @@ export const storedColumn = (node: NodeId, name: string, type: ScalarType): Expr
 /**
  * The scalar expression IR.
  *
- * One node is exactly one PostgreSQL operator, function, or cast: the vocabulary is the Compute
+ * One node is exactly one PostgreSQL operator, function, or cast: the vocabulary is the scalar
  * catalogue, with no library-defined composite operation. Each node records its exact native overload, its argument
  * expressions, its output descriptor, its non-null proof, its volatility, and its dependencies. No node raises on a
  * value its operands admit: the registry's Totality of its overload says how it is defined on every one, and the
- * Compute lowering emits a partial overload only with the proof of its precondition.
+ * scalar lowering emits a partial overload only with the proof of its precondition.
  * There is no NULL literal, no COALESCE and no NULLIF node: absence is zero rows. The one value that may be absent is a
  * closed relation's application at a key it holds no tuple at (closedAt), which its reader refuses.
  *
@@ -626,7 +626,7 @@ const ownEffects = <R extends ArgKinds>(spec: ExprSpecOver<R>): Effects => {
 /**
  * The effects of an expression of `spec` over arguments of effects `args`: its own joined with theirs, so a stable
  * argument makes its reader stable. The one rule every expression derives effects by: builtExpr, a contract
- * predicate's table, the rewrite editors and the Compute lowering.
+ * predicate's table, the rewrite editors and the scalar lowering.
  */
 export const exprEffects = <R extends ArgKinds>(
 	spec: ExprSpecOver<R>,

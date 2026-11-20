@@ -268,7 +268,7 @@ const binaryOperators = [
 export type BinaryOperator = (typeof binaryOperators)[number]
 
 /**
- * PostgreSQL builtin functions grizzle emits, printed qualified by pg_catalog. Compute's catalogue, the text functions
+ * PostgreSQL builtin functions grizzle emits, printed qualified by pg_catalog. the scalar catalogue, the text functions
  * a double's parse reads its text by (lower/conservative/expr/parse-double.ts), the aggregates, window and ordered-set
  * functions of the compile-target catalog, a float's identity image (float8send, ops.ts floatBitsForm), the exact value of a double's bits (float8send and
  * get_byte, build.ts exactNumericOfDouble), the span functions, the attachment transport, a bytes value's chunks

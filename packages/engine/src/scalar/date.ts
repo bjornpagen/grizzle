@@ -10,7 +10,7 @@ const column: Column<CalendarDate> = carrierColumn("date")
 /**
  * date: a calendar day of the proleptic Gregorian calendar, 0001-01-01 to 9999-12-31, written and read as its ISO
  * 8601 text, a CalendarDate (ir/date.ts), and ordered as the calendar is. It is PostgreSQL's date, a plain scalar as
- * integer is, of no contract, so Compute.base of a date is the date itself. PostgreSQL's date also holds the
+ * integer is, of no contract, so Type.base of a date is the date itself. PostgreSQL's date also holds the
  * infinities, the days before the common era and the years past 9999, which no CalendarDate spells, so every stored
  * date column carries the range CHECK of the days a CalendarDate spells (physical/ddl/column-checks.ts), whoever writes
  * it, and a span over dates holds its endpoints in the same range by its shape CHECK (physical/span/storage.ts). A date

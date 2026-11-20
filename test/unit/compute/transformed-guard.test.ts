@@ -1,5 +1,5 @@
 /**
- * Compute's text transforms (collapse, a translation, lowerAscii, replaceWhitespace, a cast into the text's own type)
+ * Text's transforms (collapse, a translation, lowerAscii, replaceWhitespace, a cast into the text's own type)
  * as a guard and a cast read their images, each property stated in full at its own description below:
  *
  * - A guard over a transformed text proves a partial operation exactly when the transform's image and the guard's

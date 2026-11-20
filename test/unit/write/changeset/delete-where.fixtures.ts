@@ -5,7 +5,7 @@ import { constant, element, type Gen, shuffled, subarray, weighted } from "@bjor
 import { Array as Arr, Option, Order as Ord, Record as Rec } from "effect"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Num } from "#compiler/public/compute.ts"
 import { Money, pg } from "#compiler/public/fields.ts"
 import { param } from "#compiler/public/query.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
@@ -227,7 +227,7 @@ type Base = (typeof bases)[number]
 export const faults = [
 	"a field its rows do not state",
 	"a variable for a parameter",
-	"a Compute term for a parameter",
+	"a scalar term for a parameter",
 	"a key of a closed relation",
 	"a key of no relation",
 	"a selection that is no record"
@@ -450,8 +450,8 @@ const selectionOf = (key: Key, fault: Fault | undefined): Readonly<Record<string
 			return { ...fields, zz: uuidOf(1) }
 		case "a variable for a parameter":
 			return { ...fields, [first]: varsOver(relationOf(key.name), "x")[first] }
-		case "a Compute term for a parameter":
-			return { ...fields, [first]: Compute.add(param("q", pg.bigint), 1n) }
+		case "a scalar term for a parameter":
+			return { ...fields, [first]: Num.add(param("q", pg.bigint), 1n) }
 		case "a selection that is no record":
 			return new Proxy({}, { getPrototypeOf: () => Date.prototype })
 	}

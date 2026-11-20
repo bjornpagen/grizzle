@@ -401,7 +401,7 @@ const consumedIn = (scope: Around): ReadonlyArray<CountOp> => {
  *
  * The host evaluates regex membership where the compiler decides a constant (a literal written in a description against
  * its field's refinement, ContractLiteral, and the finite and tautology proofs of dfa.ts) and where it evaluates a row:
- * a value's domain and a Compute.matches, in a write's fill and its witness, a preview and rowEvaluator (match.ts
+ * a value's domain and a Text.matches, in a write's fill and its witness, a preview and rowEvaluator (match.ts
  * Matcher). It never builds a JavaScript RegExp.
  *
  * Membership is ECMAScript's RegExp.prototype.test without the `g`, `y` and `m` flags: whether a match exists starting

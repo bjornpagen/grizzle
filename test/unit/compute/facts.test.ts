@@ -9,7 +9,7 @@
  * at its `proves` otherwise. A partial operation over a term of a contract that compiles, a column or a parameter, is
  * admitted exactly when the contract declares the fact it needs or its base has it, and refused naming that fact
  * otherwise: by the declaration to add (GuardTest proves) where the predicate implies the fact and the operation reads
- * the contract's own term, an exact widening of it included, else by the Compute guard of the fact. A conditional of
+ * the contract's own term, an exact widening of it included, else by the scalar guard of the fact. A conditional of
  * the contract's terms is an operation's result, as its TypeScript type states: it has its SQL type's facts alone (an
  * integer is finite), whatever its branches declare, and no declaration remedies its refusal.
  *
@@ -23,7 +23,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { computeCore as Compute, scalarTerm } from "#compiler/scalar/compute/builders.ts"
+import { computeCore, scalarTerm } from "#compiler/scalar/compute/builders.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
@@ -103,7 +103,7 @@ export const aContractsFactsAreExactlyTheFactsItsProvesDeclaresEachOfWhichItsPre
 							? column
 							: form === "parameter"
 								? param("x", contract)
-								: Compute.cond(Compute.eq(column, column), column, column)
+								: computeCore.cond(computeCore.eq(column, column), column, column)
 					const vars: Readonly<Record<string, LeafBinding>> = {
 						x: { kind: "column", type: contract.scalar }
 					}

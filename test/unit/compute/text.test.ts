@@ -1,5 +1,5 @@
 /**
- * Compute's text terms: matches, concat, startsWith and endsWith, typed and lowered as a check and a query lower
+ * Text's terms: matches, concat, startsWith and endsWith, typed and lowered as a check and a query lower
  * them, and evaluated on the host (scalar/compute/evaluate.ts) and by the reference evaluator
  * (test/support/oracle/evaluate/catalog.ts).
  *
@@ -43,7 +43,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import { regexMaxDepth, colorsOf, rawSize } from "#compiler/ir/pattern-space.ts"
 import { admitSpelling, type PatternValue } from "#compiler/ir/pattern.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
@@ -81,7 +81,7 @@ import {
 	vars
 } from "#test/unit/compute/text.fixtures.ts"
 
-/** Compute's text terms matches agrees with ECMAScript on the host and in the reference evaluator. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
+/** Text's terms matches agrees with ECMAScript on the host and in the reference evaluator. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const computesTextTermsMatchesAgreesWithECMAScriptOnTheHostAndInTheReferenceEvaluator =
 	property.explore(matchCase, {
 		needs: {},
@@ -184,7 +184,7 @@ export const computesTextTermsMatchesAgreesWithECMAScriptOnTheHostAndInTheRefere
 		]
 	})
 
-/** Compute's text terms concat, startsWith and endsWith agree between the host and the reference's code points. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 600 runs and 600 steered cases. */
+/** Text's terms concat, startsWith and endsWith agree between the host and the reference's code points. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 600 runs and 600 steered cases. */
 export const computesTextTermsConcatStartsWithAndEndsWithAgreeBetweenTheHostAndTheReferencesCodePoints =
 	property.explore(affix, {
 		needs: {},
@@ -265,7 +265,7 @@ export const computesTextTermsConcatStartsWithAndEndsWithAgreeBetweenTheHostAndT
 		]
 	})
 
-/** Compute's text terms refuses each fault planted in a valid term by its reason and fields, and compiles the term without it. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
+/** Text's terms refuses each fault planted in a valid term by its reason and fields, and compiles the term without it. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndFieldsAndCompilesTheTermWithoutIt =
 	property.explore(plantedGen, {
 		needs: {},
@@ -352,7 +352,7 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 				switch (p.fault) {
 					case "a pattern past the compile space": {
 						/**
-						 * A pattern value is admitted where it is made: Compute.pattern refuses one past the compile
+						 * A pattern value is admitted where it is made: computeCore.pattern refuses one past the compile
 						 * space (a literal past the compile space at the builder), and so does a decode.
 						 */
 						const refusal = admitSpelling(pastSpace)
@@ -367,7 +367,7 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 					case "a malformed pattern": {
 						const faulted = `${p.pattern}${p.construct}`
 						const error = throwsRefused(
-							() => Compute.pattern(faulted),
+							() => computeCore.pattern(faulted),
 							p.fault === "a malformed pattern" ? "MalformedDescription" : "UnsupportedOperation",
 							label
 						)
@@ -436,11 +436,15 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 						return
 					}
 					case "a literal past the compile space at the builder": {
-						const error = throwsRefused(() => Compute.pattern(pastSpace), "ResourceBound", label)
+						const error = throwsRefused(
+							() => computeCore.pattern(pastSpace),
+							"ResourceBound",
+							label
+						)
 						assert.deepEqual(pathOf(error), ["pattern"], label)
 						assertVariant(error.reason, "_tag", "ResourceBound", label)
 						assert.deepEqual(error.reason.bound, pastBound, label)
-						Compute.matches(v("v", testPg.text), Compute.pattern(p.pattern))
+						computeCore.matches(v("v", testPg.text), computeCore.pattern(p.pattern))
 						return
 					}
 					case "a literal outside a match guard's language": {
@@ -490,7 +494,7 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 		]
 	})
 
-/** Compute's text terms hands `~` the ARE of every value its pattern takes, never a source: a literal's ARE, and a conditional of them each arm's ARE in its place, no CASE of sources. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
+/** Text's terms hands `~` the ARE of every value its pattern takes, never a source: a literal's ARE, and a conditional of them each arm's ARE in its place, no CASE of sources. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const computesTextTermsHandsTheAREOfEveryValueItsPatternTakesNeverASource = property.explore(
 	spellingGen,
 	{

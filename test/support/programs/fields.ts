@@ -6,13 +6,14 @@
 export {
 	accumulated,
 	codecText,
-	Compute,
 	contract,
 	generated,
 	lexical,
 	lexicalForm,
+	Logic,
 	pg,
 	relation,
+	Type,
 	uuid
 } from "#index.ts"
 export { Id } from "#test/support/ids.ts"

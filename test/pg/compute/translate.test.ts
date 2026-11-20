@@ -1,5 +1,5 @@
 /**
- * Compute.translate and Compute.lowerAscii on PostgreSQL 19, against the host.
+ * Text.translate and Text.lowerAscii on PostgreSQL 19, against the host.
  *
  * 1. The SQL a check holds for a drawn map, `translate(v, from, to)`, for lowerAscii, for collapse and for
  *    replaceWhitespace, over a batch of texts that mix ASCII, Latin-1, BMP and supplementary code points in one round
@@ -11,8 +11,8 @@
  *    tag's ASCII case and collapse a title's white space, each cast into its declared text type by the inclusion of the
  *    image, and a second relation whose generated field casts a numeral to a bigint: the installer's own DDL, each
  *    drawn row inserted. Three more fields stand a language only compilation proves beside a literal in a conditional:
- *    the translation's and the collapse's images under Compute.cond over a match of the tag, and a match guard's
- *    branch, the tag itself, under Compute.when. The conditional is of that language, which no field declares, so its
+ *    the translation's and the collapse's images under Logic.cond over a match of the tag, and a match guard's
+ *    branch, the tag itself, under Logic.when. The conditional is of that language, which no field declares, so its
  *    branches meet it with no domain of it, and each is stored into a declared type. Every row is admitted, and its
  *    generated fields hold the host's values. No key holds a generated field (README, "How a field is written": no
  *    fact carries its value, so such a schema is refused when it compiles), so neither relation keys one.
@@ -62,7 +62,7 @@ import {
 } from "#test/unit/compute/support.ts"
 
 /**
- * Compute's translate and lowerAscii on PostgreSQL translate and lowerAscii agree with the host over mixed texts.
+ * Text.translate and Text.lowerAscii on PostgreSQL translate and lowerAscii agree with the host over mixed texts.
  *
  * Its pre-conversion budget: runs 40, coverage cases 40 (test/pg/compute/translate.test.ts at c568eb123).
  */
@@ -196,7 +196,7 @@ export const computesTranslateAndLowerAsciiOnPostgreSQLTranslateAndLowerAsciiAgr
 	})
 
 /**
- * Compute's translate and lowerAscii on PostgreSQL an installed translation, case fold, collapse and numeral cast store exactly the host's values.
+ * Text.translate and Text.lowerAscii on PostgreSQL an installed translation, case fold, collapse and numeral cast store exactly the host's values.
  *
  * Its pre-conversion budget: runs 30, coverage cases 30 (test/pg/compute/translate.test.ts at c568eb123).
  */

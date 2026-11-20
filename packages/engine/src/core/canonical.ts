@@ -119,7 +119,7 @@ export interface Canonicalizable {
 
 /**
  * The key under which a stand-in names the one member of its own it stands for: a node that distinguishes a value only
- * for a proof and computes, prints and hashes as that member, a Compute.when branch's parameter (ir/desc.ts
+ * for a proof and computes, prints and hashes as that member, a Logic.when branch's parameter (ir/desc.ts
  * guardedExpr). The canonical model reads a stand-in as the member it names (canonicalOf), so every text, digest,
  * fingerprint and comparison of a value holding one is the value's with the member in its place; only a Description's
  * JSON form (transportJson) writes the stand-in itself, for a decode to restore.

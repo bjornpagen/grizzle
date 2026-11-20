@@ -2,7 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Text } from "#compiler/public/compute.ts"
 import { relation } from "#compiler/public/dynamic.ts"
 import { bytes, contract, date, Decimal, pg } from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
@@ -26,9 +26,9 @@ export const cellFields = {
 	d: date,
 	n: pg.numeric(5, 2),
 	b: bytes,
-	ci4: contract("Slot", pg.integer, (v) => Compute.ge(v, 0)),
-	ci8: contract("Tally", pg.bigint, (v) => Compute.ge(v, 0n)),
-	ct: contract("Short", anyText, (v) => Compute.le(Compute.charLength(v), 8))
+	ci4: contract("Slot", pg.integer, (v) => Logic.ge(v, 0)),
+	ci8: contract("Tally", pg.bigint, (v) => Logic.ge(v, 0n)),
+	ct: contract("Short", anyText, (v) => Logic.le(Text.charLength(v), 8))
 } as const
 
 /**

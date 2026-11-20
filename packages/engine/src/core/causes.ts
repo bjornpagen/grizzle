@@ -167,7 +167,7 @@ export type KeyFault =
  * - `attachment`: the definition attaches a nested relation to its facts: a materialized view stores flat facts.
  * - `undeclaredContract`: a field whose type is a contract the schema declares nowhere.
  * - `exactField`: a field whose head term is an exact value (an exact integer or exact money), which no field's
- *   type holds: the head narrows it with Compute.cast into the field type it fits, an aggregate's result over the
+ *   type holds: the head narrows it with Type.cast into the field type it fits, an aggregate's result over the
  *   variable an interior stage finds it as.
  * - `inheritedKey`: an inherited key narrower than the heading whose unique index entry is unrepresentable.
  * - `wholeHeading`: the whole heading, the one key when no narrower key is proven, whose unique index entry is
@@ -340,7 +340,7 @@ export const recursionRefusalText = (cause: RecursionRefusal): string => {
 		case "stateHeading":
 			return `recursion: ${cause.arm} arms of ${cause.recursion} delivering exactly the state (${list(cause.state)}), not (${list(cause.heading)})`
 		case "inexactConversion":
-			return `recursion: state column ${cause.column} of ${cause.recursion} delivered by its ${cause.arm} arm${cause.arm === "base" ? "s" : ""} as ${cause.delivered}, ${conversionText(cause.conversion, cause.declared)}; cast it to the declared representation with Compute.cast, since a recursive column is never widened silently`
+			return `recursion: state column ${cause.column} of ${cause.recursion} delivered by its ${cause.arm} arm${cause.arm === "base" ? "s" : ""} as ${cause.delivered}, ${conversionText(cause.conversion, cause.declared)}; cast it to the declared representation with Type.cast, since a recursive column is never widened silently`
 		case "unnamedOrigin":
 			return `recursion: the attachment correlation column ${cause.column} of ${cause.recursion} names no parent variable its arms read, so the recursive arms cannot carry it in the state`
 		case "unboundedState":
@@ -384,7 +384,7 @@ export const derivedRefusalText = (cause: DerivedRefusal): string => {
 		case "undeclaredContract":
 			return `a contract the schema declares; ${cause.contract} is none`
 		case "exactField":
-			return `field ${cause.field} of derived relation ${cause.relation} of a field's type: its head is an ${cause.type}, which no stored field holds; narrow it with Compute.cast into the type it fits, under Compute.when where the cast narrows, and an aggregate's result over the variable an interior stage (r.interior) finds it as`
+			return `field ${cause.field} of derived relation ${cause.relation} of a field's type: its head is an ${cause.type}, which no stored field holds; narrow it with Type.cast into the type it fits, under Logic.when where the cast narrows, and an aggregate's result over the variable an interior stage (r.interior) finds it as`
 		case "inheritedKey":
 			return keyFaultText(
 				`inherited key (${list(cause.key)}) of derived relation ${cause.relation}`,

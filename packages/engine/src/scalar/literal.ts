@@ -78,7 +78,7 @@ export const storedLiteral = (t: ScalarType, value: unknown): Result.Result<Lite
  *
  * The Description holds the frozen canonical payload of the buffer's components now (Vector.canonical).
  *
- * A JavaScript integer: a fraction or an unsafe integer is the wrong host kind, as in Compute.
+ * A JavaScript integer: a fraction or an unsafe integer is the wrong host kind, as in the scalar catalogue.
  */
 const hostLiteral = (base: PlainType, value: unknown): Result.Result<LiteralDesc, ValueFault> => {
 	switch (base.carrier) {

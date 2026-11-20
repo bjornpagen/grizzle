@@ -308,7 +308,7 @@ const floatsDecoded = Arr.map(["1.5", "-0", "3.4028235e+38", "1e-45", "1e+00"], 
  * compile under the trap. Which of them lower to count(*) FILTER is R24's rule, which unit/compute/aggregate.test.ts
  * states exhaustively; here a compile that is refused fails the probe.
  */
-const { Compute } = await import("#compiler/public/compute.ts")
+const { Logic, Type } = await import("#compiler/public/compute.ts")
 const { contract, pg, uuid }: Readonly<typeof import("#compiler/public/fields.ts")> =
 	await import("#compiler/public/fields.ts")
 const { query, v }: Readonly<typeof import("#compiler/public/query.ts")> =
@@ -331,23 +331,19 @@ for (const q of [
 		const { id, flag } = v(Flagged, "flagged")
 		return r
 			.match(Flagged, { id, flag })
-			.find({ n: r.sum(Compute.cond(flag, Compute.literal(pg.integer, 1), 0)) })
+			.find({ n: r.sum(Logic.cond(flag, Type.literal(pg.integer, 1), 0)) })
 	}),
 	flags.rule((r) => {
 		const { id, flag } = v(Flagged, "flagged")
 		return r
 			.match(Flagged, { id, flag })
-			.find({ n: r.sum(Compute.cond(flag, Compute.literal(pg.bigint, 1n), 0n)) })
+			.find({ n: r.sum(Logic.cond(flag, Type.literal(pg.bigint, 1n), 0n)) })
 	}),
 	flags.rule((r) => {
 		const { id, flag } = v(Flagged, "flagged")
 		return r.match(Flagged, { id, flag }).find({
 			n: r.sum(
-				Compute.cond(
-					flag,
-					Compute.literal(pg.numeric(1, 0), 1n),
-					Compute.literal(pg.numeric(1, 0), 0n)
-				)
+				Logic.cond(flag, Type.literal(pg.numeric(1, 0), 1n), Type.literal(pg.numeric(1, 0), 0n))
 			)
 		})
 	}),
@@ -355,11 +351,7 @@ for (const q of [
 		const { id, flag } = v(Flagged, "flagged")
 		return r.match(Flagged, { id, flag }).find({
 			n: r.sum(
-				Compute.cond(
-					flag,
-					Compute.literal(pg.numeric(1, 0), 1n),
-					Compute.literal(pg.numeric(1, 0), 0n)
-				)
+				Logic.cond(flag, Type.literal(pg.numeric(1, 0), 1n), Type.literal(pg.numeric(1, 0), 0n))
 			)
 		})
 	}),
@@ -367,11 +359,7 @@ for (const q of [
 		const { id, flag } = v(Flagged, "flagged")
 		return r.match(Flagged, { id, flag }).find({
 			n: r.sum(
-				Compute.cond(
-					flag,
-					Compute.literal(pg.numeric(5, 1), "1.0"),
-					Compute.literal(pg.numeric(5, 1), "0")
-				)
+				Logic.cond(flag, Type.literal(pg.numeric(5, 1), "1.0"), Type.literal(pg.numeric(5, 1), "0"))
 			)
 		})
 	})

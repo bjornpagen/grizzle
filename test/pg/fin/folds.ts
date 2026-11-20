@@ -16,7 +16,6 @@ import { Array as Arr, Data, Effect, Formatter, Option, Order, Result, String as
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { FoldPlane } from "#compiler/ir/family.ts"
 import { type ColumnKey, columnKey, columnKeyOf } from "#compiler/ir/law.ts"
-import { Compute } from "#compiler/public/compute.ts"
 import {
 	accumulated,
 	Bits,
@@ -265,7 +264,7 @@ const twosBits = (() => {
 				on(Owner, "id", "ones", "twos")
 			),
 			check("atMostOneOfK", Owner, (o) =>
-				o.eq(Compute.cardinality(Compute.intersection(o.twos, o.k)), 0n)
+				o.eq(Bits.cardinality(Bits.intersection(o.twos, o.k)), 0n)
 			)
 		]
 	)

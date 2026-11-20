@@ -7,7 +7,6 @@ import {
 	type AnySchema,
 	arm,
 	ChangeSet,
-	Compute,
 	check,
 	clocked,
 	closed,
@@ -20,17 +19,20 @@ import {
 	type Decimal,
 	defineConfig,
 	derived,
+	Distance,
 	drawn,
-	fn,
 	type Fact,
 	fin,
+	fn,
+	Fn,
 	fold,
 	fragment,
 	type HeadOf,
 	type Infer,
 	instant,
-	type KeysOf,
 	key,
+	type KeysOf,
+	Logic,
 	login,
 	Monoid,
 	mutable,
@@ -51,6 +53,7 @@ import {
 	row,
 	rows,
 	schema,
+	Search,
 	searchDocument,
 	select,
 	settled,
@@ -221,7 +224,7 @@ export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
 
 /** README: "Hard in Drizzle, one declaration here", 2. Top three per group, with exact types. */
 /** Millionths of a dollar, never negative; and an instant, in milliseconds since the epoch. */
-const Micros = contract("Micros", pg.bigint, (m) => Compute.ge(m, 0n))
+const Micros = contract("Micros", pg.bigint, (m) => Logic.ge(m, 0n))
 const Millis = contract("Millis", pg.bigint)
 /** The gateway's id of a request, and a workspace's slug: each the name its own system gives it. */
 const RequestId = str.regex("^req_[0-9A-Za-z]{1,64}$")
@@ -789,7 +792,7 @@ export const loadViews = (
 	)
 
 /** README: "Rules", the box office. */
-const Cents = contract("Cents", pg.bigint, (c) => Compute.ge(c, 0n))
+const Cents = contract("Cents", pg.bigint, (c) => Logic.ge(c, 0n))
 /** A show's production code, and a ticket's barcode, as the box office prints them. */
 const ShowCode = str.regex("^[A-Z0-9]{2,12}$")
 const Barcode = str.regex("^[0-9]{12}$")
@@ -1028,7 +1031,7 @@ export const nearMissed = query(Tutor)
 			.match(Missed, { id: r.param("missed", Missed.fields.id), embedding: missed.embedding })
 			.match(Lesson, { id, catalog, embedding })
 			.where(r.eq(catalog, r.param("catalog", Lesson.fields.catalog)))
-			.find({ lesson: id, distance: Compute.cosineDistance(embedding, missed.embedding) })
+			.find({ lesson: id, distance: Distance.cosine(embedding, missed.embedding) })
 	})
 	.approximateNearest({ by: "distance", take: 20 })
 
@@ -1067,17 +1070,17 @@ const SearchText = str.bytes(4096, str.regex("^.*$", "su"))
 export const searchUnits = query(Course)
 	.rule((r) => {
 		const { id, subject, grade, search } = v(Unit, "unit")
-		const q = Compute.websearchQuery(r.param("q", SearchText))
+		const q = Search.websearch(r.param("q", SearchText))
 		return r
 			.match(Unit, { id, subject, grade, search })
 			.where(
 				r.and(
-					Compute.textMatches(search, q),
+					Search.matches(search, q),
 					r.eq(subject, r.param("subject", Unit.fields.subject)),
 					r.le(grade, r.param("grade", Unit.fields.grade))
 				)
 			)
-			.find({ unit: id, rank: Compute.textRank(search, q) })
+			.find({ unit: id, rank: Search.rank(search, q) })
 	})
 	.orderBy(["rank", "desc"])
 	.take(10)
@@ -1254,12 +1257,12 @@ const linesOf = query(Docs).rule((r) => {
 /** Every document's lines, shifted by its own shift, each beside its word folded again. */
 export const shiftedLines = query(Docs).rule((r) => {
 	const { doc, shift } = v(Doc, "doc")
-	const run = Compute.rowsOf(shifted, { program: linesOf.bind({ doc }), shift })
+	const run = Fn.rows(shifted, { program: linesOf.bind({ doc }), shift })
 	const { pos, txt } = v(run, "run")
 	return r
 		.match(Doc, { doc, shift })
 		.match(run, { pos, txt })
-		.find({ doc, pos, txt, again: Compute.call(folded, { word: txt }) })
+		.find({ doc, pos, txt, again: Fn.call(folded, { word: txt }) })
 })
 
 /** "Calling a function": the fields of one row, two members of one statement reading one call. */
@@ -1292,7 +1295,7 @@ export const file = ChangeSet.empty(Words)
 		Short,
 		query(Words).rule((r) => {
 			const doc = r.param("doc", DocSlug)
-			const { short } = Compute.rowOf(parted, { program: wordsOf.bind({ doc }) })
+			const { short } = Fn.row(parted, { program: wordsOf.bind({ doc }) })
 			const { pos, txt } = v(short, "short")
 			return r.match(short, { pos, txt }).find({ doc, pos, txt })
 		})
@@ -1301,7 +1304,7 @@ export const file = ChangeSet.empty(Words)
 		Long,
 		query(Words).rule((r) => {
 			const doc = r.param("doc", DocSlug)
-			const { long } = Compute.rowOf(parted, { program: wordsOf.bind({ doc }) })
+			const { long } = Fn.row(parted, { program: wordsOf.bind({ doc }) })
 			const { pos, txt } = v(long, "long")
 			return r.match(long, { pos, txt }).find({ doc, pos, txt })
 		})

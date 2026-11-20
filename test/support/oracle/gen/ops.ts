@@ -242,7 +242,7 @@ export const aggregateOpId = (fn: GenAggregate, type: ScalarType | undefined): C
  * The operator and aggregate vocabulary the generated IR uses.
  *
  * Every expression node is exactly one PostgreSQL operator, function or cast with its native overload identity. The
- * Compute registry (packages/engine/src/scalar/compute) owns the full catalogue; the generators name overloads by these
+ * scalar registry (packages/engine/src/scalar/compute) owns the full catalogue; the generators name overloads by these
  * fixed ids, the convention test/unit/ir set ("int8gt", "int8_sum", "count"), and this table is the one place the
  * conservative lowering, the reference evaluator and the mutants read their meaning from:
  *

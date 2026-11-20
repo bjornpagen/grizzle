@@ -9,7 +9,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { doubleOrSpecial } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { Compute, floatBits } from "#compiler/public/compute.ts"
+import { floatBits, Num } from "#compiler/public/compute.ts"
 import { generated, pg } from "#compiler/public/fields.ts"
 import { check, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -25,8 +25,8 @@ const Short = str.bytes(16, str.regex("^.*$", "su"))
 /**
  * A multiple's bag in the ledger's shape: each value of a variable once, by identity, beside how many times it is
  * held. Its key is the variable and the value's identity image, `bits`, which a primary key reads written, a check
- * holding it to `Compute.floatBits(value)`, so -0 and 0 are two rows and every NaN one, while `value` keeps its float
- * for reads by `=`. A tally names a bag row by the same image, a generated `Compute.floatBits(value)` it holds a key
+ * holding it to `Num.floatBits(value)`, so -0 and 0 are two rows and every NaN one, while `value` keeps its float
+ * for reads by `=`. A tally names a bag row by the same image, a generated `Num.floatBits(value)` it holds a key
  * over and a containment over (variable, bits) reads, a foreign key into the bag's primary key.
  */
 const Bag = relation(
@@ -38,14 +38,14 @@ const Tally = relation.generated(
 	"Tally",
 	{ variable: Short, value: pg["double precision"], at: pg.integer },
 	["variable", "at"],
-	(t) => ({ bits: generated(pg.bigint, Compute.floatBits(t.value)) })
+	(t) => ({ bits: generated(pg.bigint, Num.floatBits(t.value)) })
 )
 
 const bagSchema = schema(
 	"float_bits",
 	[Bag, Tally],
 	[
-		check("Bag_image", Bag, (b) => b.eq(b.bits, Compute.floatBits(b.value))),
+		check("Bag_image", Bag, (b) => b.eq(b.bits, Num.floatBits(b.value))),
 		key(on(Tally, "variable", "bits")),
 		contained(on(Tally, "variable", "bits"), on(Bag, "variable", "bits"))
 	]

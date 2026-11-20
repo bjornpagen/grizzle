@@ -148,7 +148,7 @@ const certify = (
  *
  * - The source's projection is lowered here rather than by its own plug-in, because its score must be the cosine
  *   operator `<=>`, the ordering operator of the vector_cosine_ops class, not the function `cosine_distance` the exact
- *   Compute.cosineDistance lowers to, which no index orders. `<=>` and `cosine_distance` call one C
+ *   Distance.cosine lowers to, which no index orders. `<=>` and `cosine_distance` call one C
  *   function, so every returned score is the admitted native distance, bit for bit. The other head terms
  *   are lowered as their own expressions.
  * - The rule's region, filters and negations are the eligible universe, lowered by their own plug-ins and read as one

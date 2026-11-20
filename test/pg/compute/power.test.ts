@@ -1,5 +1,5 @@
 /**
- * Compute.power on PostgreSQL 19.
+ * computeCore.power on PostgreSQL 19.
  *
  * - Numeric: every generated power, its base and exponent drawn about the values power_var turns on (underflow to
  *   zero, a result next to exp(6000)), agrees with PostgreSQL on its value, its display scale and its failure: a power
@@ -19,7 +19,7 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { type ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
@@ -207,23 +207,24 @@ export const numericPowerAgainstPostgreSQL19NeverProvesAPowerOverAGuardedBaseTha
 
 									const proved = Arr.flatMap(batch, (g) => {
 										const x = v("x", testPg.computedNumeric)
-										const power = (base: ScalarTerm) => Compute.power(base, Decimal.of(g.exponent))
+										const power = (base: ScalarTerm) =>
+											computeCore.power(base, Decimal.of(g.exponent))
 										const zero = Decimal.of("0")
 										const guard = g.guard
 										const term =
 											guard.kind === "positive"
-												? Compute.when(
-														Compute.positive(x),
+												? computeCore.when(
+														computeCore.positive(x),
 														(y: ScalarTerm) =>
-															Compute.when(
-																Compute.within(y, zero, Decimal.of(guard.high)),
+															computeCore.when(
+																computeCore.within(y, zero, Decimal.of(guard.high)),
 																power,
 																zero
 															),
 														zero
 													)
-												: Compute.when(
-														Compute.within(x, Decimal.of(guard.low), Decimal.of(guard.high)),
+												: computeCore.when(
+														computeCore.within(x, Decimal.of(guard.low), Decimal.of(guard.high)),
 														power,
 														zero
 													)

@@ -130,7 +130,7 @@ export const pointWhere: ExprDesc = {
 	span: { kind: "var", var: "s" }
 }
 
-/** r.pointIn(Compute.lower(s), w) or r.pointIn(Compute.upper(s), w). */
+/** r.pointIn(Range.lower(s), w) or r.pointIn(Range.upper(s), w). */
 export const endpointWhere = (upper: boolean): ExprDesc => ({
 	kind: "pointIn",
 	point: { kind: "compute", fn: upper ? "upper" : "lower", args: [{ kind: "var", var: "s" }] },

@@ -19,7 +19,7 @@ import type { CompareOp, ExprDesc } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { sameScalarType, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { Lowered } from "#compiler/scalar/compute/lower.ts"
 import { commonType, widening } from "#compiler/scalar/compute/types.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -53,10 +53,10 @@ import {
 	testSpan
 } from "#test/unit/compute/support.ts"
 
-const Cents = testContract("Cents", testPg.bigint, (x) => Compute.ge(x, 0n))
+const Cents = testContract("Cents", testPg.bigint, (x) => computeCore.ge(x, 0n))
 
 /** A numeric(5,2) contract that admits no negative value. */
-const Rate = testContract("Rate", testPg.numericOf(5, 2), (x) => Compute.ge(x, "0"))
+const Rate = testContract("Rate", testPg.numericOf(5, 2), (x) => computeCore.ge(x, "0"))
 
 /** A leaf bound to a column, the one binding the column hook reads. */
 type ColumnBinding = Extract<LeafBinding, { readonly kind: "column" }>
@@ -300,7 +300,7 @@ export const generated = (term: TermSketch, c: Case<CastFeature>): void => {
  * shares no type: the combination is MalformedDescription in either order (typing.ts exactBeside). The terms are the
  * compute generator's (test/support/oracle/gen/compute.ts), a comparison's two sides, and three planted shapes the
  * generator draws too rarely: cond(p, sign(x), y) over numeric typmods, a negative scale among them (sign carries no
- * typmod, so a typmod on its branch is a narrowing that rounds or overflows), a plain span against Compute.base of a
+ * typmod, so a typmod on its branch is a narrowing that rounds or overflows), a plain span against computeCore.base of a
  * contract over a fixed-width span (a width only the operand order chose), and an exact sum of an integer or money
  * column beside the column. Each pair is combined in both orders.
  */

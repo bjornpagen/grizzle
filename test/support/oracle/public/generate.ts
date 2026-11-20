@@ -141,7 +141,7 @@ import { pickFrom, pickGen, pickIndex, pickOf } from "#test/support/pick.ts"
  *
  * The root is named after its bound.
  *
- * A head holds Compute terms; an aggregate's groups are keyed by them.
+ * A head holds scalar terms; an aggregate's groups are keyed by them.
  *
  * A rule filters by r.and or r.or over comparisons, or over none: the constant true or false.
  *
@@ -226,7 +226,7 @@ export type SwarmFeature = (typeof swarmFeatures)[number]
  *
  * The root's query is Query.named after its bound.
  *
- * Compute.base, Compute.numeric(...) or Compute.cond over a numeric variable in a head.
+ * Type.base, Num.numeric(...) or Logic.cond over a numeric variable in a head.
  *
  * Such a key grouping an aggregate head.
  *
@@ -678,7 +678,7 @@ interface ConnectiveSketch {
 }
 
 /**
- * A Compute term: its kind, the padding or display-scale reading drawn in its place (`reading`, none at the floor), its
+ * A scalar term: its kind, the padding or display-scale reading drawn in its place (`reading`, none at the floor), its
  * variable, a conditional's comparison and constants, a padding's display scale, whether a reading reads a padding of
  * its variable (its upper half), and a quotient's divisor or a power's exponent (`op`).
  */
@@ -1208,7 +1208,7 @@ export const plantedNameCount = plantedNames.length
  * - The builder's further forms, each behind a gate of its own: a root rule's later matches read an earlier read's
  *   query (its parameters bound to the rule's variables or to parameters of the read), an interior stage, a relation
  *   parameter or an acyclic closure; a rule filters by r.between, r.in, r.allen over span fields and r.pointIn; a
- *   head holds Compute terms, grouping an aggregate among them; a root is named; a parameter of a Tick or a
+ *   head holds scalar terms, grouping an aggregate among them; a root is named; a parameter of a Tick or a
  *   numeric(5,2) field is declared with the field's own descriptor; and the arms of a union each state one head key as a
  *   literal, a JavaScript value of one field kind distinct across the arms, so each arm's rows read its own.
  * - Imports bound to the reader's variables. A read below the last may bind its first match's first key field to a
@@ -1771,7 +1771,7 @@ class ReadScope {
 
 	/**
 	 * A parameter compared with or bound at `field`: declared with the field's own descriptor where the field is a Tick,
-	 * whose contract never meets its base without Compute.base (scalar/compute/types.ts compatible), or a numeric(5,2)
+	 * whose contract never meets its base without Type.base (scalar/compute/types.ts compatible), or a numeric(5,2)
 	 * one compared with it ("compare") or bound to it where its gate keeps it ("bind"), and otherwise with its base.
 	 */
 	fieldParam(field: ProgramField, value: TypedLiteral, how: "bind" | "compare"): Param {
@@ -2116,7 +2116,7 @@ const negatedImport = <P>(
 			}
 }
 
-/** The kinds a Compute term takes as its variable: the numeric ones. */
+/** The kinds a scalar term takes as its variable: the numeric ones. */
 const computableKinds: ReadonlyArray<FieldKind> = ["int4", "int8", "numeric", "fixed", "tick"]
 
 /** The kind a display-scale reading reads as a variable: the wide numeric. */
@@ -2207,7 +2207,7 @@ const exponents: Arr.NonEmptyReadonlyArray<TypedLiteral> = [
 ]
 
 /**
- * The Compute term a sketch draws over one of the rule's numeric variables, typed as the checker types it: a base the
+ * The scalar term a sketch draws over one of the rule's numeric variables, typed as the checker types it: a base the
  * variable's base, a cast to numeric, a padding and every reading a computed numeric, a conditional the variable's own
  * type. A reading reads a padding of the variable where its pick says so or the rule binds no wide numeric, and a wide
  * numeric variable otherwise.
@@ -2261,7 +2261,7 @@ const resolveComputed = <P>(
 	}
 }
 
-/** The Compute terms a head holds after its first `from` keys, named from there on. */
+/** The scalar terms a head holds after its first `from` keys, named from there on. */
 const computedItems = <P>(
 	state: RuleState<P>,
 	sketches: ReadonlyArray<ComputedSketch>,
@@ -2279,7 +2279,7 @@ const computedItems = <P>(
 }
 
 /**
- * The head a rule finds, its keys named by `name(i)` in order; Compute terms join it where `computed` holds sketches
+ * The head a rule finds, its keys named by `name(i)` in order; scalar terms join it where `computed` holds sketches
  * and their gate keeps them, as keys of an aggregate's groups after its grouping variables. An aggregate head is drawn
  * where its gate keeps it, unless `aggregates` is "none" (an importable root, whose import is a set of its variables).
  */
@@ -2396,7 +2396,7 @@ interface Derivable {
 
 /**
  * How a rule is resolved: the root's every drawn match, a later one of which may read a derived source, and every
- * comparison, range, set, Allen atom, point membership, negation and head with its Compute terms; a plain child's
+ * comparison, range, set, Allen atom, point membership, negation and head with its scalar terms; a plain child's
  * alike but its first match pinned and no derived source; a keyed child's pinned first match alone, its comparisons,
  * negation and plain head; and a reflexive or arm child's pinned first match alone, every other field its own, no
  * filter or negation, under an ungrouped or a plain drawn head.
@@ -3574,7 +3574,7 @@ const varOf = <P>(field: ProgramField, v: Var): Binding<P> => ({
  *       attach nested: P{k: parent k, h: w} find {h: w}
  *   q1 = q0, its attachments kept, {k, v, d, h} find {k, v, d, h}
  *   q2 = P{k} find {k, side: x} | P{k, v} find {k, v, side: y} | P{k} find {k, side: z}, x, y and z distinct
- *   q3 = P{v} find {v, pad(v), Compute.div(v, 3), sqrt(pad(v)), power(v, 2)}
+ *   q3 = P{v} find {v, pad(v), Num.div(v, 3), sqrt(pad(v)), power(v, 2)}
  *   q4 = P{v} find {r.mean(pad(v)), r.mean(v)}
  *   q5 = P{k, d} find {k, d}
  *     attach fused: P{d: parent d, k: w} find {k: w}
@@ -4202,7 +4202,7 @@ const columnNamed = (heading: ReadonlyArray<Column>, name: string): Column =>
  *                            . Task{Payroll: v11, Task: v12, HTTPRoute: v13, span40: v14, tick0: v15, fixed0: p.Limit}
  *                            where r.allen(v9, 1273, v14)
  *                            find {Group: v6, note: v7, Task_2_Note: v8, column0: v9,
- *                                  From: Compute.cond(r.ge(v12, 0), v12, 0)}
+ *                                  From: Logic.cond(r.ge(v12, 0), v12, 0)}
  *
  * Its facts hold Task's 0 in two spellings, which a direct writer stores as written. NOTE's second match binds v12 to
  * both, since fixed0 is 1 in both facts, so for each binding of its first match its head collapses the two into one

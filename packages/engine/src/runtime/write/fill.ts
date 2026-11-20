@@ -710,7 +710,7 @@ const combineHost = (
 }
 
 /**
- * How the host builds a combine: the bigint one a count adds, and each Compute operation over host values at the
+ * How the host builds a combine: the bigint one a count adds, and each scalar operation over host values at the
  * after's carrier, undefined where an operand is not of it or the result leaves it.
  */
 const hostCombine = (spec: CarrierSpec): CombineBuild<unknown> => ({

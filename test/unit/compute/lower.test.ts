@@ -1,5 +1,5 @@
 /**
- * Lowering a Compute description in query mode (scalar/compute/lower.ts).
+ * Lowering a scalar description in query mode (scalar/compute/lower.ts).
  *
  * - Untyped leaves: a literal never stands first; a parameter does, at its declared type; two untyped literal branches
  *   are typed by the literal typing rule, a number integer and a bigint bigint, and branches of the two are malformed;
@@ -201,7 +201,7 @@ export const aConversionIntoAContractCanFailWhereverTheContractHasACHECKNeverTot
 				const chosen = contracts[name]
 				const column: ExprDesc = { kind: "var", var: name }
 				/**
-				 * Compute.cast of a contract column into its own contract: castTo leaves a numeric contract's value at its
+				 * Type.cast of a contract column into its own contract: castTo leaves a numeric contract's value at its
 				 * base typmod, so the conditional converts it into the domain (CastHow "domain"), the one path a checked
 				 * schema reaches.
 				 */

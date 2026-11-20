@@ -4,7 +4,7 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { login } from "#compiler/program/workload/login.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { closedId, contract, natural, pg } from "#compiler/public/fields.ts"
 import type {
 	AnyRoster,
@@ -45,7 +45,7 @@ import { elementAt, whereIndex } from "#test/support/oracle/pick.ts"
  *
  * A case is a base schema, one to three levels of derived relations over it, the base facts, and a sequence of steps.
  * Everything is a sketch of small numbers built through the builders (relation, closed, contract, schema,
- * schema.extend, derived, query, v, match, where, not, find, the five aggregates, Compute.cond, orderBy, take), so the
+ * schema.extend, derived, query, v, match, where, not, find, the five aggregates, Logic.cond, orderBy, take), so the
  * Descriptions under test are the ones the builder records. Each choice is reduced modulo what is in scope and a
  * choice with nothing to choose from degrades to a simpler valid form, so every sketch builds a schema the compiler
  * installs and shrinking keeps it installable:
@@ -203,7 +203,7 @@ const aggregated = (a: Aggregate): { readonly key: AggregateKey; readonly kind: 
 const condColumn = "p"
 
 const Color = closed("Color", ["red", "green", "blue"], "ordered", [])
-const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n))
+const Cents = contract("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
 const Word = str.regex("^[a-z]{0,4}$")
 
 const descriptor = (k: BaseKind): FieldBase => {

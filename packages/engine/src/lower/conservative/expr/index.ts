@@ -171,7 +171,7 @@ const refuseIn = (site: ScalarSite, expr: ScalarExpr, tag: ProseTag, capability:
 /**
  * The SQL of the scalar expression `expr` at `site`.
  *
- * One IR node is one Compute operation, so each lowers to its SQL wherever it stands: a column, VALUE and a parameter as
+ * One IR node is one scalar operation, so each lowers to its SQL wherever it stands: a column, VALUE and a parameter as
  * the site reads them, a literal typed by its base, an operator its catalog form (an exact one in its exact space and
  * an IEEE 754 one natively where proved and by its guarded form otherwise, ops.ts totalForm), a cast `x::type` (a
  * rounding into a float as total.ts ieeeForm chooses, which only a query holds: a check refuses it, compute/lower.ts),
@@ -289,8 +289,8 @@ interface Membership {
 }
 
 /**
- * A membership test, `Compute.subset(Compute.singleton(c), s)`: the subset test whose first operand is the empty set
- * with one code's bit set, which is what Compute.singleton types (scalar/compute/typing.ts singleton). Its code and
+ * A membership test, `Bits.subset(Bits.singleton(c), s)`: the subset test whose first operand is the empty set
+ * with one code's bit set, which is what Bits.singleton types (scalar/compute/typing.ts singleton). Its code and
  * its set; none for any other node.
  */
 const membershipOf = (expr: ExprOf<"op">): Membership | undefined => {
@@ -371,7 +371,7 @@ const simpleCase = (
 }
 
 /**
- * How a site lowers what a Compute.matches pattern reads (patternAre): any subterm, a subterm it folds to its value,
+ * How a site lowers what a Text.matches pattern reads (patternAre): any subterm, a subterm it folds to its value,
  * a str.pattern payload's ARE read by key, and the spelling the installation installs a pattern written as one as
  * (ir/pattern.ts InstalledSpellings `of`).
  */
@@ -383,24 +383,24 @@ export interface PatternLowering {
 }
 
 /**
- * A Compute.matches node's operands as `~` reads them: its subject's SQL, and its pattern in the ARE PostgreSQL reads
+ * A Text.matches node's operands as `~` reads them: its subject's SQL, and its pattern in the ARE PostgreSQL reads
  * (patternAre).
  */
 export const matchOperands = (expr: ScalarExpr, lowering: PatternLowering): ReadonlyArray<Expr> => {
 	const [subject, pattern] = expr.args
 	if (subject === undefined || pattern === undefined || expr.args.length !== 2) {
-		throw defect("a Compute.matches node reads its subject and its pattern")
+		throw defect("a Text.matches node reads its subject and its pattern")
 	}
 	return [lowering.lower(subject), patternAre(pattern, lowering)]
 }
 
 /**
- * A Compute.matches pattern lowered as its ARE, the one PostgreSQL's `~` reads, never as its source, which only
+ * A Text.matches pattern lowered as its ARE, the one PostgreSQL's `~` reads, never as its source, which only
  * grizzle's own automaton reads: a literal's ARE of the spelling the installation installs its language as
  * (scalar/regex/admit.ts matchAre, PatternLowering `spelling`), so one language is one ARE whatever spells it, as is a pattern the
  * site folds to a literal (physical/ddl/expr.ts), so no expression compares two constants, which a generation expression refuses
  * (42P22); a str.pattern payload's ARE read by its key from the relation's ARE dictionary (sql/constants.ts
- * closedRead), translated where the constants were planned; and a Compute.cond of them, each arm its ARE. Typing admits
+ * closedRead), translated where the constants were planned; and a Logic.cond of them, each arm its ARE. Typing admits
  * no other pattern (scalar/compute/typing.ts patternParts), so the match translates nothing as it runs and states no
  * table of translations.
  */
@@ -408,14 +408,14 @@ const patternAre = (pattern: ScalarExpr, lowering: PatternLowering): Expr => {
 	const whole = lowering.whole(pattern)
 	if (whole !== undefined) {
 		if (whole.kind !== "literal" || whole.value.kind !== "text") {
-			throw defect("a folded Compute.matches pattern is a text literal")
+			throw defect("a folded Text.matches pattern is a text literal")
 		}
 		return lit.text(matchAre(lowering.spelling(whole.value.value)), types.text)
 	}
 	switch (pattern.kind) {
 		case "literal":
 			if (pattern.value.kind !== "pattern") {
-				throw defect("a Compute.matches pattern literal is a pattern value")
+				throw defect("a Text.matches pattern literal is a pattern value")
 			}
 			return lit.text(matchAre(lowering.spelling(pattern.value.value.spelling)), types.text)
 		case "closedAt":
@@ -439,13 +439,13 @@ const patternAre = (pattern: ScalarExpr, lowering: PatternLowering): Expr => {
 		case "closedHas":
 		case "call":
 			throw defect(
-				"a Compute.matches pattern is a literal, a str.pattern payload or a Compute.cond of them"
+				"a Text.matches pattern is a literal, a str.pattern payload or a Logic.cond of them"
 			)
 	}
 }
 
 /**
- * Compute.call(f, args) of a declared function that returns a value: the function's call, each argument cast to its
+ * Fn.call(f, args) of a declared function that returns a value: the function's call, each argument cast to its
  * declared type's base, the type the function takes it at, and its value cast to the type its declared field's values
  * are stored as (ir/physical.ts fieldColumnType), whose domain PostgreSQL checks it at, a closed id's roster's among
  * them, where a NULL value is refused through the installation's refusal function (SQLSTATE

@@ -1,13 +1,13 @@
 /** What the properties of integration.test.ts read: its spaces, models and helpers. */
 
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { closed, relation, type RowScalars } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
 const Slug = str.regex("^[a-z]{1,20}$")
 
-export const Cents = contract("Cents", pg.bigint, (v) => Compute.ge(v, 0n))
+export const Cents = contract("Cents", pg.bigint, (v) => Logic.ge(v, 0n))
 
 export const Kind = closed.ordered("Kind", ["a", "b"])
 

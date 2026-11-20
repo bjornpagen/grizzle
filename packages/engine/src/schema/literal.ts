@@ -18,7 +18,7 @@ const numberLiteral = (value: number): LiteralDesc =>
 				: value
 
 /**
- * A literal with no descriptor to adopt: an operand of a term whose type this package does not know (a Compute
+ * A literal with no descriptor to adopt: an operand of a term whose type this package does not know (a scalar
  * expression of another package). The host kind alone decides; the checker types it against the term it meets.
  */
 export const untypedLiteral = (value: unknown, label: string): LiteralDesc => {

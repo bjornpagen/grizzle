@@ -3,7 +3,7 @@
  * after the running text. Its law means what the fold says: evaluated by the reference evaluator over every state of
  * a small box, the violation query of a concat fold over an ordered family, its (before, after) pair named, is empty
  * exactly on the states a naive left fold calls lawful. Its combine is the equation `after = before || x`, which the
- * Compute lowering decides without building the concatenation (compute/typing.ts concatEquation), so the law reads no
+ * scalar lowering decides without building the concatenation (compute/typing.ts concatEquation), so the law reads no
  * text longer than one PostgreSQL holds.
  *
  * A concat fold names its pair, and folds only a sequence: the fold rule refuses one over a counted family, whose

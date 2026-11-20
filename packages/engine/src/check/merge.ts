@@ -34,7 +34,7 @@ import { canonicalZeroSpec } from "#compiler/scalar/compute/registry.ts"
  * So wherever an operation may take one float for several equal ones, the float it delivers is the canonical zero, +0,
  * row by row (scalar/compute/registry.ts canonicalZero, `x + 0`: IEEE 754's -0 + +0 is +0, and JavaScript's Set and Map
  * hold +0 for -0): what deduplicates then meets one value for every class, and every plan and both lowerings deliver
- * it, wherever they deduplicate. Every Compute operation gives equal results of equal operands, a quotient by zero
+ * it, wherever they deduplicate. Every scalar operation gives equal results of equal operands, a quotient by zero
  * included (scalar/compute/evaluate.ts quotient), so a value computed from a merged one differs between plans in a
  * zero's sign at most, which the canonical zero erases. A float that is one fact's field wherever its row is delivered
  * keeps its sign: a stored -0 a keyed read delivers is -0. A ChangeSet member root's rows are the facts its write

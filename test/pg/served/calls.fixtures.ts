@@ -4,7 +4,7 @@ import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Fn } from "#compiler/public/compute.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, type FunctionBody, fn, relation, rows, schema } from "#compiler/public/schema.ts"
@@ -98,7 +98,7 @@ export const programsOf = (language: Language) => {
 	return {
 		run: query(s).rule((r) => {
 			const { item, shift, mood } = v(Seed, "seed")
-			const run = Compute.rowsOf(explode, { program: linesOf.bind({ item }), shift })
+			const run = Fn.rows(explode, { program: linesOf.bind({ item }), shift })
 			const { pos, out } = v(run, "run")
 			return r
 				.match(Seed, { item, shift, mood })
@@ -107,8 +107,8 @@ export const programsOf = (language: Language) => {
 					item,
 					pos,
 					out,
-					scaled: Compute.call(scale, { x: pos, k: 3 }),
-					mood: Compute.call(moodOf, { m: mood })
+					scaled: Fn.call(scale, { x: pos, k: 3 }),
+					mood: Fn.call(moodOf, { m: mood })
 				})
 		})
 	}

@@ -1,4 +1,4 @@
-import { Compute } from "#compiler/public/compute.ts"
+import { Num, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
@@ -31,7 +31,7 @@ export const Walks = query(Network).recursive("Walks", {
 			return r
 				.match(Person, { id })
 				.where(r.eq(id, r.param("start", Id)))
-				.find({ person: id, hops: Compute.literal(pg.integer, 0) })
+				.find({ person: id, hops: Type.literal(pg.integer, 0) })
 		}
 	],
 	rec: [
@@ -43,7 +43,7 @@ export const Walks = query(Network).recursive("Walks", {
 				.match(Follows, { from: person, to })
 				.match(Person, { id: to })
 				.where(r.lt(hops, 4))
-				.find({ person: to, hops: Compute.add(hops, Compute.literal(pg.integer, 1)) })
+				.find({ person: to, hops: Num.add(hops, Type.literal(pg.integer, 1)) })
 		}
 	]
 })

@@ -19,6 +19,7 @@ import {
 	sourceInfo
 } from "#compiler/query/build/state.ts"
 import { scalarTerm } from "#compiler/scalar/compute/builders.ts"
+import { spelling } from "#compiler/scalar/compute/spelling.ts"
 import { predicateExpr, type ScalarTerm, termExpr, typed } from "#compiler/scalar/compute/term.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { bareEnv, type SqlTag } from "#compiler/scalar/registry.ts"
@@ -45,9 +46,9 @@ import type { FunctionType } from "#compiler/types/schema/function.ts"
 import type { FactOfFields } from "#compiler/types/schema/relation.ts"
 
 /**
- * The calls of a declared function (schema/function.ts fn) a query states: Compute.call(f, args), the value of a
- * function that returns a value, a term (ir/desc.ts ExprDesc call); Compute.rowsOf(f, args), the rows of one that
- * returns rows, a source a rule matches (ir/desc.ts SourceDesc call); and Compute.rowOf(f, args), the fields of the one
+ * The calls of a declared function (schema/function.ts fn) a query states: Fn.call(f, args), the value of a
+ * function that returns a value, a term (ir/desc.ts ExprDesc call); Fn.rows(f, args), the rows of one that
+ * returns rows, a source a rule matches (ir/desc.ts SourceDesc call); and Fn.row(f, args), the fields of the one
  * row one returns, each that holds rows of values a source a rule matches (ir/desc.ts SourceDesc callField). Each argument is named as the function declares
  * it, every one of them and none other: a value argument a term, a parameter or a JavaScript value, as a bind map binds
  * a parameter; a rows argument a query or a bound query, whose heading the checker holds to the argument's.
@@ -111,7 +112,7 @@ const rowsArgument = (
 }
 
 /**
- * Compute.call(f, args): the value of a declared function that returns a value of a field, immutable or stable, at its
+ * Fn.call(f, args): the value of a declared function that returns a value of a field, immutable or stable, at its
  * arguments, a term of the field's type and carrier.
  */
 export const callTerm = <
@@ -125,7 +126,7 @@ export const callTerm = <
 	f: ValueFunction<Args, H, S, D, F>,
 	args: A & ExactCallArgs<A, Args>
 ): CalledTerm<A, H, S, D, F> & ScalarTerm<H, S> => {
-	const label = "Compute.call"
+	const label = spelling.call
 	const desc = declaredOf(f, label)
 	if (desc.returns.kind !== "value") {
 		throw malformed(
@@ -136,7 +137,7 @@ export const callTerm = <
 	if (desc.volatility === "volatile") {
 		throw malformed(
 			label,
-			`an immutable or stable function, a term being a function of its operands; ${desc.name} is volatile, which Compute.rowsOf calls`
+			`an immutable or stable function, a term being a function of its operands; ${desc.name} is volatile, which Fn.rows calls`
 		)
 	}
 	const exprs: Record<string, OpenExpr> = {}
@@ -157,7 +158,7 @@ export const callTerm = <
 }
 
 /**
- * The arguments of a call of rows (Compute.rowsOf, Compute.rowOf), each by its declared name: a value argument a term
+ * The arguments of a call of rows (Fn.rows, Fn.row), each by its declared name: a value argument a term
  * (valueArgument), a rows argument a query or a bound query of values (rowsArgument), whose source infos say where the
  * call may be matched. A rows argument of a heading of rows or of a row, and one of one row, are refused: only another
  * function's body passes one.
@@ -200,7 +201,7 @@ const rowsHeading = (
 	)
 
 /**
- * Compute.rowsOf(f, args): the rows a declared function that returns rows of a heading returns at its arguments, a
+ * Fn.rows(f, args): the rows a declared function that returns rows of a heading returns at its arguments, a
  * source a rule matches, of the heading's fields, types and carriers.
  */
 export const callRows = <
@@ -211,7 +212,7 @@ export const callRows = <
 	f: RowsFunction<Args, Fields>,
 	args: A & ExactCallArgs<A, Args>
 ): CallSource<FactOfFields<Fields>, CallParams<A>, Fields, CallReads<A>> => {
-	const label = "Compute.rowsOf"
+	const label = spelling.rowsOf
 	const desc = declaredOf(f, label)
 	const returns = desc.returns
 	if (returns.kind !== "rows") {
@@ -239,7 +240,7 @@ export const callRows = <
 }
 
 /**
- * Compute.rowOf(f, args): the fields of the one row a declared function of one row returns at its arguments, an
+ * Fn.row(f, args): the fields of the one row a declared function of one row returns at its arguments, an
  * immutable or stable one, so every read of them reads one evaluation of the call: each field of the row that holds
  * rows of a heading of values, by its name, a source a rule matches of the heading's fields, types and carriers
  * (ir/desc.ts SourceDesc callField). A field of a value, of one row, or of rows whose heading holds rows or a row is no
@@ -253,7 +254,7 @@ export const callFields = <
 	f: RowFunction<Args, Fields>,
 	args: A & ExactCallArgs<A, Args>
 ): CallFields<A, Fields> => {
-	const label = "Compute.rowOf"
+	const label = spelling.rowOf
 	const desc = declaredOf(f, label)
 	const returns = desc.returns
 	if (returns.kind !== "row") {

@@ -344,10 +344,10 @@ export type AggregateFn = (typeof aggregateFns)[number]
 
 /**
  * The padding of one numeric variable (int4, int8, numeric, numeric(5,2) or Tick) at display scale `scale`, past the
- * least scale of every value the variable holds: within paddingBounds, Compute.numeric(Compute.cast(v,
+ * least scale of every value the variable holds: within paddingBounds, Num.numeric(Type.cast(v,
  * pg.numeric(1000, scale))), its value at that display scale, which only a reading of the display scale tells from the
- * variable; elsewhere Compute.numeric(v), since a typmod's cast is defined only where the value fits, which the guard
- * Compute.within(v, low, high) proves.
+ * variable; elsewhere Num.numeric(v), since a typmod's cast is defined only where the value fits, which the guard
+ * Num.within(v, low, high) proves.
  */
 export interface Padding {
 	readonly arg: Var
@@ -386,12 +386,12 @@ export type ArgTerm =
 	| { readonly kind: "padded"; readonly padding: Padding }
 
 /**
- * A Compute term over one numeric variable (int4, int8, numeric, numeric(5,2) or Tick): Compute.base(v), a contract's
- * base value and identity elsewhere; Compute.numeric(v); Compute.cond(r.<op>(v, than), v, otherwise); a
+ * A scalar term over one numeric variable (int4, int8, numeric, numeric(5,2) or Tick): Type.base(v), a contract's
+ * base value and identity elsewhere; Num.numeric(v); Logic.cond(r.<op>(v, than), v, otherwise); a
  * padding; or one of the readings PostgreSQL defines over a numeric's display scale (registry.ts "displayScale"), each
- * a computed numeric, over a wide numeric variable or a padding: Compute.div(a, divisor), a quotient by a nonzero literal;
- * the square root of a nonnegative value, Compute.when(Compute.nonnegative(a), (a) => Compute.sqrt(a), unguarded); and
- * a power of a value within powerBounds, Compute.when(Compute.within(a, low, high), (a) => Compute.power(a, exponent),
+ * a computed numeric, over a wide numeric variable or a padding: Num.div(a, divisor), a quotient by a nonzero literal;
+ * the square root of a nonnegative value, Logic.when(Num.nonnegative(a), (a) => Num.sqrt(a), unguarded); and
+ * a power of a value within powerBounds, Logic.when(Num.within(a, low, high), (a) => Num.power(a, exponent),
  * unguarded).
  */
 export type ComputedTerm =
@@ -414,7 +414,7 @@ export const literalKinds = ["int4", "int8", "text", "bool"] as const
 export type LiteralKind = (typeof literalKinds)[number]
 
 /**
- * A head key: a variable, an aggregate over the rule's distinct complete bindings, a Compute term, which keys an
+ * A head key: a variable, an aggregate over the rule's distinct complete bindings, a scalar term, which keys an
  * aggregate's groups beside its variables, or a JavaScript value, typed as the checker types a literal that meets no
  * term (a union's arms state one each, to tell their rows apart).
  */
@@ -631,7 +631,7 @@ export type ProgramRead =
  * Besides stored relations and the roster, a root rule's later matches may read a derived source: an earlier read's
  * query imported through Query.bind, an interior stage of the rule (r.interior), a relation-valued parameter
  * (r.relation) or an acyclic closure (query(S).recursive); a rule filters by comparisons, ranges (r.between), sets
- * (r.in), Allen relations (r.allen) and point memberships (r.pointIn); a head may hold Compute terms; and a query may
+ * (r.in), Allen relations (r.allen) and point memberships (r.pointIn); a head may hold scalar terms; and a query may
  * be named (Query.named).
  */
 export interface ProgramCase {

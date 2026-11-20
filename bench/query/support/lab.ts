@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { type Fixture, fill, settle } from "#bench/query/support/kit.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -57,7 +57,7 @@ export const Lab = schema(
 	]
 )
 
-const f8 = (x: number) => Compute.literal(pg["double precision"], x)
+const f8 = (x: number) => Type.literal(pg["double precision"], x)
 
 /**
  * R26 and R41: each sitting's ordinal within its student by (day, id), its running total of scores and its running
@@ -76,7 +76,7 @@ export const runningPerStudent = query(Lab).rule((r) => {
 			ordinal: r.count(),
 			total: r.sum(t.score),
 			top: r.max(t.score),
-			above: r.sum(Compute.cond(Compute.gt(t.score, f8(3)), Compute.literal(pg.integer, 1), 0))
+			above: r.sum(Logic.cond(Logic.gt(t.score, f8(3)), Type.literal(pg.integer, 1), 0))
 		})
 })
 
@@ -111,10 +111,8 @@ export const conditionalPerStudent = (threshold: number) =>
 		const { id, student, score } = v(Sitting, "sitting")
 		return r.match(Sitting, { id, student, score }).find({
 			student,
-			passed: r.sum(
-				Compute.cond(Compute.gt(score, f8(threshold)), Compute.literal(pg.integer, 1), 0)
-			),
-			points: r.sum(Compute.cond(Compute.gt(score, f8(threshold)), score, f8(0)))
+			passed: r.sum(Logic.cond(Logic.gt(score, f8(threshold)), Type.literal(pg.integer, 1), 0)),
+			points: r.sum(Logic.cond(Logic.gt(score, f8(threshold)), score, f8(0)))
 		})
 	})
 
@@ -162,12 +160,12 @@ export const discretePercentiles = query(Lab).rule((r) => {
 	const half = v(scoreOrdinals, "half")
 	const quarter = v(scoreOrdinals, "quarter")
 	const at = (p: number) =>
-		Compute.ceil(Compute.numeric(Compute.mul(f8(p), Compute.cast(n, pg["double precision"]))))
+		Num.ceil(Num.numeric(Num.mul(f8(p), Type.cast(n, pg["double precision"]))))
 	return r
 		.match(perStudent, { student, n })
 		.match(scoreOrdinals, { student, score: half.score, ord: half.ord })
 		.match(scoreOrdinals, { student, score: quarter.score, ord: quarter.ord })
-		.where(r.eq(Compute.numeric(half.ord), at(0.5)), r.eq(Compute.numeric(quarter.ord), at(0.25)))
+		.where(r.eq(Num.numeric(half.ord), at(0.5)), r.eq(Num.numeric(quarter.ord), at(0.25)))
 		.find({ student, median: half.score, lowerQuartile: quarter.score })
 })
 
@@ -196,13 +194,11 @@ export const roomPercentile = (p: number) =>
 	query(Lab).rule((r) => {
 		const { room, n } = v(perRoom, "perRoom")
 		const o = v(roomOrdinals, "roomOrdinals")
-		const at = Compute.ceil(
-			Compute.numeric(Compute.mul(f8(p), Compute.cast(n, pg["double precision"])))
-		)
+		const at = Num.ceil(Num.numeric(Num.mul(f8(p), Type.cast(n, pg["double precision"]))))
 		return r
 			.match(perRoom, { room, n })
 			.match(roomOrdinals, { room, score: o.score, ord: o.ord })
-			.where(r.eq(Compute.numeric(o.ord), at))
+			.where(r.eq(Num.numeric(o.ord), at))
 			.find({ room, value: o.score })
 	})
 
@@ -211,26 +207,20 @@ export const continuousMedian = query(Lab).rule((r) => {
 	const { student, n } = v(perStudent, "perStudent")
 	const a = v(scoreOrdinals, "floor")
 	const b = v(scoreOrdinals, "ceil")
-	const h = Compute.mul(f8(0.5), Compute.cast(Compute.sub(n, 1n), pg["double precision"]))
+	const h = Num.mul(f8(0.5), Type.cast(Num.sub(n, 1n), pg["double precision"]))
 	const position = (fn: "floor" | "ceil") =>
 		fn === "floor"
-			? Compute.floor(Compute.numeric(Compute.add(f8(1), h)))
-			: Compute.ceil(Compute.numeric(Compute.add(f8(1), h)))
-	const frac = Compute.sub(
-		h,
-		Compute.cast(Compute.floor(Compute.numeric(h)), pg["double precision"])
-	)
+			? Num.floor(Num.numeric(Num.add(f8(1), h)))
+			: Num.ceil(Num.numeric(Num.add(f8(1), h)))
+	const frac = Num.sub(h, Type.cast(Num.floor(Num.numeric(h)), pg["double precision"]))
 	return r
 		.match(perStudent, { student, n })
 		.match(scoreOrdinals, { student, score: a.score, ord: a.ord })
 		.match(scoreOrdinals, { student, score: b.score, ord: b.ord })
-		.where(
-			r.eq(Compute.numeric(a.ord), position("floor")),
-			r.eq(Compute.numeric(b.ord), position("ceil"))
-		)
+		.where(r.eq(Num.numeric(a.ord), position("floor")), r.eq(Num.numeric(b.ord), position("ceil")))
 		.find({
 			student,
-			median: Compute.add(a.score, Compute.mul(frac, Compute.sub(b.score, a.score)))
+			median: Num.add(a.score, Num.mul(frac, Num.sub(b.score, a.score)))
 		})
 })
 

@@ -2535,7 +2535,7 @@ const sideRows = (
 
 /**
  * Each pair's met column, its source term naming its left column and `right` its target's, at the type its two terms'
- * values meet as: a field's own, pred's difference the Compute lowering's.
+ * values meet as: a field's own, pred's difference the scalar lowering's.
  */
 const pairsMet = (
 	pairs: NonEmptyReadonlyArray<ResolvedPair>,

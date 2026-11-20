@@ -1940,7 +1940,7 @@ const lawColumnIdentity = (plan: LawColumnPlan): Identity<"lawColumn"> => {
 	}
 }
 
-/** The predicate with every field leaf of a contract type read as its base (Compute.base), at any depth. A leaf already
+/** The predicate with every field leaf of a contract type read as its base (Type.base), at any depth. A leaf already
  * under a base stays as it is. */
 const baseLeaves = (
 	predicate: ExprDesc,

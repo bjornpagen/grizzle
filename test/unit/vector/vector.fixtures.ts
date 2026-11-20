@@ -13,7 +13,7 @@ import {
 import { float } from "@bjornpagen/testing/values"
 import { Array as Arr } from "effect"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Distance } from "#compiler/public/compute.ts"
 import type { Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
@@ -118,7 +118,7 @@ export const literalQuery = (literal: Vector<4>) =>
 		const { document, revision, value } = v(search.DocumentEmbedding, "documentEmbedding")
 		return r
 			.match(search.DocumentEmbedding, { document, revision, value })
-			.find({ document, distance: Compute.cosineDistance(value, literal) })
+			.find({ document, distance: Distance.cosine(value, literal) })
 	})
 
 export const sqlOf = (built: unknown) =>

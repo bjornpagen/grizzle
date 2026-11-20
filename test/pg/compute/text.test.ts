@@ -1,5 +1,5 @@
 /**
- * Compute's text terms on PostgreSQL 19, against the host.
+ * Text's terms on PostgreSQL 19, against the host.
  *
  * 1. The SQL a query or a check holds (lower/conservative/expr/ops.ts, the one spelling of every operation): a match
  *    of a literal pattern, `~` over its ARE, and of a dictionary, `~` over its pattern's ARE read by key; a
@@ -47,7 +47,7 @@ import { jsMatcher } from "#test/support/regex.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Compute's text terms on PostgreSQL match, prefix, suffix, concatenation and equation agree with the host and with ECMAScript.
+ * Text's terms on PostgreSQL match, prefix, suffix, concatenation and equation agree with the host and with ECMAScript.
  *
  * Its pre-conversion budget: runs 60, coverage cases 60 (test/pg/compute/text.test.ts at c568eb123).
  */
@@ -192,7 +192,7 @@ export const computesTextTermsOnPostgreSQLMatchPrefixSuffixConcatenationAndEquat
 	})
 
 /**
- * Compute's text terms on PostgreSQL an installed CHECK over a closed dictionary of patterns admits exactly each domain's matches.
+ * Text's terms on PostgreSQL an installed CHECK over a closed dictionary of patterns admits exactly each domain's matches.
  *
  * Its pre-conversion budget: runs 30, coverage cases 30 (test/pg/compute/text.test.ts at c568eb123).
  */

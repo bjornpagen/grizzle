@@ -41,7 +41,7 @@ import { boundsOfType } from "#compiler/scalar/compute/typing.ts"
  * already carry is a checked narrowing: the arm's pattern is the declared one when the two recognize one language
  * (refinement/index.ts guarantees), however each is spelled. Those, and every change of
  * identity (an integer arm for a bigint column, say), are MalformedDescription naming the column, so the author casts
- * with Compute.cast where the conversion is intended. An exact conversion becomes a projection over the arm that casts
+ * with Type.cast where the conversion is intended. An exact conversion becomes a projection over the arm that casts
  * the column, so base, step and feedback all carry the declared type; the lowering then casts each column to its base
  * representation.
  *
@@ -171,7 +171,7 @@ const counterNarrowing = (
 				operand: target.name,
 				guard: {
 					remedy: { kind: "within" },
-					text: `Compute.when(Compute.within(${target.name}, <low>, <high>), (${target.name}) => Compute.cast(<the step>, <the state field>), <your value>), or a counter seeded by literals and bound by a literal the step's filter compares it with`
+					text: `Logic.when(Num.within(${target.name}, <low>, <high>), (${target.name}) => Type.cast(<the step>, <the state field>), <your value>), or a counter seeded by literals and bound by a literal the step's filter compares it with`
 				}
 			})
 		)

@@ -6,7 +6,7 @@
  * the conservative lowering runs it without the query frontend. The builder takes every type from the fixture's
  * schema as ownership read it (test/support/evidence.ts ownedFixture): a stored relation's heading is its fields
  * resolved through scalarTypeOf and its keys are ownership's, a closed relation's is its handle and payload with its
- * declared facts as typed literal rows, and every operator is the Compute catalogue's native overload for its operands'
+ * declared facts as typed literal rows, and every operator is the scalar catalogue's native overload for its operands'
  * carriers (packages/engine/src/scalar/compute/registry.ts), so a fixture never invents an OpId. Every query is built through
  * DagBuilder, so it is validated before anything reads it.
  */
@@ -576,7 +576,7 @@ export class Ir {
 	}
 
 	/**
-	 * A native cast to an unrefined type: Compute.cast to a base type, and Compute.base, which only drops the
+	 * A native cast to an unrefined type: Type.cast to a base type, and Type.base, which only drops the
 	 * contract.
 	 */
 	cast(arg: ScalarExpr, type: ScalarType): ScalarExpr {

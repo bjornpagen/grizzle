@@ -12,7 +12,7 @@ import {
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Text } from "#compiler/public/compute.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -152,7 +152,7 @@ export type DictionaryFeature =
 	| "literal admits"
 	| "literal refuses"
 
-/** Patterns over the case's family that Compute.matches admits, the dictionary's and the literal's. */
+/** Patterns over the case's family that Text.matches admits, the dictionary's and the literal's. */
 export const dictionary: Gen<Dictionary> = (source) => {
 	const fi = source.draw(int(0, families.length - 1))
 	const family = defined(families[fi], "a family")
@@ -189,11 +189,9 @@ export const dictionarySchema = (d: Dictionary) => {
 	)
 	const Tagged = relation("Tagged", { id: pg.integer, code: str.regex("^.*$", "su") }, ["id"])
 	const lexical = check("Lexical", Value, (v) =>
-		Compute.matches(v.lexical, Pattern.at("pattern", v.domain))
+		Text.matches(v.lexical, Pattern.at("pattern", v.domain))
 	)
-	const literal = check("Literal", Tagged, (t) =>
-		Compute.matches(t.code, Compute.pattern(d.literal))
-	)
+	const literal = check("Literal", Tagged, (t) => Text.matches(t.code, Text.pattern(d.literal)))
 	const value = schema("Dictionary", [Domain, Pattern, Value, Tagged], [lexical, literal])
 	return { value, Value, Tagged, lexical, literal }
 }

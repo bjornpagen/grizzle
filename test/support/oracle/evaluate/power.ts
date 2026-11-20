@@ -1355,7 +1355,7 @@ const specialPower = (a: Decimal, b: Decimal): Result.Result<Decimal, PowerStopR
  * power_var_int, ln_var, exp_var, estimate_ln_dweight, sqrt_var, mul_var, div_var, div_var_int), over the exact
  * Decimal carrier.
  *
- * numeric power is the one Compute operation whose result depends on PostgreSQL's intermediate rounding: power_var
+ * numeric power is the one scalar operation whose result depends on PostgreSQL's intermediate rounding: power_var
  * picks its result scale from a low-precision estimate of exp * ln(base), computes ln and exp by series at local
  * scales it derives from that estimate, and multiplies and divides with truncated working precision. Agreeing with
  * PostgreSQL to the last digit therefore means reproducing each intermediate value, not computing the mathematically

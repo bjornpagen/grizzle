@@ -10,7 +10,18 @@ export type { Phantom } from "#compiler/core/phantom.ts"
 export { ChangeSet } from "#compiler/public/changeset.ts"
 export { workload } from "#compiler/public/workload.ts"
 export type { Addition, AdditionIn, InsertAllRowsOf } from "#compiler/public/changeset.ts"
-export { Compute } from "#compiler/public/compute.ts"
+export {
+	Crypto,
+	Distance,
+	Fn,
+	Logic,
+	Num,
+	Range,
+	Search,
+	Text,
+	Type,
+	Xml
+} from "#compiler/public/compute.ts"
 export { Bits, Money, pg } from "#compiler/public/fields.ts"
 export type { CalendarDate, Decimal, Uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"

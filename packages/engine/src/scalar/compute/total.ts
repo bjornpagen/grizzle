@@ -19,7 +19,7 @@ import type { TextLookup } from "#compiler/scalar/registry.ts"
 interface TotalOptions {
 	/** Where the declaration is: every diagnostic is located inside it. */
 	readonly loc: SourceLoc
-	/** The descriptor registry's reading of a Description, for a typed literal (Compute.literal) in the predicate. */
+	/** The descriptor registry's reading of a Description, for a typed literal (Type.literal) in the predicate. */
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
 	/** The admitted patterns the lowering reads, its compile's table (scalar/regex/patterns.ts). */
 	readonly patterns: PatternAutomata
@@ -46,7 +46,7 @@ const refuseLeaf = (what: string) => (desc: LeafDesc, loc: SourceLoc) =>
  * contractPredicateTable lowers it to an ExprTable (ir/expr.ts) in the normal form a ScalarType carries, its only
  * input VALUE at the contract's base type, checked by predicateProblems and owned as the decoder writes it. This is
  * the ScalarEnv.contractPredicate a descriptor registry uses to build a contract's ScalarType, and the table the
- * ContractLiteral check evaluates (evaluate.ts admitLiteral: a Compute literal, and analysis/schema.ts literal, a closed
+ * ContractLiteral check evaluates (evaluate.ts admitLiteral: a scalar literal, and analysis/schema.ts literal, a closed
  * relation's payload among them). Each fact the contract declares it proves (`proves`, the facts its TypeScript type
  * states) is proved here from the predicate (typing.ts unprovedFact), else the declaration is refused, naming it.
  *

@@ -564,7 +564,7 @@ const generatedDecl = (value: unknown, label: string): FieldDecl => {
 	if (expr === undefined) {
 		throw malformed(
 			label,
-			"a term of the row: one of its fields, a closed read, or a Compute expression"
+			"a term of the row: one of its fields, a closed read, or a scalar expression"
 		)
 	}
 	const decoded: ExprDesc = orThrow(decodeDesc("expr", expr))

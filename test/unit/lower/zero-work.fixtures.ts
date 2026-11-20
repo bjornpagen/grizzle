@@ -6,7 +6,7 @@ import { Array as Arr } from "effect"
 import type { ArgumentZeros } from "#compiler/lower/conservative/group/index.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -256,7 +256,7 @@ export const features: Arr.NonEmptyReadonlyArray<Feature> = [
  * A float aggregate's argument by its form, and what it holds of the two zeros (lower/conservative/group
  * ArgumentZeros): a double or a real field, which may hold -0; a field of a contract over double precision above zero,
  * never zero, or at or above zero, which admits -0 since -0 >= 0; an integer cast to double precision, whose zero is
- * +0, and a real cast to it, which keeps a -0; a Compute.cond of an integer's cast and the literal 0, of it and the
+ * +0, and a real cast to it, which keeps a -0; a Logic.cond of an integer's cast and the literal 0, of it and the
  * literal -0, and of a double and 0.
  */
 const argumentForms = [
@@ -288,9 +288,9 @@ export const argumentCaseGen: Gen<ArgumentCase> = (source) => ({
 	form: source.draw(element(argumentForms))
 })
 
-const AboveZero = contract("AboveZero", pg["double precision"], (v) => Compute.gt(v, 0))
-const NeverZero = contract("NeverZero", pg["double precision"], (v) => Compute.ne(v, 0))
-const AtOrAboveZero = contract("AtOrAboveZero", pg["double precision"], (v) => Compute.ge(v, 0))
+const AboveZero = contract("AboveZero", pg["double precision"], (v) => Logic.gt(v, 0))
+const NeverZero = contract("NeverZero", pg["double precision"], (v) => Logic.ne(v, 0))
+const AtOrAboveZero = contract("AtOrAboveZero", pg["double precision"], (v) => Logic.ge(v, 0))
 
 const F = relation(
 	"F",

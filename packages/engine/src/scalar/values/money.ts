@@ -97,7 +97,7 @@ export class Money implements Canonicalizable {
 
 	/**
 	 * An exact amount: a count of minor units of any size, the value of money arithmetic and of a money sum (ir/scalar.ts
-	 * ExactType exactMoney). A money field admits only a signed 64-bit count (make), which Compute.cast narrows into
+	 * ExactType exactMoney). A money field admits only a signed 64-bit count (make), which Type.cast narrows into
 	 * where it is proved to fit.
 	 */
 	static exact(minorUnits: bigint): Money {

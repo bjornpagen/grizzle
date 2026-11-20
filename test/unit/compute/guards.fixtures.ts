@@ -5,7 +5,7 @@ import type { OpenExpr } from "#compiler/ir/open.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { lexicalForm } from "#compiler/public/text.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
@@ -50,108 +50,122 @@ interface Plant {
 const zeroOf = (f: TestOperand): LiteralDesc =>
 	f.scalar.carrier === "int8" ? 0n : f.scalar.carrier === "numeric" ? Decimal.of("0") : 0
 
-const Positive = testContract("Positive", testPg.integer, (x) => Compute.gt(x, 0))
+const Positive = testContract("Positive", testPg.integer, (x) => computeCore.gt(x, 0))
 
 const Fraction = testContract("Fraction", testPg.numericOf(5, 2), (x) =>
-	Compute.lt(x, Decimal.of("1"))
+	computeCore.lt(x, Decimal.of("1"))
 )
 
-const Named = testContract("Named", testPg.text, (x) => Compute.ne(x, ""))
+const Named = testContract("Named", testPg.text, (x) => computeCore.ne(x, ""))
 
-const Truth = testContract("Truth", testPg.boolean, (x) => Compute.eq(x, true))
+const Truth = testContract("Truth", testPg.boolean, (x) => computeCore.eq(x, true))
 
 const lower = testPg.regex("^[a-z]+$", "u")
 
-/** A text a pattern bounds, which Compute.matches reads in a query: an unbounded one it refuses. */
+/** A text a pattern bounds, which computeCore.matches reads in a query: an unbounded one it refuses. */
 const short = testPg.regex("^.{0,80}$", "su")
 
-/** Division by the operand itself, guarded by Compute.nonzero. */
+/** Division by the operand itself, guarded by computeCore.nonzero. */
 const nonzero = (operand: TestField): Plant => ({
 	operand,
-	faulty: (x) => Compute.div(x, x),
+	faulty: (x) => computeCore.div(x, x),
 	mended: {
 		kind: "guarded",
 		term: (x) =>
-			Compute.when(Compute.nonzero(x), (d: ScalarTerm) => Compute.div(x, d), Compute.sub(x, x))
+			computeCore.when(
+				computeCore.nonzero(x),
+				(d: ScalarTerm) => computeCore.div(x, d),
+				computeCore.sub(x, x)
+			)
 	}
 })
 
-/** A narrowing of the operand into `target`, guarded by Compute.within at zero, which every target holds. */
+/** A narrowing of the operand into `target`, guarded by computeCore.within at zero, which every target holds. */
 const fits = (operand: TestOperand, target: TestField): Plant => ({
 	operand,
-	faulty: (x) => Compute.cast(x, target),
+	faulty: (x) => computeCore.cast(x, target),
 	mended: {
 		kind: "guarded",
 		term: (x) =>
-			Compute.when(
-				Compute.within(x, zeroOf(operand), zeroOf(operand)),
-				(y: ScalarTerm) => Compute.cast(y, target),
+			computeCore.when(
+				computeCore.within(x, zeroOf(operand), zeroOf(operand)),
+				(y: ScalarTerm) => computeCore.cast(y, target),
 				zeroOf(target)
 			)
 	}
 })
 
-/** A contract cast over a number, guarded by Compute.within at `inside`, a value its predicate holds of. */
+/** A contract cast over a number, guarded by computeCore.within at `inside`, a value its predicate holds of. */
 const numberContract = (operand: TestField, target: TestField, inside: LiteralDesc): Plant => ({
 	operand,
-	faulty: (x) => Compute.cast(x, target),
+	faulty: (x) => computeCore.cast(x, target),
 	mended: {
 		kind: "guarded",
 		term: (x) =>
-			Compute.when(
-				Compute.within(x, inside, inside),
-				(y: ScalarTerm) => Compute.cast(y, target),
+			computeCore.when(
+				computeCore.within(x, inside, inside),
+				(y: ScalarTerm) => computeCore.cast(y, target),
 				inside
 			)
 	}
 })
 
-/** A contract cast over a type no Compute test bounds, mended by a parameter of the contract's own type. */
+/** A contract cast over a type no scalar test bounds, mended by a parameter of the contract's own type. */
 const typedContract = (operand: TestField, target: TestField): Plant => ({
 	operand,
-	faulty: (x) => Compute.cast(x, target),
-	mended: { kind: "typed", term: () => Compute.cast(param("p", target), target) }
+	faulty: (x) => computeCore.cast(x, target),
+	mended: { kind: "typed", term: () => computeCore.cast(param("p", target), target) }
 })
 
-/** A square root of the operand, guarded by Compute.nonnegative. */
+/** A square root of the operand, guarded by computeCore.nonnegative. */
 const sqrt = (operand: TestOperand): Plant => ({
 	operand,
-	faulty: (x) => Compute.sqrt(x),
+	faulty: (x) => computeCore.sqrt(x),
 	mended: {
 		kind: "guarded",
 		term: (x) =>
-			Compute.when(Compute.nonnegative(x), (y: ScalarTerm) => Compute.sqrt(y), Compute.sub(x, x))
+			computeCore.when(
+				computeCore.nonnegative(x),
+				(y: ScalarTerm) => computeCore.sqrt(y),
+				computeCore.sub(x, x)
+			)
 	}
 })
 
-/** The least scale of the operand, guarded by Compute.isFinite. */
+/** The least scale of the operand, guarded by computeCore.isFinite. */
 const minScale = (operand: TestOperand): Plant => ({
 	operand,
-	faulty: (x) => Compute.minScale(x),
+	faulty: (x) => computeCore.minScale(x),
 	mended: {
 		kind: "guarded",
-		term: (x) => Compute.when(Compute.isFinite(x), (y: ScalarTerm) => Compute.minScale(y), 0)
+		term: (x) =>
+			computeCore.when(computeCore.isFinite(x), (y: ScalarTerm) => computeCore.minScale(y), 0)
 	}
 })
 
-/** The operand to its own power, whose sign Compute.positive proves and whose range it does not. */
+/** The operand to its own power, whose sign computeCore.positive proves and whose range it does not. */
 const power = (operand: TestOperand): Plant => ({
 	operand,
-	faulty: (x) => Compute.power(x, x),
+	faulty: (x) => computeCore.power(x, x),
 	mended: { kind: "beyond one guard" }
 })
 
 /**
- * The operand to its own power under Compute.positive, its sign proved and its range not, guarded by Compute.within
+ * The operand to its own power under computeCore.positive, its sign proved and its range not, guarded by computeCore.within
  * between one and two, which proves both.
  */
 const powerRange = (operand: TestOperand, one: LiteralDesc, two: LiteralDesc): Plant => ({
 	operand,
-	faulty: (x) => Compute.when(Compute.positive(x), (y: ScalarTerm) => Compute.power(y, y), one),
+	faulty: (x) =>
+		computeCore.when(computeCore.positive(x), (y: ScalarTerm) => computeCore.power(y, y), one),
 	mended: {
 		kind: "guarded",
 		term: (x) =>
-			Compute.when(Compute.within(x, one, two), (y: ScalarTerm) => Compute.power(y, y), one)
+			computeCore.when(
+				computeCore.within(x, one, two),
+				(y: ScalarTerm) => computeCore.power(y, y),
+				one
+			)
 	}
 })
 
@@ -181,13 +195,13 @@ export const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArr
 	language: [
 		{
 			operand: short,
-			faulty: (x) => Compute.cast(x, lower),
+			faulty: (x) => computeCore.cast(x, lower),
 			mended: {
 				kind: "guarded",
 				term: (x) =>
-					Compute.when(
-						Compute.matches(x, Compute.pattern("^[a-z]+$")),
-						(y: ScalarTerm) => Compute.cast(y, lower),
+					computeCore.when(
+						computeCore.matches(x, computeCore.pattern("^[a-z]+$")),
+						(y: ScalarTerm) => computeCore.cast(y, lower),
 						"a"
 					)
 			}
@@ -202,7 +216,11 @@ export const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArr
 		{
 			operand: testPg.numeric,
 			faulty: (x) =>
-				Compute.when(Compute.isFinite(x), (y: ScalarTerm) => Compute.widthBucket(y, y, y, 10), 0),
+				computeCore.when(
+					computeCore.isFinite(x),
+					(y: ScalarTerm) => computeCore.widthBucket(y, y, y, 10),
+					0
+				),
 			mended: { kind: "beyond one guard" }
 		}
 	],
@@ -213,13 +231,13 @@ export const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArr
 		] as const,
 		([target, descriptor]) => ({
 			operand: short,
-			faulty: (x: ScalarTerm) => Compute.cast(x, target),
+			faulty: (x: ScalarTerm) => computeCore.cast(x, target),
 			mended: {
 				kind: "guarded",
 				term: (x: ScalarTerm) =>
-					Compute.when(
-						Compute.matches(x, lexicalForm(descriptor)),
-						(y: ScalarTerm) => Compute.cast(y, target),
+					computeCore.when(
+						computeCore.matches(x, lexicalForm(descriptor)),
+						(y: ScalarTerm) => computeCore.cast(y, target),
 						zeroOf(target)
 					)
 			}
@@ -228,13 +246,13 @@ export const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArr
 	bounded: [
 		{
 			operand: testPg.text,
-			faulty: (x) => Compute.utf16Length(x),
+			faulty: (x) => computeCore.utf16Length(x),
 			mended: {
 				kind: "guarded",
 				term: (x) =>
-					Compute.when(
-						Compute.within(Compute.octetLength(x), 0, regexTextMaxBytes),
-						() => Compute.utf16Length(x),
+					computeCore.when(
+						computeCore.within(computeCore.octetLength(x), 0, regexTextMaxBytes),
+						() => computeCore.utf16Length(x),
 						0
 					)
 			}
@@ -260,7 +278,7 @@ const modeOf: { readonly [K in PreconditionKind]: "query" | "check" } = {
 	bounded: "check"
 }
 
-/** The tests Compute writes over a value of a carrier: a number's facts and bounds, a text's patterns, or none. */
+/** The tests the scalar catalogue writes over a value of a carrier: a number's facts and bounds, a text's patterns, or none. */
 export const writable = (carrier: Carrier): ReadonlyArray<GuardTest["kind"]> => {
 	switch (carrier) {
 		case "int2":
@@ -295,7 +313,7 @@ export const writable = (carrier: Carrier): ReadonlyArray<GuardTest["kind"]> => 
 export type Feature =
 	| `refused for ${PreconditionKind}`
 	| "a text operand's guard"
-	| "a guard no Compute test writes"
+	| "a guard no scalar test writes"
 	| "a named guard, written, admitted"
 
 export const lowered = (

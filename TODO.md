@@ -90,14 +90,14 @@ post-beta swarm's fixes for the next release.
     ~/.cache/gr8des/prof/CPU.20261108.180041.75112.0.001.cpuprofile; Qti is the benchmark.
   - Pattern admission repeated in every lowering (REGEX2, 2026-11-09; held by main, generate-only once the served
     cutover lands). On the kit's layer at c83f33ac (loaded machine, CPU): the law model's batch admits each closed
-    payload value read as a Compute.matches pattern, 370 calls for 365 distinct, about 260 ms (lower.ts admittedReads),
+    payload value read as a Text.matches pattern, 370 calls for 365 distinct, about 260 ms (lower.ts admittedReads),
     and each literal pattern again, 202 calls for 89 distinct, about 60–100 ms (patternAdmissions), though only the
     refusal reads either. The cut: the lowering reads sources and admits none; one install-only pass in installBasis
     and generate's workload compile admits every pattern part the schema's expressions read (schema/walk.ts
     exprPatternReads, patternParts), refusing at the expression. It moves a term's refusal out of the lowering, which
     test/unit/compute/text.test.ts holds.
   - Pattern analysis carried on its values (REGEX2, 2026-11-09; held by main, generate-only after the cutover):
-    Compute.when guards analyze x ∧ p again, 103 calls for 14 distinct, about 90–105 ms, and Compute.parse's lexical
+    Logic.when guards analyze x ∧ p again, 103 calls for 14 distinct, about 90–105 ms, and Text.parseDouble's lexical
     inclusion rebuilds the inner and form DFAs, 39 calls for 10 distinct, about 110–150 ms. The move: the pure regex
     engine (scalar/regex table, charset, ir, parse, nfa, partition, dfa, are, space, admit, source, inclusion's NFA
     core) becomes a zone `regex` importing only core, with TextBounds and ir/dag.ts postorder moved out of ir; ir,
@@ -170,9 +170,9 @@ post-beta swarm's fixes for the next release.
 - **edullm's workarounds, for the owner (2026-11-08):**
   - `Query.bind` exists only on plain queries, so an Ordered with attachments cannot be a bound import; edullm ports
     pantry's document scan as a child under its own parent instead.
-  - `Compute.cast` refuses an aggregate, so a count reaches natural through a bound sub-query under
-    `Compute.nonnegative`.
-- **qti-pie's asks, for the owner:** ~/.cache/gr8des/integration/fallback-scan.md #2–#13, and Compute.matches over
+  - `Type.cast` refuses an aggregate, so a count reaches natural through a bound sub-query under
+    `Num.nonnegative`.
+- **qti-pie's asks, for the owner:** ~/.cache/gr8des/integration/fallback-scan.md #2–#13, and Text.matches over
   patterns held as data. #7 (row order for the regex cache) is performance machinery, ruled out.
 
 ### qti-pie's after-pin queue (qti-pie's sweep, relayed by edullm-30 2026-11-09)
@@ -184,7 +184,7 @@ Q2 to Q6 first. A new feature still needs its correctness need named in its comm
 - **Q3.** lawKeyOf, so pantry drops its committed LawId dictionary (a law's ids ship with lawsOf, public/schema.ts);
   RefusedLaw names no QTI law-table today (ARTIFACTS2).
 - **Q5.** The cost of compiling the law model and building the Qti value (WORKLOAD2).
-- **Q7.** A Compute text split (SHA256). No substring, split_part or pattern group exists, so pantry splits on the host
+- **Q7.** A Text split (SHA256). No substring, split_part or pattern group exists, so pantry splits on the host
   and writes the pieces as rows (IDREF, header and tolerance tokens, identifier leads and trails, href pieces, reading
   segments, unordered pairs). It must be total under a matches guard, IMMUTABLE, and carry the byte bound. Repro:
   ~/.cache/gr8des/lane-k/gap-split/repro.ts.
@@ -219,7 +219,7 @@ Q2 to Q6 first. A new feature still needs its correctness need named in its comm
 Logged only: each waits for the owner's go, and for its correctness need named in its commit. Ranked as the survey of
 pantry's grammar/ and qti/ ranks them (~/.cache/gr8des/qti-sweep/pantry-grammar-qti.md, "What grizzle should fix",
 read against main 5b049abf); a Q label points at its entry above.
-1. **Q7, a text split or substring:** a total Compute split or substring under a matches guard, IMMUTABLE and byte
+1. **Q7, a text split or substring:** a total scalar split or substring under a matches guard, IMMUTABLE and byte
    bounded. Deletes the host splits and their concat-fold proofs in about 8 relations (Idref, TextIdref, VariableRef,
    ReferenceSegment, Reading, Tolerance, the Reference pieces, Node's first and last).
 2. **Q16, a family over a selection:** a family whose member side is a selection, and a relation that owns and is a
@@ -242,7 +242,7 @@ read against main 5b049abf); a Q label points at its entry above.
     node.ts's bounded string-value fold and its hand lists of folded kinds.
 11. **Rules over recursive queries:** a rule side may read a recursive derived relation. Deletes mathml-share.ts's
     host-computed dominance ranks (MathRank, PlacedMathRank) and closes its foreign-element hole.
-12. **A text digest:** `Compute.sha256` over text, digesting its UTF-8 bytes; today it reads bytes only (engine
+12. **A text digest:** `Crypto.sha256` over text, digesting its UTF-8 bytes; today it reads bytes only (engine
     registry.ts `bytesDigest`). Lets pantry compare free text by a digest column where it now writes query rules
     (qti-pie docs/grizzle-findings.md, found on qti-cutover-20261114b).
 13. **An unbounded text behind a digest-keyed index:** an index a rule probe needs over an unbounded text keys its
@@ -289,7 +289,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   entry's content of the package (detoasted) for its D EXCEPT A, and every met row's content for its exact-repeat probe.
   The law first: comparing a digest in place of its content treats sha256 as injective, so the schema states it as a law
   (a content address: this field determines that one), and the compiler compares by the address only where the schema
-  says so, never because it recognises `Compute.sha256` in a generated field. Today Entry states the digest only as a
+  says so, never because it recognises `Crypto.sha256` in a generated field. Today Entry states the digest only as a
   generated field (pantry src/qti/package.ts:138-143; PostgreSQL's STORED column, edullm migrations/qti init
   02-structure.sql:970; engine ir/law.ts:61-64 FieldWriting). Then three compile-only steps, none of them an API or a
   pantry change: (a) an anchored deletion beside its stratum's additions: a delete member whose head is the written

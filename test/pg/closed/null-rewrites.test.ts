@@ -17,7 +17,7 @@
  * predicates: a concatenation's equation or inequation with an operand, on either side; starts_with and ends_with; a
  * match against a literal, or Pick's text where Pick holds a row; BETWEEN two operands; IN a list of literals; in a query, whether f over the
  * row's double is below zero; under AND, OR and NOT.
- * Positions, each its own relation: a row check, a generated field `Compute.cond(φ, n, m)`, a containment of a
+ * Positions, each its own relation: a row check, a generated field `Logic.cond(φ, n, m)`, a containment of a
  * selection into a closed relation, a key over a selection, and a query's filter.
  *
  * The oracle is the plain meaning restated over the drawn values: strict operations NULL at a NULL operand, Kleene's

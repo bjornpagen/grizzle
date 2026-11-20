@@ -6,7 +6,7 @@
  * `grizzle generate`. A change of what any of those files holds is a change of this format, and nothing reads the
  * format before it.
  *
- * @formatConstant grizzle's artifact format: 3, whose described laws state a Compute.matches pattern as its pattern
+ * @formatConstant grizzle's artifact format: 3, whose described laws state a Text.matches pattern as its pattern
  * value, identified by its language, and whose theory records the installation's spelling of each language it installs
  */
 export const artifactFormat = 3

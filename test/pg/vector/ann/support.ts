@@ -28,7 +28,7 @@ import {
 } from "#compiler/physical/install/extension.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Distance } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
@@ -103,7 +103,7 @@ const scoredDocuments = query(AnnSearch).rule((r) => {
 		.find({
 			document,
 			revision,
-			distance: Compute.cosineDistance(value, r.param("vector", DocumentEmbedding.fields.value))
+			distance: Distance.cosine(value, r.param("vector", DocumentEmbedding.fields.value))
 		})
 })
 
@@ -135,7 +135,7 @@ export const anyRevision = query(AnnSearch)
 			.match(Document, { id: document, account: r.param("account", Document.fields.account) })
 			.find({
 				document,
-				distance: Compute.cosineDistance(value, r.param("vector", DocumentEmbedding.fields.value))
+				distance: Distance.cosine(value, r.param("vector", DocumentEmbedding.fields.value))
 			})
 	})
 	.approximateNearest({ by: "distance", take: 10 })
@@ -156,7 +156,7 @@ export const untagged = query(AnnSearch)
 			.find({
 				document,
 				revision,
-				distance: Compute.cosineDistance(value, r.param("vector", DocumentEmbedding.fields.value))
+				distance: Distance.cosine(value, r.param("vector", DocumentEmbedding.fields.value))
 			})
 	})
 	.approximateNearest({ by: "distance", take: 20 })
@@ -168,7 +168,7 @@ export const unfiltered = query(AnnSearch)
 		return r.match(DocumentEmbedding, { document, revision, value }).find({
 			document,
 			revision,
-			distance: Compute.cosineDistance(value, r.param("vector", DocumentEmbedding.fields.value))
+			distance: Distance.cosine(value, r.param("vector", DocumentEmbedding.fields.value))
 		})
 	})
 	.approximateNearest({ by: "distance", take: 10 })

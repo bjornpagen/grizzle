@@ -12,7 +12,7 @@ import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import { builtExpr, OpId, predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { noSpellings } from "#compiler/ir/pattern.ts"
 import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { type NativeFn, nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -63,17 +63,17 @@ export const patterns: Gen<Pattern> = (s) => {
 	return { live, a, b }
 }
 
-/** The Compute member a JavaScript caller names each operation over two values by, the registry's function name. */
+/** The catalogue member a JavaScript caller names each operation over two values by, the registry's function name. */
 export const twoOperandCores: Readonly<
 	Partial<Record<NativeFn, (a: unknown, b: unknown) => unknown>>
 > = {
-	eq: Compute.eq,
-	ne: Compute.ne,
-	union: Compute.union,
-	intersection: Compute.intersection,
-	difference: Compute.difference,
-	subset: Compute.subset,
-	disjoint: Compute.disjoint
+	eq: computeCore.eq,
+	ne: computeCore.ne,
+	union: computeCore.union,
+	intersection: computeCore.intersection,
+	difference: computeCore.difference,
+	subset: computeCore.subset,
+	disjoint: computeCore.disjoint
 }
 
 export type Situation =

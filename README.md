@@ -623,10 +623,10 @@ The amounts are contracts. **A `contract`** is a named type over a base type, wi
 **The declaration.**
 
 ```ts
-import { Compute, contract } from "@bjornpagen/grizzle"
+import { contract, Logic } from "@bjornpagen/grizzle"
 
 /** Millionths of a dollar, never negative; and an instant, in milliseconds since the epoch. */
-const Micros = contract("Micros", pg.bigint, (m) => Compute.ge(m, 0n))
+const Micros = contract("Micros", pg.bigint, (m) => Logic.ge(m, 0n))
 const Millis = contract("Millis", pg.bigint)
 /** The gateway's id of a request, and a workspace's slug: each the name its own system gives it. */
 const RequestId = str.regex("^req_[0-9A-Za-z]{1,64}$")
@@ -1418,6 +1418,95 @@ In full:
 - **A direct connection.** PgBouncer is not supported.
 - **`max_pred_locks_per_transaction = 2048`**, recommended: a server-start setting, about 115 MB of shared memory at 200 connections. SERIALIZABLE writes and plain reads take predicate locks; a deferrable read takes none.
 
+## Upgrading
+
+### Compute became the scalar namespaces
+
+`Compute` is gone, with no alias: its members live in eleven namespaces, each named for the domain its members read ([Scalar terms](#scalar-terms)). A caller replaces each `Compute.<member>` below and imports the namespaces it now reads in place of `Compute` (`import { Logic, Num, Text } from "@bjornpagen/grizzle"`); a binding of its own named like one of them, a field type `Text` say, is renamed or the import aliased. Nothing else changes: every term, its type and its SQL are the same, so the generated SQL is byte-identical.
+
+- `Compute.literal` → `Type.literal`
+- `Compute.base` → `Type.base`
+- `Compute.cast` → `Type.cast`
+- `Compute.add` → `Num.add`
+- `Compute.sub` → `Num.sub`
+- `Compute.mul` → `Num.mul`
+- `Compute.div` → `Num.div`
+- `Compute.mod` → `Num.mod`
+- `Compute.neg` → `Num.neg`
+- `Compute.quot` → `Num.quot`
+- `Compute.rem` → `Num.rem`
+- `Compute.abs` → `Num.abs`
+- `Compute.sign` → `Num.sign`
+- `Compute.round` → `Num.round`
+- `Compute.trunc` → `Num.trunc`
+- `Compute.ceil` → `Num.ceil`
+- `Compute.floor` → `Num.floor`
+- `Compute.gcd` → `Num.gcd`
+- `Compute.lcm` → `Num.lcm`
+- `Compute.power` → `Num.power`
+- `Compute.sqrt` → `Num.sqrt`
+- `Compute.widthBucket` → `Num.widthBucket`
+- `Compute.minScale` → `Num.minScale`
+- `Compute.numeric` → `Num.numeric`
+- `Compute.floatBits` → `Num.floatBits`
+- `Compute.nonzero` → `Num.nonzero`
+- `Compute.nonnegative` → `Num.nonnegative`
+- `Compute.positive` → `Num.positive`
+- `Compute.isFinite` → `Num.isFinite`
+- `Compute.within` → `Num.within`
+- `Compute.cond` → `Logic.cond`
+- `Compute.when` → `Logic.when`
+- `Compute.not` → `Logic.not`
+- `Compute.and` → `Logic.and`
+- `Compute.or` → `Logic.or`
+- `Compute.eq` → `Logic.eq`
+- `Compute.ne` → `Logic.ne`
+- `Compute.lt` → `Logic.lt`
+- `Compute.le` → `Logic.le`
+- `Compute.gt` → `Logic.gt`
+- `Compute.ge` → `Logic.ge`
+- `Compute.between` → `Logic.between`
+- `Compute.in` → `Logic.in`
+- `Compute.least` → `Logic.least`
+- `Compute.greatest` → `Logic.greatest`
+- `Compute.lower` → `Range.lower`
+- `Compute.upper` → `Range.upper`
+- `Compute.width` → `Range.width`
+- `Compute.charLength` → `Text.charLength`
+- `Compute.octetLength` → `Text.octetLength`
+- `Compute.utf16Length` → `Text.utf16Length`
+- `Compute.concat` → `Text.concat`
+- `Compute.startsWith` → `Text.startsWith`
+- `Compute.endsWith` → `Text.endsWith`
+- `Compute.pattern` → `Text.pattern`
+- `Compute.matches` → `Text.matches`
+- `Compute.translate` → `Text.translate`
+- `Compute.lowerAscii` → `Text.lowerAscii`
+- `Compute.replaceWhitespace` → `Text.replaceWhitespace`
+- `Compute.collapse` → `Text.collapse`
+- `Compute.resolveReference` → `Text.resolveReference`
+- `Compute.parseDouble` → `Text.parseDouble`
+- `Compute.parseDecimal` → `Text.parseDecimal`
+- `Compute.xsdPattern` → `Xml.pattern`
+- `Compute.isXsdPattern` → `Xml.isPattern`
+- `Compute.sha256` → `Crypto.sha256`
+- `Compute.cosineDistance` → `Distance.cosine`
+- `Compute.websearchQuery` → `Search.websearch`
+- `Compute.plainQuery` → `Search.plain`
+- `Compute.textMatches` → `Search.matches`
+- `Compute.textRank` → `Search.rank`
+- `Compute.textRankCd` → `Search.rankCd`
+- `Compute.union` → `Bits.union`
+- `Compute.intersection` → `Bits.intersection`
+- `Compute.difference` → `Bits.difference`
+- `Compute.cardinality` → `Bits.cardinality`
+- `Compute.subset` → `Bits.subset`
+- `Compute.disjoint` → `Bits.disjoint`
+- `Compute.singleton` → `Bits.singleton`
+- `Compute.call` → `Fn.call`
+- `Compute.rowsOf` → `Fn.rows`
+- `Compute.rowOf` → `Fn.row`
+
 ## Effect, briefly
 
 grizzle is built on [Effect](https://effect.website) 4. Opening a database, reading and writing return `Effect` values: lazy descriptions of work whose success and failure types are part of their type. Inside `Effect.gen(function* () { ... })`, `yield*` runs one and gives you its result. At the edge of your app, a `ManagedRuntime` built from grizzle's layer runs them: `runtime.runPromise(effect)` returns a Promise.
@@ -1852,9 +1941,9 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   type a rule's `pred` reads ([Rules](#rules)). Every schema holds it, since every query over it may count, so its
   domain is installed whether or not a field is natural. A count meets a natural field, parameter or literal and is
   written into a natural field as it is; a count beside a `pg.bigint` is two types, so type that side `natural`, which
-  is what it holds, and an arithmetic's exact integer meets a count as `Compute.base(count)`. A negative value is an
+  is what it holds, and an arithmetic's exact integer meets a count as `Type.base(count)`. A negative value is an
   outcome on the law `{ kind: "contract", contract: "natural" }`. No other contract may be named `natural`.
-- **`date`** is a day of the proleptic Gregorian calendar, PostgreSQL's date, a plain type: `Compute.base` of a date is
+- **`date`** is a day of the proleptic Gregorian calendar, PostgreSQL's date, a plain type: `Type.base` of a date is
   the date. Its value is its ISO 8601 text, `"2024-02-29"`, one text per day, in calendar order; every login pins
   `DateStyle` to ISO. A CHECK on every date column holds it to 0001-01-01 … 9999-12-31 against any writer, so no
   infinity or unspellable year is stored; it is the type's range, not a rule an outcome names. Dates compare, take
@@ -1863,7 +1952,7 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   `span(T, width)` fixes `end − start` by a CHECK on the column: a positive `number` over integer, a count of days
   over date, a positive `bigint` over bigint.
 - **`bytes`** is written and read back whole, nothing more. No key, unique, containment, rule, selection, filter or
-  parameter takes one, no `Compute` operation reads one but `Compute.sha256`, its digest ([Text](#text)), and no
+  parameter takes one, no scalar term reads one but `Crypto.sha256`, its digest ([Text](#text)), and no
   contract, generated or accumulated field is of one: each is a type error where the types see it and
   `UnsupportedOperation` when it compiles. A query's head reads one like any field. It is written in binary and read back in chunks of 16 MiB, one result row a chunk, in the same statement and
   round trip, wherever it is delivered: a query's rows, an attachment's, a window's, a family's stored members. grizzle
@@ -1883,7 +1972,7 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   and `\S`, `\b` and `\B`, backreferences, named groups, inline modifiers, lazy quantifiers, NUL, a lone surrogate,
   and, as a field's or a contract's type, a pattern no text matches, such as `a^b` or `[]`, which no value could hold.
   TypeScript accepts these; the first relation or contract built over the pattern refuses it with
-  `UnsupportedOperation`, naming the construct and its position. As a `Compute.pattern` or a value of a closed
+  `UnsupportedOperation`, naming the construct and its position. As a `Text.pattern` or a value of a closed
   relation's pattern field, a pattern no text matches is the empty language, whose match holds of no text.
 - **`str.bytes(n, pattern)`** is the pattern's text of at most `n` UTF-8 bytes, `n` from 0 to 2,147,483,647. Its host
   type is the pattern's, so an unbounded text of the pattern needs no cast. Its domain checks
@@ -1929,8 +2018,8 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   something, and `closed.unordered("Element", [...])` one whose order means nothing; every roster is one or the other.
   A `closedId(Status)` column holds a handle's code: an ordered roster numbers its handles 0 … n − 1 in declared order,
   which is also comparison order, and an unordered one numbers them in the UTF-16 order of their names, which nothing
-  compares by. A closed id of an unordered roster has no order: a comparison, `between`, `orderBy`, `Compute.least`,
-  `Compute.greatest`, `r.min`, `r.max` or a fold's `Monoid.max` over it is a type error that names the fix, declaring
+  compares by. A closed id of an unordered roster has no order: a comparison, `between`, `orderBy`, `Logic.least`,
+  `Logic.greatest`, `r.min`, `r.max` or a fold's `Monoid.max` over it is a type error that names the fix, declaring
   the roster `closed.ordered`. Its equality, `in`, keys, joins and sets are an ordered roster's. Where grizzle
   completes an order to break ties the caller left open (a `take`, a page), it reads a closed id's code, which never
   moves, whatever its roster's kind. The API reads and writes names. The table stores codes, under a smallint domain
@@ -1939,9 +2028,9 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   removed one leaves its code unused, and an ordered roster's reorder is refused ([Migrations](#migrations)).
 - **Sets.** `bits(Status)` is a `bit(n)`, one bit per code, n rounded up to whole hex digits, under a domain that holds
   only live handles' bits and 0 past the last code. grizzle writes a set in hex only: `X'…'` cast to its domain in
-  SQL, `X` and its hex digits as a parameter's text. The algebra is `Compute.union`, `.intersection`, `.difference`,
+  SQL, `X` and its hex digits as a parameter's text. The algebra is `Bits.union`, `.intersection`, `.difference`,
   `.cardinality`, `.subset`, `.disjoint` and `.singleton`; for a complement, take the full set less it. Membership is
-  `Compute.subset(Compute.singleton(id), set)`. Every operation gives NULL on NULL, a NULL id's singleton included. No
+  `Bits.subset(Bits.singleton(id), set)`. Every operation gives NULL on NULL, a NULL id's singleton included. No
   key holds a set: its bit string is too wide for an index entry.
 
 ### How a field is written
@@ -1970,10 +2059,10 @@ text collapsed by its owner's declared type, is one generated field every query 
 type error.
 Compiling the schema refuses a term that breaks these rules with `GeneratedRefused` (`readsGenerated`, or `notRowLocal`
 for a read beyond its row). The term has the field's type, except for a text's pattern and byte bound,
-which the field's domain checks: `generated(Ids, Compute.concat(row.head, row.tail))` fills a refined text, and a
-generated value outside the domain refuses its row, `refused` on the pattern's rule; a term whose type shares no value with the field's, `Compute.lowerAscii` of a text of capitals into a field of capitals, would refuse every row, and is `GeneratedRefused` (`disjoint`) wherever the text analysis proves it, by the two patterns together or by the tighter byte bound. Nothing is cast
+which the field's domain checks: `generated(Ids, Text.concat(row.head, row.tail))` fills a refined text, and a
+generated value outside the domain refuses its row, `refused` on the pattern's rule; a term whose type shares no value with the field's, `Text.lowerAscii` of a text of capitals into a field of capitals, would refuse every row, and is `GeneratedRefused` (`disjoint`) wherever the text analysis proves it, by the two patterns together or by the tighter byte bound. Nothing is cast
 implicitly: a term of another integer width, numeric typmod or contract, `natural` included, is `GeneratedRefused`
-(`type`); write the `Compute.cast`. A term with no value at a row, such as `C.at` at a key no row holds, refuses the
+(`type`); write the `Type.cast`. A term with no value at a row, such as `C.at` at a key no row holds, refuses the
 row, `refused` on `{ kind: "generated", relation, field }`, witnessed by the first row you stated whose term
 has no value. It is one outcome whoever finds the NULL: grizzle, filling a nested write or a family's values that read
 the field, before any SQL, or PostgreSQL's NOT NULL.
@@ -2046,8 +2135,8 @@ delivers or binds:
 - **`Allowed.has(kind, flag)`**: a predicate, true where a row holds the key and false where none does.
 
 Each is NULL where a key value is NULL. `has` states what holds at an absent key:
-`Compute.or(Compute.not(Allowed.has(kind, flag)), Compute.ge(Allowed.at("weight", kind, flag), 1))` holds of every
-pair `Allowed` lacks, and `Compute.cond(Allowed.has(kind, flag), Allowed.at("weight", kind, flag), 0)` is the weight,
+`Logic.or(Logic.not(Allowed.has(kind, flag)), Logic.ge(Allowed.at("weight", kind, flag), 1))` holds of every
+pair `Allowed` lacks, and `Logic.cond(Allowed.has(kind, flag), Allowed.at("weight", kind, flag), 0)` is the weight,
 0 where there is none. NULL follows SQL's three-valued logic: a row check, over a table or a derived relation, refuses a
 row its condition leaves unknown, and holds where another arm of an `or` holds; a selection keeps only the rows its
 condition is true of; and a generated field's NULL term is refused by its column's NOT NULL. Every domain admits NULL,
@@ -2080,9 +2169,9 @@ installs it in 35 ms.
 Rules are declared in a schema's list, beside its tables. A box office:
 
 ```ts
-import { check, Compute, contract, counted, drawn, fin, key, mutable, natural, span } from "@bjornpagen/grizzle"
+import { check, contract, counted, drawn, fin, key, Logic, mutable, natural, span } from "@bjornpagen/grizzle"
 
-const Cents = contract("Cents", pg.bigint, (c) => Compute.ge(c, 0n))
+const Cents = contract("Cents", pg.bigint, (c) => Logic.ge(c, 0n))
 /** A show's production code, and a ticket's barcode, as the box office prints them. */
 const ShowCode = str.regex("^[A-Z0-9]{2,12}$")
 const Barcode = str.regex("^[0-9]{12}$")
@@ -2319,8 +2408,8 @@ definition too.
   under SERIALIZABLE, so PostgreSQL commits at most one of them and fails the other with 40001.
 - **An order across relations is a row check over their join.** A sitting's visits lie after its start and, once it
   has one, before its end: `AfterStart` derives each visit beside its sitting's start, `check("VisitAfterStart",
-  AfterStart, (s) => s.ge(Compute.lower(s.during, Seconds), s.at))`, and `BeforeEnd` each visit beside its end, its
-  check `s.le(Compute.upper(s.during, Seconds), s.at)`. A sitting with no end has no fact of `BeforeEnd`, so its end
+  AfterStart, (s) => s.ge(Range.lower(s.during, Seconds), s.at))`, and `BeforeEnd` each visit beside its end, its
+  check `s.le(Range.upper(s.during, Seconds), s.at)`. A sitting with no end has no fact of `BeforeEnd`, so its end
   bound asks nothing of it: an open interval is the absence of its end, never a span unbounded above, and every span
   stays bounded and non-empty. The judge holds each bound at COMMIT, whether the transaction writes a visit, a start or
   an end, and the host judges a row of either as PostgreSQL does (`rowEvaluator`).
@@ -2737,7 +2826,7 @@ Roles:
 
 - **A query entry is a security-barrier view**: its filter runs before anything that could fail on a row outside it.
   It has one flat set of columns. Aggregates, negation, span comparisons, `take`, recursion, contexts and every
-  Compute operation are allowed, since no expression fails on a value ([Queries](#queries)), on the rows outside the
+  scalar operation are allowed, since no expression fails on a value ([Queries](#queries)), on the rows outside the
   role a view evaluates it on included. Its keys are the ones its query provably has.
 - **A role declares no rules**: the schema's rules hold, whoever writes.
 - **A role that writes a family's member** reads what grizzle reads of the owner to fill the family and, when the owner
@@ -2896,10 +2985,10 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 | order and limit | `.orderBy(["title", "asc"])`, then `.take(10)`, `.take("batch")` for an integer parameter, or a `paged(query)` member's windows |
 | recurse | `query(S).recursive(...)` |
 | compare spans | `r.allen` with `ALLEN` masks, `r.pointIn`, `r.intersection`, `r.difference`, `r.pack` |
-| compute | `Compute.add`, `Compute.mul`, `Compute.round`, `Compute.cond`, `Compute.when` and the rest of `Compute` |
-| match text | `Compute.matches(x, pattern)`, `Compute.startsWith`, `Compute.endsWith`, `Compute.isXsdPattern`; `Compute.concat` in checks |
+| compute | `Num.add`, `Num.mul`, `Num.round`, `Logic.cond`, `Logic.when` and the rest of the [scalar terms](#scalar-terms) |
+| match text | `Text.matches(x, pattern)`, `Text.startsWith`, `Text.endsWith`, `Xml.isPattern`; `Text.concat` in checks |
 | search vectors | `.approximateNearest(...)`, with pgvector, from a parameter's vector or a stored row's ([Nearest rows](#nearest-rows)) |
-| search text | `Compute.textMatches`, `Compute.textRank`, `Compute.textRankCd` of a search document and a `Compute.websearchQuery` or `Compute.plainQuery` ([Full text search](#full-text-search)) |
+| search text | `Search.matches`, `Search.rank`, `Search.rankCd` of a search document and a `Search.websearch` or `Search.plain` ([Full text search](#full-text-search)) |
 
 ### Differences from SQL
 
@@ -2909,51 +2998,71 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 - **`.orderBy(...).take(k)` is a set again** to whatever composes with it: a match, a further rule, a derived relation or a role's query entry. `take(1)` returns at most one row. A query or nested `"array"` that ends in a take arrives in the take's order, ties broken by the query's key; a final `orderBy` after the take orders it anew.
 - **Variables belong to their columns.** Two variables made from one column of a table the rule matches once are refused, and the error shows the rewrite: make the variable where it is bound, or match the table again.
 - **A JavaScript value takes the type of what it meets:** its column, the term it is compared with, the field a write puts it in, or the type the query's other rules give its field. Meeting nothing, a string is text, a safe integer an integer, a bigint a bigint, a `Decimal` a numeric, a `Money` money and a boolean a boolean; any other value is refused. It never stands first in a comparison, and a list such as `r.in`'s holds only JavaScript values. Opposite a term, at a column, for a parameter or in a fact, it is a value of its type: in a pattern's language, a uuid's hyphenated spelling, a roster's names, so `"abc"` at a uuid column is a type error, and so is a plain `string` until `Uuid.parse` reads it and its contract brands it.
-- **A typed term states its type** and stands wherever such a term does. `Status.handle("Published")` is a member of the `Status` roster, and `Compute.literal(F, x)` is `x` at the type of any other descriptor `F`. A head keeps a handle's member, so `find({ status: Status.handle("Published") })` delivers `status: "Published"`; `Compute.literal` delivers F's type.
+- **A typed term states its type** and stands wherever such a term does. `Status.handle("Published")` is a member of the `Status` roster, and `Type.literal(F, x)` is `x` at the type of any other descriptor `F`. A head keeps a handle's member, so `find({ status: Status.handle("Published") })` delivers `status: "Published"`; `Type.literal` delivers F's type.
 - **Terms that meet have one type:** one SQL type, one contract and one roster. A text term never meets a uuid column, and two rosters of the same members never meet. Texts of any two patterns meet: a pattern is no part of a text's type. The rules of one query deliver each field they share at one type.
-- **A value is only its value**, the same under every plan. A `Decimal` has no display scale: `1`, `1.0` and `1.00` are one value, delivered as `1`, and a `pg.numeric(10, 2)` field holds at most two places, refusing a value of more rather than rounding it, and delivers `12.5`, not `12.50`. `new Intl.NumberFormat(undefined, { minimumFractionDigits: 2 }).format(d.toString())` prints it at the field's scale, exactly. A float keeps its zero's sign: `-0` is a value of its own, stored, computed and delivered as `-0`, equal to `0` under `=`, `DISTINCT` and a key's equality and apart from it as a fact's identity. Wherever an operation may take one float of several equal ones, a set's member, a group's key, a union's row, a recursion's state, a join variable's value, the merged zero is `+0`, so no plan picks one. A write stores the facts it states: a parameter relation's facts and a ChangeSet member's rows are sets of facts by their identity, `-0` and `0` two of them, so a `-0` a write states is stored as `-0` wherever it reads the relation, and two facts at one key that differ only in a zero's sign are refused as two facts. `min` and `max` of floats order `-0` below `0`, and a float sum or mean whose exact value is zero is `-0` exactly when every value it sums is; any other float that rounds to zero, a product, quotient, conversion or mean too small for its type, is the zero of its sign. A vector's components have one zero, `0`. A numeric quotient, power, square root or mean is PostgreSQL's for the values alone, as if no operand had trailing zeros: `Compute.div(x, 3n)` is the same number whatever scale `x` was stored at.
+- **A value is only its value**, the same under every plan. A `Decimal` has no display scale: `1`, `1.0` and `1.00` are one value, delivered as `1`, and a `pg.numeric(10, 2)` field holds at most two places, refusing a value of more rather than rounding it, and delivers `12.5`, not `12.50`. `new Intl.NumberFormat(undefined, { minimumFractionDigits: 2 }).format(d.toString())` prints it at the field's scale, exactly. A float keeps its zero's sign: `-0` is a value of its own, stored, computed and delivered as `-0`, equal to `0` under `=`, `DISTINCT` and a key's equality and apart from it as a fact's identity. Wherever an operation may take one float of several equal ones, a set's member, a group's key, a union's row, a recursion's state, a join variable's value, the merged zero is `+0`, so no plan picks one. A write stores the facts it states: a parameter relation's facts and a ChangeSet member's rows are sets of facts by their identity, `-0` and `0` two of them, so a `-0` a write states is stored as `-0` wherever it reads the relation, and two facts at one key that differ only in a zero's sign are refused as two facts. `min` and `max` of floats order `-0` below `0`, and a float sum or mean whose exact value is zero is `-0` exactly when every value it sums is; any other float that rounds to zero, a product, quotient, conversion or mean too small for its type, is the zero of its sign. A vector's components have one zero, `0`. A numeric quotient, power, square root or mean is PostgreSQL's for the values alone, as if no operand had trailing zeros: `Num.div(x, 3n)` is the same number whatever scale `x` was stored at.
 - **Float and money sums are exact.** A sum of `real` or `double precision` values is their exact total rounded once to the result type, and of `Money` values their exact total; a mean of floats is that total over the count, rounded once. The same rows give the same sum in any order, under any plan.
-- **Every answer is a function of the facts**, but for two exceptions, both pgvector's, and one caveat, full text search's: a search document, its matches and its ranks are PostgreSQL's parse of the facts' texts under the configuration's dictionaries and the database's builtin C.UTF-8 locale, a function of the facts on one server, which another PostgreSQL release's stemmers or stop word files may parse otherwise. `.approximateNearest` returns candidates from pgvector's index: which rows, and how many, depend on the index and the database owner's pgvector settings too. grizzle pins only `hnsw.iterative_scan = strict_order`, which keeps the candidates in exact distance order; `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier` are the owner's, and a scan that reaches their bounds returns fewer rows than asked. `Compute.cosineDistance` is pgvector's own float arithmetic: one server gives the same result for the same vectors on every evaluation, but pgvector builds or CPUs may differ in the last place.
-- **No read fails on a value.** Every Compute operation is defined on every value its operands' types admit, or its precondition is proved where it stands, so no query, role view or check raises an arithmetic error on any row.
+- **Every answer is a function of the facts**, but for two exceptions, both pgvector's, and one caveat, full text search's: a search document, its matches and its ranks are PostgreSQL's parse of the facts' texts under the configuration's dictionaries and the database's builtin C.UTF-8 locale, a function of the facts on one server, which another PostgreSQL release's stemmers or stop word files may parse otherwise. `.approximateNearest` returns candidates from pgvector's index: which rows, and how many, depend on the index and the database owner's pgvector settings too. grizzle pins only `hnsw.iterative_scan = strict_order`, which keeps the candidates in exact distance order; `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier` are the owner's, and a scan that reaches their bounds returns fewer rows than asked. `Distance.cosine` is pgvector's own float arithmetic: one server gives the same result for the same vectors on every evaluation, but pgvector builds or CPUs may differ in the last place.
+- **No read fails on a value.** Every scalar operation is defined on every value its operands' types admit, or its precondition is proved where it stands, so no query, role view or check raises an arithmetic error on any row.
+
+### Scalar terms
+
+PostgreSQL's scalar operators, functions and casts are typed builders of terms, in eleven namespaces, each member in the one whose domain it reads, so a name is short and the namespace carries the domain: `Xml.isPattern`, never `isXsdPattern`.
+
+| namespace | members |
+|---|---|
+| `Type` | `literal`, `base`, `cast` |
+| `Num` | `add`, `sub`, `mul`, `div`, `mod`, `neg`, `quot`, `rem`, `abs`, `sign`, `round`, `trunc`, `ceil`, `floor`, `gcd`, `lcm`, `power`, `sqrt`, `widthBucket`, `minScale`, `numeric`, `floatBits`, `nonzero`, `nonnegative`, `positive`, `isFinite`, `within` |
+| `Logic` | `cond`, `when`, `not`, `and`, `or`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `between`, `in`, `least`, `greatest` |
+| `Range` | `lower`, `upper`, `width` |
+| `Text` | `charLength`, `octetLength`, `utf16Length`, `concat`, `startsWith`, `endsWith`, `pattern`, `matches`, `translate`, `lowerAscii`, `replaceWhitespace`, `collapse`, `resolveReference`, `parseDouble`, `parseDecimal` |
+| `Xml` | `pattern`, `isPattern` |
+| `Crypto` | `sha256` |
+| `Distance` | `cosine` |
+| `Search` | `websearch`, `plain`, `matches`, `rank`, `rankCd` |
+| `Bits` | `union`, `intersection`, `difference`, `cardinality`, `subset`, `disjoint`, `singleton` |
+| `Fn` | `call`, `rows`, `row` |
+
+`Type` writes a typed constant, drops a contract to its base and casts; `Num` is the numeric family's arithmetic, rounding and functions, and its guards; `Logic` the comparisons, `least` and `greatest`, the connectives and the conditionals, over any type they compare; `Range` a span's endpoints and width, a span being PostgreSQL's range; `Text` text's lengths, concatenation, prefixes, patterns in grizzle's grammar and their matches, transforms, references and lexical parses; `Xml` XML Schema 1.0's pattern dialect; `Crypto` a SHA-256 digest; `Distance` the cosine distance of two vectors; `Search` a full text search's queries, matches and ranks ([Full text search](#full-text-search)); `Bits` the set algebra over one roster's sets, beside `Bits.of`, a set value; and `Fn` a declared function called for its value, its rows or its one row ([Calling a function](#calling-a-function)). No namespace is named `Number`, `Set` or `Digest`: the first two would shadow JavaScript's globals, the type `Set<T>` included, in every module that imports them, and `Digest.sha256` is `effect/crypto`'s own spelling.
 
 ### Arithmetic
 
 - **Exact.** Integer arithmetic delivers `bigint`, an *exact integer*, and money arithmetic exact `Money`; neither overflows.
 - **Floats are IEEE 754:** `x / 0.0` is ±Infinity and `sqrt(-1.0)` is NaN.
-- **A partial operation needs its precondition proved:** division or remainder by a value that may be zero, a numeric square root of one that may be negative, a power, `widthBucket` and `minScale` of values that may be infinite, and a cast that narrows. The proof is a literal's own type, as in `Compute.div(x, 7n)`; a contract that declares it, `contract("Divisor", pg.bigint, (v) => Compute.ne(v, 0n), { proves: ["nonzero"] })`; or a guard, `Compute.when(Compute.nonzero(b), (b) => Compute.div(a, b), 0n)`, whose function receives `b` proved nonzero and whose last argument is the value where the guard does not hold. Only the function's parameter is proved, as TypeScript narrows a callback's parameter and never a term the callback captures: `(_) => Compute.div(a, b)` reads `b` with its own facts, and is refused. An unproved divisor is a type error that names the guard to write.
-- **Guards** are `Compute.nonzero`, `Compute.nonnegative`, `Compute.positive`, `Compute.isFinite` and `Compute.within(x, low, high)`, each a predicate too. A guard's subject is any term, a parameter included: over `d = r.param("d", pg.bigint)`, `Compute.when(Compute.nonzero(d), (d) => Compute.div(x, d), 0n)` delivers `0n` where `d` is bound to zero, under every plan.
-- **A contract's facts are exactly the ones its `proves` declares.** Compilation proves each from the predicate and refuses one the predicate does not imply. A fact the predicate implies but `proves` leaves out is no fact of its values: `Compute.minScale(rate)` over `contract("Rate", pg.numeric(7, 6), (x) => Compute.between(x, 0n, 1n))` is refused, naming `{ proves: ["finite"] }` to add. A parameter of a contract has its declared facts, its binding checking every value, so `Compute.div(x, Compute.base(r.param("d", Divisor)))` needs no guard.
-- **Magnitudes are proved by `Compute.within`.** A narrowing's range or a power's is proved from `Compute.within`'s bounds, or refused as `PartialOperation`: narrow an exact integer into an integer field with `Compute.when(Compute.within(x, 0n, 1000000n), (x) => Compute.cast(x, pg.integer), 0)`.
-- **Exact and plain values share no type.** An exact value binds at a plain integer or money column, but a ChangeSet member stores one into a field only through that cast: a head that writes `Compute.add(balance, amount)` into a `pg.bigint` field is a type error. Where PostgreSQL would widen the plain value implicitly, `Compute.cond`, `Compute.when`, `Compute.least` and `Compute.greatest` refuse an exact value beside a plain one of its family, in either order, naming the cast of the exact one into the plain one's type. A bare literal takes its term's type, an exact one's included, and is refused where it has more digits than that type holds.
-- **A member writes each field at the field's own type,** as a generated field's term and an accumulator's step do: only a text's pattern and byte bound are left to the field's domain, which refuses a value outside them. A computed numeric, the value of `r.sum`, `r.mean` or a numeric operation, enters a `pg.numeric(p, s)` field only through `Compute.cast` under a guard that proves it fits, and a numeric of another precision or scale, or a span of another width, only through `Compute.cast`, since a typmod rounds and a sum can pass the field's precision. Compilation refuses any other head as `DescribedHeadingMismatch`.
+- **A partial operation needs its precondition proved:** division or remainder by a value that may be zero, a numeric square root of one that may be negative, a power, `widthBucket` and `minScale` of values that may be infinite, and a cast that narrows. The proof is a literal's own type, as in `Num.div(x, 7n)`; a contract that declares it, `contract("Divisor", pg.bigint, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`; or a guard, `Logic.when(Num.nonzero(b), (b) => Num.div(a, b), 0n)`, whose function receives `b` proved nonzero and whose last argument is the value where the guard does not hold. Only the function's parameter is proved, as TypeScript narrows a callback's parameter and never a term the callback captures: `(_) => Num.div(a, b)` reads `b` with its own facts, and is refused. An unproved divisor is a type error that names the guard to write.
+- **Guards** are `Num.nonzero`, `Num.nonnegative`, `Num.positive`, `Num.isFinite` and `Num.within(x, low, high)`, each a predicate too. A guard's subject is any term, a parameter included: over `d = r.param("d", pg.bigint)`, `Logic.when(Num.nonzero(d), (d) => Num.div(x, d), 0n)` delivers `0n` where `d` is bound to zero, under every plan.
+- **A contract's facts are exactly the ones its `proves` declares.** Compilation proves each from the predicate and refuses one the predicate does not imply. A fact the predicate implies but `proves` leaves out is no fact of its values: `Num.minScale(rate)` over `contract("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))` is refused, naming `{ proves: ["finite"] }` to add. A parameter of a contract has its declared facts, its binding checking every value, so `Num.div(x, Type.base(r.param("d", Divisor)))` needs no guard.
+- **Magnitudes are proved by `Num.within`.** A narrowing's range or a power's is proved from `Num.within`'s bounds, or refused as `PartialOperation`: narrow an exact integer into an integer field with `Logic.when(Num.within(x, 0n, 1000000n), (x) => Type.cast(x, pg.integer), 0)`.
+- **Exact and plain values share no type.** An exact value binds at a plain integer or money column, but a ChangeSet member stores one into a field only through that cast: a head that writes `Num.add(balance, amount)` into a `pg.bigint` field is a type error. Where PostgreSQL would widen the plain value implicitly, `Logic.cond`, `Logic.when`, `Logic.least` and `Logic.greatest` refuse an exact value beside a plain one of its family, in either order, naming the cast of the exact one into the plain one's type. A bare literal takes its term's type, an exact one's included, and is refused where it has more digits than that type holds.
+- **A member writes each field at the field's own type,** as a generated field's term and an accumulator's step do: only a text's pattern and byte bound are left to the field's domain, which refuses a value outside them. A computed numeric, the value of `r.sum`, `r.mean` or a numeric operation, enters a `pg.numeric(p, s)` field only through `Type.cast` under a guard that proves it fits, and a numeric of another precision or scale, or a span of another width, only through `Type.cast`, since a typmod rounds and a sum can pass the field's precision. Compilation refuses any other head as `DescribedHeadingMismatch`.
 
 ### Text
 
-- **`Compute.matches(x, pattern)`** is PostgreSQL's `~`: whether `x` holds a match of a pattern in `str.regex`'s grammar under the flags `"u"`, anchored by `^` and `$`. The pattern is a `Compute.pattern(source)`, whose source is type-checked as `str.regex` checks its own and admitted once, where it is written, inside PostgreSQL's regex compile space as a `str.regex` pattern is ([Limits](#limits)); make it once, as a module constant, and match on it anywhere. A pattern is its language: every law, check and derived relation over it is identified by the language its source spells and never by the spelling, so a source rewritten to spell the same language identifies nothing anew, and one of another language does. `doubleText`, `decimalText` and `lexicalForm(T)` are grizzle's own patterns, and `.source` is a pattern's text. Or the pattern is a text term whose every value the schema holds: a closed relation's `str.pattern` field, as in `Compute.matches(lexical, ValueDomain.at("pattern", domain))`, or a `Compute.cond` of such terms. A `str.pattern` field holds patterns: each value is admitted once, where the schema compiles, and the relation's constants carry each one's translation into PostgreSQL's ARE beside it, so the match reads the translation by the field's key and translates nothing as it runs. Only a closed relation's own field is a `str.pattern`, and a match reads no other text payload as a pattern. A string is no pattern, and a field, a parameter or a computed text can be any pattern, and is refused as one. A match is also a guard: with `const digits = Compute.pattern("^[0-9]+$")`, `Compute.when(Compute.matches(code, digits), (code) => …, otherwise)` hands its branch the subject as text of its own patterns and the match's together, as `str.and` joins them, so nested matches prove a cast into a conjunction; over a pattern term it is a conditional. In a query, PostgreSQL's regex engine reads at most 268,435,454 bytes of `x` and a read never fails, so `x`'s bytes are proved within them by its type or by a byte guard whose branch the match stands in, `Compute.when(Compute.within(Compute.octetLength(x), 0, 4096), () => Compute.matches(x, digits), false)`: the when is a CASE, so the match is read only where the guard holds, and its answer past the bound is the program's own, here `false`.
-- **`Compute.startsWith(a, b)` and `Compute.endsWith(a, b)`** test a prefix and a suffix, by characters.
-- **`Compute.xsdPattern(source)`** is a `Compute.pattern` written in XML Schema 1.0's dialect, a pattern facet (Part 2, Appendix F), anchored at both ends as XML Schema reads every facet, its escapes XML Schema's own: `\s` the four XML spaces, `\i` and `\c` XML 1.0 Second Edition's name characters, `\p{IsBasicLatin}` a block of XML Schema's table. A repetition count may be any whole number, as Appendix F sets none: PostgreSQL's RE_DUP_MAX of 255 binds only the ARE grizzle prints, which spells `x{300}` as `x{255}x{45}`, and the host counts a repetition, never copying its body, so a count costs it no state. A facet past PostgreSQL's regex compile space is refused where it is written, as `Compute.pattern` refuses one, before it is printed.
-- **`Compute.isXsdPattern(x)`** is whether `x` is an XML Schema 1.0 pattern, a string of Appendix F's `regExp` production, the language of QTI 3.0.1's `pattern-mask`, as `Compute.xsdPattern` reads one: groups and class subtractions nested to any depth and counts of any size, refused at `(?`, a back-reference, an unclosed `[` or `(`, a `{` that opens no count, a count whose greatest is below its least, a range whose end is below its start, and a category or block escape the tables do not name. PostgreSQL judges it by the installation's own IMMUTABLE function, the reader's moves as a table that a recursive query reads once over the text's characters, with no state budget and no bound on a count, so it is defined on every text and stands in checks, contract predicates, generated fields and queries alike: `contract("PatternMask", Prose, (v) => Compute.isXsdPattern(v))` is a text type of patterns.
-- **A byte bound is a guard.** `Compute.when(Compute.within(Compute.octetLength(x), 0, 64), () => Compute.cast(x, Name), "")`, with `Name` a `str.bytes(64, pattern)` whose pattern holds x's, reads `x` inside the branch as at most 64 UTF-8 bytes of its own pattern, so a text of no byte bound casts into `Name`. `octetLength` is total, so the guard stands everywhere, a query included, and it proves the bytes every operation that reads them needs: a query's `Compute.matches` and `Compute.translate`, and `Compute.utf16Length`.
-- **`Compute.utf16Length(x)`** is `x`'s UTF-16 code units, JavaScript's `x.length`: its code points, and its supplementary ones once more, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`. A length an Effect Schema's `isMaxLength` states of a string is this one, where `Compute.charLength` counts code points. Like `charLength`, it stands in checks, contract predicates and generated fields, never in a query. `regexp_count` widens its text to four bytes for every byte, so `x` is bounded within 268,435,454 bytes by its type or by a byte guard, or the operation is refused when it compiles as `PartialOperation` (`bounded`), and no law that reads it fails on a long text. A UTF-16 unit is at most three UTF-8 bytes, so a bound reads no regex past them: `contract("Name", Prose, (v) => Compute.when(Compute.within(Compute.octetLength(v), 0, 765), () => Compute.utf16Length(v), 256).le(255))` holds a text of at most 255 units, as `Schema.String.check(Schema.isMaxLength(255))` does, since a text of more than 765 bytes has more than 255.
-- **`Compute.concat(a, b)`** is `a || b`, text of no pattern, of at most the bytes of the two together where each is bounded: a term by its type's byte bound, a string by its own bytes. It stands in checks, contract predicates, generated fields and folds, and in a query only as a side of `Compute.eq` or `Compute.ne`, which is decided without building it: by the lengths, a prefix and a suffix, and NULL exactly where `a || b` would be. A concatenation nested in that side is read through as its parts, in order, so `Compute.eq(t, Compute.concat(Compute.concat(Compute.concat(lead, target), params), trail))` is decided by the four lengths, `lead` as t's prefix, `target` and `params` each at its offset, the lengths before it, and `trail` as its suffix, with no text built, in a query as in a check. Its first operand is a term, as every operation's is, so a leading literal is a typed constant: `Compute.concat(Compute.literal(Prose, "item-"), id)`.
-- **`Compute.translate(x, from, to)`** is PostgreSQL's `translate`, by characters: each character of `x` that `from` holds becomes the character of `to` at its position, so `Compute.translate(title, "\t\n\r", "   ")` reads a title in `xs:normalizedString`'s value space. `from` and `to` are strings of one length, `from` holding each character once, or the call is refused where it is written.
-- **`Compute.lowerAscii(x)`** is `translate` from `A` to `Z` onto `a` to `z`. It lowers no other letter, so it is one IMMUTABLE map whatever the collation. PostgreSQL computes it as `lower(x COLLATE "C") COLLATE pg_c_utf8` wherever it stands, a query, a check and a generated field alike: lower folds byte by byte under the C collation and allocates `x`'s own length, so it folds any text, and its result is collated as every stored text is, so an equation of it with a key is served by the key's index.
-- **`Compute.replaceWhitespace(x)`** is XML Schema's whiteSpace replace, `Compute.translate(x, "\t\n\r", "   ")`.
-- **`Compute.collapse(x)`** is its whiteSpace collapse, each run of tab, LF, CR and space one space and none at either end, by PostgreSQL's `replace` and `btrim` alone, which never lengthen the text: IMMUTABLE and defined on every text, so it stands in a generated field and in a query over any text. A collapse keeps its operand's byte bound, so a query's `Compute.matches` over a collapse still needs the operand bounded, as below. No other character is white space to it, a no-break space and a line separator among them.
-- **`Compute.sha256(x)`** is the SHA-256 digest of a `bytes` value as 64 lowercase hex digits, `encode(sha256(x), 'hex')`, the one operation that reads a bytes value, which it reads whole; over a text it is the digest of the text's UTF-8, `encode(<textDigest>(x), 'hex')`, the installation's own IMMUTABLE function of `sha256(convert_to(x, 'UTF8'))`, which a grizzle database, always UTF8, converts nothing for. It is IMMUTABLE and defined on every value, so it stands in checks, selections, generated fields and queries. `generated(str.regex("^[0-9a-f]{64}$"), Compute.sha256(row.content))` is a field PostgreSQL computes from the bytes it stores: no writer sends it, since an insert holds only the written fields, and no row holds a digest of other bytes.
-- **`Compute.floatBits(x)`** is a float's identity image: `float8send`'s 8 bytes, the bits of its IEEE 754 binary64 encoding, read as a signed `bigint`, a `real` widened exactly to `double precision` first, every NaN in one form (0x7ff8000000000000), as Java's `doubleToLongBits` reads them. `floatBits(value)`, exported beside `Compute`, is the same function for an application's own code. Two floats have one image exactly when they are one value: `-0` and `0` differ, where `Compute.eq` holds them equal. It is IMMUTABLE and defined on every float. A primary key holds only fields a caller writes, so a key over floats by identity states the image as a field and holds it to the value by a law: `relation("Bag", { variable, bits: pg.bigint, value: pg["double precision"], count }, ["variable", "bits"])` with `check("BagImage", Bag, (b) => b.eq(b.bits, Compute.floatBits(b.value)))`, each row written with `bits: floatBits(value)`. A bag holding both zeros holds two rows, the check refuses a `bits` that is not its value's image, and a read by `=` on `value` still finds either zero. A generated image, `generated(pg.bigint, Compute.floatBits(r.value))`, stands in a candidate key and a reference.
-- **A query matches or translates only a bounded text**, one whose type bounds it within 268,435,454 bytes, since PostgreSQL allocates four bytes for every byte of it; `Compute.lowerAscii` folds any text there. A check, a law's selection or a generated field reads any text ([Limits](#limits)).
+- **`Text.matches(x, pattern)`** is PostgreSQL's `~`: whether `x` holds a match of a pattern in `str.regex`'s grammar under the flags `"u"`, anchored by `^` and `$`. The pattern is a `Text.pattern(source)`, whose source is type-checked as `str.regex` checks its own and admitted once, where it is written, inside PostgreSQL's regex compile space as a `str.regex` pattern is ([Limits](#limits)); make it once, as a module constant, and match on it anywhere. A pattern is its language: every law, check and derived relation over it is identified by the language its source spells and never by the spelling, so a source rewritten to spell the same language identifies nothing anew, and one of another language does. `doubleText`, `decimalText` and `lexicalForm(T)` are grizzle's own patterns, and `.source` is a pattern's text. Or the pattern is a text term whose every value the schema holds: a closed relation's `str.pattern` field, as in `Text.matches(lexical, ValueDomain.at("pattern", domain))`, or a `Logic.cond` of such terms. A `str.pattern` field holds patterns: each value is admitted once, where the schema compiles, and the relation's constants carry each one's translation into PostgreSQL's ARE beside it, so the match reads the translation by the field's key and translates nothing as it runs. Only a closed relation's own field is a `str.pattern`, and a match reads no other text payload as a pattern. A string is no pattern, and a field, a parameter or a computed text can be any pattern, and is refused as one. A match is also a guard: with `const digits = Text.pattern("^[0-9]+$")`, `Logic.when(Text.matches(code, digits), (code) => …, otherwise)` hands its branch the subject as text of its own patterns and the match's together, as `str.and` joins them, so nested matches prove a cast into a conjunction; over a pattern term it is a conditional. In a query, PostgreSQL's regex engine reads at most 268,435,454 bytes of `x` and a read never fails, so `x`'s bytes are proved within them by its type or by a byte guard whose branch the match stands in, `Logic.when(Num.within(Text.octetLength(x), 0, 4096), () => Text.matches(x, digits), false)`: the when is a CASE, so the match is read only where the guard holds, and its answer past the bound is the program's own, here `false`.
+- **`Text.startsWith(a, b)` and `Text.endsWith(a, b)`** test a prefix and a suffix, by characters.
+- **`Xml.pattern(source)`** is a `Text.pattern` written in XML Schema 1.0's dialect, a pattern facet (Part 2, Appendix F), anchored at both ends as XML Schema reads every facet, its escapes XML Schema's own: `\s` the four XML spaces, `\i` and `\c` XML 1.0 Second Edition's name characters, `\p{IsBasicLatin}` a block of XML Schema's table. A repetition count may be any whole number, as Appendix F sets none: PostgreSQL's RE_DUP_MAX of 255 binds only the ARE grizzle prints, which spells `x{300}` as `x{255}x{45}`, and the host counts a repetition, never copying its body, so a count costs it no state. A facet past PostgreSQL's regex compile space is refused where it is written, as `Text.pattern` refuses one, before it is printed.
+- **`Xml.isPattern(x)`** is whether `x` is an XML Schema 1.0 pattern, a string of Appendix F's `regExp` production, the language of QTI 3.0.1's `pattern-mask`, as `Xml.pattern` reads one: groups and class subtractions nested to any depth and counts of any size, refused at `(?`, a back-reference, an unclosed `[` or `(`, a `{` that opens no count, a count whose greatest is below its least, a range whose end is below its start, and a category or block escape the tables do not name. PostgreSQL judges it by the installation's own IMMUTABLE function, the reader's moves as a table that a recursive query reads once over the text's characters, with no state budget and no bound on a count, so it is defined on every text and stands in checks, contract predicates, generated fields and queries alike: `contract("PatternMask", Prose, (v) => Xml.isPattern(v))` is a text type of patterns.
+- **A byte bound is a guard.** `Logic.when(Num.within(Text.octetLength(x), 0, 64), () => Type.cast(x, Name), "")`, with `Name` a `str.bytes(64, pattern)` whose pattern holds x's, reads `x` inside the branch as at most 64 UTF-8 bytes of its own pattern, so a text of no byte bound casts into `Name`. `octetLength` is total, so the guard stands everywhere, a query included, and it proves the bytes every operation that reads them needs: a query's `Text.matches` and `Text.translate`, and `Text.utf16Length`.
+- **`Text.utf16Length(x)`** is `x`'s UTF-16 code units, JavaScript's `x.length`: its code points, and its supplementary ones once more, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`. A length an Effect Schema's `isMaxLength` states of a string is this one, where `Text.charLength` counts code points. Like `charLength`, it stands in checks, contract predicates and generated fields, never in a query. `regexp_count` widens its text to four bytes for every byte, so `x` is bounded within 268,435,454 bytes by its type or by a byte guard, or the operation is refused when it compiles as `PartialOperation` (`bounded`), and no law that reads it fails on a long text. A UTF-16 unit is at most three UTF-8 bytes, so a bound reads no regex past them: `contract("Name", Prose, (v) => Logic.when(Num.within(Text.octetLength(v), 0, 765), () => Text.utf16Length(v), 256).le(255))` holds a text of at most 255 units, as `Schema.String.check(Schema.isMaxLength(255))` does, since a text of more than 765 bytes has more than 255.
+- **`Text.concat(a, b)`** is `a || b`, text of no pattern, of at most the bytes of the two together where each is bounded: a term by its type's byte bound, a string by its own bytes. It stands in checks, contract predicates, generated fields and folds, and in a query only as a side of `Logic.eq` or `Logic.ne`, which is decided without building it: by the lengths, a prefix and a suffix, and NULL exactly where `a || b` would be. A concatenation nested in that side is read through as its parts, in order, so `Logic.eq(t, Text.concat(Text.concat(Text.concat(lead, target), params), trail))` is decided by the four lengths, `lead` as t's prefix, `target` and `params` each at its offset, the lengths before it, and `trail` as its suffix, with no text built, in a query as in a check. Its first operand is a term, as every operation's is, so a leading literal is a typed constant: `Text.concat(Type.literal(Prose, "item-"), id)`.
+- **`Text.translate(x, from, to)`** is PostgreSQL's `translate`, by characters: each character of `x` that `from` holds becomes the character of `to` at its position, so `Text.translate(title, "\t\n\r", "   ")` reads a title in `xs:normalizedString`'s value space. `from` and `to` are strings of one length, `from` holding each character once, or the call is refused where it is written.
+- **`Text.lowerAscii(x)`** is `translate` from `A` to `Z` onto `a` to `z`. It lowers no other letter, so it is one IMMUTABLE map whatever the collation. PostgreSQL computes it as `lower(x COLLATE "C") COLLATE pg_c_utf8` wherever it stands, a query, a check and a generated field alike: lower folds byte by byte under the C collation and allocates `x`'s own length, so it folds any text, and its result is collated as every stored text is, so an equation of it with a key is served by the key's index.
+- **`Text.replaceWhitespace(x)`** is XML Schema's whiteSpace replace, `Text.translate(x, "\t\n\r", "   ")`.
+- **`Text.collapse(x)`** is its whiteSpace collapse, each run of tab, LF, CR and space one space and none at either end, by PostgreSQL's `replace` and `btrim` alone, which never lengthen the text: IMMUTABLE and defined on every text, so it stands in a generated field and in a query over any text. A collapse keeps its operand's byte bound, so a query's `Text.matches` over a collapse still needs the operand bounded, as below. No other character is white space to it, a no-break space and a line separator among them.
+- **`Crypto.sha256(x)`** is the SHA-256 digest of a `bytes` value as 64 lowercase hex digits, `encode(sha256(x), 'hex')`, the one operation that reads a bytes value, which it reads whole; over a text it is the digest of the text's UTF-8, `encode(<textDigest>(x), 'hex')`, the installation's own IMMUTABLE function of `sha256(convert_to(x, 'UTF8'))`, which a grizzle database, always UTF8, converts nothing for. It is IMMUTABLE and defined on every value, so it stands in checks, selections, generated fields and queries. `generated(str.regex("^[0-9a-f]{64}$"), Crypto.sha256(row.content))` is a field PostgreSQL computes from the bytes it stores: no writer sends it, since an insert holds only the written fields, and no row holds a digest of other bytes.
+- **`Num.floatBits(x)`** is a float's identity image: `float8send`'s 8 bytes, the bits of its IEEE 754 binary64 encoding, read as a signed `bigint`, a `real` widened exactly to `double precision` first, every NaN in one form (0x7ff8000000000000), as Java's `doubleToLongBits` reads them. `floatBits(value)`, exported beside `Num`, is the same function for an application's own code. Two floats have one image exactly when they are one value: `-0` and `0` differ, where `Logic.eq` holds them equal. It is IMMUTABLE and defined on every float. A primary key holds only fields a caller writes, so a key over floats by identity states the image as a field and holds it to the value by a law: `relation("Bag", { variable, bits: pg.bigint, value: pg["double precision"], count }, ["variable", "bits"])` with `check("BagImage", Bag, (b) => b.eq(b.bits, Num.floatBits(b.value)))`, each row written with `bits: floatBits(value)`. A bag holding both zeros holds two rows, the check refuses a `bits` that is not its value's image, and a read by `=` on `value` still finds either zero. A generated image, `generated(pg.bigint, Num.floatBits(r.value))`, stands in a candidate key and a reference.
+- **A query matches or translates only a bounded text**, one whose type bounds it within 268,435,454 bytes, since PostgreSQL allocates four bytes for every byte of it; `Text.lowerAscii` folds any text there. A check, a law's selection or a generated field reads any text ([Limits](#limits)).
 - **`r.tokens(x)`** is a source a rule matches: the tokens of a whitespace-separated list, XML Schema's list lexical space, `x` collapsed and split at its spaces, `r.match(r.tokens(lexical), { at, token })`. Each `token` is a run of no tab, LF, CR or space, text within `x`'s byte bound, so a token of a bounded text is bounded, and `at` is its place among them from 0, a natural; a text of whitespace alone has none. `x` is a variable, a parameter or a typed constant, as a call's argument is. PostgreSQL computes the tokens where the match stands, `unnest(string_to_array(<x collapsed>, ' ')) WITH ORDINALITY`, once for each binding of the matches before it, so a list an import would store token by token, with a family and a fold to prove its split, is a derived relation instead: `derived("Idref", query(S).rule((r) => r.match(Attribute, { …, lexical }).match(r.tokens(lexical), { at, token }).find({ …, at, token })))`, its split true by definition. A rule over such a relation is judged whole where it is unit-local ([Rules over queries](#rules-over-queries)), reading the tokens of the units a transaction wrote alone; no probe reads a token back to the row that holds it, so one that is not unit-local is refused as `UnsupportedLawFamily`.
 
-A translation is text of the image of `x`'s language, every class and character of its pattern rewritten by the map, so a bounded pattern stays bounded and a literal opposite it is judged by the image. Where `x`'s type bounds its bytes, a `str.bytes` among them, so does the translation's: by the most bytes the image of a text of `x`'s byte and character bounds over its pattern's characters can take, which is `x`'s own bound where the map takes no character to one of more bytes, as `lowerAscii` and `replaceWhitespace` never do, and more where it does: `Compute.translate(x, "a", "€")` over any text of at most 6 bytes is at most 18, six `a`s of three bytes each. A query's head delivers it through one cast into a text type some field declares, or into `Prose`; a law that reads it, a containment of a stored text into a derived relation that computes one among them, compares it as text and needs no cast, and a cast into a text type no field declares stands in a generated field or a check, which prints it as text, since its proof, not PostgreSQL, holds the value to the type. A cast of a text into a refined text is total where the text's language lies inside the target's, proved by comparing their automata as for a parse, and, into a `str.bytes`, where the longest text of its language within its own byte bound fits the target's, which its automaton finds: a collapse of a text of at most one byte of spaces and `😀` is the empty text alone, so it casts into text of no byte. So a translation is stored in a field of a type the image lies in: `generated(Normalized, Compute.cast(Compute.translate(row.title, "\t\n\r", "   "), Normalized))`, `Normalized` being `str.regex("^[^\\t\\n\\r]*$", "su")`.
+A translation is text of the image of `x`'s language, every class and character of its pattern rewritten by the map, so a bounded pattern stays bounded and a literal opposite it is judged by the image. Where `x`'s type bounds its bytes, a `str.bytes` among them, so does the translation's: by the most bytes the image of a text of `x`'s byte and character bounds over its pattern's characters can take, which is `x`'s own bound where the map takes no character to one of more bytes, as `lowerAscii` and `replaceWhitespace` never do, and more where it does: `Text.translate(x, "a", "€")` over any text of at most 6 bytes is at most 18, six `a`s of three bytes each. A query's head delivers it through one cast into a text type some field declares, or into `Prose`; a law that reads it, a containment of a stored text into a derived relation that computes one among them, compares it as text and needs no cast, and a cast into a text type no field declares stands in a generated field or a check, which prints it as text, since its proof, not PostgreSQL, holds the value to the type. A cast of a text into a refined text is total where the text's language lies inside the target's, proved by comparing their automata as for a parse, and, into a `str.bytes`, where the longest text of its language within its own byte bound fits the target's, which its automaton finds: a collapse of a text of at most one byte of spaces and `😀` is the empty text alone, so it casts into text of no byte. So a translation is stored in a field of a type the image lies in: `generated(Normalized, Type.cast(Text.translate(row.title, "\t\n\r", "   "), Normalized))`, `Normalized` being `str.regex("^[^\\t\\n\\r]*$", "su")`.
 
-A collapse is text within `x`'s length and byte bounds, since it never lengthens a text, of runs of `x`'s other characters a space apart. That is exactly the image of `x`'s language for a pattern with no white space, which collapse leaves as it is, and for a class repeated freely, `^[...]*$` (the wildcard among them), whose image is every collapsed text over its other characters: `^(?:[^ \t\n\r]+(?: [^ \t\n\r]+)*)?$` for `Prose`. For any other pattern it is more than the image: for one of at most n characters, n up to 257, every text of at most n characters that begins and ends with a character other than white space, two spaces together included, `^(?:[^ \t\n\r](?:[^\t\n\r]{0,n-2}[^ \t\n\r])?)?$` for `^.{0,n}$`; for any other, the collapsed texts over its characters, unbounded. Store a collapse as a translation is stored: `generated(T, Compute.cast(Compute.collapse(row.title), T))` for a `T` the result lies in. The bound and the language compose through a chain, so a key text normalized from a key text casts back into its type: `generated(Key, Compute.cast(Compute.lowerAscii(Compute.collapse(row.lang)), Key))`, `Key` being `str.bytes(2587, str.regex("^.*$", "su"))` and `lang` a `Key`.
+A collapse is text within `x`'s length and byte bounds, since it never lengthens a text, of runs of `x`'s other characters a space apart. That is exactly the image of `x`'s language for a pattern with no white space, which collapse leaves as it is, and for a class repeated freely, `^[...]*$` (the wildcard among them), whose image is every collapsed text over its other characters: `^(?:[^ \t\n\r]+(?: [^ \t\n\r]+)*)?$` for `Prose`. For any other pattern it is more than the image: for one of at most n characters, n up to 257, every text of at most n characters that begins and ends with a character other than white space, two spaces together included, `^(?:[^ \t\n\r](?:[^\t\n\r]{0,n-2}[^ \t\n\r])?)?$` for `^.{0,n}$`; for any other, the collapsed texts over its characters, unbounded. Store a collapse as a translation is stored: `generated(T, Type.cast(Text.collapse(row.title), T))` for a `T` the result lies in. The bound and the language compose through a chain, so a key text normalized from a key text casts back into its type: `generated(Key, Type.cast(Text.lowerAscii(Text.collapse(row.lang)), Key))`, `Key` being `str.bytes(2587, str.regex("^.*$", "su"))` and `lang` a `Key`.
 
-A digest is text of the language `^[0-9a-f]{64}$`, and compilation reads that language as it reads a translation's image: a literal opposite a digest is judged by it, so comparing one with `"ABC"` is `ContractLiteral`, and a cast into a text type whose language holds every digest is proved with no guard, `Compute.cast(Compute.sha256(row.content), T)` for a `T` of `str.regex("^[0-9a-f]{64}$")` or `str.regex("^[0-9a-z]*$")`, while a cast into one that lacks a digest, `str.regex("^[0-9A-F]{64}$")`, is `PartialOperation` when the schema compiles. A query's head delivers a digest as it delivers a translation, through one cast into a text type some field declares. Stored uncast, a digest fills a text field as any generated text does, its domain the judge, so a field whose language lacks a digest refuses that row.
+A digest is text of the language `^[0-9a-f]{64}$`, and compilation reads that language as it reads a translation's image: a literal opposite a digest is judged by it, so comparing one with `"ABC"` is `ContractLiteral`, and a cast into a text type whose language holds every digest is proved with no guard, `Type.cast(Crypto.sha256(row.content), T)` for a `T` of `str.regex("^[0-9a-f]{64}$")` or `str.regex("^[0-9a-z]*$")`, while a cast into one that lacks a digest, `str.regex("^[0-9A-F]{64}$")`, is `PartialOperation` when the schema compiles. A query's head delivers a digest as it delivers a translation, through one cast into a text type some field declares. Stored uncast, a digest fills a text field as any generated text does, its domain the judge, so a field whose language lacks a digest refuses that row.
 
 ### Parsing text
 
-`Compute.cast(lexical, T)` is PostgreSQL's own cast from text into an integer type, `pg.numeric(p, s)`, `pg["double precision"]`, `pg.boolean` or `date`, read as XML Schema reads `xs:integer`, `xs:decimal`, `xs:double`, `xs:boolean` and `xs:date`. Each type has one lexical form, `lexicalForm(T)`: XML Schema's lexical space cut to the values `T` holds exactly, so the cast never raises and never rounds.
+`Type.cast(lexical, T)` is PostgreSQL's own cast from text into an integer type, `pg.numeric(p, s)`, `pg["double precision"]`, `pg.boolean` or `date`, read as XML Schema reads `xs:integer`, `xs:decimal`, `xs:double`, `xs:boolean` and `xs:date`. Each type has one lexical form, `lexicalForm(T)`: XML Schema's lexical space cut to the values `T` holds exactly, so the cast never raises and never rounds.
 
 | `T` | `lexicalForm(T)` |
 | --- | --- |
@@ -2963,15 +3072,15 @@ A digest is text of the language `^[0-9a-f]{64}$`, and compilation reads that la
 | `pg.boolean` | `true`, `false`, `1` or `0` |
 | `date` | `YYYY-MM-DD` from 0001 to 9999, leap days by the Gregorian rule, no timezone |
 
-The cast is total, and compiles, exactly when every value of its operand is in the form: a field typed `lexical(T)` or `str.regex(lexicalForm(T).source)`, a text whose pattern's language lies inside the form, proved by comparing the two languages' automata, or a subject under `Compute.when(Compute.matches(x, lexicalForm(T)), (x) => Compute.cast(x, T), otherwise)`. Anything else is `PartialOperation` with the precondition `lexical`. Two languages whose automata the comparison cannot build within 2,048 DFA states and 2,097,152 NFA-state visits are `ResourceBound`, naming both patterns.
+The cast is total, and compiles, exactly when every value of its operand is in the form: a field typed `lexical(T)` or `str.regex(lexicalForm(T).source)`, a text whose pattern's language lies inside the form, proved by comparing the two languages' automata, or a subject under `Logic.when(Text.matches(x, lexicalForm(T)), (x) => Type.cast(x, T), otherwise)`. Anything else is `PartialOperation` with the precondition `lexical`. Two languages whose automata the comparison cannot build within 2,048 DFA states and 2,097,152 NFA-state visits are `ResourceBound`, naming both patterns.
 
-So a typed value derived from its lexical form is a generated field, `generated(pg.bigint, Compute.cast(row.count, pg.bigint))`: NOT NULL, computed by PostgreSQL from the text it agrees with, and read by a law as any field is. A numeric's cast is `::numeric(p, s)`, which the form keeps from rounding; a date's is `make_date` over the text's year, month and day, since `text::date` reads `DateStyle` and is STABLE, which a generated column refuses. The host reads each form by a scan of its own and agrees with PostgreSQL to the bit, a double's rounding included.
+So a typed value derived from its lexical form is a generated field, `generated(pg.bigint, Type.cast(row.count, pg.bigint))`: NOT NULL, computed by PostgreSQL from the text it agrees with, and read by a law as any field is. A numeric's cast is `::numeric(p, s)`, which the form keeps from rounding; a date's is `make_date` over the text's year, month and day, since `text::date` reads `DateStyle` and is STABLE, which a generated column refuses. The host reads each form by a scan of its own and agrees with PostgreSQL to the bit, a double's rounding included.
 
-`Compute.parseDouble(x)` reads any decimal text of a double, of any digits and any exponent, by IEEE 754's conversion to binary64, the one JavaScript's `Number` and Java's `Double.parseDouble` make: the text's exact value rounded to the nearest double, ties to even, an infinity of its sign past the greatest finite double, and a zero of its sign below half the least subnormal. Its text is `doubleText`, the grammar of XML Schema 1.1's `xs:double` lexical space: `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)` with an optional `[eE][+-]?[0-9]+`, or `INF`, `+INF`, `-INF` or `NaN`, which name themselves. It compiles as a cast does, over a field whose pattern lies inside `doubleText` or a subject under `Compute.when(Compute.matches(x, doubleText), (x) => Compute.parseDouble(x), otherwise)`; anything else is `PartialOperation` with the precondition `lexical`. So `1e400` is `Infinity`, `-1e-400` a negative zero, equal to zero as every double's zero is, and `1.7976931348623157e308`, `5e-324` and `1.2345678901234567` the doubles they name, where `Compute.cast` into `pg["double precision"]` keeps its bounded form, since PostgreSQL's own `float8in` refuses an overflow and an underflow. Its SQL reads the digits and exponent with plain text functions into a numeric of at most 769 significant digits, its exponent clamped within ±324, and rounds that once, so it stands in checks, generated fields and queries over a text of any length.
+`Text.parseDouble(x)` reads any decimal text of a double, of any digits and any exponent, by IEEE 754's conversion to binary64, the one JavaScript's `Number` and Java's `Double.parseDouble` make: the text's exact value rounded to the nearest double, ties to even, an infinity of its sign past the greatest finite double, and a zero of its sign below half the least subnormal. Its text is `doubleText`, the grammar of XML Schema 1.1's `xs:double` lexical space: `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)` with an optional `[eE][+-]?[0-9]+`, or `INF`, `+INF`, `-INF` or `NaN`, which name themselves. It compiles as a cast does, over a field whose pattern lies inside `doubleText` or a subject under `Logic.when(Text.matches(x, doubleText), (x) => Text.parseDouble(x), otherwise)`; anything else is `PartialOperation` with the precondition `lexical`. So `1e400` is `Infinity`, `-1e-400` a negative zero, equal to zero as every double's zero is, and `1.7976931348623157e308`, `5e-324` and `1.2345678901234567` the doubles they name, where `Type.cast` into `pg["double precision"]` keeps its bounded form, since PostgreSQL's own `float8in` refuses an overflow and an underflow. Its SQL reads the digits and exponent with plain text functions into a numeric of at most 769 significant digits, its exponent clamped within ±324, and rounds that once, so it stands in checks, generated fields and queries over a text of any length.
 
-`Compute.parseDecimal(x)` reads a decimal text of any digits into numeric exactly, by XML Schema's `xs:decimal` lexical mapping: its digits, signed, over ten to the count of its fraction digits, a numeric of no typmod. So `1.50`, `+001.5` and `1.5` are one value, and a text past 256 integer or 255 fraction digits is the value it names, never rounded, clamped or read as an infinity. Its text is `decimalText`, the grammar of XML Schema 1.1's `xs:decimal` lexical space, `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)`, within `decimalTextMaxBytes` UTF-8 bytes, 16,384. Every such text names a value PostgreSQL's numeric holds, at most 16,383 digits past its point; one byte more can name one it does not hold. A regex counts no run past 255, so the byte bound stands beside the pattern, as `str.bytes` does. The parse compiles over a field whose pattern lies inside `decimalText` and whose type bounds its bytes within 16,384, `str.bytes(16384, str.regex(decimalText.source))` or a refinement of it, or a subject under both guards, `Compute.when(Compute.matches(x, decimalText), (x) => Compute.when(Compute.within(Compute.octetLength(x), 0, 16384), () => Compute.parseDecimal(x), otherwise), otherwise)`, the byte guard standing where `octetLength` does. Anything else is `PartialOperation` with the precondition `lexical`, whose guard names the test the operand lacks. The value of a text of at most n bytes has at most n integer and n - 1 fraction digits, so it casts into `pg.numeric(2n, n - 1)` with no guard. Its SQL is `x::numeric`, IMMUTABLE, so it stands in checks, generated fields and queries. Where `Compute.cast` into `pg.numeric(p, s)` keeps its form of at most 256 integer and 255 fraction digits, compare decimals of any length by their parse. Never let an `otherwise` stand for a value, such as an infinity: a rule over it then passes on a text that does not parse, so state what the rule holds of such a text in the rule.
+`Text.parseDecimal(x)` reads a decimal text of any digits into numeric exactly, by XML Schema's `xs:decimal` lexical mapping: its digits, signed, over ten to the count of its fraction digits, a numeric of no typmod. So `1.50`, `+001.5` and `1.5` are one value, and a text past 256 integer or 255 fraction digits is the value it names, never rounded, clamped or read as an infinity. Its text is `decimalText`, the grammar of XML Schema 1.1's `xs:decimal` lexical space, `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)`, within `decimalTextMaxBytes` UTF-8 bytes, 16,384. Every such text names a value PostgreSQL's numeric holds, at most 16,383 digits past its point; one byte more can name one it does not hold. A regex counts no run past 255, so the byte bound stands beside the pattern, as `str.bytes` does. The parse compiles over a field whose pattern lies inside `decimalText` and whose type bounds its bytes within 16,384, `str.bytes(16384, str.regex(decimalText.source))` or a refinement of it, or a subject under both guards, `Logic.when(Text.matches(x, decimalText), (x) => Logic.when(Num.within(Text.octetLength(x), 0, 16384), () => Text.parseDecimal(x), otherwise), otherwise)`, the byte guard standing where `octetLength` does. Anything else is `PartialOperation` with the precondition `lexical`, whose guard names the test the operand lacks. The value of a text of at most n bytes has at most n integer and n - 1 fraction digits, so it casts into `pg.numeric(2n, n - 1)` with no guard. Its SQL is `x::numeric`, IMMUTABLE, so it stands in checks, generated fields and queries. Where `Type.cast` into `pg.numeric(p, s)` keeps its form of at most 256 integer and 255 fraction digits, compare decimals of any length by their parse. Never let an `otherwise` stand for a value, such as an infinity: a rule over it then passes on a text that does not parse, so state what the rule holds of such a text in the rule.
 
-XML Schema collapses a number's white space before it reads it. Guard the collapsed text, and the branch reads it as text of the collapse's language and the guard's pattern together, as a guard narrows any term: `Compute.when(Compute.matches(Compute.collapse(x), doubleText), (x) => Compute.parseDouble(x), otherwise)` parses ` 1.5 ` and `\t-2e3\n`, and a translation, a cast and a value's base narrow alike.
+XML Schema collapses a number's white space before it reads it. Guard the collapsed text, and the branch reads it as text of the collapse's language and the guard's pattern together, as a guard narrows any term: `Logic.when(Text.matches(Text.collapse(x), doubleText), (x) => Text.parseDouble(x), otherwise)` parses ` 1.5 ` and `\t-2e3\n`, and a translation, a cast and a value's base narrow alike.
 
 ### No outer joins
 
@@ -3003,7 +3112,7 @@ values are bigints.
 ### Nearest rows
 
 ```ts
-import { Compute } from "@bjornpagen/grizzle"
+import { Distance } from "@bjornpagen/grizzle"
 
 /** A QTI item's identifier, and a lesson's and a catalog's slugs. */
 const ItemIdentifier = str.regex("^[A-Za-z_][0-9A-Za-z_.-]{0,63}$")
@@ -3030,7 +3139,7 @@ export const nearMissed = query(Tutor)
 			.match(Missed, { id: r.param("missed", Missed.fields.id), embedding: missed.embedding })
 			.match(Lesson, { id, catalog, embedding })
 			.where(r.eq(catalog, r.param("catalog", Lesson.fields.catalog)))
-			.find({ lesson: id, distance: Compute.cosineDistance(embedding, missed.embedding) })
+			.find({ lesson: id, distance: Distance.cosine(embedding, missed.embedding) })
 	})
 	.approximateNearest({ by: "distance", take: 20 })
 
@@ -3046,7 +3155,7 @@ export const seenBy = query(Tutor).rule((r) => {
 export const stepReads = query(Tutor).reads({ nearest: nearMissed, seen: seenBy })
 ```
 
-`.approximateNearest({ by, take })` searches one rule's rows, nearest first by `by`, a `Compute.cosineDistance` between a vector the rule matches and one query vector, through the HNSW index the workload's search requests, at most `take` of them. The query vector is one value for the whole statement: a parameter, a literal, or a field of another match than the ranked vector's, whose whole key the rule fixes to parameters or literals, in the match or by a `where` equality, `Missed` matched by its `id` above, which holds at most one row, so its fields are its row's. A match keyed to one row ranks at most that row, so a distance between two of its own fields ranks nothing. The statement reads that row by its key once, before the search, in a subquery PostgreSQL runs as an InitPlan, so the index orders by the stored vector as it orders by a parameter, in one scan. A key that holds no row leaves no candidates, an empty answer and no error, and the scan then never runs.
+`.approximateNearest({ by, take })` searches one rule's rows, nearest first by `by`, a `Distance.cosine` between a vector the rule matches and one query vector, through the HNSW index the workload's search requests, at most `take` of them. The query vector is one value for the whole statement: a parameter, a literal, or a field of another match than the ranked vector's, whose whole key the rule fixes to parameters or literals, in the match or by a `where` equality, `Missed` matched by its `id` above, which holds at most one row, so its fields are its row's. A match keyed to one row ranks at most that row, so a distance between two of its own fields ranks nothing. The statement reads that row by its key once, before the search, in a subquery PostgreSQL runs as an InitPlan, so the index orders by the stored vector as it orders by a parameter, in one scan. A key that holds no row leaves no candidates, an empty answer and no error, and the scan then never runs.
 
 `query(S).reads({ ... })` is a record of named queries as one query of exactly one row, which holds each query's rows under its name, an array in that query's own order: its `orderBy` or `take`, otherwise its key. `stepReads`' row is `{ nearest: ReadonlyArray<{ lesson: string; distance: number }>; seen: ReadonlyArray<{ lesson: string }> }`. Each query's parameters are its own under its name, `"nearest.missed"`, `"nearest.catalog"` and `"seen.learner"`, so two reads never share one by its name. The record is one statement, whatever its queries are, searches among them, so its queries read one snapshot under any isolation, and its `explain` plans that one statement. It is a query like any other: `deferrable(stepReads)` is a member of a workload. Each query is an attachment of the unit row, the one row of no columns `r.find({})` holds, and an attachment under a parent of no columns reads none of its columns; under any other parent, an attachment that reads none of the parent's columns is refused with `AttachedParentUnbound`.
 
@@ -3078,17 +3187,17 @@ const SearchText = str.bytes(4096, str.regex("^.*$", "su"))
 export const searchUnits = query(Course)
 	.rule((r) => {
 		const { id, subject, grade, search } = v(Unit, "unit")
-		const q = Compute.websearchQuery(r.param("q", SearchText))
+		const q = Search.websearch(r.param("q", SearchText))
 		return r
 			.match(Unit, { id, subject, grade, search })
 			.where(
 				r.and(
-					Compute.textMatches(search, q),
+					Search.matches(search, q),
 					r.eq(subject, r.param("subject", Unit.fields.subject)),
 					r.le(grade, r.param("grade", Unit.fields.grade))
 				)
 			)
-			.find({ unit: id, rank: Compute.textRank(search, q) })
+			.find({ unit: id, rank: Search.rank(search, q) })
 	})
 	.orderBy(["rank", "desc"])
 	.take(10)
@@ -3096,9 +3205,9 @@ export const searchUnits = query(Course)
 
 `searchDocument(configuration, [weight, text], ...)` is a generated field PostgreSQL parses from its row's texts: `setweight(to_tsvector('pg_catalog.<configuration>', text), weight) || ...`, the parts concatenated in their order, a tsvector stored with the row. The configuration is one of pg_catalog's (`textSearchConfigurations`: `simple`, and one per Snowball language, `english` among them), named per field and the document's type: a query is parsed under the configuration of the document it meets, so no query is ever read under another, and two documents of two configurations are two types. A weight is `A`, `B`, `C` or `D`, which a rank weighs a match by. Each text is a text term of the row, as a generated field's term reads it. A read delivers the document as the text PostgreSQL prints for it, `SearchDocument`; no caller writes one, no parameter carries one, and no key, rule, comparison, contract or fold reads one.
 
-`Compute.websearchQuery(text)` reads a query's text by `websearch_to_tsquery`, a web search engine's syntax of quoted phrases, `or` and a leading `-`, and `Compute.plainQuery(text)` by `plainto_tsquery`, every word required. A query is no term: `Compute.textMatches(document, query)`, the predicate `document @@ query`, `Compute.textRank(document, query)`, ts_rank's real, and `Compute.textRankCd(document, query)`, ts_rank_cd's, read it, each in PostgreSQL's two-argument form, its default weights (A 1.0, B 0.4, C 0.2, D 0.1) and no normalization. A match in a query's filter over a stored document requests a GIN index on the document's column, which serves it: PostgreSQL reads the rows the query's lexemes hold, never the table. `searchUnits` delivers `{ unit, rank }`, best first, ties broken by `unit`, its key.
+`Search.websearch(text)` reads a query's text by `websearch_to_tsquery`, a web search engine's syntax of quoted phrases, `or` and a leading `-`, and `Search.plain(text)` by `plainto_tsquery`, every word required. A query is no term: `Search.matches(document, query)`, the predicate `document @@ query`, `Search.rank(document, query)`, ts_rank's real, and `Search.rankCd(document, query)`, ts_rank_cd's, read it, each in PostgreSQL's two-argument form, its default weights (A 1.0, B 0.4, C 0.2, D 0.1) and no normalization. A match in a query's filter over a stored document requests a GIN index on the document's column, which serves it: PostgreSQL reads the rows the query's lexemes hold, never the table. `searchUnits` delivers `{ unit, rank }`, best first, ties broken by `unit`, its key.
 
-Text search is PostgreSQL's alone. What a document holds is its configuration's parser, dictionaries and stop word files, read under the database's builtin C.UTF-8 locale, which no host reproduces, so the host evaluates no document, match or rank, and every position a host judgement stands in refuses one: a contract predicate, a row check and a generated field compute no `textMatches`, `textRank` or `textRankCd`, a type error and `UnsupportedOperation` when the schema compiles; a document is made in a generated field alone. A query's text is read within `textQueryMaxBytes`, 262,143 bytes, by its type or by a byte guard whose branch the read stands in, `Compute.when(Compute.within(Compute.octetLength(q), 0, 4096), () => …, otherwise)`, since PostgreSQL refuses a query whose lexemes pass 1,048,575 bytes and a read never fails on a value; any other text is `UnsupportedOperation` when the query compiles.
+Text search is PostgreSQL's alone. What a document holds is its configuration's parser, dictionaries and stop word files, read under the database's builtin C.UTF-8 locale, which no host reproduces, so the host evaluates no document, match or rank, and every position a host judgement stands in refuses one: a contract predicate, a row check and a generated field compute no `textMatches`, `textRank` or `textRankCd`, a type error and `UnsupportedOperation` when the schema compiles; a document is made in a generated field alone. A query's text is read within `textQueryMaxBytes`, 262,143 bytes, by its type or by a byte guard whose branch the read stands in, `Logic.when(Num.within(Text.octetLength(q), 0, 4096), () => …, otherwise)`, since PostgreSQL refuses a query whose lexemes pass 1,048,575 bytes and a read never fails on a value; any other text is `UnsupportedOperation` when the query compiles.
 
 ## Reading
 
@@ -3127,7 +3236,7 @@ yield* db.workload.postPage.explain({ params: { org, slug }, facts: {} })   // a
 
 ### The database's clock
 
-A lease, a timer or a due instant judged by the caller's clock is judged differently by two hosts whose clocks disagree. `clocked(program, binding)` serves a query, an ordered query or a ChangeSet with each parameter its binding names bound to the database's clock: the instant the call's transaction began, `transaction_timestamp()`, counted since the Unix epoch and floored, in `"micros"`, PostgreSQL's own resolution, or `"millis"`, JavaScript's and Effect's. The program is unchanged: it declares the parameter, a `bigint` or a contract over one, and a test serves the same program unclocked with a `now` of its own. A reading lies in PostgreSQL's timestamptz range, 4714-11-24 BC to 294277-01-01, in its unit, beside its declared type's bounds, and Compute's typing reads that range: a due instant `Compute.cast(Compute.add(Compute.base(now), Compute.base(delay)), Due)`, its `delay` a contract whose predicate bounds it, `contract("Delay", pg.bigint, (d) => Compute.and(Compute.ge(d, 0n), Compute.le(d, 10n ** 12n)))`, casts with no guard wherever the reading's range plus the delay's bounds fit `Due`: in millis, whose range ends near 9.2 × 10^15, it fits a bigint; in micros, whose range reaches past bigint's top, it asks a guard.
+A lease, a timer or a due instant judged by the caller's clock is judged differently by two hosts whose clocks disagree. `clocked(program, binding)` serves a query, an ordered query or a ChangeSet with each parameter its binding names bound to the database's clock: the instant the call's transaction began, `transaction_timestamp()`, counted since the Unix epoch and floored, in `"micros"`, PostgreSQL's own resolution, or `"millis"`, JavaScript's and Effect's. The program is unchanged: it declares the parameter, a `bigint` or a contract over one, and a test serves the same program unclocked with a `now` of its own. A reading lies in PostgreSQL's timestamptz range, 4714-11-24 BC to 294277-01-01, in its unit, beside its declared type's bounds, and the scalar typing reads that range: a due instant `Type.cast(Num.add(Type.base(now), Type.base(delay)), Due)`, its `delay` a contract whose predicate bounds it, `contract("Delay", pg.bigint, (d) => Logic.and(Logic.ge(d, 0n), Logic.le(d, 10n ** 12n)))`, casts with no guard wherever the reading's range plus the delay's bounds fit `Due`: in millis, whose range ends near 9.2 × 10^15, it fits a bigint; in micros, whose range reaches past bigint's top, it asks a guard.
 
 ```ts
 /** The calls that ran at or before the database's instant. */
@@ -3188,7 +3297,7 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   rows and keeps those, so it plans, refuses and certifies as that delete does: a tree's selection names its root
   fields and removes whole trees, an owner's removes every row nested under it, and a family's member, whose delete is
   its family's edit, is a type error. A field names only the rows the table's delete states (`Written<R>`, or a tree's
-  root), and a value is a parameter or a literal, never a variable, a typed constant or a Compute term, so a delete
+  root), and a value is a parameter or a literal, never a variable, a typed constant or a scalar term, so a delete
   that reads another table or compares otherwise is a query's. Its keys are required, and their order means nothing.
   `ChangeSet.empty(S).deleteWhere({ Node: { package }, Entry: { package } }).insertAll(rows)` replaces a package.
 - **A row holds the fields its caller writes**, `Written<R>` ([How a field is written](#how-a-field-is-written)). A
@@ -3211,8 +3320,8 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
 - **`insertComputed`** inserts host rows that leave fields for the call to compute: `insertComputed(R, rows,
   computed)` takes an array or a Stream and a record of R's caller-written fields, at least one, to terms over the
   call's parameters, its clock reading and literals, each written at its field's own type as a query member's head is:
-  `ChangeSet.empty(Den).insertComputed(Claim, [], { until: Compute.cast(Compute.add(Compute.base(param("now",
-  DenInstant)), Compute.base(param("budget", Budget))), DenInstant) })`, served `clocked(…, { now: "millis" })`, whose
+  `ChangeSet.empty(Den).insertComputed(Claim, [], { until: Type.cast(Num.add(Type.base(param("now",
+  DenInstant)), Type.base(param("budget", Budget))), DenInstant) })`, served `clocked(…, { now: "millis" })`, whose
   rows `{ step, holds: [{ resource }] }` leave `until` out (the row type omits every computed field). The call
   evaluates the record once, one value of each field for every row of R the stratum's host rows insert, in the
   statement that writes them: a plain insert's own, or a nested insert's family statement, where every member field
@@ -3386,10 +3495,10 @@ export const signIn = ChangeSet.empty(Auth)
   in the same stratum, else refused (`clockUnstamped`), since no stored row could hold the instant; and a reference
   whose containments reach no one clock at one child is never stamped (`unstampable`).
 - **Or states a stored instant.** A query's row may state a reference by a term of type `instant`, and only a stored
-  instant is one: a variable of an instant field, or `r.min`, `r.max`, `Compute.least`, `Compute.greatest` or
-  `Compute.cond` over such terms. No parameter, relation parameter's column, literal, `Compute.literal`, cast, contract
+  instant is one: a variable of an instant field, or `r.min`, `r.max`, `Logic.least`, `Logic.greatest` or
+  `Logic.cond` over such terms. No parameter, relation parameter's column, literal, `Type.literal`, cast, contract
   or span is of type `instant`, so each is a type error and a `CompileError`, and arithmetic over an instant is a
-  `bigint`. An instant meets only instants; `Compute.base(at)` reads one as the `bigint` it is. A put and a delete state
+  `bigint`. An instant meets only instants; `Type.base(at)` reads one as the `bigint` it is. A put and a delete state
   every instant of their rows this way, from a query, and a put of a relation with a clock is refused, since it would
   state the clock.
 - **One instant per child per call.** Every row a call stamps at one child of one clock holds one instant, so rows of
@@ -3597,9 +3706,9 @@ export const Lexicon = schema("Lexicon", [folded, doubled, summary], [])
 ### Calling a function
 
 A query calls a declared function of its schema in one of three ways, by what the function returns.
-`Compute.call(f, args)` is the value of a function that returns a value: a term, which stands wherever a term of its
-result's type stands. `Compute.rowsOf(f, args)` is the rows of a function that returns rows: a source, which a rule
-matches as it matches a bound query. `Compute.rowOf(f, args)` is the fields of the one row a function returns: a
+`Fn.call(f, args)` is the value of a function that returns a value: a term, which stands wherever a term of its
+result's type stands. `Fn.rows(f, args)` is the rows of a function that returns rows: a source, which a rule
+matches as it matches a bound query. `Fn.row(f, args)` is the fields of the one row a function returns: a
 record of sources, one for each field of the row that holds rows of a heading of values. Each argument is named as the
 function declares it, every one of them and no other: a value is a term, a parameter or a JavaScript value, as a bind
 map takes one; rows are a query, or a bound query, whose heading holds the argument's fields.
@@ -3631,12 +3740,12 @@ const linesOf = query(Docs).rule((r) => {
 /** Every document's lines, shifted by its own shift, each beside its word folded again. */
 export const shiftedLines = query(Docs).rule((r) => {
 	const { doc, shift } = v(Doc, "doc")
-	const run = Compute.rowsOf(shifted, { program: linesOf.bind({ doc }), shift })
+	const run = Fn.rows(shifted, { program: linesOf.bind({ doc }), shift })
 	const { pos, txt } = v(run, "run")
 	return r
 		.match(Doc, { doc, shift })
 		.match(run, { pos, txt })
-		.find({ doc, pos, txt, again: Compute.call(folded, { word: txt }) })
+		.find({ doc, pos, txt, again: Fn.call(folded, { word: txt }) })
 })
 ```
 
@@ -3674,7 +3783,7 @@ export const file = ChangeSet.empty(Words)
 		Short,
 		query(Words).rule((r) => {
 			const doc = r.param("doc", DocSlug)
-			const { short } = Compute.rowOf(parted, { program: wordsOf.bind({ doc }) })
+			const { short } = Fn.row(parted, { program: wordsOf.bind({ doc }) })
 			const { pos, txt } = v(short, "short")
 			return r.match(short, { pos, txt }).find({ doc, pos, txt })
 		})
@@ -3683,7 +3792,7 @@ export const file = ChangeSet.empty(Words)
 		Long,
 		query(Words).rule((r) => {
 			const doc = r.param("doc", DocSlug)
-			const { long } = Compute.rowOf(parted, { program: wordsOf.bind({ doc }) })
+			const { long } = Fn.row(parted, { program: wordsOf.bind({ doc }) })
 			const { pos, txt } = v(long, "long")
 			return r.match(long, { pos, txt }).find({ doc, pos, txt })
 		})
@@ -3698,7 +3807,7 @@ export const file = ChangeSet.empty(Words)
   its field's declared type, so a contract or a pattern refuses a value of the function's that breaks it, where the
   query reads it. grizzle holds no NULL: a function that returns NULL, as a value or in a field of a row, fails the
   query with SQLSTATE `22004`.
-- **The fields of one row.** `Compute.rowOf(f, args)` holds a source for each field of `f`'s row that holds rows of
+- **The fields of one row.** `Fn.row(f, args)` holds a source for each field of `f`'s row that holds rows of
   a heading of values, by the field's name, its facts the heading's, a set, typed by the heading as a call's rows are; a
   field of a value, of one row, or of rows whose heading holds rows or a row is none of them, and from a description
   `MalformedDescription`. Every read of a field of one call at one argument tuple reads one evaluation of it, so a
@@ -3725,7 +3834,7 @@ export const file = ChangeSet.empty(Words)
 - **What may call one.** A call is a query's term alone: a check, a contract's predicate and a generated field are
   evaluated on the host too, and PostgreSQL alone evaluates a declared function, so a call there is a type error
   (`Refused`), and refused from JavaScript when the schema is owned. A term calls an immutable or stable function; a
-  volatile one is called through `Compute.rowsOf` alone.
+  volatile one is called through `Fn.rows` alone.
 - **Who may call one.** A role holds `EXECUTE` on exactly the declared functions its served programs call, and the
   function, which reads no table, runs as the function owner. A derived relation's or a query entry's definition that
   calls a function runs inside its view, as its owner.
@@ -3795,8 +3904,8 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
   statements) is `LevelRefused` when the schema is built: a process over `Qti` holds none of `Ledger`'s code, so no law
   of `Ledger` may change how a `Qti` write is compiled or drawn.
 - **A level checks the rows below it.** `Ledger`'s list may hold a row check over a `Qti` relation, written exactly as
-  that relation's own would be, `check("Titled", Item, (i) => Compute.matches(i.title, nonBlank))`, `nonBlank` a
-  `Compute.pattern`: it reads any field of the row, a text of no byte bound with `Compute.matches` among them, as a row
+  that relation's own would be, `check("Titled", Item, (i) => Text.matches(i.title, nonBlank))`, `nonBlank` a
+  `Text.pattern`: it reads any field of the row, a text of no byte bound with `Text.matches` among them, as a row
   check does. It is `Ledger`'s law and its CHECK on `qti.item`, named as a row check is and sharing `Item`'s checks'
   names, so a second `Titled` over `Item` at any level is `IdentifierCollision`. The migration that installs `Ledger`, or
   adds the check to it, adds it and validates every stored row, refusing the migration over one that breaks it, and the
@@ -4887,7 +4996,7 @@ export const Work = schema(
   generate certifies that read as the row the race fixed, where the read binds the key as the insertion bound it and
   nothing before the insertion read rows another call can write.
 - **Expiry is a new fact.** A claim never changes. A reclaim inserts Claim at the next attempt from the previous
-  attempt's row, read by its whole key, where `at + ttl` is before `now` (Compute.add over Compute.base of each); a
+  attempt's row, read by its whole key, where `at + ttl` is before `now` (Num.add over Type.base of each); a
   claim stamps `at` with `now`, and serving both `clocked(…, { now: "micros" })` judges both ends by the database's
   clock ([The database's clock](#the-databases-clock)). Nothing revokes the earlier attempt, so two attempts' holders
   may run at once: Finished's key decides which commits, and a later commit of the step is refused by that key, nothing
@@ -5167,8 +5276,8 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 - **No timestamp type.** When a row was written is an `instant`, stamped by the database ([Instants](#instants)); any other time is a bigint contract, and the database's clock a parameter a member binds ([The database's clock](#the-databases-clock)). A `date` holds 0001-01-01 to 9999-12-31; a lexical form has no timezone, so a timezoned `xs:date` has no typed value.
 - **A span is over `integer`, `bigint`, `date` or a contract over one** (int4range, int8range, daterange), never `smallint`, which PostgreSQL has no range over. A date span's ends are `CalendarDate`s within 0001-01-01 and an excluded 9999-12-31, as an integer span's excluded end is at most its type's greatest value; its width is a `number` of days.
-- **A numeric field declares its precision and scale**, `pg.numeric(p, s)`: p at most 1,000, s within ±1,000, NaN but no infinity, and at scale 0 an integer, a `bigint`, with no NaN: a cast into it is proved free of NaN, as a narrowing is proved to fit. A computed numeric (a sum, a mean, an operation's result, a derived field) carries the digits its computation proves; past 131,072 integer digits, PostgreSQL's limit, it is `ResourceBound` at compile time. `Compute.numeric(x)` is `x::numeric` of an integer, money or a float, a float to the 6 or 15 significant digits PostgreSQL writes.
-- **A parse reads integer, numeric(p, s), double precision, boolean and date forms.** A numeric form has at most 255 digits either side of its point; a double's, 15 significant digits either side and an exponent of at most 293, so float8in neither overflows nor underflows. `Compute.parseDouble` reads a double's text of any digits and exponent, and `Compute.parseDecimal` a decimal text of any digits within 16,384 bytes, the most whose every value numeric holds. An `xs:duration` has no typed value, since PostgreSQL's interval orders 1 month as 30 days.
+- **A numeric field declares its precision and scale**, `pg.numeric(p, s)`: p at most 1,000, s within ±1,000, NaN but no infinity, and at scale 0 an integer, a `bigint`, with no NaN: a cast into it is proved free of NaN, as a narrowing is proved to fit. A computed numeric (a sum, a mean, an operation's result, a derived field) carries the digits its computation proves; past 131,072 integer digits, PostgreSQL's limit, it is `ResourceBound` at compile time. `Num.numeric(x)` is `x::numeric` of an integer, money or a float, a float to the 6 or 15 significant digits PostgreSQL writes.
+- **A parse reads integer, numeric(p, s), double precision, boolean and date forms.** A numeric form has at most 255 digits either side of its point; a double's, 15 significant digits either side and an exponent of at most 293, so float8in neither overflows nor underflows. `Text.parseDouble` reads a double's text of any digits and exponent, and `Text.parseDecimal` a decimal text of any digits within 16,384 bytes, the most whose every value numeric holds. An `xs:duration` has no typed value, since PostgreSQL's interval orders 1 month as 30 days.
 - **A vector's norm lies in the cosine domain, 2^-68 to 2^63**, where pgvector's single-precision `cosine_distance` is in [0, 2], never NaN, for vectors of up to 16,000 dimensions. A vector outside it is refused when it is encoded, and by its column's CHECK from any writer.
 
 ### Patterns and text
@@ -5185,7 +5294,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
   NFA states to match with, or 16,000,000 for those states times its colors, the arrays each match allocates within
   `MaxAllocSize`; or more than 8 anchors it must move, those some consuming path reaches or leaves. A counted
   repetition's bound is at most 255, PostgreSQL's own, so `^.{0,n}$` holds n up to 255; a longer bound on any text is
-  `str.bytes(n, ...)` or a contract's `Compute.charLength`. Each `Compute.pattern` and each value a `Compute.matches`
+  `str.bytes(n, ...)` or a contract's `Text.charLength`. Each `Text.pattern` and each value a `Text.matches`
   pattern term can take, a closed relation's dictionary values, is bounded alike.
 - **A large pattern costs time.** A pattern near the limits takes seconds to compile, the first time a backend checks it
   and again whenever it leaves the backend's cache (below), and each match allocates arrays that grow with its states
@@ -5194,9 +5303,9 @@ grizzle fits applications that own their data end to end, with rules worth decla
   a server set lower at stage `stack`.
 - **A parameter is checked against its contract and pattern by PostgreSQL as it binds it**, its placeholder cast to its contract's domain or its own pattern domain, which `grizzle generate` installs for every pattern a served parameter names, so a query delivers a parameter's value, or a relation parameter's field, as bound. A refusal there is one round trip in, not before any SQL. A computed value not proved inside its pattern goes through the pattern's domain, which exists only for a pattern the installation declares: on a stored field, a closed relation's field, a derived table's column, a role's view column or a context field. Any other is `UnsupportedOperation` when the query compiles, naming the pattern.
 - **PostgreSQL keeps a backend's last 32 compiled regular expressions** (`MAX_CACHED_RES`), so rows that cycle through a dictionary of more patterns compile one per row. On 19rc1 (an Apple M-series laptop under load; 200,000 rows; dictionaries of 1 to 178 patterns; median of three runs) a row costs 1.4 to 4.9 µs grouped by pattern or cycling through 32 patterns or fewer, and 80 to 102 µs cycling through 33, 64 or 178; the CASE that reads each source's translation adds about 1 µs a row at 178. Order bulk reads and writes by pattern where you can.
-- **A concatenation is at most 1 GB** (`MaxAllocSize`). A write whose check or generated field concatenates more with `Compute.concat` fails with "invalid memory alloc request size". No query concatenates, and folds and equations never build theirs, however many parts an equation's concatenation has.
+- **A concatenation is at most 1 GB** (`MaxAllocSize`). A write whose check or generated field concatenates more with `Text.concat` fails with "invalid memory alloc request size". No query concatenates, and folds and equations never build theirs, however many parts an equation's concatenation has.
 - **A search document holds at most 1,048,575 bytes of lexemes and positions** (`MAXSTRPOS`): a write whose texts make a longer document fails with "string is too long for tsvector" (54000), as a translation past its bound does. A query's match or rank reads a text within `textQueryMaxBytes`, 262,143 bytes, so no read fails on its query.
-- **A translation or a regex reads at most 268,435,454 bytes**, four bytes per byte within `MaxAllocSize`. Past it, a write's check or generated field that translates fails with "requested length too large" (54000), and a check, selection or generated field that matches, a `str.regex` field's domain CHECK included, with "invalid memory alloc request size". A query translates or matches only a text its pattern bounds within the limit. `Compute.lowerAscii` is no translation there: it is `lower` under the C collation, which allocates the text's own length, so a query, a check and a generated field fold any text.
+- **A translation or a regex reads at most 268,435,454 bytes**, four bytes per byte within `MaxAllocSize`. Past it, a write's check or generated field that translates fails with "requested length too large" (54000), and a check, selection or generated field that matches, a `str.regex` field's domain CHECK included, with "invalid memory alloc request size". A query translates or matches only a text its pattern bounds within the limit. `Text.lowerAscii` is no translation there: it is `lower` under the C collation, which allocates the text's own length, so a query, a check and a generated field fold any text.
 
 ### Keys and indexes
 

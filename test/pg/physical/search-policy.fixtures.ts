@@ -5,7 +5,7 @@ import { array, boolean, constant, element, type Gen, int, weighted } from "@bjo
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Option, Order, pipe, String as Str } from "effect"
 import { login } from "#compiler/program/workload/login.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Text } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
@@ -21,7 +21,7 @@ const Slug = str.regex("^[a-z]{1,8}$")
 const State = str.regex("^(on|off)$")
 
 /** A contract over a refined text: its domain rests on the text's, a base chain of two domains of the schema. */
-const Handle = contract("Handle", Slug, (x) => Compute.le(Compute.charLength(x), 6))
+const Handle = contract("Handle", Slug, (x) => Logic.le(Text.charLength(x), 6))
 
 const Doc = relation("Doc", { id: Id, slug: Slug, handle: Handle }, ["id"])
 

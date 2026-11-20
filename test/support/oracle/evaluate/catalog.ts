@@ -201,7 +201,7 @@ export type CatalogStop =
  * an integer, an exact integer's among them, as a bigint, numeric as Decimal, a float as a double, money as Money,
  * booleans, and text, uuids, dates and closed ids' handles as strings, a set as the Set of its handles, a span as the
  * { start, end } positions of its endpoints, a date span's their day numbers, a vector as its canonical components,
- * and a bytes value as its digest, all Compute.sha256 reads.
+ * and a bytes value as its digest, all Crypto.sha256 reads.
  */
 export type ModelValue =
 	| bigint
@@ -296,7 +296,7 @@ const declined = (
 const lift = <A extends ModelValue>(r: Result.Result<A, string>): CatalogResult =>
 	Result.isSuccess(r) ? Result.succeed(r.success) : undefinedAt(r.failure)
 
-/** A compiler Compute operation's answer, or the numeric port's, which answer the engine's Result. */
+/** A compiler scalar operation's answer, or the numeric port's, which answer the engine's Result. */
 const liftEngine = <A extends ModelValue>(r: Engine.Result<A, string>): CatalogResult =>
 	r.ok ? Result.succeed(r.value) : undefinedAt(r.error)
 
@@ -448,7 +448,7 @@ const collapsedText = (text: string): string => {
 }
 
 /**
- * A text's match of a pattern, read under the flags of every Compute.matches pattern, by ECMAScript's own test
+ * A text's match of a pattern, read under the flags of every Text.matches pattern, by ECMAScript's own test
  * (test/support/regex.ts ecmaMatches), which shares no code with the engine's automata, of a pattern in the grammar.
  */
 const patternMatch = (text: string, source: string): CatalogResult =>
@@ -514,7 +514,7 @@ const ordered = <V extends bigint | string>(a: V, b: V): -1 | 0 | 1 => (a < b ? 
  * value, booleans false first, uuids by their bytes, which their lowercase hex orders, dates by day, text in code point
  * order under C.UTF-8, a closed id by its position in its roster's declared order, which is its codes' order, a set by
  * its membership of each handle in that order, a span by its start, then its end, and a vector as pgvector's vector_cmp
- * orders it. A bytes value and a search document have no order the reference reads: no Compute operation compares one.
+ * orders it. A bytes value and a search document have no order the reference reads: no scalar operation compares one.
  */
 export const compareCarried = (
 	a: ModelValue,
@@ -983,7 +983,7 @@ const castTo = (v: ModelValue, from: ScalarType, to: ScalarType): CatalogResult 
 }
 
 /**
- * The test kernel's evaluator of the whole Compute catalogue over exact carriers: the oracle that states PostgreSQL's
+ * The test kernel's evaluator of the whole scalar catalogue over exact carriers: the oracle that states PostgreSQL's
  * answer for every operation the host can state exactly, independently of PostgreSQL (test/pg/compute compares it with
  * PostgreSQL), and that the reference evaluators read for scalar expressions.
  *

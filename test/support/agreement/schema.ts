@@ -1,5 +1,5 @@
 import { Record as Rec } from "effect"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { closedId, contract, date, natural, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -57,7 +57,7 @@ import { Id } from "#test/support/ids.ts"
  */
 export const Tone = closed.ordered("Tone", ["low", "mid", "high"])
 export const Shade = closed.ordered("Shade", ["low", "dark"])
-export const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n), {
+export const Cents = contract("Cents", pg.bigint, (x) => Logic.ge(x, 0n), {
 	proves: ["nonnegative"]
 })
 

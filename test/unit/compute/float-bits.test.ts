@@ -1,5 +1,5 @@
 /**
- * Compute.floatBits, a float's identity image (scalar/compute/registry.ts floatBitsOf), lowered as a check lowers it and
+ * Num.floatBits, a float's identity image (scalar/compute/registry.ts floatBitsOf), lowered as a check lowers it and
  * evaluated on the host (scalar/compute/float.ts floatBits) and by the reference evaluator, which reads a value's own
  * bits through a typed array of its width, every NaN the quiet NaN of no payload
  * (test/support/oracle/evaluate/catalog.ts identityBits).
@@ -46,7 +46,7 @@ const pairGen: Gen<{ readonly real: boolean; readonly x: number; readonly y: num
 
 const bits: ExprDesc = { kind: "compute", fn: "floatBits", args: [{ kind: "var", var: "x" }] }
 
-/** Compute.floatBits on the host is the reference's reading of a float's encoding, one image per IEEE 754 value. */
+/** Num.floatBits on the host is the reference's reading of a float's encoding, one image per IEEE 754 value. */
 export const computeFloatBitsOnTheHostIsTheReferencesReadingOfAFloatsEncodingOneImagePerValue =
 	property.explore(pairGen, {
 		needs: {},

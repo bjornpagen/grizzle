@@ -1,7 +1,7 @@
 /**
  * A membership of one value is the equality with it (schema/own.ts canonicalPredicate): `x IN (v)`, and `x IN (v, v)`,
  * which names one value twice, are `x = v`, so the two spellings are one statement, at a row check's helper, at
- * Compute and in a side's selection, over a closed id read against its roster's handles and over an integer: one
+ * Logic and in a side's selection, over a closed id read against its roster's handles and over an integer: one
  * fingerprint, one canonical statement, one list of laws, every law under one identity, and one install script, the
  * generated columns of a selected side named alike. A membership of two values stays an IN list, of its own meaning.
  *
@@ -28,7 +28,7 @@ import {
 /** A membership of one value is its equality, at every surface, and one of two values stays a membership. */
 export const aMembershipOfOneValueIsItsEqualityOneStatementLawsAndScriptAndOneOfTwoValuesStaysAnInList =
 	property.exhaust(finite(membershipGen), {
-		box: "every surface (a row check's helper, Compute, a side's selection) by a closed id and an integer field by a list of one value, one value twice and two values",
+		box: "every surface (a row check's helper, Logic, a side's selection) by a closed id and an integer field by a list of one value, one value twice and two values",
 		needs: {},
 		situations: ["one", "one twice", "two"] satisfies ReadonlyArray<Reached<ListForm>>,
 		check: (_, c: Case<ListForm>) => (m) =>

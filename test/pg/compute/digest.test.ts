@@ -1,5 +1,5 @@
 /**
- * Compute.sha256 on PostgreSQL 19, against the host.
+ * Crypto.sha256 on PostgreSQL 19, against the host.
  *
  * 1. The digest over drawn bytes, the empty value, one byte, every byte value, values about a SHA-256 block's 64 bytes,
  *    where its padding takes one block or two, short values and a long one of a few MiB, each as a check and a query
@@ -9,7 +9,7 @@
  *    exactly the digests' spelling: of the digest and of its uppercase, shortened, lengthened and non-hex neighbours,
  *    the stated language holds exactly those that are 64 lowercase hex digits.
  * 2. An installed Media schema whose Entry stores its bytes `content` and generates `digest`, the pantry's declaration
- *    `generated(str.regex("^[0-9a-f]{64}$"), Compute.sha256(row.content))`, and `proved`, the same digest cast into its
+ *    `generated(str.regex("^[0-9a-f]{64}$"), Crypto.sha256(row.content))`, and `proved`, the same digest cast into its
  *    type, which compilation proves with no guard; a row check holds `digest` to the digest of `content`; and Page, an
  *    ordered family of an Entry's pages, copies its entry's generated digest along the owner axis, so each nested
  *    insert fills each page's copy on the host from the owner's bytes and PostgreSQL's foreign key proves it. Each case
@@ -64,7 +64,7 @@ import { upTo } from "#test/support/up-to.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
- * Compute.sha256 on PostgreSQL the host's digest of any bytes is PostgreSQL's encode(sha256(v), 'hex'), in exactly the language its term states.
+ * Crypto.sha256 on PostgreSQL the host's digest of any bytes is PostgreSQL's encode(sha256(v), 'hex'), in exactly the language its term states.
  *
  * Its pre-conversion budget: runs 24, coverage cases 24 (test/pg/compute/digest.test.ts at 22a8e17e9).
  */
@@ -127,7 +127,7 @@ export const computeSha256OnPostgreSQLTheHostsDigestOfAnyBytesIsPostgreSQLsEncod
 	})
 
 /**
- * Compute.sha256 on PostgreSQL a generated digest is PostgreSQL's own, read back as the host's, copied into a family by the host, and never written.
+ * Crypto.sha256 on PostgreSQL a generated digest is PostgreSQL's own, read back as the host's, copied into a family by the host, and never written.
  *
  * Its pre-conversion budget: runs 8, coverage cases 8 (test/pg/compute/digest.test.ts at 22a8e17e9).
  */

@@ -451,7 +451,7 @@ interface PendingOccurrence {
 
 /**
  * A literal head column of an arm: its IR literal at the column's type, and what typed it. A fixed literal's type is
- * the one it states (X.handle, Compute.literal), the declared type of the imported parameter it is bound to, or the
+ * the one it states (X.handle, Type.literal), the declared type of the imported parameter it is bound to, or the
  * written column's; a bare literal (a JavaScript value in a head) meets no term in its rule, so its type there is its
  * value's JavaScript default (Checker bareLiteralType), which a union retypes by its position, the type the arms that deliver the column
  * by a term agree on (Checker #positionedTypes).
@@ -834,7 +834,7 @@ const int4TakeBound = (k: bigint, loc: SourceLoc): TakeBound => {
 /**
  * The checker: a ResolvedQuery to a LogicalQuery DAG.
  *
- * It resolves every name a query description uses against the schema, types every expression through the Compute
+ * It resolves every name a query description uses against the schema, types every expression through the scalar
  * catalogue, and builds the scoped relational DAG with exact headings and binding semantics. The shapes are:
  *
  * - A rule is one MatchRegion over its matches: one occurrence per match, each over a fresh source node
@@ -928,7 +928,7 @@ export class Checker {
 
 	/**
 	 * The closed relations a rule's filter applies: the schema's (SchemaReading.closedReads) with every text payload field
-	 * the query's Compute.matches patterns read admitted, the query's lowering batch (scalar/compute/typing.ts admittedReads).
+	 * the query's Text.matches patterns read admitted, the query's lowering batch (scalar/compute/typing.ts admittedReads).
 	 */
 	readonly #closedReads: ClosedRelations
 
@@ -1601,7 +1601,7 @@ export class Checker {
 			fail(
 				"UnsupportedOperation",
 				loc,
-				`union arm with an attachment whose column ${changed.name} differs in refinement or typmod from the other arms'; cast it to one type with Compute.cast`
+				`union arm with an attachment whose column ${changed.name} differs in refinement or typmod from the other arms'; cast it to one type with Type.cast`
 			)
 		}
 		const literals = this.#literals.get(arm) ?? new Map<string, HeadLiteral>()
@@ -1977,7 +1977,7 @@ export class Checker {
 	}
 
 	/**
-	 * A call of a declared function that returns rows (Compute.rowsOf): the function its level declares, its arguments
+	 * A call of a declared function that returns rows (Fn.rows): the function its level declares, its arguments
 	 * (#callArgs). The call's heading is its result's, each field at its declared type, which the lowering casts the
 	 * function's value to.
 	 */
@@ -2020,7 +2020,7 @@ export class Checker {
 	}
 
 	/**
-	 * A read of a field of a call of a declared function that returns one row (Compute.rowOf): the function its level
+	 * A read of a field of a call of a declared function that returns one row (Fn.row): the function its level
 	 * declares, immutable or stable, so every read of a field of one call at one argument tuple reads one evaluation of
 	 * it; the field, one of its row's that holds rows of a heading of values; its arguments (#callArgs). The read's
 	 * heading is the field's heading, each field at its declared type, which the lowering casts the function's value to.
@@ -2195,7 +2195,7 @@ export class Checker {
 	/**
 	 * A token's type over a text of type `text`: the language of a run of no XML whitespace (`tokenPattern`), within the
 	 * text's byte bound where its type proves one, since a token is a stretch of it, typed as str.bytes declares it, so
-	 * a token is a text of a bound wherever its text is and a query's Compute.matches reads it there.
+	 * a token is a text of a bound wherever its text is and a query's Text.matches reads it there.
 	 */
 	#tokenType(text: ScalarType, loc: SourceLoc): ScalarType {
 		const pattern = unwrap(textLookup([tokenPattern]))
@@ -2480,7 +2480,7 @@ export class Checker {
 
 	/**
 	 * A connective, or an equality of two operands of one type or of a plain integer or money and an exact value of its
-	 * family: the plain one widened into the exact carrier, as the comparison Compute writes is (typing.ts comparison).
+	 * family: the plain one widened into the exact carrier, as the comparison Logic writes is (typing.ts comparison).
 	 */
 	opNamed(
 		fn: "eq" | "and" | "not" | "or",
@@ -2672,7 +2672,7 @@ export class Checker {
 			return fail(
 				"MalformedDescription",
 				loc,
-				"a head literal whose type something fixes: an integer, a bigint, a Decimal, a Money, a boolean or a string, or a typed Compute.literal"
+				"a head literal whose type something fixes: an integer, a bigint, a Decimal, a Money, a boolean or a string, or a typed Type.literal"
 			)
 		}
 		return plainType(carrier)
@@ -3991,7 +3991,7 @@ class RuleCheck {
 			)
 		}
 		/**
-		 * The column has the type the builder gives the term (its nominal type): a Compute.base or a widening cast emits
+		 * The column has the type the builder gives the term (its nominal type): a Type.base or a widening cast emits
 		 * no node of its own, so where the node it reads still carries the contract or typmod the term drops, the column
 		 * casts it, and a child binds it as the parent's heading states it.
 		 */
@@ -4010,7 +4010,7 @@ class RuleCheck {
 	}
 
 	/**
-	 * How a literal head term is typed: fixed at the type it states (X.handle, Compute.literal), else at the written
+	 * How a literal head term is typed: fixed at the type it states (X.handle, Type.literal), else at the written
 	 * column's; else bare, at its value's JavaScript default, which a union retypes by its position (Checker
 	 * #positionedTypes). What the rule's matches fix never types it: its value carries its type.
 	 */

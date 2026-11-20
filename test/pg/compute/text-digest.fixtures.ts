@@ -6,7 +6,7 @@ import { regex } from "arkregex"
 import { Array as Arr, Data, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { rowEvaluator } from "#adapter/public/host.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Crypto } from "#compiler/public/compute.ts"
 import { generated, pg } from "#compiler/public/fields.ts"
 import { check, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -20,20 +20,20 @@ import { refusalOf } from "#test/support/substrate.ts"
 
 /**
  * A text and its digest: Note's `body`, any text, and `digest`, PostgreSQL's SHA-256 of its UTF-8 as lowercase hex
- * (Compute.sha256 over text), a STORED generated column, beside a row check that holds the digest to the body's, which
+ * (Crypto.sha256 over text), a STORED generated column, beside a row check that holds the digest to the body's, which
  * the check and the generated field lower through the installation's textDigest library function alike.
  */
 const Body = str.regex("^.*$", "su")
 const Digest = str.regex("^[0-9a-f]{64}$")
 
 const Note = relation.generated("Note", { id: pg.integer, body: Body }, ["id"], (n) => ({
-	digest: generated(Digest, Compute.sha256(n.body))
+	digest: generated(Digest, Crypto.sha256(n.body))
 }))
 
 const digestSchema = schema(
 	"text_digest",
 	[Note],
-	[check("Digested", Note, (n) => n.eq(n.digest, Compute.sha256(n.body)))]
+	[check("Digested", Note, (n) => n.eq(n.digest, Crypto.sha256(n.body)))]
 )
 
 export const digestTemplate = migratedTemplate({

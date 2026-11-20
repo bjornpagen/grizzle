@@ -4,7 +4,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
 import type { ExecutedPlan, ExecutedStatement } from "#adapter/types/db.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Distance } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -61,7 +61,7 @@ const fromItem = query(Nearest)
 			.match(Item, { item: r.param("item", Item.fields.item), embedding: item.embedding })
 			.match(Lesson, { lesson, catalog, embedding })
 			.where(r.eq(catalog, r.param("catalog", Lesson.fields.catalog)))
-			.find({ lesson, distance: Compute.cosineDistance(embedding, item.embedding) })
+			.find({ lesson, distance: Distance.cosine(embedding, item.embedding) })
 	})
 	.approximateNearest({ by: "distance", take })
 
@@ -78,7 +78,7 @@ const sameCatalog = query(Nearest)
 			.match(Item, { item: item.item, catalog, embedding: item.embedding })
 			.match(Lesson, { lesson, catalog, embedding })
 			.where(r.eq(item.item, r.param("item", Item.fields.item)))
-			.find({ lesson, distance: Compute.cosineDistance(item.embedding, embedding) })
+			.find({ lesson, distance: Distance.cosine(item.embedding, embedding) })
 	})
 	.approximateNearest({ by: "distance", take })
 
@@ -99,7 +99,7 @@ const byVector = query(Nearest)
 			.where(r.eq(catalog, r.param("catalog", Lesson.fields.catalog)))
 			.find({
 				lesson,
-				distance: Compute.cosineDistance(embedding, r.param("vector", Lesson.fields.embedding))
+				distance: Distance.cosine(embedding, r.param("vector", Lesson.fields.embedding))
 			})
 	})
 	.approximateNearest({ by: "distance", take })

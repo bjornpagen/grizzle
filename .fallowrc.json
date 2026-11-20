@@ -1547,7 +1547,7 @@
 	// and the lowering calls StatementParams' through the Placeholders that LowerContext.params returns. _tag:
 	// KeyConflict's tag, read through the error unions that discriminate on it. matches: the interface again, and the
 	// evaluator calls PatternReads.matches on the CompilePatterns or ProgramPatterns its caller passes
-	// (scalar/compute/evaluate.ts, a Compute.matches). discriminantSpine: fallow does not type a callback's parameter
+	// (scalar/compute/evaluate.ts, a Text.matches). discriminantSpine: fallow does not type a callback's parameter
 	// from the type it is passed as, and the simplifier's rules call DagEditor.discriminantSpine on the editor of the cx
 	// each Rule's at receives (lower/optimize/simplify/rules.ts). freshVar, freshOccurrence and freshScope: fallow does
 	// not follow a class's property to its type, and the catalog shapes call CatalogEditor's through CatalogContext.ed

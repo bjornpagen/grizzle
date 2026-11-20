@@ -82,7 +82,7 @@ const declarations = (
 	declared: ReadonlyArray<number>,
 	blocked: ReadonlyArray<number>,
 	relations: number
-): string => `export const ${ns}Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n))
+): string => `export const ${ns}Cents = contract("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
 export const ${ns}Label = str.regex("^[a-z]{1,32}$")
 export const ${ns}Kind = closed.ordered("Kind", ["A", "B", "C"])
 ${Arr.join(

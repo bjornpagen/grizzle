@@ -23,6 +23,7 @@ import { keyLookup } from "#compiler/query/build/key.ts"
 import { isQueryValue, queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
+import { spelling } from "#compiler/scalar/compute/spelling.ts"
 import {
 	columnFacts,
 	groupFields,
@@ -123,8 +124,8 @@ import {
  *
  * A constant stands in every term position: a JavaScript value (`literal`), Tone's handle (`handle`) at Item.tone in a
  * binding, a filter, first in a comparison, a head, a union's discriminant and a binding at Tones, the union source of
- * ./schema.ts, whose arm it selects, and a typed constant (`constant`), `Compute.literal(pg.integer, v)` where its
- * value never reaches the evidence (Compute operands, a conditional's branch) and `Compute.literal(Cents, v)` where it
+ * ./schema.ts, whose arm it selects, and a typed constant (`constant`), `Type.literal(pg.integer, v)` where its
+ * value never reaches the evidence (scalar operands, a conditional's branch) and `Type.literal(Cents, v)` where it
  * stands for a value of Item.cost: its type keeps its descriptor's whole host type, the one approximation of a typed
  * constant's value, so the evidence never reads it.
  *
@@ -133,7 +134,7 @@ import {
  * with the match of Slot it reads appended, its span of dates and its date where the swarm keeps dateSpan: an Allen
  * predicate under a drawn mask, and a point's test of a value of a span's endpoint type, each over a span variable and a
  * span variable or parameter; one producer in the head (r.intersection, r.difference over the same operands, r.pack
- * over a variable); a span's width (Compute.width), a count of days over dates and an exact integer otherwise; a cosine
+ * over a variable); a span's width (Range.width), a count of days over dates and an exact integer otherwise; a cosine
  * distance from Slot's embedding to a vector parameter, a vector value or a column; and the embedding itself in the
  * head. The vectors are no binding's draw, so no filter reads them. A query whose swarm keeps nearest is drawn in the
  * shape an approximate search ranks, and searched (approximateNearest): one arm whose head holds no aggregate, no
@@ -554,7 +555,7 @@ type Term =
 	| { readonly kind: "neg"; readonly a: Term }
 	| { readonly kind: "cond"; readonly p: Pred; readonly onTrue: Term; readonly onFalse: Term }
 
-/** A rule's predicate (r.eq, r.and, ...) or Compute's (Compute.eq, Compute.and, ...). */
+/** A rule's predicate (r.eq, r.and, ...) or Logic's (Logic.eq, Logic.and, ...). */
 type Via = "rule" | "compute"
 
 type Pred =
@@ -832,7 +833,7 @@ const literalForms = (d: Drawing, kind: Kind): ReadonlyArray<Form<Term>> => {
 	}
 }
 
-/** A value fixed per binding: a parameter or a literal, or Compute over a constant and a parameter. */
+/** A value fixed per binding: a parameter or a literal, or a scalar term over a constant and a parameter. */
 const inputOf = (d: Drawing, at: Field): Term => {
 	const plain = boundInputs(d, at)
 	switch (at.kind) {
@@ -866,7 +867,7 @@ const inputOf = (d: Drawing, at: Field): Term => {
 }
 
 /**
- * A Compute term over the bound integer variables: arithmetic with a literal, a parameter or a variable, or a negation.
+ * A scalar term over the bound integer variables: arithmetic with a literal, a parameter or a variable, or a negation.
  */
 const computedOver = (d: Drawing, ints: Arr.NonEmptyReadonlyArray<Var>): Term => {
 	const a = varTerm(d.from(ints))
@@ -1565,7 +1566,7 @@ const spanKindOf = (kind: Kind): SpanKind | undefined => {
 	}
 }
 
-/** The endpoint descriptor of a span kind, which Compute.width takes beside the span: its source and its value. */
+/** The endpoint descriptor of a span kind, which Range.width takes beside the span: its source and its value. */
 const endpointDescriptors: { readonly [K in SpanKind]: readonly [string, unknown] } = {
 	span: ["pg.integer", pg.integer],
 	bigSpan: ["pg.bigint", pg.bigint],
@@ -2328,19 +2329,19 @@ class Rendering {
 				}
 			case "constant":
 				if (t.of === "cents") {
-					return `Compute.literal(Cents, ${t.value}n)`
+					return `Type.literal(Cents, ${t.value}n)`
 				}
-				return `Compute.literal(pg.integer, ${t.value})`
+				return `Type.literal(pg.integer, ${t.value})`
 			case "handle":
 				return `Tone.handle(${jsonText(toneOf(t.value))})`
 			case "vector":
 				return `Vector.make(Float32Array.of(${Arr.join(Arr.map(componentsOf(t.dims), String), ", ")}), ${t.dims})`
 			case "arith":
-				return `Compute.${t.op}(${this.term(t.a)}, ${this.term(t.b)})`
+				return `${spelling[t.op]}(${this.term(t.a)}, ${this.term(t.b)})`
 			case "neg":
-				return `Compute.neg(${this.term(t.a)})`
+				return `Num.neg(${this.term(t.a)})`
 			case "cond":
-				return `Compute.cond(${this.pred(t.p)}, ${this.term(t.onTrue)}, ${this.term(t.onFalse)})`
+				return `Logic.cond(${this.pred(t.p)}, ${this.term(t.onTrue)}, ${this.term(t.onFalse)})`
 		}
 	}
 
@@ -2353,10 +2354,10 @@ class Rendering {
 			case "pointIn":
 				return `r.pointIn(${this.term(p.point)}, ${this.term(p.span)})`
 			case "cmp":
-				return `${p.via === "rule" ? "r" : "Compute"}.${p.op}(${this.term(p.a)}, ${this.term(p.b)})`
+				return `${p.via === "rule" ? `r.${p.op}` : spelling[p.op]}(${this.term(p.a)}, ${this.term(p.b)})`
 			case "and":
 			case "or":
-				return `${p.via === "rule" ? "r" : "Compute"}.${p.kind}(${this.pred(p.ps[0])}, ${this.pred(p.ps[1])})`
+				return `${p.via === "rule" ? `r.${p.kind}` : spelling[p.kind]}(${this.pred(p.ps[0])}, ${this.pred(p.ps[1])})`
 		}
 	}
 
@@ -2375,9 +2376,9 @@ class Rendering {
 			case "pack":
 				return `r.pack(${this.term(h.of)})`
 			case "cosine":
-				return `Compute.cosineDistance(${this.term(h.of)}, ${this.term(h.to)})`
+				return `Distance.cosine(${this.term(h.of)}, ${this.term(h.to)})`
 			case "width":
-				return `Compute.width(${this.term(h.of)}, ${endpointDescriptors[h.span][0]})`
+				return `Range.width(${this.term(h.of)}, ${endpointDescriptors[h.span][0]})`
 		}
 	}
 
@@ -3230,11 +3231,11 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): RefusedQuery | undef
 		case "allenTerm":
 			return malformed && label === "r.allen" ? named("a span term is required") : undefined
 		case "cosineDims":
-			return malformed && label === "Compute.cosineDistance"
+			return malformed && label === "Distance.cosine"
 				? prose("cosine distance needs one dimension count")
 				: undefined
 		case "cosineTerm":
-			return malformed && label === "Compute.cosineDistance"
+			return malformed && label === "Distance.cosine"
 				? prose("cosine distance needs a vector term")
 				: undefined
 		case "orderHidden":

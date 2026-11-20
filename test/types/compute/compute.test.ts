@@ -1,10 +1,10 @@
 /**
- * The Compute type/engine agreement (test/support/agreement/compute.ts): every drawn term, predicate, aggregate, host
+ * The scalar type/engine agreement (test/support/agreement/compute.ts): every drawn term, predicate, aggregate, host
  * value and member read typechecks exactly when the engine builds and compiles it; a refusal the types name by a
  * Refusal names the engine's reason, every other refusal is structural; and an admitted case's term type, SQL type,
  * head and parameters equal the engine's, each asserted exactly. Each case is a block of one program a batch checks
  * disarmed. Oracle: the engine's construction and compilation of each case. The witnesses reach every construct
- * admitted and, where the catalogue can refuse it, refused, every Refusal the Compute catalogue names and every
+ * admitted and, where the catalogue can refuse it, refused, every Refusal the scalar catalogue names and every
  * inference the program asserts; the kept cases, a box of their own, reach by construction what a drawn case may miss.
  */
 import { ReplayToken } from "@bjornpagen/testing/property"
@@ -43,7 +43,7 @@ export const compute = agreement(computeAimed, {
 				"test/types/compute/compute.test.ts#compute:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.h.0.0.0.0.0.0.0.0.1.3.0.0.0.0"
 			),
 			reason:
-				"a cast of Cell's id into its own type, Compute.cast(cell.id, Cell.fields.id), the id the tests' Id contract over uuid since 74d2ff677: the program names the contract's host type through Cell.fields.id, where the case died drawing it, no field of Cell named as the Id contract's (NEGZERO2's replay at main)",
+				"a cast of Cell's id into its own type, Type.cast(cell.id, Cell.fields.id), the id the tests' Id contract over uuid since 74d2ff677: the program names the contract's host type through Cell.fields.id, where the case died drawing it, no field of Cell named as the Id contract's (NEGZERO2's replay at main)",
 			since: "2026-11-20"
 		}
 	],
@@ -77,7 +77,7 @@ export const compute = agreement(computeAimed, {
  * arithmetic and the pattern the types and the engine once disagreed on.
  */
 export const computeKeptCases = boxAgreement(computeKept, {
-	box: "every kept Compute case",
+	box: "every kept scalar case",
 	situations: computeKeptRequired,
 	notes: computeReached,
 	checking: "disarmed",
@@ -99,7 +99,7 @@ export const computeKeptCases = boxAgreement(computeKept, {
 			original:
 				'\t\t\tconst holds =\n\t\t\t\tscope.kind === "parameter" ? held.includes(scope) : sameNode(scope.holds.subject, entry)',
 			replacement: "\t\t\tconst holds = sameNode(scope.holds.subject, entry)",
-			why: "Compute.when's lowering refines every occurrence of the guard's subject inside its branch, not only the branch's parameter (scalar/compute/typing.ts settle matches each enclosing guard by its subject's node alone), so the engine admits the kept power whose exponent reads the subject past the parameter, which the types refuse; the agreement's program fails."
+			why: "Logic.when's lowering refines every occurrence of the guard's subject inside its branch, not only the branch's parameter (scalar/compute/typing.ts settle matches each enclosing guard by its subject's node alone), so the engine admits the kept power whose exponent reads the subject past the parameter, which the types refuse; the agreement's program fails."
 		}
 	]
 })

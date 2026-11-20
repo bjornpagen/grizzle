@@ -403,7 +403,7 @@ export const languageWithin = (pattern: PatternLanguage, octets: number): TextLa
 /**
  * A text descriptor's refinement: a specific pattern's regex reference, whose enforcement holds the bounds it proves
  * (textInfoBounds); the canonical wildcard, which admits every value and proves none; or `pattern`, a closed relation's
- * text whose every value is a Compute.matches pattern of grizzle's grammar (str.pattern), admitted once where the
+ * text whose every value is a Text.matches pattern of grizzle's grammar (str.pattern), admitted once where the
  * relation is read (check/closed.ts) and translated into the ARE PostgreSQL reads where the relation's constants are
  * planned (physical/ddl/constants.ts), every text as far as its language goes.
  */
@@ -624,7 +624,7 @@ export interface SearchType {
  * |x| < 10^digits (of the amount, for money), as its operands' bounds give it (scalar/compute/typing.ts), the way a
  * typmod bounds numeric(p, 0). In SQL an exact integer of at most 18 digits is bigint, and any other exact value
  * numeric (exactMoney at scale 2). Neither is a field's carrier, so neither has a contract;
- * Compute.cast narrows one into a storage carrier where the value is proved to fit.
+ * Type.cast narrows one into a storage carrier where the value is proved to fit.
  */
 interface ExactType {
 	readonly carrier: ExactValueCarrier

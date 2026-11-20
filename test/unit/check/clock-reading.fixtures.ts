@@ -2,7 +2,7 @@
 
 import { int as between, type Gen, map } from "@bjornpagen/testing/gen"
 import { clockReadingRange, type ClockUnit } from "#compiler/core/clock.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num, Type } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -60,11 +60,9 @@ export const deadlineOf = (d: Deadline) => {
 	const Due =
 		d.due === "unbounded"
 			? contract("Due", pg.bigint)
-			: contract("Due", pg.bigint, (t) => Compute.le(t, 10n ** 16n))
+			: contract("Due", pg.bigint, (t) => Logic.le(t, 10n ** 16n))
 	const bound = 10n ** BigInt(d.exponent)
-	const Delay = contract("Delay", pg.bigint, (t) =>
-		Compute.and(Compute.ge(t, 0n), Compute.le(t, bound))
-	)
+	const Delay = contract("Delay", pg.bigint, (t) => Logic.and(Logic.ge(t, 0n), Logic.le(t, bound)))
 	const Step = relation("Step", { step: pg.integer, at: Instant, delay: Delay, due: Due }, ["step"])
 	const Deadlines = schema("Deadlines", [Step], [])
 	const spawned = query(Deadlines).rule((r) => {
@@ -74,10 +72,7 @@ export const deadlineOf = (d: Deadline) => {
 			step: row.step,
 			at: r.param("now", Instant),
 			delay: row.delay,
-			due: Compute.cast(
-				Compute.add(Compute.base(r.param("now", Instant)), Compute.base(row.delay)),
-				Due
-			)
+			due: Type.cast(Num.add(Type.base(r.param("now", Instant)), Type.base(row.delay)), Due)
 		})
 	})
 	return { schema: Deadlines, changeSet: () => ChangeSet.empty(Deadlines).insert(Step, spawned) }

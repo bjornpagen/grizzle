@@ -19,7 +19,7 @@ import {
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Text, Type } from "#compiler/public/compute.ts"
 import { generated, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -55,7 +55,7 @@ const character: Gen<number> = proportional([
 ])
 
 /**
- * A case: a map Compute.translate admits, a raw pair PostgreSQL's translate takes whatever its characters, a
+ * A case: a map Text.translate admits, a raw pair PostgreSQL's translate takes whatever its characters, a
  * repeated one or a shorter `to` among them, which the host's translation is held to as well, and the texts.
  */
 interface SqlCase {
@@ -186,7 +186,7 @@ const FoldedTag = str.regex("^[a-z]{1,8}$", "u")
 const Numeral = str.regex("^[0-9]{1,6}$", "u")
 
 /** Lower-case letters alone: the match the conditional fields branch on. */
-const LowerCase = Compute.pattern("^[a-z]+$")
+const LowerCase = Text.pattern("^[a-z]+$")
 
 const Named = relation.generated(
 	"Named",
@@ -195,25 +195,21 @@ const Named = relation.generated(
 	(r) => ({
 		normalized: generated(
 			Normalized,
-			Compute.cast(Compute.translate(r.title, "\t\n\r", "   "), Normalized)
+			Type.cast(Text.translate(r.title, "\t\n\r", "   "), Normalized)
 		),
-		folded: generated(FoldedTag, Compute.cast(Compute.lowerAscii(r.tag), FoldedTag)),
-		collapsed: generated(Collapsed, Compute.cast(Compute.collapse(r.title), Collapsed)),
+		folded: generated(FoldedTag, Type.cast(Text.lowerAscii(r.tag), FoldedTag)),
+		collapsed: generated(Collapsed, Type.cast(Text.collapse(r.title), Collapsed)),
 		normalizedIf: generated(
 			Title,
-			Compute.cond(
-				Compute.matches(r.tag, LowerCase),
-				Compute.translate(r.title, "\t\n\r", "   "),
-				""
-			)
+			Logic.cond(Text.matches(r.tag, LowerCase), Text.translate(r.title, "\t\n\r", "   "), "")
 		),
 		collapsedIf: generated(
 			Title,
-			Compute.cond(Compute.matches(r.tag, LowerCase), Compute.collapse(r.title), "")
+			Logic.cond(Text.matches(r.tag, LowerCase), Text.collapse(r.title), "")
 		),
 		tagIf: generated(
 			Tag,
-			Compute.when(Compute.matches(r.tag, LowerCase), (tag) => tag, "x")
+			Logic.when(Text.matches(r.tag, LowerCase), (tag) => tag, "x")
 		)
 	})
 )
@@ -222,7 +218,7 @@ const Counted = relation.generated(
 	"Counted",
 	{ id: pg.integer, g: pg.integer, k: Numeral },
 	["id"],
-	(r) => ({ v: generated(pg.bigint, Compute.cast(r.k, pg.bigint)) })
+	(r) => ({ v: generated(pg.bigint, Type.cast(r.k, pg.bigint)) })
 )
 
 const value = schema("Translated", [Named, Counted], [])

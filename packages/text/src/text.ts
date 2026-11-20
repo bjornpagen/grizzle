@@ -91,7 +91,7 @@ export const translated = (text: string, from: string, to: string): string => {
 }
 
 /**
- * ASCII's case fold, Compute.lowerAscii: each capital, A to Z, to its small letter, the code point 0x20 above it, as
+ * ASCII's case fold, Text.lowerAscii: each capital, A to Z, to its small letter, the code point 0x20 above it, as
  * PostgreSQL's pg_ascii_tolower folds it, and every other character itself.
  */
 export const asciiFold: ReadonlyMap<number, number> = new Map(

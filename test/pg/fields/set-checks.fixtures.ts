@@ -2,7 +2,6 @@
 import { finite, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
 import { Bits, bits, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
@@ -17,16 +16,12 @@ const R = relation("R", { id: pg.integer, flags: bits(Flag) }, ["id"])
 const apartFrom: ReadonlyArray<Handle> = ["a"]
 const withinOf: ReadonlyArray<Handle> = ["a", "b"]
 const otherSide: ReadonlyArray<Handle> = ["b", "c"]
-const apart = check("Apart", R, (r) =>
-	r.eq(Compute.disjoint(r.flags, Bits.of(Flag, apartFrom)), true)
-)
-const within = check("Within", R, (r) =>
-	r.eq(Compute.subset(r.flags, Bits.of(Flag, withinOf)), true)
-)
+const apart = check("Apart", R, (r) => r.eq(Bits.disjoint(r.flags, Bits.of(Flag, apartFrom)), true))
+const within = check("Within", R, (r) => r.eq(Bits.subset(r.flags, Bits.of(Flag, withinOf)), true))
 const split = check("Split", R, (r) =>
 	r.or(
-		r.eq(Compute.subset(r.flags, Bits.of(Flag, withinOf)), true),
-		r.eq(Compute.subset(r.flags, Bits.of(Flag, otherSide)), true)
+		r.eq(Bits.subset(r.flags, Bits.of(Flag, withinOf)), true),
+		r.eq(Bits.subset(r.flags, Bits.of(Flag, otherSide)), true)
 	)
 )
 export const Sets = schema("SetChecks", [Flag, R], [apart, within, split])
@@ -41,8 +36,8 @@ const programs = Object.freeze({
 		const { id, flags } = v(R, "r")
 		return r.match(R, { id, flags }).find({
 			id,
-			apart: Compute.disjoint(flags, Bits.of(Flag, ["b"])),
-			joined: Compute.union(flags, Bits.of(Flag, ["c"]))
+			apart: Bits.disjoint(flags, Bits.of(Flag, ["b"])),
+			joined: Bits.union(flags, Bits.of(Flag, ["c"]))
 		})
 	})
 })

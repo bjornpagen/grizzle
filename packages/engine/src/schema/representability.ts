@@ -501,8 +501,8 @@ const literalCount = (e: ExprDesc): number | undefined => {
 }
 
 /**
- * A length a contract predicate bounds its value by: char_length, its code points (Compute.charLength), or
- * octet_length, its UTF-8 bytes (Compute.octetLength).
+ * A length a contract predicate bounds its value by: char_length, its code points (Text.charLength), or
+ * octet_length, its UTF-8 bytes (Text.octetLength).
  */
 export type LengthMeasure = "charLength" | "octetLength"
 

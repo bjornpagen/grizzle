@@ -20,13 +20,13 @@ import { malformed } from "#compiler/schema/protocol.ts"
  *
  * The builder records Descriptions; typing is the checker's. It still needs each heading field's scalar
  * type where it can know it, for two reasons: a literal written against a field is a value of that field's base and
- * is checked for its host representation at construction, and Compute types the terms it
+ * is checked for its host representation at construction, and the scalar catalogue types the terms it
  * builds over a variable from the variable's type. A heading is therefore its field names, each with
  * what the builder knows of its type (Typing: the ScalarType it resolved, or untyped), and the names of its
  * attachments, which are nested sets and no scalar.
  *
  * Types come from the field descriptors of relations, closed relations, relation parameters and recursive rows, and
- * from the head terms of finished rules: a variable's, parameter's or Compute term's type, an aggregate's native result
+ * from the head terms of finished rules: a variable's, parameter's or scalar term's type, an aggregate's native result
  * type. A bare literal in a head has no type until the checker types it, nor does a field of a query rebuilt from its
  * Description alone. A union's field keeps a type only when every arm that has it agrees on a compatible one
  * (a union retains only guarantees shared by every arm).

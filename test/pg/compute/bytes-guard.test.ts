@@ -1,6 +1,6 @@
 /**
  * A guard of a text's bytes on PostgreSQL 19: a relation whose generated field casts its text into a str.bytes target,
- * under Compute.when(Compute.within(Compute.octetLength(x), low, high), () => Compute.cast(x, target), "") or with no
+ * under Logic.when(Num.within(Text.octetLength(x), low, high), () => Type.cast(x, target), "") or with no
  * guard, the text's own type drawn of no bound, a pattern's bound, or a byte bound of its own, and the target n bytes
  * of every text.
  *

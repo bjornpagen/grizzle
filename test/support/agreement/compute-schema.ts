@@ -1,4 +1,4 @@
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Type } from "#compiler/public/compute.ts"
 import { bits, closedId, contract, Decimal, date, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
@@ -9,15 +9,15 @@ export const Tone = closed.ordered("Tone", ["low", "high"])
 const Shade = closed.ordered("Shade", ["low", "dark"])
 /** Tone's handles in a roster whose order means nothing: a closed id of it has no order, which no ordered operation reads. */
 export const Hue = closed.unordered("Hue", ["low", "high"])
-const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n), { proves: ["nonnegative"] })
+const Cents = contract("Cents", pg.bigint, (x) => Logic.ge(x, 0n), { proves: ["nonnegative"] })
 const EpochDay = contract("EpochDay", pg.bigint)
-const Rate = contract("Rate", pg.numeric(7, 6), (x) => Compute.between(x, 0n, 1n))
-const Divisor = contract("Divisor", pg.integer, (x) => Compute.ne(x, 0), { proves: ["nonzero"] })
+const Rate = contract("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
+const Divisor = contract("Divisor", pg.integer, (x) => Logic.ne(x, 0), { proves: ["nonzero"] })
 const Body = contract("Body", str.regex("^.*$", "su"))
 
 /**
- * The relation the Compute type/engine agreement draws its cases over (test/support/agreement/compute.ts), over a Rate
- * contract: Cell, with a field of every carrier a Compute operand may have, a contract over each base the catalogue
+ * The relation the scalar type/engine agreement draws its cases over (test/support/agreement/compute.ts), over a Rate
+ * contract: Cell, with a field of every carrier a scalar operand may have, a contract over each base the catalogue
  * reads (a bigint that declares itself nonnegative and one with no predicate, a numeric in [0, 1], an integer that
  * declares itself nonzero, a text), a text of no bound and a word of a few letters, spans of a contract, of a contract
  * that declares a fact, of an integer and of a date, vectors of two dimensions, a closed id of an ordered roster and one
@@ -115,11 +115,11 @@ const headsOver = (cells: typeof Cells, of: typeof Cell) =>
 		return r.match(of, { id: cell.id, divisor: cell.divisor, int: cell.int }).find({
 			id: cell.id,
 			divisor: cell.divisor,
-			base: Compute.base(cell.divisor),
-			cast: Compute.cast(cell.divisor, of.fields.int),
-			cond: Compute.cond(Compute.gt(cell.int, 0), cell.divisor, cell.divisor),
-			least: Compute.least(cell.divisor, cell.divisor),
-			greatest: Compute.greatest(cell.divisor, cell.divisor),
+			base: Type.base(cell.divisor),
+			cast: Type.cast(cell.divisor, of.fields.int),
+			cond: Logic.cond(Logic.gt(cell.int, 0), cell.divisor, cell.divisor),
+			least: Logic.least(cell.divisor, cell.divisor),
+			greatest: Logic.greatest(cell.divisor, cell.divisor),
 			min: r.min(cell.divisor),
 			max: r.max(cell.divisor),
 			sum: r.sum(cell.divisor)

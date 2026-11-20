@@ -43,7 +43,7 @@ export interface RowTerm extends Built {
 
 /**
  * A row field's term as this package knows it: its descriptor, which the text helpers read, and its typing (the type
- * and carrier the term protocol registers for it, which Compute reads and its literal operands adopt).
+ * and carrier the term protocol registers for it, which the scalar catalogue reads and its literal operands adopt).
  */
 interface TermType {
 	readonly desc: FieldDesc
@@ -59,7 +59,7 @@ const typeOf = (value: unknown): TermType | undefined =>
  * The typing of a field: the registry's own reading of a descriptor it defined or of a str.regex descriptor, its
  * column among it; otherwise its reading of the Description with the roster the host descriptor carries, whose
  * handles are the column. A field the registry cannot type here is untyped; its row comparisons still work, and
- * Compute refuses it as an operand.
+ * the scalar catalogue refuses it as an operand.
  */
 const typingOf = (
 	desc: FieldDesc,
@@ -93,7 +93,7 @@ const typingOf = (
 }
 
 /**
- * A literal compared with a term, as Compute compares it (scalar/literal.ts literalDescFor): its host value read as
+ * A literal compared with a term, as Logic compares it (scalar/literal.ts literalDescFor): its host value read as
  * written at the term's type, its range and typmod the checker's, which types the literal by its own value, so a
  * decimal opposite a numeric(p, s) field keeps every digit, as PostgreSQL's untyped literal resolved as numeric of no
  * typmod does. A term this package cannot type records the literal as written (untypedLiteral), for the schema's
@@ -135,7 +135,7 @@ const termOperand = (
 ): { readonly expr: OpenExpr; readonly type: TermType | undefined } => {
 	const expr = termExpr(value)
 	if (expr === undefined) {
-		throw malformed(label, "a scalar term: a field of the row or a Compute expression")
+		throw malformed(label, "a scalar term: a field of the row or a scalar expression")
 	}
 	return { expr, type: typeOf(value) }
 }
@@ -151,7 +151,7 @@ const literalList = (values: unknown, type: TermType | undefined) => {
 const rowTerm = (expr: OpenExpr, type: TermType): RowTerm => termOver(expr, type, type.typing)
 
 /**
- * A term over `expr`, typed for Compute by `typing`, whose literal operands, in a row helper's comparison, adopt `type`
+ * A term over `expr`, typed for the scalar catalogue by `typing`, whose literal operands, in a row helper's comparison, adopt `type`
  * where its field's descriptor is known, and are recorded as written where it is not, for the schema's compilation to
  * type.
  */
@@ -219,7 +219,7 @@ const helperCompare =
 		})
 	}
 
-/** The Compute helpers a row check may use. */
+/** The scalar helpers a row check may use. */
 export const rowHelpers = Object.freeze({
 	eq: helperCompare("eq"),
 	ne: helperCompare("ne"),
@@ -300,7 +300,7 @@ const rowOf = <A>(
  *
  * `check(name, R, (row) => predicate)` runs its callback once, at construction, over a RowScalars value and records the
  * predicate's ExprDesc (callbacks build descriptions; they never run per row). RowScalars exposes each field
- * of R as a Scalar beside the Compute helpers a check compares them with: eq, ne, lt, le, gt, ge, between, in, and, or,
+ * of R as a Scalar beside the scalar helpers a check compares them with: eq, ne, lt, le, gt, ge, between, in, and, or,
  * not, charLength, octetLength and utf16Length.
  *
  * A literal operand adopts the type of the term it meets and is checked at construction:
@@ -308,7 +308,7 @@ const rowOf = <A>(
  * divisor's nonzero among them, is the checker's judgment at compilation; this module records what was written. A row check reads its own row only: a parameter, a query variable or a
  * relational negation inside it is refused here, because a check has no inputs.
  *
- * A term of another package (a Compute expression) composes through the term protocol of protocol.ts: a term
+ * A term of another package (a scalar expression) composes through the term protocol of protocol.ts: a term
  * any builder made and registered (scalar/compute/term.ts) is a term, and its literal operands are typed by the
  * checker.
  *
@@ -331,9 +331,9 @@ export const rowScalars = (
 
 /**
  * The row a check's or a selection's callback over a derived relation receives: each field of its definition's heading
- * as a term over `{ kind: "field" }`, typed for Compute as the builder typed the definition's head, beside the helpers.
+ * as a term over `{ kind: "field" }`, typed for the scalar catalogue as the builder typed the definition's head, beside the helpers.
  * A derived field's descriptor is inferred where the schema compiles, so a literal operand is recorded as written and
- * typed there (analysis/theory/query.ts), as one opposite a Compute term is.
+ * typed there (analysis/theory/query.ts), as one opposite a scalar term is.
  */
 export const derivedRowScalars = (
 	heading: ReadonlyMap<string, HeadingTyping>

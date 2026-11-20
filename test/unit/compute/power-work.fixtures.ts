@@ -1,4 +1,4 @@
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxPrecision, numericMaxScale } from "#compiler/scalar/values/fault.ts"
 import { type Pair } from "#test/support/power-pairs.ts"
@@ -15,7 +15,7 @@ import {
 export type WorkFeature = "an admitted power evaluated" | "a power next to exp(6000) evaluated"
 
 /**
- * The field a literal base is typed by, as Compute.literal types one: a numeric whose typmod holds its value exactly, or
+ * The field a literal base is typed by, as computeCore.literal types one: a numeric whose typmod holds its value exactly, or
  * numeric(1, 0) for NaN; none for an infinity or a value no declared field holds.
  */
 const baseField = (base: Decimal): TestField | undefined => {
@@ -34,7 +34,7 @@ const baseField = (base: Decimal): TestField | undefined => {
 }
 
 const expr = spelledExpr(
-	Compute.power(v("a", testPg.computedNumeric), v("b", testPg.computedNumeric)).expr
+	computeCore.power(v("a", testPg.computedNumeric), v("b", testPg.computedNumeric)).expr
 )
 
 /** Whether the proof admits power(a, b) over a literal base, as the power suite compiles it. */

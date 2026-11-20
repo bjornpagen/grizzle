@@ -203,7 +203,7 @@ export const parentVars = <Origins, C extends Carriers>(
  *
  * `attach(name, (parent) => child, delivery)` nests a child query per parent fact. The child correlates through the
  * parent's variables exactly as `bind` correlates through parameters: each parent variable is a term `{ kind:
- * "parent", column }` over a scalar field of the parent's heading, typed like that field, so Compute and literal
+ * "parent", column }` over a scalar field of the parent's heading, typed like that field, so the scalar catalogue and literal
  * operands compose with it. The child is a Query or an Ordered (whose delivered array follows its completed order);
  * whether it binds a parent variable is the checker's (AttachedParentUnbound).
  *

@@ -4,7 +4,7 @@ import { type Gen, int, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Num, Type } from "#compiler/public/compute.ts"
 import { pg, type Uuid } from "#compiler/public/fields.ts"
 import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
@@ -133,7 +133,7 @@ const caseOf = (
 	}
 }
 
-const lit = (n: number) => Compute.literal(pg.integer, n)
+const lit = (n: number) => Type.literal(pg.integer, n)
 
 /** Walks: each vertex and hop count reachable from the start in fewer than `bound` hops. */
 const walksBelow = (bound: number) =>
@@ -157,7 +157,7 @@ const walksBelow = (bound: number) =>
 					.match(E, { from: node, to })
 					.match(V, { id: to })
 					.where(r.lt(hops, bound))
-					.find({ node: to, hops: Compute.add(hops, lit(1)) })
+					.find({ node: to, hops: Num.add(hops, lit(1)) })
 			}
 		]
 	})
@@ -239,7 +239,7 @@ const countdownFrom = (seed: number) =>
 					.match(self, { node, left })
 					.match(E, { from: node, to })
 					.where(r.gt(left, 0))
-					.find({ node: to, left: Compute.sub(left, lit(1)) })
+					.find({ node: to, left: Num.sub(left, lit(1)) })
 			}
 		]
 	})

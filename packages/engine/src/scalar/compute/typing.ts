@@ -144,6 +144,7 @@ import {
 	overloadOf,
 	registeredCast
 } from "#compiler/scalar/compute/registry.ts"
+import { spelling } from "#compiler/scalar/compute/spelling.ts"
 import { moneyDigits } from "#compiler/scalar/compute/types.ts"
 import {
 	anyNumeric,
@@ -312,7 +313,7 @@ export interface ClosedField {
 }
 
 /**
- * What a Compute.matches pattern reading a closed relation's payload field can be (lower.ts readAdmissions): a
+ * What a Text.matches pattern reading a closed relation's payload field can be (lower.ts readAdmissions): a
  * str.pattern field's distinct values in row order, none where it holds no row, each admitted once where the relation
  * is read (check/closed.ts closedReads); or a field of any other type, which no pattern reads.
  */
@@ -320,7 +321,7 @@ export type PayloadPatterns =
 	| { readonly kind: "patterns"; readonly admitted: ReadonlyArray<MatchAdmission> }
 	| { readonly kind: "other" }
 
-/** A payload field of a closed relation, as C.at reads it, with what a Compute.matches pattern reading it can be. */
+/** A payload field of a closed relation, as C.at reads it, with what a Text.matches pattern reading it can be. */
 export interface ClosedPayloadField extends ClosedField {
 	readonly patterns: PayloadPatterns
 }
@@ -346,8 +347,8 @@ export type ClosedRelations =
 	| { readonly kind: "none"; readonly why: string }
 
 /**
- * A part of a Compute.matches pattern, in the order the pattern states it: a literal, a closed relation's payload
- * field C.at reads, or any other expression, each with the branches of the Compute.cond it stands in. The one reading of
+ * A part of a Text.matches pattern, in the order the pattern states it: a literal, a closed relation's payload
+ * field C.at reads, or any other expression, each with the branches of the Logic.cond it stands in. The one reading of
  * what a pattern reads, which patternAdmissions admits.
  */
 type PatternPart<R extends Refs> =
@@ -367,7 +368,7 @@ type PatternPart<R extends Refs> =
 			readonly branches: ReadonlyArray<"onTrue" | "onFalse">
 	  }
 
-/** The parts of the Compute.matches pattern `desc` (PatternPart), a conditional's two branches in turn. */
+/** The parts of the Text.matches pattern `desc` (PatternPart), a conditional's two branches in turn. */
 const patternParts = <R extends Refs>(desc: ExprDesc<Located, R>): ReadonlyArray<PatternPart<R>> =>
 	partsUnder(desc, [])
 
@@ -505,11 +506,11 @@ export interface TypingEnv<R extends Refs> {
 	/** The node a leaf reference records at each use. */
 	readonly leaf: (desc: LeafDesc<R>, loc: SourceLoc) => Result.Result<ExprSpec, CompileError>
 	readonly params: LowerParams<R>
-	/** The ScalarType of a descriptor's Description, for Compute.literal and Compute.cast (the descriptor registry). */
+	/** The ScalarType of a descriptor's Description, for Type.literal and Type.cast (the descriptor registry). */
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
 	/** The closed relations C.at and C.row apply. */
 	readonly closed: ClosedRelations
-	/** The declared functions Compute.call calls (DeclaredFunctions). */
+	/** The declared functions Fn.call calls (DeclaredFunctions). */
 	readonly functions: DeclaredFunctions
 	readonly analysis: TextAnalysis
 }
@@ -517,7 +518,7 @@ export interface TypingEnv<R extends Refs> {
 /**
  * The declared functions a term may call (schema/function.ts fn): a query's schema's, by name, undefined for a name that
  * is no declared function's; or none, where the host evaluates the term or no schema is in reach, with the reason, which
- * a refusal of Compute.call there states.
+ * a refusal of Fn.call there states.
  */
 export type DeclaredFunctions =
 	| { readonly kind: "schema"; readonly of: (name: string) => CallableFunction | undefined }
@@ -609,7 +610,7 @@ export type ProofObligation =
 	  }
 
 /**
- * What a part of a Compute.matches pattern reads (PatternPart), where it stands: a pattern literal's value, admitted
+ * What a part of a Text.matches pattern reads (PatternPart), where it stands: a pattern literal's value, admitted
  * where it was made or decoded, as a str.regex pattern is (ir/pattern.ts admitSpelling), since its value is the
  * description's own; a closed
  * relation's payload field C.at reads, whose values the lowering batch admitted; or another kind of term, which can be
@@ -701,7 +702,7 @@ export type ExtensionDesc<R extends Refs> = Extract<
 
 /**
  * One step of a term's lowering, in the order the lowering takes them: a node judged then emitted; a predicate
- * another package lowers where it stands, typing its children under the Compute.whens around it; a refusal at one site
+ * another package lowers where it stands, typing its children under the Logic.whens around it; a refusal at one site
  * of what the term holds there (UnsupportedOperation); a numeric bound past numeric's own digits, ResourceBound
  * wherever the term is compiled; or a literal judged by the contract of the term it stands beside in arithmetic
  * (ContractLiteral).
@@ -746,7 +747,7 @@ export class Typed {
 	readonly bounds: Bounds | undefined
 	readonly facts: FactSet
 	/**
-	 * The enclosing Compute.when guards whose parameter this value is (Typing.guarded): what each establishes of it,
+	 * The enclosing Logic.when guards whose parameter this value is (Typing.guarded): what each establishes of it,
 	 * settled again wherever the value is restated, so a restatement of the parameter keeps it. None for any other value.
 	 */
 	readonly held: ReadonlyArray<WhenParameter>
@@ -1159,7 +1160,7 @@ export const unprovedFact = (
 	)
 }
 
-/** The registry function a stored op entry names, or undefined when it names no Compute overload. */
+/** The registry function a stored op entry names, or undefined when it names no scalar overload. */
 export const opFn = (e: TableExpr & { readonly kind: "op" }): NativeFn | undefined =>
 	nativeOp(e.op)?.fn
 
@@ -1249,7 +1250,7 @@ const concatParts = <R extends Refs>(
 /** A guard that states facts of a numeric subject: every guard but a match, which states a language. */
 type FactGuard = Exclude<GuardDesc, { readonly kind: "matches" }>
 
-/** What a Compute.when guard establishes of its subject inside the guarded branch (bounds.ts Refinement). */
+/** What a Logic.when guard establishes of its subject inside the guarded branch (bounds.ts Refinement). */
 const guardRefinement = (
 	guard: FactGuard,
 	within: readonly [Exact, Exact] | undefined
@@ -1319,7 +1320,7 @@ const signBoundsOver = (
 
 /**
  * The most UTF-8 bytes a text term's value takes: a text literal's own, and any other term's its type's byte bound,
- * which an enclosing Compute.when(Compute.within(Compute.octetLength(x), 0, bytes), ...) narrows at every occurrence of
+ * which an enclosing Logic.when(Num.within(Text.octetLength(x), 0, bytes), ...) narrows at every occurrence of
  * x in its branch (WhenScope), none where neither bounds its bytes. It is the one proof of a text's bytes every mode
  * reads: a `bounded` precondition's (lower.ts), and a query's regex read (lower.ts regexReadable) and translate.
  */
@@ -1345,7 +1346,7 @@ const mapText = <R extends Refs>(
 				`a text literal as translate's ${which}, which states its map when the schema compiles, not a ${desc.kind}`
 			)
 
-/** Whether Compute.within guards a value of `carrier`: a number's, the numeric family (scalar/compute/tables.ts). */
+/** Whether Num.within guards a value of `carrier`: a number's, the numeric family (scalar/compute/tables.ts). */
 export const withinGuards = (carrier: Carrier): boolean => {
 	switch (carrier) {
 		case "int2":
@@ -1407,7 +1408,7 @@ type CastHow =
 	| { readonly kind: "coercion" }
 
 /**
- * What a Compute.when guard the typing stands in the branch of establishes of a term there: the term's node, and the
+ * What a Logic.when guard the typing stands in the branch of establishes of a term there: the term's node, and the
  * refined interval and the facts a numeric guard states, or the language a match states, which retypes a text term as
  * text of the pattern's language.
  */
@@ -1421,10 +1422,10 @@ type WhenGuard =
 	| { readonly kind: "language"; readonly subject: TypedNode; readonly type: ScalarType }
 
 /**
- * What a Compute.when establishes inside its branch, and where: of its parameter, what its guard tests of its subject,
+ * What a Logic.when establishes inside its branch, and where: of its parameter, what its guard tests of its subject,
  * which only a guarded node of that guard over that subject holds (Typing.guarded), and every restatement of one,
  * since TypeScript narrows a branch's parameter and never a term the branch reads past it; or, where its subject is a
- * text's byte count, Compute.octetLength(x), x within the guard's high end of bytes at every occurrence of x, a bound no
+ * text's byte count, Text.octetLength(x), x within the guard's high end of bytes at every occurrence of x, a bound no
  * TypeScript type states and which no parameter carries, since the branch's parameter is the count. A node is the
  * subject, or an occurrence of it, where it records the subject's node (sameNode).
  */
@@ -1432,7 +1433,7 @@ export type WhenScope =
 	| { readonly kind: "parameter"; readonly guard: GuardDesc; readonly holds: WhenGuard }
 	| { readonly kind: "occurrences"; readonly holds: WhenGuard }
 
-/** What a Compute.when establishes of its parameter (WhenScope). */
+/** What a Logic.when establishes of its parameter (WhenScope). */
 type WhenParameter = Extract<WhenScope, { readonly kind: "parameter" }>
 
 /**
@@ -1576,7 +1577,7 @@ const shapeOf = (node: TypedNode): TypedSpec | UnprovedSpec | DomainCastSpec | u
 /**
  * Whether two nodes compute the same value the same way, which is whether their emissions do: one kind, one source,
  * one overload, one literal and the same arguments, each in turn, a domain cast and a conditional by their arguments
- * alone, a built expression by its own computation. How a guarded node finds the Compute.when whose parameter it is,
+ * alone, a built expression by its own computation. How a guarded node finds the Logic.when whose parameter it is,
  * and a byte guard the occurrences of its text (WhenScope). A predicate another package lowers is its own node alone:
  * no guard's subject is a boolean, so none is a subject or an occurrence of one.
  */
@@ -1658,8 +1659,8 @@ export const closedHeadingOf = (
 }
 
 /**
- * What each part of the Compute.matches pattern `desc` reads (patternParts), each where it stands, the branches of the
- * Compute.cond it stands in below `at`.
+ * What each part of the Text.matches pattern `desc` reads (patternParts), each where it stands, the branches of the
+ * Logic.cond it stands in below `at`.
  */
 const patternReads = <R extends Refs>(
 	desc: ExprDesc<Located, R>,
@@ -1672,7 +1673,7 @@ const patternReads = <R extends Refs>(
 		)
 	)
 
-/** What one part of a Compute.matches pattern reads, standing at `at`. */
+/** What one part of a Text.matches pattern reads, standing at `at`. */
 const patternRead = <R extends Refs>(part: PatternPart<R>, at: SourceLoc): PatternRead => {
 	switch (part.kind) {
 		case "literal": {
@@ -1681,7 +1682,7 @@ const patternRead = <R extends Refs>(part: PatternPart<R>, at: SourceLoc): Patte
 				? stop(
 						"MalformedDescription",
 						at,
-						"a pattern literal as matches's pattern, its pattern value (Compute.pattern): a text literal is no pattern"
+						"a pattern literal as matches's pattern, its pattern value (Text.pattern): a text literal is no pattern"
 					)
 				: { kind: "admitted", value }
 		}
@@ -1694,7 +1695,7 @@ const patternRead = <R extends Refs>(part: PatternPart<R>, at: SourceLoc): Patte
 
 class Typing<R extends Refs> {
 	readonly env: TypingEnv<R>
-	/** What the Compute.whens whose branch the typing stands in establish there, outermost first. */
+	/** What the Logic.whens whose branch the typing stands in establish there, outermost first. */
 	readonly #scope: ReadonlyArray<WhenScope>
 	/** The tape every node and check of the term is recorded on, in the order the lowering emits and judges them. */
 	readonly #tape: Array<TapeEntry<R>>
@@ -1756,7 +1757,7 @@ class Typing<R extends Refs> {
 			stop(
 				"MalformedDescription",
 				at,
-				"operands of one type: an exact value beside a plain value of its family; Compute.cast the exact one into the plain one's type"
+				"operands of one type: an exact value beside a plain value of its family; Type.cast the exact one into the plain one's type"
 			)
 		}
 	}
@@ -1769,7 +1770,7 @@ class Typing<R extends Refs> {
 	/**
 	 * A typed node with what is proved of it: the bounds and facts its type gives every value unless the caller states
 	 * what its computation proves, beside which it keeps its SQL type's own facts (carrierFacts), then refined, outermost
-	 * first, by what each enclosing Compute.when establishes of it (WhenScope): the guard whose parameter it is, among
+	 * first, by what each enclosing Logic.when establishes of it (WhenScope): the guard whose parameter it is, among
 	 * `held`, and the byte guard of a text it is an occurrence of (sameNode), a match retyping it as text of its
 	 * pattern's language. Bounds a computation does not prove are its type's own, so every value of a carrier with a
 	 * numeric domain stands with bounds, and a guard narrows it whatever its operands proved; only a carrier with none
@@ -1993,7 +1994,7 @@ class Typing<R extends Refs> {
 							operands: [arg],
 							target: to,
 							at,
-							operation: `Compute.cast(${nodeText(arg.node)}, ${typeLabel(to)})`
+							operation: `Type.cast(${nodeText(arg.node)}, ${typeLabel(to)})`
 						}
 		}
 		return this.emitAt(node, type, bounds, facts)
@@ -2113,7 +2114,7 @@ class Typing<R extends Refs> {
 
 	/**
 	 * A reference an operation reads: refused where its type is stored only (scalar/registry.ts storedOnly), as bytes is,
-	 * so no comparison, computation, cast, conditional or guard reads one; Compute.sha256 reads its operand whole
+	 * so no comparison, computation, cast, conditional or guard reads one; Crypto.sha256 reads its operand whole
 	 * (sha256).
 	 */
 	reference(desc: LeafDesc<R>, at: SourceLoc): Typed {
@@ -2122,7 +2123,7 @@ class Typing<R extends Refs> {
 			? stop(
 					"UnsupportedOperation",
 					at,
-					`storage: ${typeLabel(leaf.nominal)} is stored only, read whole as a head or a written value, so no Compute operation, rule, selection or filter reads it`
+					`storage: ${typeLabel(leaf.nominal)} is stored only, read whole as a head or a written value, so no scalar operation, rule, selection or filter reads it`
 				)
 			: leaf
 	}
@@ -2160,7 +2161,7 @@ class Typing<R extends Refs> {
 			return stop(
 				"MalformedDescription",
 				at,
-				`operands of one type: ${typeLabel(against.nominal)} never meets ${typeLabel(term.nominal)} without Compute.base`
+				`operands of one type: ${typeLabel(against.nominal)} never meets ${typeLabel(term.nominal)} without Type.base`
 			)
 		}
 		return term
@@ -2208,7 +2209,7 @@ class Typing<R extends Refs> {
 			return stop(
 				"UnsupportedOperation",
 				at,
-				`${fn}: PostgreSQL has no ${fn} over ${carriers.map(typeLabel).join(", ")} that Compute admits`
+				`${fn}: PostgreSQL has no ${fn} over ${carriers.map(typeLabel).join(", ")} that grizzle admits`
 			)
 		}
 		return op
@@ -2221,7 +2222,7 @@ class Typing<R extends Refs> {
 			return stop(
 				"UnsupportedOperation",
 				at,
-				`${fn}: PostgreSQL has no ${fn} over ${typeLabel(type)} that Compute admits`
+				`${fn}: PostgreSQL has no ${fn} over ${typeLabel(type)} that grizzle admits`
 			)
 		}
 		return op
@@ -2341,7 +2342,7 @@ class Typing<R extends Refs> {
 
 	/**
 	 * A predicate another package lowers, r.allen, r.pointIn, r.not or an existence: a boolean, whose children that
-	 * package types and lowers where the lowering reaches it, under the Compute.whens it stands in (the tape's extension
+	 * package types and lowers where the lowering reaches it, under the Logic.whens it stands in (the tape's extension
 	 * entry). Only a query lowers one; a check refuses it there.
 	 */
 	extension(desc: ExtensionDesc<R>, at: SourceLoc): Typed {
@@ -2391,14 +2392,14 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Compute.concat(a, b), PostgreSQL's textcat: the node computes text, and the term is text of no pattern within the
+	 * Text.concat(a, b), PostgreSQL's textcat: the node computes text, and the term is text of no pattern within the
 	 * sum of its operands' bytes where both are bounded, a text literal by its own and a term by its type's byte bound,
 	 * since a || b takes a's bytes and b's; any text where either is unbounded, or where the text goes unanalyzed.
 	 */
 	concat(first: ExprDesc<Located, R>, second: ExprDesc<Located, R>, at: SourceLoc): Typed {
 		const [a, b] = this.texts("concat", first, second, at)
 		const op = this.overload("concat", [a.actual, b.actual], at)
-		const node = this.native(op, [a, b], wildcardText, undefined, at, "Compute.concat")
+		const node = this.native(op, [a, b], wildcardText, undefined, at, spelling.concat)
 		const aBytes = textBytes(a)
 		const bBytes = textBytes(b)
 		const analysis = this.env.analysis
@@ -2413,7 +2414,7 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Compute.resolveReference(base, reference), the target of `reference` resolved against `base` as RFC 3986 §5.2
+	 * Text.resolveReference(base, reference), the target of `reference` resolved against `base` as RFC 3986 §5.2
 	 * defines it (registry.ts textResolveReference): the node computes text, and the term is text of no pattern within
 	 * the sum of its operands' bytes and one more where both are bounded, since the target takes its components from
 	 * the reference and the base, each at most once, its path the base's merged with the reference's, which adds a `/`
@@ -2436,7 +2437,7 @@ class Typing<R extends Refs> {
 			wildcardText,
 			undefined,
 			at,
-			"Compute.resolveReference"
+			spelling.resolveReference
 		)
 		const baseBytes = textBytes(base)
 		const referenceBytes = textBytes(reference)
@@ -2598,7 +2599,7 @@ class Typing<R extends Refs> {
 	 * `substring(t, start, char_length(part)) = part` (registry.ts textInfix), start narrowed into substring's int4.
 	 * The narrowing stands on start's own bounds where they prove it, as they do for a concatenation's second and third
 	 * parts, which start at most two MaxAllocSize lengths in, within int4; a later part, whose start's bounds pass int4,
-	 * stands under Compute.within's guard of int4's positive values, `CASE WHEN start BETWEEN 1 AND 2147483647 THEN …
+	 * stands under Num.within's guard of int4's positive values, `CASE WHEN start BETWEEN 1 AND 2147483647 THEN …
 	 * ELSE false END`, the guard a partial operation stands under: inside the equation's branch, where its lengths hold,
 	 * every part starts within t, whose length is an int4, so the guard holds there and its false is never read.
 	 */
@@ -2647,7 +2648,7 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Compute.matches(subject, pattern), PostgreSQL's textregexeq: whether the subject holds a match of the pattern,
+	 * Text.matches(subject, pattern), PostgreSQL's textregexeq: whether the subject holds a match of the pattern,
 	 * which is a text term or a literal read under the flags "u", in grizzle's pattern grammar. The node reads what each
 	 * part of the pattern can be (patternReads), whose every value the lowering admits as a str.regex pattern is, its
 	 * grammar and PostgreSQL's regex compile space (scalar/regex/admit.ts admitMatch), and carries each one's source,
@@ -2662,9 +2663,9 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * The pattern operand of a Compute.matches over the text term `subject`, standing at `here`, as patternParts reads
+	 * The pattern operand of a Text.matches over the text term `subject`, standing at `here`, as patternParts reads
 	 * its parts: a pattern literal, its pattern value (ir/pattern.ts PatternValue), a text of no refinement that only a
-	 * match reads; a Compute.cond, its predicate and each branch a pattern operand in turn; any other a text operand, a
+	 * match reads; a Logic.cond, its predicate and each branch a pattern operand in turn; any other a text operand, a
 	 * closed read among them, whose values patternReads reads. `at` is the match's place, where a refusal of no text is.
 	 */
 	patternOperand(
@@ -2687,7 +2688,7 @@ class Typing<R extends Refs> {
 		return this.conditional(p, onTrue, onFalse, here)
 	}
 
-	/** Compute.matches over a subject already typed: a guard's (whenScope), or a call's (matches). */
+	/** Text.matches over a subject already typed: a guard's (whenScope), or a call's (matches). */
 	matchesOver(subject: Typed, patternDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
 		this.textSubject("matches", subject, at)
 		const pattern = this.patternOperand(subject, patternDesc, childLoc(at, 1), at)
@@ -2720,13 +2721,13 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Compute.translate(x, from, to), PostgreSQL's translate: x with each character of from replaced by the character of
+	 * Text.translate(x, from, to), PostgreSQL's translate: x with each character of from replaced by the character of
 	 * to at its position. from and to are text literals the schema holds, of one length, from holding each character
 	 * once (scalar/regex/translate.ts charMapOf), so the map is seen here and replaces each character by one. The node
 	 * computes text; the term is text of the image of x's language under the map, within the bytes the image of a value
 	 * of x's type takes where its type bounds them (translatedType). PostgreSQL allocates the result for four bytes of
 	 * every byte of x and refuses one past MaxAllocSize, and a read never fails on a value, so a query translates only an
-	 * x whose bytes are proved within translateMaxBytes (textBytes: its type's bound, or the Compute.when bounding its
+	 * x whose bytes are proved within translateMaxBytes (textBytes: its type's bound, or the Logic.when bounding its
 	 * octetLength whose branch it stands in); a check or generated field translates any text, and its
 	 * write fails on a longer one. Unanalyzed, the term is text of no pattern.
 	 */
@@ -2761,12 +2762,12 @@ class Typing<R extends Refs> {
 		const f = this.literal(from, wildcardText, childLoc(at, 1))
 		const t = this.literal(to, wildcardText, childLoc(at, 2))
 		const op = this.overload("translate", [x.actual, f.actual, t.actual], at)
-		const node = this.native(op, [x, f, t], wildcardText, undefined, at, "Compute.translate")
+		const node = this.native(op, [x, f, t], wildcardText, undefined, at, spelling.translate)
 		return this.mapped(x, node, map.value, at)
 	}
 
 	/**
-	 * Compute.lowerAscii(x), ASCII's case fold, translate's by the capitals and their small letters (core/text.ts
+	 * Text.lowerAscii(x), ASCII's case fold, translate's by the capitals and their small letters (core/text.ts
 	 * asciiFold), every other character as it is: lower under the C collation (registry.ts textLowerAscii), one node
 	 * wherever it stands, a query, a CHECK and a generated field alike, which allocates x's own length, so it is defined
 	 * on every text, and typed as that translation is (mapped).
@@ -2781,12 +2782,12 @@ class Typing<R extends Refs> {
 			)
 		}
 		const op = this.overload("lowerAscii", [x.actual], at)
-		const node = this.native(op, [x], wildcardText, undefined, at, "Compute.lowerAscii")
+		const node = this.native(op, [x], wildcardText, undefined, at, spelling.lowerAscii)
 		return this.mapped(x, node, asciiFold, at)
 	}
 
 	/**
-	 * Compute.isXsdPattern(x), whether a text term is an XML Schema 1.0 pattern (registry.ts textIsXsdPattern): a
+	 * Xml.isPattern(x), whether a text term is an XML Schema 1.0 pattern (registry.ts textIsXsdPattern): a
 	 * predicate over any text, defined on every value, its SQL a call of the installation's library function.
 	 */
 	isXsdPattern(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
@@ -2799,7 +2800,7 @@ class Typing<R extends Refs> {
 			)
 		}
 		const op = this.overload("isXsdPattern", [x.actual], at)
-		return this.native(op, [x], plainType("bool"), undefined, at, "Compute.isXsdPattern")
+		return this.native(op, [x], plainType("bool"), undefined, at, spelling.isXsdPattern)
 	}
 
 	/**
@@ -2849,7 +2850,7 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Compute.collapse(x), XML Schema's whiteSpace collapse: each run of tab, LF, CR and space one space, and none at
+	 * Text.collapse(x), XML Schema's whiteSpace collapse: each run of tab, LF, CR and space one space, and none at
 	 * either end, by replace alone (registry.ts textCollapse), defined on every text, so a query collapses any text as a
 	 * check does. The node computes text; the term is text of a language holding the image of x's, exactly where it is
 	 * cheap to state, within x's byte bound (collapseType); unanalyzed, text of no pattern.
@@ -2865,7 +2866,7 @@ class Typing<R extends Refs> {
 		}
 		const text = textOf(x.nominal)
 		const op = this.overload("collapse", [x.actual], at)
-		const node = this.native(op, [x], wildcardText, undefined, at, "Compute.collapse")
+		const node = this.native(op, [x], wildcardText, undefined, at, spelling.collapse)
 		const analysis = this.env.analysis
 		return analysis.kind === "unanalyzed" || text === undefined
 			? node
@@ -2898,7 +2899,7 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Compute.parseDouble(x): the double x's decimal text names, IEEE 754-2019's conversion from decimal character
+	 * Text.parseDouble(x): the double x's decimal text names, IEEE 754-2019's conversion from decimal character
 	 * sequences, rounded to the nearest, ties to even, ±Infinity past the greatest finite double and a zero of the
 	 * mantissa's sign below half the least subnormal; `INF`, `-INF` and `NaN` their own. The registry's one overload,
 	 * text to double precision, admits its operand, and it is defined where x is a member of every double's text, XML
@@ -2916,15 +2917,15 @@ class Typing<R extends Refs> {
 			type,
 			boundsOfType(type),
 			at,
-			`Compute.parseDouble(${nodeText(x.node)})`
+			`Text.parseDouble(${nodeText(x.node)})`
 		)
 	}
 
 	/**
-	 * Compute.utf16Length(x): x's UTF-16 code units, JavaScript's String.length (registry.ts textUtf16Length), at most
+	 * Text.utf16Length(x): x's UTF-16 code units, JavaScript's String.length (registry.ts textUtf16Length), at most
 	 * MaxAllocSize as char_length is. It exists where char_length does, in contract predicates, row checks and generated
 	 * fields, never in a query, and it is defined where x is within regexTextMaxBytes (`bounded`), which x's byte bound
-	 * proves: its type's, or the guard Compute.when(Compute.within(Compute.octetLength(x), 0, bytes), ...) whose branch
+	 * proves: its type's, or the guard Logic.when(Num.within(Text.octetLength(x), 0, bytes), ...) whose branch
 	 * it stands in; nothing else does, so no law that reads it raises on a long text.
 	 */
 	utf16Length(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
@@ -2949,12 +2950,12 @@ class Typing<R extends Refs> {
 			this.resultType(op, bounds),
 			bounds,
 			at,
-			`Compute.utf16Length(${nodeText(x.node)})`
+			`Text.utf16Length(${nodeText(x.node)})`
 		)
 	}
 
 	/**
-	 * Compute.parseDecimal(x): the numeric x's decimal text names, exactly, by xs:decimal's lexical mapping, a computed
+	 * Text.parseDecimal(x): the numeric x's decimal text names, exactly, by xs:decimal's lexical mapping, a computed
 	 * numeric of no typmod. The registry's one overload, text to numeric, admits its operand, and it is defined where x
 	 * is a member of every decimal text within decimalTextMaxBytes, the grammar of XML Schema 1.1's xs:decimal lexical
 	 * space within the bytes whose every value numeric holds (the lexical precondition over `decimalText`, which the
@@ -2973,12 +2974,12 @@ class Typing<R extends Refs> {
 			this.resultType(op, bounds),
 			bounds,
 			at,
-			`Compute.parseDecimal(${nodeText(x.node)})`
+			`Text.parseDecimal(${nodeText(x.node)})`
 		)
 	}
 
 	/**
-	 * Compute.floatBits(x): a float's identity image (registry.ts floatBitsOf), the bits of its IEEE 754 binary64
+	 * Num.floatBits(x): a float's identity image (registry.ts floatBitsOf), the bits of its IEEE 754 binary64
 	 * encoding as a signed bigint, a real widened exactly first, NaN's in one form: a total node, of every bigint, which
 	 * a key, a reference and an arbiter read natively.
 	 */
@@ -2999,12 +3000,12 @@ class Typing<R extends Refs> {
 			type,
 			boundsOfType(type),
 			at,
-			"Compute.floatBits"
+			spelling.floatBits
 		)
 	}
 
 	/**
-	 * Compute.sha256(x): the SHA-256 digest of a bytes value, or of a text's UTF-8 bytes, as 64 lowercase hex digits,
+	 * Crypto.sha256(x): the SHA-256 digest of a bytes value, or of a text's UTF-8 bytes, as 64 lowercase hex digits,
 	 * `encode(sha256(x), 'hex')` and `encode(<textDigest>(x), 'hex')` (registry.ts bytesDigest, textSha256). It is the
 	 * one operation that reads a bytes value, which it reads whole, as a head does (whole): no operation yields bytes, so
 	 * a bytes operand is a bytes reference, a row's field or a variable; a text operand is any text term. The node
@@ -3024,7 +3025,7 @@ class Typing<R extends Refs> {
 			)
 		}
 		const op = this.overload("sha256", [x.actual], at)
-		const node = this.native(op, [x], wildcardText, undefined, at, "Compute.sha256")
+		const node = this.native(op, [x], wildcardText, undefined, at, spelling.sha256)
 		const analysis = this.env.analysis
 		return analysis.kind === "unanalyzed"
 			? node
@@ -3037,7 +3038,7 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Compute.textDocument(configuration, weight, text, ...): a search document, the tsvector PostgreSQL parses from its
+	 * textDocument(configuration, weight, text, ...), the term of searchDocument(configuration, [weight, text], ...): a search document, the tsvector PostgreSQL parses from its
 	 * texts under `configuration`, each text's positions labelled by the weight before it and the parts concatenated in
 	 * their order (registry.ts searchPart and tsvector's ||), of the configuration's type (ir/scalar.ts SearchType). The
 	 * configuration and each weight are literals, a configuration of pg_catalog's and a weight label, which the schema
@@ -3097,13 +3098,13 @@ class Typing<R extends Refs> {
 				)
 			}
 			const op = this.overload("searchPart", [text.actual, weight.actual], at)
-			return this.native(op, [text, weight], type, undefined, at, "Compute.textDocument")
+			return this.native(op, [text, weight], type, undefined, at, "searchDocument")
 		}
 		let document = part(0)
 		for (let i = 2; i < parts.length; i += 2) {
 			const next = part(i)
 			const op = this.overload("searchConcat", [document.actual, next.actual], at)
-			document = this.native(op, [document, next], type, undefined, at, "Compute.textDocument")
+			document = this.native(op, [document, next], type, undefined, at, "searchDocument")
 		}
 		return document
 	}
@@ -3153,15 +3154,24 @@ class Typing<R extends Refs> {
 			this.refusedAt(
 				"query",
 				queryAt,
-				`${fn} in a query over a text whose pattern bounds it within ${textQueryMaxBytes} bytes: PostgreSQL refuses a query whose operands pass ${textSearchStringMaxBytes} bytes, and a read never fails on a value; ${bytes === undefined ? "the query's pattern bounds no length" : `the query's pattern bounds it at ${bytes} bytes`}, so bound it by its type or by Compute.when(Compute.within(Compute.octetLength(q), 0, ${textQueryMaxBytes}), ...)`
+				`${fn} in a query over a text whose pattern bounds it within ${textQueryMaxBytes} bytes: PostgreSQL refuses a query whose operands pass ${textSearchStringMaxBytes} bytes, and a read never fails on a value; ${bytes === undefined ? "the query's pattern bounds no length" : `the query's pattern bounds it at ${bytes} bytes`}, so bound it by its type or by Logic.when(Num.within(Text.octetLength(q), 0, ${textQueryMaxBytes}), ...)`
 			)
 		}
 		const op = this.overload(fn, [document.actual, query.actual], at)
 		if (fn === "websearchMatches" || fn === "plainMatches") {
-			return this.native(op, [document, query], plainType("bool"), undefined, at, `Compute.${fn}`)
+			return this.native(
+				op,
+				[document, query],
+				plainType("bool"),
+				undefined,
+				at,
+				spelling.textMatches
+			)
 		}
 		const rank = plainType("float4")
-		return this.native(op, [document, query], rank, boundsOfType(rank), at, `Compute.${fn}`)
+		const label =
+			fn === "websearchRankCd" || fn === "plainRankCd" ? spelling.textRankCd : spelling.textRank
+		return this.native(op, [document, query], rank, boundsOfType(rank), at, label)
 	}
 
 	/** A set over a roster, and the roster, or the refusal of a term of another type: it has no set algebra. */
@@ -3182,7 +3192,7 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Compute.singleton(id): the set over a closed id's roster holding exactly its handle, the empty set with the id's
+	 * Bits.singleton(id): the set over a closed id's roster holding exactly its handle, the empty set with the id's
 	 * code's bit set (registry.ts setAdjoin), so it is the set Bits.of writes for that one handle. A NULL id gives NULL,
 	 * and a term of any other type has no singleton.
 	 */
@@ -3325,7 +3335,7 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Compute.call(f, args): the value of a declared function the schema declares (DeclaredFunctions), one that returns
+	 * Fn.call(f, args): the value of a declared function the schema declares (DeclaredFunctions), one that returns
 	 * a value and is immutable or stable, a term being a function of its operands, at one term per declared argument,
 	 * each a value of a type that meets the argument's declared type, a bare literal admitted at it (callArgument). Its
 	 * value is of its declared result type, which the lowering casts it to, so it has the facts that type states.
@@ -3551,7 +3561,7 @@ class Typing<R extends Refs> {
 		return this.native(op, args, plainType("bool"), undefined, at, fn)
 	}
 
-	/** Compute.cond: a conditional over any predicate, guarding nothing (Compute.when is the one guard). */
+	/** Logic.cond: a conditional over any predicate, guarding nothing (Logic.when is the one guard). */
 	cond(desc: Extract<ExprDesc<Located, R>, { readonly kind: "cond" }>, at: SourceLoc): Typed {
 		const p = this.predicate(desc.pred, childLoc(at, "cond"))
 		const [onTrue, onFalse] = this.branches(
@@ -3592,7 +3602,7 @@ class Typing<R extends Refs> {
 	 * The CASE over `p` of two typed branches, each converted into their common type (types.ts commonType): unchanged, by
 	 * a registered widening, by the binary coercion, or into the common contract with its proof (convert). Its values
 	 * are its branches' hull, and its facts its SQL type's alone (settle), as every operation's result: the TypeScript
-	 * type of Compute.cond and Compute.when states none of its branches'.
+	 * type of Logic.cond and Logic.when states none of its branches'.
 	 */
 	conditional(p: Typed, onTrue: Typed, onFalse: Typed, at: SourceLoc): Typed {
 		const type = commonType(onTrue.nominal, onFalse.nominal)
@@ -3637,7 +3647,7 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Compute.when, the one guard of a partial operation: CASE WHEN <the guard over the subject> THEN <then> ELSE
+	 * Logic.when, the one guard of a partial operation: CASE WHEN <the guard over the subject> THEN <then> ELSE
 	 * <otherwise> END, where the branch's parameter, each guarded node of the guard over the subject inside the then
 	 * branch, has what the guard establishes, its facts and its refined interval (guarded); the subject read past the
 	 * parameter keeps its own, as TypeScript types it, which narrows a callback's parameter and never a term the callback
@@ -3664,7 +3674,7 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * A Compute.when branch's parameter (ir/desc.ts GuardedDesc): its subject, with what each enclosing Compute.when of
+	 * A Logic.when branch's parameter (ir/desc.ts GuardedDesc): its subject, with what each enclosing Logic.when of
 	 * its guard over that subject establishes there, which every restatement of it keeps (settle, `held`): the when whose
 	 * subject's node is the node the parameter's subject records (sameNode). Outside every such when it is its subject
 	 * with its own facts, so a copy of a parameter read past its branch proves nothing. The node is a proof's alone: it
@@ -3693,7 +3703,7 @@ class Typing<R extends Refs> {
 	 * interval, or a match's language of the subject's own patterns and the match's together, within the subject's own
 	 * byte bound, the type str.bytes(bound, str.and(subject, str.regex(pattern))) declares, without the bound where the
 	 * subject has none, and str.regex(pattern) alone where the subject is any text; and where its subject is a text's
-	 * byte count, Compute.octetLength(x), x within the interval's high end of bytes at every occurrence of it
+	 * byte count, Text.octetLength(x), x within the interval's high end of bytes at every occurrence of it
 	 * (bytesGuard). Unanalyzed, a language is no type, so a match establishes nothing and a byte count's occurrences
 	 * keep theirs.
 	 */
@@ -3839,7 +3849,7 @@ class Typing<R extends Refs> {
 					return stop(
 						"MalformedDescription",
 						at,
-						`Compute.within over a number, not ${typeLabel(subject.nominal)}`
+						`Num.within over a number, not ${typeLabel(subject.nominal)}`
 					)
 				}
 				const lo = bounded(guard.low)
@@ -3847,7 +3857,7 @@ class Typing<R extends Refs> {
 				const low = lo.bounds === undefined ? undefined : pointOf(lo.bounds)
 				const high = hi.bounds === undefined ? undefined : pointOf(hi.bounds)
 				if (low === undefined || high === undefined) {
-					return stop("MalformedDescription", at, "Compute.within's bounds: two finite literals")
+					return stop("MalformedDescription", at, "Num.within's bounds: two finite literals")
 				}
 				return { predicate: this.comparison("between", [subject, lo, hi], at), within: [low, high] }
 			}
@@ -3866,7 +3876,7 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Compute.cast: a registered conversion of the value types, then the target's numeric typmod coercion, then a domain
+	 * Type.cast: a registered conversion of the value types, then the target's numeric typmod coercion, then a domain
 	 * cast into a contract or a regex-refined text type, or the binary coercion that drops a typmod or a regex into the
 	 * plain type, so the node delivered is of the type the cast names. A cast that changes nothing records nothing. Each
 	 * step is defined everywhere or proved where it stands (castNode, domainCast); a conversion into a float rounds as
@@ -3885,7 +3895,7 @@ class Typing<R extends Refs> {
 				return stop(
 					"UnsupportedOperation",
 					at,
-					`cast: PostgreSQL has no cast from ${typeLabel(from)} to ${typeLabel(target)} that Compute admits`
+					`cast: PostgreSQL has no cast from ${typeLabel(from)} to ${typeLabel(target)} that grizzle admits`
 				)
 			}
 			value = this.castNode(
@@ -3916,7 +3926,7 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * A parse, Compute.cast of a text into a type with a lexical form (scalar/lexical.ts): one cast node at the target's
+	 * A parse, Type.cast of a text into a type with a lexical form (scalar/lexical.ts): one cast node at the target's
 	 * base, its numeric typmod included, since the form is the typmod's, defined where the text is a member of the form
 	 * (the lexical precondition, which the lowering proves); then a domain cast into a contract over the base, which the
 	 * parsed value's bounds, the base's own, prove or refuse. A base with no lexical form has no parse.
@@ -3928,7 +3938,7 @@ class Typing<R extends Refs> {
 			return stop(
 				"UnsupportedOperation",
 				at,
-				`cast: ${typeLabel(target)} has no lexical form a text parses into; the forms are an integer type's, numeric(p, s) with 0 <= s <= p and at most ${regexMaxRepeat} digits on either side of its point, double precision's, boolean's and date's; Compute.parseDecimal(x) reads any decimal text into numeric exactly`
+				`cast: ${typeLabel(target)} has no lexical form a text parses into; the forms are an integer type's, numeric(p, s) with 0 <= s <= p and at most ${regexMaxRepeat} digits on either side of its point, double precision's, boolean's and date's; Text.parseDecimal(x) reads any decimal text into numeric exactly`
 			)
 		}
 		if (!op.partial) {
@@ -3955,7 +3965,7 @@ class Typing<R extends Refs> {
 					operands: [arg],
 					target,
 					at,
-					operation: `Compute.cast(${nodeText(arg.node)}, ${typeLabel(target)})`
+					operation: `Type.cast(${nodeText(arg.node)}, ${typeLabel(target)})`
 				}
 			},
 			type,
@@ -3997,7 +4007,7 @@ class Typing<R extends Refs> {
 			this.refusedAt(
 				"check",
 				here,
-				`${fn} in a contract predicate or row check: a check admits the operations the host evaluates for the ContractLiteral check, which are comparisons, between, in, boolean composition, abs, sign, arithmetic, Compute.cond, Compute.when, casts, charLength, octetLength, utf16Length, span endpoints, greatest and the set algebra`
+				`${fn} in a contract predicate or row check: a check admits the operations the host evaluates for the ContractLiteral check, which are comparisons, between, in, boolean composition, abs, sign, arithmetic, Logic.cond, Logic.when, casts, charLength, octetLength, utf16Length, span endpoints, greatest and the set algebra`
 			)
 		}
 		const expected = computeSpecs[fn].arity
@@ -4056,7 +4066,7 @@ class Typing<R extends Refs> {
 					this.resultType(op, bounds),
 					bounds,
 					here,
-					`Compute.${desc.fn}(${nodeText(a.node)}, ${nodeText(b.node)})`
+					`${spelling[desc.fn]}(${nodeText(a.node)}, ${nodeText(b.node)})`
 				)
 			}
 			case "power": {
@@ -4071,7 +4081,7 @@ class Typing<R extends Refs> {
 					this.resultType(op, bounds),
 					bounds,
 					here,
-					`Compute.power(${nodeText(a.node)}, ${nodeText(b.node)})`
+					`Num.power(${nodeText(a.node)}, ${nodeText(b.node)})`
 				)
 			}
 			case "round":
@@ -4085,14 +4095,7 @@ class Typing<R extends Refs> {
 				)
 				if (desc.scale === undefined) {
 					const op = this.overload(desc.fn, [valueType(a.nominal)], here)
-					return this.native(
-						op,
-						[a],
-						this.resultType(op, bounds),
-						bounds,
-						here,
-						`Compute.${desc.fn}`
-					)
+					return this.native(op, [a], this.resultType(op, bounds), bounds, here, spelling[desc.fn])
 				}
 				const digits = this.literal(desc.scale, plainType("int4"), childLoc(here, "scale"))
 				const op = this.overload(desc.fn, [valueType(a.nominal), plainType("int4")], here)
@@ -4102,7 +4105,7 @@ class Typing<R extends Refs> {
 					this.resultType(op, bounds),
 					bounds,
 					here,
-					`Compute.${desc.fn}`
+					spelling[desc.fn]
 				)
 			}
 			case "minScale": {
@@ -4115,7 +4118,7 @@ class Typing<R extends Refs> {
 					plainType("int4"),
 					ofRange(0n, BigInt(numericMaxFractionDigits), String(numericMaxFractionDigits).length),
 					here,
-					`Compute.minScale(${nodeText(a.node)})`
+					`Num.minScale(${nodeText(a.node)})`
 				)
 			}
 			case "numeric":
@@ -4144,7 +4147,7 @@ class Typing<R extends Refs> {
 					this.resultType(op, bounds),
 					bounds,
 					here,
-					`Compute.${desc.fn}(${nodeText(a.node)})`
+					`${spelling[desc.fn]}(${nodeText(a.node)})`
 				)
 			}
 			case "gcd":
@@ -4205,7 +4208,7 @@ class Typing<R extends Refs> {
 			case "disjoint": {
 				const [a, b] = this.sets(desc.fn, arg(0), arg(1), here)
 				const op = this.overload(desc.fn, [a.actual, b.actual], here)
-				return this.native(op, [a, b], plainType("bool"), undefined, here, `Compute.${desc.fn}`)
+				return this.native(op, [a, b], plainType("bool"), undefined, here, spelling[desc.fn])
 			}
 			case "singleton":
 				return this.singleton(this.term(arg(0), here), here)
@@ -4219,7 +4222,7 @@ class Typing<R extends Refs> {
 					plainType("int8"),
 					ofRange(0n, members, String(members).length),
 					here,
-					"Compute.cardinality"
+					spelling.cardinality
 				)
 			}
 			case "widthBucket":
@@ -4267,7 +4270,7 @@ class Typing<R extends Refs> {
 			case "endsWith": {
 				const [a, b] = this.texts(desc.fn, arg(0), arg(1), here)
 				const op = this.overload(desc.fn, [a.actual, b.actual], here)
-				return this.native(op, [a, b], plainType("bool"), undefined, here, `Compute.${desc.fn}`)
+				return this.native(op, [a, b], plainType("bool"), undefined, here, spelling[desc.fn])
 			}
 			case "matches":
 				return this.matches(arg(0), arg(1), here)
@@ -4323,11 +4326,11 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Compute.numeric: PostgreSQL's conversion of a number into numeric, `x::numeric`, a computed numeric typed by what
+	 * Num.numeric: PostgreSQL's conversion of a number into numeric, `x::numeric`, a computed numeric typed by what
 	 * the conversion proves of it: a registered cast from an integer, money, an exact value or a float, defined on every
 	 * value (castNode); the binary coercion from a numeric(p, s), its typmod dropped, into its value's proved bound
 	 * (numericOf); a computed numeric itself. A text is no number: its cast into numeric is a parse, defined only on its
-	 * lexical form, which Compute.cast states with its proof, so Compute.numeric refuses it whatever the operand.
+	 * lexical form, which Type.cast states with its proof, so Num.numeric refuses it whatever the operand.
 	 */
 	numeric(a: Typed, at: SourceLoc): Typed {
 		const from = valueType(a.actual)
@@ -4342,7 +4345,7 @@ class Typing<R extends Refs> {
 			? stop(
 					"UnsupportedOperation",
 					at,
-					`Compute.numeric: a conversion of a number into numeric, and ${typeLabel(from)} is no number; a text becomes one by Compute.parseDecimal(x), or by Compute.cast(x, T) into a type with a lexical form, under Compute.when(Compute.matches(x, lexicalForm(T)), …)`
+					`Num.numeric: a conversion of a number into numeric, and ${typeLabel(from)} is no number; a text becomes one by Text.parseDecimal(x), or by Type.cast(x, T) into a type with a lexical form, under Logic.when(Text.matches(x, lexicalForm(T)), …)`
 				)
 			: this.castNode(a, anyNumeric, { kind: "registered", op }, at)
 	}
@@ -4372,12 +4375,12 @@ class Typing<R extends Refs> {
 		if (isFloat(va) || va.carrier === "money" || va.carrier === "exactMoney") {
 			this.refusedAt("check", at, floatArithmeticText(fn, va))
 		}
-		const operation = `Compute.${fn}(${nodeText(a0.node)}, ${nodeText(b0.node)})`
+		const operation = `${spelling[fn]}(${nodeText(a0.node)}, ${nodeText(b0.node)})`
 		if (va.carrier === "date") {
 			return stop(
 				"UnsupportedOperation",
 				at,
-				`${fn}: PostgreSQL has no ${fn} over ${typeLabel(a0.nominal)}, ${typeLabel(b0.nominal)} that Compute admits`
+				`${fn}: PostgreSQL has no ${fn} over ${typeLabel(a0.nominal)}, ${typeLabel(b0.nominal)} that grizzle admits`
 			)
 		}
 		if (fn === "div" && exactFamily(va) === "exactInteger") {
@@ -4418,7 +4421,7 @@ class Typing<R extends Refs> {
 		const bounds =
 			a.bounds === undefined ? undefined : fn === "neg" ? negBounds(a.bounds) : absBounds(a.bounds)
 		const type = this.resultType(op, bounds)
-		const result = this.native(op, [a], type, bounds, at, `Compute.${fn}`)
+		const result = this.native(op, [a], type, bounds, at, spelling[fn])
 		return fn === "neg"
 			? this.restate(
 					result,
@@ -4444,7 +4447,7 @@ class Typing<R extends Refs> {
 			case "exactInteger": {
 				const op = this.overload("sign", [v], at)
 				const bounds = signBoundsOver(carrier, a.bounds)
-				return this.native(op, [a], this.resultType(op, bounds), bounds, at, "Compute.sign")
+				return this.native(op, [a], this.resultType(op, bounds), bounds, at, spelling.sign)
 			}
 			case "int2":
 			case "int4":
@@ -4507,7 +4510,7 @@ class Typing<R extends Refs> {
 			this.resultType(op, signBounds),
 			signBounds,
 			at,
-			"Compute.sign"
+			spelling.sign
 		)
 		const signed = this.castNode(s, v, { kind: "computed", op: back }, at)
 		return this.restate(signed, valueType(a.nominal), signed.actual, signed.facts)
@@ -4548,7 +4551,7 @@ class Typing<R extends Refs> {
 			infinite: false,
 			nan: valueType(a.nominal).carrier === "numeric"
 		})
-		return this.native(op, [a, b], this.resultType(op, bounds), bounds, at, `Compute.${fn}`)
+		return this.native(op, [a, b], this.resultType(op, bounds), bounds, at, spelling[fn])
 	}
 
 	widthBucket(args: ReadonlyArray<ExprDesc<Located, R>>, at: SourceLoc): Typed {
@@ -4592,7 +4595,7 @@ class Typing<R extends Refs> {
 			this.resultType(op, bucket),
 			bucket,
 			at,
-			"Compute.widthBucket"
+			spelling.widthBucket
 		)
 	}
 
@@ -4634,7 +4637,7 @@ class Typing<R extends Refs> {
 			upper.bounds !== undefined && lower.bounds !== undefined
 				? subBounds(upper.bounds, lower.bounds)
 				: undefined
-		return this.native(op, [upper, lower], this.resultType(op, bounds), bounds, at, "Compute.width")
+		return this.native(op, [upper, lower], this.resultType(op, bounds), bounds, at, spelling.width)
 	}
 }
 
@@ -4884,15 +4887,15 @@ const powerBounds = (
 	})
 }
 
-/** A Compute.when guard whose test compares its subject's value with constants alone (constantGuardTests). */
+/** A Logic.when guard whose test compares its subject's value with constants alone (constantGuardTests). */
 export type ConstantGuard = "nonzero" | "nonnegative" | "positive" | "finite"
 
 /** Each constant guard's builder, as its diagnostics name it. */
 export const constantGuardNames: { readonly [G in ConstantGuard]: string } = {
-	nonzero: "Compute.nonzero",
-	nonnegative: "Compute.nonnegative",
-	positive: "Compute.positive",
-	finite: "Compute.isFinite"
+	nonzero: spelling.nonzero,
+	nonnegative: spelling.nonnegative,
+	positive: spelling.positive,
+	finite: spelling.isFinite
 }
 
 /** Zero of a number's carrier; none of another carrier, whose values a sign guard compares with no zero. */
@@ -4938,7 +4941,7 @@ const infinitiesOf = (carrier: Carrier): readonly [LiteralDesc, LiteralDesc] | u
 /**
  * The comparisons a constant guard tests its subject's value by, each with its constant, a value of the subject's value
  * carrier: `<> 0`, `>= 0` and `> 0` of a number, `> -Infinity AND < Infinity` of a numeric or a float; or the refusal
- * of a subject of another carrier. What a guard's builder records (builders.ts factGuard) and what a Compute.when's
+ * of a subject of another carrier. What a guard's builder records (builders.ts factGuard) and what a Logic.when's
  * lowering tests (Typing.guardPredicate), one table.
  */
 export const constantGuardTests = (
@@ -4949,7 +4952,7 @@ export const constantGuardTests = (
 		const infinities = infinitiesOf(value.carrier)
 		return infinities === undefined
 			? Result.err(
-					`Compute.isFinite over a numeric or float term, not ${typeLabel(value)}, which is finite by its type`
+					`Num.isFinite over a numeric or float term, not ${typeLabel(value)}, which is finite by its type`
 				)
 			: Result.ok([
 					["gt", infinities[0]],
@@ -5008,11 +5011,11 @@ const compatibleCore = (a: ScalarType, b: ScalarType): boolean => meets(valueTyp
 const isReference = <R extends Refs>(desc: ExprDesc<Located, R>): desc is LeafDesc<R> =>
 	desc.kind === "var" || desc.kind === "field" || desc.kind === "value" || desc.kind === "parent"
 
-/** A description read past its guarded nodes: the term a Compute.when branch's parameter is (ir/desc.ts GuardedDesc). */
+/** A description read past its guarded nodes: the term a Logic.when branch's parameter is (ir/desc.ts GuardedDesc). */
 const unguarded = <R extends Refs>(desc: ExprDesc<Located, R>): ExprDesc<Located, R> =>
 	desc.kind === "guarded" ? unguarded(desc.arg) : desc
 
-/** The typing of a term by `f`, from the scope of no Compute.when, with the tape it recorded. */
+/** The typing of a term by `f`, from the scope of no Logic.when, with the tape it recorded. */
 const typed = <R extends Refs>(
 	env: TypingEnv<R>,
 	f: (t: Typing<R>) => Typed
@@ -5035,15 +5038,15 @@ const typed = <R extends Refs>(
  * types its term before it knows where the term stands, and every site a term is compiled at. Typing follows
  * PostgreSQL's overload resolution, never JavaScript's number-versus-bigint distinction:
  *
- * - Operands of one operation meet (types.ts meets): a contract and its bare base never meet without Compute.base, and
+ * - Operands of one operation meet (types.ts meets): a contract and its bare base never meet without Type.base, and
  *   arithmetic over a contract yields the base; an exact value meets the plain values of its family, widened exactly.
  * - A literal never stands first and has no type of its own: it adopts the type of the term it meets. In a comparison,
  *   an IN list, BETWEEN bounds or a conditional's branch it adopts that term's contract or regex refinement; in
  *   arithmetic it adopts the term's value type, the unconstrained base, opposite an exact value its family's plain
  *   carrier.
  * - A parameter is a term of its declared type, first included, which its caller binds; a typed constant
- *   (Compute.literal) is a term of its stated type.
- * - When both branches of Compute.cond are literals, number literals are integer and every other literal is its own
+ *   (Type.literal) is a term of its stated type.
+ * - When both branches of Logic.cond are literals, number literals are integer and every other literal is its own
  *   host type.
  *
  * What the term's lowering does beside it is recorded on the tape in the order it does it (TapeEntry): the nodes it
@@ -5051,7 +5054,7 @@ const typed = <R extends Refs>(
  * site, a literal's ContractLiteral check and a numeric bound past numeric's own digits (ResourceBound). Nothing here
  * depends on where the term is compiled: a typing refuses only a description no site types.
  *
- * Types a term: a Compute expression, a reference, or a typed literal.
+ * Types a term: a scalar expression, a reference, or a typed literal.
  */
 export const typeOf = <R extends Refs>(
 	desc: ExprDesc<Located, R>,
@@ -5066,7 +5069,7 @@ export const typePredicate = <R extends Refs>(
 
 /**
  * Types a term a function returns unchanged, the argument of min or max: delivered with the contract the term has.
- * Where its node computes it without that contract, a parameter bound as its base or a Compute.base whose node still
+ * Where its node computes it without that contract, a parameter bound as its base or a Type.base whose node still
  * carries the contract it drops, the node is converted into the term's own type, as LEAST and GREATEST convert their
  * operands (Typing.convert).
  */
@@ -5083,7 +5086,7 @@ export const typeReturned = <R extends Refs>(
 
 /**
  * Types a child of a predicate another package lowers (r.allen, r.pointIn), as that package reads it, at `at`: a term,
- * or a bare literal at its own value's type, under the Compute.whens the predicate stands in (`scope`).
+ * or a bare literal at its own value's type, under the Logic.whens the predicate stands in (`scope`).
  */
 export const typeWithin = <R extends Refs>(
 	desc: ExprDesc<Located, R>,

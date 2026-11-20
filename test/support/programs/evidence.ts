@@ -9,7 +9,18 @@ export type { DbOf, WorkloadHandles } from "#adapter/types/db.ts"
 export type { ReadError } from "#adapter/errors/execution.ts"
 export type { CallError, InputOf, KeyedList, KeyedSet } from "#compiler/live/index.ts"
 export { ALLEN } from "#compiler/public/allen.ts"
-export { Compute } from "#compiler/public/compute.ts"
+export {
+	Crypto,
+	Distance,
+	Fn,
+	Logic,
+	Num,
+	Range,
+	Search,
+	Text,
+	Type,
+	Xml
+} from "#compiler/public/compute.ts"
 export { date, Decimal, Money, pg, Vector } from "#compiler/public/fields.ts"
 export type { CalendarDate, Span, Uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"

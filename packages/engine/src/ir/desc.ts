@@ -76,7 +76,7 @@ import {
  * literal. A Money is its owned value (Money.of), carried as "~m:"; a Vector, a caller's mutable Float32Array, is the
  * frozen snapshot of its components Vector.canonical takes, carried as "~v:". Spans and the float special values are
  * wrapped so that no literal is mistaken for a record. A set over a roster is its handles in the roster's declared order,
- * each once; none is the empty set. A Compute.matches pattern is its pattern value (ir/pattern.ts PatternValue), its
+ * each once; none is the empty set. A Text.matches pattern is its pattern value (ir/pattern.ts PatternValue), its
  * language's key and its spelling, the spelling no part of its identity, so two spellings of one language are one
  * description.
  */
@@ -118,7 +118,7 @@ export type PgScalarName = (typeof pgScalarNames)[number]
  * (fieldDescShape): numeric is numeric(p, s), its precision and scale both declared. No declaration states a computed
  * numeric, so none has an arm here; a derived relation's inferred field is an InferredFieldDesc. A set over a roster
  * (bits) is bit(n), one bit per code the roster has minted, holes included. A pattern is a closed relation's text of
- * Compute.matches patterns (str.pattern), each value a pattern of grizzle's grammar admitted once where the relation is
+ * Text.matches patterns (str.pattern), each value a pattern of grizzle's grammar admitted once where the relation is
  * read, its ARE planned beside its dictionary.
  */
 export type FieldDesc =
@@ -192,7 +192,7 @@ export type InferredFieldDesc =
  */
 export type HeldDesc = InferredFieldDesc | { readonly kind: "digest"; readonly image: KeyImage }
 
-/** The Compute catalogue. */
+/** The scalar catalogue. */
 export const computeFns = [
 	"add",
 	"sub",
@@ -374,7 +374,7 @@ export type InferredRule = RuleDesc<Located, Inferred>
 export type InferredSource = SourceDesc<Located, Inferred>
 
 /**
- * What a Compute.when guard tests of its subject and so establishes of its parameter inside its then branch: never
+ * What a Logic.when guard tests of its subject and so establishes of its parameter inside its then branch: never
  * zero, never below zero, above zero (both), never NaN or an infinity, within two literal bounds (and so finite), or a
  * match of a literal pattern, its pattern value (ir/pattern.ts PatternValue). The first four are facts a term's
  * TypeScript type states; within states an interval, which no type does (scalar/compute/bounds.ts); matches retypes a
@@ -390,7 +390,7 @@ export type GuardDesc =
 	| { readonly kind: "matches"; readonly pattern: PatternValue }
 
 /**
- * A Compute.when branch's parameter: `arg`, the when's subject, read where the when's `guard` holds of it, so the
+ * A Logic.when branch's parameter: `arg`, the when's subject, read where the when's `guard` holds of it, so the
  * lowering gives it what the guard establishes inside the when's branch (scalar/compute/typing.ts guarded). It stands
  * in for `arg` (core/canonical.ts standInTag): its identity text, digests, names and SQL are arg's, and only the JSON
  * form a Description crosses a process boundary in (descToJson) writes it, so a decode restores it.
@@ -402,7 +402,7 @@ export interface GuardedDesc<L = Located, R extends Refs = Spelled> extends Stan
 }
 
 /**
- * The parameter of a Compute.when of `guard` over the subject `arg`: arg, guarded (GuardedDesc), a node like any other,
+ * The parameter of a Logic.when of `guard` over the subject `arg`: arg, guarded (GuardedDesc), a node like any other,
  * frozen with the description that holds it.
  */
 export const guardedExpr = <L, R extends Refs>(
@@ -503,7 +503,7 @@ export type ExprDesc<L = Located, R extends Refs = Spelled> =
 	  }
 	| {
 			/**
-			 * Compute.call(f, args) of a declared function `function` that returns a value: a term for each of its
+			 * Fn.call(f, args) of a declared function `function` that returns a value: a term for each of its
 			 * arguments by the argument's name, each a value of the argument's type. The host never evaluates one: a call
 			 * is read in SQL alone, and no contract predicate, row check or generated field holds one.
 			 */
@@ -932,7 +932,7 @@ export type SourceDesc<L = Located, R extends Refs = Spelled> =
 	| ({ readonly kind: "paramOf"; readonly relation: string } & R["param"])
 	| {
 			/**
-			 * Compute.call(f, args) of a declared function `function` that returns rows: its result's rows, matched like a
+			 * Fn.call(f, args) of a declared function `function` that returns rows: its result's rows, matched like a
 			 * table, each argument by its name (CallArgDesc), each read where the match stands.
 			 */
 			readonly kind: "call"
@@ -941,7 +941,7 @@ export type SourceDesc<L = Located, R extends Refs = Spelled> =
 	  }
 	| {
 			/**
-			 * Compute.rowOf(f, args)[field] of a declared function `function` that returns one row: the rows `field` holds,
+			 * Fn.row(f, args)[field] of a declared function `function` that returns one row: the rows `field` holds,
 			 * a field of the row of rows of a heading of values, matched like a table, each argument by its name
 			 * (CallArgDesc), each read where the match stands, as a call's rows are (`call`). Every read of a field of one
 			 * call at one argument tuple reads one evaluation of it.

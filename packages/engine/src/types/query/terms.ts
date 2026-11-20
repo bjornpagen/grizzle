@@ -153,7 +153,7 @@ export type VarOrigins<R, N extends string> =
  * What a match or negation may bind each field to: a JavaScript value of the field's language, every value of its
  * type, which the source's carrier states (LanguageOf), or a term that meets the field's type (Meets, the one relation:
  * a computed exact value of a plain integer or money field's family among them, which the checker compares with the
- * column widened, as Compute.eq does), the domain and SQL type the carrier states. A JavaScript value or a typed
+ * column widened, as Logic.eq does), the domain and SQL type the carrier states. A JavaScript value or a typed
  * constant selects the arms whose field delivers its value.
  */
 export type Bindings<Head, C> = { readonly [K in AnyKeyOf<Head>]: BindingAt<C, K> }
@@ -328,7 +328,7 @@ type WellTyped<B, C> = {
  * The arms that admit every constant the bindings give one of their fields: an arm admits a constant when the
  * constant's values may be among those its field delivers (Overlaps), its own constant's value or its column's type's
  * values. A constant whose value the types carry, a JavaScript primitive or a handle, is told apart from every other
- * value; one whose value they do not, a Decimal, a Money, a typed Compute.literal, a value of a non-literal type, may
+ * value; one whose value they do not, a Decimal, a Money, a typed Type.literal, a value of a non-literal type, may
  * be any value of its type, so it selects every arm whose field it fits.
  */
 type LiteralArms<H, B> = H extends unknown
@@ -355,7 +355,7 @@ type BoundValues<X> = X extends TermBase ? ValueOfTerm<X> : X
  */
 type Overlaps<X, Y> = [Spelled<X> & Spelled<Y>] extends [never] ? false : true
 type Spelled<X> = X extends number | bigint ? `${X}` : X
-/** A typed constant, X.handle(member) or Compute.literal(F, x). */
+/** A typed constant, X.handle(member) or Type.literal(F, x). */
 type IsConstant<X> = X extends TermBase
 	? [OriginOfTerm<X>] extends [ConstantOrigin]
 		? true

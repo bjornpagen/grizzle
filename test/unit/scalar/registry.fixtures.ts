@@ -51,7 +51,7 @@ import {
 	textOf
 } from "#compiler/ir/scalar.ts"
 import { str } from "#compiler/public/text.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
@@ -194,7 +194,8 @@ export const contentFeatures: Arr.NonEmptyReadonlyArray<ContentFeature> = [
 
 /** A contract predicate over a bigint VALUE. */
 const nonNegative: ExprDesc = defined(
-	contractDescriptor("Cents", pgDescriptors.bigint, (v: ScalarTerm) => Compute.ge(v, 0n)).predicate,
+	contractDescriptor("Cents", pgDescriptors.bigint, (v: ScalarTerm) => computeCore.ge(v, 0n))
+		.predicate,
 	"a contract's predicate"
 )
 

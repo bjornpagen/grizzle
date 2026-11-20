@@ -92,7 +92,7 @@ const combine = (x: ScalarType, y: ScalarType): ScalarType => {
  * contract. This module owns what the checker cannot decide locally about those guarantees:
  *
  * - Propagation. An unchanged projection, match, import, DISTINCT, and text min and max keep their input's
- *   guarantees, because the checker gives them the input column's own type. A computed value carries the Compute
+ *   guarantees, because the checker gives them the input column's own type. A computed value carries the scalar
  *   catalogue's result type, a plain native type, a computed numeric with its bound or the canonical wildcard
  *   (scalar/compute). A column that several arms
  *   of one union deliver keeps only the guarantees common to every arm (`refinement.common` below): the arms' type when

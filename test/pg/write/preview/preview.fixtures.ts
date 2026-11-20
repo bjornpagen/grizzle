@@ -35,7 +35,7 @@ import type { CallError, CallErrorOf } from "#compiler/live/index.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { type PreviewRowsByName, previewOver } from "#compiler/program/preview.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Text, Type } from "#compiler/public/compute.ts"
 import {
 	accumulated,
 	Bits,
@@ -190,7 +190,7 @@ const paletteOf = (hues: Hues) => {
 		["hue", "id"],
 		(row) => ({
 			lum: generated(pg.bigint, Glow.at("lum", row.tone)),
-			tag: generated(Label, Compute.cast(Compute.collapse(row.label), Label))
+			tag: generated(Label, Type.cast(Text.collapse(row.label), Label))
 		})
 	)
 	const Dab = relation(

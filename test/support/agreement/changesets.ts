@@ -432,7 +432,7 @@ const refusalNotes = {
 	"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes":
 		"refused: an ordinary relation",
 	"the query's head is not a fact of the relation": "refused: a head",
-	"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast":
+	"a member's head writes each field at its type: an exact value re-enters a plain field only by Type.cast":
 		"refused: an exact value",
 	"a member fact is not a fact of the relation": "refused: a member fact",
 	"a sequence's member is written under its owner: nest it in order at the owner's count field":
@@ -1844,7 +1844,9 @@ const caseOver = (d: Drawing): CaseSpec => {
 /** The source of a case's ChangeSet and its application, with the names it uses. */
 class Rendering {
 	readonly uses = new Set<
-		| "Compute"
+		| "Logic"
+		| "Num"
+		| "Type"
 		| "Stream"
 		| "Money"
 		| "pg"
@@ -1915,12 +1917,14 @@ class Rendering {
 			case "literal":
 				return this.lit(t.lit)
 			case "exact":
-				this.uses.add("Compute")
-				return `Compute.add(s.${t.field}, ${t.param})`
+				this.uses.add("Num")
+				return `Num.add(s.${t.field}, ${t.param})`
 			case "narrowed":
-				this.uses.add("Compute")
+				this.uses.add("Logic")
+				this.uses.add("Num")
+				this.uses.add("Type")
 				this.uses.add("pg")
-				return `Compute.when(Compute.within(Compute.add(s.${t.field}, ${t.param}), -9223372036854775808n, 9223372036854775807n), (g) => Compute.cast(g, pg.bigint), s.${t.field})`
+				return `Logic.when(Num.within(Num.add(s.${t.field}, ${t.param}), -9223372036854775808n, 9223372036854775807n), (g) => Type.cast(g, pg.bigint), s.${t.field})`
 		}
 	}
 
@@ -2277,7 +2281,7 @@ const claimOf = (reason: CompileReason, spec: CaseSpec): Claim => {
 			? {
 					kind: "refusal",
 					refusal:
-						"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast"
+						"a member's head writes each field at its type: an exact value re-enters a plain field only by Type.cast"
 				}
 			: { kind: "refusal", refusal: "the query's head is not a fact of the relation" }
 	}

@@ -14,8 +14,8 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { metaSpecOf, type NodeOf } from "#compiler/ir/rel.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
-import { Compute } from "#compiler/public/compute.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { Num, Type } from "#compiler/public/compute.ts"
+import { Bits, closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -95,7 +95,7 @@ const Walks = query(Network).recursive("Walks", {
 			return r
 				.match(Person, { id })
 				.where(r.eq(id, r.param("start", Id)))
-				.find({ person: id, hops: Compute.literal(pg.integer, 0) })
+				.find({ person: id, hops: Type.literal(pg.integer, 0) })
 		}
 	],
 	rec: [
@@ -107,7 +107,7 @@ const Walks = query(Network).recursive("Walks", {
 				.match(Follows, { from: person, to })
 				.match(Person, { id: to })
 				.where(r.lt(hops, 4))
-				.find({ person: to, hops: Compute.add(hops, Compute.literal(pg.integer, 1)) })
+				.find({ person: to, hops: Num.add(hops, Type.literal(pg.integer, 1)) })
 		}
 	]
 })
@@ -200,8 +200,8 @@ export const pushQuery = (column: Column, spelling: Spelling, twice: boolean): u
 				const { hops: h2 } = v(again, "again")
 				const first =
 					spelling === "where"
-						? r.match(walks, { person, hops }).where(r.eq(hops, Compute.literal(pg.integer, 2)))
-						: r.match(walks, { person, hops: Compute.literal(pg.integer, 2) })
+						? r.match(walks, { person, hops }).where(r.eq(hops, Type.literal(pg.integer, 2)))
+						: r.match(walks, { person, hops: Type.literal(pg.integer, 2) })
 				return twice
 					? first.match(again, { person, hops: h2 }).find({ person })
 					: first.find({ person })
@@ -325,8 +325,8 @@ export const alikeQuery = (part: Part, conjuncts: Conjuncts): unknown =>
 					return [r.eq(Weight.at("light", origin), 1), r.eq(Weight.at("heavy", origin), 1)] as const
 				case "completions":
 					return [
-						r.eq(Compute.subset(Compute.singleton(origin), Allowed.row("north")), true),
-						r.eq(Compute.subset(Compute.singleton(origin), Allowed.row("south")), true)
+						r.eq(Bits.subset(Bits.singleton(origin), Allowed.row("north")), true),
+						r.eq(Bits.subset(Bits.singleton(origin), Allowed.row("south")), true)
 					] as const
 				case "presence":
 					return [Allowed.has("north", origin), Allowed.has("south", origin)] as const

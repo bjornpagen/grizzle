@@ -85,7 +85,7 @@ export const variable = (name: string): ExprDesc => ({ kind: "var", var: name })
 
 export const text = (value: string): ExprDesc => ({ kind: "literal", value })
 
-/** A Compute.matches pattern literal: its pattern value. */
+/** A Text.matches pattern literal: its pattern value. */
 export const patternLiteral = (value: PatternValue): ExprDesc => ({ kind: "literal", value })
 
 /** The pattern literal of `spelling`, admitted (spelled). */
@@ -289,7 +289,7 @@ const malformed = ["(", ")", "["] as const
 type Emptying = "a code point after the end" | "a code point before the start" | "an empty class"
 
 /**
- * Where a literal pattern is read: a match's (`Compute.matches`), or a guard's (`Compute.when`), which reads the same
+ * Where a literal pattern is read: a match's (`Text.matches`), or a guard's (`Logic.when`), which reads the same
  * pattern and states its refusal one level below its own.
  */
 type Site = "matches" | "when"

@@ -1,7 +1,7 @@
 /**
  * A containment into a side selected by `field = literal`, through grizzle's lowering on PostgreSQL 19, where the
  * literal is bare, typed at the field's own type, or typed at another: `select(B, (b) => b.eq(b.x,
- * Compute.literal(pg.numeric(10, 2), "1.25")))` over a numeric(5, 1) field x compares at numeric(10, 2), as a query
+ * Type.literal(pg.numeric(10, 2), "1.25")))` over a numeric(5, 1) field x compares at numeric(10, 2), as a query
  * compares it, so no x equals it. A bare literal adopts the field's type, rounded as PostgreSQL's coercion stores it
  * (1.25 at numeric(5, 1) is 1.3); a typed one fixes the field only where the field's type holds its value exactly
  * (analysis/theory/laws.ts LawSides.selector), on a select() side and on a rule over a query whose match binds the
@@ -14,7 +14,7 @@
  *
  * The box: one of three B relations (numeric(5, 1) keyed by id, the same keyed by id and x, text of up to 3 letters),
  * its row at id 1 absent or at each of two values, and every subset of that relation's sources holding id 1, B's row
- * written first, in one transaction. Types of two carriers never meet without Compute.base, so a literal of another
+ * written first, in one transaction. Types of two carriers never meet without Type.base, so a literal of another
  * type than its field's is one of another numeric typmod or text refinement. Over the B keyed by id and x, a
  * containment into its selection over id holds a key only where the literal fixes x, so the box holds the fixing
  * literal's select() side and the rules of both, the other keeping its triggers.

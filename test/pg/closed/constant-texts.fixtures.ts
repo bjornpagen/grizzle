@@ -18,7 +18,7 @@ import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "
 import { Db } from "#adapter/public/db.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Text, Type } from "#compiler/public/compute.ts"
 import { closedId, generated, pg } from "#compiler/public/fields.ts"
 import {
 	check,
@@ -373,34 +373,34 @@ const schemaOf = (c: ConstantCase) => {
 		Arr.flatMap(c.allowed, (held, kind) => (held ? [{ kind: kindOf(kind) }] : []))
 	)
 	const atomOf = (t: Atom): TextTermOf =>
-		t.kind === "literal" ? Compute.literal(Wild, t.text) : Pick.at("t", kindOf(t.handle))
+		t.kind === "literal" ? Type.literal(Wild, t.text) : Pick.at("t", kindOf(t.handle))
 	const termOf = (t: TextTerm): TextTermOf => {
 		switch (t.kind) {
 			case "literal":
 			case "pick":
 				return atomOf(t)
 			case "concat":
-				return Compute.concat(atomOf(t.a), atomOf(t.b))
+				return Text.concat(atomOf(t.a), atomOf(t.b))
 			case "greatest":
-				return Compute.greatest(atomOf(t.a), atomOf(t.b))
+				return Logic.greatest(atomOf(t.a), atomOf(t.b))
 		}
 	}
 	const constOf = (p: Const): Predicate => {
 		switch (p.kind) {
 			case "compare":
-				return Compute[p.op](termOf(p.a), termOf(p.b))
+				return Logic[p.op](termOf(p.a), termOf(p.b))
 			case "in":
-				return Compute.in(termOf(p.a), p.values)
+				return Logic.in(termOf(p.a), p.values)
 			case "startsWith":
-				return Compute.eq(Compute.startsWith(termOf(p.a), termOf(p.b)), true)
+				return Logic.eq(Text.startsWith(termOf(p.a), termOf(p.b)), true)
 			case "endsWith":
-				return Compute.eq(Compute.endsWith(termOf(p.a), termOf(p.b)), true)
+				return Logic.eq(Text.endsWith(termOf(p.a), termOf(p.b)), true)
 			case "and":
-				return Compute.and(constOf(p.args[0]), constOf(p.args[1]))
+				return Logic.and(constOf(p.args[0]), constOf(p.args[1]))
 			case "or":
-				return Compute.or(constOf(p.args[0]), constOf(p.args[1]))
+				return Logic.or(constOf(p.args[0]), constOf(p.args[1]))
 			case "not":
-				return Compute.not(constOf(p.arg))
+				return Logic.not(constOf(p.arg))
 		}
 	}
 	const fields = { id: pg.integer, kind: closedId(Kind), n: pg.integer, m: pg.integer }
@@ -412,13 +412,13 @@ const schemaOf = (c: ConstantCase) => {
 			case "alone":
 				return constant
 			case "or":
-				return Compute.or(Compute.eq(r.n, phi.mixed.at), constant)
+				return Logic.or(Logic.eq(r.n, phi.mixed.at), constant)
 			case "and":
-				return Compute.and(Compute.eq(r.n, phi.mixed.at), constant)
+				return Logic.and(Logic.eq(r.n, phi.mixed.at), constant)
 		}
 	}
 	const GenCond = relation.generated("GenCond", fields, ["id"], (r) => ({
-		g: generated(pg.integer, Compute.cond(phiOf(c.generated, r), r.n, r.m))
+		g: generated(pg.integer, Logic.cond(phiOf(c.generated, r), r.n, r.m))
 	}))
 	const GenText = relation.generated("GenText", fields, ["id"], () => ({
 		g: generated(Wild, termOf(c.text))

@@ -18,7 +18,7 @@ import { element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { bigint } from "@bjornpagen/testing/values"
 import { Effect } from "effect"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { baseParams, lowerWith, spelledExpr, v } from "#test/unit/compute/support.ts"
 import {
@@ -133,7 +133,7 @@ export const theContractLiteralCheckChecksALiteralOppositeAContractsTermAgainstI
 							site === "arithmetic"
 								? lowerWith(
 										"query",
-										spelledExpr(Compute.add(v("c", Cents), n).expr),
+										spelledExpr(computeCore.add(v("c", Cents), n).expr),
 										vars,
 										false,
 										baseParams

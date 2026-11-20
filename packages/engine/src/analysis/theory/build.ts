@@ -166,7 +166,7 @@ const scannedFacts = (input: RelNode, columns: ReadonlyArray<string>): FoldInput
  *
  * Every law is one Forbid node over a violation query that must be empty (rel.ts). This builder writes those queries
  * over the owned schema's relations: one Base or Closed source per scan, one MatchRegion per rule, typed literals and
- * native operators resolved through the Compute catalogue (scalar/compute/registry.ts), so a violation query never
+ * native operators resolved through the scalar catalogue (scalar/compute/registry.ts), so a violation query never
  * invents an OpId and is validated by DagBuilder.build like any other DAG. Two operand columns of compatible but not
  * identical types (a numeric typmod, a regex refinement, a contract) meet as the common value
  * type through an unchecked, identity-preserving cast, because the compiler never adds a cast that could
@@ -224,7 +224,7 @@ export class ViolationBuilder {
 			return refuse(
 				"UnsupportedOperation",
 				this.loc,
-				`a native ${fn} over ${carriers.join(", ")} (the Compute catalogue)`
+				`a native ${fn} over ${carriers.join(", ")} (the scalar catalogue)`
 			)
 		}
 		if (native.partial || native.totality.kind === "exact") {

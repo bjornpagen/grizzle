@@ -3,7 +3,7 @@
  *
  * One schema, installed by the fresh-install compiler once per member as a template (regex-complete.fixtures.ts
  * contentTemplate), carries a slug pattern, a
- * language-equivalent spelling of it, a contract bounding length with Compute.charLength over the wildcard, and a
+ * language-equivalent spelling of it, a contract bounding length with Text.charLength over the wildcard, and a
  * closed relation whose payload is a slug. The slug's pattern bounds its length, as text in any index grizzle installs
  * must (README, Text in a key): the installation installs the workload of the suites' parameterized queries, whose
  * lookups of Article and Comment by slug each ask for an index on the slug. Against it:
@@ -17,7 +17,7 @@
  *   come before PostgreSQL chooses any plan;
  * - a scalar parameter's and a relation parameter's refined values alike, a relation parameter's refined column, which
  *   the optimized delivery casts to its domain in the output list (lower/shapes/refined), included;
- * - a Compute.cast into a refinement no value of its operand is proved to satisfy is refused by compilation
+ * - a Type.cast into a refinement no value of its operand is proved to satisfy is refused by compilation
  *   (PartialOperation, precondition language), so no read raises 23514 on a delivered row;
  * - a refined write is refused before commit, by grizzle's compiled insert and by a direct SQL writer alike, with
  *   PostgreSQL's 23514 naming the domain's constraint;

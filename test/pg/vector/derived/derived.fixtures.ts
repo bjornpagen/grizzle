@@ -4,7 +4,7 @@ import { Array as Arr, Effect, pipe, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Distance } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, login, on, relation, role, schema } from "#compiler/public/schema.ts"
@@ -53,7 +53,7 @@ const build = (name: string) => {
 		const { document, value } = v(Embeddings, "embeddings")
 		return r.match(Embeddings, { document, account: r.param("account", Id), value }).find({
 			document,
-			distance: Compute.cosineDistance(value, r.param("vector", DocumentEmbedding.fields.value))
+			distance: Distance.cosine(value, r.param("vector", DocumentEmbedding.fields.value))
 		})
 	})
 	const server = login(Reports, "server", [viewer, refresher], {

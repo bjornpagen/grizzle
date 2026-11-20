@@ -78,6 +78,7 @@ import { parseBy } from "#compiler/scalar/compute/cast.ts"
 import { admitLiteral, literalMember, refined } from "#compiler/scalar/compute/evaluate.ts"
 import { nativeProof } from "#compiler/scalar/compute/native.ts"
 import type { NativeFn } from "#compiler/scalar/compute/registry.ts"
+import { spelling } from "#compiler/scalar/compute/spelling.ts"
 import { valueType } from "#compiler/scalar/compute/types.ts"
 import {
 	boundsOfType,
@@ -214,7 +215,7 @@ interface LowerCommon<R extends Refs> {
 	/** The node a leaf reference records at each use. */
 	readonly leaf: (desc: LeafDesc<R>, loc: SourceLoc) => Result.Result<ExprSpec, CompileError>
 	readonly params: LowerParams<R>
-	/** The ScalarType of a descriptor's Description, for Compute.literal and Compute.cast (the descriptor registry). */
+	/** The ScalarType of a descriptor's Description, for Type.literal and Type.cast (the descriptor registry). */
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
 	/** The closed relations C.at and C.row apply. */
 	readonly closed: ClosedRelations
@@ -237,7 +238,7 @@ export type LowerEnv<R extends Refs = Spelled> =
 	| (LowerCommon<R> & {
 			readonly mode: "query"
 			readonly extension: LowerExtension<R>
-			/** The declared functions of the query's schema, by name, which a Compute.call term calls. */
+			/** The declared functions of the query's schema, by name, which a Fn.call term calls. */
 			readonly functions: (name: string) => CallableFunction | undefined
 	  })
 	| (LowerCommon<R> & { readonly mode: "check" })
@@ -293,7 +294,7 @@ const premiseWithin = (
 
 /**
  * The premise that every value of `a` is a member of a language, the one `includes` compares a pattern's with, within
- * `octets` UTF-8 bytes where the target bounds them: a's refinement, its type's, a Compute.matches guard's or a
+ * `octets` UTF-8 bytes where the target bounds them: a's refinement, its type's, a Text.matches guard's or a
  * translation's image (the nominal type), whose language is included in it (scalar/regex/inclusion.ts), with the most
  * bytes a value of it takes (premiseWithin). Undefined where a has no refinement, its language holds a value the other
  * does not, or a value of more bytes. Where comparing the two automata passes the text analysis's bounds nothing is
@@ -385,7 +386,7 @@ const parseRemedy: { readonly [F in ParseForm]: "lexicalForm" | "doubleText" | "
 }
 
 /**
- * The remedy of a parse whose operand is not proved a member of its form: Compute.matches of the form's pattern
+ * The remedy of a parse whose operand is not proved a member of its form: Text.matches of the form's pattern
  * (parseRemedy); and for a form whose byte bound cuts its pattern (formOctets), a bound on the operand's bytes at it
  * where the operand's language already lies inside the pattern, as for a cast into str.bytes.
  */
@@ -408,9 +409,9 @@ const lexicalRemedy = (
 }
 
 /**
- * The test a guard of `precondition` puts over an operand of type `operand`: a fact's own test, Compute.within for a
- * magnitude, Compute.matches for a text's language or a parse's form (parseRemedy). A contract proves its predicate of an operand by
- * its bounds, which Compute.within narrows over a number and no Compute test over a text, a boolean, a uuid or a date,
+ * The test a guard of `precondition` puts over an operand of type `operand`: a fact's own test, Num.within for a
+ * magnitude, Text.matches for a text's language or a parse's form (parseRemedy). A contract proves its predicate of an operand by
+ * its bounds, which Num.within narrows over a number and no scalar test over a text, a boolean, a uuid or a date,
  * so over those only a value of the contract's type proves it. A fact the contract of an operand that has its type's
  * facts implies without declaring it is remedied by the declaration (undeclaredBy), since a contract's facts are
  * exactly the ones it declares; an operation's result has none of them, so no declaration remedies it.
@@ -454,8 +455,8 @@ const guardTest = (
 /**
  * The remedy of a cast into a regex-refined text whose operand's language is not proved inside the target's: where the
  * operand's bytes are within the target's str.bytes bound, or it has none, its pattern is the shortfall, which
- * Compute.matches of the target's pattern remedies. Where its bytes are the shortfall, a bound on them at the target's
- * bound, Compute.within(Compute.octetLength(x), 0, bytes), remedies it once its pattern lies inside the target's, and
+ * Text.matches of the target's pattern remedies. Where its bytes are the shortfall, a bound on them at the target's
+ * bound, Num.within(Text.octetLength(x), 0, bytes), remedies it once its pattern lies inside the target's, and
  * the match first where it does not, in a query as in a check.
  */
 const languageRemedy = (
@@ -478,7 +479,7 @@ const languageRemedy = (
 		: { kind: "matches", pattern: "target" }
 }
 
-/** The Compute test that proves each fact of its subject. */
+/** The scalar test that proves each fact of its subject. */
 const factTests: { readonly [F in Fact]: GuardTest } = {
 	nonzero: { kind: "nonzero" },
 	nonnegative: { kind: "nonnegative" },
@@ -524,7 +525,7 @@ const undeclaredBy = (t: ScalarType, fact: Fact): ContractInfo | undefined =>
 		: undefined
 
 /**
- * The remedy a refusal of `precondition` names: its guard test, and the Compute.when to write over `operand` around
+ * The remedy a refusal of `precondition` names: its guard test, and the Logic.when to write over `operand` around
  * `operation`, or the fact to add to a contract's `proves`.
  */
 const guardOf = (
@@ -534,7 +535,7 @@ const guardOf = (
 	operation: string
 ): Guard => {
 	const when = (check: string): string =>
-		`Compute.when(${check}, (${operand}) => ${operation}, <your value>)`
+		`Logic.when(${check}, (${operand}) => ${operation}, <your value>)`
 	switch (remedy.kind) {
 		case "proves":
 			return {
@@ -542,53 +543,53 @@ const guardOf = (
 				text: `contract ${remedy.contract}'s predicate implies it, and a contract's facts are the ones it declares: contract("${remedy.contract}", <base>, <predicate>, { proves: [..., "${precondition}"] })`
 			}
 		case "nonzero":
-			return { remedy, text: when(`Compute.nonzero(${operand})`) }
+			return { remedy, text: when(`Num.nonzero(${operand})`) }
 		case "nonnegative":
-			return { remedy, text: when(`Compute.nonnegative(${operand})`) }
+			return { remedy, text: when(`Num.nonnegative(${operand})`) }
 		case "positive":
-			return { remedy, text: when(`Compute.positive(${operand})`) }
+			return { remedy, text: when(`Num.positive(${operand})`) }
 		case "isFinite":
-			return { remedy, text: when(`Compute.isFinite(${operand})`) }
+			return { remedy, text: when(`Num.isFinite(${operand})`) }
 		case "within":
 			return {
 				remedy,
-				text: `${when(`Compute.within(${operand}, <low>, <high>)`)}, its bounds within which the operation is defined`
+				text: `${when(`Num.within(${operand}, <low>, <high>)`)}, its bounds within which the operation is defined`
 			}
 		case "matches":
 			switch (remedy.pattern) {
 				case "target":
 					return {
 						remedy,
-						text: `a text whose type's pattern lies inside the target's, or ${when(`Compute.matches(${operand}, <the target's pattern>)`)}`
+						text: `a text whose type's pattern lies inside the target's, or ${when(`Text.matches(${operand}, <the target's pattern>)`)}`
 					}
 				case "lexicalForm":
 					return {
 						remedy,
-						text: `a text whose type proves the target's lexical form, str.regex(lexicalForm(<target>).source) or a refinement of it, or ${when(`Compute.matches(${operand}, lexicalForm(<target>))`)}`
+						text: `a text whose type proves the target's lexical form, str.regex(lexicalForm(<target>).source) or a refinement of it, or ${when(`Text.matches(${operand}, lexicalForm(<target>))`)}`
 					}
 				case "doubleText":
 					return {
 						remedy,
-						text: `a text whose type proves a double's decimal text, str.regex(doubleText.source) or a refinement of it, or ${when(`Compute.matches(${operand}, doubleText)`)}`
+						text: `a text whose type proves a double's decimal text, str.regex(doubleText.source) or a refinement of it, or ${when(`Text.matches(${operand}, doubleText)`)}`
 					}
 				case "decimalText": {
 					const bytes = decimalTextMaxBytes
-					const within = `Compute.when(Compute.within(Compute.octetLength(${operand}), 0, ${bytes}), () => ${operation}, <your value>)`
+					const within = `Logic.when(Num.within(Text.octetLength(${operand}), 0, ${bytes}), () => ${operation}, <your value>)`
 					return {
 						remedy,
-						text: `a text whose type proves a decimal text of at most ${bytes} bytes, str.bytes(${bytes}, str.regex(decimalText.source)) or a refinement of it, or, where octetLength stands, Compute.when(Compute.matches(${operand}, decimalText), (${operand}) => ${within}, <your value>)`
+						text: `a text whose type proves a decimal text of at most ${bytes} bytes, str.bytes(${bytes}, str.regex(decimalText.source)) or a refinement of it, or, where octetLength stands, Logic.when(Text.matches(${operand}, decimalText), (${operand}) => ${within}, <your value>)`
 					}
 				}
 			}
 		case "octets":
 			return {
 				remedy,
-				text: `Compute.when(Compute.within(Compute.octetLength(${operand}), 0, ${remedy.bytes}), () => ${operation}, <your value>)`
+				text: `Logic.when(Num.within(Text.octetLength(${operand}), 0, ${remedy.bytes}), () => ${operation}, <your value>)`
 			}
 		case "typed":
 			return {
 				remedy,
-				text: `a value of the target's type, a parameter its binding checks or a literal its admission judges: no Compute test over ${operand}'s type proves the target's contract`
+				text: `a value of the target's type, a parameter its binding checks or a literal its admission judges: no scalar test over ${operand}'s type proves the target's contract`
 			}
 	}
 }
@@ -707,14 +708,14 @@ class Lowering<R extends Refs> {
 				return this.emit({ ...node.spec, proof: this.domainProof(node) })
 			case "matches": {
 				const patterns = this.patternTable(node.pattern, node.patternAt)
-				this.regexReadable("Compute.matches", node.subject, node.at)
+				this.regexReadable(spelling.matches, node.subject, node.at)
 				return this.emit({ ...node.spec, patterns })
 			}
 		}
 	}
 
 	/**
-	 * A predicate another package lowers, in a query, which lowers each child it reads: typed under the Compute.whens
+	 * A predicate another package lowers, in a query, which lowers each child it reads: typed under the Logic.whens
 	 * the predicate stands in, then lowered here. A check refuses it.
 	 */
 	extension(entry: Extract<TapeEntry<R>, { readonly kind: "extension" }>): Lowered {
@@ -723,7 +724,7 @@ class Lowering<R extends Refs> {
 			return stop(
 				"UnsupportedOperation",
 				entry.at,
-				`${entry.desc.kind}: lowered by its own package, not the Compute catalogue`
+				`${entry.desc.kind}: lowered by its own package, not the scalar catalogue`
 			)
 		}
 		const at = childLoc(entry.at, entry.desc.kind)
@@ -755,7 +756,7 @@ class Lowering<R extends Refs> {
 						[value],
 						to,
 						at,
-						`Compute.cast(${nodeText(value.node)}, ${typeLabel(to)})`
+						`Type.cast(${nodeText(value.node)}, ${typeLabel(to)})`
 					)
 				: {
 						precondition,
@@ -930,8 +931,8 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * In a query, the refusal of a regex read, `~`, over a text whose bytes are not proved within regexTextMaxBytes
-	 * (typing.ts textBytes, the one proof every mode reads: its type's byte bound, or the enclosing Compute.when that
-	 * bounds Compute.octetLength of it): PostgreSQL's regex engine widens its subject to four bytes for every byte before
+	 * (typing.ts textBytes, the one proof every mode reads: its type's byte bound, or the enclosing Logic.when that
+	 * bounds Text.octetLength of it): PostgreSQL's regex engine widens its subject to four bytes for every byte before
 	 * it matches and refuses an allocation past 1 GB, and a read never fails on a value. A check or a generated field
 	 * reads any text, and its write fails on a longer one.
 	 */
@@ -978,7 +979,7 @@ class Lowering<R extends Refs> {
 				return stop(
 					"UnsupportedOperation",
 					read.at,
-					`a pattern whose every value is seen when the schema compiles: matches's pattern is a text literal, a closed relation's str.pattern payload (C.at) or a Compute.cond of them, each value admitted inside PostgreSQL's regex compile space; a ${read.what} can be any text, so no measure bounds it`
+					`a pattern whose every value is seen when the schema compiles: matches's pattern is a text literal, a closed relation's str.pattern payload (C.at) or a Logic.cond of them, each value admitted inside PostgreSQL's regex compile space; a ${read.what} can be any text, so no measure bounds it`
 				)
 		}
 	}
@@ -1351,13 +1352,13 @@ const lowered = <R extends Refs>(
  * numericMaxIntegerDigits by its operands' digit bounds (a numeric field's by its typmod, a computed numeric's by the
  * bound its type carries), past which an expression is ResourceBound; and a partial operation (a divisor, a root, a
  * narrowing cast, a domain cast, power, width_bucket, min_scale) stands only with the proof of its precondition
- * (ir/proof.ts PreconditionProof): its operands' facts (a literal's value, a contract's declaration, a Compute.when
+ * (ir/proof.ts PreconditionProof): its operands' facts (a literal's value, a contract's declaration, a Logic.when
  * guard, the facts a term's TypeScript type states), or, for what rests on magnitudes no type states, the bound domain
  * (bounds.ts). Otherwise it is PartialOperation, naming the guard to write. A literal adopting a contract or a regex
  * refinement is checked against it here, the ContractLiteral check.
  *
  * The sites differ only in what they hold:
- * - "query": queries and Compute outputs, which lower the predicates of other packages and refuse a text function,
+ * - "query": queries and scalar outputs, which lower the predicates of other packages and refuse a text function,
  *   a concatenation but in an equation, and a regex read or a translation of a text no pattern bounds within the bytes
  *   PostgreSQL allocates for.
  * - "check": contract predicates and row checks, which read only their VALUE or row and admit the operations the host
@@ -1365,7 +1366,7 @@ const lowered = <R extends Refs>(
  *   binds operands in a subquery, and money arithmetic, which reads money through its STABLE cast, are refused there,
  *   since a CHECK holds neither.
  *
- * Lowers a term: a Compute expression, a reference, or a typed literal.
+ * Lowers a term: a scalar expression, a reference, or a typed literal.
  */
 export const lowerTerm = <R extends Refs>(
 	desc: ExprDesc<Located, R>,

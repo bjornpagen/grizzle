@@ -3,7 +3,7 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num, Range, Type } from "#compiler/public/compute.ts"
 import { accumulated, drawn, generated, natural, pg, span } from "#compiler/public/fields.ts"
 import {
 	check,
@@ -148,9 +148,9 @@ const Shift = relation.generated(
 	(r) => ({
 		length: generated(
 			pg.integer,
-			Compute.when(
-				Compute.within(Compute.width(r.during, pg.integer), 0n, 2_147_483_647n),
-				(w) => Compute.cast(w, pg.integer),
+			Logic.when(
+				Num.within(Range.width(r.during, pg.integer), 0n, 2_147_483_647n),
+				(w) => Type.cast(w, pg.integer),
 				0
 			)
 		)

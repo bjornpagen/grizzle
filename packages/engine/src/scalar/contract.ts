@@ -25,7 +25,7 @@ interface ScalarTerm extends Built, TermCarrier {
 
 /**
  * The term a contract predicate's callback receives for its value: a scalar term over `expr` of type `t`, its carrier
- * the column and SQL type of the value it stands for, which Compute's comparisons read.
+ * the column and SQL type of the value it stands for, which Logic's comparisons read.
  */
 const scalarTerm = (expr: OpenExpr, t: ScalarType, carrier: TermCarrier): ScalarTerm =>
 	registerTerm(
@@ -57,7 +57,7 @@ const buildPredicate = (predicate: unknown, base: Described, name: string): Expr
 	if (expr === undefined) {
 		throw malformedDescription(
 			captureLoc(`contract ${name} predicate`, []),
-			"a predicate built from Compute's comparisons over the value"
+			"a predicate built from Logic's comparisons over the value"
 		)
 	}
 	const owned = decodeDesc("expr", expr)
@@ -137,11 +137,11 @@ interface ContractParts {
  * is the checker's to decide at compilation.
  *
  * The term protocol (compute/term.ts). A scalar term is a value with an `expr` member holding its expression; a predicate
- * also has `predicate: true`. The Compute catalogue (scalar/compute), the query builder and
+ * also has `predicate: true`. The scalar catalogue (scalar/compute), the query builder and
  * the row checks build terms and predicates and register them by identity in compute/term.ts's one registry,
  * and read them with `termExpr` and `predicateExpr`, which consult that registry and never a value's members, so a
- * Compute expression over a contract's value is compared as any term is:
- * `contract("Body", text, (v) => Compute.le(Compute.charLength(v), 2000))`, and a copy of a term is no term. A parameter
+ * scalar expression over a contract's value is compared as any term is:
+ * `contract("Body", text, (v) => Logic.le(Text.charLength(v), 2000))`, and a copy of a term is no term. A parameter
  * (r.param) is any value with a string `param` member and no `expr`; it adopts the type it meets.
  *
  * The admission core of contract: a JavaScript caller can pass anything in every position. `rest` is what follows the

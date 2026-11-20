@@ -92,7 +92,7 @@ const numericKinds: ReadonlySet<TypeKind> = new Set(Rec.keys(numericTypmods))
 export const isNumericKind = (kind: TypeKind): kind is NumericKind => numericKinds.has(kind)
 
 /**
- * The value Compute.cast gives a Decimal read into a numeric kind: PostgreSQL's coercion to the kind's numeric(p, s),
+ * The value Type.cast gives a Decimal read into a numeric kind: PostgreSQL's coercion to the kind's numeric(p, s),
  * rounded half away from zero to its scale (scalar/values/decimal.ts normalizeNumeric). A cast reads only values
  * within the kind's range (typmodRange), so a value the coercion refuses is a defect of its caller.
  */
@@ -106,7 +106,7 @@ export const castValue = (kind: NumericKind, value: Decimal): Decimal => {
 
 /**
  * The least and greatest values a numeric kind's numeric(p, s) holds: every one of its p - s integer and s fraction
- * digits a nine, negated and not. A Compute.within over them proves a cast into the kind fits (changeset.ts HeadTerm
+ * digits a nine, negated and not. A Num.within over them proves a cast into the kind fits (changeset.ts HeadTerm
  * cast).
  */
 export const typmodRange = (kind: NumericKind): readonly [Decimal, Decimal] => {
@@ -373,7 +373,7 @@ const baseOf = (kind: TypeKind): string =>
 	isNumericKind(kind) ? "numeric" : kind === "text6" ? "text" : kind
 
 /**
- * Two types whose columns a described member may connect: the same base carrier. A numeric of one typmod is read into another's by Compute.cast, rounding (changeset.ts HeadTerm cast), and a
+ * Two types whose columns a described member may connect: the same base carrier. A numeric of one typmod is read into another's by Type.cast, rounding (changeset.ts HeadTerm cast), and a
  * wide text is cast into the narrow text's domain, which refuses a value outside it.
  */
 export const sameBase = (a: TypeKind, b: TypeKind): boolean => baseOf(a) === baseOf(b)

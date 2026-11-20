@@ -16,7 +16,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import { constraintLaw, type ConstraintLaws } from "#compiler/ir/products.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import {
 	check,
@@ -66,7 +66,7 @@ const label = str.regex("^[a-z]{0,8}$")
  * each version's pattern a domain of its own.
  */
 const domains = (tightened: boolean) => {
-	const Rate = contract("Rate", pg.integer, (v) => Compute.le(v, tightened ? 100 : 1000))
+	const Rate = contract("Rate", pg.integer, (v) => Logic.le(v, tightened ? 100 : 1000))
 	const code = tightened ? str.regex("^[a-z]{0,3}$") : str.regex("^[a-z]{0,7}$")
 	const Worker = relation("Worker", { id: pg.integer, name: label }, ["id"])
 	const Assignment = relation(

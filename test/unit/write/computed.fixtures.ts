@@ -1,7 +1,7 @@
 /** What the property of computed.test.ts reads: its box and the write of each case. */
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num, Type } from "#compiler/public/compute.ts"
 import { contract, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { param } from "#compiler/public/query.ts"
 import { fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
@@ -10,16 +10,11 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 
 /** A span a call adds to its clock's reading, bounded by its predicate, so a millis reading plus it fits a bigint with no
  * guard (core/clock.ts clockReadingRange). */
-const Span = contract("Span", pg.bigint, (d) =>
-	Compute.and(Compute.ge(d, 0n), Compute.le(d, 10n ** 12n))
-)
+const Span = contract("Span", pg.bigint, (d) => Logic.and(Logic.ge(d, 0n), Logic.le(d, 10n ** 12n)))
 
 /** The call's reading of the database's clock plus the parameter `by`, cast into bigint with no guard, as den's lease. */
 const after = <const By extends string>(by: By) =>
-	Compute.cast(
-		Compute.add(Compute.base(param("now", pg.bigint)), Compute.base(param(by, Span))),
-		pg.bigint
-	)
+	Type.cast(Num.add(Type.base(param("now", pg.bigint)), Type.base(param(by, Span))), pg.bigint)
 
 /** How deep the insert's rows nest: no family, one sequence of members, or members nesting members of their own. */
 type Depth = 0 | 1 | 2

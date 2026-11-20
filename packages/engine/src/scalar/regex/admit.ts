@@ -65,7 +65,7 @@ export const admitPattern = (
 }
 
 /**
- * A Compute.matches pattern, its source, admitted where its value is first held (admitMatch): admitted, with its
+ * A Text.matches pattern, its source, admitted where its value is first held (admitMatch): admitted, with its
  * pattern value (ir/pattern.ts PatternValue), or refused with why, which a lowering reading it places at the match
  * (matchValueAt).
  */
@@ -74,7 +74,7 @@ export type MatchAdmission<S extends string = string> =
 	| { readonly kind: "refused"; readonly source: S; readonly refusal: PatternRefusal }
 
 /**
- * A Compute.matches pattern admitted (ir/pattern.ts admitSpelling), refused exactly where its admission refuses it,
+ * A Text.matches pattern admitted (ir/pattern.ts admitSpelling), refused exactly where its admission refuses it,
  * else with its pattern value. A pattern no text matches, the empty language's (an empty class, or an order of anchors
  * no match can pass, ir.ts), is a language as any other: its match holds of no text, as a closed pattern table's row
  * for a domain that admits no value states. Its ARE is translated only where SQL prints it (matchAre).
@@ -87,7 +87,7 @@ export const admitMatch = <S extends string>(source: S): MatchAdmission<S> => {
 }
 
 /**
- * The pattern value of an admitted Compute.matches pattern, or its refusal placed at `loc`, as refusalAt places one.
+ * The pattern value of an admitted Text.matches pattern, or its refusal placed at `loc`, as refusalAt places one.
  */
 export const matchValueAt = (
 	admission: MatchAdmission,
@@ -97,26 +97,26 @@ export const matchValueAt = (
 		? Result.ok(admission.value)
 		: Result.err(matchRefusalAt(admission, loc))
 
-/** The refusal of a Compute.matches pattern its admission refused, placed at `loc` as refusalAt places one. */
+/** The refusal of a Text.matches pattern its admission refused, placed at `loc` as refusalAt places one. */
 export const matchRefusalAt = (
 	admission: Extract<MatchAdmission, { readonly kind: "refused" }>,
 	loc: SourceLoc
 ): CompileError => refusalAt(admission.refusal, admission.source, matchFlags, loc)
 
-/** A Compute.matches pattern admitted (admitMatch) and placed at `loc` (matchValueAt). */
+/** A Text.matches pattern admitted (admitMatch) and placed at `loc` (matchValueAt). */
 export const matchPattern = (
 	source: string,
 	loc: SourceLoc
 ): Result.Result<PatternValue, CompileError> => matchValueAt(admitMatch(source), loc)
 
 /**
- * The ARE `~` reads in place of a Compute.matches pattern its node's admission admitted (admitMatch): its IR under
+ * The ARE `~` reads in place of a Text.matches pattern its node's admission admitted (admitMatch): its IR under
  * matchFlags translated (print.ts toAre). It runs where SQL prints the pattern, the one reader of its ARE.
  */
 export const matchAre = (source: string): string => {
 	const parsed = parsePattern(source, matchFlags)
 	if (!parsed.ok) {
-		throw defect(`a Compute.matches pattern its admission admitted: /${source}/${matchFlags}`)
+		throw defect(`a Text.matches pattern its admission admitted: /${source}/${matchFlags}`)
 	}
 	return toAre(parsed.value)
 }

@@ -60,6 +60,7 @@ import { printSource } from "@bjornpagen/grizzle-text/regex/print"
 import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import type { TextSearchRead } from "#compiler/scalar/compute/registry.ts"
+import { type CatalogueName, spelling } from "#compiler/scalar/compute/spelling.ts"
 import {
 	type GuardTest,
 	type GuardValue,
@@ -255,7 +256,7 @@ const describedField = (value: unknown, loc: SourceLoc): DescribedField => {
 declare const checkedBrand: unique symbol
 
 /**
- * A checked Compute expression: what it records, and the type the overload resolution gave it. Minted only by Call's
+ * A checked scalar expression: what it records, and the type the overload resolution gave it. Minted only by Call's
  * constructors, one per level of what a builder returns (finish, finishCarried, finishPlain), each after the typing
  * (typing.ts typeOf) typed the call, so no builder states a type it did not check.
  */
@@ -267,13 +268,13 @@ type Checked = {
 
 const mintChecked = nominal<{ readonly expr: OpenExpr; readonly type: ScalarType }, Checked>()
 
-/** A checked Compute expression whose value is the value of its first term, with that term's carrier. */
+/** A checked scalar expression whose value is the value of its first term, with that term's carrier. */
 interface CarriedChecked extends Checked {
 	readonly carrier: TermCarrier
 }
 
 /**
- * A checked Compute expression whose value is a plain value (tables.ts PlainHost), with the plain SQL type of its base's
+ * A checked scalar expression whose value is a plain value (tables.ts PlainHost), with the plain SQL type of its base's
  * carrier.
  */
 interface PlainChecked extends Checked {
@@ -389,7 +390,7 @@ class Call {
 	}
 
 	/**
-	 * A Compute.matches pattern opposite a text term of `anchor`: its pattern value as a literal, which a match alone
+	 * A Text.matches pattern opposite a text term of `anchor`: its pattern value as a literal, which a match alone
 	 * reads, so its placeholder is a text of anchor's.
 	 */
 	pattern(
@@ -489,7 +490,7 @@ class Call {
 const comparison =
 	(op: CompareOp) =>
 	(a: unknown, b: unknown): PredicateValue => {
-		const call = new Call(`Compute.${op}`)
+		const call = new Call(spelling[op])
 		const left = call.term(a, `${op}'s first operand`)
 		const right = call.operand(b, left.type, "literal")
 		return call.finishPredicate(
@@ -499,7 +500,7 @@ const comparison =
 	}
 
 const between = (a: unknown, low: unknown, high: unknown): PredicateValue => {
-	const call = new Call("Compute.between")
+	const call = new Call(spelling.between)
 	const x = call.term(a, "between's operand")
 	const lo = call.operand(low, x.type, "literal")
 	const hi = call.operand(high, x.type, "literal")
@@ -510,7 +511,7 @@ const between = (a: unknown, low: unknown, high: unknown): PredicateValue => {
 }
 
 const inList = (a: unknown, values: unknown): PredicateValue => {
-	const call = new Call("Compute.in")
+	const call = new Call(spelling.in)
 	const x = call.term(a, "in's operand")
 	if (!isList(values)) {
 		return malformed(call.loc, "a finite list of literals")
@@ -539,11 +540,11 @@ export const scalarTerm = <T, S extends SqlTag>(
 }
 
 /**
- * A Compute function's call over a first term and further operands, literal or term only: what it records, its
+ * A scalar function's call over a first term and further operands, literal or term only: what it records, its
  * placeholder form, which its builder finishes, and the first term's carrier.
  */
 const computeCall = (
-	fn: Exclude<ComputeFn, ScaledComputeFn>,
+	fn: Exclude<ComputeFn & CatalogueName, ScaledComputeFn>,
 	literals: "literal" | "term",
 	args: ReadonlyArray<unknown>
 ): {
@@ -552,7 +553,7 @@ const computeCall = (
 	readonly ph: ExprDesc
 	readonly carrier: TermCarrier
 } => {
-	const call = new Call(`Compute.${fn}`)
+	const call = new Call(spelling[fn])
 	const [first, ...rest] = args
 	const a = call.term(first, `${fn}'s first operand`)
 	const others = rest.map((v) => call.operand(v, a.type, literals))
@@ -562,9 +563,9 @@ const computeCall = (
 }
 
 const unary =
-	(fn: Exclude<ComputeFn, ScaledComputeFn>) =>
+	(fn: Exclude<ComputeFn & CatalogueName, ScaledComputeFn>) =>
 	(a: unknown, extra: ReadonlyArray<unknown>): PlainChecked => {
-		const call = new Call(`Compute.${fn}`)
+		const call = new Call(spelling[fn])
 		if (extra.length > 0) {
 			return malformed(call.loc, `one operand for ${fn}`)
 		}
@@ -576,10 +577,10 @@ const unary =
 	}
 
 const binary =
-	(fn: Exclude<ComputeFn, ScaledComputeFn>, literals: "literal" | "term") =>
+	(fn: Exclude<ComputeFn & CatalogueName, ScaledComputeFn>, literals: "literal" | "term") =>
 	(a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): PlainChecked => {
 		if (extra.length > 0) {
-			return malformed(captureLoc(`Compute.${fn}`, []), `two operands for ${fn}`)
+			return malformed(captureLoc(spelling[fn], []), `two operands for ${fn}`)
 		}
 		const { call, real, ph } = computeCall(fn, literals, [a, b])
 		return call.finishPlain(real, ph)
@@ -589,7 +590,7 @@ const binary =
 const scaled =
 	(fn: ScaledComputeFn) =>
 	(a: unknown, scale: ReadonlyArray<unknown>): PlainChecked => {
-		const call = new Call(`Compute.${fn}`)
+		const call = new Call(spelling[fn])
 		const x = call.term(a, `${fn}'s operand`)
 		const [digits, ...extra] = scale
 		if (extra.length > 0) {
@@ -608,7 +609,7 @@ const variadic =
 	(fn: "least" | "greatest") =>
 	(xs: ReadonlyArray<unknown>): CarriedChecked => {
 		if (xs.length === 0) {
-			return malformed(captureLoc(`Compute.${fn}`, []), `at least one term for ${fn}`)
+			return malformed(captureLoc(spelling[fn], []), `at least one term for ${fn}`)
 		}
 		const { call, real, ph, carrier } = computeCall(fn, "term", xs)
 		return call.finishCarried(real, ph, carrier)
@@ -623,23 +624,23 @@ const setOperation =
 	(fn: "union" | "intersection" | "difference") =>
 	(a: unknown, b: unknown, extra: ReadonlyArray<unknown>): CarriedChecked => {
 		if (extra.length > 0) {
-			return malformed(captureLoc(`Compute.${fn}`, []), `two sets for ${fn}`)
+			return malformed(captureLoc(spelling[fn], []), `two sets for ${fn}`)
 		}
 		const { call, real, ph, carrier } = computeCall(fn, "literal", [a, b])
 		return call.finishCarried(real, ph, carrier)
 	}
 
-/** A checked Compute expression whose value is a set over a roster, with the roster's declared name. */
+/** A checked scalar expression whose value is a set over a roster, with the roster's declared name. */
 interface SetChecked extends Checked {
 	readonly roster: string
 }
 
 /**
- * Compute.singleton: the set over a closed id's roster holding exactly its handle. Its value is no operand's, so it is
+ * Bits.singleton: the set over a closed id's roster holding exactly its handle. Its value is no operand's, so it is
  * carried by the column of a set over that roster, which its checked type names.
  */
 const singleton = (id: unknown, extra: ReadonlyArray<unknown>): SetChecked => {
-	const call = new Call("Compute.singleton")
+	const call = new Call(spelling.singleton)
 	if (extra.length > 0) {
 		return malformed(call.loc, "one closed id for singleton")
 	}
@@ -648,15 +649,15 @@ const singleton = (id: unknown, extra: ReadonlyArray<unknown>): SetChecked => {
 		{ kind: "compute", fn: "singleton", args: [x.real] },
 		{ kind: "compute", fn: "singleton", args: [x.ph] }
 	)
-	const roster = defined(rosterOf(checked.type), "Compute.singleton is typed a set over a roster")
+	const roster = defined(rosterOf(checked.type), "Bits.singleton is typed a set over a roster")
 	return { ...checked, roster: roster.closed }
 }
 
-/** Compute.and and Compute.or, total: of no predicate the constant true and false, of one that predicate. */
+/** Logic.and and Logic.or, total: of no predicate the constant true and false, of one that predicate. */
 const boolean =
 	(kind: "and" | "or") =>
 	(ps: ReadonlyArray<unknown>): PredicateValue => {
-		const call = new Call(`Compute.${kind}`)
+		const call = new Call(spelling[kind])
 		const operands = ps.map((p, i) => call.predicate(p, `${kind}'s operand ${i + 1}`))
 		return call.finishPredicate(
 			connectiveExpr(
@@ -677,7 +678,7 @@ const boolean =
  * exactBeside), so the conditional's column is the first branch's.
  */
 const cond = (p: unknown, then: unknown, otherwise: unknown): CarriedChecked => {
-	const call = new Call("Compute.cond")
+	const call = new Call(spelling.cond)
 	const pred = call.predicate(p, "cond's condition")
 	const t = call.term(then, "cond's first branch")
 	const e = call.operand(otherwise, t.type, "literal")
@@ -689,7 +690,7 @@ const cond = (p: unknown, then: unknown, otherwise: unknown): CarriedChecked => 
 }
 
 /**
- * What a guard builder records: its test, the guard Compute.when reads, its subject term, and the subject's expression,
+ * What a guard builder records: its test, the guard Logic.when reads, its subject term, and the subject's expression,
  * type and carrier, from which the term its branch receives is made.
  */
 interface GuardParts {
@@ -703,8 +704,8 @@ interface GuardParts {
 
 /**
  * A guard over one subject term: the predicate it tests of the subject's value (`<> 0`, `>= 0`, `> 0`, `> -Infinity
- * AND < Infinity`), usable wherever a predicate is, and the guard Compute.when reads to refine the subject inside its
- * branch. The comparison reads Compute.base(subject), so its constant is a value of the subject's value type, never
+ * AND < Infinity`), usable wherever a predicate is, and the guard Logic.when reads to refine the subject inside its
+ * branch. The comparison reads Type.base(subject), so its constant is a value of the subject's value type, never
  * of its contract: a guard tests any value its subject's SQL type holds, and a contract need hold no zero, and a
  * numeric typmod no infinity.
  */
@@ -753,13 +754,13 @@ const factGuard =
 
 /** A guard that its subject lies within two literal bounds: `BETWEEN low AND high`, and so finite. */
 const within = (subject: unknown, low: unknown, high: unknown): GuardParts => {
-	const call = new Call("Compute.within")
-	const s = call.term(subject, "Compute.within's subject")
+	const call = new Call(spelling.within)
+	const s = call.term(subject, "Num.within's subject")
 	if (!hasProperties(subject)) {
 		return malformed(call.loc, "a term as a guard's subject")
 	}
 	if (!withinGuards(baseOf(s.type).carrier)) {
-		return malformed(call.loc, `Compute.within over a number, not ${typeLabel(s.type)}`)
+		return malformed(call.loc, `Num.within over a number, not ${typeLabel(s.type)}`)
 	}
 	const lo = call.literal(low, s.type)
 	const hi = call.literal(high, s.type)
@@ -779,7 +780,7 @@ const within = (subject: unknown, low: unknown, high: unknown): GuardParts => {
 }
 
 /**
- * Compute.pattern(source): a Compute.matches pattern, `source` in grizzle's pattern grammar under the flags "u",
+ * Text.pattern(source): a Text.matches pattern, `source` in grizzle's pattern grammar under the flags "u",
  * admitted here, once (scalar/regex/admit.ts admitMatch), so a source outside the grammar or PostgreSQL's regex compile
  * space, or one no text matches, is refused where it is written, and every match over the pattern reads its admission.
  */
@@ -787,22 +788,22 @@ const admittedPattern = <S extends string>(source: S): Pattern<S> => {
 	refuseNonString(source)
 	const admission = admitMatch(source)
 	if (admission.kind === "refused") {
-		throw matchRefusalAt(admission, captureLoc("Compute.pattern", []))
+		throw matchRefusalAt(admission, captureLoc(spelling.pattern, []))
 	}
 	return Pattern.admitted(admission)
 }
 
 /**
- * Compute.xsdPattern(source): a Compute.matches pattern written in XML Schema 1.0's dialect, a pattern facet (Part 2,
+ * Xml.pattern(source): a Text.matches pattern written in XML Schema 1.0's dialect, a pattern facet (Part 2,
  * Appendix F), read by that dialect's one front end (scalar/regex/xsd.ts) anchored at both ends, as XML Schema reads
  * every facet, of any repetition count, printed in grizzle's grammar (scalar/regex/print.ts printSource), which spells
- * a count past 255 as pieces within it and the Pattern's source holds, and admitted as Compute.pattern admits one: a
+ * a count past 255 as pieces within it and the Pattern's source holds, and admitted as Text.pattern admits one: a
  * facet outside Appendix F's grammar is refused at its offset in the facet, and one past PostgreSQL's regex compile
  * space, or one no text matches, where it is written. Its raw size is judged before it is printed (ir/pattern-space.ts
  * pastRawSpace), so a count no compile space holds is refused without a piece of it printed.
  */
 const xsdAdmittedPattern = (source: unknown): Pattern => {
-	const loc = captureLoc("Compute.xsdPattern", [])
+	const loc = captureLoc(spelling.xsdPattern, [])
 	if (typeof source !== "string") {
 		return malformed(loc, "an XML Schema pattern source string")
 	}
@@ -838,22 +839,22 @@ const xsdAdmittedPattern = (source: unknown): Pattern => {
 	return Pattern.admitted(admission)
 }
 
-/** A JavaScript caller's Compute.pattern source the types forbid: a malformed argument, thrown synchronously. */
+/** A JavaScript caller's Text.pattern source the types forbid: a malformed argument, thrown synchronously. */
 const refuseNonString = (source: unknown): void => {
 	if (typeof source !== "string") {
-		malformed(captureLoc("Compute.pattern", []), "a pattern source string")
+		malformed(captureLoc(spelling.pattern, []), "a pattern source string")
 	}
 }
 
 /**
- * Compute.matches(subject, pattern): whether the text subject holds a match of the pattern, a predicate and a guard.
+ * Text.matches(subject, pattern): whether the text subject holds a match of the pattern, a predicate and a guard.
  * The pattern is a Pattern, admitted where it was made (scalar/regex/pattern.ts), whose source the description holds as
- * a literal, so inside Compute.when's branch its subject is text of the pattern's language; or a text term, whose every
+ * a literal, so inside Logic.when's branch its subject is text of the pattern's language; or a text term, whose every
  * value is admitted where the term is compiled (compute/lower.ts readAdmissions), and whose values hold no one
- * language, so its branch knows nothing more of the subject. A string is no pattern: Compute.pattern(source) makes one.
+ * language, so its branch knows nothing more of the subject. A string is no pattern: Text.pattern(source) makes one.
  */
 const matches = (subject: unknown, pattern: unknown): GuardParts => {
-	const call = new Call("Compute.matches")
+	const call = new Call(spelling.matches)
 	const s = call.term(subject, "matches's subject")
 	if (!hasProperties(subject)) {
 		return malformed(call.loc, "a term as matches's subject")
@@ -861,7 +862,7 @@ const matches = (subject: unknown, pattern: unknown): GuardParts => {
 	if (typeof pattern === "string") {
 		return malformed(
 			call.loc,
-			"a Pattern as matches's pattern, Compute.pattern(source), or a text term: a string is no pattern"
+			"a Pattern as matches's pattern, Text.pattern(source), or a text term: a string is no pattern"
 		)
 	}
 	const read: {
@@ -907,7 +908,7 @@ const translation = (
 }
 
 /**
- * Compute.translate(x, from, to): a text term with each character of from replaced by the character of to at its
+ * Text.translate(x, from, to): a text term with each character of from replaced by the character of to at its
  * position, from and to strings of one length, from holding each character once.
  */
 const translate = (
@@ -916,7 +917,7 @@ const translate = (
 	to: unknown,
 	extra: ReadonlyArray<unknown>
 ): PlainChecked => {
-	const call = new Call("Compute.translate")
+	const call = new Call(spelling.translate)
 	if (extra.length > 0) {
 		return malformed(call.loc, "three operands for translate: a text term, from and to")
 	}
@@ -930,19 +931,19 @@ const translate = (
 }
 
 /**
- * The texts of the queries Compute.websearchQuery and plainQuery made, by the query (types/search TextQuery): a query is
+ * The texts of the queries Search.websearch and plainQuery made, by the query (types/search TextQuery): a query is
  * no term, so no position but a match's or a rank's reads one, which parse its text under the document they read. A
  * registry, holding nothing alive.
  */
 const textQueries = new WeakMap<object, { readonly query: TextQuery; readonly text: unknown }>()
 
-/** Compute.websearchQuery(text) and plainQuery(text): a query of `parser` over `text`, registered as one this module made. */
+/** Search.websearch(text) and plainQuery(text): a query of `parser` over `text`, registered as one this module made. */
 const textQueryOf =
 	(parser: TextQueryParser) =>
 	(text: unknown, extra: ReadonlyArray<unknown>): TextQuery => {
 		if (extra.length > 0) {
 			return malformed(
-				captureLoc(`Compute.${parser}Query`, []),
+				captureLoc(spelling[`${parser}Query`], []),
 				`one operand for ${parser}Query: its text`
 			)
 		}
@@ -951,7 +952,7 @@ const textQueryOf =
 		return query
 	}
 
-/** The Compute functions of a match or a rank of a document, by the query's parser and what is read of it. */
+/** The scalar functions of a match or a rank of a document, by the query's parser and what is read of it. */
 const textSearchFns = {
 	websearch: { match: "websearchMatches", rank: "websearchRank", rankCd: "websearchRankCd" },
 	plain: { match: "plainMatches", rank: "plainRank", rankCd: "plainRankCd" }
@@ -960,18 +961,18 @@ const textSearchFns = {
 }
 
 /**
- * What `read` reads of a search document, its first operand, and a query Compute.websearchQuery or plainQuery made,
+ * What `read` reads of a search document, its first operand, and a query Search.websearch or plainQuery made,
  * its text an operand opposite text, a string a text literal (registry.ts textSearchOf): the call, and the node's real
  * and placeholder forms, which a match finishes as a predicate and a rank as a plain term.
  */
 const textSearchCall = (
 	read: TextSearchRead,
-	name: string,
+	name: "textMatches" | "textRank" | "textRankCd",
 	document: unknown,
 	query: unknown,
 	extra: ReadonlyArray<unknown>
 ): { readonly call: Call; readonly real: OpenExpr; readonly ph: ExprDesc } => {
-	const call = new Call(`Compute.${name}`)
+	const call = new Call(spelling[name])
 	if (extra.length > 0) {
 		return malformed(call.loc, `two operands for ${name}: a search document and a query`)
 	}
@@ -979,7 +980,7 @@ const textSearchCall = (
 	if (made === undefined) {
 		return malformed(
 			call.loc,
-			`a query Compute.websearchQuery or Compute.plainQuery made as ${name}'s second operand`
+			`a query Search.websearch or Search.plain made as ${name}'s second operand`
 		)
 	}
 	const fn = textSearchFns[made.query.parser][read]
@@ -992,7 +993,7 @@ const textSearchCall = (
 	}
 }
 
-/** Compute.textMatches(document, query): whether the document matches the query, a predicate. */
+/** Search.matches(document, query): whether the document matches the query, a predicate. */
 const textMatches = (
 	document: unknown,
 	query: unknown,
@@ -1002,9 +1003,9 @@ const textMatches = (
 	return call.finishPredicate(real, ph)
 }
 
-/** Compute.textRank(document, query) and textRankCd: the document's rank for the query, a real. */
+/** Search.rank(document, query) and textRankCd: the document's rank for the query, a real. */
 const textRank =
-	(read: "rank" | "rankCd", name: string) =>
+	(read: "rank" | "rankCd", name: "textRank" | "textRankCd") =>
 	(document: unknown, query: unknown, extra: ReadonlyArray<unknown>): PlainChecked => {
 		const { call, real, ph } = textSearchCall(read, name, document, query, extra)
 		return call.finishPlain(real, ph)
@@ -1051,11 +1052,11 @@ export const searchDocumentTerm = <T>(
 }
 
 /**
- * Compute.replaceWhitespace(x): XML Schema's whiteSpace replace, translate of tab, LF and CR each to a space
+ * Text.replaceWhitespace(x): XML Schema's whiteSpace replace, translate of tab, LF and CR each to a space
  * (@bjornpagen/grizzle-text text.ts replaceMap).
  */
 const replaceWhitespace = (x: unknown, extra: ReadonlyArray<unknown>): PlainChecked => {
-	const call = new Call("Compute.replaceWhitespace")
+	const call = new Call(spelling.replaceWhitespace)
 	if (extra.length > 0) {
 		return malformed(call.loc, "one operand for replaceWhitespace: a text term")
 	}
@@ -1064,7 +1065,7 @@ const replaceWhitespace = (x: unknown, extra: ReadonlyArray<unknown>): PlainChec
 
 /**
  * A guard's predicate value, registered with its guard, its subject term and its branch's parameter, which it holds
- * under `guarded`: the term its Compute.when branch receives, carried by `carrier`. A guard that refines its subject
+ * under `guarded`: the term its Logic.when branch receives, carried by `carrier`. A guard that refines its subject
  * hands the branch the subject as a guarded node of its guard (ir/desc.ts guardedExpr), the one term the guard refines
  * inside the branch; a test that refines nothing hands it the subject itself.
  */
@@ -1089,15 +1090,15 @@ const guardValue = <T, S extends SqlTag>(
 }
 
 const guardRequired =
-	"a guard a Compute guard builder made: Compute.nonzero, Compute.nonnegative, Compute.positive, Compute.isFinite, Compute.within or Compute.matches of a literal pattern"
+	"a guard a scalar guard builder made: Num.nonzero, Num.nonnegative, Num.positive, Num.isFinite, Num.within or Text.matches of a literal pattern"
 
 /**
- * Compute.when: the one guard of a partial operation, over the branch its function built from the guard's parameter,
+ * Logic.when: the one guard of a partial operation, over the branch its function built from the guard's parameter,
  * the one term the guard refines; CASE WHEN <guard> THEN <branch> ELSE <otherwise> END, so the branch is computed only
  * where the guard holds, and the other branch is the caller's value for the rest.
  */
 const when = (guard: unknown, branch: unknown, otherwise: unknown): CarriedChecked => {
-	const call = new Call("Compute.when")
+	const call = new Call(spelling.when)
 	const g = guardOf(guard)
 	if (g === undefined) {
 		return malformed(call.loc, guardRequired)
@@ -1123,11 +1124,11 @@ const typedLiteral = (call: Call, field: DescribedField, value: unknown): Checke
 }
 
 /**
- * Compute.literal(F, x): x at F's type. A roster's descriptor is refused, MalformedDescription: a member of roster X is
+ * Type.literal(F, x): x at F's type. A roster's descriptor is refused, MalformedDescription: a member of roster X is
  * X.handle(member), the one typed constant of a member, whose column delivers the member.
  */
 const literal = (type: unknown, value: unknown): Checked => {
-	const call = new Call("Compute.literal")
+	const call = new Call(spelling.literal)
 	const field = call.field(type, "the literal's type")
 	if (field.desc.kind === "closedId") {
 		return malformed(
@@ -1161,13 +1162,13 @@ export const handleTerm = <M extends string>(
 }
 
 const base = (x: unknown): PlainChecked => {
-	const call = new Call("Compute.base")
+	const call = new Call(spelling.base)
 	const a = call.term(x, "base's operand")
 	return call.finishPlain({ kind: "base", arg: a.real }, { kind: "base", arg: a.ph })
 }
 
 const cast = (x: unknown, to: unknown): Checked => {
-	const call = new Call("Compute.cast")
+	const call = new Call(spelling.cast)
 	const a = call.term(x, "cast's operand")
 	const field = call.field(to, "the cast's target")
 	return call.finish(
@@ -1177,13 +1178,13 @@ const cast = (x: unknown, to: unknown): Checked => {
 }
 
 const not = (p: unknown): PredicateValue => {
-	const call = new Call("Compute.not")
+	const call = new Call(spelling.not)
 	const x = call.predicate(p, "not's operand")
 	return call.finishPredicate({ kind: "not", arg: x.real }, { kind: "not", arg: x.ph })
 }
 
 const widthBucket = (x: unknown, low: unknown, high: unknown, count: unknown): PlainChecked => {
-	const call = new Call("Compute.widthBucket")
+	const call = new Call(spelling.widthBucket)
 	const a = call.term(x, "width_bucket's operand")
 	const l = call.term(low, "width_bucket's low bound")
 	const h = call.term(high, "width_bucket's high bound")
@@ -1201,7 +1202,7 @@ const widthBucket = (x: unknown, low: unknown, high: unknown, count: unknown): P
 const spanPart =
 	(fn: "lower" | "upper" | "width") =>
 	(s: unknown, endpoint: unknown, extra: ReadonlyArray<unknown>): PlainChecked => {
-		const call = new Call(`Compute.${fn}`)
+		const call = new Call(spelling[fn])
 		if (extra.length > 0) {
 			return malformed(call.loc, `${fn}(span, endpoint)`)
 		}
@@ -1322,9 +1323,9 @@ interface OfSql<S extends SqlTag> {
 }
 
 /**
- * The Compute catalogue's builders.
+ * The scalar catalogue's builders.
  *
- * Every Compute member is a pure, synchronous builder that records an expression and returns a term or a predicate
+ * Every catalogue member is a pure, synchronous builder that records an expression and returns a term or a predicate
  * (callbacks build descriptions, they never run per row). A builder types the term it builds with the same
  * overload resolution the checker uses (typing.ts typeOf, its text unanalyzed): it needs the result type to type the literal
  * operands the term meets later, and a builder diagnoses a malformed declaration synchronously. A
@@ -1344,7 +1345,8 @@ interface OfSql<S extends SqlTag> {
  * signature, read that SQL type off their operand's `sql`, so the column's host type is the result's by construction; the
  * untyped cores (`computeCore`), which take what a JavaScript caller may pass, read it off the checked result's carrier.
  *
- * The typed builders, one per Compute member, which public/compute.ts binds to the public signature ComputeApi: each
+ * The typed builders, one per catalogue member, which public/compute.ts and public/fields.ts bind to their namespaces'
+ * public signatures (types/compute/compute.ts TypeApi, NumApi, ...), under the names spelling.ts gives them: each
  * types its result by the carrier of the operand or descriptor whose value it returns, or by the result table keyed by
  * its operand's SQL type (tables.ts), so its column delivers the result's host type by construction.
  */
@@ -1480,7 +1482,7 @@ const fieldCarrier = (value: unknown): TermCarrier =>
 	describedField(value, SourceLoc("a checked descriptor", [])).carrier
 
 /**
- * The admission cores, one per Compute member: each takes what a JavaScript caller may pass, refuses a malformed operand
+ * The admission cores, one per catalogue member: each takes what a JavaScript caller may pass, refuses a malformed operand
  * with CompileError, and returns the term or predicate it records. A test of what a JavaScript caller passes calls a
  * core directly.
  */
@@ -1535,11 +1537,11 @@ export const computeCore = Object.freeze({
 	when: (guard: unknown, then: unknown, otherwise: unknown): ScalarTerm => {
 		const parameter = guardOf(guard)?.parameter
 		if (parameter === undefined) {
-			return malformed(captureLoc("Compute.when", []), guardRequired)
+			return malformed(captureLoc(spelling.when, []), guardRequired)
 		}
 		if (typeof then !== "function") {
 			return malformed(
-				captureLoc("Compute.when", []),
+				captureLoc(spelling.when, []),
 				"a function of the guarded subject as when's branch"
 			)
 		}
@@ -1590,7 +1592,7 @@ export const computeCore = Object.freeze({
 	pattern: (source: unknown): Pattern =>
 		typeof source === "string"
 			? admittedPattern(source)
-			: malformed(captureLoc("Compute.pattern", []), "a pattern source string"),
+			: malformed(captureLoc(spelling.pattern, []), "a pattern source string"),
 	xsdPattern: xsdAdmittedPattern,
 	matches: (subject: unknown, pattern: unknown) => guardBy(checks.matches(subject, pattern)),
 	cosineDistance: (a: unknown, b: unknown) => plainBy(checks.cosineDistance(a, b)),

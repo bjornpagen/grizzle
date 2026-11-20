@@ -47,7 +47,7 @@ const worldOperators = [
 ] as const
 type WorldOperator = (typeof worldOperators)[number]
 
-/** The Compute catalogue, whose overloads declare what they read of their operands. */
+/** The scalar catalogue, whose overloads declare what they read of their operands. */
 const registryPath = "packages/engine/src/scalar/compute/registry.ts"
 
 /** The aggregate overloads, each declaring how it is lowered. */
@@ -60,7 +60,7 @@ const ledgerPath = "packages/engine/src/deploy/ledger/ledger.ts"
  * The files whose code builds the emitted world SQL: the role, view, policy, function and grant DDL, the isolation
  * guard, the membership rendering, the claims lowering, the printer, and the ledger's
  * statements, whose entry takes on a Db's role and claims for each transaction; and the declarations every emitted
- * reading and aggregate is rendered by, the Compute catalogue and the aggregate overloads. Only their code takes a
+ * reading and aggregate is rendered by, the scalar catalogue and the aggregate overloads. Only their code takes a
  * `sql-world` mutant.
  */
 const worldPaths: ReadonlyArray<string> = [

@@ -7,9 +7,9 @@ export type { Schema } from "effect"
 export {
 	closed,
 	closedId,
-	Compute,
 	contract,
 	date,
+	Logic,
 	natural,
 	pg,
 	sha256,

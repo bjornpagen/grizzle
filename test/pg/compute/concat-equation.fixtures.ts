@@ -11,7 +11,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Text } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
@@ -179,17 +179,11 @@ const Spelled = derived(
 )
 
 const referenceSplit = check("Reference_split", Spelled, (s) =>
-	s.eq(
-		s.lexical,
-		Compute.concat(Compute.concat(Compute.concat(s.lead, s.target), s.params), s.trail)
-	)
+	s.eq(s.lexical, Text.concat(Text.concat(Text.concat(s.lead, s.target), s.params), s.trail))
 )
 
 const inlineSplit = check("Inline_split", Inline, (s) =>
-	s.eq(
-		s.lexical,
-		Compute.concat(s.lead, Compute.concat(s.target, Compute.concat(s.params, s.trail)))
-	)
+	s.eq(s.lexical, Text.concat(s.lead, Text.concat(s.target, Text.concat(s.params, s.trail))))
 )
 
 const splitSchema = schema.extend(Base, "concat_split_1", [Spelled], [referenceSplit, inlineSplit])

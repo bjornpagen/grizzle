@@ -390,7 +390,7 @@ const storedFields = (rule: Rule): ReadonlyMap<number, ProgramField> => {
 
 const argVars = (a: ArgTerm): ReadonlyArray<Var> => [a.kind === "var" ? a.var : a.padding.arg]
 
-/** The variables a Compute term reads. */
+/** The variables a scalar term reads. */
 const termVars = (t: ComputedTerm): ReadonlyArray<Var> => {
 	switch (t.kind) {
 		case "base":
@@ -408,7 +408,7 @@ const termVars = (t: ComputedTerm): ReadonlyArray<Var> => {
 	}
 }
 
-/** What a Compute term reads at the display scale, where it is such a reading: a quotient's, root's or power's operand. */
+/** What a scalar term reads at the display scale, where it is such a reading: a quotient's, root's or power's operand. */
 const termReading = (t: ComputedTerm): ArgTerm | undefined => {
 	switch (t.kind) {
 		case "div":
@@ -425,7 +425,7 @@ const termReading = (t: ComputedTerm): ArgTerm | undefined => {
 	}
 }
 
-/** What a head item reads at the display scale, where it is such a reading: a Compute reading's operand, or a mean's. */
+/** What a head item reads at the display scale, where it is such a reading: a scalar reading's operand, or a mean's. */
 const readingOf = (h: HeadItem): ArgTerm | undefined => {
 	switch (h.kind) {
 		case "computed":

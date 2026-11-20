@@ -22,7 +22,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
 import { type Carrier, numericTypmodOf } from "#compiler/ir/scalar.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
 	carrierText,
@@ -119,48 +119,67 @@ const int8Edges = Object.freeze([
 const bigints: Gen<bigint> = oneOf([bigint(-20000n, 20000n), bigint(-(2n ** 63n), 2n ** 63n - 1n)])
 
 export const fixtures = (): ReadonlyArray<Fixture> => {
-	const Cents = testContract("Cents", testPg.bigint, (x) => Compute.ge(x, 0n))
+	const Cents = testContract("Cents", testPg.bigint, (x) => computeCore.ge(x, 0n))
 	/** Arithmetic at the int8 limits: exact once cast to numeric, so nothing overflows. */
 	const Shares = testContract("Shares", testPg.bigint, (x) =>
-		Compute.and(
-			Compute.le(Compute.div(Compute.mul(x, 3n), 7n), 4000n),
-			Compute.ne(Compute.mod(x, 5n), 1n),
-			Compute.ge(Compute.abs(Compute.sub(x, 50n)), 2n),
-			Compute.or(Compute.eq(Compute.sign(x), 1n), Compute.lt(Compute.add(x, x), -100n))
+		computeCore.and(
+			computeCore.le(computeCore.div(computeCore.mul(x, 3n), 7n), 4000n),
+			computeCore.ne(computeCore.mod(x, 5n), 1n),
+			computeCore.ge(computeCore.abs(computeCore.sub(x, 50n)), 2n),
+			computeCore.or(
+				computeCore.eq(computeCore.sign(x), 1n),
+				computeCore.lt(computeCore.add(x, x), -100n)
+			)
 		)
 	)
 	const Basis = testContract("Basis", testPg.integer, (x) =>
-		Compute.or(Compute.between(x, 0, 10000), Compute.in(x, [-5, -7]))
+		computeCore.or(computeCore.between(x, 0, 10000), computeCore.in(x, [-5, -7]))
 	)
-	const Rate = testContract("Rate", testPg.numericOf(7, 6), (x) => Compute.between(x, 0n, 1n))
+	const Rate = testContract("Rate", testPg.numericOf(7, 6), (x) => computeCore.between(x, 0n, 1n))
 	/** Integer division truncates toward zero once widened: div(x, 2) = 3 admits 6 and 7, and -6 and -7 over -2. */
 	const Halves = testContract("Halves", testPg.bigint, (x) =>
-		Compute.or(Compute.eq(Compute.div(x, 2n), 3n), Compute.eq(Compute.div(x, -2n), 3n))
+		computeCore.or(
+			computeCore.eq(computeCore.div(x, 2n), 3n),
+			computeCore.eq(computeCore.div(x, -2n), 3n)
+		)
 	)
 	/** A typmod bounds the operand's integer digits, so this arithmetic can never pass numeric's limit. */
 	const Grade = testContract("Grade", testPg.numericOf(40, 10), (x) =>
-		Compute.and(Compute.gt(Compute.mul(x, "2.5"), "-10"), Compute.le(Compute.div(x, "0.3"), 100n))
+		computeCore.and(
+			computeCore.gt(computeCore.mul(x, "2.5"), "-10"),
+			computeCore.le(computeCore.div(x, "0.3"), 100n)
+		)
 	)
 	/** A lower bound alone admits NaN and +Infinity; a finite upper bound excludes both. */
-	const NonNegative = testContract("NonNegative", testPg.double, (x) => Compute.ge(x, 0))
+	const NonNegative = testContract("NonNegative", testPg.double, (x) => computeCore.ge(x, 0))
 	const Unit = testContract("Unit", testPg.double, (x) =>
-		Compute.and(Compute.between(x, 0, 1), Compute.ne(Compute.abs(x), 0.5))
+		computeCore.and(computeCore.between(x, 0, 1), computeCore.ne(computeCore.abs(x), 0.5))
 	)
-	const Short = testContract("Short", testPg.text, (x) => Compute.le(Compute.charLength(x), 3))
+	const Short = testContract("Short", testPg.text, (x) =>
+		computeCore.le(computeCore.charLength(x), 3)
+	)
 	/**
 	 * Effect Schema's isMaxLength(3) and isMinLength(3) over a string, which count UTF-16 code units: utf16Length under
 	 * the guard of the text's bytes that README states, three bytes a unit, so a text past 9 bytes is past 3 units and
 	 * one of at least 9 bytes holds at least 3, and the regex reads only a bounded text.
 	 */
 	const Units = testContract("Units", testPg.text, (x) =>
-		Compute.le(
-			Compute.when(Compute.within(Compute.octetLength(x), 0, 9), () => Compute.utf16Length(x), 4),
+		computeCore.le(
+			computeCore.when(
+				computeCore.within(computeCore.octetLength(x), 0, 9),
+				() => computeCore.utf16Length(x),
+				4
+			),
 			3
 		)
 	)
 	const ThreeUnits = testContract("ThreeUnits", testPg.text, (x) =>
-		Compute.ge(
-			Compute.when(Compute.within(Compute.octetLength(x), 0, 8), () => Compute.utf16Length(x), 3),
+		computeCore.ge(
+			computeCore.when(
+				computeCore.within(computeCore.octetLength(x), 0, 8),
+				() => computeCore.utf16Length(x),
+				3
+			),
 			3
 		)
 	)
@@ -391,7 +410,7 @@ export const contractProperty = (f: Fixture) =>
 						 * delivers a value and the literal adopts the contract; it refuses one exactly where compilation refuses the cast
 						 * for the reason PostgreSQL's SQLSTATE names and the literal is no value of the contract.
 						 */
-						const cast = spelledExpr(Compute.cast(v("x", f.base), f.field).expr)
+						const cast = spelledExpr(computeCore.cast(v("x", f.base), f.field).expr)
 						const operand = spelledExpr(v("x", f.base).expr)
 						const target = `"${s}"."${Str.toLowerCase(f.name)}"`
 						const cases = Arr.map(batch, (value) => {
@@ -454,7 +473,9 @@ export const contractProperty = (f: Fixture) =>
 	})
 
 /** The contract the rounding property casts into: a rate of numeric(7, 6) within [0, 1]. */
-export const Rate = testContract("Rate", testPg.numericOf(7, 6), (x) => Compute.between(x, 0n, 1n))
+export const Rate = testContract("Rate", testPg.numericOf(7, 6), (x) =>
+	computeCore.between(x, 0n, 1n)
+)
 
 /** Rate's rounding edges: values a half-unit of its scale either side of its bounds, and a few beyond its typmod. */
 const roundingEdges = [

@@ -29,7 +29,7 @@ import {
 } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Text, Type } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, mutable, relation, schema } from "#compiler/public/schema.ts"
@@ -76,7 +76,7 @@ const SlugAgain = str.regex("^[a-z](?:[a-z0-9]|-){0,62}$")
 const Prose = str.regex("^.*$", "su")
 /** A length bound is a contract predicate; over the wildcard the CHECK holds only the bound. */
 const limit = 5
-const Note = contract("Note", Prose, (x) => Compute.le(Compute.charLength(x), limit))
+const Note = contract("Note", Prose, (x) => Logic.le(Text.charLength(x), limit))
 
 const Tier = closed.ordered("Tier", ["Free", "Pro"])
 const TierLabel = closed.relation(
@@ -92,8 +92,8 @@ const Article = relation("Article", { id: Id, slug: Slug, title: Prose }, ["id"]
 const Draft = relation("Draft", { id: Id, slug: SlugAgain, note: Note }, ["id"])
 const Comment = relation("Comment", { id: Id, article: Id, slug: Slug }, ["id"])
 /** Numeric contracts: a bigint bound and an exact rate in the unit interval. */
-const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n))
-const Rate = contract("Rate", pg.numeric(7, 6), (x) => Compute.between(x, 0n, 1n))
+const Cents = contract("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
+const Rate = contract("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
 const Price = relation("Price", { id: Id, amount: Cents, rate: Rate }, ["id"])
 export const Content = schema(
 	"Content",
@@ -140,7 +140,7 @@ export const titlesAsSlugs = query(Content).rule((r) => {
 	const { id: article, title } = v(Article, "article")
 	return r
 		.match(Article, { id: article, title })
-		.find({ id: article, slug: Compute.cast(title, Slug) })
+		.find({ id: article, slug: Type.cast(title, Slug) })
 })
 
 /**
@@ -186,12 +186,12 @@ export const givenSlugs = query(Content).rule((r) => {
 	return r.match(given, { id: row, slug }).find({ id: row, slug })
 })
 
-/** A refined query constant: a Compute.literal of the slug's refinement. */
+/** A refined query constant: a Type.literal of the slug's refinement. */
 export const withConstant = query(Content).rule((r) => {
 	const { id: article } = v(Article, "article")
 	return r
 		.match(Article, { id: article })
-		.find({ id: article, kind: Compute.literal(Slug, "article") })
+		.find({ id: article, kind: Type.literal(Slug, "article") })
 })
 
 /**

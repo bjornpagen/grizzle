@@ -297,7 +297,7 @@ const builtins: ReadonlySet<string> = new Set(Object.keys(builtinFunctions))
 const isBuiltin = (name: string): name is BuiltinFunctionName => builtins.has(name)
 
 /**
- * An entry of the Compute catalogue's overload registry (scalar/compute/registry.ts), whose OpIds
+ * An entry of the scalar catalogue's overload registry (scalar/compute/registry.ts), whose OpIds
  * are the IR's convention: an operator by its oprcode, a function by its regprocedure signature
  * ("round(numeric,integer)"), a construct by its keyword and type ("between:integer"). Extension operators and
  * functions are the vector/ plug-in's, so they are not lowered here. A library function is the installation's own,
@@ -397,7 +397,7 @@ const registryForm = (
 /**
  * A text's SHA-256 digest, the 32 bytes of its UTF-8's: `<textDigest>(x)`, the installation's library function
  * `library` names (physical/ddl/library.ts textDigest). The one SQL form of the digest: a key's image column holds it,
- * a write's probe of the key reads it, and Compute.sha256 of a text writes it as hex.
+ * a write's probe of the key reads it, and Crypto.sha256 of a text writes it as hex.
  */
 export const textDigestForm = (library: PhysicalNames["library"], x: Expr): Expr => {
 	const fn = library("textDigest")
@@ -464,7 +464,7 @@ const totalForm = (
 /**
  * The default operator lowering: an operator form with its exact arity, a connective, or an entry of the overload registry.
  *
- * The default scalar vocabulary of the conservative lowering: the Compute catalogue under the IR's
+ * The default scalar vocabulary of the conservative lowering: the scalar catalogue under the IR's
  * OpId convention, one identity per overload:
  *
  * - an operator: its implementing function, pg_operator.oprcode ("int8pl", "numeric_mul", "texteq");
@@ -482,7 +482,7 @@ const totalForm = (
  *
  * Every form takes its operands as its overload reads them (operandsAsRead): queries, the DDL of CHECKs and
  * expression indexes, and span fallbacks all lower their scalar expressions here, so no display-scale reading reaches
- * PostgreSQL with an operand it could see a display scale of. A Compute.matches node's pattern reaches `~` as its ARE,
+ * PostgreSQL with an operand it could see a display scale of. A Text.matches node's pattern reaches `~` as its ARE,
  * which its operands already are (expr/index.ts patternAre).
  */
 export const defaultOps = (

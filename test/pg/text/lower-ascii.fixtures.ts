@@ -1,6 +1,6 @@
 /**
  * What lower-ascii.test.ts reads: texts over every byte class of UTF-8, the host's ASCII case fold beside Unicode's,
- * the SQL Compute.lowerAscii lowers to in a query and in a check, and the repro of a query that folds a text whose type
+ * the SQL Text.lowerAscii lowers to in a query and in a check, and the repro of a query that folds a text whose type
  * bounds no bytes (Attr's `lexical`), installed with a rule over it.
  */
 import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
@@ -21,7 +21,7 @@ import { Array as Arr, Effect, Formatter, Layer, Option, Order, String as Str } 
 import { Db } from "#adapter/public/db.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Text, Type } from "#compiler/public/compute.ts"
 import { natural } from "#compiler/public/fields.ts"
 import { query, v as variable } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
@@ -183,10 +183,10 @@ const anyTextColumn: Readonly<Record<string, LeafBinding>> = {
 	v: { kind: "column", type: testPg.text.scalar }
 }
 
-/** Compute.lowerAscii over `v`, as the builder describes it. */
+/** Text.lowerAscii over `v`, as the builder describes it. */
 const foldDesc: ExprDesc = spelledExpr(computeCore.lowerAscii(v("v", testPg.text)).expr)
 
-/** The SQL Compute.lowerAscii(v) lowers to in a lowering of `mode`, over `v` of text whose type bounds no bytes. */
+/** The SQL Text.lowerAscii(v) lowers to in a lowering of `mode`, over `v` of text whose type bounds no bytes. */
 export const foldSql = (mode: "query" | "check"): string => {
 	const lowered = lowerWith(mode, foldDesc, anyTextColumn, false, baseParams)
 	if (!lowered.ok) {
@@ -219,7 +219,7 @@ const foldWorld = (name: string) => {
 			return r
 				.match(Attr, { at, lexical })
 				.match(Tag, { at, tag })
-				.where(r.eq(Compute.lowerAscii(lexical), tag))
+				.where(r.eq(Text.lowerAscii(lexical), tag))
 				.find({ at })
 		})
 	)
@@ -231,7 +231,7 @@ const foldWorld = (name: string) => {
 			const { at, lexical } = variable(Attr, "a")
 			return r
 				.match(Attr, { at, lexical })
-				.find({ at, folded: Compute.cast(Compute.lowerAscii(lexical), anyText) })
+				.find({ at, folded: Type.cast(Text.lowerAscii(lexical), anyText) })
 		}),
 		folded: query(level).rule((r) => {
 			const { at } = variable(Folded, "f")

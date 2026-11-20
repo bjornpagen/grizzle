@@ -32,7 +32,7 @@ export const lowerSearchOp = (
 		return refuseAt(
 			"UnsupportedOperation",
 			at,
-			`a full text search operation of the Compute catalogue; ${describeOp(expr.op)} is not one`
+			`a full text search operation of the scalar catalogue; ${describeOp(expr.op)} is not one`
 		)
 	}
 	const [first, second] = args

@@ -4,14 +4,14 @@
  * admits for it, with its precondition left unproved, in a query, or in a check for a text's UTF-16 units, which no
  * query reads.
  *
- * The oracle: the refusal is PartialOperation of exactly the planted kind; its guard's test is one Compute writes over
- * the operand's type (a number's Compute.nonzero, Compute.nonnegative, Compute.positive, Compute.isFinite or
- * Compute.within; a text's Compute.matches or a bound on its bytes; over any other type no Compute test, a value of the
+ * The oracle: the refusal is PartialOperation of exactly the planted kind; its guard's test is one the scalar catalogue writes over
+ * the operand's type (a number's Num.nonzero, Num.nonnegative, Num.positive, Num.isFinite or
+ * Num.within; a text's Text.matches or a bound on its bytes; over any other type no scalar test, a value of the
  * target's own type); and, where that guard alone
  * proves the precondition, the term with the named guard written around it, or its operand a parameter of the target's
  * type, is admitted. Everything is read off the error's fields, never its prose.
  *
- * Features: a refusal for each precondition kind, a text operand's guard, a guard no Compute test writes, and a named
+ * Features: a refusal for each precondition kind, a text operand's guard, a guard no scalar test writes, and a named
  * guard, written, admitted.
  */
 
@@ -39,7 +39,7 @@ export const aPartialOperationsRefusalNamesItsPreconditionAndAGuardItsOperandsTy
 			situations: [
 				...Arr.map(kinds, (k): Feature => `refused for ${k}`),
 				"a text operand's guard",
-				"a guard no Compute test writes",
+				"a guard no scalar test writes",
 				"a named guard, written, admitted"
 			] satisfies ReadonlyArray<Reached<Feature>>,
 			check:
@@ -63,14 +63,14 @@ export const aPartialOperationsRefusalNamesItsPreconditionAndAGuardItsOperandsTy
 						const carrier = plant.operand.scalar.carrier
 						assert.ok(
 							Arr.contains(writable(carrier), reason.guard.remedy.kind),
-							`a ${reason.guard.remedy.kind} guard is one Compute writes over a ${carrier}`
+							`a ${reason.guard.remedy.kind} guard is one the scalar catalogue writes over a ${carrier}`
 						)
 						c.note(`refused for ${kind}`)
 						if (carrier === "text") {
 							c.note("a text operand's guard")
 						}
 						if (reason.guard.remedy.kind === "typed") {
-							c.note("a guard no Compute test writes")
+							c.note("a guard no scalar test writes")
 						}
 						const mended = plant.mended
 						switch (mended.kind) {
@@ -93,7 +93,7 @@ export const aPartialOperationsRefusalNamesItsPreconditionAndAGuardItsOperandsTy
 					}),
 			oracle: {
 				kind: "specification",
-				name: "the planted precondition and the guards Compute writes over its operand's type"
+				name: "the planted precondition and the guards the scalar catalogue writes over its operand's type"
 			},
 			box: "every precondition kind, over each operand type it plants",
 			kept: [],
@@ -103,13 +103,13 @@ export const aPartialOperationsRefusalNamesItsPreconditionAndAGuardItsOperandsTy
 					original:
 						'\t\t\treturn withinGuards(valueType(operand.nominal).carrier)\n\t\t\t\t? { kind: "within" }\n\t\t\t\t: { kind: "typed" }',
 					replacement: '\t\t\treturn { kind: "within" }',
-					why: "A contract's guard is Compute.within whatever its operand's type, so the text and boolean contract casts name a guard no Compute test writes over them; the refusal property fails."
+					why: "A contract's guard is Num.within whatever its operand's type, so the text and boolean contract casts name a guard no scalar test writes over them; the refusal property fails."
 				},
 				{
 					file: "packages/engine/src/scalar/compute/typing.ts",
 					original: '\t\tcase "int4":\n\t\tcase "float4":\n\t\tcase "float8":\n\t\t\treturn 0\n',
 					replacement: '\t\tcase "float4":\n\t\tcase "float8":\n\t\t\treturn 0\n',
-					why: "The one table of a constant guard's comparisons (typing.ts constantGuardTests) holds no zero of an integer, so Compute.nonzero, the guard a division over integers names, is refused where it is written; the refusal property fails."
+					why: "The one table of a constant guard's comparisons (typing.ts constantGuardTests) holds no zero of an integer, so Num.nonzero, the guard a division over integers names, is refused where it is written; the refusal property fails."
 				}
 			]
 		}

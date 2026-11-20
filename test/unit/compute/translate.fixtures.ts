@@ -249,7 +249,7 @@ const translateFaults: ReadonlySet<Fault> = new Set<Fault>([
 ])
 
 /**
- * A valid term and the fault planted in it: a translation by a map Compute.translate admits, or a collapse, lowered as
+ * A valid term and the fault planted in it: a translation by a map Text.translate admits, or a collapse, lowered as
  * a check or a query, and two code points a fault is built from beside a code point no text holds, NUL or a lone
  * surrogate.
  */

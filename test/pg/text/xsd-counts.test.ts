@@ -9,7 +9,7 @@
  *
  * 1. the host's automaton of the reader's IR (match.ts Matcher), which counts the repetition rather than copying it;
  * 2. PostgreSQL's `~` with the ARE of that IR (print.ts toAre);
- * 3. PostgreSQL's `~` with the ARE of Compute.xsdPattern's admitted pattern, its source in grizzle's grammar
+ * 3. PostgreSQL's `~` with the ARE of Xml.pattern's admitted pattern, its source in grizzle's grammar
  *    (scalar/regex/admit.ts matchAre), as a check or a query reads it.
  *
  * And PostgreSQL refuses the count as an ARE writes it, `a{n}` for the count past 255, as an invalid regular expression
@@ -30,7 +30,7 @@ import { agree, exact, ordered } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Xml } from "#compiler/public/compute.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import { truth } from "#test/pg/text/differential.fixtures.ts"
 import { type CountsFeature, countsCaseGen, showCounts } from "#test/pg/text/xsd-counts.fixtures.ts"
@@ -75,7 +75,7 @@ export const anXmlSchemaPatternOfACountPast255TheHostsAutomatonAndPostgreSQLsARE
 							Arr.map(rows, (row) => truth(row[0]))
 						)
 					const ofIr = yield* asked(toAre(ir))
-					const ofAdmitted = yield* asked(matchAre(Compute.xsdPattern(c.pattern).source))
+					const ofAdmitted = yield* asked(matchAre(Xml.pattern(c.pattern).source))
 					yield* agree<ReadonlyArray<boolean>>(
 						[
 							["the host's automaton", host],
@@ -88,7 +88,7 @@ export const anXmlSchemaPatternOfACountPast255TheHostsAutomatonAndPostgreSQLsARE
 				}),
 		oracle: {
 			kind: "postgresql",
-			name: "PostgreSQL 19's regex engine, on the ARE of the reader's IR and of Compute.xsdPattern's admitted pattern"
+			name: "PostgreSQL 19's regex engine, on the ARE of the reader's IR and of Xml.pattern's admitted pattern"
 		},
 		kept: [],
 		kills: [

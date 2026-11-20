@@ -14,7 +14,7 @@ import type { BinaryOperator, Expr, OrderItem } from "#compiler/sql/ast.ts"
 import { and, asc, distinctCore, lit, or, qualifiedCall, select } from "#compiler/sql/build.ts"
 
 /**
- * The extension's functions this lowering emits, by Compute operation.
+ * The extension's functions this lowering emits, by scalar operation.
  *
  * pgvector in the conservative lowering.
  *
@@ -24,7 +24,7 @@ import { and, asc, distinctCore, lit, or, qualifiedCall, select } from "#compile
  * a CHECK and a query spell one native tree. Each is qualified by the installation's vector schema, which is resolved
  * at installation and never assumed to be on the search_path:
  *
- * - Compute.cosineDistance is the extension's function, `"vector_ext"."cosine_distance"(a, b)`, wherever it appears:
+ * - Distance.cosine is the extension's function, `"vector_ext"."cosine_distance"(a, b)`, wherever it appears:
  *   in a projection, a filter, an order, a fold. The `<=>` operator is never emitted here: only approximateNearest's
  *   optimized lowering spells it, because the HNSW opclass advertises that operator as its ordering operation and an
  *   operator-ordered SELECT can take the ANN path once an index exists. The function computes the
@@ -71,7 +71,7 @@ export const lowerVectorOp = (
 		return refuseAt(
 			"UnsupportedOperation",
 			at,
-			`a pgvector operation of the Compute catalogue; ${describeOp(expr.op)} is not one`
+			`a pgvector operation of the scalar catalogue; ${describeOp(expr.op)} is not one`
 		)
 	}
 	const dims = expr.args.map((a) => vectorDims(a.type))

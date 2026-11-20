@@ -28,7 +28,7 @@ import {
 
 /**
  * What a part of a drawn concatenation is: a text column, its pattern bounding its bytes or not; a bare literal; a
- * translation of an unbounded column, Compute.translate(x, "a", "b"), which a query refuses, since its operand's pattern
+ * translation of an unbounded column, Text.translate(x, "a", "b"), which a query refuses, since its operand's pattern
  * bounds no length; or an integer column, which no concatenation takes.
  */
 export type DrawnPart =

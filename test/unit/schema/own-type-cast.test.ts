@@ -1,6 +1,6 @@
 /**
  * A generated field's cast into its own type is the column's own (analysis/schema.ts #generated): PostgreSQL admits a
- * generated column's value into the column's type as the cast does, so `generated(K, Compute.cast(e, K))`, its cast
+ * generated column's value into the column's type as the cast does, so `generated(K, Type.cast(e, K))`, its cast
  * proved, and `generated(K, e)` are one field, of one installation script and one snapshot record, the bare one's. A
  * cast into another type stays: its domain is another than the column's. pantry wrote thirteen dead casts of a collapse into its key text, each an explicit CoerceToDomain beside
  * the implicit one PostgreSQL's cookDefault adds, which pg_get_expr prints apart.
@@ -17,7 +17,7 @@ import { element, finite, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Text, Type } from "#compiler/public/compute.ts"
 import { generated, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -49,10 +49,10 @@ const schemaOf = (target: Target, cast: boolean) =>
 				g: generated(
 					keyText,
 					!cast
-						? Compute.collapse(r.x)
+						? Text.collapse(r.x)
 						: target === "own"
-							? Compute.cast(Compute.collapse(r.x), keyText)
-							: Compute.cast(Compute.collapse(r.x), wideText)
+							? Type.cast(Text.collapse(r.x), keyText)
+							: Type.cast(Text.collapse(r.x), wideText)
 				)
 			}))
 		],

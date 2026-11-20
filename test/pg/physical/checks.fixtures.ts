@@ -12,7 +12,7 @@ import {
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { closedId, contract, pg, span } from "#compiler/public/fields.ts"
 import {
 	check,
@@ -110,7 +110,7 @@ const codeFlags = "u"
 /** The case's schema: its relations and the two statements whose CHECKs the probes name. */
 export const plantedSchema = (p: Planted) => {
 	const hi = p.lo + p.width
-	const Level = contract("Level", pg.integer, (x) => Compute.between(x, p.lo, hi))
+	const Level = contract("Level", pg.integer, (x) => Logic.between(x, p.lo, hi))
 	const Grade = closed.ordered("Grade", handles)
 	const GradeScore = closed.relation(
 		"GradeScore",
@@ -131,7 +131,7 @@ export const plantedSchema = (p: Planted) => {
 	const Tagged = relation("Tagged", { id: pg.integer, code: str.regex(codeSource, codeFlags) }, [
 		"id"
 	])
-	const Fee = contract("Fee", pg.money, (x) => Compute.ge(x, Money.of(BigInt(p.fee))))
+	const Fee = contract("Fee", pg.money, (x) => Logic.ge(x, Money.of(BigInt(p.fee))))
 	const Charge = relation(
 		"Charge",
 		{ id: pg.integer, account: pg.integer, fee: Fee, tip: pg.money },

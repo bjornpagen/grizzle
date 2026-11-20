@@ -348,7 +348,7 @@ const definedEvaluation = (
 }
 
 /**
- * A read of a field of a declared function's one row (Compute.rowOf): the rows the field holds for its arguments, a
+ * A read of a field of a declared function's one row (Fn.row): the rows the field holds for its arguments, a
  * set, each value of its declared type (calledRows), read from the call's evaluation (evaluationOf) by unnesting the
  * field's array of rows.
  *

@@ -4,7 +4,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num, Type } from "#compiler/public/compute.ts"
 import { accumulated, contract, drawn, generated, natural, pg } from "#compiler/public/fields.ts"
 import { param, query } from "#compiler/public/query.ts"
 import { contained, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
@@ -13,7 +13,7 @@ import { fixtureTemplate } from "#test/pg/reads/support.ts"
 
 /** A span of time a call adds to its clock's reading, bounded, so the sum fits a bigint under its guard. */
 export const Span = contract("Span", pg.bigint, (d) =>
-	Compute.and(Compute.ge(d, 0n), Compute.le(d, 10n ** 12n))
+	Logic.and(Logic.ge(d, 0n), Logic.le(d, 10n ** 12n))
 )
 
 /** A row of Span's, so the installation holds its domain, which the calls' parameters bind through. */
@@ -30,7 +30,7 @@ const Flat = relation.generated(
 	"Flat",
 	{ q: pg.integer, due: pg.bigint, until: pg.bigint, items: drawn(natural) },
 	["q", "due"],
-	(r) => ({ held: generated(pg.bigint, Compute.cond(Compute.ge(r.until, 0n), r.until, 0n)) })
+	(r) => ({ held: generated(pg.bigint, Logic.cond(Logic.ge(r.until, 0n), r.until, 0n)) })
 )
 const FlatItem = relation(
 	"FlatItem",
@@ -74,13 +74,13 @@ export const Computed = schema(
 
 /** The call's reading of the database's clock, in microseconds, plus the parameter `by`, a bigint under its guard. */
 const after = <const By extends string>(by: By) =>
-	Compute.when(
-		Compute.within(
-			Compute.add(Compute.base(param("now", pg.bigint)), Compute.base(param(by, Span))),
+	Logic.when(
+		Num.within(
+			Num.add(Type.base(param("now", pg.bigint)), Type.base(param(by, Span))),
 			0n,
 			9223372036854775807n
 		),
-		(x) => Compute.cast(x, pg.bigint),
+		(x) => Type.cast(x, pg.bigint),
 		0n
 	)
 

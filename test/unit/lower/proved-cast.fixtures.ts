@@ -9,7 +9,7 @@ import {
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Text, Type } from "#compiler/public/compute.ts"
 import { generated } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
@@ -75,13 +75,13 @@ const schemaOf = (c: ProvedCastCase) => {
 					const read = r.match(Source, { lex, node })
 					switch (c.map) {
 						case "collapse":
-							return read.find({ image: Compute.collapse(lex), node })
+							return read.find({ image: Text.collapse(lex), node })
 						case "replaceWhitespace":
-							return read.find({ image: Compute.replaceWhitespace(lex), node })
+							return read.find({ image: Text.replaceWhitespace(lex), node })
 						case "lowerAscii":
-							return read.find({ image: Compute.lowerAscii(lex), node })
+							return read.find({ image: Text.lowerAscii(lex), node })
 						case "translate":
-							return read.find({ image: Compute.translate(lex, "ab", "ba"), node })
+							return read.find({ image: Text.translate(lex, "ab", "ba"), node })
 					}
 				})
 			)
@@ -95,24 +95,21 @@ const schemaOf = (c: ProvedCastCase) => {
 						switch (c.map) {
 							case "collapse":
 								return {
-									image: generated(anyText, Compute.cast(Compute.collapse(row.lex), undeclared))
+									image: generated(anyText, Type.cast(Text.collapse(row.lex), undeclared))
 								}
 							case "replaceWhitespace":
 								return {
-									image: generated(
-										anyText,
-										Compute.cast(Compute.replaceWhitespace(row.lex), undeclared)
-									)
+									image: generated(anyText, Type.cast(Text.replaceWhitespace(row.lex), undeclared))
 								}
 							case "lowerAscii":
 								return {
-									image: generated(anyText, Compute.cast(Compute.lowerAscii(row.lex), undeclared))
+									image: generated(anyText, Type.cast(Text.lowerAscii(row.lex), undeclared))
 								}
 							case "translate":
 								return {
 									image: generated(
 										anyText,
-										Compute.cast(Compute.translate(row.lex, "ab", "ba"), undeclared)
+										Type.cast(Text.translate(row.lex, "ab", "ba"), undeclared)
 									)
 								}
 						}

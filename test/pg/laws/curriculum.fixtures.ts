@@ -20,7 +20,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Num, Text, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { param, query, type Rule, v } from "#compiler/public/query.ts"
 import { contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
@@ -66,7 +66,7 @@ import { fullWorld } from "#test/support/worlds.ts"
  */
 
 /** Any text of up to 256 bytes: a node's kind and characters, a home's title. */
-const Text = str.bytes(256, str.regex("^.*$", "su"))
+const Chars = str.bytes(256, str.regex("^.*$", "su"))
 
 /** A home's slug: lowercase letters and digits in words joined by single hyphens (pantry's slugPattern). */
 const slugPattern = "^[a-z0-9]+(-[a-z0-9]+)*$"
@@ -83,13 +83,13 @@ const Node = relation(
 		start: pg.bigint,
 		end: pg.bigint,
 		parent: pg.bigint,
-		kind: Text,
-		chars: Text
+		kind: Chars,
+		chars: Chars
 	},
 	["package", "start"]
 )
-const Course = relation("Course", { slug: Slug, title: Text }, ["slug"])
-const Assessment = relation("Assessment", { slug: Slug, title: Text }, ["slug"])
+const Course = relation("Course", { slug: Slug, title: Chars }, ["slug"])
+const Assessment = relation("Assessment", { slug: Slug, title: Chars }, ["slug"])
 const PackageCourse = relation("PackageCourse", { course: Slug, package: PackageName }, ["package"])
 const PackageAssessment = relation(
 	"PackageAssessment",
@@ -172,10 +172,10 @@ const curriculumLevels = (name: string, homed: boolean) => {
 			.where(r.eq(catalogTextKind, nodeKinds.text))
 			.where(r.eq(entryKind, nodeKinds.entry))
 			.where(r.eq(entryTextKind, nodeKinds.text))
-			.where(r.eq(Compute.base(catalogEnd), Compute.add(Compute.base(catalog), soleTextSpan)))
-			.where(r.eq(Compute.base(entryEnd), Compute.add(Compute.base(entryNode), soleTextSpan)))
-			.where(r.eq(Compute.collapse(relationValue), partOf))
-			.where(r.eq(Compute.collapse(catalogText), catalogOf[kind]))
+			.where(r.eq(Type.base(catalogEnd), Num.add(Type.base(catalog), soleTextSpan)))
+			.where(r.eq(Type.base(entryEnd), Num.add(Type.base(entryNode), soleTextSpan)))
+			.where(r.eq(Text.collapse(relationValue), partOf))
+			.where(r.eq(Text.collapse(catalogText), catalogOf[kind]))
 			.find({ package: pkg, catalog: catalogOf[kind], entry, relation: related })
 	}
 	const Claim = derived(
@@ -281,7 +281,7 @@ const storedRows = (
 ]
 
 /** A slug as a query tests it: Slug's pattern, which a membership's writer holds a claim's entry to. */
-const slugTest = Compute.pattern<string>(slugPattern)
+const slugTest = Text.pattern<string>(slugPattern)
 
 /**
  * The curriculum under `name` with its writers' programs: `publish`, a package's replace (its content deleted by its
@@ -315,7 +315,7 @@ const curriculumWorld = (name: string, homed: boolean) => {
 				const { entry } = v(Claim, "claim")
 				return r
 					.match(Claim, { catalog: catalogOf.course, entry, package: pkg })
-					.where(Compute.matches(entry, slugTest))
+					.where(Text.matches(entry, slugTest))
 					.find({ course: entry, package: pkg })
 			})
 		)
@@ -337,7 +337,7 @@ const curriculumWorld = (name: string, homed: boolean) => {
 				const { entry } = v(Claim, "claim")
 				return r
 					.match(Claim, { catalog: catalogOf.assessment, entry, package: pkg })
-					.where(Compute.matches(entry, slugTest))
+					.where(Text.matches(entry, slugTest))
 					.find({ assessment: entry, package: pkg })
 			})
 		)

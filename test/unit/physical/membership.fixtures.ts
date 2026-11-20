@@ -8,7 +8,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { Bits, bits, closedId, natural, pg, slot } from "#compiler/public/fields.ts"
 import { check, closed, fin, relation, schema } from "#compiler/public/schema.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
@@ -98,42 +98,42 @@ const T = relation(
 const checkOf = (asked: Asked) =>
 	check("asked", T, (r) => {
 		if (asked.kind === "subset") {
-			return r.eq(Compute.subset(Allowed.row(r.kind), r.flags), true)
+			return r.eq(Bits.subset(Allowed.row(r.kind), r.flags), true)
 		}
 		if (asked.set === "slotted row") {
 			const row = Slotted.row(r.kind)
 			switch (asked.code) {
 				case "own":
-					return r.eq(Compute.subset(Compute.singleton(r.at), row), true)
+					return r.eq(Bits.subset(Bits.singleton(r.at), row), true)
 				case "picked":
 					return r.eq(
-						Compute.subset(
-							Compute.singleton(
-								Compute.cond(r.eq(r.flag, Flag.handle("a")), r.at, Position.handle("p2"))
+						Bits.subset(
+							Bits.singleton(
+								Logic.cond(r.eq(r.flag, Flag.handle("a")), r.at, Position.handle("p2"))
 							),
 							row
 						),
 						true
 					)
 				case "handle":
-					return r.eq(Compute.subset(Compute.singleton(Position.handle("p1")), row), true)
+					return r.eq(Bits.subset(Bits.singleton(Position.handle("p1")), row), true)
 			}
 		}
 		const singleton =
 			asked.code === "own"
-				? Compute.singleton(r.flag)
+				? Bits.singleton(r.flag)
 				: asked.code === "picked"
-					? Compute.singleton(Pick.at("flag", r.kind))
-					: Compute.singleton(Flag.handle("c"))
+					? Bits.singleton(Pick.at("flag", r.kind))
+					: Bits.singleton(Flag.handle("c"))
 		switch (asked.set) {
 			case "stored":
-				return r.eq(Compute.subset(singleton, r.flags), true)
+				return r.eq(Bits.subset(singleton, r.flags), true)
 			case "row":
-				return r.eq(Compute.subset(singleton, Allowed.row(r.kind)), true)
+				return r.eq(Bits.subset(singleton, Allowed.row(r.kind)), true)
 			case "value":
-				return r.eq(Compute.subset(singleton, Bits.of(Flag, ["a", "c"])), true)
+				return r.eq(Bits.subset(singleton, Bits.of(Flag, ["a", "c"])), true)
 			case "union":
-				return r.eq(Compute.subset(singleton, Compute.union(r.flags, Allowed.row(r.kind))), true)
+				return r.eq(Bits.subset(singleton, Bits.union(r.flags, Allowed.row(r.kind))), true)
 		}
 	})
 

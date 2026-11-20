@@ -55,10 +55,10 @@ import {
 import { at, nonEmptyList } from "#test/support/oracle/pick.ts"
 
 /**
- * Generated scalar computation inside queries: arithmetic, casts, CASE and the rest of the Compute catalogue.
+ * Generated scalar computation inside queries: arithmetic, casts, CASE and the rest of the scalar catalogue.
  *
  * A term is arithmetic, a cast, a conditional or a LEAST/GREATEST over a node's input columns, literals and scalar
- * parameters, drawn from the Compute catalogue (packages/engine/src/scalar/compute/registry.ts). The generator builds the
+ * parameters, drawn from the scalar catalogue (packages/engine/src/scalar/compute/registry.ts). The generator builds the
  * ExprDesc the public builders record and types it with the checker's own resolution, lowerTerm and lowerPredicate in
  * "query" mode (packages/engine/src/scalar/compute/lower.ts), so every node is the one the checker would emit: the exact
  * native overload, the composite lowerings the registry records (sign over an integer, gcd over smallint), the
@@ -66,7 +66,7 @@ import { at, nonEmptyList } from "#test/support/oracle/pick.ts"
  *
  * Every term is total, as every term a program writes is: integer and money arithmetic is exact, float arithmetic
  * IEEE 754, and each partial operation stands under the guard that proves its precondition, as a program writes it
- * (Compute.when): a division under its divisor's nonzero guard, a numeric square root under its radicand's
+ * (Logic.when): a division under its divisor's nonzero guard, a numeric square root under its radicand's
  * nonnegative one, every cast from a numeric-family value under a `within` guard whose bounds prove its range, and
  * the otherwise branch a value of the branch's type. A literal divisor is nonzero by its own value.
  *
@@ -74,7 +74,7 @@ import { at, nonEmptyList } from "#test/support/oracle/pick.ts"
  * operand carriers in scope, and a choice with nothing to choose from degrading to a column, so every sketch resolves
  * and shrinking keeps it valid.
  *
- * A `pad` is a numeric padded in PostgreSQL: cast to numeric(1000, s), then its Compute.numeric, a value at display scale
+ * A `pad` is a numeric padded in PostgreSQL: cast to numeric(1000, s), then its Num.numeric, a value at display scale
  * s (domain.ts numericPaddings), which only a reading of the display scale could tell from the value; the term every
  * merge, key and reading must see as its value alone.
  */
@@ -231,7 +231,7 @@ export const compareSketchGen = (depth: number): Gen<CompareSketch> => {
 }
 
 /**
- * The Compute operations the generator draws, by the carrier they compute at: a unary operation's operand's, a binary
+ * The scalar operations the generator draws, by the carrier they compute at: a unary operation's operand's, a binary
  * one's the carrier its operands meet at (types.ts meetingType). Each is a ComputeFn whose overloads the registry admits
  * over that carrier (or a composite lowering of them); casts are drawn separately.
  */
@@ -294,7 +294,7 @@ const castTargets: ReadonlyMap<Carrier, ReadonlyArray<Carrier>> = (() => {
 /**
  * The numeric cast targets: typmods that round, keep and overflow the generated values, wide and narrow
  * (numeric(1,0) overflows 10, numeric(38,10) holds every finite generated value), and numeric(1,3), whose scale lies
- * above its precision, so its values lie below 10^-2 and its integer digits are negative. Compute.numeric, the numeric
+ * above its precision, so its values lie below 10^-2 and its integer digits are negative. Num.numeric, the numeric
  * of a value, is a conversion and no target: a cast term draws it beside them.
  */
 const numericTargets: ReadonlyArray<FieldDesc> = [
@@ -494,7 +494,7 @@ const resolveLeaf = (
 	want: ScalarType | undefined
 ): Resolved | undefined => {
 	/**
-	 * A contract column meets no plain operand without Compute.base, which the generator does not draw, so computed
+	 * A contract column meets no plain operand without Type.base, which the generator does not draw, so computed
 	 * terms read plain columns only; contracts take part in comparisons with literals and parameters instead.
 	 */
 	const plainColumns = Arr.filter(scope.heading, (c) => c.type.contract === undefined)

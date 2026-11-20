@@ -7,7 +7,7 @@ import type { GuardTest } from "#compiler/core/errors.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type Fact, factNames } from "#compiler/ir/proof.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { type TestField, testPg } from "#test/unit/compute/support.ts"
@@ -91,14 +91,14 @@ export const impliedFacts = (base: Base, atoms: ReadonlyArray<Atom>): ReadonlyAr
 const comparison = (x: ScalarTerm, atom: Atom, base: Base): { readonly expr: OpenExpr } => {
 	switch (atom.op) {
 		case "between":
-			return Compute.between(x, base.literal(atom.low), base.literal(atom.high))
+			return computeCore.between(x, base.literal(atom.low), base.literal(atom.high))
 		case "ge":
 		case "gt":
 		case "le":
 		case "lt":
 		case "ne":
 		case "eq":
-			return Compute[atom.op](x, base.literal(atom.value))
+			return computeCore[atom.op](x, base.literal(atom.value))
 	}
 }
 
@@ -108,7 +108,7 @@ export const predicateOf =
 	(x: ScalarTerm): { readonly expr: OpenExpr } => {
 		const [first, ...rest] = atoms
 		return Arr.isReadonlyArrayNonEmpty(rest)
-			? Compute.and(...argumentsOf(Arr.map(atoms, (a) => comparison(x, a, base))))
+			? computeCore.and(...argumentsOf(Arr.map(atoms, (a) => comparison(x, a, base))))
 			: comparison(x, first, base)
 	}
 
@@ -156,15 +156,15 @@ export const operation = (
 	const numeric = base.name === "numeric"
 	switch (fact) {
 		case "nonzero":
-			return { term: Compute.div(x, x), direct: true }
+			return { term: computeCore.div(x, x), direct: true }
 		case "nonnegative":
-			return { term: Compute.sqrt(numeric ? x : Compute.numeric(x)), direct: numeric }
+			return { term: computeCore.sqrt(numeric ? x : computeCore.numeric(x)), direct: numeric }
 		case "finite":
-			return { term: Compute.minScale(numeric ? x : Compute.numeric(x)), direct: numeric }
+			return { term: computeCore.minScale(numeric ? x : computeCore.numeric(x)), direct: numeric }
 	}
 }
 
-/** The Compute test that guards each fact. */
+/** The scalar test that guards each fact. */
 export const guardKinds: { readonly [F in Fact]: GuardTest["kind"] } = {
 	nonzero: "nonzero",
 	nonnegative: "nonnegative",

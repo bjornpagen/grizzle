@@ -18,7 +18,7 @@ import { Array as Arr, Option } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { span } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 
@@ -60,7 +60,7 @@ export const predicateFor = (
 	wanted: boolean
 ): ((v: ScalarTerm) => { readonly expr: unknown }) | undefined =>
 	wanted && (name === "integer" || name === "bigint")
-		? (v: ScalarTerm) => Compute.ge(v, name === "integer" ? 0 : 0n)
+		? (v: ScalarTerm) => computeCore.ge(v, name === "integer" ? 0 : 0n)
 		: undefined
 
 export type IdentityFeature =

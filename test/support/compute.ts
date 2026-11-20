@@ -9,9 +9,7 @@ import { binaryCoercion, nativeOp } from "#compiler/scalar/compute/registry.ts"
 
 /** No package lowers a predicate of its own here: r.allen, r.pointIn and r.not are refused. */
 export const noExtension: LowerExtension<Spelled> = (desc, loc) =>
-	Result.err(
-		unsupported(loc, `${desc.kind}: lowered by its own package, not the Compute catalogue`)
-	)
+	Result.err(unsupported(loc, `${desc.kind}: lowered by its own package, not the scalar catalogue`))
 
 /**
  * Where an overload an expression names is defined: everywhere, the binary coercion, every range-polymorphic operator

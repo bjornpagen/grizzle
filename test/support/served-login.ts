@@ -15,7 +15,7 @@ import { transactionClock } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { contextFieldAdmits, type FieldDecl, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { clockedMember, workload } from "#compiler/program/workload/value.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Type } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { context, login, role, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { paged, refresh } from "#compiler/public/workload.ts"
@@ -145,7 +145,7 @@ export interface RoleShape {
  * The type of a clocked read's `now` (see the header): a checked contract over bigint, an instant in milliseconds, never
  * negative, whose domain's CHECK a reading cast to it meets.
  */
-const Instant = contract("Instant", pg.bigint, (m) => Compute.ge(m, 0n))
+const Instant = contract("Instant", pg.bigint, (m) => Logic.ge(m, 0n))
 
 /** The name of a role's refresh of the law level's view, by the role's place. */
 const refreshName = (place: number): string => `${roleName(place)}refresh`
@@ -484,7 +484,7 @@ const clockedRead = (drawn: DrawnSchema): unknown => {
 			const fact = varsOver(target, "fact")
 			return r
 				.match(target, fact)
-				.where(r.ge(r.param("now", Instant), Compute.literal(Instant, 0n)))
+				.where(r.ge(r.param("now", Instant), Type.literal(Instant, 0n)))
 				.find(fact)
 		}),
 		{ now: "millis" }

@@ -5,7 +5,7 @@ import { element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
 import { type CompareOp, type ComputeFn, computeFns } from "#compiler/ir/desc.ts"
 import type { NumericBound } from "#compiler/ir/scalar.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Type } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -53,17 +53,17 @@ type Leaf = "integer 0" | "integer 1" | "integer 2" | "qty" | "numeric(5,1) 1.0"
 const integerOf = (leaf: Leaf): number => (leaf === "integer 2" ? 2 : leaf === "integer 1" ? 1 : 0)
 
 const numericOf = (leaf: Leaf) =>
-	Compute.literal(pg.numeric(5, 1), leaf === "numeric(5,1) 1.0" ? "1.0" : "0")
+	Type.literal(pg.numeric(5, 1), leaf === "numeric(5,1) 1.0" ? "1.0" : "0")
 
 /** A query of the shape over integer branches, and one over numeric(5,1) branches. */
 const integerQuery = (shape: Shape, then: Leaf, otherwise: Leaf): unknown =>
 	query(Lines).rule((r) => {
 		const { id, flag, qty } = v(Line, "line")
-		const other = otherwise === "qty" ? qty : Compute.literal(pg.integer, integerOf(otherwise))
+		const other = otherwise === "qty" ? qty : Type.literal(pg.integer, integerOf(otherwise))
 		const conditional =
 			then === "qty"
-				? Compute.cond(flag, qty, other)
-				: Compute.cond(flag, Compute.literal(pg.integer, integerOf(then)), other)
+				? Logic.cond(flag, qty, other)
+				: Logic.cond(flag, Type.literal(pg.integer, integerOf(then)), other)
 		return r
 			.match(Line, { id, flag, qty })
 			.find({ n: shape === "sum" ? r.sum(conditional) : conditional })
@@ -72,7 +72,7 @@ const integerQuery = (shape: Shape, then: Leaf, otherwise: Leaf): unknown =>
 const numericQuery = (shape: Shape, then: Leaf, otherwise: Leaf): unknown =>
 	query(Lines).rule((r) => {
 		const { id, flag, qty } = v(Line, "line")
-		const conditional = Compute.cond(flag, numericOf(then), numericOf(otherwise))
+		const conditional = Logic.cond(flag, numericOf(then), numericOf(otherwise))
 		return r
 			.match(Line, { id, flag, qty })
 			.find({ n: shape === "sum" ? r.sum(conditional) : conditional })
@@ -90,7 +90,7 @@ export const integerLeaves = element<Leaf>(["integer 0", "integer 1", "integer 2
 export const numericLeaves = element<Leaf>(["numeric(5,1) 1.0", "numeric(5,1) 0"])
 
 /**
- * The description vocabulary the registry must cover: each node a Compute function lowers to (registry.ts
+ * The description vocabulary the registry must cover: each node a scalar function lowers to (registry.ts
  * computeSpecs), every comparison, the boolean connectives and a cast, each naming a registry node. (One OpId per node
  * is the registry's own load-time invariant.)
  */
@@ -112,12 +112,12 @@ const comparisons: { readonly [W in CompareOp | "between" | "in"]: W } = {
 	in: "in"
 }
 
-/** Each Compute function beside each node it lowers to. */
+/** Each scalar function beside each node it lowers to. */
 const functionWords = nonEmpty(
 	Arr.flatMap(computeFns, (fn) =>
 		Arr.map(computeSpecs[fn].nodes, (node): VocabularyWord => ({ kind: "function", fn, node }))
 	),
-	"the nodes the Compute functions lower to"
+	"the nodes the scalar functions lower to"
 )
 
 export const words = oneOf<VocabularyWord>([

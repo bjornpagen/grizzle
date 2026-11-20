@@ -4,7 +4,7 @@
  *
  * - The model: a set is a Set<number> of its codes in a roster of five codes, each live or a hole; union, intersection
  *   and difference are the Set operations, cardinality the count, subset and disjointness the membership tests, and a
- *   set with one more handle (set_bit, Compute.singleton's over the empty set) the set with that handle's code added.
+ *   set with one more handle (set_bit, computeCore.singleton's over the empty set) the set with that handle's code added.
  *   A NULL handle, a closed read's at an absent key, gives NULL, as set_bit is strict.
  * - The codec as a second reader: each set the evaluator returns, written by the set codec under the installation's
  *   codes, is the model's set as one bit per code in its one text, X then the hex digits of the bits domain's width,
@@ -26,7 +26,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { bits } from "#compiler/public/fields.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { NativeFn } from "#compiler/scalar/compute/registry.ts"
 import { closed } from "#compiler/schema/api.ts"
 import { throwsRefused } from "#test/support/assert.ts"
@@ -78,11 +78,11 @@ export const theHostsSetAlgebraRefusesEveryOperationOverTwoSetsOfTwoRostersWhich
 		) satisfies ReadonlyArray<Reached<NativeFn>>,
 		check: (_, c: Case<NativeFn>) => (op) =>
 			Effect.sync(() => {
-				const core = defined(twoOperandCores[op.fn], `the Compute member of ${op.fn}`)
+				const core = defined(twoOperandCores[op.fn], `the catalogue member of ${op.fn}`)
 				const left = bits(closed.ordered("Left", ["a", "b"]))
 				const right = bits(closed.ordered("Right", ["a", "b"]))
-				const x = Compute.literal(left, new Set(["a"]))
-				const y = Compute.literal(right, new Set(["a"]))
+				const x = computeCore.literal(left, new Set(["a"]))
+				const y = computeCore.literal(right, new Set(["a"]))
 				throwsRefused(() => core(x, y), "MalformedDescription")
 				c.note(op.fn)
 			}),

@@ -29,7 +29,7 @@ import { type RefreshTarget } from "#adapter/refresh/targets.ts"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
 import type { RoleDesc } from "#compiler/ir/desc.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -351,7 +351,7 @@ const Weekly = query(Edu).rule((r) => {
 		student,
 		week,
 		sittings: r.count(),
-		passes: r.sum(Compute.cond(passed, Compute.literal(pg.integer, 1), 0))
+		passes: r.sum(Logic.cond(passed, Type.literal(pg.integer, 1), 0))
 	})
 })
 

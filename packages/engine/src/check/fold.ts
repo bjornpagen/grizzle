@@ -138,7 +138,7 @@ export const foldRule = (monoid: MonoidSpec, fold: FoldTyping): RuleBreach | und
 
 /**
  * An operand of a combine's CHECK as its typing reads it: a before, the after or the step value, each a column of the
- * plane's type, compared by its value (Compute.base), since natural's count is a contract over bigint and its `+` an
+ * plane's type, compared by its value (Type.base), since natural's count is a contract over bigint and its `+` an
  * exact integer, which meets the contract only through its base.
  */
 const operand: ExprDesc = { kind: "base", arg: { kind: "field", field: "plane" } }
@@ -152,7 +152,7 @@ const one: ExprDesc = { kind: "literal", value: 1n }
  * `(after = combine(befores, x)) IS TRUE`, typed in "check" mode as a row check is, each before, after
  * and x a column of the plane's type with no text refinement (scalar.ts enteredType), which each of them refines on its
  * own. The comparison widens both sides into exact arithmetic where the combine computes
- * there (count's and sum's `+`), so nothing narrows; the combine applies Compute's operations (ir/monoid.ts CombineFn),
+ * there (count's and sum's `+`), so nothing narrows; the combine applies the scalar operations (ir/monoid.ts CombineFn),
  * each of which a check admits only where the host evaluates it, as it must to fill the after.
  */
 export const combineRule = (monoid: MonoidSpec, plane: ScalarType): string | undefined => {

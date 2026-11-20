@@ -40,7 +40,7 @@ export interface VectorField<out N extends number> extends Field<Vector<N>, "vec
 
 /**
  * A cosine distance's two operands, by origin, beside the term's own phantoms: what an approximate search reads of a
- * head field it ranks by (ApproximateNearestSpec). Compute.cosineDistance states it of its term.
+ * head field it ranks by (ApproximateNearestSpec). Distance.cosine states it of its term.
  */
 export type Scored<A, B> = Phantom<{ readonly scored: readonly [A, B] }>
 

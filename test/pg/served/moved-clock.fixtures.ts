@@ -3,7 +3,7 @@
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num, Type } from "#compiler/public/compute.ts"
 import { contract, instant, pg } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -12,7 +12,7 @@ import { fixtureTemplate } from "#test/pg/reads/support.ts"
 
 /** A lease's budget, bounded, so a reading plus it fits a bigint under its guard. */
 export const Span = contract("Span", pg.bigint, (d) =>
-	Compute.and(Compute.ge(d, 0n), Compute.le(d, 10n ** 12n))
+	Logic.and(Logic.ge(d, 0n), Logic.le(d, 10n ** 12n))
 )
 
 /** A row of Span's, so the installation holds its domain, which the calls' budgets bind through. */
@@ -30,13 +30,9 @@ export const Moved = schema("Moved", [Spans, Lease, Mark], [])
 const now = () => param("now", pg.bigint)
 
 /** The reading plus the budget, a bigint under its guard. */
-const untilOf = Compute.when(
-	Compute.within(
-		Compute.add(Compute.base(now()), Compute.base(param("budget", Span))),
-		0n,
-		9223372036854775807n
-	),
-	(x) => Compute.cast(x, pg.bigint),
+const untilOf = Logic.when(
+	Num.within(Num.add(Type.base(now()), Type.base(param("budget", Span))), 0n, 9223372036854775807n),
+	(x) => Type.cast(x, pg.bigint),
 	0n
 )
 

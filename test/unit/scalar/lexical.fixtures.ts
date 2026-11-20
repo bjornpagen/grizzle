@@ -6,7 +6,7 @@ import { Configurations } from "@bjornpagen/grizzle-text/regex/subset"
 import { defined } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Text, Type } from "#compiler/public/compute.ts"
 import {
 	accumulated,
 	date,
@@ -69,7 +69,7 @@ export const pairGen: Gen<{ readonly inner: string; readonly outer: string }> = 
 	]
 ])
 
-/** How a case states the parse's operand: by its field's type, or under a Compute.matches guard on a plain text. */
+/** How a case states the parse's operand: by its field's type, or under a Text.matches guard on a plain text. */
 export type Route = "type" | "guard"
 
 /** What the checker answered a case, by how it stated the operand. */
@@ -92,11 +92,11 @@ export const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Pa
 				n: generated(
 					pg.smallint,
 					route === "type"
-						? Compute.cast(r.t, pg.smallint)
-						: Compute.when(
-								Compute.matches(r.t, Compute.pattern(pattern)),
-								(t) => Compute.cast(t, pg.smallint),
-								Compute.literal(pg.smallint, 0)
+						? Type.cast(r.t, pg.smallint)
+						: Logic.when(
+								Text.matches(r.t, Text.pattern(pattern)),
+								(t) => Type.cast(t, pg.smallint),
+								Type.literal(pg.smallint, 0)
 							)
 				)
 			}))
@@ -108,11 +108,11 @@ export const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Pa
 				n: generated(
 					pg.numeric(3, 1),
 					route === "type"
-						? Compute.cast(r.t, pg.numeric(3, 1))
-						: Compute.when(
-								Compute.matches(r.t, Compute.pattern(pattern)),
-								(t) => Compute.cast(t, pg.numeric(3, 1)),
-								Compute.literal(pg.numeric(3, 1), "0")
+						? Type.cast(r.t, pg.numeric(3, 1))
+						: Logic.when(
+								Text.matches(r.t, Text.pattern(pattern)),
+								(t) => Type.cast(t, pg.numeric(3, 1)),
+								Type.literal(pg.numeric(3, 1), "0")
 							)
 				)
 			}))
@@ -124,11 +124,11 @@ export const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Pa
 				n: generated(
 					pg["double precision"],
 					route === "type"
-						? Compute.parseDouble(r.t)
-						: Compute.when(
-								Compute.matches(r.t, Compute.pattern(pattern)),
-								(t) => Compute.parseDouble(t),
-								Compute.literal(pg["double precision"], 0)
+						? Text.parseDouble(r.t)
+						: Logic.when(
+								Text.matches(r.t, Text.pattern(pattern)),
+								(t) => Text.parseDouble(t),
+								Type.literal(pg["double precision"], 0)
 							)
 				)
 			}))
@@ -140,11 +140,11 @@ export const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Pa
 				n: generated(
 					pg.boolean,
 					route === "type"
-						? Compute.cast(r.t, pg.boolean)
-						: Compute.when(
-								Compute.matches(r.t, Compute.pattern(pattern)),
-								(t) => Compute.cast(t, pg.boolean),
-								Compute.literal(pg.boolean, false)
+						? Type.cast(r.t, pg.boolean)
+						: Logic.when(
+								Text.matches(r.t, Text.pattern(pattern)),
+								(t) => Type.cast(t, pg.boolean),
+								Type.literal(pg.boolean, false)
 							)
 				)
 			}))

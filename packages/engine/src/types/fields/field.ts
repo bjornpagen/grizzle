@@ -141,7 +141,7 @@ export interface TextField<out Host extends string> extends Field<Host, "text", 
 }
 
 /**
- * str.pattern: a closed relation's text of Compute.matches patterns, its host type and domain text, which a pattern
+ * str.pattern: a closed relation's text of Text.matches patterns, its host type and domain text, which a pattern
  * term meets as it meets any text.
  */
 export type PatternField = Field<string, "text">
@@ -210,7 +210,7 @@ export type NotInstant<D> = [D] extends [never]
  * insert stamps its relation's clock, or states a stored instant into a reference, as the schema's laws say which a
  * field is (analysis/theory/instants.ts); no parameter, literal or cast is of its type, so no value a caller holds
  * reaches one. Its host type is bigint, unbranded, as a read delivers it; its domain is InstantDomain, so a term of it
- * meets only another instant's, and `Compute.base` reads one as the bigint it is. `instant: true` is the member its
+ * meets only another instant's, and `Type.base` reads one as the bigint it is. `instant: true` is the member its
  * type is told apart by.
  */
 export interface InstantField extends Field<

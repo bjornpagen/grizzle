@@ -10,7 +10,7 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Fn } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
@@ -35,7 +35,7 @@ import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /**
- * Reads of the fields of a declared function's one row (Compute.rowOf), the shape of GRADING-SQL's machine: `machine`,
+ * Reads of the fields of a declared function's one row (Fn.row), the shape of GRADING-SQL's machine: `machine`,
  * an SQL function of rows argument `items`, a heading of (slot, k, v, mark), and value argument `seed`, returns one row
  * of Out, whose fields `a` and `c` hold rows of A (k, v) and `b` rows of B (k, f), each the items of its slot, 0, 1 and
  * 2, f half of k, and `flow`, a text of the seed. An item's mark is what the row holds where PostgreSQL's would hold a
@@ -104,7 +104,7 @@ export const programsOf = (name: string) => {
 			.find({ slot, k, v: x, mark })
 	})
 	const alone = query(level).rule((r) => {
-		const read = Compute.rowOf(machine, {
+		const read = Fn.row(machine, {
 			items: itemsOf.bind({ session: r.param("session", pg.integer) }),
 			seed: r.param("seed", pg.bigint)
 		}).a
@@ -112,7 +112,7 @@ export const programsOf = (name: string) => {
 		return r.match(read, { k, v: x }).find({ k, v: x })
 	})
 	const pair = query(level).rule((r) => {
-		const fields = Compute.rowOf(machine, {
+		const fields = Fn.row(machine, {
 			items: itemsOf.bind({ session: r.param("session", pg.integer) }),
 			seed: r.param("seed", pg.bigint)
 		})
@@ -122,7 +122,7 @@ export const programsOf = (name: string) => {
 	})
 	const either = query(level)
 		.rule((r) => {
-			const read = Compute.rowOf(machine, {
+			const read = Fn.row(machine, {
 				items: itemsOf.bind({ session: r.param("session", pg.integer) }),
 				seed: r.param("seed", pg.bigint)
 			}).a
@@ -130,7 +130,7 @@ export const programsOf = (name: string) => {
 			return r.match(read, { k, v: x }).find({ k, v: x })
 		})
 		.rule((r) => {
-			const read = Compute.rowOf(machine, {
+			const read = Fn.row(machine, {
 				items: itemsOf.bind({ session: r.param("session", pg.integer) }),
 				seed: r.param("seed", pg.bigint)
 			}).c
@@ -139,7 +139,7 @@ export const programsOf = (name: string) => {
 		})
 	const each = query(level).rule((r) => {
 		const { session, seed } = v(Session, "session")
-		const fields = Compute.rowOf(machine, { items: itemsOf.bind({ session }), seed })
+		const fields = Fn.row(machine, { items: itemsOf.bind({ session }), seed })
 		const { k, v: x } = v(fields.a, "a")
 		const { k: j, f } = v(fields.b, "b")
 		return r
@@ -152,7 +152,7 @@ export const programsOf = (name: string) => {
 		.insert(
 			OutA,
 			query(level).rule((r) => {
-				const read = Compute.rowOf(machine, {
+				const read = Fn.row(machine, {
 					items: itemsOf.bind({ session: r.param("session", pg.integer) }),
 					seed: r.param("seed", pg.bigint)
 				}).a
@@ -163,7 +163,7 @@ export const programsOf = (name: string) => {
 		.insert(
 			OutB,
 			query(level).rule((r) => {
-				const read = Compute.rowOf(machine, {
+				const read = Fn.row(machine, {
 					items: itemsOf.bind({ session: r.param("session", pg.integer) }),
 					seed: r.param("seed", pg.bigint)
 				}).b
@@ -174,7 +174,7 @@ export const programsOf = (name: string) => {
 		.insert(
 			OutC,
 			query(level).rule((r) => {
-				const read = Compute.rowOf(machine, {
+				const read = Fn.row(machine, {
 					items: itemsOf.bind({ session: r.param("session", pg.integer) }),
 					seed: r.param("seed", pg.bigint)
 				}).c

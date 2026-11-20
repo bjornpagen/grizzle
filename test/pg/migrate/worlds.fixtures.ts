@@ -3,7 +3,7 @@
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { boolean, constant, element, type Gen, map, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -40,7 +40,7 @@ const Session = context("Session", { sub: Sub })
 
 /** The version `k` under the declared name `name`. */
 export const versionOf = (name: string, k: Knobs) => {
-	const Cap = contract("Cap", pg.integer, (x) => Compute.ge(x, k.capLeast))
+	const Cap = contract("Cap", pg.integer, (x) => Logic.ge(x, k.capLeast))
 	const Quota = context("Quota", { cap: Cap }, { claim: "q" })
 	const Tier = closed.ordered("Tier", k.tiers)
 	const Org = relation("Org", { id: Id, tier: closedId(Tier) }, ["id"])

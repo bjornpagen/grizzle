@@ -7,7 +7,7 @@
  * code point, passed a `$`) follows walk's rules (generators.ts walk): a `^` only before the first code point, no code
  * point after a `$`. The IR is never, and analyzeText refuses the pattern as UnsupportedOperation at the pattern, which no
  * value of a refinement could hold, exactly when the search reaches no accepting state; matchPattern then admits it, the
- * empty language, which Compute.matches holds of no text: its ARE is the empty language's (print.ts emptyLanguageAre) and
+ * empty language, which Text.matches holds of no text: its ARE is the empty language's (print.ts emptyLanguageAre) and
  * the host's match of it fails on every text. A path the search finds spells a member, which ECMAScript's own test
  * accepts, and a path that breaks the rules spells a text the pattern rejects when it is empty.
  *
@@ -126,7 +126,7 @@ export const aPatternNoTextMatchesIsNeverInTheIRRefusedByAnalyzeTextAndMatchedBy
 					original: "\tResult.map(admitIr(spelling, matchFlags), (ir) =>\n",
 					replacement:
 						'\tResult.map(Result.flatMap(admitIr(spelling, matchFlags), (ir) => ir.kind === "never" ? Result.err({ kind: "compileSpace", measure: { kind: "anchorLoop" } }) : Result.ok(ir)), (ir) =>\n',
-					why: "A Compute.matches pattern of the empty language is refused again, as no text matching it; the property fails."
+					why: "A Text.matches pattern of the empty language is refused again, as no text matching it; the property fails."
 				},
 				{
 					file: "packages/text/src/regex/ir.ts",

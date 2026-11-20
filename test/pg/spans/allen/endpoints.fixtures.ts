@@ -32,7 +32,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
  */
 import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { Compute, type Predicate } from "#compiler/public/compute.ts"
+import { Logic, type Predicate, Range } from "#compiler/public/compute.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -204,7 +204,7 @@ const spell = <E>(p: Pred, s: Spelling<E>): Predicate<never> => {
 		case "or":
 			return s.or(Arr.map(p.parts, (q) => spell(q, s)))
 		case "not":
-			return Compute.not(spell(p.arg, s))
+			return Logic.not(spell(p.arg, s))
 		case "id":
 			return s.id()
 	}
@@ -222,9 +222,9 @@ const intQuery = (pred: Pred) =>
 				case "b":
 					return column(s)
 				case "ab":
-					return Compute.cond(atLeastK(), a, b)
+					return Logic.cond(atLeastK(), a, b)
 				case "ba":
-					return Compute.cond(atLeastK(), b, a)
+					return Logic.cond(atLeastK(), b, a)
 			}
 		}
 		const window = () => r.param("w", IntPairs.fields.a)
@@ -233,16 +233,16 @@ const intQuery = (pred: Pred) =>
 			endpoint: (x, s) => {
 				switch (s) {
 					case "a":
-						return x === "lower" ? Compute.lower(a, pg.integer) : Compute.upper(a, pg.integer)
+						return x === "lower" ? Range.lower(a, pg.integer) : Range.upper(a, pg.integer)
 					case "b":
-						return x === "lower" ? Compute.lower(b, pg.integer) : Compute.upper(b, pg.integer)
+						return x === "lower" ? Range.lower(b, pg.integer) : Range.upper(b, pg.integer)
 					case "ab": {
-						const ab = Compute.cond(atLeastK(), a, b)
-						return x === "lower" ? Compute.lower(ab, pg.integer) : Compute.upper(ab, pg.integer)
+						const ab = Logic.cond(atLeastK(), a, b)
+						return x === "lower" ? Range.lower(ab, pg.integer) : Range.upper(ab, pg.integer)
 					}
 					case "ba": {
-						const ba = Compute.cond(atLeastK(), b, a)
-						return x === "lower" ? Compute.lower(ba, pg.integer) : Compute.upper(ba, pg.integer)
+						const ba = Logic.cond(atLeastK(), b, a)
+						return x === "lower" ? Range.lower(ba, pg.integer) : Range.upper(ba, pg.integer)
 					}
 				}
 			},
@@ -284,9 +284,9 @@ const bigQuery = (pred: Pred) =>
 				case "b":
 					return column(s)
 				case "ab":
-					return Compute.cond(atLeastK(), a, b)
+					return Logic.cond(atLeastK(), a, b)
 				case "ba":
-					return Compute.cond(atLeastK(), b, a)
+					return Logic.cond(atLeastK(), b, a)
 			}
 		}
 		const window = () => r.param("w", BigPairs.fields.a)
@@ -295,16 +295,16 @@ const bigQuery = (pred: Pred) =>
 			endpoint: (x, s) => {
 				switch (s) {
 					case "a":
-						return x === "lower" ? Compute.lower(a, pg.bigint) : Compute.upper(a, pg.bigint)
+						return x === "lower" ? Range.lower(a, pg.bigint) : Range.upper(a, pg.bigint)
 					case "b":
-						return x === "lower" ? Compute.lower(b, pg.bigint) : Compute.upper(b, pg.bigint)
+						return x === "lower" ? Range.lower(b, pg.bigint) : Range.upper(b, pg.bigint)
 					case "ab": {
-						const ab = Compute.cond(atLeastK(), a, b)
-						return x === "lower" ? Compute.lower(ab, pg.bigint) : Compute.upper(ab, pg.bigint)
+						const ab = Logic.cond(atLeastK(), a, b)
+						return x === "lower" ? Range.lower(ab, pg.bigint) : Range.upper(ab, pg.bigint)
 					}
 					case "ba": {
-						const ba = Compute.cond(atLeastK(), b, a)
-						return x === "lower" ? Compute.lower(ba, pg.bigint) : Compute.upper(ba, pg.bigint)
+						const ba = Logic.cond(atLeastK(), b, a)
+						return x === "lower" ? Range.lower(ba, pg.bigint) : Range.upper(ba, pg.bigint)
 					}
 				}
 			},

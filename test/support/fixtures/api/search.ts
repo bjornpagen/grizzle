@@ -1,4 +1,4 @@
-import { Compute } from "#compiler/public/compute.ts"
+import { Distance } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -73,7 +73,7 @@ export const scoredDocuments = query(Search).rule((r) => {
 		.find({
 			document,
 			revision,
-			distance: Compute.cosineDistance(value, r.param("vector", DocumentEmbedding.fields.value))
+			distance: Distance.cosine(value, r.param("vector", DocumentEmbedding.fields.value))
 		})
 })
 

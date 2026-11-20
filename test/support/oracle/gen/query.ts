@@ -1990,8 +1990,8 @@ class QueryResolver {
 	}
 
 	/**
-	 * An endpoint predicate over a span column, as the checker lowers r.lt(Compute.lower(a), Compute.upper(b)) and
-	 * r.pointIn(Compute.lower(a), s): each endpoint the lower(anyrange) or upper(anyrange) node over its column, typed by
+	 * An endpoint predicate over a span column, as the checker lowers r.lt(Range.lower(a), Range.upper(b)) and
+	 * r.pointIn(Range.lower(a), s): each endpoint the lower(anyrange) or upper(anyrange) node over its column, typed by
 	 * the span's endpoint, the comparison the endpoint carrier's, and the membership range_contains_elem(span, point),
 	 * whose span is a column of the carrier or, as a parameter or literal, takes the column's type.
 	 */

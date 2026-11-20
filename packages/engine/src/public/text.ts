@@ -11,7 +11,7 @@ import type { Field, FieldBase, GeneratedField } from "#compiler/types/fields/fi
 /**
  * The lexical form of a field descriptor's type (lexicalForm(T), lexical(T)), a relation's field read as its declared
  * type (schema/relation.ts describeDeclared): its pattern under flags "u" types a lexical field and guards a parse, so a
- * text of the form casts into T total (Compute.cast). A contract's form is its base's, which a cast into the contract
+ * text of the form casts into T total (Type.cast). A contract's form is its base's, which a cast into the contract
  * parses, then enters the contract by its predicate's proof: date's, whose range is the form's own. A type with no form
  * is refused, UnsupportedOperation.
  */
@@ -56,8 +56,8 @@ type ParseSql =
 
 /**
  * lexicalForm(T): the pattern of T's lexical form, XML Schema's lexical space of T's datatype cut to the values T holds
- * exactly, a Pattern for Compute.matches to guard a parse with, whose source `str.regex` types a lexical field by
- * (lexical(T)): a text of the form's language, or of a language inside it, casts into T total (Compute.cast). A
+ * exactly, a Pattern for Text.matches to guard a parse with, whose source `str.regex` types a lexical field by
+ * (lexical(T)): a text of the form's language, or of a language inside it, casts into T total (Type.cast). A
  * contract's form is its base's, and a relation's field's its declared type's: a drawn natural's is a bigint's.
  */
 export const lexicalForm = (type: Field<unknown, ParseSql, unknown>): Pattern =>
@@ -67,7 +67,7 @@ export type { RegexFlagsValidate, RegexInfer, RegexValidate } from "#compiler/ty
 export type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
 
 /**
- * doubleText: the Pattern of every decimal text of a double, Compute.parseDouble's operand, under flags "u": a mantissa
+ * doubleText: the Pattern of every decimal text of a double, Text.parseDouble's operand, under flags "u": a mantissa
  * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)` of any digits with an optional exponent `[eE][+-]?[0-9]+` of any digits, or `INF`,
  * `-INF` or `NaN`, XML Schema 1.0's xs:double lexical space, which has no `+INF`. A text of its language, or of a
  * language inside it, parses into a double total.
@@ -75,7 +75,7 @@ export type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
 export const doubleText: Pattern = Pattern.ofForm({ kind: "doubleText" })
 
 /**
- * decimalText: the Pattern of every decimal text, Compute.parseDecimal's operand, under flags "u":
+ * decimalText: the Pattern of every decimal text, Text.parseDecimal's operand, under flags "u":
  * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)` of any digits, the grammar of XML Schema 1.1's xs:decimal lexical space. The parse
  * reads a text of its language within decimalTextMaxBytes UTF-8 bytes, 16,384, every one of which names a value plain
  * numeric holds: a text of a language inside it whose bytes its type or a guard bounds within them parses into
@@ -85,7 +85,7 @@ export const decimalText: Pattern = Pattern.ofForm({ kind: "decimalText" })
 
 /**
  * lexical(T): the text field of T's lexical form, str.regex over lexicalForm(T): a field of it casts into T total, so
- * `generated(T, Compute.cast(row.lexical, T))` is a NOT NULL generated column of the value the text names.
+ * `generated(T, Type.cast(row.lexical, T))` is a NOT NULL generated column of the value the text names.
  */
 export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<string> =>
 	regexField<string>(formSource(lexicalTargetOfField(type)), [])
@@ -98,7 +98,7 @@ export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<stri
  * worst alignment padding. `fields` are every other column of the index: a key's other fields, declared or over a
  * selection; for a family axis that carries the text, its group fields, its natural index, the other values it carries
  * and a tree's `end`. A text field whose contract bounds it there,
- * `contract("KeyText", str.regex("^.*$", "su"), (v) => Compute.le(Compute.octetLength(v), keyTextBytes(fields)))`, sits in any of
+ * `contract("KeyText", str.regex("^.*$", "su"), (v) => Logic.le(Text.octetLength(v), keyTextBytes(fields)))`, sits in any of
  * them. A field of a relation is read as its declared type (schema/relation.ts describeDeclared), a drawn index or a
  * generated field among them. It throws CompileError (UnrepresentableKey) for fields of no byte bound, such as an
  * unbounded text, for more fields than an index holds beside a text, and for fields that leave a text no byte.

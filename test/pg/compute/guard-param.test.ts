@@ -1,5 +1,5 @@
 /**
- * A guard over a parameter on PostgreSQL 19: Compute.when(Compute.nonzero(d), (d) => Compute.div(x, d), 0n) over a
+ * A guard over a parameter on PostgreSQL 19: Logic.when(Num.nonzero(d), (d) => Num.div(x, d), 0n) over a
  * bigint parameter d and a drawn bigint dividend x, prepared and executed under a custom or a generic plan with d bound
  * to zero or to a drawn divisor. PostgreSQL drops the result of a WHEN that folds to false at plan time before it
  * simplifies that result, and a custom plan's parameter is such a constant; a generic plan evaluates the result only

@@ -20,7 +20,7 @@ const isSafeInteger = (value: unknown): value is number =>
 	typeof value === "number" && Number.isSafeInteger(value)
 
 /**
- * The host type of a literal that meets no term, the rule of Compute.cond when both branches are literals: a
+ * The host type of a literal that meets no term, the rule of Logic.cond when both branches are literals: a
  * JavaScript number is an integer, a bigint a bigint, a Decimal numeric, a Money money, a boolean a boolean, and
  * a string text with the canonical wildcard. A float, a span or a vector literal always meets a term.
  */
@@ -90,7 +90,7 @@ const taggedMoney = (value: unknown): Money | undefined => {
 }
 
 /**
- * Literal operands of the Compute catalogue.
+ * Literal operands of the scalar catalogue.
  *
  * LiteralOf<T>: a literal over a numeric base is a Decimal, a bigint, or a string holding an exact decimal literal,
  * checked at construction; a JavaScript number is never a numeric literal, because it has already rounded to binary64.
@@ -99,7 +99,7 @@ const taggedMoney = (value: unknown): Money | undefined => {
  * hyphenated text in either case, over text a storable string, over a closed reference one of its handles, over a set
  * its handles in the roster's declared order, over a span a { start, end } of its endpoint's host type, and over a
  * vector a Vector of its dimensions. A literal never
- * has a type of its own unless Compute.literal gives it one: it takes the type of the term it meets.
+ * has a type of its own unless Type.literal gives it one: it takes the type of the term it meets.
  *
  * The builder's boundary, a host value to the LiteralDesc the Description carries, is scalar/registry.ts
  * literalDescFor. This module holds the IR's:

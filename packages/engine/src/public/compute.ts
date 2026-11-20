@@ -1,12 +1,42 @@
 import { callFields, callRows, callTerm } from "#compiler/query/build/call.ts"
 import { compute as C } from "#compiler/scalar/compute/builders.ts"
 import { guarded } from "#compiler/scalar/compute/term.ts"
-import type { ComputeApi } from "#compiler/types/compute/compute.ts"
+import type {
+	CryptoApi,
+	DistanceApi,
+	FnApi,
+	LogicApi,
+	NumApi,
+	RangeApi,
+	SearchApi,
+	TextApi,
+	TypeApi,
+	XmlApi
+} from "#compiler/types/compute/compute.ts"
 
-const catalogue: ComputeApi = {
+/**
+ * Public barrel: the scalar catalogue of expressions and their typing, in the namespaces whose domain each member reads
+ * (types/compute/compute.ts), Bits the field barrel's, beside Bits.of. Term and Predicate are the scalar
+ * expression types every area threads, Meets the one relation a position takes a term by, and Facts what a term's
+ * values are proved to have; LiteralOf and SqlOf are the field barrel's.
+ *
+ * Each namespace is the typed builders of packages/engine/src/scalar/compute bound to its public signature (TypeApi,
+ * NumApi, …): every member is implemented under its signature, and returns the term its builder made, whose column the
+ * builder read off its operand's or descriptor's carrier, or off the result table keyed by its operand's SQL type, so
+ * the term has the column and SQL type the signature gives it by construction. A term's parameters and origin are
+ * phantoms no runtime value holds. Logic.when hands its branch's function the term its guard holds, which is the
+ * guard's subject with the guard's facts proved, and builds over the term the function returns.
+ *
+ * Type: a typed constant of a descriptor's type, a contract dropped to its base, and a checked cast.
+ */
+export const Type: TypeApi = Object.freeze<TypeApi>({
 	literal: (type, value) => C.literal(type, value),
 	base: (x) => C.base(x),
-	cast: (x, to) => C.cast(x, to),
+	cast: (x, to) => C.cast(x, to)
+})
+
+/** Num: arithmetic, rounding and the numeric functions over the numeric family, and the guards over it. */
+export const Num: NumApi = Object.freeze<NumApi>({
 	add: (a, b) => C.add(a, b),
 	sub: (a, b) => C.sub(a, b),
 	mul: (a, b) => C.mul(a, b),
@@ -25,18 +55,24 @@ const catalogue: ComputeApi = {
 	lcm: (a, b) => C.lcm(a, b),
 	power: (a, b) => C.power(a, b),
 	sqrt: (a) => C.sqrt(a),
-	least: (first, ...rest) => C.least(first, rest),
-	greatest: (first, ...rest) => C.greatest(first, rest),
 	widthBucket: (x, low, high, count) => C.widthBucket(x, low, high, count),
 	minScale: (a) => C.minScale(a),
 	numeric: (a) => C.numeric(a),
-	cond: (p, then, otherwise) => C.cond(p, then, otherwise),
-	when: (guard, then, otherwise) => C.when(guard, then(guard[guarded]), otherwise),
+	floatBits: (x) => C.floatBits(x),
 	nonzero: (x) => C.nonzero(x),
 	nonnegative: (x) => C.nonnegative(x),
 	positive: (x) => C.positive(x),
 	isFinite: (x) => C.isFinite(x),
-	within: (x, low, high) => C.within(x, low, high),
+	within: (x, low, high) => C.within(x, low, high)
+})
+
+/**
+ * Logic: the comparisons, LEAST and GREATEST, the connectives and the conditionals, over any type they order or
+ * compare.
+ */
+export const Logic: LogicApi = Object.freeze<LogicApi>({
+	cond: (p, then, otherwise) => C.cond(p, then, otherwise),
+	when: (guard, then, otherwise) => C.when(guard, then(guard[guarded]), otherwise),
 	not: (p) => C.not(p),
 	and: (...ps) => C.and(ps),
 	or: (...ps) => C.or(ps),
@@ -48,9 +84,22 @@ const catalogue: ComputeApi = {
 	ge: (a, b) => C.ge(a, b),
 	between: (a, low, high) => C.between(a, low, high),
 	in: (a, values) => C.in(a, values),
+	least: (first, ...rest) => C.least(first, rest),
+	greatest: (first, ...rest) => C.greatest(first, rest)
+})
+
+/** Range: a span term's endpoints and its width, each of the span's endpoint descriptor's type. */
+export const Range: RangeApi = Object.freeze<RangeApi>({
 	lower: (s, endpoint) => C.lower(s, endpoint),
 	upper: (s, endpoint) => C.upper(s, endpoint),
-	width: (s, endpoint) => C.width(s, endpoint),
+	width: (s, endpoint) => C.width(s, endpoint)
+})
+
+/**
+ * Text: text's lengths, concatenation, prefixes, patterns in grizzle's grammar and their matches, transforms,
+ * references and lexical parses.
+ */
+export const Text: TextApi = Object.freeze<TextApi>({
 	charLength: (s) => C.charLength(s),
 	octetLength: (s) => C.octetLength(s),
 	utf16Length: (s) => C.utf16Length(s),
@@ -58,49 +107,47 @@ const catalogue: ComputeApi = {
 	startsWith: (a, b) => C.startsWith(a, b),
 	endsWith: (a, b) => C.endsWith(a, b),
 	pattern: (source) => C.pattern(source),
-	xsdPattern: (source) => C.xsdPattern(source),
 	matches: (subject, pattern) => C.matches(subject, pattern),
 	translate: (x, from, to) => C.translate(x, from, to),
 	lowerAscii: (x) => C.lowerAscii(x),
 	replaceWhitespace: (x) => C.replaceWhitespace(x),
 	collapse: (x) => C.collapse(x),
 	resolveReference: (base, reference) => C.resolveReference(base, reference),
-	isXsdPattern: (x) => C.isXsdPattern(x),
 	parseDouble: (x) => C.parseDouble(x),
-	parseDecimal: (x) => C.parseDecimal(x),
-	sha256: (x) => C.sha256(x),
-	floatBits: (x) => C.floatBits(x),
-	cosineDistance: (a, b) => C.cosineDistance(a, b),
-	websearchQuery: (text) => C.websearchQuery(text),
-	plainQuery: (text) => C.plainQuery(text),
-	textMatches: (document, query) => C.textMatches(document, query),
-	textRank: (document, query) => C.textRank(document, query),
-	textRankCd: (document, query) => C.textRankCd(document, query),
-	union: (a, b) => C.union(a, b),
-	intersection: (a, b) => C.intersection(a, b),
-	difference: (a, b) => C.difference(a, b),
-	cardinality: (a) => C.cardinality(a),
-	subset: (a, b) => C.subset(a, b),
-	disjoint: (a, b) => C.disjoint(a, b),
-	singleton: (id) => C.singleton(id),
-	call: (f, args) => callTerm(f, args),
-	rowsOf: (f, args) => callRows(f, args),
-	rowOf: (f, args) => callFields(f, args)
-}
+	parseDecimal: (x) => C.parseDecimal(x)
+})
 
-/**
- * Public barrel: the Compute catalogue of scalar expressions and their typing. Term and Predicate are the scalar
- * expression types every area threads, Meets the one relation a position takes a term by, and Facts what a term's
- * values are proved to have; LiteralOf and SqlOf are the field barrel's.
- *
- * Compute is the typed builders of packages/engine/src/scalar/compute bound to their public signature, ComputeApi
- * (types/compute): every member is implemented under its signature, and returns the term its builder made, whose
- * column the builder read off its operand's or descriptor's carrier, or off the result table keyed by its operand's SQL
- * type, so the term has the column and SQL type the signature gives it by construction. A term's parameters and origin
- * are phantoms no runtime value holds. Compute.when hands its branch's function the term its guard holds, which is
- * the guard's subject with the guard's facts proved, and builds over the term the function returns.
- */
-export const Compute: ComputeApi = Object.freeze(catalogue)
+/** Xml: XML Schema 1.0's pattern dialect, a pattern facet written in it and the test that a text is one. */
+export const Xml: XmlApi = Object.freeze<XmlApi>({
+	pattern: (source) => C.xsdPattern(source),
+	isPattern: (x) => C.isXsdPattern(x)
+})
+
+/** Crypto: a value's SHA-256 digest. */
+export const Crypto: CryptoApi = Object.freeze<CryptoApi>({
+	sha256: (x) => C.sha256(x)
+})
+
+/** Distance: the distance between two vectors. */
+export const Distance: DistanceApi = Object.freeze<DistanceApi>({
+	cosine: (a, b) => C.cosineDistance(a, b)
+})
+
+/** Search: a text search query made under a document's configuration, a document's match of one and its ranks. */
+export const Search: SearchApi = Object.freeze<SearchApi>({
+	websearch: (text) => C.websearchQuery(text),
+	plain: (text) => C.plainQuery(text),
+	matches: (document, query) => C.textMatches(document, query),
+	rank: (document, query) => C.textRank(document, query),
+	rankCd: (document, query) => C.textRankCd(document, query)
+})
+
+/** Fn: a declared function called at its arguments, for its value, its rows or its one row. */
+export const Fn: FnApi = Object.freeze<FnApi>({
+	call: (f, args) => callTerm(f, args),
+	rows: (f, args) => callRows(f, args),
+	row: (f, args) => callFields(f, args)
+})
 
 export { floatBits } from "#compiler/scalar/compute/float.ts"
 

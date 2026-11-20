@@ -5,7 +5,7 @@
  * distinct under native equality to distinct values. The oracle evaluates the cast: every value of a dictionary of the
  * values the casts branch on (integer range edges, the integers binary32 and binary64 round onto their neighbours,
  * halves and ties, scales that round onto each other, the signed zeros, NaN and the infinities) is cast into each
- * source type by the test kernel's evaluator of the Compute catalogue (oracle/evaluate/catalog.ts), then into each target
+ * source type by the test kernel's evaluator of the scalar catalogue (oracle/evaluate/catalog.ts), then into each target
  * type.
  *
  * - Soundness: a cast castInjective admits merges no two values of its source that native equality tells apart.
@@ -122,7 +122,7 @@ export const castInjectiveAdmitsOnlyCastsThatMergeNoTwoValuesOfTheirSourceAndEve
 					}),
 			oracle: {
 				kind: "second-implementation",
-				name: "the Compute catalogue's evaluator casting every value of the dictionary into the source, then the target"
+				name: "the scalar catalogue's evaluator casting every value of the dictionary into the source, then the target"
 			},
 			box: "every ordered pair of the integer, floating and exact numeric types",
 			kept: [],

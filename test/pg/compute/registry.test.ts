@@ -1,5 +1,5 @@
 /**
- * The Compute registry against PostgreSQL 19's catalog (scalar/compute/registry.ts): every entry names the operator,
+ * The scalar registry against PostgreSQL 19's catalog (scalar/compute/registry.ts): every entry names the operator,
  * function, cast, input function or constructor PostgreSQL has, with the operand types, result type and volatility the
  * catalog states, and no node has two entries over the same operands.
  *
@@ -19,7 +19,7 @@ import { type EntryKind, entryProblems, sameOperands } from "#test/pg/compute/re
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * The Compute registry against pg_operator, pg_proc and pg_cast names the catalog's operator, function or cast for every entry, with its result type and volatility, once per node and operands.
+ * The scalar registry against pg_operator, pg_proc and pg_cast names the catalog's operator, function or cast for every entry, with its result type and volatility, once per node and operands.
  */
 export const theComputeRegistryAgainstPgOperatorPgProcAndPgCastNamesTheCatalogsOperatorFunctionOrCastForEveryEntryWithItsResultTypeAndVolatilityOncePerNodeAndOperands =
 	property.exhaust(finite(int(0, nativeOps.length - 1)), {
@@ -57,7 +57,7 @@ export const theComputeRegistryAgainstPgOperatorPgProcAndPgCastNamesTheCatalogsO
 			kind: "postgresql",
 			name: "pg_operator, pg_proc, pg_cast and pg_type's entries for the object an entry names"
 		},
-		box: "every entry of the Compute registry",
+		box: "every entry of the scalar registry",
 		kept: [],
 		kills: []
 	})

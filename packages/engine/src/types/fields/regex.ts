@@ -9,7 +9,7 @@ import type {
 } from "#compiler/types/fields/source.ts"
 
 /**
- * The type-level reading of a pattern's literal source, which str.regex (text/field.ts) and Compute.matches
+ * The type-level reading of a pattern's literal source, which str.regex (text/field.ts) and Text.matches
  * (types/compute/compute.ts) share: ArkRegex's grammar check, refusing a source that is no single literal, and its
  * inference of the pattern's language.
  */
@@ -61,8 +61,8 @@ type RegexRefusal<S extends string, F extends RegexFlags> =
 export type RegexValidate<S extends string, F extends RegexFlags> = S & RegexRefusal<S, F>
 
 /**
- * A Compute.pattern source written as a JavaScript string: a literal source, checked as str.regex checks its own, or a
- * source typed string, which Compute.pattern admits where it is called (scalar/regex/admit.ts admitMatch).
+ * A Text.pattern source written as a JavaScript string: a literal source, checked as str.regex checks its own, or a
+ * source typed string, which Text.pattern admits where it is called (scalar/regex/admit.ts admitMatch).
  */
 export type PatternValidate<S extends string> = string extends S ? S : RegexValidate<S, "u">
 

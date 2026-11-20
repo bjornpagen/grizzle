@@ -18,7 +18,7 @@ import type { ConstraintName } from "#compiler/core/ids.ts"
 import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Range } from "#compiler/public/compute.ts"
 import { contract, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -42,7 +42,7 @@ import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 export const tickBound = 100n
 
 const Tick = contract("Tick", pg.bigint, (value) =>
-	Compute.and(Compute.ge(value, -tickBound), Compute.le(value, tickBound))
+	Logic.and(Logic.ge(value, -tickBound), Logic.le(value, tickBound))
 )
 
 /** Slot's declared width. */
@@ -65,9 +65,9 @@ export const edgeBounds = query(Store).rule((r) => {
 		.find({
 			id,
 			s,
-			lo: Compute.lower(s, pg.bigint),
-			hi: Compute.upper(s, pg.bigint),
-			w: Compute.width(s, pg.bigint)
+			lo: Range.lower(s, pg.bigint),
+			hi: Range.upper(s, pg.bigint),
+			w: Range.width(s, pg.bigint)
 		})
 })
 

@@ -21,7 +21,7 @@ import type { StatementDesc } from "#compiler/ir/desc.ts"
 import type { ConstraintOwner } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { closedId, contract, pg, span } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
@@ -422,11 +422,11 @@ const textOf = (pattern: Spelled): FieldBase =>
 
 /** The contracts of one definition, `>= 0` over a bigint: the counts and the span's endpoint. */
 const counts: Readonly<Record<Count, FieldBase>> = {
-	Pos: contract("Pos", pg.bigint, (c) => Compute.ge(c, 0n)),
-	Nonneg: contract("Nonneg", pg.bigint, (c) => Compute.ge(c, 0n))
+	Pos: contract("Pos", pg.bigint, (c) => Logic.ge(c, 0n)),
+	Nonneg: contract("Nonneg", pg.bigint, (c) => Logic.ge(c, 0n))
 }
 
-const Minute = contract("Minute", pg.bigint, (m) => Compute.ge(m, 0n))
+const Minute = contract("Minute", pg.bigint, (m) => Logic.ge(m, 0n))
 
 const Brand = contract("Brand", pg.bigint)
 

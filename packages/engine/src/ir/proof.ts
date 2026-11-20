@@ -50,9 +50,9 @@ export type Precondition =
 
 /**
  * The lexical form a parse reads its text by, which its `lexical` precondition names: its target type's own (`target`,
- * scalar/lexical.ts lexicalTargetOf), a Compute.cast's, cut to the values the type holds exactly; every decimal text
- * of a double (`doubleText`), Compute.parseDouble's, whose every member rounds to a double; or every decimal text
- * within the bytes whose every value plain numeric holds (`decimalText`), Compute.parseDecimal's. The registry states
+ * scalar/lexical.ts lexicalTargetOf), a Type.cast's, cut to the values the type holds exactly; every decimal text
+ * of a double (`doubleText`), Text.parseDouble's, whose every member rounds to a double; or every decimal text
+ * within the bytes whose every value plain numeric holds (`decimalText`), Text.parseDecimal's. The registry states
  * it per overload and a proof carries it, so a language proved inside one form never stands for another's
  * precondition: the forms over one type differ, and the proof kernel compares them.
  */
@@ -74,7 +74,7 @@ export const factsSorted = (facts: ReadonlyArray<Fact>): boolean =>
 
 /**
  * Where a fact comes from: a literal's own value; a contract that declares the fact, which its build checked against
- * its predicate; the guard of the Compute.when whose branch the term stands in; or the term's type, which holds no
+ * its predicate; the guard of the Logic.when whose branch the term stands in; or the term's type, which holds no
  * value without it (an integer is finite).
  */
 export type FactSource =
@@ -114,7 +114,7 @@ export type OperandPremise =
 			/**
 			 * An operand whose every value is a member of a regex refinement's language, the language of the conjunction
 			 * `patterns`, and of at most `bytes` UTF-8 bytes where the refinement bounds them: its type's, or the
-			 * refinement a Compute.matches guard gives it inside its branch. A parse's lexical precondition rests on it,
+			 * refinement a Text.matches guard gives it inside its branch. A parse's lexical precondition rests on it,
 			 * the language included in the form, and a cast's into a refined text, the language included in the target's
 			 * and the bytes within its byte bound (str.bytes), which the tests' proof kernel decides again.
 			 */
@@ -127,7 +127,7 @@ export type OperandPremise =
 			/**
 			 * An operand whose every value is at most `bytes` UTF-8 bytes: a text literal by its own bytes, any other
 			 * term by its text refinement's byte bound, a str.bytes bound or a bounded pattern's, or the one the
-			 * Compute.within(Compute.octetLength(x), 0, bytes) guard of the Compute.when whose branch it stands in gives
+			 * Num.within(Text.octetLength(x), 0, bytes) guard of the Logic.when whose branch it stands in gives
 			 * it. A regex function's bounded precondition rests on it, its bytes within regexTextMaxBytes.
 			 */
 			readonly kind: "octets"

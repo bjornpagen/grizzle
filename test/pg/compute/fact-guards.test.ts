@@ -1,8 +1,8 @@
 /**
- * A fact guard over a contract on PostgreSQL 19: Compute.nonzero, Compute.nonnegative, Compute.positive and
- * Compute.isFinite over a term of a contract drawn over a numeric of every typmod, its precision and its scale both
+ * A fact guard over a contract on PostgreSQL 19: Num.nonzero, Num.nonnegative, Num.positive and
+ * Num.isFinite over a term of a contract drawn over a numeric of every typmod, its precision and its scale both
  * drawn, and over the integers, the contract's predicate one that keeps zero out, one that lets it in, or none, in each
- * position a guard stands: a query's predicate over a column, Compute.when's guard over a column, and Compute.when's
+ * position a guard stands: a query's predicate over a column, Logic.when's guard over a column, and Logic.when's
  * guard over a parameter.
  *
  * The oracle: compilation admits the guard exactly where the types do (the compute population's verdict,

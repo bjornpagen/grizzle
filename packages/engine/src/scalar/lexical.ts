@@ -77,7 +77,7 @@ export const binary64Digits = String(greatestFinite(binary64Precision, binary64M
  * @limitKind derived
  * @owner grizzle's lexical forms
  * @unit UTF-8 bytes
- * @scope a decimal text Compute.parseDecimal reads, the bytes of its form's every member
+ * @scope a decimal text Text.parseDecimal reads, the bytes of its form's every member
  * @derivation numericMaxFractionDigits + 1, the point and the most fraction digits numeric holds, at most
  *   numericMaxIntegerDigits so its integer digits fit as well
  * @from {@link numericMaxFractionDigits}, {@link numericMaxIntegerDigits}
@@ -127,14 +127,14 @@ const doubleExponentMax = binary64Digits - 1 - doubleMantissaDigits
  * - boolean: xs:boolean's `true`, `false`, `1` and `0`;
  * - date: xs:date's `YYYY-MM-DD` without a timezone, years 0001 to 9999.
  *
- * And one target no type names, the parse Compute.parseDouble reads (`doubleText`): every decimal text of a double,
+ * And one target no type names, the parse Text.parseDouble reads (`doubleText`): every decimal text of a double,
  * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?` of any digits and any exponent, and `INF`, `-INF` and `NaN`
  * (XML Schema 1.0's xs:double lexical space, which has no `+INF`, the double form's language unbounded), each member
  * the double IEEE 754-2019's conversion
  * from decimal character sequences gives it: its exact value rounded to the nearest double, ties to even, ±Infinity
  * past the greatest finite double, and a zero of the mantissa's sign below half the least subnormal.
  *
- * And one more, the parse Compute.parseDecimal reads (`decimalText`): every decimal text,
+ * And one more, the parse Text.parseDecimal reads (`decimalText`): every decimal text,
  * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)` of any digits (the grammar of XML Schema 1.1's xs:decimal lexical space), within
  * decimalTextMaxBytes UTF-8 bytes, so plain numeric holds each member's value, the one xs:decimal's lexical mapping
  * gives it, exactly. Its pattern is the grammar alone, and the byte bound cuts it beside the pattern (formOctets), as
@@ -326,7 +326,7 @@ const dateForm = (): string => {
 
 /**
  * The lexical form of a target, a pattern of the admitted grammar under flags "u" (scalar/regex/parse.ts), anchored at
- * both ends: what `str.regex` types a lexical field by, what Compute.matches guards a parse with, and what the parse's
+ * both ends: what `str.regex` types a lexical field by, what Text.matches guards a parse with, and what the parse's
  * totality is proved against.
  */
 export const formSource = (target: LexicalTarget): string => {

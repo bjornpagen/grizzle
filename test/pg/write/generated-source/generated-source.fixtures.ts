@@ -3,7 +3,7 @@
 import { array, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Type } from "#compiler/public/compute.ts"
 import { closedId, date, generated, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
@@ -46,15 +46,15 @@ const written = Object.freeze({
 const Item = relation.generated("Item", written, ["id"], (r) => ({
 	copy: generated(pg.bigint, r.v),
 	rate: generated(pg.integer, Rate.at("rate", r.tier)),
-	parsed: generated(pg.bigint, Compute.cast(r.k, pg.bigint)),
-	when: generated(date, Compute.cast(r.day, date))
+	parsed: generated(pg.bigint, Type.cast(r.k, pg.bigint)),
+	when: generated(date, Type.cast(r.day, date))
 }))
 
 const Spot = relation.generated("Spot", written, ["id"], (r) => ({
 	copy: generated(pg.bigint, r.v),
 	rate: generated(pg.integer, Rate.at("rate", r.tier)),
-	parsed: generated(pg.bigint, Compute.cast(r.k, pg.bigint)),
-	when: generated(date, Compute.cast(r.day, date))
+	parsed: generated(pg.bigint, Type.cast(r.k, pg.bigint)),
+	when: generated(date, Type.cast(r.day, date))
 }))
 
 const itemNumeral = key(on(Item, "k"))

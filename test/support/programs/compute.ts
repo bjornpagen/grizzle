@@ -1,8 +1,19 @@
 /**
- * The names the Compute agreement's generated program reads (test/support/agreement/compute.ts), its prelude
+ * The names the scalar agreement's generated program reads (test/support/agreement/compute.ts), its prelude
  * (test/support/prelude.ts): the program imports these alone, each through this module.
  */
-export { Compute } from "#compiler/public/compute.ts"
+export {
+	Crypto,
+	Distance,
+	Fn,
+	Logic,
+	Num,
+	Range,
+	Search,
+	Text,
+	Type,
+	Xml
+} from "#compiler/public/compute.ts"
 export { Bits, bytes, Decimal, generated, Money, uuid } from "#compiler/public/fields.ts"
 export type { CalendarDate, Span, Uuid, Vector } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"

@@ -28,7 +28,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { wireScalarOf } from "#compiler/live/member.ts"
 import { parseScalar } from "#compiler/live/wire.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { storedLiteral } from "#compiler/scalar/literal.ts"
 import { converterOf } from "#compiler/scalar/values/convert.ts"
@@ -153,7 +153,9 @@ export const numericP0RefusesNaNAtEveryDoor = property.explore(int(1, 1000), {
 				preconditionOf(
 					lowerWith(
 						"query",
-						spelledExpr(Compute.cast(param("p", testPg.numericOf(precision, scale)), integer).expr),
+						spelledExpr(
+							computeCore.cast(param("p", testPg.numericOf(precision, scale)), integer).expr
+						),
 						{},
 						false,
 						baseParams

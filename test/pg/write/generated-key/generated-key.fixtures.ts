@@ -24,7 +24,7 @@ import {
 import { Db } from "#adapter/public/db.ts"
 import { type LawId } from "#compiler/core/ids.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Text, Type } from "#compiler/public/compute.ts"
 import { drawn as drawnField, generated, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -80,8 +80,8 @@ const MapKey = relation.generated(
 	{ mapping: pg.integer, text: KeyText },
 	["mapping", "text"],
 	(r) => ({
-		value: generated(pg.integer, Compute.cast(r.text, pg.integer)),
-		negative: generated(pg.boolean, Compute.startsWith(r.text, "-"))
+		value: generated(pg.integer, Type.cast(r.text, pg.integer)),
+		negative: generated(pg.boolean, Text.startsWith(r.text, "-"))
 	})
 )
 const typedKey = key(on(MapKey, "mapping", "value", "negative"))
@@ -99,7 +99,7 @@ const useRef = contained(
 
 /** A tag: at most one of each positive value. */
 const Tag = relation.generated("Tag", { id: pg.integer, text: KeyText }, ["id"], (r) => ({
-	value: generated(pg.integer, Compute.cast(r.text, pg.integer))
+	value: generated(pg.integer, Type.cast(r.text, pg.integer))
 }))
 const positiveTag = key(
 	on(
@@ -115,8 +115,8 @@ const Entry = relation.generated(
 	{ mapping: pg.integer, at: drawnField(natural), text: KeyText },
 	["mapping", "text"],
 	(r) => ({
-		value: generated(pg.integer, Compute.cast(r.text, pg.integer)),
-		negative: generated(pg.boolean, Compute.startsWith(r.text, "-"))
+		value: generated(pg.integer, Type.cast(r.text, pg.integer)),
+		negative: generated(pg.boolean, Text.startsWith(r.text, "-"))
 	})
 )
 const entries = ordered(on(Entry, "mapping", "at"), fin(Mapping, "n"))
@@ -970,7 +970,7 @@ const appliedNotes = (c: Case, after: HostState, changed: boolean): ReadonlyArra
  * beside the fields its writer states; a label at id 5 or above is outside its world.
  */
 const Label = relation.generated("Label", { id: pg.integer, text: KeyText }, ["id"], (r) => ({
-	value: generated(pg.integer, Compute.cast(r.text, pg.integer))
+	value: generated(pg.integer, Type.cast(r.text, pg.integer))
 }))
 const labelValue = key(on(Label, "value"))
 

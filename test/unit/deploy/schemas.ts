@@ -1,8 +1,7 @@
 import { Array as Arr } from "effect"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import { Compute } from "#compiler/public/compute.ts"
-import { closedId, generated, pg } from "#compiler/public/fields.ts"
+import { Bits, closedId, generated, pg } from "#compiler/public/fields.ts"
 import * as api from "#compiler/public/schema.ts"
 import {
 	alternatives,
@@ -195,8 +194,8 @@ export const setsSchema = (version: "first" | SetChange) => {
 			covered: generated(
 				pg.boolean,
 				version === "its generated field"
-					? Compute.subset(Compute.singleton(r.flag), Compute.singleton(r.other))
-					: Compute.subset(Compute.singleton(r.other), Compute.singleton(r.flag))
+					? Bits.subset(Bits.singleton(r.flag), Bits.singleton(r.other))
+					: Bits.subset(Bits.singleton(r.other), Bits.singleton(r.flag))
 			)
 		})
 	)
@@ -207,8 +206,8 @@ export const setsSchema = (version: "first" | SetChange) => {
 			api.check("Admitted", Tagged, (t) =>
 				t.eq(
 					version === "its CHECK"
-						? Compute.subset(Compute.singleton(t.other), Compute.singleton(t.flag))
-						: Compute.subset(Compute.singleton(t.flag), Compute.singleton(t.other)),
+						? Bits.subset(Bits.singleton(t.other), Bits.singleton(t.flag))
+						: Bits.subset(Bits.singleton(t.flag), Bits.singleton(t.other)),
 					true
 				)
 			)

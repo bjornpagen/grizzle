@@ -4,11 +4,11 @@ import { formSource, type LexicalTarget } from "#compiler/scalar/lexical.ts"
 import type { MatchAdmission } from "#compiler/scalar/regex/admit.ts"
 
 /**
- * A Compute.matches pattern: its source, in grizzle's pattern grammar under the flags "u", admitted where the pattern
+ * A Text.matches pattern: its source, in grizzle's pattern grammar under the flags "u", admitted where the pattern
  * was made, inside PostgreSQL's regex compile space and matched by some text (admit.ts admitMatch), and its pattern
  * value, its language's key beside that source, which a description holds as the match's literal. Its doors are its
- * admission (Pattern.admitted, which Compute.pattern opens) and grizzle's own lexical forms (Pattern.ofForm), so a
- * Compute.matches over a Pattern reads its value and admits nothing again.
+ * admission (Pattern.admitted, which Text.pattern opens) and grizzle's own lexical forms (Pattern.ofForm), so a
+ * Text.matches over a Pattern reads its value and admits nothing again.
  */
 export class Pattern<S extends string = string> {
 	readonly source: S

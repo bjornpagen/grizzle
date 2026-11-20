@@ -1,4 +1,4 @@
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num, Type } from "#compiler/public/compute.ts"
 import {
 	accumulated,
 	bits,
@@ -39,7 +39,7 @@ import { Id } from "#test/support/ids.ts"
  * an extension of it, a level above it, and two schemas of which neither is a level of Work, one of its name; and
  * Work's worlds.
  */
-export const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n))
+export const Cents = contract("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
 export const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
 export const Task = relation("Task", { id: Id, account: Id, kind: closedId(Kind) }, ["id"])
 export const Budget = relation("Budget", { task: Id, cents: Cents }, ["task"])
@@ -96,9 +96,9 @@ export const Item = relation.generated(
 	(r) => ({
 		next: generated(
 			pg.bigint,
-			Compute.when(
-				Compute.within(Compute.add(r.v, 1n), -9223372036854775808n, 9223372036854775807n),
-				(g) => Compute.cast(g, pg.bigint),
+			Logic.when(
+				Num.within(Num.add(r.v, 1n), -9223372036854775808n, 9223372036854775807n),
+				(g) => Type.cast(g, pg.bigint),
 				r.v
 			)
 		)
@@ -111,9 +111,9 @@ export const Chip = relation.generated(
 	(r) => ({
 		next: generated(
 			pg.bigint,
-			Compute.when(
-				Compute.within(Compute.add(r.v, 1n), -9223372036854775808n, 9223372036854775807n),
-				(g) => Compute.cast(g, pg.bigint),
+			Logic.when(
+				Num.within(Num.add(r.v, 1n), -9223372036854775808n, 9223372036854775807n),
+				(g) => Type.cast(g, pg.bigint),
 				r.v
 			)
 		)

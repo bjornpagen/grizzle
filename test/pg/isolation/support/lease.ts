@@ -1,5 +1,5 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Num, Type } from "#compiler/public/compute.ts"
 import { contract, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -154,7 +154,7 @@ export const leaseShape = (name: string) => {
 					at,
 					ttl
 				})
-				.where(r.lt(Compute.add(Compute.base(at), ttl), Compute.base(r.param("now", Instant))))
+				.where(r.lt(Num.add(Type.base(at), ttl), Type.base(r.param("now", Instant))))
 				.find({
 					step: r.param("step", Id),
 					attempt: r.param("attempt", natural),

@@ -24,7 +24,7 @@ export interface PlainHost {
 export type PlainSql = keyof PlainHost
 
 /**
- * The result tables of the Compute catalogue and of the aggregates, keyed by SQL type.
+ * The result tables of the scalar catalogue and of the aggregates, keyed by SQL type.
  *
  * An operation whose result is no operand's own value takes PostgreSQL's result type over its operand's SQL type:
  * arithmetic keeps the operand's type without its contract, money / money is double precision, SUM and AVG over the
@@ -88,7 +88,7 @@ export const spanWidthSql: SpanWidthSql = Object.freeze({
 	bigint: "exact integer",
 	date: "integer"
 })
-/** The float SQL types, which Compute.floatBits reads. */
+/** The float SQL types, which Num.floatBits reads. */
 export type FloatSql = "real" | "double precision"
 
 /** The SQL types whose values a narrowing cast into an integer or money needs proved finite: numeric and the floats. */

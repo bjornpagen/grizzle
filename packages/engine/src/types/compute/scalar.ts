@@ -153,7 +153,7 @@ type Negative<V> =
 		: false
 
 /**
- * What Compute.within proves of its subject from its bounds Lo and Hi, as compilation reads them (typing.ts guardFacts):
+ * What Num.within proves of its subject from its bounds Lo and Hi, as compilation reads them (typing.ts guardFacts):
  * finite; nonnegative where the low bound is; nonzero where the low bound is above zero or the high one below it. A low
  * bound TypeScript cannot see is a residue compilation decides from its value, as a divisor's is (ValueProves); a high
  * bound proves nonzero only where TypeScript sees it below zero.
@@ -172,7 +172,7 @@ export type WithinFacts<Lo, Hi> = { readonly finite: true } & (ValueProves<
 
 declare const literalValue: unique symbol
 
-/** What Compute.literal's constant states beside its type: its JavaScript value's type, whose facts Proves reads. */
+/** What Type.literal's constant states beside its type: its JavaScript value's type, whose facts Proves reads. */
 export interface Literal<out V> {
 	readonly [literalValue]?: V | undefined
 }
@@ -237,8 +237,8 @@ export type Holds<F extends Facts, V, K extends keyof Facts> = F extends {
 		: ValueProves<V, K>
 
 /**
- * A guard a Compute guard builder made: a predicate over its subject, which a rule's where reads as its test, holding
- * under `guarded` the subject G as its Compute.when branch receives it, with the guard's facts proved
+ * A guard a scalar guard builder made: a predicate over its subject, which a rule's where reads as its test, holding
+ * under `guarded` the subject G as its Logic.when branch receives it, with the guard's facts proved
  * (scalar/compute/term.ts GuardValue).
  */
 export interface Guard<out G, in P = unknown, out O = unknown> extends Predicate<P, O> {
@@ -248,8 +248,8 @@ export interface Guard<out G, in P = unknown, out O = unknown> extends Predicate
 /**
  * A scalar: a term whose facts are the ones its type declares (DeclaredOf) and whose column delivers its language L,
  * its values, which its JavaScript operands are of: a contract predicate's value, a row check's fields and a length
- * Compute measures. A value of a contract has its facts wherever it is read, a stored field's as a heading column's
- * (ColumnFacts), as compilation reads a value's facts off its type. A scalar carries no comparison of its own: Compute's,
+ * the scalar catalogue measures. A value of a contract has its facts wherever it is read, a stored field's as a heading column's
+ * (ColumnFacts), as compilation reads a value's facts off its type. A scalar carries no comparison of its own: Logic's,
  * a row's helpers' and a rule's compare it.
  *
  * An operation's result type is read off a table keyed by its operand's SQL type, the term's `sql` member
@@ -325,15 +325,15 @@ type IsHeadLiteral<A> =
  * untyped, and the checker types it from the term it meets. FirstTerm reads a term's own origin, and refuses a
  * JavaScript value by the same name: every first operand admits one beside its terms (A extends TermBase | FirstValue),
  * so its refusal names the rule rather than the members a value lacks. A term of bytes, which no operation but
- * Compute.sha256 reads, is refused (NotStoredOnly). FirstOrigin reads the origin a callback's returned term was
- * inferred with (Compute.when's branch), where no type parameter holds the value itself.
+ * Crypto.sha256 reads, is refused (NotStoredOnly). FirstOrigin reads the origin a callback's returned term was
+ * inferred with (Logic.when's branch), where no type parameter holds the value itself.
  */
 export type FirstTerm<A> = A extends FirstValue
 	? Refusal<"a term first: a literal takes its place opposite a term, never first">
 	: OwnTerm<A> & NotStoredOnly<SqlOfTerm<A>>
 
 /**
- * The first operand an operation reads whole, Compute.sha256's: a term as FirstTerm reads one, of any SQL type, bytes
+ * The first operand an operation reads whole, Crypto.sha256's: a term as FirstTerm reads one, of any SQL type, bytes
  * among them. A JavaScript value or a head literal there is refused as FirstTerm refuses it, the Refusal written in
  * place, never under an alias, so a diagnostic prints its text.
  */
@@ -364,7 +364,7 @@ export type FirstOrigin<O> = Requires<
 >
 
 /**
- * Whether an operand is a refused call's result: never, which every Compute call the types refuse returns (Admitted).
+ * Whether an operand is a refused call's result: never, which every scalar call the types refuse returns (Admitted).
  * The engine builds a call's operands before the call, so it refuses the operand's call first, and a call over a
  * refused operand states no refusal of its own: the operand's diagnostic is the one the engine names.
  */
@@ -485,7 +485,7 @@ export type IsSpan<A> =
 	TypeOfTerm<A> extends { readonly start: unknown; readonly end: unknown } ? true : false
 
 /**
- * Compute.cast, following the registry's cast table, over the source's domain X and SQL type S and the target's
+ * Type.cast, following the registry's cast table, over the source's domain X and SQL type S and the target's
  * domain D and SQL type F: smallint, integer, bigint, numeric, real and double precision convert among themselves in every
  * direction; money is a target only from integer, bigint, numeric and an exact integer (PostgreSQL has no smallint,
  * real or double precision cast to money), and a source only to numeric; an exact integer narrows into the numeric

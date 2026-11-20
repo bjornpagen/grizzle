@@ -5,7 +5,7 @@ import { Array as Arr } from "effect"
 import type { PreconditionKind } from "#compiler/core/errors.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
@@ -73,49 +73,49 @@ const entries: Arr.NonEmptyReadonlyArray<Entry> = [
 		field: integerOperands,
 		needs: "nonzero",
 		operand: 1,
-		build: (a, b) => Compute.div(a, b)
+		build: (a, b) => computeCore.div(a, b)
 	},
 	{
 		name: "mod/bigint",
 		field: bigintOperands,
 		needs: "nonzero",
 		operand: 1,
-		build: (a, b) => Compute.mod(a, b)
+		build: (a, b) => computeCore.mod(a, b)
 	},
 	{
 		name: "div/numeric",
 		field: numericOperands,
 		needs: "nonzero",
 		operand: 1,
-		build: (a, b) => Compute.div(a, b)
+		build: (a, b) => computeCore.div(a, b)
 	},
 	{
 		name: "rem/numeric",
 		field: numericOperands,
 		needs: "nonzero",
 		operand: 1,
-		build: (a, b) => Compute.rem(a, b)
+		build: (a, b) => computeCore.rem(a, b)
 	},
 	{
 		name: "sqrt/numeric",
 		field: numericOperands,
 		needs: "nonnegative",
 		operand: 0,
-		build: (a) => Compute.sqrt(a)
+		build: (a) => computeCore.sqrt(a)
 	},
 	{
 		name: "minScale/numeric",
 		field: numericOperands,
 		needs: "finite",
 		operand: 0,
-		build: (a) => Compute.minScale(a)
+		build: (a) => computeCore.minScale(a)
 	},
 	{
 		name: "cast numeric to integer",
 		field: numericOperands,
 		needs: "finite",
 		operand: 0,
-		build: (a) => Compute.cast(a, testPg.integer)
+		build: (a) => computeCore.cast(a, testPg.integer)
 	}
 ]
 
@@ -203,10 +203,10 @@ export const declaring = (field: OperandField, fact: Entry["needs"]): TestField 
 		field,
 		(x) =>
 			fact === "nonzero"
-				? Compute.ne(x, field.zero)
+				? computeCore.ne(x, field.zero)
 				: fact === "nonnegative"
-					? Compute.ge(x, field.zero)
-					: Compute.between(x, "-1000000", "1000000"),
+					? computeCore.ge(x, field.zero)
+					: computeCore.between(x, "-1000000", "1000000"),
 		[fact]
 	)
 
@@ -225,22 +225,24 @@ export const guardedOperations: Arr.NonEmptyReadonlyArray<Guarded> = [
 	{
 		name: "a quotient under its divisor's nonzero guard",
 		field: bigintOperands,
-		build: (a, b) => Compute.when(Compute.nonzero(b), (d: ScalarTerm) => Compute.div(a, d), 0n),
+		build: (a, b) =>
+			computeCore.when(computeCore.nonzero(b), (d: ScalarTerm) => computeCore.div(a, d), 0n),
 		holds: (_a, b) => !violates(b, "nonzero")
 	},
 	{
 		name: "a root under its radicand's nonnegative guard",
 		field: numericOperands,
-		build: (a) => Compute.when(Compute.nonnegative(a), (x: ScalarTerm) => Compute.sqrt(x), 0n),
+		build: (a) =>
+			computeCore.when(computeCore.nonnegative(a), (x: ScalarTerm) => computeCore.sqrt(x), 0n),
 		holds: (a) => !violates(a, "nonnegative")
 	},
 	{
 		name: "a narrowing under a within guard",
 		field: numericOperands,
 		build: (a) =>
-			Compute.when(
-				Compute.within(a, -1000n, 1000n),
-				(x: ScalarTerm) => Compute.cast(x, testPg.integer),
+			computeCore.when(
+				computeCore.within(a, -1000n, 1000n),
+				(x: ScalarTerm) => computeCore.cast(x, testPg.integer),
 				0
 			),
 		holds: (a) => a instanceof Decimal && a.isFinite() && Math.abs(Number(a.text)) <= 1000

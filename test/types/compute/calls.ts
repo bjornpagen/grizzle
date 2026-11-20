@@ -73,18 +73,18 @@ export const callsBoxItems: Arr.NonEmptyReadonlyArray<Form> = [
 
 /** A value argument's cell: the call of `kindOf` at the form, in a query over Thing. */
 const valueCell = (argument: string, index: number): string =>
-	`export const c${index} = query(Root).rule((r) => r.match(Thing, { kind, other }).find({ called: Compute.call(kindOf, { k: ${argument} }) }))`
+	`export const c${index} = query(Root).rule((r) => r.match(Thing, { kind, other }).find({ called: Fn.call(kindOf, { k: ${argument} }) }))`
 
 /**
  * A field read's cell: the rows of field `ks` of kindRow's one row, its variable `k` passed to `call`, kindOf of Kind's
  * ids or otherOf of Other's, in a query that matches them.
  */
 const fieldCell = (call: "kindOf" | "otherOf", index: number): string =>
-	`export const c${index} = query(Root).rule((r) => { const read = Compute.rowOf(kindRow, {}).ks; const { k } = v(read, "read"); return r.match(read, { k }).find({ called: Compute.call(${call}, { ${call === "kindOf" ? "k" : "o"}: k }) }) })`
+	`export const c${index} = query(Root).rule((r) => { const read = Fn.row(kindRow, {}).ks; const { k } = v(read, "read"); return r.match(read, { k }).find({ called: Fn.call(${call}, { ${call === "kindOf" ? "k" : "o"}: k }) }) })`
 
 /** A rows argument's cell: the rows of `kindsOf` at a query of Thing's `field`. */
 const rowsCell = (field: "kind" | "other", index: number): string =>
-	`export const c${index} = Compute.rowsOf(kindsOf, { ks: ${field === "kind" ? "kinds" : "others"} })`
+	`export const c${index} = Fn.rows(kindsOf, { ks: ${field === "kind" ? "kinds" : "others"} })`
 
 const statementOf = (form: Form, index: number): string => {
 	switch (form) {
@@ -107,25 +107,25 @@ const statementOf = (form: Form, index: number): string => {
 		case "rows of another roster's ids":
 			return rowsCell("other", index)
 		case "rows of a function of one row":
-			return `export const c${index} = Compute.rowsOf(oneKind, {})`
+			return `export const c${index} = Fn.rows(oneKind, {})`
 		case "rows of a function whose rows hold rows":
-			return `export const c${index} = Compute.rowsOf(kindLists, {})`
+			return `export const c${index} = Fn.rows(kindLists, {})`
 		case "a value of a function taking one row":
-			return `export const c${index} = query(Root).rule((r) => r.match(Thing, { kind, other }).find({ called: Compute.call(kindIn, { s: kind }) }))`
+			return `export const c${index} = query(Root).rule((r) => r.match(Thing, { kind, other }).find({ called: Fn.call(kindIn, { s: kind }) }))`
 		case "a field of one row's of its roster's ids":
 			return fieldCell("kindOf", index)
 		case "a field of one row's read where another roster's id is taken":
 			return fieldCell("otherOf", index)
 		case "a field of one row of a value":
-			return `export const c${index} = Compute.rowOf(kindRow, {}).k`
+			return `export const c${index} = Fn.row(kindRow, {}).k`
 		case "a field of one row of one row":
-			return `export const c${index} = Compute.rowOf(kindRow, {}).one`
+			return `export const c${index} = Fn.row(kindRow, {}).one`
 		case "a field of one row of rows that hold rows":
-			return `export const c${index} = Compute.rowOf(kindRow, {}).lists`
+			return `export const c${index} = Fn.row(kindRow, {}).lists`
 		case "the fields of a volatile function's one row":
-			return `export const c${index} = Compute.rowOf(kindRowVolatile, {})`
+			return `export const c${index} = Fn.row(kindRowVolatile, {})`
 		case "the fields of a function of rows":
-			return `export const c${index} = Compute.rowOf(kindsOf, { ks: kinds })`
+			return `export const c${index} = Fn.row(kindsOf, { ks: kinds })`
 	}
 }
 

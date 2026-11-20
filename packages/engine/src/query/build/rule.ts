@@ -105,7 +105,7 @@ export interface RuleRun<F> {
  *
  * - `match(source, bindings)` records one occurrence of a source: a stored, closed or derived relation, a query (never
  *   an Ordered), a bound import, a relation parameter, an interior stage of this rule, or, in a recursive arm, self.
- *   A binding is a term (a variable, a parent variable, a typed constant, a Compute term), a parameter use, or a
+ *   A binding is a term (a variable, a parent variable, a typed constant, a scalar term), a parameter use, or a
  *   JavaScript value of the bound field's base. Only fields of the source's heading may be bound; binding a variable is
  *   what binds it, and merely minting it with v does not.
  * - `where(...predicates)` adds filters; `find(head)` names the answer columns. A head term is a term (a parameter or
@@ -558,7 +558,7 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 			if (T.isTerm(source) || (hasProperties(source) && "predicate" in source)) {
 				throw malformed(
 					"r.not",
-					"a relation and bindings: r.not is relational negation; a scalar negation is the negated comparison or Compute.not"
+					"a relation and bindings: r.not is relational negation; a scalar negation is the negated comparison or Logic.not"
 				)
 			}
 			requireActive(ctx, "r.not")

@@ -1,4 +1,4 @@
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -12,7 +12,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 
-const Amount = contract("Amount", pg.bigint, (x) => Compute.ge(x, 0n))
+const Amount = contract("Amount", pg.bigint, (x) => Logic.ge(x, 0n))
 
 export const Account = relation("Account", { id: pg.integer, name: pg.integer }, ["id"])
 export const Entry = relation("Entry", { id: pg.integer, account: pg.integer, amount: Amount }, [

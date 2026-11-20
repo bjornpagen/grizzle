@@ -21,7 +21,7 @@ import type { ServedRefusal } from "#adapter/public/compile.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Type } from "#compiler/public/compute.ts"
 import { pg, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
@@ -125,7 +125,7 @@ const build = (name: string) => {
 				student,
 				week,
 				sittings: r.count(),
-				passes: r.sum(Compute.cond(passed, Compute.literal(pg.integer, 1), 0))
+				passes: r.sum(Logic.cond(passed, Type.literal(pg.integer, 1), 0))
 			})
 		})
 	)

@@ -1,7 +1,7 @@
 /**
  * The lexical forms of scalar/lexical.ts, each held to three oracles:
  *
- * - **its second definition:** every form is a pattern (formSource), which str.regex, Compute.matches and the inclusion
+ * - **its second definition:** every form is a pattern (formSource), which str.regex, Text.matches and the inclusion
  *   proof read, and a scan (lexicalValue), which the host evaluator reads; the host NFA's membership of a text in the
  *   pattern (scalar/regex/nfa.ts) must be exactly the scan's;
  * - **the specification as a checker:** each candidate is built from the parts XML Schema's lexical space spells

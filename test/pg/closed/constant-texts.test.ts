@@ -16,7 +16,7 @@
  * starts_with and ends_with, under AND, OR and NOT. The predicate stands alone, or beside an arm that reads the row's
  * integer, under OR or AND, as GEN-NULL found it. Its positions, each its own relation:
  *
- * - a generated integer field, `Compute.cond(φ, n, m)`, a generation expression;
+ * - a generated integer field, `Logic.cond(φ, n, m)`, a generation expression;
  * - a generated text field, a constant text term alone;
  * - a row check of φ;
  * - a key over the selection of φ, a law column `CASE WHEN φ THEN n END`, a generation expression;
@@ -25,7 +25,7 @@
  * The oracle is the contract restated over the drawn texts: SQL's three-valued logic, a closed read at an absent key
  * NULL, texts ordered by code point. A list value is a bare literal, which adopts its subject's type and is judged by it,
  * and a concatenation is text of at most its operands' bytes together, a literal operand by its own (README,
- * Compute.concat), so a schema whose constant lists a value of more bytes than a concatenation of two literals is
+ * Text.concat), so a schema whose constant lists a value of more bytes than a concatenation of two literals is
  * refused at compile, ContractLiteral; any other schema must install. Each row written by grizzle's writer is accepted where
  * lawful and refused by its relation's one law otherwise, and every stored generated value is the model's.
  */

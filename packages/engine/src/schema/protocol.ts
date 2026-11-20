@@ -13,11 +13,11 @@
  *   (scalar/registry.ts), and a copy of one, an object spread that keeps the brand (core/phantom.ts) and the source's
  *   host type, is refused. Anything else, a JavaScript look-alike included, is refused: it has no column a builder
  *   made.
- * - Scalar terms and predicates (contract predicates, Compute, queries). A term is a value with an
+ * - Scalar terms and predicates (contract predicates, the scalar catalogue, queries). A term is a value with an
  *   `expr` member holding its expression; a predicate also has `predicate: true`; a parameter is a value with a string
  *   `param` member and no `expr`. Terms and predicates are admitted by identity: every builder registers the value it
  *   made in scalar/compute/term.ts's registry, and termExpr and predicateExpr read that, never the members. Row checks
- *   (terms.ts) build and read terms this way, so a Compute expression over a row's fields composes with the row's own
+ *   (terms.ts) build and read terms this way, so a scalar expression over a row's fields composes with the row's own
  *   comparisons.
  * - Owned schema values. Every value this package builds (relations, closed and derived relations, statements, the
  *   expansions of mirrors and alternatives, sides, selections, schemas, fragments, contexts, world relations, roles and

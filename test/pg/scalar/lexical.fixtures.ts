@@ -43,7 +43,7 @@ const targetType = (
 
 /**
  * The parse of the column `t` as grizzle prints it, as text: the cast, for a date its day number after 0001-01-01,
- * which reads no DateStyle, and for a double's text Compute.parseDouble's form.
+ * which reads no DateStyle, and for a double's text Text.parseDouble's form.
  */
 const parsedOf = (target: LexicalTarget, t: Expr): Expr => {
 	switch (target.kind) {

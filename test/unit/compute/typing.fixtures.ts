@@ -1,13 +1,13 @@
 /**
- * What the property of typing.test.ts reads: a space of descriptions over a heading of every carrier the Compute
+ * What the property of typing.test.ts reads: a space of descriptions over a heading of every carrier the scalar
  * catalogue reads, and each emitted expression's computation written out.
  *
  * A description is drawn as a sketch of plain numbers resolved against the heading (resolve): each choice reduced
  * modulo what there is to choose from, so every sketch resolves and shrinking keeps it valid. Its operations are the
  * catalogue's own (ir/desc.ts computeFns and compareOps), its operands the heading's columns, parameters of their
  * types, bare literals of every kind a literal has and typed literals of the columns' descriptors, so most terms meet
- * an operand of another type and are refused, and the rest are typed. A Compute.when's guard is drawn with a subject it
- * guards, a number for a fact guard and Compute.within, a text for a match and a text's byte count for a byte guard,
+ * an operand of another type and are refused, and the rest are typed. A computeCore.when's guard is drawn with a subject it
+ * guards, a number for a fact guard and computeCore.within, a text for a match and a text's byte count for a byte guard,
  * and its branch reads the guard's parameter, and, under a byte guard, the text it counts.
  */
 
@@ -28,7 +28,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import { describeOp, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { textOf } from "#compiler/ir/scalar.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { computeSpecs } from "#compiler/scalar/compute/registry.ts"
 import type { TapeEntry, TermTyping, TypedNode } from "#compiler/scalar/compute/typing.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -58,7 +58,7 @@ const fields: Readonly<Record<string, TestField>> = {
 	digits: testPg.regex("^[0-9]{1,6}$", "u"),
 	u: testPg.uuid,
 	day: field({ kind: "pg", type: "date" }, "date"),
-	cents: testContract("Cents", testPg.bigint, (x) => Compute.ge(x, 0n)),
+	cents: testContract("Cents", testPg.bigint, (x) => computeCore.ge(x, 0n)),
 	mood: field({ kind: "closedId", roster: "Mood", only: undefined }, "code"),
 	moods: field({ kind: "bits", roster: "Mood" }, "bits"),
 	span: testSpan(testPg.integer),
@@ -157,7 +157,7 @@ const columnsOf = (family: Family): Arr.NonEmptyReadonlyArray<string> =>
 	)
 
 /**
- * What each Compute function reads and gives, as a family: `same` is the family the call is drawn at, which arithmetic
+ * What each scalar function reads and gives, as a family: `same` is the family the call is drawn at, which arithmetic
  * reads and gives; a function's other operands are drawn at the families it reads, in order.
  */
 type Signature = { readonly result: Family | "same"; readonly args: ReadonlyArray<Family | "same"> }
@@ -231,7 +231,7 @@ const functionsOf = (family: Family): ReadonlyArray<ComputeFn> =>
 
 /**
  * A description's sketch: each choice a number, resolved against the heading at a family (resolveAt). A `leaf` is a
- * column of its family, or under a Compute.when the guard's parameter or the text a byte guard counts; a `wild` leaf a
+ * column of its family, or under a computeCore.when the guard's parameter or the text a byte guard counts; a `wild` leaf a
  * column of any family, so an operation meets an operand of another type.
  */
 type Sketch =
@@ -397,7 +397,7 @@ const bareValue = (family: Family, value: number): LiteralDesc => {
 }
 
 /**
- * The leaves a sketch's leaf resolves to where it stands: the heading's columns, and under a Compute.when its
+ * The leaves a sketch's leaf resolves to where it stands: the heading's columns, and under a computeCore.when its
  * parameter and, under a byte guard, the text it counts, each at its family.
  */
 type Leaves = ReadonlyArray<{ readonly desc: ExprDesc; readonly family: Family }>

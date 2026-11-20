@@ -17,7 +17,7 @@ import { checking } from "#test/support/policy.ts"
  * Head literal typing (TODO 0b, literal typing): a literal's type is carried by its value, never guessed from its rule.
  *
  * Property: for a drawn union of one to four arms over Cell, each delivering the one head field `c` as a field of Cell,
- * a roster's typed handle (Kind.handle), a typed literal (Compute.literal) or a plain literal (the JavaScript value
+ * a roster's typed handle (Kind.handle), a typed literal (Type.literal) or a plain literal (the JavaScript value
  * itself), and each plain-literal or typed arm matching Cell with its handle field fixed to a drawn handle, spelled as
  * its JavaScript value or as its typed handle, or to none, the checker gives `c` exactly the type the oracle below
  * gives it, or refuses the union exactly when the oracle does. The oracle is the rule over a small universe whose types

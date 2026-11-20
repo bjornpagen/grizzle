@@ -21,7 +21,7 @@ import {
 	type RefusingObject,
 	type Witness
 } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Text } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import {
 	check,
@@ -126,7 +126,7 @@ const rowGen =
 const build = (p: Pred, a: AttributeRow): Predicate => {
 	switch (p.kind) {
 		case "matches":
-			return Compute.matches(a.value, Compute.pattern(p.pattern))
+			return Text.matches(a.value, Text.pattern(p.pattern))
 		case "compare":
 			return a[p.op](a.n, p.n)
 		case "not":

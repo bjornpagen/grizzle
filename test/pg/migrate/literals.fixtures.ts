@@ -7,7 +7,7 @@ import { Array as Arr, Effect, String as Str } from "effect"
 import { mismatchLine } from "#adapter/admission/drift.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Text } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
@@ -281,7 +281,7 @@ const schemaOf = (name: string, c: LiteralCase) => {
 		[
 			...Arr.map(c.forbidden, (t, i) => check(`NotForbidden${i}`, Doc, (d) => d.ne(d.kind, t))),
 			check("NotCollapsed", Doc, (d) =>
-				Compute.ne(Compute.collapse(d.kind), collapsedOf(c.forbidden[0]))
+				Logic.ne(Text.collapse(d.kind), collapsedOf(c.forbidden[0]))
 			)
 		]
 	)

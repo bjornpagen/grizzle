@@ -1,5 +1,5 @@
 /**
- * grizzle's library (ir/physical.ts LibraryFn): the SQL functions of its own a Compute operation's SQL calls, each a
+ * grizzle's library (ir/physical.ts LibraryFn): the SQL functions of its own a scalar operation's SQL calls, each a
  * constant of parameters (sql/ast.ts CreateConstant), `LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN <body>`, its body
  * this module's, named by its definition's digest (core/identity.ts libraryFunction), which an installation installs
  * where a persistent expression of its schema calls it (`libraryCalls`), after its schema and before every object that
@@ -1015,7 +1015,7 @@ const xsdPatternDefinition = (): LibraryDefinition => {
 /** Each library function's definition, made once. */
 /**
  * textDigest(text): the SHA-256 digest of a text's UTF-8 bytes, `sha256(convert_to($1, 'UTF8'))`, 32 bytes: the image a
- * text of no byte bound is keyed by (Compute.sha256 over text writes it as lowercase hex). An installation's database is
+ * text of no byte bound is keyed by (Crypto.sha256 over text writes it as lowercase hex). An installation's database is
  * UTF8 (grizzle refuses another at its first migration), so convert_to converts nothing and copies the text's bytes
  * as they are stored; convert_to is STABLE in pg_proc only because a conversion's result can depend on the database's
  * encoding, which a database never changes, and sha256 is IMMUTABLE, so the digest is one value of a text wherever it

@@ -6,7 +6,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { int8Digits, integerDigits } from "#compiler/ir/carriers.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type AggregateOverload, aggregateOverload } from "#compiler/scalar/aggregate.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { catalogTypeName } from "#compiler/scalar/compute/registry.ts"
 import { exactNumericBound, valueType } from "#compiler/scalar/compute/types.ts"
 import { concreteTypeName, textCell } from "#test/pg/compute/support.ts"
@@ -32,7 +32,7 @@ const mood = field({ kind: "closedId", roster: "Mood", only: undefined }, "code"
 
 const moods = field({ kind: "bits", roster: "Mood" }, "bits")
 
-const Cents = testContract("Cents", testPg.bigint, (x) => Compute.ge(x, 0n))
+const Cents = testContract("Cents", testPg.bigint, (x) => computeCore.ge(x, 0n))
 
 const plain = (label: string, f: TestField, values: string): Sample => ({
 	label,

@@ -23,7 +23,7 @@ import { baseOf, type ScalarType, vectorTypmodOf } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import { cosineDistance, nativeOp } from "#compiler/scalar/compute/registry.ts"
 
-/** The OpId of Compute.cosineDistance, the one score an approximate search ranks by. */
+/** The OpId of Distance.cosine, the one score an approximate search ranks by. */
 const cosineDistanceOp = cosineDistance.id
 
 /** A rule-level filter or negation above the projection, keeping its left side's heading. */
@@ -384,7 +384,7 @@ export const outerRefusal = (outer: ReadonlyArray<NodeId>): string =>
  *   the projection, an `r.not` whose correlated variables are all head columns, say, are part of the rule: a chain of
  *   Filter, SemiJoin and AntiJoin nodes over the projection (each keeping its left side's heading), lowered in the
  *   search's own statement before the bound, so they restrict the eligible universe rather than the candidates;
- * - its `by` output is exactly Compute.cosineDistance, one native node `vector:cosine_distance(vector,vector)`, or its
+ * - its `by` output is exactly Distance.cosine, one native node `vector:cosine_distance(vector,vector)`, or its
  *   canonical zero (ir/expr.ts zeroPeeled), which a merge of the rule's head puts on it and which keeps its order;
  * - one operand is a column of the rule's region and the other the query vector, one value per execution (QueryVector):
  *   a parameter or a literal that reads no row, or a field of another match than the ranked column's, whose declared
@@ -434,7 +434,7 @@ export const traceApproximate = (
 	const scored = zeroPeeled(out.expr).term
 	if (scored.kind !== "op" || scored.op !== cosineDistanceOp) {
 		return Result.err(
-			`${prefix}: by ${score} names ${exprLabel(scored)}, not Compute.cosineDistance over vectors; approximate retrieval never ranks by an arbitrary score`
+			`${prefix}: by ${score} names ${exprLabel(scored)}, not Distance.cosine over vectors; approximate retrieval never ranks by an arbitrary score`
 		)
 	}
 	const [a, b] = scored.args

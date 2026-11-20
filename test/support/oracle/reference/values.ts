@@ -387,7 +387,7 @@ export type CarrierRead = (v: Value) => ModelValue | undefined
 
 /**
  * The outcome of a reading: its value; its decline, named (DeclineReason): a term the oracle declines, or a reading of
- * a declined term's value; an operation it meets where its precondition fails; or a term the Compute evaluator does not
+ * a declined term's value; an operation it meets where its precondition fails; or a term the scalar evaluator does not
  * evaluate, named. No term PostgreSQL evaluates meets an undefined operation, since every partial operation stands with
  * its proof, but an operand of a declined term read alone may, where an operand the reference declines decides whether
  * PostgreSQL evaluates it, and may be one the evaluator never reached (evaluate.ts Reference termOf).

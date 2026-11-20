@@ -28,7 +28,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, String as Str } from "effect"
-import { Compute } from "#compiler/public/compute.ts"
+import { Xml } from "#compiler/public/compute.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compiledPattern } from "#test/support/regex.ts"
 import {
@@ -100,7 +100,7 @@ export const xsdPatternReadsEveryDrawnPatternAsAppendixFDefinesItsLanguage = pro
 							: Matcher.of(
 									buildNfa(
 										succeeded(
-											parsePattern(Compute.xsdPattern(pattern.xsd).source, "u"),
+											parsePattern(Xml.pattern(pattern.xsd).source, "u"),
 											"the printed source"
 										)
 									)
@@ -118,7 +118,7 @@ export const xsdPatternReadsEveryDrawnPatternAsAppendixFDefinesItsLanguage = pro
 							assert.equal(
 								printed.matches(word),
 								expected,
-								`Compute.xsdPattern(${Formatter.format(pattern.xsd)}) over ${Formatter.format(word)}`
+								`Xml.pattern(${Formatter.format(pattern.xsd)}) over ${Formatter.format(word)}`
 							)
 						}
 						assert.equal(
@@ -138,7 +138,7 @@ export const xsdPatternReadsEveryDrawnPatternAsAppendixFDefinesItsLanguage = pro
 				file: "packages/engine/src/scalar/compute/builders.ts",
 				original: "\tconst admission = admitMatch(printSource(read.value, (set) => set))",
 				replacement: "\tconst admission = admitMatch(source)",
-				why: "Compute.xsdPattern hands the facet to grizzle's grammar as it is written, unanchored and with XML Schema's escapes unread; the printed pattern's language parts from the facet's."
+				why: "Xml.pattern hands the facet to grizzle's grammar as it is written, unanchored and with XML Schema's escapes unread; the printed pattern's language parts from the facet's."
 			},
 			{
 				file: "packages/text/src/regex/xsd.ts",

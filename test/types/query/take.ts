@@ -4,7 +4,7 @@ import { Array as Arr, Effect, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Distance } from "#compiler/public/compute.ts"
 import { pg, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -93,7 +93,7 @@ const origin = Vector.make(Float32Array.from([1, 0, 0]), 3)
 const scored = () =>
 	query(Points).rule((r) => {
 		const { id, n, at } = v(Point, "point")
-		return r.match(Point, { id, n, at }).find({ id, n, d: Compute.cosineDistance(at, origin) })
+		return r.match(Point, { id, n, at }).find({ id, n, d: Distance.cosine(at, origin) })
 	})
 
 /** The query a bound value makes at a site, through the builder's JavaScript view, as a JavaScript caller's would. */
@@ -188,7 +188,7 @@ export const Points = schema("Points", [Point], [])
 export const origin = Vector.make(Float32Array.from([1, 0, 0]), 3)
 export const scored = query(Points).rule((r) => {
 	const { id, n, at } = v(Point, "point")
-	return r.match(Point, { id, n, at }).find({ id, n, d: Compute.cosineDistance(at, origin) })
+	return r.match(Point, { id, n, at }).find({ id, n, d: Distance.cosine(at, origin) })
 })
 export const ordered = scored.orderBy(["n", "asc"])
 `

@@ -351,7 +351,7 @@ const termDescriptor = (
 
 /**
  * The type of each field of a query's heading, as the descriptor of the first rule's head term that a declaration
- * types: what a head literal of another rule is typed by (Compute.literal), so every rule delivers the column at one
+ * types: what a head literal of another rule is typed by (Type.literal), so every rule delivers the column at one
  * type. A field every rule fills with a literal has none, and its literals are typed by their JavaScript values; so
  * has a roster's, where a literal is its JavaScript value, which the checker types by the arms' enum.
  */
@@ -373,7 +373,7 @@ const headingDescriptors = (
 
 /**
  * A head literal: typed by its heading column's descriptor, or its JavaScript value where no rule types the column or
- * the column is a roster's, whose member's typed constant is a handle term, never Compute.literal.
+ * the column is a roster's, whose member's typed constant is a handle term, never Type.literal.
  */
 const headLiteral = (
 	descriptor: unknown,

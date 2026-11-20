@@ -4,7 +4,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Order } from "effect"
 import type { ExecutedPlan, ExecutedStatement } from "#adapter/types/db.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Search } from "#compiler/public/compute.ts"
 import { pg, searchDocument } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -49,34 +49,34 @@ export const Catalog = schema("Catalog", [Lesson, Note], [])
 /** A subject's lessons up to a grade that match a websearch query, each with both ranks. */
 const matching = query(Catalog).rule((r) => {
 	const { lesson, subject, grade, search } = v(Lesson, "lesson")
-	const q = Compute.websearchQuery(r.param("q", QueryText))
+	const q = Search.websearch(r.param("q", QueryText))
 	return r
 		.match(Lesson, { lesson, subject, grade, search })
 		.where(
 			r.and(
-				Compute.textMatches(search, q),
+				Search.matches(search, q),
 				r.eq(subject, r.param("subject", Lesson.fields.subject)),
 				r.le(grade, r.param("grade", Lesson.fields.grade))
 			)
 		)
-		.find({ lesson, rank: Compute.textRank(search, q), cover: Compute.textRankCd(search, q) })
+		.find({ lesson, rank: Search.rank(search, q), cover: Search.rankCd(search, q) })
 })
 
 /** The `take` best lessons of a subject up to a grade for a websearch query, best first, ties by lesson. */
 const ranked = query(Catalog)
 	.rule((r) => {
 		const { lesson, subject, grade, search } = v(Lesson, "lesson")
-		const q = Compute.websearchQuery(r.param("q", QueryText))
+		const q = Search.websearch(r.param("q", QueryText))
 		return r
 			.match(Lesson, { lesson, subject, grade, search })
 			.where(
 				r.and(
-					Compute.textMatches(search, q),
+					Search.matches(search, q),
 					r.eq(subject, r.param("subject", Lesson.fields.subject)),
 					r.le(grade, r.param("grade", Lesson.fields.grade))
 				)
 			)
-			.find({ lesson, rank: Compute.textRank(search, q) })
+			.find({ lesson, rank: Search.rank(search, q) })
 	})
 	.orderBy(["rank", "desc"])
 	.take("take")
@@ -84,11 +84,11 @@ const ranked = query(Catalog)
 /** The notes every word of a plain query matches, with their cover density rank. */
 const plainNotes = query(Catalog).rule((r) => {
 	const { note, search } = v(Note, "note")
-	const q = Compute.plainQuery(r.param("q", QueryText))
+	const q = Search.plain(r.param("q", QueryText))
 	return r
 		.match(Note, { note, search })
-		.where(Compute.textMatches(search, q))
-		.find({ note, cover: Compute.textRankCd(search, q) })
+		.where(Search.matches(search, q))
+		.find({ note, cover: Search.rankCd(search, q) })
 })
 
 /** Every lesson's stored document, as PostgreSQL prints it. */

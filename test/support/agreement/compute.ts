@@ -10,13 +10,25 @@ import { toCalendarDate } from "#compiler/ir/date.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { type RosterOrder, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import {
+	Crypto,
+	Distance,
+	Fn,
+	Logic,
+	Num,
+	Range,
+	Search,
+	Text,
+	Type,
+	Xml
+} from "#compiler/public/compute.ts"
 import { Bits, bytes, Decimal, Money } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { lexicalForm, str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
+import { spelling } from "#compiler/scalar/compute/spelling.ts"
 import { guarded, type TypedTerm, typedTermOf } from "#compiler/scalar/compute/term.ts"
 import { meets } from "#compiler/scalar/compute/types.ts"
 import { admitMatch } from "#compiler/scalar/regex/admit.ts"
@@ -49,11 +61,11 @@ import {
 } from "#test/types/batch/batch.ts"
 
 /**
- * The Compute population: terms, predicates, aggregates and host values drawn over one relation of every carrier
+ * The scalar population: terms, predicates, aggregates and host values drawn over one relation of every carrier
  * (Cell, ./compute-schema.ts), each read twice, as TypeScript source for one program the type tier checks and through
  * the engine's JavaScript view (computeCore, the query builder, compileTemplate), which builds and compiles it as the
  * runtime does. A byte guard's case and a closed read's case stand in a generated field of a schema of their own, a
- * closed read under arithmetic, Compute.within and a cast where it stands (a query's head delivers none).
+ * closed read under arithmetic, Num.within and a cast where it stands (a query's head delivers none).
  * The engine is the oracle:
  *
  * - a case typechecks exactly when the engine builds and compiles it: a refused case stands under a directive, which the
@@ -140,7 +152,7 @@ const lits: Arr.NonEmptyReadonlyArray<Lit> = [
 	widened
 ]
 
-/** The catalogue's operations of one, two and three operands, each a Compute member called on its operands. */
+/** The catalogue's operations of one, two and three operands, each a catalogue member called on its operands. */
 const unaryFns = [
 	"neg",
 	"abs",
@@ -188,7 +200,7 @@ const ternaryFns = ["translate", "widthBucket"] as const
 type UnaryFn = (typeof unaryFns)[number]
 type BinaryFn = (typeof binaryFns)[number]
 type TernaryFn = (typeof ternaryFns)[number]
-type Fn = UnaryFn | BinaryFn | TernaryFn
+type ApplyFn = UnaryFn | BinaryFn | TernaryFn
 
 const tests = ["nonzero", "nonnegative", "positive", "isFinite"] as const
 type Test = (typeof tests)[number]
@@ -242,7 +254,7 @@ const computeFeatures = [
 	"in",
 	...aggregates,
 	...values,
-	"Compute member",
+	"catalogue member",
 	"Decimal member",
 	"parts member",
 	"literal first",
@@ -255,24 +267,24 @@ const computeFeatures = [
 ] as const
 type ComputeFeature = (typeof computeFeatures)[number]
 
-/** The Refusals of the Compute catalogue the types name, by the engine's reason (claimOf). */
+/** The Refusals of the scalar catalogue the types name, by the engine's reason (claimOf). */
 const refusalNotes = {
-	"a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)":
+	"a divisor proved nonzero: guard it with Logic.when(Num.nonzero(x), (x) => …, otherwise)":
 		"refused: a divisor",
-	"a radicand proved nonnegative: guard it with Compute.when(Compute.nonnegative(x), (x) => …, otherwise)":
+	"a radicand proved nonnegative: guard it with Logic.when(Num.nonnegative(x), (x) => …, otherwise)":
 		"refused: a radicand",
-	"a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)":
+	"a value proved finite: guard it with Logic.when(Num.isFinite(x), (x) => …, otherwise)":
 		"refused: a finite value",
-	"a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Compute.when(Compute.positive(x), (x) => …, otherwise)":
+	"a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Logic.when(Num.positive(x), (x) => …, otherwise)":
 		"refused: a power",
-	"PostgreSQL has no cast between these types that Compute admits": "refused: a cast",
+	"PostgreSQL has no cast between these types that grizzle admits": "refused: a cast",
 	"a term first: a literal takes its place opposite a term, never first":
 		"refused: a literal first",
 	"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span":
 		"refused: an endpoint",
 	"a value its contract refuses: it lacks a fact the contract declares":
 		"refused: a contract's value",
-	"operands of one type: an exact value beside a plain value of its family; Compute.cast the exact one into the plain one's type":
+	"operands of one type: an exact value beside a plain value of its family; Type.cast the exact one into the plain one's type":
 		"refused: an exact value beside a plain one",
 	"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles":
 		"refused: no order"
@@ -311,7 +323,7 @@ const headingNote = "a column read through a heading"
 type HeadingNote = typeof headingNote
 
 /**
- * A CASE (Compute.when, Compute.cond) or a LEAST or GREATEST over an exact value and a plain value of its family, in
+ * A CASE (Logic.when, Logic.cond) or a LEAST or GREATEST over an exact value and a plain value of its family, in
  * either order: they share no type, which both sides refuse, naming the cast that makes them one.
  */
 const familyNotes = [
@@ -504,7 +516,7 @@ const byContract = (verdict: Verdict): boolean => {
 }
 
 /** The note of each partial operation over a constant its contract refuses that a case reaches (contractNotes). */
-const contractNoteOf: { readonly [F in Fn]?: ContractNote } = {
+const contractNoteOf: { readonly [F in ApplyFn]?: ContractNote } = {
 	sqrt: "a radicand its contract refuses",
 	power: "a power's operand its contract refuses",
 	quot: "a dividend its contract refuses"
@@ -651,7 +663,11 @@ const headFields: { readonly [C in HeadColumn]: FieldName } = {
 }
 
 type TermSpec =
-	| { readonly kind: "apply"; readonly fn: Fn; readonly args: Arr.NonEmptyReadonlyArray<Operand> }
+	| {
+			readonly kind: "apply"
+			readonly fn: ApplyFn
+			readonly args: Arr.NonEmptyReadonlyArray<Operand>
+	  }
 	| { readonly kind: "cast"; readonly x: Operand; readonly to: FieldName }
 	| {
 			readonly kind: "endpoint"
@@ -684,10 +700,10 @@ type PredSpec =
 	| { readonly kind: "guard"; readonly guard: GuardSpec }
 
 /**
- * A member read off a host value: a Compute member, a Decimal's or its parts', each named from the runtime's own
+ * A member read off a host value: a catalogue member, a Decimal's or its parts', each named from the runtime's own
  * members and the names a reader may reach for that it lacks.
  */
-type Holder = "Compute" | "Decimal" | "parts"
+type Holder = "catalogue" | "Decimal" | "parts"
 
 type CaseSpec =
 	| { readonly kind: "term"; readonly term: TermSpec }
@@ -792,7 +808,7 @@ type TunedValue =
 	  }
 
 /**
- * What stands around a closed read's cast: Compute.within over its value, whose branch casts the guarded value, or
+ * What stands around a closed read's cast: Num.within over its value, whose branch casts the guarded value, or
  * nothing.
  */
 type TunedGuard =
@@ -801,7 +817,7 @@ type TunedGuard =
 
 /**
  * What stands around a byte guard case's cast into a str.bytes target: the one byte guard,
- * Compute.within(Compute.octetLength(x), low, high), whose branch carries x's byte bound narrowed to high, or nothing.
+ * Num.within(Text.octetLength(x), low, high), whose branch carries x's byte bound narrowed to high, or nothing.
  */
 type ByteGuard =
 	| { readonly kind: "within"; readonly low: number; readonly high: number }
@@ -809,7 +825,7 @@ type ByteGuard =
 	| { readonly kind: "uncast" }
 
 /** The operations each family is the home of: a first operand is drawn from them four times in five. */
-const homes: { readonly [F in Fn]: Arr.NonEmptyReadonlyArray<Family> } = {
+const homes: { readonly [F in ApplyFn]: Arr.NonEmptyReadonlyArray<Family> } = {
 	neg: ["integer", "numeric", "float", "money"],
 	abs: ["integer", "numeric", "float", "money"],
 	sign: ["integer", "numeric", "float"],
@@ -1121,7 +1137,7 @@ const computedOver = (d: Drawing, field: FieldName): TermSpec => {
 }
 
 /** A round's or a trunc's scale, half the time, a JavaScript value; no other operation takes one. */
-const scaleOf = (d: Drawing, fn: Fn): ReadonlyArray<Operand> =>
+const scaleOf = (d: Drawing, fn: ApplyFn): ReadonlyArray<Operand> =>
 	(fn === "round" || fn === "trunc") && d.from([0, 1]) === 1
 		? [{ kind: "literal", lit: d.from(lits) }]
 		: []
@@ -1182,7 +1198,7 @@ const alignedCond = (whenTrue: Operand): TermSpec => {
  * minus money, an exact money; LEAST and GREATEST of an exact integer and an integer, in either order.
  */
 const aimedOperands: {
-	readonly [F in Fn]?: (d: Drawing) => Arr.NonEmptyReadonlyArray<Operand>
+	readonly [F in ApplyFn]?: (d: Drawing) => Arr.NonEmptyReadonlyArray<Operand>
 } = {
 	div: (d) => provedDivisor(d),
 	mod: (d) => provedDivisor(d),
@@ -1327,7 +1343,7 @@ const finiteOperand = (d: Drawing): Operand =>
 			}
 
 /** An application of `fn` to operands drawn for it. */
-const applyOver = (d: Drawing, fn: Fn, depth: number): TermSpec => {
+const applyOver = (d: Drawing, fn: ApplyFn, depth: number): TermSpec => {
 	d.note(fn)
 	const aim = aimedOperands[fn]
 	if (aim !== undefined && d.from([0, 1]) === 0) {
@@ -1466,7 +1482,7 @@ const guardedBody = (d: Drawing, guard: GuardSpec, branch: Branch): TermSpec => 
 	const guarded: Operand = { kind: "guarded" }
 	const own = fieldOf(subject)
 	const field = own ?? d.from(allFields)
-	const opposite = (fn: Fn): FieldName =>
+	const opposite = (fn: ApplyFn): FieldName =>
 		own !== undefined && d.from([0, 1, 2, 3]) < 3 ? own : homeField(d, homes[fn])
 	switch (branch) {
 		case "div":
@@ -1584,7 +1600,7 @@ const parseTarget = (d: Drawing, guard: GuardSpec): FieldName =>
 /** The fields of the types a text parses into, and a type with no lexical form. */
 /**
  * The fields of a type with a lexical form, whose lexicalForm a match's pattern reads: a lexical form of any other type
- * is refused where it is written (a lexical form case), never inside a guard, whose refusal no Compute call's result
+ * is refused where it is written (a lexical form case), never inside a guard, whose refusal no scalar call's result
  * carries on.
  */
 const lexicalFields: Arr.NonEmptyReadonlyArray<FieldName> = [
@@ -1890,19 +1906,43 @@ const termOf = (d: Drawing, root: TermRoot): TermSpec => {
 
 /** The names a member case reads: the holder's own, and names a reader may reach for that it lacks (computeMembers). */
 const memberNames: { readonly [H in Holder]: Arr.NonEmptyReadonlyArray<string> } = {
-	Compute: ["scale", "trimScale", "displayScale"],
+	catalogue: [
+		"Num.scale",
+		"Num.trimScale",
+		"Num.displayScale",
+		"Text.isPattern",
+		"Xml.matchesPattern"
+	],
 	Decimal: ["text", "parts", "isFinite", "equals", "scale", "identityText", "displayScale"],
 	parts: ["kind", "coefficient", "minScale", "exponent"]
 }
 
-/** Compute's own members. */
-const computeMembers: Arr.NonEmptyReadonlyArray<string> = ["literal", ...Rec.keys(Compute)]
+/** The catalogue's namespaces, by the names a program reads them by. */
+const catalogue: Readonly<Record<string, object>> = {
+	Bits,
+	Crypto,
+	Distance,
+	Fn,
+	Logic,
+	Num,
+	Range,
+	Search,
+	Text,
+	Type,
+	Xml
+}
 
-const memberFeatures = ["Compute member", "Decimal member", "parts member"] as const
+/** The catalogue's own members, each as a program spells it: its namespace and its name there. */
+const computeMembers: Arr.NonEmptyReadonlyArray<string> = [
+	spelling.literal,
+	...Rec.values(spelling)
+]
+
+const memberFeatures = ["catalogue member", "Decimal member", "parts member"] as const
 type MemberFeature = (typeof memberFeatures)[number]
 
 const holderOf: { readonly [M in MemberFeature]: Holder } = {
-	"Compute member": "Compute",
+	"catalogue member": "catalogue",
 	"Decimal member": "Decimal",
 	"parts member": "parts"
 }
@@ -1977,7 +2017,7 @@ const caseAt = (d: Drawing, root: Root): CaseSpec => {
 				kind: "member",
 				holder,
 				name:
-					holder === "Compute" && d.from([0, 1]) === 0
+					holder === "catalogue" && d.from([0, 1]) === 0
 						? d.from(computeMembers)
 						: d.from(memberNames[holder])
 			}
@@ -2012,17 +2052,17 @@ const bytesTargetText = (n: number): string => `str.bytes(${n}, str.regex("^.*$"
 /** A byte guard case's schema: Texts, whose generated field is the case's cast, under its guard or not. */
 const bytesSchemaText = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): string => {
 	const target = bytesTargetText(spec.target)
-	const cast = `Compute.cast(r.text, ${target})`
+	const cast = `Type.cast(r.text, ${target})`
 	const term =
 		spec.guard.kind === "within"
-			? `Compute.when(Compute.within(Compute.octetLength(r.text), ${spec.guard.low}, ${spec.guard.high}), () => ${cast}, "")`
+			? `Logic.when(Num.within(Text.octetLength(r.text), ${spec.guard.low}, ${spec.guard.high}), () => ${cast}, "")`
 			: spec.guard.kind === "uncast"
 				? "r.text"
 				: cast
 	return `schema("Bytes", [relation.generated("Texts", { id: Id, text: Cell.fields.${spec.text} }, ["id"], (r) => ({ stored: generated(${target}, ${term}) }))], [])`
 }
 
-/** The engine's reading of a byte guard case: the same schema, built by the public constructors and Compute's core. */
+/** The engine's reading of a byte guard case: the same schema, built by the public constructors and the scalar core. */
 const bytesSchema = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): FixtureSchema => {
 	const target = str.bytes(spec.target, str.regex("^.*$", "su"))
 	const guard = spec.guard
@@ -2050,7 +2090,7 @@ const bytesSchema = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): Fixtu
 }
 
 /**
- * A digest a generated field stores, Compute.sha256 of the row's bytes three times in four and otherwise of one of its
+ * A digest a generated field stores, Crypto.sha256 of the row's bytes three times in four and otherwise of one of its
  * text fields, into a text type of the dictionary (digestTargets), uncast a third of the time and otherwise cast into
  * it, which the engine proves by the digest's language alone.
  */
@@ -2066,12 +2106,12 @@ const digestOf = (d: Drawing): CaseSpec => ({
  * is the case's digest, cast into its type or not.
  */
 const digestSchemaText = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): string => {
-	const digest = `Compute.sha256(r.${spec.operand})`
-	const term = spec.cast ? `Compute.cast(${digest}, ${spec.target.text})` : digest
+	const digest = `Crypto.sha256(r.${spec.operand})`
+	const term = spec.cast ? `Type.cast(${digest}, ${spec.target.text})` : digest
 	return `schema("Digests", [relation.generated("Media", { id: Id, content: bytes, text: Cell.fields.text, word: Cell.fields.word, body: Cell.fields.body }, ["id"], (r) => ({ stored: generated(${spec.target.text}, ${term}) }))], [])`
 }
 
-/** The engine's reading of a digest case: the same schema, built by the public constructors and Compute's core. */
+/** The engine's reading of a digest case: the same schema, built by the public constructors and the scalar core. */
 const digestSchema = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): FixtureSchema => {
 	const target = spec.target.field
 	return schema(
@@ -2105,7 +2145,7 @@ const digestSchema = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): Fix
 
 /**
  * A cast of a value over Tuning's payload at the row's tone into an integer or the numeric, a generated field's term,
- * where a closed read stands, under Compute.within half the time. The value reads Tuning once at least, the other
+ * where a closed read stands, under Num.within half the time. The value reads Tuning once at least, the other
  * operand of a sum, difference, product or quotient its own field three times in four, read off the row or Tuning; the
  * bounds are a dictionary of ranges an integer's and a product's values meet or pass.
  */
@@ -2218,25 +2258,25 @@ const tunedValueText = (v: TunedValue): string => {
 		case "operand":
 			return tunedOperandText(v.x)
 		case "unary":
-			return `Compute.${v.fn}(${tunedOperandText(v.x)})`
+			return `${spelling[v.fn]}(${tunedOperandText(v.x)})`
 		case "binary":
-			return `Compute.${v.fn}(${tunedOperandText(v.a)}, ${tunedOperandText(v.b)})`
+			return `${spelling[v.fn]}(${tunedOperandText(v.a)}, ${tunedOperandText(v.b)})`
 	}
 }
 
 /** A closed read's case's schema: Rows, whose generated field casts its value, under its guard or not. */
 const closedSchemaText = (spec: Extract<CaseSpec, { readonly kind: "closed" }>): string => {
-	const cast = (x: string): string => `Compute.cast(${x}, Cell.fields.${spec.to})`
+	const cast = (x: string): string => `Type.cast(${x}, Cell.fields.${spec.to})`
 	const value = tunedValueText(spec.value)
 	const term =
 		spec.guard.kind === "within"
-			? `Compute.when(Compute.within(${value}, ${tunedBound(spec.value, spec.guard.low).text}, ${tunedBound(spec.value, spec.guard.high).text}), (g) => ${cast("g")}, cell.${spec.to})`
+			? `Logic.when(Num.within(${value}, ${tunedBound(spec.value, spec.guard.low).text}, ${tunedBound(spec.value, spec.guard.high).text}), (g) => ${cast("g")}, cell.${spec.to})`
 			: cast(value)
 	return `schema("Tuned", [Tone, Tuning, relation.generated("Rows", ${tunedRelationText}, ["id"], (cell) => ({ out: generated(Cell.fields.${spec.to}, ${term}) }))], [])`
 }
 
 /**
- * The engine's reading of a closed read's case: the same schema, built by the public constructors and Compute's core.
+ * The engine's reading of a closed read's case: the same schema, built by the public constructors and the scalar core.
  */
 const closedSchema = (spec: Extract<CaseSpec, { readonly kind: "closed" }>): FixtureSchema => {
 	const guard = spec.guard
@@ -2352,7 +2392,7 @@ class Rendering {
 			case "literal":
 				return o.lit.text
 			case "typed":
-				return `Compute.literal(Cell.fields.${o.field}, ${o.lit.text})`
+				return `Type.literal(Cell.fields.${o.field}, ${o.lit.text})`
 			case "guarded":
 				return "g"
 			case "lexical":
@@ -2369,40 +2409,40 @@ class Rendering {
 	term(t: TermSpec): string {
 		switch (t.kind) {
 			case "apply":
-				return `Compute.${t.fn}(${Arr.join(
+				return `${spelling[t.fn]}(${Arr.join(
 					Arr.map(t.args, (a) => this.operand(a)),
 					", "
 				)})`
 			case "cast":
-				return `Compute.cast(${this.operand(t.x)}, Cell.fields.${t.to})`
+				return `Type.cast(${this.operand(t.x)}, Cell.fields.${t.to})`
 			case "endpoint":
-				return `Compute.${t.fn}(${this.operand(t.s)}, Cell.fields.${t.to})`
+				return `${spelling[t.fn]}(${this.operand(t.s)}, Cell.fields.${t.to})`
 			case "cond":
-				return `Compute.cond(${this.pred(t.p)}, ${this.operand(t.whenTrue)}, ${this.operand(t.otherwise)})`
+				return `Logic.cond(${this.pred(t.p)}, ${this.operand(t.whenTrue)}, ${this.operand(t.otherwise)})`
 			case "when":
-				return `Compute.when(${this.guard(t.guard)}, (${readsSubject(t.body) ? "g" : "_g"}) => ${this.term(t.body)}, ${this.operand(t.otherwise)})`
+				return `Logic.when(${this.guard(t.guard)}, (${readsSubject(t.body) ? "g" : "_g"}) => ${this.term(t.body)}, ${this.operand(t.otherwise)})`
 		}
 	}
 
 	guard(g: GuardSpec): string {
 		switch (g.kind) {
 			case "test":
-				return `Compute.${g.test}(${this.operand(g.x)})`
+				return `${spelling[g.test]}(${this.operand(g.x)})`
 			case "within":
-				return `Compute.within(${this.operand(g.x)}, ${g.low.text}, ${g.high.text})`
+				return `Num.within(${this.operand(g.x)}, ${g.low.text}, ${g.high.text})`
 			case "matches":
-				return `Compute.matches(${this.operand(g.x)}, ${g.pattern.kind === "literal" ? `Compute.pattern(${this.operand(g.pattern)})` : this.operand(g.pattern)})`
+				return `Text.matches(${this.operand(g.x)}, ${g.pattern.kind === "literal" ? `Text.pattern(${this.operand(g.pattern)})` : this.operand(g.pattern)})`
 		}
 	}
 
 	pred(p: PredSpec): string {
 		switch (p.kind) {
 			case "compare":
-				return `Compute.${p.op}(${this.operand(p.a)}, ${this.operand(p.b)})`
+				return `${spelling[p.op]}(${this.operand(p.a)}, ${this.operand(p.b)})`
 			case "between":
-				return `Compute.between(${this.operand(p.a)}, ${this.operand(p.low)}, ${this.operand(p.high)})`
+				return `Logic.between(${this.operand(p.a)}, ${this.operand(p.low)}, ${this.operand(p.high)})`
 			case "in":
-				return `Compute.in(${this.operand(p.a)}, [${Arr.join(
+				return `Logic.in(${this.operand(p.a)}, [${Arr.join(
 					Arr.map(p.values, (l) => l.text),
 					", "
 				)}])`
@@ -2417,8 +2457,8 @@ class Rendering {
 	}
 }
 
-/** A Compute member called on its operands, through the core a JavaScript caller reaches. */
-const applied = (fn: Fn, args: ReadonlyArray<unknown>): unknown => {
+/** A catalogue member called on its operands, through the core a JavaScript caller reaches. */
+const applied = (fn: ApplyFn, args: ReadonlyArray<unknown>): unknown => {
 	const [a, b, c, e] = args
 	switch (fn) {
 		case "least":
@@ -2600,18 +2640,17 @@ type Claim =
 /** The Refusal the types name for a partial operation, by the precondition the engine found unproved. */
 const partialRefusals: Readonly<Record<string, ComputeRefusal>> = {
 	nonzero:
-		"a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)",
+		"a divisor proved nonzero: guard it with Logic.when(Num.nonzero(x), (x) => …, otherwise)",
 	nonnegative:
-		"a radicand proved nonnegative: guard it with Compute.when(Compute.nonnegative(x), (x) => …, otherwise)",
-	finite:
-		"a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)",
+		"a radicand proved nonnegative: guard it with Logic.when(Num.nonnegative(x), (x) => …, otherwise)",
+	finite: "a value proved finite: guard it with Logic.when(Num.isFinite(x), (x) => …, otherwise)",
 	powerDomain:
-		"a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Compute.when(Compute.positive(x), (x) => …, otherwise)"
+		"a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Logic.when(Num.positive(x), (x) => …, otherwise)"
 }
 
 /** The Refusal of an exact value beside a plain value of its family, which share no type (familyNotes). */
 const familyRefusal: ComputeRefusal =
-	"operands of one type: an exact value beside a plain value of its family; Compute.cast the exact one into the plain one's type"
+	"operands of one type: an exact value beside a plain value of its family; Type.cast the exact one into the plain one's type"
 
 /** The engine's words for a refusal, on one line. */
 const oneLine = (text: string): string => Arr.join(Str.split(text, "\n"), " ")
@@ -2644,7 +2683,7 @@ const claimOf = (reason: CompileReason): Claim => {
 		return Str.startsWith("cast:")(reason.capability)
 			? {
 					kind: "refusal",
-					refusal: "PostgreSQL has no cast between these types that Compute admits"
+					refusal: "PostgreSQL has no cast between these types that grizzle admits"
 				}
 			: (Str.startsWith("ordering:")(reason.capability) ||
 						Str.startsWith("minMax:")(reason.capability)) &&
@@ -3071,8 +3110,12 @@ const decimals: Arr.NonEmptyReadonlyArray<Decimal> = [
 /** Whether every value a member's holder may be has the member: the runtime's answer the types must give. */
 const hasMember = (holder: Holder, name: string): boolean => {
 	switch (holder) {
-		case "Compute":
-			return name in Compute
+		case "catalogue":
+			return Arr.some(
+				Rec.toEntries(catalogue),
+				([namespace, members]) =>
+					Str.startsWith(`${namespace}.`)(name) && Str.slice(namespace.length + 1)(name) in members
+			)
 		case "Decimal":
 			return Arr.every(decimals, (x) => name in x)
 		case "parts":
@@ -3187,7 +3230,7 @@ const verdictOf = (
 }
 
 /**
- * Whether a case holds a constant its contract refuses where the types decide it (scalar.ts Refutes): Compute.literal
+ * Whether a case holds a constant its contract refuses where the types decide it (scalar.ts Refutes): Type.literal
  * refuses it as its own call, before any call over it, where the engine reaches it only once it has built every call
  * and taken their operands' types. So the constant's refusal is the case's whatever the engine names first.
  */
@@ -3202,7 +3245,7 @@ const refutesConstant = (spec: CaseSpec): boolean =>
 
 /**
  * Whether a case holds a range guard whose bound its subject's contract refuses where the types decide it
- * (ContractAdmits): the guard, judged as a case of its own, is refused for that alone. Compute.within refuses the bound
+ * (ContractAdmits): the guard, judged as a case of its own, is refused for that alone. Num.within refuses the bound
  * as its own call, and every call over it, a when's branch reading its subject among them, takes a refused call's
  * result, which states no refusal of its own; the engine reaches the bound only once it has built every call. So the
  * bound's refusal is the case's whatever the engine names first.
@@ -4052,8 +4095,8 @@ const expressionOf = (rendering: Rendering, spec: CaseSpec): string => {
 		case "lexical":
 			return `lexicalForm(Cell.fields.${spec.field})`
 		case "member":
-			return spec.holder === "Compute"
-				? `Compute.${spec.name}`
+			return spec.holder === "catalogue"
+				? spec.name
 				: spec.holder === "Decimal"
 					? `x.${spec.name}`
 					: `x.parts.${spec.name}`
@@ -4063,7 +4106,7 @@ const expressionOf = (rendering: Rendering, spec: CaseSpec): string => {
 /**
  * The situations the drawn cases reach beside the verdicts, Refusals, decisions and inferences: every construct, each
  * admitted but a literal standing first, and each refused but the byte guard, whose casts the types always admit, and
- * the digest, Compute.sha256 reading a text as it reads bytes, so a digest is admitted or its cast's language decided;
+ * the digest, Crypto.sha256 reading a text as it reads bytes, so a digest is admitted or its cast's language decided;
  * and a column read through a heading both ways. The kept cases reach the rest (computeKeptRequired).
  */
 const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
@@ -4086,7 +4129,7 @@ const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
 ]
 
 /**
- * The situations the drawn cases reach: both verdicts and a structural refusal, every Refusal the Compute catalogue
+ * The situations the drawn cases reach: both verdicts and a structural refusal, every Refusal the scalar catalogue
  * names, every inference the program asserts, and every construct under both verdicts (computeRequired).
  */
 export const computeSituations: ReadonlyArray<Reached<ComputeNote>> = [
@@ -4183,14 +4226,14 @@ const rootedAt =
 		caseGen(Option.some(source.draw(element(at))))(source)
 
 /**
- * How many steered cases the drawn Compute agreement's search may run while a required situation is unreached: its
+ * How many steered cases the drawn scalar agreement's search may run while a required situation is unreached: its
  * 287 situations are more than the runner's witnesses reach one each (a floor of 38 and a steered phase of 200), since
  * an aimed window aims its cases at distinct pending situations.
  *
  * @limitKind measured
- * @owner the Compute type/engine agreement (test/types/compute/compute.test.ts)
+ * @owner the scalar type/engine agreement (test/types/compute/compute.test.ts)
  * @unit steered cases
- * @scope the steered phase of the drawn Compute agreement's search, aimed by computeAimed, its windows of 150 cases
+ * @scope the steered phase of the drawn scalar agreement's search, aimed by computeAimed, its windows of 150 cases
  *   (typeWindow), on the steered stream its property's identity fixes; the phase ends once every required situation is
  *   reached
  * @evidence ~/.cache/grizzle-release/REDFIX-logs/compute-steered-run-at-3000.txt: toolchain-test run
@@ -4198,8 +4241,8 @@ const rootedAt =
  *   search ran; compute-steered-run-at-900.txt beside it, the same search at the limit before
  * @observed 2026-11-20, 01:36 to 01:41 UTC
  * @environment cassowary, Ubuntu 26.04 arm64, 64 cores, Node 26.13.1, toolchain d3a4a60, grizzle baca0c86b with the
- *   digest of a text admitted (Compute.sha256 over a text since b9cf96fa9); load average 7 to 30 from other sessions
- * @workload the drawn Compute agreement over computeAimed (each requirement naming a construct aimed at its roots,
+ *   digest of a text admitted (Crypto.sha256 over a text since b9cf96fa9); load average 7 to 30 from other sessions
+ * @workload the drawn scalar agreement over computeAimed (each requirement naming a construct aimed at its roots,
  *   every other at any root), 287 required situations, batches of 150 cases
  * @result every required situation reached after 1050 steered cases, seven windows of 150; capped at 900, the search
  *   left "refused: no order" and a refused CASE of a plain branch first beside an exact one unreached, where on
@@ -4208,7 +4251,7 @@ const rootedAt =
  * @decision 1200, the 1050 the search needs and one window of 150 more: the steered stream is fixed by the property's
  *   identity, so the need is the same on every run seed, and a window the search does not need never runs, so the margin
  *   costs nothing while every situation is reached
- * @revalidate the Compute generator, its aims or its required situations change; typeWindow or the runner's steering
+ * @revalidate the scalar generator, its aims or its required situations change; typeWindow or the runner's steering
  *   changes; a run that fails unreached under this limit
  */
 export const computeSteeredCases = 1200
@@ -4326,7 +4369,7 @@ const overlapKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind: 
 /**
  * The when the run at TEST_SEED=1879254972 drew as its case 1140, so the floor reaches capturedNotes by construction,
  * whatever its draws: a power over the guarded subject whose exponent is the subject read past the parameter,
- * Compute.when(Compute.nonnegative(cell.dec), (g) => Compute.power(g, cell.dec), cell.dec). The guard proves g
+ * Logic.when(Num.nonnegative(cell.dec), (g) => Num.power(g, cell.dec), cell.dec). The guard proves g
  * nonnegative and nothing of the exponent, so both refuse the power, the base not proved nonzero nor the exponent
  * nonnegative.
  */
@@ -4459,7 +4502,7 @@ export const computeKeptItems = Arr.map(
 	caseOf
 )
 
-/** The Compute program's prelude (test/support/programs/compute.ts), every name it reads. */
+/** The scalar program's prelude (test/support/programs/compute.ts), every name it reads. */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/compute.ts"))
 
 /** The directive above a refused case's expression, which the type-test batch disarms. */
@@ -4516,7 +4559,7 @@ const blockOf = (c: ComputeCase, i: number): string => {
 		case "member":
 			return Arr.join(
 				[
-					c.spec.holder === "Compute"
+					c.spec.holder === "catalogue"
 						? `export const t${i} =`
 						: `export const t${i} = (x: Decimal) =>`,
 					...directive,
@@ -4609,7 +4652,7 @@ export const computeProgram = (
 	return [
 		preludeModule(
 			"index.ts",
-			"// Generated by test/support/agreement/compute.ts: the Compute type/engine agreement.",
+			"// Generated by test/support/agreement/compute.ts: the scalar type/engine agreement.",
 			preludeFrom(prelude, entry),
 			[
 				{

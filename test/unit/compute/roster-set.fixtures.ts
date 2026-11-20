@@ -11,7 +11,7 @@ import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { rosterOf } from "#compiler/ir/scalar.ts"
 import { bits } from "#compiler/public/fields.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { storedLiteral } from "#compiler/scalar/literal.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 
@@ -19,7 +19,7 @@ import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 export const names = ["low", "high", "dark"] as const
 
 export type Door =
-	| "a Compute literal"
+	| "a scalar literal"
 	| "a comparison's operand"
 	| "a closed relation's fact"
 	| "the codec"
@@ -51,7 +51,7 @@ type Verdict =
 const literalHandles = (literal: LiteralDesc): ReadonlyArray<string> | undefined =>
 	typeof literal === "object" && "handles" in literal ? literal.handles : undefined
 
-/** The literal operand of a predicate or a term a Compute builder recorded: the comparison's right side, or itself. */
+/** The literal operand of a predicate or a term a scalar builder recorded: the comparison's right side, or itself. */
 const literalIn = (expr: OpenExpr): ReadonlyArray<string> | undefined =>
 	expr.kind === "literal"
 		? literalHandles(expr.value)
@@ -89,10 +89,10 @@ export const doorVerdict = (
 	const described = describeFieldOrThrow(field, SourceLoc("the set's field", []))
 	const roster = defined(rosterOf(described.scalar), "a set field's roster")
 	switch (door) {
-		case "a Compute literal":
-			return built(() => Compute.literal(field, set))
+		case "a scalar literal":
+			return built(() => computeCore.literal(field, set))
 		case "a comparison's operand":
-			return built(() => Compute.eq(Compute.literal(field, new Set<string>()), set))
+			return built(() => computeCore.eq(computeCore.literal(field, new Set<string>()), set))
 		case "a closed relation's fact": {
 			const literal = storedLiteral(described.scalar, set)
 			return Effect.succeed(

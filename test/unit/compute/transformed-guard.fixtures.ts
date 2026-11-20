@@ -28,7 +28,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { decimalText, doubleText, lexicalForm, str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField, type RegexText } from "#compiler/text/field.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
@@ -41,7 +41,7 @@ import { upTo } from "#test/support/up-to.ts"
 import { patternOver } from "#test/unit/text/generators.ts"
 
 /**
- * A guard over a transformed text proves what its language allows: `Compute.when(Compute.matches(T(t), P), (x) =>
+ * A guard over a transformed text proves what its language allows: `computeCore.when(computeCore.matches(T(t), P), (x) =>
  * Op(x), otherwise)` in a generated field, t any text, T a text-to-text operation (collapse, a translation by a drawn
  * map, lowerAscii, replaceWhitespace, a cast into the text's own type), P a drawn pattern, and Op a partial operation
  * over a text: parseDouble, parseDecimal under a guard of its bytes, a cast into an integer, and a cast into a refined
@@ -217,15 +217,15 @@ const AnyText = str.regex("^.*$", "su")
 const transformed = (t: Transform, text: unknown): unknown => {
 	switch (t.kind) {
 		case "collapse":
-			return Compute.collapse(text)
+			return computeCore.collapse(text)
 		case "translate":
-			return Compute.translate(text, t.from, t.to)
+			return computeCore.translate(text, t.from, t.to)
 		case "lowerAscii":
-			return Compute.lowerAscii(text)
+			return computeCore.lowerAscii(text)
 		case "replaceWhitespace":
-			return Compute.replaceWhitespace(text)
+			return computeCore.replaceWhitespace(text)
 		case "cast":
-			return Compute.cast(text, AnyText)
+			return computeCore.cast(text, AnyText)
 	}
 }
 
@@ -240,7 +240,7 @@ export const relationOf = (c: Case) =>
 		) =>
 			generatedField(
 				type,
-				Compute.when(Compute.matches(subject, Compute.pattern(c.guard)), op, otherwise),
+				computeCore.when(computeCore.matches(subject, computeCore.pattern(c.guard)), op, otherwise),
 				[]
 			)
 		switch (c.operation.kind) {
@@ -248,20 +248,20 @@ export const relationOf = (c: Case) =>
 				return {
 					n: guarded(
 						pg["double precision"],
-						(x) => Compute.parseDouble(x),
-						Compute.literal(pg["double precision"], 0)
+						(x) => computeCore.parseDouble(x),
+						computeCore.literal(pg["double precision"], 0)
 					)
 				}
 			case "parseDecimal": {
-				const yes = Compute.literal(pg.boolean, true)
-				const no = Compute.literal(pg.boolean, false)
+				const yes = computeCore.literal(pg.boolean, true)
+				const no = computeCore.literal(pg.boolean, false)
 				return {
 					n: guarded(
 						pg.boolean,
 						(x) =>
-							Compute.when(
-								Compute.within(Compute.octetLength(x), 0, 16384),
-								() => Compute.cond(Compute.ge(Compute.parseDecimal(x), 0n), yes, no),
+							computeCore.when(
+								computeCore.within(computeCore.octetLength(x), 0, 16384),
+								() => computeCore.cond(computeCore.ge(computeCore.parseDecimal(x), 0n), yes, no),
 								no
 							),
 						no
@@ -270,12 +270,16 @@ export const relationOf = (c: Case) =>
 			}
 			case "integer":
 				return {
-					n: guarded(pg.integer, (x) => Compute.cast(x, pg.integer), Compute.literal(pg.integer, 0))
+					n: guarded(
+						pg.integer,
+						(x) => computeCore.cast(x, pg.integer),
+						computeCore.literal(pg.integer, 0)
+					)
 				}
 			case "refined": {
 				const Target = regexField<string>(c.operation.target, [])
 				return {
-					n: guarded(Target, (x) => Compute.cast(x, Target), Compute.literal(Target, ""))
+					n: guarded(Target, (x) => computeCore.cast(x, Target), computeCore.literal(Target, ""))
 				}
 			}
 		}
@@ -352,12 +356,12 @@ export const boundedTargets: Arr.NonEmptyReadonlyArray<{
 ]
 
 /**
- * A transformed text keeps the byte bound its operation proves: `generated(T, Compute.cast(S(t), T))`, t of
+ * A transformed text keeps the byte bound its operation proves: `generated(T, computeCore.cast(S(t), T))`, t of
  * `str.bytes(b, str.regex(P))` with P every text over the pool's characters or over every one, of at most a drawn count
  * or of any, S a chain of one or two of collapse, a translation by a drawn map (to characters of more bytes than their
  * sources among them), lowerAscii and replaceWhitespace, and T `str.bytes(n, Q)` for a drawn pattern Q, n drawn about
- * S's bound. The cast stands bare, or under a guard of S(t)'s byte count, `Compute.when(Compute.within(
- * Compute.octetLength(S(t)), 0, k), () => Compute.cast(S(t), T), "")` for k drawn about S's bound, which bounds every
+ * S's bound. The cast stands bare, or under a guard of S(t)'s byte count, `computeCore.when(computeCore.within(
+ * computeCore.octetLength(S(t)), 0, k), () => computeCore.cast(S(t), T), "")` for k drawn about S's bound, which bounds every
  * occurrence of S(t) in its branch within k bytes, so the bound the cast reads is the lesser of S's and k. The schema
  * compiles exactly when S's language lies inside Q and that bound within n.
  *
@@ -534,12 +538,12 @@ export const castUnder = (
 ): unknown => {
 	switch (guard.kind) {
 		case "bare":
-			return Compute.cast(term, Target)
+			return computeCore.cast(term, Target)
 		case "bytes":
-			return Compute.when(
-				Compute.within(Compute.octetLength(term), 0, high),
-				() => Compute.cast(term, Target),
-				Compute.literal(Target, "")
+			return computeCore.when(
+				computeCore.within(computeCore.octetLength(term), 0, high),
+				() => computeCore.cast(term, Target),
+				computeCore.literal(Target, "")
 			)
 	}
 }
@@ -998,19 +1002,19 @@ export const operandPattern = (
 		: { source: `^${classOf({ kind: "listed", points: o.over.points })}${repeat}$`, flags: "u" }
 }
 
-/** A step over a term, as Compute builds it, `operand` the term the chain starts from. */
+/** A step over a term, as the scalar catalogue builds it, `operand` the term the chain starts from. */
 const computed = (step: Step, term: unknown, operand: unknown): unknown => {
 	switch (step.kind) {
 		case "collapse":
-			return Compute.collapse(term)
+			return computeCore.collapse(term)
 		case "translate":
-			return Compute.translate(term, codePointsText(step.from), codePointsText(step.to))
+			return computeCore.translate(term, codePointsText(step.from), codePointsText(step.to))
 		case "lowerAscii":
-			return Compute.lowerAscii(term)
+			return computeCore.lowerAscii(term)
 		case "replaceWhitespace":
-			return Compute.replaceWhitespace(term)
+			return computeCore.replaceWhitespace(term)
 		case "concat":
-			return Compute.concat(
+			return computeCore.concat(
 				term,
 				step.suffix.kind === "literal" ? codePointsText(step.suffix.points) : operand
 			)

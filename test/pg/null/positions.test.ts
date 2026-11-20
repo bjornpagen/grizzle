@@ -136,7 +136,7 @@ export const nULLInEveryPositionIsJudgedByPostgreSQLsThreeValuedLogicInEveryRule
 						"test/pg/null/positions.test.ts#nULLInEveryPositionIsJudgedByPostgreSQLsThreeValuedLogicInEveryRuleAndQueryByTheHostEvaluatorAndTheWriterAlike:-:8"
 					),
 					reason:
-						"a closed read with no bound: a generated integer narrowing mul(n, Pick.at(n, kind)) under Compute.within and a generated bigint casting add(n, Pick.at(n, kind)) compile, the first taking its otherwise at k1 and the second refused by its NOT NULL",
+						"a closed read with no bound: a generated integer narrowing mul(n, Pick.at(n, kind)) under Num.within and a generated bigint casting add(n, Pick.at(n, kind)) compile, the first taking its otherwise at k1 and the second refused by its NOT NULL",
 					since: "2026-11-19"
 				}
 			],

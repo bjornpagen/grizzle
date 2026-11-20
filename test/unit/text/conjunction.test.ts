@@ -11,7 +11,7 @@
  * - **inclusion:** a conjunction's inclusion in another (scalar/regex/inclusion.ts) holds exactly when brute force over
  *   every text of up to four code points of the alphabet, and walks of the inner members, finds no text of every inner
  *   member outside some outer one, and a refutation's witness is such a text;
- * - **a match guard:** Compute.matches over a refined subject types its branch by both languages, so a parse in the
+ * - **a match guard:** Text.matches over a refined subject types its branch by both languages, so a parse in the
  *   branch compiles exactly when the conjunction lies inside the parse's form, a case neither pattern alone proves among
  *   them;
  * - **its size:** its CHECK prints in no more bytes than its members' own tests joined by AND, so a conjunction's

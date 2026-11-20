@@ -1,5 +1,5 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num, Type } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -27,8 +27,8 @@ export const Resource = closed.ordered("Resource", ["gpu", "cpu"])
 export const Outcome = closed.ordered("Outcome", ["succeeded", "failed"])
 export const Reason = closed.ordered("Reason", ["malformed", "unsupported"])
 export const Digest = contract("Digest", str.regex("^[0-9a-f]{64}$"))
-export const Slot = contract("Slot", pg.integer, (x) => Compute.ge(x, 0))
-export const SeatNo = contract("SeatNo", pg.integer, (x) => Compute.ge(x, 0))
+export const Slot = contract("Slot", pg.integer, (x) => Logic.ge(x, 0))
+export const SeatNo = contract("SeatNo", pg.integer, (x) => Logic.ge(x, 0))
 
 export const Standing = closed.ordered("Standing", ["wanted", "leased", "done", "denied"])
 
@@ -351,9 +351,9 @@ export const queueQueries = <St extends ReadonlyArray<Statement>>(s: QueueShaped
 			kind: p.kind,
 			slot: p.slot,
 			standing: "leased",
-			epoch: Compute.when(
-				Compute.within(p.epoch, 0n, epochBound),
-				(epoch) => Compute.cast(Compute.add(epoch, 1n), pg.bigint),
+			epoch: Logic.when(
+				Num.within(p.epoch, 0n, epochBound),
+				(epoch) => Type.cast(Num.add(epoch, 1n), pg.bigint),
 				p.epoch
 			),
 			enqueued: p.enqueued
@@ -391,9 +391,9 @@ export const queueQueries = <St extends ReadonlyArray<Statement>>(s: QueueShaped
 			key,
 			resource: r.param("resource", Leased.fields.resource),
 			seat,
-			epoch: Compute.when(
-				Compute.within(epoch, 0n, epochBound),
-				(current) => Compute.cast(Compute.add(current, 1n), pg.bigint),
+			epoch: Logic.when(
+				Num.within(epoch, 0n, epochBound),
+				(current) => Type.cast(Num.add(current, 1n), pg.bigint),
 				epoch
 			),
 			/** The host computes the expiry and passes it as one Instant. */

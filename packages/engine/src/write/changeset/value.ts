@@ -1070,7 +1070,7 @@ const addInserts = <S, P, W extends string, Rd, Done extends Strata, Last extend
 /**
  * What a field-equality member equates one field to, from a JavaScript caller's value: a parameter term, by its name
  * and declared type, or a JavaScript value, a literal whose type the checker reads from the field it meets
- * (schema/literal.ts untypedLiteral, as a head literal's). Any other term, a variable, a Compute term or a typed
+ * (schema/literal.ts untypedLiteral, as a head literal's). Any other term, a variable, a scalar term or a typed
  * constant, would read something other than the field's own equality to a value the caller names, and is refused.
  */
 const equaledOf = (value: unknown, label: string): EqualedDesc => {

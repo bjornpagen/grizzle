@@ -236,7 +236,7 @@ export const compareParamType = (type: ScalarType): ScalarType => {
 /**
  * The type a public program declares a comparison parameter of `type` at where it declares it by its base
  * (compareParamType): that base, but a uuid's is the generated uuid itself, the tests' Id, since no value is a bare uuid
- * and a contract never meets its base without Compute.base. Its binding is the base's, as every comparison
+ * and a contract never meets its base without Type.base. Its binding is the base's, as every comparison
  * parameter's.
  */
 export const declaredParamType = (type: ScalarType): ScalarType => {
@@ -941,7 +941,7 @@ export interface ValueSketch {
  * The value sketches of the float specials among a float type's classes: NaN, Infinity and -Infinity, each a value the
  * lowerings print as a special literal. A float4 and a float8 type share the classes' layout. A float's -0 is a value of
  * its own, equal to 0 under the native equality these classes partition by, so no class of its own here: the compute
- * generator reaches it as Compute.neg(0).
+ * generator reaches it as Num.neg(0).
  */
 export const floatSpecialSketches: ReadonlyArray<ValueSketch> = Arr.flatMap(
 	valueClasses(float8, false),

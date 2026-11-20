@@ -7,7 +7,7 @@ import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num, Range, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { context, login, role } from "#compiler/public/schema.ts"
@@ -380,9 +380,9 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		const { kind, tokens } = v(own.UsageCharge, "usageCharge")
 		const { id: card, during: inForce } = v(own.RateCard, "rateCard")
 		const { tier, rate } = v(own.RateTier, "rateTier")
-		const priced = Compute.sub(
-			Compute.least(Compute.base(Compute.upper(tier, P.Tokens)), Compute.base(tokens)),
-			Compute.base(Compute.lower(tier, P.Tokens))
+		const priced = Num.sub(
+			Logic.least(Type.base(Range.upper(tier, P.Tokens)), Type.base(tokens)),
+			Type.base(Range.lower(tier, P.Tokens))
 		)
 		return r
 			.match(own.UsageEvent, { id: r.param("event", Id), model, during })
@@ -390,17 +390,14 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			.match(own.RateCard, { id: card, model, kind, during: inForce })
 			.match(own.RateTier, { card, tier, rate })
 			.where(
-				r.pointIn(Compute.lower(during, P.Instant), inForce),
-				r.lt(Compute.lower(tier, P.Tokens), tokens)
+				r.pointIn(Range.lower(during, P.Instant), inForce),
+				r.lt(Range.lower(tier, P.Tokens), tokens)
 			)
 			.find({
 				kind,
 				tier,
 				tokens: priced,
-				amount: Compute.div(
-					Compute.add(Compute.mul(priced, Compute.base(rate)), 500_000n),
-					1_000_000n
-				)
+				amount: Num.div(Num.add(Num.mul(priced, Type.base(rate)), 500_000n), 1_000_000n)
 			})
 	})
 
@@ -412,9 +409,9 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		const { kind, tokens } = v(usage, "usage")
 		const { id: card, during } = v(own.RateCard, "rateCard")
 		const { tier, rate } = v(own.RateTier, "rateTier")
-		const priced = Compute.sub(
-			Compute.least(Compute.base(Compute.upper(tier, P.Tokens)), Compute.base(tokens)),
-			Compute.base(Compute.lower(tier, P.Tokens))
+		const priced = Num.sub(
+			Logic.least(Type.base(Range.upper(tier, P.Tokens)), Type.base(tokens)),
+			Type.base(Range.lower(tier, P.Tokens))
 		)
 		return r
 			.match(usage, { kind, tokens })
@@ -422,14 +419,12 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			.match(own.RateTier, { card, tier, rate })
 			.where(
 				r.allen(during, P.holdsPoint, r.param("now", P.RateCard.fields.during)),
-				r.lt(Compute.lower(tier, P.Tokens), tokens)
+				r.lt(Range.lower(tier, P.Tokens), tokens)
 			)
 			.find({
 				kind,
 				tokens,
-				amount: r.sum(
-					Compute.div(Compute.add(Compute.mul(priced, Compute.base(rate)), 500_000n), 1_000_000n)
-				)
+				amount: r.sum(Num.div(Num.add(Num.mul(priced, Type.base(rate)), 500_000n), 1_000_000n))
 			})
 	})
 
@@ -468,7 +463,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 				during: is
 			})
 			.where(r.allen(was, ALLEN.meets, is))
-			.find({ before, after, at: Compute.upper(was, P.Instant) })
+			.find({ before, after, at: Range.upper(was, P.Instant) })
 	})
 
 	const repricedInMonth = query(tenant).rule((r) => {
@@ -488,8 +483,8 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			.match(own.UsageCharge, { event, kind })
 			.match(own.RateCard, { model, kind, during: card })
 			.where(
-				r.pointIn(Compute.lower(card, P.Instant), month),
-				r.gt(Compute.lower(card, P.Instant), Compute.lower(month, P.Instant))
+				r.pointIn(Range.lower(card, P.Instant), month),
+				r.gt(Range.lower(card, P.Instant), Range.lower(month, P.Instant))
 			)
 			.find({ event, kind })
 	})
@@ -503,7 +498,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			.match(own.UsageEvent, { id: event, during })
 			.match(own.Day, { day, during: span })
 			.where(
-				r.pointIn(Compute.lower(during, P.Instant), span),
+				r.pointIn(Range.lower(during, P.Instant), span),
 				r.allen(span, P.insideOf, r.param("window", P.Day.fields.during))
 			)
 			.find({ day, spend: r.sum(amount) })
@@ -543,7 +538,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			.match(own.Workspace, { id: workspace, org: r.param("org", Id) })
 			.match(monthSpend, { workspace, month: r.param("month", P.MonthNo), spend })
 			.match(own.WorkspaceLimit, { workspace, month: r.param("month", P.MonthNo), cap })
-			.where(r.ge(Compute.mul(spend, 10n), Compute.mul(Compute.numeric(Compute.base(cap)), 9n)))
+			.where(r.ge(Num.mul(spend, 10n), Num.mul(Num.numeric(Type.base(cap)), 9n)))
 			.find({ workspace, spend, cap })
 	})
 
@@ -651,7 +646,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		return r
 			.match(own.CreditGrant, { id, org: r.param("org", Id), amount, valid })
 			.where(
-				r.pointIn(Compute.upper(valid, P.Instant), r.param("window", P.CreditGrant.fields.valid))
+				r.pointIn(Range.upper(valid, P.Instant), r.param("window", P.CreditGrant.fields.valid))
 			)
 			.find({ id, amount, valid })
 	})
@@ -662,7 +657,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		return r
 			.match(own.CreditDebit, { grant: r.param("grant", Id), event, kind, amount, during })
 			.match(own.Day, { day, during: span })
-			.where(r.pointIn(Compute.lower(during, P.Instant), span))
+			.where(r.pointIn(Range.lower(during, P.Instant), span))
 			.find({ day, debited: r.sum(amount) })
 	})
 
@@ -698,7 +693,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			const { id, model, provider, during } = v(own.UsageEvent, "usageEvent")
 			return r
 				.match(own.UsageEvent, { id, key: r.param("key", Id), model, provider, during })
-				.find({ id, model, provider, during, start: Compute.lower(during, P.Instant) })
+				.find({ id, model, provider, during, start: Range.lower(during, P.Instant) })
 		})
 		.orderBy(["start", "desc"], ["id", "asc"])
 
@@ -746,7 +741,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 						.match(own.EventCharge, { event, workspace: d.workspace, amount })
 						.match(own.UsageEvent, { id: event, during })
 						.match(own.Day, { day: d.day, during: span })
-						.where(r.pointIn(Compute.lower(during, P.Instant), span))
+						.where(r.pointIn(Range.lower(during, P.Instant), span))
 						.find({ total: r.sum(amount) })
 				}),
 			"option"
@@ -757,7 +752,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			const { id, period, amount, state } = v(own.Invoice, "invoice")
 			return r
 				.match(own.Invoice, { id, org: r.param("org", Id), period, amount, state })
-				.find({ id, period, amount, state, start: Compute.lower(period, P.Instant) })
+				.find({ id, period, amount, state, start: Range.lower(period, P.Instant) })
 		})
 		.orderBy(["start", "desc"], ["id", "asc"])
 
@@ -773,7 +768,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		const { id, period, amount } = v(own.Invoice, "invoice")
 		return r
 			.match(own.Invoice, { id, org: r.param("org", Id), period, amount, state: "open" })
-			.where(r.le(Compute.upper(period, P.Instant), r.param("cutoff", P.Instant)))
+			.where(r.le(Range.upper(period, P.Instant), r.param("cutoff", P.Instant)))
 			.find({ id, period, amount })
 	})
 
@@ -861,7 +856,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			return r
 				.match(own.Invoice, { id, org: r.param("org", Id), amount, state: "paid" })
 				.where(r.not(own.Refund, { invoice: id }))
-				.find({ invoice: id, amount, refunded: Compute.literal(pg.numeric(1, 0), 0n) })
+				.find({ invoice: id, amount, refunded: Type.literal(pg.numeric(1, 0), 0n) })
 		})
 
 	const refundsByReason = query(tenant).rule((r) => {
@@ -897,14 +892,14 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		const { org, period } = v(own.Invoice, "invoice")
 		const { id: subscription } = v(own.Subscription, "subscription")
 		const { during, monthlyPrice } = v(own.Segment, "segment")
-		const overlap = Compute.sub(
-			Compute.least(
-				Compute.base(Compute.upper(during, P.Instant)),
-				Compute.base(Compute.upper(period, P.Instant))
+		const overlap = Num.sub(
+			Logic.least(
+				Type.base(Range.upper(during, P.Instant)),
+				Type.base(Range.upper(period, P.Instant))
 			),
-			Compute.greatest(
-				Compute.base(Compute.lower(during, P.Instant)),
-				Compute.base(Compute.lower(period, P.Instant))
+			Logic.greatest(
+				Type.base(Range.lower(during, P.Instant)),
+				Type.base(Range.lower(period, P.Instant))
 			)
 		)
 		return r
@@ -916,14 +911,11 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 				subscription,
 				during,
 				overlap,
-				prorated: Compute.round(
-					Compute.when(
-						Compute.nonzero(Compute.numeric(Compute.base(Compute.width(period, P.Instant)))),
+				prorated: Num.round(
+					Logic.when(
+						Num.nonzero(Num.numeric(Type.base(Range.width(period, P.Instant)))),
 						(width) =>
-							Compute.div(
-								Compute.mul(Compute.numeric(Compute.base(monthlyPrice)), Compute.numeric(overlap)),
-								width
-							),
+							Num.div(Num.mul(Num.numeric(Type.base(monthlyPrice)), Num.numeric(overlap)), width),
 						0n
 					)
 				)
@@ -944,14 +936,14 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		const { id: subscription } = v(own.Subscription, "subscription")
 		const { line, during, amount } = v(own.Allocation, "allocation")
 		const { during: month } = v(own.Month, "month")
-		const overlap = Compute.sub(
-			Compute.least(
-				Compute.base(Compute.upper(during, P.Instant)),
-				Compute.base(Compute.upper(month, P.Instant))
+		const overlap = Num.sub(
+			Logic.least(
+				Type.base(Range.upper(during, P.Instant)),
+				Type.base(Range.upper(month, P.Instant))
 			),
-			Compute.greatest(
-				Compute.base(Compute.lower(during, P.Instant)),
-				Compute.base(Compute.lower(month, P.Instant))
+			Logic.greatest(
+				Type.base(Range.lower(during, P.Instant)),
+				Type.base(Range.lower(month, P.Instant))
 			)
 		)
 		return r
@@ -962,14 +954,11 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			.find({
 				line,
 				during,
-				recognized: Compute.round(
-					Compute.when(
-						Compute.nonzero(Compute.numeric(Compute.base(Compute.width(during, P.Instant)))),
+				recognized: Num.round(
+					Logic.when(
+						Num.nonzero(Num.numeric(Type.base(Range.width(during, P.Instant)))),
 						(width) =>
-							Compute.div(
-								Compute.mul(Compute.numeric(Compute.base(amount)), Compute.numeric(overlap)),
-								width
-							),
+							Num.div(Num.mul(Num.numeric(Type.base(amount)), Num.numeric(overlap)), width),
 						0n
 					)
 				)

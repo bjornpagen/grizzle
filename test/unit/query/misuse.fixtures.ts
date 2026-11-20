@@ -24,7 +24,7 @@ import {
 	varsOver as v
 } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { Account, AutomaticTask, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
@@ -105,7 +105,10 @@ const scoredDocuments = () =>
 			.find({
 				document,
 				revision,
-				distance: Compute.cosineDistance(value, r.param("vector", DocumentEmbedding.fields.value))
+				distance: computeCore.cosineDistance(
+					value,
+					r.param("vector", DocumentEmbedding.fields.value)
+				)
 			})
 	})
 
@@ -320,7 +323,7 @@ const positions = [
 	{
 		kind: "inner",
 		name: "a pointIn point",
-		live: ({ vars: b }) => Compute.lower(b["during"], pg.bigint),
+		live: ({ vars: b }) => computeCore.lower(b["during"], pg.bigint),
 		build: (arg) => bookings((r, a, b) => r.pointIn(arg({ r, vars: b }), a["during"]))
 	},
 	{

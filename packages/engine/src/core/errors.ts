@@ -76,7 +76,7 @@ const pgWcharBytes = 4
 /**
  * The longest text, in UTF-8 bytes, PostgreSQL's regex engine reads: before it matches, it widens the text into one
  * pg_wchar per byte and one more, and refuses an allocation past MaxAllocSize ("invalid memory alloc request size"). So
- * a query matches by ~, which Compute.matches is, only an operand whose pattern bounds its bytes within this, and a
+ * a query matches by ~, which Text.matches is, only an operand whose pattern bounds its bytes within this, and a
  * check or generated column that matches a longer text fails its write.
  *
  * @limitKind derived
@@ -219,7 +219,7 @@ export type CompileBound =
 const boundText = (bound: CompileBound): string => {
 	switch (bound.kind) {
 		case "regexCompileSpace":
-			return `${bound.pattern} ${regexSpaceText(bound.measure)}: past a limit of PostgreSQL's regex compiler (REG_MAX_COMPILE_SPACE, MAX_COLOR, max_stack_depth or MaxAllocSize), beyond which PostgreSQL refuses a pattern as "regular expression is too complex" or "too many colors", or fails each match with "invalid memory alloc request size"; write a smaller pattern, or bound the text's length with Compute.charLength or Compute.octetLength in a contract predicate`
+			return `${bound.pattern} ${regexSpaceText(bound.measure)}: past a limit of PostgreSQL's regex compiler (REG_MAX_COMPILE_SPACE, MAX_COLOR, max_stack_depth or MaxAllocSize), beyond which PostgreSQL refuses a pattern as "regular expression is too complex" or "too many colors", or fails each match with "invalid memory alloc request size"; write a smaller pattern, or bound the text's length with Text.charLength or Text.octetLength in a contract predicate`
 		case "stringLength":
 			return `a text of at most ${bound.limit} UTF-16 code units, V8's longest string (needed ${bound.needed})`
 		case "tableColumns":
@@ -237,7 +237,7 @@ const boundText = (bound: CompileBound): string => {
 		case "cellCodes":
 			return `the payload of ${bound.constant} in at most ${bound.limit} codes, what one cell read as an integer holds (needed ${bound.needed}); split its payload fields into closed relations of their own`
 		case "regexInclusion":
-			return `a decision whether every value of ${bound.inner} is a member of ${bound.outer}, which comparing their automata cannot reach within grizzle's text analysis bounds of ${bound.states} DFA states and ${bound.work} NFA-state visits; write the operand's pattern with fewer counted repetitions, or guard the cast with Compute.when(Compute.matches(x, <the target's pattern>), (x) => Compute.cast(x, <target>), <your value>)`
+			return `a decision whether every value of ${bound.inner} is a member of ${bound.outer}, which comparing their automata cannot reach within grizzle's text analysis bounds of ${bound.states} DFA states and ${bound.work} NFA-state visits; write the operand's pattern with fewer counted repetitions, or guard the cast with Logic.when(Text.matches(x, <the target's pattern>), (x) => Type.cast(x, <target>), <your value>)`
 	}
 }
 
@@ -261,12 +261,12 @@ export type PreconditionKind =
 	| "bounded"
 
 /**
- * The test a PartialOperation's guard puts in Compute.when over its operand, which fits the operand's type: over a
- * number, Compute.nonzero, Compute.nonnegative, Compute.positive, Compute.isFinite, or Compute.within between the bounds
- * the operation is defined within; over a text, Compute.matches against the target's pattern, its lexical form, the
+ * The test a PartialOperation's guard puts in Logic.when over its operand, which fits the operand's type: over a
+ * number, Num.nonzero, Num.nonnegative, Num.positive, Num.isFinite, or Num.within between the bounds
+ * the operation is defined within; over a text, Text.matches against the target's pattern, its lexical form, the
  * decimal text of a double (doubleText) or a decimal text (decimalText), or a bound on its UTF-8 bytes at the target's
- * str.bytes bound or a form's, Compute.within(Compute.octetLength(x), 0, bytes), where octetLength stands;
- * and, where no Compute test proves the precondition of the operand's type (a contract's predicate over a text, a
+ * str.bytes bound or a form's, Num.within(Text.octetLength(x), 0, bytes), where octetLength stands;
+ * and, where no scalar test proves the precondition of the operand's type (a contract's predicate over a text, a
  * boolean, a uuid or a date), none: a value of the target's own type, a parameter its binding checks or a literal its
  * admission judges.
  * Where a fact precondition's operand is of a contract whose predicate implies the fact but does not declare it, the
@@ -432,8 +432,8 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   either is built from gives it another.
  * - `ResourceBound`: a bound crossed (CompileBound).
  * - `PartialOperation`: an operation defined only where its precondition holds, which neither the operands' facts and
- *   bounds nor a Compute.cond around it proves: `operation` names it, `operand` the operand the precondition reads, and
- *   `guard` the remedy, its test over the operand by the operand's type (GuardTest): the Compute.when to write, whose
+ *   bounds nor a Logic.cond around it proves: `operation` names it, `operand` the operand the precondition reads, and
+ *   `guard` the remedy, its test over the operand by the operand's type (GuardTest): the Logic.when to write, whose
  *   other branch is the caller's value for the undefined case, or the fact its contract's predicate implies and its
  *   `proves` leaves out.
  * - `RecursionRefused`: recursion admission refused (check/recursion), for `cause`.

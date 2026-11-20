@@ -337,7 +337,7 @@ const integerHost = (type: ScalarType): ((x: bigint) => HostValue) => {
 /**
  * A float quotient as grizzle's SQL computes it (lower/conservative/expr/total.ts guardedForm): IEEE 754's, but a
  * quotient by zero is the infinity of the dividend's sign, NaN over a zero or NaN dividend, whichever zero divides, so
- * equal operands give equal quotients, as every Compute operation gives equal results of equal operands, and a set's
+ * equal operands give equal quotients, as every scalar operation gives equal results of equal operands, and a set's
  * merge of -0 and +0 changes no value computed after it.
  */
 const quotient = (a: number, b: number): number =>
@@ -764,7 +764,7 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 		case "adjoin":
 			return (args) => Result.ok(new Set([...hostOf("bits", a(args)), hostOf("code", b(args))]))
 		case "complement":
-			return refused("complement, which no Compute operation yields")
+			return refused("complement, which no scalar operation yields")
 		case "canonicalZero": {
 			const carrier = c === "float4" ? "float4" : "float8"
 			return (args) => Result.ok(hostOf(carrier, a(args)) + 0)

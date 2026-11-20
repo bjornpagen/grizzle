@@ -51,7 +51,7 @@ const bases = {
 	"another contract": ["Cents", ""],
 	"a contract that checks and proves": [
 		"pg.bigint",
-		', (v) => Compute.ne(v, 0n), { proves: ["nonzero"] }'
+		', (v) => Logic.ne(v, 0n), { proves: ["nonzero"] }'
 	]
 } as const
 

@@ -5,7 +5,7 @@ import { Array as Arr } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { Compute, type Predicate, type Term } from "#compiler/public/compute.ts"
+import { Num, type Predicate, type Term, Type } from "#compiler/public/compute.ts"
 import { pg, type Uuid } from "#compiler/public/fields.ts"
 import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
@@ -59,7 +59,7 @@ export const walksBelow = (name: string, limit: number) =>
 				return r
 					.match(Person, { id })
 					.where(r.eq(id, r.param("start", Id)))
-					.find({ person: id, hops: Compute.literal(pg.integer, 0) })
+					.find({ person: id, hops: Type.literal(pg.integer, 0) })
 			}
 		],
 		rec: [
@@ -73,7 +73,7 @@ export const walksBelow = (name: string, limit: number) =>
 					.where(r.lt(hops, limit))
 					.find({
 						person: to,
-						hops: Compute.add(hops, Compute.literal(pg.integer, 1))
+						hops: Num.add(hops, Type.literal(pg.integer, 1))
 					})
 			}
 		]
@@ -218,7 +218,7 @@ type CounterSelf = SelfSource<{ readonly person: typeof Id; readonly hops: typeo
 type Hops = Term<number, unknown, unknown, "integer">
 
 /** An integer literal of the counter's field. */
-const lit = (n: number) => Compute.literal(pg.integer, n)
+const lit = (n: number) => Type.literal(pg.integer, n)
 
 /**
  * The bound an arm's filter states in the direction its step counts: below or at a limit counting up, above or at it
@@ -299,7 +299,7 @@ const armOf = (arm: Arm) => (r: NetworkRule, self: CounterSelf) => {
 		.where(filterOf(r, hops, arm))
 		.find({
 			person: arm.backward ? from : to,
-			hops: arm.step > 0 ? Compute.add(hops, lit(arm.step)) : Compute.sub(hops, lit(-arm.step))
+			hops: arm.step > 0 ? Num.add(hops, lit(arm.step)) : Num.sub(hops, lit(-arm.step))
 		})
 }
 

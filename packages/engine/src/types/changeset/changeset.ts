@@ -110,7 +110,7 @@ export type Member<S, F> = ReadonlyArray<F> | Stream.Stream<F> | QueryAt<LevelsO
  * on its elements; the check is this one, as for a query member's head. A query member's head also writes each field
  * of R at the field's own type (MistypedFields), as the checker requires (check/member.ts checkMemberHeading): an exact
  * integer or exact money binds at a plain integer or money column (Meets), but is stored into one only through
- * Compute.cast. This is the one place a member's membership is decided, for insert, delete and put, and a world
+ * Type.cast. This is the one place a member's membership is decided, for insert, delete and put, and a world
  * relation's entry alike (MemberFit). An insert's or a put's literal facts are then
  * judged at R's primary key: two of them at one key that differ elsewhere are refused (MemberCheck).
  */
@@ -145,7 +145,7 @@ type HeadFit<H, M, F, R> =
 	IsNone<UnfitArms<H, F, never>> extends true
 		? IsNone<MistypedFields<M, R>> extends true
 			? unknown
-			: Refusal<"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast">
+			: Refusal<"a member's head writes each field at its type: an exact value re-enters a plain field only by Type.cast">
 		: Refusal<"the query's head is not a fact of the relation">
 
 /**
@@ -924,7 +924,7 @@ type ComputedRow<Row, Computed> = [Computed] extends [never] ? Row : Omit<Row, C
  * What insertComputed computes of R's host rows, C: at least one field, and under each a field of R its caller
  * writes, a term the call evaluates once, over its parameters, its clock reading and literals, that writes the field
  * at its own type (WritesAt), as a query member's head does: a JavaScript value of its language, or a term of its
- * identity and SQL type exactly, Compute.cast making one of any other. The record is the head of a query member that
+ * identity and SQL type exactly, Type.cast making one of any other. The record is the head of a query member that
  * matches nothing, so a field its caller does not write, an instant among them, is refused as such a head's is.
  */
 type ComputedCheck<C, R> = [keyof C] extends [never]
@@ -936,7 +936,7 @@ type ComputedCheck<C, R> = [keyof C] extends [never]
 			>
 				? WritesAt<C[K], CarrierAt<R, K>> extends true
 					? unknown
-					: Refusal<"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast">
+					: Refusal<"a member's head writes each field at its type: an exact value re-enters a plain field only by Type.cast">
 				: Refusal<"the query's head is not a fact of the relation">
 		}
 
@@ -1190,7 +1190,7 @@ type CarrierAt<R, F> = "heading" extends keyof R
  * What a selection equates a field of carrier C to: a parameter, a term of origin ParamOrigin (`param`, `r.param`) that
  * meets the field's type (Meets), the field's own domain and SQL type; or a JavaScript value of its language, a
  * string, number, bigint, boolean, Decimal or Money, which the checker types by the field it meets, as it types a head
- * literal. A variable, a typed constant and a Compute term are no parameter, so a selection reads nothing but the
+ * literal. A variable, a typed constant and a scalar term are no parameter, so a selection reads nothing but the
  * relation's own fields and the values its caller names.
  */
 type EqualedTo<C> =

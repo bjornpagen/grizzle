@@ -39,7 +39,7 @@ const regexMaxColor = 32_767
  * @limitKind derived
  * @owner PostgreSQL 19.0's regex compiler
  * @unit colors
- * @scope one str.regex or Compute.matches pattern's colors
+ * @scope one str.regex or Text.matches pattern's colors
  * @derivation colors are numbered from 0 to MAX_COLOR, and newcolor refuses another: "if (cm->max == MAX_COLOR)"
  *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/regex/regc_color.c#L212, verified 2026-11-20).
  *   While one set is parsed, newsub opens a subcolor for each color the set splits, "sco = newcolor(cm); /* must

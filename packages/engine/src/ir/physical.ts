@@ -76,7 +76,7 @@ export interface SelectionKey {
 }
 
 /**
- * grizzle's library: the SQL functions of its own that a Compute operation's SQL calls, each a constant of parameters
+ * grizzle's library: the SQL functions of its own that a scalar operation's SQL calls, each a constant of parameters
  * (sql/ast.ts CreateConstant) named by its definition's digest (physical/ddl/library.ts), which an installation installs
  * where its schema's persistent expressions call it: isXsdPattern, whether a text is an XML Schema 1.0 pattern
  * (scalar/compute/registry.ts textIsXsdPattern); resolveReference, RFC 3986's resolution of a reference against a

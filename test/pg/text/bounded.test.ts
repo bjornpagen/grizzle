@@ -1,7 +1,7 @@
 /**
  * A text's bytes have one proof in every mode (scalar/compute/typing.ts textBytes): its type's byte bound, or the
- * Compute.when whose guard bounds Compute.octetLength of it, at every occurrence of the text in the guard's branch. A
- * query reads Compute.octetLength, which is total, so a query matches a text whose type bounds no bytes inside such a
+ * Logic.when whose guard bounds Text.octetLength of it, at every occurrence of the text in the guard's branch. A
+ * query reads Text.octetLength, which is total, so a query matches a text whose type bounds no bytes inside such a
  * guard, as a check does, and PostgreSQL reads the match only where the guard holds, the when being a CASE.
  *
  * - Over a batch of texts of one family, some within the guard's bytes and some past them, in one round trip: the

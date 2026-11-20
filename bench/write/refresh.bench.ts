@@ -40,7 +40,7 @@ import {
 	writePhases
 } from "#bench/write/support/writes.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
@@ -88,7 +88,7 @@ const build = (name: string) => {
 				student,
 				week,
 				sittings: r.count(),
-				passes: r.sum(Compute.cond(passed, Compute.literal(pg.integer, 1), 0))
+				passes: r.sum(Logic.cond(passed, Type.literal(pg.integer, 1), 0))
 			})
 		})
 	)

@@ -4,7 +4,7 @@ import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result } from "effect"
 import { ExecutionFailure } from "#adapter/errors/execution.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
@@ -52,7 +52,7 @@ export const build = (name: string) => {
 			student,
 			week,
 			sittings: r.count(),
-			passes: r.sum(Compute.cond(passed, Compute.literal(pg.integer, 1), 0))
+			passes: r.sum(Logic.cond(passed, Type.literal(pg.integer, 1), 0))
 		})
 	})
 	const StudentWeekly = derived.materialized("StudentWeekly", weekly)

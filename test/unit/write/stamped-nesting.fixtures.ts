@@ -5,7 +5,7 @@
 
 import { int as between, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { accumulated, drawn, generated, natural, pg, place } from "#compiler/public/fields.ts"
 import {
 	contained,
@@ -128,7 +128,7 @@ export const stampedSchemaOf = (c: Pick<StampedCase, "selects">, name: string) =
 			ks: drawn(natural)
 		},
 		["g", "h", "s", "at"],
-		(r) => ({ gs: generated(pg.bigint, Compute.cond(Compute.ge(r.s, 1n), r.v, 0n)) })
+		(r) => ({ gs: generated(pg.bigint, Logic.cond(Logic.ge(r.s, 1n), r.v, 0n)) })
 	)
 	const M2 = relation(
 		"M2",

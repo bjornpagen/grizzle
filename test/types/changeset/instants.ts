@@ -68,7 +68,7 @@ const boxCases: ReadonlyArray<InstantsCase> = [
 		verdict: {
 			kind: "refusal",
 			refusal:
-				"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast"
+				"a member's head writes each field at its type: an exact value re-enters a plain field only by Type.cast"
 		}
 	},
 	{
@@ -78,7 +78,7 @@ const boxCases: ReadonlyArray<InstantsCase> = [
 		verdict: {
 			kind: "refusal",
 			refusal:
-				"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast"
+				"a member's head writes each field at its type: an exact value re-enters a plain field only by Type.cast"
 		}
 	},
 	{
@@ -94,13 +94,13 @@ const boxCases: ReadonlyArray<InstantsCase> = [
 	},
 	{
 		what: "a typed constant of instant's type",
-		statement: "query(S).rule((r) => r.find({ x: Compute.literal(instant, 5n) }))",
+		statement: "query(S).rule((r) => r.find({ x: Type.literal(instant, 5n) }))",
 		verdict: { kind: "refusal", refusal: inputRefusal }
 	},
 	{
 		what: "a cast into an instant",
 		statement:
-			'query(S).rule((r) => { const { child, seed } = v(Decision, "d"); return r.match(Decision, { child, seed }).find({ x: Compute.cast(Compute.cast(seed, pg.bigint), instant) }) })',
+			'query(S).rule((r) => { const { child, seed } = v(Decision, "d"); return r.match(Decision, { child, seed }).find({ x: Type.cast(Type.cast(seed, pg.bigint), instant) }) })',
 		verdict: { kind: "refusal", refusal: inputRefusal }
 	},
 	{
@@ -136,7 +136,7 @@ const boxCases: ReadonlyArray<InstantsCase> = [
 	{
 		what: "an instant's base and its max",
 		statement:
-			'query(S).rule((r) => { const { child, at } = v(Decision, "d"); return r.match(Decision, { child, at }).find({ child, b: Compute.base(at), m: r.max(at) }) })',
+			'query(S).rule((r) => { const { child, at } = v(Decision, "d"); return r.match(Decision, { child, at }).find({ child, b: Type.base(at), m: r.max(at) }) })',
 		verdict: admitted
 	}
 ]

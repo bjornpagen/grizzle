@@ -1,5 +1,5 @@
 /**
- * Compute.translate and Compute.lowerAscii, typed and lowered as a check lowers them, and evaluated on the host
+ * computeCore.translate and computeCore.lowerAscii, typed and lowered as a check lowers them, and evaluated on the host
  * (scalar/compute/evaluate.ts) and by the reference evaluator (test/support/oracle/evaluate/catalog.ts).
  *
  * - translation: over a drawn map and texts that mix ASCII, other BMP and supplementary code points, both evaluators
@@ -43,7 +43,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { textInfoBounds, textOf, textPatterns } from "#compiler/ir/scalar.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { charMapOf, imageOf } from "#compiler/scalar/regex/translate.ts"
 import { collapseSources } from "#compiler/scalar/regex/whitespace.ts"
@@ -92,7 +92,7 @@ import {
 } from "#test/unit/compute/translate.fixtures.ts"
 import { stringsOver } from "#test/unit/text/generators.ts"
 
-/** Compute's translate and lowerAscii translate and lowerAscii agree with the map on the host and in the reference. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
+/** Text.translate and Text.lowerAscii translate and lowerAscii agree with the map on the host and in the reference. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const computesTranslateAndLowerAsciiTranslateAndLowerAsciiAgreeWithTheMapOnTheHostAndInTheReference =
 	property.explore(translationCase, {
 		needs: {},
@@ -121,7 +121,7 @@ export const computesTranslateAndLowerAsciiTranslateAndLowerAsciiAgreeWithTheMap
 				const folded = succeeded(
 					lowerWith(
 						"check",
-						spelledExpr(Compute.lowerAscii(v("v", testPg.text)).expr),
+						spelledExpr(computeCore.lowerAscii(v("v", testPg.text)).expr),
 						{ v: textColumn },
 						false,
 						baseParams
@@ -178,7 +178,7 @@ export const computesTranslateAndLowerAsciiTranslateAndLowerAsciiAgreeWithTheMap
 		]
 	})
 
-/** Compute's translate and lowerAscii types a translation as text of exactly the image of its operand's language. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
+/** Text.translate and Text.lowerAscii types a translation as text of exactly the image of its operand's language. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const computesTranslateAndLowerAsciiTypesATranslationAsTextOfExactlyTheImageOfItsOperandsLanguage =
 	property.explore(imageCase, {
 		needs: {},
@@ -292,7 +292,7 @@ export const computesTranslateAndLowerAsciiTypesATranslationAsTextOfExactlyTheIm
 		]
 	})
 
-/** Compute's translate and lowerAscii refuses each fault planted in a valid translation or collapse by its reason and place, and compiles the term without it. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 300 runs and 400 steered cases. */
+/** Text.translate and Text.lowerAscii refuses each fault planted in a valid translation or collapse by its reason and place, and compiles the term without it. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 300 runs and 400 steered cases. */
 export const computesTranslateAndLowerAsciiRefusesEachFaultPlantedInAValidTranslationOrCollapseByItsReasonAndPlaceAndCompilesTheTermWithoutIt =
 	property.explore(plantedGen, {
 		needs: {},
@@ -391,8 +391,16 @@ export const computesTranslateAndLowerAsciiRefusesEachFaultPlantedInAValidTransl
 						const error = throwsRefused(
 							() =>
 								p.fault === "a term as from at the builder"
-									? Compute.translate(v("v", testPg.text), v("w", testPg.text), codePointsText(to))
-									: Compute.translate(v("v", testPg.text), codePointsText(f), codePointsText(t)),
+									? computeCore.translate(
+											v("v", testPg.text),
+											v("w", testPg.text),
+											codePointsText(to)
+										)
+									: computeCore.translate(
+											v("v", testPg.text),
+											codePointsText(f),
+											codePointsText(t)
+										),
 							"MalformedDescription",
 							label
 						)
@@ -409,12 +417,12 @@ export const computesTranslateAndLowerAsciiRefusesEachFaultPlantedInAValidTransl
 								throwsRefused(
 									() =>
 										p.term === "translate"
-											? Compute.translate(
+											? computeCore.translate(
 													v("n", testPg.integer),
 													codePointsText(from),
 													codePointsText(to)
 												)
-											: Compute.collapse(v("n", testPg.integer)),
+											: computeCore.collapse(v("n", testPg.integer)),
 									"MalformedDescription",
 									label
 								)
@@ -441,7 +449,7 @@ export const computesTranslateAndLowerAsciiRefusesEachFaultPlantedInAValidTransl
 		]
 	})
 
-/** Compute's translate and lowerAscii proves a cast into a refined text exactly by the image's inclusion, and names the analysis bounds it cannot pass. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 200 runs and 400 steered cases. */
+/** Text.translate and Text.lowerAscii proves a cast into a refined text exactly by the image's inclusion, and names the analysis bounds it cannot pass. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 200 runs and 400 steered cases. */
 export const computesTranslateAndLowerAsciiProvesACastIntoARefinedTextExactlyByTheImagesInclusionAndNamesTheAnalysisBoundsItCannotPass =
 	property.explore(castGen, {
 		needs: {},
@@ -604,7 +612,7 @@ export const computesTranslateAndLowerAsciiProvesACastIntoARefinedTextExactlyByT
 		]
 	})
 
-/** Compute's translate and lowerAscii collapse and replaceWhitespace agree with XML Schema's definition. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
+/** Text.translate and Text.lowerAscii collapse and replaceWhitespace agree with XML Schema's definition. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const computesTranslateAndLowerAsciiCollapseAndReplaceWhitespaceAgreeWithXMLSchemasDefinition =
 	property.explore(array(stringsOver(spaceCharacter, 10), { min: 1, max: 24 }), {
 		needs: {},
@@ -621,8 +629,8 @@ export const computesTranslateAndLowerAsciiCollapseAndReplaceWhitespaceAgreeWith
 					succeeded(
 						lowerWith("check", spelledExpr(term.expr), { v: textColumn }, false, baseParams)
 					).root.expr
-				const collapse = lowered(Compute.collapse(v("v", testPg.text)))
-				const replace = lowered(Compute.replaceWhitespace(v("v", testPg.text)))
+				const collapse = lowered(computeCore.collapse(v("v", testPg.text)))
+				const replace = lowered(computeCore.replaceWhitespace(v("v", testPg.text)))
 				for (const s of texts) {
 					const row = new Map<string, string>([["v", s]])
 					const expected = byDefinition(s)
@@ -673,7 +681,7 @@ export const computesTranslateAndLowerAsciiCollapseAndReplaceWhitespaceAgreeWith
 		]
 	})
 
-/** Compute's translate and lowerAscii types a collapse as text holding its image within the operand's length bound. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
+/** Text.translate and Text.lowerAscii types a collapse as text holding its image within the operand's length bound. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const computesTranslateAndLowerAsciiTypesACollapseAsTextHoldingItsImageWithinTheOperandsLengthBound =
 	property.explore(collapseCase, {
 		needs: {},

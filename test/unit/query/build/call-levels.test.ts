@@ -3,7 +3,7 @@
  * content: rows arguments built each by a query(S) call of its own over one S are written over one level, however many
  * times the schema was read (schema/level.ts highestLevel, query/build/state.ts callSourceValue).
  *
- * Each case draws Compute.rowsOf or Compute.rowOf and its rows arguments, one to 27, each over Base, Upper or Aside
+ * Each case draws Fn.rows or Fn.row and its rows arguments, one to 27, each over Base, Upper or Aside
  * (Upper and Aside extend Base; neither is a level of the other) and each a query or a bound query, built by its own
  * query(S) call. Where one drawn level holds every other the call is admitted, and a rule matches it exactly where that
  * level is one of the rule's levels, each such rule compiling, and a rule over any other level is refused ForeignLevel,

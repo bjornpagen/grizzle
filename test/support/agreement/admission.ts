@@ -58,7 +58,7 @@ import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
  * - paramBinding: Q.bind of a parameter declared at the constant's column, a property of bind's argument.
  * - computedBinding: a second scope of Cell bound at the constant's column to the first scope's value plus the
  *   constant, a computed term: an exact integer or exact money at a plain integer or money column is the equality the
- *   checker writes widened, as Compute.eq's, and admitted both ways; an operand the sum refuses is refused at its
+ *   checker writes widened, as Logic.eq's, and admitted both ways; an operand the sum refuses is refused at its
  *   argument, and a sum the column refuses, a contract's base at the contract, at the binding.
  * - deadFilter: a union source whose every arm holds the constant at a field, matched with another of its kind bound
  *   there, a filter no fact meets, which both refuse by name (DeadConstants, check/checker.ts RuleCheck #selected).
@@ -92,7 +92,7 @@ import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
  * does not compile. The positions whose verdict turns on two constants being one value (deadFilter, heteroClash,
  * threeArmsClash, attachedArmApart, attachedArmKeptApart) and the attached arms beside an arm of their heading, whose
  * verdict turns on no constant, draw only the kinds whose value the types carry, a primitive or a handle (valued): the
- * types take a Decimal, a Money and a typed Compute.literal to be any value of their type, the widening they keep
+ * types take a Decimal, a Money and a typed Type.literal to be any value of their type, the widening they keep
  * (types/query/query.ts Apart).
  */
 
@@ -131,12 +131,12 @@ const admissionPositions = [
 export type AdmissionPosition = (typeof admissionPositions)[number]
 
 /**
- * Every kind of constant: a JavaScript value of each carrier, a roster's handle, a typed Compute.literal and a
+ * Every kind of constant: a JavaScript value of each carrier, a roster's handle, a typed Type.literal and a
  * contract's, an uppercase uuid, which the builder canonicalizes, a finite refined text's member, and a parameter of
  * the column's own descriptor; and the ill-typed: another roster's handle, a contract's constant at its base, a handle
  * off its roster, a text that is no uuid's spelling at a uuid, another pattern's member at a refined text, a
  * parameter of another column's descriptor, a term of its own type that adopts nothing from its uses, and a roster's
- * member as a typed constant of its closed id, Compute.literal, which is X.handle(member) instead.
+ * member as a typed constant of its closed id, Type.literal, which is X.handle(member) instead.
  */
 const constantKinds = [
 	"text",
@@ -250,7 +250,7 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 		case "typed": {
 			const v = of([1, 2])
 			return {
-				source: `Compute.literal(pg.integer, ${v})`,
+				source: `Type.literal(pg.integer, ${v})`,
 				value: () => computeCore.literal(pg.integer, v),
 				column: "integer"
 			}
@@ -258,7 +258,7 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 		case "contract": {
 			const v = of([1n, 2n])
 			return {
-				source: `Compute.literal(Cents, ${v}n)`,
+				source: `Type.literal(Cents, ${v}n)`,
 				value: () => computeCore.literal(Cents, v),
 				column: "cents"
 			}
@@ -274,7 +274,7 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 		case "contractAtBase": {
 			const v = of([1n, 2n])
 			return {
-				source: `Compute.literal(Cents, ${v}n)`,
+				source: `Type.literal(Cents, ${v}n)`,
 				value: () => computeCore.literal(Cents, v),
 				column: "bigint"
 			}
@@ -308,7 +308,7 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 		case "rosterLiteral": {
 			const m = of(["low", "mid", "high"] as const)
 			return {
-				source: `Compute.literal(Cell.fields.tone, ${jsonText(m)})`,
+				source: `Type.literal(Cell.fields.tone, ${jsonText(m)})`,
 				value: () => computeCore.literal(Cell.fields.tone, m),
 				column: "tone"
 			}
@@ -402,12 +402,12 @@ const namedRefusal = (position: AdmissionPosition, kind: ConstantKind): Refused 
 }
 
 /**
- * The directive over a refused statement: a roster's member as Compute.literal is the literal's own refusal, its
+ * The directive over a refused statement: a roster's member as Type.literal is the literal's own refusal, its
  * descriptor's, wherever it stands; else its named refusal; else a structural refusal and why.
  */
 const directiveOf = (position: AdmissionPosition, kind: ConstantKind): string => {
 	if (kind === "rosterLiteral") {
-		return "// @ts-expect-error -- refused: a roster's member is X.handle(member), never Compute.literal"
+		return "// @ts-expect-error -- refused: a roster's member is X.handle(member), never Type.literal"
 	}
 	const named = namedRefusal(position, kind)
 	return named === undefined
@@ -728,22 +728,22 @@ const statementOf = (
 			}
 		case "computeSecond":
 			return {
-				lines: [plain(`Compute.add(x, ${c.source})`)],
+				lines: [plain(`Num.add(x, ${c.source})`)],
 				verdict: rows((_r, x) => computeCore.add(x, c.value()))
 			}
 		case "computeFirst":
 			return {
-				lines: [plain(`Compute.add(${c.source}, x)`)],
+				lines: [plain(`Num.add(${c.source}, x)`)],
 				verdict: rows((_r, x) => computeCore.add(c.value(), x))
 			}
 		case "condThen":
 			return {
-				lines: [plain(`Compute.cond(r.eq(x, x), ${c.source}, x)`)],
+				lines: [plain(`Logic.cond(r.eq(x, x), ${c.source}, x)`)],
 				verdict: rows((r, x) => computeCore.cond(r.eq(x, x), c.value(), x))
 			}
 		case "condElse":
 			return {
-				lines: [plain(`Compute.cond(r.eq(x, x), x, ${c.source})`)],
+				lines: [plain(`Logic.cond(r.eq(x, x), x, ${c.source})`)],
 				verdict: rows((r, x) => computeCore.cond(r.eq(x, x), x, c.value()))
 			}
 		case "head":
@@ -848,7 +848,7 @@ const statementOf = (
 		case "computedBinding":
 			return {
 				lines: [
-					`export const ${name} = query(Agree).rule((r) => { ${Str.replace("return ", 'const peer = v(Cell, "peer"); return ')(matched)}.match(Cell, { id: peer.id, ${col}: Compute.add(x, ${c.source}) }).find({ id }) })`
+					`export const ${name} = query(Agree).rule((r) => { ${Str.replace("return ", 'const peer = v(Cell, "peer"); return ')(matched)}.match(Cell, { id: peer.id, ${col}: Num.add(x, ${c.source}) }).find({ id }) })`
 				],
 				verdict: compiles(
 					() =>
@@ -1096,7 +1096,7 @@ interface ShapedArm {
  * approximate search ranks by, and each further constant under its field.
  */
 const scoredArm = (d: string, more: ReadonlyArray<readonly [string, number]>): ShapedArm => ({
-	source: `(r) => { const { id, vector } = v(Cell, "cell"); return r.match(Cell, { id, vector }).find({ id, d: ${jsonText(d)}, s: Compute.cosineDistance(vector, Vector.make(Float32Array.of(0.5, 1, 2), 3))${Arr.join(
+	source: `(r) => { const { id, vector } = v(Cell, "cell"); return r.match(Cell, { id, vector }).find({ id, d: ${jsonText(d)}, s: Distance.cosine(vector, Vector.make(Float32Array.of(0.5, 1, 2), 3))${Arr.join(
 		Arr.map(more, ([field, value]) => `, ${field}: ${value}`),
 		""
 	)} }) }`,
@@ -1509,8 +1509,8 @@ const scopeVerdict = (
 type ScopeAxis = "level" | "binding" | "negation"
 
 /**
- * Where a relational negation stands in a rule's filters: alone, in a conjunction there, the rule's or Compute's, in a
- * conjunction of one, in a disjunction, the rule's or Compute's, in a conjunction inside a disjunction, under Compute.not,
+ * Where a relational negation stands in a rule's filters: alone, in a conjunction there, the rule's or Logic's, in a
+ * conjunction of one, in a disjunction, the rule's or Logic's, in a conjunction inside a disjunction, under Logic.not,
  * or as a conditional's test.
  */
 const negationPlaces = [
@@ -1559,22 +1559,22 @@ const negationAt = (
 			}
 		case "computeConjunction":
 			return {
-				source: "Compute.and(r.not(Note, { item: id }), r.eq(n, 1))",
+				source: "Logic.and(r.not(Note, { item: id }), r.eq(n, 1))",
 				value: (r, id, n) => computeCore.and(negation(r, id), r.eq(n, 1))
 			}
 		case "computeDisjunction":
 			return {
-				source: "Compute.or(r.not(Note, { item: id }), r.eq(n, 1))",
+				source: "Logic.or(r.not(Note, { item: id }), r.eq(n, 1))",
 				value: (r, id, n) => computeCore.or(negation(r, id), r.eq(n, 1))
 			}
 		case "computeNegation":
 			return {
-				source: "Compute.not(r.not(Note, { item: id }))",
+				source: "Logic.not(r.not(Note, { item: id }))",
 				value: (r, id) => computeCore.not(negation(r, id))
 			}
 		case "conditionalTest":
 			return {
-				source: "r.eq(Compute.cond(r.not(Note, { item: id }), n, 0), 1)",
+				source: "r.eq(Logic.cond(r.not(Note, { item: id }), n, 0), 1)",
 				value: (r, id, n) => r.eq(computeCore.cond(negation(r, id), n, 0), 1)
 			}
 	}

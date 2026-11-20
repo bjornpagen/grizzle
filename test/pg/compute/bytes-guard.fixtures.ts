@@ -7,7 +7,7 @@ import { Array as Arr, Effect } from "effect"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { Id } from "#test/support/ids.ts"
@@ -126,12 +126,12 @@ export const schemaOf = (c: Case) => {
 			stored: generatedField(
 				Target,
 				c.guard.kind === "within"
-					? Compute.when(
-							Compute.within(Compute.octetLength(r.text), c.guard.low, c.guard.high),
-							() => Compute.cast(r.text, Target),
+					? computeCore.when(
+							computeCore.within(computeCore.octetLength(r.text), c.guard.low, c.guard.high),
+							() => computeCore.cast(r.text, Target),
 							""
 						)
-					: Compute.cast(r.text, Target),
+					: computeCore.cast(r.text, Target),
 				[]
 			)
 		})

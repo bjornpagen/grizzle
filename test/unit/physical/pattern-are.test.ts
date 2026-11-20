@@ -1,8 +1,8 @@
 /**
  * A closed relation's str.pattern field and the match that reads it by key (physical/ddl/constants.ts plannedAre,
  * lower/conservative/expr/index.ts patternAre), over drawn dictionaries: one to five distinct patterns over one
- * family's alphabet that Compute.matches admits, each a domain's, and a stored relation whose CHECK matches its text
- * against its domain's pattern, `Compute.matches(v.lexical, Pattern.at("pattern", v.domain))`.
+ * family's alphabet that Text.matches admits, each a domain's, and a stored relation whose CHECK matches its text
+ * against its domain's pattern, `Text.matches(v.lexical, Pattern.at("pattern", v.domain))`.
  *
  * - **The translation is a fact of the constant:** the installation holds the field's ARE dictionary beside its
  *   dictionary, one text[] whose element at each code is that code's pattern as the ARE PostgreSQL reads, the
@@ -13,7 +13,7 @@
  *   are.
  * - **Only a closed relation's own field holds patterns:** a stored relation's str.pattern field is refused where the
  *   schema is owned, a match over a closed relation's plain text payload where it is lowered, and a str.pattern value
- *   no Compute.matches admission admits at the closed relation's rows, once, before any match reads it.
+ *   no Text.matches admission admits at the closed relation's rows, once, before any match reads it.
  *
  * Oracle: specification, the dictionary's own values each translated, and the CHECK's expression read node by node.
  *
@@ -28,7 +28,7 @@ import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import { literalKey } from "#compiler/laws/model/names.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Text } from "#compiler/public/compute.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -41,7 +41,7 @@ import { admittedPatternOver, families } from "#test/unit/text/generators.ts"
 
 type PatternFeature = "one pattern" | "several patterns"
 
-/** One to five distinct patterns over one family's alphabet, each admitted by Compute.matches. */
+/** One to five distinct patterns over one family's alphabet, each admitted by Text.matches. */
 const patternsGen: Gen<Arr.NonEmptyReadonlyArray<string>> = (source) => {
 	const family = defined(families[source.draw(int(0, families.length - 1))], "a family")
 	const admitted = admittedPatternOver(family.alphabet)
@@ -67,7 +67,7 @@ const schemaOf = (patterns: Arr.NonEmptyReadonlyArray<string>) => {
 		["id"]
 	)
 	const lexical = check("Lexical", Value, (v) =>
-		Compute.matches(v.lexical, Pattern.at("pattern", v.domain))
+		Text.matches(v.lexical, Pattern.at("pattern", v.domain))
 	)
 	return { value: schema("Patterns", [Domain, Pattern, Value], [lexical]), lexical }
 }
@@ -244,7 +244,7 @@ const misplacedSchema = (kind: Misplaced) => {
 	const lexical =
 		kind === "a text payload no pattern reads"
 			? check("Lexical", Value, (v) => v.eq(v.lexical, Pattern.at("pattern", v.domain)))
-			: check("Lexical", Value, (v) => Compute.matches(v.lexical, Pattern.at("pattern", v.domain)))
+			: check("Lexical", Value, (v) => Text.matches(v.lexical, Pattern.at("pattern", v.domain)))
 	return schema("Misplaced", [Domain, Pattern, Value], [lexical])
 }
 

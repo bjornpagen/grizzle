@@ -29,7 +29,7 @@ import {
 } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { queryState } from "#compiler/query/build/state.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { fromQueryDescription, queryFromDesc } from "#test/support/describe.ts"
 import { AutomaticTask, Kind, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
 import { at, Booking, descOf, Schedule } from "#test/unit/query/fixtures.ts"
@@ -242,7 +242,7 @@ export const chainRoundTrip =
 		})
 
 /**
- * Over the worked example's schema: matches, negations, parameter filters, between with variable bounds, Compute cast, cond and
+ * Over the worked example's schema: matches, negations, parameter filters, between with variable bounds, Type.cast, cond and
  * base, in, an interior stage, a bound import, and aggregate heads. A cond's first branch is a term, never a literal
  * or a parameter, since it types the conditional (scalar/compute/builders.ts cond): condLiteral states its literal
  * second.
@@ -326,21 +326,21 @@ export const work: Grammar<WorkArm> = {
 		}
 		const extra =
 			arm.compute === "cast"
-				? { x: Compute.cast(Compute.base(budget), pg.numeric(19, 0)) }
+				? { x: computeCore.cast(computeCore.base(budget), pg.numeric(19, 0)) }
 				: arm.compute === "numeric"
-					? { x: Compute.numeric(Compute.base(budget)) }
+					? { x: computeCore.numeric(computeCore.base(budget)) }
 					: arm.compute === "cond"
 						? {
-								x: Compute.cond(
+								x: computeCore.cond(
 									r.eq(account, r.param("account", Task.fields.account)),
-									Compute.base(budget),
+									computeCore.base(budget),
 									0n
 								)
 							}
 						: arm.compute === "condLiteral"
-							? { x: Compute.cond(r.le(budget, 1n), Compute.base(budget), 0n) }
+							? { x: computeCore.cond(r.le(budget, 1n), computeCore.base(budget), 0n) }
 							: arm.compute === "base"
-								? { x: Compute.base(budget) }
+								? { x: computeCore.base(budget) }
 								: {}
 		switch (arm.head) {
 			case "plain":
@@ -386,7 +386,7 @@ export const spans: Grammar<SpanArm> = {
 			rule = rule.where(r.allen(a["during"], ALLEN.intersects, b["during"]))
 		}
 		if (arm.pointIn) {
-			rule = rule.where(r.pointIn(Compute.lower(b["during"], pg.bigint), a["during"]))
+			rule = rule.where(r.pointIn(computeCore.lower(b["during"], pg.bigint), a["during"]))
 		}
 		switch (arm.producer) {
 			case "none":

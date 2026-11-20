@@ -18,7 +18,7 @@ import { Array as Arr, Effect, Formatter, Order, Record as Rec, Result } from "e
 import { Db } from "#adapter/public/db.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import {
 	accumulated,
 	Bits,
@@ -727,7 +727,7 @@ const handlesOf = (n: number, h: (code: number) => string): NonEmptyReadonlyArra
 	...upTo(n - 1, (code) => h(code + 1))
 ]
 
-const Units = contract("Units", pg.integer, (x) => Compute.le(x, 5))
+const Units = contract("Units", pg.integer, (x) => Logic.le(x, 5))
 
 const Wild = str.regex("^.*$", "su")
 
@@ -869,7 +869,7 @@ const schemaOf = (c: AbsentCase) => {
 		}
 	}
 	const joinedTerm = (r: ItemRow, of: FlagSource) =>
-		Compute.union(FlagRel.row(r.flag), Compute.singleton(flagTerm(r, of)))
+		Bits.union(FlagRel.row(r.flag), Bits.singleton(flagTerm(r, of)))
 	const presence = (r: ItemRow, key: HasKey): Predicate => {
 		switch (key.relation) {
 			case "Pick":
@@ -882,11 +882,11 @@ const schemaOf = (c: AbsentCase) => {
 				return FlagRel.has(flagTerm(r, key.from), flagTerm(r, key.to))
 		}
 	}
-	const orN = (r: ItemRow) => Compute.cond(Pick.has(r.kind), Pick.at("n", r.kind), orInteger)
+	const orN = (r: ItemRow) => Logic.cond(Pick.has(r.kind), Pick.at("n", r.kind), orInteger)
 	const orFlag = (r: ItemRow) =>
-		Compute.cond(Pick.has(r.kind), Pick.at("flag", r.kind), flagOf(w.flags - 1))
+		Logic.cond(Pick.has(r.kind), Pick.at("flag", r.kind), flagOf(w.flags - 1))
 	const orWeight = (r: ItemRow, of: FlagSource) =>
-		Compute.cond(FlagW.has(flagTerm(r, of)), FlagW.at("w", flagTerm(r, of)), orInteger)
+		Logic.cond(FlagW.has(flagTerm(r, of)), FlagW.at("w", flagTerm(r, of)), orInteger)
 	const eqAt = (r: ItemRow, field: PickField, literal: Value | undefined): Predicate => {
 		switch (field) {
 			case "flag":
@@ -912,7 +912,7 @@ const schemaOf = (c: AbsentCase) => {
 			case "at":
 				return eqAt(r, read.field, literal)
 			case "row":
-				return Compute.eq(
+				return Logic.eq(
 					FlagRel.row(flagTerm(r, read.of)),
 					typeof literal === "object" ? Bits.of(Flag, Arr.map(literal, flagOf)) : r.flags
 				)
@@ -922,12 +922,12 @@ const schemaOf = (c: AbsentCase) => {
 					typeof literal === "number" ? literal : r.n
 				)
 			case "single":
-				return Compute.eq(
-					Compute.singleton(flagTerm(r, read.of)),
+				return Logic.eq(
+					Bits.singleton(flagTerm(r, read.of)),
 					typeof literal === "object" ? Bits.of(Flag, Arr.map(literal, flagOf)) : r.flags
 				)
 			case "joined":
-				return Compute.eq(
+				return Logic.eq(
 					joinedTerm(r, read.of),
 					typeof literal === "object" ? Bits.of(Flag, Arr.map(literal, flagOf)) : r.flags
 				)
@@ -944,13 +944,13 @@ const schemaOf = (c: AbsentCase) => {
 			case "eq":
 				return eqRead(r, p.read, p.against)
 			case "subset":
-				return r.eq(Compute.subset(FlagRel.row(flagTerm(r, p.of)), r.flags), true)
+				return r.eq(Bits.subset(FlagRel.row(flagTerm(r, p.of)), r.flags), true)
 			case "admits":
-				return r.eq(Compute.subset(r.flags, FlagRel.row(flagTerm(r, p.of))), true)
+				return r.eq(Bits.subset(r.flags, FlagRel.row(flagTerm(r, p.of))), true)
 			case "member":
 				return r.eq(
-					Compute.subset(
-						Compute.singleton(flagTerm(r, p.of)),
+					Bits.subset(
+						Bits.singleton(flagTerm(r, p.of)),
 						p.within.kind === "flags" ? r.flags : FlagRel.row(flagTerm(r, p.within.of))
 					),
 					true
@@ -1020,30 +1020,30 @@ const schemaOf = (c: AbsentCase) => {
 			g: generated(pg.integer, FlagW.at("w", Pick.at("flag", r.kind)))
 		})),
 		GenSingleOwn: relation.generated("GenSingleOwn", genFields, ["id"], (r) => ({
-			g: generated(bits(Flag), Compute.singleton(r.flag))
+			g: generated(bits(Flag), Bits.singleton(r.flag))
 		})),
 		GenSinglePicked: relation.generated("GenSinglePicked", genFields, ["id"], (r) => ({
-			g: generated(bits(Flag), Compute.singleton(Pick.at("flag", r.kind)))
+			g: generated(bits(Flag), Bits.singleton(Pick.at("flag", r.kind)))
 		})),
 		GenJoinedPicked: relation.generated("GenJoinedPicked", genFields, ["id"], (r) => ({
 			g: generated(
 				bits(Flag),
-				Compute.union(FlagRel.row(r.flag), Compute.singleton(Pick.at("flag", r.kind)))
+				Bits.union(FlagRel.row(r.flag), Bits.singleton(Pick.at("flag", r.kind)))
 			)
 		})),
 		GenOrN: relation.generated("GenOrN", genFields, ["id"], (r) => ({
-			g: generated(pg.integer, Compute.cond(Pick.has(r.kind), Pick.at("n", r.kind), orInteger))
+			g: generated(pg.integer, Logic.cond(Pick.has(r.kind), Pick.at("n", r.kind), orInteger))
 		})),
 		GenOrFlag: relation.generated("GenOrFlag", genFields, ["id"], (r) => ({
 			g: generated(
 				closedId(Flag),
-				Compute.cond(Pick.has(r.kind), Pick.at("flag", r.kind), flagOf(w.flags - 1))
+				Logic.cond(Pick.has(r.kind), Pick.at("flag", r.kind), flagOf(w.flags - 1))
 			)
 		})),
 		GenOrWeightPicked: relation.generated("GenOrWeightPicked", genFields, ["id"], (r) => ({
 			g: generated(
 				pg.integer,
-				Compute.cond(
+				Logic.cond(
 					FlagW.has(Pick.at("flag", r.kind)),
 					FlagW.at("w", Pick.at("flag", r.kind)),
 					orInteger
@@ -1152,8 +1152,8 @@ const guardedSchemaOf = (c: GuardedCase) => {
 		r.or(
 			r.not(r.eq(r.kind, kindOf(c.guarded.handle))),
 			c.guarded.leaf === "subset"
-				? r.eq(Compute.subset(FlagRel.row(Slot.at("slot", r.kind, r.flag)), r.flags), true)
-				: r.eq(Compute.subset(r.flags, FlagRel.row(Slot.at("slot", r.kind, r.flag))), true)
+				? r.eq(Bits.subset(FlagRel.row(Slot.at("slot", r.kind, r.flag)), r.flags), true)
+				: r.eq(Bits.subset(r.flags, FlagRel.row(Slot.at("slot", r.kind, r.flag))), true)
 		)
 	)
 	const Lookup = schema("Lookup", [Kind, Flag, FlagRel, Slot, Guarded], [guards])

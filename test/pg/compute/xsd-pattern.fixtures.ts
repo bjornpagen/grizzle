@@ -141,10 +141,10 @@ export const batchGen: Gen<Arr.NonEmptyReadonlyArray<DrawnText>> = (source) => {
 
 const tested: ExprDesc = { kind: "compute", fn: "isXsdPattern", args: [{ kind: "var", var: "v" }] }
 
-/** Compute.isXsdPattern(v) as a check lowers it. */
+/** Xml.isPattern(v) as a check lowers it. */
 const term = succeeded(
 	lowerWith("check", tested, { v: textColumn }, false, baseParams),
-	"Compute.isXsdPattern lowers in a check over any text"
+	"Xml.isPattern lowers in a check over any text"
 ).root
 
 /** The library function's CREATE in the session's pg_temp, where the term's SQL calls it (support.ts temporaryLibrary). */

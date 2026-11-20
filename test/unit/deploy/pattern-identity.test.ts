@@ -1,5 +1,5 @@
 /**
- * Patterns by language: a Compute.matches pattern is its pattern value, its language's key beside its spelling
+ * Patterns by language: a Text.matches pattern is its pattern value, its language's key beside its spelling
  * (ir/pattern.ts PatternValue), and its spelling is no part of any identity (core/canonical.ts omitSourceLocs). So a
  * schema whose every match, guard, keyed selection, containment and derived relation reads a pattern installs the same
  * theory, every law under the same identifier with the same check identity, every relation's record and its schema's

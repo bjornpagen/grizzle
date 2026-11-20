@@ -7,7 +7,7 @@ import {
 	type SpanEndpoint
 } from "#compiler/allen/mask.ts"
 
-/** The comparisons of two endpoints, by the Compute catalogue's names. */
+/** The comparisons of two endpoints, by the scalar catalogue's names. */
 export type EndpointComparison = "eq" | "ne" | "lt" | "le" | "gt" | "ge"
 
 const comparisons: { readonly [C in EndpointComparison]: (order: number) => boolean } = {

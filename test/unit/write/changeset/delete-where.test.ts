@@ -8,7 +8,7 @@
  * same reason. The oracle is the specification: a field-equality member is the query it states, which the write front
  * end makes of it (write/frontend/equal.ts), so the planner holds the two as one thing. A case may plant one fault a
  * JavaScript caller can make, each refused as MalformedDescription: a field its rows do not state, a variable or a
- * Compute term in place of a parameter, a key of a closed relation or of none, a selection that is no record.
+ * scalar term in place of a parameter, a key of a closed relation or of none, a selection that is no record.
  *
  * Features: one key, four keys or more, an empty selection, several fields, a literal, a parameter shared by two keys,
  * a parameter of the bound name, a unit's delete, a tree's root, a world entry's key, a stratum before, another order, a

@@ -126,7 +126,7 @@ type Owner = "catalog" | "vector"
  * `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with, and its infix test at a start one of substring,
  * char_length and text's =, `substring(a, start, char_length(b)) = b`; a double's parse is a reading of its text's digits
  * and exponent into a numeric rounded to a double (lower/conservative/expr/parse-double.ts); a decimal's parse is the
- * I/O conversion into numeric of no typmod, `x::numeric`, an op node of its own beside Compute.cast's cast nodes; a
+ * I/O conversion into numeric of no typmod, `x::numeric`, an op node of its own beside Type.cast's cast nodes; a
  * bytes value's digest is its SHA-256 written as lowercase hex, `encode(sha256(x), 'hex')`; a text's UTF-16 code units
  * are its code points and its supplementary ones once more, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`;
  * a text's ASCII case fold is lower under the C collation, collated back as every text is,
@@ -214,12 +214,12 @@ type CatalogRef =
 	| { readonly kind: "construct"; readonly uses: ReadonlyArray<OpId> }
 
 /**
- * The Compute operation a native node serves (computeSpecs), the comparisons, the boolean constructs, the set algebra
+ * The scalar operation a native node serves (computeSpecs), the comparisons, the boolean constructs, the set algebra
  * over a roster, the text operations, a bytes value's digest and the casts; cond has no entry, it is the IR's cond node. The complement serves
- * only the difference and the subset test: it sets a set's hole and padding bits, so no Compute operation yields it;
+ * only the difference and the subset test: it sets a set's hole and padding bits, so no scalar operation yields it;
  * right serves only the suffix test, endsWith, and substring only the infix test, infixAt, a concatenation's equation's
  * test of each middle part at its offset (typing.ts concatEquation); replace and btrim serve only the whiteSpace
- * collapse, and regexp_count only a text's UTF-16 code units, utf16Length. canonicalZero serves no Compute operation
+ * collapse, and regexp_count only a text's UTF-16 code units, utf16Length. canonicalZero serves no scalar operation
  * either: it is the canonical zero a set delivers wherever it may merge -0 and +0 (check/merge.ts).
  */
 export type NativeFn =
@@ -301,12 +301,12 @@ export type NativeFn =
 	| "canonicalZero"
 
 /**
- * What a Compute function is, one record each (computeSpecs): how many arguments it takes, a count or any number of
+ * What a scalar function is, one record each (computeSpecs): how many arguments it takes, a count or any number of
  * one or more (least and greatest); whether a contract predicate or a row check admits it, which is whether the host
  * evaluates its nodes for the ContractLiteral check (evaluate.ts), beside comparisons, boolean composition,
- * Compute.cond, Compute.when and casts; and the nodes it lowers to (typing.ts), the node of its own name or the nodes it
- * composes: Compute.numeric is a cast into numeric, Compute.width a span's upper endpoint less its lower,
- * Compute.singleton a set with one more handle over the empty set.
+ * Logic.cond, Logic.when and casts; and the nodes it lowers to (typing.ts), the node of its own name or the nodes it
+ * composes: Num.numeric is a cast into numeric, Range.width a span's upper endpoint less its lower,
+ * Bits.singleton a set with one more handle over the empty set.
  */
 export interface ComputeSpec {
 	readonly arity: number | "variadic"
@@ -314,7 +314,7 @@ export interface ComputeSpec {
 	readonly nodes: NonEmptyReadonlyArray<NativeFn>
 }
 
-/** Every Compute function's spec, total over ComputeFn, so a new function states each fact where it is added. */
+/** Every scalar function's spec, total over ComputeFn, so a new function states each fact where it is added. */
 export const computeSpecs: { readonly [F in ComputeFn]: ComputeSpec } = deepFreeze({
 	add: { arity: 2, check: true, nodes: ["add"] },
 	sub: { arity: 2, check: true, nodes: ["sub"] },
@@ -414,7 +414,7 @@ interface OverloadBase {
 /**
  * A function, operator, cast or construct with a fixed result type: a plain carrier, an exact one whose digit bound
  * the lowering derives, or text, any text, of no pattern; an `exact` overload's result is its PostgreSQL identity's,
- * the Compute result its Totality's.
+ * the scalar result its Totality's.
  */
 interface FixedOverload extends OverloadBase {
 	readonly fn: FixedFn
@@ -442,7 +442,7 @@ interface CommonTypeOverload extends OverloadBase {
 /** One overload of the table: everything about it but its identity, the key the table lists it under. */
 type Overload = FixedOverload | CommonTypeOverload
 
-/** The Compute operations whose result is a value of their first operand's type. */
+/** The scalar operations whose result is a value of their first operand's type. */
 export type CommonTypeFn =
 	| "least"
 	| "greatest"
@@ -452,7 +452,7 @@ export type CommonTypeFn =
 	| "complement"
 	| "adjoin"
 
-/** The Compute operations with a fixed result type. */
+/** The scalar operations with a fixed result type. */
 export type FixedFn = Exclude<NativeFn, CommonTypeFn>
 
 /**
@@ -754,7 +754,7 @@ const setDifference: CommonTypeOverload = frozen({
  * A set with one more handle, `set_bit(a, c::integer, 1)` at a closed id's code c: a set over the operands' roster, bit
  * c from the left code c's, as a set's literal writes it (ir/codes.ts handlesHex). c is a live code, below the set's
  * width, so set_bit never reads past its string, and a's holes and padding stay clear; a NULL operand gives NULL, as
- * set_bit is strict. Compute.singleton is it over the empty set.
+ * set_bit is strict. Bits.singleton is it over the empty set.
  */
 const setAdjoin: CommonTypeOverload = frozen({
 	fn: "adjoin",
@@ -854,7 +854,7 @@ const textCollapse: FixedOverload = frozen({
 })
 
 /**
- * A text's ASCII case fold, Compute.lowerAscii wherever it stands (compute/typing.ts lowerAscii): lower under the C
+ * A text's ASCII case fold, Text.lowerAscii wherever it stands (compute/typing.ts lowerAscii): lower under the C
  * collation, collated back as every text is, `lower(x COLLATE "C") COLLATE pg_c_utf8` (sql/ast.ts Expr's lowerAscii).
  * The C collation's ctype is C, so lower folds the text byte by byte, each of A to Z to its small letter and every
  * other byte as it is; every byte of a UTF-8 character past ASCII, a lead byte or a continuation byte, is 0x80 or more,
@@ -904,12 +904,12 @@ const textLowerAscii: FixedOverload = frozen({
 
 /**
  * A reference's target resolved against a base, RFC 3986 §5.2's strict transformation and §5.3's recomposition, as
- * @bjornpagen/grizzle-text's uri.ts resolveReference computes it on the host, Compute.resolveReference wherever it
+ * @bjornpagen/grizzle-text's uri.ts resolveReference computes it on the host, Text.resolveReference wherever it
  * stands (compute/typing.ts resolveReference): a call of the installation's library function
  * (physical/ddl/library.ts), `<schema>.<fn>(base, reference)`, an IMMUTABLE, PARALLEL SAFE SQL function of the
  * reference's and the base's components and the target path's segments, which no RegExp reads, so no operand's
  * length is bounded and it is defined on every pair of texts, in a query, a CHECK and a generated field alike, its
- * result within their bytes and the delimiters it adds. It reads no catalog object a Compute operation is, so it uses
+ * result within their bytes and the delimiters it adds. It reads no catalog object a scalar operation is, so it uses
  * no entry here.
  */
 const textResolveReference: FixedOverload = frozen({
@@ -925,11 +925,11 @@ const textResolveReference: FixedOverload = frozen({
 
 /**
  * Whether a text is a string of XML Schema 1.0's regExp production (Part 2, Appendix F), as @bjornpagen/grizzle-text's
- * regex/xsd.ts reader reads it on the host, Compute.isXsdPattern wherever it stands (compute/typing.ts isXsdPattern): a
+ * regex/xsd.ts reader reads it on the host, Xml.isPattern wherever it stands (compute/typing.ts isXsdPattern): a
  * call of the installation's library function (physical/ddl/library.ts xsdPatternDefinition), `<schema>.<fn>(x)`, an
  * IMMUTABLE, PARALLEL SAFE SQL function whose recursive query reads the text's characters once each by a table of the
  * reader's moves, with no state budget and no bound on a count, so it is defined on every text, in a query, a CHECK and
- * a generated field alike. It reads no catalog object a Compute operation is, so it uses no entry here.
+ * a generated field alike. It reads no catalog object a scalar operation is, so it uses no entry here.
  */
 const textIsXsdPattern: FixedOverload = frozen({
 	fn: "isXsdPattern",
@@ -975,7 +975,7 @@ const textUtf16Length: FixedOverload = frozen({
  * language inclusion: its digits and exponent read by ltrim, rtrim, split_part, replace, left, char_length and
  * starts_with, the numeric they name with its significant digits cut to a sticky last one and its exponent clamped
  * where neither changes its double, rounded once (lower/conservative/expr/parse-double.ts). Every function it reads is
- * IMMUTABLE in pg_proc, so it is one value wherever it stands, a generated column among them; none is a Compute
+ * IMMUTABLE in pg_proc, so it is one value wherever it stands, a generated column among them; none is a scalar
  * operation, so it uses no entry here.
  */
 const textParseDouble: FixedOverload = frozen({
@@ -993,7 +993,7 @@ const textParseDouble: FixedOverload = frozen({
  * A decimal's parse from its text (scalar/lexical.ts decimalOfText), xs:decimal's lexical mapping into numeric of no
  * typmod, exactly, defined where the text is one within decimalTextMaxBytes ("lexical" over `decimalText`), which the
  * lowering proves by language inclusion and the operand's byte bound: `x::numeric`, numeric_in over textout's text, an
- * I/O conversion (CoerceViaIO) as Compute.cast's parse is, IMMUTABLE, so it is one value wherever it stands, a
+ * I/O conversion (CoerceViaIO) as Type.cast's parse is, IMMUTABLE, so it is one value wherever it stands, a
  * generated column among them. Every member names a value numeric holds, its digits past the point at most
  * NUMERIC_DSCALE_MAX, so numeric_in neither rounds nor raises.
  */
@@ -1009,7 +1009,7 @@ const textParseDecimal: FixedOverload = frozen({
 })
 
 /**
- * The language of a SHA-256 digest as `encode(sha256(x), 'hex')` writes it, Compute.sha256's: 64 lowercase hex digits,
+ * The language of a SHA-256 digest as `encode(sha256(x), 'hex')` writes it, Crypto.sha256's: 64 lowercase hex digits,
  * under the flags "u", the pattern `str.regex("^[0-9a-f]{64}$")` declares.
  */
 export const digestText: PatternSource = Object.freeze({ source: "^[0-9a-f]{64}$", flags: "u" })
@@ -1018,7 +1018,7 @@ export const digestText: PatternSource = Object.freeze({ source: "^[0-9a-f]{64}$
  * A bytes value's SHA-256 digest as 64 lowercase hex digits, `encode(sha256(x), 'hex')`, the one operation that reads
  * a bytes value, read whole: sha256(bytea) reads a bytea of any length and encode(bytea, text) writes its 32 bytes as
  * two lowercase digits each, so it is defined on every value, and both are IMMUTABLE in pg_proc, so it is one value
- * wherever it stands, a generated column among them. Neither is a Compute operation, so it uses no entry here. Its text
+ * wherever it stands, a generated column among them. Neither is a scalar operation, so it uses no entry here. Its text
  * is digestText's language (typing.ts sha256), and it is the digest a bytes value's identity is
  * (scalar/values/bytes.ts BytesDigest).
  */
@@ -1056,7 +1056,7 @@ const floatBitsOf = (carrier: "float4" | "float8"): FixedOverload =>
 	})
 
 /**
- * A text's SHA-256 digest as 64 lowercase hex digits, the digest of its UTF-8 bytes, as Compute.sha256 reads a bytes
+ * A text's SHA-256 digest as 64 lowercase hex digits, the digest of its UTF-8 bytes, as Crypto.sha256 reads a bytes
  * value's: `encode(<schema>.<textDigest>(x), 'hex')`, the installation's library function (physical/ddl/library.ts
  * textDigest, `sha256(convert_to(x, 'UTF8'))`), IMMUTABLE and defined on every text, so it stands in a query, a CHECK
  * and a generated field alike, and the same digest a text's image is (a key over a text of no byte bound). Its text is
@@ -1170,7 +1170,7 @@ const endpoint = (
 	})
 
 /**
- * The static overload registry of the Compute catalogue, one entry per OpId: a table keyed by the identity the IR
+ * The static overload registry of the scalar catalogue, one entry per OpId: a table keyed by the identity the IR
  * carries (ir/expr.ts), so two entries under one identity are a compile error.
  *
  * Every scalar expression node is exactly one PostgreSQL operator, function or cast, or one of the SQL constructs that
@@ -1193,9 +1193,9 @@ const endpoint = (
  *   (ir/expr.ts rangeOp), listed by both in spanOverloads;
  * - a cast: "cast:<source>-><target>" over its carriers, as castOverloads lists it.
  *
- * What the registry admits is the catalogue, not the catalog: same-type operands only, because Compute's operations
+ * What the registry admits is the catalogue, not the catalog: same-type operands only, because the scalar operations
  * take two terms of one type, but right(text, integer), which only the suffix test reads, and set_bit over a set and a
- * closed id's code, which only Compute.singleton reads; of text's functions only
+ * closed id's code, which only Bits.singleton reads; of text's functions only
  * its length, concatenation, prefix and suffix tests, regex match, translate and lower under the C collation, no array
  * function, of bit's only the set algebra over a roster, and of bytea's only its SHA-256 digest; no money * money,
  * money unary minus, abs(money) or float %, which PostgreSQL does not define; and no money / integer, which the public
@@ -1217,7 +1217,7 @@ const endpoint = (
  *   result's range, `powerRange`; width_bucket its operand and bounds `finite`, facts their types state as min_scale's
  *   operand's are, then its `bucketDomain`;
  * - money / money is double precision;
- * - comparisons: every carrier with equality has = and <>, and every one a Compute call compares, all but bytea, IN,
+ * - comparisons: every carrier with equality has = and <>, and every one a scalar call compares, all but bytea, IN,
  *   composed of its =; every ordered carrier the four orderings;
  * - a set over a roster's union (bitor), intersection (bitand) and cardinality (bit_count(bit)), its difference, subset
  *   and disjointness composed of them, and a set with one more handle (set_bit(bit,integer,integer) at a live code),
@@ -1534,7 +1534,7 @@ const catalogOverloads = {
 	"greatest:uuid": extreme("greatest", "uuid", opId("uuid_gt")),
 	/**
 	 * date - date, the integer count of days between them, which no two dates a CalendarDate spells overflow: a date
-	 * span's width alone (compute/typing.ts width), since Compute admits no date arithmetic.
+	 * span's width alone (compute/typing.ts width), since grizzle admits no date arithmetic.
 	 */
 	date_mi: infix("sub", "-", "date", "int4", total, "value"),
 	date_eq: comparison("eq", "date"),
@@ -1558,14 +1558,14 @@ const catalogOverloads = {
 	"least:text": extreme("least", "text", opId("text_lt")),
 	"greatest:text": extreme("greatest", "text", opId("text_gt")),
 	/**
-	 * bytea's equality and inequality, which no Compute call reaches, since a bytes value has no equality capability:
+	 * bytea's equality and inequality, which no scalar call reaches, since a bytes value has no equality capability:
 	 * what grizzle's own statements compare a stored bytes column by, a rewrite's proof (carrierEquality) and a key
 	 * law's violation, two facts of one key that differ in a payload field (analysis/theory/laws.ts keyViolation).
 	 */
 	byteaeq: comparison("eq", "bytes"),
 	byteane: comparison("ne", "bytes"),
 	/**
-	 * tsvector's equality and inequality, which no Compute call reaches either, since a search document has no equality
+	 * tsvector's equality and inequality, which no scalar call reaches either, since a search document has no equality
 	 * capability: they stand as its native equality (equalities).
 	 */
 	tsvector_eq: comparison("eq", "tsvector"),

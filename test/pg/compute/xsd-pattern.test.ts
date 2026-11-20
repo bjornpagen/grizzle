@@ -1,5 +1,5 @@
 /**
- * Compute.isXsdPattern on PostgreSQL 19 and the host alike: whether a text is a string of XML Schema 1.0's regExp
+ * Xml.isPattern on PostgreSQL 19 and the host alike: whether a text is a string of XML Schema 1.0's regExp
  * production (Part 2, Appendix F), the language of QTI 3.0.1's pattern-mask and of a literal qti-pattern-match.
  *
  * Over batches of texts drawn from five spaces, three verdicts on every text are one:
@@ -35,7 +35,7 @@ import {
 import { truth } from "#test/pg/text/differential.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Compute.isXsdPattern on PostgreSQL 19: the library function's verdict on every text is the reader's and the host's. */
+/** Xml.isPattern on PostgreSQL 19: the library function's verdict on every text is the reader's and the host's. */
 export const computeIsXsdPatternOnPostgreSQL19TheLibraryFunctionsVerdictOnEveryTextIsTheReadersAndTheHosts =
 	property.explore(batchGen, {
 		needs: { substrate: Substrate.installing },

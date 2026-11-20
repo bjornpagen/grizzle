@@ -4,7 +4,6 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
 import { aimed, array, boolean, type Gen, int, map, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
 import { Bits, bits, closedId, generated, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
@@ -101,10 +100,10 @@ export const schemaOf = (d: Drawn) => {
 		{ id: pg.integer, k: closedId(S), a: bits(S), b: bits(S) },
 		["id"],
 		(r) => ({
-			u: generated(bits(S), Compute.union(r.a, r.b)),
-			i: generated(bits(S), Compute.intersection(r.a, r.b)),
-			d: generated(bits(S), Compute.difference(r.a, r.b)),
-			e: generated(bits(S), Compute.difference(Compute.union(r.a, Bits.of(S, handles)), r.a)),
+			u: generated(bits(S), Bits.union(r.a, r.b)),
+			i: generated(bits(S), Bits.intersection(r.a, r.b)),
+			d: generated(bits(S), Bits.difference(r.a, r.b)),
+			e: generated(bits(S), Bits.difference(Bits.union(r.a, Bits.of(S, handles)), r.a)),
 			w: generated(bits(S), C.row(r.k))
 		})
 	)
@@ -120,8 +119,8 @@ export const schemaOf = (d: Drawn) => {
 				d: diff,
 				e,
 				w,
-				qu: Compute.union(a, b),
-				qd: Compute.difference(a, b)
+				qu: Bits.union(a, b),
+				qd: Bits.difference(a, b)
 			})
 		})
 	}

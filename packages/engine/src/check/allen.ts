@@ -129,7 +129,7 @@ export const joinedPairs = (
 	return { a: first.a, b: first.b, mask, endpoint }
 }
 
-/** The Compute catalogue's comparisons, by their native function. */
+/** The scalar catalogue's comparisons, by their native function. */
 const endpointComparisons: ReadonlyMap<string, EndpointComparison> = new Map(
 	(["eq", "ne", "lt", "le", "gt", "ge"] as const).map((c) => [c, c])
 )
@@ -146,7 +146,7 @@ export class AllenReading {
 		return carrier === undefined ? undefined : { expr: e, operand: operandOf(e), carrier }
 	}
 
-	/** The span and endpoint `Compute.lower(s)` or `Compute.upper(s)` reads, or undefined for any other expression. */
+	/** The span and endpoint `Range.lower(s)` or `Range.upper(s)` reads, or undefined for any other expression. */
 	#endpoint(e: ScalarExpr): { readonly span: Span; readonly endpoint: SpanEndpoint } | undefined {
 		if (e.kind !== "op" || typeof e.op === "string") {
 			return undefined
@@ -262,7 +262,7 @@ export const pointHolder = (
  *
  * For two nonempty half-open spans the thirteen basic relations fix the order of all four endpoints, so a comparison of
  * an endpoint of A with an endpoint of B (eq, ne, lt, le, gt, ge) and the membership of an endpoint of A in B
- * (r.pointIn(Compute.lower(a), b)) each hold for exactly a mask of relations (allen/endpoints.ts), as does each range
+ * (r.pointIn(Range.lower(a), b)) each hold for exactly a mask of relations (allen/endpoints.ts), as does each range
  * operator of an Allen formula between A and B (allen/atoms.ts). Over one pair a conjunction is the intersection of its
  * parts' masks, a disjunction their union and a negation the complement, and a part that states the pair B first
  * joins under its mask's converse. A predicate over one pair of spans is its mask, whichever way it was written: the

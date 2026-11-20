@@ -4,7 +4,7 @@ import { bigint } from "@bjornpagen/testing/values"
 import { type Array as Arr } from "effect"
 import { type PreconditionKind } from "#compiler/core/errors.ts"
 import { type ExprDesc } from "#compiler/ir/desc.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { binary64MinExponent } from "#compiler/scalar/compute/cast.ts"
 import { binary64MaxExponent, binary64Precision } from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -18,7 +18,7 @@ import { digitString, type PowerBatch } from "#test/support/power-pairs.ts"
 import { spelledExpr, type TestField, testPg, v } from "#test/unit/compute/support.ts"
 
 /**
- * The field a literal base is typed by, as Compute.literal types one: a literal never stands first, so the base is a
+ * The field a literal base is typed by, as computeCore.literal types one: a literal never stands first, so the base is a
  * literal of a numeric field, whose typmod holds its value exactly, (its digits, its least scale), or NaN, which every
  * typmod of a scale admits, at numeric(1, 1), numeric(p, 0) being an integer type that holds no NaN (4da9792ba). None
  * for an infinity, which no typmod admits, or a value whose digits or scale pass
@@ -153,12 +153,12 @@ export const floatExponentGen: Gen<number> = weighted<number>([
 export const leastNormal = 2 ** binary64MinExponent
 
 export const expr: ExprDesc = spelledExpr(
-	Compute.power(v("a", testPg.computedNumeric), v("b", testPg.computedNumeric)).expr
+	computeCore.power(v("a", testPg.computedNumeric), v("b", testPg.computedNumeric)).expr
 )
 
 /** The float power, power(a, b) over doubles, which every case of the float property lowers. */
 export const floatPowerExpr: ExprDesc = spelledExpr(
-	Compute.power(v("a", testPg.double), v("b", testPg.double)).expr
+	computeCore.power(v("a", testPg.double), v("b", testPg.double)).expr
 )
 
 /** The evaluator's schema the properties seat their cases on (compute/support.ts evaluatorTemplate). */

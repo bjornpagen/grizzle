@@ -8,7 +8,7 @@
  *
  * A float's min, max, sum and mean do the zero's work exactly where their argument may hold -0: none where its own form
  * proves it holds none (lower/conservative/group/index.ts argumentZeros), a contract that excludes zero, an integer's
- * cast, a Compute.cond of two such values, whose native extreme is IEEE 754-2019's and whose zero total is +0.
+ * cast, a Logic.cond of two such values, whose native extreme is IEEE 754-2019's and whose zero total is +0.
  *
  * Oracle: the specification, each shape's work at a float (zero-work.fixtures.ts workAtFloat) and none elsewhere; each
  * argument form's zeros (argumentForms).

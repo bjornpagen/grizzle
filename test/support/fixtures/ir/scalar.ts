@@ -187,7 +187,7 @@ export const analyzeLanguage = (ir: RegexNode) => languageOf(buildNfa(ir))
 
 /**
  * The pattern value of `spelling` (ir/pattern.ts admitSpelling), admitted and its language's key computed as
- * every pattern literal's is: what a test's Compute.matches literal or guard holds. A spelling its admission refuses fails the
+ * every pattern literal's is: what a test's Text.matches literal or guard holds. A spelling its admission refuses fails the
  * test.
  */
 export const spelled = (spelling: string): PatternValue => {

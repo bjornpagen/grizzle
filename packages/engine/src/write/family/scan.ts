@@ -302,7 +302,7 @@ type Built =
 	| { readonly kind: "built"; readonly expr: Expr }
 	| { readonly kind: "waiting"; readonly on: ReadonlySet<ColumnKey> }
 
-/** How a scan builds a combine in SQL: the bigint one a count adds, and each Compute operation's SQL. */
+/** How a scan builds a combine in SQL: the bigint one a count adds, and each scalar operation's SQL. */
 const sqlCombine: CombineBuild<Expr> = {
 	one: lit.int(1, types.bigint),
 	apply: (fn, left, right) => {

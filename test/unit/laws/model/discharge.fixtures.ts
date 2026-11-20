@@ -8,7 +8,7 @@ import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic, Num } from "#compiler/public/compute.ts"
 import { pg, retirement } from "#compiler/public/fields.ts"
 import {
 	contained,
@@ -127,7 +127,7 @@ const unkeyedOf = (u: Unkeyed) => {
 			return [
 				contained(
 					on(
-						select(C, (r) => Compute.ge(Compute.add(r.kind, 1), 4n)),
+						select(C, (r) => Logic.ge(Num.add(r.kind, 1), 4n)),
 						"g",
 						"kind"
 					),
@@ -204,7 +204,7 @@ export const schemaOf = (c: Case): AnySchema =>
 			),
 			contained(
 				on(
-					select(C, (r) => Compute.ge(Compute.add(r.kind, 1), 4n)),
+					select(C, (r) => Logic.ge(Num.add(r.kind, 1), 4n)),
 					"g",
 					"i"
 				),

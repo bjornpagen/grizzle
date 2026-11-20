@@ -23,7 +23,7 @@ import {
 /**
  * An admitted pattern parsed: its node, which a translation's image reads, and the matcher of its automaton (match.ts
  * Matcher), whose NFA the language proofs read and whose search language membership runs, built once here. The node is
- * a refinement member's language, which has a member (text/refinement.ts analyzeText), or a Compute.matches pattern's,
+ * a refinement member's language, which has a member (text/refinement.ts analyzeText), or a Text.matches pattern's,
  * which may be the empty language (admit.ts admitMatch), whose matcher matches no text.
  */
 export interface ParsedPattern {
@@ -34,7 +34,7 @@ export interface ParsedPattern {
 /**
  * The parse of a pattern its admission parsed already, the one site of the fact that such a pattern parses: a RegexRef
  * is minted only from a pattern its text analysis admitted (text/refinement.ts analyzeText), a lexical form is
- * grizzle's own (scalar/lexical.ts formSource), and a Compute.matches pattern is admitted where its node is typed
+ * grizzle's own (scalar/lexical.ts formSource), and a Text.matches pattern is admitted where its node is typed
  * (admit.ts matchPattern). It runs where a program compiles or a pattern is admitted, into a table (CompilePatterns,
  * ProgramPatterns), and never per membership: membership reads the table.
  */
@@ -49,7 +49,7 @@ const admittedParse = (pattern: PatternSource): ParsedPattern => {
 /**
  * The parse of a member of a text type's conjunction (ir/scalar.ts textPatterns), read from `patterns`: a language with
  * a member, since the text analysis admits a refinement's member only with one (text/refinement.ts analyzeText), where a
- * Compute.matches pattern, which no image or alphabet of a refinement reads, may be the empty language.
+ * Text.matches pattern, which no image or alphabet of a refinement reads, may be the empty language.
  */
 export const memberNode = (pattern: PatternSource, patterns: PatternAutomata): LiveNode => {
 	const { node } = patterns.parse(pattern)
@@ -61,7 +61,7 @@ export const memberNode = (pattern: PatternSource, patterns: PatternAutomata): L
 
 /**
  * What the evaluator reads of admitted patterns, from the table its compile or its compiled program holds, never
- * parsing one per evaluation: a text's membership in a regex refinement and its match of a Compute.matches pattern, each
+ * parsing one per evaluation: a text's membership in a regex refinement and its match of a Text.matches pattern, each
  * by the pattern's automaton, never RegExp.
  */
 export interface PatternReads {
@@ -74,7 +74,7 @@ export interface PatternReads {
  * compiled program holds, so none is parsed per membership.
  */
 export interface PatternAutomata extends PatternReads {
-	/** The parse of an admitted pattern: a refinement's member, a lexical form's, or a Compute.matches pattern's. */
+	/** The parse of an admitted pattern: a refinement's member, a lexical form's, or a Text.matches pattern's. */
 	readonly parse: (pattern: PatternSource) => ParsedPattern
 }
 

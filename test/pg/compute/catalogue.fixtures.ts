@@ -19,7 +19,7 @@ import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { numericTypmodOf, typeLabel } from "#compiler/ir/scalar.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal, type FiniteDecimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -56,7 +56,7 @@ const fields: { readonly [C in Gate]: TestField } = {
 
 /**
  * How a case spells an operand in SQL, which its value cannot tell: as it is; a finite numeric cast to numeric(1000, s)
- * and then its Compute.numeric, the value at display scale s past its least scale, which only a reading of the display
+ * and then its computeCore.numeric, the value at display scale s past its least scale, which only a reading of the display
  * scale sees; or a float zero as neg(0), -0 in PostgreSQL, which only a reading of the sign of zero sees.
  */
 type Spelling =
@@ -381,11 +381,11 @@ const spelledTerm = (name: string, f: TestField, operand: Operand): ScalarTerm =
 		case "plain":
 			return term
 		case "padded":
-			return Compute.numeric(
-				Compute.cast(term, testPg.numericOf(maxPaddedScale, operand.spelling.scale))
+			return computeCore.numeric(
+				computeCore.cast(term, testPg.numericOf(maxPaddedScale, operand.spelling.scale))
 			)
 		case "negative zero":
-			return Compute.neg(term)
+			return computeCore.neg(term)
 	}
 }
 
@@ -450,74 +450,81 @@ const inLists: { readonly [C in Gate]: ReadonlyArray<unknown> } = {
  * an operand: a sum, a product or a quotient of an exact value, and its comparison and narrowing.
  */
 const ops = {
-	add: { arity: 2, build: ([a, b]) => Compute.add(a, b), predicate: false },
-	sub: { arity: 2, build: ([a, b]) => Compute.sub(a, b), predicate: false },
-	mul: { arity: 2, build: ([a, b]) => Compute.mul(a, b), predicate: false },
-	div: { arity: 2, build: ([a, b]) => Compute.div(a, b), predicate: false },
-	mod: { arity: 2, build: ([a, b]) => Compute.mod(a, b), predicate: false },
-	neg: { arity: 1, build: ([a]) => Compute.neg(a), predicate: false },
-	quot: { arity: 2, build: ([a, b]) => Compute.quot(a, b), predicate: false },
-	rem: { arity: 2, build: ([a, b]) => Compute.rem(a, b), predicate: false },
-	abs: { arity: 1, build: ([a]) => Compute.abs(a), predicate: false },
-	sign: { arity: 1, build: ([a]) => Compute.sign(a), predicate: false },
-	round: { arity: 1, build: ([a]) => Compute.round(a), predicate: false },
-	round2: { arity: 1, build: ([a]) => Compute.round(a, 2), predicate: false },
-	"round-1": { arity: 1, build: ([a]) => Compute.round(a, -1), predicate: false },
-	trunc: { arity: 1, build: ([a]) => Compute.trunc(a), predicate: false },
-	trunc3: { arity: 1, build: ([a]) => Compute.trunc(a, 3), predicate: false },
-	"trunc-2": { arity: 1, build: ([a]) => Compute.trunc(a, -2), predicate: false },
-	ceil: { arity: 1, build: ([a]) => Compute.ceil(a), predicate: false },
-	floor: { arity: 1, build: ([a]) => Compute.floor(a), predicate: false },
-	gcd: { arity: 2, build: ([a, b]) => Compute.gcd(a, b), predicate: false },
-	lcm: { arity: 2, build: ([a, b]) => Compute.lcm(a, b), predicate: false },
-	power: { arity: 2, build: ([a, b]) => Compute.power(a, b), predicate: false },
-	sqrt: { arity: 1, build: ([a]) => Compute.sqrt(a), predicate: false },
-	least: { arity: 3, build: ([a, b, c]) => Compute.least(a, b, c), predicate: false },
-	greatest: { arity: 3, build: ([a, b, c]) => Compute.greatest(a, b, c), predicate: false },
-	minScale: { arity: 1, build: ([a]) => Compute.minScale(a), predicate: false },
-	eq: { arity: 2, build: ([a, b]) => Compute.eq(a, b), predicate: true },
-	ne: { arity: 2, build: ([a, b]) => Compute.ne(a, b), predicate: true },
-	lt: { arity: 2, build: ([a, b]) => Compute.lt(a, b), predicate: true },
-	le: { arity: 2, build: ([a, b]) => Compute.le(a, b), predicate: true },
-	gt: { arity: 2, build: ([a, b]) => Compute.gt(a, b), predicate: true },
-	ge: { arity: 2, build: ([a, b]) => Compute.ge(a, b), predicate: true },
-	between: { arity: 3, build: ([a, b, c]) => Compute.between(a, b, c), predicate: true },
-	in: { arity: 1, build: ([a], c) => Compute.in(a, inLists[c]), predicate: true },
+	add: { arity: 2, build: ([a, b]) => computeCore.add(a, b), predicate: false },
+	sub: { arity: 2, build: ([a, b]) => computeCore.sub(a, b), predicate: false },
+	mul: { arity: 2, build: ([a, b]) => computeCore.mul(a, b), predicate: false },
+	div: { arity: 2, build: ([a, b]) => computeCore.div(a, b), predicate: false },
+	mod: { arity: 2, build: ([a, b]) => computeCore.mod(a, b), predicate: false },
+	neg: { arity: 1, build: ([a]) => computeCore.neg(a), predicate: false },
+	quot: { arity: 2, build: ([a, b]) => computeCore.quot(a, b), predicate: false },
+	rem: { arity: 2, build: ([a, b]) => computeCore.rem(a, b), predicate: false },
+	abs: { arity: 1, build: ([a]) => computeCore.abs(a), predicate: false },
+	sign: { arity: 1, build: ([a]) => computeCore.sign(a), predicate: false },
+	round: { arity: 1, build: ([a]) => computeCore.round(a), predicate: false },
+	round2: { arity: 1, build: ([a]) => computeCore.round(a, 2), predicate: false },
+	"round-1": { arity: 1, build: ([a]) => computeCore.round(a, -1), predicate: false },
+	trunc: { arity: 1, build: ([a]) => computeCore.trunc(a), predicate: false },
+	trunc3: { arity: 1, build: ([a]) => computeCore.trunc(a, 3), predicate: false },
+	"trunc-2": { arity: 1, build: ([a]) => computeCore.trunc(a, -2), predicate: false },
+	ceil: { arity: 1, build: ([a]) => computeCore.ceil(a), predicate: false },
+	floor: { arity: 1, build: ([a]) => computeCore.floor(a), predicate: false },
+	gcd: { arity: 2, build: ([a, b]) => computeCore.gcd(a, b), predicate: false },
+	lcm: { arity: 2, build: ([a, b]) => computeCore.lcm(a, b), predicate: false },
+	power: { arity: 2, build: ([a, b]) => computeCore.power(a, b), predicate: false },
+	sqrt: { arity: 1, build: ([a]) => computeCore.sqrt(a), predicate: false },
+	least: { arity: 3, build: ([a, b, c]) => computeCore.least(a, b, c), predicate: false },
+	greatest: { arity: 3, build: ([a, b, c]) => computeCore.greatest(a, b, c), predicate: false },
+	minScale: { arity: 1, build: ([a]) => computeCore.minScale(a), predicate: false },
+	eq: { arity: 2, build: ([a, b]) => computeCore.eq(a, b), predicate: true },
+	ne: { arity: 2, build: ([a, b]) => computeCore.ne(a, b), predicate: true },
+	lt: { arity: 2, build: ([a, b]) => computeCore.lt(a, b), predicate: true },
+	le: { arity: 2, build: ([a, b]) => computeCore.le(a, b), predicate: true },
+	gt: { arity: 2, build: ([a, b]) => computeCore.gt(a, b), predicate: true },
+	ge: { arity: 2, build: ([a, b]) => computeCore.ge(a, b), predicate: true },
+	between: { arity: 3, build: ([a, b, c]) => computeCore.between(a, b, c), predicate: true },
+	in: { arity: 1, build: ([a], c) => computeCore.in(a, inLists[c]), predicate: true },
 	cond: {
 		arity: 3,
-		build: ([a, b, c]) => Compute.cond(Compute.lt(a, b), b, c),
+		build: ([a, b, c]) => computeCore.cond(computeCore.lt(a, b), b, c),
 		predicate: false
 	},
 	"and-or": {
 		arity: 3,
 		build: ([a, b, c]) =>
-			Compute.or(Compute.and(Compute.le(a, b), Compute.not(Compute.eq(b, c))), Compute.gt(c, a)),
+			computeCore.or(
+				computeCore.and(computeCore.le(a, b), computeCore.not(computeCore.eq(b, c))),
+				computeCore.gt(c, a)
+			),
 		predicate: true
 	},
 	"exact add": {
 		arity: 3,
-		build: ([a, b, c]) => Compute.add(Compute.add(a, b), c),
+		build: ([a, b, c]) => computeCore.add(computeCore.add(a, b), c),
 		predicate: false
 	},
 	"exact mul": {
 		arity: 3,
-		build: ([a, b, c]) => Compute.mul(Compute.mul(a, b), c),
+		build: ([a, b, c]) => computeCore.mul(computeCore.mul(a, b), c),
 		predicate: false
 	},
 	"exact div": {
 		arity: 3,
-		build: ([a, b, c]) => Compute.div(Compute.mul(a, b), c),
+		build: ([a, b, c]) => computeCore.div(computeCore.mul(a, b), c),
 		predicate: false
 	},
 	"exact compare": {
 		arity: 3,
-		build: ([a, b, c]) => Compute.lt(Compute.sub(a, b), c),
+		build: ([a, b, c]) => computeCore.lt(computeCore.sub(a, b), c),
 		predicate: true
 	},
 	"guarded div": {
 		arity: 2,
 		build: ([a, b]) =>
-			Compute.when(Compute.nonzero(b), (d: ScalarTerm) => Compute.div(a, d), Compute.sub(a, a)),
+			computeCore.when(
+				computeCore.nonzero(b),
+				(d: ScalarTerm) => computeCore.div(a, d),
+				computeCore.sub(a, a)
+			),
 		predicate: false
 	}
 } as const satisfies { readonly [name: string]: Op }
@@ -712,7 +719,7 @@ const carrierEntries = (c: Gate): ReadonlyArray<Entry> => {
 		),
 		...Arr.map(
 			Arr.filter(Rec.keys(castTargets), (target) =>
-				admitted(() => Compute.cast(terms[0], castTargets[target]))
+				admitted(() => computeCore.cast(terms[0], castTargets[target]))
 			),
 			(target): Entry => ({
 				gen: (source) => ({ kind: "cast", target, operands: source.draw(operandsGen(c)) }),
@@ -818,7 +825,7 @@ const formsOf = (k: CatalogueCase): ReadonlyArray<Formed> => {
 		case "cast": {
 			const f = fields[k.operands.carrier]
 			return Arr.map(operandValues(k.operands), (x) => ({
-				expr: Compute.cast(spelledTerm("a", f, x), castTargets[k.target]).expr,
+				expr: computeCore.cast(spelledTerm("a", f, x), castTargets[k.target]).expr,
 				bindings: { a: literalOf(f, x) },
 				predicate: false,
 				read: [x]
@@ -828,7 +835,7 @@ const formsOf = (k: CatalogueCase): ReadonlyArray<Formed> => {
 			const numeric = testPg.numeric
 			const counts = [-1, 0, 1, 3, 10, 2147483647]
 			const bucket = (a: Operand, b: Operand, c: Operand, n: number): Formed => ({
-				expr: Compute.widthBucket(
+				expr: computeCore.widthBucket(
 					spelledTerm("a", numeric, a),
 					spelledTerm("b", numeric, b),
 					spelledTerm("c", numeric, c),
@@ -860,7 +867,7 @@ const formsOf = (k: CatalogueCase): ReadonlyArray<Formed> => {
 				const a = plainOperand(Decimal.of(x), "drawn")
 				const b = plainOperand(Decimal.of(y), "drawn")
 				return {
-					expr: Compute.lcm(v("a", numeric), v("b", numeric)).expr,
+					expr: computeCore.lcm(v("a", numeric), v("b", numeric)).expr,
 					bindings: { a: literalOf(numeric, a), b: literalOf(numeric, b) },
 					predicate: false,
 					read: [a, b]

@@ -7,7 +7,7 @@ import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import type { WrittenOutcome } from "#adapter/db/handles.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { Law } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import {
 	accumulated,
 	Bits,
@@ -879,7 +879,7 @@ export const JudgedMember = relation(
 
 const judgedFamily = counted(on(JudgedMember, "o"), fin(JudgedOwner, "n"))
 
-const seenIsDeclared = check("seenIsDeclared", JudgedOwner, (o) => Compute.eq(o.seen, o.declared))
+const seenIsDeclared = check("seenIsDeclared", JudgedOwner, (o) => Logic.eq(o.seen, o.declared))
 
 const totalIsBudget = check("totalIsBudget", JudgedOwner, (o) => o.eq(o.total, o.budget))
 

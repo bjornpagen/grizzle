@@ -7,7 +7,7 @@
  * - k, a count: |a|, |b|, |a ∪ b| or |a ∩ b|;
  * - s, a set: a ∪ b, a ∩ b, a − b, b − a, or a ∪ L, a ∩ L or a − L, L a literal set operand, Bits.of(Tier, …) of the
  *   live handles at even declared positions (markedOf), which takes a's type, so its bits are the handles' codes; or
- *   {tier} or a ∪ {tier}, the singleton of the row's tier, Compute.singleton(tier), whose one bit is the tier's code;
+ *   {tier} or a ∪ {tier}, the singleton of the row's tier, Bits.singleton(tier), whose one bit is the tier's code;
  * - w, C.at over Weight, a closed relation keyed by a Tier with two integer payloads: Weight.at("w", tier) or
  *   Weight.at("v", tier);
  * - p, C.row over Pair, a closed relation keyed by two Tiers: Pair.row(tier), it ∪ a, or it ∩ {tier}, whether the

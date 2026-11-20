@@ -1,7 +1,7 @@
 /**
  * A text's derived languages are analyzed once for its own language, however many compiles type them (scalar/compute/
- * typing.ts derivedLanguages): the language of its collapse (Compute.collapse) and of its image under a character map
- * (Compute.lowerAscii's ASCII fold), each the patterns of its own patterns' images the text analysis admits and their
+ * typing.ts derivedLanguages): the language of its collapse (Text.collapse) and of its image under a character map
+ * (Text.lowerAscii's ASCII fold), each the patterns of its own patterns' images the text analysis admits and their
  * language, made where a typing first meets the text's language (ir/scalar.ts RegexRef, one value however many schemas,
  * levels and law models type a text of it) and read from it by every later typing. A generate compiles its
  * installation's schemas many times: qti-database's analyzed 534 patterns, now 254.

@@ -120,7 +120,10 @@ type SpanEndpoint<E, H, ES extends SqlTag> = [ES] extends [EndpointSql]
 		: false
 	: false
 
-/** Whether a divisor B is proved nonzero where a quotient over S needs it: a float's never does, since IEEE 754 defines its quotient by zero. */
+/**
+ * Whether a divisor B is proved nonzero where a quotient over S needs it: a float's never does, since IEEE 754 defines
+ * its quotient by zero.
+ */
 type NonzeroDivisor<S extends SqlTag, B> = [S] extends ["real" | "double precision"]
 	? true
 	: Proves<B, "nonzero">
@@ -133,7 +136,10 @@ type IsFinite<S extends SqlTag, FX extends Facts, LV> = [S] extends [InexactSql]
 	? Holds<FX, LV, "finite">
 	: true
 
-/** Whether a cast's operand is as finite as its target needs: from numeric or a float into an integer or money, proved finite. */
+/**
+ * Whether a cast's operand is as finite as its target needs: from numeric or a float into an integer or money, proved
+ * finite.
+ */
 type FiniteCast<S extends SqlTag, F extends SqlTag, FX extends Facts, LV> = [F] extends [
 	"smallint" | "integer" | "bigint" | "money"
 ]
@@ -193,7 +199,9 @@ type Buckets<AX, AL, AH, C> = Every<
 	]
 >
 
-/** What a guard proves of its subject: the subject term, its facts with the guard's, and a constant's value (Literal). */
+/**
+ * What a guard proves of its subject: the subject term, its facts with the guard's, and a constant's value (Literal).
+ */
 type GuardOver<X, PA, OA, S extends SqlTag, V, FA extends Facts, L, LX, G> = Guard<
 	Term<X, PA, OA, S, V, FA & G, L> & Literal<LX>,
 	PA,
@@ -246,7 +254,9 @@ type Conditional<C, A, Otherwise, X, S extends SqlTag, L> = Every<
 		Takes<Otherwise, Operand<X, S, L>>
 	]
 >
-/** Whether LEAST or GREATEST takes its first operand A, of type (X, S), and every other operand Bs, terms that meet it. */
+/**
+ * Whether LEAST or GREATEST takes its first operand A, of type (X, S), and every other operand Bs, terms that meet it.
+ */
 type Extremes<A, Bs extends ReadonlyArray<unknown>, X, S extends SqlTag> = Every<
 	[TakesFirst<A, OrderedSql>, TakesRest<Bs, ReadonlyArray<Meets<X, S>>>]
 >
@@ -259,7 +269,9 @@ type ExtremeOrdered<A, Bs extends ReadonlyArray<unknown>, X, S extends SqlTag> =
 	HasOrder<A>,
 	"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles"
 >
-/** An operand B's own requirement opposite A: its contract's refusal, where the operation takes both (ContractAdmits). */
+/**
+ * An operand B's own requirement opposite A: its contract's refusal, where the operation takes both (ContractAdmits).
+ */
 type ValueAt<A, B, X, S extends SqlTag, F extends SqlTag> = ContractAdmits<
 	Binary<A, B, X, S, F>,
 	ColumnFacts<A>,
@@ -295,7 +307,7 @@ type OneType<S extends SqlTag, B> = true extends MixesExact<S, B> ? false : true
 type SharesType<Taken extends boolean, S extends SqlTag, B> = [Taken] extends [true]
 	? OneType<S, B> extends true
 		? unknown
-		: Refusal<"operands of one type: an exact value beside a plain value of its family; Compute.cast the exact one into the plain one's type">
+		: Refusal<"operands of one type: an exact value beside a plain value of its family; Type.cast the exact one into the plain one's type">
 	: unknown
 /** A comparison of two operands: their parameters, and their reads as its origin. */
 type Compared<A, B> = Predicate<P<A> & P<B>, ComputedOrigin<O<A> | O<B>>>
@@ -335,8 +347,13 @@ type Ordered<A, Taken extends boolean> = [SqlOfTerm<A>] extends ["bits"]
 type Orders<A, B> = Every<[Compares<A, B, OrderedSql>, HasOrder<A>]>
 
 /**
- * The Compute catalogue: PostgreSQL's scalar operators, functions and casts. `Compute` is the runtime catalogue of
- * packages/engine/src/scalar/compute, bound to its public signature ComputeApi by the public barrel public/compute.ts.
+ * The scalar catalogue: PostgreSQL's scalar operators, functions and casts, in eleven namespaces, each member in the
+ * one whose domain it reads: Type (constants, contracts and casts), Num (the numeric family), Logic (comparisons,
+ * connectives and conditionals over any type), Range (a span's endpoints), Text, Xml (XML Schema's pattern dialect),
+ * Crypto, Distance (over vectors), Search (text search documents and queries), Bits (the set algebra) and Fn (declared
+ * functions). Each is the runtime builders of packages/engine/src/scalar/compute bound to its public signature here
+ * (TypeApi, NumApi, LogicApi, RangeApi, TextApi, XmlApi, CryptoApi, DistanceApi, SearchApi, BitsApi, FnApi) by the
+ * public barrels public/compute.ts and public/fields.ts (Bits, beside Bits.of); what follows holds of all eleven.
  *
  * Every method threads the parameter maps of its operands into its result, and types its result as PostgreSQL's
  * overload does, over its operand's SQL type, the term's `sql`: arithmetic keeps the operand's SQL type without its
@@ -366,10 +383,12 @@ type Orders<A, B> = Every<[Compares<A, B, OrderedSql>, HasOrder<A>]>
  * so a call over it states no refusal of its own, as the engine, which builds a call's operands first, refuses the
  * inner call.
  *
- * test/unit/compute pins the runtime behavior each signature promises, the Compute population
+ * test/unit/compute pins the runtime behavior each signature promises, the catalogue's population
  * (test/support/agreement/compute.ts) the signatures against the engine.
+ *
+ * The first, Type: a typed constant of a descriptor's type, a contract dropped to its base, and a checked cast.
  */
-export interface ComputeApi {
+export interface TypeApi {
 	/**
 	 * A constant of a descriptor's type, of its whole host type: a typed constant, which stands wherever a term of that
 	 * type stands, first included. Its value is a JavaScript value of the descriptor's language, its host type: a
@@ -423,16 +442,21 @@ export interface ComputeApi {
 			Precondition<
 				TakesFirst<A, SqlTag>,
 				CastAdmitted<X, S, D, F>,
-				"PostgreSQL has no cast between these types that Compute admits"
+				"PostgreSQL has no cast between these types that grizzle admits"
 			> &
 			Precondition<
 				Casts<A, X, S, D, F>,
 				FiniteCast<S, F, FX, LX>,
-				"a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)"
+				"a value proved finite: guard it with Logic.when(Num.isFinite(x), (x) => …, otherwise)"
 			>,
 		to: Field<H, F, D> & NotInstant<D>
 	): Admitted<Casts<A, X, S, D, F>, Term<D, PA, ComputedOrigin<OA>, F, H, CastFacts<S, F, FX>>>
+}
 
+/**
+ * The Num namespace: arithmetic, rounding and the numeric functions over the numeric family, and the guards over it.
+ */
+export interface NumApi {
 	/**
 	 * The numeric of a value: PostgreSQL's conversion into numeric, `x::numeric`, of an integer, money, an exact value,
 	 * a numeric or a float. Its result is a computed numeric, the type no field has, whose bound the value's gives
@@ -484,7 +508,7 @@ export interface ComputeApi {
 			Precondition<
 				Reads<A, B, X, S, NumericSql>,
 				NonzeroDivisor<S, B>,
-				"a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)"
+				"a divisor proved nonzero: guard it with Logic.when(Num.nonzero(x), (x) => …, otherwise)"
 			>
 	): Admitted<
 		Reads<A, B, X, S, NumericSql>,
@@ -498,7 +522,7 @@ export interface ComputeApi {
 			Precondition<
 				Reads<A, B, X, S, IntegralSql>,
 				NonzeroDivisor<S, B>,
-				"a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)"
+				"a divisor proved nonzero: guard it with Logic.when(Num.nonzero(x), (x) => …, otherwise)"
 			>
 	): Admitted<
 		Reads<A, B, X, S, IntegralSql>,
@@ -528,7 +552,7 @@ export interface ComputeApi {
 			Precondition<
 				Reads<A, B, X, "numeric", "numeric">,
 				Proves<B, "nonzero">,
-				"a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)"
+				"a divisor proved nonzero: guard it with Logic.when(Num.nonzero(x), (x) => …, otherwise)"
 			>
 	): Admitted<
 		Reads<A, B, X, "numeric", "numeric">,
@@ -541,7 +565,7 @@ export interface ComputeApi {
 			Precondition<
 				Reads<A, B, X, "numeric", "numeric">,
 				Proves<B, "nonzero">,
-				"a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)"
+				"a divisor proved nonzero: guard it with Logic.when(Num.nonzero(x), (x) => …, otherwise)"
 			>
 	): Admitted<
 		Reads<A, B, X, "numeric", "numeric">,
@@ -618,7 +642,7 @@ export interface ComputeApi {
 			Precondition<
 				Reads<A, B, X, S, PowerSql>,
 				PowerBase<FA, LA, B>,
-				"a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Compute.when(Compute.positive(x), (x) => …, otherwise)"
+				"a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Logic.when(Num.positive(x), (x) => …, otherwise)"
 			>,
 		b: Fit<B, NoInfer<Operand<X, S>>> & ValueAt<A, B, X, S, PowerSql>
 	): Admitted<
@@ -635,67 +659,9 @@ export interface ComputeApi {
 			Precondition<
 				TakesFirst<A, PowerSql>,
 				[S] extends ["numeric"] ? Holds<FA, LA, "nonnegative"> : true,
-				"a radicand proved nonnegative: guard it with Compute.when(Compute.nonnegative(x), (x) => …, otherwise)"
+				"a radicand proved nonnegative: guard it with Logic.when(Num.nonnegative(x), (x) => …, otherwise)"
 			>
 	): Admitted<TakesFirst<A, PowerSql>, Term<PlainHost[S], PA, UnhostedOrigin<OA>, S>>
-	/**
-	 * LEAST and GREATEST return an operand unchanged, so they keep the first operand's type, contract and roster
-	 * included, and deliver any operand's values; every other operand is a term of that type. An exact value and a
-	 * plain one of its family share none, in either order (SharesType): PostgreSQL widens the plain one, grizzle asks
-	 * for Compute.cast of the exact one into the plain one's type.
-	 */
-	least<
-		A extends TermBase | FirstValue,
-		X,
-		PA,
-		OA,
-		S extends OrderedSql,
-		V,
-		L,
-		const Bs extends ReadonlyArray<unknown>
-	>(
-		first: A & First<A, Bs> & Term<X, PA, OA, S, V, Facts, L> & ExtremeOrdered<A, Bs, X, S>,
-		...rest: Bs &
-			NoInfer<ReadonlyArray<Meets<X, S>>> &
-			NoInfer<{ readonly [K in keyof Bs]: SharesType<Extremes<A, Bs, X, S>, S, Bs[K]> }>
-	): Admitted<
-		Every<[Extremes<A, Bs, X, S>, OneType<S, Bs[number]>, HasOrder<A>]>,
-		Term<
-			X,
-			PA & ParamsOfEach<Bs>,
-			ComputedOrigin<OA | O<Bs[number]>>,
-			S,
-			V | ValueOfTerm<Bs[number]>,
-			Facts,
-			L
-		>
-	>
-	greatest<
-		A extends TermBase | FirstValue,
-		X,
-		PA,
-		OA,
-		S extends OrderedSql,
-		V,
-		L,
-		const Bs extends ReadonlyArray<unknown>
-	>(
-		first: A & First<A, Bs> & Term<X, PA, OA, S, V, Facts, L> & ExtremeOrdered<A, Bs, X, S>,
-		...rest: Bs &
-			NoInfer<ReadonlyArray<Meets<X, S>>> &
-			NoInfer<{ readonly [K in keyof Bs]: SharesType<Extremes<A, Bs, X, S>, S, Bs[K]> }>
-	): Admitted<
-		Every<[Extremes<A, Bs, X, S>, OneType<S, Bs[number]>, HasOrder<A>]>,
-		Term<
-			X,
-			PA & ParamsOfEach<Bs>,
-			ComputedOrigin<OA | O<Bs[number]>>,
-			S,
-			V | ValueOfTerm<Bs[number]>,
-			Facts,
-			L
-		>
-	>
 	/**
 	 * The operand and the bounds are numeric terms proved finite; that the bounds differ and the count lies in
 	 * 1..2147483646 rests on their magnitudes, which compilation proves or refuses as PartialOperation. The engine reads
@@ -731,7 +697,7 @@ export interface ComputeApi {
 			Precondition<
 				Buckets<AX, AL, AH, C>,
 				Holds<FXX, LXX, "finite">,
-				"a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)"
+				"a value proved finite: guard it with Logic.when(Num.isFinite(x), (x) => …, otherwise)"
 			>,
 		low: AL &
 			FirstAmong<AL, "numeric", [AX, AH, C], [AH]> &
@@ -741,7 +707,7 @@ export interface ComputeApi {
 			Precondition<
 				Buckets<AX, AL, AH, C>,
 				Holds<FXL, LXL, "finite">,
-				"a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)"
+				"a value proved finite: guard it with Logic.when(Num.isFinite(x), (x) => …, otherwise)"
 			>,
 		high: AH &
 			First<AH, [AX, AL, C]> &
@@ -751,7 +717,7 @@ export interface ComputeApi {
 			Precondition<
 				Buckets<AX, AL, AH, C>,
 				Holds<FXH, LXH, "finite">,
-				"a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)"
+				"a value proved finite: guard it with Logic.when(Num.isFinite(x), (x) => …, otherwise)"
 			>,
 		count: Fit<C, NoInfer<Meets<number, SqlTag>>>
 	): Admitted<
@@ -768,91 +734,10 @@ export interface ComputeApi {
 			Precondition<
 				TakesFirst<A, "numeric">,
 				Holds<FA, LA, "finite">,
-				"a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)"
+				"a value proved finite: guard it with Logic.when(Num.isFinite(x), (x) => …, otherwise)"
 			>
 	): Admitted<TakesFirst<A, "numeric">, Term<number, PA, UnhostedOrigin<OA>, "integer">>
 
-	/**
-	 * The first branch, a term and never a parameter or a JavaScript value (FirstTerm), types the conditional, contract
-	 * and roster included; the other is a term that meets its type (a parameter among them) or a literal of it, and the
-	 * conditional delivers either's values. An exact value and a plain one of its family share no type, in either order
-	 * (SharesType): PostgreSQL widens the plain branch, grizzle asks for Compute.cast of the exact one into the plain
-	 * one's type. A boolean field is a predicate here, so
-	 * r.sum(Compute.cond(passed, Compute.literal(pg.integer, 1), 0)) is a conditional count.
-	 */
-	cond<
-		C extends PredicateBase | Meets<boolean, "boolean">,
-		A extends TermBase | FirstValue,
-		X,
-		PT,
-		OT,
-		S extends SqlTag,
-		V,
-		L,
-		const Otherwise
-	>(
-		p: C & First<C, [A, Otherwise]> & NegationFree<C>,
-		then: A & First<A, [C, Otherwise]> & Term<X, PT, OT, S, V, Facts, L>,
-		otherwise: Fit<Otherwise, NoInfer<Operand<X, S, L>>> &
-			ContractAdmits<Conditional<C, A, Otherwise, X, S, L>, ColumnFacts<A>, Otherwise> &
-			SharesType<Conditional<C, A, Otherwise, X, S, L>, S, Otherwise>
-	): Admitted<
-		Every<
-			[Conditional<C, A, Otherwise, X, S, L>, Not<RefutedAt<A, Otherwise>>, OneType<S, Otherwise>]
-		>,
-		Term<
-			X,
-			P<C> & PT & P<Otherwise>,
-			ComputedOrigin<O<C> | OT | O<Otherwise>>,
-			S,
-			V | ValuesOf<Otherwise, V>,
-			Facts,
-			L
-		>
-	>
-	/**
-	 * The one guard of a partial operation: CASE WHEN <guard> THEN <branch> ELSE <otherwise> END. The branch is a
-	 * function of the guard's subject, which it receives with the guard's facts proved, so a partial operation over it
-	 * type-checks inside the branch and nowhere else, and only over the parameter: the subject read past it, a term the
-	 * branch captures, keeps its own facts, as compilation reads it; the otherwise branch, a term that meets the
-	 * branch's type or a literal of it, is the caller's value where the guard fails: Compute.when(Compute.nonzero(b),
-	 * (b) => Compute.div(a, b), 0n). The subject is read off the guard itself, so a guard its builder refused, never (Admitted), hands the
-	 * branch never, and the refusal is its one diagnostic. Its branch and its otherwise share one type (SharesType), so an
-	 * exact quotient beside an integer otherwise is refused: cast the quotient into the integer's type.
-	 */
-	when<Gd extends Guard<TermBase, never>, X, PT, OT, S extends SqlTag, V, L, const Otherwise>(
-		guard: Gd,
-		then: (subject: Gd[typeof guarded]) => Term<X, PT, OT, S, V, Facts, L> & FirstOrigin<OT>,
-		otherwise: Fit<Otherwise, NoInfer<Operand<X, S, L>>> &
-			ContractAdmits<
-				Every<[Takes<Gd, Guard<TermBase, never>>, Takes<Otherwise, Operand<X, S, L>>]>,
-				ColumnFacts<Term<X, PT, OT, S, V, Facts, L>>,
-				Otherwise
-			> &
-			SharesType<
-				Every<[Takes<Gd, Guard<TermBase, never>>, Takes<Otherwise, Operand<X, S, L>>]>,
-				S,
-				Otherwise
-			>
-	): Admitted<
-		Every<
-			[
-				Takes<Gd, Guard<TermBase, never>>,
-				Takes<Otherwise, Operand<X, S, L>>,
-				Not<RefutedAt<Term<X, PT, OT, S, V, Facts, L>, Otherwise>>,
-				OneType<S, Otherwise>
-			]
-		>,
-		Term<
-			X,
-			P<Gd> & PT & P<Otherwise>,
-			ComputedOrigin<O<Gd> | OT | O<Otherwise>>,
-			S,
-			V | ValuesOf<Otherwise, V>,
-			Facts,
-			L
-		>
-	>
 	/** A guard that its subject, a numeric-family term, is nonzero: `x <> 0`. */
 	nonzero<
 		A extends TermBase | FirstValue,
@@ -925,7 +810,7 @@ export interface ComputeApi {
 	 * A guard that its subject lies within two finite literal bounds: `x BETWEEN low AND high`. It proves the subject
 	 * finite, nonnegative from a low bound at or above zero, and nonzero from bounds on one side of zero (WithinFacts);
 	 * compilation reads the bounds too, for the preconditions that rest on magnitudes (a narrowing's range, a power's, a
-	 * bucket's): Compute.when(Compute.within(x, 0n, 1000n), (x) => Compute.power(x, 2n), 0n). Over a contract a bound is a
+	 * bucket's): Logic.when(Num.within(x, 0n, 1000n), (x) => Num.power(x, 2n), 0n). Over a contract a bound is a
 	 * value of it, which its contract refuses where it lacks a fact the contract declares (ContractAdmits).
 	 */
 	within<
@@ -949,6 +834,164 @@ export interface ComputeApi {
 	): Admitted<
 		Every<[Bounds<A, Lo, Hi, NumericSql, L>, Not<RefutedAt<A, Lo | Hi>>]>,
 		GuardOver<X, PA, OA, S, V, FA, L, LX, WithinFacts<Lo, Hi>>
+	>
+	/**
+	 * A float's identity image: float8send's 8 bytes, the bits of its IEEE 754 binary64 encoding, read as a signed
+	 * bigint, a real widened exactly to double precision first, every NaN in one form (0x7ff8000000000000), as Java's
+	 * doubleToLongBits reads them; `floatBits(value)` is the same function on the host. Two floats have one image
+	 * exactly when they are one value: -0 and 0 differ, where Logic.eq holds them equal. IMMUTABLE and defined on
+	 * every float, it stands in row checks, selections, generated fields and queries, so a key over a float by identity
+	 * is a key over its image: a stated `bits: pg.bigint` in the key, held by `check(name, R, (r) => r.eq(r.bits,
+	 * Num.floatBits(r.value)))`, the float kept beside it for reads by `=`.
+	 */
+	floatBits<A extends TermBase | FirstValue, X, PA, OA, S extends FloatSql>(
+		x: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
+	): Admitted<TakesFirst<A, FloatSql>, Term<bigint, PA, ComputedOrigin<OA>, "bigint">>
+}
+
+/**
+ * The Logic namespace: the comparisons, LEAST and GREATEST, the connectives and the conditionals, over any type they
+ * order or compare.
+ */
+export interface LogicApi {
+	/**
+	 * LEAST and GREATEST return an operand unchanged, so they keep the first operand's type, contract and roster
+	 * included, and deliver any operand's values; every other operand is a term of that type. An exact value and a
+	 * plain one of its family share none, in either order (SharesType): PostgreSQL widens the plain one, grizzle asks
+	 * for Type.cast of the exact one into the plain one's type.
+	 */
+	least<
+		A extends TermBase | FirstValue,
+		X,
+		PA,
+		OA,
+		S extends OrderedSql,
+		V,
+		L,
+		const Bs extends ReadonlyArray<unknown>
+	>(
+		first: A & First<A, Bs> & Term<X, PA, OA, S, V, Facts, L> & ExtremeOrdered<A, Bs, X, S>,
+		...rest: Bs &
+			NoInfer<ReadonlyArray<Meets<X, S>>> &
+			NoInfer<{ readonly [K in keyof Bs]: SharesType<Extremes<A, Bs, X, S>, S, Bs[K]> }>
+	): Admitted<
+		Every<[Extremes<A, Bs, X, S>, OneType<S, Bs[number]>, HasOrder<A>]>,
+		Term<
+			X,
+			PA & ParamsOfEach<Bs>,
+			ComputedOrigin<OA | O<Bs[number]>>,
+			S,
+			V | ValueOfTerm<Bs[number]>,
+			Facts,
+			L
+		>
+	>
+	greatest<
+		A extends TermBase | FirstValue,
+		X,
+		PA,
+		OA,
+		S extends OrderedSql,
+		V,
+		L,
+		const Bs extends ReadonlyArray<unknown>
+	>(
+		first: A & First<A, Bs> & Term<X, PA, OA, S, V, Facts, L> & ExtremeOrdered<A, Bs, X, S>,
+		...rest: Bs &
+			NoInfer<ReadonlyArray<Meets<X, S>>> &
+			NoInfer<{ readonly [K in keyof Bs]: SharesType<Extremes<A, Bs, X, S>, S, Bs[K]> }>
+	): Admitted<
+		Every<[Extremes<A, Bs, X, S>, OneType<S, Bs[number]>, HasOrder<A>]>,
+		Term<
+			X,
+			PA & ParamsOfEach<Bs>,
+			ComputedOrigin<OA | O<Bs[number]>>,
+			S,
+			V | ValueOfTerm<Bs[number]>,
+			Facts,
+			L
+		>
+	>
+	/**
+	 * The first branch, a term and never a parameter or a JavaScript value (FirstTerm), types the conditional, contract
+	 * and roster included; the other is a term that meets its type (a parameter among them) or a literal of it, and the
+	 * conditional delivers either's values. An exact value and a plain one of its family share no type, in either order
+	 * (SharesType): PostgreSQL widens the plain branch, grizzle asks for Type.cast of the exact one into the plain
+	 * one's type. A boolean field is a predicate here, so
+	 * r.sum(Logic.cond(passed, Type.literal(pg.integer, 1), 0)) is a conditional count.
+	 */
+	cond<
+		C extends PredicateBase | Meets<boolean, "boolean">,
+		A extends TermBase | FirstValue,
+		X,
+		PT,
+		OT,
+		S extends SqlTag,
+		V,
+		L,
+		const Otherwise
+	>(
+		p: C & First<C, [A, Otherwise]> & NegationFree<C>,
+		then: A & First<A, [C, Otherwise]> & Term<X, PT, OT, S, V, Facts, L>,
+		otherwise: Fit<Otherwise, NoInfer<Operand<X, S, L>>> &
+			ContractAdmits<Conditional<C, A, Otherwise, X, S, L>, ColumnFacts<A>, Otherwise> &
+			SharesType<Conditional<C, A, Otherwise, X, S, L>, S, Otherwise>
+	): Admitted<
+		Every<
+			[Conditional<C, A, Otherwise, X, S, L>, Not<RefutedAt<A, Otherwise>>, OneType<S, Otherwise>]
+		>,
+		Term<
+			X,
+			P<C> & PT & P<Otherwise>,
+			ComputedOrigin<O<C> | OT | O<Otherwise>>,
+			S,
+			V | ValuesOf<Otherwise, V>,
+			Facts,
+			L
+		>
+	>
+	/**
+	 * The one guard of a partial operation: CASE WHEN <guard> THEN <branch> ELSE <otherwise> END. The branch is a
+	 * function of the guard's subject, which it receives with the guard's facts proved, so a partial operation over it
+	 * type-checks inside the branch and nowhere else, and only over the parameter: the subject read past it, a term the
+	 * branch captures, keeps its own facts, as compilation reads it; the otherwise branch, a term that meets the
+	 * branch's type or a literal of it, is the caller's value where the guard fails: Logic.when(Num.nonzero(b),
+	 * (b) => Num.div(a, b), 0n). The subject is read off the guard itself, so a guard its builder refused, never (Admitted), hands the
+	 * branch never, and the refusal is its one diagnostic. Its branch and its otherwise share one type (SharesType), so an
+	 * exact quotient beside an integer otherwise is refused: cast the quotient into the integer's type.
+	 */
+	when<Gd extends Guard<TermBase, never>, X, PT, OT, S extends SqlTag, V, L, const Otherwise>(
+		guard: Gd,
+		then: (subject: Gd[typeof guarded]) => Term<X, PT, OT, S, V, Facts, L> & FirstOrigin<OT>,
+		otherwise: Fit<Otherwise, NoInfer<Operand<X, S, L>>> &
+			ContractAdmits<
+				Every<[Takes<Gd, Guard<TermBase, never>>, Takes<Otherwise, Operand<X, S, L>>]>,
+				ColumnFacts<Term<X, PT, OT, S, V, Facts, L>>,
+				Otherwise
+			> &
+			SharesType<
+				Every<[Takes<Gd, Guard<TermBase, never>>, Takes<Otherwise, Operand<X, S, L>>]>,
+				S,
+				Otherwise
+			>
+	): Admitted<
+		Every<
+			[
+				Takes<Gd, Guard<TermBase, never>>,
+				Takes<Otherwise, Operand<X, S, L>>,
+				Not<RefutedAt<Term<X, PT, OT, S, V, Facts, L>, Otherwise>>,
+				OneType<S, Otherwise>
+			]
+		>,
+		Term<
+			X,
+			P<Gd> & PT & P<Otherwise>,
+			ComputedOrigin<O<Gd> | OT | O<Otherwise>>,
+			S,
+			V | ValuesOf<Otherwise, V>,
+			Facts,
+			L
+		>
 	>
 	/** A negation holds no relational negation, which is a rule-level filter (Negating). */
 	not<Q extends PredicateBase>(p: Q & NegationFree<Q>): Predicate<P<Q>, ComputedOrigin<O<Q>>>
@@ -1018,7 +1061,10 @@ export interface ComputeApi {
 		Every<[Listed<A, Vs>, Not<RefutedAt<A, MembersOf<Vs>>>]>,
 		Predicate<P<A>, ComputedOrigin<O<A>>>
 	>
+}
 
+/** The Range namespace: a span's endpoints and width. */
+export interface RangeApi {
 	/**
 	 * A span's endpoints, of its endpoint descriptor's type, contract included, and its width, the plain value of the
 	 * endpoint's SQL type: the endpoint descriptor states what a span term's type alone cannot carry, and must be the
@@ -1067,16 +1113,22 @@ export interface ComputeApi {
 		Every<[TakesFirst<A, "range">, SpanEndpoint<E, D, SqlOfDescriptor<Ep>>]>,
 		Term<PlainHost[SpanWidthSql[ES]], PA, ComputedOrigin<OA>, SpanWidthSql[ES]>
 	>
+}
 
+/**
+ * The Text namespace: text's lengths, concatenation, prefixes, patterns in grizzle's grammar and their matches,
+ * transforms, references and lexical parses.
+ */
+export interface TextApi {
 	/** char_length; admitted only in contract predicates and row checks, never in a query. */
 	charLength<A extends TermBase | FirstValue, X, PA, OA>(
 		s: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Scalar<number, PA, ComputedOrigin<OA>, "integer">>
 	/**
 	 * octet_length, the text's UTF-8 bytes, total, so admitted everywhere, a query included. A contract's octetLength
-	 * bound bounds the text's bytes in a key exactly, and a guard on it, `Compute.when(Compute.within(Compute.octetLength(x),
+	 * bound bounds the text's bytes in a key exactly, and a guard on it, `Logic.when(Num.within(Text.octetLength(x),
 	 * 0, bytes), (n) => ..., otherwise)`, bounds x's bytes in its branch, which is how a query reads an unbounded text by
-	 * Compute.matches or Compute.translate.
+	 * Text.matches or Text.translate.
 	 */
 	octetLength<A extends TermBase | FirstValue, X, PA, OA>(
 		s: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
@@ -1085,8 +1137,8 @@ export interface ComputeApi {
 	 * A text's UTF-16 code units, JavaScript's String.length: its code points, and its supplementary ones once more,
 	 * `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`; admitted only in contract predicates and row
 	 * checks, never in a query. PostgreSQL's regex engine reads at most 268,435,454 bytes, so the text is bounded within
-	 * them by its type or by a guard, `Compute.when(Compute.within(Compute.octetLength(x), 0, bytes), (x) =>
-	 * Compute.utf16Length(x), otherwise)`, or the operation is PartialOperation (`bounded`), and no law that reads it
+	 * them by its type or by a guard, `Logic.when(Num.within(Text.octetLength(x), 0, bytes), (x) =>
+	 * Text.utf16Length(x), otherwise)`, or the operation is PartialOperation (`bounded`), and no law that reads it
 	 * raises on a long text. A UTF-16 code unit is at most three UTF-8 bytes, so a text of more than 3n bytes is more than
 	 * n units.
 	 */
@@ -1097,9 +1149,9 @@ export interface ComputeApi {
 	 * a || b, PostgreSQL's textcat: text of no pattern, which compilation reads within a's bytes and b's where both are
 	 * bounded, a string by its own. The second operand is a text term the first meets, a parameter among them, or a
 	 * string. Admitted in contract predicates, row checks, generated fields and folds; in a query only as a side of
-	 * Compute.eq or Compute.ne, which is decided without building the concatenation, since it allocates its result,
+	 * Logic.eq or Logic.ne, which is decided without building the concatenation, since it allocates its result,
 	 * which PostgreSQL refuses past 1 GB, and a read never fails on a value. Concatenations nested in that side are its
-	 * parts, read in order: `Compute.eq(t, Compute.concat(Compute.concat(a, b), c))` decides t by the lengths of a, b
+	 * parts, read in order: `Logic.eq(t, Text.concat(Text.concat(a, b), c))` decides t by the lengths of a, b
 	 * and c, a's prefix, b at its offset and c's suffix, in a query as in a check.
 	 */
 	concat<A extends TermBase | FirstValue, X, PA, OA, const B>(
@@ -1157,18 +1209,7 @@ export interface ComputeApi {
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Term<string, PA, ComputedOrigin<OA>, "text">>
 	/**
-	 * Whether x is an XML Schema 1.0 pattern, a string of Appendix F's regExp production, as grizzle-text's reader of
-	 * that grammar reads it (regex/xsd.ts xsdPattern): groups and class subtractions nested to any depth and counts of any
-	 * size, refused at a construct Appendix F does not define (`(?`, a back-reference, an unclosed `[` or `(`, a `{`
-	 * that opens no count) or a category or block its tables do not name. PostgreSQL judges it by a function of grizzle's
-	 * library, the reader's moves as a table its recursive query reads once over the text's characters, so the law holds
-	 * in a contract predicate, a row check, a generated field and a query alike, on every text.
-	 */
-	isXsdPattern<A extends TermBase | FirstValue, X, PA, OA>(
-		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
-	): Admitted<TakesFirst<A, "text">, Term<boolean, PA, ComputedOrigin<OA>, "boolean">>
-	/**
-	 * XML Schema's whiteSpace replace: translate(x, "\t\n\r", "   "), tab, LF and CR each a space, as Compute.translate
+	 * XML Schema's whiteSpace replace: translate(x, "\t\n\r", "   "), tab, LF and CR each a space, as Text.translate
 	 * is admitted, and within x's byte bound.
 	 */
 	replaceWhitespace<A extends TermBase | FirstValue, X, PA, OA>(
@@ -1208,7 +1249,7 @@ export interface ComputeApi {
 	 * mantissa's sign below half the least subnormal; `INF`, `-INF` and `NaN` name themselves. Its text is
 	 * `doubleText`, XML Schema 1.0's xs:double lexical space, of any digits and any exponent:
 	 * compilation proves the operand's pattern lies inside it, or refuses the parse as PartialOperation (`lexical`),
-	 * remedied by `Compute.when(Compute.matches(x, doubleText), (x) => Compute.parseDouble(x), otherwise)`. Admitted
+	 * remedied by `Logic.when(Text.matches(x, doubleText), (x) => Text.parseDouble(x), otherwise)`. Admitted
 	 * in contract predicates, row checks, generated fields and queries.
 	 */
 	parseDouble<A extends TermBase | FirstValue, X, PA, OA>(
@@ -1220,8 +1261,8 @@ export interface ComputeApi {
 	 * text is `decimalText`, the grammar of XML Schema 1.1's xs:decimal lexical space, within `decimalTextMaxBytes`
 	 * UTF-8 bytes, 16,384, past which a text may name a value numeric does not hold: compilation proves the operand's
 	 * pattern lies inside it and its bytes within them, by its type (`str.bytes(16384, str.regex(decimalText.source))` or a
-	 * refinement of it) or by guards, `Compute.when(Compute.matches(x, decimalText), (x) =>
-	 * Compute.when(Compute.within(Compute.octetLength(x), 0, 16384), () => Compute.parseDecimal(x), otherwise),
+	 * refinement of it) or by guards, `Logic.when(Text.matches(x, decimalText), (x) =>
+	 * Logic.when(Num.within(Text.octetLength(x), 0, 16384), () => Text.parseDecimal(x), otherwise),
 	 * otherwise)`, or refuses the parse as PartialOperation (`lexical`). Its result has at most as many integer digits
 	 * as the operand has bytes, and one fewer fraction digits. Admitted in contract predicates, row checks, generated
 	 * fields and queries.
@@ -1230,56 +1271,24 @@ export interface ComputeApi {
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Term<Decimal, PA, ComputedOrigin<OA>, "numeric">>
 	/**
-	 * The SHA-256 digest of a bytes value, or of a text's UTF-8 bytes, as 64 lowercase hex digits,
-	 * `encode(sha256(x), 'hex')`, the one operation that reads a bytes value, read whole: text of the language
-	 * `^[0-9a-f]{64}$`, which compilation reads, so a cast into a text type whose language holds it,
-	 * `str.regex("^[0-9a-f]{64}$")` among them, needs no guard, a cast into one whose language lacks it is
-	 * PartialOperation, and a literal opposite it is judged by it. IMMUTABLE and defined on every value, it stands in row
-	 * checks, selections, generated fields and queries: `generated(str.regex("^[0-9a-f]{64}$"), Compute.sha256(row.content))`
-	 * is a field whose every value PostgreSQL computes from the bytes it stores, and `Compute.sha256(row.body)` the
-	 * digest of a text's UTF-8.
-	 */
-	sha256<A extends TermBase | FirstValue, X, PA, OA>(
-		x: A & WholeTerm<A> & InputTerm<X, PA, OA, "bytea" | "text">
-	): Admitted<TakesFirst<A, "bytea" | "text">, Term<string, PA, ComputedOrigin<OA>, "text">>
-	/**
-	 * A float's identity image: float8send's 8 bytes, the bits of its IEEE 754 binary64 encoding, read as a signed
-	 * bigint, a real widened exactly to double precision first, every NaN in one form (0x7ff8000000000000), as Java's
-	 * doubleToLongBits reads them; `floatBits(value)` is the same function on the host. Two floats have one image
-	 * exactly when they are one value: -0 and 0 differ, where Compute.eq holds them equal. IMMUTABLE and defined on
-	 * every float, it stands in row checks, selections, generated fields and queries, so a key over a float by identity
-	 * is a key over its image: a stated `bits: pg.bigint` in the key, held by `check(name, R, (r) => r.eq(r.bits,
-	 * Compute.floatBits(r.value)))`, the float kept beside it for reads by `=`.
-	 */
-	floatBits<A extends TermBase | FirstValue, X, PA, OA, S extends FloatSql>(
-		x: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
-	): Admitted<TakesFirst<A, FloatSql>, Term<bigint, PA, ComputedOrigin<OA>, "bigint">>
-	/**
-	 * A pattern for Compute.matches: `source` in grizzle's grammar under the flags "u", which the grammar check reads at
+	 * A pattern for Text.matches: `source` in grizzle's grammar under the flags "u", which the grammar check reads at
 	 * the type level as str.regex's does, admitted once, here, inside PostgreSQL's regex compile space and matched by
 	 * some text, so a refused source throws where it is written and every match over the pattern reads its admission.
 	 * doubleText, decimalText and lexicalForm(T) are grizzle's own.
 	 */
 	pattern<const S extends string>(source: PatternValidate<S>): Pattern<S>
 	/**
-	 * A pattern for Compute.matches written in XML Schema 1.0's dialect, a pattern facet (Part 2, Appendix F): read by
-	 * grizzle's one front end of that dialect, anchored at both ends as XML Schema reads every facet, its `\\i` and `\\c` XML
-	 * 1.0 Second Edition's name characters and its alphabet XML's Char, printed in grizzle's grammar, which the
-	 * Pattern's source holds, and admitted as Compute.pattern admits one, so a refused facet throws where it is written.
-	 */
-	xsdPattern(source: string): Pattern
-	/**
 	 * Whether the text holds a match of the pattern, PostgreSQL's `~` (textregexeq), as a str.regex refinement holds
 	 * one: the pattern is in grizzle's grammar under the flags "u", and `^` and `$` anchor it. The pattern is a Pattern,
-	 * Compute.pattern(source), admitted where it was made, or a text term that meets the subject's type, a contract's
+	 * Text.pattern(source), admitted where it was made, or a text term that meets the subject's type, a contract's
 	 * text only its own, whose every value the schema holds: a closed relation's text payload, `C.at(field, …)`, or a
-	 * Compute.cond of such terms; every value is admitted inside PostgreSQL's regex compile space when the term is
+	 * Logic.cond of such terms; every value is admitted inside PostgreSQL's regex compile space when the term is
 	 * compiled, and any other term, which can be any text, is refused. A string is no pattern. A match is also a guard:
-	 * Compute.when's branch receives its subject, which compilation reads as text of the pattern's language where the
+	 * Logic.when's branch receives its subject, which compilation reads as text of the pattern's language where the
 	 * pattern is a Pattern, and as it is where it is a term, whose values hold no one language, so the when is then a
 	 * conditional over the match. In a query the subject's bytes are proved within the 268,435,454 PostgreSQL's regex
-	 * engine reads, by its type or by a guard whose branch the match stands in, `Compute.when(Compute.within(
-	 * Compute.octetLength(x), 0, bytes), () => Compute.matches(x, p), false)`, which lowers to CASE, so PostgreSQL reads
+	 * engine reads, by its type or by a guard whose branch the match stands in, `Logic.when(Num.within(
+	 * Text.octetLength(x), 0, bytes), () => Text.matches(x, p), false)`, which lowers to CASE, so PostgreSQL reads
 	 * the match only where the guard holds; the answer past the bound is the program's own.
 	 */
 	matches<A extends TermBase | FirstValue, X, PA, OA, V, FA extends Facts, L, const B>(
@@ -1289,31 +1298,81 @@ export interface ComputeApi {
 		Every<[TakesFirst<A, "text">, Takes<B, Meets<X, "text"> | Pattern>]>,
 		Guard<Term<X, PA, OA, "text", V, FA, L>, PA & P<B>, ComputedOrigin<OA | O<B>>>
 	>
+}
 
+/**
+ * The Xml namespace: XML Schema 1.0's pattern dialect, a pattern facet written in it and the test that a text is one.
+ */
+export interface XmlApi {
+	/**
+	 * Whether x is an XML Schema 1.0 pattern, a string of Appendix F's regExp production, as grizzle-text's reader of
+	 * that grammar reads it (regex/xsd.ts xsdPattern): groups and class subtractions nested to any depth and counts of any
+	 * size, refused at a construct Appendix F does not define (`(?`, a back-reference, an unclosed `[` or `(`, a `{`
+	 * that opens no count) or a category or block its tables do not name. PostgreSQL judges it by a function of grizzle's
+	 * library, the reader's moves as a table its recursive query reads once over the text's characters, so the law holds
+	 * in a contract predicate, a row check, a generated field and a query alike, on every text.
+	 */
+	isPattern<A extends TermBase | FirstValue, X, PA, OA>(
+		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
+	): Admitted<TakesFirst<A, "text">, Term<boolean, PA, ComputedOrigin<OA>, "boolean">>
+	/**
+	 * A pattern for Text.matches written in XML Schema 1.0's dialect, a pattern facet (Part 2, Appendix F): read by
+	 * grizzle's one front end of that dialect, anchored at both ends as XML Schema reads every facet, its `\\i` and `\\c` XML
+	 * 1.0 Second Edition's name characters and its alphabet XML's Char, printed in grizzle's grammar, which the
+	 * Pattern's source holds, and admitted as Text.pattern admits one, so a refused facet throws where it is written.
+	 */
+	pattern(source: string): Pattern
+}
+
+/** The Crypto namespace: a value's SHA-256 digest. */
+export interface CryptoApi {
+	/**
+	 * The SHA-256 digest of a bytes value, or of a text's UTF-8 bytes, as 64 lowercase hex digits,
+	 * `encode(sha256(x), 'hex')`, the one operation that reads a bytes value, read whole: text of the language
+	 * `^[0-9a-f]{64}$`, which compilation reads, so a cast into a text type whose language holds it,
+	 * `str.regex("^[0-9a-f]{64}$")` among them, needs no guard, a cast into one whose language lacks it is
+	 * PartialOperation, and a literal opposite it is judged by it. IMMUTABLE and defined on every value, it stands in row
+	 * checks, selections, generated fields and queries: `generated(str.regex("^[0-9a-f]{64}$"), Crypto.sha256(row.content))`
+	 * is a field whose every value PostgreSQL computes from the bytes it stores, and `Crypto.sha256(row.body)` the
+	 * digest of a text's UTF-8.
+	 */
+	sha256<A extends TermBase | FirstValue, X, PA, OA>(
+		x: A & WholeTerm<A> & InputTerm<X, PA, OA, "bytea" | "text">
+	): Admitted<TakesFirst<A, "bytea" | "text">, Term<string, PA, ComputedOrigin<OA>, "text">>
+}
+
+/** The Distance namespace: the distance between two vectors. */
+export interface DistanceApi {
 	/**
 	 * double precision in [0, 2]; schema-qualified cosine_distance(a, b), never the <=> operator. The second operand is
 	 * a vector term of the first's dimensions or a literal vector, which takes the first operand's type. The term states
 	 * its operands' origins (Scored), which an approximate search reads to rank by it.
 	 */
-	cosineDistance<A extends TermBase | FirstValue, X, PA, OA, const B>(
+	cosine<A extends TermBase | FirstValue, X, PA, OA, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, "vector">,
 		b: Fit<B, NoInfer<Operand<X, "vector">>>
 	): Admitted<
 		Binary<A, B, X, "vector", "vector">,
 		Term<number, PA & P<B>, UnhostedOrigin<OA | O<B>>, "double precision"> & Scored<OA, O<B>>
 	>
+}
 
+/**
+ * The Search namespace: a text search query made under a document's configuration, a document's match of one and its
+ * ranks.
+ */
+export interface SearchApi {
 	/**
 	 * A query of full text search over a text term, read by websearch_to_tsquery: the syntax of a web search engine,
 	 * quoted phrases, `or` and a leading `-` for not, which never raises on a text. It is no term: a match or a rank
 	 * reads it, parsing its text under the configuration of the document it meets, so no query is read under another.
 	 * In a query its text is bounded within textQueryMaxBytes by its type or a byte guard.
 	 */
-	websearchQuery<A extends TermBase | FirstValue, X, PA, OA>(
+	websearch<A extends TermBase | FirstValue, X, PA, OA>(
 		text: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, TextQuery<PA, OA>>
 	/** A query of full text search over a text term, read by plainto_tsquery: every word of it required. */
-	plainQuery<A extends TermBase | FirstValue, X, PA, OA>(
+	plain<A extends TermBase | FirstValue, X, PA, OA>(
 		text: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, TextQuery<PA, OA>>
 	/**
@@ -1321,7 +1380,7 @@ export interface ComputeApi {
 	 * the configuration the document's own. PostgreSQL alone computes it, so a contract predicate, a row check and a
 	 * generated field refuse it; a query's filter over a stored document is what a GIN index serves.
 	 */
-	textMatches<A extends TermBase | FirstValue, X, PA, OA, Q extends TextQuery<never>>(
+	matches<A extends TermBase | FirstValue, X, PA, OA, Q extends TextQuery<never>>(
 		document: A & FirstTerm<A> & InputTerm<X, PA, OA, "tsvector">,
 		query: Q
 	): Admitted<
@@ -1332,7 +1391,7 @@ export interface ComputeApi {
 	 * A search document's rank for a query, ts_rank(d, q) in its two-argument form, PostgreSQL's default weights (A 1.0,
 	 * B 0.4, C 0.2, D 0.1) and no normalization, a real, the query parsed under the document's configuration.
 	 */
-	textRank<A extends TermBase | FirstValue, X, PA, OA, Q extends TextQuery<never>>(
+	rank<A extends TermBase | FirstValue, X, PA, OA, Q extends TextQuery<never>>(
 		document: A & FirstTerm<A> & InputTerm<X, PA, OA, "tsvector">,
 		query: Q
 	): Admitted<
@@ -1340,14 +1399,19 @@ export interface ComputeApi {
 		Term<number, PA & ParamsOfTerm<Q>, UnhostedOrigin<OA | OriginOfTerm<Q>>, "real">
 	>
 	/** A search document's cover density rank for a query, ts_rank_cd(d, q), as textRank's. */
-	textRankCd<A extends TermBase | FirstValue, X, PA, OA, Q extends TextQuery<never>>(
+	rankCd<A extends TermBase | FirstValue, X, PA, OA, Q extends TextQuery<never>>(
 		document: A & FirstTerm<A> & InputTerm<X, PA, OA, "tsvector">,
 		query: Q
 	): Admitted<
 		TakesFirst<A, "tsvector">,
 		Term<number, PA & ParamsOfTerm<Q>, UnhostedOrigin<OA | OriginOfTerm<Q>>, "real">
 	>
+}
 
+/**
+ * The Bits namespace's set algebra over sets of one roster's handles, beside Bits.of, the set value (public/fields.ts).
+ */
+export interface BitsApi {
 	/**
 	 * The set algebra over sets of one roster: the second operand is a set term of the first's roster, or a set value
 	 * (Bits.of), which takes the first operand's type. union is a | b, intersection a & b, difference a & ~b; no
@@ -1403,6 +1467,13 @@ export interface ComputeApi {
 	singleton<A extends TermBase | FirstValue, X, PA, OA, L>(
 		id: A & FirstTerm<A> & Term<X, PA, OA, "code", unknown, Facts, L>
 	): Admitted<TakesFirst<A, "code">, Term<SetOver<X, L>, PA, ComputedOrigin<OA>, "bits">>
+}
+
+/**
+ * The Fn namespace: a declared function (schema/function.ts fn) called at its arguments, for its value, its rows or its
+ * one row.
+ */
+export interface FnApi {
 	/**
 	 * A declared function's value at its arguments (schema/function.ts fn): a function that returns a value of a field,
 	 * immutable or stable, each argument by its declared name, every one and none other, a term meeting its declared
@@ -1423,11 +1494,11 @@ export interface ComputeApi {
 	): CalledTerm<A, H, S, D, F>
 	/**
 	 * The rows a declared function that returns rows of a heading returns at its arguments, a source a rule matches as
-	 * it matches a bound query: each argument by its declared name, a value as Compute.call takes one, or rows, a query
+	 * it matches a bound query: each argument by its declared name, a value as Fn.call takes one, or rows, a query
 	 * or a bound query whose facts are the argument's heading's. Its facts are the result heading's, a set; a row of a
 	 * NULL field raises where the query reads it (SQLSTATE 22004).
 	 */
-	rowsOf<
+	rows<
 		const Args extends Readonly<Record<string, FunctionType>>,
 		Fields extends Readonly<Record<string, FieldBase>> & Carriers,
 		const A extends CallArgs<Args>
@@ -1437,13 +1508,13 @@ export interface ComputeApi {
 	): CallSource<FactOfFields<Fields>, CallParams<A>, Fields, CallReads<A>>
 	/**
 	 * The fields of the one row a declared function of one row returns at its arguments, immutable or stable, each
-	 * argument as Compute.rowsOf takes one: each field of the row that holds rows of a heading of values, by its name, a
+	 * argument as Fn.rows takes one: each field of the row that holds rows of a heading of values, by its name, a
 	 * source a rule matches, its facts the heading's, a set. Every read of them reads one evaluation of the call, so a
 	 * statement that reads several of them calls the function once at its arguments. A row holding NULL at any field
 	 * raises where it is evaluated, and a row of a field holding NULL where the field is read (SQLSTATE 22004); a field
 	 * of no rows is the empty source.
 	 */
-	rowOf<
+	row<
 		const Args extends Readonly<Record<string, FunctionType>>,
 		Fields extends Readonly<Record<string, FunctionType>>,
 		const A extends CallArgs<Args>
@@ -1455,19 +1526,7 @@ export interface ComputeApi {
 
 /** The comparison and boolean helpers a row check sees beside its fields. */
 export type ScalarHelpers = Pick<
-	ComputeApi,
-	| "eq"
-	| "ne"
-	| "lt"
-	| "le"
-	| "gt"
-	| "ge"
-	| "between"
-	| "in"
-	| "and"
-	| "or"
-	| "not"
-	| "charLength"
-	| "octetLength"
-	| "utf16Length"
->
+	LogicApi,
+	"eq" | "ne" | "lt" | "le" | "gt" | "ge" | "between" | "in" | "and" | "or" | "not"
+> &
+	Pick<TextApi, "charLength" | "octetLength" | "utf16Length">

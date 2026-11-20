@@ -51,7 +51,7 @@ export const admitQuery = (
 /**
  * One check of a decoded description: every parameter is of its declared type, so one pass types them all. The
  * admission rule is a property of the whole query, refused here so that both lowerings accept the same programs. The
- * query is its own lowering batch: the text payload fields its Compute.matches patterns read, through every rule,
+ * query is its own lowering batch: the text payload fields its Text.matches patterns read, through every rule,
  * import, negation and attachment (schema/walk.ts queryPatternReads), are admitted once for it (scalar/compute/lower.ts
  * admittedReads).
  */

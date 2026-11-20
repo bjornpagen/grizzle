@@ -1,5 +1,5 @@
 /**
- * Compute.utf16Length on PostgreSQL 19, against JavaScript's String.length: the UTF-16 code units Effect Schema's
+ * Text.utf16Length on PostgreSQL 19, against JavaScript's String.length: the UTF-16 code units Effect Schema's
  * isMinLength, isMaxLength and isLengthBetween count of a string.
  *
  * 1. The SQL a check holds (lower/conservative/expr/ops.ts utf16Units), over a batch of drawn texts in one round trip:
@@ -8,8 +8,8 @@
  *    bytes up to U+FFFF itself, and the supplementary planes, two UTF-16 units each, the first plane and every one past
  *    it.
  * 2. Admission and storage: a relation Texts whose generated field `units` is utf16Length of its text, under a guard of
- *    the text's bytes, Compute.when(Compute.within(Compute.octetLength(text), low, high), () =>
- *    Compute.utf16Length(text), -1), or alone, the text's own type of no bound, a pattern's or a byte bound of its own,
+ *    the text's bytes, Logic.when(Num.within(Text.octetLength(text), low, high), () =>
+ *    Text.utf16Length(text), -1), or alone, the text's own type of no bound, a pattern's or a byte bound of its own,
  *    each bound drawn small or about regexTextMaxBytes. The schema compiles exactly when the bytes the guard or the
  *    text's own type bounds the text to are within regexTextMaxBytes; a refusal is PartialOperation of the bounded
  *    precondition whose remedy is the guard of the text's bytes at regexTextMaxBytes; and, installed, every drawn text of
@@ -57,7 +57,7 @@ import { ownedInput } from "#test/support/policy.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Compute.utf16Length on PostgreSQL 19 PostgreSQL's and the host's count of a text's UTF-16 units are String.length.
+ * Text.utf16Length on PostgreSQL 19 PostgreSQL's and the host's count of a text's UTF-16 units are String.length.
  *
  * Its pre-conversion budget: runs 40, coverage cases 40 (test/pg/compute/utf16-length.test.ts at 22a8e17e9).
  */
@@ -104,7 +104,7 @@ export const computeUtf16LengthOnPostgreSQL19PostgreSQLsAndTheHostsCountOfATexts
 	})
 
 /**
- * Compute.utf16Length on PostgreSQL 19 admits a count exactly over a text bounded within the regex engine's bytes, and stores String.length.
+ * Text.utf16Length on PostgreSQL 19 admits a count exactly over a text bounded within the regex engine's bytes, and stores String.length.
  *
  * Its pre-conversion budget: runs 60, coverage cases 60 (test/pg/compute/utf16-length.test.ts at 22a8e17e9).
  */

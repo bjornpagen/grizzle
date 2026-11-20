@@ -1,9 +1,9 @@
 /**
  * The site-free typing of a scalar description (scalar/compute/typing.ts typeOf) against the lowering's emission of it
- * (scalar/compute/lower.ts), over generated descriptions of the whole Compute catalogue over a heading of every carrier
- * it reads, guarded by every guard a Compute.when holds.
+ * (scalar/compute/lower.ts), over generated descriptions of the whole scalar catalogue over a heading of every carrier
+ * it reads, guarded by every guard a Logic.when holds.
  *
- * - Scope key: two recorded nodes compute one value one way (sameNode), the key a guarded node finds its Compute.when
+ * - Scope key: two recorded nodes compute one value one way (sameNode), the key a guarded node finds its Logic.when
  *   by and a byte guard its text's occurrences, exactly where their emissions state one computation: one kind, one
  *   source, one overload, one literal and the same arguments.
  *

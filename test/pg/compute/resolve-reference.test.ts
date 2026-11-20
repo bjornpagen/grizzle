@@ -1,5 +1,5 @@
 /**
- * Compute.resolveReference on PostgreSQL 19, against the host and RFC 3986.
+ * Text.resolveReference on PostgreSQL 19, against the host and RFC 3986.
  *
  * 1. The library function's SQL (physical/ddl/library.ts), created in the session's pg_temp, over a batch of pairs in
  *    one round trip, RFC 3986 §5.4's 42 examples and drawn references each against a drawn base: PostgreSQL's target
@@ -54,7 +54,7 @@ const situations = [
 	"the RFC's example base"
 ] as const satisfies ReadonlyArray<Reached<UriFeature>>
 
-/** Compute.resolveReference on PostgreSQL 19 the library function's target of every reference against every base is the host's and RFC 3986's. */
+/** Text.resolveReference on PostgreSQL 19 the library function's target of every reference against every base is the host's and RFC 3986's. */
 export const computeResolveReferenceOnPostgreSQL19TheLibraryFunctionsTargetOfEveryReferenceAgainstEveryBaseIsTheHostsAndRFC3986s =
 	property.explore(pairsBatch, {
 		needs: { substrate: Substrate.installing },
@@ -104,7 +104,7 @@ export const computeResolveReferenceOnPostgreSQL19TheLibraryFunctionsTargetOfEve
 		]
 	})
 
-/** Compute.resolveReference on PostgreSQL 19 an installed generated field stores the host's target of each href against its base. */
+/** Text.resolveReference on PostgreSQL 19 an installed generated field stores the host's target of each href against its base. */
 export const computeResolveReferenceOnPostgreSQL19AnInstalledGeneratedFieldStoresTheHostsTargetOfEachHrefAgainstItsBase =
 	property.explore(pairsBatch, {
 		needs: { substrate2: Substrate.installing },

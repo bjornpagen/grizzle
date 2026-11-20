@@ -664,7 +664,7 @@ export const Triple = relation("Triple", { a: Id, b: Id, c: Id }, ["a", "b", "c"
 export const tripleFields: Arr.NonEmptyReadonlyArray<string> = ["a", "b", "c"]
 
 /**
- * A row check's predicate as drawn over Election: comparisons of integer fields, Compute sums (a term its builder
+ * A row check's predicate as drawn over Election: comparisons of integer fields, Num.add sums (a term its builder
  * registered, or the same expression as an untyped term of the query builder), and charLength of the text field, with
  * integer literals, under and, or and not.
  */

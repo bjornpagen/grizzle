@@ -115,7 +115,7 @@ const unrepresentable = (
  *   prove, holding values of `field`;
  * - a counted family's ‹p›, pred of its drawn index, generated from the row;
  * - the image a key, a UNIQUE or a reference installs a column `of` over in its place (`keyedAs`), generated from the
- *   row: a text of no byte bound's digest, Compute.sha256 of the column, NULL where the column is.
+ *   row: a text of no byte bound's digest, Crypto.sha256 of the column, NULL where the column is.
  *
  * A field term over every fact is the field itself, never a law column (`sideColumns`).
  */

@@ -19,7 +19,7 @@ import { predicateTable } from "#compiler/ir/expr.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
 import type { Lowered } from "#compiler/scalar/compute/lower.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -114,7 +114,7 @@ export const sqlNotes = (texts: ReadonlyArray<string>): ReadonlyArray<SqlFeature
 /** A text whose pattern bounds it within 64 code points, 256 bytes: the bounded operand the check's term reads. */
 const textColumn: LeafBinding = { kind: "column", type: testPg.regex("^.{0,64}$", "su").scalar }
 
-/** Compute.utf16Length of the variable v, as a Description states it. */
+/** computeCore.utf16Length of the variable v, as a Description states it. */
 const unitsDesc: ExprDesc = {
 	kind: "compute",
 	fn: "utf16Length",
@@ -252,12 +252,12 @@ export const schemaOf = (c: Case) => {
 			units: generatedField(
 				pg.integer,
 				c.guard.kind === "within"
-					? Compute.when(
-							Compute.within(Compute.octetLength(r.text), c.guard.low, c.guard.high),
-							() => Compute.utf16Length(r.text),
+					? computeCore.when(
+							computeCore.within(computeCore.octetLength(r.text), c.guard.low, c.guard.high),
+							() => computeCore.utf16Length(r.text),
 							-1
 						)
-					: Compute.utf16Length(r.text),
+					: computeCore.utf16Length(r.text),
 				[]
 			)
 		})
@@ -284,7 +284,7 @@ export const inInstallation = <A>(
 
 export const term = succeeded(
 	lowerWith("check", unitsDesc, { v: textColumn }, false, baseParams),
-	"Compute.utf16Length lowers in a check over a bounded text"
+	"computeCore.utf16Length lowers in a check over a bounded text"
 ).root
 
 export const sql = `SELECT (${renderSql(term.expr, plainRender)})::text FROM jsonb_to_recordset($1::text::jsonb) AS r0(ord int4, v text) ORDER BY r0.ord`

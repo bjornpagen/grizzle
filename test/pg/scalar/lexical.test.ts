@@ -3,7 +3,7 @@
  * whether the text is a member of its target's lexical form and on the value it names.
  *
  * - **Membership:** PostgreSQL's verdict on the form's ARE, the translation the text analysis gives str.regex domains
- *   and Compute.matches (text/refinement.ts), and on its octet_length within the form's byte bound where it has one,
+ *   and Text.matches (text/refinement.ts), and on its octet_length within the form's byte bound where it has one,
  *   equals the host scan's (scalar/lexical.ts lexicalValue), which the unit suite holds to the form's pattern and to
  *   the specification.
  * - **Value:** where PostgreSQL finds a member, the parse grizzle prints (the cast `t::T`, numeric's typmod included,
@@ -14,7 +14,7 @@
  * - **No DateStyle:** the session runs under DateStyle `SQL, DMY`, so a parse that read the session's date order
  *   (date_in, text::date) would read 2024-03-04 as another day; make_date reads none.
  * - **No raise:** every member parses without an error, which a raise would make the batch's statement fail; the
- *   parse runs only under its membership's CASE, as a guarded law column or Compute.when runs it.
+ *   parse runs only under its membership's CASE, as a guarded law column or Logic.when runs it.
  *
  * Oracle: PostgreSQL itself, the form's ARE and the printed parse. Bound: batches of up to 160 candidates of every
  * target, 300 batches a run.
