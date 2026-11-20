@@ -12,7 +12,7 @@ export type NonStandardChoice = "deepObjectBrackets" | "deepObjectScalars"
  */
 export interface NonStandardUse {
 	readonly choice: NonStandardChoice
-	readonly origin: typeof Origin.Type
+	readonly origin: Origin
 }
 
 /**
@@ -21,7 +21,7 @@ export interface NonStandardUse {
 export interface Markable {
 	readonly nonStandard?: "deepObjectBrackets" | undefined
 	readonly nonStandardScalars?: "deepObjectScalars" | undefined
-	readonly origin: typeof Origin.Type
+	readonly origin: Origin
 }
 
 /**

@@ -17,9 +17,18 @@ import {
 import { SpecLine } from "#model/spec-section.ts"
 
 /**
+ * An inventory row id such as `PRM-27`: an uppercase prefix that may hold digits, a hyphen, a number. Every row the
+ * generator records is a literal of its own code, which this type checks where it is written.
+ */
+export type RowId = `${Uppercase<string>}-${number}`
+
+/**
  * The text of an inventory row id: an uppercase prefix that may hold digits, a hyphen, a number.
  */
 const rowIdPattern = regex("^[A-Z][A-Z0-9]*-[0-9]+$", "u")
+
+/** Whether text is a row id: the one reading of a row out of text, such as a diagnostic code's prefix. */
+export const isRowId = (text: string): text is RowId => rowIdPattern.test(text)
 
 /**
  * An inventory row id such as `PRM-27`.
@@ -33,6 +42,8 @@ export const RowId = Schema.String.pipe(
  * Where an entity came from: a document of the set and the RFC 6901 pointer of its use site.
  */
 export const Origin = Schema.Struct({ document: DocumentUri, pointer: JsonPointer })
+
+export type Origin = Readonly<{ document: DocumentUri; pointer: typeof JsonPointer.Type }>
 
 /**
  * Help text for an element; every field is optional.
