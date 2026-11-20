@@ -1598,7 +1598,7 @@ export class Reference {
 				}
 			}
 		}
-		step(0, new Map<VarDecl, Value>(), [])
+		step(0, this.correlatedStart(node, scope), [])
 		return out
 	}
 
@@ -1651,9 +1651,25 @@ export class Reference {
 				}
 			}
 		}
-		const start = new Map<VarDecl, Value>()
-		step(0, start, [])
+		step(0, this.correlatedStart(node, scope), [])
 		return out
+	}
+
+	/**
+	 * The values a region holds from its start: each correlated variable whose expression reads the scope around the
+	 * region alone, neither the region nor an occurrence's source, fixed before any occurrence is read, as SQL holds an
+	 * outer value through the whole of a correlated subquery, so an occurrence's source correlated with the region reads
+	 * it; any other correlated variable is fixed once every occurrence is bound (finishMatch).
+	 */
+	correlatedStart(node: NodeOf<"MatchRegion">, scope: Bindings): ReadonlyMap<VarDecl, Value> {
+		const own = new Set<NodeId>([node.id, ...Arr.map(node.occurrences, (o) => o.source.id)])
+		const start = new Map<VarDecl, Value>()
+		for (const c of node.correlated) {
+			if (Arr.every(c.expr.deps.nodes, (n) => !own.has(n))) {
+				start.set(c.var, this.expr(c.expr, scope))
+			}
+		}
+		return start
 	}
 
 	finishMatch(
