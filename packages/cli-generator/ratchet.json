@@ -1,13 +1,13 @@
 {
 	"typecheck": {
-		"total": 568,
+		"total": 541,
 		"files": {
 			"packages/cli-generator/src/emit/api.ts": 118,
 			"packages/cli-generator/src/emit/entry.ts": 2,
 			"packages/cli-generator/src/model/author-config.ts": 11,
 			"packages/cli-generator/src/names/reserved.ts": 1,
 			"packages/cli-generator/src/normalize/responses.ts": 18,
-			"packages/cli-generator/src/runtime-src/runtime/client.ts": 29,
+			"packages/cli-generator/src/runtime-src/runtime/client.ts": 2,
 			"packages/cli-generator/src/runtime-src/runtime/output.ts": 85,
 			"packages/cli-generator/test/check/document-set.test.ts": 3,
 			"packages/cli-generator/test/check/grammar.test.ts": 31,
@@ -33,7 +33,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 502,
+		"total": 483,
 		"files": {
 			"packages/cli-generator/corpus/tools/coverage.ts": 1,
 			"packages/cli-generator/corpus/tools/exercise.ts": 1,
@@ -81,11 +81,9 @@
 			"packages/cli-generator/src/report/verdict.ts": 1,
 			"packages/cli-generator/src/resolve/canonical.ts": 1,
 			"packages/cli-generator/src/resolve/index.ts": 1,
-			"packages/cli-generator/src/runtime-src/runtime/client.ts": 16,
 			"packages/cli-generator/src/runtime-src/runtime/describe.ts": 1,
 			"packages/cli-generator/src/runtime-src/runtime/input.ts": 3,
 			"packages/cli-generator/src/runtime-src/runtime/output.ts": 58,
-			"packages/cli-generator/src/runtime-src/runtime/response.ts": 1,
 			"packages/cli-generator/src/runtime-src/runtime/serialize.ts": 3,
 			"packages/cli-generator/src/runtime-src/runtime/sse.ts": 2,
 			"packages/cli-generator/src/validate/dispatch.ts": 1,
@@ -158,10 +156,8 @@
 			"packages/cli-generator/test/runtime/send-servers.test.ts": 17,
 			"packages/cli-generator/test/runtime/sequential-media-parity.fixtures.ts": 2,
 			"packages/cli-generator/test/runtime/sse.fixtures.ts": 1,
-			"packages/cli-generator/test/support/certificates.ts": 1,
 			"packages/cli-generator/test/support/cli-package.fixtures.ts": 2,
 			"packages/cli-generator/test/support/cli-package.ts": 2,
-			"packages/cli-generator/test/support/connection.ts": 1,
 			"packages/cli-generator/test/support/normalizing.ts": 1,
 			"packages/cli-generator/test/support/send.ts": 1,
 			"packages/cli-generator/test/validate/diagnostics.test.ts": 10,

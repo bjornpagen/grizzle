@@ -218,8 +218,8 @@ export const wholeNumbers = property.explore(
 		kills: [
 			{
 				file: "packages/cli-generator/src/runtime-src/runtime/client.ts",
-				original: "Schema.isPattern(/^\\d+$/u)",
-				replacement: "Schema.isPattern(/^-?\\d+$/u)",
+				original: 'regex("^\\\\d+$", "u")',
+				replacement: 'regex("^-?\\\\d+$", "u")',
 				why: "A signed text passes the digits check, so `--timeout -1` is taken as -1 seconds; the property fails."
 			},
 			{

@@ -1,4 +1,5 @@
-import type { Stdio } from "effect"
+import { regex } from "arkregex"
+import type { Cause, Stdio } from "effect"
 import {
 	Array as Arr,
 	Clock,
@@ -12,14 +13,14 @@ import {
 	Option,
 	Pipeable,
 	Pull,
+	Record,
 	Redacted,
 	Ref,
 	Result,
 	Schedule,
-	Schema,
-	SchemaTransformation,
 	Scope,
-	Stream
+	Stream,
+	String as Str
 } from "effect"
 import { Flag, GlobalFlag } from "effect/cli"
 import {
@@ -67,14 +68,21 @@ import { mapClientError } from "#runtime/response.ts"
 export const retryBackoffMillis = 500
 
 /**
- * A whole number the operator typed: ASCII digits only, decoded to a safe integer. Each caller
- * adds its own bounds and maps a failure to its own `UsageError`, which never carries the text.
+ * ASCII digits, one or more, and nothing else.
  */
-export const wholeNumber = Schema.String.check(Schema.isPattern(/^\d+$/u)).pipe(
-	Schema.decodeTo(Schema.Int, SchemaTransformation.numberFromString)
-)
+const asciiDigits = regex("^\\d+$", "u")
 
-export const decodeWholeNumber = Schema.decodeEffect(wholeNumber)
+/**
+ * A whole number the operator typed: ASCII digits only, read as a safe integer, else
+ * `NoSuchElementError`. Each caller adds its own bounds and maps a failure to its own `UsageError`,
+ * which never carries the text.
+ */
+export const decodeWholeNumber = (text: string): Effect.Effect<number, Cause.NoSuchElementError> =>
+	Effect.fromOption(
+		asciiDigits.test(text)
+			? Option.liftPredicate(Number(text), Number.isSafeInteger)
+			: Option.none()
+	)
 
 const invalidTimeout = (): UsageError =>
 	new UsageError({
@@ -82,7 +90,9 @@ const invalidTimeout = (): UsageError =>
 		message: "--timeout must be a whole number of seconds, 0 or more"
 	})
 
-// Whole seconds, 0 or more. The failure names `--timeout` only, never the value.
+/**
+ * Whole seconds, 0 or more. The failure names `--timeout` only, never the value.
+ */
 const parseTimeout = (raw: string): Effect.Effect<number, UsageError> =>
 	decodeWholeNumber(raw).pipe(Effect.mapError(invalidTimeout))
 
@@ -100,7 +110,9 @@ export const timeoutSetting = GlobalFlag.Setting("timeout")({
 	)
 })
 
-// The operator's `--timeout`, if the root registers the setting and the flag was given.
+/**
+ * The operator's `--timeout`, if the root registers the setting and the flag was given.
+ */
 const flagTimeout = Effect.map(Effect.serviceOption(timeoutSetting), Option.flatten)
 
 /**
@@ -169,7 +181,7 @@ export class Transport extends Context.Service<
 		certified: Option.Option<PathClients>
 		plain: PathClients
 	}>
->()("openapi-cli/runtime/Transport") {}
+>()("effect-openapi-cli-generator/runtime-src/runtime/client/Transport") {}
 
 /**
  * The per-hop client-certificate decision (design 6.5 `mutualTLS` row and Origin binding): whether
@@ -303,7 +315,7 @@ const nextHop = (
 		return refuse("loop")
 	}
 
-	const hash = target.hash === "" ? Option.none() : Option.some(target.hash.slice(1))
+	const hash = target.hash === "" ? Option.none() : Option.some(Str.slice(1)(target.hash))
 
 	return Effect.succeedSome({
 		request: HttpClientRequest.makeWith(
@@ -326,13 +338,14 @@ const nextHop = (
  * the caller's scope closes. `upgrade` hands the connection over, so it leaves the scope to the
  * caller's.
  */
-class OwnedResponse implements HttpClientResponse.HttpClientResponse {
+class OwnedResponse extends Pipeable.Class implements HttpClientResponse.HttpClientResponse {
 	readonly [HttpClientResponse.TypeId] = HttpClientResponse.TypeId
 	readonly [HttpIncomingMessage.TypeId] = HttpIncomingMessage.TypeId
 	readonly #original: HttpClientResponse.HttpClientResponse
 	readonly #release: Effect.Effect<void>
 
 	constructor(original: HttpClientResponse.HttpClientResponse, release: Effect.Effect<void>) {
+		super()
 		this.#original = original
 		this.#release = release
 	}
@@ -393,26 +406,21 @@ class OwnedResponse implements HttpClientResponse.HttpClientResponse {
 		return this.#original.toJSON()
 	}
 
-	toString() {
+	override toString() {
 		return this.#original.toString()
 	}
 
 	[Inspectable.NodeInspectSymbol]() {
 		return this.#original[Inspectable.NodeInspectSymbol]()
 	}
-
-	pipe() {
-		// oxlint-disable-next-line prefer-rest-params
-		return Pipeable.pipeArguments(this, arguments)
-	}
 }
 
 export const querySeparator = (url: string): string => {
-	if (/[?&]$/u.test(url)) {
+	if (Str.endsWith("?")(url) || Str.endsWith("&")(url)) {
 		return ""
 	}
 
-	return url.includes("?") ? "&" : "?"
+	return Str.includes("?")(url) ? "&" : "?"
 }
 
 /**
@@ -425,31 +433,19 @@ export const querySeparator = (url: string): string => {
 const foldUrlParams = (
 	request: HttpClientRequest.HttpClientRequest
 ): HttpClientRequest.HttpClientRequest => {
-	const pairs = UrlParams.fromInput(request.urlParams).params.flatMap(([name, value]) =>
-		value === undefined
-			? []
-			: [
-					`${queryWireForm(name)}=${queryWireForm(
-						Redacted.isRedacted(value) ? Redacted.value(value) : value
-					)}`
-				]
+	const pairs = Arr.map(
+		request.urlParams.params,
+		([name, value]) =>
+			`${queryWireForm(name)}=${queryWireForm(Redacted.isRedacted(value) ? Redacted.value(value) : value)}`
 	)
-	if (pairs.length === 0) {
-		return HttpClientRequest.makeWith(
-			request.method,
-			request.url,
-			UrlParams.empty,
-			request.hash,
-			request.headers,
-			request.body
-		)
-	}
-
-	const joined = `${request.url}${querySeparator(request.url)}${pairs.join("&")}`
+	const url = Arr.match(pairs, {
+		onEmpty: () => request.url,
+		onNonEmpty: (sent) => `${request.url}${querySeparator(request.url)}${Arr.join(sent, "&")}`
+	})
 
 	return HttpClientRequest.makeWith(
 		request.method,
-		joined,
+		url,
 		UrlParams.empty,
 		request.hash,
 		request.headers,
@@ -492,9 +488,10 @@ export const redirectLoop = <R>(
 	const hop = (request: HttpClientRequest.HttpClientRequest, earlier: HashSet.HashSet<Sent>) =>
 		Effect.uninterruptibleMask((restore) =>
 			Effect.gen(function* sendHop() {
-				const attached = foldUrlParams(yield* restore(attach(request)))
+				const attached = yield* Effect.map(restore(attach(request)), foldUrlParams)
 				const scoped = HttpClient.withScope(around(route(attached)))
-				const scope = yield* Scope.fork(yield* Scope.Scope)
+				const caller = yield* Scope.Scope
+				const scope = yield* Scope.fork(caller)
 				const response = yield* restore(scoped.postprocess(Effect.succeed(attached))).pipe(
 					Scope.provide(scope),
 					Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause)))
@@ -668,7 +665,7 @@ export const retryBudget: Effect.Effect<RetryBudget> = Effect.gen(function* make
  * and a caller that provides none simply records nothing.
  */
 export class RetryAfterCap extends Context.Service<RetryAfterCap, Ref.Ref<Option.Option<number>>>()(
-	"openapi-cli/runtime/client/RetryAfterCap"
+	"effect-openapi-cli-generator/runtime-src/runtime/client/RetryAfterCap"
 ) {}
 
 /**
@@ -814,9 +811,9 @@ export const retryTransform =
 	): HttpClient.HttpClient.With<E | UsageError, R | Scope.Scope | Stdio.Stdio> =>
 		HttpClient.transform(client, (attempt, request) =>
 			Effect.gen(function* retrying() {
-				const unsafe = Option.getOrElse(
-					yield* Effect.serviceOption(retryUnsafeSetting),
-					() => false
+				const unsafe = yield* Effect.map(
+					Effect.serviceOption(retryUnsafeSetting),
+					Option.getOrElse(() => false)
 				)
 				const retried =
 					unsafe ||
@@ -873,12 +870,35 @@ export const verboseSetting = GlobalFlag.Setting("verbose")({
 	)
 })
 
-// A name-redacted value, from `Headers.CurrentRedactedNames` or `UrlParams.CurrentRedactedNames`.
+/**
+ * A name-redacted value, from `Headers.CurrentRedactedNames` or `UrlParams.CurrentRedactedNames`.
+ */
 const redactedValue = redactedPlaceholder()
 
-// A query name as a server decodes it. `URLSearchParams` decodes leniently and never throws.
+/**
+ * A query name as a server decodes it. `URLSearchParams` decodes leniently and never throws.
+ */
 export const decodedQueryName = (raw: string): string =>
 	new URLSearchParams(`${raw}=`).keys().next().value ?? raw
+
+/**
+ * A URI reference that has a query, in its three parts: everything through the query's `?`, the
+ * query, and the fragment with its `#`. A reference whose first `#` comes before any `?` has none.
+ */
+const queryOfUri = regex("^(?<head>[^#?]*\\?)(?<query>[^#]*)(?<fragment>.*)$", "su")
+
+/**
+ * One `name=value` part of a query, its value `<redacted>` when its decoded name is one `names`
+ * lists. A part with no `=` stays as given.
+ */
+const redactQueryPart = (part: string, names: readonly (string | RegExp)[]): string =>
+	Option.match(
+		Option.filter(
+			Option.map(Str.indexOf("=")(part), (equals) => Str.slice(0, equals)(part)),
+			(name) => UrlParams.isRedactedName(decodedQueryName(name), names)
+		),
+		{ onNone: () => part, onSome: (name) => `${name}=${redactedValue}` }
+	)
 
 /**
  * A URI reference, absolute or relative, with userinfo redacted (`UrlParams.redactUrl`) and each
@@ -887,26 +907,15 @@ export const decodedQueryName = (raw: string): string =>
  */
 const redactUriText = (text: string, names: readonly (string | RegExp)[]): string => {
 	const reference = UrlParams.redactUrl(text, [])
-	const hash = reference.indexOf("#")
-	const end = hash === -1 ? reference.length : hash
-	const at = reference.slice(0, end).indexOf("?")
-	if (at === -1) {
-		return reference
-	}
 
-	const query = reference
-		.slice(at + 1, end)
-		.split("&")
-		.map((part) => {
-			const equals = part.indexOf("=")
-
-			return equals !== -1 &&
-				UrlParams.isRedactedName(decodedQueryName(part.slice(0, equals)), names)
-				? `${part.slice(0, equals + 1)}${redactedValue}`
-				: part
-		})
-
-	return `${reference.slice(0, at + 1)}${query.join("&")}${reference.slice(end)}`
+	return Option.match(Option.fromNullOr(queryOfUri.exec(reference)), {
+		onNone: () => reference,
+		onSome: ({ groups: { head, query, fragment } }) =>
+			`${head}${Arr.join(
+				Arr.map(Str.split("&")(query), (part) => redactQueryPart(part, names)),
+				"&"
+			)}${fragment}`
+	})
 }
 
 /**
@@ -924,40 +933,70 @@ const verboseUrl = (
 	)
 }
 
-// Each `<URI-reference>` of a `Link` value (RFC 8288).
-const linkTarget = /<(?<uri>[^>]*)>/gu
-
-// The `url=` part of a `Refresh` value, unquoted or in matching quotes.
-const refreshTarget = /^(?<lead>.*?\burl\s*=\s*)(?<quote>["']?)(?<uri>.*?)\k<quote>$/isu
+/**
+ * Each `<URI-reference>` of a `Link` value (RFC 8288). A value split by it alternates the text
+ * around the references, at even places, with each reference's URI, its one capture, at odd places.
+ */
+const linkTarget = regex("<([^>]*)>", "u")
 
 /**
- * A header value with each URL it carries redacted by `redactUriText`: the whole value of
- * `Location` and `Content-Location`, each `<URI>` of `Link`, and the `url=` part of `Refresh`.
+ * A `Link` value with each `<URI>` it carries redacted by `redactUriText`.
+ */
+const redactLinkTargets = (value: string, names: readonly (string | RegExp)[]): string =>
+	Arr.join(
+		Arr.map(Str.split(linkTarget)(value), (part, place) =>
+			place % 2 === 0 ? part : `<${redactUriText(part, names)}>`
+		),
+		""
+	)
+
+/**
+ * The `url=` part of a `Refresh` value, unquoted or in matching quotes.
+ */
+const refreshTarget = regex(
+	"^(?<lead>.*?\\burl\\s*=\\s*)(?<quote>[\"']?)(?<uri>.*?)\\k<quote>$",
+	"isu"
+)
+
+/**
+ * A `Refresh` value with the URL of its `url=` part redacted by `redactUriText`. A value with no
+ * `url=` part stays as given.
+ */
+const redactRefreshTarget = (value: string, names: readonly (string | RegExp)[]): string =>
+	Option.match(Option.fromNullOr(refreshTarget.exec(value)), {
+		onNone: () => value,
+		onSome: ({ groups: { lead, quote, uri } }) =>
+			`${lead}${quote}${redactUriText(uri, names)}${quote}`
+	})
+
+/**
+ * The headers whose values carry URLs, by lower-case name, each with the way its URLs are found:
+ * the whole value of `Location` and `Content-Location`, each `<URI>` of `Link`, and the `url=`
+ * part of `Refresh`.
+ */
+const urlHeaders: Record.ReadonlyRecord<
+	string,
+	(value: string, names: readonly (string | RegExp)[]) => string
+> = {
+	"content-location": redactUriText,
+	link: redactLinkTargets,
+	location: redactUriText,
+	refresh: redactRefreshTarget
+}
+
+/**
+ * A header value with each URL it carries redacted by `redactUriText`, as `urlHeaders` finds them.
  * Any other header's value is returned as given.
  */
 const redactHeaderUrls = (
 	name: string,
 	value: string,
 	names: readonly (string | RegExp)[]
-): string => {
-	const header = name.toLowerCase()
-	if (header === "location" || header === "content-location") {
-		return redactUriText(value, names)
-	}
-
-	if (header === "link") {
-		return value.replaceAll(linkTarget, (_match, uri: string) => `<${redactUriText(uri, names)}>`)
-	}
-
-	const refresh = header === "refresh" ? refreshTarget.exec(value)?.groups : undefined
-	if (refresh === undefined) {
-		return value
-	}
-
-	const { lead = "", quote = "", uri = "" } = refresh
-
-	return `${lead}${quote}${redactUriText(uri, names)}${quote}`
-}
+): string =>
+	Option.match(Record.get(urlHeaders, Str.toLowerCase(name)), {
+		onNone: () => value,
+		onSome: (redact) => redact(value, names)
+	})
 
 /**
  * The framing headers undici writes from the body it sends, after every other header line.
@@ -969,8 +1008,10 @@ const framingHeaders: ReadonlySet<string> = new Set(["content-length", "transfer
  * record's order (the attach step's credentials last), the framing headers after the rest.
  * `--verbose` and `--dry-run` both print this order.
  */
-export const sendOrder = (headers: Headers.Headers): readonly (readonly [string, string])[] => {
-	const entries = Object.entries(headers)
+export const sendOrder = (
+	headers: Record.ReadonlyRecord<string, string>
+): readonly (readonly [string, string])[] => {
+	const entries = Record.toEntries(headers)
 
 	return [
 		...Arr.filter(entries, ([name]) => !framingHeaders.has(name)),
@@ -996,17 +1037,18 @@ export const requestHeaderValue = (
 		: redactHeaderUrls(name, value, queryNames)
 
 /**
- * A response block's header lines, in the order `entries` lists them. A value whose name `names`
+ * A response block's header lines, in the order the record lists them. A value whose name `names`
  * lists is `<redacted>`; a URL a header carries is redacted by `redactHeaderUrls` with
  * `queryNames`; the caller scrubs each whole line.
  */
 const responseHeaderLines = (
-	entries: readonly (readonly [string, string])[],
+	headers: Record.ReadonlyRecord<string, string>,
 	names: readonly (string | RegExp)[],
 	queryNames: readonly (string | RegExp)[]
 ): readonly string[] =>
-	entries.map(
-		([name, value]) =>
+	Record.collect(
+		headers,
+		(name, value) =>
 			`< ${name}: ${
 				Headers.isRedactedName(name, names)
 					? redactedValue
@@ -1014,9 +1056,11 @@ const responseHeaderLines = (
 			}`
 	)
 
-// One block on stderr, each whole line through the RT-6 value scrubber.
+/**
+ * One block on stderr, each whole line through the RT-6 value scrubber.
+ */
 const printBlock = (scrub: (text: string) => string, lines: readonly string[]) =>
-	printStderr(lines.map(scrub).join("\n"))
+	printStderr(Arr.join(Arr.map(lines, scrub), "\n"))
 
 /**
  * The `--verbose` transform (design 4.6, DM3-8; 7.5). With `verboseSetting` on, each request it
@@ -1046,7 +1090,10 @@ export const verboseTransform =
 	): HttpClient.HttpClient.With<E, R | Stdio.Stdio> =>
 		HttpClient.transform(client, (send, request) =>
 			Effect.gen(function* verbose() {
-				const on = Option.getOrElse(yield* Effect.serviceOption(verboseSetting), () => false)
+				const on = yield* Effect.map(
+					Effect.serviceOption(verboseSetting),
+					Option.getOrElse(() => false)
+				)
 				if (!on) {
 					return yield* send
 				}
@@ -1067,7 +1114,7 @@ export const verboseTransform =
 				yield* printBlock(scrub, [
 					`< ${response.status}`,
 					...responseHeaderLines(
-						Object.entries(response.headers),
+						response.headers,
 						[...headerNames, credentialLikeResponseName],
 						queryNames
 					)

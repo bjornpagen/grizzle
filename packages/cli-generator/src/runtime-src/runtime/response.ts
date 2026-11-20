@@ -1,5 +1,5 @@
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Option, Record as Rec, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Predicate, Record as Rec, String as Str } from "effect"
 import type { HttpClientError, HttpClientResponse } from "effect/http"
 import { Headers, UrlParams } from "effect/http"
 import { ApiResponseError, TransportError } from "#domain/errors.ts"
@@ -146,27 +146,41 @@ export const classify = (
 	)
 
 /**
- * The fields of a failure cause that identify a transport failure. A system error's `code`
- * is a string, a `DOMException`'s a legacy number.
+ * The fields of a failure cause that identify a transport failure, each `undefined` where the cause
+ * has none. A system error's `code` is a string, a `DOMException`'s a legacy number.
  */
 interface CauseLink {
-	readonly cause?: unknown
-	readonly code?: string | number | undefined
-	readonly message?: string | undefined
-	readonly name?: string | undefined
+	readonly cause: unknown
+	readonly code: string | number | undefined
+	readonly message: string | undefined
+	readonly name: string | undefined
 }
 
-const CauseLinkSchema = Schema.Struct({
-	cause: Schema.optional(Schema.Unknown),
-	code: Schema.optional(Schema.Union([Schema.String, Schema.Finite])),
-	message: Schema.optional(Schema.String),
-	name: Schema.optional(Schema.String)
-})
+const isText = (field: unknown): field is string | undefined =>
+	Predicate.isUndefined(field) || Predicate.isString(field)
 
-const decodeCauseLink = Schema.decodeUnknownOption(CauseLinkSchema)
+const isCode = (field: unknown): field is string | number | undefined =>
+	isText(field) || (Predicate.isNumber(field) && Number.isFinite(field))
 
 /**
- * The cause, its own `cause`, and so on, each value once. Each link is decoded on its own, and a value met again ends
+ * A failure cause read as a link: an object, not an array, whose `code` is text or a finite number
+ * and whose `message` and `name` are text, each where it has one. A field may be its own or
+ * inherited, as an `Error`'s `name` is. None for any other value.
+ */
+const causeLinkOf = (value: unknown): Option.Option<CauseLink> => {
+	if (!Predicate.isObject(value)) {
+		return Option.none()
+	}
+
+	const { cause, code, message, name } = value
+
+	return isCode(code) && isText(message) && isText(name)
+		? Option.some({ cause, code, message, name })
+		: Option.none()
+}
+
+/**
+ * The cause, its own `cause`, and so on, each value once. Each link is read on its own, and a value met again ends
  * the chain, so a cyclic chain terminates without recursion.
  */
 const causeChain = (cause: unknown): readonly CauseLink[] => {
@@ -176,7 +190,7 @@ const causeChain = (cause: unknown): readonly CauseLink[] => {
 
 	while (current !== undefined && !seen.has(current)) {
 		seen.add(current)
-		const link = Option.getOrUndefined(decodeCauseLink(current))
+		const link = Option.getOrUndefined(causeLinkOf(current))
 
 		if (link === undefined) {
 			break

@@ -1,15 +1,13 @@
-import type { Server, Socket as NetSocket } from "node:net"
-import { Effect, FiberSet, MutableRef, Option, Schema, Semaphore } from "effect"
+import type { AddressInfo, Server, Socket as NetSocket } from "node:net"
+import { Data, Effect, FiberSet, MutableRef, Option, Predicate, Semaphore } from "effect"
 import type { Fiber, Scope } from "effect"
 
 /** A listener could not bind its port on 127.0.0.1. */
-export class ListenFailed extends Schema.TaggedError<
-	ListenFailed,
-	{ readonly brand: unique symbol }
->()("ListenFailed", { cause: Schema.Defect() }) {}
+export class ListenFailed extends Data.TaggedError("ListenFailed")<{ readonly cause: unknown }> {}
 
-/** The port a listening server's address names. */
-const decodeAddress = Schema.decodeUnknownEffect(Schema.Struct({ port: Schema.Int }))
+/** The port a listening server's address names; none for a pipe's path or a server not listening. */
+const portOf = (address: AddressInfo | string | null): Option.Option<number> =>
+	address === null || Predicate.isString(address) ? Option.none() : Option.some(address.port)
 
 /**
  * Listens on 127.0.0.1 at a port the system picks, and answers the port. Closing the scope closes the server once its
@@ -19,15 +17,10 @@ export const listen = (server: Server): Effect.Effect<number, ListenFailed, Scop
 	Effect.acquireRelease(
 		Effect.callback<number, ListenFailed>((resume) => {
 			server.once("error", (cause) => {
-				resume(Effect.fail(ListenFailed.make({ cause })))
+				resume(Effect.fail(new ListenFailed({ cause })))
 			})
 			server.listen({ host: "127.0.0.1", port: 0 }, () => {
-				resume(
-					decodeAddress(server.address()).pipe(
-						Effect.map(({ port }) => port),
-						Effect.orDie
-					)
-				)
+				resume(Effect.orDie(Effect.fromOption(portOf(server.address()))))
 			})
 		}),
 		() =>

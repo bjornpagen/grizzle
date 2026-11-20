@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, FileSystem, Path, Schema } from "effect"
+import { Array as Arr, Data, Effect, FileSystem, Path } from "effect"
 import { ChildProcess } from "effect/process"
 import { finished } from "#test/support/process.ts"
 
@@ -34,14 +34,11 @@ export type Certificates = Readonly<{
 export const clientSubject = "CN=capture-server client"
 
 /** An openssl step that exited non-zero: its subcommand, its exit code and its stderr. */
-class CertificateStepFailed extends Schema.TaggedError<
-	CertificateStepFailed,
-	{ readonly brand: unique symbol }
->()("CertificateStepFailed", {
-	step: Schema.String,
-	exitCode: Schema.Int,
-	stderr: Schema.Uint8Array
-}) {}
+class CertificateStepFailed extends Data.TaggedError("CertificateStepFailed")<{
+	readonly step: string
+	readonly exitCode: number
+	readonly stderr: Uint8Array
+}> {}
 
 const ellipticKey: ReadonlyArray<string> = [
 	"-newkey",
@@ -58,7 +55,7 @@ const openssl = Effect.fn("certificates.openssl")(function* (
 ) {
 	const run = yield* finished(ChildProcess.make("openssl", [step, ...args], { stdout: "ignore" }))
 	if (run.exitCode !== 0) {
-		return yield* CertificateStepFailed.make({
+		return yield* new CertificateStepFailed({
 			step,
 			exitCode: run.exitCode,
 			stderr: run.stderr
