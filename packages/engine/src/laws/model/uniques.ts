@@ -9,7 +9,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
-import { identifierOf } from "#compiler/core/identity.ts"
+import { identifierOf, type KeyImage } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
@@ -55,13 +55,23 @@ const sameGuard = (a: UniqueGuard, b: UniqueGuard): boolean =>
 	a.relation === b.relation && a.predicate.id === b.predicate.id
 
 /**
- * A column of a guarded object's UNIQUE paired with the field it holds: the field itself, or a law column holding the
- * field's own value wherever the object's guards hold and NULL elsewhere, so that two rows agree at the column exactly
- * where both meet the guards and agree at the field.
+ * What a key's column holds of the field it is bound against: the field's own value, or its image `image`, the digest a
+ * key installs a text of no byte bound over in its place (laws/model/plan.ts keyedAs), which a probe binds to the
+ * value's image (write/probe.ts boundHeld).
+ */
+export type HeldForm =
+	| { readonly kind: "value" }
+	| { readonly kind: "image"; readonly image: KeyImage }
+
+/**
+ * A column of a guarded object's UNIQUE paired with the field it holds and the form it holds it in (`HeldForm`): the
+ * field itself, or a law column holding the field's own value, or its image, wherever the object's guards hold and NULL
+ * elsewhere, so that two rows agree at the column exactly where both meet the guards and agree at the field.
  */
 export interface HeldColumn {
 	readonly field: LawField
 	readonly column: NativeColumn
+	readonly form: HeldForm
 }
 
 /**
@@ -177,7 +187,7 @@ const compared = (
 	for (const c of columns) {
 		if (c.kind === "field") {
 			equal.push(c.field)
-			held.push({ field: c.field, column: c })
+			held.push({ field: c.field, column: c, form: { kind: "value" } })
 			continue
 		}
 		const native = defined(
@@ -200,7 +210,14 @@ const compared = (
 		const [only, ...others] = fields
 		held.push(
 			native.value.term.kind === "column" && only !== undefined && !isNonEmpty(others)
-				? { field: only, column: c }
+				? {
+						field: only,
+						column: c,
+						form:
+							native.value.kind === "image"
+								? { kind: "image", image: native.value.image }
+								: { kind: "value" }
+					}
 				: "another term"
 		)
 	}

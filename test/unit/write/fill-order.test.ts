@@ -104,6 +104,13 @@ export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsDrawnSchema
 		],
 		kills: [
 			{
+				file: "packages/engine/src/write/probe.ts",
+				original: "\t\t\t\t\tboundHeld(w, relation, uniqueHeld(w, relation, c), value(c.field))",
+				replacement:
+					"\t\t\t\t\t[{ column: nativeName(w, relation, c.column), value: value(c.field), schema: operatorSchemaOf(w.names, rowType(c.field)) }]",
+				why: "425bf553e's guarded UNIQUE probe, each of its columns bound to its field's raw value, which since 75d004092 an image column holding the field's digest in its place is not: a tree's sibling probe compares its root texts' bytea images with the texts themselves, which PostgreSQL refuses (bytea = text) at every first write over a tree."
+			},
+			{
 				file: "packages/engine/src/analysis/theory/fill.ts",
 				original:
 					'\t\t\t\t\ttarget === undefined ? { kind: "unreached" as const } : acrossLater(rule.family, target)',

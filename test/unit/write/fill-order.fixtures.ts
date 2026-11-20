@@ -2,20 +2,22 @@
 
 import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import { aimed, boolean, element, type Gen } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { identity } from "#compiler/core/identity.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { columnKeyOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
+import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import type { Cells } from "#compiler/runtime/write/cells.ts"
+import type { FlightWrite } from "#compiler/runtime/write/flight.ts"
 import { normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
@@ -108,6 +110,49 @@ export type FillSituation =
 	| "refused: a role that does not hold a relation a refill writes or reads"
 	| "compiled: a role that holds every relation a refill writes and reads"
 	| "refused: a stratum whose keys and copies order its family statements in a cycle"
+
+/**
+ * Every comparison in `write`'s statements of a key's image column (laws/model/plan.ts keyedAs), each of `laws`' image
+ * law columns by its identifier, with anything but an image: the digest of a value by the library's textDigest
+ * (physical/ddl/library.ts libraryIdentity) or another image column, directly or as ANY of an array of them, each as its
+ * statement's text spells the comparison's right side. A probe binds an image column to its field's value's image and
+ * the field's own column to the value (write/probe.ts boundHeld), so a raw field's value bound at an image column, which
+ * PostgreSQL refuses (bytea = text), is one of these.
+ */
+const rawImageBindings = (write: FlightWrite, laws: LawModel): ReadonlyArray<string> => {
+	const images = Arr.flatMap(laws.natives, ({ object }) =>
+		object.kind === "LawColumn" && object.value.kind === "image" ? [`"${object.column}"`] : []
+	)
+	const digest = `"${identifierOf(libraryIdentity("textDigest"))}"`
+	/** Whether a comparison's right side, the text after its `=` up to its next space, is an image's. */
+	const imaged = (rest: string): boolean => {
+		const [token, ...after] = Str.split(" ")(rest)
+		const read = token === "ANY" ? Str.slice(0, 200)(Arr.join(after, " ")) : token
+		return Str.includes(digest)(read) || Arr.some(images, (c) => Str.includes(c)(read))
+	}
+	return Arr.flatMap(write.statements, (statement) => {
+		const forms = (() => {
+			switch (statement.kind) {
+				case "whole":
+					return [
+						statement.form,
+						...(statement.forms.kind === "chosen" ? [statement.forms.large] : [])
+					]
+				case "parted": {
+					const sent = statement.form.sentFor(() => true)
+					return sent === undefined ? [] : [sent]
+				}
+			}
+		})()
+		return Arr.flatMap(forms, (form) =>
+			Arr.flatMap(images, (c) =>
+				Arr.flatMap(Arr.drop(Str.split(`${c} = `)(form.text.sql), 1), (rest) =>
+					imaged(rest) ? [] : [`${c} = ${Str.slice(0, 80)(rest)}`]
+				)
+			)
+		)
+	})
+}
 
 /** A compilation's refusal; none when it compiled. */
 const refusalOf = (
@@ -694,6 +739,11 @@ export const property = (
 		}
 		const members = yield* collectInputs(program.value.binding.groups, parsedOf(all).inputs)
 		const write = flightOf(program.value, program.value.frontend.codes)
+		assert.deepEqual(
+			rawImageBindings(write, options.laws),
+			[],
+			"every key image column the write's statements bind is compared with an image"
+		)
 		const bound = bindWrite(write, {
 			members,
 			params: {},
