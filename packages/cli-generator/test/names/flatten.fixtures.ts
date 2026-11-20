@@ -20,10 +20,11 @@ import {
 	type Space,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, Order, Record, Result, Schema, String as Str } from "effect"
-import { isWireName } from "#model/brands.ts"
+import { Array as Arr, Option, Order, Record, Result, String as Str } from "effect"
+import { fixedDocumentUri, fixedMediaRange, isWireName } from "#model/brands.ts"
 import type { WireName } from "#model/brands.ts"
-import { EncodingRule } from "#model/entities.ts"
+import type { EncodingRule } from "#model/entities.ts"
+import { formatPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
 import { flattenBody } from "#names/flatten.ts"
 import { foldKebab } from "#names/fold.ts"
@@ -64,8 +65,8 @@ export type BodyCase = Readonly<{
 	root: ReadonlyArray<Member>
 	defs: ReadonlyArray<readonly [string, Node]>
 	refused: ReadonlyArray<WireName>
-	base64Parts: ReadonlyArray<string>
-	scalarFields: ReadonlyArray<string>
+	base64Parts: ReadonlyArray<WireName>
+	scalarFields: ReadonlyArray<WireName>
 }>
 
 const scalarJson = (node: Extract<Node, { tag: "scalar" }>): Json => {
@@ -136,23 +137,22 @@ const defsOf = (c: BodyCase): Readonly<Record<string, Json>> =>
 	])
 
 /** A rule naming one property: base64 transfer encoding for a multipart part, the scalar switch for a form field. */
-const ruleOf = (
-	name: string,
-	kind: "base64" | "scalars"
-): Effect.Effect<EncodingRule, Schema.SchemaError> =>
-	Schema.decodeEffect(EncodingRule)({
-		contentType: ["text/plain"],
-		headers: [],
-		...(kind === "base64"
-			? { contentEncoding: "base64" }
-			: {
-					nonStandardScalars: "deepObjectScalars",
-					serialization: { explode: true, style: "deepObject" }
-				}),
-		origin: { document: "file:///spec.json", pointer: `/encoding/${name}` },
-		rows: [],
-		target: { kind: "property", name }
-	})
+const ruleOf = (name: WireName, kind: "base64" | "scalars"): EncodingRule => ({
+	contentType: [fixedMediaRange("text/plain")],
+	headers: [],
+	...(kind === "base64"
+		? { contentEncoding: "base64" as const }
+		: {
+				nonStandardScalars: "deepObjectScalars" as const,
+				serialization: { explode: true, style: "deepObject" as const }
+			}),
+	origin: {
+		document: fixedDocumentUri("file:///spec.json"),
+		pointer: formatPointer(["encoding", name])
+	},
+	rows: [],
+	target: { kind: "property", name }
+})
 
 /** What flattenBody answers for a case, notes aside. */
 export type Flattened = Readonly<{
@@ -170,40 +170,34 @@ export type Flattened = Readonly<{
 	skipped: ReadonlyArray<Readonly<{ pointer: string; reason: string }>>
 }>
 
-export const actualOf = (
-	c: BodyCase
-): Effect.Effect<Result.Result<Flattened, string>, Schema.SchemaError> =>
-	Effect.gen(function* () {
-		const encoding = yield* Effect.forEach(
-			[
-				...Arr.map(c.base64Parts, (name) => [name, "base64"] as const),
-				...Arr.map(c.scalarFields, (name) => [name, "scalars"] as const)
-			],
-			([name, kind]) => ruleOf(name, kind)
-		)
-		return Result.mapBoth(
-			flattenBody(
-				defsOf(c),
-				{ codec: c.codec, schema: { key: "Root" }, encoding, refusedFields: c.refused },
-				c.line
-			),
-			{
-				onFailure: (failure) => failure._tag,
-				onSuccess: (body): Flattened => ({
-					constants: body.constants,
-					flags: Arr.map(body.flags, (flag) => ({
-						kind: flag.kind,
-						name: flag.name,
-						pointer: flag.pointer,
-						repeated: flag.repeated,
-						schemaPointer: flag.schemaPointer
-					})),
-					reserved: body.reserved,
-					skipped: body.skipped
-				})
-			}
-		)
-	})
+export const actualOf = (c: BodyCase): Result.Result<Flattened, string> => {
+	const encoding = [
+		...Arr.map(c.base64Parts, (name) => ruleOf(name, "base64")),
+		...Arr.map(c.scalarFields, (name) => ruleOf(name, "scalars"))
+	]
+	return Result.mapBoth(
+		flattenBody(
+			defsOf(c),
+			{ codec: c.codec, schema: { key: "Root" }, encoding, refusedFields: c.refused },
+			c.line
+		),
+		{
+			onFailure: (failure) => failure._tag,
+			onSuccess: (body): Flattened => ({
+				constants: body.constants,
+				flags: Arr.map(body.flags, (flag) => ({
+					kind: flag.kind,
+					name: flag.name,
+					pointer: flag.pointer,
+					repeated: flag.repeated,
+					schemaPointer: flag.schemaPointer
+				})),
+				reserved: body.reserved,
+				skipped: body.skipped
+			})
+		}
+	)
+}
 
 /** How design 4.5 reads a schema: an object's members, a scalar flag's kind, or opaque (one JSON flag). */
 type Classified =

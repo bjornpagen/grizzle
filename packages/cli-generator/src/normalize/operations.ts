@@ -7,21 +7,20 @@ import {
 	Order,
 	Record,
 	Result,
-	Schema,
-	String as Str,
-	Struct
+	String as Str
 } from "effect"
 import type { Types } from "effect"
 import { isMethodToken, isNonEmptyText, isPathTemplate, stripUnsafeText } from "#model/brands.ts"
 import type { MethodToken, PathTemplate } from "#model/brands.ts"
 import { makeDiagnostic, pointerOrder } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
-import { ContentSerialization, Operation, Parameter as ParameterEntity } from "#model/entities.ts"
 import type {
 	Body,
+	ContentSerialization,
 	Naming,
 	NamingAlias,
 	NamingHint,
+	Operation,
 	Parameter,
 	RowId,
 	Server
@@ -40,6 +39,7 @@ import {
 	normalizeBody
 } from "#normalize/bodies.ts"
 import type { BodyNotReadable, BodySite } from "#normalize/bodies.ts"
+import { docsOf } from "#normalize/docs.ts"
 import { follow, nodeOption } from "#normalize/document-set.ts"
 import { authorChoiceCodes, normalizeParameter, ParameterOutcome } from "#normalize/parameters.ts"
 import type { ParameterNotReadable, ParameterSite } from "#normalize/parameters.ts"
@@ -542,13 +542,11 @@ const withFormRules = Effect.fnUntraced(function* withFormRules(
 		return ParameterOutcome.Refused({ diagnostics, required: parameter.required })
 	}
 
-	const filled = ContentSerialization.make(
-		Struct.evolve(serialization, { encoding: () => decided.encoding })
-	)
+	const filled: ContentSerialization = { ...serialization, encoding: decided.encoding }
 
 	return ParameterOutcome.Implemented({
 		diagnostics,
-		parameter: ParameterEntity.make(Struct.evolve(parameter, { serialization: () => filled }))
+		parameter: { ...parameter, serialization: filled }
 	})
 })
 
@@ -674,7 +672,7 @@ const assembleBody = Effect.fnUntraced(function* assembleBody(
 		}
 	}
 
-	const hinted = yield* hintDiscriminators(shared.resolution, outcome.body, shared.checkFindings)
+	const hinted = hintDiscriminators(shared.resolution, outcome.body, shared.checkFindings)
 
 	return { body: Option.some(hinted), diagnostics: outcome.diagnostics, refusedRequired: false }
 })
@@ -683,7 +681,7 @@ const assembleBody = Effect.fnUntraced(function* assembleBody(
  * The `servers` of the level whose reference tokens are `tokens`.
  */
 const serverSource = (tokens: ReadonlyArray<string>, value: Option.Option<Json>): ServerSource => ({
-	pointer: formatPointer([...tokens, "servers"]),
+	tokens: [...tokens, "servers"],
 	value
 })
 
@@ -699,17 +697,6 @@ const effectiveServersOf = (
 		},
 		shared.context
 	)
-
-const docsOf = (fields: OperationFields): Operation["docs"] => ({
-	...Option.match(fields.description, {
-		onNone: () => ({}),
-		onSome: (description) => ({ description: stripUnsafeText(description) })
-	}),
-	...Option.match(fields.summary, {
-		onNone: () => ({}),
-		onSome: (summary) => ({ summary: stripUnsafeText(summary) })
-	})
-})
 
 /**
  * A row an operation records only when what it stands for is there.
@@ -797,7 +784,7 @@ const hintOf = (
 	holder: JsonObject,
 	pointer: JsonPointer,
 	source: keyof typeof namingKeys
-): NamingRead<typeof NamingHint.Type> => {
+): NamingRead<NamingHint> => {
 	const keys = namingKeys[source]
 	const read = <A>(key: string, parse: (value: Json) => Option.Option<A>): NamingRead<A> =>
 		Option.match(Record.get(holder, key), {
@@ -833,11 +820,7 @@ const hintOf = (
  * keys, give both a group and a method, or else when it has its own `operationId`. It never takes
  * the operation's `operationId`. An `x-forge-aliases` inside it is not read.
  */
-const aliasOf = (
-	element: Json,
-	pointer: JsonPointer,
-	index: number
-): NamingRead<typeof NamingAlias.Type> => {
+const aliasOf = (element: Json, pointer: JsonPointer, index: number): NamingRead<NamingAlias> => {
 	if (!isObject(element)) {
 		return { notices: [invalid(pointer)], value: Option.none() }
 	}
@@ -883,7 +866,7 @@ const aliasOf = (
 const aliasesOf = (
 	holder: JsonObject,
 	tokens: ReadonlyArray<string>
-): NamingRead<Arr.NonEmptyReadonlyArray<typeof NamingAlias.Type>> =>
+): NamingRead<Arr.NonEmptyReadonlyArray<NamingAlias>> =>
 	Option.match(Record.get(holder, aliasesKey), {
 		onNone: () => ({ notices: [], value: Option.none() }),
 		onSome: (value) => {
@@ -906,7 +889,7 @@ const aliasesOf = (
  * The naming extensions of an Operation Object (design 4.4, D-NAME4). Only the five naming keys
  * are read; every extension stays recorded as EXT-01 by `collectInformational`.
  */
-const namingOf = (raw: RawOperation): NamingRead<typeof Naming.Type> => {
+const namingOf = (raw: RawOperation): NamingRead<Naming> => {
 	const forge = hintOf(raw.node, raw.pointer, "forge")
 	const fern = hintOf(raw.node, raw.pointer, "fern")
 	const aliases = aliasesOf(raw.node, raw.tokens)
@@ -1004,10 +987,13 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 	}
 
 	const operationId = Option.filter(raw.fields.operationId, isNonEmptyText)
-	const operation = yield* Schema.decodeEffect(Operation)({
+	const operation: Operation = {
 		...(Option.isSome(body.body) ? { body: body.body.value } : {}),
 		deprecated: Option.getOrElse(raw.fields.deprecated, () => false),
-		docs: docsOf(raw.fields),
+		docs: docsOf(
+			Option.getOrUndefined(raw.fields.description),
+			Option.getOrUndefined(raw.fields.summary)
+		),
 		key: { method: raw.method, path: raw.path },
 		...(Option.isSome(naming.value) ? { naming: naming.value.value } : {}),
 		...(Option.isSome(operationId) ? { operationId: operationId.value } : {}),
@@ -1021,7 +1007,7 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 			onNone: () => [],
 			onSome: (tags) => Arr.map(tags, stripUnsafeText)
 		})
-	}).pipe(Effect.orDie)
+	}
 
 	return { diagnostics, operation: Option.some(operation) }
 })

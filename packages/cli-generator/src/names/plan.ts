@@ -254,7 +254,7 @@ export type ConfigAlias = NonNullable<OperationOverride["aliases"]>[number]
  */
 export type Namer =
 	| { readonly _tag: "Primary"; readonly override: OperationOverride | undefined }
-	| { readonly _tag: "Alias"; readonly alias: typeof NamingAlias.Type }
+	| { readonly _tag: "Alias"; readonly alias: NamingAlias }
 	| { readonly _tag: "ConfigAlias"; readonly alias: ConfigAlias }
 
 export interface SourcedName {

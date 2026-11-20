@@ -57,10 +57,9 @@ export const bodyFlags = property.explore(bodySpace, {
 		"a text body"
 	],
 	check: (_, k: Case<Feature>) => (c) =>
-		Effect.gen(function* () {
+		Effect.sync(() => {
 			k.noteAll(featuresOf(c))
-			const actual = yield* actualOf(c)
-			assert.deepEqual(actual, expectedOf(c))
+			assert.deepEqual(actualOf(c), expectedOf(c))
 		}),
 	oracle: {
 		kind: "second-implementation",

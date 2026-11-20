@@ -17,9 +17,10 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record, Result, Schema, String as Str } from "effect"
 import { decodeAuthorConfig } from "#model/author-config.ts"
-import { fixedDocumentUri } from "#model/brands.ts"
-import { Api } from "#model/entities.ts"
-import type { Json } from "#model/pointer.ts"
+import { fixedDocumentUri, MethodToken, PathTemplate, stripUnsafeText } from "#model/brands.ts"
+import type { Api, Naming, NamingAlias, NamingHint, Operation, Origin } from "#model/entities.ts"
+import { formatPointer, rootPointer } from "#model/pointer.ts"
+import type { Json, JsonPointer } from "#model/pointer.ts"
 import { foldKebab, words } from "#names/fold.ts"
 import { planNames } from "#names/index.ts"
 import type { NamePlan, PlannedGroup } from "#names/index.ts"
@@ -64,94 +65,86 @@ type OperationSketch = Readonly<{
 	skip: boolean
 }>
 
-const document = "file:///spec/openapi.json"
-
-const escape = (token: string): string =>
-	Str.replaceAll("/", "~1")(Str.replaceAll("~", "~0")(token))
+const document = fixedDocumentUri("file:///spec/openapi.json")
 
 const pathOf = (op: OperationSketch): string => `/p${op.slot}`
 
-const homeOf = (op: OperationSketch): string => `/paths/${escape(pathOf(op))}/get`
+const homeTokens = (op: OperationSketch): ReadonlyArray<string> => ["paths", pathOf(op), "get"]
 
-const origin = (pointer: string): Json => ({ document, pointer })
+const homeOf = (op: OperationSketch): JsonPointer => formatPointer(homeTokens(op))
 
-const hintJson = (hint: Hint, pointer: string): Json =>
-	Record.fromEntries([
-		["pointer", pointer],
-		...Option.match(hintGroup(hint), {
-			onNone: () => [],
-			onSome: (group) => [["group", group] as const]
-		}),
-		...Option.match(hintMethod(hint), {
-			onNone: () => [],
-			onSome: (method) => [["method", method] as const]
-		})
-	])
+const origin = (pointer: JsonPointer): Origin => ({ document, pointer })
 
-const namingJson = (op: OperationSketch): Option.Option<Json> => {
+const hintOf = (hint: Hint, pointer: JsonPointer): NamingHint => ({
+	...Option.match(Option.filter(hintGroup(hint), Arr.isReadonlyArrayNonEmpty), {
+		onNone: () => ({}),
+		onSome: (group) => ({ group })
+	}),
+	...Option.match(hintMethod(hint), {
+		onNone: () => ({}),
+		onSome: (method) => ({ method })
+	}),
+	pointer
+})
+
+const aliasOf =
+	(op: OperationSketch) =>
+	(alias: AliasSketch, index: number): NamingAlias => {
+		const pointer = formatPointer([...homeTokens(op), "x-forge-aliases", String(index)])
+		return {
+			...Option.match(alias.fern, {
+				onNone: () => ({}),
+				onSome: (hint) => ({ fern: hintOf(hint, pointer) })
+			}),
+			...Option.match(alias.forge, {
+				onNone: () => ({}),
+				onSome: (hint) => ({ forge: hintOf(hint, pointer) })
+			}),
+			index,
+			...Option.match(alias.operationId, {
+				onNone: () => ({}),
+				onSome: (operationId) => ({ operationId })
+			})
+		}
+	}
+
+const namingOf = (op: OperationSketch): Option.Option<Naming> => {
 	const home = homeOf(op)
-	const entries: ReadonlyArray<readonly [string, Json]> = [
-		...Option.match(op.forge, {
-			onNone: () => [],
-			onSome: (hint) => [["forge", hintJson(hint, home)] as const]
-		}),
-		...Option.match(op.fern, {
-			onNone: () => [],
-			onSome: (hint) => [["fern", hintJson(hint, home)] as const]
-		}),
-		...Option.match(op.aliases, {
-			onNone: () => [],
-			onSome: (aliases) => [
-				[
-					"aliases",
-					Arr.map(aliases, (alias, index) => {
-						const pointer = `${home}/x-forge-aliases/${index}`
-						return Record.fromEntries([
-							["index", index],
-							...Option.match(alias.forge, {
-								onNone: () => [],
-								onSome: (hint) => [["forge", hintJson(hint, pointer)] as const]
-							}),
-							...Option.match(alias.fern, {
-								onNone: () => [],
-								onSome: (hint) => [["fern", hintJson(hint, pointer)] as const]
-							}),
-							...Option.match(alias.operationId, {
-								onNone: () => [],
-								onSome: (id) => [["operationId", id] as const]
-							})
-						])
-					})
-				] as const
-			]
-		})
-	]
-	return Arr.isReadonlyArrayNonEmpty(entries)
-		? Option.some(Record.fromEntries(entries))
-		: Option.none()
+	const forge = Option.map(op.forge, (hint) => hintOf(hint, home))
+	const fern = Option.map(op.fern, (hint) => hintOf(hint, home))
+	const aliases = Option.flatMap(op.aliases, (list) => {
+		const read = Arr.map(list, aliasOf(op))
+		return Arr.isReadonlyArrayNonEmpty(read) ? Option.some(read) : Option.none()
+	})
+	return Option.isNone(forge) && Option.isNone(fern) && Option.isNone(aliases)
+		? Option.none()
+		: Option.some({
+				...(Option.isSome(aliases) ? { aliases: aliases.value } : {}),
+				...(Option.isSome(fern) ? { fern: fern.value } : {}),
+				...(Option.isSome(forge) ? { forge: forge.value } : {})
+			})
 }
 
-const operationJson = (op: OperationSketch): Json =>
-	Record.fromEntries([
-		["deprecated", false],
-		["docs", {}],
-		["key", { method: "GET", path: pathOf(op) }],
-		["origin", origin(homeOf(op))],
-		["parameters", []],
-		["responses", []],
-		["rows", []],
-		["security", { alternatives: [], declared: false, origin: origin(homeOf(op)), rows: [] }],
-		["servers", []],
-		["tags", op.tags],
-		...Option.match(namingJson(op), {
-			onNone: () => [],
-			onSome: (naming) => [["naming", naming] as const]
-		}),
-		...Option.match(op.operationId, {
-			onNone: () => [],
-			onSome: (id) => [["operationId", id] as const]
-		})
-	])
+const operationOf = (op: OperationSketch): Operation => ({
+	deprecated: false,
+	docs: {},
+	key: { method: MethodToken.make("GET"), path: PathTemplate.make(pathOf(op)) },
+	origin: origin(homeOf(op)),
+	parameters: [],
+	responses: [],
+	rows: [],
+	security: { alternatives: [], declared: false, origin: origin(homeOf(op)), rows: [] },
+	servers: [],
+	tags: Arr.map(op.tags, stripUnsafeText),
+	...Option.match(namingOf(op), {
+		onNone: () => ({}),
+		onSome: (naming) => ({ naming })
+	}),
+	...Option.match(op.operationId, {
+		onNone: () => ({}),
+		onSome: (operationId) => ({ operationId })
+	})
+})
 
 const overrideJson = (op: OperationSketch): Option.Option<Json> => {
 	const entries: ReadonlyArray<readonly [string, Json]> = [
@@ -271,21 +264,21 @@ const answerOf = (plan: NamePlan): Answer => ({
 
 export const actualOf = (c: ReadonlyArray<OperationSketch>) =>
 	Effect.gen(function* () {
-		const api = yield* Schema.decodeUnknownEffect(Api)({
+		const api: Api = {
 			documents: [document],
 			entry: document,
 			info: {},
 			informational: [],
 			line: "3.1",
 			openapi: "3.1.0",
-			operations: Arr.map(c, operationJson),
-			origin: origin(""),
+			operations: Arr.map(c, operationOf),
+			origin: origin(rootPointer),
 			rows: [],
-			schemas: { document: { $defs: {} }, origin: origin("/components/schemas"), rows: [] },
+			schemas: { defs: {}, origin: origin(formatPointer(["components", "schemas"])), rows: [] },
 			securitySchemes: [],
 			servers: [],
 			tags: Arr.map(Arr.dedupe(Arr.flatMap(c, (op) => op.tags)), (name) => ({ name }))
-		})
+		}
 		const configDocument = fixedDocumentUri("file:///spec/author-config.json")
 		const config = yield* decodeAuthorConfig(configJsonOf(c), { document: configDocument })
 		const plan = yield* planNames(api, { config, configDocument, strict: false })

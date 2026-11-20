@@ -2364,16 +2364,6 @@ const serversFile = (api: Api, bound: ApiEmitInput["boundOrigins"]) =>
 		]
 	}).pipe(Effect.map((content) => ({ content, path: "src/api/servers.ts" })))
 
-/**
- * The schemas of the generator's own schema store, its document's `$defs` object; none when the
- * document holds no such object.
- */
-const storeDefs = (document: Json): Defs => {
-	const defs = isNode(document) ? own(document, "$defs") : undefined
-
-	return isNode(defs) ? defs : {}
-}
-
 const byPath = Order.mapInput(Order.String, (file: EmittedFile) => file.path)
 
 /**
@@ -2396,7 +2386,7 @@ export const emitApi = (
 
 		const context: CommandContext = {
 			bound: input.boundOrigins,
-			defs: storeDefs(api.schemas.document),
+			defs: api.schemas.defs,
 			document: (uri) => documentLabel(api.entry, uri),
 			domain: plan.domain,
 			line: api.line,

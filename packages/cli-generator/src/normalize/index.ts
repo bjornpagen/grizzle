@@ -1,13 +1,15 @@
-import { Array as Arr, Effect, Option, Order, Record, Schema } from "effect"
-import type { Types } from "effect"
+import { Array as Arr, Effect, Option, Order, Predicate, Record, String as Str } from "effect"
 import type { AuthorConfig } from "#model/author-config.ts"
-import { stripUnsafeText } from "#model/brands.ts"
-import { JsonPointer } from "#model/brands.ts"
 import type { DocumentUri } from "#model/brands.ts"
 import { sortDiagnostics } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
-import { Api } from "#model/entities.ts"
+import type { Api, Docs, Tag } from "#model/entities.ts"
+import { isArray, isObject } from "#model/json-tree.ts"
+import type { JsonObject } from "#model/json-tree.ts"
+import { rootPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
+import { declaredOpenapi } from "#model/spec-section.ts"
+import { docsOf } from "#normalize/docs.ts"
 import { collectInformational } from "#normalize/informational.ts"
 import { assembleOperations, distinctDiagnostics } from "#normalize/operations.ts"
 import type { OperationsError } from "#normalize/operations.ts"
@@ -38,80 +40,51 @@ export interface Normalization {
 
 export type NormalizeError = OperationsError | SchemaImportDefect
 
-/**
- * The root `servers` site, a constant, decoded once.
- */
-const serversPointer = JsonPointer.make("/servers")
+/** An object's member `name` when it holds a string. */
+const textOf = (object: JsonObject, name: string): Option.Option<string> =>
+	Option.filter(Record.get(object, name), Predicate.isString)
 
-const Described = Schema.Struct({
-	description: Schema.optionalKey(Schema.String),
-	summary: Schema.optionalKey(Schema.String)
-})
+/** The help text an Info or Tag Object gives: each of `description` and `summary` it holds as a string, made safe. */
+const objectDocsOf = (object: JsonObject): Docs =>
+	docsOf(
+		Option.getOrUndefined(textOf(object, "description")),
+		Option.getOrUndefined(textOf(object, "summary"))
+	)
 
-const Tag = Schema.Struct({
-	...Described.fields,
-	kind: Schema.optionalKey(Schema.String),
-	name: Schema.NonEmptyString,
-	parent: Schema.optionalKey(Schema.String)
-})
-
-const Root = Schema.Struct({
-	info: Schema.optionalKey(Described),
-	openapi: Schema.String,
-	servers: Schema.optionalKey(Schema.Json),
-	tags: Schema.optionalKey(Schema.Array(Schema.Json))
-})
-
-const decodeTag = Schema.decodeUnknownOption(Tag)
-
-const decodeRoot = Schema.decodeUnknownOption(Root)
-
-const docsOf = (fields: typeof Described.Type): Types.Mutable<typeof Api.Encoded.info> => {
-	const docs: Types.Mutable<typeof Api.Encoded.info> = {}
-	if (fields.description !== undefined) {
-		docs.description = stripUnsafeText(fields.description)
-	}
-
-	if (fields.summary !== undefined) {
-		docs.summary = stripUnsafeText(fields.summary)
-	}
-
-	return docs
-}
-
-type PlainTag = Types.Mutable<(typeof Api.Encoded.tags)[number]>
-
-const tagOf = (entry: Json): readonly PlainTag[] => {
-	const found = decodeTag(entry)
-	if (Option.isNone(found)) {
+/** A Tag Object of the root's `tags`, none when it is no object or names no tag. */
+const tagOf = (entry: Json): readonly Tag[] => {
+	if (!isObject(entry)) {
 		return []
 	}
 
-	const tag: PlainTag = { name: found.value.name }
-	const docs: Record<string, string> = docsOf(found.value)
-	if (!Record.isEmptyRecord(docs)) {
-		tag.docs = docs
-	}
+	return Option.match(Option.filter(textOf(entry, "name"), Str.isNonEmpty), {
+		onNone: () => [],
+		onSome: (name) => {
+			const described =
+				Option.isSome(textOf(entry, "description")) || Option.isSome(textOf(entry, "summary"))
+			const kind = textOf(entry, "kind")
+			const parent = textOf(entry, "parent")
 
-	if (found.value.kind !== undefined) {
-		tag.kind = found.value.kind
-	}
-
-	if (found.value.parent !== undefined) {
-		tag.parent = found.value.parent
-	}
-
-	return [tag]
+			return [
+				{
+					...(described ? { docs: objectDocsOf(entry) } : {}),
+					...(Option.isSome(kind) ? { kind: kind.value } : {}),
+					name,
+					...(Option.isSome(parent) ? { parent: parent.value } : {})
+				}
+			]
+		}
+	})
 }
 
-const storeOf = (definitions: ReadonlyMap<string, unknown>) => ({
-	$defs: Record.fromEntries(
+/** The stored definitions by their `$defs` key, in key order. */
+const storeOf = (definitions: ReadonlyMap<string, Json>): Readonly<Record<string, Json>> =>
+	Record.fromEntries(
 		Arr.sort(
 			Arr.fromIterable(definitions),
-			Order.mapInput(Order.String, ([key]: readonly [string, unknown]) => key)
+			Order.mapInput(Order.String, ([key]: readonly [string, Json]) => key)
 		)
 	)
-})
 
 /**
  * Builds the `Api` from the resolved entry document (design 2.2, 3.5): the document's info and
@@ -124,10 +97,10 @@ export const normalize = Effect.fn("normalize.normalize")(function* normalize(
 	resolution: Resolution,
 	context: NormalizeContext
 ): Effect.fn.Return<Normalization, NormalizeError> {
-	const root = decodeRoot(resolution.value)
-	const openapi = Option.match(root, { onNone: () => resolution.line, onSome: (r) => r.openapi })
-	const member = <A>(read: (fields: typeof Root.Type) => A | undefined): Option.Option<A> =>
-		Option.flatMap(root, (fields) => Option.fromUndefinedOr(read(fields)))
+	const root = Option.liftPredicate(resolution.value, isObject)
+	const openapi = Option.getOrElse(declaredOpenapi(resolution.value), () => resolution.line)
+	const member = (name: string): Option.Option<Json> =>
+		Option.flatMap(root, (fields) => Record.get(fields, name))
 	const servers: ServersContext = {
 		config: context.config,
 		configDocument: context.configDocument,
@@ -145,41 +118,38 @@ export const normalize = Effect.fn("normalize.normalize")(function* normalize(
 	const rootServers = effectiveServers(
 		{
 			root: {
-				pointer: serversPointer,
-				value: member((fields) => fields.servers)
+				tokens: ["servers"],
+				value: member("servers")
 			}
 		},
 		servers
 	)
 	const informational = yield* collectInformational(resolution)
-	const api = yield* Schema.decodeUnknownEffect(Api)({
+	const api: Api = {
 		documents: Arr.fromIterable(resolution.documents.keys()),
 		entry: resolution.document,
-		info: Option.match(
-			member((fields) => fields.info),
-			{ onNone: () => ({}), onSome: docsOf }
-		),
+		info: Option.match(Option.filter(member("info"), isObject), {
+			onNone: () => ({}),
+			onSome: objectDocsOf
+		}),
 		informational,
 		line: resolution.line,
 		openapi,
 		operations: assembly.operations,
-		origin: { document: resolution.document, pointer: "" },
+		origin: { document: resolution.document, pointer: rootPointer },
 		rows: ["DOC-01", "DOC-02", "DOC-04"],
 		schemas: {
-			document: storeOf(schemas.definitions),
-			origin: { document: resolution.document, pointer: "" },
+			defs: storeOf(schemas.definitions),
+			origin: { document: resolution.document, pointer: rootPointer },
 			rows: ["SCO-01"]
 		},
 		securitySchemes: schemes.schemes,
 		servers: rootServers.servers,
-		tags: Arr.flatMap(
-			Option.getOrElse(
-				member((fields) => fields.tags),
-				() => []
-			),
-			tagOf
-		)
-	}).pipe(Effect.orDie)
+		tags: Option.match(Option.filter(member("tags"), isArray), {
+			onNone: () => [],
+			onSome: (tags) => Arr.flatMap(tags, tagOf)
+		})
+	}
 
 	return {
 		api,

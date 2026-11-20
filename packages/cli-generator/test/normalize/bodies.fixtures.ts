@@ -940,7 +940,7 @@ export const discriminatorActual = (sketch: DiscriminatorSketch) =>
 		const hint =
 			outcome._tag === "Implemented"
 				? Option.flatMap(
-						Arr.head((yield* hintDiscriminators(resolution, outcome.body, findings)).alternatives),
+						Arr.head(hintDiscriminators(resolution, outcome.body, findings).alternatives),
 						(found) => Option.fromUndefinedOr(found.discriminator)
 					)
 				: Option.none()

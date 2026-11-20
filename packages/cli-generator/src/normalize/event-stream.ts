@@ -103,12 +103,12 @@ const readName = (value: unknown): Option.Option<string> => Result.getSuccess(st
  * with the name of the one event that follows it. Any other member refuses the form.
  */
 type StreamRole =
-	| Readonly<{ retryWhen: typeof RetryWhen.Type; role: "error" }>
+	| Readonly<{ retryWhen: RetryWhen; role: "error" }>
 	| Readonly<{ next: string; role: "ready" }>
 	| Readonly<{ role: "end" | "error" | "ready" }>
 
 /** A failure role's `retryWhen`: the JSON Pointer into its data and the scalar there that says retrying is safe. */
-const retryWhen: Reader<typeof RetryWhen.Type> = (value) =>
+const retryWhen: Reader<RetryWhen> = (value) =>
 	Result.flatMap(members(value), (object) =>
 		struct(
 			object,
@@ -162,14 +162,14 @@ const streamRole: Reader<StreamRole> = union<StreamRole>([
 ])
 
 /** Whether two events' data read alike: both text, both JSON no schema checks, or both JSON one schema checks. */
-const sameData = (left: typeof EventData.Type, right: typeof EventData.Type): boolean =>
+const sameData = (left: EventData, right: EventData): boolean =>
 	typeof left === "string" || typeof right === "string" ? left === right : left.json === right.json
 
 /**
  * Whether two rows say the same of their event: its data, its role and its retry rule. A union's derived equivalence
  * cannot be used: a row without a retry rule also matches the member that has one, so the two would compare equal.
  */
-const sameRow = (left: typeof StreamEvent.Type, right: typeof StreamEvent.Type): boolean =>
+const sameRow = (left: StreamEvent, right: StreamEvent): boolean =>
 	sameData(left.data, right.data) &&
 	left.role === right.role &&
 	("retryWhen" in left
@@ -284,7 +284,7 @@ const constantOf = (node: Option.Option<Json>): Option.Option<string> =>
  * against its `contentSchema`, named by the store key of its site (schemas.ts schemaKeyAt, which normalize stores as a
  * root of its own), where it has one, else JSON no schema checks.
  */
-const dataOf = (resolution: Resolution, branch: CanonicalKey): typeof EventData.Type =>
+const dataOf = (resolution: Resolution, branch: CanonicalKey): EventData =>
 	Option.match(
 		Option.flatMap(propertyOf(resolution, branch, "data"), (data) =>
 			Option.map(
@@ -295,8 +295,8 @@ const dataOf = (resolution: Resolution, branch: CanonicalKey): typeof EventData.
 			)
 		),
 		{
-			onNone: (): typeof EventData.Type => "text",
-			onSome: ({ at, schema }): typeof EventData.Type =>
+			onNone: (): EventData => "text",
+			onSome: ({ at, schema }): EventData =>
 				schema ? { json: schemaKeyAt(resolution, childKey(at, "contentSchema")) } : "json"
 		}
 	)
@@ -308,7 +308,7 @@ type PlainRole = Exclude<StreamRole, { readonly retryWhen: unknown }>
 type RetryRole = Extract<StreamRole, { readonly retryWhen: unknown }>
 
 /** JSON event data: JSON no schema checks, or JSON its `contentSchema` checks. */
-type JsonData = Exclude<typeof EventData.Type, "text">
+type JsonData = Exclude<EventData, "text">
 
 /**
  * What one branch says: the event it names, if any, its data, and its `x-stream` role: none or a plain role over any
@@ -318,7 +318,7 @@ type BranchReading =
 	| Readonly<{
 			at: CanonicalKey
 			name: Option.Option<string>
-			data: typeof EventData.Type
+			data: EventData
 			role: Option.Option<PlainRole>
 	  }>
 	| Readonly<{ at: CanonicalKey; name: Option.Option<string>; data: JsonData; retry: RetryRole }>
@@ -358,7 +358,7 @@ const readBranch = (
 }
 
 /** The contract's row of a branch read under the name `name`. */
-const rowOf = (name: string, reading: BranchReading): typeof StreamEvent.Type => {
+const rowOf = (name: string, reading: BranchReading): StreamEvent => {
 	if ("retry" in reading) {
 		return {
 			data: reading.data,
@@ -392,7 +392,7 @@ const rowOf = (name: string, reading: BranchReading): typeof StreamEvent.Type =>
 export const readEventContract = (
 	resolution: Resolution,
 	site: CanonicalKey
-): Result.Result<Option.Option<typeof EventContract.Encoded>, EventStreamFinding> => {
+): Result.Result<Option.Option<EventContract>, EventStreamFinding> => {
 	const read = Result.all(
 		Arr.map(branchesOf(resolution, settle(resolution, site)), (branch) =>
 			readBranch(resolution, branch)
@@ -419,7 +419,7 @@ export const readEventContract = (
 		return Result.fail({ at: twice.value[0].at, code: "MED-18/stream-event-twice" })
 	}
 
-	const rows: ReadonlyArray<typeof StreamEvent.Type> = Arr.map(named, ([, row]) => row)
+	const rows: ReadonlyArray<StreamEvent> = Arr.map(named, ([, row]) => row)
 	const events = Arr.dedupeWith(rows, (left, right) => left.name === right.name)
 	const strays = Arr.findFirst(
 		named,

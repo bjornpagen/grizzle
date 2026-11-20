@@ -11,10 +11,10 @@ import {
 	oneOf,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, Record as Rec, Schema } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { fixedDocumentUri } from "#model/brands.ts"
-import { EventContract } from "#model/entities.ts"
-import { childPointer } from "#model/pointer.ts"
+import type { EventContract } from "#model/entities.ts"
+import { childPointer, formatPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
 import { normalizeResponses } from "#normalize/responses.ts"
 import { normalizeSchemas } from "#normalize/schemas.ts"
@@ -294,7 +294,7 @@ const branchPointer = (schema: ItemSchema, written: Branch, index: number): stri
 
 /** The reading the specification states: the contract, or the first finding with its pointer. */
 type Expected =
-	| Readonly<{ kind: "contract"; contract: Option.Option<typeof EventContract.Encoded> }>
+	| Readonly<{ kind: "contract"; contract: Option.Option<EventContract> }>
 	| Readonly<{ kind: "refused"; code: string; pointer: string; scope: string }>
 
 const nameOf = (written: Branch): Option.Option<string> =>
@@ -350,7 +350,7 @@ const rowOf = (schema: ItemSchema, written: Branch, index: number, name: string)
 			return {
 				data: data === "text" ? "json" : data,
 				name,
-				retryWhen: { equals: written.role.equals, pointer: "/error/retry" },
+				retryWhen: { equals: written.role.equals, pointer: formatPointer(["error", "retry"]) },
 				role: "error"
 			}
 		case "next":
@@ -374,7 +374,7 @@ const branchFinding = (written: Branch): Option.Option<string> => {
 }
 
 /** A contract row as its encoded form holds it. */
-type Row = (typeof EventContract.Encoded)["events"][number]
+type Row = EventContract["events"][number]
 
 /** Whether two rows say the same of their event: its data, its role, and its retry rule. */
 const sameRow = (left: Row, right: Row): boolean =>
@@ -461,8 +461,6 @@ export const expectedOf = (schema: ItemSchema): Expected => {
 	}
 }
 
-const encodeContract = Schema.encodeEffect(EventContract)
-
 /** The document resolved as the generator resolves it. */
 const resolutionOf = (schema: ItemSchema) =>
 	resolve({
@@ -516,12 +514,7 @@ export const actualOf = (schema: ItemSchema) =>
 		const alternative = Arr.head(
 			Arr.flatMap(normalized.responses, (response) => response.alternatives)
 		)
-		const contract = yield* Effect.transposeOption(
-			Option.map(
-				Option.flatMap(alternative, (found) => Option.fromUndefinedOr(found.events)),
-				encodeContract
-			)
-		)
+		const contract = Option.flatMap(alternative, (found) => Option.fromUndefinedOr(found.events))
 		const read: Expected = { kind: "contract", contract }
 		return read
 	})

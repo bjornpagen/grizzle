@@ -45,7 +45,7 @@ import {
 	WireName
 } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
-import {
+import type {
 	Body,
 	EncodingRule,
 	MediaAlternative,
@@ -187,8 +187,8 @@ const schemeKindGen: Gen<SchemeKind> = oneOf<SchemeKind>([
 
 const schemesGen: Gen<ReadonlyArray<SecurityScheme>> = uniqueArray(
 	element(SCHEME_NAMES),
-	(name) => (s) =>
-		SecurityScheme.make({
+	(name) =>
+		(s): SecurityScheme => ({
 			credentialSources: s.draw(subarray(["file", "env", "prompt"])),
 			deprecated: s.draw(boolean),
 			kind: s.draw(schemeKindGen),
@@ -233,28 +233,27 @@ const marksGen: Gen<
 
 const parameterGen =
 	(location: Parameter["location"]): Gen<Parameter> =>
-	(s) =>
-		Parameter.make({
-			deprecated: s.draw(boolean),
-			docs: {},
-			location,
+	(s) => ({
+		deprecated: s.draw(boolean),
+		docs: {},
+		location,
+		origin,
+		required: location === "path" || s.draw(boolean),
+		rows: [],
+		schema: { key: "s" },
+		serialization: {
+			allowReserved: false,
+			explode: s.draw(boolean),
+			kind: "style",
+			objectValued: s.draw(boolean),
 			origin,
-			required: location === "path" || s.draw(boolean),
 			rows: [],
-			schema: { key: "s" },
-			serialization: StyleSerialization.make({
-				allowReserved: false,
-				explode: s.draw(boolean),
-				kind: "style",
-				objectValued: s.draw(boolean),
-				origin,
-				rows: [],
-				rules: "rules",
-				style: s.draw(element(STYLES)),
-				...s.draw(marksGen)
-			}),
-			wireName: WireName.make(s.draw(wireName))
-		})
+			rules: "rules",
+			style: s.draw(element(STYLES)),
+			...s.draw(marksGen)
+		},
+		wireName: WireName.make(s.draw(wireName))
+	})
 
 const jsonValue: Gen<Json> = oneOf<Json>([
 	map(textGen, (value) => value),
@@ -355,60 +354,56 @@ const flagsGen: Gen<ReadonlyArray<HelpFlag>> = uniqueArray(
 const alternativeGen =
 	(codec: MediaAlternative["codec"]) =>
 	(mediaType: string): Gen<MediaAlternative> =>
-	(s) =>
-		MediaAlternative.make({
-			codec,
-			encoding: Arr.map(s.draw(subarray(PROPERTIES)), (name) =>
-				EncodingRule.make({
-					contentType: [],
-					headers: [],
-					origin,
-					rows: [],
-					target: { kind: "property", name: WireName.make(name) },
-					...s.draw(marksGen)
-				})
-			),
-			mediaType: MediaType.make(mediaType),
+	(s) => ({
+		codec,
+		encoding: Arr.map(s.draw(subarray(PROPERTIES)), (name): EncodingRule => ({
+			contentType: [],
+			headers: [],
 			origin,
-			prefixEncoding: [],
 			rows: [],
-			...Option.match(
-				s.draw(
-					option((t) => ({
-						branches: t.draw(
-							array(
-								(u) => ({
-									index: u.draw(int(0, 3)),
-									labels: u.draw(array(textGen, { min: 0, max: 2 })),
-									...Option.match(u.draw(option(textGen)), {
-										onNone: () => ({}),
-										onSome: (component) => ({ component })
-									})
-								}),
-								{ min: 1, max: 3 }
-							)
-						),
-						keyword: t.draw(element<"allOf" | "anyOf" | "oneOf">(["allOf", "anyOf", "oneOf"])),
-						propertyName: t.draw(textGen)
-					}))
-				),
-				{
-					onNone: () => ({}),
-					onSome: (discriminator) => (codec === "json" ? { discriminator } : {})
-				}
-			)
-		})
-
-const bodyGen: Gen<Body> = (s) =>
-	Body.make({
-		alternatives: s.draw(
-			uniqueArray(element(MEDIA_TYPES), alternativeGen("json"), { min: 0, max: 3 })
-		),
-		docs: {},
+			target: { kind: "property", name: WireName.make(name) },
+			...s.draw(marksGen)
+		})),
+		mediaType: MediaType.make(mediaType),
 		origin,
-		required: s.draw(boolean),
-		rows: []
+		prefixEncoding: [],
+		rows: [],
+		...Option.match(
+			s.draw(
+				option((t) => ({
+					branches: t.draw(
+						array(
+							(u) => ({
+								index: u.draw(int(0, 3)),
+								labels: u.draw(array(textGen, { min: 0, max: 2 })),
+								...Option.match(u.draw(option(textGen)), {
+									onNone: () => ({}),
+									onSome: (component) => ({ component })
+								})
+							}),
+							{ min: 1, max: 3 }
+						)
+					),
+					keyword: t.draw(element<"allOf" | "anyOf" | "oneOf">(["allOf", "anyOf", "oneOf"])),
+					propertyName: t.draw(textGen)
+				}))
+			),
+			{
+				onNone: () => ({}),
+				onSome: (discriminator) => (codec === "json" ? { discriminator } : {})
+			}
+		)
 	})
+
+const bodyGen: Gen<Body> = (s) => ({
+	alternatives: s.draw(
+		uniqueArray(element(MEDIA_TYPES), alternativeGen("json"), { min: 0, max: 3 })
+	),
+	docs: {},
+	origin,
+	required: s.draw(boolean),
+	rows: []
+})
 
 const responseKeyGen: Gen<ResponseCase["key"]> = oneOf<ResponseCase["key"]>([
 	map(element([200, 201, 204, 401, 404, 500]), (code) => ({ code })),
@@ -416,60 +411,58 @@ const responseKeyGen: Gen<ResponseCase["key"]> = oneOf<ResponseCase["key"]>([
 	() => "default"
 ])
 
-const responseGen: Gen<ResponseCase> = (s) =>
-	ResponseCase.make({
-		alternatives: s.draw(
-			uniqueArray(element(MEDIA_TYPES), alternativeGen("json"), { min: 0, max: 2 })
-		),
-		docs: {},
-		headers: s.draw(
-			uniqueArray(
-				element(["X-Request-ID", "ETag", "Retry-After"]),
-				(name) => (t) => ({
-					deprecated: t.draw(boolean),
-					name: HeaderName.make(name),
-					required: t.draw(boolean)
-				}),
-				{ min: 0, max: 2 }
-			)
-		),
-		key: s.draw(responseKeyGen),
-		origin,
-		rows: []
-	})
+const responseGen: Gen<ResponseCase> = (s) => ({
+	alternatives: s.draw(
+		uniqueArray(element(MEDIA_TYPES), alternativeGen("json"), { min: 0, max: 2 })
+	),
+	docs: {},
+	headers: s.draw(
+		uniqueArray(
+			element(["X-Request-ID", "ETag", "Retry-After"]),
+			(name) => (t) => ({
+				deprecated: t.draw(boolean),
+				name: HeaderName.make(name),
+				required: t.draw(boolean)
+			}),
+			{ min: 0, max: 2 }
+		)
+	),
+	key: s.draw(responseKeyGen),
+	origin,
+	rows: []
+})
 
 const securityGen =
 	(schemes: ReadonlyArray<SecurityScheme>): Gen<SecurityPolicy> =>
-	(s) =>
-		SecurityPolicy.make({
-			alternatives: s.draw(
-				array(
-					(t) => ({
-						uses: t.draw(
-							uniqueArray(
-								weighted([
-									[
-										4,
-										element(
-											Arr.isReadonlyArrayNonEmpty(schemes)
-												? Arr.map(schemes, (scheme) => scheme.name)
-												: SCHEME_NAMES
-										)
-									],
-									[1, element(["undeclared"])]
-								]),
-								(scheme) => (u) => ({ scheme, scopes: u.draw(array(textGen, { min: 0, max: 2 })) }),
-								{ min: 0, max: 2 }
-							)
+	(s) => ({
+		alternatives: s.draw(
+			array(
+				(t) => ({
+					uses: t.draw(
+						uniqueArray(
+							weighted([
+								[
+									4,
+									element(
+										Arr.isReadonlyArrayNonEmpty(schemes)
+											? Arr.map(schemes, (scheme) => scheme.name)
+											: SCHEME_NAMES
+									)
+								],
+								[1, element(["undeclared"])]
+							]),
+							(scheme) => (u) => ({ scheme, scopes: u.draw(array(textGen, { min: 0, max: 2 })) }),
+							{ min: 0, max: 2 }
 						)
-					}),
-					{ min: 0, max: 3 }
-				)
-			),
-			declared: s.draw(boolean),
-			origin,
-			rows: []
-		})
+					)
+				}),
+				{ min: 0, max: 3 }
+			)
+		),
+		declared: s.draw(boolean),
+		origin,
+		rows: []
+	})
 
 const METHODS: Arr.NonEmptyReadonlyArray<string> = ["GET", "POST", "PATCH", "DELETE", "QUERY"]
 
@@ -562,7 +555,7 @@ export const helpInputGen: Gen<HelpInput> = (s) => {
 		credentials,
 		diagnostics: s.draw(array(diagnosticGen(key), { min: 0, max: 4 })),
 		flags: s.draw(flagsGen),
-		operation: Operation.make({
+		operation: {
 			deprecated: s.draw(boolean),
 			docs: s.draw(docsGen),
 			key,
@@ -581,7 +574,7 @@ export const helpInputGen: Gen<HelpInput> = (s) => {
 				onNone: () => ({}),
 				onSome: (operationId) => ({ operationId })
 			})
-		}),
+		},
 		schemes
 	}
 }

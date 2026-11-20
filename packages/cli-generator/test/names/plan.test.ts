@@ -88,12 +88,10 @@ export const namePlan = property.explore(planSpace, {
 			why: "No group gets its planned namespace, so planning any tagged operation fails; the property fails (CATCH's evidence, mutant e6388e44a5)."
 		},
 		{
-			file: "packages/cli-generator/src/model/entities.ts",
-			original:
-				'[\n\t"cookie",\n\t"deepObject",\n\t"form",\n\t"label",\n\t"matrix",\n\t"pipeDelimited",\n\t"simple",\n\t"spaceDelimited"\n]',
-			replacement:
-				'["cookie", "deepObject", "label", "matrix", "pipeDelimited", "simple", "spaceDelimited"]',
-			why: "The form style is no style the model admits, so an API with a query parameter no longer decodes; the property fails (CATCH's evidence, mutant 85f71acc09)."
+			file: "packages/cli-generator/src/names/plan.ts",
+			original: 'parameter.serialization.kind === "style"',
+			replacement: 'parameter.serialization.kind === "content"',
+			why: "A style-serialized boolean parameter is planned as a value flag, so its negation is never planned or reserved; the property fails."
 		},
 		{
 			file: "packages/cli-generator/src/names/index.ts",

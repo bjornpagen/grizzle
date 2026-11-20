@@ -1,7 +1,6 @@
 import { Schema } from "effect"
-import { JsonPointer, Sha256Hex } from "#model/brands.ts"
+import { DocumentUri, JsonPointer, Sha256Hex } from "#model/brands.ts"
 import { diagnosticScopes } from "#model/diagnostic.ts"
-import { Origin } from "#model/entities.ts"
 
 const Count = Schema.Natural
 
@@ -17,7 +16,7 @@ const Entry = Schema.Struct({
  * name.
  */
 const withSite = <const Fields extends Schema.Struct.Fields>(kind: Schema.Struct<Fields>) =>
-	Schema.Struct({ ...Origin.fields, ...kind.fields })
+	Schema.Struct({ document: DocumentUri, pointer: JsonPointer, ...kind.fields })
 
 /**
  * A `--describe` claim nothing in the spec stands behind, by the command's path and the value.

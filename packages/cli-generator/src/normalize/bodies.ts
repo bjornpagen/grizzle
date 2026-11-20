@@ -10,7 +10,6 @@ import {
 	Predicate,
 	Record,
 	Result,
-	Schema,
 	String as Str,
 	Struct,
 	UndefinedOr
@@ -25,9 +24,8 @@ import {
 import type { HeaderName, MediaRange, WireName } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
-import { Body, EncodingRule } from "#model/entities.ts"
-import type { DiscriminatorHint, Origin, RowId } from "#model/entities.ts"
-import { childPointer, formatPointer, isPointerWithin, ownPointer } from "#model/pointer.ts"
+import type { Body, DiscriminatorHint, EncodingRule, Origin, RowId } from "#model/entities.ts"
+import { childPointer, formatPointer, isPointerWithin } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { docsOf } from "#normalize/docs.ts"
@@ -36,6 +34,7 @@ import {
 	follow,
 	nodeIn,
 	nodeOption,
+	originOf,
 	referenceIn,
 	settle
 } from "#normalize/document-set.ts"
@@ -776,12 +775,6 @@ interface PlainRule extends PlainNested {
 	readonly rows: ReadonlyArray<RowId>
 }
 
-/**
- * The origin of the element at `key`, whose pointer the generator built.
- */
-const originOf = (key: CanonicalKey): Effect.Effect<Origin> =>
-	Effect.map(ownPointer(key.pointer), (pointer): Origin => ({ document: key.document, pointer }))
-
 interface RuleResult {
 	readonly findings: readonly Finding[]
 	readonly rule: PlainRule | undefined
@@ -1126,7 +1119,8 @@ const headersOf = Effect.fnUntraced(function* headersOf(
 			continue
 		}
 
-		const typed = partHeader(resolution, at, name, at)
+		const origin = yield* originOf(at)
+		const typed = partHeader(resolution, at, name, origin)
 		if (PartHeaderOutcome.$is("Unsupported")(typed)) {
 			findings.push(
 				dropping(
@@ -2810,9 +2804,7 @@ const discriminated: Read.Reader<Discriminated> = (value) =>
 		)
 	)
 
-type Hint = typeof DiscriminatorHint.Encoded
-
-type Branch = Hint["branches"][number]
+type Branch = DiscriminatorHint["branches"][number]
 
 /**
  * Whether an element-scope refusal of check names the Discriminator Object of `root`: DSC-03,
@@ -2896,7 +2888,7 @@ const hintAt = (
 	resolution: Resolution,
 	site: CanonicalKey,
 	checkFindings: readonly Diagnostic[]
-): Hint | undefined => {
+): DiscriminatorHint | undefined => {
 	const root = settle(resolution, site)
 	const node = Option.getOrUndefined(
 		Option.flatMap(nodeOption(resolution, root), (json) => Result.getSuccess(discriminated(json)))
@@ -2950,15 +2942,11 @@ const hintAt = (
  * discriminator any element-scope refusal in `checkFindings` names gets no hint. The hint never
  * changes validation (DSC-06).
  */
-export const hintDiscriminators: (
+export const hintDiscriminators = (
 	resolution: Resolution,
 	body: Body,
 	checkFindings: readonly Diagnostic[]
-) => Effect.Effect<Body> = Effect.fnUntraced(function* hintDiscriminators(
-	resolution: Resolution,
-	body: Body,
-	checkFindings: readonly Diagnostic[]
-): Effect.fn.Return<Body, Schema.SchemaError> {
+): Body => {
 	const hints = Arr.map(body.alternatives, (alternative) =>
 		alternative.schema === undefined
 			? undefined
@@ -2968,17 +2956,15 @@ export const hintDiscriminators: (
 		return body
 	}
 
-	const plain = yield* Schema.encodeEffect(Body)(body)
-
-	return yield* Schema.decodeEffect(Body)({
-		...plain,
-		alternatives: Arr.map(plain.alternatives, (alternative, index) => {
+	return {
+		...body,
+		alternatives: Arr.map(body.alternatives, (alternative, index) => {
 			const found = hints[index]
 
 			return found === undefined ? alternative : { ...alternative, discriminator: found }
 		})
-	})
-}, Effect.orDie)
+	}
+}
 
 /**
  * Normalizes one Request Body Object into a `Body` whose alternatives are the media types that
@@ -3023,13 +3009,13 @@ export const normalizeBody = Effect.fnUntraced(function* normalizeBody(
 		return BodyOutcome.Refused({ diagnostics, required })
 	}
 
-	const body = yield* Schema.decodeEffect(Body)({
+	const body: Body = {
 		alternatives,
 		docs: docsOf(reference?.description ?? node.description, reference?.summary),
 		origin: yield* originOf(use),
 		required,
 		rows: ["RQB-01", "RQB-03", "RQB-04"]
-	}).pipe(Effect.orDie)
+	}
 
 	return BodyOutcome.Implemented({ body, diagnostics })
 })
@@ -3085,9 +3071,7 @@ export const formContentRules = Effect.fnUntraced(function* formContentRules(
 	}
 
 	const diagnostics = yield* toDiagnostics(ctx, parts.findings, Option.some(mediaSite))
-	const encoding = yield* Schema.decodeEffect(Schema.Array(EncodingRule))(parts.encoding).pipe(
-		Effect.orDie
-	)
+	const encoding: ReadonlyArray<EncodingRule> = parts.encoding
 
 	return FormContentOutcome.Implemented({ diagnostics, encoding })
 })

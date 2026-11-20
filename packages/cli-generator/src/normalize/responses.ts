@@ -1,15 +1,22 @@
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Option, Order, Record, Result, Schema, String as Str } from "effect"
-import { isHeaderName, isMediaRange, stripUnsafeText } from "#model/brands.ts"
+import { Array as Arr, Effect, Option, Order, Record, Result, String as Str } from "effect"
+import { isHeaderName, isMediaRange } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
-import { ResponseCase } from "#model/entities.ts"
-import type { MediaAlternative } from "#model/entities.ts"
+import type { MediaAlternative, ResponseCase, RowId } from "#model/entities.ts"
 import { isSpecificationExtension } from "#model/extension.ts"
 import { stringMember } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { declaredOpenapi, specSectionUrl } from "#model/spec-section.ts"
-import { childKey, follow, memberNamesAt, objectIn, referenceIn } from "#normalize/document-set.ts"
+import { docsOf } from "#normalize/docs.ts"
+import {
+	childKey,
+	follow,
+	memberNamesAt,
+	objectIn,
+	originOf,
+	referenceIn
+} from "#normalize/document-set.ts"
 import { readEventContract } from "#normalize/event-stream.ts"
 import { headerMarks } from "#normalize/header-object.ts"
 import { headerPercentEncoding } from "#normalize/parameters.ts"
@@ -136,10 +143,6 @@ const rules = {
 
 type Code = keyof typeof rules
 
-type PlainAlternative = typeof MediaAlternative.Encoded
-
-type PlainCase = typeof ResponseCase.Encoded
-
 /**
  * A finding at its own location, in whichever document of the set holds it.
  */
@@ -260,7 +263,7 @@ const codecOf = (mediaType: string): Codec => {
  */
 interface Place {
 	readonly rank: number
-	readonly row: string
+	readonly row: RowId
 	readonly value: number
 }
 
@@ -285,7 +288,7 @@ const alternativeOf = Effect.fnUntraced(function* alternativeOf(
 	resolution: Resolution,
 	response: CanonicalKey,
 	mediaType: string
-): Effect.fn.Return<Built<Option.Option<PlainAlternative>>> {
+): Effect.fn.Return<Built<Option.Option<MediaAlternative>>> {
 	const site = childKey(response, "content", mediaType)
 	if (!isMediaRange(mediaType)) {
 		return { findings: [{ at: site, code: "RSP-05/invalid-media-type" }], value: Option.none() }
@@ -301,11 +304,11 @@ const alternativeOf = Effect.fnUntraced(function* alternativeOf(
 			? [{ at: home, code: "MED-09/description-ignored" } as const]
 			: [])
 	]
-	const plain: PlainAlternative = {
+	const plain: MediaAlternative = {
 		codec: codecOf(mediaType),
 		encoding: [],
 		mediaType,
-		origin: home,
+		origin: yield* originOf(home),
 		prefixEncoding: [],
 		rows: ["RSP-05"],
 		...(Record.has(media, "itemSchema")
@@ -345,7 +348,7 @@ const headerOf = Effect.fnUntraced(function* headerOf(
 	resolution: Resolution,
 	response: CanonicalKey,
 	name: string
-): Effect.fn.Return<Built<Option.Option<PlainCase["headers"][number]>>> {
+): Effect.fn.Return<Built<Option.Option<ResponseCase["headers"][number]>>> {
 	const at = childKey(response, "headers", name)
 	if (Str.toLowerCase(name) === "content-type") {
 		return { findings: [{ at, code: "RSP-09/ignored-content-type" }], value: Option.none() }
@@ -368,7 +371,7 @@ const headersOf = Effect.fnUntraced(function* headersOf(
 	resolution: Resolution,
 	headers: readonly string[],
 	response: CanonicalKey
-): Effect.fn.Return<Built<PlainCase["headers"]>> {
+): Effect.fn.Return<Built<ResponseCase["headers"]>> {
 	const built = yield* Effect.forEach(headers, (name) => headerOf(resolution, response, name))
 
 	return {
@@ -381,15 +384,14 @@ const headersOf = Effect.fnUntraced(function* headersOf(
  * A case's help text: its description and summary, a Reference Object's at the use site over the
  * Response Object's own, each made safe.
  */
-const docsOf = (response: JsonObject, site: ResolvedReference | undefined): PlainCase["docs"] => {
-	const description = site?.description ?? stringMember(response, "description")
-	const summary = site?.summary ?? stringMember(response, "summary")
-
-	return {
-		...(description === undefined ? {} : { description: stripUnsafeText(description) }),
-		...(summary === undefined ? {} : { summary: stripUnsafeText(summary) })
-	}
-}
+const caseDocsOf = (
+	response: JsonObject,
+	site: ResolvedReference | undefined
+): ResponseCase["docs"] =>
+	docsOf(
+		site?.description ?? stringMember(response, "description"),
+		site?.summary ?? stringMember(response, "summary")
+	)
 
 /**
  * The case of the Responses Object member `text` under its key, read where its `$ref` leads: its
@@ -401,7 +403,7 @@ const caseOf = Effect.fnUntraced(function* caseOf(
 	responses: CanonicalKey,
 	text: string,
 	key: ResponseCase["key"]
-): Effect.fn.Return<Built<PlainCase>> {
+): Effect.fn.Return<Built<ResponseCase>> {
 	const site = childKey(responses, text)
 	const home = follow(resolution, site)
 	const response = yield* objectIn(resolution, home)
@@ -411,10 +413,10 @@ const caseOf = Effect.fnUntraced(function* caseOf(
 	)
 	const headerNames = yield* memberNamesAt(resolution, childKey(home, "headers"))
 	const headers = yield* headersOf(resolution, Option.getOrElse(headerNames, Arr.empty), home)
-	const rows = [
+	const rows: readonly RowId[] = [
 		placeOf(key).row,
 		"RSP-01",
-		...(headers.value.length === 0 ? [] : ["RSP-04"]),
+		...(headers.value.length === 0 ? [] : (["RSP-04"] as const)),
 		Option.isNone(content) ? "RSP-07" : "RSP-05"
 	]
 
@@ -425,10 +427,10 @@ const caseOf = Effect.fnUntraced(function* caseOf(
 		],
 		value: {
 			alternatives: Arr.getSomes(Arr.map(alternatives, (alternative) => alternative.value)),
-			docs: docsOf(response, referenceIn(resolution, site)),
+			docs: caseDocsOf(response, referenceIn(resolution, site)),
 			headers: headers.value,
 			key,
-			origin: site,
+			origin: yield* originOf(site),
 			rows
 		}
 	}
@@ -467,7 +469,7 @@ const entryOf = Effect.fnUntraced(function* entryOf(
 	resolution: Resolution,
 	responses: CanonicalKey,
 	text: string
-): Effect.fn.Return<Built<Option.Option<PlainCase>>> {
+): Effect.fn.Return<Built<Option.Option<ResponseCase>>> {
 	const member = classifyKey(text)
 	switch (member._tag) {
 		case "Refused": {
@@ -517,9 +519,7 @@ export const normalizeResponses = Effect.fnUntraced(function* normalizeResponses
 		diagnostics: yield* Effect.forEach(findings, (finding) =>
 			toDiagnostic(resolution, finding, operation)
 		),
-		responses: yield* Effect.forEach(cases, (plain) =>
-			Schema.decodeEffect(ResponseCase)(plain).pipe(Effect.orDie)
-		)
+		responses: cases
 	}
 })
 

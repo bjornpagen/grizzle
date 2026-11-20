@@ -373,7 +373,7 @@ const generateApart = (id: string, request: GenerationRequest) =>
 		const generation = yield* Effect.fromResult(readGeneration(text))
 
 		return generation._tag === "Refused"
-			? yield* GenerateRefused.make({
+			? yield* new GenerateRefused({
 					diagnostics: generation.diagnostics,
 					reason: generation.reason
 				})

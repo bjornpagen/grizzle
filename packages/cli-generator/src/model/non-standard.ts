@@ -43,7 +43,7 @@ export const markedUses = (element: Markable): readonly NonStandardUse[] => [
  * of `content` (a 3.2 `querystring` parameter). Empty when nothing is marked.
  */
 export const nonStandardUses = (
-	serialization: typeof Serialization.Type
+	serialization: Serialization
 ): readonly NonStandardUse[] =>
 	serialization.kind === "content"
 		? Arr.flatMap(serialization.encoding, markedUses)

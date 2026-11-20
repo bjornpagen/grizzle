@@ -94,11 +94,10 @@ export const bodyAlternatives = property.explore(bodySpace, {
 			why: "An XML alternative carries its schema, so an opaque body reads as schema-driven; the property fails (CATCH's evidence, mutant ca8053deda)."
 		},
 		{
-			file: "packages/cli-generator/src/model/entities.ts",
-			original:
-				'[\n\t\t\t"binary",\n\t\t\t"form",\n\t\t\t"json",\n\t\t\t"jsonseq",\n\t\t\t"multipart",\n\t\t\t"ndjson",\n\t\t\t"sse",\n\t\t\t"text",\n\t\t\t"xml"\n\t\t]',
-			replacement: '["binary", "form", "json", "jsonseq", "multipart", "ndjson", "sse", "xml"]',
-			why: "The text codec is no codec a body may carry, so a body with a text alternative cannot be built; the property fails (CATCH's evidence, mutant f3b47c768f)."
+			file: "packages/cli-generator/src/normalize/bodies.ts",
+			original: 'return Str.startsWith("text/")(base) ? "text" : "binary"',
+			replacement: 'return "binary"',
+			why: "A text/* body alternative takes the binary codec, so a body with a text alternative is read as bytes; the property fails."
 		},
 		{
 			file: "packages/cli-generator/src/normalize/bodies.ts",

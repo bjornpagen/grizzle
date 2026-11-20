@@ -61,10 +61,10 @@ export const schemeCredentials = property.explore(credentialSpace, {
 			why: "Normalize refuses every security requirement naming a declared scheme and reaches every undeclared one, so each secured operation is refused; the property fails (CATCH's evidence, mutant 5dff77b919)."
 		},
 		{
-			file: "packages/cli-generator/src/model/entities.ts",
-			original: '["basic", "bearer"]',
-			replacement: '["basic"]',
-			why: "HTTP bearer is no scheme the model admits, so a bearer scheme's operations lose their credential; the property fails (CATCH's evidence, mutant 8996dfcb66)."
+			file: "packages/cli-generator/src/normalize/security.ts",
+			original: 'const httpRows = { basic: "SSC-15", bearer: "SSC-16" } as const',
+			replacement: 'const httpRows = { basic: "SSC-15" } as const',
+			why: "HTTP bearer is no scheme the security reader admits, so a bearer scheme is refused and its operations lose their credential; the property fails."
 		},
 		{
 			file: "packages/cli-generator/src/names/index.ts",

@@ -1,6 +1,6 @@
 import { regex } from "arkregex"
-import { Array as Arr, Effect, FileSystem, Option, Order, Schema } from "effect"
-import type { Path, PlatformError, Stream, Types } from "effect"
+import { Array as Arr, Data, Effect, FileSystem, Option, Order } from "effect"
+import type { Path, PlatformError, Schema, Stream, Types } from "effect"
 import type { Digest } from "effect/crypto"
 import { checkSpecText } from "#check/index.ts"
 import { emitApi } from "#emit/api.ts"
@@ -22,18 +22,11 @@ import { readOperatorFile, readStreamBytes } from "#load/read.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
 import type { DocumentUri } from "#model/brands.ts"
-import {
-	isDiagnostic,
-	isDocumentRefusal,
-	isRefusal,
-	makeDiagnostic,
-	sortDiagnostics
-} from "#model/diagnostic.ts"
+import { isDocumentRefusal, isRefusal, makeDiagnostic, sortDiagnostics } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { sha256Hex } from "#model/digest.ts"
-import { Api } from "#model/entities.ts"
-import type { Operation } from "#model/entities.ts"
-import { patchVersion, specSectionUrl } from "#model/spec-section.ts"
+import type { Api, Operation } from "#model/entities.ts"
+import { declaredOpenapi, patchVersion, specSectionUrl } from "#model/spec-section.ts"
 import { retrievalBase } from "#model/uri.ts"
 import { planNames } from "#names/index.ts"
 import type { NamePlan, PlannedCommand, PlannedGroup } from "#names/index.ts"
@@ -122,13 +115,10 @@ export const refusalReasons = ["config", "document", "strict"] as const
  * Nothing was written (design 8.1 exit 1): the author config cannot be used, the document is
  * refused, or `--strict` met a refusal. `diagnostics` are the run's diagnostics so far.
  */
-export class GenerateRefused extends Schema.TaggedError<
-	GenerateRefused,
-	{ readonly brand: unique symbol }
->()("GenerateRefused", {
-	diagnostics: Schema.Array(Schema.declare(isDiagnostic)),
-	reason: Schema.Literals(refusalReasons)
-}) {}
+export class GenerateRefused extends Data.TaggedError("GenerateRefused")<{
+	readonly diagnostics: ReadonlyArray<Diagnostic>
+	readonly reason: (typeof refusalReasons)[number]
+}> {}
 
 /**
  * Every way `generate` can fail. Besides `GenerateRefused` and the writer's errors, the rest are
@@ -160,12 +150,10 @@ const emitHints: Readonly<Record<CliRefusal["reason"], string | undefined>> = {
 	"unsupported-parameter": undefined
 }
 
-const DeclaredOpenapi = Schema.Struct({ openapi: Schema.String })
-
 const refused =
 	(reason: GenerateRefused["reason"]) =>
 	(diagnostics: readonly Diagnostic[]): GenerateRefused =>
-		GenerateRefused.make({ diagnostics, reason })
+		new GenerateRefused({ diagnostics, reason })
 
 /**
  * `DOC-02`: an `openapi` value that names no supported line refuses the document, reported like
@@ -273,10 +261,10 @@ const pathItemSite = regex("^/paths/[^/]+$", "u")
 export const otherDocumentPathItems = (
 	resolution: Resolution
 ): Effect.Effect<readonly Diagnostic[]> => {
-	const openapi = Option.match(Schema.decodeUnknownOption(DeclaredOpenapi)(resolution.value), {
-		onNone: () => patchVersion[resolution.line],
-		onSome: (found) => found.openapi
-	})
+	const openapi = Option.getOrElse(
+		declaredOpenapi(resolution.value),
+		() => patchVersion[resolution.line]
+	)
 	const references = Arr.filter(
 		[...resolution.references.values()],
 		(reference) =>
@@ -322,23 +310,7 @@ const withoutRefused = (api: Api, checked: readonly Diagnostic[]): Api => {
 		(operation) => !Arr.some(named, (key) => sameKey(operation, key.method, key.path))
 	)
 
-	return operations.length === api.operations.length
-		? api
-		: Api.make({
-				documents: api.documents,
-				entry: api.entry,
-				info: api.info,
-				informational: api.informational,
-				line: api.line,
-				openapi: api.openapi,
-				operations,
-				origin: api.origin,
-				rows: api.rows,
-				schemas: api.schemas,
-				securitySchemes: api.securitySchemes,
-				servers: api.servers,
-				tags: api.tags
-			})
+	return operations.length === api.operations.length ? api : { ...api, operations }
 }
 
 /** The code-generation copy's roots (design 3.5): every schema a request parameter or body uses. */

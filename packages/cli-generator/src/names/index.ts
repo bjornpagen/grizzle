@@ -14,8 +14,6 @@ import type { DocumentUri } from "#model/brands.ts"
 import { makeDiagnostic, sortDiagnostics } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Api, NamingHint, Operation, SecurityScheme } from "#model/entities.ts"
-import { isObject, nodeAt } from "#model/json-tree.ts"
-import type { JsonObject } from "#model/json-tree.ts"
 import { escapeToken } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
 import {
@@ -170,10 +168,6 @@ const fixedFlagIdentifiers: ReadonlySet<string> = new Set([
 	"bodyFile",
 	"contentType"
 ])
-
-/** The store document's `$defs`, `{ $defs }` as normalize writes it; none where it holds no object. */
-const defsOf = (document: Api["schemas"]["document"]): JsonObject =>
-	Option.getOrElse(Option.filter(nodeAt(document, "/$defs"), isObject), (): JsonObject => ({}))
 
 /** Every input here is a non-empty kebab name, so the fold cannot be empty. */
 const identifierOf = (name: string, casing: "camel" | "pascal") =>
@@ -448,7 +442,7 @@ interface Chains {
 const groupKeys = { "x-fern": "x-fern-sdk-group-name", "x-forge": "x-forge-group-name" } as const
 
 const extensionGroup = (
-	hint: typeof NamingHint.Type | undefined,
+	hint: NamingHint | undefined,
 	source: keyof typeof groupKeys,
 	chains: Chains
 ): GroupChoice | undefined =>
@@ -1349,7 +1343,7 @@ export const planNames = (api: Api, options: PlanOptions): Effect.Effect<NamePla
 			booleans: new Map(),
 			collector,
 			credentialFlags: credentials.flags,
-			defs: defsOf(api.schemas.document),
+			defs: api.schemas.defs,
 			line: api.line
 		}
 		const drafts = new Map<Operation, Draft>()

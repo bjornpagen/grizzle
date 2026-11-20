@@ -20,8 +20,16 @@ import {
 import { Array as Arr, Effect, Option, Record, Result, Schema, String as Str } from "effect"
 import { emitDomainSchemas } from "#emit/domain.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
-import { fixedDocumentUri } from "#model/brands.ts"
-import { Api } from "#model/entities.ts"
+import {
+	fixedDocumentUri,
+	fixedMediaRange,
+	MethodToken,
+	PathTemplate,
+	stripUnsafeText,
+	WireName
+} from "#model/brands.ts"
+import type { Api, Body, Operation, Origin, Parameter } from "#model/entities.ts"
+import { formatPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
 import { fixedNamespaces, groupModuleNames, rootModuleNames } from "#names/domain.ts"
 import { foldIdentifier, isSafeFileSegment, isSafeIdentifier } from "#names/fold.ts"
@@ -80,16 +88,30 @@ const DEFS: Readonly<Record<string, Json>> = {
 	string: { type: "string" }
 }
 
-const origin = (pointer: string): Json => ({ document, pointer })
+const origin = (tokens: ReadonlyArray<string>): Origin => ({
+	document: fixedDocumentUri(document),
+	pointer: formatPointer(tokens)
+})
 
+const operationTokens = (op: OperationSketch): ReadonlyArray<string> => [
+	"paths",
+	op.path,
+	Str.toLowerCase(op.method)
+]
+
+/** An operation's pointer as the oracle writes it. */
 const operationPointer = (op: OperationSketch): string =>
 	`/paths/${escape(op.path)}/${Str.toLowerCase(op.method)}`
 
-const parameterJson = (home: string, parameter: ParameterSketch, index: number): Json => ({
+const parameterOf = (
+	home: ReadonlyArray<string>,
+	parameter: ParameterSketch,
+	index: number
+): Parameter => ({
 	deprecated: false,
 	docs: {},
 	location: parameter.location,
-	origin: origin(`${home}/parameters/${index}`),
+	origin: origin([...home, "parameters", String(index)]),
 	required: parameter.location === "path",
 	rows: [],
 	schema: { key: parameter.boolean ? "boolean" : "string" },
@@ -98,81 +120,78 @@ const parameterJson = (home: string, parameter: ParameterSketch, index: number):
 		explode: parameter.location === "query",
 		kind: "style",
 		objectValued: false,
-		origin: origin(`${home}/parameters/${index}`),
+		origin: origin([...home, "parameters", String(index)]),
 		rows: [],
 		rules: "3.1",
 		style: parameter.location === "query" ? "form" : "simple"
 	},
-	wireName: parameter.name
+	wireName: WireName.make(parameter.name)
 })
 
-const operationJson = (op: OperationSketch): Json => {
-	const home = operationPointer(op)
-	return Record.fromEntries([
-		["deprecated", false],
-		["docs", {}],
-		["key", { method: op.method, path: op.path }],
-		["origin", origin(home)],
-		[
-			"parameters",
-			Arr.map(op.parameters, (parameter, index) => parameterJson(home, parameter, index))
-		],
-		["responses", []],
-		["rows", []],
-		["security", { alternatives: [], declared: false, origin: origin(home), rows: [] }],
-		["servers", []],
-		["tags", op.tags],
-		...Option.match(op.operationId, {
-			onNone: () => [],
-			onSome: (id) => [["operationId", id] as const]
-		}),
-		...Option.match(op.body, {
-			onNone: () => [],
-			onSome: (body) => {
-				const media =
-					body.codec === "json"
-						? "application/json"
-						: body.codec === "multipart"
-							? "multipart/form-data"
-							: "image/png"
-				return [
-					[
-						"body",
-						{
-							alternatives: [
-								{
-									codec: body.codec,
-									encoding: [],
-									mediaType: media,
-									origin: origin(`${home}/requestBody/content/${escape(media)}`),
-									prefixEncoding: [],
-									rows: [],
-									schema: { key: body.schema }
-								}
-							],
-							docs: {},
-							origin: origin(`${home}/requestBody`),
-							required: true,
-							rows: []
-						}
-					] as const
-				]
+const bodyOf = (
+	home: ReadonlyArray<string>,
+	body: Readonly<{ codec: "json" | "multipart" | "binary"; schema: string }>
+): Body => {
+	const media =
+		body.codec === "json"
+			? "application/json"
+			: body.codec === "multipart"
+				? "multipart/form-data"
+				: "image/png"
+	return {
+		alternatives: [
+			{
+				codec: body.codec,
+				encoding: [],
+				mediaType: fixedMediaRange(media),
+				origin: origin([...home, "requestBody", "content", media]),
+				prefixEncoding: [],
+				rows: [],
+				schema: { key: body.schema }
 			}
-		})
-	])
+		],
+		docs: {},
+		origin: origin([...home, "requestBody"]),
+		required: true,
+		rows: []
+	}
 }
 
-const apiJsonOf = (c: PlanCase): Json => ({
-	documents: [document],
-	entry: document,
+const operationOf = (op: OperationSketch): Operation => {
+	const home = operationTokens(op)
+	return {
+		deprecated: false,
+		docs: {},
+		key: { method: MethodToken.make(op.method), path: PathTemplate.make(op.path) },
+		origin: origin(home),
+		parameters: Arr.map(op.parameters, (parameter, index) => parameterOf(home, parameter, index)),
+		responses: [],
+		rows: [],
+		security: { alternatives: [], declared: false, origin: origin(home), rows: [] },
+		servers: [],
+		tags: Arr.map(op.tags, stripUnsafeText),
+		...Option.match(op.operationId, {
+			onNone: () => ({}),
+			onSome: (operationId) => ({ operationId })
+		}),
+		...Option.match(op.body, {
+			onNone: () => ({}),
+			onSome: (body) => ({ body: bodyOf(home, body) })
+		})
+	}
+}
+
+const apiOf = (c: PlanCase): Api => ({
+	documents: [fixedDocumentUri(document)],
+	entry: fixedDocumentUri(document),
 	info: {},
 	informational: [],
 	line: "3.1",
 	openapi: "3.1.0",
-	operations: Arr.map(c.operations, operationJson),
-	origin: origin(""),
+	operations: Arr.map(c.operations, operationOf),
+	origin: origin([]),
 	rows: [],
-	schemas: { document: { $defs: DEFS }, origin: origin("/components/schemas"), rows: [] },
+	schemas: { defs: DEFS, origin: origin(["components", "schemas"]), rows: [] },
 	securitySchemes: [],
 	servers: [],
 	tags: Arr.map(
@@ -206,7 +225,7 @@ const configJsonOf = (c: PlanCase): Json => ({
 /** The plan for a case, with the domain module emitted for the keys its bodies name. */
 export const planOf = (c: PlanCase) =>
 	Effect.gen(function* () {
-		const api = yield* Schema.decodeUnknownEffect(Api)(apiJsonOf(c))
+		const api = apiOf(c)
 		const configDocument = fixedDocumentUri("file:///spec/author-config.json")
 		const config = yield* decodeAuthorConfig(configJsonOf(c), { document: configDocument })
 		const plan = yield* planNames(api, { config, configDocument, strict: c.strict })

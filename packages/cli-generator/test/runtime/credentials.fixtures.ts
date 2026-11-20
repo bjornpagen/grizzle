@@ -32,7 +32,6 @@ import {
 	Ref,
 	Result,
 	Runtime,
-	Schema,
 	Sink,
 	Stdio,
 	Stream,
@@ -42,7 +41,9 @@ import {
 import { TerminalCapabilities } from "effect/cli"
 import { Headers, HttpClient, HttpClientRequest, HttpClientResponse, UrlParams } from "effect/http"
 import { operationHelp } from "#emit/help.ts"
-import { Operation, SecurityScheme } from "#model/entities.ts"
+import { fixedDocumentUri, HeaderName, MethodToken, PathTemplate } from "#model/brands.ts"
+import type { Operation, Origin, SecurityScheme } from "#model/entities.ts"
+import { formatPointer } from "#model/pointer.ts"
 import * as Auth from "#runtime-src/runtime/auth.ts"
 import * as BaseUrl from "#runtime-src/runtime/base-url.ts"
 import { Transport } from "#runtime-src/runtime/client.ts"
@@ -2025,11 +2026,10 @@ export const authArms = {
 	none: map(authHelps, (drawn): AuthHelp => ({ ...drawn, alternatives: [] }))
 } as const
 
-const origin = { document: "file:///spec.json", pointer: "/paths/~1x/get" } as const
-
-const decodeScheme = Schema.decodeUnknownEffect(SecurityScheme)
-
-const decodeOperation = Schema.decodeUnknownEffect(Operation)
+const origin: Origin = {
+	document: fixedDocumentUri("file:///spec.json"),
+	pointer: formatPointer(["paths", "/x", "get"])
+}
 
 /** The AUTH line the model expects: `no authentication` for `{}`, each use as its name, kind and deprecated mark. */
 export const expectedAuth = (drawn: AuthHelp): string => {
@@ -2057,47 +2057,44 @@ export const expectedAuth = (drawn: AuthHelp): string => {
 }
 
 /** The AUTH line `operationHelp` writes for the case. */
-export const actualAuth = (drawn: AuthHelp) =>
-	Effect.gen(function* () {
-		const schemes = yield* Effect.forEach(drawn.schemes, ([name, deprecated]) =>
-			decodeScheme({
-				credentialSources: ["env"],
-				deprecated,
-				kind: { in: "header", name: "X-Key", type: "apiKey" },
-				name,
-				origin,
-				rows: ["SSC-11"],
-				source: "spec"
-			})
-		)
-		const operation = yield* decodeOperation({
-			deprecated: false,
-			docs: {},
-			key: { method: "GET", path: "/x" },
+export const actualAuth = (drawn: AuthHelp): string => {
+	const schemes = Arr.map(drawn.schemes, ([name, deprecated]): SecurityScheme => ({
+		credentialSources: ["env"],
+		deprecated,
+		kind: { in: "header", name: HeaderName.make("X-Key"), type: "apiKey" },
+		name,
+		origin,
+		rows: ["SSC-11"],
+		source: "spec"
+	}))
+	const operation: Operation = {
+		deprecated: false,
+		docs: {},
+		key: { method: MethodToken.make("GET"), path: PathTemplate.make("/x") },
+		origin,
+		parameters: [],
+		responses: [],
+		rows: ["OPR-01"],
+		security: {
+			alternatives: Arr.map(drawn.alternatives, (alt) => ({
+				uses: Arr.map(alt, (scheme) => ({ scheme, scopes: [] }))
+			})),
+			declared: drawn.declared,
 			origin,
-			parameters: [],
-			responses: [],
-			rows: ["OPR-01"],
-			security: {
-				alternatives: Arr.map(drawn.alternatives, (alt) => ({
-					uses: Arr.map(alt, (scheme) => ({ scheme, scopes: [] }))
-				})),
-				declared: drawn.declared,
-				origin,
-				rows: ["SSC-11"]
-			},
-			servers: [],
-			tags: []
-		})
-		const help = operationHelp({ credentials: [], diagnostics: [], flags: [], operation, schemes })
-		return Option.getOrElse(
-			Option.map(
-				Arr.findFirst(help.sections, ([title]) => title === "AUTH"),
-				([, text]) => text
-			),
-			() => ""
-		)
-	})
+			rows: ["SSC-11"]
+		},
+		servers: [],
+		tags: []
+	}
+	const help = operationHelp({ credentials: [], diagnostics: [], flags: [], operation, schemes })
+	return Option.getOrElse(
+		Option.map(
+			Arr.findFirst(help.sections, ([title]) => title === "AUTH"),
+			([, text]) => text
+		),
+		() => ""
+	)
+}
 
 /** What an AUTH help case reaches. */
 export type AuthFeature =

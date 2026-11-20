@@ -2576,13 +2576,6 @@ const rootFile = (
 		return { content, path: "src/cli/root.ts" }
 	})
 
-/** The schema store's `$defs`: its document's `$defs` object, none when it holds no object there. */
-const defsOf = (document: Json): Defs => {
-	const defs = isJsonObject(document) ? own(document, "$defs") : undefined
-
-	return isJsonObject(defs) ? defs : {}
-}
-
 const byPath = Order.mapInput(Order.String, (file: EmittedFile) => file.path)
 
 /** The code normalize's validation copy records when it removes a 3.0 `default` (S30-27). */
@@ -2654,7 +2647,7 @@ export const emitCli = (
 		}
 
 		const targets = targetsOf(plan)
-		const defs = defsOf(api.schemas.document)
+		const defs = api.schemas.defs
 		const context: CommandContext = {
 			api,
 			booleans: new Map(),

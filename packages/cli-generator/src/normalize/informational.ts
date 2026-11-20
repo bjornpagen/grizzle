@@ -1,11 +1,12 @@
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Option, Order, Predicate, Record, Schema } from "effect"
-import { Informational } from "#model/entities.ts"
+import { Array as Arr, Effect, Option, Order, Predicate, Record } from "effect"
+import { stripUnsafeText } from "#model/brands.ts"
+import type { Informational } from "#model/entities.ts"
 import { isSpecificationExtension } from "#model/extension.ts"
 import { isObject, isArray } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { methodMembers } from "#model/path-item.ts"
-import { childPointer } from "#model/pointer.ts"
+import { childPointer, ownPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
 import type { Resolution } from "#resolve/index.ts"
 
@@ -325,8 +326,6 @@ const findings = (root: JsonObject): Findings => [
 	...atMember(root, "components", componentsOf)
 ]
 
-const decode = Schema.decodeUnknownEffect(Informational)
-
 /**
  * The elements the generator reads and counts but never sends (design 2.4, D-OQ2, D-CUS2): info,
  * contact and license; external documentation; tags; webhooks, callbacks, links and examples; and
@@ -342,10 +341,10 @@ export const collectInformational = (
 ): Effect.Effect<readonly Informational[]> =>
 	isObject(resolution.value)
 		? Effect.forEach(findings(resolution.value), (finding) =>
-				decode({
-					origin: { document: resolution.document, pointer: finding.pointer },
-					reason: reasons[finding.row],
+				Effect.map(ownPointer(finding.pointer), (pointer): Informational => ({
+					origin: { document: resolution.document, pointer },
+					reason: stripUnsafeText(reasons[finding.row]),
 					row: finding.row
-				})
-			).pipe(Effect.orDie)
+				}))
+			)
 		: Effect.succeed([])

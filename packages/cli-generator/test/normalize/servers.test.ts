@@ -77,8 +77,8 @@ export const serversRules = property.explore(serversSpace, {
 	kills: [
 		{
 			file: "packages/cli-generator/src/normalize/servers.ts",
-			original: "\tif (Arr.some(variableNames(url), (name) => variables[name] === undefined)) {",
-			replacement: "\tif (Arr.some(variableNames(url), (name) => variables[name] !== undefined)) {",
+			original: "\tif (Arr.some(variableNames(url), (name) => !Record.has(variables, name))) {",
+			replacement: "\tif (Arr.some(variableNames(url), (name) => Record.has(variables, name))) {",
 			why: "A server whose variables are all declared is refused as using an undeclared one, and one using an undeclared variable is built; the property fails (CATCH's evidence, mutant 2270f82c90)."
 		},
 		{
@@ -89,8 +89,8 @@ export const serversRules = property.explore(serversSpace, {
 		},
 		{
 			file: "packages/cli-generator/src/normalize/servers.ts",
-			original: "\tif (Arr.some(names, (name) => variables[name]?.enum === undefined)) {",
-			replacement: "\tif (Arr.every(names, (name) => variables[name]?.enum === undefined)) {",
+			original: "\tif (Arr.some(names, (name) => !hasEnum(variables, name))) {",
+			replacement: "\tif (Arr.every(names, (name) => !hasEnum(variables, name))) {",
 			why: "An origin span needs an enum only when none of its variables has one, so a span with one enumerated and one free variable is accepted; the property fails (CATCH's evidence, mutant 70b30ee556)."
 		},
 		{
@@ -107,10 +107,10 @@ export const serversRules = property.explore(serversSpace, {
 			why: "The path item's servers are never chosen, so an operation under a path item with servers falls to the root's; the property fails (CATCH's evidence, mutant 8b746147d6)."
 		},
 		{
-			file: "packages/cli-generator/src/model/entities.ts",
-			original: '["operation", "pathItem", "root"]',
-			replacement: '["operation", "root"]',
-			why: "A server of the path item level cannot be made, so a path item's servers fail to build; the property fails (CATCH's evidence, mutant a315e7f644)."
+			file: "packages/cli-generator/src/normalize/servers.ts",
+			original: 'normalizeLevel(levels.pathItem, "pathItem", context)',
+			replacement: 'normalizeLevel(levels.pathItem, "root", context)',
+			why: "A path item's servers are built at the root level, so they lose SRV-15 and an empty path item list reads as the implicit `/` where it is refused as SRV-16; the property fails."
 		},
 		{
 			file: "packages/cli-generator/src/normalize/servers.ts",
@@ -120,11 +120,9 @@ export const serversRules = property.explore(serversSpace, {
 		},
 		{
 			file: "packages/cli-generator/src/normalize/servers.ts",
-			original:
-				"\n\tconst variables = raw.variables ?? {}\n\n\tif (Arr.some(variableNames(url), (name) => variables[name] === undefined)) {",
-			replacement:
-				"\n\tconst variables = raw.variables\n\n\tif (Arr.some(variableNames(url), (name) => variables[name] === undefined)) {",
-			why: "A server with no `variables` member reads its variables from nothing, so a template naming a variable it never declares throws instead of being refused; the property fails (CATCH's evidence, mutant fd58e06d3e)."
+			original: "Option.isNone(declared)\n\t\t? Option.some({})",
+			replacement: "Option.isNone(declared)\n\t\t? Option.none()",
+			why: "A Server Object with no `variables` member is read as no Server Object, so a server declaring no variable is refused as SRV-01 instead of built; the property fails."
 		}
 	]
 })

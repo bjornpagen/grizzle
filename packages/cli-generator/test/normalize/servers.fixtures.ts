@@ -13,7 +13,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record as Rec, String as Str } from "effect"
-import { JsonPointer } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
 import { boundOrigins, effectiveServers, type ServerSource } from "#normalize/servers.ts"
 import {
@@ -411,6 +410,13 @@ const levelPointer = {
 } as const
 
 type LevelName = keyof typeof levelPointer
+
+/** The reference tokens of each level's `servers` pointer, as a caller of effectiveServers holds them. */
+const levelTokens: Readonly<Record<LevelName, readonly string[]>> = {
+	root: ["servers"],
+	pathItem: ["paths", "/a", "servers"],
+	operation: ["paths", "/a", "get", "servers"]
+}
 
 /** The levels in the order they are written: root, path item, operation. */
 const levelsOf = (
@@ -824,8 +830,8 @@ export const expectedOf = (sketch: ServersSketch): ServersModel => {
 }
 
 /** A level's source as effectiveServers reads it. */
-const sourceOf = (pointer: string, value: Option.Option<Level>, at: LevelName): ServerSource => ({
-	pointer: JsonPointer.make(pointer),
+const sourceOf = (value: Option.Option<Level>, at: LevelName): ServerSource => ({
+	tokens: levelTokens[at],
 	value: Option.map(value, (declared) => levelJson(at, declared))
 })
 
@@ -841,9 +847,9 @@ export const actualOf = (sketch: ServersSketch) =>
 		}
 		const result = effectiveServers(
 			{
-				root: sourceOf(levelPointer.root, sketch.root, "root"),
-				pathItem: sourceOf(levelPointer.pathItem, sketch.pathItem, "pathItem"),
-				operation: sourceOf(levelPointer.operation, sketch.operation, "operation")
+				root: sourceOf(sketch.root, "root"),
+				pathItem: sourceOf(sketch.pathItem, "pathItem"),
+				operation: sourceOf(sketch.operation, "operation")
 			},
 			context
 		)

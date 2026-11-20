@@ -7,7 +7,6 @@ import {
 	Order,
 	Record,
 	Result,
-	Schema,
 	String as Str
 } from "effect"
 import type { AuthorConfig } from "#model/author-config.ts"
@@ -15,12 +14,11 @@ import { isCookieName, isMediaType, isWireName, stripUnsafeText } from "#model/b
 import type { MediaType, WireName } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
-import { Parameter } from "#model/entities.ts"
-import type { RowId } from "#model/entities.ts"
+import type { Origin, Parameter, RowId } from "#model/entities.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { docsOf } from "#normalize/docs.ts"
-import { childKey, follow, nodeOption, referenceIn } from "#normalize/document-set.ts"
+import { childKey, follow, nodeOption, originOf, referenceIn } from "#normalize/document-set.ts"
 import { appliesDynamicKeyword, schemaKeyAt } from "#normalize/schemas.ts"
 import { keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
@@ -1615,7 +1613,7 @@ const serializationOf = (
 	node: ParameterNode,
 	plan: ContentPlan | StylePlan,
 	line: SpecLine,
-	origin: Related,
+	origin: Origin,
 	objectValue: boolean
 ) => {
 	if (plan.kind === "content") {
@@ -1677,13 +1675,13 @@ const build = Effect.fnUntraced(function* build(
 	source: Source,
 	named: Named,
 	mark: SensitiveMark
-) {
+): Effect.fn.Return<Parameter> {
 	const { node, reference, target } = source
 	const { plan, wireName } = named
-	const origin = { document: resolution.document, pointer: site.pointer }
+	const origin = yield* originOf({ document: resolution.document, pointer: site.pointer })
 	const objectValue = plan.kind === "style" && objectValued(resolution, source)
 
-	return yield* Schema.decodeEffect(Parameter)({
+	return {
 		deprecated: node.deprecated ?? false,
 		docs: docsOf(reference?.description ?? node.description, reference?.summary),
 		location: node.in,
@@ -1694,7 +1692,7 @@ const build = Effect.fnUntraced(function* build(
 		...mark,
 		serialization: serializationOf(node, plan, resolution.line, origin, objectValue),
 		wireName
-	}).pipe(Effect.orDie)
+	}
 })
 
 /**
@@ -1867,7 +1865,7 @@ export const partHeader = (
 	resolution: Resolution,
 	site: CanonicalKey,
 	name: string,
-	origin: Related
+	origin: Origin
 ): PartHeaderOutcome => {
 	const target = follow(resolution, site)
 	const decoded = readAt(resolution, target, readHeader)

@@ -237,13 +237,14 @@ const requestLine = (operation: Operation): string => {
 	return Arr.join(parts, ", ")
 }
 
-type Hint = typeof DiscriminatorHint.Type
-
 /**
  * One branch of a discriminated body: the JSON-quoted values that select it, then its component;
  * a branch no value selects names its place in the composition.
  */
-const branchText = (hint: Hint, branch: Hint["branches"][number]): string => {
+const branchText = (
+	hint: DiscriminatorHint,
+	branch: DiscriminatorHint["branches"][number]
+): string => {
 	const place = `${hint.keyword}/${branch.index}`
 	if (branch.labels.length === 0) {
 		return `${place} (inline, no ${line(hint.propertyName)} value)`

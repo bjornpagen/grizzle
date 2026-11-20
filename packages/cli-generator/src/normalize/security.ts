@@ -5,7 +5,6 @@ import {
 	pipe,
 	Record,
 	Result,
-	Schema,
 	String as Str,
 	UndefinedOr
 } from "effect"
@@ -14,7 +13,7 @@ import { isCookieName, isHeaderName, isWireName, stripUnsafeText } from "#model/
 import type { DocumentUri, SafeText } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
-import { SecurityPolicy, SecurityScheme } from "#model/entities.ts"
+import type { SecurityPolicy, SecurityScheme } from "#model/entities.ts"
 import type { RowId } from "#model/entities.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
 import { childPointer, formatPointer, parsePointerResult, rootPointer } from "#model/pointer.ts"
@@ -505,8 +504,9 @@ const modelFields = (name: string, site: Site, node: SchemeFields): Built => {
 		onSuccess: (modelled) =>
 			Str.isEmpty(name)
 				? invalidScheme(pointer)
-				: Option.match(
-						Schema.decodeOption(SecurityScheme)({
+				: {
+						findings: acquisitionFindings(node, pointer),
+						scheme: {
 							credentialSources: node.type === "mutualTLS" ? ["env"] : ["file", "env", "prompt"],
 							deprecated: Option.getOrElse(node.deprecated, () => false),
 							kind: modelled.kind,
@@ -514,12 +514,8 @@ const modelFields = (name: string, site: Site, node: SchemeFields): Built => {
 							origin: { document: site.document, pointer },
 							rows: ["SSC-01", modelled.row],
 							source: site.source
-						}),
-						{
-							onNone: () => invalidScheme(pointer),
-							onSome: (scheme) => ({ findings: acquisitionFindings(node, pointer), scheme })
 						}
-					)
+					}
 	})
 }
 
@@ -949,7 +945,10 @@ export const normalizeSecurityPolicy = Effect.fnUntraced(function* normalizeSecu
 			? {
 					document: schemes.supplied.document,
 					list: Arr.map(schemes.supplied.requirement, (requirement) => Option.some(requirement)),
-					source: { pointer: addRequirementPointer, rows: ["CFG-1", "SEC-01", "SEC-08"] }
+					source: {
+						pointer: addRequirementPointer,
+						rows: ["CFG-1", "SEC-01", "SEC-08"]
+					} satisfies Source
 				}
 			: undefined
 	const effective =
@@ -958,7 +957,7 @@ export const normalizeSecurityPolicy = Effect.fnUntraced(function* normalizeSecu
 			spec,
 			UndefinedOr.map((declared) => ({ ...declared, document: resolution.document }))
 		)
-	const source = effective?.source ?? {
+	const source: Source = effective?.source ?? {
 		pointer: Option.match(operation, {
 			onNone: () => rootPointer,
 			onSome: (tokens) => formatPointer(tokens)
@@ -992,14 +991,14 @@ export const normalizeSecurityPolicy = Effect.fnUntraced(function* normalizeSecu
 				supplied === undefined ? finding : { ...finding, document: supplied.document }
 			)
 	)
-	const policy = yield* Schema.decodeEffect(SecurityPolicy)({
+	const policy: SecurityPolicy = {
 		alternatives: Arr.getSomes(
 			Arr.map(judged, (one) => Option.map(Option.fromUndefinedOr(one.use), (uses) => ({ uses })))
 		),
 		declared: effective !== undefined,
 		origin: { document: effective?.document ?? resolution.document, pointer: source.pointer },
 		rows: source.rows
-	}).pipe(Effect.orDie)
+	}
 
 	return { diagnostics, listed: judged.length, policy }
 })

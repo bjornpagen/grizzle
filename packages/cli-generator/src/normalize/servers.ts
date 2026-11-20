@@ -1,25 +1,21 @@
 import { regex } from "arkregex"
-import { Array as Arr, Option, Order, Record, Result, Schema, String as Str } from "effect"
+import { Array as Arr, Option, Order, Predicate, Record, Result, String as Str } from "effect"
 import { Url } from "effect/http"
 import type { AuthorConfig } from "#model/author-config.ts"
-import {
-	DocumentUri,
-	JsonPointer as JsonPointerSchema,
-	SafeText,
-	ServerTemplate
-} from "#model/brands.ts"
+import { DocumentUri, isDocumentUri, isSafeText, isServerTemplate } from "#model/brands.ts"
+import type { SafeText } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
-import { isRowId, RowId, Server } from "#model/entities.ts"
-import { isArray } from "#model/json-tree.ts"
-import { childPointer, formatPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
+import type { RowId, Server } from "#model/entities.ts"
+import { isArray, isObject } from "#model/json-tree.ts"
+import { formatPointer } from "#model/pointer.ts"
+import type { Json, JsonPointer } from "#model/pointer.ts"
 
 /**
- * The `servers` value of one level and where it sits; `value` is none when the level does not
- * declare `servers`.
+ * The `servers` value of one level and where it sits, as its pointer's reference tokens, which each server's origin
+ * extends; `value` is none when the level does not declare `servers`.
  */
 export interface ServerSource {
-	readonly pointer: JsonPointer
+	readonly tokens: readonly string[]
 	readonly value: Option.Option<Json>
 }
 
@@ -59,152 +55,202 @@ export interface BoundOrigins {
 	readonly origins: readonly DocumentUri[]
 }
 
-type JsonPointer = typeof JsonPointerSchema.Type
-
 type ServerLevel = Server["level"]
 
-const rawServer = Schema.Struct({
-	name: Schema.optionalKey(Schema.String),
-	url: Schema.String,
-	variables: Schema.optionalKey(
-		Schema.Record(
-			Schema.String,
-			Schema.Struct({
-				default: Schema.String,
-				enum: Schema.optionalKey(Schema.Array(Schema.String))
-			})
-		)
+/** A Server Variable Object as servers normalization reads it: its default, and its enum when it has one. */
+type Variable = Readonly<{ default: string; enum: Option.Option<readonly string[]> }>
+
+/**
+ * A Server Object as servers normalization reads it: its url, its name when it has one, and its variables by name, none
+ * when it declares none.
+ */
+type RawServer = Readonly<{
+	name: Option.Option<string>
+	url: string
+	variables: Readonly<Record<string, Variable>>
+}>
+
+/** The strings of a JSON array, none when it is no array of strings. */
+const stringsOf = (value: Json): Option.Option<readonly string[]> =>
+	isArray(value) && Arr.every(value, Predicate.isString) ? Option.some(value) : Option.none()
+
+/** A Server Variable Object: a string `default`, and an `enum` of strings when it has one; none when it is not. */
+const variableOf = (value: Json): Option.Option<Variable> => {
+	if (!isObject(value)) {
+		return Option.none()
+	}
+
+	const members = Record.get(value, "enum")
+
+	return Option.flatMap(
+		Option.filter(Record.get(value, "default"), Predicate.isString),
+		(fallback) =>
+			Option.isNone(members)
+				? Option.some({ default: fallback, enum: Option.none() })
+				: Option.map(stringsOf(members.value), (strings) => ({
+						default: fallback,
+						enum: Option.some(strings)
+					}))
 	)
-})
+}
 
-type RawServer = typeof rawServer.Type
+/**
+ * A Server Object: a string `url`, a string `name` when it has one, and `variables`, when it has them, an object of
+ * Server Variable Objects; none when any of these is not what it reads.
+ */
+const rawServerOf = (entry: Json): Option.Option<RawServer> => {
+	if (!isObject(entry)) {
+		return Option.none()
+	}
 
-type Variable = Readonly<{ default: string; enum?: readonly string[] }>
+	const name = Record.get(entry, "name")
+	const declared = Record.get(entry, "variables")
+	const variables = Option.isNone(declared)
+		? Option.some({})
+		: Option.flatMap(Option.liftPredicate(declared.value, isObject), (object) =>
+				Option.all(Record.map(object, variableOf))
+			)
 
-interface Rule {
+	return Option.flatMap(Option.filter(Record.get(entry, "url"), Predicate.isString), (url) =>
+		Option.isSome(name) && !Predicate.isString(name.value)
+			? Option.none()
+			: Option.map(variables, (read) => ({
+					name: Option.filter(name, Predicate.isString),
+					url,
+					variables: read
+				}))
+	)
+}
+
+interface Refusal {
+	readonly code: string
 	readonly element: string
 	readonly hint?: string
 	readonly message: string
+	readonly row: RowId
 	readonly scope: Diagnostic["scope"]
 }
 
-const rules = {
-	"SRV-01/invalid-server": {
+/**
+ * A refusal of servers normalization under its inventory row: its code is the row, a slash and the reason, so a code
+ * always names its row.
+ */
+const refusal = (row: RowId, reason: string, fields: Omit<Refusal, "code" | "row">): Refusal => ({
+	code: `${row}/${reason}`,
+	row,
+	...fields
+})
+
+/** The refusals servers normalization raises, by reason. */
+const refusals = {
+	invalidServer: refusal("SRV-01", "invalid-server", {
 		element: "Server",
 		hint: "Write servers as a list of objects with a url string.",
 		message: "A servers value is not a list of Server Objects.",
 		scope: "operation"
-	},
-	"SRV-02/insecure-scheme": {
+	}),
+	insecureScheme: refusal("SRV-02", "insecure-scheme", {
 		element: "Accepted server",
 		hint: "Use https, or set allowInsecure in the author config for a local fixture.",
 		message: "An accepted default must use https.",
 		scope: "document"
-	},
-	"SRV-02/not-an-origin": {
+	}),
+	notAnOrigin: refusal("SRV-02", "not-an-origin", {
 		element: "Accepted origin",
 		hint: "List the scheme and authority only, such as https://api.example.com.",
 		message: "An accepted origin has a path.",
 		scope: "document"
-	},
-	"SRV-02/unparseable": {
+	}),
+	unparseable: refusal("SRV-02", "unparseable", {
 		element: "Accepted server",
 		message: "An accepted default does not parse as an absolute URL.",
 		scope: "document"
-	},
-	"SRV-02/unsupported-form": {
+	}),
+	unsupportedForm: refusal("SRV-02", "unsupported-form", {
 		element: "Accepted server",
 		hint: "Write a relative server URL with a leading slash.",
 		message: "A relative server URL must start with a slash.",
 		scope: "document"
-	},
-	"SRV-02/unsupported-scheme": {
+	}),
+	unsupportedScheme: refusal("SRV-02", "unsupported-scheme", {
 		element: "Accepted server",
 		message: "An accepted default must use https, or http with allowInsecure.",
 		scope: "document"
-	},
-	"SRV-02/userinfo": {
+	}),
+	userinfo: refusal("SRV-02", "userinfo", {
 		element: "Accepted server",
 		hint: "Remove the user and password from the server URL.",
 		message: "An accepted default must not carry userinfo.",
 		scope: "document"
-	},
-	"SRV-02/value-leaves-authority": {
+	}),
+	valueLeavesAuthority: refusal("SRV-02", "value-leaves-authority", {
 		element: "Accepted server",
 		hint: "Keep path variable values to path text that stays under the server's origin.",
 		message: "A path variable value moves an accepted server to another origin.",
 		scope: "document"
-	},
-	"SRV-05/variable-needs-enum": {
+	}),
+	variableNeedsEnum: refusal("SRV-05", "variable-needs-enum", {
 		element: "Accepted server",
 		hint: "Give the variable an enum, or list the server's origins in acceptedOrigins.",
 		message: "A scheme or authority variable of an accepted server needs an enum.",
 		scope: "document"
-	},
-	"SRV-11/undeclared-variable": {
+	}),
+	undeclaredVariable: refusal("SRV-11", "undeclared-variable", {
 		element: "Server",
 		hint: "Declare the variable under variables, or remove it from the url.",
 		message: "A server URL uses a variable that the server does not declare.",
 		scope: "operation"
-	},
-	"SRV-16/empty-override": {
+	}),
+	emptyOverride: refusal("SRV-16", "empty-override", {
 		element: "Servers",
 		hint: "Remove the empty servers list, or list the servers this level uses.",
 		message: "An empty servers list at the path item or operation has no defined meaning.",
 		scope: "operation"
-	},
-	"SRV-17/relative-needs-retrieval-uri": {
+	}),
+	relativeNeedsRetrievalUri: refusal("SRV-17", "relative-needs-retrieval-uri", {
 		element: "Accepted server",
 		hint: "Set retrievalUri in the author config, or accept an absolute server.",
 		message: "A relative server URL needs retrievalUri to become a default.",
 		scope: "document"
-	},
-	"SRV-18/query-or-fragment": {
+	}),
+	queryOrFragment: refusal("SRV-18", "query-or-fragment", {
 		element: "Accepted server",
 		hint: "Remove the query or fragment.",
 		message: "A server URL must not contain a query or a fragment.",
 		scope: "document"
-	},
-	"SRV-19/invalid-template": {
+	}),
+	invalidTemplate: refusal("SRV-19", "invalid-template", {
 		element: "Server",
 		message: "A server url is not a valid server URL template.",
 		scope: "operation"
-	}
-} as const satisfies Readonly<Record<string, Rule>>
-
-type RuleCode = keyof typeof rules
+	})
+}
 
 interface Site {
 	readonly document: DocumentUri
-	readonly pointer: string
+	readonly pointer: JsonPointer
 }
 
-const diagnose = (context: ServersContext, code: RuleCode, site: Site): Diagnostic => {
-	const rule: Rule = rules[code]
+const diagnose = (context: ServersContext, found: Refusal, site: Site): Diagnostic => ({
+	code: found.code,
+	document: site.document,
+	element: found.element,
+	...(found.hint === undefined ? {} : { hint: found.hint }),
+	message: found.message,
+	openapi: context.openapi,
+	pointer: site.pointer,
+	row: found.row,
+	scope: found.scope,
+	severity: "refusal",
+	specSection: DocumentUri.make(`https://spec.openapis.org/oas/v${context.openapi}.html#server-url`)
+})
 
-	return {
-		code,
-		document: site.document,
-		element: rule.element,
-		...(rule.hint === undefined ? {} : { hint: rule.hint }),
-		message: rule.message,
-		openapi: context.openapi,
-		pointer: JsonPointerSchema.make(site.pointer),
-		row: Option.getOrThrow(Option.liftPredicate(Arr.headNonEmpty(Str.split(code, "/")), isRowId)),
-		scope: rule.scope,
-		severity: "refusal",
-		specSection: DocumentUri.make(
-			`https://spec.openapis.org/oas/v${context.openapi}.html#server-url`
-		)
-	}
-}
-
-const specSite = (context: ServersContext, pointer: string): Site => ({
+const specSite = (context: ServersContext, pointer: JsonPointer): Site => ({
 	document: context.document,
 	pointer
 })
 
-const configSite = (context: ServersContext, pointer: string): Site => ({
+const configSite = (context: ServersContext, pointer: JsonPointer): Site => ({
 	document: context.configDocument,
 	pointer
 })
@@ -248,8 +294,6 @@ const fill = (template: string, valueOf: (name: string) => string): string =>
 const originSpan = (template: string): Option.Option<string> =>
 	Option.map(Str.match(authoritySpan)(template), (found) => found[0])
 
-const isDocumentUri = Schema.is(DocumentUri)
-
 /**
  * Judges one concrete origin text against the baked-default rules and returns its origin as the
  * URL parser reads it.
@@ -258,53 +302,57 @@ const judge = (
 	text: string,
 	base: string | undefined,
 	allowInsecure: boolean
-): Result.Result<DocumentUri, RuleCode> => {
+): Result.Result<DocumentUri, Refusal> => {
 	if (queryOrFragment.test(text)) {
-		return Result.fail("SRV-18/query-or-fragment")
+		return Result.fail(refusals.queryOrFragment)
 	}
 
 	const url = Url.fromString(text, base)
 
 	if (Result.isFailure(url)) {
-		return Result.fail("SRV-02/unparseable")
+		return Result.fail(refusals.unparseable)
 	}
 
 	const parsed = url.success
 
 	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-		return Result.fail("SRV-02/unsupported-scheme")
+		return Result.fail(refusals.unsupportedScheme)
 	}
 
 	if (parsed.protocol === "http:" && !allowInsecure) {
-		return Result.fail("SRV-02/insecure-scheme")
+		return Result.fail(refusals.insecureScheme)
 	}
 
 	if (parsed.username !== "" || parsed.password !== "") {
-		return Result.fail("SRV-02/userinfo")
+		return Result.fail(refusals.userinfo)
 	}
 
 	return isDocumentUri(parsed.origin)
 		? Result.succeed(parsed.origin)
-		: Result.fail("SRV-02/unparseable")
+		: Result.fail(refusals.unparseable)
 }
 
 const sortOrigins = (origins: readonly DocumentUri[]): readonly DocumentUri[] =>
 	Arr.sort(Arr.dedupe(origins), Order.String)
 
+/** Whether the server declares the variable `name` with an enum. */
+const hasEnum = (variables: Readonly<Record<string, Variable>>, name: string): boolean =>
+	Option.exists(Record.get(variables, name), (variable) => Option.isSome(variable.enum))
+
 const domainOf = (variable: Variable): readonly string[] =>
-	Arr.dedupe([...(variable.enum ?? []), variable.default])
+	Arr.dedupe([...Option.getOrElse(variable.enum, () => []), variable.default])
 
 /**
  * The origins an accepted server expands to, or the rule that refuses it.
  */
-type Expansion = Result.Result<readonly DocumentUri[], RuleCode>
+type Expansion = Result.Result<readonly DocumentUri[], Refusal>
 
 const assignments = (
 	names: readonly string[],
 	variables: Readonly<Record<string, Variable>>
 ): readonly ReadonlyMap<string, string>[] =>
 	Arr.reduce(names, [new Map()], (acc: readonly ReadonlyMap<string, string>[], name) => {
-		const values = domainOf(variables[name] ?? { default: "" })
+		const values = domainOf(variables[name] ?? { default: "", enum: Option.none() })
 
 		return Arr.flatMap(acc, (assignment) =>
 			Arr.map(values, (value) => new Map<string, string>([...assignment, [name, value]]))
@@ -321,14 +369,14 @@ const judgePathValues = (
 	spanNames: readonly string[],
 	origins: readonly DocumentUri[],
 	base: string | undefined
-): Option.Option<RuleCode> => {
-	const variables = raw.variables ?? {}
+): Option.Option<Refusal> => {
+	const { variables } = raw
 	const defaults = (name: string) => variables[name]?.default ?? ""
 
 	for (const name of Arr.difference(variableNames(raw.url), spanNames)) {
-		for (const value of domainOf(variables[name] ?? { default: "" })) {
+		for (const value of domainOf(variables[name] ?? { default: "", enum: Option.none() })) {
 			if (queryOrFragment.test(value)) {
-				return Option.some("SRV-18/query-or-fragment")
+				return Option.some(refusals.queryOrFragment)
 			}
 
 			const url = Url.fromString(
@@ -337,11 +385,11 @@ const judgePathValues = (
 			)
 
 			if (Result.isFailure(url)) {
-				return Option.some("SRV-02/unparseable")
+				return Option.some(refusals.unparseable)
 			}
 
 			if (!Arr.contains(origins, url.success.origin)) {
-				return Option.some("SRV-02/value-leaves-authority")
+				return Option.some(refusals.valueLeavesAuthority)
 			}
 		}
 	}
@@ -356,19 +404,19 @@ const expandOrigins = (
 ): Expansion => {
 	const span = originSpan(raw.url)
 	const { retrievalUri } = context.config
-	const variables = raw.variables ?? {}
+	const { variables } = raw
 	const names = Option.match(span, { onNone: () => [], onSome: variableNames })
 
 	if (Option.isNone(span) && !Str.startsWith("/")(raw.url)) {
-		return Result.fail("SRV-02/unsupported-form")
+		return Result.fail(refusals.unsupportedForm)
 	}
 
 	if (!Option.exists(span, (text) => schemePrefix.test(text)) && retrievalUri === undefined) {
-		return Result.fail("SRV-17/relative-needs-retrieval-uri")
+		return Result.fail(refusals.relativeNeedsRetrievalUri)
 	}
 
-	if (Arr.some(names, (name) => variables[name]?.enum === undefined)) {
-		return Result.fail("SRV-05/variable-needs-enum")
+	if (Arr.some(names, (name) => !hasEnum(variables, name))) {
+		return Result.fail(refusals.variableNeedsEnum)
 	}
 
 	const verdicts = Arr.map(assignments(names, variables), (assignment) =>
@@ -403,27 +451,20 @@ const acceptedIndex = (
 ): Option.Option<number> =>
 	Arr.findFirstIndex(
 		config.servers?.accepted ?? [],
-		(entry) => entry === raw.url || (line32 && raw.name !== undefined && entry === raw.name)
+		(entry) => entry === raw.url || (line32 && Option.contains(raw.name, entry))
 	)
 
-const rowsOf = (
-	raw: RawServer,
-	level: ServerLevel,
-	implicit: boolean
-): readonly (typeof RowId.Type)[] =>
-	Arr.map(
-		Arr.sort(
-			[
-				"SRV-01",
-				"SRV-02",
-				...(Record.isEmptyRecord(raw.variables ?? {}) ? [] : ["SRV-05", "SRV-11"]),
-				...(implicit ? ["SRV-10"] : []),
-				...(level === "root" ? [] : ["SRV-15"])
-			],
-			Order.String
-		),
-		(row) => RowId.make(row)
-	)
+const rowsOf = (raw: RawServer, level: ServerLevel, implicit: boolean): readonly RowId[] => {
+	const rows: readonly RowId[] = [
+		"SRV-01",
+		"SRV-02",
+		...(Record.isEmptyRecord(raw.variables) ? [] : (["SRV-05", "SRV-11"] as const)),
+		...(implicit ? (["SRV-10"] as const) : []),
+		...(level === "root" ? [] : (["SRV-15"] as const))
+	]
+
+	return Arr.sort(rows, Order.String)
+}
 
 interface Built {
 	readonly diagnostics: readonly Diagnostic[]
@@ -438,17 +479,13 @@ interface Acceptance {
 	readonly index: number
 }
 
-const isSafeText = Schema.is(SafeText)
-
-const isServerTemplate = Schema.is(ServerTemplate)
-
 const nameOf = (raw: RawServer, line32: boolean): Option.Option<SafeText> =>
-	line32 ? Option.filter(Option.fromUndefinedOr(raw.name), isSafeText) : Option.none()
+	line32 ? Option.filter(raw.name, isSafeText) : Option.none()
 
 const build = (
 	raw: RawServer,
 	level: ServerLevel,
-	pointer: string,
+	pointer: JsonPointer,
 	implicit: boolean,
 	context: ServersContext
 ): Built => {
@@ -457,16 +494,16 @@ const build = (
 
 	if (!isServerTemplate(url)) {
 		return {
-			diagnostics: [diagnose(context, "SRV-19/invalid-template", site)],
+			diagnostics: [diagnose(context, refusals.invalidTemplate, site)],
 			server: Option.none()
 		}
 	}
 
-	const variables = raw.variables ?? {}
+	const { variables } = raw
 
-	if (Arr.some(variableNames(url), (name) => variables[name] === undefined)) {
+	if (Arr.some(variableNames(url), (name) => !Record.has(variables, name))) {
 		return {
-			diagnostics: [diagnose(context, "SRV-11/undeclared-variable", site)],
+			diagnostics: [diagnose(context, refusals.undeclaredVariable, site)],
 			server: Option.none()
 		}
 	}
@@ -476,17 +513,17 @@ const build = (
 		acceptedIndex(raw, line32, context.config),
 		(index): Acceptance => ({
 			expansion: queryOrFragment.test(url)
-				? Result.fail("SRV-18/query-or-fragment")
+				? Result.fail(refusals.queryOrFragment)
 				: expandOrigins(raw, context, context.config.allowInsecure === true),
 			index
 		})
 	)
 	const name = nameOf(raw, line32)
-	const server = Server.make({
+	const server: Server = {
 		accepted: Option.exists(acceptance, ({ expansion }) => Result.isSuccess(expansion)),
 		level,
 		...(Option.isSome(name) ? { name: name.value } : {}),
-		origin: { document: context.document, pointer: JsonPointerSchema.make(pointer) },
+		origin: { document: context.document, pointer },
 		origins: Option.match(acceptance, {
 			onNone: () => [],
 			onSome: ({ expansion }) => Result.getOrElse(expansion, () => [])
@@ -495,13 +532,14 @@ const build = (
 		template: url,
 		variables: Arr.sort(
 			Arr.map(Record.toEntries(variables), ([variable, { default: fallback, enum: members }]) =>
-				members === undefined
-					? { default: fallback, name: variable }
-					: { default: fallback, enum: members, name: variable }
+				Option.match(members, {
+					onNone: () => ({ default: fallback, name: variable }),
+					onSome: (strings) => ({ default: fallback, enum: strings, name: variable })
+				})
 			),
 			Order.mapInput(Order.String, (variable: { readonly name: string }) => variable.name)
 		)
-	})
+	}
 
 	return {
 		diagnostics: Option.match(acceptance, {
@@ -522,27 +560,33 @@ const build = (
 	}
 }
 
-const parseRaw = Schema.decodeUnknownOption(rawServer)
-
 const implicitLevel = (
-	pointer: string,
+	pointer: JsonPointer,
 	level: ServerLevel,
 	context: ServersContext
 ): ServersResult => {
-	const built = build({ url: "/" }, level, pointer, true, context)
+	const built = build(
+		{ name: Option.none(), url: "/", variables: {} },
+		level,
+		pointer,
+		true,
+		context
+	)
 
 	return { diagnostics: built.diagnostics, servers: Option.toArray(built.server) }
 }
 
 const declaredLevel = (
 	value: Json,
-	pointer: string,
+	tokens: readonly string[],
 	level: ServerLevel,
 	context: ServersContext
 ): ServersResult => {
+	const pointer = formatPointer(tokens)
+
 	if (!isArray(value)) {
 		return {
-			diagnostics: [diagnose(context, "SRV-01/invalid-server", specSite(context, pointer))],
+			diagnostics: [diagnose(context, refusals.invalidServer, specSite(context, pointer))],
 			servers: []
 		}
 	}
@@ -551,17 +595,17 @@ const declaredLevel = (
 		return level === "root"
 			? implicitLevel(pointer, level, context)
 			: {
-					diagnostics: [diagnose(context, "SRV-16/empty-override", specSite(context, pointer))],
+					diagnostics: [diagnose(context, refusals.emptyOverride, specSite(context, pointer))],
 					servers: []
 				}
 	}
 
 	const built = Arr.map(value, (entry, index): Built => {
-		const itemPointer = childPointer(pointer, String(index))
+		const itemPointer = formatPointer([...tokens, String(index)])
 
-		return Option.match(parseRaw(entry), {
+		return Option.match(rawServerOf(entry), {
 			onNone: () => ({
-				diagnostics: [diagnose(context, "SRV-01/invalid-server", specSite(context, itemPointer))],
+				diagnostics: [diagnose(context, refusals.invalidServer, specSite(context, itemPointer))],
 				server: Option.none()
 			}),
 			onSome: (raw) => build(raw, level, itemPointer, false, context)
@@ -580,8 +624,8 @@ const normalizeLevel = (
 	context: ServersContext
 ): ServersResult =>
 	Option.match(source.value, {
-		onNone: () => implicitLevel(source.pointer, level, context),
-		onSome: (value) => declaredLevel(value, source.pointer, level, context)
+		onNone: () => implicitLevel(formatPointer(source.tokens), level, context),
+		onSome: (value) => declaredLevel(value, source.tokens, level, context)
 	})
 
 const declares = (source: ServerSource | undefined): source is ServerSource =>
@@ -623,7 +667,7 @@ const acceptedOrigin = (
 
 	return parsed.pathname === "/" && parsed.search === "" && parsed.hash === ""
 		? Result.succeed(verdict.success)
-		: Result.fail(diagnose(context, "SRV-02/not-an-origin", site))
+		: Result.fail(diagnose(context, refusals.notAnOrigin, site))
 }
 
 /**

@@ -8,11 +8,10 @@ import {
 	Order,
 	Predicate,
 	Record as Rec,
-	Schema,
 	String as Str
 } from "effect"
 import { fixedDocumentUri } from "#model/brands.ts"
-import { Api } from "#model/entities.ts"
+import type { Api } from "#model/entities.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
 import type { Json } from "#model/pointer.ts"
 import { nodeOption } from "#normalize/document-set.ts"
@@ -164,23 +163,10 @@ export const inlinedOf = (sketch: SetSketch): SetSketch => ({
 	ok: "inline"
 })
 
-/** The model as plain JSON, as it is written out. */
-const encodedOf = (api: Api) =>
-	Effect.flatMap(Schema.encodeEffect(Api)(api), Schema.decodeUnknownEffect(Schema.Json))
-
-/** The stored `$defs` of the model's schema document. */
-const defsOf = (model: Json): Readonly<Record<string, Json>> => {
-	const at = (value: Option.Option<Json>, name: string) =>
-		Option.flatMap(Option.filter(value, isObject), (object) => Rec.get(object, name))
-	return Option.getOrElse(
-		Option.filter(at(at(at(Option.some(model), "schemas"), "document"), "$defs"), isObject),
-		(): Readonly<Record<string, Json>> => ({})
-	)
-}
-
 /** The operations with every schema key replaced by the stored schema it names and every origin dropped. */
-const meaningOf = (model: Json): Json => {
-	const store = defsOf(model)
+const meaningOf = (api: Api): Json => {
+	const store = api.schemas.defs
+	const operations: Json = api.operations
 	const strip = (value: Json): Json => {
 		if (isArray(value)) {
 			return Arr.map(value, strip)
@@ -206,7 +192,7 @@ const meaningOf = (model: Json): Json => {
 			)
 		)
 	}
-	return strip(isObject(model) ? Option.getOrElse(Rec.get(model, "operations"), () => null) : null)
+	return strip(operations)
 }
 
 /** A located diagnostic: its code, its document and its pointer. */
@@ -313,15 +299,14 @@ export const readingOf = (sketch: SetSketch) =>
 			config,
 			configDocument
 		})
-		const model = yield* encodedOf(api)
 		const located = Arr.map(diagnostics, (each): Located => [
 			each.code,
 			each.document,
 			String(each.pointer)
 		])
 		const reading: SetReading = {
-			meaning: meaningOf(model),
-			keys: Arr.sort(Rec.keys(defsOf(model)), Order.String),
+			meaning: meaningOf(api),
+			keys: Arr.sort(Rec.keys(api.schemas.defs), Order.String),
 			documents: Arr.map(api.documents, String),
 			diagnostics: Arr.sort(
 				located,

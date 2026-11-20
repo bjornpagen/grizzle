@@ -548,10 +548,9 @@ export const authHelp = property.explore(
 			"no alternatives"
 		] satisfies ReadonlyArray<Reached<AuthFeature>>,
 		check: (_, c: Case<AuthFeature>) => (drawn) =>
-			Effect.gen(function* () {
+			Effect.sync(() => {
 				c.noteAll(authFeatures(drawn))
-				const line = yield* actualAuth(drawn)
-				assert.equal(line, expectedAuth(drawn))
+				assert.equal(actualAuth(drawn), expectedAuth(drawn))
 			}),
 		oracle: {
 			kind: "specification",

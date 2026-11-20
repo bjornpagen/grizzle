@@ -1,7 +1,13 @@
 import { Array as Arr, Data, Effect, Option, Record, Result } from "effect"
+import type { Origin } from "#model/entities.ts"
 import { isObject } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
-import { PointerMemberNotFound, childPointer, evaluatePointerResult } from "#model/pointer.ts"
+import {
+	PointerMemberNotFound,
+	childPointer,
+	evaluatePointerResult,
+	ownPointer
+} from "#model/pointer.ts"
 import type { Json, PointerEvalError, PointerSyntaxError } from "#model/pointer.ts"
 import { keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
@@ -14,6 +20,12 @@ export const referenceIn = (
 	resolution: Resolution,
 	site: CanonicalKey
 ): ResolvedReference | undefined => resolution.references.get(keyOf(site))
+
+/**
+ * The origin of the element at `key`, whose pointer the generator built.
+ */
+export const originOf = (key: CanonicalKey): Effect.Effect<Origin> =>
+	Effect.map(ownPointer(key.pointer), (pointer): Origin => ({ document: key.document, pointer }))
 
 /**
  * The object a use site stands for: the end of its reference chain, or the site itself.
