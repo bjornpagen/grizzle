@@ -43,7 +43,13 @@ import {
 	namesOf,
 	parsedSchemaName
 } from "#test/support/kernel/naming.ts"
-import { draftCodes, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
+import {
+	draftCodes,
+	draftedAt,
+	fromSnapshot,
+	generate,
+	noDeclarations
+} from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
 import type { Interleaving } from "#test/support/schedules/interleave.ts"
 import {
@@ -253,10 +259,8 @@ export const prepare = (
 				previous: fromSnapshot(done.snapshot),
 				installation,
 				name: "tighten",
-				/**
-				 * After the installing folder, whose fixed timestamp is 20261013000000.
-				 */
-				timestamp: "20261014000000",
+				/** After the installing folders, on the tests' one clock (migrate/kit.ts draftedAt). */
+				timestamp: draftedAt(done.folders.length),
 				workload: noWorkload
 			})
 		)

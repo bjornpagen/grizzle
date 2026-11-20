@@ -46,7 +46,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { runProgram } from "@bjornpagen/testing/commands"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	type Built,
@@ -117,7 +117,7 @@ export const rosterMigrations = property.explore(steered(runGen), {
 							snapshot: m.snapshot,
 							names: m.names,
 							folders: [],
-							drafts: 1,
+							drafts: m.folders.length,
 							ids: 0,
 							constants: new Map()
 						}
@@ -136,8 +136,23 @@ export const rosterMigrations = property.explore(steered(runGen), {
 		kind: "postgresql",
 		name: "the catalog and every verdict against A8's roster history model"
 	},
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken(
+				"test/pg/closed/migrations.test.ts#rosterMigrations:fff.0:0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"a roster of two handles, Open and Done, grown by Held, no set: its step folder sorts after its installed history's on the tests' one clock, where an install drafted a day after the steps' epoch refused it (FolderRefused, sorts before the applied install folder)",
+			since: "2026-11-20"
+		}
+	],
 	kills: [
+		{
+			file: "test/support/install-migrate.ts",
+			original: "\t\t\t\ttimestamp: draftedAt(at.step),\n",
+			replacement: "\t\t\t\ttimestamp: draftedAt(at.step + 86_400),\n",
+			why: "An installed history drafted on a clock of its own, a day after the one its fixtures draft on (537c8739e's installInstant): the kept growth's step folder sorts before the install folder and the migration is refused at its order stage."
+		},
 		{
 			file: "packages/engine/src/deploy/diff/diff.ts",
 			original:

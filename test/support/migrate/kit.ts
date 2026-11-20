@@ -143,10 +143,14 @@ export const draftCodes = (
 		)
 	})
 
-/** 2026-10-12T00:00:00Z, the instant before a history's first draft. */
-const epoch = 1_791_763_200_000
-/** The CLI's clock, stood in for, at a history's `ordinal`-th draft, from 1: that many seconds after the epoch,
- * formatted as the CLI formats it, so a history's folder names sort in drafting order. */
+/** 2026-10-13T00:00:00Z, the epoch of the tests' one clock (draftedAt). */
+const epoch = 1_791_849_600_000
+/**
+ * The CLI's clock, stood in for, at a history's `ordinal`-th folder: that many seconds after the epoch, formatted as the
+ * CLI formats it, so a history's folder names sort in drafting order. It is every harness's one clock: an installed
+ * history drafts its folder of step k, from 0, at ordinal k (test/support/install-migrate.ts draftVersion), so a fixture
+ * that drafts past an installed history's folders, at an ordinal past theirs, sorts after them by construction.
+ */
 export const draftedAt = (ordinal: number): string =>
 	formatTimestamp(DateTime.makeUnsafe(epoch + ordinal * 1000))
 

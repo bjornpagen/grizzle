@@ -485,6 +485,8 @@ export interface System {
 	/** The physical names of the version the snapshot is of: each migration's own installation's. */
 	names: PhysicalNames
 	folders: Array<FolderTexts>
+	/** The folders the history holds, its installed ones and those drafted after them: the next draft is drafted at the
+	 * ordinal past their count on the tests' one clock (migrate/kit.ts draftedAt), so it sorts after every one of them. */
 	drafts: number
 	ids: number
 	constants: Map<string, { readonly name: string; readonly names: ReadonlyArray<string> }>

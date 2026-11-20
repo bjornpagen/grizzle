@@ -5,7 +5,6 @@ import type { Need } from "@bjornpagen/testing/property"
 import type { Content } from "@bjornpagen/testing/resources"
 import {
 	Array as Arr,
-	DateTime,
 	Effect,
 	Option,
 	Path,
@@ -22,7 +21,6 @@ import { type FolderTexts, folderSource } from "#adapter/migrate/input.ts"
 import { migrationSession } from "#adapter/migrate/session.ts"
 import { served as servedLogin } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
-import { formatTimestamp } from "#cli/clock.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import type { CliError } from "#cli/errors.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
@@ -59,6 +57,7 @@ import { paths, repoRoot } from "#test/support/files.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	draftCodes,
+	draftedAt,
 	fromEmpty,
 	fromSnapshot,
 	generate,
@@ -187,15 +186,6 @@ export interface Installed {
 	readonly world: (role: AnyRole | RoleDesc) => SubstrateWorld
 }
 
-/** 2026-10-13T00:00:00Z, the instant an installation's first folder is drafted at. */
-const installInstant = 1_791_849_600_000
-
-/**
- * The time a history's folder `step`, from 0, is drafted at: `step` seconds after the first, as the CLI formats it, so
- * its folders sort in drafting order; the folder name only orders a schema's own migrations.
- */
-const installTimestamp = (step: number): string =>
-	formatTimestamp(DateTime.makeUnsafe(installInstant + step * 1000))
 const installName = "install"
 
 /**
@@ -791,7 +781,7 @@ export const draftVersion = (
 			generate({
 				installation: plan.installation,
 				name: installName,
-				timestamp: installTimestamp(at.step),
+				timestamp: draftedAt(at.step),
 				previous: at.previous,
 				workload: workload.draft,
 				declared: version.declarations
@@ -1245,7 +1235,7 @@ const generatedDraft = (
 		)
 		assert.equal(draft.change, "schema", "each version of a generated history drafts a migration")
 		const folderAt = yield* fromEngine(
-			folderName(installTimestamp(at.step), parsedMigrationName(installName))
+			folderName(draftedAt(at.step), parsedMigrationName(installName))
 		)
 		const reviewed = review(
 			{ ...draft, folder: { name: folderAt, ...draft.folder } },
