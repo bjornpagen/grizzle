@@ -65,6 +65,7 @@ const catalogue: ComputeApi = {
 	replaceWhitespace: (x) => C.replaceWhitespace(x),
 	collapse: (x) => C.collapse(x),
 	resolveReference: (base, reference) => C.resolveReference(base, reference),
+	isXsdPattern: (x) => C.isXsdPattern(x),
 	parseDouble: (x) => C.parseDouble(x),
 	parseDecimal: (x) => C.parseDecimal(x),
 	sha256: (x) => C.sha256(x),

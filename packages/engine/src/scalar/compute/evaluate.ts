@@ -1,5 +1,6 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
 import { asciiLowered, collapsed, translated } from "@bjornpagen/grizzle-text/text"
 import { resolveReference } from "@bjornpagen/grizzle-text/uri"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
@@ -680,6 +681,8 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 			return (args) => Result.ok(asciiLowered(hostOf("text", a(args))))
 		case "resolveReference":
 			return (args) => Result.ok(resolveReference(hostOf("text", a(args)), hostOf("text", b(args))))
+		case "isXsdPattern":
+			return (args) => Result.ok(xsdPattern(hostOf("text", a(args))).ok)
 		case "sha256":
 			return c === "bytes"
 				? (args) => Result.ok(hostOf("bytes", a(args)).digest)
@@ -927,6 +930,7 @@ const operation = (
 		case "rem":
 		case "replace":
 		case "resolveReference":
+		case "isXsdPattern":
 		case "right":
 		case "round":
 		case "sha256":

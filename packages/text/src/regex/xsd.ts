@@ -115,7 +115,7 @@ const categories = ((): ReadonlyMap<string, CharSet> => {
 })()
 
 /** The General_Category values a category escape may name (Appendix F, productions [28] to [35]). */
-const categoryNames: ReadonlySet<string> = new Set([
+export const xsdCategoryNames: ReadonlySet<string> = new Set([
 	"L",
 	"Lu",
 	"Ll",
@@ -377,7 +377,7 @@ class Reader {
 		}
 		const name = this.#text(this.#pos + 3, close)
 		const block = name.startsWith("Is") ? xmlSchemaBlocks.get(name.slice(2)) : undefined
-		const named = categoryNames.has(name)
+		const named = xsdCategoryNames.has(name)
 			? category(name)
 			: block === undefined
 				? undefined
@@ -388,7 +388,7 @@ class Reader {
 				this.#text(at, close + 1),
 				name.startsWith("Is")
 					? `${name} names no block in XML Schema's block table; use a block name the table lists, such as IsBasicLatin or IsGreek`
-					: `${JSON.stringify(name)} is not a category XML Schema names; use one of ${[...categoryNames].join(", ")}`
+					: `${JSON.stringify(name)} is not a category XML Schema names; use one of ${[...xsdCategoryNames].join(", ")}`
 			)
 		}
 		this.#pos = close + 1

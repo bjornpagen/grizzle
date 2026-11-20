@@ -319,6 +319,7 @@ export type RefusedConstruct = readonly [
 /** One construct of each kind outside the grammar, where it is refused and why. */
 const refusedConstructs: Arr.NonEmptyReadonlyArray<RefusedConstruct> = [
 	["a)", 1, "MalformedDescription"],
+	["a)(b", 1, "MalformedDescription"],
 	["(?:a)", 0, "UnsupportedOperation"],
 	["(a", 0, "MalformedDescription"],
 	["\\1", 0, "UnsupportedOperation"],

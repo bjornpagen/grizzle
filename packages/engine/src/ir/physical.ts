@@ -78,10 +78,11 @@ export interface SelectionKey {
 /**
  * grizzle's library: the SQL functions of its own that a Compute operation's SQL calls, each a constant of parameters
  * (sql/ast.ts CreateConstant) named by its definition's digest (physical/ddl/library.ts), which an installation installs
- * where its schema's persistent expressions call it: resolveReference, RFC 3986's resolution of a reference against a
- * base (scalar/compute/registry.ts textResolveReference).
+ * where its schema's persistent expressions call it: isXsdPattern, whether a text is an XML Schema 1.0 pattern
+ * (scalar/compute/registry.ts textIsXsdPattern); resolveReference, RFC 3986's resolution of a reference against a
+ * base (textResolveReference); and textDigest, a text's SHA-256 (textSha256).
  */
-const libraryFns = ["resolveReference", "textDigest"] as const
+const libraryFns = ["isXsdPattern", "resolveReference", "textDigest"] as const
 export type LibraryFn = (typeof libraryFns)[number]
 
 /** How the declared names of one schema map to PostgreSQL objects, each qualified by its schema. */

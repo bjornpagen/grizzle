@@ -1155,6 +1155,17 @@ export interface ComputeApi {
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Term<string, PA, ComputedOrigin<OA>, "text">>
 	/**
+	 * Whether x is an XML Schema 1.0 pattern, a string of Appendix F's regExp production, as grizzle-text's reader of
+	 * that grammar reads it (regex/xsd.ts xsdPattern): groups and class subtractions nested to any depth and counts of any
+	 * size, refused at a construct Appendix F does not define (`(?`, a back-reference, an unclosed `[` or `(`, a `{`
+	 * that opens no count) or a category or block its tables do not name. PostgreSQL judges it by a function of grizzle's
+	 * library, the reader's moves as a table its recursive query reads once over the text's characters, so the law holds
+	 * in a contract predicate, a row check, a generated field and a query alike, on every text.
+	 */
+	isXsdPattern<A extends TermBase | FirstValue, X, PA, OA>(
+		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
+	): Admitted<TakesFirst<A, "text">, Term<boolean, PA, ComputedOrigin<OA>, "boolean">>
+	/**
 	 * XML Schema's whiteSpace replace: translate(x, "\t\n\r", "   "), tab, LF and CR each a space, as Compute.translate
 	 * is admitted, and within x's byte bound.
 	 */

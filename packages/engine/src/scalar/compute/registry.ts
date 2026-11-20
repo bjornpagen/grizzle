@@ -248,6 +248,7 @@ export type NativeFn =
 	| "lowerAscii"
 	| "collapse"
 	| "resolveReference"
+	| "isXsdPattern"
 	| "replace"
 	| "btrim"
 	| "parseDouble"
@@ -330,6 +331,7 @@ export const computeSpecs: { readonly [F in ComputeFn]: ComputeSpec } = deepFree
 	lowerAscii: { arity: 1, check: true, nodes: ["lowerAscii"] },
 	collapse: { arity: 1, check: true, nodes: ["collapse"] },
 	resolveReference: { arity: 2, check: true, nodes: ["resolveReference"] },
+	isXsdPattern: { arity: 1, check: true, nodes: ["isXsdPattern"] },
 	parseDouble: { arity: 1, check: true, nodes: ["parseDouble"] },
 	parseDecimal: { arity: 1, check: true, nodes: ["parseDecimal"] },
 	sha256: { arity: 1, check: true, nodes: ["sha256"] },
@@ -890,6 +892,25 @@ const textResolveReference: FixedOverload = frozen({
 })
 
 /**
+ * Whether a text is a string of XML Schema 1.0's regExp production (Part 2, Appendix F), as @bjornpagen/grizzle-text's
+ * regex/xsd.ts reader reads it on the host, Compute.isXsdPattern wherever it stands (compute/typing.ts isXsdPattern): a
+ * call of the installation's library function (physical/ddl/library.ts xsdPatternDefinition), `<schema>.<fn>(x)`, an
+ * IMMUTABLE, PARALLEL SAFE SQL function whose recursive query reads the text's characters once each by a table of the
+ * reader's moves, with no state budget and no bound on a count, so it is defined on every text, in a query, a CHECK and
+ * a generated field alike. It reads no catalog object a Compute operation is, so it uses no entry here.
+ */
+const textIsXsdPattern: FixedOverload = frozen({
+	fn: "isXsdPattern",
+	operands: positional(["text"]),
+	result: "bool",
+	sql: { kind: "library", fn: "isXsdPattern" },
+	catalog: { kind: "construct", uses: [] },
+	volatility: "immutable",
+	totality: total,
+	reads: "value"
+})
+
+/**
  * A text's UTF-16 code units, JavaScript's String.length: one for each code point, and one more for each supplementary
  * one, which UTF-16 writes as a surrogate pair, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`
  * (lower/conservative/expr/ops.ts utf16Units). A text holds at most MaxAllocSize bytes, so at most that many code points
@@ -1084,7 +1105,8 @@ const endpoint = (
  * - a closed id's operator: smallint's, its code's, prefixed "code:", as "code:int2eq";
  * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not", a set's
  *   "difference:bits", "subset:bits" and "disjoint:bits", a text's "endsWith:text", "infixAt:text" and its ASCII case fold's
- *   "lowerAscii:text", a reference's resolution "resolveReference:text", a bytes value's "sha256:bytea", and a
+ *   "lowerAscii:text", a reference's resolution "resolveReference:text", a pattern's test "isXsdPattern:text", a bytes
+ *   value's "sha256:bytea", and a
  *   float's identity image "floatBits:float8" and "floatBits:float4";
  * - a range-polymorphic operator or function, one catalog object for both range carriers: its code and the carrier
  *   (ir/expr.ts rangeOp), listed by both in spanOverloads;
@@ -1308,6 +1330,7 @@ const catalogOverloads = {
 	"collapse:text": textCollapse,
 	"lowerAscii:text": textLowerAscii,
 	"resolveReference:text": textResolveReference,
+	"isXsdPattern:text": textIsXsdPattern,
 	"parseDouble:text": textParseDouble,
 	"parseDecimal:text": textParseDecimal,
 	"sha256:bytea": bytesDigest,

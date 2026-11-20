@@ -226,6 +226,7 @@ const foldAs = <E>(expr: ScalarExpr, column: ColumnValue, rebuild: Rebuild<E>): 
 		case "lowerAscii":
 		case "collapse":
 		case "resolveReference":
+		case "isXsdPattern":
 		case "replace":
 		case "btrim":
 		case "parseDouble":

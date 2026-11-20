@@ -6,11 +6,14 @@
  * calls it, as every constant is (physical/ddl/context.ts addConstant), and revoked from PUBLIC, so a role is granted
  * EXECUTE on it as on every constant it may call (physical/ddl/roles.ts).
  */
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	flatMapNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import { xmlSchemaBlocks } from "@bjornpagen/grizzle-text/regex/xml"
+import { xsdCategoryNames } from "@bjornpagen/grizzle-text/regex/xsd"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { type Identity, identity, type KeyImage } from "#compiler/core/identity.ts"
@@ -28,31 +31,43 @@ import type {
 	FrameBound,
 	FromItem,
 	FromSource,
+	Cte,
 	FunctionParam,
+	OperandSelect,
 	SqlStatement,
 	TypeRef
 } from "#compiler/sql/ast.ts"
 import {
 	and,
+	arrayOf,
 	asc,
 	binary,
 	call,
 	col,
 	core,
 	countStar,
+	cte,
+	cteRef,
+	cUtf8Collation,
 	derived,
+	desc,
 	eq,
 	firstNonNull,
 	ge,
 	gt,
+	isIn,
+	le,
 	lit,
 	lt,
+	ne,
 	not,
 	operandSelect,
+	operandUnionAll,
 	or,
 	param,
 	provedCore,
 	select,
+	simpleSelect,
 	targetAs,
 	types,
 	windowOf
@@ -443,6 +458,561 @@ const resolveReferenceDefinition = (): LibraryDefinition => {
 	}
 }
 
+/**
+ * The classes of a pattern's characters the recognizer's table reads (xsdPatternDefinition), each a column of it, in
+ * the order of `xsdClassKeys` for the first fifteen: the metacharacters and punctuation Appendix F reads by themselves,
+ * then the decimal digits, the letters of the single-character escapes no metacharacter spells (n, r, t), those of the
+ * multi-character escapes, those of the category escapes (p, P), and every other character.
+ */
+const xsdClasses = [
+	"\\",
+	"[",
+	"]",
+	"(",
+	")",
+	"{",
+	"}",
+	"|",
+	"?",
+	"*",
+	"+",
+	"-",
+	"^",
+	",",
+	".",
+	"digit",
+	"entry",
+	"multi",
+	"property",
+	"other"
+] as const
+
+type XsdClass = (typeof xsdClasses)[number]
+
+/** Each character a class other than `other` holds, and its class. */
+const xsdClassKeys: ReadonlyArray<readonly [string, XsdClass]> = [
+	...xsdClasses.slice(0, 15).map((c): readonly [string, XsdClass] => [c, c]),
+	..."0123456789".split("").map((c): readonly [string, XsdClass] => [c, "digit"]),
+	..."nrt".split("").map((c): readonly [string, XsdClass] => [c, "entry"]),
+	..."sSiIcCdDwW".split("").map((c): readonly [string, XsdClass] => [c, "multi"]),
+	..."pP".split("").map((c): readonly [string, XsdClass] => [c, "property"])
+]
+
+/**
+ * The class of each ASCII code point, by the code point: the table the recognizer finds a character's class in, every
+ * character past it of class `other`, as every character no key names.
+ *
+ * @formatConstant the ASCII code points, 0 to 127
+ */
+const asciiClasses: ReadonlyArray<XsdClass> = Array.from({ length: 0x80 }, (_, point) => {
+	const keyed = xsdClassKeys.find(([key]) => key.codePointAt(0) === point)
+	return keyed === undefined ? "other" : keyed[1]
+})
+
+/**
+ * The recognizer's states, each a row of its table, what the reader (regex/xsd.ts) is reading: a branch where no
+ * quantifier may stand (its start, after `|`, `(` or a quantifier), after an atom, an escape, a category escape's brace
+ * and name, a count's `{`, least digits, comma and greatest digits, and in a class: just opened, no member yet, members,
+ * a `-` before any member or after one, a character that may begin a range, it and a `-`, an escape, an escape ending a
+ * range, a category escape's brace and name, a subtraction's `]` that its class's `]` must follow; and refused.
+ */
+const xsdStates = [
+	"branch",
+	"atom",
+	"escape",
+	"propertyBrace",
+	"propertyName",
+	"countOpen",
+	"least",
+	"comma",
+	"most",
+	"classOpen",
+	"classEmpty",
+	"classMembers",
+	"dashEmpty",
+	"dashMembers",
+	"char",
+	"charDash",
+	"classEscape",
+	"rangeEscape",
+	"classPropertyBrace",
+	"classPropertyName",
+	"subtracted",
+	"refused"
+] as const
+
+type XsdState = (typeof xsdStates)[number]
+
+/**
+ * What a move does beside its state, each over the recognizer's registers: open or close a group (the open groups'
+ * count), open a class or a subtraction or close one (the open classes' count, closing into `atom` or `subtracted` by
+ * it), a range's first code point from a character or an escape and a range's last checked against it, a category
+ * escape's name begun, extended and checked against the names Appendix F's tables hold, and a count's least and
+ * greatest numerals begun, extended and checked in order.
+ */
+const xsdOps = [
+	"none",
+	"openGroup",
+	"closeGroup",
+	"openClass",
+	"openSubtraction",
+	"closeClass",
+	"firstChar",
+	"firstEscape",
+	"lastChar",
+	"lastEscape",
+	"nameOpen",
+	"nameAdd",
+	"nameClose",
+	"leastOpen",
+	"leastAdd",
+	"mostOpen",
+	"mostAdd",
+	"ordered"
+] as const
+
+type XsdOp = (typeof xsdOps)[number]
+
+/** A move of the recognizer's table: the next state and what it does. */
+type Move = readonly [XsdState, XsdOp]
+
+const refused: Move = ["refused", "none"]
+
+/** The classes whose escape names one character: a metacharacter's own, and n, r and t (regex/xsd.ts singleCharacterEscapes). */
+const entryEscapes: ReadonlySet<XsdClass> = new Set([
+	"\\",
+	"|",
+	".",
+	"?",
+	"*",
+	"+",
+	"(",
+	")",
+	"{",
+	"}",
+	"-",
+	"[",
+	"]",
+	"^",
+	"entry"
+])
+
+/** A branch's move, where no quantifier stands: `|`, a group, an escape, a class, a closing bracket or an atom. */
+const branchMove = (c: XsdClass): Move => {
+	switch (c) {
+		case "\\":
+			return ["escape", "none"]
+		case "[":
+			return ["classOpen", "openClass"]
+		case "(":
+			return ["branch", "openGroup"]
+		case ")":
+			return ["atom", "closeGroup"]
+		case "|":
+			return ["branch", "none"]
+		case "]":
+		case "{":
+		case "}":
+		case "?":
+		case "*":
+		case "+":
+			return refused
+		case "-":
+		case "^":
+		case ",":
+		case ".":
+		case "digit":
+		case "entry":
+		case "multi":
+		case "property":
+		case "other":
+			return ["atom", "none"]
+	}
+}
+
+/** A class's move once it holds a member: its `]`, a `-`, an escape, or a character that may begin a range. */
+const membersMove = (c: XsdClass): Move => {
+	switch (c) {
+		case "]":
+			return ["atom", "closeClass"]
+		case "[":
+			return refused
+		case "-":
+			return ["dashMembers", "none"]
+		case "\\":
+			return ["classEscape", "none"]
+		case "(":
+		case ")":
+		case "{":
+		case "}":
+		case "|":
+		case "?":
+		case "*":
+		case "+":
+		case "^":
+		case ",":
+		case ".":
+		case "digit":
+		case "entry":
+		case "multi":
+		case "property":
+		case "other":
+			return ["char", "firstChar"]
+	}
+}
+
+/** A state's move on a character of class `c`: the table's cell, written as the reader reads (regex/xsd.ts Reader). */
+const moveOf = (state: XsdState, c: XsdClass): Move => {
+	switch (state) {
+		case "branch":
+			return branchMove(c)
+		case "atom":
+			return c === "?" || c === "*" || c === "+"
+				? ["branch", "none"]
+				: c === "{"
+					? ["countOpen", "none"]
+					: branchMove(c)
+		case "escape":
+			return entryEscapes.has(c) || c === "multi"
+				? ["atom", "none"]
+				: c === "property"
+					? ["propertyBrace", "none"]
+					: refused
+		case "propertyBrace":
+			return c === "{" ? ["propertyName", "nameOpen"] : refused
+		case "propertyName":
+			return c === "}" ? ["atom", "nameClose"] : ["propertyName", "nameAdd"]
+		case "countOpen":
+			return c === "digit" ? ["least", "leastOpen"] : refused
+		case "least":
+			return c === "digit"
+				? ["least", "leastAdd"]
+				: c === ","
+					? ["comma", "none"]
+					: c === "}"
+						? ["branch", "none"]
+						: refused
+		case "comma":
+			return c === "digit" ? ["most", "mostOpen"] : c === "}" ? ["branch", "none"] : refused
+		case "most":
+			return c === "digit" ? ["most", "mostAdd"] : c === "}" ? ["branch", "ordered"] : refused
+		case "classOpen":
+			return c === "^" ? ["classEmpty", "none"] : moveOf("classEmpty", c)
+		case "classEmpty":
+			return c === "]" || c === "["
+				? refused
+				: c === "-"
+					? ["dashEmpty", "none"]
+					: c === "\\"
+						? ["classEscape", "none"]
+						: ["char", "firstChar"]
+		case "classMembers":
+			return membersMove(c)
+		case "dashEmpty":
+			return c === "[" ? refused : membersMove(c)
+		case "dashMembers":
+			return c === "["
+				? ["classOpen", "openSubtraction"]
+				: c === "]"
+					? ["atom", "closeClass"]
+					: refused
+		case "char":
+			return c === "-" ? ["charDash", "none"] : membersMove(c)
+		case "charDash":
+			return c === "]"
+				? ["atom", "closeClass"]
+				: c === "["
+					? ["classOpen", "openSubtraction"]
+					: c === "-"
+						? refused
+						: c === "\\"
+							? ["rangeEscape", "none"]
+							: ["classMembers", "lastChar"]
+		case "classEscape":
+			return entryEscapes.has(c)
+				? ["char", "firstEscape"]
+				: c === "multi"
+					? ["classMembers", "none"]
+					: c === "property"
+						? ["classPropertyBrace", "none"]
+						: refused
+		case "rangeEscape":
+			return entryEscapes.has(c) ? ["classMembers", "lastEscape"] : refused
+		case "classPropertyBrace":
+			return c === "{" ? ["classPropertyName", "nameOpen"] : refused
+		case "classPropertyName":
+			return c === "}" ? ["classMembers", "nameClose"] : ["classPropertyName", "nameAdd"]
+		case "subtracted":
+			return c === "]" ? ["atom", "closeClass"] : refused
+		case "refused":
+			return refused
+	}
+}
+
+/** The number of a state, a class or an op: its place in its roster. */
+const placeOf = <T extends string>(roster: ReadonlyArray<T>, member: T): number =>
+	roster.indexOf(member)
+
+/** An integer[] constant of `values`, `'{…}'::integer[]`. */
+const integers = (values: ReadonlyArray<number>): Expr =>
+	lit.text(`{${values.join(",")}}`, defined(arrayOf(types.integer), "an integer array type"))
+
+/** `array[index]`, counted from 1. */
+const subscript = (array: Expr, index: Expr): Expr => ({ kind: "subscript", array, index })
+
+/** The code point of a one-unit ASCII character. */
+const cp = (ch: string): number => ch.charCodeAt(0)
+
+/**
+ * isXsdPattern(text): whether a text is a string of XML Schema 1.0's regExp production (Part 2, Appendix F), as
+ * @bjornpagen/grizzle-text's regex/xsd.ts reader reads it on the host: the same grammar, with no state budget and no
+ * bound on a count.
+ *
+ * The grammar is not regular (groups nest, and a class subtraction nests `[a-[b-[c]]]`), but its nesting needs only
+ * counts, so its recognizer is a table of moves over its characters (xsdStates, xsdClasses, moveOf), the reader's own
+ * loop as data, and a few registers: the open groups, the open classes, a range's first code point, the name of a
+ * category escape or a count's greatest digits, and its least digits. The text's code points are read once into an
+ * integer array (`t`, MATERIALIZED, so it is computed once and never per row of the recursion, as an inlined CTE would
+ * be), whose element any row reads in constant time; a recursive query then reads them in order, one row a character,
+ * each row the state and the registers after it: a character's class by an ASCII table (asciiClasses, every other
+ * character of class `other`), the move by its place in two integer arrays, the state's row and the class's column,
+ * and the registers by what the move does (xsdOps); a refusal ends it. The text is a member where the last row stands
+ * in a branch or after an atom with every group closed. A category escape's name is one of the General_Category values
+ * or `Is` and a block of XML Schema's table, which grizzle-text's own tables give, and a count's numerals are compared
+ * as written, by their length without leading zeros and then by code point, so no count is too large to compare. It
+ * reads no regular expression but the split of the text into its characters, and builds nothing per character but its
+ * row: 10,001 code points of groups nested 2,000 deep take 114 ms, and 100,000 code points 2.2 s, on cassowary at a
+ * load of 700.
+ */
+const xsdPatternDefinition = (): LibraryDefinition => {
+	const pattern = param(1, types.text)
+	const width = xsdClasses.length
+	const nexts = xsdStates.flatMap((s) => xsdClasses.map((c) => placeOf(xsdStates, moveOf(s, c)[0])))
+	const ops = xsdStates.flatMap((s) => xsdClasses.map((c) => placeOf(xsdOps, moveOf(s, c)[1])))
+	const state = (s: XsdState): Expr => integer(placeOf(xsdStates, s))
+	const op = (o: XsdOp): Expr => integer(placeOf(xsdOps, o))
+	const r = (column: string): Expr => col("r", column)
+	const c = col("h", "c")
+	const character = call("chr", [c])
+	const moved = col("m", "op")
+	const next = col("m", "next")
+	/** A move's effect on one register: its value under each op that sets it, the register as it was under any other. */
+	const register = (kept: Expr, set: NonEmptyReadonlyArray<readonly [XsdOp, Expr]>): Expr => ({
+		kind: "case",
+		operand: moved,
+		whens: mapNonEmpty(set, ([o, value]) => ({ when: op(o), result: value })),
+		else: kept
+	})
+	/** The state a move leads to, or refused where its check fails. */
+	const unless = (holds: Expr): Expr => when(holds, next, state("refused"))
+	const escaped: Expr = {
+		kind: "case",
+		operand: c,
+		whens: [
+			{ when: integer(cp("n")), result: integer(0x0a) },
+			{ when: integer(cp("r")), result: integer(0x0d) },
+			{ when: integer(cp("t")), result: integer(0x09) }
+		],
+		else: c
+	}
+	const names = [...xsdCategoryNames, ...[...xmlSchemaBlocks.keys()].map((b) => `Is${b}`)]
+	const digits = (numeral: Expr): Expr => call("ltrim", [numeral, text("0")])
+	const least = digits(r("lo"))
+	const most = digits(r("acc"))
+	const inCodePointOrder = (e: Expr): Expr => ({
+		kind: "collate",
+		expr: e,
+		collation: cUtf8Collation
+	})
+	const split: FromSource = {
+		kind: "function",
+		call: call("regexp_split_to_table", [pattern, text("")]),
+		alias: "p",
+		columns: ["c", "k"],
+		lateral: false,
+		ordinality: true
+	}
+	const characters: Cte = {
+		...cte(
+			"t",
+			["cs", "n"],
+			simpleSelect(
+				[
+					targetAs(
+						{
+							...call("array_agg", [call("ascii", [col("p", "c")])]),
+							orderBy: [asc(col("p", "k"))]
+						},
+						"cs"
+					),
+					targetAs(length(pattern), "n")
+				],
+				[split],
+				undefined
+			)
+		),
+		materialized: "MATERIALIZED"
+	}
+	const start = core(
+		[
+			targetAs(integer(1), "i"),
+			targetAs(state("branch"), "s"),
+			targetAs(integer(0), "parens"),
+			targetAs(integer(0), "depth"),
+			targetAs(integer(0), "first"),
+			targetAs(text(""), "acc"),
+			targetAs(text(""), "lo")
+		],
+		[],
+		undefined
+	)
+	const cell = binary(
+		"+",
+		binary("+", binary("*", r("s"), integer(width)), col("k", "k")),
+		integer(1)
+	)
+	const following = core(
+		[
+			targetAs(binary("+", r("i"), integer(1)), "i"),
+			...["s", "parens", "depth", "first", "acc", "lo"].map((x) => targetAs(col("x", x), x))
+		],
+		[
+			cteRef("r"),
+			cteRef("t"),
+			step("h", [["c", subscript(col("t", "cs"), r("i"))]], true),
+			step(
+				"k",
+				[
+					[
+						"k",
+						firstNonNull([
+							subscript(
+								integers(asciiClasses.map((k) => placeOf(xsdClasses, k))),
+								binary("+", c, integer(1))
+							),
+							integer(placeOf(xsdClasses, "other"))
+						])
+					]
+				],
+				true
+			),
+			step(
+				"m",
+				[
+					["next", subscript(integers(nexts), cell)],
+					["op", subscript(integers(ops), cell)]
+				],
+				true
+			),
+			step(
+				"x",
+				[
+					[
+						"s",
+						register(next, [
+							["closeGroup", unless(gt(r("parens"), integer(0)))],
+							["closeClass", when(eq(r("depth"), integer(1)), state("atom"), state("subtracted"))],
+							["lastChar", unless(ge(c, r("first")))],
+							["lastEscape", unless(ge(escaped, r("first")))],
+							[
+								"nameClose",
+								unless({
+									kind: "equalsAny",
+									expr: r("acc"),
+									array: lit.text(
+										`{${names.map((n) => `"${n}"`).join(",")}}`,
+										defined(arrayOf(types.text), "a text array type")
+									),
+									schema: undefined
+								})
+							],
+							[
+								"ordered",
+								unless(
+									or([
+										lt(length(least), length(most)),
+										and([
+											eq(length(least), length(most)),
+											binary("<=", inCodePointOrder(least), inCodePointOrder(most))
+										])
+									])
+								)
+							]
+						])
+					],
+					[
+						"parens",
+						register(r("parens"), [
+							["openGroup", binary("+", r("parens"), integer(1))],
+							["closeGroup", binary("-", r("parens"), integer(1))]
+						])
+					],
+					[
+						"depth",
+						register(r("depth"), [
+							["openClass", integer(1)],
+							["openSubtraction", binary("+", r("depth"), integer(1))],
+							["closeClass", binary("-", r("depth"), integer(1))]
+						])
+					],
+					[
+						"first",
+						register(r("first"), [
+							["firstChar", c],
+							["firstEscape", escaped]
+						])
+					],
+					[
+						"acc",
+						register(r("acc"), [
+							["nameOpen", text("")],
+							["nameAdd", concat(r("acc"), character)],
+							["mostOpen", character],
+							["mostAdd", concat(r("acc"), character)]
+						])
+					],
+					[
+						"lo",
+						register(r("lo"), [
+							["leastOpen", character],
+							["leastAdd", concat(r("lo"), character)]
+						])
+					]
+				],
+				true
+			)
+		],
+		and([le(r("i"), col("t", "n")), ne(r("s"), state("refused"))])
+	)
+	const read = cte(
+		"r",
+		["i", "s", "parens", "depth", "first", "acc", "lo"],
+		operandSelect(operandUnionAll([start, following]))
+	)
+	const last: OperandSelect = {
+		...operandSelect(
+			core(
+				[
+					targetAs(
+						and([isIn(r("s"), [state("branch"), state("atom")]), eq(r("parens"), integer(0))]),
+						"member"
+					)
+				],
+				[cteRef("r")],
+				undefined
+			)
+		),
+		with: { recursive: true, ctes: [characters, read] },
+		orderBy: [desc(r("i"))],
+		limit: integer(1)
+	}
+	return {
+		params: [{ name: "pattern", type: types.text }],
+		returns: types.boolean,
+		body: { kind: "subquery", query: last }
+	}
+}
+
 /** Each library function's definition, made once. */
 /**
  * textDigest(text): the SHA-256 digest of a text's UTF-8 bytes, `sha256(convert_to($1, 'UTF8'))`, 32 bytes: the image a
@@ -459,12 +1029,17 @@ const textDigestDefinition = (): LibraryDefinition => ({
 })
 
 const definitions: { readonly [F in LibraryFn]: LibraryDefinition } = {
+	isXsdPattern: xsdPatternDefinition(),
 	resolveReference: resolveReferenceDefinition(),
 	textDigest: textDigestDefinition()
 }
 
 /** Each library function's identity, by its name and its definition's digest, minted once. */
 const identities: { readonly [F in LibraryFn]: Identity<"libraryFunction"> } = {
+	isXsdPattern: identity.libraryFunction(
+		"isXsdPattern",
+		constantDigest("library-function", definitions.isXsdPattern, everyProperty)
+	),
 	resolveReference: identity.libraryFunction(
 		"resolveReference",
 		constantDigest("library-function", definitions.resolveReference, everyProperty)

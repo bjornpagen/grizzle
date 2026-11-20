@@ -1,5 +1,6 @@
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
 import { codePoints, compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { defined } from "@bjornpagen/testing/assert"
@@ -141,6 +142,7 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "lowerAscii":
 		case "collapse":
 		case "resolveReference":
+		case "isXsdPattern":
 		case "parseDouble":
 		case "parseDecimal":
 		case "eq":
@@ -820,6 +822,8 @@ const catalogApply = (
 			return isString(a) ? Result.succeed(asciiLowered(a)) : mismatch(op)
 		case "resolveReference":
 			return isString(a) && isString(b) ? Result.succeed(resolvedReference(a, b)) : mismatch(op)
+		case "isXsdPattern":
+			return isString(a) ? Result.succeed(xsdPattern(a).ok) : mismatch(op)
 		case "eq":
 			return compared(op, a, b, t, (cmp) => cmp === 0)
 		case "ne":

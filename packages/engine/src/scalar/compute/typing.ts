@@ -2770,6 +2770,23 @@ class Typing<R extends Refs> {
 	}
 
 	/**
+	 * Compute.isXsdPattern(x), whether a text term is an XML Schema 1.0 pattern (registry.ts textIsXsdPattern): a
+	 * predicate over any text, defined on every value, its SQL a call of the installation's library function.
+	 */
+	isXsdPattern(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
+		const x = this.term(subjectDesc, childLoc(at, 0))
+		if (baseOf(x.actual).carrier !== "text") {
+			return stop(
+				"MalformedDescription",
+				at,
+				`a text term for isXsdPattern, not ${typeLabel(x.nominal)}`
+			)
+		}
+		const op = this.overload("isXsdPattern", [x.actual], at)
+		return this.native(op, [x], plainType("bool"), undefined, at, "Compute.isXsdPattern")
+	}
+
+	/**
 	 * A node that computes x's image under a map, as text of that image (translatedType); unanalyzed, or over a text of
 	 * no TextInfo, as it is.
 	 */
@@ -4116,6 +4133,8 @@ class Typing<R extends Refs> {
 				return this.lowerAscii(arg(0), here)
 			case "resolveReference":
 				return this.resolveReference(arg(0), arg(1), here)
+			case "isXsdPattern":
+				return this.isXsdPattern(arg(0), here)
 			case "collapse":
 				return this.collapse(arg(0), here)
 			case "parseDouble":
