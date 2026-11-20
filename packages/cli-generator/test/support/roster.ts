@@ -71,6 +71,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/normalize/security.test.ts",
 	"test/normalize/servers.test.ts",
 	"test/report/command-names.test.ts",
+	"test/report/human.test.ts",
 	"test/resolve/base-uri.test.ts",
 	"test/resolve/document-set.test.ts",
 	"test/runtime/body-fields.test.ts",
@@ -101,6 +102,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/support/built-package.test.ts",
 	"test/support/cli-package.test.ts",
 	"test/validate/diagnostics.test.ts",
+	"test/validate/locations.test.ts",
 	"test/validate/validate.test.ts",
 	"test/write/check.test.ts",
 	"test/write/lock.test.ts"
