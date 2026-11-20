@@ -63,9 +63,9 @@ export const aTextsDigestIsSHA256OfItsUTF8AsLowercaseHexOnPostgreSQLAndOnTheHost
 			{
 				file: "packages/engine/src/lower/conservative/expr/ops.ts",
 				original:
-					'\t\t\t\t? call("encode", [qualifiedCall(fn.schema, fn.name, [x]), lit.text("hex", types.text)])',
+					'\t\t\t\t? call("encode", [textDigestForm(library, x), lit.text("hex", types.text)])',
 				replacement:
-					'\t\t\t\t? call("encode", [qualifiedCall(fn.schema, fn.name, [x]), lit.text("base64", types.text)])',
+					'\t\t\t\t? call("encode", [textDigestForm(library, x), lit.text("base64", types.text)])',
 				why: "The digest is written in base64, so the stored column is no 64 hex digits: the text domain refuses every insert."
 			},
 			{

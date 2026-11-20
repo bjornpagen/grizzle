@@ -91,8 +91,9 @@ export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<stri
 	regexField<string>(formSource(lexicalTargetOfField(type)), [])
 
 /**
- * keyTextBytes(fields): the most UTF-8 bytes a text can hold beside `fields` in every index grizzle plans over them and
- * the text, whatever their order and whichever of them is a hidden column that may hold NULL: PostgreSQL's limit on one
+ * keyTextBytes(fields): the most UTF-8 bytes a text can hold as itself beside `fields` in every index grizzle plans over
+ * them and the text, whatever their order and whichever of them is a hidden column that may hold NULL (a key holds a
+ * longer one by its image, schema/representability.ts keyImages; an index that orders by the text refuses it): PostgreSQL's limit on one
  * B-tree entry (BTMaxItemSize) less its header, its null bitmap and what the fields take at their longest, each at its
  * worst alignment padding. `fields` are every other column of the index: a key's other fields, declared or over a
  * selection; for a family axis that carries the text, its group fields, its natural index, the other values it carries

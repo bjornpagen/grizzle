@@ -1,15 +1,17 @@
 /**
- * The keys a family axis references fit a B-tree entry for every value their columns admit, or the schema is refused
- * when it compiles with UnrepresentableKey, where PostgreSQL would refuse the first write that outgrew them (54000).
+ * The keys a family axis references fit a B-tree entry for every value their columns admit: a text by its digest where
+ * it would outgrow one, and anything else as itself or refused when the schema compiles with UnrepresentableKey, where
+ * PostgreSQL would refuse the first write that outgrew it (54000).
  *
  * - A concat fold's axis key: the UNIQUE its predecessor and last axes reference, Line's (doc, at, after) for a concat
  *   fold that carries its running text `after` along them (laws/model/plan.ts #axis). The box: the fold's text, its
  *   pieces and accumulators one type, of no bound, or bounded by a contract to at most n bytes, or to at most n code
  *   points of 4 bytes each, with n every bound whose entry lies within one MAXALIGN step of BTMaxItemSize on either
  *   side, exhausted. The oracle: the B-tree entry nbtree.h bounds, counted by hand from the columns' layouts as
- *   schema/representability.ts documents the count (entryBytes), refused exactly past BTMaxItemSize at the fold, over
- *   that UNIQUE, and a text of no bound admitted, held by its digest, 32 bytes, whatever its values
- *   (schema/representability.ts keyImageOf). Features: unbounded, and each bound's kind with each verdict.
+ *   schema/representability.ts documents the count (entryBytes): the UNIQUE holds `after` as itself where its entry fits
+ *   BTMaxItemSize, and by its digest, 32 bytes, exactly where it would outgrow it, a text of no bound among them
+ *   (schema/representability.ts keyImages), so the fold is admitted at every bound. Features: unbounded, and each
+ *   bound's kind with each verdict.
  * - A carried set's key: a set an axis carries is its roster's bit(n), n every code the roster has minted, holes
  *   included, sized exactly by the installation's codes (physical/ddl/tables.ts setUniqueBound), so a roster pruned of
  *   many handles refuses the UNIQUE when it is compiled rather than at an insert. The box: Tag's codes its two live
@@ -22,7 +24,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option } from "effect"
+import { Effect } from "effect"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
@@ -30,6 +32,7 @@ import { btreeMaxItemSize, typlens } from "#compiler/schema/representability.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
+	axisKeyImaged,
 	bytesOf,
 	codesWith,
 	docSchema,
@@ -46,8 +49,8 @@ import {
 	verdictOf
 } from "#test/unit/laws/model/axis-keys.fixtures.ts"
 
-/** A family axis's key fits a B-tree entry for every value of the accumulators it carries, or is refused as UnrepresentableKey. */
-export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarriesOrIsRefusedAsUnrepresentableKey =
+/** A family axis's key holds the text it carries as itself where its entry fits, and by its digest exactly where it would outgrow BTMaxItemSize. */
+export const aFamilyAxissKeyHoldsTheTextItCarriesAsItselfWhereItsEntryFitsAndByItsDigestExactlyWhereItWouldOutgrowBTMaxItemSize =
 	property.exhaust(finite(textGen), {
 		needs: {},
 		situations: [
@@ -65,37 +68,22 @@ export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarri
 				const owned = succeeded(ownedInput(desc))
 				const compiled = compileInstallation(owned, installOptions(owned))
 				const bytes = bytesOf(t)
+				const model = succeeded(
+					compiled,
+					"a concat fold's axis key, its text held as itself or by its digest"
+				).laws
+				const imaged = axisKeyImaged(model)
 				if (bytes === undefined) {
 					c.note("unbounded")
-					succeeded(compiled, "a text of no bound, the axis key holding its digest")
+					assert.ok(imaged, "a text of no bound held by its digest, 32 bytes, whatever its values")
 					return
 				}
 				c.pair(t.kind, verdictOf(bytes))
-				if (entryBytes(bytes) <= btreeMaxItemSize) {
-					succeeded(compiled, `an entry of ${entryBytes(bytes)} bytes fits`)
-					return
-				}
-				const reason = refused(compiled, "UnrepresentableKey").reason
-				if (reason._tag !== "UnrepresentableKey") {
-					return assert.fail("an UnrepresentableKey reason")
-				}
-				const foldAt = Arr.findFirstIndex(desc.statements, (s) => s.kind === "fold")
-				assert.deepEqual(
-					reason.at.path,
-					["statements", ...Option.toArray(foldAt)],
-					"the refusal is the fold's"
+				assert.equal(
+					imaged,
+					entryBytes(bytes) > btreeMaxItemSize,
+					`an entry of ${entryBytes(bytes)} bytes held by the text's digest exactly where it outgrows BTMaxItemSize`
 				)
-				assert.deepEqual(reason.key, ["doc", "at", "after"], "the UNIQUE Line's axes reference")
-				assert.deepEqual(reason.fault, {
-					kind: "btreeEntry",
-					bytes: entryBytes(bytes),
-					limit: btreeMaxItemSize,
-					datums: [
-						{ field: "doc", bytes: typlens.uuid },
-						{ field: "at", bytes: typlens.int8 },
-						{ field: "after", bytes: 4 + bytes }
-					]
-				})
 			}),
 		oracle: {
 			kind: "specification",
@@ -111,10 +99,12 @@ export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarri
 				why: "An entry of exactly BTMaxItemSize is refused (schema/representability.ts btreeEntry); the concat fold's axis key fails."
 			},
 			{
-				file: "packages/engine/src/laws/model/plan.ts",
-				original: "\t\t: keyImageOf(plannedField(c).desc)",
-				replacement: "\t\t: undefined",
-				why: "The axis carries the running text of no bound as itself, which no entry holds: the fold refused."
+				file: "packages/engine/src/schema/representability.ts",
+				original:
+					"\tconst fits = entry.length === columns.length && btreeEntryBytes(entry) <= btreeMaxItemSize",
+				replacement:
+					"\tconst fits = entry.length === columns.length && btreeEntryBytes(entry) < btreeMaxItemSize",
+				why: "A key whose entry is exactly BTMaxItemSize holds its text by its digest: the fold's text at the bound is imaged where it fits as itself."
 			}
 		]
 	})

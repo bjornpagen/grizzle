@@ -1,7 +1,9 @@
 /** What the properties of axis-keys.test.ts read: its spaces, models and helpers. */
 
 import { constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { Array as Arr } from "effect"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
 import { accumulated, Bits, bits, drawn, natural } from "#compiler/public/fields.ts"
 import {
 	closed,
@@ -222,3 +224,21 @@ export const entryOf = (codes: number): number =>
 export const fittingCodes = 8 * (btreeMaxItemSize - alignUp(keyPrefixBytes, 4) - setHeaderBytes)
 
 export type SetFeature = "an entry within the bound" | "an entry at the bound" | "an entry past it"
+
+/** Whether the UNIQUE Line's predecessor and last axes reference, over (doc, at, after), holds `after` by its image. */
+export const axisKeyImaged = (model: LawModel): boolean => {
+	const images = new Set(
+		Arr.flatMap(model.natives, (n) =>
+			n.namespace === "column" && n.object.relation.name === "Line" && n.plan.kind === "image"
+				? [n.object.column]
+				: []
+		)
+	)
+	return Arr.some(
+		model.natives,
+		({ object }) =>
+			object.kind === "Unique" &&
+			object.relation.name === "Line" &&
+			Arr.some(object.columns, (c) => c.kind === "law" && images.has(c.column))
+	)
+}

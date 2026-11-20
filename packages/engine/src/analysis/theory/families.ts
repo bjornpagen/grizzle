@@ -47,7 +47,7 @@ import {
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import { monoidSpecs } from "#compiler/ir/monoid.ts"
-import { keyImageOf } from "#compiler/schema/representability.ts"
+import { keyedField, keyImages } from "#compiler/schema/representability.ts"
 
 /**
  * Families and their axes, as the theory resolves them.
@@ -369,12 +369,14 @@ const fixedAtInsert = (writing: FieldWriting): boolean => {
 
 /**
  * The images a family's owner axis carries in the place of the member's fields it rewrites ON UPDATE CASCADE (Family
- * `images`), each of a field whose owner field a key holds by its image (schema/representability.ts keyImageOf), its
- * column named at the naming door: each group field, whose owner field is a key's text no write rewrites, then each
- * field a pair of the axis carries from an immutable owner's field fixed at its insert, which no write rewrites either,
- * so the cascade rewrites each copy with the image it holds; in that order, each field once. A copy of any other owner
- * field the cascade would rewrite with another image and leave the text, so it carries none (laws/model/plan.ts refuses
- * the axis). A tree's owner axis takes no action, so it carries none.
+ * `images`), its column named at the naming door: the axis's UNIQUE, over the owner's key, its count and each owner
+ * field a pair carries, decides which of them it holds by its image (schema/representability.ts keyImages, as
+ * laws/model/plan.ts installs that UNIQUE), and each member field paired with one so imaged carries a copy of the image:
+ * each group field, whose owner field is a key's text no write rewrites, then each field a pair carries from an immutable
+ * owner's field fixed at its insert, which no write rewrites either, so the cascade rewrites each copy with the image it
+ * holds; in that order, each field once. A copy of any other owner field the cascade would rewrite with another image
+ * and leave the text, so it carries none (laws/model/plan.ts refuses the axis). A tree's owner axis takes no action, so
+ * it carries none.
  */
 export const familyImages = (
 	shape: FamilyShape,
@@ -386,16 +388,30 @@ export const familyImages = (
 	const { id, law } = shape
 	const carried = owner.flatMap(
 		(p): ReadonlyArray<{ readonly member: LawField; readonly owner: LawField }> =>
-			!shape.owner.mutable &&
-			p.from.kind === "field" &&
-			p.to.kind === "field" &&
-			fixedAtInsert(p.to.field.writing)
+			p.from.kind === "field" && p.to.kind === "field"
 				? [{ member: p.from.field, owner: p.to.field }]
 				: []
 	)
+	const targets = [
+		...new Map(
+			[...shape.group.map((g) => g.owner), shape.count, ...carried.map((c) => c.owner)].map(
+				(f) => [f.name, f] as const
+			)
+		).values()
+	]
+	const imaged = new Map(
+		keyImages(targets.map((f) => keyedField(f.desc))).flatMap((image, i) => {
+			const target = targets[i]
+			return image === undefined || target === undefined ? [] : [[target.name, image] as const]
+		})
+	)
+	const copied = [
+		...shape.group,
+		...carried.filter((c) => !shape.owner.mutable && fixedAtInsert(c.owner.writing))
+	]
 	const images = new Map<string, GroupImage>()
-	for (const { member, owner: target } of [...shape.group, ...carried]) {
-		const image = keyImageOf(target.desc)
+	for (const { member, owner: target } of copied) {
+		const image = imaged.get(target.name)
 		if (image !== undefined && !images.has(member.name)) {
 			images.set(member.name, {
 				member,

@@ -24,7 +24,13 @@ import { schema, type Statement } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
-import { btreeMaxItemSize, keyLayout } from "#compiler/schema/representability.ts"
+import {
+	btreeEntryBytes,
+	btreeMaxItemSize,
+	keyColumns,
+	keyDatums,
+	keyLayout
+} from "#compiler/schema/representability.ts"
 import {
 	containedBuilder,
 	keyBuilder,
@@ -57,7 +63,8 @@ import { wideOctets } from "#test/support/wide-text.ts"
  * the rest, or one byte past it.
  *
  * Oracles:
- * - PostgreSQL's own acceptance (README "Keys and indexes": "A key past either is UnrepresentableKey when the schema
+ * - PostgreSQL's own acceptance (README "Keys and indexes": a key that would outgrow its entry holds each text wider
+ *   than its image by that image, and "A key past either, its texts imaged, is UnrepresentableKey when the schema
  *   compiles, naming each column's counted bytes, not PostgreSQL's 54000 at the first write"). A schema it refuses is
  *   refused with `UnrepresentableKey`, a `btreeEntry` fault counting past BTMaxItemSize, naming one of Parent's keys
  *   in its declared order, never an internal error. A schema it installs takes the widest value at every text through
@@ -65,9 +72,10 @@ import { wideOctets } from "#test/support/wide-text.ts"
  *   columns in that order. Whether PostgreSQL also refuses a refused key's widest entry is noted, never asserted: the
  *   README counts an entry "from its columns' types", at its worst alignment.
  * - The catalog: Parent's primary key and its declared key are unique indexes over exactly their fields in their
- *   declared order, each text of no bound by its image's column, and the containment is one foreign key from Child to
- *   Parent pairing its fields in its declared order, a text of no bound by the two images' columns (README "Keys and
- *   containment").
+ *   declared order, each text the key holds by its image (`imaged`: a text of no bound, or one wider than its image
+ *   in a key that would outgrow its entry as itself) by its image's column, and the containment is one foreign key
+ *   from Child to Parent pairing its fields in its declared order, each text its target holds by its image by the two
+ *   images' columns (README "Keys and containment").
  * - The set model of each write (README "Writes"): an insert adds the rows no stored row repeats and a put leaves the
  *   row at each primary key the one given, each refused on a key where two rows it adds share it and differ; a delete
  *   removes the stored rows equal to a row it names, so a row unlike the stored one at its key changes nothing and two
@@ -82,8 +90,8 @@ import { wideOctets } from "#test/support/wide-text.ts"
  *   (test/support/plans.ts sentProblems), reads each restricted relation through an index the installation planned;
  *   and each returns the model's rows.
  *
- * Features: each arity of the primary key with its texts in declared order and out of it, a key refused past the item
- * limit, a key at the limit accepted, a containment out of the key's order, a write of each op refused on each law,
+ * Features: each arity of the primary key with its texts in declared order and out of it, a key past the item limit
+ * held by its texts' images, a key at the limit accepted, a containment out of the key's order, a write of each op refused on each law,
  * and a delete at a key at the limit of a row unlike the stored one there, alone or beside it.
  */
 
@@ -167,6 +175,7 @@ export const arityOf = (key: Arr.NonEmptyReadonlyArray<KeyField>): 1 | 2 | 3 | 4
 export type Situation =
 	| `a primary key of ${1 | 2 | 3 | 4} fields, its texts ${"in" | "out of"} their declared order`
 	| "a key refused past the item limit"
+	| "a key past the item limit held by its texts' images"
 	| "a key at the item limit accepted"
 	| "a containment out of the key's order"
 	| `${OpLabel} refused on ${"the primary key" | "the declared key" | "the containment"}`
@@ -184,7 +193,7 @@ export const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"a primary key of 2 fields, its texts out of their declared order",
 	"a primary key of 3 fields, its texts out of their declared order",
 	"a primary key of 4 fields, its texts out of their declared order",
-	"a key refused past the item limit",
+	"a key past the item limit held by its texts' images",
 	"a key at the item limit accepted",
 	"a containment out of the key's order",
 	"an insert refused on the primary key",
@@ -203,12 +212,46 @@ export const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 const textOf = (w: Width) =>
 	w === "unbounded" ? str.regex("^.*$", "su") : str.bytes(w, str.regex("^.*$", "su"))
 
-/** Whether a key field is a text of no bound in the shape, which a key holds by its image. */
-export const imaged = (s: Shape, f: string): boolean =>
-	Option.exists(
+/** A text field's byte bound in the shape, or none for a field that is no text. */
+const widthOf = (s: Shape, f: string): Option.Option<Width> =>
+	Option.flatMap(
 		Arr.findFirstIndex(TEXTS, (t) => t === f),
-		(at) => s.widths[at] === "unbounded"
+		(at) => Option.fromNullishOr(s.widths[at])
 	)
+
+/** Whether a key over `fields`, every column as itself, can outgrow a B-tree entry: a text of no bound among them, or a
+ * widest entry past BTMaxItemSize, counted as index_form_tuple lays it out (schema/representability.ts btreeEntryBytes). */
+const outgrows = (s: Shape, fields: ReadonlyArray<string>): boolean => {
+	const parent = parentFields(s)
+	const datums = keyDatums(
+		Arr.map(fields, (field) => ({
+			field,
+			desc: describeFieldOrThrow(
+				defined(parent[field], "a key field"),
+				SourceLoc(`Parent.${field}`, [])
+			).desc
+		}))
+	)
+	return !datums.ok || btreeEntryBytes(keyColumns(datums.value)) > btreeMaxItemSize
+}
+
+/** Whether the key over `fields` holds a bounded text by its image, one it would outgrow its entry by as itself. */
+export const imagedPastLimit = (s: Shape, fields: ReadonlyArray<string>): boolean =>
+	Arr.some(
+		fields,
+		(f) => imaged(s, fields, f) && !Option.exists(widthOf(s, f), (w) => w === "unbounded")
+	)
+
+/** The bytes of a text's image, SHA-256's 32: a key holds by its image only a text wider than that. */
+const imageBytes = 32
+
+/**
+ * Whether the key over `fields` holds the text `f` by its image: a text of no bound always, and a text wider than its
+ * image where the key, every column as itself, can outgrow its entry (schema/representability.ts keyImages).
+ */
+export const imaged = (s: Shape, fields: ReadonlyArray<string>, f: string): boolean =>
+	Arr.contains(fields, f) &&
+	Option.exists(widthOf(s, f), (w) => w === "unbounded" || (w > imageBytes && outgrows(s, fields)))
 
 /**
  * The widest value a text of no bound takes: past the item limit, so no B-tree entry holds it whole and only its image
@@ -494,7 +537,7 @@ const aims: ReadonlyArray<readonly [Situation, Aim]> = [
 		"a primary key of 4 fields, its texts out of their declared order",
 		{ kind: "key", arity: 4, inOrder: false }
 	],
-	["a key refused past the item limit", { kind: "edge", edge: "past the limit" }],
+	["a key past the item limit held by its texts' images", { kind: "edge", edge: "past the limit" }],
 	["a key at the item limit accepted", { kind: "edge", edge: "at the limit" }],
 	[
 		"a delete of a row unlike the stored one at its key, which keeps it",
@@ -669,16 +712,20 @@ export const verdictOf = (
 }
 
 /** The columns PostgreSQL lays a key's entry out over, as raw DDL spells them. */
-const columnSql = (s: Shape, f: string): string =>
-	f === "n" || f === "payload" ? "integer" : imaged(s, f) ? "bytea" : "text COLLATE pg_c_utf8"
+const columnSql = (s: Shape, fields: ReadonlyArray<string>, f: string): string =>
+	f === "n" || f === "payload"
+		? "integer"
+		: imaged(s, fields, f)
+			? "bytea"
+			: "text COLLATE pg_c_utf8"
 
 /** A value as a raw insert binds it. */
 const rawValue = (row: ParentRow, f: string): string => String(valueAt(row, f))
 
 /** The `n`th parameter as a raw insert writes it into an index over the key's columns: a text of no bound as its image,
  * PostgreSQL's own SHA-256 of its UTF-8, the column a key holds in its place. */
-const rawParam = (s: Shape, f: string, n: number): string =>
-	imaged(s, f) ? `sha256(convert_to($${n}, 'UTF8'))` : `$${n}`
+const rawParam = (s: Shape, fields: ReadonlyArray<string>, f: string, n: number): string =>
+	imaged(s, fields, f) ? `sha256(convert_to($${n}, 'UTF8'))` : `$${n}`
 
 /**
  * Whether PostgreSQL itself refuses the widest entry of a unique index over `fields` (54000), in a table of those
@@ -696,7 +743,10 @@ export const refusesWidest = (shape: Shape, fields: ReadonlyArray<string>, row: 
 			yield* session.query(`CREATE SCHEMA ${quoteIdent(scratch)}`, [])
 			yield* session.query(
 				`CREATE TABLE ${table} (${Arr.join(
-					Arr.map(fields, (f, i) => `${defined(columns[i])} ${columnSql(shape, f)} NOT NULL`),
+					Arr.map(
+						fields,
+						(f, i) => `${defined(columns[i])} ${columnSql(shape, fields, f)} NOT NULL`
+					),
 					", "
 				)})`,
 				[]
@@ -704,7 +754,7 @@ export const refusesWidest = (shape: Shape, fields: ReadonlyArray<string>, row: 
 			yield* session.query(`CREATE UNIQUE INDEX ON ${table} (${Arr.join(columns, ", ")})`, [])
 			yield* session.query(
 				`INSERT INTO ${table} VALUES (${Arr.join(
-					Arr.map(fields, (f, i) => rawParam(shape, f, i + 1)),
+					Arr.map(fields, (f, i) => rawParam(shape, fields, f, i + 1)),
 					", "
 				)})`,
 				Arr.map(fields, (f) => rawValue(row, f))

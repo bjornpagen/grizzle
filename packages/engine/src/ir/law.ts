@@ -1,9 +1,5 @@
 import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
-import {
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "@bjornpagen/grizzle-text/base/nonempty"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { nominal } from "#compiler/core/brand.ts"
 import type { DeclaredName, Identity, IndexMethod, KeyImage } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId, RelationIdent, StoredRelationName } from "#compiler/core/ids.ts"
@@ -447,17 +443,6 @@ export interface LawIndexRequest {
 	readonly role: "lawMaintenance"
 	readonly use: string
 	readonly justification: { readonly kind: "law"; readonly law: LawId }
-}
-
-/** The fields of native columns when every one is a field, which a declared key's columns are; undefined when one is
- * a law column. */
-export const plainFields = (
-	columns: ReadonlyArray<
-		{ readonly kind: "field"; readonly field: LawField } | { readonly kind: "law" }
-	>
-): NonEmptyReadonlyArray<LawField> | undefined => {
-	const fields = columns.flatMap((c) => (c.kind === "field" ? [c.field] : []))
-	return isNonEmpty(fields) && fields.length === columns.length ? fields : undefined
 }
 
 /**

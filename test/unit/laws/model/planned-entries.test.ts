@@ -44,6 +44,9 @@ import { ownedInput } from "#test/support/policy.ts"
 import {
 	descriptorOf,
 	faultOf,
+	imagedIndex,
+	imagedOn,
+	overflowsAsItself,
 	type IndexColumns,
 	type PairType,
 	type PlannedFeature,
@@ -60,9 +63,9 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesATextNoPatternBoundsH
 			"target is the declared key",
 			"target is a superkey",
 			"admitted",
-			"declared key refused",
 			"a text no pattern bounds, keyed by its digest",
-			"target UNIQUE refused, over the limit",
+			"declared key over the limit, its texts by their digests",
+			"target UNIQUE over the limit, its texts by their digests",
 			"target UNIQUE at the limit, admitted",
 			"a referencing run no B-tree entry holds, admitted"
 		] satisfies ReadonlyArray<Reached<PlannedFeature>>,
@@ -139,16 +142,36 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesATextNoPatternBoundsH
 				]
 				const first = Arr.findFirst(checked, (index) => faultOf(index.columns) !== undefined)
 				if (Option.isNone(first)) {
-					succeeded(compiled, "every planned index fits")
+					const model = succeeded(compiled, "every planned index fits").laws
 					c.note("admitted")
 					if (Arr.some(types, (t) => t.kind === "wildcard")) {
 						c.note("a text no pattern bounds, keyed by its digest")
 					}
-					if (faultOf(columns(s.target.order, (p) => `s${p}`)) !== undefined) {
-						c.note("a referencing run no B-tree entry holds, admitted")
+					const declared = columns(s.keyOrder, nameAt)
+					assert.equal(
+						imagedOn(model, "B", "PrimaryKey"),
+						imagedIndex(declared),
+						"the primary key holds its texts by their digests exactly where it would outgrow its entry"
+					)
+					if (imagedIndex(declared) && Arr.some(types, (t) => t.kind !== "wildcard")) {
+						c.note("declared key over the limit, its texts by their digests")
 					}
-					if (s.target.superkey && s.boundary.kind === "at") {
-						c.note("target UNIQUE at the limit, admitted")
+					if (s.target.superkey) {
+						const target = columns(s.target.order, nameAt)
+						assert.equal(
+							imagedOn(model, "B", "Unique"),
+							imagedIndex(target),
+							"the target UNIQUE holds its texts by their digests exactly where it would outgrow its entry"
+						)
+						if (imagedIndex(target) && s.boundary.kind === "at") {
+							c.note("target UNIQUE over the limit, its texts by their digests")
+						}
+						if (!imagedIndex(target) && s.boundary.kind === "at") {
+							c.note("target UNIQUE at the limit, admitted")
+						}
+					}
+					if (overflowsAsItself(columns(s.target.order, (p) => `s${p}`))) {
+						c.note("a referencing run no B-tree entry holds, admitted")
 					}
 					return
 				}
@@ -179,9 +202,9 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesATextNoPatternBoundsH
 			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
-				original: "\t\t: keyImageOf(plannedField(c).desc)",
-				replacement: "\t\t: undefined",
-				why: "The law model plans a text no pattern bounds into a UNIQUE as itself, which no entry holds: refused."
+				original: "\t\t\tnullable: mayBeNull(c)\n\t\t}))\n\t)",
+				replacement: "\t\t\tnullable: mayBeNull(c)\n\t\t}))\n\t).map(() => undefined)",
+				why: "The law model plans every key as itself, so a key that outgrows its entry is refused where its texts' digests would hold it."
 			}
 		]
 	})

@@ -990,8 +990,10 @@ class ColumnLowering {
 			const column = of.column
 			switch (column.kind) {
 				case "term":
-				case "constant":
-					return this.#lower(row, column, loc)
+				case "constant": {
+					const { guard, term } = this.#lower(row, column, loc)
+					return { guard, term }
+				}
 				case "drawn": {
 					const ident = this.#identifier(column)
 					return { guard: [], term: read(ident, new Map([[ident, column.field.type]])) }

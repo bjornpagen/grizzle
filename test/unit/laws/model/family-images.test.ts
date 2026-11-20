@@ -116,15 +116,16 @@ export const aFamilysOwnerAxisCarriesATextOfNoByteBoundNoWriteRewritesByItsMembe
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/families.ts",
-				original: "\t\tconst image = keyImageOf(target.desc)",
-				replacement:
-					'\t\tconst image = target.desc.kind === "pg" ? keyImageOf(target.desc) : undefined',
+				original:
+					"\t\t\treturn image === undefined || target === undefined ? [] : [[target.name, image] as const]",
+				replacement: "\t\t\treturn []",
 				why: "A family copies no text's image, so its owner axis carries the member's generated image under ON UPDATE CASCADE and is refused as a cascade into a generated column."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/families.ts",
-				original: '\t\t\t!shape.owner.mutable &&\n\t\t\tp.from.kind === "field" &&',
-				replacement: '\t\t\tp.from.kind === "field" &&',
+				original:
+					"\t\t...carried.filter((c) => !shape.owner.mutable && fixedAtInsert(c.owner.writing))",
+				replacement: "\t\t...carried.filter((c) => fixedAtInsert(c.owner.writing))",
 				why: "A mutable owner's copied title of no bound rides by a copy of its image, which a put's cascade would rewrite and leave the title: admitted where it is refused."
 			},
 			{

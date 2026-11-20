@@ -16,6 +16,7 @@ import { Array as Arr, Order } from "effect"
 import type { KeyFault } from "#compiler/core/causes.ts"
 
 import { defined } from "@bjornpagen/testing/assert"
+import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { Id } from "#test/support/ids.ts"
 import {
@@ -48,9 +49,9 @@ interface Datum {
 	readonly fixed: boolean
 }
 
-/** pg_type's typlen and typalign of each fixed type; a varlena's 4-byte header and its longest value, int-aligned; the
- * wildcard, which bounds nothing, as its image, SHA-256's 32 bytes. */
-const datumOf = (t: PairType): Datum => {
+/** pg_type's typlen and typalign of each fixed type; a varlena's 4-byte header and its longest value, int-aligned; none
+ * for the wildcard, which bounds nothing. */
+const datumOf = (t: PairType): Datum | undefined => {
 	switch (t.kind) {
 		case "uuid":
 			return { bytes: 16, align: 1, fixed: true }
@@ -67,9 +68,12 @@ const datumOf = (t: PairType): Datum => {
 		case "letters":
 			return { bytes: 4 + t.length, align: 4, fixed: false }
 		case "wildcard":
-			return { bytes: 4 + 32, align: 4, fixed: false }
+			return undefined
 	}
 }
+
+/** A text's image in an index entry: SHA-256's 32 bytes under a bytea's 4-byte header, int-aligned. */
+const imageDatum: Datum = { bytes: 4 + 32, align: 4, fixed: false }
 
 /** Where the datums laid out so far end, and whether every offset so far is exact. */
 interface Laid {
@@ -93,9 +97,41 @@ const datumsEnd = (datums: ReadonlyArray<Datum>): Laid => {
 /** An index's columns: each by its name and type. */
 export type IndexColumns = ReadonlyArray<{ readonly name: string; readonly type: PairType }>
 
-/** The fault the model finds in an index over `columns`, or none where its entry fits. */
+/**
+ * The datums an index over `columns` holds, each by its name and whether it is a text's image: every column as itself
+ * where every one is bounded and their entry fits BTMaxItemSize; otherwise each text wider than its image (the wildcard
+ * among them) by its image, and every other column as itself.
+ */
+const keyedDatums = (
+	columns: IndexColumns
+): ReadonlyArray<{ readonly name: string; readonly datum: Datum; readonly imaged: boolean }> => {
+	const own = Arr.map(columns, (c) => datumOf(c.type))
+	const bounded = Arr.filter(own, (d): d is Datum => d !== undefined)
+	const fits =
+		bounded.length === own.length && maxalign(datumsEnd(bounded).end) <= postgresBtreeMaxItem
+	return Arr.map(columns, (c, i) => {
+		const datum = own[i]
+		const text = c.type.kind === "octets" || c.type.kind === "letters" || c.type.kind === "wildcard"
+		return !fits && text && (datum === undefined || datum.bytes > imageDatum.bytes)
+			? { name: c.name, datum: imageDatum, imaged: true }
+			: { name: c.name, datum: defined(datum, "a bounded column"), imaged: false }
+	})
+}
+
+/** Whether an index over `columns` outgrows its entry with every column as itself, a text of no bound among them. */
+export const overflowsAsItself = (columns: IndexColumns): boolean => {
+	const own = Arr.map(columns, (c) => datumOf(c.type))
+	const bounded = Arr.filter(own, (d): d is Datum => d !== undefined)
+	return bounded.length < own.length || maxalign(datumsEnd(bounded).end) > postgresBtreeMaxItem
+}
+
+/** Whether an index over `columns` holds a text by its image (`keyedDatums`). */
+export const imagedIndex = (columns: IndexColumns): boolean =>
+	Arr.some(keyedDatums(columns), (d) => d.imaged)
+
+/** The fault the model finds in an index over `columns` held as `keyedDatums` holds them, or none where it fits. */
 export const faultOf = (columns: IndexColumns): KeyFault | undefined => {
-	const bounded = Arr.map(columns, (c) => ({ name: c.name, datum: datumOf(c.type) }))
+	const bounded = keyedDatums(columns)
 	const bytes = maxalign(datumsEnd(Arr.map(bounded, (b) => b.datum)).end)
 	return bytes > postgresBtreeMaxItem
 		? {
@@ -188,9 +224,13 @@ export const typesOf = (s: PlannedSketch): ReadonlyArray<PairType> => {
 	) {
 		return fields
 	}
-	const datums = Arr.map(Arr.take(index, index.length - 1), (p) =>
+	const others = Arr.map(Arr.take(index, index.length - 1), (p) =>
 		datumOf(defined(fields[p], "a field"))
 	)
+	const datums = Arr.filter(others, (d): d is Datum => d !== undefined)
+	if (datums.length < others.length) {
+		return fields
+	}
 	const { end, exact } = datumsEnd(datums)
 	const room =
 		postgresBtreeMaxItem + s.boundary.delta - ((exact ? Math.ceil(end / 4) * 4 : end + 3) + 4)
@@ -226,6 +266,30 @@ export type PlannedFeature =
 	| "admitted"
 	| "declared key refused"
 	| "a text no pattern bounds, keyed by its digest"
+	| "declared key over the limit, its texts by their digests"
+	| "target UNIQUE over the limit, its texts by their digests"
 	| "target UNIQUE refused, over the limit"
 	| "target UNIQUE at the limit, admitted"
 	| "a referencing run no B-tree entry holds, admitted"
+
+/** Whether a relation's native of `kind`, its primary key or a UNIQUE, holds a column by its image. */
+export const imagedOn = (
+	model: LawModel,
+	relation: string,
+	kind: "PrimaryKey" | "Unique"
+): boolean => {
+	const images = new Set(
+		Arr.flatMap(model.natives, (n) =>
+			n.namespace === "column" && n.object.relation.name === relation && n.plan.kind === "image"
+				? [n.object.column]
+				: []
+		)
+	)
+	return Arr.some(
+		model.natives,
+		({ object }) =>
+			object.kind === kind &&
+			object.relation.name === relation &&
+			Arr.some(object.columns, (c) => c.kind === "law" && images.has(c.column))
+	)
+}

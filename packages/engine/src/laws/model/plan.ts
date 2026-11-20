@@ -86,7 +86,8 @@ import {
 	gistEntry,
 	indexMaxKeys,
 	keyImageDatum,
-	keyImageOf
+	isTextDesc,
+	keyImages
 } from "#compiler/schema/representability.ts"
 
 /** A refusal deep inside recognition is a core Refusal, which the model's boundary returns (`catchRefusal`). */
@@ -248,7 +249,7 @@ const plannedDatum = (c: PlannedColumn): DatumBound | undefined => {
  * field's image a family's owner axis carries (ir/family.ts GroupImage); none for any other, which holds its field's
  * values.
  */
-export const heldImage = (c: LawColumnPlan): KeyImage | undefined => {
+const heldImage = (c: LawColumnPlan): KeyImage | undefined => {
 	switch (c.kind) {
 		case "image":
 			return c.image
@@ -509,18 +510,27 @@ const sideText = (side: ResolvedSide): string =>
 const lawColumn = (column: LawColumnPlan): PlannedColumn => ({ kind: "law", column })
 
 /**
- * The image a key, a UNIQUE or a reference installs a planned column over in its place (schema/representability.ts
- * keyImageOf), read off the field whose values it holds; none for an image itself, or a counted predecessor, a natural.
+ * The images a key, a UNIQUE or an index over `columns` installs them over in their place (schema/representability.ts
+ * keyImages), one rule at the key's own columns, each read as its entry counts it (`plannedDatum`, `mayBeNull`); an
+ * image itself is never imaged again, and a counted predecessor is a natural.
  */
-const imageOf = (c: PlannedColumn): KeyImage | undefined =>
-	c.kind === "law" && (c.column.kind === "image" || c.column.kind === "indexPred")
-		? undefined
-		: keyImageOf(plannedField(c).desc)
+const imagesOf = (
+	columns: NonEmptyReadonlyArray<PlannedColumn>
+): ReadonlyArray<KeyImage | undefined> =>
+	keyImages(
+		columns.map((c) => ({
+			datum: plannedDatum(c),
+			text:
+				!(c.kind === "law" && (c.column.kind === "image" || c.column.kind === "indexPred")) &&
+				isTextDesc(plannedField(c).desc),
+			nullable: mayBeNull(c)
+		}))
+	)
 
 /**
  * A planned column of `relation` as an index over it holds it under `image`: the column itself, or the law column of
  * its image in its place, generated from the row, which a key, a UNIQUE or a reference compares as it would the column,
- * two rows agreeing there exactly where they agree at the column (schema/representability.ts keyImageOf).
+ * two rows agreeing there exactly where they agree at the column (schema/representability.ts keyImages).
  */
 const keyedAs = (
 	relation: RelationInfo,
@@ -547,16 +557,36 @@ const keyedAs = (
 	}
 }
 
-/** The columns a key, a UNIQUE or an index over `columns` of `relation` installs, each under its own image. */
+/** The columns a key, a UNIQUE or an index over `columns` of `relation` installs, each under its image (`imagesOf`). */
 const keyedColumns = <C extends PlannedColumn>(
 	relation: RelationInfo,
 	columns: NonEmptyReadonlyArray<C>
-): NonEmptyReadonlyArray<PlannedColumn> =>
-	mapNonEmpty(columns, (c) => keyedAs(relation, c, imageOf(c)))
+): NonEmptyReadonlyArray<PlannedColumn> => {
+	const images = imagesOf(columns)
+	return mapNonEmpty(columns, (c, i) => keyedAs(relation, c, images[i]))
+}
 
 /**
- * A reference's columns as installed: each target column under its own image (`keyedColumns`), and each source column
- * under its target column's, so the two sides of every pair compare alike.
+ * A reference's columns as installed under `images`, one for each pair: each target column under its pair's image, and
+ * each source column under the same, so the two sides of every pair compare alike.
+ */
+const keyedPairs = (
+	from: RelationInfo,
+	columns: NonEmptyReadonlyArray<PlannedColumn>,
+	to: RelationInfo,
+	targetColumns: NonEmptyReadonlyArray<PlannedColumn>,
+	images: ReadonlyArray<KeyImage | undefined>
+): {
+	readonly columns: NonEmptyReadonlyArray<PlannedColumn>
+	readonly targetColumns: NonEmptyReadonlyArray<PlannedColumn>
+} => ({
+	columns: mapNonEmpty(columns, (c, i) => keyedAs(from, c, images[i])),
+	targetColumns: mapNonEmpty(targetColumns, (c, i) => keyedAs(to, c, images[i]))
+})
+
+/**
+ * A reference's columns as installed: its target's key decides each pair's image (`imagesOf` over the target columns,
+ * as `keyedColumns` installs the UNIQUE it references), which both sides of the pair take (`keyedPairs`).
  */
 const keyedReference = (
 	from: RelationInfo,
@@ -566,12 +596,7 @@ const keyedReference = (
 ): {
 	readonly columns: NonEmptyReadonlyArray<PlannedColumn>
 	readonly targetColumns: NonEmptyReadonlyArray<PlannedColumn>
-} => ({
-	columns: mapNonEmpty(columns, (c, i) =>
-		keyedAs(from, c, imageOf(defined(targetColumns[i], "a target column per source column")))
-	),
-	targetColumns: keyedColumns(to, targetColumns)
-})
+} => keyedPairs(from, columns, to, targetColumns, imagesOf(targetColumns))
 
 /** A planned column as its logical column, the column of which an image is the image. */
 const unimaged = (c: PlannedColumn): PlannedColumn =>
@@ -2292,9 +2317,13 @@ export class Recognizer {
 				}
 			]
 		}
-		const scalars = fields
-			.filter((f) => f !== span)
-			.map((f) => keyedAs(rel, fieldColumn(f), imageOf(fieldColumn(f))))
+		const scalarFields = fields.filter((f) => f !== span)
+		const scalars = isNonEmpty(scalarFields)
+			? keyedColumns(
+					rel,
+					mapNonEmpty(scalarFields, (f) => fieldColumn(f))
+				)
+			: []
 		return [
 			...lawColumns(scalars),
 			{

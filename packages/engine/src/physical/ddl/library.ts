@@ -502,7 +502,7 @@ export const libraryCalls = (model: LawModel): ReadonlyArray<LibraryFn> => {
 }
 
 /** The library function each key image is computed by: a text's digest by textDigest. */
-export const imageFunctions: { readonly [I in KeyImage]: LibraryFn } = Object.freeze({
+const imageFunctions: { readonly [I in KeyImage]: LibraryFn } = Object.freeze({
 	textDigest: "textDigest"
 })
 

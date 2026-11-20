@@ -621,7 +621,7 @@ export const textByteBound = (desc: HeldDesc): number => {
 	return Number.POSITIVE_INFINITY
 }
 
-const isTextDesc = (desc: HeldDesc): boolean =>
+export const isTextDesc = (desc: HeldDesc): boolean =>
 	desc.kind === "text" || (desc.kind === "contract" && isTextDesc(desc.base))
 
 /**
@@ -631,16 +631,50 @@ const isTextDesc = (desc: HeldDesc): boolean =>
 export const imagedText = (desc: HeldDesc): boolean =>
 	isTextDesc(desc) && !Number.isFinite(textByteBound(desc))
 
+/** A key's column as the choice of its image reads it (`keyImages`): its widest datum, none for a text of no byte
+ * bound, whether it is a text, and whether it may hold NULL. */
+export interface KeyedColumn {
+	readonly datum: DatumBound | undefined
+	readonly text: boolean
+	readonly nullable: boolean
+}
+
 /**
- * The image a declared key, a UNIQUE or a reference installs a column over in its own place (core/identity.ts
- * KeyImage), read off the column's descriptor: a text whose pattern and contracts prove no byte bound (`imagedText`),
- * which no B-tree entry holds for every value it admits, is keyed by its digest, the 32 bytes of the SHA-256 of its UTF-8
- * (physical/ddl/library.ts textDigest); any other column's own datum its index holds. Text equality under pg_c_utf8 compares a
- * text's bytes, so two texts of one digest are one text unless SHA-256 collides, the premise every fingerprint and
- * content digest grizzle keys by rests on: an image key holds apart exactly the texts the text's key would.
+ * The image a key, a UNIQUE or an index over `columns` holds each column by (core/identity.ts KeyImage), in key order,
+ * one rule for every key at its own columns: where its widest entry, every column as itself, fits a B-tree entry
+ * (btreeEntryBytes within BTMaxItemSize), none, so its index holds, compares and orders every column as it is; where it
+ * can outgrow BTMaxItemSize, or a column is a text of no byte bound, every text column whose widest value is wider than
+ * its image by its digest, the 32 bytes of the SHA-256 of its UTF-8 (keyImageDatum, physical/ddl/library.ts
+ * textDigest), and every other column as itself. PostgreSQL's own bound decides, so a key that fits never moves and
+ * one that cannot holds the texts that outgrow it by the narrowest column that compares them alike. Text equality under
+ * pg_c_utf8 compares a text's bytes, so two texts of one digest are one text unless SHA-256 collides, the premise every
+ * fingerprint and content digest grizzle keys by rests on: an image key holds apart exactly the texts the text's key
+ * would.
  */
-export const keyImageOf = (desc: HeldDesc): KeyImage | undefined =>
-	imagedText(desc) ? "textDigest" : undefined
+export const keyImages = (
+	columns: ReadonlyArray<KeyedColumn>
+): ReadonlyArray<KeyImage | undefined> => {
+	const entry: Array<EntryColumn> = []
+	for (const [i, c] of columns.entries()) {
+		if (c.datum === undefined) {
+			break
+		}
+		entry.push({ name: String(i), datum: c.datum, nullable: c.nullable })
+	}
+	const fits = entry.length === columns.length && btreeEntryBytes(entry) <= btreeMaxItemSize
+	return columns.map((c): KeyImage | undefined =>
+		!fits && c.text && (c.datum === undefined || c.datum.bytes > keyImageDatum.textDigest.bytes)
+			? "textDigest"
+			: undefined
+	)
+}
+
+/** A field of a key as the choice of its image reads it (`keyImages`): its descriptor's datum, NOT NULL. */
+export const keyedField = (desc: HeldDesc): KeyedColumn => ({
+	datum: desc.kind === "bytes" ? undefined : datumBound(desc),
+	text: isTextDesc(desc),
+	nullable: false
+})
 
 /**
  * The bytes of a SHA-256 digest, the bytea sha256(bytea) returns.
@@ -657,7 +691,7 @@ export const keyImageOf = (desc: HeldDesc): KeyImage | undefined =>
 const sha256Bytes = 32
 
 /**
- * The datum of a key's image in an index entry (`keyImageOf`): a text's digest, its 32 bytes, a bytea varlena of at most
+ * The datum of a key's image in an index entry (`keyImages`): a text's digest, its 32 bytes, a bytea varlena of at most
  * its four-byte header and 32 bytes, compared byte for byte under no collation.
  */
 export const keyImageDatum: { readonly [I in KeyImage]: DatumBound } = Object.freeze({
@@ -960,7 +994,7 @@ export type KeyFields = ReadonlyArray<{
  * one's (analysis/derived/keys.ts derivedKeyLayout).
  */
 export const keyDatums = (fields: KeyFields): Result.Result<KeyDatums, KeyFault> =>
-	datumsBy(fields, datumBound)
+	datumsBy(fields, (desc) => datumBound(desc))
 
 /** A key's fields with their descriptors and the datum its index entry holds for each, in key order. */
 type KeyDatums = ReadonlyArray<{
@@ -972,17 +1006,17 @@ type KeyDatums = ReadonlyArray<{
 /** Each field's datum as `datumOf` reads its descriptor, or the key's fault (`keyDatums`). */
 const datumsBy = (
 	fields: KeyFields,
-	datumOf: (desc: HeldDesc) => DatumBound | undefined
+	datumOf: (desc: HeldDesc, at: number) => DatumBound | undefined
 ): Result.Result<KeyDatums, KeyFault> => {
 	if (fields.length > indexMaxKeys) {
 		return Result.err({ kind: "columns", limit: indexMaxKeys })
 	}
 	const out: Array<KeyDatums[number]> = []
-	for (const { field, desc } of fields) {
+	for (const [at, { field, desc }] of fields.entries()) {
 		if (desc.kind === "bytes") {
 			return Result.err({ kind: "storageOnly", field })
 		}
-		const bound = datumOf(desc)
+		const bound = datumOf(desc, at)
 		if (bound === undefined) {
 			return Result.err({ kind: "unboundedText", field })
 		}
@@ -993,13 +1027,16 @@ const datumsBy = (
 
 /**
  * The datums a declared key's index entry holds, each field's own (`keyDatums`) but a field the key installs over its
- * image (`keyImageOf`), whose image's datum the entry holds in the field's place, so a text of no byte bound keys.
+ * image (`keyImages`), whose image's datum the entry holds in the field's place, so a key that would outgrow a B-tree
+ * entry, a text of no byte bound among its fields, keys.
  */
-const keyedDatums = (fields: KeyFields): Result.Result<KeyDatums, KeyFault> =>
-	datumsBy(fields, (desc) => {
-		const image = keyImageOf(desc)
+const keyedDatums = (fields: KeyFields): Result.Result<KeyDatums, KeyFault> => {
+	const images = keyImages(fields.map((f) => keyedField(f.desc)))
+	return datumsBy(fields, (desc, at) => {
+		const image = images[at]
 		return image === undefined ? datumBound(desc) : keyImageDatum[image]
 	})
+}
 
 /** A key's bounded datums as its index's columns, in key order: a key's fields are NOT NULL. */
 export const keyColumns = (
@@ -1076,7 +1113,8 @@ export const textBytesBeside = (others: KeyFields): Result.Result<number, KeyFau
  *   fraction digits. Text is bounded by its pattern's language (the text analysis's bound), by a contract's
  *   charLength predicate, utf8EncodingMaxBytes per code point, and by a contract's octetLength predicate, exactly; the
  *   wildcard pattern has none: a text of no byte bound is counted as its image, its SHA-256 digest's 32 bytes
- *   (keyImageOf, keyImageDatum), which the key holds in its place. A vector(n) is its header and n reals (vectorHeaderBytes, pgvector's Vector struct), a
+ *   (keyImages, keyImageDatum), which the key holds in its place, as it holds every text wider than its image in a
+ *   key that could outgrow the limit. A vector(n) is its header and n reals (vectorHeaderBytes, pgvector's Vector struct), a
  *   key field like any other: every vector has one form, its components finite (pgvector refuses NaN and infinity)
  *   and its zero 0, so pgvector's equality is identity. A range is its header, its two bounds and its flags byte
  *   (rangeBytes).

@@ -910,12 +910,12 @@ export interface KeySide {
 export type IndexMethod = "btree" | "gist" | "hnsw" | "hash"
 
 /**
- * The images a key installs a column over in its place, where the column's own values cannot serve the key's index
- * (schema/representability.ts keyImageOf): `textDigest`, a text of no byte bound, which no B-tree entry holds for
- * every value, keyed by its SHA-256 digest, the 32 bytes of its UTF-8's (physical/ddl/library.ts textDigest).
+ * The images a key installs a column over in its place, where the key's entry cannot hold the column's own values
+ * (schema/representability.ts keyImages): `textDigest`, a text, keyed by its SHA-256 digest, the 32 bytes of its
+ * UTF-8's (physical/ddl/library.ts textDigest).
  */
-export const keyImages = ["textDigest"] as const
-export type KeyImage = (typeof keyImages)[number]
+const keyImageRoster = ["textDigest"] as const
+export type KeyImage = (typeof keyImageRoster)[number]
 
 /** What a key's image is the image of: a field of the relation, by its name, or a law column, by its identity. */
 export type ImageOf =

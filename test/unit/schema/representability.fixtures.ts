@@ -16,6 +16,7 @@ import {
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { type ExprDesc, type FieldDesc, fieldTypes } from "#compiler/ir/desc.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { natural } from "#compiler/public/fields.ts"
@@ -714,7 +715,7 @@ const varlena = (bytes: number): Datum => ({ bytes: 4 + bytes, align: 4, fixed: 
  * text is its bytes, four per code point unless pinned to ASCII; a text nothing bounds is held by its image, the
  * SHA-256 of its UTF-8, a bytea of 32 bytes.
  */
-const datumOf = (f: KeyFieldSketch): Datum => {
+const datumOf = (f: KeyFieldSketch): Datum | undefined => {
 	switch (f.kind) {
 		case "fixed":
 			return fixedDatum[f.type]
@@ -728,13 +729,34 @@ const datumOf = (f: KeyFieldSketch): Datum => {
 		case "octet contract":
 			return varlena(f.bytes)
 		case "wildcard":
-			return varlena(32)
+			return undefined
 	}
 }
 
-/** The datums a key's index entry holds for its fields, in key order (`datumOf`). */
-export const keyedDatums = (fields: ReadonlyArray<KeyFieldSketch>): ReadonlyArray<Datum> =>
-	Arr.map(fields, datumOf)
+/** Whether a key field is a text, which a key that would outgrow its entry holds by its image where it is wider. */
+const isTextSketch = (f: KeyFieldSketch): boolean => f.kind !== "fixed" && f.kind !== "numeric"
+
+/** A text's image in an index entry: SHA-256's 32 bytes, a varlena. */
+const imageDatum = varlena(32)
+
+/**
+ * The datums a key's index entry holds for its fields, in key order, each with whether it is a text's image: every field
+ * as itself (`datumOf`) where every one is bounded and their entry fits BTMaxItemSize, otherwise each text wider than
+ * its image (the wildcard among them) by its image and every other field as itself.
+ */
+export const keyedDatums = (
+	fields: ReadonlyArray<KeyFieldSketch>
+): ReadonlyArray<{ readonly datum: Datum; readonly imaged: boolean }> => {
+	const own = Arr.map(fields, datumOf)
+	const bounded = Arr.filter(own, (d): d is Datum => d !== undefined)
+	const fits = bounded.length === own.length && btreeTupleBytes(bounded) <= postgresBtreeMaxItem
+	return Arr.map(fields, (f, i) => {
+		const datum = own[i]
+		return !fits && isTextSketch(f) && (datum === undefined || datum.bytes > imageDatum.bytes)
+			? { datum: imageDatum, imaged: true }
+			: { datum: defined(datum, "a bounded field"), imaged: false }
+	})
+}
 
 /** Where the datums laid out so far end, and whether every offset so far is exact. */
 interface Laid {
@@ -862,7 +884,12 @@ export const sizedFields = (s: KeySizeSketch): ReadonlyArray<KeyFieldSketch> => 
 	if (s.boundary.kind === "none") {
 		return s.fields
 	}
-	const { end, exact } = datumsEnd(keyedDatums(s.fields))
+	const own = Arr.map(s.fields, datumOf)
+	const bounded = Arr.filter(own, (d): d is Datum => d !== undefined)
+	if (bounded.length < own.length) {
+		return s.fields
+	}
+	const { end, exact } = datumsEnd(bounded)
 	const start = (exact ? Math.ceil(end / 4) * 4 : end + 3) + 4
 	const room = postgresBtreeMaxItem + s.boundary.delta - start
 	if (room < 0) {
@@ -879,9 +906,8 @@ export const sizedFields = (s: KeySizeSketch): ReadonlyArray<KeyFieldSketch> => 
 export type KeySizeFeature =
 	| "admitted"
 	| "imaged"
-	| "refused, over the limit"
 	| "at the limit, admitted"
-	| "at the limit, refused"
+	| "past the limit, imaged"
 	| "primary"
 	| "candidate"
 
@@ -1415,3 +1441,39 @@ export const boundOf = (descriptor: FieldBase): DatumBound => {
 	}
 	return bound
 }
+
+/** The fields R's key, its primary key or its declared UNIQUE, holds by their images, by name, sorted. */
+export const keyImagedFields = (
+	model: LawModel,
+	kind: "PrimaryKey" | "Unique"
+): ReadonlyArray<string> => {
+	const images = new Map(
+		Arr.flatMap(model.natives, (n) =>
+			n.namespace === "column" &&
+			n.object.relation.name === "R" &&
+			n.plan.kind === "image" &&
+			n.plan.of.kind === "field"
+				? [[n.object.column, n.plan.of.field.name] as const]
+				: []
+		)
+	)
+	return Arr.sort(
+		Arr.flatMap(model.natives, ({ object }) =>
+			object.kind === kind && object.relation.name === "R"
+				? Arr.flatMap(object.columns, (c) => {
+						const field = c.kind === "law" ? images.get(c.column) : undefined
+						return field === undefined ? [] : [field]
+					})
+				: []
+		),
+		Order.String
+	)
+}
+
+/** Whether an installation holds a text by its image anywhere, a key, a UNIQUE or an axis over one: a law column planned
+ * as an image and lowered as one, the digest of its value, never the value itself. */
+export const holdsImage = (installation: { readonly laws: LawModel }): boolean =>
+	Arr.some(
+		installation.laws.natives,
+		(n) => n.namespace === "column" && n.plan.kind === "image" && n.object.value.kind === "image"
+	)

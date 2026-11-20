@@ -26,7 +26,9 @@ import type { KeyFault } from "#compiler/core/causes.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 
 import { assert, defined } from "@bjornpagen/testing/assert"
+import { compileLaws } from "#compiler/laws/model/model.ts"
 import { keyTextBytes } from "#compiler/public/text.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import {
 	btreeMaxItemSize,
@@ -69,7 +71,9 @@ import {
 	keyFieldGen,
 	type KeySizeFeature,
 	type KeySizeSketch,
+	holdsImage,
 	Kind,
+	keyImagedFields,
 	lengthConjunctGen,
 	type LengthFeature,
 	type LengthSketch,
@@ -280,8 +284,8 @@ export const lengthBoundsReadsACharLengthBoundFourBytesACodePointAndAnOctetLengt
 		}
 	)
 
-/** KeyTextBytes is the most bytes a text holds beside its fields in every index grizzle plans over them, and one byte more is refused where an index's layout meets the bound. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
-export const keyTextBytesIsTheMostBytesATextHoldsBesideItsFieldsInEveryIndexGrizzlePlansOverThemAndOneByteMoreIsRefusedWhereAnIndexsLayoutMeetsTheBound =
+/** KeyTextBytes is the most bytes a text holds as itself beside its fields in every index grizzle plans over them, and one byte more is held by its digest where an index's layout meets the bound. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
+export const keyTextBytesIsTheMostBytesATextHoldsAsItselfBesideItsFieldsInEveryIndexGrizzlePlansOverThemAndOneByteMoreIsHeldByItsDigestWhereAnIndexsLayoutMeetsTheBound =
 	property.explore(budgetCaseGen, {
 		needs: {},
 		budget: { runs: 200, steered: 200 },
@@ -304,17 +308,22 @@ export const keyTextBytesIsTheMostBytesATextHoldsBesideItsFieldsInEveryIndexGriz
 				const arm = armOf(s)
 				const budget = keyTextBytes(arm.fields)
 				assert.equal(budget, budgetOf(arm.companions), "the budget")
-				succeeded(installed(arm.schemaAt(budget)), `the ${s.arm} with a text of ${budget} bytes`)
+				const within = succeeded(
+					installed(arm.schemaAt(budget)),
+					`the ${s.arm} with a text of ${budget} bytes`
+				)
+				assert.ok(!holdsImage(within), "a text within the budget held as itself")
 				const past = arm.entryAt(budget + 1) > postgresBtreeMaxItem
 				c.noteAll([s.arm, s.spelling, past ? "tight" : "slack", ...keyFeatures(s)])
-				if (past) {
-					refused(installed(arm.schemaAt(budget + 1)), "UnrepresentableKey")
-				} else {
-					succeeded(
-						installed(arm.schemaAt(budget + 1)),
-						`the ${s.arm}, whose layout leaves room past the budget`
-					)
-				}
+				const beyond = succeeded(
+					installed(arm.schemaAt(budget + 1)),
+					`the ${s.arm} with a text one byte past the budget`
+				)
+				assert.equal(
+					holdsImage(beyond),
+					past,
+					"one byte more held by its digest exactly where the index's layout meets the bound"
+				)
 			}),
 		oracle: {
 			kind: "second-implementation",
@@ -327,6 +336,14 @@ export const keyTextBytesIsTheMostBytesATextHoldsBesideItsFieldsInEveryIndexGriz
 				original: '\t\t\t: r === "numeric"',
 				replacement: '\t\t\t: r !== "numeric"',
 				why: "Operator mutant 8e1e18ac38 at packages/engine/src/scalar/compute/typing.ts:2160 in <module>: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+			},
+			{
+				file: "packages/engine/src/laws/model/model.ts",
+				original:
+					'\t\t\t\tcase "constant": {\n\t\t\t\t\tconst { guard, term } = this.#lower(row, column, loc)\n\t\t\t\t\treturn { guard, term }\n\t\t\t\t}',
+				replacement:
+					'\t\t\t\tcase "constant": {\n\t\t\t\t\treturn this.#lower(row, column, loc)\n\t\t\t\t}',
+				why: "A selected side's image lowered as its text, the image's kind overwritten by the term's: a key over a selection one byte past its budget stores the text in its bytea image column."
 			}
 		]
 	})
@@ -360,9 +377,8 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeHoldATextNoPatternBoundsByItsDigest
 			situations: [
 				"admitted",
 				"imaged",
-				"refused, over the limit",
 				"at the limit, admitted",
-				"at the limit, refused",
+				"past the limit, imaged",
 				"primary",
 				"candidate"
 			] satisfies ReadonlyArray<Reached<KeySizeFeature>>,
@@ -381,20 +397,28 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeHoldATextNoPatternBoundsByItsDigest
 					const owned = ownValue(
 						schema("Keys", [Kind, R], s.primary ? [] : [keyBuilder(onBuilder(R, names))], [])
 					)
-					if (Arr.some(fields, (f) => f.kind === "wildcard")) {
+					const keyed = keyedDatums(fields)
+					const imaged = Arr.some(keyed, (d) => d.imaged)
+					const admitted = btreeTupleBytes(Arr.map(keyed, (d) => d.datum)) <= postgresBtreeMaxItem
+					if (imaged) {
 						c.note("imaged")
 					}
-					const admitted = btreeTupleBytes(keyedDatums(fields)) <= postgresBtreeMaxItem
 					if (planted) {
-						c.note(admitted ? "at the limit, admitted" : "at the limit, refused")
+						c.note(imaged ? "past the limit, imaged" : "at the limit, admitted")
 					}
-					if (admitted) {
-						c.note("admitted")
-						succeeded(owned)
-					} else {
-						c.note("refused, over the limit")
+					if (!admitted) {
 						refused(owned, "UnrepresentableKey")
+						return
 					}
+					c.note("admitted")
+					const model = succeeded(
+						Result.flatMap(owned, (o) => compileLaws(o, everySlice(o), { kind: "planned" }))
+					)
+					assert.deepEqual(
+						keyImagedFields(model, s.primary ? "PrimaryKey" : "Unique"),
+						Arr.flatMap(keyed, (d, i) => (d.imaged ? [`k${i}`] : [])),
+						"the key holds exactly its texts wider than their digests by them, where it would outgrow its entry"
+					)
 				}),
 			oracle: {
 				kind: "second-implementation",
@@ -410,9 +434,11 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeHoldATextNoPatternBoundsByItsDigest
 				},
 				{
 					file: "packages/engine/src/schema/representability.ts",
-					original: 'imagedText(desc) ? "textDigest" : undefined',
-					replacement: "undefined",
-					why: "A text of no byte bound keyed by itself again, which no entry holds: its key refused."
+					original:
+						"\t\t!fits && c.text && (c.datum === undefined || c.datum.bytes > keyImageDatum.textDigest.bytes)",
+					replacement:
+						"\t\tfits && c.text && (c.datum === undefined || c.datum.bytes > keyImageDatum.textDigest.bytes)",
+					why: "A key that fits holds its texts by their digests and one that would outgrow its entry holds them as themselves: a key past the limit refused, one within it imaged."
 				},
 				{
 					file: "packages/engine/src/schema/representability.ts",

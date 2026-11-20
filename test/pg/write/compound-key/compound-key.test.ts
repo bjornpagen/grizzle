@@ -26,6 +26,7 @@ import {
 	type ChildRow,
 	foreignKeys,
 	imaged,
+	imagedPastLimit,
 	judgeRefused,
 	keyCases,
 	type KeyField,
@@ -184,14 +185,22 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 						if (Option.exists(layoutBytes(s, s.key), (bytes) => bytes > btreeMaxItemSize - 8)) {
 							c.note("a key at the item limit accepted")
 						}
+						if (imagedPastLimit(s, s.key) || imagedPastLimit(s, s.unique)) {
+							c.note("a key past the item limit held by its texts' images")
+						}
 						const names = namesOf(done)
 						const parentTable = done.names.relation(b.Parent.name)
 						const childTable = done.names.relation(b.Child.name)
 						const column = (r: string, f: string) => done.names.column(r, f)
 						/** The column a key or a reference holds a field of a relation by: its own, or, for a text of no
 						 * bound, the column of its image the naming door names. */
-						const keyColumn = (r: string, f: string, of: string): string =>
-							imaged(s, of)
+						const keyColumn = (
+							r: string,
+							key: ReadonlyArray<string>,
+							f: string,
+							of: string
+						): string =>
+							imaged(s, key, of)
 								? identifierOf(
 										identity.lawColumn({
 											kind: "image",
@@ -200,7 +209,10 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 										})
 									)
 								: column(r, f)
-						if (Arr.some([...s.key, ...s.unique], (f) => imaged(s, f))) {
+						if (
+							Arr.some(s.key, (f) => imaged(s, s.key, f)) ||
+							Arr.some(s.unique, (f) => imaged(s, s.unique, f))
+						) {
 							c.note("a key over a text of no bound, held by its image")
 						}
 						const indexes = yield* uniqueIndexes(parentTable.schema, parentTable.name)
@@ -211,7 +223,7 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 									i.primary &&
 									deepEquals(
 										i.columns,
-										Arr.map(s.key, (f) => keyColumn(b.Parent.name, f, f))
+										Arr.map(s.key, (f) => keyColumn(b.Parent.name, s.key, f, f))
 									)
 							),
 							`Parent's primary key is planned over ${Formatter.format(s.key)} in that order: ${Formatter.format(indexes)}`
@@ -220,7 +232,7 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 							Arr.some(indexes, (i) =>
 								deepEquals(
 									i.columns,
-									Arr.map(s.unique, (f) => keyColumn(b.Parent.name, f, f))
+									Arr.map(s.unique, (f) => keyColumn(b.Parent.name, s.unique, f, f))
 								)
 							),
 							`Parent's declared key is planned over ${Formatter.format(s.unique)} in that order: ${Formatter.format(indexes)}`
@@ -234,8 +246,8 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 										s.target,
 										(f) =>
 											[
-												keyColumn(b.Child.name, childField(f), f),
-												keyColumn(b.Parent.name, f, f)
+												keyColumn(b.Child.name, s.target, childField(f), f),
+												keyColumn(b.Parent.name, s.target, f, f)
 											] as const
 									)
 								)
@@ -293,7 +305,7 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 									}
 									if (i === 0 && Arr.some(verdict.parents, (p) => deepEquals(p, widestRow))) {
 										c.note("a write of the widest values accepted")
-										if (Arr.some(s.key, (f) => imaged(s, f))) {
+										if (Arr.some(s.key, (f) => imaged(s, s.key, f))) {
 											c.note("a write of a text past the item limit at a key accepted")
 										}
 									}
@@ -407,8 +419,10 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 		kills: [
 			{
 				file: "packages/engine/src/schema/representability.ts",
-				original: 'imagedText(desc) ? "textDigest" : undefined',
-				replacement: "undefined",
+				original:
+					"\t\t!fits && c.text && (c.datum === undefined || c.datum.bytes > keyImageDatum.textDigest.bytes)",
+				replacement:
+					"\t\tfalse && c.text && (c.datum === undefined || c.datum.bytes > keyImageDatum.textDigest.bytes)",
 				why: "A key over a text of no bound refused again, unboundedText, where its image keys it."
 			},
 			{
