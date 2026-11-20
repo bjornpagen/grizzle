@@ -90,14 +90,14 @@ export const sequentialRecords = property.explore(bodies, {
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/sequential.ts",
 			original:
-				'{\n\tif ((char.codePointAt(0) ?? 0) < firstStringCodePoint) {\n\t\treturn false\n\t}\n\n\tscan.inString = scan.escaped || char !== \'"\'\n\tscan.escaped = !scan.escaped && char === "\\\\"\n\tscan.afterValue = !scan.inString\n\n\treturn true\n}',
+				'{\n\tif (char < firstRawStringCharacter) {\n\t\treturn false\n\t}\n\n\tscan.inString = scan.escaped || char !== \'"\'\n\tscan.escaped = !scan.escaped && char === "\\\\"\n\tscan.afterValue = !scan.inString\n\n\treturn true\n}',
 			replacement: "{ return true }",
 			why: "A string's characters are not scanned, so a raw control character in a string passes and a string's end is never seen; the property fails (CATCH's evidence, mutant 7e756d706b)."
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/sequential.ts",
-			original: "out.push(failure)",
-			replacement: "{}",
+			original: "return outputsOf(records, failure)",
+			replacement: "return outputsOf(records, Option.none())",
 			why: "A JSON-seq framing failure is dropped instead of ending the stream, so the body reads as fewer records with no failure; the property fails (CATCH's evidence, mutant f562ff3bda)."
 		}
 	]
@@ -124,9 +124,15 @@ export const jsonSeqPaced = property.explore(paced, {
 	kills: [
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/sequential.ts",
-			original: "if (lineFeed !== -1 && completeAtLineFeed(state)) {",
-			replacement: "if (lineFeed !== -1 && false) {",
+			original: "if (endsAtLineFeed && completeAtLineFeed(state)) {",
+			replacement: "if (endsAtLineFeed && false) {",
 			why: "A record no longer closes at the LF that completes its JSON text, so it waits for the next separator and is emitted only after the next chunk is pulled; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/json.ts",
+			original: "JSON.parse(text)",
+			replacement: 'JSON.parse("")',
+			why: "The JSON door reads no text as JSON, so no JSON-seq record closes at the LF that completes it and each waits for the next separator; the property fails."
 		}
 	]
 })

@@ -1,5 +1,7 @@
-import { Effect, Option, Schema, Stream } from "effect"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, Option, Result, Stream, String as Str } from "effect"
 import { ResponseStreamError } from "#domain/errors.ts"
+import { isJsonText } from "#runtime/json.ts"
 
 /**
  * A sequential body's framing: NDJSON or JSONL lines, RFC 7464 JSON-seq records, or Server-Sent
@@ -25,17 +27,14 @@ export const sequentialMediaTypes: ReadonlyMap<string, SequentialCodec> = new Ma
  * A structured syntax suffix essence for JSON text sequences (RFC 8091), such as
  * `application/geo+json-seq`.
  */
-const jsonSeqSuffix = /^[^/;]+\/[^/;]+\+json-seq$/u
+const jsonSeqSuffix = regex("^[^/;]+/[^/;]+\\+json-seq$", "u")
 
 /**
  * A media type's essence: parameters dropped, trimmed, lowercased. The one place the runtime
  * splits a media type at `;`.
  */
-export const mediaEssence = (mediaType: string): string => {
-	const [head = ""] = mediaType.split(";", 1)
-
-	return head.trim().toLowerCase()
-}
+export const mediaEssence = (mediaType: string): string =>
+	Str.toLowerCase(Str.trim(Arr.headNonEmpty(Str.split(mediaType, ";"))))
 
 /**
  * Whether `mediaType` is JSON media: `application/json` or a `+json` suffix, parameters and case
@@ -44,7 +43,7 @@ export const mediaEssence = (mediaType: string): string => {
 export const isJsonFamily = (mediaType: string): boolean => {
 	const essence = mediaEssence(mediaType)
 
-	return essence === "application/json" || essence.endsWith("+json")
+	return essence === "application/json" || Str.endsWith("+json")(essence)
 }
 
 /**
@@ -67,18 +66,18 @@ const recordSeparator = "\u001E"
  * A record's tail after its last LF; RFC 7464 ends every record with LF, so a record that does not
  * match was cut short.
  */
-const closedByLineFeed = /\n[\t\n\r ]*$/u
+const closedByLineFeed = regex("\n[\t\n\r ]*$", "u")
 
 /**
  * Text that holds something other than JSON whitespace.
  */
-const nonWhitespace = /[^\t\n\r ]/u
+const nonWhitespace = regex("[^\t\n\r ]", "u")
 
 /**
  * One output of a framing step: a record line to emit, or the failure that ends the stream after
  * the records before it have been emitted.
  */
-type Framed = string | ResponseStreamError
+type Framed = Result.Result<string, ResponseStreamError>
 
 /**
  * One record's text with its insignificant whitespace removed, and its status: `complete`;
@@ -93,22 +92,34 @@ type Compacted =
  * Characters that are JSON syntax or whitespace; every other character outside a string belongs
  * to a number or to `true`, `false` or `null`.
  */
-const delimiters = new Set(["{", "}", "[", "]", ":", ",", '"', " ", "\t", "\n", "\r"])
+const delimiters: ReadonlySet<string> = new Set([
+	"{",
+	"}",
+	"[",
+	"]",
+	":",
+	",",
+	'"',
+	" ",
+	"\t",
+	"\n",
+	"\r"
+])
 
 /**
  * Characters that open a value, besides a number or literal.
  */
-const valueOpeners = new Set(["{", "[", '"'])
+const valueOpeners: ReadonlySet<string> = new Set(["{", "[", '"'])
 
 /**
  * The whitespace JSON allows between tokens, which the compactor removes.
  */
-const whitespace = new Set([" ", "\t", "\n", "\r"])
+const whitespace: ReadonlySet<string> = new Set([" ", "\t", "\n", "\r"])
 
 /**
  * The container depth each bracket adds.
  */
-const depthChange = new Map([
+const depthChange: ReadonlyMap<string, number> = new Map([
 	["{", 1],
 	["[", 1],
 	["}", -1],
@@ -118,12 +129,13 @@ const depthChange = new Map([
 /**
  * The punctuation after which another value may follow.
  */
-const separators = new Set([",", ":"])
+const separators: ReadonlySet<string> = new Set([",", ":"])
 
 /**
- * The first code point JSON allows raw inside a string; every one below must be escaped.
+ * The first character JSON allows raw inside a string, U+0020; every one below it must be escaped.
+ * A character compares below it exactly when its first UTF-16 code unit does.
  */
-const firstStringCodePoint = 0x20
+const firstRawStringCharacter = " "
 
 /**
  * The JSON-seq framer's state between body chunks: the open record's text, UTF-8 size and scan,
@@ -142,20 +154,22 @@ interface SeqState {
 }
 
 /**
- * Compute the UTF-8 byte length of one code point.
+ * Compute the UTF-8 byte length of one character as string iteration yields it (RFC 3629): a
+ * single code unit below U+0080 takes one byte, below U+0800 two, and any other three (a lone
+ * surrogate is written as U+FFFD); a surrogate pair, a code point past U+FFFF, takes four. A
+ * character compares below a one-unit string exactly when its first code unit does, and a pair's
+ * first unit is past U+0800.
  */
 export const utf8Bytes = (char: string): number => {
-	const point = char.codePointAt(0) ?? 0
-
-	if (point < 0x80) {
+	if (char < "\u0080") {
 		return 1
 	}
 
-	if (point < 0x8_00) {
+	if (char < "\u0800") {
 		return 2
 	}
 
-	return point < 0x1_00_00 ? 3 : 4
+	return char.length === 1 ? 3 : 4
 }
 
 /**
@@ -199,7 +213,7 @@ const freshScan = (): Scan => ({
  * U+0020, which JSON requires to be escaped.
  */
 const scanString = (scan: Scan, char: string): boolean => {
-	if ((char.codePointAt(0) ?? 0) < firstStringCodePoint) {
+	if (char < firstRawStringCharacter) {
 		return false
 	}
 
@@ -244,7 +258,8 @@ const scanToken = (scan: Scan, char: string): boolean => {
  * Remove the whitespace JSON allows between tokens from one record's text. Nothing is parsed:
  * strings, numbers and key order are copied as received, so a number past 2^53 and every escape
  * survive byte for byte, which `JSON.parse` followed by `JSON.stringify` would not keep (design
- * 4.6). Only ASCII code units are inspected, so indexing by UTF-16 code unit is exact.
+ * 4.6). Each character is read as string iteration yields it and its offset advanced by its UTF-16
+ * length; only ASCII characters are removed, so slicing at them is exact.
  *
  * Removing whitespace is safe only where it separates a value from punctuation, so the record is
  * `invalid` when a value follows another value with no `,` or `:` between them (whitespace in
@@ -256,9 +271,9 @@ const compact = (record: string): Compacted => {
 	const scan = freshScan()
 	let text = ""
 	let start = 0
+	let offset = 0
 
-	for (let index = 0; index < record.length; index += 1) {
-		const char = record.charAt(index)
+	for (const char of record) {
 		const { inString } = scan
 
 		if (!(inString ? scanString(scan, char) : scanToken(scan, char))) {
@@ -266,22 +281,18 @@ const compact = (record: string): Compacted => {
 		}
 
 		if (!inString && whitespace.has(char)) {
-			text += record.slice(start, index)
-			start = index + 1
+			text += Str.slice(start, offset)(record)
+			start = offset + 1
 		}
+
+		offset += char.length
 	}
 
 	return {
 		status: scan.inString || scan.depth > 0 ? "truncated" : "complete",
-		text: text + record.slice(start)
+		text: text + Str.slice(start)(record)
 	}
 }
-
-/**
- * Fail the stream on a framing failure and pass every record line through.
- */
-const raise = (item: Framed): Effect.Effect<string, ResponseStreamError> =>
-	item instanceof ResponseStreamError ? Effect.fail(item) : Effect.succeed(item)
 
 /**
  * Bound each line of decoded NDJSON text to `maxRecordBytes` UTF-8 bytes, not counting its
@@ -294,7 +305,6 @@ const boundLines = (maxRecordBytes: number) =>
 	Stream.mapAccum(
 		() => ({ bytes: 0, content: false, failed: false, itemIndex: 0 }),
 		(state, chunk: string) => {
-			const out: Framed[] = []
 			let offset = 0
 
 			for (const char of state.failed ? "" : chunk) {
@@ -309,18 +319,22 @@ const boundLines = (maxRecordBytes: number) =>
 
 				if (state.bytes > maxRecordBytes) {
 					state.failed = true
-					out.push(
-						chunk.slice(0, offset),
-						new ResponseStreamError({ itemIndex: state.itemIndex, reason: "recordTooLarge" })
-					)
 
-					return [state, out] as const
+					return [
+						state,
+						[
+							Result.succeed(Str.slice(0, offset)(chunk)),
+							Result.fail(
+								new ResponseStreamError({ itemIndex: state.itemIndex, reason: "recordTooLarge" })
+							)
+						]
+					] as const
 				}
 
 				offset += char.length
 			}
 
-			return [state, state.failed ? out : [chunk]] as const
+			return [state, state.failed ? [] : [Result.succeed(chunk)]] as const
 		}
 	)
 
@@ -346,7 +360,7 @@ export const ndjsonRecords =
 		body.pipe(
 			Stream.decodeText(),
 			boundLines(maxRecordBytes),
-			Stream.mapEffect(raise),
+			Stream.mapEffect(Effect.fromResult),
 			Stream.splitLines,
 			Stream.mapAccumEffect(
 				() => 0,
@@ -382,12 +396,19 @@ const seqState = (): SeqState => ({
 })
 
 /**
- * Close the open JSON-seq record: its compacted text, `undefined` for an empty record, or the
- * failure that ends the stream. The size excludes the closing LF.
+ * Close the open JSON-seq record: its compacted text goes to `records`, an empty record goes
+ * nowhere, and a record that cannot close is the failure that ends the stream. The size excludes
+ * the closing LF.
  */
-const closeRecord = (state: SeqState, maxRecordBytes: number): Framed | undefined => {
+const closeRecord = (
+	state: SeqState,
+	maxRecordBytes: number,
+	records: string[]
+): Option.Option<ResponseStreamError> => {
 	const { bytes, itemIndex, record } = state
 	const compacted = compact(record)
+	const failure = (reason: ResponseStreamError["reason"]) =>
+		Option.some(new ResponseStreamError({ itemIndex, reason }))
 
 	state.bytes = 0
 	state.record = ""
@@ -395,24 +416,25 @@ const closeRecord = (state: SeqState, maxRecordBytes: number): Framed | undefine
 	state.settled = false
 
 	if (compacted.status === "complete" && compacted.text === "") {
-		return undefined
+		return Option.none()
 	}
 
-	if (bytes - (record.endsWith("\n") ? 1 : 0) > maxRecordBytes) {
-		return new ResponseStreamError({ itemIndex, reason: "recordTooLarge" })
+	if (bytes - (Str.endsWith("\n")(record) ? 1 : 0) > maxRecordBytes) {
+		return failure("recordTooLarge")
 	}
 
 	if (compacted.status === "invalid") {
-		return new ResponseStreamError({ itemIndex, reason: "invalidFraming" })
+		return failure("invalidFraming")
 	}
 
 	if (compacted.status === "truncated" || !closedByLineFeed.test(record)) {
-		return new ResponseStreamError({ itemIndex, reason: "truncated" })
+		return failure("truncated")
 	}
 
 	state.itemIndex += 1
+	records.push(compacted.text)
 
-	return compacted.text
+	return Option.none()
 }
 
 /**
@@ -432,18 +454,13 @@ const scanRecord = (state: SeqState, text: string): void => {
 }
 
 /**
- * Decode text as one JSON text; `None` when it is not one.
- */
-const decodeJsonText = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
-
-/**
  * One JSON text with its insignificant whitespace removed (`compact`), so its strings, numbers and key order stay as
- * received; `None` when the text is not one JSON text, which decoding decides.
+ * received; `None` when the text is not one JSON text, which `isJsonText` decides.
  */
 export const compactJsonText = (text: string): Option.Option<string> => {
 	const compacted = compact(text)
 
-	return compacted.status === "complete" && Option.isSome(decodeJsonText(compacted.text))
+	return compacted.status === "complete" && isJsonText(compacted.text)
 		? Option.some(compacted.text)
 		: Option.none()
 }
@@ -451,9 +468,9 @@ export const compactJsonText = (text: string): Option.Option<string> => {
 /**
  * Whether the open record's text, which ends at an LF, is a complete JSON text, so the record
  * closes at that LF (RFC 7464 ends each record with LF) instead of at the next separator. The
- * scan rules out text inside a string or a container without parsing; decoding decides the rest.
- * Past a top-level value only whitespace may follow, so text that does not decode here never will,
- * and the record settles: it closes at the next separator or the end of the body.
+ * scan rules out text inside a string or a container without parsing; `isJsonText` decides the
+ * rest. Past a top-level value only whitespace may follow, so text that does not parse here never
+ * will, and the record settles: it closes at the next separator or the end of the body.
  */
 const completeAtLineFeed = (state: SeqState): boolean => {
 	const { scan } = state
@@ -462,107 +479,114 @@ const completeAtLineFeed = (state: SeqState): boolean => {
 		return false
 	}
 
-	const decodes = Option.isSome(decodeJsonText(state.record))
+	const parses = isJsonText(state.record)
 
-	state.settled = !decodes
+	state.settled = !parses
 
-	return decodes
+	return parses
 }
 
 /**
- * Add text between separators to the open JSON-seq record, closing it into `out` at the LF that
- * completes its JSON text, or check text outside a record: before the first separator, or after a
- * record closed at its LF, where only whitespace may appear. Fails as soon as the record passes
- * the bound with one byte left for its closing LF.
+ * Add text between separators to the open JSON-seq record line by line, closing it into `records`
+ * at the LF that completes its JSON text, or check text outside a record: before the first
+ * separator, or after a record closed at its LF, where only whitespace may appear. Fails as soon
+ * as the record passes the bound with one byte left for its closing LF.
  */
 const appendRecord = (
 	state: SeqState,
 	part: string,
 	maxRecordBytes: number,
-	out: Framed[]
-): ResponseStreamError | undefined => {
-	let start = 0
+	records: string[]
+): Option.Option<ResponseStreamError> => {
+	const lines = Str.split(part, "\n")
 
-	while (start < part.length) {
+	for (const [index, line] of lines.entries()) {
 		const { itemIndex } = state
 
 		if (!state.open) {
-			return nonWhitespace.test(part.slice(start))
-				? new ResponseStreamError({ itemIndex, reason: "invalidFraming" })
-				: undefined
+			return Arr.some(Arr.drop(lines, index), (rest) => nonWhitespace.test(rest))
+				? Option.some(new ResponseStreamError({ itemIndex, reason: "invalidFraming" }))
+				: Option.none()
 		}
 
-		const lineFeed = part.indexOf("\n", start)
-		const end = lineFeed === -1 ? part.length : lineFeed + 1
-		const text = part.slice(start, end)
+		const endsAtLineFeed = index < lines.length - 1
+		const text = endsAtLineFeed ? `${line}\n` : line
 		const bytes = state.bytes + utf8Length(text)
 
 		if (bytes > maxRecordBytes + 1) {
-			return new ResponseStreamError({ itemIndex, reason: "recordTooLarge" })
+			return Option.some(new ResponseStreamError({ itemIndex, reason: "recordTooLarge" }))
 		}
 
 		state.bytes = bytes
 		state.record += text
 		scanRecord(state, text)
-		start = end
 
-		if (lineFeed !== -1 && completeAtLineFeed(state)) {
-			const closed = closeRecord(state, maxRecordBytes)
+		if (endsAtLineFeed && completeAtLineFeed(state)) {
+			const failure = closeRecord(state, maxRecordBytes, records)
 
 			state.open = false
 
-			if (closed instanceof ResponseStreamError) {
-				return closed
-			}
-
-			if (closed !== undefined) {
-				out.push(closed)
+			if (Option.isSome(failure)) {
+				return failure
 			}
 		}
 	}
 
-	return undefined
+	return Option.none()
 }
+
+/**
+ * A framing step's outputs: the records it closed, then the failure that ends the stream, when one
+ * did.
+ */
+const outputsOf = (
+	records: ReadonlyArray<string>,
+	failure: Option.Option<ResponseStreamError>
+): ReadonlyArray<Framed> =>
+	Arr.appendAll(
+		Arr.map(records, (record): Framed => Result.succeed(record)),
+		Option.toArray(Option.map(failure, (error): Framed => Result.fail(error)))
+	)
 
 /**
  * Frame one chunk of decoded JSON-seq text: every record a separator or an LF in the chunk closes,
  * then the first failure, after which the framer takes no more input.
  */
-const frameChunk = (state: SeqState, chunk: string, maxRecordBytes: number): Framed[] => {
-	const out: Framed[] = []
+const frameChunk = (
+	state: SeqState,
+	chunk: string,
+	maxRecordBytes: number
+): ReadonlyArray<Framed> => {
+	const records: string[] = []
+	const parts = state.failed ? [] : Str.split(chunk, recordSeparator)
 
-	for (const [position, part] of (state.failed ? [] : chunk.split(recordSeparator)).entries()) {
-		const closed = position > 0 && state.open ? closeRecord(state, maxRecordBytes) : undefined
+	for (const [position, part] of parts.entries()) {
+		const closes = position > 0 && state.open
 
 		state.open ||= position > 0
 
-		if (closed !== undefined && !(closed instanceof ResponseStreamError)) {
-			out.push(closed)
-		}
+		const failure = Option.orElse(
+			closes ? closeRecord(state, maxRecordBytes, records) : Option.none(),
+			() => appendRecord(state, part, maxRecordBytes, records)
+		)
 
-		const failure =
-			closed instanceof ResponseStreamError
-				? closed
-				: appendRecord(state, part, maxRecordBytes, out)
-
-		if (failure !== undefined) {
+		if (Option.isSome(failure)) {
 			state.failed = true
-			out.push(failure)
 
-			return out
+			return outputsOf(records, failure)
 		}
 	}
 
-	return out
+	return outputsOf(records, Option.none())
 }
 
 /**
  * Frame a JSON-seq response body (RFC 7464, `application/json-seq` and `+json-seq`) as one
  * compacted JSON text per record, without a line terminator, emitted as each record closes.
  *
- * A record opens at U+001E and closes at the first LF after which its text decodes as JSON, so it
+ * A record opens at U+001E and closes at the first LF after which its text parses as JSON, so it
  * is emitted as it arrives; an LF inside the text is whitespace and keeps the record open. A
- * record that never decodes at an LF closes at the next separator or the end of the body. The body
+ * record that never parses at an LF closes at the next separator or the end of the body. The body
  * may open with whitespace; any other text before the first separator, or after a record's closing
  * LF and before the next separator, fails with `invalidFraming`. An empty
  * record (separators in a row, or only whitespace) is skipped and takes no index. A record over
@@ -584,12 +608,15 @@ export const jsonSeqRecords =
 				(state, chunk: string) => [state, frameChunk(state, chunk, maxRecordBytes)] as const,
 				{
 					onHalt: (state) => {
+						const records: string[] = []
 						const last =
-							state.failed || !state.open ? undefined : closeRecord(state, maxRecordBytes)
+							state.failed || !state.open
+								? Option.none()
+								: closeRecord(state, maxRecordBytes, records)
 
-						return last === undefined ? [] : [last]
+						return outputsOf(records, last)
 					}
 				}
 			),
-			Stream.mapEffect(raise)
+			Stream.mapEffect(Effect.fromResult)
 		)

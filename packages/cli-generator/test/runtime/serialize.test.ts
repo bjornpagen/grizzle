@@ -785,7 +785,7 @@ export const chosenCodec = property.explore(alternativeSpace, {
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/sequential.ts",
 			original:
-				'{\n\tconst essence = mediaEssence(mediaType)\n\n\treturn essence === "application/json" || essence.endsWith("+json")\n}',
+				'{\n\tconst essence = mediaEssence(mediaType)\n\n\treturn essence === "application/json" || Str.endsWith("+json")(essence)\n}',
 			replacement: "{ return false }",
 			why: "No media type is JSON, so the chosen JSON codec refuses an object body as non-text; the property fails (CATCH's evidence, mutant 363f6be2dd)."
 		},
