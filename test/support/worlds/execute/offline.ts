@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { type BindResult, bindWrite } from "#compiler/runtime/write/bind.ts"
 import { memberFactsOf } from "#compiler/runtime/write/members.ts"
@@ -45,7 +45,8 @@ export const offlineCompile = (
 		laws: artifacts.laws,
 		derived: artifacts.derived,
 		level: "serializable",
-		clock: noClock
+		clock: noClock,
+		source: transactionClock
 	})
 }
 

@@ -7,7 +7,7 @@ import { identity, parseSchemaName } from "#compiler/core/identity.ts"
 import { initMigrationName } from "#compiler/deploy/render/folder.ts"
 import { generateMigration } from "#compiler/deploy/render/generate.ts"
 import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { workloadRequests, withWorkload } from "#compiler/physical/access/extension.ts"
@@ -289,7 +289,8 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 								laws: artifacts.laws,
 								derived: artifacts.derived,
 								level: "serializable",
-								clock: noClock
+								clock: noClock,
+								source: transactionClock
 							}
 						)
 					)

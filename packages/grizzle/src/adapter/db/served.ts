@@ -121,7 +121,7 @@ export const openToken = (options: unknown): Result.Result<Option.Option<Token>,
  * An opened served Db, the one context every operation of it reads (context.ts), and its login's layer and the role as
  * it loaded, which the open found at the address it read off the token once.
  */
-interface OpenedServed<R, P> extends HeldRole {
+export interface OpenedServed<R, P> extends HeldRole {
 	readonly db: DbOf<R, P>
 	readonly ctx: ServedDbContext
 }
@@ -179,26 +179,41 @@ export const openServed = Effect.fn("openServed")(function* <R extends AnyRole, 
 	role: ServedRole<R, P>,
 	options: OpenOptions<R>
 ): Effect.fn.Return<OpenedServed<R, P>, OpenError, DbLayerService<R>> {
-	const reached: unknown = role
-	const address = yield* Effect.fromResult(readServedRole<R>(reached))
-	const token = yield* Effect.fromResult(openToken(options))
-	const held = yield* servedSessions(address)
-	const ctx = yield* servedContext(held, token)
-	const handles: object = servedHandles(ctx, held.role.members, held.sessions.login.tables)
-	if (
-		!isWorkloadOf<R, P>(
-			handles,
-			Arr.map(held.role.members, (m) => m.name)
-		)
-	) {
-		return yield* Effect.die(
-			defect(`the workload handles of role ${held.role.name}: one per program of its layer`)
-		)
-	}
-	return { db: { workload: handles }, ctx, ...held }
+	return yield* openedWith<R, P>(role, options, (ctx, held) =>
+		servedHandles(ctx, held.role.members, held.sessions.login.tables)
+	)
 })
 
+/**
+ * A Db of `role` opened with `options` as openServed opens one (steps 1 to 3), its workload handles the record
+ * `handlesFor` builds over its context and its held role: a served Db's (servedHandles), or a Db's over a moved clock
+ * (db/moved.ts).
+ */
+export const openedWith = <R extends AnyRole, P>(
+	role: ServedRole<R, P>,
+	options: OpenOptions<R>,
+	handlesFor: (ctx: ServedDbContext, held: HeldRole) => object
+): Effect.Effect<OpenedServed<R, P>, OpenError, DbLayerService<R>> =>
+	Effect.gen(function* () {
+		const reached: unknown = role
+		const address = yield* Effect.fromResult(readServedRole<R>(reached))
+		const token = yield* Effect.fromResult(openToken(options))
+		const held = yield* servedSessions(address)
+		const ctx = yield* servedContext(held, token)
+		const handles = handlesFor(ctx, held)
+		if (
+			!isWorkloadOf<R, P>(
+				handles,
+				Arr.map(held.role.members, (m) => m.name)
+			)
+		) {
+			return yield* Effect.die(
+				defect(`the workload handles of role ${held.role.name}: one per program of its layer`)
+			)
+		}
+		return { db: { workload: handles }, ctx, ...held }
+	})
+
 /** Db.open: the Db openServed opens. The role is reached through its served login, whose layer provides the Effect. */
-export const DbValue: DbConstructor = {
-	open: (role, options) => Effect.map(openServed(role, options), (opened) => opened.db)
-}
+export const openDb: DbConstructor["open"] = (role, options) =>
+	Effect.map(openServed(role, options), (opened) => opened.db)

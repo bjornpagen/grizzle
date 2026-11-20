@@ -4,7 +4,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { array, type Gen, int, parents } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { identity } from "#compiler/core/identity.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
@@ -87,7 +87,8 @@ export const nestedCompiled = (value: unknown): CompiledWrite =>
 			laws: artifacts.laws,
 			derived: artifacts.derived,
 			level: "serializable",
-			clock: noClock
+			clock: noClock,
+			source: transactionClock
 		})
 	)
 

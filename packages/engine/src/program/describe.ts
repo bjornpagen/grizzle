@@ -1,7 +1,7 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"
 import type { LoweredProgram } from "#compiler/ir/products.ts"
@@ -68,7 +68,8 @@ export const lowerQuery = (query: unknown): Result.Result<LoweredProgram, Compil
 		context: "snapshot",
 		artifacts: artifacts.value,
 		read: "rows",
-		clock: noClock
+		clock: noClock,
+		source: transactionClock
 	})
 	if (!template.ok) {
 		return template

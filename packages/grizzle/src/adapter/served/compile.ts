@@ -17,6 +17,7 @@ import {
 	type RoleChanges
 } from "#compiler/plan/change.ts"
 import {
+	type ClockSource,
 	type CompileError,
 	defect,
 	Engine,
@@ -25,7 +26,9 @@ import {
 	type Isolation,
 	levelChain,
 	type LoginDesc,
-	type OwnedLogin
+	movedClock,
+	type OwnedLogin,
+	transactionClock
 } from "#compiler/plan/common.ts"
 import {
 	compileWorkload,
@@ -146,7 +149,8 @@ const compileServed = Effect.fn("compileServed")(function* (
 	snapshot: unknown,
 	artifacts: InstalledArtifacts,
 	changes: ReadonlyMap<string, RoleChanges<Isolation, InstalledSource>>,
-	footprints: ProgramFootprints
+	footprints: ProgramFootprints,
+	clock: ClockSource
 ): Effect.fn.Return<CompiledServed, ServedRefusal> {
 	const served = yield* Effect.mapError(
 		fromEngine(servedSnapshot(snapshot, levelChain(login.login.base.desc).length - 1)),
@@ -154,7 +158,7 @@ const compileServed = Effect.fn("compileServed")(function* (
 	)
 	const layer = { slice: everySlice(login.owned.base), artifacts, over: () => Engine.ok(artifacts) }
 	const roles = yield* Effect.mapError(
-		plannedLoginRoles(login.login, changes, layer, lawsAbove(served)),
+		plannedLoginRoles(login.login, changes, layer, lawsAbove(served), clock),
 		atRole
 	)
 	const footprint = yield* Effect.mapError(workloadSlice(login.login, login.owned), atRole)
@@ -238,20 +242,25 @@ export const servedEntry = (
 	changes: ReadonlyMap<string, RoleChanges<Isolation, InstalledSource>>,
 	footprints: ProgramFootprints
 ): Effect.Effect<ServedEntry, ServedRefusal> =>
-	Effect.flatMap(compileServed(login, snapshot, artifacts, changes, footprints), servedEntryOf)
+	Effect.flatMap(
+		compileServed(login, snapshot, artifacts, changes, footprints, transactionClock),
+		servedEntryOf
+	)
 
 /**
  * The compile of `login` under `snapshot` alone, no installation compiled beside it: the installation's artifacts
  * compiled from what the snapshot records (its codes, its closed relations' constant names, its text domains, its
  * foreign key graph's cycles and the types it casts its served parameters to) over every relation, the law model
  * generate compiles from the schema, then the login over them (compileServed), its query programs' footprints its
- * workload's plan's (compileWorkload): its roles, each with its workload's programs compiled, which a test reads beside
- * the file they project (a change form's compiled entry, its put choices among it). A program that casts a parameter to
- * a type the snapshot's installation does not install is refused at its role and program as UninstalledDomain.
+ * workload's plan's (compileWorkload), every reading of the clock its clocked reads and ChangeSets make counting from
+ * `clock`: its roles, each with its workload's programs compiled, which a test reads beside the file they project (a
+ * change form's compiled entry, its put choices among it). A program that casts a parameter to a type the snapshot's
+ * installation does not install is refused at its role and program as UninstalledDomain.
  */
 export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 	login: ServedInput,
-	snapshot: unknown
+	snapshot: unknown,
+	clock: ClockSource
 ): Effect.fn.Return<CompiledServed, ServedRefusal> {
 	const served = yield* Effect.mapError(
 		fromEngine(servedSnapshot(snapshot, levelChain(login.login.base.desc).length - 1)),
@@ -268,7 +277,7 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 		atLogin
 	)
 	const changes = yield* Effect.mapError(
-		loginChangesOver(login.login, login.owned, artifacts, "serializable"),
+		loginChangesOver(login.login, login.owned, artifacts, "serializable", clock),
 		atRole
 	)
 	const name = login.login.desc.name
@@ -285,18 +294,18 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 	if (footprints === undefined) {
 		throw defect(`the footprints of login ${name}, the one login its workload plan plans`)
 	}
-	return yield* compileServed(login, snapshot, artifacts, changes, footprints)
+	return yield* compileServed(login, snapshot, artifacts, changes, footprints, clock)
 })
 
 /**
- * The served file of `login` under `snapshot` alone (`snapshotCompiled`, then `servedEntryOf`): an application's test's
- * compile (adapter/public/compile.ts compileServed).
+ * The served file of `login` under `snapshot` alone (`snapshotCompiled`, then `servedEntryOf`), every reading of the
+ * clock the transaction's: an application's test's compile (adapter/public/compile.ts compileServed).
  */
 export const snapshotServedEntry = (
 	login: ServedInput,
 	snapshot: unknown
 ): Effect.Effect<ServedEntry, ServedRefusal> =>
-	Effect.flatMap(snapshotCompiled(login, snapshot), servedEntryOf)
+	Effect.flatMap(snapshotCompiled(login, snapshot, transactionClock), servedEntryOf)
 
 /**
  * The served file of `login` under `snapshot` alone, its reads called once alone (`snapshotCompiled`, then
@@ -306,4 +315,15 @@ export const snapshotOnceEntry = (
 	login: ServedInput,
 	snapshot: unknown
 ): Effect.Effect<ServedEntry, ServedRefusal> =>
-	Effect.flatMap(snapshotCompiled(login, snapshot), onceEntryOf)
+	Effect.flatMap(snapshotCompiled(login, snapshot, transactionClock), onceEntryOf)
+
+/**
+ * The served file of `login` under `snapshot` alone (`snapshotCompiled`, then `servedEntryOf`), every reading of the
+ * clock its clocked reads and ChangeSets make moved by the clock's offset, which each of them declares and a Db over a
+ * moved clock states at each call (adapter/db/moved.ts): adapter/public/compile.ts compileServedMoved's.
+ */
+export const snapshotMovedEntry = (
+	login: ServedInput,
+	snapshot: unknown
+): Effect.Effect<ServedEntry, ServedRefusal> =>
+	Effect.flatMap(snapshotCompiled(login, snapshot, movedClock), servedEntryOf)

@@ -4,7 +4,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { type Gen, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -170,7 +170,8 @@ const carriersOf = (layout: Layout): Created => {
 			laws: artifacts.laws,
 			derived: artifacts.derived,
 			level: "serializable",
-			clock: noClock
+			clock: noClock,
+			source: transactionClock
 		}),
 		`the ${layout} put compiles`
 	)

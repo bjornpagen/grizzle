@@ -30,11 +30,13 @@ import {
 	bindGroups,
 	type CallerParamDecl,
 	type ClockBinding,
+	type ClockSource,
 	type Codebook,
 	CompileError,
 	Engine,
 	type InstalledSource,
 	noClock,
+	transactionClock,
 	prose,
 	type QueryDesc,
 	type RowDecoder,
@@ -78,20 +80,21 @@ export const boundReads = <R>(
 const context = "snapshot"
 
 /**
- * The template of a query compiled for `role`, with the parameters `clock` binds to the database's clock, and the
- * program its rows are delivered through (run.ts), whose attachments the analysis describes (analysis.ts), with the
- * codecs of the parameters a call supplies. The caller's value is parsed here, once (program/compile.ts queryInput), and
- * the compiler takes the parsed query.
+ * The template of a query compiled for `role`, with the parameters `clock` binds to the database's clock, its readings
+ * of it counting from `source`, and the program its rows are delivered through (run.ts), whose attachments the analysis
+ * describes (analysis.ts), with the codecs of the parameters a call supplies. The caller's value is parsed here, once
+ * (program/compile.ts queryInput), and the compiler takes the parsed query.
  */
 const compileArtifacts = (
 	role: RoleContext,
 	query: unknown,
-	clock: ClockBinding
+	clock: ClockBinding,
+	source: ClockSource
 ): Result.Result<ReadArtifacts, CompileError> =>
 	Result.map(
 		toResult(
 			Engine.flatMap(queryInput(query), (input) =>
-				role.compile(input, { context, read: "rows", clock })
+				role.compile(input, { context, read: "rows", clock, source })
 			)
 		),
 		({ compiled }): ReadArtifacts => ({
@@ -120,17 +123,19 @@ const bindArtifacts = <A>(
 	}))
 
 /**
- * The rows form of `query` for `role`, the parameters `clock` names bound to the database's clock, its rows read by
- * `decoder`: a query that does not compile is its CompileError.
+ * The rows form of `query` for `role`, the parameters `clock` names bound to the database's clock, its readings of it
+ * counting from `source`, its rows read by `decoder`: a query that does not compile is its CompileError. A query whose
+ * member binds no parameter to the clock reads none, and compiles under the transaction's clock wherever it is served.
  */
 export const compileRowsForm = <A>(
 	role: RoleContext,
 	query: unknown,
 	decoder: () => RowDecoder<A>,
-	clock: ClockBinding
+	clock: ClockBinding,
+	source: ClockSource
 ): Result.Result<RowsForm<A>, CompileError> =>
 	Result.gen(function* () {
-		const compiled = yield* compileArtifacts(role, query, clock)
+		const compiled = yield* compileArtifacts(role, query, clock, source)
 		const bound = yield* bindArtifacts(role, compiled, decoder)
 		return { query, decoder, bound }
 	})
@@ -145,7 +150,7 @@ export const compileReadForm = <A>(
 	decoder: () => RowDecoder<A>
 ): Result.Result<ReadForm<A>, CompileError> =>
 	Result.gen(function* () {
-		const rows = yield* compileRowsForm(role, query, decoder, noClock)
+		const rows = yield* compileRowsForm(role, query, decoder, noClock, transactionClock)
 		const page = yield* compiledPageTemplate(role, query)
 		return { ...rows, page }
 	})
@@ -237,7 +242,8 @@ const compiledPageTemplate = (
 				role.compile(input, {
 					context: "snapshot",
 					read: "page",
-					clock: noClock
+					clock: noClock,
+					source: transactionClock
 				})
 			)
 		),
@@ -302,7 +308,7 @@ const writeEntry = (
 		toResult(role.programArtifacts({ kind: "changeSet", changeSet: change.desc })),
 		({ artifacts, witness }) =>
 			Result.map(
-				toResult(compileParsed(artifacts, change, claims, "serializable", noClock)),
+				toResult(compileParsed(artifacts, change, claims, "serializable", noClock, role.clock)),
 				(entry) => runtimeEntry(entry, artifacts.names.codes, witness, role.bind)
 			)
 	)

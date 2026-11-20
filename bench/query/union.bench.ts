@@ -44,7 +44,7 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 import { dedupNodes, plansOf, summaryOf } from "#bench/query/support/plans.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { templateFor } from "#compiler/program/template.ts"
@@ -421,7 +421,8 @@ export default defineGate({
 						templateFor(input, appInput, artifacts, {
 							context: "snapshot",
 							read: "rows",
-							clock: noClock
+							clock: noClock,
+							source: transactionClock
 						})
 					)
 			)

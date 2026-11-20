@@ -38,7 +38,7 @@ import { once } from "#compiler/core/lazy.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import type { PublicResult } from "#compiler/core/public-result.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { type FieldWriting, columnKeyOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
@@ -230,7 +230,8 @@ const previewWrite = (
 			derived: derivedAnalysis(model.checked),
 			world: { kind: "reality" },
 			codes,
-			clock: noClock
+			clock: noClock,
+			source: transactionClock
 		}),
 		(frontend) =>
 			previewWriteOf(frontend, hostBindingOf(frontend, codes, compile.closed(), compile.patterns))

@@ -1,7 +1,7 @@
 /** What the properties of recompile.test.ts read: its spaces, models and helpers. */
 
 import { Array as Arr } from "effect"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { type QueryTemplate } from "#compiler/program/compile.ts"
 import { type ExecutionRequest } from "#compiler/program/template.ts"
 
@@ -20,7 +20,8 @@ import { type ExecutionRequest } from "#compiler/program/template.ts"
 export const request: ExecutionRequest = {
 	context: "snapshot",
 	read: "rows",
-	clock: noClock
+	clock: noClock,
+	source: transactionClock
 }
 
 /** The spec of a template's optimized statement's large form, when it has one. */

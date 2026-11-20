@@ -1,9 +1,16 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
+import { ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { type ClockBinding, isInt8Type } from "#compiler/ir/clock.ts"
+import {
+	type ClockBinding,
+	type ClockSource,
+	clockOffsetName,
+	isInt8Type
+} from "#compiler/ir/clock.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 
 /**
  * Whether `binding` may bind `name` among `params`: a scalar parameter of the program of an int8 type, bigint or a
@@ -50,4 +57,33 @@ export const clockParams = (
 				: p
 		})
 	)
+}
+
+/**
+ * The clock's offset: a bigint count of microseconds, the parameter every program a moved clock's compile serves that
+ * may read the clock declares (sourcedParams), which a Db over a moved clock states at each call, the same in every
+ * statement of the call, and which every reading of the clock in the program is moved by (lower/conservative/context.ts
+ * clockReading). PostgreSQL's own resolution, so every unit's reading of the moved instant is exact.
+ */
+export const clockOffset: Extract<ParamDecl, { readonly kind: "scalar" }> = Object.freeze({
+	id: ParamId(clockOffsetName),
+	name: clockOffsetName,
+	kind: "scalar",
+	type: plainType("int8")
+})
+
+/**
+ * The declared parameters of a program that may read the clock, compiled under `source`: its own, and under a moved
+ * clock the clock's offset after them, which its readings are moved by.
+ */
+export const sourcedParams = (
+	params: ReadonlyArray<ParamDecl>,
+	source: ClockSource
+): ReadonlyArray<ParamDecl> => {
+	switch (source.kind) {
+		case "transaction":
+			return params
+		case "moved":
+			return [...params, clockOffset]
+	}
 }

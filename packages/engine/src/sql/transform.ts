@@ -8,6 +8,7 @@ import type {
 	AlterTableAction,
 	Assignment,
 	Call,
+	ClockInstant,
 	ColumnDef,
 	ColumnDefinition,
 	ColumnGeneration,
@@ -238,6 +239,18 @@ export class Transform {
 
 	readonly expr = (e: Expr): Expr => this.#expr(this.exprChildren(e), e)
 
+	/** A reading's instant, a moved one's offset through the expression hooks. */
+	readonly instant = (instant: ClockInstant): ClockInstant => {
+		switch (instant.kind) {
+			case "transaction":
+				return instant
+			case "moved": {
+				const offset = this.expr(instant.offset)
+				return offset === instant.offset ? instant : { kind: "moved", offset }
+			}
+		}
+	}
+
 	exprChildren(e: Expr): Expr {
 		switch (e.kind) {
 			case "column":
@@ -255,10 +268,14 @@ export class Transform {
 				return relation === e.relation ? e : { ...e, relation }
 			}
 			case "param":
-			case "clock":
 			case "literal": {
 				const type = this.type(e.type)
 				return type === e.type ? e : { ...e, type }
+			}
+			case "clock": {
+				const type = this.type(e.type)
+				const instant = this.instant(e.instant)
+				return type === e.type && instant === e.instant ? e : { ...e, instant, type }
 			}
 			case "cast": {
 				const expr = this.expr(e.expr)
@@ -2162,11 +2179,20 @@ class Visit {
 				this.call(e, keys)
 				return
 			}
+			case "clock": {
+				const instant = e.instant
+				switch (instant.kind) {
+					case "transaction":
+						return
+					case "moved":
+						this.expr(instant.offset)
+						return
+				}
+			}
 			case "column":
 			case "excluded":
 			case "returning":
 			case "param":
-			case "clock":
 			case "literal":
 			case "mergeAction":
 			case "domainValue":

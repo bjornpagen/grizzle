@@ -38,7 +38,7 @@ import {
 } from "#bench/write/support/writes.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { compileParsed, parsedChange } from "#compiler/plan/change.ts"
-import { noClock } from "#compiler/plan/common.ts"
+import { noClock, transactionClock } from "#compiler/plan/common.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
@@ -185,7 +185,8 @@ const readCommittedInsert = (d: OpenedDb, changes: unknown): Insert => {
 	const compiled = Engine.flatMap(parsedChange(d.role.schema, changes), (change) =>
 		Engine.flatMap(
 			d.role.programArtifacts({ kind: "changeSet", changeSet: change.desc }),
-			({ artifacts }) => compileParsed(artifacts, change, new Set(), "readCommitted", noClock)
+			({ artifacts }) =>
+				compileParsed(artifacts, change, new Set(), "readCommitted", noClock, transactionClock)
 		)
 	)
 	if (!compiled.ok) {

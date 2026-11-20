@@ -11,11 +11,13 @@ import type { DbOf } from "#adapter/types/db.ts"
  * RowKey, ValueOf (a read's KeyedSet or KeyedList, a write's WriteOutcome or Refreshed), EventOf and each shape's
  * events, and CallError.
  */
-import { DbValue } from "#adapter/db/served.ts"
+import { openMoved } from "#adapter/db/moved.ts"
+import { openDb } from "#adapter/db/served.ts"
+import type { DbConstructor } from "#adapter/types/db.ts"
 
 export type { NoTokenOptions, OpenOptions, TokenOptions } from "#adapter/types/db.ts"
 
-export const Db: typeof DbValue = DbValue
+export const Db: DbConstructor = { open: openDb, openMoved }
 export type Db<R, P> = DbOf<R, P>
 
 export type {

@@ -1,6 +1,7 @@
 import type { InstallationWitness } from "#adapter/witness/index.ts"
 import type {
 	BindContext,
+	ClockSource,
 	CompileError,
 	Engine,
 	InstalledArtifacts,
@@ -51,6 +52,12 @@ export interface RoleContext {
 	 * cell is read by.
 	 */
 	readonly bind: BindContext
+	/**
+	 * Where the role's programs' readings of the database's clock count from (engine ir/clock.ts ClockSource): the
+	 * transaction's for every served file `grizzle generate` writes, a moved clock's for a test's
+	 * (adapter/public/compile.ts compileServedMoved), which its clocked reads and its ChangeSets compile under.
+	 */
+	readonly clock: ClockSource
 }
 
 /** A query's template compiled for one request, with the artifacts it was compiled against, which its page reads. */

@@ -14,7 +14,7 @@ import { Array as Arr, Record as Rec } from "effect"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { type PreviewWrite, previewWriteOf } from "#compiler/program/preview.ts"
@@ -214,7 +214,8 @@ export const servedWrite = (
 				),
 				new Set(),
 				"serializable",
-				noClock
+				noClock,
+				transactionClock
 			),
 			({ compiled }) => previewWriteOf(compiled.frontend, flightOf(compiled, codes))
 		)

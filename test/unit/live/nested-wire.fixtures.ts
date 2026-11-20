@@ -5,6 +5,7 @@ import type { Gen } from "@bjornpagen/testing/gen"
 import { Result as Answered, Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { servedEntryOf, snapshotCompiled } from "#adapter/served/compile.ts"
 import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
+import { transactionClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { encodeInput, type ParsedInput, parseInput } from "#compiler/live/codec.ts"
 import type { WireFacts } from "#compiler/live/shape.ts"
@@ -112,7 +113,7 @@ export const nestingHolds = (c: NestCase, note: (feature: Feature) => void): Eff
 		const owned = succeeded(ownLoginOver(served, base), "the login over its base")
 		const compiled = yield* Effect.result(
 			Effect.flatMap(compiledSnapshot(served, base, firstCodebook(rostersOf(base))), (snapshot) =>
-				snapshotCompiled({ login: served, owned }, snapshot)
+				snapshotCompiled({ login: served, owned }, snapshot, transactionClock)
 			)
 		)
 		if (Answered.isFailure(compiled)) {

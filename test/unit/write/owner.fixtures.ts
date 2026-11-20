@@ -3,7 +3,7 @@
 import { array, element, type Gen, int, option } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { identity } from "#compiler/core/identity.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import type { WriteOp } from "#compiler/ir/desc.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
@@ -146,7 +146,8 @@ export const compile = (value: unknown) =>
 		laws: artifacts.laws,
 		derived: artifacts.derived,
 		level: "serializable",
-		clock: noClock
+		clock: noClock,
+		source: transactionClock
 	})
 
 /** The first stratum whose owners a query may insert beside an insert or put of their members: the refusal's place,

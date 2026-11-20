@@ -147,8 +147,8 @@ export const aMemberBoundToTheDatabasesClockReadsTheInstantItsCallsTransactionBe
 		kills: [
 			{
 				file: "packages/engine/src/sql/print.ts",
-				original: `	\`\${inCatalog("extract")}(\${printLiteral({ kind: "text", value: "epoch" }, types.text).text}, \${inCatalog("transaction_timestamp")}())\``,
-				replacement: `	\`\${inCatalog("extract")}(\${printLiteral({ kind: "text", value: "epoch" }, types.text).text}, \${inCatalog("statement_timestamp")}())\``,
+				original: `\tconst began = \`\${inCatalog("transaction_timestamp")}()\``,
+				replacement: `\tconst began = \`\${inCatalog("statement_timestamp")}()\``,
 				why: "The clock reads statement_timestamp(); caught by Mark's stamps against Stamp's."
 			},
 			{
@@ -165,8 +165,8 @@ export const aMemberBoundToTheDatabasesClockReadsTheInstantItsCallsTransactionBe
 			},
 			{
 				file: "packages/engine/src/sql/print.ts",
-				original: `	\`\${inCatalog("extract")}(\${printLiteral({ kind: "text", value: "epoch" }, types.text).text}, \${inCatalog("transaction_timestamp")}())\``,
-				replacement: `	\`\${inCatalog("extract")}(\${printLiteral({ kind: "text", value: "epoch" }, types.text).text}, \${inCatalog("clock_timestamp")}())\``,
+				original: `\tconst began = \`\${inCatalog("transaction_timestamp")}()\``,
+				replacement: `\tconst began = \`\${inCatalog("clock_timestamp")}()\``,
 				why: "The clock reads clock_timestamp(); caught by stamps of one statement apart."
 			},
 			{

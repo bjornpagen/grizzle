@@ -871,6 +871,43 @@ const handleCalls = (calls: ServedCalls): object => {
 	}
 }
 
+/** What a handle holds of one member: its calls (ServedCalls) and its explains (MemberExplains). */
+export interface MemberHandleParts {
+	readonly calls: ServedCalls
+	readonly explains: MemberExplains
+}
+
+/**
+ * The record of a Db's workload handles over `members`, each member's calls and explains as `partsOf` gives them
+ * (handleCalls, explainsOf), under its name: a served Db's (servedHandles), and a Db's over a moved clock, whose clocked
+ * reads and changes state the clock's offset at each call (db/moved.ts).
+ */
+export const handlesOf = (
+	members: ReadonlyArray<LoadedMember>,
+	partsOf: (member: LoadedMember) => MemberHandleParts
+): object => {
+	const handles: Record<string, object> = {}
+	for (const member of members) {
+		const parts = partsOf(member)
+		handles[member.name] = Object.freeze({
+			...handleCalls(parts.calls),
+			...explainsOf(parts.explains)
+		})
+	}
+	return Object.freeze(handles)
+}
+
+/** A member's handle parts over a Db's context: its calls (memberCalls) and its explains (memberExplains), named by the
+ * login's served tables `installed`. */
+export const memberHandleParts = (
+	ctx: ServedDbContext,
+	installed: ServedTables,
+	member: LoadedMember
+): MemberHandleParts => ({
+	calls: memberCalls(ctx, member),
+	explains: memberExplains(ctx, installed, member)
+})
+
 /**
  * The record of a Db's workload handles: each member's calls (handleCalls) beside its explains (memberExplains), named
  * by the login's served tables `installed`, under its name.
@@ -879,13 +916,4 @@ export const servedHandles = (
 	ctx: ServedDbContext,
 	members: ReadonlyArray<LoadedMember>,
 	installed: ServedTables
-): object => {
-	const handles: Record<string, object> = {}
-	for (const member of members) {
-		handles[member.name] = Object.freeze({
-			...handleCalls(memberCalls(ctx, member)),
-			...explainsOf(memberExplains(ctx, installed, member))
-		})
-	}
-	return Object.freeze(handles)
-}
+): object => handlesOf(members, (member) => memberHandleParts(ctx, installed, member))

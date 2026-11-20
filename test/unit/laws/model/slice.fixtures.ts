@@ -17,7 +17,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import {
 	type ChangeSetDesc,
 	type ClockedProgramDesc,
@@ -1050,7 +1050,8 @@ export const compiledChange = (
 					laws: artifacts.laws,
 					derived: artifacts.derived,
 					level: "serializable",
-					clock: noClock
+					clock: noClock,
+					source: transactionClock
 				}
 			)
 		}
@@ -1071,7 +1072,13 @@ export const compiledQuery = (
 		Result.flatMap(namedRole(role, base.names.levels), (named) => roleArtifacts(named, base)),
 		(artifacts) =>
 			Result.flatMap(querySchema({ kind: "described", desc: query }, schema), (source) =>
-				compileQuery(source, { context, artifacts, read: "rows", clock: noClock })
+				compileQuery(source, {
+					context,
+					artifacts,
+					read: "rows",
+					clock: noClock,
+					source: transactionClock
+				})
 			)
 	)
 

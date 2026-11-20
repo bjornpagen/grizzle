@@ -10,6 +10,7 @@ import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { servedSnapshot } from "#compiler/deploy/snapshot/served.ts"
+import { transactionClock } from "#compiler/ir/clock.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { paramDomainIdentity, paramDomainUses } from "#compiler/physical/ddl/domains.ts"
@@ -227,7 +228,7 @@ export const castsInstalled = (
 		const missingDomains = Arr.filter([...needed.domains], (d) => !installedDomains.has(d))
 		const missingContracts = Arr.filter([...needed.contracts], (c) => !installedContracts.has(c))
 		const compiled = yield* Effect.result(
-			snapshotCompiled({ login: built, owned }, snapshot.success)
+			snapshotCompiled({ login: built, owned }, snapshot.success, transactionClock)
 		)
 		if (missingDomains.length > 0 || missingContracts.length > 0) {
 			assert.ok(

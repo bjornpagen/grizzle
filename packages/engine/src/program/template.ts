@@ -1,6 +1,6 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type { ClockBinding } from "#compiler/ir/clock.ts"
+import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import {
@@ -13,12 +13,13 @@ import {
 import type { SchemaArtifacts, SchemaInput } from "#compiler/program/schema.ts"
 
 /**
- * One execution's request: the context it runs in, how the template is read, and the parameters its member binds to the
- * database's clock (program/compile.ts CompileQueryOptions clock).
+ * One execution's request: the context it runs in, how the template is read, the parameters its member binds to the
+ * database's clock and where its readings of it count from (program/compile.ts CompileQueryOptions clock, source).
  */
 export interface ExecutionRequest extends TemplateReading {
 	readonly context: TemplateContext
 	readonly clock: ClockBinding
+	readonly source: ClockSource
 }
 
 /** A query compiled for an execution request: its Description and its template. */
@@ -45,7 +46,8 @@ export const templateFor = (
 				context: request.context,
 				artifacts,
 				read: request.read,
-				clock: request.clock
+				clock: request.clock,
+				source: request.source
 			}),
 			(template): CompiledTemplate => ({ desc: source.desc, template })
 		)

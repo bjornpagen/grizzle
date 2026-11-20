@@ -11,6 +11,7 @@ import {
 } from "#adapter/served/compile.ts"
 import { builtLogin, type LayerRole, ownLoginOver } from "#adapter/served/login.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
+import { transactionClock } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { contextFieldAdmits, type FieldDecl, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { clockedMember, workload } from "#compiler/program/workload/value.ts"
@@ -585,7 +586,7 @@ export const compiledLogin = (
 		const base = succeeded(ownBuilt(built.base), "the login's base")
 		const owned = succeeded(ownLoginOver(built, base), "the login over its base")
 		const snapshot = yield* compiledSnapshot(built, base, codes(base))
-		const compiled = yield* snapshotCompiled({ login: built, owned }, snapshot)
+		const compiled = yield* snapshotCompiled({ login: built, owned }, snapshot, transactionClock)
 		const entry = yield* servedEntryOf(compiled)
 		const json = trustedJson<unknown>(entry.text)
 		return { compiled, entry, json, back: succeeded(servedFile(json), "the login's served file") }

@@ -2,7 +2,7 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
@@ -154,7 +154,8 @@ const shopWriter = (s: typeof Shop | typeof MutableCrewShop): ShopWriter => {
 				compileChangeSet(checking(s), desc, {
 					...over,
 					codes: artifacts.names.codes,
-					clock: noClock
+					clock: noClock,
+					source: transactionClock
 				}),
 				(frontend) =>
 					Result.flatMap(names(frontend.params), (installed) =>
@@ -163,7 +164,8 @@ const shopWriter = (s: typeof Shop | typeof MutableCrewShop): ShopWriter => {
 							names: installed,
 							reads: installed,
 							level: options.level,
-							clock: noClock
+							clock: noClock,
+							source: transactionClock
 						})
 					)
 			)

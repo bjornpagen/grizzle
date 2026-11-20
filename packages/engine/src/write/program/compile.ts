@@ -12,7 +12,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
-import type { ClockBinding } from "#compiler/ir/clock.ts"
+import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { isSequence, isTreeOf } from "#compiler/ir/family.ts"
@@ -213,6 +213,8 @@ export interface CompileWriteOptions {
 	/** Each parameter bound to the database's clock (write/frontend/compile.ts FrontendOptions `clock`), whose statements
 	 * print it as the reading itself. */
 	readonly clock: ClockBinding
+	/** Where its readings of the clock count from (write/frontend/compile.ts FrontendOptions `source`). */
+	readonly source: ClockSource
 }
 
 export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
@@ -1683,7 +1685,8 @@ const compile = (
 			derived: options.derived,
 			world: options.world,
 			codes: options.names.codes,
-			clock: options.clock
+			clock: options.clock,
+			source: options.source
 		})
 	)
 	const chosen = choosePutTargets(frontend)

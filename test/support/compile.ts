@@ -12,7 +12,7 @@ import { type Identity, identifierOf, identity, parseSchemaName } from "#compile
 import type { ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Param } from "#compiler/core/wire.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { type Codebook, emptyCodebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { SchemaDesc as EngineSchemaDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -367,7 +367,8 @@ const templateOver = (
 			context: options.context,
 			artifacts,
 			read: options.read,
-			clock: noClock
+			clock: noClock,
+			source: transactionClock
 		}),
 		(compiled) => withConservative(compiled, artifacts.reads)
 	)
@@ -391,7 +392,8 @@ export const realityWrite = (artifacts: SchemaArtifacts): CompileWriteOptions =>
 	laws: artifacts.laws,
 	derived: artifacts.derived,
 	level: "serializable",
-	clock: noClock
+	clock: noClock,
+	source: transactionClock
 })
 
 /**

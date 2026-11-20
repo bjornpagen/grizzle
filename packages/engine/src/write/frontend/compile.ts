@@ -13,7 +13,7 @@ import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { editedBy } from "#compiler/analysis/theory/refill.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
-import { clockParams } from "#compiler/check/clock.ts"
+import { clockParams, sourcedParams } from "#compiler/check/clock.ts"
 import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
@@ -21,7 +21,7 @@ import { CompileError, type ProseTag, prose, ruleRefused } from "#compiler/core/
 import { type EntryName, type LawId, ParamId, type StoredRelationName } from "#compiler/core/ids.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as Order from "#compiler/core/order.ts"
-import type { ClockBinding } from "#compiler/ir/clock.ts"
+import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import {
@@ -153,6 +153,11 @@ export interface FrontendOptions {
 	/** Each parameter bound to the database's clock (check/clock.ts clockParams), the binding of the clocked member the
 	 * ChangeSet serves; none for every other ChangeSet (ir/clock.ts noClock). */
 	readonly clock: ClockBinding
+	/**
+	 * Where the ChangeSet's readings of the clock count from, its clocked parameters' and its stamps' alike (ir/clock.ts
+	 * ClockSource): a moved clock's declares the clock's offset after the ChangeSet's own parameters.
+	 */
+	readonly source: ClockSource
 }
 
 /** One relation parameter of a write: the facts of one class of one operation's enumerated members, normalized on the
@@ -3026,12 +3031,17 @@ const compile = (
 	)
 
 	const slotParams = slots.flatMap((g) => g.inputs.map((i) => i.slot.slot))
-	const userParams = unwrap(
-		clockParams(
-			[...params.values()].toSorted(Order.mapInput(Order.compareStrings, (p: ParamDecl) => p.name)),
-			clock,
-			"clocked"
-		)
+	const userParams = sourcedParams(
+		unwrap(
+			clockParams(
+				[...params.values()].toSorted(
+					Order.mapInput(Order.compareStrings, (p: ParamDecl) => p.name)
+				),
+				clock,
+				"clocked"
+			)
+		),
+		options.source
 	)
 	const drafted: Drafted = {
 		strata,

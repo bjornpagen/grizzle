@@ -13,6 +13,7 @@ import {
 	writeSnapshot
 } from "#compiler/deploy/snapshot/build.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
+import { transactionClock } from "#compiler/ir/clock.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { servedWorkloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
@@ -74,7 +75,8 @@ export const compiledInstallation = (
 							roles: login.roles,
 							workload: login.workload,
 							named,
-							artifacts
+							artifacts,
+							clock: transactionClock
 						}
 					],
 					options

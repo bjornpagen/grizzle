@@ -5,7 +5,12 @@ import { changeApplication, onceCalls, type OnceCalls, variantOf } from "#adapte
 import { openServed } from "#adapter/db/served.ts"
 import { fromEngine, toResult } from "#adapter/engine.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
-import { compileServed, compileServedOnce, type ServedRefusal } from "#adapter/public/compile.ts"
+import {
+	compileServed,
+	compileServedMoved,
+	compileServedOnce,
+	type ServedRefusal
+} from "#adapter/public/compile.ts"
 import { served } from "#adapter/public/layer.ts"
 import { compiledWrite } from "#adapter/served/forms.ts"
 import { type LoadedMember, loadServed } from "#adapter/served/load.ts"
@@ -217,6 +222,26 @@ export const servedFixture = <L extends AnyLogin>(
 ): Effect.Effect<ServedFixture<L>, ServedRefusal> =>
 	Effect.map(servedJson(installed, login, login.workload), (json) =>
 		servedFixtureOf(installed, login, json)
+	)
+
+/**
+ * `login` serving its own workloads over `installed` (servedFixtureOf) from its served file compiled for a moved clock
+ * (adapter/public/compile.ts compileServedMoved), under the snapshot the installation reached: the fixture whose roles
+ * a test opens with Db.openMoved, to read the database's clock at the instants it states.
+ */
+export const movedServedFixture = <L extends AnyLogin>(
+	installed: Installed,
+	login: L
+): Effect.Effect<ServedFixture<L>, ServedRefusal> =>
+	Effect.map(
+		Effect.suspend(() =>
+			compileServedMoved(
+				login,
+				snapshotValue(installed.snapshot, installed.installation),
+				login.workload
+			)
+		),
+		(json) => servedFixtureOf(installed, login, json)
 	)
 
 /** A case serving a login over its own installation: its substrate, the installation, and the login's fixture over it. */

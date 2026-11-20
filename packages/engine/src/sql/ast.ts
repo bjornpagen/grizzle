@@ -464,9 +464,23 @@ export type ClockOf =
 	| { readonly kind: "stamp" }
 
 /**
- * An expression. A `clock` is a reading of the database's clock, as `of` says (ClockOf): the instant the call's
- * transaction began, transaction_timestamp(), counted in `unit` since the Unix epoch and floored, cast to `type` as a
- * placeholder of a parameter would be. It fills no slot: the server reads it, never the call.
+ * The instant a reading of the database's clock counts (Expr `clock`): `transaction`, the instant the call's transaction
+ * began, transaction_timestamp(), as every served Db reads it; or `moved`, that instant moved by `offset`, a bigint count
+ * of microseconds, the placeholder of the offset a Db over a moved clock states at each call (ir/clock.ts ClockSource),
+ * so the moved instant is still one timestamptz, in the range PostgreSQL's timestamptz holds or refused by it.
+ */
+export type ClockInstant =
+	| { readonly kind: "transaction" }
+	| { readonly kind: "moved"; readonly offset: Expr }
+
+/** The instant the call's transaction began: every reading of a production compile's (ClockInstant `transaction`). */
+export const transactionInstant: ClockInstant = Object.freeze({ kind: "transaction" })
+
+/**
+ * An expression. A `clock` is a reading of the database's clock, as `of` says (ClockOf): the instant `instant`
+ * (ClockInstant), the call's transaction's or that instant moved, counted in `unit` since the Unix epoch and floored,
+ * cast to `type` as a placeholder of a parameter would be. It fills no slot of its own: the server reads it, never the
+ * call, which states at most a moved instant's offset.
  */
 export type Expr =
 	| { readonly kind: "column"; readonly table: string | undefined; readonly column: string }
@@ -476,6 +490,7 @@ export type Expr =
 	| {
 			readonly kind: "clock"
 			readonly of: ClockOf
+			readonly instant: ClockInstant
 			readonly unit: ClockUnit
 			readonly type: TypeRef
 	  }

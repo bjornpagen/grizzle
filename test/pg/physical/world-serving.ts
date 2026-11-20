@@ -73,7 +73,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { namedRole, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
@@ -1240,7 +1240,8 @@ const precheck = (
 				laws: artifacts.laws,
 				derived: artifacts.derived,
 				level: "serializable",
-				clock: noClock
+				clock: noClock,
+				source: transactionClock
 			})
 		)
 		const members = yield* Effect.orDie(collectInputs(program.binding.groups, change.inputs))

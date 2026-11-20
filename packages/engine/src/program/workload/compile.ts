@@ -8,7 +8,7 @@ import { type CompileError, malformedDescription, within } from "#compiler/core/
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { type ClockBinding, noClock } from "#compiler/ir/clock.ts"
+import { type ClockBinding, noClock, transactionClock } from "#compiler/ir/clock.ts"
 import {
 	type ChangeSetDesc,
 	type WorkloadDesc,
@@ -315,7 +315,8 @@ const changeSetIr = (
 			derived,
 			world: writeWorld,
 			codes: reads.artifacts.names.codes,
-			clock
+			clock,
+			source: transactionClock
 		}),
 		(frontend) => {
 			/** Each relation an action writes facts of, whose primary key every action states. */

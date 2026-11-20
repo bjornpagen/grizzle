@@ -54,6 +54,7 @@ import {
 	unserved,
 	rostersOf,
 	sameLevel,
+	transactionClock,
 	trustedJson
 } from "#compiler/plan/common.ts"
 import {
@@ -370,7 +371,8 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 					roles: l.login.roles,
 					workload: l.login.workload,
 					named,
-					artifacts
+					artifacts,
+					clock: transactionClock
 				})),
 				options
 			)

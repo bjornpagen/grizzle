@@ -1,10 +1,10 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { clockParams } from "#compiler/check/clock.ts"
+import { clockParams, sourcedParams } from "#compiler/check/clock.ts"
 import { type AdmittedQuery, checkQuery } from "#compiler/check/index.ts"
 import { catchCompileError, catchRefusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { ClockBinding } from "#compiler/ir/clock.ts"
+import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import { decodeDesc, isOrderedQuery, type QueryDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import {
@@ -88,6 +88,12 @@ export interface CompileQueryOptions extends TemplateReading {
 	 * template's statement prints as the reading itself: none but an instant member's.
 	 */
 	readonly clock: ClockBinding
+	/**
+	 * Where the template's readings of the clock count from (ir/clock.ts ClockSource): a moved clock's declares the
+	 * clock's offset after the query's own parameters, which a clocked member's call states; the transaction's for every
+	 * query a served file serves.
+	 */
+	readonly source: ClockSource
 	/** The schema's artifacts: its installed names, law model and evidence catalog (program/schema.ts). */
 	readonly artifacts: SchemaArtifacts
 }
@@ -218,7 +224,10 @@ export const compileQuery = (
 	if (!params.ok) {
 		return params
 	}
-	const checked: AdmittedQuery = { ...checkedQuery.value, params: params.value }
+	const checked: AdmittedQuery = {
+		...checkedQuery.value,
+		params: sourcedParams(params.value, options.source)
+	}
 	const analyzed = analyzeLogical(checked.dag, {
 		context,
 		containments: artifacts.laws.theory.evidence.containments,

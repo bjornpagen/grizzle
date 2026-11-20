@@ -3,7 +3,7 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, shuffled, subarray, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order as Ord, Record as Rec } from "effect"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { Money, pg } from "#compiler/public/fields.ts"
@@ -411,7 +411,8 @@ const roleWorld = Object.freeze(
 				laws: artifacts.laws,
 				derived: artifacts.derived,
 				level: "serializable" as const,
-				clock: noClock
+				clock: noClock,
+				source: transactionClock
 			}
 		}
 	})()

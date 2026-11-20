@@ -136,6 +136,7 @@ import {
 	type SqlStatement,
 	type StoredGeneration,
 	type TableConstraint,
+	transactionInstant,
 	type TypeRef,
 	type TypeSchema,
 	nameKey,
@@ -2539,7 +2540,13 @@ class Differ {
 			column: c,
 			default:
 				head.kind === "clock"
-					? { kind: "clock", of: { kind: "stamp" }, unit: "micros", type: types.bigint }
+					? {
+							kind: "clock",
+							of: { kind: "stamp" },
+							instant: transactionInstant,
+							unit: "micros",
+							type: types.bigint
+						}
 					: placeStart(this.input.installation, head)
 		}
 	}

@@ -24,7 +24,8 @@
  * storedKept). Every part of the statement that stamps a clock reads it at the statement's one snapshot, so the parts
  * of one stratum's single statement that stamp one clock at one child, its own rows and its references' alike, stamp
  * one instant, and none sees another's row; so do a place's, one place for every row of the call in its group. The
- * clock is the call's transaction_timestamp(), one value in every statement of the call (sql/print.ts clockReading).
+ * clock is the call's transaction_timestamp(), one value in every statement of the call, or that instant moved by the
+ * call's offset under a moved clock (lower/conservative/context.ts clockReading).
  * Under SERIALIZABLE, two calls that stamp one group's place each read the other's head or are refused, so no two
  * commit one place.
  */
@@ -127,7 +128,7 @@ export const headStampsCte = (
 			case "clock":
 				return {
 					kind: "greatest",
-					args: [{ kind: "clock", of: { kind: "stamp" }, unit: "micros", type: types.bigint }, next]
+					args: [w.cx.clockReading({ kind: "stamp" }, "micros", types.bigint), next]
 				}
 			case "place":
 				return { kind: "coalesce", args: [next, lit.int(0, types.bigint)] }

@@ -10,6 +10,7 @@ import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import { transactionClock } from "#compiler/ir/clock.ts"
 import { ownBuilt, trustedJson } from "#compiler/plan/common.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
@@ -340,7 +341,8 @@ export const servedChanges = (
 		const owned = yield* fromEngine(ownLoginOver(built, base))
 		const compiled = yield* snapshotCompiled(
 			{ login: { ...built, workload: [workload(o.rig.worlds[role], programs)] }, owned },
-			snapshotValue(o.rig.installed.snapshot, o.rig.installed.installation)
+			snapshotValue(o.rig.installed.snapshot, o.rig.installed.installation),
+			transactionClock
 		)
 		const entry = yield* servedEntryOf(compiled)
 		const loaded = yield* Effect.fromResult(

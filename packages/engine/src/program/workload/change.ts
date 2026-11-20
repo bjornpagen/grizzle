@@ -7,7 +7,7 @@ import { type CompileError, malformedDescription } from "#compiler/core/errors.t
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { ClockBinding } from "#compiler/ir/clock.ts"
+import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { NamedLogin, NamedRole } from "#compiler/physical/ddl/names.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
 import {
@@ -40,6 +40,9 @@ export interface ChangeEntry<S extends ParamSource = ParamSource> {
 	readonly compiled: CompiledWrite
 	readonly change: ParsedChangeSet
 	readonly clock: ClockBinding
+	/** Where its readings of the clock count from (write/program/compile.ts CompileWriteOptions `source`), which a
+	 * compile of it again at another level keeps. */
+	readonly source: ClockSource
 	readonly schema: SchemaFingerprint
 	readonly names: WriteNames
 }
@@ -84,15 +87,16 @@ export const parsedChange = (
 
 /**
  * A parsed ChangeSet compiled against `artifacts`, a role's or reality's, for the contexts `claims` holds a fact of, to
- * run at `level`, each parameter `clock` names bound to the database's clock (write/program/compile.ts
- * CompileWriteOptions `clock`).
+ * run at `level`, each parameter `clock` names bound to the database's clock, its readings counting from `source`
+ * (write/program/compile.ts CompileWriteOptions `clock`, `source`).
  */
 export const compileParsed = <S extends ParamSource>(
 	artifacts: SchemaArtifacts<S>,
 	change: ParsedChangeSet,
 	claims: ReadonlySet<string>,
 	level: Isolation,
-	clock: ClockBinding
+	clock: ClockBinding,
+	source: ClockSource
 ): Result.Result<ChangeEntry<S>, CompileError> => {
 	const world = artifacts.world
 	return Result.map(
@@ -104,13 +108,15 @@ export const compileParsed = <S extends ParamSource>(
 			laws: artifacts.laws,
 			derived: artifacts.derived,
 			level,
-			clock
+			clock,
+			source
 		}),
 		(compiled): ChangeEntry<S> => ({
 			params: artifacts.params,
 			compiled,
 			change,
 			clock,
+			source,
 			schema: artifacts.fingerprint,
 			names: artifacts.names
 		})
@@ -128,6 +134,7 @@ const changeVariants = <S extends ParamSource>(
 	artifacts: SchemaArtifacts<S>,
 	changes: ChangeSetValue,
 	clock: ClockBinding,
+	source: ClockSource,
 	level: Isolation,
 	undecided: ReadonlyArray<string>,
 	holding: ReadonlyArray<string>
@@ -136,17 +143,20 @@ const changeVariants = <S extends ParamSource>(
 	if (context === undefined) {
 		return Result.map(
 			Result.flatMap(parsedChange(role, changes), (change) =>
-				compileParsed(artifacts, change, new Set(holding), level, clock)
+				compileParsed(artifacts, change, new Set(holding), level, clock, source)
 			),
 			(entry): CompiledVariants<S> => ({ kind: "form", entry, decoder: changes.reads })
 		)
 	}
 	const before = undecided.slice(0, -1)
 	return Result.flatMap(
-		changeVariants(role, artifacts, changes, clock, level, before, holding),
+		changeVariants(role, artifacts, changes, clock, source, level, before, holding),
 		(lacking) =>
 			Result.map(
-				changeVariants(role, artifacts, changes, clock, level, before, [context, ...holding]),
+				changeVariants(role, artifacts, changes, clock, source, level, before, [
+					context,
+					...holding
+				]),
 				(held): CompiledVariants<S> => ({ kind: "split", context, holding: held, lacking })
 			)
 	)
@@ -164,6 +174,9 @@ export interface ChangeLogin<S extends ParamSource = ParamSource> {
 	readonly workload: ReadonlyArray<unknown>
 	readonly named: NamedLogin
 	readonly artifacts: SchemaArtifacts<S>
+	/** Where its change members' readings of the clock count from: the transaction's for every served file `grizzle
+	 * generate` writes, a moved clock's for a test's (ir/clock.ts ClockSource). */
+	readonly clock: ClockSource
 }
 
 /**
@@ -249,6 +262,7 @@ const roleBase = <S extends ParamSource>(
 									artifacts.value,
 									program.value,
 									program.clock,
+									login.clock,
 									level,
 									fillContexts(owned.writes, program.desc.changeSet),
 									[]
@@ -402,7 +416,8 @@ const variantsAt = <S extends ParamSource>(
 					variants.entry.change,
 					new Set(holding),
 					level,
-					variants.entry.clock
+					variants.entry.clock,
+					variants.entry.source
 				),
 				(entry): CompiledVariants<S> => ({ kind: "form", entry, decoder: variants.decoder })
 			)

@@ -5,6 +5,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Cause, Effect, Exit } from "effect"
 import { servedEntryOf, snapshotCompiled } from "#adapter/served/compile.ts"
 import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
+import { transactionClock } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
 import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
@@ -113,7 +114,7 @@ export const compiledOverEachLevel = (
 					)
 				}
 				const exit = yield* Effect.exit(
-					Effect.flatMap(snapshotCompiled(input, snapshot), servedEntryOf)
+					Effect.flatMap(snapshotCompiled(input, snapshot, transactionClock), servedEntryOf)
 				)
 				return Exit.match(exit, {
 					onSuccess: (): Compiled => ({ kind: "served" }),

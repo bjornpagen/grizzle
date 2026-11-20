@@ -5,7 +5,9 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import { clockOffset } from "#compiler/check/clock.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
+import type { ClockUnit } from "#compiler/core/clock.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import type { ParamPlace } from "#compiler/core/identity.ts"
 import type { NodeId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
@@ -49,6 +51,8 @@ import { unitColumn } from "#compiler/runtime/lower/tree.ts"
 import {
 	type ArrayCheck,
 	type ArraysSource,
+	type ClockInstant,
+	type ClockOf,
 	type Cte,
 	type Expr,
 	type FromItem,
@@ -57,6 +61,7 @@ import {
 	type OperandSelect,
 	type Select,
 	type Target,
+	transactionInstant,
 	type TypeRef
 } from "#compiler/sql/ast.ts"
 import {
@@ -870,8 +875,23 @@ export class LowerContext {
 		}
 		const checked = this.paramTypeRef(p.type, { kind: "scalar", name: param })
 		return p.kind === "clock"
-			? { kind: "clock", of: { kind: "param", param: p.name }, unit: p.unit, type: checked }
+			? this.clockReading({ kind: "param", param: p.name }, p.unit, checked)
 			: this.params.scalar(param, type, checked)
+	}
+
+	/**
+	 * A reading of the database's clock for `of` in `unit`, cast to `type` (sql/ast.ts Expr clock), at the instant the
+	 * program's declared parameters say: the call's transaction's, or, in a program that declares the clock's offset (a
+	 * moved clock's compile, ir/clock.ts sourcedParams), that instant moved by the offset's placeholder, one per statement
+	 * however many readings it holds, so every reading of a call counts one instant.
+	 */
+	clockReading(of: ClockOf, unit: ClockUnit, type: TypeRef): Expr {
+		const offset = this.options.params.find((d) => d.id === clockOffset.id)
+		const instant: ClockInstant =
+			offset === undefined
+				? transactionInstant
+				: { kind: "moved", offset: this.params.scalar(offset.id, clockOffset.type, types.bigint) }
+		return { kind: "clock", of, instant, unit, type }
 	}
 
 	/**

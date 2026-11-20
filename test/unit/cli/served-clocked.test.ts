@@ -128,8 +128,8 @@ export const aMemberBoundToTheDatabasesClockCertifiesAsItsProgramWithTheCallsNow
 			},
 			{
 				file: "packages/engine/src/sql/print.ts",
-				original: `\t\`\${inCatalog("extract")}(\${printLiteral({ kind: "text", value: "epoch" }, types.text).text}, \${inCatalog("transaction_timestamp")}())\``,
-				replacement: `\t\`\${inCatalog("extract")}(\${printLiteral({ kind: "text", value: "epoch" }, types.text).text}, \${inCatalog("statement_timestamp")}())\``,
+				original: `\tconst began = \`\${inCatalog("transaction_timestamp")}()\``,
+				replacement: `\tconst began = \`\${inCatalog("statement_timestamp")}()\``,
 				why: "The clock is read by statement_timestamp(); the statements' property fails."
 			},
 			{

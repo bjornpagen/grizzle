@@ -20,7 +20,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { type ConstraintName } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { type Param } from "#compiler/core/wire.ts"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import {
 	compileInstallation,
@@ -683,7 +683,8 @@ const articleInsert = (name: string, installation: Installation) => {
 				derived: reality.derived,
 				world: reality.world,
 				codes: installation.names.codes,
-				clock: noClock
+				clock: noClock,
+				source: transactionClock
 			}
 		),
 		"changeset"

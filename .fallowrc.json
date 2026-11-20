@@ -73,6 +73,7 @@
 					"packages/grizzle/src/adapter/db/context.ts",
 					"packages/grizzle/src/adapter/db/handles.ts",
 					"packages/grizzle/src/adapter/db/input.ts",
+					"packages/grizzle/src/adapter/db/moved.ts",
 					"packages/grizzle/src/adapter/db/served.ts",
 					"packages/grizzle/src/adapter/db/token.ts",
 					"packages/grizzle/src/adapter/engine.ts",

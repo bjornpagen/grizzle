@@ -3,7 +3,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { changeSetOver as ChangeSet, changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
@@ -57,7 +57,8 @@ export const aQueryOverADerivedRelationRestsItsOptimizedProofAndAReadBacksOfItOn
 							laws: artifacts.laws,
 							derived: artifacts.derived,
 							level: "serializable",
-							clock: noClock
+							clock: noClock,
+							source: transactionClock
 						}
 					)
 					if (!write.ok) {

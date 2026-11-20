@@ -28,6 +28,7 @@ import {
 	type BindContext,
 	type BuiltSchema,
 	catchRefusal,
+	type ClockSource,
 	type Codebook,
 	codeNames,
 	type CompileError,
@@ -50,7 +51,8 @@ import {
 	type ProgramDesc,
 	roleArtifacts,
 	type SchemaArtifacts,
-	SourceLoc
+	SourceLoc,
+	transactionClock
 } from "#compiler/plan/common.ts"
 import { keyQuery, templateFor } from "#compiler/plan/read.ts"
 import {
@@ -256,7 +258,7 @@ const programForm = (
 		case "ordered": {
 			const query = program.value
 			return Result.map(
-				compileRowsForm(role, query, () => query.rows, noClock),
+				compileRowsForm(role, query, () => query.rows, noClock, transactionClock),
 				(form): WorkloadForm => ({
 					name: program.name,
 					kind: "read",
@@ -268,7 +270,7 @@ const programForm = (
 		case "instant": {
 			const query = program.value
 			return Result.map(
-				compileRowsForm(role, query, () => query.rows, program.clock),
+				compileRowsForm(role, query, () => query.rows, program.clock, role.clock),
 				(form): WorkloadForm => ({
 					name: program.name,
 					kind: "instant",
@@ -293,7 +295,13 @@ const programForm = (
 			const target = program.target
 			const fact = target.relation.fact
 			return Result.map(
-				compileRowsForm(role, keyQuery(role.schema.value, target), () => fact, noClock),
+				compileRowsForm(
+					role,
+					keyQuery(role.schema.value, target),
+					() => fact,
+					noClock,
+					transactionClock
+				),
 				(form): WorkloadForm => ({
 					name: program.name,
 					kind: "key",
@@ -406,7 +414,8 @@ const layerRole = (
 	layer: LayerArtifacts,
 	workload: ReadonlyArray<AnyWorkload>,
 	bind: BindContext,
-	above: LawsAbove
+	above: LawsAbove,
+	clock: ClockSource
 ): Effect.Effect<LayerRole, WorkloadRefused> =>
 	Effect.gen(function* () {
 		const refused = roleRefused(name)
@@ -447,7 +456,8 @@ const layerRole = (
 					}))
 				),
 			programArtifacts,
-			bind
+			bind,
+			clock
 		}
 		const contexts = yield* Effect.mapError(fromEngine(typedContexts(artifacts)), refused)
 		const forms = yield* Effect.fromResult(
@@ -476,19 +486,23 @@ const namedOver = (
 
 /**
  * Every role of a login, each named under the login's artifacts `artifacts` (namedOver) and then with its change members
- * compiled over them at `level` (program/workload/change.ts loginChanges), by its name in the login: what the login's
- * compile reads of each role (plannedLoginRoles).
+ * compiled over them at `level`, their readings of the clock counting from `clock` (program/workload/change.ts
+ * loginChanges), by its name in the login: what the login's compile reads of each role (plannedLoginRoles).
  */
 export const loginChangesOver = <L extends Isolation, S extends ParamSource>(
 	login: BuiltLogin,
 	owned: OwnedLogin,
 	artifacts: SchemaArtifacts<S>,
-	level: L
+	level: L,
+	clock: ClockSource
 ): Effect.Effect<ReadonlyMap<string, RoleChanges<L, S>>, WorkloadRefused> =>
 	Effect.flatMap(namedOver(owned, artifacts), (named) =>
 		Effect.mapError(
 			fromEngine(
-				loginChanges({ roles: login.roles, workload: login.workload, named, artifacts }, level)
+				loginChanges(
+					{ roles: login.roles, workload: login.workload, named, artifacts, clock },
+					level
+				)
 			),
 			changeRefused
 		)
@@ -506,7 +520,8 @@ export const plannedLoginRoles = (
 	login: BuiltLogin,
 	changes: ReadonlyMap<string, RoleChanges<Isolation, InstalledSource>>,
 	layer: LayerArtifacts,
-	above: LawsAbove
+	above: LawsAbove,
+	clock: ClockSource
 ): Effect.Effect<ReadonlyArray<LayerRole>, WorkloadRefused> => {
 	const bind: BindContext = { options: rowOptions, names: codeNames(layer.artifacts.names.codes) }
 	return Effect.forEach(login.roles, ({ name, value }) => {
@@ -514,13 +529,14 @@ export const plannedLoginRoles = (
 		if (role === undefined) {
 			throw defect(`the change compile of role ${name}, a role of its login`)
 		}
-		return layerRole(name, value, role, layer, login.workload, bind, above)
+		return layerRole(name, value, role, layer, login.workload, bind, above, clock)
 	})
 }
 
 /**
  * Every role of a login compiled over the login's artifacts `layer` (plannedLoginRoles), its change members compiled
- * over them first at SERIALIZABLE (loginChangesOver), the level of a compile no certificate covers.
+ * over them first at SERIALIZABLE (loginChangesOver), the level of a compile no certificate covers, every reading of the
+ * clock the transaction's, as generate compiles it.
  */
 export const loginRoles = (
 	login: BuiltLogin,
@@ -528,6 +544,7 @@ export const loginRoles = (
 	layer: LayerArtifacts,
 	above: LawsAbove
 ): Effect.Effect<ReadonlyArray<LayerRole>, WorkloadRefused> =>
-	Effect.flatMap(loginChangesOver(login, owned, layer.artifacts, "serializable"), (changes) =>
-		plannedLoginRoles(login, changes, layer, above)
+	Effect.flatMap(
+		loginChangesOver(login, owned, layer.artifacts, "serializable", transactionClock),
+		(changes) => plannedLoginRoles(login, changes, layer, above, transactionClock)
 	)

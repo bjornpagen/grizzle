@@ -128,7 +128,13 @@ export {
 	type RosterCodec,
 	type RosterRenames
 } from "#compiler/ir/codes.ts"
-export { type ClockBinding, noClock } from "#compiler/ir/clock.ts"
+export {
+	type ClockBinding,
+	type ClockSource,
+	movedClock,
+	noClock,
+	transactionClock
+} from "#compiler/ir/clock.ts"
 export {
 	type AttachDesc,
 	type ContextDesc,

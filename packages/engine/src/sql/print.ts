@@ -20,6 +20,7 @@ import {
 	type AlterTableAction,
 	type ArrayColumn,
 	type ArraysSource,
+	type ClockInstant,
 	type CatalogTypeName,
 	catalogSpelling,
 	closedSearchPath,
@@ -230,9 +231,26 @@ const printCatalogType = (name: CatalogTypeName): string => {
 	}
 }
 
-/** The seconds since the Unix epoch at which the call's transaction began: numeric, exact to the microsecond. */
-const clockSeconds = (): string =>
-	`${inCatalog("extract")}(${printLiteral({ kind: "text", value: "epoch" }, types.text).text}, ${inCatalog("transaction_timestamp")}())`
+/**
+ * The instant a reading counts (sql/ast.ts ClockInstant): the call's transaction's, or that instant plus its offset's
+ * microseconds as an interval, `<n> microseconds`, which interval input reads as exactly n, an int64 of the unit
+ * (REL_19_0 src/backend/utils/adt/datetime.c DecodeInterval, strtoi64 then AdjustMicroseconds), where interval * float8
+ * would round an offset past 2^53, so the sum is exact and a moved instant timestamptz cannot hold is PostgreSQL's
+ * refusal, every reading of it inside the clock's range (core/clock.ts clockReadingRange).
+ */
+const printInstant = (instant: ClockInstant): string => {
+	const began = `${inCatalog("transaction_timestamp")}()`
+	switch (instant.kind) {
+		case "transaction":
+			return began
+		case "moved":
+			return `(${began} + ${inCatalog("format")}(${printLiteral({ kind: "text", value: "%s microseconds" }, types.text).text}, ${printExpr(instant.offset)})::${inCatalog("interval")})`
+	}
+}
+
+/** The seconds since the Unix epoch at `instant`: numeric, exact to the microsecond. */
+const clockSeconds = (instant: ClockInstant): string =>
+	`${inCatalog("extract")}(${printLiteral({ kind: "text", value: "epoch" }, types.text).text}, ${printInstant(instant)})`
 
 /**
  * The microseconds in a second, the resolution PostgreSQL's timestamps hold (SI prefix micro, 10^-6).
@@ -255,11 +273,11 @@ const clockFactors: { readonly [U in ClockUnit]: bigint } = {
 }
 
 /**
- * The instant the call's transaction began counted in `unit` since the Unix epoch, floored (sql/ast.ts Expr clock): its
- * seconds times the unit's factor, which counts microseconds exactly and milliseconds with a fraction `floor` drops.
+ * `instant` counted in `unit` since the Unix epoch, floored (sql/ast.ts Expr clock): its seconds times the unit's
+ * factor, which counts microseconds exactly and milliseconds with a fraction `floor` drops.
  */
-const clockReading = (unit: ClockUnit): string => {
-	const counted = `${clockSeconds()} * ${printLiteral({ kind: "int", value: clockFactors[unit] }, types.numeric).text}`
+const clockReading = (instant: ClockInstant, unit: ClockUnit): string => {
+	const counted = `${clockSeconds(instant)} * ${printLiteral({ kind: "int", value: clockFactors[unit] }, types.numeric).text}`
 	switch (unit) {
 		case "micros":
 			return counted
@@ -681,7 +699,7 @@ const expr = (e: Expr): Printed => {
 		case "param":
 			return printed(`$${e.slot.number}::${printType(e.type)}`, "cast")
 		case "clock":
-			return printed(`(${clockReading(e.unit)})::${printType(e.type)}`, "cast")
+			return printed(`(${clockReading(e.instant, e.unit)})::${printType(e.type)}`, "cast")
 		case "literal":
 			return printLiteral(e.value, e.type)
 		case "cast":

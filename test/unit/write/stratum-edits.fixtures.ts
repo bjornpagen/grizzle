@@ -4,6 +4,7 @@ import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { array, type Gen, subset, weighted } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { transactionClock } from "#compiler/ir/clock.ts"
 import { strataAt, type StratumAt } from "#compiler/ir/stratum.ts"
 import { drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { counted, fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
@@ -57,7 +58,8 @@ const frontendOptions: FrontendOptions = {
 	derived: reality.derived,
 	world: reality.world,
 	codes: artifacts.names.codes,
-	clock: reality.clock
+	clock: reality.clock,
+	source: transactionClock
 }
 
 const memberOps = ["insert", "delete", "put"] as const

@@ -3,7 +3,7 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, constant, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Stream } from "effect"
-import { noClock } from "#compiler/ir/clock.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { pg, retirement } from "#compiler/public/fields.ts"
 import { contained, on, relation, retirable, role, schema } from "#compiler/public/schema.ts"
@@ -272,7 +272,8 @@ const compileOptions = (() => {
 				laws: artifacts.laws,
 				derived: artifacts.derived,
 				level: "readCommitted" as const,
-				clock: noClock
+				clock: noClock,
+				source: transactionClock
 			}
 		}
 	}
