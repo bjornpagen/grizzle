@@ -16,6 +16,7 @@ import {
 	type PrimaryKeyKept,
 	type ResolvedSide,
 	selectorsOf,
+	type SidesEnv,
 	type TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
 import type { LawSide, QueryRule, RuleLaw } from "#compiler/analysis/theory/query.ts"
@@ -75,7 +76,6 @@ import type { HeadingColumn, KeySet, RelNode, ValidDag } from "#compiler/ir/rel.
 import { baseOf, type ContractInfo, Roster, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
-import type { ClosedRelations } from "#compiler/scalar/compute/typing.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import {
 	contractInfoOf,
@@ -459,15 +459,28 @@ export const typingEnv = (
 	}
 }
 
+/**
+ * What a checked schema's law sides are resolved in (laws.ts SidesEnv): the stored relations' handles the checked
+ * schema minted, by name, its closure's, and the typing environment of its laws (typingEnv), its lowerings applying the
+ * closed relations its laws' predicates and terms may read (CheckedSchema.closedReads).
+ */
+const sidesEnvOf = (checked: CheckedSchema): SidesEnv => {
+	const typing = typingEnv(checked.owned)
+	return {
+		relations: new Map(checked.stored.map((r) => [r.name, r] as const)),
+		lowerEnv: {
+			fieldType: typing.fieldType,
+			patterns: typing.patterns,
+			patternLanguage: textLookup,
+			closed: checked.closedReads
+		}
+	}
+}
+
 class Builder {
 	readonly owned: Owned
-	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
-	/** The admitted patterns the theory's compile reads (typingEnv). */
-	readonly patterns: PatternAutomata
-	/** The stored relations' handles the checked schema minted, by name: its closure's. */
-	readonly relations: ReadonlyMap<string, TheoryRelation>
-	/** The closed relations a law's predicates and terms may apply (CheckedSchema.closedReads). */
-	readonly closed: ClosedRelations
+	/** What the theory's law sides are resolved in (sidesEnvOf). */
+	readonly sides: SidesEnv
 	/** The checker's reading of the owned schema, which a rule over a query's violation query is checked against. */
 	readonly checked: CheckedSchema
 	/** Each derived relation's definition, by name. */
@@ -483,14 +496,10 @@ class Builder {
 			)
 		)
 		this.owned = checked.owned
-		const typing = typingEnv(checked.owned)
-		this.fieldType = typing.fieldType
-		this.patterns = typing.patterns
-		this.closed = checked.closedReads
-		this.relations = new Map(checked.stored.map((r) => [r.name, r] as const))
+		this.sides = sidesEnvOf(checked)
 		this.regionFacts = regionFactsOf(
 			checked.closure.statements.map((s) => s.statement),
-			this.relations,
+			this.sides.relations,
 			this.definitions
 		)
 	}
@@ -527,17 +536,11 @@ class Builder {
 	 */
 	env(): NormalizeEnv {
 		return {
-			relations: this.relations,
+			...this.sides,
 			definition: (relation) => this.definitions.get(relation),
 			columnType: (relation, query, loc) => this.#columnType(relation, query, loc),
 			named: lawIdentityOf,
-			regionFacts: this.regionFacts,
-			lowerEnv: {
-				fieldType: this.fieldType,
-				patterns: this.patterns,
-				patternLanguage: textLookup,
-				closed: this.closed
-			}
+			regionFacts: this.regionFacts
 		}
 	}
 
@@ -554,7 +557,7 @@ class Builder {
 			.flatMap((r) => (r.kind === "derived" ? [] : [r.name]))
 			.toSorted(compareStrings)
 		for (const [index, name] of stored.entries()) {
-			const r = this.relations.get(name)
+			const r = this.sides.relations.get(name)
 			if (r?.kind === "relation") {
 				normalizer.primaryKey(r, index)
 			}
@@ -567,7 +570,7 @@ class Builder {
 			compareStrings(a, b)
 		)
 		for (const [index, [name, contract]] of contracts.entries()) {
-			const uses = [...this.relations.values()].flatMap((r) =>
+			const uses = [...this.sides.relations.values()].flatMap((r) =>
 				r.kind === "relation" ? r.fields.flatMap((f) => contractUses(r, f, name)) : []
 			)
 			normalizer.contract(contract, index, uses, contract.loc)
@@ -583,7 +586,7 @@ class Builder {
 		const classes = this.#classes(kept, normalizer.familyPairings())
 		const { laws, primaryKeys, dag, families } = this.#written(normalizer, kept)
 		const fill = unwrap(fillOrder(families, laws))
-		const relations = Object.freeze(Object.fromEntries(this.relations))
+		const relations = Object.freeze(Object.fromEntries(this.sides.relations))
 		const instants = unwrap(instantRoles(relations, laws))
 		return Object.freeze({
 			schema: this.owned.fingerprint,
@@ -663,7 +666,7 @@ class Builder {
 		families: ReturnType<Normalizer["familyPairings"]>
 	): ReadonlyArray<FieldClass> {
 		const classes = new FieldClasses()
-		for (const r of this.relations.values()) {
+		for (const r of this.sides.relations.values()) {
 			for (const c of r.fields) {
 				classes.add(FieldId(r.name, c.name), c.type)
 			}
@@ -712,7 +715,7 @@ class Builder {
 
 	#dependencies(laws: ReadonlyArray<TheoryLaw>): Readonly<Record<string, ReadonlyArray<string>>> {
 		const deps = new Map<string, Set<string>>()
-		for (const name of this.relations.keys()) {
+		for (const name of this.sides.relations.keys()) {
 			deps.set(name, new Set())
 		}
 		const reads = laws.flatMap((law) => {
@@ -751,7 +754,7 @@ class Builder {
 			}
 		}
 		if (
-			[...this.relations.values()].some((r) =>
+			[...this.sides.relations.values()].some((r) =>
 				r.fields.some((c) => baseOf(c.type).carrier === "vector")
 			)
 		) {
@@ -795,15 +798,11 @@ export const ruleViolation = (
 	)
 
 /**
- * The sides of an owned schema's laws, resolved as the theory resolves them (LawSides), in the environment its
- * normalization reads with `closed` the closed relations its lowerings apply, the violation queries' lowering batch:
- * what the violation queries' writer (laws/model/violations.ts) writes each law's violation query by, from what its
- * theory law carries.
+ * The sides of a checked schema's laws, resolved as its theory resolves them (LawSides), in the sides' environment its
+ * normalization reads (sidesEnvOf), and nothing else of it, its region facts never: what the violation queries' writer
+ * (laws/model/violations.ts) writes each law's violation query by, from what its theory law carries.
  */
-export const lawSides = (checked: CheckedSchema, closed: ClosedRelations): LawSides => {
-	const env = new Builder(checked).env()
-	return new LawSides({ ...env, lowerEnv: { ...env.lowerEnv, closed } })
-}
+export const lawSides = (checked: CheckedSchema): LawSides => new LawSides(sidesEnvOf(checked))
 
 /**
  * Each key, row check and containment's evidence, an alternatives expansion's containments among them (statement

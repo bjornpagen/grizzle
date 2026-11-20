@@ -568,8 +568,23 @@ interface SpanPair {
 	readonly to: SpanField
 }
 
-export interface NormalizeEnv {
+/**
+ * What a law's sides are resolved in (LawSides) and its violation query written in (lawViolation): the schema's
+ * relations, and what lowering a law's predicate or term reads of the schema's types, with the closed relations it may
+ * apply.
+ */
+export interface SidesEnv {
 	readonly relations: ReadonlyMap<string, TheoryRelation>
+	readonly lowerEnv: {
+		readonly fieldType: LowerEnv["fieldType"]
+		readonly patterns: PatternAutomata
+		readonly patternLanguage: TextLookup
+		readonly closed: LowerEnv["closed"]
+	}
+}
+
+/** What normalizing the schema's laws reads of it: its sides' environment, and what a statement's laws are read by. */
+export interface NormalizeEnv extends SidesEnv {
 	/** Each derived relation's definition, by name: undefined for a stored or closed relation. */
 	readonly definition: (relation: string) => QueryDesc | undefined
 	/** The descriptor each column of a definition is delivered at (query.ts LiveEnv.columnType). */
@@ -578,13 +593,6 @@ export interface NormalizeEnv {
 	readonly named: (law: LawIdentity) => Identity<"law">
 	/** The containments of the schema's statements a whole rule's region reads (unit.ts RegionFacts). */
 	readonly regionFacts: RegionFacts
-	/** What lowering a law's predicate or term reads of the schema's types, and the closed relations it may apply. */
-	readonly lowerEnv: {
-		readonly fieldType: LowerEnv["fieldType"]
-		readonly patterns: PatternAutomata
-		readonly patternLanguage: TextLookup
-		readonly closed: LowerEnv["closed"]
-	}
 }
 
 /** A statement's pairs as a containment from its left side into its right. */
@@ -740,9 +748,9 @@ type FoldSides =
  * a tree's and a fold's violation query reads (lawViolation), which no other reader needs.
  */
 export class LawSides {
-	readonly env: NormalizeEnv
+	readonly env: SidesEnv
 
-	constructor(env: NormalizeEnv) {
+	constructor(env: SidesEnv) {
 		this.env = env
 	}
 
@@ -1953,17 +1961,12 @@ export class Normalizer {
 	resolve(b: ViolationBuilder): ResolvedFamilies {
 		const selections: Array<FoldSelection> = []
 		const entries = [...this.#families.values()]
-		/** The theory's environment, each pattern the folds' selections read admitted once for their lowering. */
-		const env: NormalizeEnv = {
-			...this.env,
-			lowerEnv: this.env.lowerEnv
-		}
 		const families = entries.map((entry): Family => {
 			const shape = entry.shape
 			const folds = entry.folds.map((f): FamilyFold => {
 				const region = b.scan(shape.member, shape.member.fields, [])
 				const where = f.where.map((c) =>
-					lowerTotal(b, env, c, f.loc, rowLeaf(shape.member, region))
+					lowerTotal(b, this.env, c, f.loc, rowLeaf(shape.member, region))
 				)
 				if (isNonEmpty(where)) {
 					selections.push({ region, where })
@@ -2115,7 +2118,7 @@ const familyOf = (families: ReadonlyArray<Family>, id: FamilyId): Family =>
  */
 const scalarContainmentViolation = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	families: ReadonlyArray<Family>,
 	d: Extract<LawDetail, { readonly kind: "containment" }>,
 	loc: SourceLoc
@@ -2350,7 +2353,7 @@ const differsElsewhere = (
 /** A row check's predicate, lowered total over a scan of R's row. */
 const checkPredicate = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	r: TheoryRelation,
 	predicate: ExprDesc,
 	loc: SourceLoc
@@ -2362,7 +2365,7 @@ const checkPredicate = (
 /** A row of R whose predicate is false; the witness is R's primary key. */
 const checkViolation = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	r: TheoryRelation,
 	predicate: ExprDesc,
 	loc: SourceLoc
@@ -2378,7 +2381,7 @@ const checkViolation = (
 /** The lowering of a row expression, total, into the builder's DAG, each leaf read by `leaf`. */
 const totalEnv = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	loc: SourceLoc,
 	leaf: LowerEnv["leaf"]
 ): LowerEnv => ({
@@ -2393,7 +2396,7 @@ const totalEnv = (
 /** Lowers a total predicate (a row check or a contract predicate) into the builder's DAG. */
 const lowerTotal = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	predicate: ExprDesc,
 	loc: SourceLoc,
 	leaf: LowerEnv["leaf"]
@@ -2408,7 +2411,7 @@ const lowerTotal = (
  */
 const contractViolation = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	name: string,
 	predicate: ExprDesc | undefined,
 	uses: ReadonlyArray<ContractUse>,
@@ -2484,7 +2487,7 @@ const rowLeaf = (r: TheoryRelation, node: RelNode): LowerEnv["leaf"] =>
 /** A term of a row expression lowered, total, into the builder's DAG: a law side's term, a field or pred's difference. */
 const lowerTermTotal = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	term: ExprDesc,
 	loc: SourceLoc,
 	leaf: LowerEnv["leaf"]
@@ -2497,7 +2500,7 @@ const lowerTermTotal = (
  */
 const sideRows = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	side: ResolvedSide,
 	terms: NonEmptyReadonlyArray<ResolvedTerm>,
 	loc: SourceLoc
@@ -2560,7 +2563,7 @@ const projected = (
 /** A source projection with no matching target fact; the witness is the source projection. */
 const containmentViolation = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	from: ResolvedSide,
 	to: ResolvedSide,
 	pairs: NonEmptyReadonlyArray<ResolvedPair>,
@@ -2606,7 +2609,7 @@ const containmentViolation = (
  */
 const coverageViolation = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	from: ResolvedSide,
 	to: ResolvedSide,
 	pairs: NonEmptyReadonlyArray<ResolvedPair>,
@@ -2685,7 +2688,7 @@ const coverageViolation = (
  */
 const clashes = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	side: ResolvedSide,
 	loc: SourceLoc
 ): { readonly filtered: RelNode; readonly join: SelfJoin } => {
@@ -2717,7 +2720,7 @@ const clashes = (
  */
 const projectedKeyViolation = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	side: ResolvedSide,
 	loc: SourceLoc
 ): RelNode => {
@@ -2762,7 +2765,7 @@ const zipped = (from: ResolvedSide, to: ResolvedSide): NonEmptyReadonlyArray<Res
 /** A lemma containment's violation between two resolved sides of one width. */
 const lemma = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	sides: readonly [ResolvedSide, ResolvedSide],
 	loc: SourceLoc
 ): RelNode => containmentViolation(b, env, sides[0], sides[1], zipped(sides[0], sides[1]), loc)
@@ -2804,7 +2807,7 @@ const pinViolation = (
 /** A row of `r` whose predicate is false, named by `witness`, each read from the field of `fields` at its position. */
 const rowViolation = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	r: TheoryRelation,
 	predicate: ExprDesc,
 	fields: NonEmptyReadonlyArray<LawField>,
@@ -2836,7 +2839,7 @@ const rowViolation = (
  */
 const sideFacts = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	side: ResolvedSide,
 	loc: SourceLoc
 ): RelNode => {
@@ -2872,7 +2875,7 @@ const differ = (b: ViolationBuilder, left: ScalarExpr, right: ScalarExpr): Scala
  */
 const aggregateArms = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	members: ResolvedSide,
 	owner: ResolvedSide,
 	aggregate: "count" | "sum" | "max",
@@ -2952,7 +2955,7 @@ const slotGroup = "a family's slot sides lead with one group"
  */
 const pastCount = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	at: ResolvedSide,
 	counted: ResolvedSide,
 	loc: SourceLoc
@@ -3003,7 +3006,7 @@ const pastCount = (
  */
 const familyArms = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	s: FamilySides,
 	loc: SourceLoc
 ): NonEmptyReadonlyArray<RelNode> => {
@@ -3037,7 +3040,7 @@ const familyArms = (
  */
 const treeArms = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	witness: NonEmptyReadonlyArray<HeadingColumn>,
 	t: RelationInfo,
 	s: TreeSides,
@@ -3066,7 +3069,7 @@ const treeArms = (
  */
 const foldArms = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	witness: NonEmptyReadonlyArray<HeadingColumn>,
 	f: FamilyShape,
 	s: FoldSides,
@@ -3145,7 +3148,7 @@ const foldArms = (
  */
 const twoMembers = (
 	b: ViolationBuilder,
-	env: NormalizeEnv,
+	env: SidesEnv,
 	members: ResolvedSide,
 	ends: ResolvedSide,
 	witness: NonEmptyReadonlyArray<HeadingColumn>,

@@ -45,7 +45,7 @@ export const theoryViolations = (
 	theory: Theory
 ): Result.Result<TheoryViolations, CompileError> =>
 	catchRefusal(() => {
-		const sides = lawSides(checked, checked.closedReads)
+		const sides = lawSides(checked)
 		const vb = new ViolationBuilder(SourceLoc(`schema ${checked.owned.name}`, []))
 		const statements = checked.owned.statements
 		const written = theory.laws.map((law): Written => {

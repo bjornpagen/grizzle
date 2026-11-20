@@ -23,7 +23,7 @@
  * The closure's work, counted, never timed (kernel/calls.ts callCounts): the theory of k disjoint copies of a box
  * (region-facts.fixtures.ts schemaOfCopies) compares values canonically and tries compositions affinely in k, a
  * containment held compared only with those alike at its relations and pairs, and composed only with the stated
- * containments out of its target.
+ * containments out of its target; and a box's theory with its laws' violation queries makes its region facts once.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -231,3 +231,53 @@ export const theTheoryOfDisjointCopiesOfABoxComparesAndComposesAffinelyInItsCopi
 			}
 		]
 	})
+
+/** The calls a theory's closure is counted by: its region facts made (analysis/theory/unit.ts regionFactsOf). */
+const closures = Object.freeze({
+	made: { file: "packages/engine/src/analysis/theory/unit.ts", name: "regionFactsOf" }
+})
+
+/** Whether a box's theory holds a region fact. */
+type Held = "a region fact" | "no region fact"
+
+/**
+ * A schema's theory and its laws' violation queries make its region facts once: the theory makes them where it is built
+ * (theory.ts buildTheory), and the violation queries' writer resolves its laws' sides in the sides' environment alone
+ * (theory.ts lawSides), which holds none, so a box's theory built and its violation queries written (support.ts
+ * theoryOf) make its closure exactly once.
+ */
+export const aSchemasTheoryAndItsLawsViolationQueriesMakeItsRegionFactsOnce = property.explore(
+	boxGen,
+	{
+		needs: {},
+		situations: ["a region fact", "no region fact"] satisfies ReadonlyArray<Reached<Held>>,
+		check: (_, k: Case<Held>) => (box) =>
+			Effect.gen(function* () {
+				const [t, counts] = yield* callCounts(
+					Effect.sync(() => theoryOf(schemaOfBox(box))),
+					closures
+				)
+				k.note(t.regionFacts.containments.length > 0 ? "a region fact" : "no region fact")
+				assert.equal(
+					counts.made,
+					1,
+					"a box's theory and its laws' violation queries make its region facts once"
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the theory's closures, counted (kernel/calls.ts callCounts), one per statement set"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/theory.ts",
+				original:
+					"export const lawSides = (checked: CheckedSchema): LawSides => new LawSides(sidesEnvOf(checked))",
+				replacement:
+					"export const lawSides = (checked: CheckedSchema): LawSides => new LawSides(new Builder(checked).env())",
+				why: "The violation queries' writer resolves its laws' sides in a theory builder's whole environment, as lawSides did, which makes the region facts again: a fresh qti-database generate made its target's closure twice, once for its law model and once for its law checks."
+			}
+		]
+	}
+)
