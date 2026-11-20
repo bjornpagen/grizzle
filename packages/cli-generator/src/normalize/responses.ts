@@ -1,5 +1,15 @@
-import { Array as Arr, Effect, Option, Order, Result, Schema, SchemaGetter } from "effect"
-import type { Types } from "effect"
+import { regex } from "arkregex"
+import {
+	Array as Arr,
+	Effect,
+	Option,
+	Order,
+	Record,
+	Result,
+	Schema,
+	SchemaGetter,
+	String as Str
+} from "effect"
 import { stripUnsafeText } from "#model/brands.ts"
 import { HeaderName, MediaRange } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
@@ -8,7 +18,7 @@ import { ResponseCase } from "#model/entities.ts"
 import type { MediaAlternative } from "#model/entities.ts"
 import { isSpecificationExtension } from "#model/extension.ts"
 import { declaredOpenapi, specSectionUrl } from "#model/spec-section.ts"
-import { childKey, follow, nodeIn, referenceIn } from "#normalize/document-set.ts"
+import { childKey, follow, nodeIn, nodeOption, referenceIn } from "#normalize/document-set.ts"
 import { readEventContract } from "#normalize/event-stream.ts"
 import { headerMarks } from "#normalize/header-object.ts"
 import { headerPercentEncoding } from "#normalize/parameters.ts"
@@ -29,10 +39,14 @@ const Members = Schema.Record(Schema.String, Schema.Unknown)
 
 const ResponsesObject = Members
 
+/**
+ * A Response Object as normalization reads it. Its `content` is `None` when absent, which is a response without a body
+ * (RSP-07) rather than one with no media types; its absent `headers` are none.
+ */
 const ResponseObject = Schema.Struct({
-	content: Schema.optionalKey(Members),
+	content: Schema.OptionFromOptionalKey(Members),
 	description: Schema.optionalKey(Schema.String),
-	headers: Schema.optionalKey(Members),
+	headers: Members.pipe(Schema.withDecodingDefaultKey(Effect.succeed({}))),
 	summary: Schema.optionalKey(Schema.String)
 })
 
@@ -159,17 +173,21 @@ const rules = {
 
 type Code = keyof typeof rules
 
-type PlainAlternative = Types.Mutable<typeof MediaAlternative.Encoded>
+type PlainAlternative = typeof MediaAlternative.Encoded
 
-type PlainCase = Types.Mutable<typeof ResponseCase.Encoded>
+type PlainCase = typeof ResponseCase.Encoded
 
-// A finding at its own location, in whichever document of the set holds it.
+/**
+ * A finding at its own location, in whichever document of the set holds it.
+ */
 interface Finding {
 	readonly at: CanonicalKey
 	readonly code: Code
 }
 
-// A built value with the findings raised while building it, in the order they were raised.
+/**
+ * A built value with the findings raised while building it, in the order they were raised.
+ */
 interface Built<A> {
 	readonly findings: readonly Finding[]
 	readonly value: A
@@ -185,7 +203,14 @@ const schemaRefAt = (resolution: Resolution, site: CanonicalKey) => {
 	return { key }
 }
 
-type Key = ResponseCase["key"] | "extension" | "invalid" | "out-of-range"
+/**
+ * A Responses Object member, by its name: a case under its response key, an `x-` member left to NZ-5, or a name
+ * refused with its finding's code.
+ */
+type Member =
+	| { readonly _tag: "Case"; readonly key: ResponseCase["key"] }
+	| { readonly _tag: "Extension" }
+	| { readonly _tag: "Refused"; readonly code: "RSS-06/invalid-key" | "RSS-10/status-out-of-range" }
 
 const [CodeKey, RangeKey, DefaultKey] = ResponseCase.fields.key.members
 
@@ -193,7 +218,7 @@ const [CodeKey, RangeKey, DefaultKey] = ResponseCase.fields.key.members
  * A three-digit Responses Object key, whatever its value. A key of this form outside 100 to 599 is
  * out of range (RSS-10) rather than outside the grammar (RSS-06).
  */
-const StatusDigits = Schema.String.check(Schema.isPattern(/^[0-9]{3}$/u))
+const StatusDigits = Schema.String.check(Schema.isPattern(regex("^[0-9]{3}$", "u")))
 
 const isStatusDigits = Schema.is(StatusDigits)
 
@@ -221,27 +246,31 @@ const ResponseKey = Schema.Union([
 const decodeResponseKey = Schema.decodeUnknownOption(ResponseKey)
 
 /**
- * Classify one Responses Object member name: a response key, an extension to skip, a three-digit
- * code out of range, or a name outside the grammar.
+ * Classify one Responses Object member name: a response key, an extension, a three-digit code out
+ * of range (RSS-10), or a name outside the grammar (RSS-06).
  */
-const classifyKey = (text: string): Key => {
+const classifyKey = (text: string): Member => {
 	const key = decodeResponseKey(text)
 	if (Option.isSome(key)) {
-		return key.value
+		return { _tag: "Case", key: key.value }
 	}
 
 	if (isStatusDigits(text)) {
-		return "out-of-range"
+		return { _tag: "Refused", code: "RSS-10/status-out-of-range" }
 	}
 
-	return isSpecificationExtension(text) ? "extension" : "invalid"
+	return isSpecificationExtension(text)
+		? { _tag: "Extension" }
+		: { _tag: "Refused", code: "RSS-06/invalid-key" }
 }
 
 type Codec = MediaAlternative["codec"]
 
-// The codec follows the media type alone, never the schema (design 2.2). A range, or a type no
-// other family claims, is bytes.
-// Differs from bodies.ts codecOf on `text/*` and `+json-seq` by design; want 546a83f5 unifies.
+/**
+ * The codec follows the media type alone, never the schema (design 2.2); a range, or a type no
+ * other family claims, is bytes. It differs from the request body codec on `text/*` and
+ * `+json-seq` by design.
+ */
 const codecOf = (mediaType: string): Codec => {
 	const sequential = sequentialCodecOf(mediaType)
 	if (sequential !== undefined) {
@@ -250,11 +279,11 @@ const codecOf = (mediaType: string): Codec => {
 
 	const essence = mediaEssence(mediaType)
 
-	if (essence === "application/json" || essence.endsWith("+json")) {
+	if (essence === "application/json" || Str.endsWith("+json")(essence)) {
 		return "json"
 	}
 
-	if (essence === "application/xml" || essence === "text/xml" || essence.endsWith("+xml")) {
+	if (essence === "application/xml" || essence === "text/xml" || Str.endsWith("+xml")(essence)) {
 		return "xml"
 	}
 
@@ -262,21 +291,41 @@ const codecOf = (mediaType: string): Codec => {
 		return "form"
 	}
 
-	if (essence.startsWith("multipart/")) {
+	if (Str.startsWith("multipart/")(essence)) {
 		return "multipart"
 	}
 
-	return essence.startsWith("text/") && !essence.endsWith("/*") ? "text" : "binary"
+	return Str.startsWith("text/")(essence) && !Str.endsWith("/*")(essence) ? "text" : "binary"
 }
 
-const keyRow = (key: ResponseCase["key"]): string => {
+/**
+ * What a response key's form fixes: its row (RSS-02 for `default`, RSS-03 for a code, RSS-06 for a
+ * range) and its place in the matching order, explicit codes, then ranges, then `default` (design
+ * 7.3), a code or a range by its number.
+ */
+interface Place {
+	readonly rank: number
+	readonly row: string
+	readonly value: number
+}
+
+const placeOf = (key: ResponseCase["key"]): Place => {
 	if (key === "default") {
-		return "RSS-02"
+		return { rank: 2, row: "RSS-02", value: 0 }
 	}
 
-	return "code" in key ? "RSS-03" : "RSS-06"
+	return "code" in key
+		? { rank: 0, row: "RSS-03", value: key.code }
+		: { rank: 1, row: "RSS-06", value: key.range }
 }
 
+/**
+ * One media alternative of a response, under its content key, or none when the key is no media
+ * type or range (RSP-05). Encoding applies to request bodies only (MED-10, 3.0 and 3.1), and a 3.2
+ * Media Type description is unused (MED-09, D-OC5), so each is ignored with a notice. A
+ * `text/event-stream` alternative with an item schema carries the event contract that schema
+ * states; a contract that cannot be read is a finding.
+ */
 const alternativeOf = Effect.fnUntraced(function* alternativeOf(
 	resolution: Resolution,
 	response: CanonicalKey,
@@ -292,33 +341,28 @@ const alternativeOf = Effect.fnUntraced(function* alternativeOf(
 		Effect.flatMap(Schema.decodeUnknownEffect(MediaObject)),
 		Effect.orDie
 	)
-	// Encoding applies to request bodies only (MED-10, 3.0 and 3.1); a 3.2 Media Type description
-	// is ignored (MED-09, D-OC5).
-	const findings: Finding[] = []
-	if (media.encoding !== undefined && resolution.line !== "3.2") {
-		findings.push({ at: home, code: "MED-10/encoding-ignored" })
-	}
-
-	if (media.description !== undefined && resolution.line === "3.2") {
-		findings.push({ at: home, code: "MED-09/description-ignored" })
-	}
-
+	const findings: readonly Finding[] = [
+		...(media.encoding !== undefined && resolution.line !== "3.2"
+			? [{ at: home, code: "MED-10/encoding-ignored" } as const]
+			: []),
+		...(media.description !== undefined && resolution.line === "3.2"
+			? [{ at: home, code: "MED-09/description-ignored" } as const]
+			: [])
+	]
 	const plain: PlainAlternative = {
 		codec: codecOf(mediaType),
 		encoding: [],
 		mediaType,
 		origin: home,
 		prefixEncoding: [],
-		rows: ["RSP-05"]
+		rows: ["RSP-05"],
+		...(media.itemSchema === undefined
+			? {}
+			: { itemSchema: schemaRefAt(resolution, childKey(home, "itemSchema")) }),
+		...(media.schema === undefined
+			? {}
+			: { schema: schemaRefAt(resolution, childKey(home, "schema")) })
 	}
-	if (media.itemSchema !== undefined) {
-		plain.itemSchema = schemaRefAt(resolution, childKey(home, "itemSchema"))
-	}
-
-	if (media.schema !== undefined) {
-		plain.schema = schemaRefAt(resolution, childKey(home, "schema"))
-	}
-
 	const contract =
 		plain.codec === "sse" && media.itemSchema !== undefined
 			? readEventContract(resolution, childKey(home, "itemSchema"))
@@ -338,8 +382,10 @@ const alternativeOf = Effect.fnUntraced(function* alternativeOf(
 	}
 })
 
-// A 3.0 schema-serialized header carries the D-OC9 notice; a content-based one never was
-// percent-encoded.
+/**
+ * Whether the header at `at` is serialized by a schema: a 3.0 such header carries the D-OC9
+ * notice, and a content-based one never was percent-encoded.
+ */
 const serializedBySchema = (resolution: Resolution, at: CanonicalKey): Effect.Effect<boolean> =>
 	nodeIn(resolution, follow(resolution, at)).pipe(
 		Effect.flatMap(Schema.decodeUnknownEffect(HeaderObject)),
@@ -353,7 +399,7 @@ const headerOf = Effect.fnUntraced(function* headerOf(
 	name: string
 ): Effect.fn.Return<Built<Option.Option<PlainCase["headers"][number]>>> {
 	const at = childKey(response, "headers", name)
-	if (name.toLowerCase() === "content-type") {
+	if (Str.toLowerCase(name) === "content-type") {
 		return { findings: [{ at, code: "RSP-09/ignored-content-type" }], value: Option.none() }
 	}
 
@@ -375,12 +421,11 @@ const headersOf = Effect.fnUntraced(function* headersOf(
 	headers: readonly string[],
 	response: CanonicalKey
 ): Effect.fn.Return<Built<PlainCase["headers"]>> {
-	// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
 	const built = yield* Effect.forEach(headers, (name) => headerOf(resolution, response, name))
 
 	return {
-		findings: built.flatMap((header) => header.findings),
-		value: Arr.getSomes(built.map((header) => header.value))
+		findings: Arr.flatMap(built, (header) => header.findings),
+		value: Arr.getSomes(Arr.map(built, (header) => header.value))
 	}
 })
 
@@ -390,16 +435,11 @@ const docsOf = (
 ): PlainCase["docs"] => {
 	const description = site?.description ?? response.description
 	const summary = site?.summary ?? response.summary
-	const docs: Types.Mutable<PlainCase["docs"]> = {}
-	if (description !== undefined) {
-		docs.description = stripUnsafeText(description)
-	}
 
-	if (summary !== undefined) {
-		docs.summary = stripUnsafeText(summary)
+	return {
+		...(description === undefined ? {} : { description: stripUnsafeText(description) }),
+		...(summary === undefined ? {} : { summary: stripUnsafeText(summary) })
 	}
-
-	return docs
 }
 
 const caseOf = Effect.fnUntraced(function* caseOf(
@@ -414,21 +454,25 @@ const caseOf = Effect.fnUntraced(function* caseOf(
 		Effect.flatMap(Schema.decodeUnknownEffect(ResponseObject)),
 		Effect.orDie
 	)
-	const alternatives = yield* Effect.forEach(Object.keys(response.content ?? {}), (mediaType) =>
-		alternativeOf(resolution, home, mediaType)
+	const alternatives = yield* Effect.forEach(
+		Option.match(response.content, { onNone: () => [], onSome: Record.keys }),
+		(mediaType) => alternativeOf(resolution, home, mediaType)
 	)
-	const headers = yield* headersOf(resolution, Object.keys(response.headers ?? {}), home)
+	const headers = yield* headersOf(resolution, Record.keys(response.headers), home)
 	const rows = [
-		keyRow(key),
+		placeOf(key).row,
 		"RSP-01",
 		...(headers.value.length === 0 ? [] : ["RSP-04"]),
-		...(response.content === undefined ? ["RSP-07"] : ["RSP-05"])
+		Option.isNone(response.content) ? "RSP-07" : "RSP-05"
 	]
 
 	return {
-		findings: [...alternatives.flatMap((alternative) => alternative.findings), ...headers.findings],
+		findings: [
+			...Arr.flatMap(alternatives, (alternative) => alternative.findings),
+			...headers.findings
+		],
 		value: {
-			alternatives: Arr.getSomes(alternatives.map((alternative) => alternative.value)),
+			alternatives: Arr.getSomes(Arr.map(alternatives, (alternative) => alternative.value)),
 			docs: docsOf(response, referenceIn(resolution, site)),
 			headers: headers.value,
 			key,
@@ -464,36 +508,46 @@ const toDiagnostic = (
 	})
 }
 
+/**
+ * The member names of the Responses Object at `responses`, in the order the parsed object lists
+ * them; an absent Responses Object, which 3.1 and 3.2 allow, has none. Validation refuses a
+ * document whose Responses Object is no object, so one that is not is a defect here.
+ */
 const responseKeys = (
 	resolution: Resolution,
 	responses: CanonicalKey
 ): Effect.Effect<readonly string[]> =>
-	nodeIn(resolution, responses).pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(ResponsesObject)),
-		Effect.map(Object.keys),
-		Effect.orElseSucceed((): readonly string[] => [])
-	)
+	Option.match(nodeOption(resolution, responses), {
+		onNone: () => Effect.succeed([]),
+		onSome: (node) =>
+			Schema.decodeUnknownEffect(ResponsesObject)(node).pipe(Effect.map(Record.keys), Effect.orDie)
+	})
 
-// One member of a Responses Object: a case, a refused key, or an `x-` key left to NZ-5.
+/**
+ * One member of a Responses Object: a case, a refused key, or an `x-` key left to NZ-5.
+ */
 const entryOf = Effect.fnUntraced(function* entryOf(
 	resolution: Resolution,
 	responses: CanonicalKey,
 	text: string
 ): Effect.fn.Return<Built<Option.Option<PlainCase>>> {
-	const key = classifyKey(text)
-	if (key === "invalid" || key === "out-of-range") {
-		const code = key === "invalid" ? "RSS-06/invalid-key" : "RSS-10/status-out-of-range"
+	const member = classifyKey(text)
+	switch (member._tag) {
+		case "Refused": {
+			return {
+				findings: [{ at: childKey(responses, text), code: member.code }],
+				value: Option.none()
+			}
+		}
+		case "Extension": {
+			return { findings: [], value: Option.none() }
+		}
+		case "Case": {
+			const built = yield* caseOf(resolution, responses, text, member.key)
 
-		return { findings: [{ at: childKey(responses, text), code }], value: Option.none() }
+			return { findings: built.findings, value: Option.some(built.value) }
+		}
 	}
-
-	if (key === "extension") {
-		return { findings: [], value: Option.none() }
-	}
-
-	const built = yield* caseOf(resolution, responses, text, key)
-
-	return { findings: built.findings, value: Option.some(built.value) }
 })
 
 /**
@@ -515,44 +569,24 @@ export const normalizeResponses = Effect.fnUntraced(function* normalizeResponses
 	operation: DiagnosticOperation
 ): Effect.fn.Return<NormalizedResponses> {
 	const responses = { document: resolution.document, pointer }
-	// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
-	const entries = yield* Effect.forEach(yield* responseKeys(resolution, responses), (text) =>
-		entryOf(resolution, responses, text)
-	)
-	const findings = entries.flatMap((entry) => entry.findings)
-	const cases = Arr.getSomes(entries.map((entry) => entry.value))
+	const keys = yield* responseKeys(resolution, responses)
+	const entries = yield* Effect.forEach(keys, (text) => entryOf(resolution, responses, text))
+	const findings = Arr.flatMap(entries, (entry) => entry.findings)
+	const cases = Arr.getSomes(Arr.map(entries, (entry) => entry.value))
 
 	return {
-		// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
 		diagnostics: yield* Effect.forEach(findings, (finding) =>
 			toDiagnostic(resolution, finding, operation)
 		),
-		// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
 		responses: yield* Effect.forEach(cases, (plain) =>
-			Schema.decodeUnknownEffect(ResponseCase)(plain).pipe(Effect.orDie)
+			Schema.decodeEffect(ResponseCase)(plain).pipe(Effect.orDie)
 		)
 	}
 })
 
-const keyRank = (key: ResponseCase["key"]): number => {
-	if (key === "default") {
-		return 2
-	}
-
-	return "code" in key ? 0 : 1
-}
-
-const keyValue = (key: ResponseCase["key"]): number => {
-	if (key === "default") {
-		return 0
-	}
-
-	return "code" in key ? key.code : key.range
-}
-
 const precedence = Order.combine(
-	Order.mapInput(Order.Number, (response: ResponseCase) => keyRank(response.key)),
-	Order.mapInput(Order.Number, (response: ResponseCase) => keyValue(response.key))
+	Order.mapInput(Order.Number, (response: ResponseCase) => placeOf(response.key).rank),
+	Order.mapInput(Order.Number, (response: ResponseCase) => placeOf(response.key).value)
 )
 
 /**
@@ -567,7 +601,7 @@ const specificity = (alternative: MediaAlternative): number => {
 		return 2
 	}
 
-	return essence.endsWith("/*") ? 1 : 0
+	return Str.endsWith("/*")(essence) ? 1 : 0
 }
 
 /**

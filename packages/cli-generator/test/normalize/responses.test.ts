@@ -76,9 +76,8 @@ export const responsesRules = property.explore(responsesSpace, {
 		},
 		{
 			file: "packages/cli-generator/src/normalize/responses.ts",
-			original:
-				"[...alternatives.flatMap((alternative) => alternative.findings), ...headers.findings]",
-			replacement: "[...headers.findings]",
+			original: "...Arr.flatMap(alternatives, (alternative) => alternative.findings),",
+			replacement: "...[],",
 			why: "A response's media alternatives raise no finding, so an invalid content key, a 3.0 encoding and a 3.2 description pass unreported; the property fails (CATCH's evidence, mutant 10241650d3)."
 		},
 		{
