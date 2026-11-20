@@ -306,7 +306,9 @@ export const renderedOf = (failing: Failing) =>
 				)
 			)
 			const exit = yield* Effect.exit(
-				Output.finalCatch([])(failureOf(failing.raised)).pipe(Effect.provideContext(context))
+				Output.finalCatch([], { envPrefix: "EXAMPLE" })(failureOf(failing.raised)).pipe(
+					Effect.provideContext(context)
+				)
 			)
 			return {
 				stderr: Arr.join(err, ""),

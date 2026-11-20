@@ -1,4 +1,4 @@
-/* oxlint-disable unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown */
+import { regex } from "arkregex"
 import type { PlatformError, Scope } from "effect"
 import {
 	Array as Arr,
@@ -7,17 +7,20 @@ import {
 	Config,
 	Console,
 	Context,
+	Data,
 	Duration,
 	Effect,
 	FileSystem,
+	Formatter,
 	Layer,
 	Option,
+	Order,
 	Path,
+	Predicate,
 	Record as Rec,
 	Redacted,
 	Ref,
 	Runtime,
-	Schema,
 	Sink,
 	Stdio,
 	Stream,
@@ -48,7 +51,6 @@ import {
 	plaintextWarning,
 	presentsCertificate,
 	preview,
-	redactedNames,
 	Schemes,
 	sensitiveHeaderNames,
 	withheldCertificateClause
@@ -173,8 +175,6 @@ const recordBytesRangeMessage = (): string => "must be 1 or more"
  */
 export const MaxRecordBytes = GlobalFlag.Setting("max-record-bytes")({
 	flag: Flag.Int("max-record-bytes").pipe(
-		// Flag.filter takes (predicate, onFalse); it is not an array method with a thisArg.
-		// oxlint-disable-next-line unicorn/no-array-method-this-argument
 		Flag.filter(isPositive, recordBytesRangeMessage),
 		Flag.withDescription("Largest record of a streamed response, in bytes"),
 		Flag.withDefault(defaultMaxRecordBytes)
@@ -261,26 +261,36 @@ export interface ResponseBody<E, R = never> {
 	readonly bytes: Stream.Stream<Uint8Array, E, R>
 }
 
-const textMediaType =
-	/^(?:text\/|application\/(?:json|xml|x-www-form-urlencoded)\b|[^;]*\+(?:json|xml)\b)/iu
+/**
+ * A text-family media type. It captures nothing, and its case-insensitive literals are too many for arkregex to type,
+ * so it is compiled untyped (`regex.as`).
+ */
+const textMediaType: Readonly<RegExp> = regex.as(
+	"^(?:text/|application/(?:json|xml|x-www-form-urlencoded)\\b|[^;]*\\+(?:json|xml)\\b)",
+	"iu"
+)
 
 /**
  * Whether the media type is text-family. Absent or unrecognized media types count as binary.
  */
 const isText = (mediaType: string | undefined): boolean =>
-	mediaType !== undefined && textMediaType.test(mediaType.trim())
+	mediaType !== undefined && textMediaType.test(Str.trim(mediaType))
 
-const BrokenPipe = Schema.Struct({ code: Schema.Literal("EPIPE") })
+/**
+ * Whether a platform failure's cause is Node's `EPIPE`: the reader of the pipe went away.
+ */
+const isEpipe = (cause: unknown): boolean =>
+	Predicate.hasProperty(cause, "code") && cause.code === "EPIPE"
 
 const isBrokenPipe = (error: PlatformError.PlatformError): boolean =>
-	error.reason._tag === "Unknown" && Schema.is(BrokenPipe)(error.reason.cause)
+	error.reason._tag === "Unknown" && isEpipe(error.reason.cause)
 
 const stdoutPath = "-"
 
 /**
  * The reader went away: stop streaming, report success (design 13.1 R5).
  */
-class StdoutClosed extends Schema.TaggedError<StdoutClosed>()("StdoutClosed", {}) {}
+class StdoutClosed extends Data.TaggedError("StdoutClosed") {}
 
 const stdoutFailure = (failure: PlatformError.PlatformError): OutputError | StdoutClosed =>
 	isBrokenPipe(failure)
@@ -301,18 +311,24 @@ const writeError = (path: string) => () => new OutputError({ path, reason: "writ
 
 /**
  * Refuse an existing `--output` target with `OutputError` exists. `send` runs it before the
- * request is sent, so a refusal never discards the answer of a request that took effect; `toFile`
- * runs it again, and its `link` still refuses a path created after both checks.
+ * request is sent, so a refusal never discards the answer of a request that took effect (a POST's
+ * one-time id or secret); `toFile` runs it again, and its `link` still refuses a path created after
+ * both checks.
  */
 const refuseExisting = (target: string): Effect.Effect<void, OutputError, FileSystem.FileSystem> =>
 	Effect.gen(function* checkTarget() {
 		const fs = yield* FileSystem.FileSystem
 
 		if (yield* fs.exists(target).pipe(Effect.mapError(writeError(target)))) {
-			yield* new OutputError({ path: target, reason: "exists" })
+			return yield* new OutputError({ path: target, reason: "exists" })
 		}
 	})
 
+/**
+ * Write the body to a temp file `makeTempFile` puts in a fresh sibling directory of `target`, then move it into place:
+ * with `force` by rename, else by link, which fails on an existing path, so a racing creator is never overwritten.
+ * Removing the temp file's directory, however the write ends, removes both.
+ */
 const toFile = <E, R>(
 	body: Stream.Stream<Uint8Array, E, R>,
 	target: string,
@@ -334,7 +350,6 @@ const toFile = <E, R>(
 		return yield* Effect.gen(function* step3() {
 			yield* Stream.run(body, fs.sink(temp).pipe(Sink.mapError(failWrite)))
 
-			// Without --force, link fails on an existing path, so a racing creator is never overwritten.
 			yield* force
 				? fs.rename(temp, target).pipe(Effect.mapError(failWrite))
 				: fs
@@ -347,7 +362,6 @@ const toFile = <E, R>(
 							)
 						)
 		}).pipe(
-			// makeTempFile puts the file in a fresh sibling directory; removing it removes both.
 			Effect.ensuring(
 				Effect.ignore(fs.remove(path.dirname(temp), { force: true, recursive: true }))
 			)
@@ -440,7 +454,7 @@ const responseBytes = <E, R>(response: ResponseBody<E, R>, plan: EventPlan) =>
 
 		return codec === undefined || codec === "sse" || raw
 			? asReceived
-			: { binary: false, bytes: asLines(framers[codec](maxRecordBytes)(response.bytes)) }
+			: { binary: false, bytes: response.bytes.pipe(framers[codec](maxRecordBytes), asLines) }
 	})
 
 /**
@@ -509,12 +523,15 @@ export const writeResponse = <E, R>(response: ResponseBody<E, R>) =>
  * C0 except LF and TAB, DEL, C1, format characters (bidi controls among them), U+2028, U+2029 and
  * lone surrogates: the set the help text removes at generation (design 7.4).
  */
-const unsafeText = /(?![\n\t])[\p{Cc}\p{Cf}\p{Cs}\u2028\u2029]/gu
+const unsafeText: Readonly<RegExp> = regex(
+	"(?![\\n\\t])[\\p{Cc}\\p{Cf}\\p{Cs}\\u2028\\u2029]",
+	"gu"
+)
 
 /**
  * Remove the characters that can drive a terminal or hide text. LF and TAB stay.
  */
-export const sanitize = (text: string): string => text.replaceAll(unsafeText, "")
+export const sanitize: (text: string) => string = Str.replaceAll(unsafeText, "")
 
 /**
  * Credential values scrubbed, then the text sanitized, then scrubbed again (design 7.4, audit
@@ -544,7 +561,8 @@ export const readErrorBody = <E, R>(
 	)
 
 /**
- * The errors the runtime raises by design (design 7.1), each rendered through `renderError`.
+ * The errors the runtime raises by design (design 7.1), the errors `send` fails with, each rendered through
+ * `renderError`.
  */
 export type KnownError =
 	| ApiResponseError
@@ -566,7 +584,9 @@ const isKnownError = (error: unknown): error is KnownError =>
 	error instanceof TransportError ||
 	error instanceof UsageError
 
-const oneLine = (text: string): string => text.replaceAll(/[\n\t]+/gu, " ")
+const lineBreaks: Readonly<RegExp> = regex("[\\n\\t]+", "gu")
+
+const oneLine: (text: string) => string = Str.replaceAll(lineBreaks, " ")
 
 const singleLine = (text: string, credentials: readonly ScrubEntry[]): string =>
 	oneLine(scrubbedAndSanitized(text, credentials))
@@ -596,9 +616,9 @@ const cappedSentence = (seconds: number): string =>
  * The failures of an exchange with the server, the errors a retry hint may follow (SM-16).
  */
 const isExchangeFailure = (error: KnownError): boolean =>
-	error instanceof ApiResponseError ||
-	error instanceof TransportError ||
-	error instanceof ResponseStreamError
+	error._tag === "ApiResponseError" ||
+	error._tag === "TransportError" ||
+	error._tag === "ResponseStreamError"
 
 /**
  * The sentence a known error carries after its message: for a failure event, `eventRetryHint` when the event said
@@ -673,9 +693,10 @@ const valueFreeMessage = (error: CliError.CliError): string =>
 const errorsText = (messages: readonly string[]): string =>
 	messages.length === 0
 		? ""
-		: `\nERROR${messages.length === 1 ? "" : "S"}\n${messages
-				.map((message) => `  ${message}`)
-				.join("\n")}`
+		: `\nERROR${messages.length === 1 ? "" : "S"}\n${Arr.join(
+				Arr.map(messages, (message) => `  ${message}`),
+				"\n"
+			)}`
 
 /**
  * Renders a `CliError.InvalidValue` by `kind` and `option` only: its `value` is the raw flag text
@@ -685,7 +706,7 @@ const errorsText = (messages: readonly string[]): string =>
 export const valueFreeFormatter: CliOutput.Formatter = {
 	formatCliError: valueFreeMessage,
 	formatError: (error) => errorsText([valueFreeMessage(error)]),
-	formatErrors: (errors) => errorsText(errors.map(valueFreeMessage)),
+	formatErrors: (errors) => errorsText(Arr.map(errors, valueFreeMessage)),
 	formatHelpDoc: base.formatHelpDoc,
 	formatVersion: base.formatVersion
 }
@@ -693,20 +714,24 @@ export const valueFreeFormatter: CliOutput.Formatter = {
 /**
  * Exit 70: a failure no error class names, a defect in the program. It is already printed.
  */
-export class InternalError extends Schema.TaggedError<InternalError>()("InternalError", {}) {
-	readonly [Runtime.errorExitCode] = 70
+export class InternalError extends Data.TaggedError("InternalError") {
+	override readonly [Runtime.errorExitCode] = 70
 
-	readonly [Runtime.errorReported] = false
+	override readonly [Runtime.errorReported] = false
 }
 
-const Described = Schema.Union([Schema.String, Schema.Struct({ message: Schema.String })])
+/**
+ * What a defect says of itself: the defect when it is a string, else its `message` when that is a string.
+ */
+const defectMessage = (defect: unknown): Option.Option<string> => {
+	if (Predicate.isString(defect)) {
+		return Option.some(defect)
+	}
 
-const isString = Schema.is(Schema.String)
-
-const isDescribed = Schema.is(Described)
-
-const defectMessage = (defect: typeof Described.Type): string =>
-	isString(defect) ? defect : defect.message
+	return Predicate.hasProperty(defect, "message") && Predicate.isString(defect.message)
+		? Option.some(defect.message)
+		: Option.none()
+}
 
 const rawMessage = (error: CliError.CliError): string =>
 	error._tag === "InvalidValue" ? invalidValueMessage(error) : error.message
@@ -721,7 +746,7 @@ const rawMessage = (error: CliError.CliError): string =>
 const renderCliError = (error: CliError.CliError): string | undefined => {
 	const errors = error._tag === "ShowHelp" ? error.errors : [error]
 
-	return errors.length === 0 ? undefined : errorsText(errors.map(rawMessage))
+	return errors.length === 0 ? undefined : errorsText(Arr.map(errors, rawMessage))
 }
 
 /**
@@ -753,7 +778,7 @@ export interface RunRecordState {
  * applies: format `text` (or, in `finalCatch`, `<PREFIX>_ERROR_FORMAT`) and no retry hint.
  */
 export class RunRecord extends Context.Service<RunRecord, Ref.Ref<RunRecordState>>()(
-	"openapi-cli/runtime/RunRecord"
+	"effect-openapi-cli-generator/runtime-src/runtime/output/RunRecord"
 ) {}
 
 /**
@@ -779,7 +804,9 @@ const envErrorFormat = Effect.fnUntraced(function* readErrorFormat(envPrefix: st
 	return Option.getOrElse(env, () => "text" as const)
 })
 
-// The operator's `--error-format`, if the root registers the setting and the flag was given.
+/**
+ * The operator's `--error-format`, if the root registers the setting and the flag was given.
+ */
 const flagErrorFormat = Effect.map(Effect.serviceOption(errorFormatSetting), Option.flatten)
 
 /**
@@ -884,7 +911,7 @@ interface ErrorFields {
  */
 const jsonLine = (fields: ErrorFields): string => {
 	const { carried } = fields
-	const text = JSON.stringify({
+	const text = Formatter.formatJson({
 		body: carried?.key === "body" ? carried.text : undefined,
 		kind: fields.kind,
 		matched: fields.matched,
@@ -900,6 +927,8 @@ const jsonLine = (fields: ErrorFields): string => {
 		: `{"error":${text}}`
 }
 
+const terminalPunctuation: Readonly<RegExp> = regex("[.!?]$", "u")
+
 /**
  * The JSON `message`, then the hint as a second sentence: a period unless the message already
  * ends in terminal punctuation, a space, then the hint. The text form keeps the hint on its own
@@ -908,7 +937,8 @@ const jsonLine = (fields: ErrorFields): string => {
 const withHint = (message: string, hint: Option.Option<string>): string =>
 	Option.match(hint, {
 		onNone: () => message,
-		onSome: (sentence) => `${/[.!?]$/u.test(message) ? message : `${message}.`} ${sentence}`
+		onSome: (sentence) =>
+			`${terminalPunctuation.test(message) ? message : `${message}.`} ${sentence}`
 	})
 
 /**
@@ -966,7 +996,10 @@ const renderCliErrorJson = (
 		? undefined
 		: jsonLine({
 				kind: errors.length === 1 ? only._tag : error._tag,
-				message: errors.map((each) => singleLine(rawMessage(each), credentials)).join("; ")
+				message: Arr.join(
+					Arr.map(errors, (each) => singleLine(rawMessage(each), credentials)),
+					"; "
+				)
 			})
 }
 
@@ -987,6 +1020,10 @@ const flushHeldHelp = (drop: boolean): Effect.Effect<void> =>
 				)
 	)
 
+/**
+ * Render a failed run's cause once, in the run's format (`finalCatch`). The help `presenter` held goes before a text
+ * parse error and is dropped before a json one, since the json form is one object on stderr (design 7.4).
+ */
 const renderCause = <E>(
 	cause: Cause.Cause<E>,
 	credentials: readonly ScrubEntry[],
@@ -1003,7 +1040,6 @@ const renderCause = <E>(
 		const raw = renderCliError(failure.value)
 		const text = raw === undefined ? undefined : scrubbedAndSanitized(raw, credentials)
 		const rendered = json ? renderCliErrorJson(failure.value, credentials) : text
-		// The json form is one object on stderr (design 7.4), so the held help goes only with text.
 		const help = flushHeldHelp(json && rendered !== undefined)
 
 		return Effect.andThen(
@@ -1021,9 +1057,8 @@ const renderCause = <E>(
 		return reportOnce(rendered, error)
 	}
 
-	const squashed = Cause.squash(cause)
 	const line = singleLine(
-		isDescribed(squashed) ? defectMessage(squashed) : "unknown failure",
+		Option.getOrElse(defectMessage(Cause.squash(cause)), () => "unknown failure"),
 		credentials
 	)
 	const rendered = json
@@ -1144,14 +1179,16 @@ export interface HelpNotes {
 /**
  * The `Command.annotate` key under which a generated command carries its help notes.
  */
-export const Help = Context.Service<HelpNotes>("openapi-cli/runtime/output/Help")
+export class Help extends Context.Service<Help, HelpNotes>()(
+	"effect-openapi-cli-generator/runtime-src/runtime/output/Help"
+) {}
 
 const helpBase = CliOutput.defaultFormatter({ colors: false, globalFlags: "summary" })
 
 interface HelpRow {
 	readonly left: string
 	readonly description: string
-	readonly note: string | undefined
+	readonly note: Option.Option<string>
 }
 
 /**
@@ -1171,13 +1208,15 @@ const columnGap = 4
  */
 const argumentColumnCap = 25
 
+/**
+ * The cap of a table whose first column has none, the FLAGS tables': the identity of `Math.min`.
+ */
+const uncapped = Number.POSITIVE_INFINITY
+
 const cellWidth = CliOutput.displayWidth
 
 const padTo = (text: string, width: number): string =>
-	text + " ".repeat(Math.max(0, width - cellWidth(text)))
-
-const noteFor = (notes: { readonly [name: string]: string }, name: string): string | undefined =>
-	Object.hasOwn(notes, name) ? notes[name] : undefined
+	text + Str.repeat(width - cellWidth(text))(" ")
 
 /**
  * A table of rows, laid out as effect's `renderTable` lays out two columns (first column as wide
@@ -1187,39 +1226,43 @@ const noteFor = (notes: { readonly [name: string]: string }, name: string): stri
  * `expected/help.txt` measures it (the long `--body` descriptions, which carry no note, do not
  * widen it). A row without a note has no trailing spaces.
  */
-const renderRows = (rows: readonly HelpRow[], cap = Number.POSITIVE_INFINITY): string => {
-	const column = Math.min(Math.max(...rows.map((row) => cellWidth(row.left))) + columnGap, cap)
+const renderRows = (rows: Arr.NonEmptyReadonlyArray<HelpRow>, cap: number): string => {
+	const widest = Arr.max(
+		Arr.map(rows, (row) => cellWidth(row.left)),
+		Order.Number
+	)
+	const column = Math.min(widest + columnGap, cap)
 	const leftWidth = (row: HelpRow): number => Math.max(column, cellWidth(row.left) + 1)
 	const noteColumn =
-		Math.max(
-			0,
-			...rows
-				.filter((row) => row.note !== undefined)
-				.map((row) => indent + leftWidth(row) + cellWidth(row.description))
+		Arr.reduce(rows, 0, (end, row) =>
+			Option.isSome(row.note)
+				? Math.max(end, indent + leftWidth(row) + cellWidth(row.description))
+				: end
 		) + columnGap
 
-	return rows
-		.map((row) => {
-			const text =
-				row.note === undefined
-					? row.description
-					: `${padTo(row.description, noteColumn - indent - leftWidth(row))}(${row.note})`
+	return Arr.join(
+		Arr.map(rows, (row) => {
+			const text = Option.match(row.note, {
+				onNone: () => row.description,
+				onSome: (note) => `${padTo(row.description, noteColumn - indent - leftWidth(row))}(${note})`
+			})
 
-			return `${" ".repeat(indent)}${padTo(row.left, leftWidth(row))}${text}`.trimEnd()
-		})
-		.join("\n")
+			return Str.trimEnd(`${Str.repeat(indent)(" ")}${padTo(row.left, leftWidth(row))}${text}`)
+		}),
+		"\n"
+	)
 }
 
 const argumentRow = (arg: HelpDoc.ArgDoc, notes: HelpNotes): HelpRow => ({
 	description: Option.getOrElse(arg.description, () => "") + (arg.required ? "" : " (optional)"),
 	left: `${arg.name}${arg.variadic ? "..." : ""} ${arg.type}`,
-	note: noteFor(notes.arguments, arg.name)
+	note: Rec.get(notes.arguments, arg.name)
 })
 
 const flagRow = (flag: HelpDoc.FlagDoc, notes: HelpNotes): HelpRow => ({
 	description: Option.getOrElse(flag.description, () => ""),
-	left: `${[`--${flag.name}`, ...flag.aliases].join(", ")}${flag.type === "boolean" ? "" : ` ${flag.type}`}`,
-	note: noteFor(notes.flags, flag.name)
+	left: `${Arr.join([`--${flag.name}`, ...flag.aliases], ", ")}${flag.type === "boolean" ? "" : ` ${flag.type}`}`,
+	note: Rec.get(notes.flags, flag.name)
 })
 
 const declaresGlobalFlags = (doc: HelpDoc.HelpDoc): boolean =>
@@ -1238,8 +1281,8 @@ const isNotesLayout = (doc: HelpDoc.HelpDoc): boolean =>
 
 const renderNotedHelp = (doc: HelpDoc.HelpDoc, notes: HelpNotes): string => {
 	const blocks: string[][] = []
-	const table = (title: string, rows: readonly HelpRow[], cap?: number): void => {
-		if (rows.length > 0) {
+	const table = (title: string, rows: readonly HelpRow[], cap: number): void => {
+		if (Arr.isReadonlyArrayNonEmpty(rows)) {
 			blocks.push([title, renderRows(rows, cap)])
 		}
 	}
@@ -1251,52 +1294,65 @@ const renderNotedHelp = (doc: HelpDoc.HelpDoc, notes: HelpNotes): string => {
 	blocks.push(["USAGE", `  ${doc.usage}`])
 	table(
 		"ARGUMENTS",
-		(doc.args ?? []).map((arg) => argumentRow(arg, notes)),
+		Arr.map(doc.args ?? [], (arg) => argumentRow(arg, notes)),
 		argumentColumnCap
 	)
 	table(
 		"FLAGS",
-		doc.flags.map((flag) => flagRow(flag, notes))
+		Arr.map(doc.flags, (flag) => flagRow(flag, notes)),
+		uncapped
 	)
 	table(
 		"INHERITED FLAGS",
-		(doc.inheritedFlags ?? []).map((flag) => flagRow(flag, notes))
+		Arr.map(doc.inheritedFlags ?? [], (flag) => flagRow(flag, notes)),
+		uncapped
 	)
 
-	const labelWidth = Math.max(0, ...notes.sections.map(([label]) => cellWidth(label))) + 1
+	const labelWidth =
+		Arr.reduce(notes.sections, 0, (widest, [label]) => Math.max(widest, cellWidth(label))) + 1
 
 	if (notes.sections.length > 0) {
-		blocks.push(notes.sections.map(([label, text]) => `${padTo(label, labelWidth)}${text}`))
+		blocks.push(Arr.map(notes.sections, ([label, text]) => `${padTo(label, labelWidth)}${text}`))
 	}
 
 	if ((doc.globalFlags ?? []).length > 0) {
 		const scope = doc.globalFlagsScope ?? doc.commandPath?.slice(0, 1) ?? []
 
-		blocks.push([`Run '${scope.join(" ")} --help' for global flags`])
+		blocks.push([`Run '${Arr.join(scope, " ")} --help' for global flags`])
 	}
 
-	return blocks.map((lines) => lines.join("\n")).join("\n\n")
+	return Arr.join(
+		Arr.map(blocks, (lines) => Arr.join(lines, "\n")),
+		"\n\n"
+	)
 }
 
+/**
+ * The command a help document's path names in the tree under `root`: the root when the path starts at its name, then
+ * each next name among the commands of the subcommand groups of the command before it.
+ */
 const findCommand = (
 	root: Command.Command.Any,
 	path: readonly string[]
-): Command.Command.Any | undefined => {
-	let node: Command.Command.Any | undefined = path[0] === root.name ? root : undefined
-
-	for (const name of path.slice(1)) {
-		node = node?.subcommands.flatMap((group) => group.commands).find((child) => child.name === name)
-	}
-
-	return node
-}
+): Option.Option<Command.Command.Any> =>
+	Arr.reduce(
+		Arr.drop(path, 1),
+		path[0] === root.name ? Option.some(root) : Option.none(),
+		(node, name) =>
+			Option.flatMap(node, (parent) =>
+				Arr.findFirst(
+					Arr.flatMap(parent.subcommands, (group) => group.commands),
+					(child) => child.name === name
+				)
+			)
+	)
 
 const helpNotesOf = (
 	root: Command.Command.Any,
 	path: readonly string[] | undefined
 ): Option.Option<HelpNotes> =>
 	Option.flatMap(Option.fromNullishOr(path), (known) =>
-		Option.flatMap(Option.fromNullishOr(findCommand(root, known)), (command) =>
+		Option.flatMap(findCommand(root, known), (command) =>
 			Context.getOption(command.annotations, Help)
 		)
 	)
@@ -1322,7 +1378,7 @@ export const formatter = (root: Command.Command.Any): CliOutput.Formatter => ({
 				isNotesLayout(doc) ? renderNotedHelp(doc, notes) : helpBase.formatHelpDoc(doc)
 		})
 
-		return isRootHelp(doc) ? `${text.trimEnd()}\n\nFLAG VALUES\n  ${dashValueEscape}` : text
+		return isRootHelp(doc) ? `${Str.trimEnd(text)}\n\nFLAG VALUES\n  ${dashValueEscape}` : text
 	},
 	formatVersion: valueFreeFormatter.formatVersion
 })
@@ -1364,20 +1420,7 @@ export class ClientPolicy extends Context.Service<
 		readonly binName: string
 		readonly version: string
 	}
->()("openapi-cli/runtime/ClientPolicy") {}
-
-/**
- * The errors `send` fails with.
- */
-export type SendError =
-	| ApiResponseError
-	| CredentialMissing
-	| OutputError
-	| RedirectRefused
-	| ResponseStreamError
-	| StreamEventError
-	| TransportError
-	| UsageError
+>()("effect-openapi-cli-generator/runtime-src/runtime/output/ClientPolicy") {}
 
 const displayName = (meta: OperationMeta): string =>
 	meta.operationId ?? `${meta.method} ${meta.pathTemplate}`
@@ -1385,11 +1428,11 @@ const displayName = (meta: OperationMeta): string =>
 /**
  * The builder's URL is its path and serialized query; `requestUrl` takes them apart.
  */
-const splitTarget = (target: string): readonly [path: string, query: string] => {
-	const at = target.indexOf("?")
-
-	return at === -1 ? [target, ""] : [target.slice(0, at), target.slice(at + 1)]
-}
+const splitTarget = (target: string): readonly [path: string, query: string] =>
+	Option.match(Str.indexOf("?")(target), {
+		onNone: () => [target, ""],
+		onSome: (at) => [Str.slice(0, at)(target), Str.slice(at + 1)(target)]
+	})
 
 /**
  * The one stderr notice of design 6.4 (F:R1): a configured header credential or the `mutualTLS`
@@ -1398,7 +1441,7 @@ const splitTarget = (target: string): readonly [path: string, query: string] => 
  * does not extend to it (m3.md P19). It never names a value, a path or certificate material.
  */
 const withheldNotice = (headers: readonly Credential[], certificate: boolean): string => {
-	const schemes = Arr.dedupe(headers.map((credential) => credential.scheme)).join(", ")
+	const schemes = Arr.join(Arr.dedupe(Arr.map(headers, (credential) => credential.scheme)), ", ")
 	const clauses = [
 		...(headers.length > 0
 			? [
@@ -1409,7 +1452,7 @@ const withheldNotice = (headers: readonly Credential[], certificate: boolean): s
 		...(certificate ? [withheldCertificateClause] : [])
 	]
 
-	return sanitize(`Notice: ${clauses.join("; ")}`)
+	return sanitize(`Notice: ${Arr.join(clauses, "; ")}`)
 }
 
 /**
@@ -1580,7 +1623,7 @@ const warnMissingHeaders = (
 	)
 
 	return Effect.forEach(
-		required.filter((name) => Option.isNone(Headers.get(response.headers, name))),
+		Arr.filter(required, (name) => Option.isNone(Headers.get(response.headers, name))),
 		(name) => printStderr(`Warning: the response is missing the required header ${name}`),
 		{ discard: true }
 	)
@@ -1597,7 +1640,8 @@ const undeclaredMediaNotice = (
 	scrub: (text: string) => string
 ): Effect.Effect<void, never, Stdio.Stdio> =>
 	Effect.gen(function* noticeUndeclaredMedia() {
-		if (!Option.getOrElse(yield* Effect.serviceOption(verboseSetting), () => false)) {
+		const verbose = yield* Effect.serviceOption(verboseSetting)
+		if (!Option.getOrElse(verbose, () => false)) {
 			return
 		}
 
@@ -1617,45 +1661,93 @@ const crlf = encoder.encode("\r\n")
 
 const headEnd = encoder.encode("\r\n\r\n")
 
-// Whether `needle` occurs in `haystack` at `at`.
+const closingDashes = encoder.encode("--")
+
+/**
+ * Whether `needle` occurs in `haystack` at `at`.
+ */
 const matchesAt = (haystack: Uint8Array, needle: Uint8Array, at: number): boolean =>
 	needle.every((byte, offset) => haystack[at + offset] === byte)
 
-// The first index of `needle` in `haystack`, or -1.
-const indexOfBytes = (haystack: Uint8Array, needle: Uint8Array): number => {
+/**
+ * The first index of `needle` in `haystack`, if it occurs there.
+ */
+const indexOfBytes = (haystack: Uint8Array, needle: Uint8Array): Option.Option<number> => {
 	for (let at = 0; at + needle.length <= haystack.length; at += 1) {
 		if (matchesAt(haystack, needle, at)) {
-			return at
+			return Option.some(at)
 		}
 	}
 
-	return -1
+	return Option.none()
 }
 
-const multipartBoundary =
-	/^multipart\/[^;]+;\s*boundary=(?<quote>"?)(?<boundary>[^";\r\n]+)\k<quote>/iu
+/**
+ * What a multipart delimiter that `bytes` holds at `at` ends with, if it ends there: CRLF, which starts a part's head,
+ * or `--`, which closes the body.
+ */
+const delimiterEndAt = (bytes: Uint8Array, at: number): Option.Option<"\r\n" | "--"> => {
+	if (matchesAt(bytes, crlf, at)) {
+		return Option.some("\r\n")
+	}
 
-const boundaryOf = (mediaType: string | undefined): string | undefined =>
-	multipartBoundary.exec(mediaType?.trim() ?? "")?.groups?.boundary
+	return matchesAt(bytes, closingDashes, at) ? Option.some("--") : Option.none()
+}
 
-const partFilename = /;\s*filename="(?<filename>[^"]*)"/u
+/**
+ * A multipart media type up to the `;` that starts its first parameter.
+ */
+const multipartType = regex("^multipart/[^;]+;", "iu")
 
-const partContentType = /^content-type:\s*(?<type>[^\r\n]*)$/imu
+/**
+ * A `boundary` parameter, its value bare or quoted.
+ */
+const boundaryParameter = regex(
+	'^\\s*boundary=(?<quote>"?)(?<boundary>[^";\\r\\n]+)\\k<quote>',
+	"iu"
+)
+
+/**
+ * The boundary of a multipart media type whose first parameter is `boundary`.
+ */
+const boundaryOf = (mediaType: string | undefined): string | undefined => {
+	if (mediaType === undefined) {
+		return undefined
+	}
+
+	const type = Str.trim(mediaType)
+	const head = multipartType.exec(type)
+
+	return head === null
+		? undefined
+		: boundaryParameter.exec(Str.slice(head[0].length)(type))?.groups.boundary
+}
+
+const partFilename = regex(';\\s*filename="(?<filename>[^"]*)"', "u")
+
+const partContentType = regex("^content-type:\\s*(?<type>[^\\r\\n]*)$", "imu")
 
 const unchanged = (text: string): string => text
 
-// A part head with the value of each field whose name `names` lists replaced by `<redacted>`.
+/**
+ * A part head with the value of each field whose name `names` lists replaced by `<redacted>`.
+ */
 const redactPartHead = (head: string, names: readonly (string | RegExp)[]): string =>
-	head
-		.split("\r\n")
-		.map((field) => {
-			const colon = field.indexOf(":")
+	Arr.join(
+		Arr.map(Str.split("\r\n")(head), (field) =>
+			Option.match(Str.indexOf(":")(field), {
+				onNone: () => field,
+				onSome: (colon) => {
+					const name = Str.slice(0, colon)(field)
 
-			return colon !== -1 && Headers.isRedactedName(field.slice(0, colon).trim(), names)
-				? `${field.slice(0, colon)}: ${redactedPlaceholder()}`
-				: field
-		})
-		.join("\r\n")
+					return Headers.isRedactedName(Str.trim(name), names)
+						? `${name}: ${redactedPlaceholder()}`
+						: field
+				}
+			})
+		),
+		"\r\n"
+	)
 
 /**
  * The recorded-value scrub over text that arrives in chunks, for the `--dry-run` body: each piece
@@ -1682,7 +1774,7 @@ class StreamScrubber {
 			shorter = dropTrailingFragment(safe, this.recorded, unchanged)
 		}
 
-		this.pending = text.slice(safe.length)
+		this.pending = Str.slice(safe.length)(text)
 
 		return this.emit(safe)
 	}
@@ -1754,11 +1846,15 @@ class MultipartSummary {
 		return out
 	}
 
-	// Text is emitted through the recorded-value scrub; a summarized part is only counted.
+	/**
+	 * A part's content bytes: text is emitted through the recorded-value scrub; a summarized part is only counted.
+	 */
 	private content(bytes: Uint8Array, out: Uint8Array[]): void {
 		if (this.summary === undefined) {
 			this.text ??= new StreamScrubber(this.recorded)
-			out.push(...this.text.push(bytes))
+			for (const piece of this.text.push(bytes)) {
+				out.push(piece)
+			}
 		} else {
 			this.counted += bytes.length
 		}
@@ -1766,7 +1862,9 @@ class MultipartSummary {
 
 	private flushText(out: Uint8Array[]): void {
 		if (this.text !== undefined) {
-			out.push(...this.text.end())
+			for (const piece of this.text.end()) {
+				out.push(piece)
+			}
 			this.text = undefined
 		}
 	}
@@ -1787,13 +1885,18 @@ class MultipartSummary {
 
 	private drain(final: boolean): readonly Uint8Array[] {
 		const out: Uint8Array[] = []
-		while (this.step(final, out)) {
-			// Each step consumes input or changes mode; it returns false when it needs more bytes.
+		let progressed = this.step(final, out)
+		while (progressed) {
+			progressed = this.step(final, out)
 		}
 
 		return out
 	}
 
+	/**
+	 * One step of the machine: it consumes input or changes mode and returns true, or returns false when it needs more
+	 * bytes.
+	 */
 	private step(final: boolean, out: Uint8Array[]): boolean {
 		if (this.mode === "epilogue") {
 			this.content(this.pending, out)
@@ -1805,9 +1908,13 @@ class MultipartSummary {
 		return this.mode === "head" ? this.head(final, out) : this.body(final, out)
 	}
 
+	/**
+	 * A part head, up to its blank line. A head that opens a nested multipart body keeps its last CRLF in the input,
+	 * since that CRLF starts the nested body's first delimiter.
+	 */
 	private head(final: boolean, out: Uint8Array[]): boolean {
-		const at = indexOfBytes(this.pending, headEnd)
-		if (at === -1) {
+		const found = indexOfBytes(this.pending, headEnd)
+		if (Option.isNone(found)) {
 			if (final) {
 				this.content(this.pending, out)
 				this.pending = new Uint8Array(0)
@@ -1816,21 +1923,21 @@ class MultipartSummary {
 			return false
 		}
 
+		const at = found.value
 		const head = new TextDecoder().decode(this.pending.subarray(0, at))
 		const shown = redactPartHead(head, this.names)
-		const contentType = partContentType.exec(head)?.groups?.type
+		const contentType = partContentType.exec(head)?.groups.type
 		const nested = boundaryOf(contentType)
 		if (nested === undefined) {
 			out.push(this.scrubbed(`${shown}\r\n\r\n`))
 			this.pending = this.pending.subarray(at + headEnd.length)
-			const filename = partFilename.exec(head)?.groups?.filename
+			const filename = partFilename.exec(head)?.groups.filename
 			if (filename !== undefined) {
 				this.summary = `file ${filename}`
 			} else if (contentType !== undefined && !isText(contentType)) {
 				this.summary = "binary part"
 			}
 		} else {
-			// The head's last CRLF starts the nested body's first delimiter.
 			out.push(this.scrubbed(`${shown}\r\n`))
 			this.pending = this.pending.subarray(at + 2)
 			this.boundaries.push(nested)
@@ -1841,19 +1948,20 @@ class MultipartSummary {
 		return true
 	}
 
+	/**
+	 * A part's content, up to the next delimiter of the innermost boundary and the two bytes after it. Until both are in
+	 * the input it emits all but a tail that may hold the start of a delimiter and those two bytes. A boundary text
+	 * followed by neither CRLF nor `--` lies inside a part's content and is no delimiter.
+	 */
 	private body(final: boolean, out: Uint8Array[]): boolean {
 		const boundary = this.boundaries.at(-1) ?? ""
 		const delimiter = encoder.encode(`\r\n--${boundary}`)
-		const at = indexOfBytes(this.pending, delimiter)
-		const after = at === -1 ? -1 : at + delimiter.length
-		if (at === -1 || after + 2 > this.pending.length) {
-			// Keep a tail that may hold the start of a delimiter and the two bytes after it.
-			let safe = at
-			if (final) {
-				safe = this.pending.length
-			} else if (at === -1) {
-				safe = Math.max(0, this.pending.length - delimiter.length - 1)
-			}
+		const found = indexOfBytes(this.pending, delimiter)
+		const complete = Option.filter(found, (at) => at + delimiter.length + 2 <= this.pending.length)
+		if (Option.isNone(complete)) {
+			const safe = final
+				? this.pending.length
+				: Option.getOrElse(found, () => Math.max(0, this.pending.length - delimiter.length - 1))
 
 			this.content(this.pending.subarray(0, safe), out)
 			this.pending = this.pending.subarray(safe)
@@ -1864,14 +1972,17 @@ class MultipartSummary {
 			return false
 		}
 
-		const next = new TextDecoder().decode(this.pending.subarray(after, after + 2))
-		if (next !== "\r\n" && next !== "--") {
-			// The boundary text inside a part's content, not a delimiter.
+		const at = complete.value
+		const after = at + delimiter.length
+		const ending = delimiterEndAt(this.pending, after)
+		if (Option.isNone(ending)) {
 			this.content(this.pending.subarray(0, after), out)
 			this.pending = this.pending.subarray(after)
 
 			return true
 		}
+
+		const next = ending.value
 
 		this.content(this.pending.subarray(0, at), out)
 		this.closePart(out)
@@ -1908,7 +2019,9 @@ const summarizeMultipart = <E, R>(
 
 const newline = encoder.encode("\n")
 
-// End a non-empty body with a newline, so the next prompt starts on its own line.
+/**
+ * End a non-empty body with a newline, so the next prompt starts on its own line.
+ */
 const endWithNewline = <E, R>(
 	body: Stream.Stream<Uint8Array, E, R>
 ): Stream.Stream<Uint8Array, E, R> =>
@@ -1982,7 +2095,8 @@ const dryRunBody = (
 
 /**
  * The request target as the redirect loop sends it: `urlParams` folded in their `queryWireForm`,
- * a placeholder written as itself, no fragment. A query value whose decoded name
+ * a placeholder written as itself, no fragment. A `Redacted` param is a value the runtime holds
+ * secret and prints as `<redacted>`; a query value whose decoded name
  * `UrlParams.CurrentRedactedNames` lists is `<redacted>`, unless it is a placeholder.
  */
 const dryRunUrl = (
@@ -1990,7 +2104,6 @@ const dryRunUrl = (
 	placeholders: ReadonlySet<string>,
 	names: readonly (string | RegExp)[]
 ): string => {
-	// A `Redacted` param is a value the runtime holds secret; it prints as `<redacted>`.
 	const wire = (value: string | Redacted.Redacted): string => {
 		if (Redacted.isRedacted(value)) {
 			return redactedPlaceholder()
@@ -1998,32 +2111,29 @@ const dryRunUrl = (
 
 		return placeholders.has(value) ? value : queryWireForm(value)
 	}
-	const pairs = UrlParams.fromInput(request.urlParams).params.map(
+	const pairs = Arr.map(
+		UrlParams.fromInput(request.urlParams).params,
 		([name, value]) => `${queryWireForm(name)}=${wire(value)}`
 	)
 	const url =
 		pairs.length === 0
 			? request.url
-			: `${request.url}${querySeparator(request.url)}${pairs.join("&")}`
-	const at = url.indexOf("?")
-	if (at === -1) {
-		return url
-	}
-
-	const query = url
-		.slice(at + 1)
-		.split("&")
-		.map((part) => {
-			const equals = part.indexOf("=")
-			const redacted =
-				equals !== -1 &&
-				!placeholders.has(part.slice(equals + 1)) &&
-				UrlParams.isRedactedName(decodedQueryName(part.slice(0, equals)), names)
-
-			return redacted ? `${part.slice(0, equals + 1)}${redactedPlaceholder()}` : part
+			: `${request.url}${querySeparator(request.url)}${Arr.join(pairs, "&")}`
+	const shown = (part: string): string =>
+		Option.match(Str.indexOf("=")(part), {
+			onNone: () => part,
+			onSome: (equals) =>
+				!placeholders.has(Str.slice(equals + 1)(part)) &&
+				UrlParams.isRedactedName(decodedQueryName(Str.slice(0, equals)(part)), names)
+					? `${Str.slice(0, equals + 1)(part)}${redactedPlaceholder()}`
+					: part
 		})
 
-	return `${url.slice(0, at + 1)}${query.join("&")}`
+	return Option.match(Str.indexOf("?")(url), {
+		onNone: () => url,
+		onSome: (at) =>
+			`${Str.slice(0, at + 1)(url)}${Arr.join(Arr.map(Str.split("&")(Str.slice(at + 1)(url)), shown), "&")}`
+	})
 }
 
 /**
@@ -2041,21 +2151,25 @@ const printDryRun = (
 	sensitive: readonly (string | RegExp)[]
 ): Effect.Effect<void, OutputError | UsageError, Stdio.Stdio> =>
 	Effect.gen(function* dryRun() {
-		const written = new Set(placeholders.map(({ scheme }) => placeholder(scheme)))
+		const written = new Set(Arr.map(placeholders, ({ scheme }) => placeholder(scheme)))
 		const headerNames = [...(yield* Effect.service(Headers.CurrentRedactedNames)), ...sensitive]
 		const queryNames = yield* Effect.service(UrlParams.CurrentRedactedNames)
 		const scrub = (text: string): string => scrubbedAndSanitized(text, recorded)
-		const lines = [
-			`${request.method} ${dryRunUrl(request, written, queryNames)} HTTP/1.1`,
-			...sendOrder(request.headers).map(
-				([name, value]) =>
-					`${name}: ${requestHeaderValue(name, scrub(value), headerNames, queryNames, written)}`
-			)
-		].map(scrub)
+		const lines = Arr.map(
+			[
+				`${request.method} ${dryRunUrl(request, written, queryNames)} HTTP/1.1`,
+				...Arr.map(
+					sendOrder(request.headers),
+					([name, value]) =>
+						`${name}: ${requestHeaderValue(name, scrub(value), headerNames, queryNames, written)}`
+				)
+			],
+			scrub
+		)
 
 		yield* toStdout(
 			Stream.concat(
-				line(`${lines.join("\n")}\n\n`),
+				line(`${Arr.join(lines, "\n")}\n\n`),
 				endWithNewline(dryRunBody(request, recorded, headerNames))
 			)
 		)
@@ -2076,9 +2190,17 @@ const printDryRun = (
  * an undeclared media type; an SSE body is read under the event contract the operation's meta
  * names for its response and media keys (`eventPlanOf`), and a failure event it ends at fails
  * with `StreamEventError` after the event is written; any other status fails with `ApiResponseError` carrying the body,
- * read whole and scrubbed of every value the run recorded (its credentials, added to the
- * record, and its secret-file values), and the server's `Retry-After` when retrying stopped at the
- * cap.
+ * read whole and scrubbed of every value the run recorded (its secret-file values, and its
+ * credentials, which `send` adds to the record without replacing it, so a secret-file value the
+ * body recorded before `send` stays scrubbed: audit ad9f808b F3), and the server's `Retry-After`
+ * when retrying stopped at the cap.
+ *
+ * Header credentials reach the base when its origin is among the credential origins
+ * (`credentialOrigins`), which `--allow-credentials-for-base-url` widens to an unbound base; the
+ * plaintext warning goes with the flag only when the base is not bound without it. The `mutualTLS`
+ * certificate is a credential of the chosen alternative, presented and withheld by that one fact
+ * (design 6.5, 9 I3; audit F1), on a hop to one of the operation's bound origins only, which the
+ * flag never widens. The selected base URL parses, as its selection validated it.
  *
  * The policy client, innermost first (design D-AD7; audit ad9f808b F5): `verboseTransform` on each
  * transport client the redirect loop sends a hop through, so `--verbose` sees each hop of each
@@ -2098,8 +2220,10 @@ const printDryRun = (
  * on a request whose answer would be discarded. Errors are not rendered here: `finalCatch` does.
  *
  * Under `--dry-run` (`dryRunSetting`) the requirement is evaluated by `preview`, which never fails
- * for a missing credential and never prompts, and the built request, with its `User-Agent` and the
- * chosen alternative's placeholders, is printed by `printDryRun` instead of entering the client.
+ * for a missing credential and never prompts, and the built request, with its `User-Agent` and then the
+ * chosen alternative's placeholders, in the policy client's order, is printed by `printDryRun`
+ * instead of entering the client. The redacted names of the security table
+ * (`Auth.redactedNames`) are the entry's to provide, with its other layers.
  */
 export const send =
 	(meta: OperationMeta, accept: Option.Option<string> = Option.none()) =>
@@ -2129,20 +2253,16 @@ export const send =
 				onSome: (value) => HttpClientRequest.setHeader(located, "accept", value)
 			})
 
-			// `--dry-run` shows the chosen alternative's placeholders and never fails for a missing
-			// credential or prompts for one.
-			const dryRun = Option.getOrElse(yield* Effect.serviceOption(dryRunSetting), () => false)
+			const dryRunFlag = yield* Effect.serviceOption(dryRunSetting)
+			const dryRun = Option.getOrElse(dryRunFlag, () => false)
 			const chosen = dryRun
 				? yield* preview(meta.security)
 				: { credentials: yield* evaluate(operation, meta.security), placeholders: [] }
 			const { credentials } = chosen
-			// Merged, never replaced: a secret-file value the body recorded before `send` stays
-			// recorded, and the error body below scrubs it (audit ad9f808b F3).
 			const recorded = yield* Effect.service(RunCredentials)
 			const scrubbed = yield* Ref.updateAndGet(recorded, (entries) => [...entries, ...credentials])
 
 			const { table: security } = yield* Schemes
-			// The base URL was validated when it was selected, so it parses.
 			const { origin: baseOrigin } = yield* Effect.orDie(Effect.fromResult(Url.fromString(baseUrl)))
 			const gate = {
 				allowUnboundBase: yield* allowCredentialsForBaseUrl,
@@ -2151,13 +2271,9 @@ export const send =
 				provenance: selection.provenance
 			}
 			const origins = credentialOrigins(gate)
-			// The bound origins alone: the certificate's set, which the flag never widens.
 			const bound = credentialOrigins({ ...gate, allowUnboundBase: false })
-			const headers = credentials.filter(({ definition }) => definition.kind !== "mutualTLS")
-			// The certificate is a credential of the chosen alternative (design 6.5, 9 I3; audit F1):
-			// presented and withheld by this one fact.
+			const headers = Arr.filter(credentials, ({ definition }) => definition.kind !== "mutualTLS")
 			const certificateChosen = headers.length < credentials.length
-			// Only header credentials reach the base; the certificate never rides the flag.
 			const sendsToBase = headers.length > 0 && origins.includes(baseOrigin)
 			const headersWithheld = headers.length > 0 && !sendsToBase
 			const certificateWithheld = certificateChosen && !bound.includes(baseOrigin)
@@ -2166,7 +2282,6 @@ export const send =
 				yield* printStderr(withheldNotice(headersWithheld ? headers : [], certificateWithheld))
 			}
 
-			// The flag let them through only when the base is not bound without it.
 			const allowedByFlag = sendsToBase && !bound.includes(baseOrigin)
 			yield* Option.match(plaintextWarning(baseUrl, allowedByFlag), {
 				onNone: () => Effect.void,
@@ -2176,19 +2291,15 @@ export const send =
 			const policy = yield* ClientPolicy
 			const sensitive = sensitiveHeaderNames(meta.sensitiveHeaders)
 			if (dryRun) {
-				// The `User-Agent` `withUserAgent` sets, then the attach step, in the policy client's order.
 				const agent = setUserAgent(policy.binName, policy.version)(built)
 				const shown = yield* attachPlaceholders(security, chosen.placeholders, origins)(agent)
-				yield* printDryRun(shown, chosen.placeholders, scrubbed, sensitive).pipe(
-					Effect.provide(redactedNames(security))
-				)
+				yield* printDryRun(shown, chosen.placeholders, scrubbed, sensitive)
 
 				return
 			}
 
-			// Before the request is sent: a refused target must not discard the answer of a request
-			// that took effect (a POST's one-time id or secret).
-			const target = Option.getOrUndefined(yield* OutputPath)
+			const output = yield* OutputPath
+			const target = Option.getOrUndefined(output)
 			if (target !== undefined && target !== stdoutPath && !(yield* Force)) {
 				yield* refuseExisting(target)
 			}
@@ -2201,13 +2312,11 @@ export const send =
 			const client = redirectLoop(
 				attach(security, { credentials, origins }),
 				transport,
-				// Per hop, from the operation's bound origins: the flag never extends the certificate.
-				// An alternative without mutualTLS presents it on no hop.
 				(url) => certificateChosen && presentsCertificate(url, servers.boundOrigins),
 				verboseTransform(
 					scrub,
 					sensitive,
-					new Set(headers.map(({ scheme }) => placeholder(scheme)))
+					new Set(Arr.map(headers, ({ scheme }) => placeholder(scheme)))
 				)
 			).pipe(retryTransform(scrub, budget, reads), withUserAgent(policy.binName, policy.version))
 			const cap = yield* Ref.make(Option.none<number>())
@@ -2262,7 +2371,7 @@ export const send =
 			 * The operation called again after its stream failed, its new stream read as a fresh call's, when `decision`
 			 * says to go again, after its delay; otherwise a stream that fails with `failure`.
 			 */
-			const again = (decision: RetryDecision, failure: SendError) =>
+			const again = (decision: RetryDecision, failure: KnownError) =>
 				decision._tag === "Again"
 					? Stream.unwrap(
 							Effect.gen(function* callAgain() {
@@ -2285,8 +2394,8 @@ export const send =
 			 * anew; a write's cut, which may have committed, ends the run.
 			 */
 			const retrying = <R>(
-				bytes: Stream.Stream<Uint8Array, SendError | EventFailed, R>
-			): Stream.Stream<Uint8Array, SendError, R | Scope.Scope | Stdio.Stdio> =>
+				bytes: Stream.Stream<Uint8Array, KnownError | EventFailed, R>
+			): Stream.Stream<Uint8Array, KnownError, R | Scope.Scope | Stdio.Stdio> =>
 				Stream.catchTags(bytes, {
 					EventFailed: (failed) =>
 						Stream.unwrap(
@@ -2324,7 +2433,6 @@ export const send =
 							)
 				),
 				Effect.provideService(RetryAfterCap, cap),
-				Effect.scoped,
-				Effect.provide(redactedNames(security))
+				Effect.scoped
 			)
 		})

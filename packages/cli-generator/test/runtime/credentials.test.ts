@@ -483,9 +483,8 @@ export const sentCredentials = property.explore(
 		kills: [
 			{
 				file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
-				original: '\treturn at === -1 ? [target, ""] : [target.slice(0, at), target.slice(at + 1)]',
-				replacement:
-					'\treturn at !== -1 ? [target, ""] : [target.slice(0, at), target.slice(at + 1)]',
+				original: 'onNone: () => [target, ""],',
+				replacement: 'onNone: () => ["", target],',
 				why: "A request target with no query is split as all query, so the request goes to the base alone; the property fails (CATCH's evidence, mutant 45b047a1eb)."
 			},
 			{

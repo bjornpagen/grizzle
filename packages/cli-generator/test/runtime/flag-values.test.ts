@@ -156,8 +156,8 @@ export const commandLine = property.explore(
 			},
 			{
 				file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
-				original: `isRootHelp(doc) ? \`\${text.trimEnd()}\\n\\nFLAG VALUES\\n  \${dashValueEscape}\` : text`,
-				replacement: `isRootHelp(doc) ? text : \`\${text.trimEnd()}\\n\\nFLAG VALUES\\n  \${dashValueEscape}\``,
+				original: `isRootHelp(doc) ? \`\${Str.trimEnd(text)}\\n\\nFLAG VALUES\\n  \${dashValueEscape}\` : text`,
+				replacement: `isRootHelp(doc) ? text : \`\${Str.trimEnd(text)}\\n\\nFLAG VALUES\\n  \${dashValueEscape}\``,
 				why: "Root help loses the `--flag=-value` escape line; the property fails (CATCH's evidence, mutant 4a18350196)."
 			},
 			{

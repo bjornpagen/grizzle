@@ -155,6 +155,7 @@ export const sendIn = (world: SendWorld) =>
 				Layer.mergeAll(
 					BaseUrl.layer(world.servers, PREFIX),
 					Auth.layer(world.security, PREFIX, []),
+					Auth.redactedNames(world.security),
 					ConfigProvider.layer(ConfigProvider.fromEnvRecord(world.env)),
 					Layer.succeed(FileSystem.FileSystem, fileSystem),
 					Layer.succeed(Path.Path, path),
@@ -186,7 +187,7 @@ export const sendIn = (world: SendWorld) =>
 			)
 			const exit = yield* Effect.exit(
 				world.request.pipe(
-					Output.send(world.operation),
+					Output.send(world.operation, Option.none()),
 					Output.finalCatch([], { envPrefix: PREFIX }),
 					Effect.provideContext(context)
 				)

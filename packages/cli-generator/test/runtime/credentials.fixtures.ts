@@ -1838,7 +1838,9 @@ export const actualCalled = (drawn: Call) =>
 			query: []
 		})
 		const claim = yield* claimOf
-		const exit = yield* Output.finalCatch([])(request.pipe(Effect.flatMap(Output.send(meta)))).pipe(
+		const exit = yield* Output.finalCatch([], { envPrefix: "EXAMPLE" })(
+			request.pipe(Effect.flatMap(Output.send(meta, Option.none())))
+		).pipe(
 			Effect.provideService(BaseUrl.Servers, {
 				envPrefix: "EXAMPLE",
 				table: { boundOrigins: [API], defaultServer: 0, servers: [{ url: API, variables: {} }] }

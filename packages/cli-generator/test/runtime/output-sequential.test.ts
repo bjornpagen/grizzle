@@ -72,7 +72,7 @@ export const responseWritten = property.explore(aimedWrites, {
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
-			original: "mediaType !== undefined && textMediaType.test(mediaType.trim())",
+			original: "mediaType !== undefined && textMediaType.test(Str.trim(mediaType))",
 			replacement: "mediaType !== undefined",
 			why: "Every media type reads as text, so a binary body is written to a terminal instead of refused; the property fails (CATCH's evidence, mutant 083bb5336d)."
 		},

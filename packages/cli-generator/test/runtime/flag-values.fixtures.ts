@@ -591,7 +591,7 @@ const ran = (drawn: Line) =>
 		const printedLines = { log: stdout, error: stderr }
 		return Command.runWith(command, { renderErrors: false, version: "1.2.3" })(argvOf(drawn)).pipe(
 			Output.exitForHelp,
-			Output.finalCatch([]),
+			Output.finalCatch([], { envPrefix: "ACME" }),
 			Effect.provideService(
 				Stdio.Stdio,
 				Stdio.make({

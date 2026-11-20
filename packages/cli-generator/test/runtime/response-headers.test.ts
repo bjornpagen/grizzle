@@ -48,7 +48,7 @@ export const requiredHeaders = property.explore(aimedExchanges, {
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original:
-				"yield* respond.pipe(\n\t\t\t\tEffect.flatMap((ok) =>\n\t\t\t\t\tisBodiless(ok)\n\t\t\t\t\t\t? Effect.void\n\t\t\t\t\t\t: Effect.flatMap(framedOf(ok), (framed) =>\n\t\t\t\t\t\t\t\twriteStream(retrying(framed.bytes), framed.binary)\n\t\t\t\t\t\t\t)\n\t\t\t\t),\n\t\t\t\tEffect.provideService(RetryAfterCap, cap),\n\t\t\t\tEffect.scoped,\n\t\t\t\tEffect.provide(redactedNames(security))\n\t\t\t)",
+				"yield* respond.pipe(\n\t\t\t\tEffect.flatMap((ok) =>\n\t\t\t\t\tisBodiless(ok)\n\t\t\t\t\t\t? Effect.void\n\t\t\t\t\t\t: Effect.flatMap(framedOf(ok), (framed) =>\n\t\t\t\t\t\t\t\twriteStream(retrying(framed.bytes), framed.binary)\n\t\t\t\t\t\t\t)\n\t\t\t\t),\n\t\t\t\tEffect.provideService(RetryAfterCap, cap),\n\t\t\t\tEffect.scoped\n\t\t\t)",
 			replacement: "{}",
 			why: "A successful answer's body is never written, so stdout loses it; the property fails (CATCH's evidence, mutant 24dfb4ca36)."
 		},
@@ -60,9 +60,10 @@ export const requiredHeaders = property.explore(aimedExchanges, {
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
-			original: "required.filter((name) => Option.isNone(Headers.get(response.headers, name))),",
+			original:
+				"Arr.filter(required, (name) => Option.isNone(Headers.get(response.headers, name))),",
 			replacement:
-				"required.filter((name) => Option.isNone(Headers.get(response.headers, name)) && false),",
+				"Arr.filter(required, (name) => Option.isNone(Headers.get(response.headers, name)) && false),",
 			why: "No missing required header is warned of; the property fails."
 		},
 		{

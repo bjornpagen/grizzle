@@ -285,7 +285,10 @@ const ranWith = <E, R>(
 		const services = yield* Layer.build(runServices)
 		const exit = yield* Effect.exit(
 			Effect.provideService(
-				Effect.provideContext(program.pipe(Output.exitForHelp, Output.finalCatch([])), services),
+				Effect.provideContext(
+					program.pipe(Output.exitForHelp, Output.finalCatch([], { envPrefix: "EXAMPLE" })),
+					services
+				),
 				Console.Console,
 				recording
 			)

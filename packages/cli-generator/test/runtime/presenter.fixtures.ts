@@ -153,7 +153,7 @@ export const presentedOf = (presentation: Presentation) =>
 				version: "1.2.3"
 			})(argvOf(presentation.invocation)).pipe(
 				Output.exitForHelp,
-				Output.finalCatch([]),
+				Output.finalCatch([], { envPrefix: "EXAMPLE" }),
 				Effect.provideContext(context),
 				Effect.provideService(Console.Console, console),
 				Effect.exit
@@ -289,7 +289,7 @@ export const helpExits: Gen<HelpExit> = (s) => ({
 export const helpExitOf = (exit: HelpExit) => {
 	const failure: Effect.Effect<void, Output.InternalError | CliError.ShowHelp> =
 		exit.kind === "another failure"
-			? Effect.fail(Output.InternalError.make({}))
+			? Effect.fail(new Output.InternalError())
 			: Effect.fail(
 					CliError.ShowHelp.make({
 						commandPath: [],

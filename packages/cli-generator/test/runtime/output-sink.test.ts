@@ -63,8 +63,8 @@ export const bodySunk = property.explore(aimedSinkings, {
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
-			original: 'yield* new OutputError({ path: target, reason: "exists" })',
-			replacement: "{}",
+			original: 'return yield* new OutputError({ path: target, reason: "exists" })',
+			replacement: "return",
 			why: "An existing target is no longer refused, so it is overwritten without --force; the property fails (CATCH's evidence, mutant 57395d4eb0)."
 		},
 		{
@@ -77,14 +77,14 @@ export const bodySunk = property.explore(aimedSinkings, {
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
-			original: 'error.reason._tag === "Unknown" && Schema.is(BrokenPipe)(error.reason.cause)',
+			original: 'error.reason._tag === "Unknown" && isEpipe(error.reason.cause)',
 			replacement: "true",
 			why: "Every stdout failure reads as a reader gone away, so a disk-full write succeeds; the property fails (CATCH's evidence, mutant bb1002520d)."
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
-			original: '\terror.reason._tag === "Unknown" && Schema.is(BrokenPipe)(error.reason.cause)',
-			replacement: '\terror.reason._tag !== "Unknown" && Schema.is(BrokenPipe)(error.reason.cause)',
+			original: '\terror.reason._tag === "Unknown" && isEpipe(error.reason.cause)',
+			replacement: '\terror.reason._tag !== "Unknown" && isEpipe(error.reason.cause)',
 			why: "A reader gone away reads as another failure, so EPIPE fails the write; the property fails (CATCH's evidence, mutant bfd187111c)."
 		},
 		{
