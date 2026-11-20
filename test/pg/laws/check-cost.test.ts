@@ -77,16 +77,10 @@ export const aLawsFullCheckReadsEachTableOncePerOccurrenceAndEachRowABoundedNumb
 				why: "A key's check is the self-join of its side again, a fact of the side met by another that agrees with it on the key and differs from it elsewhere, which derives the side twice, each relation it reads by a scan of each derivation."
 			},
 			{
-				file: "packages/engine/src/lower/conservative/context.ts",
-				original: '\tsource.kind !== "derived" || isSetQuery(source.query)',
-				replacement: '\tsource.kind !== "derived"',
-				why: "No derived table reads as a set, so every filter, renaming and region over one deduplicates again: the DISTINCT tower, a sort or hash of every row of node at each level of QTI's checks."
-			},
-			{
-				file: "packages/engine/src/lower/conservative/match-region/index.ts",
-				original: "\t\t? wholeSelect(parts.from, parts.targets, parts.conditions)",
-				replacement: "\t\t? distinctSelect(parts.targets, parts.from, parts.conditions)",
-				why: "A region that binds every column of its sets deduplicates them again, as each scan of a check's tables is a region of one occurrence."
+				file: "packages/engine/src/lower/shapes/index.ts",
+				original: '\t\treturn facts.realization(node) === "plain"\n',
+				replacement: "\t\treturn facts.realization(node) !== facts.realization(node)\n",
+				why: "A node the placement realizes plain keeps its DISTINCT, so every filter, renaming and region over a set deduplicates again: the DISTINCT tower, a sort or hash of every row of node at each level of QTI's checks."
 			}
 		]
 	})
