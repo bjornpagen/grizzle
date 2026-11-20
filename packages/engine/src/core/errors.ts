@@ -456,7 +456,7 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `GeneratedRefused`: generated field `field` of `relation` breaks the rule `rule`.
  * - `UnfillableField`: the column `field` of `relation`, which grizzle fills by the law `law`, reads the column
  *   `source` along the `axis` of `family`, which its row fills only after it, for `later` (FilledLater), so no write
- *   fills it.
+ *   fills it, or, the source stamped, no write that stamps the source.
  * - `UnwritableRelation`: no write fills `relation`'s rows, or no delete removes them whole, for `cause`
  *   (UnwritableCause).
  * - `InstantRefused`: instant field `field` of `relation` breaks the rule `rule` (InstantRule): as the schema declares

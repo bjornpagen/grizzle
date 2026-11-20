@@ -237,10 +237,29 @@ const selects = <E>(
 	return Result.ok(true)
 }
 
+/**
+ * The columns of each relation's rows a fill leaves to the statement that writes them, by relation: a nesting's, those
+ * its family statement fills after the walk, its stamps' and its counted families' (write/family/nesting.ts
+ * NestedLayout pending), which no column the walk fills reads; none of a relation it fills whole, as a fresh fill fills
+ * each one (`fillsWhole`).
+ */
+export type StatementFills = ReadonlyMap<
+	StoredRelationName,
+	{ readonly pending: ReadonlySet<ColumnKey> }
+>
+
+/** A fill that leaves no column of any relation to its statement: a fresh owner's (write/bind.ts freshOwners). */
+export const fillsWhole: StatementFills = new Map()
+
 /** A nesting's fills, built once for the families of a schema and the installation's codes: a row and what it owns,
  * filled where it stands (`position`), the walk's start, a tree's root or the insert's own row, or a family's member
- * whose own columns there its values already hold, whose counted families' counts and ends a fresh fill draws. */
-export type Filler = (root: HostNode, position: FillAt) => Result.Result<FilledNode, FillRefusal>
+ * whose own columns there its values already hold, whose counted families' counts and ends a fresh fill draws; every
+ * column of each row but those `left` leaves to its statement, which it never holds. */
+export type Filler = (
+	root: HostNode,
+	position: FillAt,
+	left: StatementFills
+) => Result.Result<FilledNode, FillRefusal>
 
 /** A relation as the host fills its rows (`HostFill`): its name, its fields with their types, which an expression over a
  * row reads, and its declared keys by their fields' names, the primary key first, which a refusal states a row by. */
@@ -477,19 +496,21 @@ interface FilledRelation {
 }
 
 /** A layout as the host fills it (`FillLayoutData`), of `filled`'s relation, under the installation's codes, each column
- * and each target of its rule at its position (`RuleTargets`). */
+ * and each target of its rule at its position (`RuleTargets`), but the columns `pending` its statement fills, which the
+ * host never lays out. */
 const hostLayout = (
 	layout: FillLayoutData,
 	filled: FilledRelation,
 	codes: Codebook,
-	targets: RuleTargets
+	targets: RuleTargets,
+	pending: ReadonlySet<ColumnKey>
 ): Layout => {
 	const columns = new Map<ColumnKey, Column>()
 	const byPosition = new Map<number, Column>()
 	const entering: Array<Column> = []
 	const after = new Map<FillFamily, Array<Column>>()
 	const settling: Array<Column> = []
-	for (const c of layout.columns) {
+	for (const c of layout.columns.filter((column) => !pending.has(column.key))) {
 		const spec = carrierSpecOf(c.type, codes)
 		const column: Column = {
 			at: targets.own.at(c.key),
@@ -1153,43 +1174,58 @@ export const filler = (
 				[relation.name, { relation, evaluated: evaluatedRelation(relation.fields) }] as const
 		)
 	)
-	const layouts = new Map<string, Layout>()
-	/** A row's layout at a position, which the write's fill laid out. */
-	const laidOut = (relation: StoredRelationName, position: FillAt): Layout => {
-		const key = layoutKey(relation, position)
-		const known = layouts.get(key)
-		if (known !== undefined) {
-			return known
-		}
-		const layout = fill.layouts.get(key)
-		if (layout === undefined) {
-			throw defect(`the layout of ${relation} at a position the write's fill lays out`)
-		}
-		const built = hostLayout(
-			layout,
-			defined(relations.get(layout.relation), `the fill's relation ${layout.relation}`),
-			codes,
-			{
-				own: columns(layout.relation),
-				owner: position.kind === "member" ? columns(position.family.id.owner) : undefined,
-				family: familyOf,
-				members: (family) => columns(family.member)
-			}
-		)
-		layouts.set(key, built)
-		return built
+	/** A walk's layouts under what it leaves to its statement (`StatementFills`): each relation's at each position it
+	 * meets, laid out where it first meets it, and each family's members' by the family, so a member's row finds its
+	 * layout by its family, never by a key spelled for it; built once for each `left` a walk is given. */
+	interface Layouts {
+		readonly at: (relation: StoredRelationName, position: FillAt) => Layout
+		readonly member: (family: FillFamily) => Layout
 	}
-	/** Each family's members' layout, laid out where the walk first meets one of them (`laidOut`), so a member's row finds
-	 * its layout by its family, never by a key spelled for it. */
-	const memberLayouts = new Map<FillFamily, Layout>()
-	const memberLayout = (family: FillFamily): Layout => {
-		const known = memberLayouts.get(family)
+	const layoutsByLeft = new WeakMap<StatementFills, Layouts>()
+	const layoutsOf = (left: StatementFills): Layouts => {
+		const known = layoutsByLeft.get(left)
 		if (known !== undefined) {
 			return known
 		}
-		const layout = laidOut(family.member, { kind: "member", family })
-		memberLayouts.set(family, layout)
-		return layout
+		const byLayoutKey = new Map<string, Layout>()
+		const at = (relation: StoredRelationName, position: FillAt): Layout => {
+			const key = layoutKey(relation, position)
+			const held = byLayoutKey.get(key)
+			if (held !== undefined) {
+				return held
+			}
+			const layout = fill.layouts.get(key)
+			if (layout === undefined) {
+				throw defect(`the layout of ${relation} at a position the write's fill lays out`)
+			}
+			const built = hostLayout(
+				layout,
+				defined(relations.get(layout.relation), `the fill's relation ${layout.relation}`),
+				codes,
+				{
+					own: columns(layout.relation),
+					owner: position.kind === "member" ? columns(position.family.id.owner) : undefined,
+					family: familyOf,
+					members: (family) => columns(family.member)
+				},
+				left.get(layout.relation)?.pending ?? new Set()
+			)
+			byLayoutKey.set(key, built)
+			return built
+		}
+		const byFamily = new Map<FillFamily, Layout>()
+		const member = (family: FillFamily): Layout => {
+			const held = byFamily.get(family)
+			if (held !== undefined) {
+				return held
+			}
+			const layout = at(family.member, { kind: "member", family })
+			byFamily.set(family, layout)
+			return layout
+		}
+		const made: Layouts = { at, member }
+		layoutsByLeft.set(left, made)
+		return made
 	}
 	/** A node's families resolved, sequences first, each in the order its relation owns them. */
 	const resolved = (node: HostNode, layout: Layout): ReadonlyArray<Owned> => {
@@ -1218,7 +1254,12 @@ export const filler = (
 		filled: node.families.map((g) => ({ family: g.family, members: [] })),
 		tree
 	})
-	return (root: HostNode, position: FillAt): Result.Result<FilledNode, FillRefusal> => {
+	return (
+		root: HostNode,
+		position: FillAt,
+		left: StatementFills
+	): Result.Result<FilledNode, FillRefusal> => {
+		const layouts = layoutsOf(left)
 		const tree = position.kind === "root" ? familyOf(position.family.id) : undefined
 		const sizes =
 			tree === undefined ? new Map<HostNode, number>() : subtreeSizes(root, tree, familyOf)
@@ -1239,7 +1280,7 @@ export const filler = (
 					return { kind: "root", family: familyOf(position.family.id), tree: intervalOf(root, 0) }
 			}
 		})()
-		const first = rowOf(root, laidOut(root.relation, position), entry)
+		const first = rowOf(root, layouts.at(root.relation, position), entry)
 		const entered = fillStage(first, first.layout.entering, evaluate)
 		if (!entered.ok) {
 			return Result.err(entered.error)
@@ -1275,7 +1316,7 @@ export const filler = (
 				if (counter !== undefined) {
 					counter.next += 1
 				}
-				const row = rowOf(node, memberLayout(current.family), {
+				const row = rowOf(node, layouts.member(current.family), {
 					kind: "member",
 					family: current.family,
 					owner: frame.row,

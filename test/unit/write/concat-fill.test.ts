@@ -18,7 +18,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import { columnKey, columnKeyOf } from "#compiler/ir/law.ts"
-import type { HostNode } from "#compiler/runtime/write/fill.ts"
+import { fillsWhole, type HostNode } from "#compiler/runtime/write/fill.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { cellAt, cellsOf } from "#test/support/cells.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -57,7 +57,10 @@ export const theHostFillOfAConcatFoldDrawsTheNaiveLeftFoldOfItsSlotsTexts = prop
 						}
 					]
 				}
-				const filled = succeeded(fill(nesting, { kind: "top" }), "a family of texts fills")
+				const filled = succeeded(
+					fill(nesting, { kind: "top" }, fillsWhole),
+					"a family of texts fills"
+				)
 				const plane = defined(defined(family.folds[0]).planes[0])
 				const rows = defined(filled.families[0], "the owner's family").members
 				let running = ""

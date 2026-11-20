@@ -1,5 +1,6 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * A nested write: an insert of an owner, or of a tree's roots, with every family it owns nested at its count fields,
  * to any depth.
@@ -33,9 +34,18 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-tex
  * each of its rows' children and fills every row that carries it from that one stamp (write/family/additions.ts), so
  * every member carries exactly its owner's stamp, never one read again.
  */
-import type { StoredRelationName } from "#compiler/core/ids.ts"
+import type { FillAxis } from "#compiler/core/causes.ts"
+import { CompileError } from "#compiler/core/errors.ts"
+import type { LawId, StoredRelationName } from "#compiler/core/ids.ts"
+import type { SourceLoc } from "#compiler/core/loc.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
-import { type FillAt, type FillOrder, type FillPosition, layoutKey } from "#compiler/ir/fill.ts"
+import {
+	type FillAt,
+	type FillColumn,
+	type FillOrder,
+	type FillPosition,
+	layoutKey
+} from "#compiler/ir/fill.ts"
 import type { Stamped } from "#compiler/ir/instant.ts"
 import {
 	type FamilyId,
@@ -45,7 +55,8 @@ import {
 	type RelationInfo,
 	type ColumnKey,
 	columnKey,
-	columnKeyOf
+	columnKeyOf,
+	type NativeColumn
 } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type { NestingData } from "#compiler/runtime/write/nesting.ts"
@@ -253,17 +264,161 @@ const walkedAt = (
 	])
 }
 
+/** A column a fill reads, by the relation of the row that holds it. */
+interface Source {
+	readonly relation: StoredRelationName
+	readonly column: NativeColumn
+}
+
+/**
+ * The first column the fill of `column` reads that `stamped` holds, of `relation`'s rows at `position`: of its own row
+ * (FillColumn reads), its owner's along the owner axis, its predecessor's, or its family's last member's; none where it
+ * reads none.
+ */
+const stampedSource = (
+	column: FillColumn,
+	relation: StoredRelationName,
+	position: FillPosition,
+	stamped: (source: Source) => boolean
+): Source | undefined => {
+	const rule = column.rule
+	const across = ((): ReadonlyArray<Source> => {
+		switch (rule.kind) {
+			case "owner":
+			case "ownerCopy":
+				return position.kind === "member"
+					? [{ relation: position.family.owner.name, column: rule.to }]
+					: []
+			case "predecessor":
+				return [{ relation, column: rule.to }]
+			case "last":
+				return [{ relation: rule.family.member.name, column: rule.to }]
+			case "given":
+			case "self":
+			case "base":
+			case "index":
+			case "copy":
+			case "count":
+			case "start":
+			case "end":
+			case "after":
+			case "generated":
+				return []
+		}
+	})()
+	return [...column.reads.map((c) => ({ relation, column: c })), ...across].find(stamped)
+}
+
+/** The law that fills a column the walk fills by reading another row's column or its own, its family and the axis it reads
+ * along: a copy's along its axis, a fold's after on its own row. */
+const fillingLaw = (
+	column: FillColumn
+): { readonly law: LawId; readonly family: Family; readonly axis: FillAxis } => {
+	const rule = column.rule
+	switch (rule.kind) {
+		case "ownerCopy":
+			return { law: rule.law, family: rule.family, axis: "owner" }
+		case "predecessor":
+			return { law: rule.law, family: rule.family, axis: "predecessor" }
+		case "last":
+			return { law: rule.law, family: rule.family, axis: "last" }
+		case "after":
+			return { law: rule.law, family: rule.family, axis: "row" }
+		case "given":
+		case "owner":
+		case "self":
+		case "base":
+		case "index":
+		case "copy":
+		case "count":
+		case "start":
+		case "end":
+		case "generated":
+			throw defect(
+				`a ${rule.kind} column ${column.name} reading a stamped one, which its stamps carry or no rule of its reads`
+			)
+	}
+}
+
+/**
+ * The columns of each relation a nesting's walk meets, `walked`, that its family statement fills: those its stamps fill,
+ * `stamped`, and every generated field reading one of them or another such, which PostgreSQL alone computes as it stores
+ * the row; or, refused as UnfillableField (FilledLater `stamped`), the first column the walk fills that reads one, which
+ * no row the host fills holds. A member's field its group carries from a stamped field is stamped itself
+ * (`carriedStamps`), so the walk reads no stamp through its owner.
+ */
+const statementFilled = (
+	fill: FillOrder,
+	walked: ReadonlyArray<{ readonly relation: RelationInfo; readonly position: FillPosition }>,
+	stamped: (relation: StoredRelationName) => ReadonlySet<ColumnKey>,
+	loc: SourceLoc
+): Result.Result<ReadonlyMap<StoredRelationName, ReadonlySet<ColumnKey>>, CompileError> => {
+	const filled = new Map<StoredRelationName, Set<ColumnKey>>(
+		walked.map((w) => [w.relation.name, new Set(stamped(w.relation.name))] as const)
+	)
+	const isFilled = (source: Source): boolean =>
+		filled.get(source.relation)?.has(columnKey(source.column)) === true
+	const layouts = walked.map((w) => ({
+		...w,
+		layout: defined(
+			fill.layouts.get(layoutKey(w.relation.name, w.position)),
+			`the layout of ${w.relation.name} where a nesting walks its rows`
+		)
+	}))
+	for (let grew = true; grew;) {
+		grew = false
+		for (const { relation, position, layout } of layouts) {
+			const own = defined(
+				filled.get(relation.name),
+				`the columns of ${relation.name} its statement fills`
+			)
+			for (const column of layout.columns) {
+				if (own.has(columnKey(column.column))) {
+					continue
+				}
+				const source = stampedSource(column, relation.name, position, isFilled)
+				if (source === undefined) {
+					continue
+				}
+				if (column.rule.kind === "generated") {
+					own.add(columnKey(column.column))
+					grew = true
+					continue
+				}
+				const { law, family, axis } = fillingLaw(column)
+				return Result.err(
+					CompileError.make({
+						_tag: "UnfillableField",
+						at: loc,
+						relation: relation.name,
+						field: column.name,
+						law,
+						axis,
+						family: { owner: family.id.owner, count: family.id.count },
+						source: { relation: source.relation, column: columnKey(source.column) },
+						later: { kind: "stamped" }
+					})
+				)
+			}
+		}
+	}
+	return Result.ok(filled)
+}
+
 /**
  * The nesting of an insert into `relation` by the schema's fill order: every family it reaches, each at its depth, and
  * its levels' headings, its own rows leaving out `stamped`, the fields its insert stamps. The fill order admits no
  * sequences that nest each other in a cycle, so each sequence is reached once, a tree's own members by its recursion, and
- * every reached row is filled by the walk, but the columns its counted families fill and those a stamp fills (`stamps`).
+ * every reached row is filled by the walk, but the columns its counted families fill and those its family statement fills
+ * (`statementFilled`): a stamp's (`stamps`), and every generated field over one. Refused, at `loc`, where the walk would
+ * read one of those (`statementFilled`).
  */
 export const nestingOf = (
 	relation: RelationInfo,
 	fill: FillOrder,
-	stamped: ReadonlyArray<Stamped>
-): Nesting => {
+	stamped: ReadonlyArray<Stamped>,
+	loc: SourceLoc
+): Result.Result<Nesting, CompileError> => {
 	const families = fill.families
 	const tree = families.find((f) => isTreeOf(f, relation.name))
 	const root: NestingRoot =
@@ -304,11 +459,26 @@ export const nestingOf = (
 			stamps.set(family.member.name, [first, ...more])
 		}
 	}
-	/** The columns of `name` a stamp fills, which the walk leaves to its family statement. */
-	const stampedOf = (name: StoredRelationName): ReadonlySet<ColumnKey> =>
-		new Set((stamps.get(name) ?? []).map((s) => columnKeyOf(s.field.name)))
-	const layouts = new Map<StoredRelationName, NestedLayout>()
 	const start = walkStart(families, relation.name)
+	const statement = statementFilled(
+		fill,
+		[
+			{ relation, position: start },
+			...reached.map((r) => ({
+				relation: r.family.member,
+				position: { kind: "member" as const, family: r.family }
+			}))
+		],
+		(name) => new Set((stamps.get(name) ?? []).map((s) => columnKeyOf(s.field.name))),
+		loc
+	)
+	if (!statement.ok) {
+		return statement
+	}
+	/** The columns of `name` its family statement fills, which the walk leaves to it. */
+	const stampedOf = (name: StoredRelationName): ReadonlySet<ColumnKey> =>
+		statement.value.get(name) ?? new Set()
+	const layouts = new Map<StoredRelationName, NestedLayout>()
 	/** The insert's own relation as a family's member, a tree's or a counted family's, when its family statements write
 	 * its rows, at the walk's start. */
 	const own = families.find((f) => f.member.name === relation.name)?.member
@@ -332,21 +502,23 @@ export const nestingOf = (
 		}
 	}
 	const ownStamped = stampedOf(relation.name)
-	return Object.freeze({
-		relation,
-		root,
-		families,
-		reached: Object.freeze(reached.toSorted((a, b) => a.depth - b.depth)),
-		start,
-		own: ownHeading(
+	return Result.ok(
+		Object.freeze({
 			relation,
-			tree === undefined ? { kind: "top" } : { kind: "root", family: tree }
-		),
-		layouts,
-		top: relation.fields
-			.filter((f) => f.writing.kind !== "generated" && !ownStamped.has(columnKeyOf(f.name)))
-			.map((f) => ({ name: f.name, type: f.type })),
-		walked: new Set([...walkedAt(fill, relation, start)].filter((k) => !ownStamped.has(k))),
-		stamps
-	})
+			root,
+			families,
+			reached: Object.freeze(reached.toSorted((a, b) => a.depth - b.depth)),
+			start,
+			own: ownHeading(
+				relation,
+				tree === undefined ? { kind: "top" } : { kind: "root", family: tree }
+			),
+			layouts,
+			top: relation.fields
+				.filter((f) => f.writing.kind !== "generated" && !ownStamped.has(columnKeyOf(f.name)))
+				.map((f) => ({ name: f.name, type: f.type })),
+			walked: new Set([...walkedAt(fill, relation, start)].filter((k) => !ownStamped.has(k))),
+			stamps
+		})
+	)
 }

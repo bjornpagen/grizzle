@@ -26,6 +26,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { columnKey, columnKeyOf } from "#compiler/ir/law.ts"
+import { fillsWhole } from "#compiler/runtime/write/fill.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { cellAt } from "#test/support/cells.ts"
 import { folded, identityOf } from "#test/support/families/fold.ts"
@@ -64,7 +65,7 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 				}
 				note.note(`monoid ${c.shape.monoid}`)
 				const filled = succeeded(
-					fills.fill(nestingOf(c, fills.columns), { kind: "top" }),
+					fills.fill(nestingOf(c, fills.columns), { kind: "top" }, fillsWhole),
 					"a family of admitted values fills"
 				)
 				const m = foldMonoid(c.shape)

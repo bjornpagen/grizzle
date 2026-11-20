@@ -110,9 +110,9 @@ export const aBindFillsANestedOwnerAgainOnlyWhereItsStratumAppendsAMemberToOneOf
 						}
 					}
 				}
-				const fill: Filler = (root, position) => {
+				const fill: Filler = (root, position, left) => {
 					calls.push(Arr.map(root.families, (g) => g.members.length))
-					const filled = flight.prepared.fill(root, position)
+					const filled = flight.prepared.fill(root, position, left)
 					if (filled.ok) {
 						keep(filled.value)
 					}

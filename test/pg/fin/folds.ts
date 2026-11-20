@@ -46,6 +46,7 @@ import {
 	closedLeaf,
 	type FilledNode,
 	filler,
+	fillsWhole,
 	hostEvaluator,
 	type HostNode
 } from "#compiler/runtime/write/fill.ts"
@@ -1060,7 +1061,7 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 			}
 		]
 	}
-	const filled = built(node, { kind: "top" })
+	const filled = built(node, { kind: "top" }, fillsWhole)
 	if (!filled.ok) {
 		return Result.fail(`the filler refuses the family: ${Formatter.format(filled.error)}`)
 	}

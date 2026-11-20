@@ -1970,7 +1970,8 @@ a sequence's copy of a field generated from a counted family's copy reads a colu
 
 A schema that breaks one is refused with `UnfillableField`, naming the field, the law that fills it, the column it
 reads, the axis it reads it along, and why that column is filled later. A cycle through a generated field is named at
-the column that reads it.
+the column that reads it. A write is refused with it too where the host would read a column the write's statement
+stamps (`stamped`): a member's place carried from its owner's, or a generated field over one ([Places](#places)).
 
 ### Closed relations
 
@@ -3322,7 +3323,12 @@ and no count for a write to read.
   owner and every member are written by one family statement, which stamps the place once at each group, every row that
   carries it joining that one stamp, so the place is read from its group's head once per group and never again; a
   read-back of the owner's `delta.added` rides that statement, so the call reads back the place it was stamped:
-  `ChangeSet.empty(S).insert(Claim, []).read("held", (delta) => ...)` over rows `{ step, holds: [{ resource }] }`.
+  `ChangeSet.empty(S).insert(Claim, []).read("held", (delta) => ...)` over rows `{ step, holds: [{ resource }] }`. The
+  host fills every other column of the rows, a member's slot, its copies of its owner's fields and its owner's folds
+  over it, and none the statement stamps: a member's generated field over its carried place is PostgreSQL's alone, and
+  a fold's step or selection, or a copy, that reads the place or such a field is refused where the write compiles
+  (`UnfillableField`, `stamped`). Two owners of one call in one group would take one place, so they meet at the owner's
+  primary key, which the host holds at the group, and the call is refused there before any statement.
 - **Written by inserts alone.** A put would state a place and a delete would leave a gap, so neither writes a relation
   with a place (`written`).
 - **Its order is the migration's.** A place's declaration says nothing a write reads beyond the place itself; it states

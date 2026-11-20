@@ -377,9 +377,9 @@ export const aBindSpellsNoFamilysOrLayoutsKeyForARowItFills = property.exhaust(
 		kills: [
 			{
 				file: "packages/engine/src/runtime/write/fill.ts",
-				original: "\t\t\t\tconst row = rowOf(node, memberLayout(current.family), {",
+				original: "\t\t\t\tconst row = rowOf(node, layouts.member(current.family), {",
 				replacement:
-					'\t\t\t\tconst row = rowOf(node, laidOut(node.relation, { kind: "member", family: current.family }), {',
+					'\t\t\t\tconst row = rowOf(node, layouts.at(node.relation, { kind: "member", family: current.family }), {',
 				why: "Every member's row finds its layout by a key spelled for it, one layout key and one family key a row."
 			},
 			{

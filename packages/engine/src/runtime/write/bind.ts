@@ -55,6 +55,7 @@ import {
 	type FilledNode,
 	type Filler,
 	fillRefusal,
+	fillsWhole,
 	type GeneratedNull,
 	type HostNode
 } from "#compiler/runtime/write/fill.ts"
@@ -1271,7 +1272,8 @@ const freshOwners = (
 							}))
 						}))
 					},
-					position
+					position,
+					fillsWhole
 				)
 				if (filled.ok) {
 					keepMembers(filled.value, inputs)

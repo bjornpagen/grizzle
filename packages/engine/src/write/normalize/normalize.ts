@@ -4,6 +4,7 @@
  * leaves to the host.
  */
 import type { LawId } from "#compiler/core/ids.ts"
+import type { Stamped } from "#compiler/ir/instant.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { HostChecks, HostKey, HostKeyField } from "#compiler/runtime/write/normalize.ts"
 import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
@@ -12,30 +13,56 @@ import { hostHeld, type RelationUniques } from "#compiler/write/insert/unique.ts
 /** A key field of the relation's facts, by its name, with its type. */
 const hostKeyField = (f: LawField): HostKeyField => ({ field: f.name, type: f.type })
 
-/** The host checks of a relation's keys whose every field it holds (insert/unique.ts `hostHeld`) and of its span
- * candidate keys. */
+/**
+ * The fields at which the host holds a key of rows that leave out `stamped`, the fields their statement stamps (ir/instant.ts
+ * Stamped): every field of it the host holds a fact's value at (insert/unique.ts `hostHeld`), and none of a stamped field,
+ * where the key holds every field of its stamp's child: every row of one call that agrees at the child carries one stamp,
+ * so two rows the key holds apart differ at its other fields. None where it holds another field no fact holds, or a
+ * stamped field without its child, which rows of one call may stamp apart: only their statement compares them.
+ */
+const heldAt = (
+	fields: ReadonlyArray<LawField>,
+	stamped: ReadonlyArray<Stamped>
+): ReadonlyArray<LawField> | undefined => {
+	const held: Array<LawField> = []
+	for (const f of fields) {
+		const stamp = stamped.find((s) => s.field.name === f.name)
+		if (stamp !== undefined) {
+			if (!stamp.stamp.child.every((c) => fields.some((g) => g.name === c.name))) {
+				return undefined
+			}
+			continue
+		}
+		if (!hostHeld(f)) {
+			return undefined
+		}
+		held.push(f)
+	}
+	return held
+}
+
+/** The host checks of a relation's keys, each at the fields it holds of rows that leave out `stamped` (`heldAt`), and of
+ * its span candidate keys whose every field such a row holds. */
 export const hostChecks = (
 	keyLaws: ReadonlyArray<{
 		readonly fields: ReadonlyArray<LawField>
 		readonly law: LawId
 		readonly described: OwnLaw
 	}>,
-	uniques: RelationUniques
+	uniques: RelationUniques,
+	stamped: ReadonlyArray<Stamped>
 ): HostChecks =>
 	Object.freeze({
-		keys: keyLaws.flatMap((k): ReadonlyArray<HostKey> =>
-			k.fields.every(hostHeld)
-				? [
-						Object.freeze({
-							law: k.law,
-							described: k.described,
-							fields: k.fields.map(hostKeyField)
-						})
-					]
-				: []
-		),
+		keys: keyLaws.flatMap((k): ReadonlyArray<HostKey> => {
+			const held = heldAt(k.fields, stamped)
+			return held === undefined
+				? []
+				: [Object.freeze({ law: k.law, described: k.described, fields: held.map(hostKeyField) })]
+		}),
 		spans: uniques.checks.flatMap(({ object: check, pairs }) =>
-			check.kind !== "span" || pairs !== "host"
+			check.kind !== "span" ||
+			pairs !== "host" ||
+			[...check.equal, check.span].some((f) => stamped.some((s) => s.field.name === f.name))
 				? []
 				: [
 						Object.freeze({

@@ -361,7 +361,7 @@ export const nestedRows = (
 	const hosts = taken.value
 	let stopped: NestedGeneratedNull | undefined
 	for (const host of hosts) {
-		const filled = walk.fill(host, nesting.start)
+		const filled = walk.fill(host, nesting.start, nesting.layouts)
 		if (!filled.ok) {
 			const refusal = nestedRefusal(filled.error, slotPlace(member))
 			if (refusal._tag !== "GeneratedNull") {

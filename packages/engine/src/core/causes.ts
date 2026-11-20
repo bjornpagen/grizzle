@@ -647,13 +647,17 @@ export type FillAxis = "owner" | "predecessor" | "last" | "row"
  * - `countedFill`: the counted family `family` fills the source on its own, after the nested write that writes the row
  *   and apart from every other family, so only that family's own members and ends may read it;
  * - `cycle`: the source reads the column back through its row's own columns, so no order fills either;
- * - `unreached`: no fill that writes the column writes the source: a column of another family the row belongs to.
+ * - `unreached`: no fill that writes the column writes the source: a column of another family the row belongs to;
+ * - `stamped`: the write's statement stamps the source, as it writes the row, after the host fills the column: a place
+ *   or a clock its insert leaves out, a member's field its group carries from one, or a generated field over one, which
+ *   no row the host fills holds.
  */
 export type FilledLater =
 	| { readonly kind: "afterMembers" }
 	| { readonly kind: "countedFill"; readonly family: FamilyName }
 	| { readonly kind: "cycle" }
 	| { readonly kind: "unreached" }
+	| { readonly kind: "stamped" }
 
 /** Why a column's source is filled after it, as its refusal's clause. */
 const filledLaterText = (later: FilledLater): string => {
@@ -666,6 +670,8 @@ const filledLaterText = (later: FilledLater): string => {
 			return "a column that reads it back through the row's own columns, so no order fills either"
 		case "unreached":
 			return "a column no fill that writes it reaches, another family's: read a column of this family or of the row's caller"
+		case "stamped":
+			return "a column the write's statement stamps as it writes the row, after the host fills this one, which no row the host fills holds: read a column the caller states, or write the row from a stored one"
 	}
 }
 

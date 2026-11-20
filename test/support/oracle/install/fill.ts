@@ -32,6 +32,7 @@ import {
 	closedLeaf,
 	type FilledNode,
 	filler,
+	fillsWhole,
 	hostEvaluator,
 	type HostNode
 } from "#compiler/runtime/write/fill.ts"
@@ -280,7 +281,7 @@ export const familyRows = (
 			continue
 		}
 		for (const fact of factsOf(name)) {
-			const filled = fill(nodeOf(relation, undefined, fact), { kind: "top" })
+			const filled = fill(nodeOf(relation, undefined, fact), { kind: "top" }, fillsWhole)
 			if (!filled.ok) {
 				return refuse(
 					fact.location,

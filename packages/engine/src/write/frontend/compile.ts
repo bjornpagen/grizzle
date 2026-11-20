@@ -878,10 +878,24 @@ const compile = (
 			...written.relation,
 			keyLaws,
 			uniques,
-			host: hostChecks(keyLaws, uniques)
+			host: hostChecks(keyLaws, uniques, [])
 		})
 		writable.set(name, made)
 		return made
+	}
+	/** The same-key checks a nesting's rows of `relation` are judged by: its keys at the fields they hold of rows that
+	 * leave out the fields its stamps fill (write/family/nesting.ts Nesting `stamps`), so a key over a stamp holds its
+	 * rows at its child, which the call's rows agreeing there share; the relation's own where none is stamped. */
+	const stampedChecksOf = (relation: WrittenRelation, nesting: Nesting): HostChecks =>
+		hostChecks(relation.keyLaws, relation.uniques, nesting.stamps.get(relation.name) ?? [])
+	/** The same-key checks a group's facts of `relation` are judged by: its nested insert's (`stampedChecksOf`), whose
+	 * stamps fill the fields every row of its relation leaves out, the group's one insert; the relation's own otherwise. */
+	const groupHost = (
+		relation: WrittenRelation,
+		inputs: ReadonlyArray<EnumeratedInput>
+	): HostChecks => {
+		const nested = inputs.find((input) => input.kind === "nested")
+		return nested === undefined ? relation.host : stampedChecksOf(relation, nested.nesting)
 	}
 	/** The schema's families: a nested insert reaches some of them (write/family/nesting.ts). */
 	const families = laws.families
@@ -908,17 +922,20 @@ const compile = (
 		if (known !== undefined) {
 			return known
 		}
-		const built = nestingOf(
-			relation,
-			laws.theory.fill,
-			stampsOf(
-				laws.theory.instants,
+		const built = unwrap(
+			nestingOf(
 				relation,
-				"insert",
-				relation.fields
-					.filter((f) => f.writing.kind !== "instant" && f.writing.kind !== "place")
-					.map((f) => ({ name: f.name, type: f.type })),
-				{ kind: "family" },
+				laws.theory.fill,
+				stampsOf(
+					laws.theory.instants,
+					relation,
+					"insert",
+					relation.fields
+						.filter((f) => f.writing.kind !== "instant" && f.writing.kind !== "place")
+						.map((f) => ({ name: f.name, type: f.type })),
+					{ kind: "family" },
+					relation.loc
+				),
 				relation.loc
 			)
 		)
@@ -1813,7 +1830,7 @@ const compile = (
 										reached: new Map(
 											nesting.reached.map((r) => {
 												const member = writtenOf(r.family.member.name, loc)
-												return [member.name, member.host] as const
+												return [member.name, stampedChecksOf(member, nesting)] as const
 											})
 										),
 										members: memberNames
@@ -1861,7 +1878,7 @@ const compile = (
 						facts:
 							target.kind === "entry"
 								? entryFacts(target.entry, relation.host)
-								: { stated: statedInRelation, host: relation.host }
+								: { stated: statedInRelation, host: groupHost(relation, groupInputs) }
 					})
 				)
 			}
