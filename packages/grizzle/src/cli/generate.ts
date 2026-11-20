@@ -93,7 +93,8 @@ import {
 	recordHolds,
 	rosterFates,
 	snapshotFileName,
-	type SnapshotFiles
+	type SnapshotFiles,
+	spellingsOf
 } from "#compiler/plan/serve.ts"
 
 interface GenerateOptions {
@@ -408,7 +409,8 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
  * extension a deployment needs and its logins' workloads' access paths, with the schemas it abandons (abandonedSchemas)
  * and the renames and drops `declared` declares. Everything is compiled under the codes the draft gives the schema's
  * rosters, drafted from the codes `previous` records, each under the name of the roster it continues as
- * (deploy/snapshot/build.ts rosterFates), and the declared handle renames (ir/codes.ts draftCodebook): a
+ * (deploy/snapshot/build.ts rosterFates), and the declared handle renames (ir/codes.ts draftCodebook), and the spellings
+ * `previous` records of its pattern languages (spellingsOf), each language's history as a roster's codes are: a
  * roster's codes are its history, so a handle keeps its code, a renamed one its old one's, a removed one leaves a hole
  * and a new one takes the next, and an ordered roster declared out of its codes' order is RosterReordered.
  * The schema's basis is compiled once: the artifacts the workloads' access paths are planned against and the
@@ -435,7 +437,8 @@ const draftInput = Effect.fn("draftInput")(function* (
 			Arr.map(rosters, (r) => r.closed)
 		),
 		renames,
-		rosters
+		rosters,
+		spellingsOf(previous)
 	)
 	if (!drafted.ok) {
 		const { roster, earlier, later } = drafted.error

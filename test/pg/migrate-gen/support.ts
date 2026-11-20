@@ -85,6 +85,7 @@ import {
 	scalarOfSpec
 } from "#test/support/oracle/gen/domain.ts"
 
+import { noSpellings } from "#compiler/ir/pattern.ts"
 import { noLive } from "#compiler/live/notify.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -2668,7 +2669,8 @@ const versionCodes = (v: Version): Codebook => ({
 			v.schema.closed,
 			(c) => [parsedName(c.name), rosterCodec(parsedName(c.name), c.codes)] as const
 		)
-	)
+	),
+	spellings: noSpellings
 })
 
 /** The installation plan of a version under `schema`, for its physical names and its fact statements: a fresh install

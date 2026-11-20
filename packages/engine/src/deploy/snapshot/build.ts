@@ -13,6 +13,7 @@ import {
 	encode,
 	everyProperty,
 	type Json,
+	omitSourceLocs,
 	toJson,
 	withoutSourceLocs
 } from "#compiler/core/canonical.ts"
@@ -70,6 +71,7 @@ import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { rosterCodebook } from "#compiler/ir/codes.ts"
 import { type Codebook, codecOf, type PreviousRoster } from "#compiler/ir/codes.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
+import type { Spellings } from "#compiler/ir/pattern.ts"
 import {
 	type AccessIndexRequest,
 	type InstallationManifest,
@@ -122,9 +124,12 @@ const byKey: Comparator<readonly [string, unknown]> = mapInput(
 	(entry: readonly [string, unknown]) => entry[0]
 )
 
-/** Every property but the snapshot's own fingerprint. */
+/** Every property but the snapshot's own fingerprint and what no semantic identity holds (core/canonical.ts
+ * omitSourceLocs): a pattern value's spelling among them, so a draft that only spells a pattern again in its language is
+ * the snapshot it continues, whose described laws keep the spelling the installation holds. */
 const withoutFingerprint: EncodeOptions = {
-	omit: (...[key, , path]) => path.length === 0 && key === "fingerprint"
+	omit: (...[key, value, path]) =>
+		(path.length === 0 && key === "fingerprint") || omitSourceLocs(key, value)
 }
 
 /**
@@ -152,7 +157,7 @@ export const emptySnapshot = (input: {
 	schemaName: input.schemaName,
 	schema: input.schema,
 	levels: [],
-	theory: { schema: emptyFingerprint(input.schema), relations: {}, laws: {} },
+	theory: { schema: emptyFingerprint(input.schema), relations: {}, laws: {}, spellings: {} },
 	manifest: { objects: [], edges: [], roleDefaults: [], publicRevokes: [], comments: [] },
 	constraintToLaw: { tables: {}, domains: {} },
 	logins: {},
@@ -354,7 +359,10 @@ const theoryOf = (installation: Installation, checks: LawChecks): SnapshotTheory
 					? { kind: "trigger", shape: law.shape, digest: ruled }
 					: { kind: "native", shape: law.shape }
 	}
-	return { schema: owned.fingerprint, relations, laws }
+	const spellings = Object.fromEntries(
+		[...installation.names.spellings.table].toSorted(([a], [b]) => compareStrings(a, b))
+	)
+	return { schema: owned.fingerprint, relations, laws, spellings }
 }
 
 /**
@@ -367,6 +375,10 @@ export const codebookOf = (snapshot: DeploySnapshot): Codebook =>
 			r.kind === "closed" ? [[trusted<DeclaredName>(name), r.codes] as const] : []
 		)
 	)
+
+/** The spellings a snapshot records (ir/pattern.ts Spellings), which a draft from it installs their languages by. */
+export const spellingsOf = (snapshot: DeploySnapshot): Spellings =>
+	new Map(Object.entries(snapshot.theory.spellings))
 
 /** The columns a migration adds to each table, by its name: each column a subcommand of its plan's alterations and ALTER
  * TABLEs adds (sql/ast.ts addedColumn), whatever value it adds it under, and each column of a CREATE TABLE. A
@@ -1110,7 +1122,8 @@ const theoryForm = (
 ): SnapshotForm => ({
 	schema: t.schema,
 	relations: valuesForm(t.relations, relation),
-	laws: valuesForm(t.laws, lawForm)
+	laws: valuesForm(t.laws, lawForm),
+	spellings: t.spellings
 })
 
 /** Each roster's codes, by its declared name, as snapshot.json writes them. */

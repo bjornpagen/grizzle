@@ -104,8 +104,10 @@ export const declaredRenames = property.explore(renameCaseGen, {
 	kills: [
 		{
 			file: "packages/engine/src/deploy/diff/declared.ts",
-			original: "\t\t\twas: restatedLawColumn(\n\t\t\t\tn.plan,",
-			replacement: "\t\t\twas: undefined && restatedLawColumn(\n\t\t\t\tn.plan,",
+			original:
+				"\t\t\t\t\treturn restatedLawColumn(plan, laws, names, installation.laws.theory.relations)",
+			replacement:
+				"\t\t\t\t\treturn undefined && restatedLawColumn(plan, laws, names, installation.laws.theory.relations)",
 			why: "A declared rename restates no law column, so the family's law columns are dropped and drawn again; the rename's no-stored-byte oracle fails."
 		}
 	]

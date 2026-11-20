@@ -23,6 +23,7 @@ import { slotPlace } from "#compiler/codec/fault.ts"
 import type { EncodingPlace } from "#compiler/core/errors.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
+import { noSpellings } from "#compiler/ir/pattern.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { previewOver } from "#compiler/program/preview.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -639,7 +640,8 @@ const shifted = (codes: Codebook): Codebook => ({
 			name,
 			rosterCodec(name, [{ kind: "hole" }, ...codec.codes])
 		])
-	)
+	),
+	spellings: noSpellings
 })
 
 /** Where an insert is bound: under the decoder's own codes, and under an installation's other codes. */

@@ -135,3 +135,89 @@ export const admitSpelling = (spelling: string): Result.Result<PatternValue, Pat
 	Result.map(admitIr(spelling, matchFlags), (ir) =>
 		Object.freeze({ pattern: languageKey(ownKey(ir, languageOf(buildNfa(ir)))), spelling })
 	)
+
+/**
+ * An installation's spelling of each pattern language it installs, by the language's key (PatternValue `pattern`), drawn
+ * as a roster's codes are: the installation's history, so a language it installs keeps its spelling however its schema
+ * spells it after, and its SQL, which reads a pattern by its spelling's ARE, moves only where a language does.
+ */
+export type Spellings = ReadonlyMap<string, string>
+
+/** The spellings of an installation that installs no pattern. */
+export const noSpellings: Spellings = new Map()
+
+/** A pattern value as a value holds it: an object of a pattern and a spelling and nothing else, the shape admitSpelling
+ * alone builds. */
+interface HeldPattern {
+	readonly pattern: string
+	readonly spelling: string
+}
+
+/** Whether `x` is a pattern value: an object of exactly a string pattern and a string spelling. */
+const heldPattern = (x: object): HeldPattern | undefined => {
+	const keys = Object.keys(x)
+	if (keys.length !== 2 || !("pattern" in x) || !("spelling" in x)) {
+		return undefined
+	}
+	const { pattern, spelling } = x
+	return typeof pattern === "string" && typeof spelling === "string"
+		? { pattern, spelling }
+		: undefined
+}
+
+/**
+ * Every pattern value `value` holds, each object once, in the order its arrays and properties hold them: through data
+ * properties alone, so no getter a description's object defines is run, whatever it computes.
+ */
+const patternsIn = (value: unknown): ReadonlyArray<HeldPattern> => {
+	const out: Array<HeldPattern> = []
+	const seen = new Set<object>()
+	const visit = (x: unknown): void => {
+		if (typeof x !== "object" || x === null || seen.has(x)) {
+			return
+		}
+		seen.add(x)
+		const held = Array.isArray(x) ? undefined : heldPattern(x)
+		if (held !== undefined) {
+			out.push(held)
+			return
+		}
+		for (const property of Object.values(Object.getOwnPropertyDescriptors(x))) {
+			if ("value" in property) {
+				visit(property.value)
+			}
+		}
+	}
+	visit(value)
+	return out
+}
+
+/**
+ * How an installation spells the patterns it installs: `table`, its spelling of each language, which its record keeps;
+ * and `of`, the spelling it installs a pattern written `spelling` as, its language's, so every spelling of one language
+ * is one ARE in its SQL, and a spelling of no language it installs, which only a program a layer compiles reads, as
+ * written.
+ */
+export interface InstalledSpellings {
+	readonly table: Spellings
+	readonly of: (spelling: string) => string
+}
+
+/**
+ * The spellings of an installation of the schema `held`, whose installation held `history` before: each language of a
+ * pattern value `held` holds that `history` spells keeps that spelling, and each other takes the first spelling of it
+ * `held` holds. A language `held` no longer holds leaves the table.
+ */
+export const installedSpellings = (history: Spellings, held: unknown): InstalledSpellings => {
+	const table = new Map<string, string>()
+	const authored = new Map<string, string>()
+	for (const p of patternsIn(held)) {
+		const spelled = table.get(p.pattern) ?? history.get(p.pattern) ?? p.spelling
+		table.set(p.pattern, spelled)
+		authored.set(p.spelling, spelled)
+	}
+	return Object.freeze({
+		table,
+		of: (spelling: string): string => authored.get(spelling) ?? spelling
+	})
+}

@@ -10,6 +10,7 @@ import { ExprId } from "#compiler/core/ids.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import { builtExpr, OpId, predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { noSpellings } from "#compiler/ir/pattern.ts"
 import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
@@ -132,7 +133,10 @@ export const agrees = ({ live, a, b }: Pattern, c: Case<Situation>) =>
 			isSet(live, code) ? { kind: "live", handle: handleOf(code) } : { kind: "hole" }
 		)
 		const roster = Roster.of(kind, "ordered", nonEmpty(Arr.map([...codesOf(live)], handleOf)))
-		const book: Codebook = { rosters: new Map([[kind, rosterCodec(kind, codes)]]) }
+		const book: Codebook = {
+			rosters: new Map([[kind, rosterCodec(kind, codes)]]),
+			spellings: noSpellings
+		}
 		const set: ScalarType = {
 			carrier: "bits",
 			caps: capabilitiesOf("bits"),

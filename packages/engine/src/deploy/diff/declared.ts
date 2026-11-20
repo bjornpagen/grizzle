@@ -6,12 +6,13 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { carriedOn, spelledAxis } from "#compiler/analysis/theory/families.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
-import { canonicalEquals, ownedText, Refusal, withoutSourceLocs } from "#compiler/core/canonical.ts"
+import { canonicalEquals, Refusal } from "#compiler/core/canonical.ts"
 import { type Dropped, undeclaredDrop, unsupported } from "#compiler/core/errors.ts"
 import {
 	conversionOf,
 	type DeclaredName,
 	declaredAlike,
+	identifierOf,
 	parseDeclaredName,
 	type TemporaryCensus
 } from "#compiler/core/identity.ts"
@@ -50,13 +51,13 @@ import type {
 	SnapshotRelation,
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
-import type { ExprDesc, SideDesc } from "#compiler/ir/desc.ts"
+import type { SideDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import { type CarriedFiller, type FillSpelling, fillersOf } from "#compiler/laws/model/fillers.ts"
+import type { LawColumnPlan } from "#compiler/laws/model/plan.ts"
 import {
-	canonicalTexts,
 	type PreviousNames,
 	restatedBy,
 	restatedLaw,
@@ -81,7 +82,6 @@ import {
 	type NameKey
 } from "#compiler/sql/ast.ts"
 import { ownColumnHooks, Transform, transformExpr } from "#compiler/sql/transform.ts"
-import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * A draft's declarations (`--rename`, `--drop`) applied to the previous snapshot: the statements that carry out its
@@ -538,12 +538,11 @@ export const applyDeclarations = (
 			...[...fields.keys()].flatMap((r) => {
 				const now = heldAlike(after, targetName(r))
 				return now?.kind === "relation" ? [now.ident] : []
-			}),
-			...columns.tables
-		].map((name) => {
-			const table: ObjectName = { schema: previous.schema, name }
-			return [nameKey(table), table] as const
-		})
+			})
+		]
+			.map((name): ObjectName => ({ schema: previous.schema, name }))
+			.concat(columns.tables)
+			.map((table) => [nameKey(table), table] as const)
 	)
 	/** And each table holding a foreign key into one of those, whose definition reads its relation's new name. */
 	const referring = columns.previous.manifest.objects.flatMap((o) => {
@@ -578,65 +577,12 @@ export const applyDeclarations = (
 }
 
 /**
- * Each side's selection the previous snapshot records, across its levels' described laws, by its relation and its
- * conjuncts' texts under today's canonical form (laws/model/restate.ts canonicalTexts), each as recorded, once
- * (laws/model/restate.ts PreviousNames.selections).
- */
-const recordedSelections = (
-	previous: DeploySnapshot
-): ReadonlyMap<string, ReadonlyArray<ReadonlyArray<ExprDesc>>> => {
-	const out = new Map<string, Map<string, ReadonlyArray<ExprDesc>>>()
-	const record = (side: SideDesc): void => {
-		const today = canonicalTexts(side.selection)
-		const key = selectionKey(side.relation, today)
-		const spellings = out.get(key) ?? new Map<string, ReadonlyArray<ExprDesc>>()
-		spellings.set(ownedText(side.selection.conjuncts, withoutSourceLocs), side.selection.conjuncts)
-		out.set(key, spellings)
-	}
-	for (const level of previous.levels) {
-		for (const { described } of level.laws) {
-			for (const side of describedSides(described)) {
-				record(side)
-			}
-		}
-	}
-	return new Map([...out].map(([key, spellings]) => [key, [...spellings.values()]] as const))
-}
-
-/** The key a recorded selection is found by: its relation and its conjuncts' texts today. */
-const selectionKey = (relation: string, texts: ReadonlyArray<string>): string =>
-	JSON.stringify([relation, texts])
-
-/** The sides a described law states, each with its selection. */
-const describedSides = (law: OwnLaw): ReadonlyArray<SideDesc> => {
-	switch (law.kind) {
-		case "key":
-			return [law.side]
-		case "contained":
-		case "coverage":
-			return [law.from, law.to]
-		case "family":
-		case "tree":
-			return [law.member]
-		case "fold":
-			return [law.step, law.end]
-		case "primaryKey":
-		case "check":
-		case "contract":
-		case "pattern":
-		case "generated":
-			return []
-	}
-}
-
-/**
  * How the previous snapshot names each relation, field and handle of the target under the checked declarations
  * (laws/model/restate.ts PreviousNames): a relation or roster renamed by its old name; else by its own name, or
  * the alike spelling the previous snapshot holds it under, unless a rename took that name away; and a relation the
  * snapshots record no record of, a closed relation, which no declaration renames, by its own. A field the same way on
  * its relation's previous record; and a handle by its declared rename's old name, or its own where the previous roster
- * holds it live and no rename took it away. Anything else is new to the migration. Its selections are the ones its
- * levels' laws record (recordedSelections), and the laws it states its theory's.
+ * holds it live and no rename took it away. Anything else is new to the migration. The laws it states are its theory's.
  */
 const previousNames = (
 	previous: DeploySnapshot,
@@ -693,14 +639,12 @@ const previousNames = (
 			? h
 			: undefined
 	}
-	const selections = recordedSelections(previous)
 	const laws = new Set<string>(Object.keys(previous.theory.laws))
 	return {
 		relation,
 		field,
 		handle,
 		handleRenames: new Set(handles.keys()),
-		selections: (r, texts) => selections.get(selectionKey(r, texts)) ?? [],
 		stated: (law) => laws.has(law)
 	}
 }
@@ -889,16 +833,11 @@ const restatedWritings = (
 					if (into === undefined || field === undefined || !drawnBy(into.writing)) {
 						return f
 					}
-					const restated = restatedBy(
-						names,
-						installation.laws.theory.relations,
-						(spell) => {
-							const fill = new PreviousFill(spell, laws)
-							const writing = fieldWriting(fillers, now.name, field, fill)
-							return fill.complete ? writing : undefined
-						},
-						(writing) => canonicalEquals(writing, f.writing)
-					)
+					const restated = restatedBy(names, installation.laws.theory.relations, (spell) => {
+						const fill = new PreviousFill(spell, laws)
+						const writing = fieldWriting(fillers, now.name, field, fill)
+						return fill.complete ? writing : undefined
+					})
 					return (restated !== undefined && canonicalEquals(restated, f.writing)) ||
 						sameSequence(previous, installation, now.name, field.name, f.writing)
 						? { ...f, writing: into.writing }
@@ -914,8 +853,7 @@ const restatedWritings = (
 /**
  * The previous snapshot with the record of each law the target states under the target's identifier: a law whose
  * statement, restated under the previous snapshot's names (laws/model/restate.ts restatedLaw), is one the previous
- * snapshot states is that very law, though a declaration renamed what it reads or an earlier grizzle's canonical form
- * spelled its selection otherwise, so the diff reads the previous installation's record of it, by which it held the law
+ * snapshot states is that very law, though a declaration renamed what it reads, so the diff reads the previous installation's record of it, by which it held the law
  * (diff.ts heldBefore, migrationChecks), and checks it again only where its check's identity moved. A record no target
  * law restates to stands under its own identifier but where a target law holds that identifier, whose record it is not.
  */
@@ -939,6 +877,21 @@ const restatedLaws = (
 	return { ...previous, theory: { ...previous.theory, laws } }
 }
 
+/** Each table's law columns in `objects`, a manifest's, by name, with their definitions. */
+const lawColumnDefinitions = (
+	objects: ReadonlyArray<AnyObject>
+): ReadonlyMap<NameKey, ReadonlyMap<string, ColumnDef>> => {
+	const out = new Map<NameKey, Map<string, ColumnDef>>()
+	for (const o of objects) {
+		const v = installed(o)
+		if (v.kind === "lawColumn") {
+			const key = nameKey(v.table)
+			out.set(key, (out.get(key) ?? new Map<string, ColumnDef>()).set(v.column, v.definition))
+		}
+	}
+	return out
+}
+
 /** A law column of a target table, and its previous name (restatedLawColumn), none where it is new. */
 interface TargetLawColumn {
 	readonly column: string
@@ -950,10 +903,13 @@ interface TargetLawColumn {
  * as it stands after.
  *
  * A law column is named by what it holds (core/identity.ts LawColumnStatement), its relations, fields, handles and
- * laws among them, so a declaration that renames any of them renames the column. The target's column whose statement,
- * restated under the previous snapshot's names (laws/model/restate.ts restatedLawColumn), names a column the previous
- * snapshot holds on its table holds exactly that column's values: the migration renames that column to the target's
- * name, with ALTER TABLE ... RENAME COLUMN, so it neither drops nor draws it again and rewrites no row. A previous
+ * laws among them, so a declaration that renames any of them, or a canonical text that states them otherwise, renames
+ * the column. A target column the previous snapshot holds under its own name is that column. Any other holds exactly the
+ * values of the previous column it is found as (heldAs): a column PostgreSQL generates, the previous generated column of
+ * its table of its definition, which reads the declared renames' names, whatever either is named; a column grizzle draws,
+ * the column its statement, restated under the previous snapshot's names (laws/model/restate.ts restatedLawColumn),
+ * names. The migration renames that column to the target's name, with ALTER TABLE ... RENAME COLUMN, so it neither
+ * drops nor draws it again and rewrites no row. A previous
  * column that holds a target column's name but is not that column under the declarations (its name is reused for
  * something else) is first renamed aside, and the diff drops it there. Every column goes through its aside name
  * (identity.aside), so a swap or a chain of renames meets no name another holds. The previous snapshot then names each
@@ -968,45 +924,76 @@ const lawColumnRenames = (
 ): {
 	readonly statements: ReadonlyArray<SqlStatement>
 	readonly previous: DeploySnapshot
-	readonly tables: ReadonlyArray<string>
+	readonly tables: ReadonlyArray<ObjectName>
 } => {
-	const schema = previous.schema
 	const laws = new Map(installation.laws.theory.laws.map((l) => [l.id, l] as const))
-	const held = new Map<NameKey, Set<string>>()
-	for (const o of previous.manifest.objects) {
-		const v = installed(o)
-		if (v.kind === "lawColumn") {
-			const key = nameKey(v.table)
-			held.set(key, (held.get(key) ?? new Set<string>()).add(v.column))
-		}
-	}
+	const held = lawColumnDefinitions(previous.manifest.objects)
+	const defined = lawColumnDefinitions(installation.manifest.objects)
 	const targets = new Map<
 		NameKey,
-		{ readonly table: ObjectName; readonly columns: Array<TargetLawColumn> }
+		{
+			readonly table: ObjectName
+			readonly natives: Array<{ readonly column: string; readonly plan: LawColumnPlan }>
+		}
 	>()
 	for (const n of installation.laws.natives) {
 		if (n.namespace !== "column") {
 			continue
 		}
-		const table: ObjectName = { schema, name: n.owner }
+		const table: ObjectName = {
+			schema: identifierOf(installation.names.levelOf(n.object.relation.name)),
+			name: n.owner
+		}
 		const key = nameKey(table)
-		const of = targets.get(key) ?? { table, columns: [] }
-		of.columns.push({
-			column: n.object.column,
-			was: restatedLawColumn(
-				n.plan,
-				laws,
-				names,
-				installation.laws.theory.relations,
-				(c) => held.get(key)?.has(c) === true
-			)
-		})
+		const of = targets.get(key) ?? { table, natives: [] }
+		of.natives.push({ column: n.object.column, plan: n.plan })
 		targets.set(key, of)
 	}
+	const columnsOf = new Map(
+		[...targets].map(([key, { table, natives }]) => {
+			const holds = held.get(key) ?? new Map<string, ColumnDef>()
+			const taken = new Set(natives.map((n) => n.column))
+			const claimed = new Set<string>()
+			const heldAs = (column: string, plan: LawColumnPlan): string | undefined => {
+				if (holds.has(column)) {
+					return column
+				}
+				const definition = defined.get(key)?.get(column)
+				if (definition === undefined) {
+					throw defect(`the installation adds the law column ${column} it plans`)
+				}
+				if (definition.generated === undefined) {
+					return restatedLawColumn(plan, laws, names, installation.laws.theory.relations)
+				}
+				const found = [...holds].find(
+					([c, d]) =>
+						!taken.has(c) &&
+						!claimed.has(c) &&
+						d.generated !== undefined &&
+						canonicalEquals({ ...d, name: "" }, { ...definition, name: "" })
+				)
+				if (found === undefined) {
+					return undefined
+				}
+				claimed.add(found[0])
+				return found[0]
+			}
+			return [
+				key,
+				{
+					table,
+					columns: natives.map((n): TargetLawColumn => ({
+						column: n.column,
+						was: heldAs(n.column, n.plan)
+					}))
+				}
+			] as const
+		})
+	)
 	const statements: Array<SqlStatement> = []
 	const tableColumns = new Map<NameKey, ReadonlyMap<string, string>>()
-	for (const [key, { table, columns }] of targets) {
-		const holds = held.get(key) ?? new Set<string>()
+	for (const [key, { table, columns }] of columnsOf) {
+		const holds = held.get(key) ?? new Map<string, ColumnDef>()
 		const moves = columns.flatMap((c) =>
 			c.was !== undefined && c.was !== c.column && holds.has(c.was)
 				? [{ from: c.was, to: c.column, aside: asideName(temporaries, c.was) }]
@@ -1017,7 +1004,7 @@ const lawColumnRenames = (
 			...moves.map((m) => m.from)
 		])
 		const taken = new Set(columns.map((c) => c.column))
-		const holders = [...holds].flatMap((h) =>
+		const holders = [...holds.keys()].flatMap((h) =>
 			taken.has(h) && !standing.has(h) ? [{ column: h, aside: asideName(temporaries, h) }] : []
 		)
 		if (moves.length === 0 && holders.length === 0) {
@@ -1041,8 +1028,8 @@ const lawColumnRenames = (
 		)
 	}
 	const tables = [...tableColumns.keys()].flatMap((key) => {
-		const table = targets.get(key)?.table
-		return table === undefined ? [] : [table.name]
+		const table = columnsOf.get(key)?.table
+		return table === undefined ? [] : [table]
 	})
 	if (tableColumns.size === 0) {
 		return { statements, previous, tables }
@@ -1051,11 +1038,13 @@ const lawColumnRenames = (
 		tableColumns.get(nameKey(table))
 	const ident = (id: string): string => {
 		const parsed = parseIdent(id)
-		if (parsed.kind !== "column" || parsed.schema !== schema) {
+		if (parsed.kind !== "column") {
 			return id
 		}
-		const to = tableColumns.get(nameKey({ schema, name: parsed.relation }))?.get(parsed.name)
-		return to === undefined ? id : innerIdent("column", schema, parsed.relation, to)
+		const to = tableColumns
+			.get(nameKey({ schema: parsed.schema, name: parsed.relation }))
+			?.get(parsed.name)
+		return to === undefined ? id : innerIdent("column", parsed.schema, parsed.relation, to)
 	}
 	return {
 		statements,

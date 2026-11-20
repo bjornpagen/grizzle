@@ -9,6 +9,7 @@ import { draftMigration } from "#compiler/deploy/render/generate.ts"
 import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noPreviousRosters } from "#compiler/ir/codes.ts"
+import { noSpellings } from "#compiler/ir/pattern.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -191,7 +192,7 @@ const built = (
 const installationOf = (v: Version): Installation => {
 	const { base, logins } = built(v)
 	const owned = owning(base)
-	const codes = draftCodebook(noPreviousRosters, new Map(), rostersOf(owned))
+	const codes = draftCodebook(noPreviousRosters, new Map(), rostersOf(owned), noSpellings)
 	assert.ok(codes.ok, "the version's rosters draw their codes")
 	return succeeded(
 		compileInstallation(

@@ -27,6 +27,7 @@ import { Array as Arr, Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import { noSpellings } from "#compiler/ir/pattern.ts"
 import { closedId, drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
 	closed,
@@ -112,7 +113,10 @@ const countedCodes = (
 			return [name, { ...codec, rank }] as const
 		})
 	)
-	return { codes: { rosters }, reads: () => Arr.reduce(ranks, 0, (n, rank) => n + rank.reads) }
+	return {
+		codes: { rosters, spellings: noSpellings },
+		reads: () => Arr.reduce(ranks, 0, (n, rank) => n + rank.reads)
+	}
 }
 
 /** A write works out each nested and fresh value's canonical text once, at its admission. */

@@ -36,6 +36,7 @@ import {
 	respelledDesc,
 	type RespelledFeature,
 	respellingGen,
+	rowStepsOf,
 	statementsOf
 } from "#test/unit/deploy/renames.fixtures.ts"
 
@@ -102,7 +103,7 @@ export const declaredRenamesAndDropsDropAFieldGrizzleDrawsAgainWithNoDeclaration
 		}
 	)
 
-/** Declared renames and drops a relation, a field or a roster respelled to an alike name is one installed object, and so is a law column that reads it: drafted with no declaration, and nothing dropped. Its budget is its suite's before it was a property (test/unit/deploy/renames.test.ts at 4ca3036a): 64 runs and 64 steered cases. */
+/** Declared renames and drops a relation, a field or a roster respelled to an alike name is one installed object, and so is a law column that reads it and a law over it: drafted with no declaration, nothing dropped and no row checked again. Its budget is its suite's before it was a property (test/unit/deploy/renames.test.ts at 4ca3036a): 64 runs and 64 steered cases. */
 export const declaredRenamesAndDropsARelationAFieldOrARosterRespelledToAnAlikeNameIsOneInstalledObjectAndSoIsALawColumnThatReadsItDraftedWithNoDeclarationAndNothingDropped =
 	property.explore(respellingGen, {
 		needs: {},
@@ -146,6 +147,11 @@ export const declaredRenamesAndDropsARelationAFieldOrARosterRespelledToAnAlikeNa
 							Arr.some(st.actions, (a) => a.kind === "dropColumn" || a.kind === "alterColumnType"))
 				)
 				assert.deepEqual(drops, [], "a respelling drops nothing")
+				assert.deepEqual(
+					rowStepsOf(drafted.success.plan.steps),
+					[],
+					"a respelling checks no stored row against a law again"
+				)
 			}),
 		oracle: {
 			kind: "specification",
@@ -155,9 +161,9 @@ export const declaredRenamesAndDropsARelationAFieldOrARosterRespelledToAnAlikeNa
 		kills: [
 			{
 				file: "packages/engine/src/deploy/diff/declared.ts",
-				original: "\t\tconst alikeOwn = this.#groups.get(conversionOf(own)) ?? []",
-				replacement: "\t\tconst alikeOwn = this.#groups.get(own) ?? []",
-				why: "The previous snapshot's names are looked up by spelling, not by conversion, so a respelled name's law column is set aside and dropped."
+				original: "\t\t\t\tif (holds.has(column)) {\n\t\t\t\t\treturn column\n\t\t\t\t}\n",
+				replacement: "",
+				why: "A law column the previous snapshot holds under the target's own name is not that column, so a respelled name's law column is set aside and dropped."
 			}
 		]
 	})

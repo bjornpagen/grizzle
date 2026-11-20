@@ -21,6 +21,7 @@ import {
 	reorderRefusal,
 	type RosterRenames
 } from "#compiler/ir/codes.ts"
+import { noSpellings } from "#compiler/ir/pattern.ts"
 import { Roster, type RosterOrder } from "#compiler/ir/scalar.ts"
 import { failed, succeeded, throwsDefect } from "#test/support/assert.ts"
 
@@ -245,12 +246,12 @@ export const replay = (history: ReadonlyArray<Command>, c: Case<Situation>) =>
 					r.closed === closed ? rosterOf(command.roster, declared) : r
 				)
 				if (rosterOrdersOf[command.roster] === "unordered") {
-					const held = succeeded(draftCodebook(keptRosters(book), noRenames, others))
+					const held = succeeded(draftCodebook(keptRosters(book), noRenames, others, noSpellings))
 					agrees(held, models)
 					c.note("an unordered roster reordered")
 					continue
 				}
-				const refused = failed(draftCodebook(keptRosters(book), noRenames, others))
+				const refused = failed(draftCodebook(keptRosters(book), noRenames, others, noSpellings))
 				assert.deepEqual(refused, { roster: closed, earlier, later })
 				const error = reorderRefusal(refused)
 				assert.equal(error.reason._tag, "UnsupportedOperation")
@@ -268,9 +269,9 @@ export const replay = (history: ReadonlyArray<Command>, c: Case<Situation>) =>
 					: noRenames
 			models[command.roster] = applied(model, command)
 			changed.add(command.roster)
-			book = succeeded(draftCodebook(keptRosters(book), renames, rosters()))
+			book = succeeded(draftCodebook(keptRosters(book), renames, rosters(), noSpellings))
 			agrees(book, models)
-			const again = succeeded(draftCodebook(keptRosters(book), noRenames, rosters()))
+			const again = succeeded(draftCodebook(keptRosters(book), noRenames, rosters(), noSpellings))
 			for (const roster of rosters()) {
 				assert.deepEqual(codecOf(again, roster).codes, codecOf(book, roster).codes, "idempotent")
 			}
@@ -305,7 +306,9 @@ export const replay = (history: ReadonlyArray<Command>, c: Case<Situation>) =>
 			c.note("both rosters changed")
 		}
 		const [kept, dropped] = rosters()
-		const without = succeeded(draftCodebook(keptRosters(book), noRenames, [defined(kept)]))
+		const without = succeeded(
+			draftCodebook(keptRosters(book), noRenames, [defined(kept)], noSpellings)
+		)
 		throwsDefect(() => codecOf(without, defined(dropped)), "a roster the draft lacks leaves")
 		throwsDefect(() => codeNames(emptyCodebook)(defined(kept).closed), "no roster in no codebook")
 	})

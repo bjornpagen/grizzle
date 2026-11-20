@@ -683,6 +683,7 @@ export const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 						? matchOperands(e, {
 								lower: go,
 								whole: () => undefined,
+								spelling: (spelling) => spelling,
 								are: (read) => {
 									throw new Error(
 										`the compute suites render no closed read: matches over ${read.relation} reads an installed constant`

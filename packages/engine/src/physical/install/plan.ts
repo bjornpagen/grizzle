@@ -24,6 +24,7 @@ import type { Identifier, LawId } from "#compiler/core/ids.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ClosedTheoryRelation, TableRelation } from "#compiler/ir/law.ts"
+import { installedSpellings } from "#compiler/ir/pattern.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import { patternsText, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -533,6 +534,7 @@ export const planInstallation = (
 						),
 			define: contractDigest,
 			codes,
+			spellings: installedSpellings(codes.spellings, [owned.relations, owned.statements]),
 			closed: qualifiedClosed(identifierOf(headNonEmpty(settings.levels)), closed),
 			closedRelations: new Map(closedRelationsOf(model).map((r) => [r.name, r] as const)),
 			closedTable: closedTableOf(checked),

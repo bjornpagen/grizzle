@@ -23,7 +23,8 @@ import {
 	codebookOf,
 	emptySnapshot,
 	noWorkload,
-	rosterFates
+	rosterFates,
+	spellingsOf
 } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
@@ -35,7 +36,7 @@ import { installationsOf } from "#compiler/schema/own.ts"
 import { type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
+import { nameKey, type SqlStatement } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import {
@@ -432,7 +433,8 @@ export const draft = (
 			Arr.map(rosters, (r) => r.closed)
 		),
 		renames,
-		rosters
+		rosters,
+		spellingsOf(previous)
 	)
 	if (!codes.ok) {
 		return Result.fail(reorderRefusal(codes.error))
@@ -478,6 +480,24 @@ export const statementsOf = (steps: ReadonlyArray<Step>): ReadonlyArray<SqlState
 					? s.draft.keep
 					: []
 	)
+
+/** Every step a plan drafts over stored rows beside its statements, each named: a fill of set-aside columns, a law's
+ * violation query over every row, a loss of a schema's rows. Each reads or writes rows the earlier installation holds. */
+export const rowStepsOf = (steps: ReadonlyArray<Step>): ReadonlyArray<string> =>
+	Arr.flatMap(steps, (s): ReadonlyArray<string> => {
+		switch (s.draft.kind) {
+			case "statement":
+			case "alteration":
+			case "confirm":
+				return []
+			case "fill":
+				return [`a fill of ${nameKey(s.draft.table)}`]
+			case "violation":
+				return [`the violation query of ${s.draft.law}`]
+			case "loss":
+				return [`a loss of ${s.draft.loses.schema}`]
+		}
+	})
 
 /** Where the chain of table renames a plan runs takes the table named `from`. */
 const renamedThrough = (statements: ReadonlyArray<SqlStatement>, from: string): string =>

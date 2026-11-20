@@ -11,6 +11,7 @@ import {
 	dayNumber,
 	lastCalendarDate
 } from "#compiler/ir/date.ts"
+import { noSpellings } from "#compiler/ir/pattern.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { type CarrierSpec, type HostValue, parseValue } from "#compiler/scalar/values/identity.ts"
@@ -42,7 +43,8 @@ export const orderCodes: Codebook = {
 				{ kind: "live", handle: "Mu" }
 			])
 		]
-	])
+	]),
+	spellings: noSpellings
 }
 
 /** Every date's day number, the first's 0. */

@@ -56,10 +56,8 @@ export const aMembershipOfOneValueIsItsEqualityOneStatementLawsAndScriptAndOneOf
 		kills: [
 			{
 				file: "packages/engine/src/schema/own.ts",
-				original:
-					'\t\t\t\tif (rules.has("inOfOne") && only !== undefined && others.length === 0) {',
-				replacement:
-					'\t\t\t\tif (rules.has("inOfOne") && only !== undefined && others.length === -1) {',
+				original: "\t\t\t\tif (only !== undefined && others.length === 0) {",
+				replacement: "\t\t\t\tif (only !== undefined && others.length === -1) {",
 				why: "An IN list of one value kept as an IN: its canonical text, its laws' identities and the generated columns of a selected side are the IN's, not the equality's."
 			}
 		]

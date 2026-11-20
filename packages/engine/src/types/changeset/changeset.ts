@@ -2010,7 +2010,7 @@ export type RefusingObject =
  *   and its terms are fields (a span field makes it a nonoverlap key), and otherwise a key over the facts the side
  *   reads. A side (ir/desc.ts SideDesc, the public LawSide) is its relation, its terms in the order the statement pairs
  *   them, each a field or pred of a natural field, and its selection's conjuncts, each a row predicate in its
- *   canonical form (schema/own.ts canonicalRules), in canonical order: none reads every fact;
+ *   canonical form (schema/own.ts canonicalSelection), in canonical order: none reads every fact;
  * - `check`: a relation's row check, by its name;
  * - `contained`: a containment, a foreign key included, from its source side into its target side (a mirrors is two);
  * - `coverage`: a containment whose sides pair a span field, the source's span covered by the target's;

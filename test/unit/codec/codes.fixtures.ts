@@ -11,6 +11,7 @@ import { parseDeclaredName } from "#compiler/core/identity.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
+import { noSpellings } from "#compiler/ir/pattern.ts"
 import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import { compareValues } from "#compiler/scalar/values/identity.ts"
@@ -89,7 +90,10 @@ const installed = (live: number) => {
 			)
 		)
 	)
-	const book: Codebook = { rosters: new Map([[closed, rosterCodec(closed, codes)]]) }
+	const book: Codebook = {
+		rosters: new Map([[closed, rosterCodec(closed, codes)]]),
+		spellings: noSpellings
+	}
 	const code: ScalarType = {
 		carrier: "code",
 		caps: capabilitiesOf("code"),

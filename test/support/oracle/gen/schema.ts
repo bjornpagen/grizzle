@@ -16,6 +16,7 @@ import type { RosterCodes } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import { noSpellings } from "#compiler/ir/pattern.ts"
 import type { Heading, KeySet } from "#compiler/ir/rel.ts"
 import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import {
@@ -143,7 +144,8 @@ export const schemaCodes = (schema: Pick<GenSchema, "closed">): Codebook => ({
 			const name = rosterName(c.name)
 			return [name, rosterCodec(name, c.codes)] as const
 		})
-	)
+	),
+	spellings: noSpellings
 })
 
 const columnIndex = (relation: GenRelation, name: string): number => {

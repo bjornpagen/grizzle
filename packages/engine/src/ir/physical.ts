@@ -16,6 +16,7 @@ import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { ClosedTheoryRelation } from "#compiler/ir/law.ts"
+import type { InstalledSpellings } from "#compiler/ir/pattern.ts"
 import type { ClosedIndex } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
@@ -137,6 +138,11 @@ export interface PhysicalNames {
 	 * schema's artifacts are compiled for the installation that holds them.
 	 */
 	readonly codes: Codebook
+	/**
+	 * How the installation spells each pattern a match reads (ir/pattern.ts InstalledSpellings): one spelling of each
+	 * language it installs, its history as its codes are, whose ARE every statement reads.
+	 */
+	readonly spellings: InstalledSpellings
 	/** A closed relation's installed constants, by its declared name. */
 	readonly closed: (relation: string) => ClosedConstant
 	/**

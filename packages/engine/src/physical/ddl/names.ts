@@ -19,6 +19,7 @@ import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ClosedTheoryRelation, DomainCheck } from "#compiler/ir/law.ts"
+import type { InstalledSpellings } from "#compiler/ir/pattern.ts"
 import {
 	type LibraryFn,
 	missing,
@@ -169,6 +170,8 @@ interface NamesInput {
 	) => DomainDigest
 	/** The installation's codes. */
 	readonly codes: Codebook
+	/** How the installation spells each pattern a match reads (ir/pattern.ts installedSpellings). */
+	readonly spellings: InstalledSpellings
 	/** Each closed relation's installed constants, by its declared name (physical/ddl/constants.ts). */
 	readonly closed: ReadonlyMap<string, ClosedConstant>
 	/** Each closed relation's theory, its heading and its rows, by its declared name. */
@@ -347,6 +350,7 @@ export const roleReadNames = (
 	paramDomain: names.paramDomain,
 	vectorSchema: names.vectorSchema,
 	codes: names.codes,
+	spellings: names.spellings,
 	closed: names.closed,
 	library: names.library,
 	closedRelations: names.closedRelations,
@@ -547,6 +551,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 			name: identifierOf(bitsNamed(roster))
 		}),
 		codes: input.codes,
+		spellings: input.spellings,
 		closed: (relation) =>
 			input.closed.get(relation) ?? missing(`physical: no closed relation ${relation}`),
 		library: (fn) =>

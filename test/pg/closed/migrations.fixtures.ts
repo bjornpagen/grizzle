@@ -27,7 +27,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import type { Declarations, Draft } from "#compiler/deploy/diff/plan.ts"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
-import { codebookOf, rosterFates } from "#compiler/deploy/snapshot/build.ts"
+import { codebookOf, rosterFates, spellingsOf } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noRenames } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -553,7 +553,8 @@ const drafting = (sys: System, built: Built, declared: Declarations) =>
 					Arr.map(rosters, (r) => r.closed)
 				),
 				noRenames,
-				rosters
+				rosters,
+				spellingsOf(sys.snapshot)
 			),
 			"a drafted version keeps every roster's codes in order"
 		)
@@ -923,7 +924,8 @@ const reordering = (sys: System, p: Params["reorder"], before: Model) =>
 				Arr.map(rosters, (r) => r.closed)
 			),
 			noRenames,
-			rosters
+			rosters,
+			spellingsOf(sys.snapshot)
 		)
 		assert.ok(!drafted.ok, "a reordered roster drafts no codebook")
 		assert.deepEqual(

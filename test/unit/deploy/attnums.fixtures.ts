@@ -10,6 +10,7 @@ import {
 	emptySnapshot,
 	noWorkload,
 	rosterFates,
+	spellingsOf,
 	withAttnums
 } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -120,7 +121,8 @@ const draft = (previous: DeploySnapshot, m: Model, declared: Declarations): Migr
 			Arr.map(rosters, (r) => r.closed)
 		),
 		noRenames,
-		rosters
+		rosters,
+		spellingsOf(previous)
 	)
 	if (!codes.ok) {
 		return assert.fail("a schema with no roster drafts its codes")

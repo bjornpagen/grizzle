@@ -560,8 +560,10 @@ export const computesTextTermsHandsTheAREOfEveryValueItsPatternTakesNeverASource
 		kills: [
 			{
 				file: "packages/engine/src/lower/conservative/expr/index.ts",
-				original: "\t\t\treturn lit.text(matchAre(pattern.value.value.spelling), types.text)",
-				replacement: "\t\t\treturn lit.text(pattern.value.value.spelling, types.text)",
+				original:
+					"\t\t\treturn lit.text(matchAre(lowering.spelling(pattern.value.value.spelling)), types.text)",
+				replacement:
+					"\t\t\treturn lit.text(lowering.spelling(pattern.value.value.spelling), types.text)",
 				why: "A literal pattern hands `~` its source rather than its ARE; the `~` property fails."
 			}
 		]

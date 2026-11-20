@@ -28,6 +28,7 @@ import {
 	emptySnapshot,
 	noWorkload,
 	rosterFates,
+	spellingsOf,
 	writeSnapshot
 } from "#compiler/deploy/snapshot/build.ts"
 import { installed } from "#compiler/deploy/snapshot/objects.ts"
@@ -654,7 +655,8 @@ const drafting = (
 			Arr.map(rosters, (r) => r.closed)
 		),
 		noRenames,
-		rosters
+		rosters,
+		spellingsOf(previous)
 	)
 	if (!codes.ok) {
 		return Result.fail(reorderRefusal(codes.error))

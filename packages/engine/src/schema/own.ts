@@ -802,28 +802,16 @@ const madeOf = <T>(form: T, parts: ReadonlyMap<string, WellFormedText>): Canonic
  * - `inOfOne`: an IN list of one value the equality with it, which it means (`x IN (v)` is `x = v`, NULL where either
  *   is, and PostgreSQL stores it as `=`).
  *
- * The canonical form is every rule's (`everyRule`). A snapshot an earlier grizzle wrote holds its statements under the
- * rules that grizzle had, a subset of these: a draft reads each of them under every rule again (laws/model/restate.ts
- * PreviousNames.selections), so a law whose meaning a rule added since leaves unchanged keeps its identity.
+ * The canonical form is every rule's, and every snapshot a draft reads holds its statements in it: grizzle writes no
+ * other, and a format whose canonical form gains a rule has its record converted.
  */
-export const canonicalRules = [
-	"orientation",
-	"connectives",
-	"conjuncts",
-	"inValues",
-	"inOfOne"
-] as const
-
-export type CanonicalRule = (typeof canonicalRules)[number]
-
-/** A canonicalizer: a predicate, a selection, a side and a statement put in canonical form under a set of the rules. */
-export interface Canonicalizer {
+interface Canonicalizer {
 	readonly selection: (selection: SelectionDesc) => SelectionDesc
 	readonly statement: (s: StatementDesc) => CanonicalStatement
 }
 
-/** The canonicalizer of `rules`: each rule it holds applied, recursively, every other part kept as written. */
-export const canonicalizerOf = (rules: ReadonlySet<CanonicalRule>): Canonicalizer => {
+/** The canonicalizer: each rule applied, recursively, every other part kept as written. */
+const canonicalizer = (): Canonicalizer => {
 	/**
 	 * A comparison in the one orientation of the two that mean it, under `orientation`: a bare literal stands second; of
 	 * two operands that may stand either way, eq and ne put them in canonical text order, and an ordering is stated as lt
@@ -836,12 +824,11 @@ export const canonicalizerOf = (rules: ReadonlySet<CanonicalRule>): Canonicalize
 		const left = predicate(expr.left)
 		const right = predicate(expr.right)
 		const swapped =
-			rules.has("orientation") &&
-			(isBare(left.form) !== isBare(right.form)
+			isBare(left.form) !== isBare(right.form)
 				? isBare(left.form)
 				: expr.op === "eq" || expr.op === "ne"
 					? compareStrings(left.text, right.text) > 0
-					: expr.op === "gt" || expr.op === "ge")
+					: expr.op === "gt" || expr.op === "ge"
 		const [first, second] = swapped ? [right, left] : [left, right]
 		return madeOf(
 			Object.freeze({
@@ -864,9 +851,7 @@ export const canonicalizerOf = (rules: ReadonlySet<CanonicalRule>): Canonicalize
 			case "and":
 			case "or": {
 				const each = mapNonEmpty(expr.args, predicate)
-				const ordered = rules.has("connectives")
-					? sortNonEmpty(each, (a, b) => compareStrings(a.text, b.text))
-					: each
+				const ordered = sortNonEmpty(each, (a, b) => compareStrings(a.text, b.text))
 				const args = mapNonEmpty(ordered, (a) => a.form)
 				Object.freeze(args)
 				return madeOf(
@@ -882,11 +867,9 @@ export const canonicalizerOf = (rules: ReadonlySet<CanonicalRule>): Canonicalize
 				return comparison(expr)
 			case "in": {
 				const written = expr.values.map((v) => [textOf(v), v] as const)
-				const values = rules.has("inValues")
-					? [...new Map(written)].toSorted(([a], [b]) => compareStrings(a, b))
-					: written
+				const values = [...new Map(written)].toSorted(([a], [b]) => compareStrings(a, b))
 				const [only, ...others] = values
-				if (rules.has("inOfOne") && only !== undefined && others.length === 0) {
+				if (only !== undefined && others.length === 0) {
 					return comparison(
 						Object.freeze({
 							kind: "compare",
@@ -934,20 +917,18 @@ export const canonicalizerOf = (rules: ReadonlySet<CanonicalRule>): Canonicalize
 		}
 	}
 
-	/** A selection under the rules with its text: each conjunct's predicate, and under `conjuncts` its conjuncts' own
+	/** A selection under the rules with its text: each conjunct's predicate, and its conjuncts' own
 	 * conjuncts, each once, in the order of their canonical texts, so two selections of one set of conjuncts are one
 	 * selection, and one of none reads every fact. */
 	const selection = (s: SelectionDesc): Canonical<SelectionDesc> => {
-		const each = rules.has("conjuncts")
-			? [
-					...new Map(
-						s.conjuncts
-							.flatMap(conjunctsOf)
-							.map(predicate)
-							.map((c) => [c.text, c.form] as const)
-					)
-				].toSorted(([a], [b]) => compareStrings(a, b))
-			: s.conjuncts.map(predicate).map((c) => [c.text, c.form] as const)
+		const each = [
+			...new Map(
+				s.conjuncts
+					.flatMap(conjunctsOf)
+					.map(predicate)
+					.map((c) => [c.text, c.form] as const)
+			)
+		].toSorted(([a], [b]) => compareStrings(a, b))
 		return madeOf(
 			Object.freeze({ conjuncts: Object.freeze(each.map(([, conjunct]) => conjunct)) }),
 			new Map([["conjuncts", arrayText(each.map(([text]) => text))]])
@@ -1015,7 +996,7 @@ export const canonicalizerOf = (rules: ReadonlySet<CanonicalRule>): Canonicalize
 }
 
 /** The canonical form: every rule's. */
-const everyRule = canonicalizerOf(new Set(canonicalRules))
+const everyRule = canonicalizer()
 
 /** A selection in canonical form. */
 export const canonicalSelection = everyRule.selection
@@ -2541,19 +2522,9 @@ export const ownedOf = (input: unknown): Owned | undefined =>
  * Owns a schema description: one decoded at a boundary, or an Owned's own, each statement put in canonical form here.
  */
 export const own = (desc: SchemaDesc): Result.Result<Owned, CompileError> =>
-	ownUnder(desc, everyRule)
-
-/**
- * own() under `canonicalizer`: each statement put in canonical form by its rules alone, as an earlier grizzle whose
- * canonical form had fewer of the rules (canonicalRules) owned it, the snapshot it wrote the one a draft restates.
- */
-export const ownUnder = (
-	desc: SchemaDesc,
-	canonicalizer: Canonicalizer
-): Result.Result<Owned, CompileError> =>
 	ownWith(
 		desc,
-		mapNonEmpty(levelChain(desc), (level) => level.statements.map(canonicalizer.statement)),
+		mapNonEmpty(levelChain(desc), (level) => level.statements.map(everyRule.statement)),
 		hashedLevels
 	)
 

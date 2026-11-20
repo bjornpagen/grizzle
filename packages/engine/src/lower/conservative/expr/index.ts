@@ -224,7 +224,8 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 							lower,
 							whole: site.whole,
 							are: (read) =>
-								closedRead(site, read, read.args.map(lower), { kind: "are", field: read.field })
+								closedRead(site, read, read.args.map(lower), { kind: "are", field: read.field }),
+							spelling: site.names.spellings.of
 						})
 					: expr.args.map(lower)
 			const operandTypes = [expr.type, ...expr.args.map((a) => a.type)]
@@ -296,12 +297,14 @@ const simpleCase = (
 
 /**
  * How a site lowers what a Compute.matches pattern reads (patternAre): any subterm, a subterm it folds to its value,
- * and a str.pattern payload's ARE read by key.
+ * a str.pattern payload's ARE read by key, and the spelling the installation installs a pattern written as one as
+ * (ir/pattern.ts InstalledSpellings `of`).
  */
 export interface PatternLowering {
 	readonly lower: (e: ScalarExpr) => Expr
 	readonly whole: (e: ScalarExpr) => Expr | undefined
 	readonly are: (read: ScalarExpr & { readonly kind: "closedAt" }) => Expr
+	readonly spelling: (spelling: string) => string
 }
 
 /**
@@ -318,7 +321,8 @@ export const matchOperands = (expr: ScalarExpr, lowering: PatternLowering): Read
 
 /**
  * A Compute.matches pattern lowered as its ARE, the one PostgreSQL's `~` reads, never as its source, which only
- * grizzle's own automaton reads: a literal's spelling's ARE (scalar/regex/admit.ts matchAre), as is a pattern the
+ * grizzle's own automaton reads: a literal's ARE of the spelling the installation installs its language as
+ * (scalar/regex/admit.ts matchAre, PatternLowering `spelling`), so one language is one ARE whatever spells it, as is a pattern the
  * site folds to a literal (physical/ddl/expr.ts), so no expression compares two constants, which a generation expression refuses
  * (42P22); a str.pattern payload's ARE read by its key from the relation's ARE dictionary (sql/constants.ts
  * closedRead), translated where the constants were planned; and a Compute.cond of them, each arm its ARE. Typing admits
@@ -331,14 +335,14 @@ const patternAre = (pattern: ScalarExpr, lowering: PatternLowering): Expr => {
 		if (whole.kind !== "literal" || whole.value.kind !== "text") {
 			throw defect("a folded Compute.matches pattern is a text literal")
 		}
-		return lit.text(matchAre(whole.value.value), types.text)
+		return lit.text(matchAre(lowering.spelling(whole.value.value)), types.text)
 	}
 	switch (pattern.kind) {
 		case "literal":
 			if (pattern.value.kind !== "pattern") {
 				throw defect("a Compute.matches pattern literal is a pattern value")
 			}
-			return lit.text(matchAre(pattern.value.value.spelling), types.text)
+			return lit.text(matchAre(lowering.spelling(pattern.value.value.spelling)), types.text)
 		case "closedAt":
 			return lowering.are(pattern)
 		case "cond": {

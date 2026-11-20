@@ -1615,8 +1615,9 @@
 				]
 			}
 		},
-		"schema": "98bd76cff980e008dfd4bb480e71c44d73c8adeb457d9033ab9e58be653ae4e9"
+		"schema": "98bd76cff980e008dfd4bb480e71c44d73c8adeb457d9033ab9e58be653ae4e9",
+		"spellings": {}
 	},
 	"workload": {},
-	"seal": "cd0109c257826ea9f4d8cb1e5e5e625da8c1d7634e7098ceec92d66d601da5e8"
+	"seal": "7aa0f0c8c55e1bc84aa980a4bd87758d98ecc822241d89337288415148df9969"
 }

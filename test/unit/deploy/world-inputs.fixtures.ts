@@ -8,6 +8,7 @@ import { draftMigration } from "#compiler/deploy/render/generate.ts"
 import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noPreviousRosters } from "#compiler/ir/codes.ts"
+import { noSpellings } from "#compiler/ir/pattern.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -55,7 +56,7 @@ const installationOf = (turn: Turn, keyed: boolean, step: bigint): Installation 
 		ownLogin(defined(loginDescOf(login(base, "desk", [reader])), "a login built by login(...)"))
 	)
 	const owned = owning(base)
-	const codes = draftCodebook(noPreviousRosters, new Map(), rostersOf(owned))
+	const codes = draftCodebook(noPreviousRosters, new Map(), rostersOf(owned), noSpellings)
 	assert.ok(codes.ok, "the version's rosters draw their codes")
 	return succeeded(
 		compileInstallation(

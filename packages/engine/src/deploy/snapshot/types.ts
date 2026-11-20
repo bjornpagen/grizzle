@@ -115,6 +115,11 @@ export interface SnapshotTheory {
 	readonly schema: SchemaFingerprint
 	readonly relations: Readonly<Record<string, SnapshotRelation>>
 	readonly laws: Readonly<Record<string, SnapshotLaw>>
+	/**
+	 * The installation's spelling of each pattern language it installs, by the language's key (ir/pattern.ts
+	 * Spellings): its history, which the next draft installs each of those languages by again, as a roster's codes are.
+	 */
+	readonly spellings: Readonly<Record<string, string>>
 }
 
 /**

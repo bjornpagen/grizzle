@@ -13,7 +13,12 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
-import { emptySnapshot, noWorkload, rosterFates } from "#compiler/deploy/snapshot/build.ts"
+import {
+	emptySnapshot,
+	noWorkload,
+	rosterFates,
+	spellingsOf
+} from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noRenames, reorderRefusal } from "#compiler/ir/codes.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
@@ -939,7 +944,8 @@ export const plannedVersion = (
 				Arr.map(rosters, (r) => r.closed)
 			),
 			noRenames,
-			rosters
+			rosters,
+			spellingsOf(previous)
 		)
 		if (!drafted.ok) {
 			return yield* new RealizeRefused({

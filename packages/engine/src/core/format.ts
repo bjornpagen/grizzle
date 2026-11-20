@@ -6,11 +6,10 @@
  * served file is written again by `grizzle generate`. A change of what any of those files holds is a change of this
  * format, and nothing reads the format before it.
  *
- * @formatConstant grizzle's artifact format: 2, whose installed statements hold an IN list of one item as the equality
- * PostgreSQL stores it as, beside every snapshot member and served form the commits after format 1 moved (canonical
- * selections, generated fields' records, the case split, chain folds, closed-pattern AREs, key references, places)
+ * @formatConstant grizzle's artifact format: 3, whose described laws state a Compute.matches pattern as its pattern
+ * value, identified by its language, and whose theory records the installation's spelling of each language it installs
  */
-export const artifactFormat = 2
+export const artifactFormat = 3
 
 /** The member of a snapshot.json or a served file that records its format (artifactFormat). */
 export const formatKey = "format"

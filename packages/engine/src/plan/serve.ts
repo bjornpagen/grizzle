@@ -22,7 +22,8 @@ export {
 	noWorkload,
 	recordHolds,
 	rosterFates,
-	snapshotSeal
+	snapshotSeal,
+	spellingsOf
 } from "#compiler/deploy/snapshot/build.ts"
 export {
 	type InstalledIndexes,

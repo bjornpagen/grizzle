@@ -15,6 +15,7 @@ import { bitInputText, hexText, setBit, wholeDigitBits, zeroDigits } from "#comp
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Reordered, type RosterCodes, rosterCodes } from "#compiler/ir/cells.ts"
+import { noSpellings, type Spellings } from "#compiler/ir/pattern.ts"
 import type { Roster } from "#compiler/ir/scalar.ts"
 
 /** One roster's declared renames, old handle to new. */
@@ -86,10 +87,16 @@ export const declaredOrder = (roster: Roster): HandleOrder => {
  */
 export interface Codebook {
 	readonly rosters: ReadonlyMap<DeclaredName, RosterCodec>
+	/**
+	 * The spelling the installation's history holds of each pattern language (ir/pattern.ts Spellings): a draft's, its
+	 * previous installation's, which a language it installs again keeps; a fresh installation's and a layer's, none,
+	 * so each language takes its first spelling (installedSpellings).
+	 */
+	readonly spellings: Spellings
 }
 
 /** The codebook of no roster: an installation that holds none. */
-export const emptyCodebook: Codebook = Object.freeze({ rosters: new Map() })
+export const emptyCodebook: Codebook = Object.freeze({ rosters: new Map(), spellings: noSpellings })
 
 /** A declaration that puts a roster's handles out of their codes' order, refused before anything is drafted. */
 export interface RosterReordered extends Reordered {
@@ -154,7 +161,8 @@ export const keptRosters = (book: Codebook): ReadonlyArray<PreviousRoster> =>
 export const draftCodebook = (
 	previous: ReadonlyArray<PreviousRoster>,
 	renames: RosterRenames,
-	rosters: ReadonlyArray<Roster>
+	rosters: ReadonlyArray<Roster>,
+	spellings: Spellings
 ): Result.Result<Codebook, RosterReordered> => {
 	const continued = new Map(
 		previous.flatMap(({ codec, fate }) =>
@@ -170,7 +178,7 @@ export const draftCodebook = (
 		}
 		drafted.set(roster.closed, rosterCodec(roster.closed, codes.value))
 	}
-	return Result.ok(Object.freeze({ rosters: drafted }))
+	return Result.ok(Object.freeze({ rosters: drafted, spellings }))
 }
 
 /**
@@ -178,7 +186,7 @@ export const draftCodebook = (
  * (ir/scalar.ts Roster). A draft from no codes mints each handle's code in that order, so it never refuses.
  */
 export const firstCodebook = (rosters: ReadonlyArray<Roster>): Codebook => {
-	const drafted = draftCodebook(noPreviousRosters, noRenames, rosters)
+	const drafted = draftCodebook(noPreviousRosters, noRenames, rosters, noSpellings)
 	if (!drafted.ok) {
 		throw defect("a roster drafted from no codes numbers its handles in declared order")
 	}
@@ -301,5 +309,5 @@ export const rosterCodebook = (
 	for (const [name, codes] of rosters) {
 		book.set(name, rosterCodec(name, codes))
 	}
-	return book.size === 0 ? emptyCodebook : Object.freeze({ rosters: book })
+	return book.size === 0 ? emptyCodebook : Object.freeze({ rosters: book, spellings: noSpellings })
 }

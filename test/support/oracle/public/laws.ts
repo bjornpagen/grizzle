@@ -8,6 +8,7 @@ import {
 	keptRosters,
 	noRenames
 } from "#compiler/ir/codes.ts"
+import { noSpellings } from "#compiler/ir/pattern.ts"
 import { Roster, type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { bits, closedId, contract, generated, pg } from "#compiler/public/fields.ts"
@@ -204,7 +205,8 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 						)
 					),
 					noRenames,
-					declared
+					declared,
+					noSpellings
 				),
 				"the level's codes"
 			)

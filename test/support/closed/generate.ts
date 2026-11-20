@@ -41,6 +41,7 @@ import { Array as Arr, Option, String as Str } from "effect"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec, type RosterCodec } from "#compiler/ir/codes.ts"
+import { noSpellings } from "#compiler/ir/pattern.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -180,7 +181,8 @@ export const codecFor = (state: RosterState): RosterCodec =>
 
 /** The codebook of several rosters' codes, by roster name. */
 export const codebookOfStates = (states: ReadonlyArray<RosterState>): Codebook => ({
-	rosters: new Map(Arr.map(states, (state) => [state.closed, codecFor(state)] as const))
+	rosters: new Map(Arr.map(states, (state) => [state.closed, codecFor(state)] as const)),
+	spellings: noSpellings
 })
 
 /** Every name the slots have held, live or removed: a new name is none of them. */

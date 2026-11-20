@@ -57,11 +57,10 @@ export const oneChangeToAnAxissCopiesOrAMembersGeneratedFieldTouchesOnlyItAndWha
 				why: "A copy identified by its carriers' identities, each the hash of the containment's whole term list (the old restatement, declared.ts PreviousFill.carriers): a sibling added to or taken from a carrier draws every copy it carries again; the property fails."
 			},
 			{
-				file: "packages/engine/src/laws/model/restate.ts",
-				original: "\t\treturn was === undefined ? [] : [was]\n\t})\n",
-				replacement:
-					"\t\treturn was === undefined ? [] : [was]\n\t})\n\tif (previousFields.length < relation.fields.length) {\n\t\treturn undefined\n\t}\n",
-				why: "A selection restated only where every field of its relation has a previous name (the old restate.ts restatedConjuncts, C18): a field added to the member sets aside and draws again every law column of a selection or a fold over it; the property fails."
+				file: "packages/engine/src/deploy/diff/declared.ts",
+				original: "\t\t\t\tif (holds.has(column)) {\n\t\t\t\t\treturn column\n\t\t\t\t}\n",
+				replacement: "",
+				why: "A law column the previous snapshot holds under the target's own name is not that column: a field added to the member sets aside and draws again every law column of a selection over it; the property fails."
 			},
 			{
 				file: "packages/engine/src/deploy/diff/diff.ts",

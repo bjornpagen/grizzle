@@ -48,6 +48,7 @@ import {
 	type NativeObject,
 	type NativeOf
 } from "#compiler/ir/law.ts"
+import { installedSpellings } from "#compiler/ir/pattern.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { type ConstraintLaws, type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
 import type { ContractInfo } from "#compiler/ir/scalar.ts"
@@ -166,7 +167,8 @@ export const localVectorSchema = "vector_ext"
  * holds by its image, which only an installation holds, since a contract's domain is named by its definition's digest
  * and an index is its installation's: natural's definition is the one every installation holds, a count's type, and
  * Id's the one every test relation keyed by a uuid declares (test/support/ids.ts), so their digests are known without
- * one. A declared function is named as a root level's, in `at`'s schema.
+ * one. A declared function is named as a root level's, in `at`'s schema. They install no pattern, so each is spelled
+ * as written (ir/pattern.ts installedSpellings).
  */
 export const productionNames = (
 	declaredSchema: string,
@@ -233,7 +235,8 @@ export const productionNames = (
 		},
 		closedRelations: new Map(),
 		closedIndex: new Map(),
-		refusal: { kind: "qualified", schema, name: identifierOf(identity.refusal()) }
+		refusal: { kind: "qualified", schema, name: identifierOf(identity.refusal()) },
+		spellings: installedSpellings(codes.spellings, [])
 	}
 	return names
 }

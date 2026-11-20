@@ -34,11 +34,12 @@ import {
 	reorderRefusal
 } from "#compiler/ir/codes.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
+import { noSpellings } from "#compiler/ir/pattern.ts"
 import type { Roster } from "#compiler/ir/scalar.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
-import { manifestFileName, snapshotFileName } from "#compiler/plan/serve.ts"
+import { manifestFileName, snapshotFileName, spellingsOf } from "#compiler/plan/serve.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
@@ -116,7 +117,7 @@ export { noDeclarations } from "#cli/renames.ts"
 /**
  * The codes `grizzle generate` drafts for `desc` from `previous` (cli/generate.ts draftInput): each roster's codes
  * continued from those of the roster it continues (previousRosters) under the handle renames `declared` declares
- * (cli/renames.ts rosterRenames), or D1's
+ * (cli/renames.ts rosterRenames), and the spellings `previous` records (spellingsOf), or D1's
  * refusal of a roster declared out of its codes' order, or the schema's own refusal where it does not own, as the CLI
  * meets it before it drafts (cli/generate.ts draftInput reads an owned schema). A malformed rename is a defect of the test.
  */
@@ -132,7 +133,12 @@ export const draftCodes = (
 			throw new Error(`the test declares a rename the CLI refuses: ${renames.failure.message}`)
 		}
 		return Result.mapError(
-			draftCodebook(previousRosters(previous, declared, rosters), renames.success, rosters),
+			draftCodebook(
+				previousRosters(previous, declared, rosters),
+				renames.success,
+				rosters,
+				previous.kind === "snapshot" ? spellingsOf(previous.snapshot) : noSpellings
+			),
 			reorderRefusal
 		)
 	})

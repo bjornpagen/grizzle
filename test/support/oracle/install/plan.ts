@@ -34,6 +34,7 @@ import type {
 } from "#compiler/sql/ast.ts"
 
 import { regex } from "arkregex"
+import { noSpellings } from "#compiler/ir/pattern.ts"
 import { definitionDigest } from "#compiler/physical/ddl/domains.ts"
 import {
 	cosineNormMax,
@@ -1184,7 +1185,8 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		tables: finalTables,
 		rosters: Rec.fromEntries(rosters),
 		codes: {
-			rosters: new Map(Arr.map([...rosters.values()], (r) => [r.codes.roster, r.codes] as const))
+			rosters: new Map(Arr.map([...rosters.values()], (r) => [r.codes.roster, r.codes] as const)),
+			spellings: noSpellings
 		},
 		domains: Rec.fromEntries(Arr.map([...domains], ([name, { domain }]) => [name, domain])),
 		loadOrder,
