@@ -17,7 +17,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record, Result, Schema, String as Str } from "effect"
 import { decodeAuthorConfig } from "#model/author-config.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import { Api } from "#model/entities.ts"
 import type { Json } from "#model/pointer.ts"
 import { foldKebab, words } from "#names/fold.ts"
@@ -286,9 +286,7 @@ export const actualOf = (c: ReadonlyArray<OperationSketch>) =>
 			servers: [],
 			tags: Arr.map(Arr.dedupe(Arr.flatMap(c, (op) => op.tags)), (name) => ({ name }))
 		})
-		const configDocument = yield* Schema.decodeEffect(DocumentUri)(
-			"file:///spec/author-config.json"
-		)
+		const configDocument = fixedDocumentUri("file:///spec/author-config.json")
 		const config = yield* decodeAuthorConfig(configJsonOf(c), { document: configDocument })
 		const plan = yield* planNames(api, { config, configDocument, strict: false })
 		return answerOf(plan)

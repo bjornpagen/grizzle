@@ -76,42 +76,41 @@ export const authorConfig = property.explore(configSpace, {
 		},
 		{
 			file: "packages/cli-generator/src/model/author-config.ts",
-			original: 'const unknownKey = (): Rule => "unknown-key"',
-			replacement: 'const unknownKey = (): Rule => "invalid-field-pointer"',
-			why: "An unknown key of an object the config declares is refused as a field pointer off its pattern, so it is refused under the wrong rule; the property fails (CATCH's evidence, mutant 19223c25f8)."
+			original: 'case "AdditionalProperties":\n\t\t\treturn Effect.succeed("unknown-key")',
+			replacement:
+				'case "AdditionalProperties":\n\t\t\treturn Effect.succeed("invalid-field-pointer")',
+			why: "A key no object of the config declares is refused as a field pointer off its pattern, so an unknown key is refused under the wrong rule; the property fails (CATCH's evidence, mutant 19223c25f8)."
 		},
 		{
 			file: "packages/cli-generator/src/model/author-config.ts",
-			original: 'mapOf(Str.isNonEmpty, "unknown-key", credentialVariable)',
-			replacement: 'mapOf((name) => name === "add", "unknown-key", credentialVariable)',
+			original: 'keyWhere(Str.isNonEmpty, "unknown-key"),\n\t\t\t\t\tcredentialVariable',
+			replacement:
+				'keyWhere((name) => name === "add", "unknown-key"),\n\t\t\t\t\tcredentialVariable',
 			why: "A security scheme's name is admitted only when it is `add`, so a config naming a scheme's environment variable is refused; the property fails (CATCH's evidence, mutant 7195dc3ec1)."
 		},
 		{
 			file: "packages/cli-generator/src/model/author-config.ts",
-			original:
-				'\t\t\t\t\tmatching(binNamePattern, "invalid-bin-name"),\n\t\t\t\t\t"missing-bin-name"',
-			replacement:
-				'\t\t\t\t\tmatching(binNamePattern, "missing-bin-name"),\n\t\t\t\t\t"invalid-bin-name"',
-			why: "A missing bin name is refused as invalid and an invalid one as missing; the property fails (CATCH's evidence, mutant 949f80d319)."
+			original: 'reason: because("missing-bin-name")',
+			replacement: 'reason: because("invalid-bin-name")',
+			why: "A missing bin name is refused as an invalid one; the property fails (CATCH's evidence, mutant 949f80d319)."
 		},
 		{
 			file: "packages/cli-generator/src/model/author-config.ts",
-			original: "onSome: (member) => read(member, [...path, key], refuse)",
-			replacement: "onSome: (member) => read(member, [key], refuse)",
-			why: "A required member is read without the tokens above it, so a refusal under package points at the wrong place; the property fails (CATCH's evidence, mutant e1304fd8c3)."
+			original: "pointer: formatPointer(Arr.map(issue.path, String))",
+			replacement: "pointer: formatPointer(Arr.map(Arr.takeRight(issue.path, 1), String))",
+			why: "A refusal keeps only the last token of its place, so a refusal under package, naming or nonStandard points at the wrong place; the property fails (CATCH's evidence, mutant e1304fd8c3)."
 		},
 		{
 			file: "packages/cli-generator/src/model/author-config.ts",
-			original: "admits(value) ? Option.some(value) : refuse(rule, path)",
-			replacement: 'admits(value) ? Option.some(value) : refuse("invalid-bin-name", path)',
-			why: "Every refused string is refused as the bin name, so a refusal of a version, a flag or a commands module is named for the bin name; the property fails (CATCH's evidence, mutant ac1ffde917)."
+			original: "onSome: Effect.succeed\n\t\t\t\t}",
+			replacement: 'onSome: () => Effect.succeed("invalid-bin-name")\n\t\t\t\t}',
+			why: "Every refusal a reader words is named for the bin name, so a refusal of a version, a flag or a commands module is named for the bin name; the property fails (CATCH's evidence, mutant ac1ffde917)."
 		},
 		{
 			file: "packages/cli-generator/src/model/author-config.ts",
-			original:
-				"const members = read(value, path, refuse)\n\n\t\treturn Option.flatMap(Option.all(strays), () => members)",
-			replacement: "return Option.flatMap(Option.all(strays), () => read(value, path, refuse))",
-			why: "An object holding a key it does not declare has its members left unread, so a missing bin name beside an unknown key goes unreported; the property fails."
+			original: 'assertPatterns: optionalMember(object, "assertPatterns", unsupported),',
+			replacement: "",
+			why: "assertPatterns is read as a key the config does not define, so it is refused as unknown where the design names it as unsupported; the property fails."
 		}
 	]
 })

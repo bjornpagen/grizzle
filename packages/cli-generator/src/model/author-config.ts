@@ -1,27 +1,66 @@
 import { regex } from "arkregex"
-import { Array as Arr, Data, Effect, Option, Record, String as Str } from "effect"
+import {
+	Array as Arr,
+	Data,
+	Effect,
+	Option,
+	Predicate,
+	Record,
+	Result,
+	String as Str
+} from "effect"
+import type { Brand } from "effect"
 import { isDocumentUri } from "#model/brands.ts"
 import type { DocumentUri } from "#model/brands.ts"
 import { makeDiagnostic, sortDiagnostics } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
-import { isArray, isObject } from "#model/json-tree.ts"
+import { isJson } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { formatPointer, isJsonPointer, nonEmptyPointerPattern } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
+import {
+	all,
+	anything,
+	array,
+	boolean,
+	check,
+	member,
+	members,
+	optionalMember,
+	record,
+	refine,
+	string,
+	struct
+} from "#runtime/read.ts"
+import type { Reader, ReadIssue, ReadIssues, Refusal } from "#runtime/read.ts"
 
 const binNamePattern = regex("^[a-z][a-z0-9-]*$", "u")
+
+/**
+ * The command a generated package installs: a lowercase letter, then lowercase letters, digits and
+ * hyphens.
+ */
+export type BinName = string & Brand.Brand<"BinName">
+
+const isBinName = (value: unknown): value is BinName =>
+	Predicate.isString(value) && binNamePattern.test(value)
 
 const environmentNamePattern = regex("^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$", "u")
 
 const parameterKeyPattern = regex("^(?:cookie|header|path|query):.+$", "u")
 
-/**
- * A flag name as the kebab fold writes one: dot-separated kebab segments, each led by a letter.
- */
 const flagNamePattern = regex(
 	"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)*$",
 	"u"
 )
+
+/**
+ * A flag name as the kebab fold writes one: dot-separated kebab segments, each led by a letter.
+ */
+export type FlagName = string & Brand.Brand<"FlagName">
+
+const isFlagName = (value: unknown): value is FlagName =>
+	Predicate.isString(value) && flagNamePattern.test(value)
 
 const rowId = "CFG-1"
 
@@ -50,6 +89,34 @@ const semverPattern = regex.as(
 	`^${semverNumber}\\.${semverNumber}\\.${semverNumber}(?:-${semverPreRelease}(?:\\.${semverPreRelease})*)?(?:\\+${semverBuild}(?:\\.${semverBuild})*)?$`,
 	"u"
 )
+
+/**
+ * A version as semver 2.0.0 writes one (`semverPattern`).
+ */
+export type PackageVersion = string & Brand.Brand<"PackageVersion">
+
+const isPackageVersion = (value: unknown): value is PackageVersion =>
+	Predicate.isString(value) && semverPattern.test(value)
+
+/**
+ * `commands.module`: a path relative to the package root that stays inside it, `./` then plain
+ * segments, no `.`, `..` or empty segment, no absolute path, no backslash.
+ */
+export type CommandsModule = string & Brand.Brand<"CommandsModule">
+
+const isCommandsModule = (value: unknown): value is CommandsModule => {
+	if (!Predicate.isString(value)) {
+		return false
+	}
+	const [lead, ...rest] = Str.split(value, "/")
+
+	return (
+		lead === "." &&
+		rest.length > 0 &&
+		!Str.includes("\\")(value) &&
+		Arr.every(rest, (part) => part !== "" && part !== "." && part !== "..")
+	)
+}
 
 /**
  * The Security Scheme Object subset an author may add (D-OQ3 (b)); normalization refuses a type
@@ -107,7 +174,7 @@ export type ConfigAlias =
  * A renamed body field's flag.
  */
 export interface FieldOverride {
-	readonly flag: string
+	readonly flag: FlagName
 }
 
 /**
@@ -140,8 +207,8 @@ export interface OperationOverride {
 export interface AuthorConfig {
 	readonly acceptedOrigins?: ReadonlyArray<DocumentUri>
 	readonly allowInsecure?: boolean
-	readonly binName: string
-	readonly commands?: { readonly module: string; readonly names: ReadonlyArray<string> }
+	readonly binName: BinName
+	readonly commands?: { readonly module: CommandsModule; readonly names: ReadonlyArray<string> }
 	readonly envPrefix?: string
 	readonly naming?: {
 		readonly byPointer?: Readonly<Record<string, OperationOverride>>
@@ -157,7 +224,7 @@ export interface AuthorConfig {
 		readonly deepObjectBrackets?: boolean
 		readonly deepObjectScalars?: boolean
 	}
-	readonly package: { readonly name: string; readonly version: string }
+	readonly package: { readonly name: string; readonly version: PackageVersion }
 	readonly retrievalUri?: DocumentUri
 	readonly security?: AuthorSecurity
 	readonly servers?: { readonly accepted: ReadonlyArray<string> }
@@ -179,179 +246,34 @@ export interface AuthorConfigContext {
 	readonly foldedTitle?: string
 }
 
-type Rule =
-	| "invalid-bin-name"
-	| "invalid-field-flag"
-	| "invalid-field-pointer"
-	| "invalid-version"
-	| "invalid-value"
-	| "missing-bin-name"
-	| "missing-key"
-	| "unknown-key"
-	| "unsafe-commands-module"
-	| "unsupported-key"
+/**
+ * The rules a refusal names after `CFG-1/` (design 4.8).
+ */
+const rules = [
+	"invalid-bin-name",
+	"invalid-field-flag",
+	"invalid-field-pointer",
+	"invalid-version",
+	"invalid-value",
+	"missing-bin-name",
+	"missing-key",
+	"unknown-key",
+	"unsafe-commands-module",
+	"unsupported-key"
+] as const
+
+type Rule = (typeof rules)[number]
 
 /**
- * The reference tokens of a value in the config, from its root.
+ * The reason a reader of this module gives the keyword it refuses for: the rule the value breaks.
  */
-type Path = ReadonlyArray<string>
+const because = (rule: Rule): string => rule
 
 /**
- * A refusal as the reader meets it: the rule the value breaks, at the value's tokens.
+ * A refusal at the read value's own place, for `rule`.
  */
-interface Finding {
-	readonly rule: Rule
-	readonly path: Path
-}
-
-/**
- * Records a refusal and reads nothing: each reader reports every refusal it meets, so a config is
- * refused for all of its problems at once.
- */
-type Refuse = (rule: Rule, path: Path) => Option.Option<never>
-
-/**
- * Reads the value at `path` into an `A`: what the value holds, or nothing exactly when the reader
- * refused something in it, so a config reads to nothing exactly when it has a refusal.
- */
-type Reader<A> = (value: Json, path: Path, refuse: Refuse) => Option.Option<A>
-
-/**
- * A string `admits` admits; any other value is refused under `rule`.
- */
-const textWhere =
-	(admits: (text: string) => boolean, rule: Rule): Reader<string> =>
-	(value, path, refuse) =>
-		typeof value === "string" && admits(value) ? Option.some(value) : refuse(rule, path)
-
-const anyText: Reader<string> = (value, path, refuse) =>
-	typeof value === "string" ? Option.some(value) : refuse("invalid-value", path)
-
-const nonEmptyText = textWhere(Str.isNonEmpty, "invalid-value")
-
-const matching = (pattern: RegExp, rule: Rule): Reader<string> =>
-	textWhere((candidate) => pattern.test(candidate), rule)
-
-const truthValue: Reader<boolean> = (value, path, refuse) =>
-	typeof value === "boolean" ? Option.some(value) : refuse("invalid-value", path)
-
-const anyJson: Reader<Json> = (value) => Option.some(value)
-
-const documentUri: Reader<DocumentUri> = (value, path, refuse) =>
-	typeof value === "string" && isDocumentUri(value)
-		? Option.some(value)
-		: refuse("invalid-value", path)
-
-const environmentName = matching(environmentNamePattern, "invalid-value")
-
-/**
- * `commands.module` is relative to the package root and stays inside it: `./` then plain
- * segments, no `.`, `..` or empty segment, no absolute path, no backslash.
- */
-const commandsModule = textWhere((module) => {
-	const [lead, ...rest] = Str.split(module, "/")
-
-	return (
-		lead === "." &&
-		rest.length > 0 &&
-		!Str.includes("\\")(module) &&
-		Arr.every(rest, (part) => part !== "" && part !== "." && part !== "..")
-	)
-}, "unsafe-commands-module")
-
-const listOf =
-	<A>(item: Reader<A>): Reader<ReadonlyArray<A>> =>
-	(value, path, refuse) =>
-		isArray(value)
-			? Option.all(Arr.map(value, (each, index) => item(each, [...path, `${index}`], refuse)))
-			: refuse("invalid-value", path)
-
-const nonEmptyListOf =
-	<A>(item: Reader<A>): Reader<Arr.NonEmptyReadonlyArray<A>> =>
-	(value, path, refuse) =>
-		Option.flatMap(listOf(item)(value, path, refuse), (items) =>
-			Arr.isReadonlyArrayNonEmpty(items) ? Option.some(items) : refuse("invalid-value", path)
-		)
-
-/**
- * An object whose every key `admits` admits, each member read by `item`; a key it does not admit
- * is refused under `stray`.
- */
-const mapOf =
-	<A>(
-		admits: (key: string) => boolean,
-		stray: Rule,
-		item: Reader<A>
-	): Reader<Readonly<Record<string, A>>> =>
-	(value, path, refuse) =>
-		isObject(value)
-			? Option.map(
-					Option.all(
-						Arr.map(Record.toEntries(value), ([key, member]) =>
-							admits(key)
-								? Option.map(item(member, [...path, key], refuse), (read) => [key, read] as const)
-								: refuse(stray, [...path, key])
-						)
-					),
-					Record.fromEntries
-				)
-			: refuse("invalid-value", path)
-
-/**
- * An object of the members `keys` declares, read by `read`; any other key is refused under the rule
- * `stray` gives it, and its members are read all the same, so their refusals are reported too.
- */
-const struct =
-	<A>(
-		keys: ReadonlyArray<string>,
-		stray: (key: string) => Rule,
-		read: (members: JsonObject, path: Path, refuse: Refuse) => Option.Option<A>
-	): Reader<A> =>
-	(value, path, refuse) => {
-		if (!isObject(value)) {
-			return refuse("invalid-value", path)
-		}
-		const strays = Arr.map(
-			Arr.filter(Record.keys(value), (key) => !Arr.contains(keys, key)),
-			(key) => refuse(stray(key), [...path, key])
-		)
-		const members = read(value, path, refuse)
-
-		return Option.flatMap(Option.all(strays), () => members)
-	}
-
-const unknownKey = (): Rule => "unknown-key"
-
-/**
- * The member `key` of an object, refused under `missing` when the object has none.
- */
-const required = <A>(
-	members: JsonObject,
-	key: string,
-	path: Path,
-	refuse: Refuse,
-	read: Reader<A>,
-	missing: Rule
-): Option.Option<A> =>
-	Option.match(Record.get(members, key), {
-		onNone: () => refuse(missing, [...path, key]),
-		onSome: (member) => read(member, [...path, key], refuse)
-	})
-
-/**
- * The member `key` of an object when it has one.
- */
-const optional = <A>(
-	members: JsonObject,
-	key: string,
-	path: Path,
-	refuse: Refuse,
-	read: Reader<A>
-): Option.Option<Option.Option<A>> =>
-	Option.match(Record.get(members, key), {
-		onNone: () => Option.some(Option.none()),
-		onSome: (member) => Option.map(read(member, [...path, key], refuse), Option.some)
-	})
+const refusedFor = (rule: Rule): Result.Result<never, ReadIssues> =>
+	Result.fail([{ path: [], refusal: { _tag: "Keyword", reason: because(rule) } }])
 
 /**
  * A member that is present only when it was read: `{ [key]: value }`, or no member.
@@ -362,326 +284,319 @@ const present = <K extends string, A>(
 ): { readonly [Key in K]?: A } =>
 	Option.match(value, { onNone: () => ({}), onSome: (read) => Record.singleton(key, read) })
 
+const nonEmptyText = check(string, Str.isNonEmpty, because("invalid-value"))
+
+const documentUri = refine(string, isDocumentUri, because("invalid-value"))
+
+const json = refine(anything, isJson, because("invalid-value"))
+
+const environmentName = check(
+	string,
+	(name) => environmentNamePattern.test(name),
+	because("invalid-value")
+)
+
 /**
- * The optional member `key` of an object as the member it is in the read value.
+ * A key the map does not admit is a stray key, refused under `rule`.
  */
-const optionalMember = <K extends string, A>(
-	members: JsonObject,
-	key: K,
-	path: Path,
-	refuse: Refuse,
-	read: Reader<A>
-): Option.Option<{ readonly [Key in K]?: A }> =>
-	Option.map(optional(members, key, path, refuse, read), (value) => present(key, value))
+const keyWhere = (admits: (key: string) => boolean, rule: Rule): Reader<string> =>
+	check(string, admits, because(rule))
 
 /**
  * A dotted alias group admits no empty segment.
  */
-const dottedGroup = textWhere(
+const dottedGroup = check(
+	string,
 	(group) => Arr.every(Str.split(group, "."), Str.isNonEmpty),
-	"invalid-value"
+	because("invalid-value")
 )
 
-const aliasGroup: Reader<AliasGroup> = (value, path, refuse) =>
-	isArray(value)
-		? nonEmptyListOf(nonEmptyText)(value, path, refuse)
-		: dottedGroup(value, path, refuse)
+const groupList = refine(array(nonEmptyText), Arr.isReadonlyArrayNonEmpty, because("invalid-value"))
 
-const configAlias: Reader<ConfigAlias> = (value, path, refuse) =>
-	Option.flatMap(
-		struct(["group", "method"], unknownKey, (members) =>
-			Option.all({
-				group: optional(members, "group", path, refuse, aliasGroup),
-				method: optional(members, "method", path, refuse, nonEmptyText)
-			})
-		)(value, path, refuse),
-		({ group, method }): Option.Option<ConfigAlias> =>
-			Option.match(group, {
-				onNone: () =>
-					Option.match(method, {
-						onNone: () => refuse("invalid-value", path),
-						onSome: (named) => Option.some({ method: named })
-					}),
-				onSome: (grouped) => Option.some({ group: grouped, ...present("method", method) })
-			})
+const aliasGroup: Reader<AliasGroup> = (value) =>
+	Arr.isArray(value) ? groupList(value) : dottedGroup(value)
+
+const configAlias: Reader<ConfigAlias> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		Result.flatMap(
+			struct(
+				object,
+				{
+					group: optionalMember(object, "group", aliasGroup),
+					method: optionalMember(object, "method", nonEmptyText)
+				},
+				false
+			),
+			({ group, method }): Result.Result<ConfigAlias, ReadIssues> =>
+				Option.match(group, {
+					onNone: () =>
+						Option.match(method, {
+							onNone: () => refusedFor("invalid-value"),
+							onSome: (named) => Result.succeed({ method: named })
+						}),
+					onSome: (grouped) => Result.succeed({ group: grouped, ...present("method", method) })
+				})
+		)
 	)
 
-const fieldOverride: Reader<FieldOverride> = struct(["flag"], unknownKey, (members, path, refuse) =>
-	Option.map(
-		required(
-			members,
-			"flag",
-			path,
-			refuse,
-			matching(flagNamePattern, "invalid-field-flag"),
-			"missing-key"
-		),
-		(flag) => ({ flag })
+const fieldOverride: Reader<FieldOverride> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{ flag: member(object, "flag", refine(anything, isFlagName, because("invalid-field-flag"))) },
+			false
+		)
 	)
-)
 
-const parameterOverride: Reader<ParameterOverride> = struct(
-	["flag"],
-	unknownKey,
-	(members, path, refuse) => optionalMember(members, "flag", path, refuse, nonEmptyText)
-)
+const parameterOverride: Reader<ParameterOverride> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		Result.map(
+			struct(object, { flag: optionalMember(object, "flag", nonEmptyText) }, false),
+			(read) => present("flag", read.flag)
+		)
+	)
 
-const operationOverride: Reader<OperationOverride> = struct(
-	["aliases", "command", "fields", "group", "parameters", "skip"],
-	unknownKey,
-	(members, path, refuse) =>
-		Option.map(
-			Option.all({
-				aliases: optionalMember(members, "aliases", path, refuse, listOf(configAlias)),
-				command: optionalMember(members, "command", path, refuse, nonEmptyText),
-				fields: optionalMember(
-					members,
-					"fields",
-					path,
-					refuse,
-					mapOf(
-						(pointer) => nonEmptyPointerPattern.test(pointer),
-						"invalid-field-pointer",
-						fieldOverride
+const operationOverride: Reader<OperationOverride> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		Result.map(
+			struct(
+				object,
+				{
+					aliases: optionalMember(object, "aliases", array(configAlias)),
+					command: optionalMember(object, "command", nonEmptyText),
+					fields: optionalMember(
+						object,
+						"fields",
+						record(
+							keyWhere((pointer) => nonEmptyPointerPattern.test(pointer), "invalid-field-pointer"),
+							fieldOverride
+						)
+					),
+					group: optionalMember(object, "group", nonEmptyText),
+					parameters: optionalMember(
+						object,
+						"parameters",
+						record(
+							keyWhere((key) => parameterKeyPattern.test(key), "unknown-key"),
+							parameterOverride
+						)
+					),
+					skip: optionalMember(object, "skip", boolean)
+				},
+				false
+			),
+			(read) => ({
+				...present("aliases", read.aliases),
+				...present("command", read.command),
+				...present("fields", read.fields),
+				...present("group", read.group),
+				...present("parameters", read.parameters),
+				...present("skip", read.skip)
+			})
+		)
+	)
+
+const naming: Reader<NonNullable<AuthorConfig["naming"]>> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		Result.map(
+			struct(
+				object,
+				{
+					byPointer: optionalMember(
+						object,
+						"byPointer",
+						record(keyWhere(isJsonPointer, "unknown-key"), operationOverride)
+					),
+					operations: optionalMember(
+						object,
+						"operations",
+						record(keyWhere(Str.isNonEmpty, "unknown-key"), operationOverride)
 					)
-				),
-				group: optionalMember(members, "group", path, refuse, nonEmptyText),
-				parameters: optionalMember(
-					members,
-					"parameters",
-					path,
-					refuse,
-					mapOf((key) => parameterKeyPattern.test(key), "unknown-key", parameterOverride)
-				),
-				skip: optionalMember(members, "skip", path, refuse, truthValue)
-			}),
+				},
+				false
+			),
 			(read) => ({
-				...read.aliases,
-				...read.command,
-				...read.fields,
-				...read.group,
-				...read.parameters,
-				...read.skip
+				...present("byPointer", read.byPointer),
+				...present("operations", read.operations)
 			})
 		)
-)
+	)
 
-const naming: Reader<NonNullable<AuthorConfig["naming"]>> = struct(
-	["byPointer", "operations"],
-	unknownKey,
-	(members, path, refuse) =>
-		Option.map(
-			Option.all({
-				byPointer: optionalMember(
-					members,
-					"byPointer",
-					path,
-					refuse,
-					mapOf(isJsonPointer, "unknown-key", operationOverride)
-				),
-				operations: optionalMember(
-					members,
-					"operations",
-					path,
-					refuse,
-					mapOf(Str.isNonEmpty, "unknown-key", operationOverride)
-				)
-			}),
-			(read) => ({ ...read.byPointer, ...read.operations })
-		)
-)
-
-const addedScheme: Reader<AddedScheme> = struct(
-	["deprecated", "flows", "in", "name", "scheme", "type"],
-	unknownKey,
-	(members, path, refuse) =>
-		Option.map(
-			Option.all({
-				deprecated: optionalMember(members, "deprecated", path, refuse, truthValue),
-				flows: optionalMember(
-					members,
-					"flows",
-					path,
-					refuse,
-					mapOf(() => true, "unknown-key", anyJson)
-				),
-				in: optionalMember(members, "in", path, refuse, anyText),
-				name: optionalMember(members, "name", path, refuse, anyText),
-				scheme: optionalMember(members, "scheme", path, refuse, anyText),
-				type: required(members, "type", path, refuse, anyText, "missing-key")
-			}),
+const addedScheme: Reader<AddedScheme> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		Result.map(
+			struct(
+				object,
+				{
+					deprecated: optionalMember(object, "deprecated", boolean),
+					flows: optionalMember(object, "flows", record(string, json)),
+					in: optionalMember(object, "in", string),
+					name: optionalMember(object, "name", string),
+					scheme: optionalMember(object, "scheme", string),
+					type: member(object, "type", string)
+				},
+				false
+			),
 			(read) => ({
-				...read.deprecated,
-				...read.flows,
-				...read.in,
-				...read.name,
-				...read.scheme,
+				...present("deprecated", read.deprecated),
+				...present("flows", read.flows),
+				...present("in", read.in),
+				...present("name", read.name),
+				...present("scheme", read.scheme),
 				type: read.type
 			})
 		)
-)
+	)
 
-const addedSecurity: Reader<AddedSecurity> = struct(
-	["requirement", "schemes"],
-	unknownKey,
-	(members, path, refuse) =>
-		Option.all({
-			requirement: required(
-				members,
-				"requirement",
-				path,
-				refuse,
-				listOf(mapOf(() => true, "unknown-key", listOf(anyText))),
-				"missing-key"
-			),
-			schemes: required(
-				members,
-				"schemes",
-				path,
-				refuse,
-				mapOf(Str.isNonEmpty, "unknown-key", addedScheme),
-				"missing-key"
-			)
-		})
-)
-
-const credentialVariable: Reader<CredentialVariable> = struct(
-	["env"],
-	unknownKey,
-	(members, path, refuse) =>
-		Option.map(required(members, "env", path, refuse, environmentName, "missing-key"), (env) => ({
-			env
-		}))
-)
-
-const security: Reader<AuthorSecurity> = (value, path, refuse) =>
-	isObject(value)
-		? Option.map(
-				Option.all({
-					add: optionalMember(value, "add", path, refuse, addedSecurity),
-					credentials: mapOf(Str.isNonEmpty, "unknown-key", credentialVariable)(
-						Record.remove(value, "add"),
-						path,
-						refuse
-					)
-				}),
-				(read) => ({ ...read.add, credentials: read.credentials })
-			)
-		: refuse("invalid-value", path)
-
-const commands: Reader<NonNullable<AuthorConfig["commands"]>> = struct(
-	["module", "names"],
-	unknownKey,
-	(members, path, refuse) =>
-		Option.all({
-			module: required(members, "module", path, refuse, commandsModule, "missing-key"),
-			names: required(members, "names", path, refuse, listOf(nonEmptyText), "missing-key")
-		})
-)
-
-const nonStandard: Reader<NonNullable<AuthorConfig["nonStandard"]>> = struct(
-	["deepObjectBrackets", "deepObjectScalars"],
-	unknownKey,
-	(members, path, refuse) =>
-		Option.map(
-			Option.all({
-				deepObjectBrackets: optionalMember(members, "deepObjectBrackets", path, refuse, truthValue),
-				deepObjectScalars: optionalMember(members, "deepObjectScalars", path, refuse, truthValue)
-			}),
-			(read) => ({ ...read.deepObjectBrackets, ...read.deepObjectScalars })
+const addedSecurity: Reader<AddedSecurity> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				requirement: member(object, "requirement", array(record(string, array(string)))),
+				schemes: member(
+					object,
+					"schemes",
+					record(keyWhere(Str.isNonEmpty, "unknown-key"), addedScheme)
+				)
+			},
+			false
 		)
-)
+	)
 
-const authorPackage: Reader<AuthorConfig["package"]> = struct(
-	["name", "version"],
-	unknownKey,
-	(members, path, refuse) =>
-		Option.all({
-			name: required(members, "name", path, refuse, nonEmptyText, "missing-key"),
-			version: required(
-				members,
-				"version",
-				path,
-				refuse,
-				matching(semverPattern, "invalid-version"),
-				"missing-key"
-			)
-		})
-)
-
-const servers: Reader<NonNullable<AuthorConfig["servers"]>> = struct(
-	["accepted"],
-	unknownKey,
-	(members, path, refuse) =>
-		Option.map(
-			required(members, "accepted", path, refuse, listOf(nonEmptyText), "missing-key"),
-			(accepted) => ({ accepted })
-		)
-)
+const credentialVariable: Reader<CredentialVariable> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(object, { env: member(object, "env", environmentName) }, false)
+	)
 
 /**
- * Keys the design names but this release does not consume; they are refused, not ignored.
+ * `security`: `add`, and every other key a credential's scheme.
  */
-const unsupportedKeys: ReadonlyArray<string> = ["assertPatterns"]
-
-const authorConfig: Reader<AuthorConfig> = struct(
-	[
-		"acceptedOrigins",
-		"allowInsecure",
-		"binName",
-		"commands",
-		"envPrefix",
-		"naming",
-		"nonStandard",
-		"package",
-		"retrievalUri",
-		"security",
-		"servers"
-	],
-	(key) => (Arr.contains(unsupportedKeys, key) ? "unsupported-key" : "unknown-key"),
-	(members, path, refuse) =>
-		Option.map(
-			Option.all({
-				acceptedOrigins: optionalMember(
-					members,
-					"acceptedOrigins",
-					path,
-					refuse,
-					listOf(documentUri)
-				),
-				allowInsecure: optionalMember(members, "allowInsecure", path, refuse, truthValue),
-				binName: required(
-					members,
-					"binName",
-					path,
-					refuse,
-					matching(binNamePattern, "invalid-bin-name"),
-					"missing-bin-name"
-				),
-				commands: optionalMember(members, "commands", path, refuse, commands),
-				envPrefix: optionalMember(members, "envPrefix", path, refuse, environmentName),
-				naming: optionalMember(members, "naming", path, refuse, naming),
-				nonStandard: optionalMember(members, "nonStandard", path, refuse, nonStandard),
-				package: required(members, "package", path, refuse, authorPackage, "missing-key"),
-				retrievalUri: optionalMember(members, "retrievalUri", path, refuse, documentUri),
-				security: optionalMember(members, "security", path, refuse, security),
-				servers: optionalMember(members, "servers", path, refuse, servers)
+const security: Reader<AuthorSecurity> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		Result.map(
+			all({
+				add: optionalMember(object, "add", addedSecurity),
+				credentials: record(
+					keyWhere(Str.isNonEmpty, "unknown-key"),
+					credentialVariable
+				)(Record.remove(object, "add"))
 			}),
+			(read) => ({ ...present("add", read.add), credentials: read.credentials })
+		)
+	)
+
+const commands: Reader<NonNullable<AuthorConfig["commands"]>> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				module: member(
+					object,
+					"module",
+					refine(anything, isCommandsModule, because("unsafe-commands-module"))
+				),
+				names: member(object, "names", array(nonEmptyText))
+			},
+			false
+		)
+	)
+
+const nonStandard: Reader<NonNullable<AuthorConfig["nonStandard"]>> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		Result.map(
+			struct(
+				object,
+				{
+					deepObjectBrackets: optionalMember(object, "deepObjectBrackets", boolean),
+					deepObjectScalars: optionalMember(object, "deepObjectScalars", boolean)
+				},
+				false
+			),
 			(read) => ({
-				...read.acceptedOrigins,
-				...read.allowInsecure,
-				binName: read.binName,
-				...read.commands,
-				...read.envPrefix,
-				...read.naming,
-				...read.nonStandard,
-				package: read.package,
-				...read.retrievalUri,
-				...read.security,
-				...read.servers
+				...present("deepObjectBrackets", read.deepObjectBrackets),
+				...present("deepObjectScalars", read.deepObjectScalars)
 			})
 		)
-)
+	)
+
+const authorPackage: Reader<AuthorConfig["package"]> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				name: member(object, "name", nonEmptyText),
+				version: member(
+					object,
+					"version",
+					refine(anything, isPackageVersion, because("invalid-version"))
+				)
+			},
+			false
+		)
+	)
+
+const servers: Reader<NonNullable<AuthorConfig["servers"]>> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(object, { accepted: member(object, "accepted", array(nonEmptyText)) }, false)
+	)
+
+/**
+ * A key the design names but this release does not consume: refused, not ignored.
+ */
+const unsupported: Reader<never> = () => refusedFor("unsupported-key")
+
+/**
+ * `binName`, whose absence is a rule of its own.
+ */
+const binNameOf = (object: Readonly<Record<string, unknown>>): Result.Result<BinName, ReadIssues> =>
+	Result.flatMap(
+		optionalMember(object, "binName", refine(anything, isBinName, because("invalid-bin-name"))),
+		Option.match({
+			onNone: () =>
+				Result.fail([
+					{ path: ["binName"], refusal: { _tag: "Keyword", reason: because("missing-bin-name") } }
+				]),
+			onSome: Result.succeed
+		})
+	)
+
+const authorConfig: Reader<AuthorConfig> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		Result.map(
+			struct(
+				object,
+				{
+					acceptedOrigins: optionalMember(object, "acceptedOrigins", array(documentUri)),
+					allowInsecure: optionalMember(object, "allowInsecure", boolean),
+					assertPatterns: optionalMember(object, "assertPatterns", unsupported),
+					binName: binNameOf(object),
+					commands: optionalMember(object, "commands", commands),
+					envPrefix: optionalMember(object, "envPrefix", environmentName),
+					naming: optionalMember(object, "naming", naming),
+					nonStandard: optionalMember(object, "nonStandard", nonStandard),
+					package: member(object, "package", authorPackage),
+					retrievalUri: optionalMember(object, "retrievalUri", documentUri),
+					security: optionalMember(object, "security", security),
+					servers: optionalMember(object, "servers", servers)
+				},
+				false
+			),
+			(read) => ({
+				...present("acceptedOrigins", read.acceptedOrigins),
+				...present("allowInsecure", read.allowInsecure),
+				binName: read.binName,
+				...present("commands", read.commands),
+				...present("envPrefix", read.envPrefix),
+				...present("naming", read.naming),
+				...present("nonStandard", read.nonStandard),
+				package: read.package,
+				...present("retrievalUri", read.retrievalUri),
+				...present("security", read.security),
+				...present("servers", read.servers)
+			})
+		)
+	)
 
 const messages: Readonly<Record<Rule, string>> = {
 	"invalid-bin-name": `binName must match ${binNamePattern.source}.`,
@@ -704,30 +619,63 @@ const hintOf = (rule: Rule, context: AuthorConfigContext): string | undefined =>
 		? `The folded info.title is "${context.foldedTitle}"; add "binName": "${context.foldedTitle}" if that is the name you want.`
 		: undefined
 
-const diagnose = (finding: Finding, context: AuthorConfigContext): Effect.Effect<Diagnostic> =>
-	makeDiagnostic({
-		code: `${rowId}/${finding.rule}`,
-		document: context.document,
-		element: "Author config",
-		hint: hintOf(finding.rule, context),
-		message: messages[finding.rule],
-		openapi: "",
-		pointer: formatPointer(finding.path),
-		scope: "document",
-		severity: "refusal",
-		specSection: context.document
-	})
+/**
+ * The rule a refusal breaks: a keyword's reason, which every reader here words as its rule; a
+ * missing member's, a stray member's, or a value of the wrong kind's.
+ */
+const ruleOf = (refusal: Refusal): Effect.Effect<Rule> => {
+	switch (refusal._tag) {
+		case "Keyword":
+			return Option.match(
+				Arr.findFirst(rules, (rule) => rule === refusal.reason),
+				{
+					onNone: () =>
+						Effect.die(`no reader of the author config refuses for "${refusal.reason}"`),
+					onSome: Effect.succeed
+				}
+			)
+		case "Required":
+			return Effect.succeed("missing-key")
+		case "AdditionalProperties":
+			return Effect.succeed("unknown-key")
+		case "Type":
+		case "Const":
+		case "Enum":
+		case "AdditionalItems":
+		case "False":
+		case "Limit":
+		case "UniqueItems":
+		case "NoAlternative":
+		case "ManyAlternatives":
+			return Effect.succeed("invalid-value")
+	}
+}
+
+const diagnose = (issue: ReadIssue, context: AuthorConfigContext): Effect.Effect<Diagnostic> =>
+	Effect.flatMap(ruleOf(issue.refusal), (rule) =>
+		makeDiagnostic({
+			code: `${rowId}/${rule}`,
+			document: context.document,
+			element: "Author config",
+			hint: hintOf(rule, context),
+			message: messages[rule],
+			openapi: "",
+			pointer: formatPointer(Arr.map(issue.path, String)),
+			scope: "document",
+			severity: "refusal",
+			specSection: context.document
+		})
+	)
 
 /**
- * The refusal of a config for every finding its reading met, in pointer order (design 3.7): the
- * reading meets each value once, so no two findings share a pointer and a rule.
+ * The refusal of a config for every issue its reading met, in pointer order (design 3.7).
  */
 const refusalOf = (
-	findings: ReadonlyArray<Finding>,
+	issues: ReadIssues,
 	context: AuthorConfigContext
 ): Effect.Effect<never, AuthorConfigRefused> =>
 	Effect.flatMap(
-		Effect.forEach(findings, (finding) => diagnose(finding, context)),
+		Effect.forEach(issues, (issue) => diagnose(issue, context)),
 		(diagnostics) =>
 			Effect.fail(
 				new AuthorConfigRefused({ diagnostics: sortDiagnostics([context.document], diagnostics) })
@@ -742,14 +690,8 @@ export const decodeAuthorConfig = Effect.fnUntraced(function* decodeAuthorConfig
 	input: Json,
 	context: AuthorConfigContext
 ): Effect.fn.Return<AuthorConfig, AuthorConfigRefused> {
-	const findings: Array<Finding> = []
-	const read = authorConfig(input, [], (rule, path) => {
-		findings.push({ rule, path })
-		return Option.none()
-	})
-
-	return yield* Option.match(read, {
-		onNone: () => refusalOf(findings, context),
-		onSome: Effect.succeed
+	return yield* Result.match(authorConfig(input), {
+		onFailure: (issues) => refusalOf(issues, context),
+		onSuccess: Effect.succeed
 	})
 })
