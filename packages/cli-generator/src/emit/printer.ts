@@ -3,6 +3,7 @@ import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Brand,
+	Data,
 	Effect,
 	Formatter,
 	Match,
@@ -10,9 +11,9 @@ import {
 	Order,
 	Predicate,
 	Record,
-	Schema,
 	String as Str
 } from "effect"
+import type { Schema } from "effect"
 import {
 	guardTemplateCurly,
 	jsDoc,
@@ -224,25 +225,21 @@ export interface Module {
 /**
  * The module holds a construct outside the printer's syntax subset.
  */
-export class PrinterError extends Schema.TaggedError<
-	PrinterError,
-	{ readonly brand: unique symbol }
->()("PrinterError", {
-	reason: Schema.Literals([
-		"duplicate-key",
-		"non-finite-number",
-		"unbreakable-line",
-		"unsupported-arrow-body",
-		"unsupported-chain",
-		"unsupported-conditional",
-		"unsupported-expression",
-		"unsupported-member",
-		"unsupported-new",
-		"unsupported-package-json",
-		"unsupported-plus"
-	]),
-	subject: Schema.String
-}) {}
+export class PrinterError extends Data.TaggedError("PrinterError")<{
+	readonly reason:
+		| "duplicate-key"
+		| "non-finite-number"
+		| "unbreakable-line"
+		| "unsupported-arrow-body"
+		| "unsupported-chain"
+		| "unsupported-conditional"
+		| "unsupported-expression"
+		| "unsupported-member"
+		| "unsupported-new"
+		| "unsupported-package-json"
+		| "unsupported-plus"
+	readonly subject: string
+}> {}
 
 export const str = (value: string): Expr => ({ _tag: "String", value })
 
@@ -1033,7 +1030,7 @@ type Issue = Option.Option<PrinterError>
 const none = (): Issue => Option.none()
 
 const issue = (reason: PrinterError["reason"], subject: string): Issue =>
-	Option.some(PrinterError.make({ reason, subject }))
+	Option.some(new PrinterError({ reason, subject }))
 
 const firstIssue = <A>(items: readonly A[], check: (item: A) => Issue): Issue => {
 	for (const item of items) {
@@ -1563,7 +1560,7 @@ const sortedMap = (value: Schema.Json): Schema.Json =>
 		: Record.fromEntries(Arr.sort(Record.toEntries(value), byJsonKey))
 
 const unsupportedPackageJson = (subject: string) =>
-	Effect.fail(PrinterError.make({ reason: "unsupported-package-json", subject }))
+	Effect.fail(new PrinterError({ reason: "unsupported-package-json", subject }))
 
 /**
  * The manifest's members in the `docs/printer.md` key order, its dependency maps, `bin` and `engines`
