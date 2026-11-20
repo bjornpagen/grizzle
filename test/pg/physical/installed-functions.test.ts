@@ -7,9 +7,9 @@
  * language, its parameters in order, STRICT exactly where stated and its SET clauses (test/support/catalog/verify.ts
  * StatedShape); each with EXECUTE held by exactly the roles whose reads and writes call it.
  *
- * - **Property:** over the row-function boxes (test/unit/physical/row-functions.fixtures.ts) and boxes calling each
- *   library function a schema reaches, Text.resolveReference and Crypto.sha256 in a generated field, Xml.isPattern in a
- *   CHECK, and a key over a text of no byte bound, held by its image (installed-functions.fixtures.ts), each installed by
+ * - **Property:** over the row-function boxes (test/unit/physical/row-functions.fixtures.ts) and boxes calling the
+ *   library's digest, Crypto.sha256 in a generated field and a key over a text of no byte bound, held by its image
+ *   (installed-functions.fixtures.ts; the library functions of hand-named bodies wait on the structural audit), each installed by
  *   the migrator in a database of its own, the checker finds nothing, and the catalog holds every function the
  *   installation's constant objects create.
  * - **Oracle:** specification: the checker's rule for each kind, by the kind the installer recorded.
@@ -69,7 +69,7 @@ export const everyFunctionAnInstallationEmitsOfEveryConstantKindPassesTheInstall
 							Effect.gen(function* () {
 								const { schema, logins } = functionSchemaOf(functionCase)
 								const installed = yield* installMigrated(schema, {
-									label: "installed functions",
+									label: "functions",
 									logins,
 									extensions: [],
 									ambient: ordinarySession

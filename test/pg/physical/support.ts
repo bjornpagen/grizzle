@@ -249,8 +249,8 @@ export const worldsGrants = (
 		)
 	/**
 	 * A closed constant's executors: every world role on a declared closed relation's own constant, which its closed
-	 * reads call, and the writer on one a CHECK or generated column of a table it writes calls, as on every row function
-	 * and library function a table's CHECKs and generated columns call.
+	 * reads call, and the writer on one a CHECK or generated column of a table it writes calls, as on every row function a
+	 * table's CHECKs and generated columns call; every role on a library function, which a role's reads may call too.
 	 */
 	const closedExecutors = Arr.flatMap(
 		closedConstantsOf(installation),
@@ -264,8 +264,9 @@ export const worldsGrants = (
 						["EXECUTE"]
 					)
 				case "rowFunction":
-				case "libraryFunction":
 					return on("function", name, fn.tables.length > 0 ? [writer.role] : [], ["EXECUTE"])
+				case "libraryFunction":
+					return on("function", name, [writer.role, reader], ["EXECUTE"])
 				case "world":
 				case "immutableGuard":
 				case "declared":

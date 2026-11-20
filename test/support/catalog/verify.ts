@@ -930,7 +930,9 @@ const executorsOf = (j: Judging, name: string): ReadonlySet<string> =>
  * a role holds every closed relation of its base but a roster (analysis/schema.ts CheckedSchema) and its queries' closed
  * reads call the relation's constants as the invoker; and any closed constant's to the roles whose views call it and
  * the roles that insert into or update a table whose CHECK or generated column calls it, a law's CHECK alone reading
- * a constant of no declared relation.
+ * a constant of no declared relation; a row function's to the writers of the tables whose CHECKs and generated columns
+ * call it, and a library function's to every world role, which physical/ddl/library.ts grants it to, a role's reads
+ * computing it as its writes do.
  */
 const constantExecutorProblems = (
 	j: Judging,
@@ -962,8 +964,12 @@ const constantExecutorProblems = (
 			}
 			break
 		case "rowFunction":
-		case "libraryFunction":
 			for (const r of tableWriters(j, expected.tables)) {
+				required.add(r)
+			}
+			break
+		case "libraryFunction":
+			for (const r of j.worldRoles) {
 				required.add(r)
 			}
 			break
