@@ -1,14 +1,13 @@
 {
 	"typecheck": {
-		"total": 955,
+		"total": 940,
 		"files": {
 			"packages/cli-generator/src/emit/api.ts": 124,
 			"packages/cli-generator/src/emit/cli.ts": 122,
 			"packages/cli-generator/src/emit/entry.ts": 7,
 			"packages/cli-generator/src/model/author-config.ts": 11,
-			"packages/cli-generator/src/model/entities.ts": 14,
 			"packages/cli-generator/src/names/reserved.ts": 1,
-			"packages/cli-generator/src/normalize/responses.ts": 19,
+			"packages/cli-generator/src/normalize/responses.ts": 18,
 			"packages/cli-generator/src/runtime-src/domain/errors.ts": 22,
 			"packages/cli-generator/src/runtime-src/runtime/client.ts": 32,
 			"packages/cli-generator/src/runtime-src/runtime/output.ts": 105,
@@ -40,7 +39,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 766,
+		"total": 743,
 		"files": {
 			"packages/cli-generator/corpus/tools/coverage.ts": 1,
 			"packages/cli-generator/corpus/tools/exercise.ts": 1,
@@ -68,9 +67,7 @@
 			"packages/cli-generator/src/main.ts": 1,
 			"packages/cli-generator/src/model/author-config.ts": 29,
 			"packages/cli-generator/src/model/brands.ts": 1,
-			"packages/cli-generator/src/model/diagnostic.ts": 1,
-			"packages/cli-generator/src/model/entities.ts": 20,
-			"packages/cli-generator/src/model/pointer.ts": 1,
+			"packages/cli-generator/src/model/entities.ts": 1,
 			"packages/cli-generator/src/model/spec-section.ts": 1,
 			"packages/cli-generator/src/model/verdict.ts": 1,
 			"packages/cli-generator/src/names/constant.ts": 1,
@@ -141,10 +138,8 @@
 			"packages/cli-generator/test/grizzle/twins.ts": 2,
 			"packages/cli-generator/test/load/read.fixtures.ts": 1,
 			"packages/cli-generator/test/model/author-config.fixtures.ts": 1,
-			"packages/cli-generator/test/model/brands.fixtures.ts": 1,
 			"packages/cli-generator/test/model/diagnostic.fixtures.ts": 1,
 			"packages/cli-generator/test/model/path-item.fixtures.ts": 1,
-			"packages/cli-generator/test/model/pointer.fixtures.ts": 1,
 			"packages/cli-generator/test/names/alias-cycles.fixtures.ts": 2,
 			"packages/cli-generator/test/names/credential-collision-mtls.fixtures.ts": 1,
 			"packages/cli-generator/test/names/flatten.fixtures.ts": 1,

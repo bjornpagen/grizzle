@@ -193,12 +193,6 @@ export type MediaRange = string & Brand.Brand<"MediaRange">
 export const isMediaRange = (text: string): text is MediaRange => mediaRangePattern.test(text)
 
 /**
- * A MediaRange the code writes as a literal, such as a part's default content type in the encoding table, unchecked:
- * the literal is the proof. Text from anywhere else goes through isMediaRange.
- */
-export const fixedMediaRange: (literal: string) => MediaRange = Brand.nominal<MediaRange>()
-
-/**
  * An OpenAPI 3.2.1 path template: absolute, with balanced non-empty expressions, no dot segments and no empty segment
  * except the last.
  */
@@ -237,18 +231,3 @@ export type DocumentUri = string & Brand.Brand<"DocumentUri">
 
 /** Whether a text is a DocumentUri. */
 export const isDocumentUri = (text: string): text is DocumentUri => uriPattern.test(text)
-
-/**
- * A DocumentUri the code writes as a literal, unchecked: the literal is the proof. Text from anywhere else goes through
- * isDocumentUri.
- */
-export const fixedDocumentUri: (literal: string) => DocumentUri = Brand.nominal<DocumentUri>()
-
-/** A text with at least one character, where the specification requires one. */
-export type NonEmptyText = string & Brand.Brand<"NonEmptyText">
-
-/** Whether a text is NonEmptyText. */
-export const isNonEmptyText = (text: string): text is NonEmptyText => !Str.isEmpty(text)
-
-/** Whether a text is a Components Object key: it matches the component-name pattern. */
-export const isComponentName = (text: string): boolean => componentNamePattern.test(text)

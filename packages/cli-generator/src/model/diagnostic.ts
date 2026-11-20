@@ -22,7 +22,7 @@ export const diagnosticScopes = ["document", "operation", "element", "field"] as
 export type DiagnosticScope = (typeof diagnosticScopes)[number]
 
 /** Whether a diagnostic stops what it covers from being generated (`refusal`) or only reports (`notice`). */
-export const diagnosticSeverities = ["refusal", "notice"] as const
+const diagnosticSeverities = ["refusal", "notice"] as const
 
 export type DiagnosticSeverity = (typeof diagnosticSeverities)[number]
 
@@ -82,7 +82,7 @@ export type DiagnosticInput = Readonly<{
 }>
 
 /** A diagnostic the code built breaks the model: a code outside the grammar, a position below 1, a text no brand. */
-export class MalformedDiagnostic extends Data.TaggedError("MalformedDiagnostic")<{
+class MalformedDiagnostic extends Data.TaggedError("MalformedDiagnostic")<{
 	readonly code: string
 }> {}
 

@@ -12,47 +12,6 @@ export type JsonObject = Readonly<Record<string, Json>>
  */
 export const isObject = (value: Json): value is JsonObject => Predicate.isObject(value)
 
-/** Whether a value is a JSON scalar: null, a boolean, a finite number or a string. */
-const isJsonScalar = (value: unknown): boolean =>
-	value === null ||
-	Predicate.isBoolean(value) ||
-	Predicate.isString(value) ||
-	(Predicate.isNumber(value) && Number.isFinite(value))
-
-/** Whether an object is a plain one, as JSON text's parse builds: its prototype Object's or none. */
-const isPlainObject = (value: object): boolean => {
-	const prototype: unknown = Object.getPrototypeOf(value)
-
-	return prototype === Object.prototype || prototype === null
-}
-
-/**
- * Whether a value is JSON: a scalar, or an array or plain object whose every item and member is JSON. The one reader of
- * a value that claims to be JSON, such as what JSON text parses to. It walks the value with a list of its own, never the
- * call stack, so no nesting JSON text can spell is too deep for it.
- */
-export const isJson = (value: unknown): value is Json => {
-	const pending: Array<unknown> = [value]
-
-	for (let index = 0; index < pending.length; index += 1) {
-		const node = pending[index]
-
-		if (Arr.isArray(node)) {
-			for (const item of node) {
-				pending.push(item)
-			}
-		} else if (Predicate.isReadonlyObject(node) && isPlainObject(node)) {
-			for (const member of Record.values(node)) {
-				pending.push(member)
-			}
-		} else if (!isJsonScalar(node)) {
-			return false
-		}
-	}
-
-	return true
-}
-
 /**
  * Whether a JSON value is an array.
  */
