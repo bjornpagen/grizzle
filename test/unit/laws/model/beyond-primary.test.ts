@@ -108,6 +108,12 @@ export const theObjectsBeyondAPrimaryKeyAndTheImmediateLawsAreDecidedAsBeforeOnc
 				original: "\ta.relation === b.relation && a.predicate.id === b.predicate.id",
 				replacement: "\ta.relation === b.relation",
 				why: "laws/model/uniques.ts subsumes finds any two guards of one relation one guard (sameGuard compares no predicate)."
+			},
+			{
+				file: "packages/engine/src/laws/model/plan.ts",
+				original: "\treturn terms.reduce((held, t) => (rank(t) < rank(held) ? t : held))\n",
+				replacement: "\treturn terms.reduce((held, t) => (rank(t) < rank(held) ? held : held))\n",
+				why: "A selected side's first term is its guarded one (laws/model/plan.ts guardTerm), so two keys of one selection over its fields in two orders guard two columns and install two UNIQUEs that hold each other."
 			}
 		]
 	})

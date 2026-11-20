@@ -2,9 +2,11 @@
  * Sides are partial projections, and fin.md §5.1 lowers every law over them by one set of rules, each read here from
  * the installation's DDL by structure, never by its text:
  *
- * - every term of a selected side, and every pred term, is a law column of its own, `GENERATED ALWAYS AS (CASE WHEN φ
- *   THEN t END) STORED`: its WHEN reads exactly the selection's fields, and for pred(x) x as well (x > 0), and its THEN
- *   reads exactly the term's field (x - 1 for pred). A field term of a side over every fact is its field's own column;
+ * - the guarded term of a selected side, the one over its earliest field (its primary key's first), and every pred
+ *   term, is a law column of its own, `GENERATED ALWAYS AS (CASE WHEN φ THEN t END) STORED`: its WHEN reads exactly
+ *   the selection's fields, and for pred(x) x alone (x > 0), and its THEN reads exactly the term's field (x - 1 for
+ *   pred). Every other field term is its field's own column, a side over every fact's too, since one null column keeps
+ *   a row out of a key and a reference;
  * - a law column is typed by its field's base type, never a domain;
  * - a key is one UNIQUE over exactly its side's columns;
  * - a containment is one FOREIGN KEY from its left side's columns to its right side's, in term order, into a key over
@@ -97,6 +99,12 @@ export const partialProjectionsLowerBy51sRulesEveryDrawnLawInstallsItsDDLGenerat
 					"\t\t\t\tonCycle(fk.relation.name, fk.target.name) ||\n\t\t\t\tfk.target.fields.some((c) => !fk.targetFields.includes(c))",
 				replacement: "\t\t\t\tonCycle(fk.relation.name, fk.target.name)",
 				why: "A foreign key the schema-wide rule decides is never deferred though its target holds a field beside the referenced ones (laws/model/model.ts deferral)."
+			},
+			{
+				file: "packages/engine/src/laws/model/plan.ts",
+				original: "\t\ttermColumn(relation, term, term === guarded ? side.selection : everyRow)\n",
+				replacement: "\t\ttermColumn(relation, term, side.selection)\n",
+				why: "Every term of a selected side is a law column under its selection (laws/model/plan.ts sideColumns), so a write computes the selection once per term of every side, as qti's interaction_attribute computed its 12 selections over 72 columns, a row-function call each."
 			}
 		]
 	})

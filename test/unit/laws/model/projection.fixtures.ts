@@ -683,34 +683,38 @@ const itemFields = (phi: ItemPhi): ReadonlyArray<string> => {
 /** A term's field and the base type its law column holds. */
 type Term = readonly [field: string, type: TypeRef]
 
-/** An Item side's column of a field term: its own column over every fact, its partial law column over a selection. */
-const itemColumn = (at: Reading, selection: ItemSelection, [field, type]: Term): string =>
-	selection.kind === "every"
+/**
+ * An Item side's column of a field term: its own column over every fact, and over a selection the partial law column of
+ * the side's guarded term, the one over its earliest field (laws/model/plan.ts sideColumns), and every other term's own
+ * column. Owner, the earliest field of every Item side here, is the guarded term.
+ */
+const itemColumn = (
+	at: Reading,
+	selection: ItemSelection,
+	[field, type]: Term,
+	guarded: boolean
+): string =>
+	selection.kind === "every" || !guarded
 		? at.column("Item", field)
 		: at.partial("Item", { kind: "field", field }, itemFields(selection), type)
 
-/** A key over Item's owner and its code or pred(at): a law column per selected or pred term, under one UNIQUE. */
+/** A key over Item's owner and its code or pred(at): a law column for a selected side's owner and for pred(at), under
+ * one UNIQUE. */
 export const checkKey = (
 	law: Extract<Law, { readonly kind: "key" }>,
 	at: Reading,
 	c: Case<Feature>
 ): void => {
 	const { selection } = law
-	const owners = itemColumn(at, selection, ["owner", types.uuid])
+	const owners = itemColumn(at, selection, ["owner", types.uuid], true)
 	const second =
 		law.second === "code"
-			? itemColumn(at, selection, ["code", types.integer])
-			: at.partial(
-					"Item",
-					{ kind: "pred", field: "at" },
-					selection.kind === "every" ? [] : itemFields(selection),
-					types.bigint
-				)
+			? itemColumn(at, selection, ["code", types.integer], false)
+			: at.partial("Item", { kind: "pred", field: "at" }, [], types.bigint)
 	assert.equal(
 		at.lawColumns("Item").length,
-		(selection.kind === "every" ? 0 : 1) +
-			(selection.kind === "every" && law.second === "code" ? 0 : 1),
-		"a law column per term of a selected side or pred term, and no other"
+		(selection.kind === "every" ? 0 : 1) + (law.second === "code" ? 0 : 1),
+		"a law column for a selected side's guarded term and for a pred term, and no other"
 	)
 	at.keys("Item", [owners, second], 1)
 	if (selection.kind !== "every") {
@@ -728,12 +732,14 @@ export const checkKey = (
 }
 
 /**
- * A containment of Item's owner, and its code, into Owner's id, and its rank: a law column per term of a selected side,
- * a constant column on the source for a target of one live, carried into Owner's superkey over the referenced columns
- * and live, and a deferred reference, since Owner holds slots beside every key a reference names. A target of one live
- * that Note's owner meets too, at that live and at Owner's id alone, is referenced by both at Owner's id under that
- * live, one law column of Owner under one UNIQUE, which costs the schema one column where the superkey costs a constant
- * on each source.
+ * A containment of Item's owner, and its code, into Owner's id, and its rank: a law column for a selected side's owner
+ * or id, its guarded term, every other term its field, a constant column on the source for a target of one live,
+ * carried into Owner's superkey over the referenced columns and live, and a deferred reference, since Owner holds slots
+ * beside every key a reference names. A target of one live that Note's owner meets too, at that live and at Owner's id
+ * alone, is referenced by both at their own columns under that live, which share one law column of Owner, its id's:
+ * that column costs the schema less than the superkey's constant on each source, whose UNIQUE the own columns' costs
+ * too, one UNIQUE over Owner's id under that live where the containment reads it alone and a second beside it where it
+ * reads its rank too.
  */
 export const checkContainment = (
 	law: Extract<Law, { readonly kind: "containment" }>,
@@ -753,18 +759,19 @@ export const checkContainment = (
 				["rank", types.integer]
 			]
 		: [["id", types.uuid]]
-	const sources = Arr.map(sourceTerms, (term) => itemColumn(at, selection, term))
+	const sources = Arr.map(sourceTerms, (term, i) => itemColumn(at, selection, term, i === 0))
 	const shared =
 		target.kind === "constant" &&
 		target.second.kind === "from Note" &&
-		target.second.live === target.live &&
-		!law.superkey
-	const targets = Arr.map(targetTerms, ([field, type]) =>
-		target.kind === "selected"
-			? at.partial("Owner", { kind: "field", field }, ["rank"], type)
-			: shared
-				? at.partial("Owner", { kind: "field", field }, ["live"], type)
-				: at.column("Owner", field)
+		target.second.live === target.live
+	const targets = Arr.map(targetTerms, ([field, type], i) =>
+		i > 0
+			? at.column("Owner", field)
+			: target.kind === "selected"
+				? at.partial("Owner", { kind: "field", field }, ["rank"], type)
+				: shared
+					? at.partial("Owner", { kind: "field", field }, ["live"], type)
+					: at.column("Owner", field)
 	)
 	const constants =
 		target.kind === "constant" && !shared ? [at.constant("Item", types.boolean)] : []
@@ -772,13 +779,13 @@ export const checkContainment = (
 		target.kind === "constant" && !shared ? [...targets, at.column("Owner", "live")] : targets
 	assert.equal(
 		at.lawColumns("Item").length,
-		(selection.kind === "every" ? 0 : sources.length) + constants.length,
-		"the source's law columns: one per term of a selected side, and the constant"
+		(selection.kind === "every" ? 0 : 1) + constants.length,
+		"the source's law columns: one for a selected side's guarded term, and the constant"
 	)
 	assert.equal(
 		at.lawColumns("Owner").length,
-		target.kind === "selected" || shared ? targets.length : 0,
-		"the target's law columns: one per term of a selection fixing no field, or of one live two containments meet"
+		target.kind === "selected" || shared ? 1 : 0,
+		"the target's law columns: one for the guarded term of a selection fixing no field, or of one live two containments meet"
 	)
 	at.keys("Owner", referenced, 1)
 	const fk = at.reference("Item", [...sources, ...constants], "Owner", referenced)
@@ -814,7 +821,9 @@ export const checkContainment = (
 	}
 	if (target.kind === "constant" && target.second.kind === "from Note") {
 		if (shared) {
-			at.reference("Note", [at.column("Note", "owner")], "Owner", referenced)
+			at.reference("Note", [at.column("Note", "owner")], "Owner", [
+				defined(targets[0], "the target's guarded column")
+			])
 			c.note("two containments into one constant selection, at its own column")
 		} else {
 			const superkey = [at.column("Owner", "id"), at.column("Owner", "live")]

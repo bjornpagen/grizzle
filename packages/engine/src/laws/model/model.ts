@@ -1978,7 +1978,7 @@ const specialize = (
  * normalization with the law identities the naming door gives (theory.ts lawIdentityOf), recognizes every normalized
  * law (`Recognizer`), and settles what depends on the whole schema at once:
  *
- * - Law columns: each term of a selected side and each pred term is a STORED generated column of its relation, a
+ * - Law columns: the guarded term of each selected side (plan.ts sideColumns) and each pred term is a STORED generated column of its relation, a
  *   constant selection of a target a STORED constant column of its source, and a family's ‹n›, counted index and
  *   hidden fold accumulators plain columns the host draws, each named once by what it is
  *   (identity.lawColumn) and lowered once over its table's row. The generated UNIQUE a reference needs is over exactly

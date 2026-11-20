@@ -136,9 +136,9 @@ export const checkShape = (s: Shape): void => {
 	const [period, ...more] = periods
 	assert.ok(period !== undefined && more.length === 0, "one PERIOD foreign key")
 	const sourceScalar = s.source === "selected" ? "‹generated f›" : "f"
-	const sourceSpan = s.source === "selected" ? "‹generated s›" : "s"
+	const sourceSpan = "s"
 	const targetScalar = s.target === "selected" ? "‹generated g›" : "g"
-	const targetSpan = s.target === "selected" ? "‹generated t›" : "t"
+	const targetSpan = "t"
 	assert.deepEqual(
 		{
 			columns: Arr.map(period.columns, (c) => text(model, period.relation, c)),

@@ -2303,9 +2303,11 @@ already called.
 Every rule holds at commit, for every writer. A rule over tables is PostgreSQL's own constraints, and grizzle installs
 no trigger and no function for it.
 
-- **Sides.** Each term of a selected side, and each `pred` term, is a STORED generated column,
-  `CASE WHEN φ THEN t END`. A key over a side is `UNIQUE NULLS DISTINCT` and a containment
-  `FOREIGN KEY … MATCH SIMPLE`, both of which pass a row whose columns there are NULL.
+- **Sides.** A selected side's guarded term, the one over its earliest field (its primary key's first), and each `pred`
+  term, is a STORED generated column, `CASE WHEN φ THEN t END`, and every other term is its field's own column. A key
+  over a side is `UNIQUE NULLS DISTINCT` and a containment `FOREIGN KEY … MATCH SIMPLE`, both of which pass a row with
+  any of its columns there NULL, so the one guarded column keeps every row the side does not read out of both, and a
+  row computes each selection once, never once per term.
 - **Fixed fields.** The source holds each value a target fixes a field to as a STORED generated column, and lists its
   own field again for each field the target equates to one of its terms, so the foreign key meets the target's terms,
   then its fixed fields, which add no column to the target. The UNIQUE it references is the key the target holds, or

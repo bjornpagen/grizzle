@@ -804,13 +804,53 @@ const dependencies = (column: LawColumnPlan): ReadonlyArray<NativePlan> => {
 }
 
 /**
- * The columns a side lowers to, one per term (§ partial projections): a field term of an unselected side is its field;
- * every term of a selected side, and every pred term, is a law column generated `CASE WHEN φ THEN t END`, null
- * wherever the side reads no tuple, so a key over it holds apart only the rows it reads and a reference from it
- * references only from them.
+ * The columns a side lowers to, one per term (§ partial projections): its guarded term (`guardTerm`) under its
+ * selection, and every other term over every row. A field term over every row is its field; the guarded term of a
+ * selected side, and every pred term, is a law column generated `CASE WHEN φ THEN t END` (pred(x)'s own guard x > 0
+ * beside φ), null wherever the side reads no tuple. One guarded column per side is exact: UNIQUE NULLS DISTINCT and
+ * MATCH SIMPLE both pass over a row with any null column, so a key over the columns holds apart only the rows the side
+ * reads and a reference from them references only from those, whichever of them is null there; every other term is its
+ * field's own column or the one law column of its pred, which every side shares. So a relation holds one generated
+ * column per selection its sides read, never one per term, and a write computes each selection once per row where it
+ * would compute it once per term.
  */
-const sideColumns = (side: ResolvedSide): NonEmptyReadonlyArray<SideColumn> =>
-	mapNonEmpty(side.terms, (term) => termColumn(tableOf(side.rel), term, side.selection))
+const sideColumns = (side: ResolvedSide): NonEmptyReadonlyArray<SideColumn> => {
+	const relation = tableOf(side.rel)
+	const guarded = guardTerm(relation, side.terms)
+	return mapNonEmpty(side.terms, (term) =>
+		termColumn(relation, term, term === guarded ? side.selection : everyRow)
+	)
+}
+
+/**
+ * The term a side of `relation` guards by its selection (`sideColumns`): the one over its earliest field, the primary
+ * key's fields first in key order and every other field after them in field order, a field term before pred of that
+ * field. So two sides of one selection over one set of terms, in whatever order, lower to one set of columns, and the
+ * sides of one selection that share a primary key field, as a family's group and the keys and references over it do,
+ * share that field's one generated column.
+ */
+const guardTerm = (
+	relation: RelationInfo,
+	terms: NonEmptyReadonlyArray<ResolvedTerm>
+): ResolvedTerm => {
+	const keyed = relation.primaryFields.length
+	const rank = (t: ResolvedTerm): number => {
+		const inKey = relation.primaryFields.findIndex((f) => f.name === t.column.name)
+		return (inKey === -1 ? keyed + t.column.position : inKey) * 2 + (t.kind === "pred" ? 1 : 0)
+	}
+	return terms.reduce((held, t) => (rank(t) < rank(held) ? t : held))
+}
+
+/** The column the side `key` of `relation` lowers its term over `field` to (`sideColumns`): its guarded term's under
+ * its selection, any other field's its own. */
+const keyColumn = (relation: RelationInfo, key: TargetKey, field: LawField): SideColumn => {
+	const guarded = guardTerm(relation, key.terms)
+	return termColumn(
+		relation,
+		{ kind: "field", field: field.name, column: field },
+		guarded.kind === "field" && guarded.column === field ? key.selection : everyRow
+	)
+}
 
 /** One term of a side over `relation` under `selection` as a column (`sideColumns`). */
 const termColumn = (
@@ -1666,13 +1706,7 @@ const fixedTargetOf = (
 		),
 		targetColumns: extendNonEmpty(
 			sideColumns(rest),
-			fixings.map((f) =>
-				termColumn(
-					toRel,
-					{ kind: "field", field: f.field.name, column: f.field },
-					key.terms.some((k) => k.column === f.field) ? key.selection : everyRow
-				)
-			)
+			fixings.map((f) => keyColumn(toRel, key, f.field))
 		)
 	}
 }
@@ -1965,10 +1999,12 @@ interface FamilyPlan {
  *
  * The rules it implements, the partial projections first:
  *
- * - A side lowers to one column per term (`sideColumns`): an unselected side's field term is its field, and every term
- *   of a selected side and every pred term is a law column generated `CASE WHEN φ₁ AND … THEN t END` STORED over its
- *   selection's conjuncts, pred(x) being `CASE WHEN x > 0 THEN x - 1 END` (scalar/natural.ts guardedTerm). A row whose
- *   side reads no tuple holds a null there.
+ * - A side lowers to one column per term (`sideColumns`): its guarded term (`guardTerm`), the one over its earliest
+ *   field, its primary key's first, under its selection, every other over every row. A field term over every row is
+ *   its field, and the guarded term of a selected side and every pred term is a law column generated `CASE WHEN φ₁
+ *   AND … THEN t END` STORED over its selection's conjuncts, pred(x) being `CASE WHEN x > 0 THEN x - 1 END`
+ *   (scalar/natural.ts guardedTerm). A row whose side reads no tuple holds a null in the guarded column, which is all
+ *   the next two rules read: one guarded column per side is exact.
  * - A key over a side is UNIQUE NULLS DISTINCT over its columns, which holds apart only the rows the side reads; one
  *   whose terms hold a span field is WITHOUT OVERLAPS over them, the span last.
  * - A containment is FOREIGN KEY MATCH SIMPLE from the source's columns, which references nothing from a row whose side

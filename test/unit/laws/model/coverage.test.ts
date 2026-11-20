@@ -1,6 +1,7 @@
 /**
  * A coverage law, a containment pairing a span field of each side, lowers natively (fin.md §7, w4-w7 §2.5): each
- * selected side's terms are law columns; the target is keyed WITHOUT OVERLAPS over exactly its terms, by its declared
+ * selected side's guarded term, its scalar, is a law column and its span its own field (laws/model/plan.ts
+ * sideColumns); the target is keyed WITHOUT OVERLAPS over exactly its terms, by its declared
  * span key or by a key over its projected side; and the law is `FOREIGN KEY (f…, PERIOD s) REFERENCES B (g…, PERIOD t)`
  * with the index over its referencing columns, and always deferred: it references the target's span as a period, so
  * one ChangeSet may replace the facts covering a source's span by others that still cover it, a span cut or split,

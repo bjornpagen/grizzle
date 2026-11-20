@@ -732,7 +732,8 @@ export const assertLowered = (
 		)
 		const fields = Arr.map(paired, (column): Referencing => ({ kind: "field", column }))
 		/** The match's own foreign key: from its paired fields, then a constant column per constant, into its fields at
-		 * its head terms and constants; or from the paired fields alone into its own columns under its constants. Two
+		 * its head terms and constants; or from the paired fields alone into its own columns under its constants, one per
+		 * head term, its guarded term's a law column and every other its field (laws/model/plan.ts sideColumns). Two
 		 * matches of one relation may reference the same columns, so the referencing columns, read as what each holds,
 		 * tell their keys apart. */
 		const fk = holding(
@@ -750,7 +751,9 @@ export const assertLowered = (
 						])) ||
 						(constants.length > 0 &&
 							sameReferencing(from, fields) &&
-							!Arr.some(k.referencedColumns, (r) => Arr.contains(referenced, r.column))))
+							k.referencedColumns.length === heads.length &&
+							Arr.filter(k.referencedColumns, (r) => !Arr.contains(referenced, r.column)).length ===
+								1))
 				)
 			}),
 			`a foreign key from S's ${Arr.join(paired, ", ")} and a constant column of each of ${Arr.join(
