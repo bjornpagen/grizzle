@@ -662,9 +662,10 @@ export const giSTEntriesForSpanKeysGistCGistSplitBoundsAGiSTEntryByBtreeGistsTwo
 		kills: [
 			{
 				file: "packages/text/src/regex/nfa.ts",
-				original: "this.#copy(task.node, task.chain, task.to, tasks)",
-				replacement: "{}",
-				why: "Operator mutant a7546f2f39 at packages/text/src/regex/nfa.ts:129 in <module>: `this.#copy(task.node, task.chain, task.to, tasks)` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
+				original:
+					'\t\t\t\tthis.edge(from, op("enter"), noCounts, (t, counts) => ({ kind: "eps", to: t, counts }))\n',
+				replacement: "",
+				why: "Census mutant a7546f2f39 (packages/text/src/regex/nfa.ts, a repetition's copies never built, so no path crossed one), restated on the counting automaton: no edge enters a repetition, so no path crosses one; the property fails (the census, lane TESTPOLICY2; restated by lane TEXTSPEC)."
 			}
 		]
 	})

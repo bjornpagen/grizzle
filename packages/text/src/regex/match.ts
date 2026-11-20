@@ -1,15 +1,17 @@
 import { codePointAt, codePointUnits } from "@bjornpagen/grizzle-text/text"
-import type { Nfa } from "#text/regex/nfa.ts"
+import { configurationsOf, type Nfa } from "#text/regex/nfa.ts"
 import { SearchSubsets, type Subset, subsetKey } from "#text/regex/subset.ts"
 import { entry } from "#text/regex/table.ts"
 
 /**
- * The most DFA states a matcher keeps for each state of its NFA. A text that reaches a state the matcher has not met,
- * once it keeps that many, starts the matcher's table over from its initial state, so a matcher holds at most twice its
- * NFA's states, however many texts it reads and whatever they spell: a value the host matches is an application's,
- * which may reach as many states of a pattern's search language as it has code points, and the states a pattern's
- * language holds can number exponentially many in its NFA's. It is PostgreSQL's own sizing of the cache of its lazy
- * DFA, which its regex executor recycles past the same count.
+ * The most DFA states a matcher keeps for each configuration its NFA's states take (nfa.ts configurationsOf), the
+ * states of the chain of copies PostgreSQL's NFA holds. A text that reaches a state the matcher has not met, once it
+ * keeps that many, starts the matcher's table over from its initial state, so a matcher holds at most twice its
+ * configurations, and at most one state for each code point it read since its table last started over, however many
+ * texts it reads and whatever they spell: a value the host matches is an application's, which may reach as many states
+ * of a pattern's search language as it has code points, and the states a pattern's language holds can number
+ * exponentially many in its NFA's. It is PostgreSQL's own sizing of the cache of its lazy DFA, which its regex executor
+ * recycles past the same count.
  *
  * @limitKind published
  * @owner PostgreSQL 19.0's regex executor (rege_dfa.c newdfa)
@@ -40,8 +42,10 @@ interface DfaState {
  *
  * A text is read code point by code point, allocating nothing: each code point's atom by its segment of the alphabet,
  * and each step a lookup of the state's target, built where it is missing. So a text of n code points costs n steps,
- * and at most n transitions built, each charged its subset construction's work (Step), at most twice the NFA's states:
- * its work is linear in the text whatever the pattern, which no backtracking ever enters. A code point no admitted text
+ * and at most n transitions built, each charged its subset construction's work (Step), at most twice the
+ * configurations its NFA's states take (nfa.ts configurationsOf), and twice its states where the text read fixes every
+ * counter, as an anchored pattern of one way through does: its work is linear in the text whatever the pattern, which
+ * no backtracking ever enters, and a counted repetition costs it a counter, never a copy of its body. A code point no admitted text
  * holds, a NUL or a lone surrogate, lies in no segment, and its text belongs to no refinement, since no PostgreSQL text
  * value spells it.
  */
@@ -62,7 +66,7 @@ export class Matcher {
 	private constructor(nfa: Nfa) {
 		this.nfa = nfa
 		this.#subsets = new SearchSubsets(nfa)
-		this.#capacity = keptStatesPerNfaState * nfa.edges.length
+		this.#capacity = keptStatesPerNfaState * configurationsOf(nfa)
 		const { segments, atomOf } = this.#subsets.alphabet
 		this.#segmentLows = Int32Array.from(segments, ([lo]) => lo)
 		this.#segmentHighs = Int32Array.from(segments, ([, hi]) => hi)
@@ -138,8 +142,9 @@ export class Matcher {
 
 	/**
 	 * The number of a subset's state, a new one numbered where the table holds none of it. A table that keeps its
-	 * capacity forgets every state first and keeps its initial one, numbered 0 again, so a text starts there whatever
-	 * texts came before it.
+	 * capacity forgets every state first, and the configurations their subsets held (subset.ts SearchSubsets forget), and
+	 * keeps its initial one, numbered 0 again, so a text starts there whatever texts came before it, and the
+	 * configurations a counted repetition's counters reach never pile up past the states that hold them.
 	 */
 	#numbered(subset: Subset): number {
 		const key = subsetKey(subset)
@@ -150,8 +155,9 @@ export class Matcher {
 		if (this.#states.length >= this.#capacity) {
 			this.#states.length = 0
 			this.#numbers.clear()
+			const carried = this.#subsets.forget(subset)
 			this.#numbered(this.#subsets.initial.to)
-			return this.#numbered(subset)
+			return this.#numbered(carried)
 		}
 		const number = this.#states.length
 		this.#numbers.set(key, number)

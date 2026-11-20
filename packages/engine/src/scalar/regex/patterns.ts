@@ -2,7 +2,7 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { CharSet } from "@bjornpagen/grizzle-text/regex/charset"
 import type { LiveNode, RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
-import { buildNfa, type NfaEdge } from "@bjornpagen/grizzle-text/regex/nfa"
+import { buildNfa, type CountOp, type NfaEdge } from "@bjornpagen/grizzle-text/regex/nfa"
 import {
 	parsePattern,
 	type PatternSource,
@@ -13,6 +13,7 @@ import type { ExprTable } from "#compiler/ir/expr.ts"
 import { matchFlags } from "#compiler/ir/pattern.ts"
 import { type RegexRef, regexRefOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
+	countCode,
 	edgeCode,
 	memberOf,
 	type ServedMatcher,
@@ -159,10 +160,29 @@ export class ProgramPatterns implements PatternAutomata {
 				pattern: { source, flags },
 				start: matcher.nfa.start,
 				accept: matcher.nfa.accept,
-				edges: matcher.nfa.edges.map((out) => out.flatMap((e) => [sets.codeOf(e), e.to]))
+				edges: matcher.nfa.edges.map((out) =>
+					out.flatMap((e) => [...e.counts.flatMap(countCodes), sets.codeOf(e), e.to])
+				),
+				repeats: matcher.nfa.repeats.map(
+					(r) => [r.least, r.copies, r.loops ? 1 : 0, r.consuming ? 1 : 0] as const
+				)
 			}))
 		)
 		return { sets: sets.sets, matchers }
+	}
+}
+
+/** A counter operation as a served automaton writes it, its code and its repetition (matcher.ts countCode). */
+const countCodes = (op: CountOp): readonly [number, number] => {
+	switch (op.kind) {
+		case "consumed":
+			return [countCode.consumed - op.below, op.repeat]
+		case "enter":
+		case "again":
+		case "counted":
+		case "loop":
+		case "leave":
+			return [countCode[op.kind], op.repeat]
 	}
 }
 

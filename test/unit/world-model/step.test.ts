@@ -97,9 +97,9 @@ export const theWorldsModelsStepKeepsEveryInvariantOnEveryBranchAndAgreesWithIts
 		kills: [
 			{
 				file: "packages/text/src/regex/subset.ts",
-				original: `subset.kind === "done"\n\t\t? "done"\n\t\t: \`\${subset.initial ? "i" : "n"}\${[...subset.states].toSorted((a, b) => a - b).join(",")}\``,
-				replacement: `subset.kind === "done" ? \`\${subset.initial ? "i" : "n"}\${[...subset.states].toSorted((a, b) => a - b).join(",")}\` : "done"`,
-				why: `Operator mutant 8d79a8a065 at packages/text/src/regex/subset.ts:75 in subsetKey: \`subset.kind === "done"   ? "done"   : \`\${subset.initial ? "i" : "n"}\${[...subset.states].toSorted((a, b) => a - b).join(",")}\`\` becomes \`subset.kind === "done" ? \`\${subset.initial ? "i" : "n"}\${[...subset.states].toSorted((a, b) => a - b).join(",")}\` : "done"\`; the property fails (the census, lane TESTPOLICY2).`
+				original: `subset.kind === "done"\n\t\t? "done"\n\t\t: \`\${subset.initial ? "i" : "n"}\${[...subset.configs].toSorted((a, b) => a - b).join(",")}\``,
+				replacement: `subset.kind === "done" ? \`\${subset.initial ? "i" : "n"}\${[...subset.configs].toSorted((a, b) => a - b).join(",")}\` : "done"`,
+				why: "Census mutant 8d79a8a065 (packages/text/src/regex/subset.ts subsetKey), restated on the counting automaton's configurations: every subset but the sink is keyed as the sink, and the sink by its configurations; the property fails (the census, lane TESTPOLICY2; restated by lane TEXTSPEC)."
 			}
 		]
 	})

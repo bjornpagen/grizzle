@@ -1,6 +1,6 @@
 import { type CharSet, charSet } from "@bjornpagen/grizzle-text/regex/charset"
 import { RegexBuilder, type RegexNode, seq, set } from "@bjornpagen/grizzle-text/regex/ir"
-import type { Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { follow, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { codePointsText } from "@bjornpagen/grizzle-text/text"
 import {
 	array,
@@ -740,8 +740,9 @@ const codePointOf = (set: CharSet, interval: number, edge: number, within: numbe
 }
 
 /**
- * One walk over a pattern's host NFA, its choices read from the tape in order (0 once it runs out): the string it
- * accepts, or undefined when it ends stuck outside the accepting state. A walk consumes the whole string from offset 0:
+ * One walk over a pattern's host NFA, its configurations' counters moved as its edges move them (nfa.ts follow), its
+ * choices read from the tape in order (0 once it runs out): the string it accepts, or undefined when it ends stuck
+ * outside the accepting state. A walk consumes the whole string from offset 0:
  * a start edge is followed only before the first code point, and after an end edge no code point follows.
  */
 export const walk = (
@@ -753,23 +754,26 @@ export const walk = (
 	const next = (): number => tape[consumed++] ?? 0
 	const codePoints: Array<number> = []
 	let state = nfa.start
+	let counters: ReadonlyArray<number> = []
 	let ended = false
 	for (let step = 0; step < 400; step++) {
 		if (state === nfa.accept && (pickIndex(next(), 5) < 2 || codePoints.length >= maxLength)) {
 			return codePointsText(codePoints)
 		}
-		const allowed = Arr.filter(
-			defined(nfa.edges[state], `the edges of state ${state}`),
-			(e) =>
-				e.kind === "eps" ||
-				e.kind === "end" ||
-				(e.kind === "start" && codePoints.length === 0) ||
-				(e.kind === "set" && !ended && codePoints.length < maxLength)
-		)
+		const allowed = Arr.flatMap(defined(nfa.edges[state], `the edges of state ${state}`), (e) => {
+			const moved = follow(nfa, counters, e.counts)
+			return moved !== undefined &&
+				(e.kind === "eps" ||
+					e.kind === "end" ||
+					(e.kind === "start" && codePoints.length === 0) ||
+					(e.kind === "set" && !ended && codePoints.length < maxLength))
+				? [{ edge: e, moved }]
+				: []
+		})
 		if (allowed.length === 0) {
 			return state === nfa.accept ? codePointsText(codePoints) : undefined
 		}
-		const edge = defined(allowed[pickIndex(next(), allowed.length)], "an edge")
+		const { edge, moved } = defined(allowed[pickIndex(next(), allowed.length)], "an edge")
 		if (edge.kind === "set") {
 			codePoints.push(codePointOf(edge.set, next(), next(), next()))
 		}
@@ -777,6 +781,7 @@ export const walk = (
 			ended = true
 		}
 		state = edge.to
+		counters = moved
 	}
 	return undefined
 }

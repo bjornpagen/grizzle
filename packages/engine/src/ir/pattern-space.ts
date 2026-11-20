@@ -795,6 +795,52 @@ const movingAnchors = (nfa: RawNfa): number => {
 }
 
 /**
+ * The raw NFA's size against the first of the limits it meets (colors, depth, states, arcs; pastCompileSpace), or
+ * the colors and the size where it meets none: a fold over the IR, which builds nothing.
+ */
+const rawSpace = (
+	ir: LiveNode
+):
+	| { readonly kind: "past"; readonly measure: RegexSpaceMeasure }
+	| { readonly kind: "within"; readonly colors: Colors; readonly raw: Fragment } => {
+	const colors = colorsOf(ir)
+	if (colors.count > regexMaxColors) {
+		return {
+			kind: "past",
+			measure: { kind: "colors", limit: regexMaxColors, needed: colors.count }
+		}
+	}
+	const raw = rawSize(ir, colors)
+	if (raw.depth > regexMaxDepth) {
+		return { kind: "past", measure: { kind: "depth", limit: regexMaxDepth, needed: raw.depth } }
+	}
+	const heldStates = raw.states + raw.states
+	if (heldStates > regexMaxHeldStates) {
+		return {
+			kind: "past",
+			measure: { kind: "states", limit: regexMaxHeldStates, needed: heldStates }
+		}
+	}
+	if (raw.arcs + raw.arcs > regexMaxHeldArcs) {
+		return { kind: "past", measure: { kind: "arcs", limit: regexMaxHeldArcs } }
+	}
+	return { kind: "within", colors, raw }
+}
+
+/**
+ * The first of the limits on the raw NFA's size a pattern's IR passes (colors, depth, states and arcs, in
+ * pastCompileSpace's order), none where it passes none: what a repetition past 255 is judged by before its ARE is
+ * printed, which spells it as pieces of counts within 255 (print.ts quantified) and so leaves each of the four as it
+ * is, since PostgreSQL's chain of n copies is the chains of the pieces' counts, which sum to n, joined by a state
+ * each (repeated, branchFragment). It bounds the printed pattern's length by the compile space, so a count no
+ * compile space holds is refused before a piece of it is printed.
+ */
+export const pastRawSpace = (ir: LiveNode): RegexSpaceMeasure | undefined => {
+	const sized = rawSpace(ir)
+	return sized.kind === "past" ? sized.measure : undefined
+}
+
+/**
  * PostgreSQL's regex compile space, as grizzle measures a pattern against it before PostgreSQL ever compiles it.
  *
  * PostgreSQL compiles a domain's pattern at the first value it checks, not when the domain is made, and refuses one
@@ -829,22 +875,12 @@ const movingAnchors = (nfa: RawNfa): number => {
  * within the compile space.
  */
 export const pastCompileSpace = (ir: LiveNode): RegexSpaceMeasure | undefined => {
-	const colors = colorsOf(ir)
-	if (colors.count > regexMaxColors) {
-		return { kind: "colors", limit: regexMaxColors, needed: colors.count }
+	const sized = rawSpace(ir)
+	if (sized.kind === "past") {
+		return sized.measure
 	}
-	const raw = rawSize(ir, colors)
-	if (raw.depth > regexMaxDepth) {
-		return { kind: "depth", limit: regexMaxDepth, needed: raw.depth }
-	}
-	const heldStates = raw.states + raw.states
-	if (heldStates > regexMaxHeldStates) {
-		return { kind: "states", limit: regexMaxHeldStates, needed: heldStates }
-	}
+	const { colors, raw } = sized
 	const heldRaw = raw.arcs + raw.arcs
-	if (heldRaw > regexMaxHeldArcs) {
-		return { kind: "arcs", limit: regexMaxHeldArcs }
-	}
 	const nfa = rawNfa(ir, colors)
 	const unaliased = withoutAliases(nfa)
 	const copies = emptyCopies(unaliased.arcs, regexMaxHeldArcs - heldRaw)

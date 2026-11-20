@@ -224,7 +224,7 @@ export const xsdPatternRefusesEachConstructOutsideTheGrammarAtItsOffsetByItsReas
 			}),
 		oracle: {
 			kind: "specification",
-			name: "Appendix F's grammar, and PostgreSQL's RE_DUP_MAX of 255"
+			name: "Appendix F's grammar"
 		},
 		kept: [],
 		kills: [
@@ -236,10 +236,9 @@ export const xsdPatternRefusesEachConstructOutsideTheGrammarAtItsOffsetByItsReas
 			},
 			{
 				file: "packages/text/src/regex/xsd.ts",
-				original:
-					'\t\tif (min > regexMaxRepeat || (max !== "unbounded" && max > regexMaxRepeat)) {',
-				replacement: "\t\tif (min < 0) {",
-				why: "A count past PostgreSQL's RE_DUP_MAX is admitted, which the ARE printed from it refuses."
+				original: '\t\tif (most.kind === "bounded" && numeralBelow(most.numeral, min)) {',
+				replacement: '\t\tif (most.kind === "bounded" && countOf(most.numeral) < countOf(min)) {',
+				why: "Two counts past 2^53 out of order read as one count, so `a{9007199254740994,9007199254740993}` is admitted, where Appendix F's numbers are compared as written."
 			}
 		]
 	})

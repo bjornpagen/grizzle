@@ -476,7 +476,8 @@ const lessOne = (max: number | "unbounded"): number | "unbounded" =>
 
 /**
  * How many copies of its body a repetition writes out: its maximum, or for an unbounded one max(min, 1) and a loop
- * back over the last copy. The NFA builder (nfa.ts) writes exactly these.
+ * back over the last copy, as PostgreSQL's regex compiler writes them, whose size the measures read (expandedSize);
+ * the host's automaton counts as many with one copy and a counter (nfa.ts NfaRepeat).
  */
 export const copiesOf = (node: Extract<RegexNode, { readonly kind: "repeat" }>): number =>
 	node.max === "unbounded" ? Math.max(node.min, 1) : node.max
@@ -777,8 +778,9 @@ export class RegexBuilder {
 	}
 
 	/**
-	 * The number of NFA positions once every counted repetition is written out, the size of the automaton both the
-	 * host simulator and PostgreSQL's regex compiler build before optimizing it. Every node is at least one position,
+	 * The number of NFA positions once every counted repetition is written out, the size of the automaton PostgreSQL's
+	 * regex compiler builds before optimizing it, and of the configurations the host's automaton's counters take
+	 * (nfa.ts configurationsOf), which writes each repetition out once. Every node is at least one position,
 	 * an assertion or the empty string included: a repeated body is always written out, so a body that consumes
 	 * nothing still costs its copies. An unbounded repetition costs its body once more than its minimum. The empty arm
 	 * of an alternation costs nothing: the ARE writes such an alternation as an optional group, an empty arc beside its
@@ -801,6 +803,14 @@ export class RegexBuilder {
 					return 1
 			}
 		})
+	}
+
+	/**
+	 * Whether the node matches the empty string through no assertion: a repetition of such a body counts an iteration
+	 * only once it consumes (nfa.ts), since an empty iteration can stand anywhere among the others.
+	 */
+	matchesEmpty(node: RegexNode): boolean {
+		return this.#zeroPathsOf(node).plain
 	}
 
 	#zeroPathsOf(node: RegexNode): ZeroPaths {

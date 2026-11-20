@@ -325,9 +325,12 @@ const refusedConstructs: Arr.NonEmptyReadonlyArray<RefusedConstruct> = [
 	["a**", 2, "MalformedDescription"],
 	["*a", 0, "MalformedDescription"],
 	["a{2,1}", 1, "MalformedDescription"],
-	["a{256}", 1, "UnsupportedOperation"],
+	["a{9007199254740994,9007199254740993}", 1, "MalformedDescription"],
+	["a{", 1, "MalformedDescription"],
 	["[z-a]", 1, "MalformedDescription"],
 	["[a", 0, "MalformedDescription"],
+	["[a-z", 0, "MalformedDescription"],
+	["(?i)yes", 0, "UnsupportedOperation"],
 	["\\p{Foo}", 0, "UnsupportedOperation"],
 	["\\p{IsNoSuchBlock}", 0, "UnsupportedOperation"]
 ]

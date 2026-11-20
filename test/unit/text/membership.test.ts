@@ -29,7 +29,7 @@
  */
 
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
-import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { buildNfa, configurationsOf } from "@bjornpagen/grizzle-text/regex/nfa"
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, element } from "@bjornpagen/testing/gen"
@@ -117,9 +117,10 @@ export const hostNFAMembershipEqualsECMAScriptOnTheHandwrittenFamilyPatternsOver
 			kills: [
 				{
 					file: "packages/text/src/regex/subset.ts",
-					original: "\t\t\t[this.nfa.start, ...targets],\n\t\t\t{ atStart: false, atEnd: false },",
+					original:
+						"[this.#configs.plain(this.nfa.start), ...targets], {\n\t\t\tatStart: false,\n\t\t\tatEnd: false",
 					replacement:
-						"\t\t\t[this.nfa.start, ...targets],\n\t\t\t{ atStart: false, atEnd: true },",
+						"[this.#configs.plain(this.nfa.start), ...targets], {\n\t\t\tatStart: false,\n\t\t\tatEnd: true",
 					why: "The host's search reads `$` as holding past every code point, not only at the text's end; the membership properties fail."
 				}
 			]
@@ -169,14 +170,16 @@ export const hostNFAMembershipEqualsECMAScriptOnGeneratedPatterns = property.exp
 		kills: [
 			{
 				file: "packages/text/src/regex/subset.ts",
-				original: "\t\t\t[this.nfa.start, ...targets],",
-				replacement: "\t\t\ttargets,",
+				original: "[this.#configs.plain(this.nfa.start), ...targets], {",
+				replacement: "targets, {",
 				why: "The host's search goes on only from the paths it is on, never starting a match again at a later code point while one is under way; the membership property fails."
 			},
 			{
 				file: "packages/text/src/regex/subset.ts",
-				original: "\t\t\t[this.nfa.start, ...targets],\n\t\t\t{ atStart: false, atEnd: false },",
-				replacement: "\t\t\t[this.nfa.start, ...targets],\n\t\t\t{ atStart: false, atEnd: true },",
+				original:
+					"[this.#configs.plain(this.nfa.start), ...targets], {\n\t\t\tatStart: false,\n\t\t\tatEnd: false",
+				replacement:
+					"[this.#configs.plain(this.nfa.start), ...targets], {\n\t\t\tatStart: false,\n\t\t\tatEnd: true",
 				why: "The host's search reads `$` as holding past every code point, not only at the text's end; the membership properties fail."
 			}
 		]
@@ -413,7 +416,8 @@ export const languageEquivalentSpellingsShareOneCanonicalKeyGivesAFiniteLanguage
  * A matcher's work over a text is linear in the text and a text read again costs nothing: over runs of `a` doubling in
  * length and a last code point, each read by a matcher of its own, the work a matcher is charged (Matcher.spent) is at
  * most its initial subset's and, for each code point, one transition's, which reads a subset and reaches one, each at
- * most the NFA's states; reading the text again charges none. Its budget is the runner's default.
+ * most the configurations the NFA's counters let its states take (nfa.ts configurationsOf); reading the text again
+ * charges none. Its budget is the runner's default.
  */
 export const aMatchersWorkOverATextIsLinearInTheTextWhateverThePatternAndATextReadAgainCostsNothing =
 	property.explore(workCaseGen, {
@@ -440,7 +444,7 @@ export const aMatchersWorkOverATextIsLinearInTheTextWhateverThePatternAndATextRe
 							: "a written pattern a backtracker takes exponentially many steps over"
 					)
 					const nfa = buildNfa(r.members[0].ir)
-					const states = nfa.edges.length
+					const states = configurationsOf(nfa)
 					for (const n of runLengths) {
 						const text = `${Str.repeat(n)("a")}${last}`
 						const length = codePointLength(text)
@@ -464,7 +468,7 @@ export const aMatchersWorkOverATextIsLinearInTheTextWhateverThePatternAndATextRe
 				}),
 		oracle: {
 			kind: "specification",
-			name: "the subset construction's charge, linear in the text: a transition a code point, each at most twice the NFA's states"
+			name: "the subset construction's charge, linear in the text: a transition a code point, each at most twice the configurations the NFA's states take"
 		},
 		kept: [],
 		kills: [

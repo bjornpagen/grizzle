@@ -12,7 +12,6 @@ import {
 	union
 } from "#text/regex/charset.ts"
 import * as Ir from "#text/regex/ir.ts"
-import { regexMaxRepeat } from "#text/regex/parse.ts"
 import type { RegexDiagnostic } from "#text/regex/parse.ts"
 import { nameChar, nameStart, xmlChar, xmlSchemaBlocks } from "#text/regex/xml.ts"
 
@@ -39,7 +38,9 @@ import { nameChar, nameStart, xmlChar, xmlSchemaBlocks } from "#text/regex/xml.t
  * back-reference, a lazy or possessive quantifier, a `(?…)` group, an unbalanced bracket or parenthesis, an escape
  * Appendix F does not define, a category or block the tables do not name, and a `{` or `}` that opens or closes no
  * repetition count (a metacharacter, as Appendix F's definition of one and XML Schema 1.1 say, though production [10]
- * omits them). A repetition count above regexMaxRepeat, PostgreSQL's RE_DUP_MAX, is refused as parse.ts refuses one.
+ * omits them). A repetition count may be any whole number, as Appendix F sets no bound: PostgreSQL's RE_DUP_MAX of 255
+ * binds only the ARE printed for it, which spells a count past it as pieces of counts within it (print.ts quantified),
+ * and the host's automaton counts a repetition rather than copying its body (nfa.ts), so no count costs it states.
  *
  * The reader is one loop over the pattern's code points: its open groups and classes are frames on the heap, so a
  * pattern nested to any depth costs no call stack. It constructs no RegExp.
@@ -573,11 +574,15 @@ class Reader {
 		return this.#ir.repeat(node, bounds.min, bounds.max)
 	}
 
-	/** A repetition count `{n}`, `{n,}` or `{n,m}` whose `{` is the next character, read past its `}`. */
+	/**
+	 * A repetition count `{n}`, `{n,}` or `{n,m}` whose `{` is the next character, read past its `}`: any count, as
+	 * Appendix F sets none (countOf). Its order is judged on the numerals themselves, so two counts past any a double
+	 * holds exactly are still compared as written.
+	 */
 	#counts(): { readonly min: number; readonly max: number | "unbounded" } {
 		const at = this.#pos
 		this.#pos += 1
-		const min = this.#decimal()
+		const min = this.#numeral()
 		if (min === undefined) {
 			throw this.#malformed(
 				at,
@@ -585,10 +590,11 @@ class Reader {
 				"a { after an atom opens a repetition count; write {n}, {n,} or {n,m} in whole numbers, or \\{ to match a brace"
 			)
 		}
-		let max: number | "unbounded" = min
+		let most: Most = { kind: "bounded", numeral: min }
 		if (this.#is(",", 0)) {
 			this.#pos += 1
-			max = this.#decimal() ?? "unbounded"
+			const numeral = this.#numeral()
+			most = numeral === undefined ? { kind: "unbounded" } : { kind: "bounded", numeral }
 		}
 		if (!this.#is("}", 0)) {
 			throw this.#malformed(
@@ -598,35 +604,48 @@ class Reader {
 			)
 		}
 		this.#pos += 1
-		const construct = this.#text(at, this.#pos)
-		if (max !== "unbounded" && max < min) {
-			throw this.#malformed(at, construct, "numbers out of order in the quantifier")
+		if (most.kind === "bounded" && numeralBelow(most.numeral, min)) {
+			throw this.#malformed(at, this.#text(at, this.#pos), "numbers out of order in the quantifier")
 		}
-		if (min > regexMaxRepeat || (max !== "unbounded" && max > regexMaxRepeat)) {
-			throw this.#unsupported(
-				at,
-				construct,
-				`a repetition bound above ${regexMaxRepeat}, PostgreSQL's limit; bound the length with Compute.charLength or Compute.octetLength in a contract predicate`
-			)
-		}
-		return { min, max }
+		return { min: countOf(min), max: most.kind === "bounded" ? countOf(most.numeral) : "unbounded" }
 	}
 
-	/** Decimal digits, saturating at a value above any admitted bound so a long numeral never loses precision. */
-	#decimal(): number | undefined {
-		let value: number | undefined
-		for (
-			let c = this.#peek(0);
-			c !== undefined && c >= cp("0") && c <= cp("9");
-			c = this.#peek(0)
-		) {
-			value = Math.min((value ?? 0) * 10 + (c - cp("0")), regexMaxRepeat + 1)
+	/** Decimal digits as written, without their leading zeros (a zero is "0"), or none where no digit comes next. */
+	#numeral(): string | undefined {
+		const from = this.#pos
+		let first = from
+		for (let c = this.#peek(0); c !== undefined && isDigit(c); c = this.#peek(0)) {
+			if (c === cp("0") && first === this.#pos) {
+				first += 1
+			}
 			this.#pos += 1
 		}
-		return value
+		if (this.#pos === from) {
+			return undefined
+		}
+		return first === this.#pos ? "0" : this.#text(first, this.#pos)
 	}
 }
 
+/** A count's greatest as written: a numeral, or none, `{n,}`. */
+type Most = { readonly kind: "bounded"; readonly numeral: string } | { readonly kind: "unbounded" }
+
+/** Whether a code point is an ASCII decimal digit, the digits of Appendix F's QuantExact ([0-9]+). */
+const isDigit = (c: number): boolean => c >= cp("0") && c <= cp("9")
+
+/** Whether the numeral `a` names a smaller number than `b`, both without leading zeros: by length, then digit by digit. */
+const numeralBelow = (a: string, b: string): boolean =>
+	a.length === b.length ? a < b : a.length < b.length
+
+/**
+ * The count a numeral reads as in the IR: its value, exactly, up to 2^53, the least integer past which a double holds
+ * no longer every integer, and 2^53 past it. That reading holds the language: no text has 2^53 code points (a
+ * PostgreSQL value holds at most 1 GB, a V8 string at most 2^29 - 24 code units), an iteration of a body that matches
+ * no empty string consumes one at least (an XML Schema pattern has no assertion), so no text meets a least count of
+ * 2^53 or more and none passes a greatest one, whichever it is; and a body that matches the empty string repeats as
+ * 0 to n consuming iterations whatever its least count (nfa.ts NfaRepeat), fewer than 2^53 of them.
+ */
+const countOf = (numeral: string): number => Math.min(Number(numeral), Number.MAX_SAFE_INTEGER + 1)
 /**
  * The language of an XML Schema 1.0 pattern facet, anchored at both ends, as the IR of every dialect holds it, or why
  * it is refused: a syntax error (MalformedDescription) or a construct outside the grammar the tables read

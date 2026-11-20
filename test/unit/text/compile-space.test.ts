@@ -232,10 +232,10 @@ export const theRFC3986URIReferenceGrammarAsOnePatternIsAdmittedAndAcceptsExactl
 			{
 				file: "packages/text/src/regex/nfa.ts",
 				original:
-					'this.edge(from, { kind: "start", to: to.id })\n\t\t\t\treturn\n\t\t\tcase "end":\n\t\t\t\tthis.edge(from, { kind: "end", to: to.id })\n\t\t\t\treturn',
+					'this.edge(from, to, noCounts, (t, counts) => ({ kind: "start", to: t, counts }))\n\t\t\t\treturn\n\t\t\tcase "end":\n\t\t\t\tthis.edge(from, to, noCounts, (t, counts) => ({ kind: "end", to: t, counts }))\n\t\t\t\treturn',
 				replacement:
-					'this.edge(from, { kind: "end", to: to.id })     return    case "end":     this.edge(from, { kind: "start", to: to.id })     return',
-				why: 'Operator mutant 7ce1806494 at packages/text/src/regex/nfa.ts:147 in <module>: `this.edge(from, { kind: "start", to: to.id })     return    case "end":     this.edge(from, { kind: "end", to: to.id })     return` becomes `this.edge(from, { kind: "end", to: to.id })     return    case "end":     this.edge(from, { kind: "start", to: to.id })     return`; the property fails (the census, lane TESTPOLICY2).'
+					'this.edge(from, to, noCounts, (t, counts) => ({ kind: "end", to: t, counts }))\n\t\t\t\treturn\n\t\t\tcase "end":\n\t\t\t\tthis.edge(from, to, noCounts, (t, counts) => ({ kind: "start", to: t, counts }))\n\t\t\t\treturn',
+				why: "Census mutant 7ce1806494 (packages/text/src/regex/nfa.ts, the builder's assertion edges), restated on the counting automaton: a `^` is built as a `$` edge and a `$` as a `^` edge; the property fails (the census, lane TESTPOLICY2; restated by lane TEXTSPEC)."
 			}
 		]
 	})

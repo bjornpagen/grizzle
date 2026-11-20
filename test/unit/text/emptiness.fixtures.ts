@@ -3,7 +3,7 @@
 import type * as Engine from "@bjornpagen/grizzle-text/base/result"
 import type { CharSet } from "@bjornpagen/grizzle-text/regex/charset"
 import { regexDfaMaxStates, regexDfaMaxWork } from "@bjornpagen/grizzle-text/regex/limits"
-import { buildNfa, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { buildNfa, follow, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { codePointsText } from "@bjornpagen/grizzle-text/text"
 import { assert, defined } from "@bjornpagen/testing/assert"
@@ -89,9 +89,9 @@ const isOnly = (set: CharSet, c: number): boolean => {
 /** An edge of the marked spelling's NFA as the pattern's: a mark's edge is its anchor's. */
 const unmarked = (e: Edge): Edge =>
 	e.kind === "set" && isOnly(e.set, startMark)
-		? { kind: "start", to: e.to }
+		? { kind: "start", to: e.to, counts: e.counts }
 		: e.kind === "set" && isOnly(e.set, endMark)
-			? { kind: "end", to: e.to }
+			? { kind: "end", to: e.to, counts: e.counts }
 			: e
 
 /** The pattern's NFA with every path its spelling makes, built from the marked spelling's parse (markedSpelling). */
@@ -105,11 +105,13 @@ export const patternNfa = (source: string, flags: Flags): Nfa => {
 }
 
 /**
- * A state of the search: an NFA state, whether a code point has been consumed and a `$` passed on the way, whether the
- * way broke walk's rules (a `^` after a code point, or a code point after a `$`), and the step it came by.
+ * A state of the search: an NFA configuration, its state and its repetitions' counters (nfa.ts CountOp), whether a code
+ * point has been consumed and a `$` passed on the way, whether the way broke walk's rules (a `^` after a code point, or
+ * a code point after a `$`), and the step it came by.
  */
 interface Reached {
 	readonly state: number
+	readonly counters: ReadonlyArray<number>
 	readonly consumed: boolean
 	readonly ended: boolean
 	readonly broken: boolean
@@ -128,9 +130,16 @@ const spelled = (end: Reached): string => {
 	return codePointsText(Arr.reverse(points))
 }
 
-/** Where an edge leads from `r`: an ε edge as it is, a `^` or `$` edge by walk's rules, a set edge on its least code point. */
-const step = (r: Reached, e: Edge): Reached => {
-	const next = { ...r, state: e.to, via: r, point: undefined }
+/**
+ * Where an edge leads from `r`, none where its counters block it: an ε edge as it is, a `^` or `$` edge by walk's rules,
+ * a set edge on its least code point.
+ */
+const step = (nfa: Nfa, r: Reached, e: Edge): Reached | undefined => {
+	const counters = follow(nfa, r.counters, e.counts)
+	if (counters === undefined) {
+		return undefined
+	}
+	const next = { ...r, state: e.to, counters, via: r, point: undefined }
 	switch (e.kind) {
 		case "eps":
 			return next
@@ -155,10 +164,13 @@ const step = (r: Reached, e: Edge): Reached => {
 export const searchOf = (
 	nfa: Nfa
 ): { readonly member: string | undefined; readonly broken: string | undefined } => {
-	const seen = new Set<number>()
+	const seen = new Set<string>()
 	const ways: Array<Reached> = []
-	const visit = (r: Reached): void => {
-		const key = r.state * 8 + (r.consumed ? 1 : 0) + (r.ended ? 2 : 0) + (r.broken ? 4 : 0)
+	const visit = (r: Reached | undefined): void => {
+		if (r === undefined) {
+			return
+		}
+		const key = `${r.state * 8 + (r.consumed ? 1 : 0) + (r.ended ? 2 : 0) + (r.broken ? 4 : 0)}:${Arr.join(Arr.map(r.counters, String), ",")}`
 		if (!seen.has(key)) {
 			seen.add(key)
 			ways.push(r)
@@ -166,6 +178,7 @@ export const searchOf = (
 	}
 	visit({
 		state: nfa.start,
+		counters: [],
 		consumed: false,
 		ended: false,
 		broken: false,
@@ -184,7 +197,7 @@ export const searchOf = (
 			}
 		}
 		for (const e of defined(nfa.edges[r.state], `the edges of state ${r.state}`)) {
-			visit(step(r, e))
+			visit(step(nfa, r, e))
 		}
 	}
 	return { member, broken }

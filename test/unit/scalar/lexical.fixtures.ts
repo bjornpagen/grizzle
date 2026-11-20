@@ -1,7 +1,8 @@
 /** What the properties of lexical.test.ts read: its spaces, models and helpers. */
 
-import { buildNfa, closure, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { buildNfa, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { Configurations } from "@bjornpagen/grizzle-text/regex/subset"
 import { defined } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
@@ -212,32 +213,35 @@ export const decimalRelation = (
 
 /**
  * The most characters a member of `nfa`'s language of at most `chars` characters takes, 0 where none is that short, by
- * the host matcher's walk (match.ts closure) over every text at once: the states some text of n characters reaches, a
- * text of n characters a member where a walk of it reached the accepting state before its end, or reaches it at its
- * end. A language inside decimalText is ASCII, a character a byte, so for one it is the most bytes a value of its text
- * within `chars` bytes takes, which the parse compares with the form's bound.
+ * the host matcher's walk (subset.ts Configurations closure) over every text at once: the configurations some text of
+ * n characters reaches, a text of n characters a member where a walk of it reached the accepting state before its end,
+ * or reaches it at its end. A language inside decimalText is ASCII, a character a byte, so for one it is the most bytes
+ * a value of its text within `chars` bytes takes, which the parse compares with the form's bound.
  */
 export const longestMember = (nfa: Nfa, chars: number): number => {
-	const mark = new Int32Array(nfa.edges.length).fill(-1)
-	let stamp = 0
-	let seeds: ReadonlyArray<number> = [nfa.start]
+	const configs = new Configurations(nfa)
+	const start = configs.plain(nfa.start)
+	const accepts = (reached: ReadonlyArray<number>): boolean =>
+		Arr.some(reached, (c) => configs.state(c) === nfa.accept)
+	let seeds: ReadonlyArray<number> = [start]
 	let early = false
 	let longest = 0
 	for (let n = 0; n <= chars; n += 1) {
 		const atStart = n === 0
-		if (
-			early ||
-			closure(nfa, seeds, { atStart, atEnd: true }, mark, stamp++).includes(nfa.accept)
-		) {
+		if (early || accepts(configs.closure(seeds, { atStart, atEnd: true }))) {
 			longest = n
 		}
-		const walked = closure(nfa, seeds, { atStart, atEnd: false }, mark, stamp++)
-		early ||= walked.includes(nfa.accept)
+		const walked = configs.closure(seeds, { atStart, atEnd: false })
+		early ||= accepts(walked)
 		seeds = [
-			...Arr.flatMap(walked, (state) =>
-				Arr.flatMap(defined(nfa.edges[state]), (e) => (e.kind === "set" ? [e.to] : []))
-			),
-			nfa.start
+			...Arr.flatMap(walked, (c) => {
+				const successors = configs.successors(c)
+				return Arr.flatMap(defined(nfa.edges[configs.state(c)]), (e, i) => {
+					const to = defined(successors[i])
+					return e.kind === "set" && to >= 0 ? [to] : []
+				})
+			}),
+			start
 		]
 	}
 	return longest

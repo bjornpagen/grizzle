@@ -3,7 +3,13 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { replaceMap } from "@bjornpagen/grizzle-text/text"
 import { nominal } from "#compiler/core/brand.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
-import { CompileError, malformedDescription, prose, unsupported } from "#compiler/core/errors.ts"
+import {
+	CompileError,
+	malformedDescription,
+	prose,
+	resourceBound,
+	unsupported
+} from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { captureLoc, childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
@@ -22,6 +28,7 @@ import {
 	type Spelled
 } from "#compiler/ir/desc.ts"
 import type { LiteralExpr, OpenExpr } from "#compiler/ir/open.ts"
+import { pastRawSpace } from "#compiler/ir/pattern-space.ts"
 import type { PatternValue } from "#compiler/ir/pattern.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { baseOf, rosterOf, type ScalarType, spanOf, typeLabel } from "#compiler/ir/scalar.ts"
@@ -780,9 +787,11 @@ const admittedPattern = <S extends string>(source: S): Pattern<S> => {
 /**
  * Compute.xsdPattern(source): a Compute.matches pattern written in XML Schema 1.0's dialect, a pattern facet (Part 2,
  * Appendix F), read by that dialect's one front end (scalar/regex/xsd.ts) anchored at both ends, as XML Schema reads
- * every facet, printed in grizzle's grammar (scalar/regex/print.ts printSource), which the Pattern's source holds, and
- * admitted as Compute.pattern admits one: a facet outside Appendix F's grammar is refused at its offset in the facet,
- * and one past PostgreSQL's regex compile space, or one no text matches, where it is written.
+ * every facet, of any repetition count, printed in grizzle's grammar (scalar/regex/print.ts printSource), which spells
+ * a count past 255 as pieces within it and the Pattern's source holds, and admitted as Compute.pattern admits one: a
+ * facet outside Appendix F's grammar is refused at its offset in the facet, and one past PostgreSQL's regex compile
+ * space, or one no text matches, where it is written. Its raw size is judged before it is printed (ir/pattern-space.ts
+ * pastRawSpace), so a count no compile space holds is refused without a piece of it printed.
  */
 const xsdAdmittedPattern = (source: unknown): Pattern => {
 	const loc = captureLoc("Compute.xsdPattern", [])
@@ -805,6 +814,14 @@ const xsdAdmittedPattern = (source: unknown): Pattern => {
 			childLoc(loc, "pattern"),
 			`a pattern some text matches: the XML Schema pattern ${source} matches no text value, so the match could never hold`
 		)
+	}
+	const past = pastRawSpace(read.value)
+	if (past !== undefined) {
+		throw resourceBound(childLoc(loc, "pattern"), {
+			kind: "regexCompileSpace",
+			pattern: `the XML Schema pattern ${source}`,
+			measure: past
+		})
 	}
 	const admission = admitMatch(printSource(read.value, (set) => set))
 	if (admission.kind === "refused") {

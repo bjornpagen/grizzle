@@ -374,9 +374,9 @@ export const typmodValidationAdmitsAPositiveSpanWidthOfTheEndpointsBaseTypeAndRe
 			{
 				file: "packages/text/src/regex/subset.ts",
 				original:
-					'subset.kind === "done" ||\n\t\t\tclosure(\n\t\t\t\tthis.nfa,\n\t\t\t\tsubset.states,\n\t\t\t\t{ atStart: subset.initial, atEnd: true },\n\t\t\t\tthis.#mark,\n\t\t\t\tthis.#stamp++\n\t\t\t).includes(this.nfa.accept)',
+					'subset.kind === "done" ||\n\t\t\tthis.#configs\n\t\t\t\t.closure(subset.configs, { atStart: subset.initial, atEnd: true })\n\t\t\t\t.some((c) => this.#configs.state(c) === this.nfa.accept)',
 				replacement: 'subset.kind === "done"',
-				why: 'Operator mutant 5e0a3b3402 at packages/text/src/regex/subset.ts:175 in <module>: `subset.kind === "done" ||    closure(     this.nfa,     subset.states,     { atStart: subset.initial, atEnd: true },     this.#mark,     this.#stamp++    ).includes(this.nfa.accept)` becomes `subset.kind === "done"`; the property fails (the census, lane TESTPOLICY2).'
+				why: "Census mutant 5e0a3b3402 (packages/text/src/regex/subset.ts, SearchSubsets acceptsAtEnd), restated on the counting automaton's configurations: a text accepts only once a match was found before its end, never at its end; the property fails (the census, lane TESTPOLICY2; restated by lane TEXTSPEC)."
 			}
 		]
 	})

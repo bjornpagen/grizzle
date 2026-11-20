@@ -17,29 +17,38 @@ import type { DfaLimits } from "#text/regex/dfa.ts"
  * @owner grizzle's text analysis (dfa.ts minimalDfa)
  * @unit DFA states
  * @scope the subset construction of one pattern's automaton, in the compiling process
- * @evidence ~/.cache/grizzle-release/LIMITS/out/evidence/dfa/ on cassowary: dfa-2026-11-16T075038.json, the
- *   uncommitted record of `pnpm bench dfa` (bench/dfa/main.ts), and run.log, its console output with the machine's
- *   uptime before it: scalar/regex/dfa.ts minimalDfa under both limits, seven runs a pattern in one process, the first
- *   cold, then one run under 16 times each limit, on 29 patterns analyzeText admits: `^(?:a|b)*a(?:a|b){k}$` for k
- *   from 6 to 12, 14 and 16 (minimal DFAs of 2^(k+1) states), wide classes over chains of up to 255 copies, chains of
- *   255 copies, and chains of up to 1,024 distinct code points and 512 scattered classes
- * @observed 2026-11-16 07:50:32 to 07:51:05 UTC, one run
+ * @evidence ~/.cache/grizzle-release/TEXTSPEC-evidence/dfa/ on cassowary: dfa-2026-11-20T084526.json, the uncommitted
+ *   record of `pnpm bench dfa` (bench/dfa/main.ts), and run-counters.log, its console output with the machine's uptime
+ *   before and after it, on the counting automaton (nfa.ts, one copy of a repetition's body and a counter); beside them
+ *   dfa-2026-11-20T075059.json and run-copies.log, the same bench on the chain of copies it replaced, an hour before:
+ *   regex/dfa.ts minimalDfa under both limits, seven runs a pattern in one process, the first cold, then one run under
+ *   16 times each limit, on the 29 patterns of LIMITS's record of 2026-11-16 (dfa-2026-11-16T075038.json in
+ *   ~/.cache/grizzle-release/LIMITS/out/evidence/dfa/): `^(?:a|b)*a(?:a|b){k}$` for k from 6 to 12, 14 and 16, wide
+ *   classes over chains of up to 255 copies, chains of 255 copies, and chains of up to 1,024 distinct code points and
+ *   512 scattered classes
+ * @observed 2026-11-20 08:45:25 to 08:46:24 UTC, one run
  * @environment cassowary, Ubuntu 26.04 (Linux 7.0.0-1016-aws) on an AWS Graviton3 (Neoverse-V1, arm64) instance with
- *   64 logical CPUs and 247 GiB, Node 26.13.1, one single-threaded process; load average 155 over the 64 CPUs from
- *   other sessions as it started, so the times are a loaded machine's; grizzle ac71cfbb with lane LIMITS's move of the
- *   limits into @grizzle/limits, which changes no construction
- * @workload one pattern's construction at a time, the process's only work, over NFAs of 15 to 4,117 states, parsing
- *   and the NFA build untimed
- * @result at k = 9 the construction completes, 1,024 minimal states of 1,026 created, in 20.1 ms median; for k = 10,
- *   11, 12, 14 and 16 it stops at this bound in 5.0 to 15.7 ms median, 25.5 ms at worst, where the whole constructions
- *   take 42.5, 62.7 and 149.1 ms for k = 10 to 12 (2,050 to 8,194 states) and reach 16 times the bound (32,768 states)
- *   in 118.6 and 129.0 ms for k = 14 and 16; `(?:[a-z]{0,255}x){2}` and `(?:[a-z]{0,255}x){8}`, which it cuts in 71.2
- *   and 38.4 ms median, 106.1 ms at worst, reach 16 times it in 3,937.8 and 877.8 ms; memory not measured
- * @decision kept at 2,048: every construction it cuts stops within 110 ms here on a machine loaded past twice its
- *   CPUs, well inside what regexDfaMaxWork allows, while past it the run shows constructions of 32,768 states taking
- *   up to 3.9 s; a change would change the key, and so the domain digest, of every pattern whose construction lands
- *   between the two values; no headroom beyond the run is claimed. The record of 2026-11-05 on a retired macOS VM
- *   (bench/results/dfa/dfa-2026-11-05T080355.json there) found the same order: cuts within 40 ms, 925 ms at 16 times
+ *   64 logical CPUs and 247 GiB, Node 26.13.1, one single-threaded process; load average 478 over the 64 CPUs from
+ *   other sessions as it started, so the times are a loaded machine's; grizzle ecbb2ab91 (lane TEXTSPEC)
+ * @workload one pattern's construction at a time, the process's only work, over automata of 3 to 1,025 states, whose
+ *   configurations are the 15 to 4,117 states of the chains of copies LIMITS measured, parsing and the automaton's
+ *   build untimed
+ * @result every construction's states and work are the copies' run's to the visit, for its configurations are the
+ *   copies' states, but those of a repetition whose body matches the empty string, whose counter counts consuming
+ *   iterations alone and keeps the fewest (subset.ts Configurations pruned): `^(?:[a-z]{0,255}){8}$` and
+ *   `^(?:.{0,255}){8}$` now complete, 2,041 minimal states in 1,395,368 visits, 446.2 and 503.3 ms median, where they
+ *   were cut at regexDfaMaxWork; at k = 9 the construction completes, 1,024 minimal states of 1,026 created, in 14.6 ms
+ *   median, 25.3 ms at worst; for k = 10, 11, 12, 14 and 16 it stops at this bound in 6.7
+ *   to 13.1 ms median, 25.9 ms at worst, where the whole constructions take 60.1 to 348.5 ms for k = 10 to 12 and reach
+ *   16 times the bound in 205.0 and 171.2 ms for k = 14 and 16; `(?:[a-z]{0,255}x){2}` and `(?:[a-z]{0,255}x){8}`, which
+ *   it cuts in 626.9 and 38.6 ms median, 1,091.1 ms at worst, reach 16 times it in 7,223.3 and 1,689.3 ms; the copies'
+ *   run an hour before, its load not recorded, took 4.7 to 29.8 ms median for k = 10 to 16 and 35.7 and 20.2 ms for the
+ *   two cut chains; memory not measured
+ * @decision kept at 2,048: the counting automaton changes no construction's states or work but a consuming
+ *   repetition's, which it makes smaller, and every construction it cuts stops within 1.1 s here on a machine loaded
+ *   past seven times its CPUs, while past it the run shows constructions of 32,768 states taking up to 7.2 s; a change
+ *   would change the key, and so the domain digest, of every pattern whose construction lands between the two values;
+ *   no headroom beyond the run is claimed
  * @revalidate a change to the subset construction, its alphabet, the minimization or the canonical form
  *   (scalar/regex/dfa.ts), or to the NFA builder (scalar/regex/nfa.ts); a Node or V8 upgrade; another machine; a
  *   pattern whose construction under the limits takes longer than the slowest here
@@ -57,28 +66,28 @@ export const regexDfaMaxStates = 2_048
  * @owner grizzle's text analysis (dfa.ts minimalDfa)
  * @unit NFA-state visits
  * @scope the subset construction of one pattern's automaton, in the compiling process
- * @evidence ~/.cache/grizzle-release/LIMITS/out/evidence/dfa/ on cassowary: dfa-2026-11-16T075038.json, the
- *   uncommitted record of `pnpm bench dfa` (bench/dfa/main.ts), and run.log, its console output with the machine's
- *   uptime before it: scalar/regex/dfa.ts minimalDfa under both limits, seven runs a pattern in one process, the first
- *   cold, then one run under 16 times each limit, on 29 patterns analyzeText admits: `^(?:a|b)*a(?:a|b){k}$` for k
- *   from 6 to 12, 14 and 16 (minimal DFAs of 2^(k+1) states), wide classes over chains of up to 255 copies, chains of
- *   255 copies, and chains of up to 1,024 distinct code points and 512 scattered classes
- * @observed 2026-11-16 07:50:32 to 07:51:05 UTC, one run
+ * @evidence ~/.cache/grizzle-release/TEXTSPEC-evidence/dfa/ on cassowary: dfa-2026-11-20T084526.json and
+ *   run-counters.log, `pnpm bench dfa` on the counting automaton, and dfa-2026-11-20T075059.json and run-copies.log, on
+ *   the chain of copies it replaced, as regexDfaMaxStates cites them, on the 29 patterns of LIMITS's record of
+ *   2026-11-16
+ * @observed 2026-11-20 08:45:25 to 08:46:24 UTC, one run
  * @environment cassowary, Ubuntu 26.04 (Linux 7.0.0-1016-aws) on an AWS Graviton3 (Neoverse-V1, arm64) instance with
- *   64 logical CPUs and 247 GiB, Node 26.13.1, one single-threaded process; load average 155 over the 64 CPUs from
- *   other sessions as it started, so the times are a loaded machine's; grizzle ac71cfbb with lane LIMITS's move of the
- *   limits into @grizzle/limits, which changes no construction
- * @workload one pattern's construction at a time, the process's only work, over NFAs of 15 to 4,117 states, parsing
- *   and the NFA build untimed
- * @result the constructions it cuts stop in 17.1 to 370.5 ms median, 666.1 ms at worst (`^(?:.{0,255}){8}$`, at 538
- *   states); among them `^(?:[a-z]{0,255}){8}$`, `^(?:[a-z]{1,255}){16}$` and `^(?:.{0,255}){8}$` stop in 188.9, 260.4
- *   and 370.5 ms median, where their whole constructions take 579, 3,098 and 800 ms (5.5, 23.6 and 5.5 million
- *   visits); the slowest construction it admits, `<512 classes of 8 scattered code points>` (513 minimal states,
- *   789,506 visits), completes in 399.6 ms median, 740.2 ms at worst; memory not measured
- * @decision kept at 2,097,152: at it every construction of the run, cut or completed, ends within 750 ms on a machine
- *   loaded past twice its CPUs, while the constructions it cuts take up to 3.1 s whole; a change would change the key,
- *   and so the domain digest, of every pattern whose construction lands between the two values; no headroom beyond the
- *   run is claimed. The record of 2026-11-05 on a retired macOS VM found the same order: within 230 ms, 1.8 s whole
+ *   64 logical CPUs and 247 GiB, Node 26.13.1, one single-threaded process; load average 478 over the 64 CPUs from
+ *   other sessions as it started; grizzle ecbb2ab91 (lane TEXTSPEC)
+ * @workload one pattern's construction at a time, the process's only work, over automata of 3 to 1,025 states, parsing
+ *   and the automaton's build untimed
+ * @result the work of every construction is the copies' run's to the visit but a consuming repetition's (as
+ *   regexDfaMaxStates states): `^(?:[a-z]{0,255}){8}$` and `^(?:.{0,255}){8}$`, which this bound cut at 538 states in
+ *   the copies' run, complete in 1,395,368 visits, 446.2 and 503.3 ms median; `^(?:[a-z]{1,255}){16}$` stops at it at
+ *   318 states in 351.9 ms median, 598.0 ms at worst, where its whole construction takes 5,984.7 ms (23.6 million
+ *   visits); `<1024 distinct code points>` stops at it at 683 states in 383.1 ms median; the slowest construction it
+ *   admits, `<512 classes of 8 scattered code points>` (513 minimal states, 789,506 visits), completes in 700.2 ms
+ *   median, 3,452.0 ms at worst; memory not measured
+ * @decision kept at 2,097,152: the counting automaton charges every construction the visits the copies did but a
+ *   consuming repetition's, fewer, and at the bound every construction of the run, cut or completed, ends within 1.3 s
+ *   median on a machine loaded past seven times its CPUs, while the constructions it cuts take up to 6.0 s whole; a
+ *   change would change the key, and so the domain digest, of every pattern whose construction lands between the two
+ *   values; no headroom beyond the run is claimed
  * @revalidate a change to the subset construction, its alphabet, the minimization or the canonical form
  *   (scalar/regex/dfa.ts), or to the NFA builder (scalar/regex/nfa.ts); a Node or V8 upgrade; another machine; a
  *   pattern whose construction under the limits takes longer than the slowest here
