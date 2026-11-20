@@ -676,9 +676,24 @@ export class StatementFailed extends Data.TaggedError("StatementFailed")<{
 	readonly law: LawId | undefined
 }> {
 	override get message(): string {
-		return `${this.folder}/${this.file} statement ${this.statement} failed${lawText(this.law)}: ${failureText(this.failure)}`
+		return `${this.folder}/${this.file} statement ${this.statement} failed${lawText(this.law)}: ${failureText(this.failure)}${rowsFix(this.failure)}`
 	}
 }
+
+/**
+ * The fix of a domain's new CHECK refused by rows a column holds, PostgreSQL's VALIDATE of it (a check_violation naming
+ * the column and no constraint, typecmds.c validateDomainCheckConstraint), a removed handle's code among them: the data
+ * step that changes those rows, preferably a custom migration before the one that tightens the domain, or, now that the
+ * refused folder is partially applied and resumes where it stopped, a change outside any migration, an immutable
+ * relation's rows deleted and inserted again, never updated, which their guard refuses. Nothing for any other failure.
+ */
+const rowsFix = (failure: StatementFailure): string =>
+	failure._tag === "ServerError" &&
+	failure.sqlstate === sqlstates.checkViolation &&
+	failure.column !== undefined &&
+	failure.constraint === undefined
+		? "; change or delete those rows in a data step first, preferably a custom migration (grizzle generate --custom) drafted before this one, or, now that this folder resumes where it stopped, outside any migration: delete an immutable relation's rows and insert them again, never UPDATE them"
+		: ""
 
 /**
  * Statement `statement` (1-based) of a custom migration's no-transaction file `folder`/`file` wrote `table`, whose

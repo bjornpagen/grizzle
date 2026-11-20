@@ -15,7 +15,9 @@
  *   says why: a no-transaction custom step cannot write a guarded table; use a transactional step;
  * - **at a draft's slot:** a draft whose Structure fills another immutable relation's new field by its placeholder holds
  *   a data-step slot, where the reviewer's step rewrites Sets' set: the draft brackets every table the installation
- *   guards and the next version keeps, so the folder applies and Sets' guard is enabled again after it.
+ *   guards and the next version keeps, so the folder applies and Sets' guard is enabled again after it;
+ * - **before a roster shrink:** a custom step clears a handle's bit from Sets, and the migration removing the handle,
+ *   applied with it, finds no set holding it: the README's "change or delete those rows in a data step first".
  *
  * Oracle: the README's statement of the guard and of data steps, read row by row. Features: each way a step runs.
  */
@@ -30,7 +32,8 @@ import { dataSteps } from "#test/pg/migrate/custom-guard.dictionary.ts"
 import {
 	type DataStep,
 	draftedSlot,
-	guardedInstall
+	guardedInstall,
+	shrinkAfterDataStep
 } from "#test/pg/migrate/custom-guard.fixtures.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -56,6 +59,15 @@ export const aCustomDataStepWritesAGuardedTableInsideItsTransactionsBracketItsGu
 								)
 								const emptied = yield* d.held
 								assert.deepEqual(emptied, ["00000000"], "the row holds the empty set")
+								yield* Effect.orDie(expectSqlstate(d.ownerUpdate, sqlstates.insufficientPrivilege))
+								return
+							}
+							if (step === "before a roster shrink") {
+								const d = yield* shrinkAfterDataStep
+								const shrunk = yield* Effect.result(d.migrate)
+								assert.ok(shrunk._tag === "Success", "the data step and the removal after it apply")
+								const right = yield* d.held
+								assert.deepEqual(right, ["01000000"], "the row holds Right alone")
 								yield* Effect.orDie(expectSqlstate(d.ownerUpdate, sqlstates.insufficientPrivilege))
 								return
 							}

@@ -4191,7 +4191,11 @@ deploy.
 - **Codes are history.** The snapshot records each roster's codes: a new handle takes the next code, a renamed one
   keeps its own, and a removed one leaves a hole no handle takes again, whether the roster is ordered or not. The migration validates the roster's domain
   against its new names constant once every relation and field it drops is gone, refusing, by table and column, every
-  row that holds a removed code: change or delete those rows in a data step first. A set over a grown roster converts in place to its wider
+  row that holds a removed code. Change or delete those rows in a data step first: preferably a custom migration
+  (`generate --custom`) drafted before the removal, so the removal applies after it in the same `migrate`. After a
+  refused attempt the removal's folder is partially applied and resumes where it stopped, so no folder can go before
+  it: change the rows outside any migration, an immutable relation's by deleting each row and inserting it again,
+  never by UPDATE, which its guard refuses. A set over a grown roster converts in place to its wider
   domain, the new handles absent. An ordered roster declared out of its codes' order is refused before anything is
   drafted: append new handles, or declare the roster `closed.unordered` where its order means nothing. An unordered
   roster has no order to keep, so its handles may be declared in any order, and a declaration that only reorders them

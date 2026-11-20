@@ -72,7 +72,7 @@ import {
 	decodedColumn,
 	domainCheckOf,
 	domainOf,
-	type Applied,
+	type Drafted,
 	draftNext,
 	grantCases,
 	type Grantee,
@@ -111,7 +111,7 @@ import {
 	ownerSessionOf
 } from "#test/pg/closed/codes.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
+import { setText, setWidth } from "#test/support/closed/bit-text.ts"
 import {
 	type RosterFeature,
 	type RosterState,
@@ -125,7 +125,7 @@ import {
 	sizeOf
 } from "#test/support/closed/generate.ts"
 import { parsedName, roleNamesOf } from "#test/support/kernel/naming.ts"
-import { customDataStep, noDeclarations } from "#test/support/migrate/kit.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { expectConstraint, expectSqlstate, inTransaction } from "#test/support/substrate/expect.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -622,15 +622,14 @@ export const aSetRoundTripsThroughItsBitColumnDecodesUnchangedAfterGrowthAndARem
 							)
 							let before = history.installed
 							let snapshot = m.snapshot
-							/** The folders past the install, in name order: each step's migration, a removal's data step before it. */
-							const drafted: Array<Applied> = []
+							const drafted: Array<Drafted> = []
 							for (const [i, step] of history.steps.entries()) {
 								const after = stepped(before, step)
 								const next = yield* draftNext(
 									m,
 									snapshot,
 									setsOf(m.declared, after).version,
-									2 * i + 3,
+									i + 2,
 									step.kind === "remove"
 										? {
 												renames: [],
@@ -653,19 +652,22 @@ export const aSetRoundTripsThroughItsBitColumnDecodesUnchangedAfterGrowthAndARem
 										},
 										"VALIDATE names the column of the sets that still hold the removed handle"
 									)
-									/** The data step, a custom migration at the ordinal its step's migration leaves before it
-									 * (draftNext at 2i + 3, its step 2i + 2), clearing the removed bit from every set. */
-									const step = customDataStep(snapshot, 2 * i + 1, [
-										`UPDATE ${table} SET ${members} = ${members} & X'${hexOfText(
-											setText(
-												sizeOf(after),
-												Arr.flatMap(after.slots, (slot, code) =>
-													slot.kind === "live" ? [code] : []
-												)
-											)
-										)}'::bit(${setWidth(sizeOf(after))});`
+									assert.ok(
+										Str.includes("change or delete those rows in a data step first")(
+											failure.message
+										),
+										`the refusal names its data step, before the migration or outside it: ${failure.message}`
+									)
+									/** A person's data step between the attempts: each set deleted and inserted again with the
+									 * removed bit cleared, as an immutable relation's rows change outside a migration's bracketed
+									 * steps. */
+									const dataStep = `WITH gone AS (DELETE FROM ${table} RETURNING ${id}, ${members}) INSERT INTO ${table} (${id}, ${members}) SELECT ${id}, ${members} & $1::text::bit(${setWidth(sizeOf(after))}) FROM gone`
+									yield* m.owner.query(dataStep, [
+										setText(
+											sizeOf(after),
+											Arr.flatMap(after.slots, (slot, code) => (slot.kind === "live" ? [code] : []))
+										)
 									])
-									drafted.splice(drafted.length - 1, 0, { snapshot, folder: step })
 									k.note("a removal refused until the data step")
 								}
 								yield* applyNext(m, drafted)
@@ -736,5 +738,12 @@ export const aSetRoundTripsThroughItsBitColumnDecodesUnchangedAfterGrowthAndARem
 		show: Formatter.format,
 		budget: { runs: 4, steered: 12 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/migrate/errors.ts",
+				original: '\t\t? "; change or delete those rows in a data step first',
+				replacement: '\t\t? "; those rows',
+				why: "A VALIDATE refused by rows holding a removed code names no data step: the person is never told to change those rows first, or outside the migration by delete and insert."
+			}
+		]
 	})

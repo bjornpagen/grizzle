@@ -78,13 +78,7 @@ import {
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { migrated, type Version, workloadOf } from "#test/support/installed.ts"
 import { lawIdOf, parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import {
-	customDataStep,
-	draftedAt,
-	fromSnapshot,
-	generate,
-	noDeclarations
-} from "#test/support/migrate/kit.ts"
+import { draftedAt, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { planRealInstall } from "#test/support/oracle/install/real.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -660,13 +654,16 @@ const holdersOf = (sys: System, before: Model, code: number) => [
 
 /**
  * The data step of a removal, each statement on its own: Held's rows holding the code deleted, and the code's bit
- * cleared from every set by the mask of the roster's live codes after it.
+ * cleared from every set by the mask of the roster's live codes after it, each row deleted and inserted again, as an
+ * immutable relation's rows change: its guard refuses an UPDATE outside a migration's bracketed data steps
+ * (physical/ddl/immutable.ts guardBracket), and a step a person runs between a refused migration's attempts is outside
+ * them.
  */
 const dataStepOf = (sys: System, after: Model, code: number, column: string): string => {
 	const n = storedNames(sys)
 	return column === sys.names.column("Held", "tier")
 		? `DELETE FROM ${n.held} WHERE ${n.tier} = ${code}::smallint;`
-		: `UPDATE ${n.sets} SET ${n.members} = ${n.members} & X'${hexOfText(setText(sizeOf(after.tier), liveCodes(after.tier)))}'::bit(${setWidth(sizeOf(after.tier))});`
+		: `WITH gone AS (DELETE FROM ${n.sets} RETURNING ${n.setsId}, ${n.members}) INSERT INTO ${n.sets} (${n.setsId}, ${n.members}) SELECT ${n.setsId}, ${n.members} & X'${hexOfText(setText(sizeOf(after.tier), liveCodes(after.tier)))}'::bit(${setWidth(sizeOf(after.tier))}) FROM gone;`
 }
 
 /** A closed id's and a set's type over the roster's live handles: the columns' codecs' types. */
@@ -878,11 +875,11 @@ const removal = (
 			sys.snapshot = g.snapshot
 			sys.names = names
 		} else {
-			let next = yield* draftNext(sys, built, kept, dropOf(before, p.handle))
+			const { g, folder, names } = yield* draftNext(sys, built, kept, dropOf(before, p.handle))
 			const named: Array<{ readonly table: string; readonly column: string }> = []
 			let applied = false
 			for (let attempt = 0; !applied && attempt <= holders.length; attempt += 1) {
-				const failure = yield* failureOf(applyWith(sys, [next.folder], next.g.snapshot))
+				const failure = yield* failureOf(applyWith(sys, [folder], g.snapshot))
 				if (failure === undefined) {
 					applied = true
 					continue
@@ -899,14 +896,7 @@ const removal = (
 						: "VALIDATE refused a removed bit a set holds"
 				)
 				named.push(at)
-				/** The data step, a custom migration at the refused draft's place, which it never took; the removal is drafted
-				 * again after it. */
-				const step = customDataStep(sys.snapshot, sys.drafts, [
-					dataStepOf(sys, after, code, at.column)
-				])
-				yield* applyWith(sys, [step], sys.snapshot)
-				sys.folders.push(step)
-				next = yield* draftNext(sys, built, kept, dropOf(before, p.handle))
+				yield* sys.m.owner.query(dataStepOf(sys, after, code, at.column), [])
 			}
 			assert.ok(applied, "the removal applies once its data step ran")
 			unorderedEqual(
@@ -914,9 +904,9 @@ const removal = (
 				holders,
 				"VALIDATE names exactly the columns that hold the removed code"
 			)
-			sys.folders.push(next.folder)
-			sys.snapshot = next.g.snapshot
-			sys.names = next.names
+			sys.folders.push(folder)
+			sys.snapshot = g.snapshot
+			sys.names = names
 		}
 		yield* sameAsModel(sys, after)
 		return took

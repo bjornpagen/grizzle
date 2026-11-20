@@ -14,6 +14,7 @@ import { printObjectName } from "#compiler/sql/print.ts"
 import { draftNext, installFirst, setsOf } from "#test/pg/closed/codes.fixtures.ts"
 import type { dataSteps } from "#test/pg/migrate/custom-guard.dictionary.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
+import { type RosterState } from "#test/support/closed/generate.ts"
 import { type Version } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { customDataStep, noDeclarations } from "#test/support/migrate/kit.ts"
@@ -30,7 +31,9 @@ const noTransaction = "-- grizzle: no-transaction"
  * the row's set to the empty one, its UPDATE alone, or followed by a statement that fails (division by zero), or in a
  * no-transaction file.
  */
-export const guardedInstall = (step: Exclude<DataStep, "at a draft's slot">) =>
+export const guardedInstall = (
+	step: Exclude<DataStep, "at a draft's slot" | "before a roster shrink">
+) =>
 	Effect.gen(function* () {
 		const { m } = yield* installFirst("custom_guard", (name) =>
 			setsOf(name, {
@@ -99,8 +102,8 @@ export const draftedSlot = Effect.gen(function* () {
 			: relation("Other", { id: pg.integer }, ["id"])
 		const declared: Record<string, AnyRelation | AnyClosed> = { Pair: pair, Sets, Other }
 		const base = schema(name, Rec.values(declared), [])
-		const desk = role(base, "desk", { Sets, Other }, { write: ["Sets", "Other"], refresh: [] })
-		return { schema: base, logins: [login(base, "desk", [desk])] }
+		const writer = role(base, "writer", { Sets, Other }, { write: ["Sets", "Other"], refresh: [] })
+		return { schema: base, logins: [login(base, "desk", [writer])] }
 	}
 	const { m } = yield* installFirst("drafted_guard", (name) => ({
 		version: versionOf(name, false)
@@ -146,6 +149,56 @@ export const draftedSlot = Effect.gen(function* () {
 		return yield* apply(
 			migrator,
 			{ snapshot: next.snapshot, folders: [...m.folders, folder] },
+			noFurther
+		)
+	})
+	return { held, ownerUpdate, migrate }
+})
+
+/**
+ * A roster shrink under an immutable relation holding a set over it, its data step first: Sets holding one row of both
+ * Left and Right, a custom migration whose data step clears Left's bit, then the migration that removes Left, applied
+ * together, where the removal's VALIDATE refuses a set still holding Left. The data step rewrites Sets' row inside its
+ * bracket, so the removal finds no row holding the removed code.
+ */
+export const shrinkAfterDataStep = Effect.gen(function* () {
+	const stateOf = (left: "live" | "hole"): RosterState => ({
+		closed: parsedName("Pair"),
+		slots: [
+			left === "live" ? { kind: "live", handle: "Left" } : { kind: "hole", was: "Left" },
+			{ kind: "live", handle: "Right" }
+		],
+		spellings: { plain: 1 }
+	})
+	const { m } = yield* installFirst("shrink_guard", (name) => setsOf(name, stateOf("live")))
+	const table = printObjectName(m.names.relation("Sets"))
+	const id = quoteIdent(m.names.column("Sets", "id"))
+	const members = quoteIdent(m.names.column("Sets", "members"))
+	yield* m.owner.query(`INSERT INTO ${table} (${id}, ${members}) VALUES (1, X'C0'::bit(8))`, [])
+	const step = customDataStep(m.snapshot, m.folders.length, [
+		`UPDATE ${table} SET ${members} = ${members} & X'40'::bit(8);`
+	])
+	const removal = yield* draftNext(
+		m,
+		m.snapshot,
+		setsOf(m.declared, stateOf("hole")).version,
+		m.folders.length + 2,
+		{ renames: [], drops: [{ kind: "handle", roster: parsedName("Pair"), handle: "Left" }] }
+	)
+	const held = Effect.map(
+		m.owner.values(`SELECT ${members}::text FROM ${table} WHERE ${id} = 1`, []),
+		(rows) => Arr.map(rows, (r) => String(r[0]))
+	)
+	const ownerUpdate = m.owner.query(
+		`UPDATE ${table} SET ${members} = X'00'::bit(8) WHERE ${id} = 1`,
+		[]
+	)
+	const migrate = Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const migrator = yield* openMigrator(substrate, m.ambientOwner.credentials)
+		return yield* apply(
+			migrator,
+			{ snapshot: removal.snapshot, folders: [...m.folders, step, removal.folder] },
 			noFurther
 		)
 	})
