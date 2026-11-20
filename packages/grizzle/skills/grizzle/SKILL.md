@@ -73,10 +73,11 @@ export default defineConfig({
   in a role's that holds every relation of the fragment whole. generate compiles them per login, as any program. Only
   the fragment states a key, `mutable`, `race`, `retirable`, a family, a tree or a fold over its relations. An application
   that adds one is `FragmentRefused`; it may add containments, row checks and rules over queries, which only refuse.
-- A level reaches the levels below it only by a containment of plain fields into a key, a row check over a lower
-  relation (written as that relation's own, its CHECK on the lower table, installed and validated by the level's
-  migration), or through a rule over a query; any other law over a lower relation is `LevelRefused` when the schema is
-  built. A process over a lower level serves its login's file, which holds what its programs may meet of the levels
+- A level reaches the levels below it only by a containment of fields into a key, its other side the level's own, a
+  lower side every fact or a selection (`on(select(Item, (i) => ...), "id")`, its terms generated columns PostgreSQL
+  computes on the lower table), a row check over a lower relation (written as that relation's own, its CHECK on the
+  lower table, installed and validated by the level's migration), or through a rule over a query; any other law over a
+  lower relation, a containment between two lower relations among them, is `LevelRefused` when the schema is built. A process over a lower level serves its login's file, which holds what its programs may meet of the levels
   above, and a refusal by a law above it is `refused.kind` `above`, `refused.laws[0]` the law
   `{ kind: "above", level, law }`, beside every law of its own the host finds the stated row breaking (`refused.own`).
 - A login owns its workloads: `login(Blog, "web", [AnonBlog, MemberBlog], { workload: [anonReads, memberReads] })`.

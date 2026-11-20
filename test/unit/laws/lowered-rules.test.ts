@@ -102,8 +102,8 @@ export const aContainmentIntoAKeyShapedConjunctionOfStoredRelationsLowersToOneDe
 		]
 	})
 
-/** A containment into a key-shaped conjunction of stored relations reaches a lower level's relation exactly through a side holding a key it declares, selected by constants only from a source above it. */
-export const aContainmentIntoAKeyShapedConjunctionOfStoredRelationsReachesALowerLevelsRelationExactlyThroughASideHoldingAKeyItDeclaresSelectedByConstantsOnlyFromASourceAboveIt =
+/** A containment across levels reaches a relation of the other level exactly through a side holding a key it declares, selected by constants or not, from a source above it or below it. */
+export const aContainmentAcrossLevelsReachesARelationOfTheOtherLevelExactlyThroughASideHoldingAKeyItDeclaresSelectedByConstantsOrNotFromASourceAboveItOrBelowIt =
 	property.exhaust(finite(levelGen), {
 		needs: {},
 		situations: ["admitted", "refused", "a superkey", "constants"] satisfies ReadonlyArray<
@@ -113,7 +113,7 @@ export const aContainmentIntoAKeyShapedConjunctionOfStoredRelationsReachesALower
 			Effect.sync(() => {
 				const held = [...c.terms, ...c.fixed]
 				const keyed = Arr.some(KEYS.R0, (key) => Arr.every(key, (field) => held.includes(field)))
-				const admitted = keyed && (!c.lowerSource || c.fixed.length === 0)
+				const admitted = keyed
 				if (c.fixed.length > 0) {
 					k.note("constants")
 				}
@@ -139,16 +139,17 @@ export const aContainmentIntoAKeyShapedConjunctionOfStoredRelationsReachesALower
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the level rule: a side whose fields and constants hold a key R0 declares, selected only from a source above it"
+			name: "the level rule: a side whose fields and constants hold a key R0 declares, from a source above it or below it, its constants columns of the source's table"
 		},
 		box: "every target side of R0 over one to three of its fields, selected by constants on any of the others, from S on the level above R0 and on the level below it",
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/schema/own.ts",
-				original: "\t\t\t\t\t\td.right.selection.conjuncts.length > 0 ||\n",
-				replacement: "",
-				why: "A source on the level below admitted into a selected target (schema/own.ts checkLevels); the level rule's box fails."
+				original: "(target !== undefined || !fieldSide(d.left, source))",
+				replacement:
+					"(target !== undefined || d.right.selection.conjuncts.length > 0 || !fieldSide(d.left, source))",
+				why: "A source on the level below refused into a selected target, its constants columns of the lower table (schema/own.ts checkLevels); the level rule's box fails."
 			}
 		]
 	})

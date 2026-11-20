@@ -46,6 +46,7 @@ import { type NonEmptyCanonicalSet, nonEmptyNameSet } from "#compiler/core/set.t
 import {
 	type AdmittedClosedRelation,
 	candidateKeyFields,
+	fieldTermsOf,
 	type CompareOp,
 	conjunctsOf,
 	type ContextDesc,
@@ -1136,16 +1137,17 @@ const spanned = (desc: FieldDesc | undefined): boolean =>
 	desc?.kind === "span" || (desc?.kind === "contract" && spanned(desc.base))
 
 /**
- * Whether a side of an ordinary relation reads every fact by fields of no span: the side a foreign key's columns are,
- * which needs no column, no unique index and no CHECK of its own.
+ * Whether a side of an ordinary relation reads its facts by fields of no span, every fact or a selection of them: the
+ * side a foreign key's columns are, each column a field of the row or, selected, a generated column PostgreSQL computes
+ * from it.
  */
-const plainSide = (side: SideDesc, entry: RelationEntry): boolean => {
-	const fields = candidateKeyFields(side)
+const fieldSide = (side: SideDesc, entry: RelationEntry): boolean => {
+	const fields = fieldTermsOf(side.terms)
 	const desc = entry.desc
 	return (
 		fields !== undefined &&
 		desc.kind === "relation" &&
-		!fields.some((f) => spanned(desc.fields[f]?.type))
+		!fields.some((f) => spanned(desc.fields[f.field]?.type))
 	)
 }
 
@@ -1882,21 +1884,20 @@ class Owner {
 
 	/**
 	 * A statement reaches an ordinary relation of a level below its own only where no write of that level changes: as
-	 * one side of a containment between stored relations, its source fields unselected and of no span where the source is
-	 * the lower relation, its target a side that holds a key (`#keyOf`): fields of no span, selected by no more than
-	 * constants on other fields, together holding the target relation's primary key or a key declared at that relation's
-	 * level or below, which PostgreSQL holds as a deferred foreign key judged at COMMIT into a UNIQUE over exactly them,
-	 * the key's own or a superkey of it the upper level installs, which refuses nothing the key admits, so no write of
-	 * the lower level meets it; in a rule over a query, a containment one of whose sides is a derived relation, or a
-	 * key or a check over one, whose deferred triggers or, lowered, deferred foreign keys PostgreSQL runs at COMMIT; or as
-	 * a row check over the lower relation, the level's own CHECK on its table, which the level's migration installs and
+	 * one side of a containment whose other side is a relation of its own level or above, the lower side's terms fields of
+	 * no span, selected or not, and a lower target a side that holds a key (`#keyOf`), which PostgreSQL holds as a
+	 * deferred foreign key judged at COMMIT, its law columns, a selection's or a fixed field's, generated columns
+	 * PostgreSQL computes on the row however it is written, into a UNIQUE the key implies, which refuses nothing the key
+	 * admits, or by the rule judge at COMMIT, so no write of the lower level is compiled or drawn otherwise and each meets
+	 * the law as one above it; in a rule over a query, a containment one of whose sides is a derived relation, or a key or
+	 * a check over one, whose deferred triggers or, lowered, deferred foreign keys PostgreSQL runs at COMMIT; or as a row
+	 * check over the lower relation, the level's own CHECK on its table, which the level's migration installs and
 	 * PostgreSQL judges on every row, so a write of the lower level meets it as a law above, naming it by its level
 	 * (types/changeset Law `above`), and changes nothing of how that write is compiled or drawn. A process over the lower
 	 * level holds none of the levels above it and compiles its writes alone, so every other reach is LevelRefused: a key,
 	 * mutable, a family, tree, fold or alternatives over a lower relation, and a containment with both sides on lower
-	 * relations, or reaching one by a pred or span side, by a selected source, by a target selected beyond constants, from
-	 * a lower source into a selected target, whose constants would be columns of the lower relation, or into no key. A
-	 * roster's, a closed relation's and a derived relation's rows no write changes.
+	 * relations, whose foreign key would order the lower level's own statements, reaching one by a pred or span term, or
+	 * into a lower target no key holds. A roster's, a closed relation's and a derived relation's rows no write changes.
 	 */
 	#checkLevels(s: StatementEntry): void {
 		const lower = (relation: string): RelationEntry | undefined => {
@@ -1930,17 +1931,8 @@ class Owner {
 				}
 				const source = lower(d.left.relation)
 				const target = lower(d.right.relation)
-				if (source !== undefined) {
-					const keyed = this.#statementRelation(d.right.relation, s)
-					if (
-						target !== undefined ||
-						!plainSide(d.left, source) ||
-						d.right.selection.conjuncts.length > 0 ||
-						!this.#keyOf(d.right, keyed)
-					) {
-						refuse(d.left.relation, source)
-					}
-					return
+				if (source !== undefined && (target !== undefined || !fieldSide(d.left, source))) {
+					refuse(d.left.relation, source)
 				}
 				if (target !== undefined && !this.#keyOf(d.right, target)) {
 					refuse(d.right.relation, target)
@@ -1976,25 +1968,24 @@ class Owner {
 	}
 
 	/**
-	 * Whether `side` holds a key of `entry`'s ordinary relation: its terms fields of no span, its selection only
-	 * constants, each conjunct `field = literal` fixing one field no term and no other conjunct reads, and its fields and
-	 * fixed fields together holding the relation's primary key or a candidate key a key statement of its level or below
-	 * declares. The UNIQUE over them a foreign key into it references is that key's own, or a superkey of it, which
-	 * refuses nothing the key admits.
+	 * Whether `side` holds a key of `entry`'s ordinary relation: its terms fields, and its fields and the fields its
+	 * selection fixes, each by a conjunct `field = literal`, none of them a span, together holding the relation's primary
+	 * key or a candidate key a key statement of its level or below declares. Its other conjuncts narrow the facts it reads
+	 * and hold nothing apart. The UNIQUE over them a foreign key into it references is that key's own, or one over a
+	 * superkey of it or over its selected columns, which refuses nothing the key admits.
 	 */
 	#keyOf(side: SideDesc, entry: RelationEntry): boolean {
 		const terms = candidateKeyFields({ ...side, selection: { conjuncts: [] } })
-		const fixed = side.selection.conjuncts.map(fixedField)
+		const fixed = side.selection.conjuncts.flatMap((c) => {
+			const field = fixedField(c)
+			return field === undefined ? [] : [field]
+		})
 		const desc = entry.desc
 		if (terms === undefined || desc.kind !== "relation") {
 			return false
 		}
-		const fields = [...terms, ...fixed.flatMap((f) => (f === undefined ? [] : [f]))]
-		if (
-			fixed.includes(undefined) ||
-			new Set(fields).size !== fields.length ||
-			fields.some((f) => spanned(desc.fields[f]?.type))
-		) {
+		const fields = [...new Set([...terms, ...fixed])]
+		if (fields.some((f) => spanned(desc.fields[f]?.type))) {
 			return false
 		}
 		const held = (key: ReadonlyArray<string>): boolean => key.every((f) => fields.includes(f))

@@ -52,6 +52,9 @@ export type Situation =
 	| "a lower source admitted"
 	| "a lower target admitted"
 	| "a lower check admitted"
+	| "a selected lower source admitted"
+	| "a lower source into a selected target admitted"
+	| "a lower target selected beyond constants admitted"
 
 type Shape =
 	| { readonly kind: "key" | "check" | "mutable" | "race" | "counted"; readonly place: Place }
@@ -60,12 +63,12 @@ type Shape =
 			readonly source: { readonly place: Place; readonly selected: boolean }
 			readonly target:
 				| { readonly place: "lower"; readonly selected: boolean; readonly field: TargetField }
-				| { readonly place: "upper" }
+				| { readonly place: "upper"; readonly selected: boolean }
 	  }
 
 /**
  * A shape drawn: a law of each kind over either level, and a containment from C.a or A.x, every fact or a selection,
- * into A at each of its three fields, every fact or a selection, or into C's primary key.
+ * into A at each of its three fields, every fact or a selection, or into C's primary key, every fact or a selection.
  */
 export const shapeGen: Gen<Shape> = (source) => {
 	const kind = source.draw(element(kinds))
@@ -84,7 +87,7 @@ export const shapeGen: Gen<Shape> = (source) => {
 				source: from,
 				target:
 					into === "upper"
-						? { place: into }
+						? { place: into, selected: source.draw(boolean) }
 						: {
 								place: into,
 								selected: source.draw(boolean),
@@ -106,13 +109,13 @@ export const shapeText = (s: Shape): string => {
 		case "contained":
 			return `contained ${s.source.selected ? "selected " : ""}${s.source.place === "upper" ? "C.a" : "A.x"} into ${
 				s.target.place === "upper"
-					? "C.id"
+					? `${s.target.selected ? "selected " : ""}C.id`
 					: `${s.target.selected ? "selected " : ""}A.${s.target.field}`
 			}`
 	}
 }
 
-/** A relation's side over `field`, every fact or its facts with n at most 3. */
+/** A relation's side over `field`, every fact or its facts with n at most 3, a selection that fixes no field. */
 const sideOf = (r: typeof A | typeof C, selected: boolean, field: string) =>
 	onBuilder(selected ? selectBuilder(r, (row: SmallRow) => row.le(row.n, 3n)) : r, [field])
 
@@ -151,14 +154,18 @@ export const statementOf = (s: Shape): Statement => {
 			return containedBuilder(
 				source,
 				s.target.place === "upper"
-					? sideOf(C, false, "id")
+					? sideOf(C, s.target.selected, "id")
 					: sideOf(A, s.target.selected, s.target.field)
 			)
 		}
 	}
 }
 
-/** The oracle: the lower relation the statement reaches against the rule, none where it is admitted. */
+/**
+ * The oracle: the lower relation the statement reaches against the rule, none where it is admitted. A containment
+ * reaches a lower relation on one side, its other side upper, selected or not, into a lower target only at a key
+ * (A.id, its primary key, or A.x, the key Lo declares), never at y, which no key holds.
+ */
 export const levelRefusedAt = (s: Shape): string | undefined => {
 	switch (s.kind) {
 		case "check":
@@ -172,9 +179,9 @@ export const levelRefusedAt = (s: Shape): string | undefined => {
 		case "contained": {
 			const { source, target } = s
 			if (source.place === "lower") {
-				return target.place === "lower" || source.selected ? "A" : undefined
+				return target.place === "lower" ? "A" : undefined
 			}
-			return target.place === "lower" && (target.selected || target.field === "y") ? "A" : undefined
+			return target.place === "lower" && target.field === "y" ? "A" : undefined
 		}
 	}
 }

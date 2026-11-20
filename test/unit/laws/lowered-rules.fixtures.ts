@@ -83,7 +83,8 @@ import {
  * A second box states the level rule (schema/own.ts #checkLevels) over every target side of R0 on a level below S, its
  * terms one to three of R0's fields and its selection constants on others: the containment is admitted exactly when
  * the target's fields and constants hold a key R0 declares, whose UNIQUE, a superkey's where it is no key exactly, the
- * upper level installs; from a source on the level below, exactly into an unselected one.
+ * upper level installs, from a source on the level above or below it, whose table then holds the constants as
+ * generated columns.
  *
  * Planted in a scratch copy, each of these fails the first box: a lowering that drops a match's constant column; one
  * whose superkey plans no UNIQUE; and one that ignores condition 4, lowering a definition whose matches share a

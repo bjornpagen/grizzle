@@ -30,6 +30,7 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
+import { exact } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
@@ -37,7 +38,8 @@ import { roleNameOf } from "#adapter/served/served.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Law } from "#compiler/public/changeset.ts"
-import { lawsOf, schemaNameOf } from "#compiler/public/schema.ts"
+import { lawsByStatement, schemaNameOf } from "#compiler/public/schema.ts"
+import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import { seatOfInstalled } from "#test/pg/fin/installed.ts"
 import {
 	type CatalogFact,
@@ -48,15 +50,18 @@ import {
 	disagreed,
 	expectedOf,
 	type Facts,
+	brokenLaws,
+	HELD_AT,
+	type LawName,
+	type Op,
 	type Feature,
-	historyGen,
+	historySpace,
 	idAt,
 	levelsIn,
 	levelsTemplate,
 	Item,
 	type Level,
 	type LevelRole,
-	namesExactly,
 	plain,
 	quote,
 	sameRows,
@@ -90,7 +95,7 @@ export const levelsOfOneInstallationOnPostgreSQL19InstallEachLevelsTablesInItsOw
 					Effect.provideService(
 						Effect.gen(function* () {
 							const { done, at } = levelsIn(taken)
-							const seat = yield* seatOfInstalled(done, ["Item", "Sitting"], "levels")
+							const seat = yield* seatOfInstalled(done, ["Item", "Sitting", "Approved"], "levels")
 							const schemaOf: { readonly [L in Level]: string } = {
 								lower: schemaNameOf(at.lower),
 								upper: schemaNameOf(at.upper)
@@ -150,7 +155,7 @@ export const levelsOfOneInstallationOnPostgreSQL19InstallEachLevelsTablesInItsOw
  * Its pre-conversion budget: runs 40, coverage cases 60 (test/pg/levels/levels.test.ts at d8eed1786).
  */
 export const levelsOfOneInstallationOnPostgreSQL19ServeALoginOverEachLevelCommitEachTransactionExactlyWhenItKeepsTheContainmentAndRefuseALowerWriteAHigherLawForbidsByThatLawNamedAbove =
-	property.explore(historyGen, {
+	property.explore(historySpace, {
 		needs: { levels: Substrate.seat(levelsTemplate) },
 		situations: [
 			"an item added",
@@ -159,7 +164,14 @@ export const levelsOfOneInstallationOnPostgreSQL19ServeALoginOverEachLevelCommit
 			"a sitting added",
 			"a dangling sitting refused",
 			"a sitting deleted",
-			"a fused read of a sitting"
+			"a fused read of a sitting",
+			"a selected item added",
+			"an unapproved selected item refused from above",
+			"an approval added",
+			"an approval's deletion refused",
+			"an approval deleted",
+			"a test sitting added",
+			"a test sitting of an unselected item refused"
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ levels }, c: Case<Feature>) =>
@@ -178,149 +190,196 @@ export const levelsOfOneInstallationOnPostgreSQL19ServeALoginOverEachLevelCommit
 							const learner = yield* Db.open(upperServed.login.roles.learner, {}).pipe(
 								Effect.provideContext(upperContext)
 							)
-							const containment = defined(
-								Arr.findFirst(
-									Arr.map(lawsOf(at.upper), (l) => l.law),
-									(l) => l.kind === "contained"
-								).pipe(Option.getOrUndefined),
-								"the upper level states its containment"
-							)
-							const above: Law = {
-								kind: "above",
-								level: levelNameAt(done.schema, 1),
-								law: containment
-							}
+							const lawOf = lawsByStatement(at.upper)
+							const lawNamed = (name: LawName): OwnLaw =>
+								defined(lawOf(at.laws[name])[0], `the upper level's law ${name}`)
+							const level = levelNameAt(done.schema, 1)
+							/** The law a refusal of `by`'s write names for `name`: the lower login's above the level that states it. */
+							const namedBy = (by: LevelRole, name: LawName): Law =>
+								by === "author" ? { kind: "above", level, law: lawNamed(name) } : lawNamed(name)
 
-							const facts: Facts = { items: new Map(), sittings: new Map() }
+							const item = (id: number, n: number) => ({ id: Code(idAt(id)), n })
+							const sitting = (
+								id: number,
+								s: { readonly item: number; readonly test: boolean }
+							) => ({
+								id: idAt(id),
+								item: Code(idAt(s.item)),
+								kind: s.test ? ("Test" as const) : ("Practice" as const)
+							})
+							const approval = (id: number) => ({ id: Code(idAt(id)) })
+							/**
+							 * One op's call through the login that writes it, the facts it leaves where it is accepted, and the
+							 * situation each verdict is; undefined for an op the facts make moot, an addition of a fact held or a
+							 * deletion of one absent.
+							 */
+							const stepOf = (op: Op, f: Facts) =>
+								Effect.gen(function* () {
+									switch (op.kind) {
+										case "addItem": {
+											if (f.items.has(op.id)) {
+												return undefined
+											}
+											const outcome = yield* answered(
+												author.workload.addItem.once({
+													params: {},
+													facts: { insert: { Item: [item(op.id, op.n)] } }
+												})
+											)
+											return {
+												by: "author" as const,
+												outcome,
+												next: { ...f, items: new Map([...f.items, [op.id, op.n]]) },
+												accepted:
+													op.n >= HELD_AT
+														? ("a selected item added" as const)
+														: ("an item added" as const),
+												refused: "an unapproved selected item refused from above" as const
+											}
+										}
+										case "dropItem": {
+											const n = f.items.get(op.id)
+											if (n === undefined) {
+												return undefined
+											}
+											const outcome = yield* answered(
+												author.workload.dropItem.once({
+													params: {},
+													facts: { delete: { Item: [item(op.id, n)] } }
+												})
+											)
+											const items = new Map(f.items)
+											items.delete(op.id)
+											return {
+												by: "author" as const,
+												outcome,
+												next: { ...f, items },
+												accepted: "an item deleted" as const,
+												refused: "a held item's deletion refused from above" as const
+											}
+										}
+										case "addSitting": {
+											if (f.sittings.has(op.id)) {
+												return undefined
+											}
+											const outcome = yield* answered(
+												learner.workload.addSitting.once({
+													params: {},
+													facts: { insert: { Sitting: [sitting(op.id, op)] } }
+												})
+											)
+											return {
+												by: "learner" as const,
+												outcome,
+												next: {
+													...f,
+													sittings: new Map([
+														...f.sittings,
+														[op.id, { item: op.item, test: op.test }]
+													])
+												},
+												accepted: op.test
+													? ("a test sitting added" as const)
+													: ("a sitting added" as const),
+												refused: f.items.has(op.item)
+													? ("a test sitting of an unselected item refused" as const)
+													: ("a dangling sitting refused" as const)
+											}
+										}
+										case "dropSitting": {
+											const held = f.sittings.get(op.id)
+											if (held === undefined) {
+												return undefined
+											}
+											const outcome = yield* answered(
+												learner.workload.dropSitting.once({
+													params: {},
+													facts: { delete: { Sitting: [sitting(op.id, held)] } }
+												})
+											)
+											const sittings = new Map(f.sittings)
+											sittings.delete(op.id)
+											return {
+												by: "learner" as const,
+												outcome,
+												next: { ...f, sittings },
+												accepted: "a sitting deleted" as const,
+												refused: undefined
+											}
+										}
+										case "addApproval": {
+											if (f.approved.has(op.id)) {
+												return undefined
+											}
+											const outcome = yield* answered(
+												learner.workload.addApproval.once({
+													params: {},
+													facts: { insert: { Approved: [approval(op.id)] } }
+												})
+											)
+											return {
+												by: "learner" as const,
+												outcome,
+												next: { ...f, approved: new Set([...f.approved, op.id]) },
+												accepted: "an approval added" as const,
+												refused: undefined
+											}
+										}
+										case "dropApproval": {
+											if (!f.approved.has(op.id)) {
+												return undefined
+											}
+											const outcome = yield* answered(
+												learner.workload.dropApproval.once({
+													params: {},
+													facts: { delete: { Approved: [approval(op.id)] } }
+												})
+											)
+											const approved = new Set(f.approved)
+											approved.delete(op.id)
+											return {
+												by: "learner" as const,
+												outcome,
+												next: { ...f, approved },
+												accepted: "an approval deleted" as const,
+												refused: "an approval's deletion refused" as const
+											}
+										}
+									}
+								})
+
+							let facts: Facts = { items: new Map(), sittings: new Map(), approved: new Set() }
 							for (const op of history) {
-								switch (op.kind) {
-									case "addItem": {
-										if (facts.items.has(op.id)) {
-											continue
-										}
-										const outcome = yield* answered(
-											author.workload.addItem.once({
-												params: {},
-												facts: { insert: { Item: [{ id: Code(idAt(op.id)), n: op.n }] } }
-											})
+								const step = yield* stepOf(op, facts)
+								if (step === undefined) {
+									continue
+								}
+								const broken = brokenLaws(step.next)
+								if (broken.length === 0) {
+									if (step.outcome.kind !== "accepted") {
+										return yield* disagreed(
+											`${Formatter.format(op)} answered ${Formatter.format(step.outcome)} over a state that keeps every law`
 										)
-										if (outcome.kind !== "accepted") {
-											return yield* disagreed(
-												`adding item ${op.id} answered ${Formatter.format(outcome)}`
-											)
-										}
-										facts.items.set(op.id, op.n)
-										c.note("an item added")
-										break
 									}
-									case "dropItem": {
-										const n = facts.items.get(op.id)
-										if (n === undefined) {
-											continue
-										}
-										const held = Arr.some([...facts.sittings.values()], (s) => s.item === op.id)
-										const outcome = yield* answered(
-											author.workload.dropItem.once({
-												params: {},
-												facts: { delete: { Item: [{ id: Code(idAt(op.id)), n }] } }
-											})
+									facts = step.next
+									c.note(step.accepted)
+								} else {
+									const named =
+										step.outcome.kind === "refused" ? refusedLaws(step.outcome.refused) : []
+									const allowed = Arr.map(broken, (name) => namedBy(step.by, name))
+									if (
+										step.outcome.kind !== "refused" ||
+										(step.by === "author" && step.outcome.witness.kind !== "unreported") ||
+										!Arr.every(named, (law) =>
+											Arr.some(allowed, (a) => Option.isNone(exact(law, a)))
+										) ||
+										step.refused === undefined
+									) {
+										return yield* disagreed(
+											`${Formatter.format(op)} answered ${Formatter.format(step.outcome)}, not a refusal by one of ${Formatter.format(allowed)}`
 										)
-										if (held) {
-											if (
-												outcome.kind !== "refused" ||
-												outcome.witness.kind !== "unreported" ||
-												!namesExactly(outcome, refusedLaws(outcome.refused), above)
-											) {
-												return yield* disagreed(
-													`deleting held item ${op.id} answered ${Formatter.format(outcome)}, not a refusal by ${Formatter.format(above)}`
-												)
-											}
-											c.note("a held item's deletion refused from above")
-											break
-										}
-										if (outcome.kind !== "accepted") {
-											return yield* disagreed(
-												`deleting item ${op.id} answered ${Formatter.format(outcome)}`
-											)
-										}
-										facts.items.delete(op.id)
-										c.note("an item deleted")
-										break
 									}
-									case "addSitting": {
-										if (facts.sittings.has(op.id)) {
-											continue
-										}
-										const outcome = yield* answered(
-											learner.workload.addSitting.once({
-												params: {},
-												facts: {
-													insert: {
-														Sitting: [
-															{
-																id: idAt(op.id),
-																item: Code(idAt(op.item)),
-																kind: op.test ? "Test" : "Practice"
-															}
-														]
-													}
-												}
-											})
-										)
-										if (!facts.items.has(op.item)) {
-											if (
-												!namesExactly(
-													outcome,
-													outcome.kind === "refused" ? refusedLaws(outcome.refused) : undefined,
-													containment
-												)
-											) {
-												return yield* disagreed(
-													`a sitting of absent item ${op.item} answered ${Formatter.format(outcome)}, not a refusal by ${Formatter.format(containment)}`
-												)
-											}
-											c.note("a dangling sitting refused")
-											break
-										}
-										if (outcome.kind !== "accepted") {
-											return yield* disagreed(
-												`adding sitting ${op.id} answered ${Formatter.format(outcome)}`
-											)
-										}
-										facts.sittings.set(op.id, { item: op.item, test: op.test })
-										c.note("a sitting added")
-										break
-									}
-									case "dropSitting": {
-										const s = facts.sittings.get(op.id)
-										if (s === undefined) {
-											continue
-										}
-										const outcome = yield* answered(
-											learner.workload.dropSitting.once({
-												params: {},
-												facts: {
-													delete: {
-														Sitting: [
-															{
-																id: idAt(op.id),
-																item: Code(idAt(s.item)),
-																kind: s.test ? "Test" : "Practice"
-															}
-														]
-													}
-												}
-											})
-										)
-										if (outcome.kind !== "accepted") {
-											return yield* disagreed(
-												`deleting sitting ${op.id} answered ${Formatter.format(outcome)}`
-											)
-										}
-										facts.sittings.delete(op.id)
-										c.note("a sitting deleted")
-										break
-									}
+									c.note(step.refused)
 								}
 								const joined = yield* rowsOf(learner.workload.fused.once({ params: {}, facts: {} }))
 								const expectedJoin = plain(

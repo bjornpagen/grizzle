@@ -3616,12 +3616,18 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
   on top later is the next migration of the same installation. A relation moved to another level is a new table there:
   `--drop` the old one, as for any stored relation.
 - **A level reaches the levels below it only where their writes need nothing of it.** A containment between stored
-  relations may have one side below, both sides fields with no selection, no `pred` and no span, into a key the target
-  relation declares: a deferred foreign key, judged at COMMIT, such as `ledger.sitting` into `qti.item`. A rule over a
+  relations may have one side below, its other side the level's own, the lower side's terms fields with no `pred` and
+  no span, every fact or a selection of them, into a key the target relation declares: a foreign key such as
+  `ledger.sitting` into `qti.item`, or, from a selection below, `contained(on(select(Item, (i) => φ), "id"),
+  on(Reviewed, "item"))`, every item φ holds of reviewed above. A selection's terms, and a field a selected
+  target fixes, are generated columns PostgreSQL computes on the lower table however its row is written, under a
+  UNIQUE the key implies, so a `Qti` write is compiled and drawn as before and meets the law as one above it; a
+  containment that is unit-local is judged at COMMIT instead ([Rules over queries](#rules-over-queries)). A rule over a
   query may read the levels below through its derived relation, as deferred triggers on their tables. A row check may
   stand over a relation below (next). Anything else stated at `Ledger` over a `Qti` relation (a key, `mutable`, a
-  family, tree or fold, a selected side) is `LevelRefused` when the schema is built: a process over `Qti` holds none of
-  `Ledger`'s code, so no law of `Ledger` may change how a `Qti` write is compiled or drawn.
+  family, tree or fold, a containment between two `Qti` relations, whose foreign key would order `Qti`'s own
+  statements) is `LevelRefused` when the schema is built: a process over `Qti` holds none of `Ledger`'s code, so no law
+  of `Ledger` may change how a `Qti` write is compiled or drawn.
 - **A level checks the rows below it.** `Ledger`'s list may hold a row check over a `Qti` relation, written exactly as
   that relation's own would be, `check("Titled", Item, (i) => Compute.matches(i.title, nonBlank))`, `nonBlank` a
   `Compute.pattern`: it reads any field of the row, a text of no byte bound with `Compute.matches` among them, as a row

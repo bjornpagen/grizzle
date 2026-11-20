@@ -442,9 +442,10 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   `written`, which is none of `over`'s levels: a query reads what its own schema declares, so a rule reads a query only
  *   over a level of its schema, whatever relations the two share.
  * - `LevelRefused`: `statement`, stated at the level `level`, reaches `relation`, a relation of the level `below` under
- *   it, other than as one side of a containment of fields into a key, its other side a relation of a higher level, as
- *   a row check over it, or through a rule over a query: a process over a lower level holds none of the levels above it,
- *   so no law above may change how its writes are compiled or drawn, and it meets each of those laws as one above it.
+ *   it, other than as one side of a containment of fields, selected or not, into a key, its other side a relation of a
+ *   higher level, as a row check over it, or through a rule over a query: a process over a lower level holds none of the
+ *   levels above it, so no law above may change how its writes are compiled or drawn, and it meets each of those laws as
+ *   one above it.
  * - `FragmentRefused`: `statement`, a statement of a schema that lists the fragment `fragment` and none of the
  *   fragment's own, decides how `relation`, a relation of the fragment, is written: a key, mutable, race, retirable, a
  *   family, a tree or a fold over it. A program over a fragment is compiled in every schema that lists it and means
@@ -1076,7 +1077,7 @@ export const compileReasonText = (reason: CompileReason): string => {
 		case "ForeignLevel":
 			return `a query over a level of ${reason.over}; it is written over ${reason.written}, which is none of its levels`
 		case "LevelRefused":
-			return `${reason.statement}, stated at level ${reason.level}, reaches ${reason.relation} only as one side of a containment of fields into a key, the other side its own, as a row check over it, or through a rule over a query: ${reason.relation} is a relation of ${reason.below}, a level below it, whose writes no law above may change`
+			return `${reason.statement}, stated at level ${reason.level}, reaches ${reason.relation} only as one side of a containment of fields, selected or not, into a key, the other side its own, as a row check over it, or through a rule over a query: ${reason.relation} is a relation of ${reason.below}, a level below it, whose writes no law above may change`
 		case "FragmentRefused":
 			return `${reason.statement} decides how ${reason.relation} is written, which only ${reason.fragment}, the fragment that declares it, states: state it in the fragment, or state over ${reason.relation} only what refuses, a containment, a row check or a rule over a query`
 		case "GeneratedRefused":
