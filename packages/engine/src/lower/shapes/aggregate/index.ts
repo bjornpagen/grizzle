@@ -19,7 +19,11 @@ import {
 	nodeLabel
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import { aggregateExpr, groupAggregateOverload } from "#compiler/lower/conservative/group/index.ts"
+import {
+	aggregateExpr,
+	argumentZeros,
+	groupAggregateOverload
+} from "#compiler/lower/conservative/group/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { AggregateOverload } from "#compiler/scalar/aggregate.ts"
 import type { Expr, FromItem, OperandSelect, TypeRef } from "#compiler/sql/ast.ts"
@@ -107,7 +111,8 @@ const aggregateCall = (
 				overload,
 				agg.args.map((a) => lowerExpr(cx, a, scope)),
 				agg.filter === undefined ? undefined : lowerExpr(cx, agg.filter, scope),
-				undefined
+				undefined,
+				argumentZeros(agg)
 			)
 	}
 }

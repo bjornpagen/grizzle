@@ -3,13 +3,16 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
+import type { ArgumentZeros } from "#compiler/lower/conservative/group/index.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import { contract, pg } from "#compiler/public/fields.ts"
 import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { Expr, SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
@@ -27,16 +30,19 @@ import { checking } from "#test/support/policy.ts"
 /**
  * The work a float's zero costs a statement, by the form each kind of it takes (check/merge.ts, scalar/aggregate.ts,
  * ir/compare.ts): the canonical zero a merge delivers, `x + 0::float`; a sum of a float's zeros, `sum(CASE WHEN x = 0
- * ...)`, which a min, a max, a sum and a mean read their zero's sign off; and a zero's sign byte, `get_byte(float8send(x),
- * 0)`, which a write compares two facts by.
+ * ... ELSE ±0::float END)`, which a min, a max, a sum and a mean read their zero's sign off, apart from an exact sum's
+ * own CASE over each value's bits; and a zero's sign byte, `get_byte(float8send(x), 0)`, which a write compares two facts
+ * by.
  */
 export type Work = "canonical zero" | "zero sum" | "sign byte"
 
 const works: Arr.NonEmptyReadonlyArray<Work> = ["canonical zero", "zero sum", "sign byte"]
 
-/** Whether a literal is a float's zero. */
+/** Whether a literal is a float's zero, +0 or the special -0. */
 const floatZero = (e: Expr): boolean =>
-	e.kind === "literal" && e.value.kind === "float" && e.value.value === 0
+	e.kind === "literal" &&
+	((e.value.kind === "float" && e.value.value === 0) ||
+		(e.value.kind === "floatSpecial" && e.value.value === "-0"))
 
 /** The kind of a float zero's work an expression is, if any: its own node, not its children's. */
 const workOf = (e: Expr): Work | undefined => {
@@ -44,7 +50,8 @@ const workOf = (e: Expr): Work | undefined => {
 		return "canonical zero"
 	}
 	if (e.kind === "call" && !e.star && e.fn.kind === "builtin") {
-		if (e.fn.name === "sum" && e.args[0]?.kind === "case") {
+		const [summed] = e.args
+		if (e.fn.name === "sum" && summed?.kind === "case" && floatZero(summed.else)) {
 			return "zero sum"
 		}
 		if (e.fn.name === "get_byte") {
@@ -243,4 +250,134 @@ export type Feature = `${Work} at a float` | `none at ${FieldType["name"]}`
 export const features: Arr.NonEmptyReadonlyArray<Feature> = [
 	...Arr.map(works, (w): Feature => `${w} at a float`),
 	...Arr.flatMap(fieldTypes, (t): ReadonlyArray<Feature> => (t.float ? [] : [`none at ${t.name}`]))
+]
+
+/**
+ * A float aggregate's argument by its form, and what it holds of the two zeros (lower/conservative/group
+ * ArgumentZeros): a double or a real field, which may hold -0; a field of a contract over double precision above zero,
+ * never zero, or at or above zero, which admits -0 since -0 >= 0; an integer cast to double precision, whose zero is
+ * +0, and a real cast to it, which keeps a -0; a Compute.cond of an integer's cast and the literal 0, of it and the
+ * literal -0, and of a double and 0.
+ */
+const argumentForms = [
+	{ name: "a double", zeros: "signed" },
+	{ name: "a real", zeros: "signed" },
+	{ name: "a double above zero", zeros: "unsigned" },
+	{ name: "a double never zero", zeros: "unsigned" },
+	{ name: "a double at or above zero", zeros: "signed" },
+	{ name: "an integer cast to double", zeros: "unsigned" },
+	{ name: "a real cast to double", zeros: "signed" },
+	{ name: "a cond of an integer's cast and 0", zeros: "unsigned" },
+	{ name: "a cond of an integer's cast and -0", zeros: "signed" },
+	{ name: "a cond of a double and 0", zeros: "signed" }
+] as const satisfies ReadonlyArray<{ readonly name: string; readonly zeros: ArgumentZeros }>
+
+export type ArgumentForm = (typeof argumentForms)[number]
+
+const floatAggregates = ["min", "max", "sum", "mean"] as const
+
+/** A case of a float aggregate: the aggregate and its argument's form. */
+export interface ArgumentCase {
+	readonly aggregate: (typeof floatAggregates)[number]
+	readonly form: ArgumentForm
+}
+
+/** Every float aggregate over every argument form. */
+export const argumentCaseGen: Gen<ArgumentCase> = (source) => ({
+	aggregate: source.draw(element(floatAggregates)),
+	form: source.draw(element(argumentForms))
+})
+
+const AboveZero = contract("AboveZero", pg["double precision"], (v) => Compute.gt(v, 0))
+const NeverZero = contract("NeverZero", pg["double precision"], (v) => Compute.ne(v, 0))
+const AtOrAboveZero = contract("AtOrAboveZero", pg["double precision"], (v) => Compute.ge(v, 0))
+
+const F = relation(
+	"F",
+	{
+		k: pg.bigint,
+		g: pg.bigint,
+		n: pg.integer,
+		d: pg["double precision"],
+		r: pg.real,
+		above: AboveZero,
+		never: NeverZero,
+		atOrAbove: AtOrAboveZero
+	},
+	["k"]
+)
+const Floats = schema("Floats", [F], [mutable(F)])
+
+/** The statements an argument case compiles to: its grouped aggregate's read under both lowerings. */
+export const argumentStatementsOf = (c: ArgumentCase): ReadonlyArray<SqlStatement> => {
+	const q = queryOver(Floats).rule((r: RuleValue) => {
+		const x = varsOver(F, "f")
+		const fields = {
+			k: x["k"],
+			g: x["g"],
+			n: x["n"],
+			d: x["d"],
+			r: x["r"],
+			above: x["above"],
+			never: x["never"],
+			atOrAbove: x["atOrAbove"]
+		}
+		const double = pg["double precision"]
+		const integer = (): unknown => computeCore.cast(x["n"], double)
+		const positive = (): unknown => computeCore.gt(x["n"], computeCore.literal(pg.integer, 0))
+		const argument = ((): unknown => {
+			switch (c.form.name) {
+				case "a double":
+					return x["d"]
+				case "a real":
+					return x["r"]
+				case "a double above zero":
+					return x["above"]
+				case "a double never zero":
+					return x["never"]
+				case "a double at or above zero":
+					return x["atOrAbove"]
+				case "an integer cast to double":
+					return integer()
+				case "a real cast to double":
+					return computeCore.cast(x["r"], double)
+				case "a cond of an integer's cast and 0":
+					return computeCore.cond(positive(), integer(), computeCore.literal(double, 0))
+				case "a cond of an integer's cast and -0":
+					return computeCore.cond(positive(), integer(), computeCore.literal(double, -0))
+				case "a cond of a double and 0":
+					return computeCore.cond(positive(), x["d"], computeCore.literal(double, 0))
+			}
+		})()
+		const value = ((): unknown => {
+			switch (c.aggregate) {
+				case "min":
+					return r.min(argument)
+				case "max":
+					return r.max(argument)
+				case "sum":
+					return r.sum(argument)
+				case "mean":
+					return r.mean(argument)
+			}
+		})()
+		return r.match(F, fields).find({ g: x["g"], value })
+	})
+	const { optimized, conservative } = succeeded(
+		compileTemplate(q, undefined, testCompile),
+		`the ${c.aggregate} of ${c.form.name} compiles`
+	).programs
+	return [...programAsts(optimized), ...Arr.map(flight(conservative.roots), (s) => s.ast)]
+}
+
+export type ArgumentFeature =
+	| `${ArgumentZeros} ${(typeof floatAggregates)[number]}`
+	| `form ${ArgumentForm["name"]}`
+
+export const argumentFeatures: Arr.NonEmptyReadonlyArray<ArgumentFeature> = [
+	...Arr.map(argumentForms, (f): ArgumentFeature => `form ${f.name}`),
+	...Arr.flatMap(floatAggregates, (a): ReadonlyArray<ArgumentFeature> => [
+		`signed ${a}`,
+		`unsigned ${a}`
+	])
 ]

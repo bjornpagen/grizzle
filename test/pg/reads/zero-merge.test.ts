@@ -138,8 +138,8 @@ export const aFloatsTwoZerosAreOneValueToEveryMergeWhichDeliversPlus0ForEitherAn
 			},
 			{
 				file: "packages/engine/src/lower/conservative/group/index.ts",
-				original: "\tzerosSum(float, arg, arg, zeroOf(float, false), window)",
-				replacement: "\tzeroOf(float, false)",
+				original: "\t\t: zerosSum(float, arg, arg, zeroOf(float, false), window)",
+				replacement: "\t\t: zeroOf(float, false)",
 				why: "A float sum or mean of zeros is +0, so the sum of a lone -0 is 0."
 			}
 		]

@@ -19,7 +19,11 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { conservativeLowerers } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import { aggregateExpr } from "#compiler/lower/conservative/group/index.ts"
+import {
+	aggregateExpr,
+	type ArgumentZeros,
+	argumentZeros
+} from "#compiler/lower/conservative/group/index.ts"
 import { type AggregateOverload, countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
 import type {
 	Expr,
@@ -82,18 +86,21 @@ const orderItems = (
 
 /**
  * A running aggregate's overload over its argument's type, as a Group's is (conservative/group groupAggregateOverload),
- * refused where PostgreSQL defines none.
+ * refused where PostgreSQL defines none, and what its argument holds of a float's zeros (argumentZeros).
  */
 const windowOverload = (
 	fn: "sum" | "avg" | "min" | "max",
 	w: NodeOf<"Window">,
 	at: string
-): AggregateOverload => {
+): { readonly overload: AggregateOverload; readonly zeros: ArgumentZeros } => {
 	const [arg] = w.args
 	if (arg === undefined) {
 		return refuse("MalformedDescription", at, `${fn} over one argument`)
 	}
-	return unwrap(unaryOverload(fn === "avg" ? "mean" : fn, arg.type, SourceLoc(at, [])))
+	return {
+		overload: unwrap(unaryOverload(fn === "avg" ? "mean" : fn, arg.type, SourceLoc(at, []))),
+		zeros: argumentZeros({ fn, args: [arg] })
+	}
 }
 
 /**
@@ -121,13 +128,16 @@ const windowCall = (cx: LowerContext, w: NodeOf<"Window">, map: ColumnMap, scope
 				countOverload(),
 				[],
 				w.filter === undefined ? undefined : lowerExpr(cx, w.filter, scope),
-				over
+				over,
+				argumentZeros({ fn: "count", args: [] })
 			)
 		case "sum":
 		case "avg":
 		case "min":
-		case "max":
-			return aggregateExpr(windowOverload(w.fn, w, at), args, undefined, over)
+		case "max": {
+			const { overload, zeros } = windowOverload(w.fn, w, at)
+			return aggregateExpr(overload, args, undefined, over, zeros)
+		}
 		case "lag":
 		case "lead":
 			if (args.length !== 3) {

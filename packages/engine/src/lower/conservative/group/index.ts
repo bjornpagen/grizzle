@@ -2,7 +2,9 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { appendNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { unwrap } from "#compiler/core/canonical.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { NodeOf } from "#compiler/ir/rel.ts"
+import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import type { AggregateCallOver, NodeOf } from "#compiler/ir/rel.ts"
+import { baseOf } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnMap,
 	columnIn,
@@ -26,6 +28,7 @@ import {
 	callOverload,
 	type ExactCarrier
 } from "#compiler/scalar/aggregate.ts"
+import { excludesZero } from "#compiler/scalar/compute/typing.ts"
 import type { Call, CountStar, Expr, FromSource, WindowSpec } from "#compiler/sql/ast.ts"
 import {
 	binary,
@@ -53,6 +56,39 @@ const zeroOf = (float: "float4" | "float8", negative: boolean): Expr =>
 	lit.float(negative ? -0 : 0, float === "float4" ? types.real : types.double)
 
 /**
+ * What an aggregate's argument proves of a float's -0, which a float's zero work reads (aggregateExpr): `unsigned`, that
+ * it holds none, no argument or a term whose own form proves it (holdsNoNegativeZero), so a float's zeros are one value
+ * there, its native extreme is IEEE 754-2019's and its zero total +0; or `signed`, nothing, so a float's extreme and
+ * zero total read their zero's sign off its rows. Only a float's lowerings read it: no other type has two zeros.
+ */
+export type ArgumentZeros = "signed" | "unsigned"
+
+/** The carriers of an integer, whose one zero a cast to a float takes to +0. */
+const integerCarriers: ReadonlySet<string> = new Set(["int2", "int4", "int8", "exactInteger"])
+
+/**
+ * Whether a float term holds no -0, by its own form: its type holds no zero (scalar/compute/typing.ts excludesZero, a
+ * contract whose predicate excludes it); it is a cast of an integer, whose one zero is +0; a literal other than -0; or
+ * a Compute.cond whose two values hold none.
+ */
+const holdsNoNegativeZero = (e: ScalarExpr): boolean => {
+	if (excludesZero(e.type)) {
+		return true
+	}
+	if (e.kind === "literal") {
+		return !(e.value.kind === "floatSpecial" && e.value.value === "-0")
+	}
+	if (e.kind === "cast") {
+		return integerCarriers.has(baseOf(e.args[0].type).carrier)
+	}
+	return e.kind === "cond" && holdsNoNegativeZero(e.args[1]) && holdsNoNegativeZero(e.args[2])
+}
+
+/** What an aggregate's argument proves of a float's -0 (ArgumentZeros): count's none, as it reads no value. */
+export const argumentZeros = (agg: AggregateCallOver<ScalarExpr>): ArgumentZeros =>
+	agg.fn === "count" || holdsNoNegativeZero(agg.args[0]) ? "unsigned" : "signed"
+
+/**
  * IEEE 754's sum, over an argument's rows, of `zero` where the argument is zero and of `other` where it is not: a zero
  * whose sign is the rows', in any order. -0 is the sum's identity, so `other` -0 sums the zeros alone, -0 exactly when
  * each is -0; +0 absorbs -0, so `other` +0 is -0 exactly when every row is -0. It reads zeros alone, and never
@@ -78,24 +114,36 @@ const zerosSum = (
 
 /**
  * The zero of a float sum or mean that is zero: -0 exactly when every row is -0, as IEEE 754's sum of them is, and
- * JavaScript's Math.sumPrecise: a +0 or any nonzero value makes it +0.
+ * JavaScript's Math.sumPrecise: a +0 or any nonzero value makes it +0. An argument that holds no -0 (ArgumentZeros)
+ * has +0 alone, with no sum.
  */
-const signedZero = (float: "float4" | "float8", arg: Expr, window: WindowSpec | undefined): Expr =>
-	zerosSum(float, arg, arg, zeroOf(float, false), window)
+const signedZero = (
+	float: "float4" | "float8",
+	arg: Expr,
+	zeros: ArgumentZeros,
+	window: WindowSpec | undefined
+): Expr =>
+	zeros === "unsigned"
+		? zeroOf(float, false)
+		: zerosSum(float, arg, arg, zeroOf(float, false), window)
 
 /**
  * A float's min or max over its rows with IEEE 754-2019's zero (scalar/aggregate.ts signedExtreme): the native extreme,
  * and where it is zero the least zero -0 when any row's is, the greatest +0 when any row's is, read off the IEEE sum of
  * the rows' zeros, negated for min: CASE WHEN min(x) = 0 THEN -sum(CASE WHEN x = 0 THEN -x ELSE -0 END) ELSE min(x)
- * END.
+ * END. An argument that holds no -0 (ArgumentZeros) has one zero, so its native extreme is IEEE 754-2019's.
  */
 const signedExtremeOf = (
 	fn: "min" | "max",
 	float: "float4" | "float8",
 	arg: Expr,
+	zeros: ArgumentZeros,
 	window: WindowSpec | undefined
 ): Expr => {
 	const native: Expr = { ...call(fn, [arg]), over: window }
+	if (zeros === "unsigned") {
+		return native
+	}
 	const negated = (e: Expr): Expr => ({ kind: "negate", expr: e })
 	const zero =
 		fn === "max"
@@ -118,12 +166,13 @@ const roundedSum = (
 	total: Expr,
 	exact: ExactCarrier,
 	arg: Expr,
+	zeros: ArgumentZeros,
 	window: WindowSpec | undefined
 ): Expr => {
 	switch (exact) {
 		case "float4":
 		case "float8":
-			return roundToFloat(total, exact, signedZero(exact, arg, window))
+			return roundToFloat(total, exact, signedZero(exact, arg, zeros, window))
 		case "money":
 			return total
 	}
@@ -140,24 +189,27 @@ const roundedMean = (
 	count: Expr,
 	exact: "float4" | "float8",
 	arg: Expr,
+	zeros: ArgumentZeros,
 	window: WindowSpec | undefined
 ): Expr =>
 	roundToFloat(
 		binary("/", call("trim_scale", [total]), count),
 		"float8",
-		signedZeroOf(total, "float8", cast(signedZero(exact, arg, window), types.double))
+		signedZeroOf(total, "float8", cast(signedZero(exact, arg, zeros, window), types.double))
 	)
 
 /**
  * An aggregate's SQL as its overload's lowering states it (scalar/aggregate.ts AggregateLowering): the one place an
  * overload becomes SQL, which every emitter calls, a grouped fold with no window and a running fold with its window.
- * Each aggregate call it writes takes `window` as its OVER, and count(*) takes `filter`, the one filtered aggregate.
+ * Each aggregate call it writes takes `window` as its OVER, and count(*) takes `filter`, the one filtered aggregate. A
+ * float's zero work is done only where its argument may hold -0 (`zeros`, argumentZeros).
  */
 export const aggregateExpr = (
 	overload: AggregateOverload,
 	args: ReadonlyArray<Expr>,
 	filter: Expr | undefined,
-	window: WindowSpec | undefined
+	window: WindowSpec | undefined,
+	zeros: ArgumentZeros
 ): Expr => {
 	const over = (c: Call): Call => ({ ...c, over: window })
 	const counted = (where: Expr | undefined): CountStar => ({
@@ -193,6 +245,7 @@ export const aggregateExpr = (
 				),
 				lowering.exact,
 				argumentOf(args),
+				zeros,
 				window
 			)
 		case "exactMean":
@@ -206,10 +259,11 @@ export const aggregateExpr = (
 				counted(undefined),
 				lowering.exact,
 				argumentOf(args),
+				zeros,
 				window
 			)
 		case "signedExtreme":
-			return signedExtremeOf(lowering.fn, lowering.float, argumentOf(args), window)
+			return signedExtremeOf(lowering.fn, lowering.float, argumentOf(args), zeros, window)
 	}
 }
 
@@ -223,7 +277,8 @@ const aggregateCall = (cx: LowerContext, agg: Aggregate, scope: Env, at: string)
 		groupAggregateOverload(agg, at),
 		agg.args.map((a) => lowerExpr(cx, a, scope)),
 		agg.filter === undefined ? undefined : lowerExpr(cx, agg.filter, scope),
-		undefined
+		undefined,
+		argumentZeros(agg)
 	)
 
 /**

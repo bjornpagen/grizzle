@@ -894,6 +894,23 @@ export const factsOfType = (t: ScalarType): FactSet => {
 	return Object.freeze(facts)
 }
 
+/**
+ * Whether no value of `t` is zero, so a float of it holds no -0: its facts state it (a contract that declares nonzero,
+ * which its build proved), its bounds hold no zero (a contract's interval atoms refining its base's), or a contract
+ * level's predicate states VALUE <> 0, which PostgreSQL's equality, -0 = 0, refuses -0 by too.
+ */
+export const excludesZero = (t: ScalarType): boolean => {
+	const bounds = boundsOfType(t)
+	return (
+		factsOfType(t).nonzero !== undefined ||
+		(bounds !== undefined && boundsHave(bounds, "nonzero")) ||
+		contractLevels(t).some(
+			(c) =>
+				c.predicate !== undefined && predicateAtoms(c.predicate).some((a) => a.kind === "nonzero")
+		)
+	)
+}
+
 /** The facts a literal's own value has: NaN and Infinity are never zero nor below zero, nor finite. */
 const factsOfValue = (value: Exact | "nan" | "infinity" | "-infinity"): FactSet => {
 	const literal = { kind: "literal" } as const
