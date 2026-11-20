@@ -24,7 +24,7 @@ import {
 	leaseSlots,
 	leaseTableNames,
 	substrateLease,
-	unleasedConnections
+	unleasedSessions
 } from "#test/support/substrate/lease.ts"
 import { allocatingPid } from "#test/support/substrate/names.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -383,13 +383,10 @@ export const lend = (
 		[lentVariable]: `${place.cluster.port}:${width}:${place.database}`
 	})
 
-/**
- * The initialised cluster with a budget of the connections no lease covers (unleasedConnections), for work no test
- * runs: the sweep's.
- */
-const unleased: Effect.Effect<BudgetedCluster, never, InitializedCluster> = Effect.map(
+/** The initialised cluster with a budget of the sweep's sessions outside every lease, each it holds at once (unleasedSessions). */
+const swept: Effect.Effect<BudgetedCluster, never, InitializedCluster> = Effect.map(
 	InitializedCluster,
-	(cluster) => budgeted(cluster, leaseBudget(unleasedConnections))
+	(cluster) => budgeted(cluster, leaseBudget(unleasedSessions.sweep.length))
 )
 
 /** Whether process `pid` is running on this machine; a process of another user counts as running. */
@@ -462,7 +459,7 @@ export const sweep = (
 ) =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			const cluster = yield* unleased
+			const cluster = yield* swept
 			const admin = yield* devSession(cluster, Option.none())
 			yield* admin.queryValues("SELECT pg_catalog.pg_advisory_lock($1::int8)", [sweepKey])
 			const databases = yield* admin.queryValues(
