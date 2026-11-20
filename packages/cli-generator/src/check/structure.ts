@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Predicate, Record, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Predicate, Record, String as Str } from "effect"
 import {
 	entriesOf,
 	expression,
@@ -12,7 +12,12 @@ import {
 	site
 } from "#check/path-items.ts"
 import type { Operation, PathItem } from "#check/path-items.ts"
-import { ComponentName, componentNamePattern, MethodToken, PathTemplate } from "#model/brands.ts"
+import {
+	componentNamePattern,
+	isComponentName,
+	isMethodToken,
+	isPathTemplate
+} from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { isObject, nodeAt, stringMember } from "#model/json-tree.ts"
@@ -133,8 +138,6 @@ interface Parameter {
 	readonly name: string
 	readonly pointer: string
 }
-
-const isComponentName = Schema.is(ComponentName)
 
 const sections30 = [
 	"schemas",
@@ -330,10 +333,6 @@ const duplicateIdFindings = (operations: readonly Operation[]): readonly Finding
 
 	return found
 }
-
-const isMethodToken = Schema.is(MethodToken)
-
-const isPathTemplate = Schema.is(PathTemplate)
 
 const additionalKeyFindings = (operation: Operation): readonly Finding[] => {
 	if (!operation.additional) {
