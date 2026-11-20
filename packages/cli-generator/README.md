@@ -61,7 +61,7 @@ fallow holds the architecture (the root's `.fallowrc.json`, its `cli-generator` 
 grizzle's workspace builds, checks and tests this package with the rest ([CONTRIBUTING.md](../../CONTRIBUTING.md)):
 
 ```sh
-pnpm types                                                # the incremental typecheck, every package's
+pnpm types                                                # the typecheck, every package's
 pnpm check                                                # the gate: this package's typecheck and oxlint, its runtime gate and its benchmark among the rest
 pnpm test:cli-generator                                   # its properties, the grizzle tier against the local cluster
 pnpm --filter @bjornpagen/grizzle-cli-generator corpus    # regenerate and check the corpus verdicts (it fetches the pinned specifications)

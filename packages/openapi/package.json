@@ -19,8 +19,7 @@
 	},
 	"sideEffects": false,
 	"scripts": {
-		"typecheck": "toolchain-typecheck -b",
-		"typecheck:full": "rm -rf types && toolchain-typecheck -p tsconfig.json",
+		"typecheck": "rm -rf types && toolchain-typecheck -p tsconfig.json",
 		"oxlint": "toolchain-oxlint"
 	},
 	"dependencies": {

@@ -5419,7 +5419,7 @@ pnpm test                         # the unit and types tiers, which need no netw
 pnpm test:network                 # the pg and schedules tiers, against the local cluster
 pnpm test:cli-generator           # the CLI generator's properties, its grizzle tier against the local cluster
 pnpm test:properties <file | id>  # some modules or properties
-pnpm types                        # after every edit: the incremental typecheck, which the hooks run too
+pnpm types                        # after every edit: the typecheck, which the hooks run too
 pnpm check                        # before a release (turbo, cached): typecheck, workspace gate, oxlint, format, fallow, dedupe
 ```
 

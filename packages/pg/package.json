@@ -19,7 +19,6 @@
 	},
 	"scripts": {
 		"typecheck": "toolchain-typecheck --noEmit -p tsconfig.json",
-		"typecheck:full": "toolchain-typecheck --noEmit -p tsconfig.json --incremental false",
 		"oxlint": "toolchain-oxlint"
 	},
 	"dependencies": {

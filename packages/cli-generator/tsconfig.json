@@ -1,9 +1,6 @@
 {
 	"$schema": "../../node_modules/@effect/tsgo/schema.json",
 	"extends": "../../tsconfig.json",
-	"compilerOptions": {
-		"tsBuildInfoFile": "types/tsconfig.tsbuildinfo"
-	},
 	"references": [
 		{
 			"path": "../engine"

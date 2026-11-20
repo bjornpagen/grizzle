@@ -12,7 +12,7 @@ lefthook: node_modules/.bin/lefthook
 # merge or rebase skips pre-commit, so the push typechecks HEAD, what it brought; that push job is a script job
 # (.lefthook/pre-push/gate.sh), since lefthook skips a pre-push run job whenever `git diff HEAD @{push}` names no file,
 # and a push of the toolchain's gitlink alone, of deletions alone or of an empty commit would go out unchecked. The push
-# runs the full gate, pnpm check (the non-incremental typecheck, the type-aware oxlint, the workspace gate, fallow), on
+# runs the full gate, pnpm check (the typecheck, the type-aware oxlint, the workspace gate, fallow), on
 # HEAD's snapshot: since the type-aware lint runs on tsrs (toolchain 978aa63) it takes about half a minute, and a push
 # that skipped it let a type-aware lint red reach main (bf2e6945f). Run it by hand on exactly what the index holds with
 # `sh vendor/toolchain/packages/devtools/bin/gate.sh run index pnpm check`.

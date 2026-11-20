@@ -18,18 +18,18 @@
 			"dependsOn": ["^source"]
 		},
 		"typecheck": {
-			"description": "pnpm types: each project checked incrementally, from the build info its last build left. toolchain-typecheck -b (tsrs -b) builds the package's project and the projects it references, so it runs after theirs. Its outputs are types/: the declarations and the build info they were built from (tsconfig tsBuildInfoFile), so a cache hit restores both together and the next build compares the sources against the declarations on disk.",
+			"description": "pnpm types and pnpm check's typecheck: each project checked from scratch by toolchain-typecheck, which reads no build info (TypeScript 7.1.0-beta's incremental check passed an unused import over an earlier version's build info, METIS-BOOT 2026-11-20; microsoft/TypeScript#64386, #64591). A composite package removes its types/ and checks its own project alone (tsrs -p), against the declarations its references' checks wrote, so it runs after theirs and writes nothing of theirs. Its outputs are the declarations it writes, so a cache hit restores exactly this tree's.",
 			"dependsOn": ["^typecheck"],
 			"outputs": ["types/**"]
 		},
-		"typecheck:full": {
-			"description": "pnpm check's typecheck: each project checked from nothing, never from build info, since an incremental build can keep a diagnostic or a declaration a clean one would not (microsoft/TypeScript#64386, #64591). A package's removes its types/ and builds its own project alone (tsrs -p), against the declarations its references' full builds wrote, so it runs after theirs and writes nothing of theirs.",
-			"dependsOn": ["^typecheck:full"],
-			"outputs": ["types/**"]
+		"@bjornpagen/grizzle-cli-generator#typecheck": {
+			"description": "The generator's typecheck, through its ratchet (scripts/ratchet.ts), checks with the root's noEmit: it writes nothing, so there is no output.",
+			"dependsOn": ["^typecheck"],
+			"outputs": []
 		},
-		"@bjornpagen/grizzle-pg#typecheck:full": {
-			"description": "The pin's package checks with --noEmit and --incremental false: no build info is read or written, so there is no output.",
-			"dependsOn": ["^typecheck:full"],
+		"@bjornpagen/grizzle-pg#typecheck": {
+			"description": "The pin's package checks with --noEmit: it writes nothing, so there is no output.",
+			"dependsOn": ["^typecheck"],
 			"outputs": []
 		},
 		"oxlint": {
@@ -64,17 +64,8 @@
 			]
 		},
 		"//#typecheck": {
-			"description": "The tooling project (test, bench, scripts) builds after both packages' projects, which toolchain-typecheck -b then finds up to date; its build info is tsconfig.tsbuildinfo, beside its tsconfig. A root task's inputs are the whole repository, the packages and the toolchain included; the root checks but format read no Markdown, so theirs leave it out.",
+			"description": "The tooling project (test, bench, scripts) checked alone and from scratch (tsrs -p), against the declarations both packages' checks wrote, so it runs after theirs. It writes nothing. A root task's inputs are the whole repository, the packages and the toolchain included; the root checks but format read no Markdown, so theirs leave it out.",
 			"dependsOn": ["@bjornpagen/grizzle-engine#typecheck", "@bjornpagen/grizzle#typecheck"],
-			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"],
-			"outputs": ["tsconfig.tsbuildinfo"]
-		},
-		"//#typecheck:full": {
-			"description": "The tooling project checked alone and from nothing (tsrs -p --incremental false), against the declarations both packages' full builds wrote. It writes nothing.",
-			"dependsOn": [
-				"@bjornpagen/grizzle-engine#typecheck:full",
-				"@bjornpagen/grizzle#typecheck:full"
-			],
 			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"],
 			"outputs": []
 		},

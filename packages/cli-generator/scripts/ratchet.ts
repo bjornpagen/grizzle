@@ -25,8 +25,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process"
  * current counts when no file rose. A tool at zero leaves the ledger and runs as the plain tool; when every tool is
  * at zero this script and its ledger are deleted. A tool that fails to run, or whose own summary disagrees with the
  * findings read from its output, fails the check: a count the ratchet could not read is never a pass. Arguments after
- * `--` go to the tool as they are: the gate runs the typecheck in full with `--incremental false`, where `pnpm types`
- * runs it incrementally.
+ * `--` go to the tool as they are (`-p tsconfig.json`: toolchain-typecheck checks from scratch).
  */
 
 /** The tools the ratchet holds, each by the gate task that runs it. */
