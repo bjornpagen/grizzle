@@ -119,8 +119,6 @@ export const sqlLiteral = (literal: TypedLiteral, type: ScalarType, schema: stri
 			return `${quoteString(`[${literal.start},${literal.end})`)}::${t}`
 		case "vector":
 			return `${quoteString(literal.value[canonicalTag]().payload)}::${t}`
-		case "pattern":
-			throw new Error("the generators draw no pattern column")
 	}
 }
 

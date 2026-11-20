@@ -8,7 +8,6 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { type ExprTable, predicateTable, predicateTree } from "#compiler/ir/expr.ts"
-import { languageOf, type PatternValue, admitSpelling } from "#compiler/ir/pattern.ts"
 import {
 	type Carrier,
 	type DeclaredType,
@@ -32,7 +31,7 @@ import {
  */
 import type { PlainCarrier } from "#compiler/scalar/native.ts"
 import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
-import type { TextRefinement } from "#compiler/text/refinement.ts"
+import { languageOf, type TextRefinement } from "#compiler/text/refinement.ts"
 
 export { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"
 export { plainType } from "#compiler/scalar/native.ts"
@@ -178,21 +177,8 @@ export const accepts = (refinement: TextRefinement, value: string): boolean =>
 	Arr.every(refinement.members, (member) => Matcher.of(buildNfa(member.ir)).matches(value))
 
 /**
- * The language of a parsed pattern (scalar/regex/parse.ts parsePattern) as analyzeText knows it (ir/pattern.ts
+ * The language of a parsed pattern (scalar/regex/parse.ts parsePattern) as analyzeText knows it (text/refinement.ts
  * languageOf): its canonical automaton within the DFA bounds, of no state for the empty language, which analyzeText
  * refuses, or its structure past them.
  */
 export const analyzeLanguage = (ir: RegexNode) => languageOf(buildNfa(ir))
-
-/**
- * The pattern value of `spelling` (ir/pattern.ts admitSpelling), admitted and its language's key computed as
- * every pattern literal's is: what a test's Compute.matches literal or guard holds. A spelling its admission refuses fails the
- * test.
- */
-export const spelled = (spelling: string): PatternValue => {
-	const value = admitSpelling(spelling)
-	if (!value.ok) {
-		throw new Error(`a test's pattern its admission admits: /${spelling}/u`)
-	}
-	return value.value
-}

@@ -326,8 +326,6 @@ export const hostValue = (literal: TypedLiteral, type: ScalarType): unknown => {
 				start: type.carrier === "range8" ? literal.start : Number(literal.start),
 				end: type.carrier === "range8" ? literal.end : Number(literal.end)
 			}
-		case "pattern":
-			return literal.value.spelling
 	}
 }
 

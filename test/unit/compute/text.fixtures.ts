@@ -18,13 +18,11 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
-import type { PatternValue } from "#compiler/ir/pattern.ts"
 import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { matchAre, matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
 import { refusalLoc, succeeded } from "#test/support/assert.ts"
-import { spelled } from "#test/support/fixtures/ir/scalar.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
@@ -85,12 +83,6 @@ export const variable = (name: string): ExprDesc => ({ kind: "var", var: name })
 
 export const text = (value: string): ExprDesc => ({ kind: "literal", value })
 
-/** A Compute.matches pattern literal: its pattern value. */
-export const patternLiteral = (value: PatternValue): ExprDesc => ({ kind: "literal", value })
-
-/** The pattern literal of `spelling`, admitted (spelled). */
-const pattern = (spelling: string): ExprDesc => patternLiteral(spelled(spelling))
-
 export const computeDesc = (
 	fn: "matches" | "concat" | "startsWith" | "endsWith",
 	...args: ReadonlyArray<ExprDesc>
@@ -112,10 +104,15 @@ interface MatchCase {
 	readonly pick: boolean
 }
 
-export type MatchFeature = "match" | "no match" | "dictionary of two" | "the empty language"
+export type MatchFeature =
+	| "match"
+	| "no match"
+	| "dictionary of two"
+	| "sources out of code unit order"
+	| "the empty language"
 
-/** Code point order, by the code points themselves. */
-const byCodePoints: Order.Order<string> = Order.mapInput(
+/** Code point order, by the code points themselves: the order a pattern table keeps. */
+export const byCodePoints: Order.Order<string> = Order.mapInput(
 	Order.Array(Order.Number),
 	(text: string) =>
 		Arr.map(Arr.fromIterable(text), (c) =>
@@ -124,25 +121,16 @@ const byCodePoints: Order.Order<string> = Order.mapInput(
 )
 
 /**
- * The order a pattern table keeps its values in, as the specification states it: by their language's key, then by
- * their spelling, each in code point order.
+ * Code points either side of the surrogates, where UTF-16 code unit order and code point order part: two patterns led
+ * by two of them are ordered by their leads.
  */
-const byLanguage: Order.Order<PatternValue> = Order.combine(
-	Order.mapInput(byCodePoints, (p: PatternValue) => p.pattern),
-	Order.mapInput(byCodePoints, (p: PatternValue) => p.spelling)
-)
-
-/** The values a pattern table holds of `values`: each spelling once, by language (byLanguage). */
-export const tableOf = (
-	values: Arr.NonEmptyReadonlyArray<PatternValue>
-): ReadonlyArray<PatternValue> =>
-	Arr.sort(
-		Arr.dedupeWith(values, (a, b) => a.spelling === b.spelling),
-		byLanguage
-	)
-
-/** Code points either side of the surrogates, where UTF-16 code unit order and code point order part. */
 const orderEdge = [0xd7ff, 0xe000, 0xffff, 0x10000, 0x10ffff] as const
+
+/** Whether texts in code point order are out of UTF-16 code unit order, where a table ordered as text goes wrong. */
+export const outOfUnitOrder = (inCodePointOrder: ReadonlyArray<string>): boolean => {
+	const byUnits = Arr.sort(inCodePointOrder, Order.String)
+	return !Arr.every(inCodePointOrder, (s, i) => s === byUnits[i])
+}
 
 export const matchCase: Gen<MatchCase> = (source) => {
 	const fi = source.draw(int(0, families.length - 1))
@@ -176,20 +164,12 @@ export const matchCase: Gen<MatchCase> = (source) => {
 	}
 }
 
-/**
- * The pattern a case states of its sources' pattern values: its literal, or a conditional over the condition column
- * choosing between two.
- */
-export const casePattern = (values: Arr.NonEmptyReadonlyArray<PatternValue>): ExprDesc => {
-	const [first, second] = values
+/** The pattern a case states: its literal, or a conditional over the condition column choosing between two. */
+export const patternOf = (c: MatchCase): ExprDesc => {
+	const [first, second] = c.sources
 	return second === undefined
-		? patternLiteral(first)
-		: {
-				kind: "cond",
-				pred: variable("p"),
-				onTrue: patternLiteral(first),
-				onFalse: patternLiteral(second)
-			}
+		? text(first)
+		: { kind: "cond", pred: variable("p"), onTrue: text(first), onFalse: text(second) }
 }
 
 /** A pair of texts: whether the first begins or ends with the second by construction, or a drawn pair. */
@@ -237,7 +217,6 @@ export type Fault =
 	| "a pattern past the compile space"
 	| "a construct outside the grammar"
 	| "a malformed pattern"
-	| "a pattern value of another spelling's key"
 	| "a pattern no text matches"
 	| "a column as the pattern"
 	| "a parameter as the pattern"
@@ -252,7 +231,6 @@ export const faults: Arr.NonEmptyReadonlyArray<Fault> = [
 	"a pattern past the compile space",
 	"a construct outside the grammar",
 	"a malformed pattern",
-	"a pattern value of another spelling's key",
 	"a pattern no text matches",
 	"a column as the pattern",
 	"a parameter as the pattern",
@@ -367,7 +345,7 @@ const spellingOver = (
 	pool: Arr.NonEmptyReadonlyArray<string>,
 	depth: number
 ): Gen<PatternSpelling> => {
-	const literal = map(element(pool), (s): PatternSpelling => ({ desc: pattern(s), sources: [s] }))
+	const literal = map(element(pool), (s): PatternSpelling => ({ desc: text(s), sources: [s] }))
 	if (depth === 0) {
 		return literal
 	}
@@ -399,4 +377,4 @@ export const spellingGen: Gen<PatternSpelling> = (source) => {
 
 /** The ARE str.regex prints for an admitted pattern. */
 export const areOf = (source: string): string =>
-	matchAre(succeeded(matchPattern(source, SourceLoc("pattern", []))).spelling)
+	matchAre(succeeded(matchPattern(source, SourceLoc("pattern", []))))

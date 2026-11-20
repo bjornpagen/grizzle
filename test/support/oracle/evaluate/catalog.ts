@@ -16,7 +16,6 @@ import {
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
-import { matchFlags } from "#compiler/ir/pattern.ts"
 import {
 	baseOf,
 	type Carrier,
@@ -36,6 +35,7 @@ import {
 	nativeOps
 } from "#compiler/scalar/compute/registry.ts"
 import { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
+import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import type { BytesDigest } from "#compiler/scalar/values/bytes.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { compareFloat } from "#compiler/scalar/values/float.ts"
@@ -231,8 +231,6 @@ export const modelLiteral = (literal: TypedLiteral): ModelValue => {
 			return { start: literal.start, end: literal.end }
 		case "vector":
 			return { vector: literal.value }
-		case "pattern":
-			return literal.value.spelling
 	}
 }
 

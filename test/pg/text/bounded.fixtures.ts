@@ -6,7 +6,6 @@ import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
-import { spelled } from "#test/support/fixtures/ir/scalar.ts"
 import { baseParams, lowerWith, plainRender, renderSql } from "#test/unit/compute/support.ts"
 import { textColumn } from "#test/unit/compute/text.fixtures.ts"
 import { admittedPatternOver, families, stringsOver } from "#test/unit/text/generators.ts"
@@ -59,7 +58,7 @@ const guardedMatch = (pattern: string, bytes: number): ExprDesc => ({
 		fn: "matches",
 		args: [
 			{ kind: "var", var: "v" },
-			{ kind: "literal", value: spelled(pattern) }
+			{ kind: "literal", value: pattern }
 		]
 	},
 	otherwise: { kind: "literal", value: false }

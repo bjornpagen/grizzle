@@ -2298,7 +2298,6 @@ class Model {
 			case "numeric":
 			case "span":
 			case "vector":
-			case "pattern":
 				return unevaluable(`a ${v.kind} cell`)
 		}
 	}

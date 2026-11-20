@@ -113,7 +113,6 @@ const hostOf = (literal: TypedLiteral): Value => {
 		case "date":
 		case "span":
 		case "vector":
-		case "pattern":
 			return assert.fail(`no host value of the box for ${literal.kind}`)
 	}
 }

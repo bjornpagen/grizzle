@@ -10,10 +10,10 @@ import {
 } from "@bjornpagen/grizzle-text/regex/parse"
 import { entry } from "@bjornpagen/grizzle-text/regex/table"
 import type { ExprTable } from "#compiler/ir/expr.ts"
-import { matchFlags } from "#compiler/ir/pattern.ts"
 import { type RegexRef, regexRefOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	edgeCode,
+	matchFlags,
 	memberOf,
 	type ServedMatcher,
 	type ServedMatchers
@@ -231,6 +231,6 @@ export const tablePatterns = (table: ExprTable): ReadonlyArray<PatternSource> =>
 	Object.values(table.exprs).flatMap((e) => [
 		...typePatterns(e.type),
 		...(e.kind === "op" && "patterns" in e
-			? e.patterns.map((p) => ({ source: p.spelling, flags: matchFlags }))
+			? e.patterns.map((source) => ({ source, flags: matchFlags }))
 			: [])
 	])

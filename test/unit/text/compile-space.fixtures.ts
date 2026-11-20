@@ -35,7 +35,7 @@ import {
 	type RawNfa,
 	rawNfa,
 	withoutAliases
-} from "#compiler/ir/pattern-space.ts"
+} from "#compiler/scalar/regex/space.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { jsMatcher } from "#test/support/regex.ts"
@@ -227,7 +227,7 @@ const anchorsOf = (nfa: RawNfa): number =>
 /** A pattern's built raw NFA. */
 const built = (ir: LiveNode): RawNfa => rawNfa(ir, colorsOf(ir))
 
-/** The states a pattern's match reads, as the model counts them (ir/pattern-space.ts matchStates). */
+/** The states a pattern's match reads, as the model counts them (scalar/regex/space.ts matchStates). */
 const matchStatesOf = (ir: LiveNode): number => matchStates(withoutAliases(built(ir)))
 
 /**

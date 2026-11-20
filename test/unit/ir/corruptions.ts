@@ -1900,7 +1900,6 @@ const expressions: ReadonlyArray<DagCorruption> = [
 					case "uuid":
 					case "date":
 					case "vector":
-					case "pattern":
 						return []
 				}
 			})

@@ -283,7 +283,7 @@ export const onlyAClosedRelationsOwnStrPatternFieldHoldsPatternsAndEachOfItsValu
 				},
 				{
 					file: "packages/engine/src/check/closed.ts",
-					original: "\t\t\t\tunwrap(matchValueAt(admission, at))\n",
+					original: "\t\t\t\tunwrap(matchSourceAt(admission, at))\n",
 					replacement: "",
 					why: "A str.pattern value no admission admits is kept until a match reads it, refused at the match, not once at the relation's rows."
 				}

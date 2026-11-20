@@ -6,8 +6,10 @@ import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
 import { entry } from "@bjornpagen/grizzle-text/regex/table"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
-import { matchFlags } from "#compiler/ir/pattern.ts"
 import { octetsOf, type RegexRef } from "#compiler/ir/scalar.ts"
+
+/** The flags every Compute.matches pattern is read under: str.regex's default. */
+export const matchFlags: RegexFlags = "u"
 
 /**
  * Whether a text is a member of a regex refinement, each of its patterns' matchers read by `matcherOf`: within its byte

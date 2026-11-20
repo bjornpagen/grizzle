@@ -117,8 +117,6 @@ export const lowerLiteral = (
 			return lit.text(spanLiteralText(literal, type), sqlType)
 		case "vector":
 			return lit.text(vectorPayload(literal.value), sqlType)
-		case "pattern":
-			throw defect("a pattern literal is lowered where its match reads it, as its ARE (patternAre)")
 	}
 }
 
@@ -317,8 +315,8 @@ export const matchOperands = (expr: ScalarExpr, lowering: PatternLowering): Read
 
 /**
  * A Compute.matches pattern lowered as its ARE, the one PostgreSQL's `~` reads, never as its source, which only
- * grizzle's own automaton reads: a literal's spelling's ARE (scalar/regex/admit.ts matchAre), as is a pattern the
- * site folds to a literal (physical/ddl/expr.ts), so no expression compares two constants, which a generation expression refuses
+ * grizzle's own automaton reads: a literal's ARE (scalar/regex/admit.ts matchAre), as is a pattern the site folds to a
+ * literal (physical/ddl/expr.ts), so no expression compares two constants, which a generation expression refuses
  * (42P22); a str.pattern payload's ARE read by its key from the relation's ARE dictionary (sql/constants.ts
  * closedRead), translated where the constants were planned; and a Compute.cond of them, each arm its ARE. Typing admits
  * no other pattern (scalar/compute/typing.ts patternParts), so the match translates nothing as it runs and states no
@@ -334,10 +332,10 @@ const patternAre = (pattern: ScalarExpr, lowering: PatternLowering): Expr => {
 	}
 	switch (pattern.kind) {
 		case "literal":
-			if (pattern.value.kind !== "pattern") {
-				throw defect("a Compute.matches pattern literal is a pattern value")
+			if (pattern.value.kind !== "text") {
+				throw defect("a Compute.matches pattern literal is a text")
 			}
-			return lit.text(matchAre(pattern.value.value.spelling), types.text)
+			return lit.text(matchAre(pattern.value.value), types.text)
 		case "closedAt":
 			return lowering.are(pattern)
 		case "cond": {

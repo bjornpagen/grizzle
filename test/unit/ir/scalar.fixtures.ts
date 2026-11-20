@@ -31,7 +31,6 @@ import {
 	type TableExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
-import { admitSpelling } from "#compiler/ir/pattern.ts"
 import {
 	baseOf,
 	type Carrier,
@@ -316,13 +315,6 @@ const literalArms: { readonly [K in DrawnKind]: Gen<TypedLiteral> } = {
 			kind: "vector",
 			value: succeeded(VectorText.of(Float32Array.from(xs)))
 		})
-	),
-	pattern: map(
-		oneOf([
-			element(["^a+$", "a|b", "[a-c]*"]),
-			string(element(["a", "b", "é"]), { min: 0, max: 3 })
-		]),
-		(spelling): TypedLiteral => ({ kind: "pattern", value: succeeded(admitSpelling(spelling)) })
 	)
 }
 
@@ -339,8 +331,7 @@ const drawnKinds: Arr.NonEmptyReadonlyArray<DrawnKind> = [
 	"handle",
 	"handles",
 	"span",
-	"vector",
-	"pattern"
+	"vector"
 ]
 
 /** A literal of any drawn kind. */
@@ -369,8 +360,7 @@ const carriersOf: { readonly [K in DrawnKind]: Arr.NonEmptyReadonlyArray<Carrier
 	handle: ["code"],
 	handles: ["bits"],
 	span: ["range4", "range8"],
-	vector: ["vector"],
-	pattern: ["text"]
+	vector: ["vector"]
 }
 
 /**
@@ -475,12 +465,6 @@ export const admits = (literal: TypedLiteral, outer: ScalarType): boolean => {
 			const norm = Math.sqrt(Arr.reduce(xs, 0, (sum, x) => sum + x * x))
 			return xs.length === type.typmod.dims && norm >= cosineNormMin && norm <= cosineNormMax
 		}
-		case "pattern":
-			return (
-				c === "text" &&
-				literal.value.spelling.isWellFormed() &&
-				!Str.includes("\u0000")(literal.value.spelling)
-			)
 	}
 }
 

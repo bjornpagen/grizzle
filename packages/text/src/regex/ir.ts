@@ -61,7 +61,7 @@ const regexFirstArcBatch = 64
 const regexMaxArcBatch = 1_024
 
 /**
- * The most arcs a pattern's NFAs may hold at once (ir/pattern-space.ts pastCompileSpace), each set's counted once
+ * The most arcs a pattern's NFAs may hold at once (scalar/regex/space.ts pastCompileSpace), each set's counted once
  * for each color it spans: twice the arcs of the optimized NFA, which empty-arc removal adds to. A pattern of more is
  * refused as ResourceBound (regexCompileSpace, arcs).
  *

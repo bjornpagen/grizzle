@@ -22,7 +22,6 @@ import {
 	type Spelled
 } from "#compiler/ir/desc.ts"
 import type { LiteralExpr, OpenExpr } from "#compiler/ir/open.ts"
-import type { PatternValue } from "#compiler/ir/pattern.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { baseOf, rosterOf, type ScalarType, spanOf, typeLabel } from "#compiler/ir/scalar.ts"
 import { type ClosedIdParts, closedIdField } from "#compiler/scalar/closed-id.ts"
@@ -371,18 +370,6 @@ class Call {
 			kind: "literal",
 			value: this.literal(value, anchor)
 		}
-		return { real: literal, ph: this.placeholder(anchor) }
-	}
-
-	/**
-	 * A Compute.matches pattern opposite a text term of `anchor`: its pattern value as a literal, which a match alone
-	 * reads, so its placeholder is a text of anchor's.
-	 */
-	pattern(
-		value: PatternValue,
-		anchor: ScalarType
-	): { readonly real: OpenExpr; readonly ph: ExprDesc } {
-		const literal: LiteralExpr = { kind: "literal", value }
 		return { real: literal, ph: this.placeholder(anchor) }
 	}
 
@@ -844,8 +831,8 @@ const matches = (subject: unknown, pattern: unknown): GuardParts => {
 		readonly guardTest: GuardTest
 	} = Pattern.is(pattern)
 		? {
-				operand: call.pattern(pattern.value, s.type),
-				guardTest: { kind: "refines", guard: { kind: "matches", pattern: pattern.value } }
+				operand: call.operand(pattern.source, s.type, "literal"),
+				guardTest: { kind: "refines", guard: { kind: "matches", pattern: pattern.source } }
 			}
 		: { operand: call.operand(pattern, s.type, "term"), guardTest: { kind: "tests" } }
 	const real: OpenExpr = { kind: "compute", fn: "matches", args: [s.real, read.operand.real] }

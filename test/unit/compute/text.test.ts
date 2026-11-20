@@ -34,22 +34,14 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	decodeDesc,
-	type ExprDesc,
-	type GuardDesc,
-	guardedExpr,
-	literalPattern
-} from "#compiler/ir/desc.ts"
-import { regexMaxDepth, colorsOf, rawSize } from "#compiler/ir/pattern-space.ts"
-import { admitSpelling, type PatternValue } from "#compiler/ir/pattern.ts"
+import { type ExprDesc, type GuardDesc, guardedExpr } from "#compiler/ir/desc.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
+import { regexMaxDepth, colorsOf, rawSize } from "#compiler/scalar/regex/space.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { refused, succeeded, throwsRefused } from "#test/support/assert.ts"
-import { spelled } from "#test/support/fixtures/ir/scalar.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import { baseParams, lowerWith, plainRender, sqlOf, testPg, v } from "#test/unit/compute/support.ts"
 import {
@@ -58,6 +50,7 @@ import {
 	areOf,
 	boolColumn,
 	boundedColumn,
+	byCodePoints,
 	computeDesc,
 	emptyLanguage,
 	escaped,
@@ -66,14 +59,13 @@ import {
 	matchCase,
 	type MatchFeature,
 	matchNode,
-	casePattern,
+	outOfUnitOrder,
 	pathOf,
-	patternLiteral,
+	patternOf,
 	plantedGen,
 	type Row,
 	type Spelling,
 	spellingGen,
-	tableOf,
 	text,
 	textColumn,
 	values,
@@ -90,10 +82,18 @@ export const computesTextTermsMatchesAgreesWithECMAScriptOnTheHostAndInTheRefere
 			"match",
 			"no match",
 			"dictionary of two",
+			"sources out of code unit order",
 			"the empty language"
 		] satisfies ReadonlyArray<Reached<MatchFeature>>,
 		check: (_, k: Case<MatchFeature>) => (c) =>
 			Effect.sync(() => {
+				const lowered = lowerWith(
+					"check",
+					computeDesc("matches", variable("v"), patternOf(c)),
+					{ v: textColumn, p: boolColumn },
+					true,
+					baseParams
+				)
 				/** A source str.regex refuses for what it is, not for the empty language, which a match holds of no text. */
 				const declaredRefused = Arr.some(
 					c.sources,
@@ -101,49 +101,34 @@ export const computesTextTermsMatchesAgreesWithECMAScriptOnTheHostAndInTheRefere
 						!analyzeText([{ source: s, flags: "u" }], SourceLoc("str.regex", [])).ok &&
 						!emptyLanguage(s)
 				)
-				const admitted = Arr.map(c.sources, admitSpelling)
 				assert.equal(
-					!Arr.every(admitted, (a) => a.ok),
+					!lowered.ok,
 					declaredRefused,
-					"a pattern value admitted exactly where str.regex admits the pattern for what it is, not for its empty language"
+					"refused exactly where str.regex refuses for what the pattern is, not for its empty language"
 				)
-				const spellings = Arr.flatMap(admitted, (a) => (a.ok ? [a.value] : []))
-				if (!Arr.isReadonlyArrayNonEmpty(spellings) || spellings.length !== c.sources.length) {
+				if (!lowered.ok) {
 					return
 				}
-				const lowered = succeeded(
-					lowerWith(
-						"check",
-						computeDesc("matches", variable("v"), casePattern(spellings)),
-						{ v: textColumn, p: boolColumn },
-						true,
-						baseParams
-					)
-				)
 				if (Arr.some(c.sources, emptyLanguage)) {
 					k.note("the empty language")
 				}
-				const node = matchNode(lowered.root.expr)
+				const node = matchNode(lowered.value.root.expr)
+				const distinct = Arr.sort(Arr.dedupe(c.sources), byCodePoints)
 				assert.deepEqual(
 					Arr.fromIterable(node.patterns),
-					Arr.fromIterable(tableOf(spellings)),
-					"each value the pattern can take, once, by its language and then its spelling"
+					distinct,
+					"each value the pattern can take, once, in code point order"
 				)
-				for (const value of node.patterns) {
-					const declared = analyzeText(
-						[{ source: value.spelling, flags: "u" }],
-						SourceLoc("str.regex", [])
-					)
+				if (outOfUnitOrder(distinct)) {
+					k.note("sources out of code unit order")
+				}
+				for (const source of node.patterns) {
+					const declared = analyzeText([{ source, flags: "u" }], SourceLoc("str.regex", []))
 					if (declared.ok) {
 						assert.equal(
-							matchAre(value.spelling),
+							matchAre(source),
 							declared.value.members[0].are,
-							`the ARE str.regex prints for /${value.spelling}/u`
-						)
-						assert.equal(
-							value.pattern,
-							declared.value.digest,
-							`the language key str.regex's type of /${value.spelling}/u is keyed by`
+							`the ARE str.regex prints for /${source}/u`
 						)
 					}
 				}
@@ -278,10 +263,10 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 				const subject = p.mode === "query" ? "b" : "v"
 				const lowered = (desc: ExprDesc, mode: "check" | "query") =>
 					lowerWith(mode, desc, vars, true, baseParams)
-				/** The term reading the pattern value `pattern` at the case's site, over `over`. */
-				const read = (over: string, pattern: PatternValue): ExprDesc =>
+				/** The term reading `pattern` at the case's site, over `over`. */
+				const read = (over: string, pattern: string): ExprDesc =>
 					p.site === "matches"
-						? computeDesc("matches", variable(over), patternLiteral(pattern))
+						? computeDesc("matches", variable(over), text(pattern))
 						: {
 								kind: "when",
 								guard: { kind: "matches", pattern },
@@ -294,25 +279,7 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 								},
 								otherwise: { kind: "literal", value: false }
 							}
-				const admitted = spelled(p.pattern)
-				const valid = read(subject, admitted)
-				/**
-				 * The decode of the valid term with its pattern value forged to the spelling `spelling` and the valid
-				 * key, refused where the literal stands, the valid term decoded.
-				 */
-				const forgedRefused = (spelling: string): void => {
-					const error = refused(
-						decodeDesc("expr", read(subject, { pattern: admitted.pattern, spelling })),
-						"MalformedDescription",
-						label
-					)
-					assert.deepEqual(
-						pathOf(error),
-						p.site === "matches" ? ["args", 1, "value"] : ["guard", "pattern"],
-						label
-					)
-					succeeded(decodeDesc("expr", valid), `${label} decoded`)
-				}
+				const valid = read(subject, p.pattern)
 				/** The refusal of the faulted term at `path` below the site, for `tag`. */
 				const refusedBelow = (
 					faulted: ExprDesc,
@@ -351,33 +318,23 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 				}
 				switch (p.fault) {
 					case "a pattern past the compile space": {
-						/**
-						 * A pattern value is admitted where it is made: Compute.pattern refuses one past the compile
-						 * space (a literal past the compile space at the builder), and so does a decode.
-						 */
-						const refusal = admitSpelling(pastSpace)
-						assert.ok(!refusal.ok, label)
-						assertVariant(refusal.error, "kind", "compileSpace", label)
-						assert.deepEqual(refusal.error.measure, pastBound.measure, label)
-						forgedRefused(pastSpace)
+						const { reason } = refusedBelow(read(subject, pastSpace), p.mode, "ResourceBound", [
+							"pattern",
+							"pattern"
+						])
+						assertVariant(reason, "_tag", "ResourceBound", label)
+						assert.deepEqual(reason.bound, pastBound, label)
 						compiles(valid, p.mode)
 						return
 					}
 					case "a construct outside the grammar":
-					case "a malformed pattern": {
-						const faulted = `${p.pattern}${p.construct}`
-						const error = throwsRefused(
-							() => Compute.pattern(faulted),
+					case "a malformed pattern":
+						refusedBelow(
+							read(subject, `${p.pattern}${p.construct}`),
+							p.mode,
 							p.fault === "a malformed pattern" ? "MalformedDescription" : "UnsupportedOperation",
-							label
+							["pattern", "pattern", codePoints(p.pattern).length]
 						)
-						assert.deepEqual(pathOf(error), ["pattern", codePoints(p.pattern).length], label)
-						forgedRefused(faulted)
-						compiles(valid, p.mode)
-						return
-					}
-					case "a pattern value of another spelling's key":
-						forgedRefused(`(?:${p.pattern})${escaped(p.point)}`)
 						compiles(valid, p.mode)
 						return
 					case "a pattern no text matches": {
@@ -385,7 +342,7 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 						 * A match of the empty language holds of no text, and compiles; a guard of it would read its
 						 * subject as text of no value in its branch, which the text analysis refuses there.
 						 */
-						const faulted = read(subject, spelled(emptied(p.pattern)))
+						const faulted = read(subject, emptied(p.pattern))
 						if (p.site === "matches") {
 							compiles(faulted, p.mode)
 							return
@@ -412,17 +369,17 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 							label
 						)
 						assert.deepEqual(pathOf(error), ["matches", "pattern"], label)
-						compiles(computeDesc("matches", variable(subject), patternLiteral(admitted)), mode)
+						compiles(computeDesc("matches", variable(subject), text(p.pattern)), mode)
 						return
 					}
 					case "a subject that is no text":
-						refusedBelow(read("n", admitted), p.mode, "MalformedDescription", [])
+						refusedBelow(read("n", p.pattern), p.mode, "MalformedDescription", [])
 						compiles(valid, p.mode)
 						return
 					case "an unbounded subject in a query":
-						refusedBelow(read("v", admitted), "query", "UnsupportedOperation", [])
-						compiles(read("v", admitted), "check")
-						compiles(read("b", admitted), "query")
+						refusedBelow(read("v", p.pattern), "query", "UnsupportedOperation", [])
+						compiles(read("v", p.pattern), "check")
+						compiles(read("b", p.pattern), "query")
 						return
 					case "concat in a query": {
 						const affix = computeDesc(
@@ -452,7 +409,7 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 						const longest = Arr.reduce(p.language.members, "", (a, m) =>
 							codePoints(m).length > codePoints(a).length ? m : a
 						)
-						const guard: GuardDesc = { kind: "matches", pattern: spelled(p.language.source) }
+						const guard: GuardDesc = { kind: "matches", pattern: p.language.source }
 						const guarded = (literal: string): ExprDesc => ({
 							kind: "when",
 							guard,
@@ -516,8 +473,8 @@ export const computesTextTermsHandsTheAREOfEveryValueItsPatternTakesNeverASource
 				)
 				assert.deepEqual(
 					Arr.fromIterable(node.patterns),
-					Arr.fromIterable(tableOf(Arr.map(spelling.sources, spelled))),
-					"each distinct spelling once, by its language and then its spelling"
+					Arr.sort(Arr.dedupe(spelling.sources), byCodePoints),
+					"each distinct source once, in code point order"
 				)
 				const sql = sqlOf(node, plainRender)
 				if (sql.kind !== "binary" || sql.op !== "~") {
@@ -533,11 +490,11 @@ export const computesTextTermsHandsTheAREOfEveryValueItsPatternTakesNeverASource
 				/** The pattern as `~` must read it: each literal its ARE's literal, a conditional each arm's in its place. */
 				const expected = (desc: ExprDesc, at: Expr): void => {
 					if (desc.kind !== "cond") {
-						const value = desc.kind === "literal" ? literalPattern(desc.value) : undefined
-						assert.ok(value !== undefined, "a literal pattern")
+						const source = desc.kind === "literal" ? desc.value : undefined
+						assert.ok(typeof source === "string", "a literal pattern")
 						assert.deepEqual(
 							at,
-							lit.text(areOf(value.spelling), types.text),
+							lit.text(areOf(source), types.text),
 							"a literal pattern is its ARE's literal"
 						)
 						return
@@ -560,8 +517,8 @@ export const computesTextTermsHandsTheAREOfEveryValueItsPatternTakesNeverASource
 		kills: [
 			{
 				file: "packages/engine/src/lower/conservative/expr/index.ts",
-				original: "\t\t\treturn lit.text(matchAre(pattern.value.value.spelling), types.text)",
-				replacement: "\t\t\treturn lit.text(pattern.value.value.spelling, types.text)",
+				original: "\t\t\treturn lit.text(matchAre(pattern.value.value), types.text)",
+				replacement: "\t\t\treturn lit.text(pattern.value.value, types.text)",
 				why: "A literal pattern hands `~` its source rather than its ARE; the `~` property fails."
 			}
 		]

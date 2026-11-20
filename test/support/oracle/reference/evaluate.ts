@@ -15,7 +15,6 @@ import {
 import { ecmaMatches } from "#test/support/regex.ts"
 
 import { defined } from "@bjornpagen/testing/assert"
-import { matchFlags } from "#compiler/ir/pattern.ts"
 import {
 	type CompletedOrder,
 	exprsOf,
@@ -30,6 +29,7 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { type RegexRef, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import {
 	type Atom,

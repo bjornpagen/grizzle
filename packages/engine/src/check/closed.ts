@@ -8,7 +8,7 @@ import type {
 	ClosedRelations,
 	PayloadPatterns
 } from "#compiler/scalar/compute/typing.ts"
-import { admitMatch, matchValueAt } from "#compiler/scalar/regex/admit.ts"
+import { admitMatch, matchSourceAt } from "#compiler/scalar/regex/admit.ts"
 
 /**
  * What a Compute.matches pattern reading the payload field at `position` of `closed`'s rows can be: a str.pattern
@@ -36,7 +36,7 @@ const payloadPatterns = (
 		admitted: Object.freeze(
 			[...sources].map((source) => {
 				const admission = admitMatch(source)
-				unwrap(matchValueAt(admission, at))
+				unwrap(matchSourceAt(admission, at))
 				return admission
 			})
 		)

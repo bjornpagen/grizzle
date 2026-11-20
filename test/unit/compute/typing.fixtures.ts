@@ -33,7 +33,6 @@ import { computeSpecs } from "#compiler/scalar/compute/registry.ts"
 import type { TapeEntry, TermTyping, TypedNode } from "#compiler/scalar/compute/typing.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { spelled } from "#test/support/fixtures/ir/scalar.ts"
 import {
 	field,
 	type LeafBinding,
@@ -444,9 +443,8 @@ const guardOf = (
 			return guarded(
 				{
 					kind: "matches",
-					pattern: spelled(
+					pattern:
 						own === undefined || typeof own === "string" ? "^[a-c]*$" : own.patterns[0].source
-					)
 				},
 				text,
 				"text"

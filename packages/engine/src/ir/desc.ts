@@ -44,15 +44,9 @@ import { isMoneyPayload, isVectorPayload, moneyTag, vectorTag } from "#compiler/
 import type { ClockBinding } from "#compiler/ir/clock.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
-import type { PatternValue } from "#compiler/ir/pattern.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
 import { type DeltaSide, splitArgument, type TextSplit, textSplits } from "#compiler/ir/rel.ts"
-import {
-	calendarDateShape,
-	patternValueShape,
-	patternsShape,
-	textLanguageShape
-} from "#compiler/ir/scalar-shape.ts"
+import { calendarDateShape, patternsShape, textLanguageShape } from "#compiler/ir/scalar-shape.ts"
 import {
 	type NumericBound,
 	type RosterHandles,
@@ -74,9 +68,7 @@ import {
  * literal. A Money is its owned value (Money.of), carried as "~m:"; a Vector, a caller's mutable Float32Array, is the
  * frozen snapshot of its components Vector.canonical takes, carried as "~v:". Spans and the float special values are
  * wrapped so that no literal is mistaken for a record. A set over a roster is its handles in the roster's declared order,
- * each once; none is the empty set. A Compute.matches pattern is its pattern value (ir/pattern.ts PatternValue), its
- * language's key and its spelling, the spelling no part of its identity, so two spellings of one language are one
- * description.
+ * each once; none is the empty set.
  */
 export type LiteralDesc =
 	| string
@@ -92,11 +84,6 @@ export type LiteralDesc =
 	  }
 	| { readonly float: FloatSpecialName }
 	| { readonly handles: ReadonlyArray<string> }
-	| PatternValue
-
-/** The pattern value a literal is (ir/pattern.ts PatternValue), the one literal that holds a spelling; undefined for any other. */
-export const literalPattern = (value: LiteralDesc): PatternValue | undefined =>
-	typeof value === "object" && "spelling" in value ? value : undefined
 
 /** The pg descriptors' types, each by the one name PostgreSQL prints for it. */
 export const pgScalarNames = [
@@ -346,10 +333,9 @@ export type InferredSource = SourceDesc<Located, Inferred>
 /**
  * What a Compute.when guard tests of its subject and so establishes of its parameter inside its then branch: never
  * zero, never below zero, above zero (both), never NaN or an infinity, within two literal bounds (and so finite), or a
- * match of a literal pattern, its pattern value (ir/pattern.ts PatternValue). The first four are facts a term's
- * TypeScript type states; within states an interval, which no type does (scalar/compute/bounds.ts); matches retypes a
- * text subject as text of the pattern's language, the type str.regex(pattern) declares, the pattern read under the
- * flags "u" (ir/pattern.ts matchFlags).
+ * match of a literal pattern. The first four are facts a term's TypeScript type states; within states an interval,
+ * which no type does (scalar/compute/bounds.ts); matches retypes a text subject as text of the pattern's language, the
+ * type str.regex(pattern) declares, the pattern read under the flags "u" (scalar/regex/matcher.ts matchFlags).
  */
 export type GuardDesc =
 	| { readonly kind: "nonzero" }
@@ -357,7 +343,7 @@ export type GuardDesc =
 	| { readonly kind: "positive" }
 	| { readonly kind: "finite" }
 	| { readonly kind: "within"; readonly low: LiteralDesc; readonly high: LiteralDesc }
-	| { readonly kind: "matches"; readonly pattern: PatternValue }
+	| { readonly kind: "matches"; readonly pattern: string }
 
 /**
  * A Compute.when branch's parameter: `arg`, the when's subject, read where the when's `guard` holds of it, so the
@@ -2085,8 +2071,7 @@ export const literalDescShape: S.Shape<LiteralDesc> = S.unionShape(
 	vectorShape,
 	S.struct({ span: S.struct({ start: spanEndpointShape, end: spanEndpointShape }) }),
 	S.struct({ float: S.literalsShape(floatSpecialNames) }),
-	S.struct({ handles: S.uniqueStrings("a set's handles", S.nonEmptyString) }),
-	patternValueShape
+	S.struct({ handles: S.uniqueStrings("a set's handles", S.nonEmptyString) })
 )
 
 /**
@@ -2174,7 +2159,7 @@ const guardDescShape: S.Shape<GuardDesc> = S.tagged("kind", {
 	positive: S.struct({}),
 	finite: S.struct({}),
 	within: S.struct({ low: literalDescShape, high: literalDescShape }),
-	matches: S.struct({ pattern: patternValueShape })
+	matches: S.struct({ pattern: S.string })
 })
 
 const exprCases = {

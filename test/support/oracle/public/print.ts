@@ -58,8 +58,6 @@ const literal = (l: TypedLiteral): string => {
 			return `[${l.start},${l.end})`
 		case "vector":
 			return l.value.toString()
-		case "pattern":
-			return `/${l.value.spelling}/`
 	}
 }
 

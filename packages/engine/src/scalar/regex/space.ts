@@ -33,7 +33,7 @@ const regexMaxColor = 32_767
 
 /**
  * The most colors a pattern's sets may cut the characters into, the classes of characters every set holds alike
- * (ir/pattern-space.ts colorsOf). A pattern of more is refused as ResourceBound (regexCompileSpace, colors) when its
+ * (scalar/regex/space.ts colorsOf). A pattern of more is refused as ResourceBound (regexCompileSpace, colors) when its
  * domain or match is compiled, since PostgreSQL refuses it as "too many colors" at the first value it checks.
  *
  * @limitKind derived
@@ -80,7 +80,7 @@ const regexFirstStateBatch = 32
 const regexMaxStateBatch = 1_024
 
 /**
- * The most states a pattern's NFAs may hold at once (ir/pattern-space.ts pastCompileSpace): twice the raw NFA
+ * The most states a pattern's NFAs may hold at once (scalar/regex/space.ts pastCompileSpace): twice the raw NFA
  * PostgreSQL's parser builds from its ARE. A pattern of more is refused as ResourceBound (regexCompileSpace, states).
  *
  * @limitKind derived
@@ -103,7 +103,7 @@ export const regexMaxHeldStates =
 	regexMaxStateBatch
 
 /**
- * The longest path of the raw NFA PostgreSQL's parser builds from a pattern's ARE, in arcs (ir/pattern-space.ts
+ * The longest path of the raw NFA PostgreSQL's parser builds from a pattern's ARE, in arcs (scalar/regex/space.ts
  * rawSize). PostgreSQL's parser recurses into nested groups, and its walks of the NFA (regc_nfa.c duptraverse,
  * markreachable, markcanreach) recurse along its paths, each refusing a pattern past max_stack_depth as "regular
  * expression is too complex" (STACK_TOO_DEEP), so a pattern of a longer path is refused as ResourceBound
@@ -111,7 +111,7 @@ export const regexMaxHeldStates =
  * require of the server.
  *
  * @limitKind measured
- * @owner grizzle's text refinement (ir/pattern-space.ts pastCompileSpace)
+ * @owner grizzle's text refinement (scalar/regex/space.ts pastCompileSpace)
  * @unit NFA arcs
  * @scope the longest path of one pattern's raw NFA, which PostgreSQL's regex compiler recurses along
  * @evidence a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, recorded in
@@ -137,20 +137,20 @@ export const regexMaxHeldStates =
  *   1MB of the 2MB stack for a call path deeper than the measured one when a pattern is first compiled; the two calls
  *   cost the shallowest shape 105 arcs
  * @revalidate a PostgreSQL repin; a change of max_stack_depth's default or of the platform's stack frames; a change to
- *   the ARE printer (scalar/regex/are.ts) or to the model of PostgreSQL's raw NFA (ir/pattern-space.ts); a pattern
+ *   the ARE printer (scalar/regex/are.ts) or to the model of PostgreSQL's raw NFA (scalar/regex/space.ts); a pattern
  *   the suite finds refused as too complex
  */
 export const regexMaxDepth = 16_000
 
 /**
- * The states the compacted NFA a match reads holds (ir/pattern-space.ts matchStates). At every match regexec's DFA
+ * The states the compacted NFA a match reads holds (scalar/regex/space.ts matchStates). At every match regexec's DFA
  * (rege_dfa.c newdfa) allocates a bit vector of these states for each of twice as many state sets, "d->statesarea =
  * MALLOC_ARRAY(unsigned, (nss + WORK) * wordsper);", which palloc refuses past MaxAllocSize, failing the match, and so
  * every write its domain checks, with "invalid memory alloc request size"; a pattern of more is refused as
  * ResourceBound (regexCompileSpace, matchStates).
  *
  * @limitKind measured
- * @owner grizzle's text refinement (ir/pattern-space.ts pastCompileSpace)
+ * @owner grizzle's text refinement (scalar/regex/space.ts pastCompileSpace)
  * @unit NFA states
  * @scope the states of the compacted NFA one pattern's match reads, as its model counts them
  * @evidence a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, recorded in
@@ -172,19 +172,19 @@ export const regexMaxDepth = 16_000
  * @decision 64,000: below the 65,536 states at which the bit vectors pass MaxAllocSize, the measured edge, with 1,535
  *   states, about 2%, of headroom; the model counts each state makesearch may split twice
  * @revalidate a PostgreSQL repin; a change of max_stack_depth's default or of the platform's stack frames; a change to
- *   the ARE printer (scalar/regex/are.ts) or to the model of PostgreSQL's raw NFA (ir/pattern-space.ts); a pattern
+ *   the ARE printer (scalar/regex/are.ts) or to the model of PostgreSQL's raw NFA (scalar/regex/space.ts); a pattern
  *   the suite finds refused as too complex
  */
 export const regexMaxMatchStates = 64_000
 
 /**
- * The states of the compacted NFA a match reads times the pattern's colors (ir/pattern-space.ts matchStates,
+ * The states of the compacted NFA a match reads times the pattern's colors (scalar/regex/space.ts matchStates,
  * colorsOf). At every match regexec's DFA allocates an entry for each of twice as many state sets as states and each
  * color, "d->incarea = MALLOC_ARRAY(struct arcp, nss * cnfa->ncolors);", which palloc refuses past MaxAllocSize; a
  * pattern of more is refused as ResourceBound (regexCompileSpace, matchCells).
  *
  * @limitKind measured
- * @owner grizzle's text refinement (ir/pattern-space.ts pastCompileSpace)
+ * @owner grizzle's text refinement (scalar/regex/space.ts pastCompileSpace)
  * @unit NFA states times colors
  * @scope the states of the compacted NFA one pattern's match reads times its colors, as its model counts them
  * @evidence a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, recorded in
@@ -206,19 +206,19 @@ export const regexMaxMatchStates = 64_000
  * @decision 16,000,000: about half the measured edge, since freeing the colors a set empties can leave a color map up
  *   to twice a pattern's colors (regexMaxColors), and the arrays count the map's colors
  * @revalidate a PostgreSQL repin; a change of max_stack_depth's default or of the platform's stack frames; a change to
- *   the ARE printer (scalar/regex/are.ts) or to the model of PostgreSQL's raw NFA (ir/pattern-space.ts); a pattern
+ *   the ARE printer (scalar/regex/are.ts) or to the model of PostgreSQL's raw NFA (scalar/regex/space.ts); a pattern
  *   the suite finds refused as too complex
  */
 export const regexMaxMatchCells = 16_000_000
 
 /**
- * The anchors PostgreSQL must move (ir/pattern-space.ts movingAnchors): constraint elimination (regc_nfa.c pullback,
+ * The anchors PostgreSQL must move (scalar/regex/space.ts movingAnchors): constraint elimination (regc_nfa.c pullback,
  * pushfwd, fixconstraintloops) clones the states around each anchor some consuming path reaches or leaves, and around
  * anchors joined by empty paths it compounds, so a pattern of more is refused as ResourceBound (regexCompileSpace,
  * anchors). An anchor at either end of every path is never moved and never counted.
  *
  * @limitKind measured
- * @owner grizzle's text refinement (ir/pattern-space.ts pastCompileSpace)
+ * @owner grizzle's text refinement (scalar/regex/space.ts pastCompileSpace)
  * @unit anchors
  * @scope the anchors of one pattern's raw NFA that constraint elimination moves
  * @evidence a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, recorded in
@@ -241,7 +241,7 @@ export const regexMaxMatchCells = 16_000_000
  * @decision 8: below half the most anchors the binding shape compiled, 21, whose compile already took minutes; the
  *   arcs an anchor crosses bind nothing measured, so no measure weighs them
  * @revalidate a PostgreSQL repin; a change of max_stack_depth's default or of the platform's stack frames; a change to
- *   the ARE printer (scalar/regex/are.ts) or to the model of PostgreSQL's raw NFA (ir/pattern-space.ts); a pattern
+ *   the ARE printer (scalar/regex/are.ts) or to the model of PostgreSQL's raw NFA (scalar/regex/space.ts); a pattern
  *   the suite finds refused as too complex
  */
 export const regexMaxAnchors = 8
