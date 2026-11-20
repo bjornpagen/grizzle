@@ -534,9 +534,7 @@ export type LevelKeyOf<L> = L extends unknown
  * relation), a key's, a family's, a tree's and a fold's included; a family's and a tree's owner; and an alternatives
  * law's parent, roster and arms. A retirable statement names none here, and a statement typed `any`, whose keys are
  * every key, names `unknown`, as a side typed `any` does (SideNames). Each statement is read by its kind
- * (NamedByAs), never by a test of the statement: a statement over a derived relation holds its definition, a query
- * over the level below, and a conditional the checker resolves instantiates the statement whole, every relation of
- * that level with it.
+ * (NamedByAs), each part by key.
  */
 export type NamedBy<St> = St extends unknown
 	? symbol extends keyof St
@@ -588,21 +586,23 @@ type SourceRelation<Src> = Src extends unknown
 type OwnerOf<Fi> = Fi extends Fin<infer O, string> ? O : never
 
 /**
- * Whether every relation of the union U is R (SameRelation): false where some is another relation, true where U is R,
- * and true where U is copies of R the checker keeps apart, as one name's relations in Declared are. U is compared
+ * Whether every relation of the union U is one of R's (SameRelation): false where some is another relation, true where
+ * U is R, where U is copies of R the checker keeps apart, as one name's relations in Declared are, and where R is
+ * relations of one name a list's element chooses among at run time, each of U being one of them. U and R are compared
  * member by member.
  */
-type SameAs<U, R> = U extends unknown ? SameRelation<U, R> : never
+type SameAs<U, R> = U extends unknown
+	? true extends (R extends unknown ? SameRelation<U, R> : never)
+		? true
+		: false
+	: never
 
 /**
  * Whether A and B are one relation as a type tells relations apart: of one name and one kind, their headings of one
  * set of field names, and of one declared key, a relation's primary key, a closed relation's key, a roster's handles and
- * their order, each read by key and compared as the literals it is. Never are A and B compared whole: a derived relation
- * holds its definition, a query over the level below, and a comparison of two relations instantiates each whole, under
- * the checker's permissive mapper, its definition's schema with it, which made each statement naming a derived relation
- * cost its schema's every relation. Two relations alike in all of these and differing in a field's type, or a derived
- * relation's definition, are refused where the schema is built (schema/schema.ts statementsDeclared, declaresFirst:
- * DuplicateIdentity), as the run time holds every name to one meaning.
+ * their order, each read by key and compared as the literals it is. Two relations alike in all of these and differing
+ * in a field's type, or a derived relation's definition, are refused where the schema is built (schema/schema.ts
+ * statementsDeclared, declaresFirst: DuplicateIdentity), as the run time holds every name to one meaning.
  */
 type SameRelation<A, B> =
 	Identical<NameStated<A>, NameStated<B>> extends true
@@ -737,60 +737,6 @@ type ClashOf<R, Named> = [Named] extends [never]
 		: never
 
 /**
- * The positions of a tuple's elements by the names they declare, read by key: under each name, the position of every
- * element declaring it, a fragment each of its relations' names (Listed), so a name two elements declare holds both
- * positions, a union. A name that is no literal is an index signature, which keys no name here. The record is keyed by
- * the names read once, and each name's positions read from PositionsIn during member resolution alone, as
- * DeclaredByName reads a level's relations.
- */
-type PositionsByName<Relations extends ReadonlyArray<unknown>> = {
-	readonly [N in Placed<Relations>["name"]]: PositionsIn<Placed<Relations>>[N]
-}
-
-/**
- * Each placement's position under the names it states, the positions of one name in one union: its `as` clause is an
- * indexed access of the iteration's placement, which the checker instantiates over every placement at once to ask
- * whether the record is generic, one instantiation, where a clause reading the list again instantiates it once for
- * each position, at every lookup.
- */
-type PositionsIn<P extends Placement> = { readonly [X in P as X["name"]]: X["at"] }
-
-/** An element's position in its list, `at`, and the names it declares there. */
-interface Placement {
-	readonly at: string
-	readonly name: string
-}
-
-/** Each element of the tuple placed: its position and the names it declares, read by key, in one union. */
-type Placed<Relations extends ReadonlyArray<unknown>> = {
-	readonly [I in keyof Relations]: {
-		readonly at: I & string
-		readonly name: NameStated<Listed<Relations[I]>>
-	}
-}[number]
-
-/** The names two or more positions of the tuple declare, each name's positions read once. */
-type DeclaredTwice<Relations extends ReadonlyArray<unknown>> = TwiceIn<PositionsByName<Relations>>
-type TwiceIn<P> = { [N in keyof P]-?: IsOneLiteral<P[N]> extends true ? never : N }[keyof P]
-
-/**
- * Whether the tuple's element X is the one declaration of its name: a relation (or relations of one name, chosen at
- * run time) whose name is one literal no other element of the list declares (Twice, the list's DeclaredTwice) and the
- * level below does not hold. Such an element can clash with nothing, so it is judged by its name alone, never compared
- * whole: a derived relation holds its definition, a query over the level below.
- */
-type DeclaredOnlyAt<X, Twice, Below> =
-	IsOneLiteral<StringStated<Stated<X, "name">>> extends true
-		? Stated<X, "name"> extends Twice
-			? false
-			: KnownNames<Below> extends true
-				? Stated<X, "name"> extends keyof Below
-					? false
-					: true
-				: true
-		: false
-
-/**
  * The names element R declares with another relation of its name in the list or among the relations below it, R one
  * boxed element of the list (Boxed, Elements), compared whole with the relations under its name (ClashOf).
  */
@@ -805,23 +751,14 @@ type ClashesOf<B, Relations extends ReadonlyArray<unknown>, Below> = B extends r
 
 /**
  * The names the list's relations declare, each with another relation of its name in the list or among the relations
- * below it: two declarations of one name differing. A tuple's element that is the one declaration of its name
- * (DeclaredOnlyAt) declares no clash, told by the names alone; every other element of a tuple, each as its call wrote
- * it (a relation chosen at run time among several of one name is one element), and each possible element of an array,
- * is compared with the relations under its name (ClashesOf). A relation whose name the type does not know as one
- * literal, and a list or base whose record holds such a name, pass here; the run time checks them.
+ * below it: two declarations of one name differing. Each element of a tuple, as its call wrote it (a relation chosen
+ * at run time among several of one name is one element), and each possible element of an array, is compared with the
+ * relations under its name (ClashesOf), the one declaration of its name among them. A relation whose name the type does
+ * not know as one literal, and a list or base whose record holds such a name, pass here; the run time checks them.
  */
 type Clashing<Relations extends ReadonlyArray<unknown>, Below> = number extends Relations["length"]
 	? ClashesOf<Elements<Relations>, Relations, Below>
-	: {
-			readonly [I in keyof Relations]: DeclaredOnlyAt<
-				Relations[I],
-				DeclaredTwice<Relations>,
-				Below
-			> extends true
-				? never
-				: ClashesOf<Boxed<Relations[I]>, Relations, Below>
-		}[number]
+	: { readonly [I in keyof Relations]: ClashesOf<Boxed<Relations[I]>, Relations, Below> }[number]
 
 /**
  * A level's list of relations, each name declared once (the run time's DuplicateIdentity, as a type error): a

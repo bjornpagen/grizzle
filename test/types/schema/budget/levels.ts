@@ -87,7 +87,7 @@ ${Arr.join(
 		Arr.map(indices(shape.derived), (d) => `check("D${d}_n", D${d}, (x) => x.ge(x.n, 0n))`),
 		", "
 	)}] as const
-	return schema.extend(base, "Level", [...relations], [...laws])
+	return schema.extend([base], "Level", [...relations], [...laws])
 }
 `
 
