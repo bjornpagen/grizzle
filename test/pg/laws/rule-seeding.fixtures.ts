@@ -1195,10 +1195,16 @@ export const judgeConcurrent = (
 		}
 	})
 
-/** A key's base, ten times the key: its rows' ids are base + 1 to base + 5. */
+/** A key's base, ten times the key: its rows' ids are base + 1 to base + 6. */
 const keyBase = (k: number): number => k * 10
 
-/** The rows of keys `from` to `to`, each a chain of value 1 and two marks, inserted by one statement per table. */
+/**
+ * The rows of keys `from` to `to`, each a chain of value 1, two marks and a block of no link (id base + 6), inserted by
+ * one statement per table. The block holds no link out, so every rule reads the state as it would without it; it is
+ * stored so that N's key index spans pages as every table's does: PostgreSQL 19 takes a SIRead lock on a whole B-tree
+ * that holds no entry (nbtsearch.c _bt_first: "the index is completely empty. Lock relation because nothing finer to
+ * lock exists"), so over an empty N every probe of a block, bounded by its key or not, would lock N's key index whole.
+ */
 const clusterSql = (seat: Seat, from: number, to: number): ReadonlyArray<string> => {
 	const t = (r: Table) => seat.table(r)
 	const c = (r: Table, f: string) => seat.column(r, f)
@@ -1210,7 +1216,8 @@ const clusterSql = (seat: Seat, from: number, to: number): ReadonlyArray<string>
 		link("L2", 2, "k * 10 + 1"),
 		link("L3", 3, "k * 10 + 2"),
 		`INSERT INTO ${t("M")} (${c("M", "id")}, ${c("M", "up")}) SELECT k * 10 + 4, k * 10 + 2 FROM ${keys}`,
-		`INSERT INTO ${t("M")} (${c("M", "id")}, ${c("M", "up")}) SELECT k * 10 + 5, k * 10 + 1 FROM ${keys}`
+		`INSERT INTO ${t("M")} (${c("M", "id")}, ${c("M", "up")}) SELECT k * 10 + 5, k * 10 + 1 FROM ${keys}`,
+		`INSERT INTO ${t("N")} (${c("N", "id")}) SELECT k * 10 + 6 FROM ${keys}`
 	]
 }
 

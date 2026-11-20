@@ -48,8 +48,10 @@
  * - **Locality:** one search per shape, as for equivalence, each with the rotating budget the one search over every
  *   shape had and no steered phase, since every case of a shape's search measures that shape; each case draws a count
  *   of keys from 250 to 400 and one of them, and 600 to 900 keys more.
- *   The shape holds the first keys' rows, each key a chain of value 1 and two marks, then every key's. Each of the
- *   drawn key's rows on a table the rule reads, and a block of each of its links, is touched: in a transaction of its
+ *   The shape holds the first keys' rows, each key a chain of value 1, two marks and a block of no link, then every
+ *   key's: the block holds out no link, and keeps N's key index from standing empty, which PostgreSQL locks whole
+ *   (nbtsearch.c _bt_first), so a probe of a block bounded by its key locks a leaf page of it. Each of the drawn key's
+ *   rows on a table the rule reads, and a block of each of its links, is touched: in a transaction of its
  *   own the row stands in the judge's region: a stored row's image copied into each delta of its table as it is stored,
  *   counted once put on the side of news, the table unwritten, a block inserted and deleted again, which the captures
  *   take. SET CONSTRAINTS ALL IMMEDIATE
@@ -234,7 +236,14 @@ export const readTheSameRowsAndTakeTheSameSireadLocksBesideHundredsMoreKeys = fa
 				show: Formatter.format,
 				budget: { runs: 6, steered: 0 },
 				kept: [],
-				kills: []
+				kills: [
+					{
+						file: "packages/engine/src/analysis/theory/query.ts",
+						original: "\t\t\tpinned.push(equal(e, value))",
+						replacement: "\t\t\tvoid equal(e, value)",
+						why: "A probe whose touched row binds a variable another match binds, held to its region by no pin: it reads every candidate the rule's whole check reads, so it judges the same and reads every key's rows."
+					}
+				]
 			})
 		])
 	)
