@@ -562,7 +562,7 @@ export const treeFeatures = (drawn: Tree): ReadonlyArray<TreeFeature> => {
 }
 
 const commandBinding = (binding: BindingSketch): Describe.CommandBinding => ({
-	...(binding.constants.length > 0 ? { constants: binding.constants } : {}),
+	constants: binding.constants,
 	operation: {
 		media: {
 			request: binding.request,

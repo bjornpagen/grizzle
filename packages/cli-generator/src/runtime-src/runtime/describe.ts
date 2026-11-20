@@ -54,9 +54,9 @@ export type ConstantBinding = {
  */
 export interface CommandBinding {
 	/**
-	 * Present only when the operation has a constant parameter.
+	 * The parameters the command sends as their one value without a flag, empty when there is none.
 	 */
-	readonly constants?: readonly ConstantBinding[]
+	readonly constants: readonly ConstantBinding[]
 	readonly operation: {
 		readonly media: MediaDeclaration
 		readonly method: string
@@ -250,7 +250,7 @@ const entryOf = (
 	binding: CommandBinding,
 	rootServers: readonly string[]
 ): DescribedCommand => ({
-	constants: Arr.map(binding.constants ?? [], (constant) => ({
+	constants: Arr.map(binding.constants, (constant) => ({
 		location: constant.location,
 		pointer: constant.pointer,
 		value: constant.value,
