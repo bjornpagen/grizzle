@@ -158,8 +158,23 @@ export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsGeneratedFi
 			kind: "second-implementation",
 			name: "the reference model of the fill order and the reference writer (families/fill.ts)"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/write/fill-order.test.ts#theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsGeneratedFieldsReadingDrawnOrAccumulatedFieldsCompileExactlyWhereTheReferenceModelAdmitsThem:-:2.1.0.0.0.c.0.0.0.f.9.0.f.3.0.0.0.0.2.0.2.1.1.0.0.2.0.0.1.1.0.1.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"an immutable owner's family read through a generated field: R0, immutable, generates g from its count of R1's counted family, R1, immutable, copies g along the owner axis and the family's sum steps that copy; the instance's insert of R0 and R1 together compiles, and R1's put refills nothing, an immutable owner's family being fixed when its owner is inserted, where both were refused as a refill of R1's rows (StaleDerivedRead, immutable)",
+				since: "2026-11-19"
+			}
+		],
 		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/refill.ts",
+				original: '\th.member.name === relation.name && h.shape.kind !== "tree" && h.owner.mutable',
+				replacement: '\th.member.name === relation.name && h.shape.kind !== "tree"',
+				why: "An edit of an immutable owner's family is taken for a change of its stored rows, its owner's count among them, so the kept case's insert of the owner and its members together is refused as a refill of the immutable members' rows (StaleDerivedRead, immutable)."
+			},
 			{
 				file: "packages/engine/src/analysis/theory/fill.ts",
 				original: '\t\t\t\twriter: [...counted.values()][0] ?? { kind: "walk" },',

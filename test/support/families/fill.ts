@@ -1694,8 +1694,10 @@ type SpecChange =
  * The values one change leaves stale, by the reference: each value drawn from a column the change makes on rows
  * already stored that the change itself does not draw again, through every path the change takes.
  *
- * A put changes its row's `v` and `g`. A write of a family's member, a tree's aside, changes the owner's count, fold end
- * and last copies, and draws its members' index and copies along the owner and predecessor axes again. A refill of a
+ * A put changes its row's `v` and `g`. A write of a family's member, a tree's and an immutable owner's aside, changes
+ * the owner's count, fold end and last copies, and draws its members' index and copies along the owner and predecessor
+ * axes again; an immutable owner's family is fixed when its owner is inserted, so its member's insert joins only an
+ * owner the ChangeSet inserts and its put re-places nothing, and neither changes a stored row of it. A refill of a
  * family changes its owner's fold end and last copies, and its members' predecessor copies and, along a tree, copies
  * of their parent's. A copy along a family's owner axis, a tree's aside, carries a change of what it reads into its
  * member's copy, and `g` follows `v`. A change reaches the values of the families of the row it is on (a fold summing
@@ -1843,6 +1845,7 @@ const staleOf = (
 			...Arr.flatMap(spec.families, (f, k) => {
 				if (
 					f.kind === "tree" ||
+					!relationAt(spec, f.owner).mutable ||
 					(f.member !== r && !(f.kind === "counted" && nested.has(f.member)))
 				) {
 					return []

@@ -10,8 +10,9 @@ import { type AxisPair, type Family, isSequence, isTreeOf } from "#compiler/ir/f
  *
  * A write changes stored rows' columns three ways:
  * - a put of a relation: the fields outside its primary key that its caller writes or PostgreSQL generates;
- * - an edit of a family's members, a tree's aside: its owner's count and every column its last axis carries there (the
- *   recount), and its members' index and copies along the owner and predecessor axes (the redraw);
+ * - an edit of a family's members (`editedBy`), a tree's aside and an immutable owner's, which is fixed when its owner is
+ *   inserted: its owner's count and every column its last axis carries there (the recount), and its members' index and
+ *   copies along the owner and predecessor axes (the redraw);
  * - a refill of a family: its owner's ends (its recount), and its members' predecessor copies, accumulators and, along a
  *   tree, copies of their parent's (its redraw).
  *
@@ -37,13 +38,32 @@ import {
 	sameNativeColumn
 } from "#compiler/ir/law.ts"
 
-/** A ChangeSet member's write of `relation` by `op`, which edits the families of `edited` it is a member of. */
+/**
+ * A ChangeSet member's write of `relation` by `op`, which edits the families of `edited` on stored rows, each one of
+ * `editedBy`'s.
+ */
 export interface WriteChange {
 	readonly kind: "write"
 	readonly relation: RelationInfo
 	readonly op: "insert" | "put" | "delete"
 	readonly edited: ReadonlyArray<Family>
 }
+
+/**
+ * Whether a write of `relation` edits `h` on stored rows: it is `h`'s member, `h` is no tree, whose node a write
+ * states whole with its place, and `h`'s owner is mutable. An immutable owner's family is fixed when its owner is
+ * inserted: a member's insert joins only an owner its stratum inserts, the count law refusing any other at commit, and
+ * a delete of a member, or a put that would re-place it, is refused, so no write of its member changes its owner's
+ * count or ends, or draws its members' places again, on a row already stored.
+ */
+const editsStored = (h: Family, relation: RelationInfo): boolean =>
+	h.member.name === relation.name && h.shape.kind !== "tree" && h.owner.mutable
+
+/** The families of `families` a write of `relation` edits on stored rows (`editsStored`). */
+export const editedBy = (
+	families: ReadonlyArray<Family>,
+	relation: RelationInfo
+): ReadonlyArray<Family> => families.filter((h) => editsStored(h, relation))
 
 /**
  * A change of stored rows that refills start from: a write; or a refill of `family`, which the path from the write
@@ -180,26 +200,22 @@ const madeBy = (
 						: []
 				)
 			: []
-	const edits = change.edited.flatMap((h) =>
-		h.member.name !== relation.name || h.shape.kind === "tree"
-			? []
-			: [
-					...[{ kind: "field" as const, field: h.count }, ...h.axes.last.map((p) => p.from)].map(
-						(column) => ({
-							changed: { by: "owner" as const, family: h, relation: h.owner, column },
-							handled: () => false
-						})
-					),
-					...[
-						h.shape.index,
-						...h.axes.owner.map((p) => p.from),
-						...h.axes.predecessor.map((p) => p.from)
-					].map((column) => ({
-						changed: { by: "member" as const, family: h, relation, column },
-						handled: writes
-					}))
-				]
-	)
+	const edits = change.edited.flatMap((h) => [
+		...[{ kind: "field" as const, field: h.count }, ...h.axes.last.map((p) => p.from)].map(
+			(column) => ({
+				changed: { by: "owner" as const, family: h, relation: h.owner, column },
+				handled: () => false
+			})
+		),
+		...[
+			h.shape.index,
+			...h.axes.owner.map((p) => p.from),
+			...h.axes.predecessor.map((p) => p.from)
+		].map((column) => ({
+			changed: { by: "member" as const, family: h, relation, column },
+			handled: writes
+		}))
+	])
 	return [...put, ...edits]
 }
 
@@ -399,10 +415,7 @@ export const closureOf = (
  * owner's group is fixed when its owner is inserted.
  */
 const replaces = (h: Family, relation: RelationInfo, op: "insert" | "put" | "delete"): boolean =>
-	h.member.name === relation.name &&
-	h.shape.kind !== "tree" &&
-	h.owner.mutable &&
-	(op === "put" || (op === "delete" && h.shape.kind === "ordered"))
+	editsStored(h, relation) && (op === "put" || (op === "delete" && h.shape.kind === "ordered"))
 
 /** The relations whose stored rows `changes` may re-place (`replaces`). */
 export const replacedBy = (
@@ -453,9 +466,7 @@ export const refillDeferral = (families: ReadonlyArray<Family>): RefillDeferral 
 		relations.set(f.member.name, f.member)
 	}
 	const roots = [...relations.values()].flatMap((relation): ReadonlyArray<WriteChange> => {
-		const edited = families.filter(
-			(f) => f.member.name === relation.name && f.shape.kind !== "tree" && f.owner.mutable
-		)
+		const edited = editedBy(families, relation)
 		return relation.mutable || edited.length > 0
 			? [{ kind: "write", relation, op: relation.mutable ? "put" : "insert", edited }]
 			: []

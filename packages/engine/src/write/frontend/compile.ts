@@ -10,6 +10,7 @@ import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
+import { editedBy } from "#compiler/analysis/theory/refill.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { clockParams } from "#compiler/check/clock.ts"
 import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
@@ -1444,11 +1445,11 @@ const compile = (
 								slot: writeSlotId(s, { op: "put" }, relation.name)
 							}
 			for (const w of [
-				{ relation, op: m.op, edited: families, rows: putRows },
+				{ relation, op: m.op, edited: editedBy(families, relation), rows: putRows },
 				...nestedCounted.map((counted) => ({
 					relation: counted,
 					op: m.op,
-					edited: families.filter((f) => !isSequence(f)),
+					edited: editedBy(families, counted).filter((f) => !isSequence(f)),
 					rows: { kind: "none" } as const
 				}))
 			]) {
